@@ -51,7 +51,7 @@ export const staffApps: StaffApp[] = [
     name: "Control de Horarios",
     permissionName: "Horarios",
     route: "/horarios",
-    status: "Próximamente",
+    status: "Disponible",
     icon: "schedule",
     description: "Registro de entrada, salida al almuerzo, regreso y salida final.",
     requiredRoles: ["admin", "manager", "staff"]
@@ -143,6 +143,10 @@ export function canAccessApp(subject: PermissionSubject, appName: AppPermissionN
 export function getRoutePermission(pathname: string) {
   if (pathname === "/api/tecnicos" || pathname.startsWith("/api/tecnicos/")) {
     return routePermissions["/tecnicos"];
+  }
+
+  if (pathname === "/api/horarios" || pathname.startsWith("/api/horarios/")) {
+    return routePermissions["/horarios"];
   }
 
   const matchingRoute = Object.keys(routePermissions).find(
