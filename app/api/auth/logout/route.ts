@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAccessLog } from "@/lib/access-log";
+import { logAuthFlow } from "@/lib/auth-flow-log";
 import {
   getExpiredSessionCookieOptions,
   getExpiredTwoFactorPendingCookieOptions,
@@ -11,6 +12,10 @@ import {
 function clearSessionCookie(response: NextResponse) {
   response.cookies.set(SESSION_COOKIE_NAME, "", getExpiredSessionCookieOptions());
   response.cookies.set(TWO_FACTOR_PENDING_COOKIE_NAME, "", getExpiredTwoFactorPendingCookieOptions());
+  logAuthFlow("logout cleared session and 2FA pending cookies", {
+    sessionCookieName: SESSION_COOKIE_NAME,
+    pendingCookieName: TWO_FACTOR_PENDING_COOKIE_NAME
+  });
   return response;
 }
 
@@ -54,7 +59,9 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
-  await logLogout(request);
+  logAuthFlow("logout GET ignored cookie clearing", {
+    reason: "Only POST logout clears cookies to avoid prefetch races"
+  });
 
-  return clearSessionCookie(NextResponse.redirect(new URL("/login", request.url), { status: 303 }));
+  return NextResponse.redirect(new URL("/login", request.url), { status: 303 });
 }

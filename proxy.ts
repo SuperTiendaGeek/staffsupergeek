@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAccessLog } from "@/lib/access-log";
+import { logAuthFlow } from "@/lib/auth-flow-log";
 import { canAccessApp, getRoutePermission } from "@/lib/apps";
 import {
   SESSION_COOKIE_NAME,
@@ -32,8 +33,16 @@ export async function proxy(request: NextRequest) {
     const pendingSession = await verifyTwoFactorPendingToken(pendingToken);
 
     if (!pendingSession) {
+      logAuthFlow("proxy redirected /verificar-2fa to /login", {
+        pendingCookiePresent: Boolean(pendingToken)
+      });
       return NextResponse.redirect(new URL("/login", request.url));
     }
+
+    logAuthFlow("proxy allowed /verificar-2fa", {
+      pendingCookiePresent: true,
+      userId: pendingSession.user.userId
+    });
   }
 
   if (isPrivateRoute(pathname) && !session) {

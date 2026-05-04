@@ -83,7 +83,7 @@ export default function VerifyTwoFactorPage() {
           </button>
 
           <Link
-            href="/api/auth/logout"
+            href="/login"
             className="block rounded-md border border-white/10 px-4 py-3 text-center text-sm font-medium text-zinc-200 transition hover:border-geek-lime/50 hover:bg-geek-lime/10 hover:text-geek-lime"
           >
             Volver al login

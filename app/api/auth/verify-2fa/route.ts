@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAccessLog } from "@/lib/access-log";
+import { logAuthFlow } from "@/lib/auth-flow-log";
 import {
   createSessionToken,
   getExpiredTwoFactorPendingCookieOptions,
@@ -38,10 +39,6 @@ function isValidCode(value: unknown): value is string {
   return typeof value === "string" && /^\d{6}$/.test(value.trim());
 }
 
-function logVerifyFlow(message: string, details?: Record<string, unknown>) {
-  console.info(`[Auth] ${message}`, details || {});
-}
-
 export async function POST(request: Request) {
   let body: VerifyTwoFactorBody | null = null;
 
@@ -56,14 +53,14 @@ export async function POST(request: Request) {
   }
 
   const pendingToken = getCookieValue(request, TWO_FACTOR_PENDING_COOKIE_NAME);
-  logVerifyFlow("2FA pending cookie received", {
+  logAuthFlow("verify-2fa received 2FA pending cookie", {
     cookieName: TWO_FACTOR_PENDING_COOKIE_NAME,
     present: Boolean(pendingToken)
   });
   const pendingSession = await verifyTwoFactorPendingToken(pendingToken);
 
   if (!pendingSession) {
-    logVerifyFlow("2FA pending cookie invalid or missing", {
+    logAuthFlow("verify-2fa missing or invalid 2FA pending cookie", {
       cookieName: TWO_FACTOR_PENDING_COOKIE_NAME
     });
     return NextResponse.json({ success: false, error: restartLoginError }, { status: 401 });
@@ -96,7 +93,7 @@ export async function POST(request: Request) {
 
     response.cookies.set(SESSION_COOKIE_NAME, token, getSessionCookieOptions());
     response.cookies.set(TWO_FACTOR_PENDING_COOKIE_NAME, "", getExpiredTwoFactorPendingCookieOptions());
-    logVerifyFlow("Session cookie set after 2FA verification", {
+    logAuthFlow("verify-2fa set session cookie and cleared 2FA pending cookie", {
       userId: pendingSession.user.userId,
       cookieName: SESSION_COOKIE_NAME
     });

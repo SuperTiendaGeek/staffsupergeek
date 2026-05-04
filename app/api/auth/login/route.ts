@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAccessLog } from "@/lib/access-log";
+import { logAuthFlow } from "@/lib/auth-flow-log";
 import { authenticateWithPassword, GENERIC_LOGIN_ERROR, touchLastLogin } from "@/lib/auth";
 import { sendTwoFactorCodeEmail } from "@/lib/email";
 import {
@@ -34,10 +35,6 @@ async function logFailedLogin(request: Request, body: LoginBody | null) {
     resultado: "Bloqueado",
     request
   });
-}
-
-function logAuthFlow(message: string, details?: Record<string, unknown>) {
-  console.info(`[Auth] ${message}`, details || {});
 }
 
 export async function POST(request: Request) {
