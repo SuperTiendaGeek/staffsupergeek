@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import { findUserByEmail, updateLastLogin } from "@/lib/airtable";
 import type { SessionUser } from "@/lib/session";
 
+const PASSWORD_SALT_ROUNDS = 12;
+
 export const GENERIC_LOGIN_ERROR = "Correo o contraseña incorrectos.";
 
 type AuthenticatedUser = {
@@ -36,6 +38,10 @@ export async function authenticateWithPassword(email: string, password: string):
       appsPermitidas: user.appsPermitidas
     }
   };
+}
+
+export async function hashPassword(password: string) {
+  return bcrypt.hash(password, PASSWORD_SALT_ROUNDS);
 }
 
 export async function touchLastLogin(recordId: string) {

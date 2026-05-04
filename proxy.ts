@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAccessLog } from "@/lib/access-log";
 import { logAuthFlow } from "@/lib/auth-flow-log";
-import { canAccessApp, getRoutePermission } from "@/lib/apps";
+import { canAccessApp, getRoutePermission, isAdministratorRole } from "@/lib/apps";
 import {
   SESSION_COOKIE_NAME,
   TWO_FACTOR_PENDING_COOKIE_NAME,
@@ -15,6 +15,8 @@ const privateRoutes = [
   "/finanzas",
   "/tecnicos",
   "/api/tecnicos",
+  "/admin",
+  "/api/admin",
   "/horarios",
   "/facturacion",
   "/shipping"
@@ -65,6 +67,16 @@ export async function proxy(request: NextRequest) {
 
   const routePermission = getRoutePermission(pathname);
 
+  if (session && (pathname === "/admin" || pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/"))) {
+    if (!isAdministratorRole(session.user.rol)) {
+      if (isApiRoute) {
+        return NextResponse.json({ success: false, error: "Acceso denegado" }, { status: 403 });
+      }
+
+      return NextResponse.redirect(new URL("/acceso-denegado", request.url));
+    }
+  }
+
   if (session && routePermission && !canAccessApp(session, routePermission)) {
     await createAccessLog({
       userId: session.user.userId,
@@ -90,7 +102,11 @@ export const config = {
     "/login",
     "/verificar-2fa",
     "/dashboard/:path*",
+    "/admin",
+    "/api/admin",
     "/api/tecnicos/:path*",
+    "/api/admin/:path*",
+    "/admin/:path*",
     "/acceso-denegado/:path*",
     "/finanzas/:path*",
     "/tecnicos/:path*",

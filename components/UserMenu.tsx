@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { isAdministratorRole } from "@/lib/apps";
 import type { SessionUser } from "@/lib/session";
 
 type UserMenuProps = {
@@ -22,6 +24,7 @@ function getInitials(name?: string) {
 export function UserMenu({ user }: UserMenuProps) {
   const displayName = user?.nombre || "Staff SUPER GEEK";
   const role = user?.rol || "Staff";
+  const isAdmin = isAdministratorRole(user?.rol);
 
   return (
     <section
@@ -37,14 +40,24 @@ export function UserMenu({ user }: UserMenuProps) {
           <p className="truncate text-xs text-zinc-400">{role}</p>
         </div>
       </div>
-      <form action="/api/auth/logout" method="post">
-        <button
-          type="submit"
-          className="shrink-0 rounded-md border border-white/10 px-3 py-2 text-xs font-medium text-zinc-200 transition hover:border-geek-lime/50 hover:bg-geek-lime/10 hover:text-geek-lime"
-        >
-          Cerrar sesión
-        </button>
-      </form>
+      <div className="flex shrink-0 items-center gap-2">
+        {isAdmin ? (
+          <Link
+            href="/admin/usuarios"
+            className="rounded-md border border-geek-lime/30 px-3 py-2 text-xs font-medium text-geek-lime transition hover:bg-geek-lime/10"
+          >
+            Usuarios
+          </Link>
+        ) : null}
+        <form action="/api/auth/logout" method="post">
+          <button
+            type="submit"
+            className="rounded-md border border-white/10 px-3 py-2 text-xs font-medium text-zinc-200 transition hover:border-geek-lime/50 hover:bg-geek-lime/10 hover:text-geek-lime"
+          >
+            Cerrar sesión
+          </button>
+        </form>
+      </div>
     </section>
   );
 }

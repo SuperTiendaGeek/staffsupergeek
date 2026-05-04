@@ -4,9 +4,15 @@ export type StaffRole = "admin" | "manager" | "staff" | "finance" | "technical";
 
 export type AppStatus = "Disponible" | "Próximamente" | "En construcción";
 
-export type AppIcon = "tools" | "finance" | "schedule" | "invoice" | "shipping";
+export type AppIcon = "tools" | "finance" | "schedule" | "invoice" | "shipping" | "users";
 
-export type AppPermissionName = "Técnicos" | "Finanzas" | "Horarios" | "Facturación" | "Shipping";
+export type AppPermissionName =
+  | "Técnicos"
+  | "Finanzas"
+  | "Horarios"
+  | "Facturación"
+  | "Shipping"
+  | "Administración";
 
 export type StaffApp = {
   id: string;
@@ -69,6 +75,16 @@ export const staffApps: StaffApp[] = [
     icon: "shipping",
     description: "Gestión futura de proveedores, paquetes, envíos e importaciones.",
     requiredRoles: ["admin", "manager", "staff"]
+  },
+  {
+    id: "usuarios",
+    name: "Usuarios",
+    permissionName: "Administración",
+    route: "/admin/usuarios",
+    status: "Disponible",
+    icon: "users",
+    description: "Gestión de usuarios, roles, accesos y estado de las cuentas del portal.",
+    requiredRoles: ["admin"]
   }
 ];
 

@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { PortalUser, PortalUserInput } from "@/types/admin-users";
+
 export type AirtableUser = {
   recordId: string;
   nombre: string;
@@ -18,6 +20,7 @@ type AirtableRecord<TFields> = {
 
 type AirtableListResponse<TFields> = {
   records: Array<AirtableRecord<TFields>>;
+  offset?: string;
 };
 
 type AirtableUserFields = {
@@ -128,6 +131,40 @@ function mapAirtableUser(record: AirtableRecord<AirtableUserFields>): AirtableUs
   };
 }
 
+function mapPortalUser(record: AirtableRecord<AirtableUserFields>): PortalUser | null {
+  const { fields } = record;
+
+  if (!fields.Email) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    nombre: fields.Nombre || fields.Email,
+    email: fields.Email,
+    rol: fields.Rol || "staff",
+    activo: fields.Activo === true,
+    appsPermitidas: normalizeAppsPermitidas(fields["Apps Permitidas"]),
+    requiere2FA: fields["Requiere 2FA"] === true
+  };
+}
+
+function mapUserInputToAirtableFields(input: PortalUserInput, passwordHash?: string): AirtableUserFields {
+  return {
+    Nombre: input.nombre,
+    Email: input.email,
+    Rol: input.rol,
+    Activo: input.activo,
+    "Apps Permitidas": input.appsPermitidas,
+    "Requiere 2FA": input.requiere2FA === true,
+    ...(passwordHash ? { "Password Hash": passwordHash } : {})
+  };
+}
+
+async function parseAirtableJson<T>(response: Response) {
+  return (await response.json()) as T;
+}
+
 export async function findUserByEmail(email: string) {
   const { baseId, usersTable } = getAirtableConfig();
   const normalizedEmail = email.trim().toLowerCase();
@@ -170,6 +207,187 @@ export async function findUserByEmail(email: string) {
   const record = data.records[0];
 
   return record ? mapAirtableUser(record) : null;
+}
+
+export async function findPortalUserByEmail(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  const formula = `LOWER({Email}) = '${escapeFormulaString(normalizedEmail)}'`;
+  const requestUrl = `${getUsersTableUrl()}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
+
+  const response = await fetch(requestUrl, {
+    headers: getAirtableHeaders(),
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+
+    logAirtableFailure("Portal user lookup failed", {
+      status: response.status,
+      responseText
+    });
+
+    throw new Error(`Airtable portal user lookup failed with status ${response.status}`);
+  }
+
+  const data = await parseAirtableJson<AirtableListResponse<AirtableUserFields>>(response);
+  const record = data.records[0];
+
+  return record ? mapPortalUser(record) : null;
+}
+
+export async function listPortalUsers() {
+  const users: PortalUser[] = [];
+  let offset: string | undefined;
+
+  do {
+    const query = new URLSearchParams({
+      pageSize: "100",
+      "sort[0][field]": "Nombre",
+      "sort[0][direction]": "asc"
+    });
+
+    if (offset) {
+      query.set("offset", offset);
+    }
+
+    const response = await fetch(`${getUsersTableUrl()}?${query.toString()}`, {
+      headers: getAirtableHeaders(),
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      const responseText = await response.text();
+
+      logAirtableFailure("Portal users list failed", {
+        status: response.status,
+        responseText
+      });
+
+      throw new Error(`Airtable portal users list failed with status ${response.status}`);
+    }
+
+    const data = await parseAirtableJson<AirtableListResponse<AirtableUserFields>>(response);
+    users.push(...data.records.map(mapPortalUser).filter((user): user is PortalUser => Boolean(user)));
+    offset = data.offset;
+  } while (offset);
+
+  return users;
+}
+
+export async function createPortalUser(input: PortalUserInput, passwordHash: string) {
+  const response = await fetch(getUsersTableUrl(), {
+    method: "POST",
+    headers: getAirtableHeaders(),
+    body: JSON.stringify({
+      fields: mapUserInputToAirtableFields(input, passwordHash)
+    })
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+
+    logAirtableFailure("Portal user create failed", {
+      status: response.status,
+      responseText
+    });
+
+    throw new Error(`Airtable portal user create failed with status ${response.status}`);
+  }
+
+  const record = await parseAirtableJson<AirtableRecord<AirtableUserFields>>(response);
+  const user = mapPortalUser(record);
+
+  if (!user) {
+    throw new Error("Airtable returned an invalid portal user record");
+  }
+
+  return user;
+}
+
+export async function updatePortalUser(recordId: string, input: PortalUserInput) {
+  const response = await fetch(getUsersTableUrl(recordId), {
+    method: "PATCH",
+    headers: getAirtableHeaders(),
+    body: JSON.stringify({
+      fields: mapUserInputToAirtableFields(input)
+    })
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+
+    logAirtableFailure("Portal user update failed", {
+      status: response.status,
+      responseText
+    });
+
+    throw new Error(`Airtable portal user update failed with status ${response.status}`);
+  }
+
+  const record = await parseAirtableJson<AirtableRecord<AirtableUserFields>>(response);
+  const user = mapPortalUser(record);
+
+  if (!user) {
+    throw new Error("Airtable returned an invalid portal user record");
+  }
+
+  return user;
+}
+
+export async function updatePortalUserPassword(recordId: string, passwordHash: string) {
+  const response = await fetch(getUsersTableUrl(recordId), {
+    method: "PATCH",
+    headers: getAirtableHeaders(),
+    body: JSON.stringify({
+      fields: {
+        "Password Hash": passwordHash
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+
+    logAirtableFailure("Portal user password update failed", {
+      status: response.status,
+      responseText
+    });
+
+    throw new Error(`Airtable portal user password update failed with status ${response.status}`);
+  }
+}
+
+export async function updatePortalUserStatus(recordId: string, activo: boolean) {
+  const response = await fetch(getUsersTableUrl(recordId), {
+    method: "PATCH",
+    headers: getAirtableHeaders(),
+    body: JSON.stringify({
+      fields: {
+        Activo: activo
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+
+    logAirtableFailure("Portal user status update failed", {
+      status: response.status,
+      responseText
+    });
+
+    throw new Error(`Airtable portal user status update failed with status ${response.status}`);
+  }
+
+  const record = await parseAirtableJson<AirtableRecord<AirtableUserFields>>(response);
+  const user = mapPortalUser(record);
+
+  if (!user) {
+    throw new Error("Airtable returned an invalid portal user record");
+  }
+
+  return user;
 }
 
 export async function updateLastLogin(recordId: string) {
