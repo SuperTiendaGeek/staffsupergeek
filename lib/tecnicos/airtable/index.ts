@@ -1312,9 +1312,6 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
       ? (historialIdsRaw as string[])
       : [];
 
-  console.log("ordenRecordId", ordenRecordId);
-  console.log("historialIds detectados", historialIds);
-
   const [historial, repuestosPorOrden, serviciosPorOrden, abonosPorOrden] = await Promise.all([
     historialIds.length > 0
       ? fetchHistorialByIds(historialIds, client)
@@ -1323,9 +1320,6 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     fetchServiciosPorOrden(ordenRecordId, client),
     fetchAbonosPorOrden(ordenRecordId, client),
   ]);
-
-  console.log("cantidad historial cargado", historial.length);
-  console.log("ids historial cargado", historial.map((h) => h.id));
 
   return {
     ...baseDetail,
@@ -2405,5 +2399,4 @@ export const createHistorialEntrada = async ({
 };
 
 export { AIRTABLE_TABLES };
-
 

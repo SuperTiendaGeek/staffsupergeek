@@ -356,8 +356,10 @@ function buildEstado(registro: HorarioRegistro | null, marcaciones: HorarioMarca
 export async function getHorarioEstado(user: SessionUser) {
   const now = new Date();
   const fecha = getLocalDateKey(now);
-  const registro = await findRegistroByUserAndDate(user.userId, fecha);
-  const marcaciones = await listMarcacionesByUserAndDate(user.userId, fecha);
+  const [registro, marcaciones] = await Promise.all([
+    findRegistroByUserAndDate(user.userId, fecha),
+    listMarcacionesByUserAndDate(user.userId, fecha)
+  ]);
 
   return buildEstado(registro, marcaciones, fecha, now);
 }
