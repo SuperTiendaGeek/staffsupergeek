@@ -9,7 +9,16 @@ import {
   verifyTwoFactorPendingToken
 } from "@/lib/session";
 
-const privateRoutes = ["/dashboard", "/acceso-denegado", "/finanzas", "/tecnicos", "/horarios", "/facturacion", "/shipping"];
+const privateRoutes = [
+  "/dashboard",
+  "/acceso-denegado",
+  "/finanzas",
+  "/tecnicos",
+  "/api/tecnicos",
+  "/horarios",
+  "/facturacion",
+  "/shipping"
+];
 
 function isPrivateRoute(pathname: string) {
   return privateRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
@@ -17,6 +26,7 @@ function isPrivateRoute(pathname: string) {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const isApiRoute = pathname.startsWith("/api/");
   const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
   const session = await verifySessionToken(token);
 
@@ -46,6 +56,10 @@ export async function proxy(request: NextRequest) {
   }
 
   if (isPrivateRoute(pathname) && !session) {
+    if (isApiRoute) {
+      return NextResponse.json({ success: false, error: "No autenticado" }, { status: 401 });
+    }
+
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
@@ -61,6 +75,10 @@ export async function proxy(request: NextRequest) {
       request
     });
 
+    if (isApiRoute) {
+      return NextResponse.json({ success: false, error: "Acceso denegado" }, { status: 403 });
+    }
+
     return NextResponse.redirect(new URL("/acceso-denegado", request.url));
   }
 
@@ -72,6 +90,7 @@ export const config = {
     "/login",
     "/verificar-2fa",
     "/dashboard/:path*",
+    "/api/tecnicos/:path*",
     "/acceso-denegado/:path*",
     "/finanzas/:path*",
     "/tecnicos/:path*",

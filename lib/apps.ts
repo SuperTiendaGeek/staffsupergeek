@@ -125,6 +125,10 @@ export function canAccessApp(subject: PermissionSubject, appName: AppPermissionN
 }
 
 export function getRoutePermission(pathname: string) {
+  if (pathname === "/api/tecnicos" || pathname.startsWith("/api/tecnicos/")) {
+    return routePermissions["/tecnicos"];
+  }
+
   const matchingRoute = Object.keys(routePermissions).find(
     (route) => pathname === route || pathname.startsWith(`${route}/`)
   );
