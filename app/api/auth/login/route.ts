@@ -36,6 +36,10 @@ async function logFailedLogin(request: Request, body: LoginBody | null) {
   });
 }
 
+function logAuthFlow(message: string, details?: Record<string, unknown>) {
+  console.info(`[Auth] ${message}`, details || {});
+}
+
 export async function POST(request: Request) {
   let body: LoginBody | null = null;
 
@@ -93,11 +97,14 @@ export async function POST(request: Request) {
       });
       const response = NextResponse.json({
         success: true,
-        requiresTwoFactor: true,
-        redirectTo: "/verificar-2fa"
+        requiresTwoFactor: true
       });
 
       response.cookies.set(TWO_FACTOR_PENDING_COOKIE_NAME, pendingToken, getTwoFactorPendingCookieOptions());
+      logAuthFlow("2FA pending cookie set on response", {
+        userId: authenticatedUser.sessionUser.userId,
+        cookieName: TWO_FACTOR_PENDING_COOKIE_NAME
+      });
 
       return response;
     }
@@ -111,6 +118,10 @@ export async function POST(request: Request) {
 
     response.cookies.set(SESSION_COOKIE_NAME, token, getSessionCookieOptions());
     response.cookies.set(TWO_FACTOR_PENDING_COOKIE_NAME, "", getExpiredTwoFactorPendingCookieOptions());
+    logAuthFlow("Session cookie set on response", {
+      userId: authenticatedUser.sessionUser.userId,
+      cookieName: SESSION_COOKIE_NAME
+    });
 
     await createAccessLog({
       userId: authenticatedUser.sessionUser.userId,

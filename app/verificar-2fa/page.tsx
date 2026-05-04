@@ -18,6 +18,7 @@ export default function VerifyTwoFactorPage() {
     try {
       const response = await fetch("/api/auth/verify-2fa", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json"
         },

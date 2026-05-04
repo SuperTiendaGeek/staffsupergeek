@@ -20,6 +20,7 @@ export default function LoginPage() {
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json"
         },
@@ -38,7 +39,11 @@ export default function LoginPage() {
         return;
       }
 
-      router.replace(result.redirectTo || (result.requiresTwoFactor ? "/verificar-2fa" : "/dashboard"));
+      if (result.requiresTwoFactor) {
+        router.push("/verificar-2fa");
+      } else {
+        router.replace(result.redirectTo || "/dashboard");
+      }
       router.refresh();
     } catch {
       setError("No se pudo iniciar sesión. Intenta de nuevo.");

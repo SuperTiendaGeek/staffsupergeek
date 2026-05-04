@@ -38,6 +38,10 @@ function isValidCode(value: unknown): value is string {
   return typeof value === "string" && /^\d{6}$/.test(value.trim());
 }
 
+function logVerifyFlow(message: string, details?: Record<string, unknown>) {
+  console.info(`[Auth] ${message}`, details || {});
+}
+
 export async function POST(request: Request) {
   let body: VerifyTwoFactorBody | null = null;
 
@@ -52,9 +56,16 @@ export async function POST(request: Request) {
   }
 
   const pendingToken = getCookieValue(request, TWO_FACTOR_PENDING_COOKIE_NAME);
+  logVerifyFlow("2FA pending cookie received", {
+    cookieName: TWO_FACTOR_PENDING_COOKIE_NAME,
+    present: Boolean(pendingToken)
+  });
   const pendingSession = await verifyTwoFactorPendingToken(pendingToken);
 
   if (!pendingSession) {
+    logVerifyFlow("2FA pending cookie invalid or missing", {
+      cookieName: TWO_FACTOR_PENDING_COOKIE_NAME
+    });
     return NextResponse.json({ success: false, error: restartLoginError }, { status: 401 });
   }
 
@@ -85,6 +96,10 @@ export async function POST(request: Request) {
 
     response.cookies.set(SESSION_COOKIE_NAME, token, getSessionCookieOptions());
     response.cookies.set(TWO_FACTOR_PENDING_COOKIE_NAME, "", getExpiredTwoFactorPendingCookieOptions());
+    logVerifyFlow("Session cookie set after 2FA verification", {
+      userId: pendingSession.user.userId,
+      cookieName: SESSION_COOKIE_NAME
+    });
 
     await createAccessLog({
       userId: pendingSession.user.userId,

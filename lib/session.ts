@@ -121,8 +121,7 @@ export function getTwoFactorPendingCookieOptions() {
     sameSite: "lax" as const,
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: TWO_FACTOR_PENDING_DURATION_SECONDS,
-    expires: new Date(Date.now() + TWO_FACTOR_PENDING_DURATION_SECONDS * 1000)
+    maxAge: TWO_FACTOR_PENDING_DURATION_SECONDS
   };
 }
 
