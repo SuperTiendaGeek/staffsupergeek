@@ -1,0 +1,38 @@
+.theme {
+  --sg-bg: #111111;
+  --sg-panel: #181818;
+  --sg-card: #1f1f1f;
+  --sg-card-elevated: #252525;
+  --sg-border: rgba(255, 255, 255, 0.10);
+  --sg-divider: rgba(255, 255, 255, 0.14);
+  --sg-text-primary: #f5f5f5;
+  --sg-text-secondary: #b8b8b8;
+  --sg-text-muted: #8f8f8f;
+  --sg-text-on-accent: #101010;
+  --sg-lime: #e3fc02;
+  --sg-lime-soft: rgba(227, 252, 2, 0.14);
+  --sg-success: #56e3a4;
+  --sg-success-soft: rgba(86, 227, 164, 0.16);
+  --sg-warning: #f0c75e;
+  --sg-warning-soft: rgba(240, 199, 94, 0.16);
+  --sg-danger: #ff5a4f;
+  --sg-danger-soft: rgba(255, 90, 79, 0.16);
+  --sg-info: #78b7ff;
+  --sg-info-soft: rgba(120, 183, 255, 0.14);
+  --sg-radius-lg: 20px;
+  --sg-radius-md: 14px;
+  --sg-radius-sm: 10px;
+  --sg-shadow-card: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+.theme :global(.sg-card) {
+  border: 1px solid var(--sg-border);
+  border-radius: var(--sg-radius-lg);
+  background: var(--sg-card);
+  box-shadow: var(--sg-shadow-card);
+}
+
+.theme :global(.sg-focus-ring:focus-visible) {
+  outline: 2px solid var(--sg-lime);
+  outline-offset: 2px;
+}
