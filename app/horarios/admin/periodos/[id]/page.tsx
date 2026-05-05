@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { AnularPagoHorarioButton } from "@/components/horarios/AnularPagoHorarioButton";
 import { HorarioPeriodoPagoClient } from "@/components/horarios/HorarioPeriodoPagoClient";
 import { PortalShell } from "@/components/PortalShell";
 import { isAdministratorRole } from "@/lib/apps";
@@ -176,6 +177,7 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
                   <th className="px-4 py-3 font-semibold">Transacción</th>
                   <th className="px-4 py-3 font-semibold">Estado</th>
                   <th className="px-4 py-3 font-semibold">Comprobante</th>
+                  <th className="px-4 py-3 font-semibold">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
@@ -189,7 +191,11 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
                         <p>{pago.numeroTransaccion || "--"}</p>
                         {pago.bancoCuentaOrigen ? <p className="text-xs text-zinc-500">{pago.bancoCuentaOrigen}</p> : null}
                       </td>
-                      <td className="px-4 py-4">{pago.estadoPago}</td>
+                      <td className="px-4 py-4">
+                        <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${pago.estadoPago === "Anulado" ? "border-red-300/30 bg-red-300/10 text-red-100" : "border-geek-lime/30 bg-geek-lime/10 text-geek-lime"}`}>
+                          {pago.estadoPago}
+                        </span>
+                      </td>
                       <td className="px-4 py-4">
                         {pago.comprobantes.length ? (
                           <a href={pago.comprobantes[0].url} target="_blank" rel="noreferrer" className="font-semibold text-geek-lime hover:text-white">
@@ -199,11 +205,18 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
                           <span className="text-zinc-500">--</span>
                         )}
                       </td>
+                      <td className="px-4 py-4">
+                        {pago.estadoPago === "Registrado" ? (
+                          <AnularPagoHorarioButton periodoId={periodo.id} pagoId={pago.id} />
+                        ) : (
+                          <span className="text-zinc-500">--</span>
+                        )}
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-zinc-400">
+                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-400">
                       Aún no hay pagos registrados para este periodo.
                     </td>
                   </tr>

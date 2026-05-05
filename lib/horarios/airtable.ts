@@ -201,6 +201,13 @@ type RegistrarPagoHorarioInput = {
   } | null;
 };
 
+type AnularPagoHorarioInput = {
+  periodoId: string;
+  pagoId: string;
+  motivo: string;
+  adminUser: SessionUser;
+};
+
 type CorregirJornadaAdminOptions = {
   adminUser: SessionUser;
 };
@@ -501,6 +508,21 @@ function normalizeRegistradoPor(value?: string | null) {
   const textValue = typeof value === "string" ? value.trim() : "";
 
   return textValue || "Administrador";
+}
+
+function formatAuditDate(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: HORARIOS_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+  const getPart = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "";
+
+  return `${getPart("day")}/${getPart("month")}/${getPart("year")} ${getPart("hour")}:${getPart("minute")}`;
 }
 
 export function normalizeHorarioMetodoPago(value?: string | null): HorarioMetodoPago {
@@ -1567,6 +1589,72 @@ export async function fetchPagosByPeriodo(periodoId: string) {
   return records
     .map(mapPago)
     .filter((pago) => pago.periodoPagoId === periodoId);
+}
+
+async function fetchPagoById(id: string) {
+  if (!isAirtableRecordId(id)) {
+    return null;
+  }
+
+  const record = await airtableRequest<AirtableRecord<HorarioPagoFields>>(getTableUrl(PAGOS_TABLE, id));
+
+  return mapPago(record);
+}
+
+export async function anularPagoHorario(input: AnularPagoHorarioInput): Promise<{ pago: HorarioPago; periodo: HorarioPeriodoPagoDetalle }> {
+  const motivo = input.motivo.trim();
+
+  if (!motivo) {
+    throw new Error("El motivo de anulación es obligatorio.");
+  }
+
+  const [periodo, pago] = await Promise.all([
+    fetchPeriodoPagoById(input.periodoId),
+    fetchPagoById(input.pagoId)
+  ]);
+
+  if (!periodo) {
+    throw new Error("No se encontró el periodo de pago.");
+  }
+
+  if (!pago || pago.periodoPagoId !== periodo.id) {
+    throw new Error("No se encontró el pago en este periodo.");
+  }
+
+  if (pago.estadoPago === "Anulado") {
+    return { pago, periodo };
+  }
+
+  const adminLabel = input.adminUser.email || input.adminUser.nombre || "Administrador";
+  const anuladoLine = `[Anulado por administrador el ${formatAuditDate(new Date())}] Motivo: ${motivo} (${adminLabel})`;
+  const observacion = pago.observacion?.trim() ? `${pago.observacion.trim()}\n${anuladoLine}` : anuladoLine;
+  const updatedPagoRecord = await airtableRequest<AirtableRecord<HorarioPagoFields>>(getTableUrl(PAGOS_TABLE, pago.id), {
+    method: "PATCH",
+    body: JSON.stringify({
+      fields: {
+        [HORARIOS_PAGOS_FIELDS.estadoPago]: "Anulado",
+        [HORARIOS_PAGOS_FIELDS.observacion]: observacion
+      }
+    })
+  });
+  const pagos = await fetchPagosByPeriodo(periodo.id);
+  const totals = calculatePeriodoTotals(periodo.registros, pagos);
+  const estadoPeriodo = periodo.estadoPeriodo === "Anulado" ? "Anulado" : getEstadoPeriodoFromTotals(totals.totalPagado, totals.saldoPendiente);
+
+  if (estadoPeriodo !== periodo.estadoPeriodo) {
+    await updatePeriodoEstado(periodo.id, estadoPeriodo);
+  }
+
+  const updatedPeriodo = await fetchPeriodoPagoById(periodo.id);
+
+  if (!updatedPeriodo) {
+    throw new Error("El pago se anuló, pero no se pudo refrescar el periodo.");
+  }
+
+  return {
+    pago: mapPago(updatedPagoRecord),
+    periodo: updatedPeriodo
+  };
 }
 
 export async function registrarPagoHorario(input: RegistrarPagoHorarioInput): Promise<{ pago: HorarioPago; periodo: HorarioPeriodoPagoDetalle; warning?: string | null }> {
