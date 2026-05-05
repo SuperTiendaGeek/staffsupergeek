@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import type { HorarioEstado, TipoMarcacion } from "@/types/horarios";
+import type { HorarioEmpleadoVista, HorarioEstado, HorarioPago, HorarioRegistro, TipoMarcacion } from "@/types/horarios";
 
 type HorariosClientProps = {
   initialEstado: HorarioEstado | null;
+  initialMiVista: HorarioEmpleadoVista | null;
   initialError?: string;
   isAdmin: boolean;
 };
@@ -24,15 +26,50 @@ const tipoLabels: Record<TipoMarcacion, string> = {
   ajuste_admin: "Ajuste admin"
 };
 
+const HORARIOS_TIME_ZONE = "America/Guayaquil";
+
 function formatTime(value?: string) {
   if (!value) {
     return "--:--";
   }
 
-  return new Intl.DateTimeFormat("es-EC", {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "--:--";
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: HORARIOS_TIME_ZONE,
     hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value));
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
+function formatDate(value?: string) {
+  if (!value) {
+    return "--";
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-");
+
+    return `${day}/${month}/${year}`;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+
+  return new Intl.DateTimeFormat("es-EC", {
+    timeZone: HORARIOS_TIME_ZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(date);
 }
 
 function formatMoney(value: number) {
@@ -62,7 +99,118 @@ function statusClasses(status?: string) {
   return "border-white/10 bg-white/[0.05] text-zinc-300";
 }
 
-export function HorariosClient({ initialEstado, initialError, isAdmin }: HorariosClientProps) {
+function SummaryMetric({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+      <p className="text-xs uppercase tracking-normal text-zinc-500">{label}</p>
+      <p className={`mt-2 text-lg font-semibold ${accent ? "text-geek-lime" : "text-white"}`}>{value}</p>
+    </div>
+  );
+}
+
+function JornadasTable({ jornadas }: { jornadas: HorarioRegistro[] }) {
+  if (!jornadas.length) {
+    return <p className="py-4 text-sm text-zinc-400">No hay jornadas registradas en el periodo actual.</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-[900px] w-full text-left text-sm">
+        <thead className="border-b border-white/10 text-xs uppercase tracking-normal text-zinc-500">
+          <tr>
+            <th className="px-3 py-3 font-medium">Fecha</th>
+            <th className="px-3 py-3 font-medium">Entrada</th>
+            <th className="px-3 py-3 font-medium">Salida almuerzo</th>
+            <th className="px-3 py-3 font-medium">Regreso almuerzo</th>
+            <th className="px-3 py-3 font-medium">Salida final</th>
+            <th className="px-3 py-3 font-medium">Horas</th>
+            <th className="px-3 py-3 font-medium">Total día</th>
+            <th className="px-3 py-3 font-medium">Estado</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/10 text-zinc-300">
+          {jornadas.map((jornada) => (
+            <tr key={jornada.id}>
+              <td className="px-3 py-3 font-medium text-white">{formatDate(jornada.fecha)}</td>
+              <td className="px-3 py-3">{formatTime(jornada.entrada)}</td>
+              <td className="px-3 py-3">{formatTime(jornada.salidaAlmuerzo)}</td>
+              <td className="px-3 py-3">{formatTime(jornada.regresoAlmuerzo)}</td>
+              <td className="px-3 py-3">{formatTime(jornada.salidaFinal)}</td>
+              <td className="px-3 py-3">{formatHours(jornada.horasTrabajadas)}</td>
+              <td className="px-3 py-3 font-semibold text-geek-lime">{formatMoney(jornada.totalEstimadoDia)}</td>
+              <td className="px-3 py-3">
+                <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses(jornada.estadoDia)}`}>
+                  {jornada.estadoDia}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PagosTable({ pagos }: { pagos: HorarioPago[] }) {
+  if (!pagos.length) {
+    return <p className="py-4 text-sm text-zinc-400">Aún no hay pagos registrados para tu usuario.</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-[860px] w-full text-left text-sm">
+        <thead className="border-b border-white/10 text-xs uppercase tracking-normal text-zinc-500">
+          <tr>
+            <th className="px-3 py-3 font-medium">Fecha de pago</th>
+            <th className="px-3 py-3 font-medium">Monto pagado</th>
+            <th className="px-3 py-3 font-medium">Método</th>
+            <th className="px-3 py-3 font-medium">Transacción</th>
+            <th className="px-3 py-3 font-medium">Banco / Cuenta Origen</th>
+            <th className="px-3 py-3 font-medium">Estado</th>
+            <th className="px-3 py-3 font-medium">Comprobante</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/10 text-zinc-300">
+          {pagos.map((pago) => {
+            const comprobante = pago.comprobantes[0];
+
+            return (
+              <tr key={pago.id}>
+                <td className="px-3 py-3 font-medium text-white">{formatDate(pago.fechaPago)}</td>
+                <td className="px-3 py-3 font-semibold text-geek-lime">{formatMoney(pago.montoPagado)}</td>
+                <td className="px-3 py-3">{pago.metodoPago || "--"}</td>
+                <td className="px-3 py-3">{pago.numeroTransaccion || "--"}</td>
+                <td className="px-3 py-3">{pago.bancoCuentaOrigen || "--"}</td>
+                <td className="px-3 py-3">
+                  <span className="inline-flex rounded-md border border-geek-lime/30 bg-geek-lime/10 px-2.5 py-1 text-xs font-semibold text-geek-lime">
+                    {pago.estadoPago || "Registrado"}
+                  </span>
+                </td>
+                <td className="px-3 py-3">
+                  {comprobante ? (
+                    <a
+                      href={comprobante.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-geek-lime transition hover:text-white"
+                    >
+                      Ver archivo
+                    </a>
+                  ) : (
+                    "--"
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function HorariosClient({ initialEstado, initialMiVista, initialError, isAdmin }: HorariosClientProps) {
+  const router = useRouter();
   const [estado, setEstado] = useState(initialEstado);
   const [error, setError] = useState(initialError || "");
   const [notice, setNotice] = useState("");
@@ -71,6 +219,9 @@ export function HorariosClient({ initialEstado, initialError, isAdmin }: Horario
   const registro = estado?.registro;
   const estadoDia = registro?.estadoDia || "Pendiente";
   const siguienteMarcacion = estado?.siguienteMarcacion;
+  const miResumen = initialMiVista?.resumen;
+  const misJornadas = initialMiVista?.jornadas || [];
+  const misPagos = initialMiVista?.pagos || [];
 
   const marcas = useMemo(
     () => [
@@ -93,6 +244,7 @@ export function HorariosClient({ initialEstado, initialError, isAdmin }: Horario
     }
 
     setEstado(result.estado);
+    router.refresh();
   }
 
   async function handleMarcar() {
@@ -120,6 +272,7 @@ export function HorariosClient({ initialEstado, initialError, isAdmin }: Horario
 
       setEstado(result.estado);
       setNotice("Marcación registrada correctamente");
+      router.refresh();
     } catch {
       setError("No se pudo conectar con el servidor");
     } finally {
@@ -223,6 +376,41 @@ export function HorariosClient({ initialEstado, initialError, isAdmin }: Horario
           </div>
         </section>
       </div>
+
+      {miResumen ? (
+        <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 backdrop-blur">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">Mi resumen</h2>
+              <p className="mt-1 text-sm text-zinc-400">
+                Jornadas del {formatDate(miResumen.periodoJornadas.fechaInicio)} al {formatDate(miResumen.periodoJornadas.fechaFin)}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <SummaryMetric label="Horas hoy" value={formatHours(miResumen.hoy.horasTrabajadas)} />
+            <SummaryMetric label="Total hoy" value={formatMoney(miResumen.hoy.totalEstimado)} accent />
+            <SummaryMetric label="Horas semana" value={formatHours(miResumen.semana.horasTrabajadas)} />
+            <SummaryMetric label="Total semana" value={formatMoney(miResumen.semana.totalEstimado)} accent />
+            <SummaryMetric label="Horas mes" value={formatHours(miResumen.mes.horasTrabajadas)} />
+            <SummaryMetric label="Total mes" value={formatMoney(miResumen.mes.totalEstimado)} accent />
+          </div>
+        </section>
+      ) : null}
+
+      <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 backdrop-blur">
+        <h2 className="text-lg font-semibold text-white">Mis jornadas</h2>
+        <div className="mt-4">
+          <JornadasTable jornadas={misJornadas} />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 backdrop-blur">
+        <h2 className="text-lg font-semibold text-white">Mis pagos</h2>
+        <div className="mt-4">
+          <PagosTable pagos={misPagos} />
+        </div>
+      </section>
 
       <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 backdrop-blur">
         <h2 className="text-lg font-semibold text-white">Historial de marcaciones</h2>

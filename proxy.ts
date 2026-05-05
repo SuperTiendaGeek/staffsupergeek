@@ -27,6 +27,15 @@ function isPrivateRoute(pathname: string) {
   return privateRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 
+function isHorariosAdminRoute(pathname: string) {
+  return (
+    pathname === "/horarios/admin" ||
+    pathname.startsWith("/horarios/admin/") ||
+    pathname === "/api/horarios/admin" ||
+    pathname.startsWith("/api/horarios/admin/")
+  );
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isApiRoute = pathname.startsWith("/api/");
@@ -76,6 +85,14 @@ export async function proxy(request: NextRequest) {
 
       return NextResponse.redirect(new URL("/acceso-denegado", request.url));
     }
+  }
+
+  if (session && isHorariosAdminRoute(pathname) && !isAdministratorRole(session.user.rol)) {
+    if (isApiRoute) {
+      return NextResponse.json({ success: false, error: "Acceso denegado: solo Administrador puede administrar horarios y pagos" }, { status: 403 });
+    }
+
+    return NextResponse.redirect(new URL("/acceso-denegado", request.url));
   }
 
   if (session && routePermission && !canAccessApp(session, routePermission)) {

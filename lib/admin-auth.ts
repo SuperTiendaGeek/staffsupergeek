@@ -29,7 +29,7 @@ export async function requireAdminSession(): Promise<
   if (!isAdministratorRole(session.user.rol)) {
     return {
       session: null,
-      response: NextResponse.json({ success: false, error: "Acceso denegado" }, { status: 403 })
+      response: NextResponse.json({ success: false, error: "Acceso denegado: se requiere rol Administrador" }, { status: 403 })
     };
   }
 

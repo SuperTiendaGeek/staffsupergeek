@@ -48,6 +48,12 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, estado });
   } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.error("Error completo al marcar horario:", {
+        message: error instanceof Error ? error.message : error
+      });
+    }
+
     const rawMessage = error instanceof Error ? error.message : "";
     const message = rawMessage.startsWith("Airtable horarios request failed")
       ? "Airtable rechazó la marcación. Revisa la configuración de campos de Horarios."

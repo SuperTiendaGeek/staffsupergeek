@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
+import { HorariosAdminPeriodosClient } from "@/components/horarios/HorariosAdminPeriodosClient";
 import { PortalShell } from "@/components/PortalShell";
-import { getAdminSession } from "@/lib/admin-auth";
-import { listHorariosRegistrosByDate } from "@/lib/horarios/airtable";
+import { isAdministratorRole } from "@/lib/apps";
+import { fetchHorariosAdminResumen, fetchHorariosEmpleadosParaPeriodo, fetchPeriodosPago } from "@/lib/horarios/airtable";
+import { getSessionFromCookie } from "@/lib/session";
+import type { HorarioAdminResumen, HorarioEmpleadoPeriodoOption, HorarioPeriodoPagoDetalle } from "@/types/horarios";
 
 export const dynamic = "force-dynamic";
 
@@ -12,44 +15,67 @@ function formatMoney(value: number) {
   }).format(value);
 }
 
-function formatTime(value?: string) {
-  if (!value) {
-    return "--:--";
-  }
-
-  return new Intl.DateTimeFormat("es-EC", {
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value));
+function formatHours(value: number) {
+  return `${value.toFixed(2)} h`;
 }
 
-function statusClasses(status: string) {
-  if (status === "Finalizado") {
-    return "border-geek-lime/30 bg-geek-lime/10 text-geek-lime";
+function formatDateRange(resumen: HorarioAdminResumen | null) {
+  if (!resumen) {
+    return "Semana actual";
   }
 
-  if (status === "En almuerzo") {
-    return "border-amber-300/30 bg-amber-300/10 text-amber-100";
-  }
+  return `${resumen.periodo.fechaInicio} - ${resumen.periodo.fechaFin}`;
+}
 
-  return "border-white/10 bg-white/[0.05] text-zinc-300";
+function metricCards(resumen: HorarioAdminResumen | null) {
+  const totales = resumen?.totales;
+
+  return [
+    {
+      label: "Horas semana",
+      value: formatHours(totales?.horasTrabajadas || 0),
+      helper: `${totales?.minutosTrabajados || 0} min`
+    },
+    {
+      label: "Ganado semana",
+      value: formatMoney(totales?.totalGanado || 0),
+      helper: "Registros finalizados/revisados"
+    },
+    {
+      label: "Total pagado",
+      value: formatMoney(totales?.totalPagado || 0),
+      helper: "Pagos activos registrados"
+    },
+    {
+      label: "Saldo pendiente",
+      value: formatMoney(totales?.saldoPendiente || 0),
+      helper: "Ganado menos pagado"
+    }
+  ];
 }
 
 export default async function HorariosAdminPage() {
-  const session = await getAdminSession();
+  const session = await getSessionFromCookie();
 
   if (!session) {
+    redirect("/login");
+  }
+
+  if (!isAdministratorRole(session.user.rol)) {
     redirect("/acceso-denegado");
   }
 
   let error = "";
-  let fecha = "";
-  let registros: Awaited<ReturnType<typeof listHorariosRegistrosByDate>>["registros"] = [];
+  let resumen: HorarioAdminResumen | null = null;
+  let periodos: HorarioPeriodoPagoDetalle[] = [];
+  let empleados: HorarioEmpleadoPeriodoOption[] = [];
 
   try {
-    const result = await listHorariosRegistrosByDate();
-    fecha = result.fecha;
-    registros = result.registros;
+    [resumen, periodos, empleados] = await Promise.all([
+      fetchHorariosAdminResumen(),
+      fetchPeriodosPago(),
+      fetchHorariosEmpleadosParaPeriodo()
+    ]);
   } catch (loadError) {
     console.error("Error al cargar vista admin de horarios:", loadError);
     error = "No se pudo cargar la vista administrativa de horarios.";
@@ -58,13 +84,18 @@ export default async function HorariosAdminPage() {
   return (
     <PortalShell
       eyebrow="Administración"
-      title="Horarios del equipo"
-      description="Vista rápida de las jornadas registradas hoy."
+      title="Horarios y pagos"
+      description="Resumen semanal de horas trabajadas, pagos registrados y saldos pendientes por empleado."
     >
       <section className="w-full max-w-6xl space-y-5 text-left">
-        <div className="rounded-lg border border-white/10 bg-white/[0.045] p-4 shadow-2xl shadow-black/20 backdrop-blur">
-          <p className="text-sm text-zinc-400">Fecha</p>
-          <p className="mt-1 text-xl font-semibold text-white">{fecha || "Hoy"}</p>
+        <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.045] p-4 shadow-2xl shadow-black/20 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm text-zinc-400">Periodo</p>
+            <p className="mt-1 text-xl font-semibold text-white">{formatDateRange(resumen)}</p>
+          </div>
+          <div className="rounded-md border border-geek-lime/20 bg-geek-lime/10 px-3 py-2 text-sm font-medium text-geek-lime">
+            Semana actual
+          </div>
         </div>
 
         {error ? (
@@ -73,46 +104,52 @@ export default async function HorariosAdminPage() {
           </p>
         ) : null}
 
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {metricCards(resumen).map((card) => (
+            <div key={card.label} className="rounded-lg border border-white/10 bg-white/[0.045] p-5 shadow-2xl shadow-black/20 backdrop-blur">
+              <p className="text-sm text-zinc-400">{card.label}</p>
+              <p className="mt-2 text-2xl font-semibold text-white">{card.value}</p>
+              <p className="mt-2 text-xs text-zinc-500">{card.helper}</p>
+            </div>
+          ))}
+        </div>
+
         <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.035] shadow-2xl shadow-black/20 backdrop-blur">
+          <div className="border-b border-white/10 px-4 py-4">
+            <h2 className="text-lg font-semibold text-white">Resumen por empleado</h2>
+            <p className="mt-1 text-sm text-zinc-400">Solo incluye jornadas con estado Finalizado o Revisado.</p>
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-white/10 text-left text-sm">
               <thead className="bg-white/[0.04] text-xs uppercase text-zinc-400">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Empleado</th>
-                  <th className="px-4 py-3 font-semibold">Estado</th>
-                  <th className="px-4 py-3 font-semibold">Entrada</th>
-                  <th className="px-4 py-3 font-semibold">Almuerzo</th>
-                  <th className="px-4 py-3 font-semibold">Regreso</th>
-                  <th className="px-4 py-3 font-semibold">Salida</th>
-                  <th className="px-4 py-3 font-semibold">Horas</th>
-                  <th className="px-4 py-3 font-semibold">Total</th>
+                  <th className="px-4 py-3 font-semibold">Registros</th>
+                  <th className="px-4 py-3 font-semibold">Horas trabajadas</th>
+                  <th className="px-4 py-3 font-semibold">Total ganado</th>
+                  <th className="px-4 py-3 font-semibold">Total pagado</th>
+                  <th className="px-4 py-3 font-semibold">Saldo pendiente</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
-                {registros.length ? (
-                  registros.map((registro) => (
-                    <tr key={registro.id} className="text-zinc-200">
+                {resumen?.empleados.length ? (
+                  resumen.empleados.map((empleado) => (
+                    <tr key={empleado.empleadoKey} className="text-zinc-200">
                       <td className="px-4 py-4">
-                        <p className="font-medium text-white">{registro.empleado}</p>
-                        <p className="text-xs text-zinc-500">{registro.correo}</p>
+                        <p className="font-medium text-white">{empleado.empleado}</p>
+                        <p className="text-xs text-zinc-500">{empleado.correo || empleado.usuarioId}</p>
                       </td>
-                      <td className="px-4 py-4">
-                        <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses(registro.estadoDia)}`}>
-                          {registro.estadoDia}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">{formatTime(registro.entrada)}</td>
-                      <td className="px-4 py-4">{formatTime(registro.salidaAlmuerzo)}</td>
-                      <td className="px-4 py-4">{formatTime(registro.regresoAlmuerzo)}</td>
-                      <td className="px-4 py-4">{formatTime(registro.salidaFinal)}</td>
-                      <td className="px-4 py-4 font-semibold text-white">{registro.horasTrabajadas.toFixed(2)}</td>
-                      <td className="px-4 py-4 font-semibold text-geek-lime">{formatMoney(registro.totalEstimadoDia)}</td>
+                      <td className="px-4 py-4">{empleado.registrosCount}</td>
+                      <td className="px-4 py-4 font-semibold text-white">{formatHours(empleado.horasTrabajadas)}</td>
+                      <td className="px-4 py-4 font-semibold text-white">{formatMoney(empleado.totalGanado)}</td>
+                      <td className="px-4 py-4 font-semibold text-zinc-100">{formatMoney(empleado.totalPagado)}</td>
+                      <td className="px-4 py-4 font-semibold text-geek-lime">{formatMoney(empleado.saldoPendiente)}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-zinc-400">
-                      No hay registros de horarios para hoy.
+                    <td colSpan={6} className="px-4 py-8 text-center text-zinc-400">
+                      No hay registros finalizados o revisados para la semana actual.
                     </td>
                   </tr>
                 )}
@@ -120,6 +157,8 @@ export default async function HorariosAdminPage() {
             </table>
           </div>
         </div>
+
+        <HorariosAdminPeriodosClient periodos={periodos} empleados={empleados} />
       </section>
     </PortalShell>
   );
