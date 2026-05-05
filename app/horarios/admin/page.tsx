@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
+import { HorariosAdminJornadasClient } from "@/components/horarios/HorariosAdminJornadasClient";
 import { HorariosAdminPeriodosClient } from "@/components/horarios/HorariosAdminPeriodosClient";
 import { PortalShell } from "@/components/PortalShell";
 import { isAdministratorRole } from "@/lib/apps";
-import { fetchHorariosAdminResumen, fetchHorariosEmpleadosParaPeriodo, fetchPeriodosPago } from "@/lib/horarios/airtable";
+import { fetchHorariosAdminResumen, fetchHorariosEmpleadosParaPeriodo, fetchJornadasIncompletasAdmin, fetchPeriodosPago } from "@/lib/horarios/airtable";
 import { getSessionFromCookie } from "@/lib/session";
-import type { HorarioAdminResumen, HorarioEmpleadoPeriodoOption, HorarioPeriodoPagoDetalle } from "@/types/horarios";
+import type { HorarioAdminResumen, HorarioEmpleadoPeriodoOption, HorarioPeriodoPagoDetalle, HorarioRegistro } from "@/types/horarios";
 
 export const dynamic = "force-dynamic";
 
@@ -69,12 +70,14 @@ export default async function HorariosAdminPage() {
   let resumen: HorarioAdminResumen | null = null;
   let periodos: HorarioPeriodoPagoDetalle[] = [];
   let empleados: HorarioEmpleadoPeriodoOption[] = [];
+  let jornadasIncompletas: HorarioRegistro[] = [];
 
   try {
-    [resumen, periodos, empleados] = await Promise.all([
+    [resumen, periodos, empleados, jornadasIncompletas] = await Promise.all([
       fetchHorariosAdminResumen(),
       fetchPeriodosPago(),
-      fetchHorariosEmpleadosParaPeriodo()
+      fetchHorariosEmpleadosParaPeriodo(),
+      fetchJornadasIncompletasAdmin()
     ]);
   } catch (loadError) {
     console.error("Error al cargar vista admin de horarios:", loadError);
@@ -157,6 +160,8 @@ export default async function HorariosAdminPage() {
             </table>
           </div>
         </div>
+
+        <HorariosAdminJornadasClient jornadas={jornadasIncompletas} />
 
         <HorariosAdminPeriodosClient periodos={periodos} empleados={empleados} />
       </section>

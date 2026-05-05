@@ -4,12 +4,14 @@ import { findUserByEmail, listPortalUsers } from "@/lib/airtable";
 import { canAccessApp, isAdministratorRole } from "@/lib/apps";
 import type { SessionUser } from "@/lib/session";
 import type {
+  CorregirJornadaAdminInput,
   EstadoDia,
   EstadoPeriodoPago,
   HorarioAdminEmpleadoResumen,
   HorarioAdminResumen,
   HorarioEmpleadoResumen,
   HorarioEmpleadoPeriodoOption,
+  HorarioEmpleadoResumenPagos,
   HorarioEmpleadoVista,
   HorarioEstado,
   HorarioMarcacion,
@@ -115,17 +117,17 @@ type HorarioRegistroFields = {
   Correo?: string;
   Fecha?: string;
   "Estado del día"?: EstadoDia;
-  Entrada?: string;
-  "Salida Almuerzo"?: string;
-  "Regreso Almuerzo"?: string;
-  "Salida Final"?: string;
+  Entrada?: string | null;
+  "Salida Almuerzo"?: string | null;
+  "Regreso Almuerzo"?: string | null;
+  "Salida Final"?: string | null;
   "Minutos Trabajados"?: number;
   "Horas Trabajadas"?: number;
   "Sueldo Base"?: number;
   "Horas Base Mes"?: number;
   "Valor Hora"?: number;
   "Total Estimado Día"?: number;
-  Observaciones?: string;
+  Observaciones?: string | null;
   "IP Entrada"?: string;
   "IP Salida"?: string;
   "User Agent"?: string;
@@ -197,6 +199,10 @@ type RegistrarPagoHorarioInput = {
     contentType: string;
     fileBase64: string;
   } | null;
+};
+
+type CorregirJornadaAdminOptions = {
+  adminUser: SessionUser;
 };
 
 type RequestMeta = {
@@ -433,6 +439,10 @@ function calculateMinutes(registro: Pick<HorarioRegistro, "entrada" | "salidaAlm
   return includeOpenSegment ? diffMinutes(registro.entrada, now.toISOString()) : 0;
 }
 
+function calculateClosedJornadaMinutes(registro: Pick<HorarioRegistro, "entrada" | "salidaAlmuerzo" | "regresoAlmuerzo" | "salidaFinal">) {
+  return calculateMinutes(registro, new Date(), false);
+}
+
 function getTotals(minutes: number) {
   const horasTrabajadas = roundHours(minutes);
 
@@ -443,6 +453,20 @@ function getTotals(minutes: number) {
     horasBaseMes: HORAS_BASE_MES,
     valorHora: VALOR_HORA,
     totalEstimadoDia: roundMoney(horasTrabajadas * VALOR_HORA)
+  };
+}
+
+function getTotalsForValorHora(minutes: number, valorHora: number) {
+  const horasTrabajadas = roundHours(minutes);
+  const safeValorHora = Number.isFinite(valorHora) && valorHora > 0 ? valorHora : VALOR_HORA;
+
+  return {
+    minutosTrabajados: minutes,
+    horasTrabajadas,
+    sueldoBase: SUELDO_BASE,
+    horasBaseMes: HORAS_BASE_MES,
+    valorHora: safeValorHora,
+    totalEstimadoDia: roundMoney(horasTrabajadas * safeValorHora)
   };
 }
 
@@ -530,17 +554,17 @@ function mapRegistro(record: AirtableRecord<HorarioRegistroFields>): HorarioRegi
     correo: fields[HORARIOS_REGISTROS_FIELDS.correo] || "",
     fecha: fields[HORARIOS_REGISTROS_FIELDS.fecha] || "",
     estadoDia: fields[HORARIOS_REGISTROS_FIELDS.estadoDia] || "Pendiente",
-    entrada: fields[HORARIOS_REGISTROS_FIELDS.entrada],
-    salidaAlmuerzo: fields[HORARIOS_REGISTROS_FIELDS.salidaAlmuerzo],
-    regresoAlmuerzo: fields[HORARIOS_REGISTROS_FIELDS.regresoAlmuerzo],
-    salidaFinal: fields[HORARIOS_REGISTROS_FIELDS.salidaFinal],
+    entrada: fields[HORARIOS_REGISTROS_FIELDS.entrada] ?? undefined,
+    salidaAlmuerzo: fields[HORARIOS_REGISTROS_FIELDS.salidaAlmuerzo] ?? undefined,
+    regresoAlmuerzo: fields[HORARIOS_REGISTROS_FIELDS.regresoAlmuerzo] ?? undefined,
+    salidaFinal: fields[HORARIOS_REGISTROS_FIELDS.salidaFinal] ?? undefined,
     minutosTrabajados: fields[HORARIOS_REGISTROS_FIELDS.minutosTrabajados] || 0,
     horasTrabajadas: fields[HORARIOS_REGISTROS_FIELDS.horasTrabajadas] || 0,
     sueldoBase: fields[HORARIOS_REGISTROS_FIELDS.sueldoBase] || SUELDO_BASE,
     horasBaseMes: fields[HORARIOS_REGISTROS_FIELDS.horasBaseMes] || HORAS_BASE_MES,
     valorHora: fields[HORARIOS_REGISTROS_FIELDS.valorHora] || VALOR_HORA,
     totalEstimadoDia: fields[HORARIOS_REGISTROS_FIELDS.totalEstimadoDia] || 0,
-    observaciones: fields[HORARIOS_REGISTROS_FIELDS.observaciones]
+    observaciones: fields[HORARIOS_REGISTROS_FIELDS.observaciones] ?? undefined
   };
 }
 
@@ -729,6 +753,38 @@ async function createMarcacion(
   return mapMarcacion(record);
 }
 
+async function createAdminAjusteMarcacion(
+  registro: HorarioRegistro,
+  now: Date,
+  adminUser: SessionUser,
+  estadoResultante: Extract<EstadoDia, "Finalizado" | "Revisado">
+) {
+  const empleadoRecordId = registro.empleadoRecordId;
+
+  if (!empleadoRecordId) {
+    throw new Error("La jornada no tiene un empleado vinculado válido.");
+  }
+
+  const record = await airtableRequest<AirtableRecord<HorarioMarcacionFields>>(getTableUrl(MARCACIONES_TABLE), {
+    method: "POST",
+    body: JSON.stringify({
+      fields: {
+        [HORARIOS_MARCACIONES_FIELDS.empleado]: [empleadoRecordId],
+        [HORARIOS_MARCACIONES_FIELDS.usuarioId]: registro.usuarioId,
+        [HORARIOS_MARCACIONES_FIELDS.correo]: registro.correo,
+        [HORARIOS_MARCACIONES_FIELDS.fechaHora]: now.toISOString(),
+        [HORARIOS_MARCACIONES_FIELDS.tipoMarcacion]: "ajuste_admin",
+        [HORARIOS_MARCACIONES_FIELDS.estadoResultante]: estadoResultante,
+        [HORARIOS_MARCACIONES_FIELDS.registroDelDia]: [registro.id],
+        [HORARIOS_MARCACIONES_FIELDS.origen]: "Ajuste administrador",
+        [HORARIOS_MARCACIONES_FIELDS.observacion]: `Corrección administrativa realizada por ${adminUser.email || adminUser.nombre || "Administrador"}.`
+      }
+    })
+  });
+
+  return mapMarcacion(record);
+}
+
 async function createRegistro(user: SessionUser, empleadoRecordId: string, fecha: string, now: Date, meta: RequestMeta) {
   const totals = getTotals(0);
   const record = await airtableRequest<AirtableRecord<HorarioRegistroFields>>(getTableUrl(REGISTROS_TABLE), {
@@ -880,6 +936,102 @@ export async function listHorariosRegistrosByDate(fecha = getLocalDateKey(new Da
   };
 }
 
+export async function fetchJornadasIncompletasAdmin() {
+  const query = new URLSearchParams({
+    filterByFormula: `OR({${HORARIOS_REGISTROS_FIELDS.estadoDia}} = 'Trabajando', {${HORARIOS_REGISTROS_FIELDS.estadoDia}} = 'En almuerzo', {${HORARIOS_REGISTROS_FIELDS.estadoDia}} = 'Incompleto')`,
+    "sort[0][field]": HORARIOS_REGISTROS_FIELDS.fecha,
+    "sort[0][direction]": "desc",
+    "sort[1][field]": HORARIOS_REGISTROS_FIELDS.empleado,
+    "sort[1][direction]": "asc"
+  });
+  const records = await listAllAirtableRecords<HorarioRegistroFields>(REGISTROS_TABLE, query);
+
+  return records.map(mapRegistro);
+}
+
+export async function fetchHorarioRegistroById(id: string) {
+  if (!isAirtableRecordId(id)) {
+    return null;
+  }
+
+  const record = await airtableRequest<AirtableRecord<HorarioRegistroFields>>(getTableUrl(REGISTROS_TABLE, id));
+
+  return mapRegistro(record);
+}
+
+function assertValidCorrectionInput(input: CorregirJornadaAdminInput) {
+  const entrada = toTimestamp(input.entrada);
+  const salidaAlmuerzo = toTimestamp(input.salidaAlmuerzo);
+  const regresoAlmuerzo = toTimestamp(input.regresoAlmuerzo);
+  const salidaFinal = toTimestamp(input.salidaFinal);
+
+  if (entrada === null || salidaFinal === null) {
+    throw new Error("Entrada y salida final son obligatorias para cerrar una jornada corregida.");
+  }
+
+  if ((input.salidaAlmuerzo && !input.regresoAlmuerzo) || (!input.salidaAlmuerzo && input.regresoAlmuerzo)) {
+    throw new Error("Si corriges almuerzo, debes registrar salida y regreso de almuerzo.");
+  }
+
+  if (salidaFinal <= entrada) {
+    throw new Error("La salida final debe ser posterior a la entrada.");
+  }
+
+  if (salidaAlmuerzo !== null && regresoAlmuerzo !== null) {
+    if (salidaAlmuerzo <= entrada) {
+      throw new Error("La salida de almuerzo debe ser posterior a la entrada.");
+    }
+
+    if (regresoAlmuerzo <= salidaAlmuerzo) {
+      throw new Error("El regreso de almuerzo debe ser posterior a la salida de almuerzo.");
+    }
+
+    if (salidaFinal <= regresoAlmuerzo) {
+      throw new Error("La salida final debe ser posterior al regreso de almuerzo.");
+    }
+  }
+
+  if (input.estadoDia !== "Finalizado" && input.estadoDia !== "Revisado") {
+    throw new Error("El estado corregido debe ser Finalizado o Revisado.");
+  }
+}
+
+export async function corregirJornadaAdmin(
+  registroId: string,
+  input: CorregirJornadaAdminInput,
+  options: CorregirJornadaAdminOptions
+) {
+  assertValidCorrectionInput(input);
+
+  const registro = await fetchHorarioRegistroById(registroId);
+
+  if (!registro) {
+    throw new Error("No se encontró la jornada.");
+  }
+
+  const draft: HorarioRegistro = {
+    ...registro,
+    entrada: input.entrada,
+    salidaAlmuerzo: input.salidaAlmuerzo || undefined,
+    regresoAlmuerzo: input.regresoAlmuerzo || undefined,
+    salidaFinal: input.salidaFinal
+  };
+  const totals = getTotalsForValorHora(calculateClosedJornadaMinutes(draft), registro.valorHora);
+  const updatedRegistro = await updateRegistro(registro, {
+    [HORARIOS_REGISTROS_FIELDS.entrada]: input.entrada,
+    [HORARIOS_REGISTROS_FIELDS.salidaAlmuerzo]: input.salidaAlmuerzo || null,
+    [HORARIOS_REGISTROS_FIELDS.regresoAlmuerzo]: input.regresoAlmuerzo || null,
+    [HORARIOS_REGISTROS_FIELDS.salidaFinal]: input.salidaFinal,
+    [HORARIOS_REGISTROS_FIELDS.estadoDia]: input.estadoDia,
+    [HORARIOS_REGISTROS_FIELDS.observaciones]: input.observaciones?.trim() || null,
+    ...mapTotalsToRegistroFields(totals)
+  });
+
+  await createAdminAjusteMarcacion(updatedRegistro, new Date(), options.adminUser, input.estadoDia);
+
+  return updatedRegistro;
+}
+
 function buildRegistrosSemanaFormula(fechaInicio: string, fechaFin: string) {
   const fechaField = HORARIOS_REGISTROS_FIELDS.fecha;
 
@@ -1014,6 +1166,73 @@ export async function fetchMisPagos(user: SessionUser) {
     .sort((first, second) => second.fechaPago.localeCompare(first.fechaPago));
 }
 
+async function fetchMisPeriodosPago(user: SessionUser) {
+  const empleadoRecordId = await getEmpleadoRecordId(user);
+  const records = await listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, new URLSearchParams({
+    "sort[0][field]": HORARIOS_PERIODOS_FIELDS.fechaInicio,
+    "sort[0][direction]": "desc"
+  }));
+
+  return records
+    .map(mapPeriodo)
+    .filter((periodo) => periodo.empleadoRecordId === empleadoRecordId && periodo.estadoPeriodo !== "Anulado");
+}
+
+function isPeriodoPagoRelevantForEmployeeSummary(periodo: HorarioPeriodoPago) {
+  return (
+    periodo.saldoPendiente > 0 ||
+    periodo.estadoPeriodo === "Abierto" ||
+    periodo.estadoPeriodo === "Parcialmente pagado" ||
+    periodo.estadoPeriodo === "Revisado"
+  );
+}
+
+function getEstadoGeneralPago(totalGanado: number, totalPagado: number, saldoPendiente: number, hasUltimoPago: boolean): HorarioEmpleadoResumenPagos["estadoGeneral"] {
+  if (saldoPendiente <= 0 && hasUltimoPago) {
+    return "Pagado";
+  }
+
+  if (totalGanado <= 0) {
+    return "Sin jornadas pagables";
+  }
+
+  if (totalPagado <= 0) {
+    return "Sin pagos registrados";
+  }
+
+  if (saldoPendiente > 0) {
+    return "Parcialmente pagado";
+  }
+
+  return "Pagado";
+}
+
+export async function fetchMiResumenPagos(user: SessionUser): Promise<HorarioEmpleadoResumenPagos> {
+  const [periodos, pagos] = await Promise.all([
+    fetchMisPeriodosPago(user),
+    fetchMisPagos(user)
+  ]);
+  const periodosRelevantes = periodos.filter(isPeriodoPagoRelevantForEmployeeSummary);
+  const totalGanado = periodosRelevantes.reduce((total, periodo) => total + periodo.totalGanado, 0);
+  const totalPagado = periodosRelevantes.reduce((total, periodo) => total + periodo.totalPagado, 0);
+  const saldoPendiente = periodosRelevantes.reduce((total, periodo) => total + periodo.saldoPendiente, 0);
+  const ultimoPago = pagos[0] || null;
+  const totalGanadoPeriodos = roundMoney(totalGanado);
+  const totalPagadoPeriodos = roundMoney(totalPagado);
+  const saldoPendientePeriodos = roundMoney(saldoPendiente);
+
+  return {
+    totalGanadoPeriodos,
+    totalPagadoPeriodos,
+    saldoPendientePeriodos,
+    ultimoPagoMonto: ultimoPago ? ultimoPago.montoPagado : null,
+    ultimoPagoFecha: ultimoPago?.fechaPago || null,
+    periodosRegistrados: periodos.length,
+    periodosConsiderados: periodosRelevantes.length,
+    estadoGeneral: getEstadoGeneralPago(totalGanadoPeriodos, totalPagadoPeriodos, saldoPendientePeriodos, Boolean(ultimoPago))
+  };
+}
+
 export async function fetchMiResumenHorarios(user: SessionUser): Promise<HorarioEmpleadoResumen> {
   const now = new Date();
   const todayKey = getLocalDateKey(now);
@@ -1034,14 +1253,16 @@ export async function fetchMiResumenHorarios(user: SessionUser): Promise<Horario
 }
 
 export async function fetchMiVistaHorarios(user: SessionUser): Promise<HorarioEmpleadoVista> {
-  const [resumen, jornadas, pagos] = await Promise.all([
+  const [resumen, resumenPagos, jornadas, pagos] = await Promise.all([
     fetchMiResumenHorarios(user),
+    fetchMiResumenPagos(user),
     fetchMisJornadas(user),
     fetchMisPagos(user)
   ]);
 
   return {
     resumen,
+    resumenPagos,
     jornadas,
     pagos
   };

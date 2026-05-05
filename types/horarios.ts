@@ -83,6 +83,7 @@ export type HorarioEmpleadoResumen = {
 
 export type HorarioEmpleadoVista = {
   resumen: HorarioEmpleadoResumen;
+  resumenPagos: HorarioEmpleadoResumenPagos;
   jornadas: HorarioRegistro[];
   pagos: HorarioPago[];
 };
@@ -119,6 +120,12 @@ export type HorarioAdminResumen = {
 export type EstadoPeriodoPago = "Abierto" | "Parcialmente pagado" | "Pagado" | "Anulado";
 
 export type EstadoPagoHorario = "Registrado" | "Anulado";
+
+export type HorarioEstadoGeneralPago =
+  | "Sin jornadas pagables"
+  | "Sin pagos registrados"
+  | "Parcialmente pagado"
+  | "Pagado";
 
 export const HORARIO_METODOS_PAGO = ["Transferencia bancaria", "Efectivo", "Depósito", "Otro"] as const;
 
@@ -170,9 +177,29 @@ export type HorarioPeriodoPagoDetalle = HorarioPeriodoPago & {
   pagos: HorarioPago[];
 };
 
+export type HorarioEmpleadoResumenPagos = {
+  totalGanadoPeriodos: number;
+  totalPagadoPeriodos: number;
+  saldoPendientePeriodos: number;
+  ultimoPagoMonto: number | null;
+  ultimoPagoFecha: string | null;
+  periodosRegistrados: number;
+  periodosConsiderados: number;
+  estadoGeneral: HorarioEstadoGeneralPago;
+};
+
 export type HorarioEmpleadoPeriodoOption = {
   empleadoRecordId: string;
   empleado: string;
   usuarioId: string;
   correo: string;
+};
+
+export type CorregirJornadaAdminInput = {
+  entrada: string;
+  salidaAlmuerzo?: string;
+  regresoAlmuerzo?: string;
+  salidaFinal: string;
+  observaciones?: string;
+  estadoDia: "Finalizado" | "Revisado";
 };

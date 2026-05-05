@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import type { HorarioEmpleadoVista, HorarioEstado, HorarioPago, HorarioRegistro, TipoMarcacion } from "@/types/horarios";
+import type { HorarioEmpleadoResumenPagos, HorarioEmpleadoVista, HorarioEstado, HorarioPago, HorarioRegistro, TipoMarcacion } from "@/types/horarios";
 
 type HorariosClientProps = {
   initialEstado: HorarioEstado | null;
@@ -99,12 +99,66 @@ function statusClasses(status?: string) {
   return "border-white/10 bg-white/[0.05] text-zinc-300";
 }
 
+function paymentStatusClasses(status: HorarioEmpleadoResumenPagos["estadoGeneral"]) {
+  if (status === "Pagado") {
+    return "border-geek-lime/30 bg-geek-lime/10 text-geek-lime";
+  }
+
+  if (status === "Parcialmente pagado") {
+    return "border-amber-300/30 bg-amber-300/10 text-amber-100";
+  }
+
+  if (status === "Sin pagos registrados") {
+    return "border-sky-300/30 bg-sky-300/10 text-sky-100";
+  }
+
+  return "border-white/10 bg-white/[0.05] text-zinc-300";
+}
+
 function SummaryMetric({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
     <div className="rounded-lg border border-white/10 bg-black/20 p-4">
       <p className="text-xs uppercase tracking-normal text-zinc-500">{label}</p>
       <p className={`mt-2 text-lg font-semibold ${accent ? "text-geek-lime" : "text-white"}`}>{value}</p>
     </div>
+  );
+}
+
+function EstadoPagoSection({ resumenPagos, tieneJornadasMes }: { resumenPagos: HorarioEmpleadoResumenPagos; tieneJornadasMes: boolean }) {
+  const ultimoPago =
+    resumenPagos.ultimoPagoMonto !== null
+      ? `${formatMoney(resumenPagos.ultimoPagoMonto)} · ${formatDate(resumenPagos.ultimoPagoFecha || undefined)}`
+      : "Sin pagos registrados";
+  const hasPeriodos = resumenPagos.periodosRegistrados > 0;
+
+  return (
+    <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5 shadow-2xl shadow-black/20 backdrop-blur">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Estado de pago</h2>
+          <p className="mt-1 text-sm text-zinc-400">Periodos de pago creados por administración.</p>
+        </div>
+        <span className={`inline-flex w-fit rounded-md border px-2.5 py-1 text-xs font-semibold ${paymentStatusClasses(resumenPagos.estadoGeneral)}`}>
+          {resumenPagos.estadoGeneral}
+        </span>
+      </div>
+      {!hasPeriodos ? (
+        <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300">
+          Aún no hay periodos de pago registrados.
+        </p>
+      ) : null}
+      {!hasPeriodos && tieneJornadasMes ? (
+        <p className="mt-3 text-sm text-zinc-400">
+          Tus jornadas trabajadas aparecerán en Estado de pago cuando administración cree un periodo de pago.
+        </p>
+      ) : null}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryMetric label="Ganado en periodos" value={formatMoney(resumenPagos.totalGanadoPeriodos)} accent />
+        <SummaryMetric label="Pagado en periodos" value={formatMoney(resumenPagos.totalPagadoPeriodos)} />
+        <SummaryMetric label="Pendiente por cobrar" value={formatMoney(resumenPagos.saldoPendientePeriodos)} accent={resumenPagos.saldoPendientePeriodos > 0} />
+        <SummaryMetric label="Último pago" value={ultimoPago} />
+      </div>
+    </section>
   );
 }
 
@@ -220,6 +274,7 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
   const estadoDia = registro?.estadoDia || "Pendiente";
   const siguienteMarcacion = estado?.siguienteMarcacion;
   const miResumen = initialMiVista?.resumen;
+  const resumenPagos = initialMiVista?.resumenPagos;
   const misJornadas = initialMiVista?.jornadas || [];
   const misPagos = initialMiVista?.pagos || [];
 
@@ -383,7 +438,7 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
             <div>
               <h2 className="text-lg font-semibold text-white">Mi resumen</h2>
               <p className="mt-1 text-sm text-zinc-400">
-                Jornadas del {formatDate(miResumen.periodoJornadas.fechaInicio)} al {formatDate(miResumen.periodoJornadas.fechaFin)}
+                Resumen del mes actual: {formatDate(miResumen.periodoJornadas.fechaInicio)} - {formatDate(miResumen.periodoJornadas.fechaFin)}
               </p>
             </div>
           </div>
@@ -397,6 +452,8 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
           </div>
         </section>
       ) : null}
+
+      {resumenPagos ? <EstadoPagoSection resumenPagos={resumenPagos} tieneJornadasMes={(miResumen?.mes.totalEstimado || 0) > 0} /> : null}
 
       <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 backdrop-blur">
         <h2 className="text-lg font-semibold text-white">Mis jornadas</h2>
