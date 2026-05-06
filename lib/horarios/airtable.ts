@@ -1283,18 +1283,34 @@ export async function fetchMisJornadas(user: SessionUser) {
 }
 
 export async function fetchMisPagos(user: SessionUser) {
-  const empleadoRecordId = await getEmpleadoRecordId(user);
-  const records = await listPagosActivos();
+  const [empleadoRecordId, records, periodos] = await Promise.all([
+    getEmpleadoRecordId(user),
+    listPagosActivos(),
+    fetchMisPeriodosPago(user)
+  ]);
+  const periodosById = new Map(periodos.map((periodo) => [periodo.id, periodo]));
 
   return records
     .map(mapPago)
     .filter((pago) => pago.empleadoRecordId === empleadoRecordId && pago.estadoPago !== "Anulado")
+    .map((pago) => {
+      const periodo = pago.periodoPagoId ? periodosById.get(pago.periodoPagoId) : undefined;
+
+      return {
+        ...pago,
+        periodoFechaInicio: periodo?.fechaInicio,
+        periodoFechaFin: periodo?.fechaFin,
+        periodoRolGenerado: periodo?.rolGenerado,
+        periodoRolPagoBlobPathname: periodo?.rolPagoBlobPathname
+      };
+    })
     .sort((first, second) => second.fechaPago.localeCompare(first.fechaPago));
 }
 
 async function fetchMisPeriodosPago(user: SessionUser) {
   const [empleadoRecordId, users] = await Promise.all([getEmpleadoRecordId(user), listPortalUsers()]);
   const userMaps = buildPortalUserMaps(users);
+  const email = user.email.trim().toLowerCase();
   const records = await listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, new URLSearchParams({
     "sort[0][field]": HORARIOS_PERIODOS_FIELDS.fechaInicio,
     "sort[0][direction]": "desc"
@@ -1302,7 +1318,17 @@ async function fetchMisPeriodosPago(user: SessionUser) {
 
   return records
     .map(mapPeriodo)
-    .filter((periodo) => periodo.empleadoRecordId === empleadoRecordId && periodo.estadoPeriodo !== "Anulado")
+    .filter((periodo) => {
+      if (periodo.estadoPeriodo === "Anulado") {
+        return false;
+      }
+
+      return (
+        periodo.empleadoRecordId === empleadoRecordId ||
+        Boolean(periodo.usuarioId && periodo.usuarioId === user.userId) ||
+        Boolean(email && periodo.correo.trim().toLowerCase() === email)
+      );
+    })
     .map((periodo) => applyPortalUserToPeriodo(periodo, findPortalUserForEmpleado(userMaps, periodo.empleadoRecordId, periodo.correo)));
 }
 
@@ -1310,7 +1336,7 @@ export async function fetchMisRolesPago(user: SessionUser): Promise<HorarioEmple
   const periodos = await fetchMisPeriodosPago(user);
 
   return periodos
-    .filter((periodo) => periodo.estadoRol !== "Anulado" && Boolean(periodo.rolPagoBlobPathname || periodo.rolPagoBlobUrl))
+    .filter((periodo) => periodo.rolGenerado && Boolean(periodo.rolPagoBlobPathname))
     .map((periodo) => ({
       periodoId: periodo.id,
       empleado: periodo.empleado,

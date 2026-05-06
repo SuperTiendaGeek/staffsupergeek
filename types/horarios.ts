@@ -150,6 +150,10 @@ export type HorarioPago = {
   id: string;
   empleadoRecordId?: string;
   periodoPagoId?: string;
+  periodoFechaInicio?: string;
+  periodoFechaFin?: string;
+  periodoRolGenerado?: boolean;
+  periodoRolPagoBlobPathname?: string;
   fechaPago: string;
   montoPagado: number;
   metodoPago?: HorarioMetodoPago | string;
