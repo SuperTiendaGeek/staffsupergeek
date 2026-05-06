@@ -1,8 +1,11 @@
 import "server-only";
 
+import { put } from "@vercel/blob";
 import { findUserByEmail, listPortalUsers } from "@/lib/airtable";
 import { canAccessApp, isAdministratorRole } from "@/lib/apps";
 import type { SessionUser } from "@/lib/session";
+import { generateRolPagoPdf } from "@/lib/horarios/rol-pago-pdf";
+import type { PortalUser } from "@/types/admin-users";
 import type {
   CorregirJornadaAdminInput,
   EstadoDia,
@@ -11,6 +14,7 @@ import type {
   HorarioAdminResumen,
   HorarioEmpleadoResumen,
   HorarioEmpleadoPeriodoOption,
+  HorarioEmpleadoRolPago,
   HorarioEmpleadoResumenPagos,
   HorarioEmpleadoVista,
   HorarioEstado,
@@ -98,7 +102,15 @@ const HORARIOS_PERIODOS_FIELDS = {
   totalGanado: "Total Ganado",
   pagos: "Pagos",
   totalPagado: "Total Pagado",
-  saldoPendiente: "Saldo Pendiente"
+  saldoPendiente: "Saldo Pendiente",
+  rolPagoPdf: "Rol de Pago PDF",
+  rolPagoBlobUrl: "Rol de Pago Blob URL",
+  rolPagoBlobPathname: "Rol de Pago Blob Pathname",
+  rolGenerado: "Rol generado",
+  fechaGeneracionRol: "Fecha generación rol",
+  generadoPor: "Generado por",
+  observacionRol: "Observación rol",
+  estadoRol: "Estado rol"
 } as const;
 
 type AirtableRecord<TFields> = {
@@ -175,6 +187,14 @@ type HorarioPeriodoPagoFields = {
   Pagos?: string[];
   "Total Pagado"?: number;
   "Saldo Pendiente"?: number;
+  "Rol de Pago PDF"?: unknown;
+  "Rol de Pago Blob URL"?: string;
+  "Rol de Pago Blob Pathname"?: string;
+  "Rol generado"?: boolean;
+  "Fecha generación rol"?: string;
+  "Generado por"?: string;
+  "Observación rol"?: string;
+  "Estado rol"?: string;
 };
 
 type EstadoResultanteMarcacion = Exclude<EstadoDia, "Pendiente">;
@@ -206,6 +226,12 @@ type AnularPagoHorarioInput = {
   pagoId: string;
   motivo: string;
   adminUser: SessionUser;
+};
+
+type GenerarRolPagoInput = {
+  periodoId: string;
+  adminUser: SessionUser;
+  observacionRol?: string | null;
 };
 
 type CorregirJornadaAdminOptions = {
@@ -504,6 +530,57 @@ function getLinkedRecordId(value: string | string[] | undefined) {
   return isAirtableRecordId(value || "") ? value : undefined;
 }
 
+function normalizeEmail(value?: string) {
+  return value?.trim().toLowerCase() || "";
+}
+
+function buildPortalUserMaps(users: PortalUser[]) {
+  return {
+    byId: new Map<string, PortalUser>(users.map((user) => [user.id, user])),
+    byEmail: new Map<string, PortalUser>(
+      users
+        .map((user): [string, PortalUser] => [normalizeEmail(user.email), user])
+        .filter(([email]) => Boolean(email))
+    )
+  };
+}
+
+function findPortalUserForEmpleado(
+  maps: ReturnType<typeof buildPortalUserMaps>,
+  empleadoRecordId?: string,
+  correo?: string
+) {
+  return (empleadoRecordId ? maps.byId.get(empleadoRecordId) : undefined) || maps.byEmail.get(normalizeEmail(correo));
+}
+
+function applyPortalUserToRegistro(registro: HorarioRegistro, user?: PortalUser): HorarioRegistro {
+  if (!user) {
+    return registro;
+  }
+
+  return {
+    ...registro,
+    empleado: user.nombre || user.email || registro.empleado,
+    empleadoCedula: user.cedula,
+    empleadoRol: user.rol,
+    correo: user.email || registro.correo
+  };
+}
+
+function applyPortalUserToPeriodo(periodo: HorarioPeriodoPago, user?: PortalUser): HorarioPeriodoPago {
+  if (!user) {
+    return periodo;
+  }
+
+  return {
+    ...periodo,
+    empleado: user.nombre || user.email || periodo.empleado,
+    empleadoCedula: user.cedula,
+    empleadoRol: user.rol,
+    correo: user.email || periodo.correo
+  };
+}
+
 function normalizeRegistradoPor(value?: string | null) {
   const textValue = typeof value === "string" ? value.trim() : "";
 
@@ -523,6 +600,21 @@ function formatAuditDate(date: Date) {
   const getPart = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || "";
 
   return `${getPart("day")}/${getPart("month")}/${getPart("year")} ${getPart("hour")}:${getPart("minute")}`;
+}
+
+function slugifyFilePart(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+}
+
+function buildRolPagoFilename(periodo: HorarioPeriodoPagoDetalle) {
+  const empleado = slugifyFilePart(periodo.empleado || periodo.correo || "empleado") || "empleado";
+
+  return `rol-pago-${empleado}-${periodo.fechaInicio}-${periodo.fechaFin}.pdf`;
 }
 
 export function normalizeHorarioMetodoPago(value?: string | null): HorarioMetodoPago {
@@ -683,7 +775,15 @@ function mapPeriodo(record: AirtableRecord<HorarioPeriodoPagoFields>): HorarioPe
     totalHoras: fields[HORARIOS_PERIODOS_FIELDS.totalHoras] || 0,
     totalGanado: fields[HORARIOS_PERIODOS_FIELDS.totalGanado] || 0,
     totalPagado: fields[HORARIOS_PERIODOS_FIELDS.totalPagado] || 0,
-    saldoPendiente: fields[HORARIOS_PERIODOS_FIELDS.saldoPendiente] || 0
+    saldoPendiente: fields[HORARIOS_PERIODOS_FIELDS.saldoPendiente] || 0,
+    rolPagoPdf: parsePagoComprobantes(fields[HORARIOS_PERIODOS_FIELDS.rolPagoPdf]),
+    rolPagoBlobUrl: fields[HORARIOS_PERIODOS_FIELDS.rolPagoBlobUrl],
+    rolPagoBlobPathname: fields[HORARIOS_PERIODOS_FIELDS.rolPagoBlobPathname],
+    rolGenerado: Boolean(fields[HORARIOS_PERIODOS_FIELDS.rolGenerado]),
+    fechaGeneracionRol: fields[HORARIOS_PERIODOS_FIELDS.fechaGeneracionRol],
+    generadoPor: fields[HORARIOS_PERIODOS_FIELDS.generadoPor],
+    observacionRol: fields[HORARIOS_PERIODOS_FIELDS.observacionRol],
+    estadoRol: fields[HORARIOS_PERIODOS_FIELDS.estadoRol] || "Pendiente"
   };
 }
 
@@ -1069,6 +1169,8 @@ function createEmptyEmpleadoResumen(registro: HorarioRegistro): HorarioAdminEmpl
     empleadoKey: getEmpleadoSummaryKey(registro),
     empleado: registro.empleado,
     empleadoRecordId: registro.empleadoRecordId,
+    empleadoCedula: registro.empleadoCedula,
+    empleadoRol: registro.empleadoRol,
     usuarioId: registro.usuarioId,
     correo: registro.correo,
     minutosTrabajados: 0,
@@ -1118,7 +1220,8 @@ function registroBelongsToUser(registro: HorarioRegistro, user: SessionUser, emp
 }
 
 async function listRegistrosEmpleadoByDateRange(user: SessionUser, fechaInicio: string, fechaFin: string) {
-  const empleadoRecordId = await getEmpleadoRecordId(user);
+  const [empleadoRecordId, users] = await Promise.all([getEmpleadoRecordId(user), listPortalUsers()]);
+  const userMaps = buildPortalUserMaps(users);
   const query = new URLSearchParams({
     filterByFormula: buildRegistrosFechaRangeFormula(fechaInicio, fechaFin),
     "sort[0][field]": HORARIOS_REGISTROS_FIELDS.fecha,
@@ -1128,7 +1231,8 @@ async function listRegistrosEmpleadoByDateRange(user: SessionUser, fechaInicio: 
 
   return records
     .map(mapRegistro)
-    .filter((registro) => registroBelongsToUser(registro, user, empleadoRecordId));
+    .filter((registro) => registroBelongsToUser(registro, user, empleadoRecordId))
+    .map((registro) => applyPortalUserToRegistro(registro, findPortalUserForEmpleado(userMaps, registro.empleadoRecordId, registro.correo)));
 }
 
 function getRegistroResumenTotals(registro: HorarioRegistro, now: Date) {
@@ -1189,7 +1293,8 @@ export async function fetchMisPagos(user: SessionUser) {
 }
 
 async function fetchMisPeriodosPago(user: SessionUser) {
-  const empleadoRecordId = await getEmpleadoRecordId(user);
+  const [empleadoRecordId, users] = await Promise.all([getEmpleadoRecordId(user), listPortalUsers()]);
+  const userMaps = buildPortalUserMaps(users);
   const records = await listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, new URLSearchParams({
     "sort[0][field]": HORARIOS_PERIODOS_FIELDS.fechaInicio,
     "sort[0][direction]": "desc"
@@ -1197,7 +1302,31 @@ async function fetchMisPeriodosPago(user: SessionUser) {
 
   return records
     .map(mapPeriodo)
-    .filter((periodo) => periodo.empleadoRecordId === empleadoRecordId && periodo.estadoPeriodo !== "Anulado");
+    .filter((periodo) => periodo.empleadoRecordId === empleadoRecordId && periodo.estadoPeriodo !== "Anulado")
+    .map((periodo) => applyPortalUserToPeriodo(periodo, findPortalUserForEmpleado(userMaps, periodo.empleadoRecordId, periodo.correo)));
+}
+
+export async function fetchMisRolesPago(user: SessionUser): Promise<HorarioEmpleadoRolPago[]> {
+  const periodos = await fetchMisPeriodosPago(user);
+
+  return periodos
+    .filter((periodo) => periodo.estadoRol !== "Anulado" && Boolean(periodo.rolPagoBlobPathname || periodo.rolPagoBlobUrl))
+    .map((periodo) => ({
+      periodoId: periodo.id,
+      empleado: periodo.empleado,
+      correo: periodo.correo,
+      fechaInicio: periodo.fechaInicio,
+      fechaFin: periodo.fechaFin,
+      estadoPeriodo: periodo.estadoPeriodo,
+      totalGanado: periodo.totalGanado,
+      totalPagado: periodo.totalPagado,
+      saldoPendiente: periodo.saldoPendiente,
+      rolPagoPdf: periodo.rolPagoPdf,
+      rolPagoBlobUrl: periodo.rolPagoBlobUrl,
+      rolPagoBlobPathname: periodo.rolPagoBlobPathname,
+      fechaGeneracionRol: periodo.fechaGeneracionRol,
+      estadoRol: periodo.estadoRol
+    }));
 }
 
 function isPeriodoPagoRelevantForEmployeeSummary(periodo: HorarioPeriodoPago) {
@@ -1275,18 +1404,20 @@ export async function fetchMiResumenHorarios(user: SessionUser): Promise<Horario
 }
 
 export async function fetchMiVistaHorarios(user: SessionUser): Promise<HorarioEmpleadoVista> {
-  const [resumen, resumenPagos, jornadas, pagos] = await Promise.all([
+  const [resumen, resumenPagos, jornadas, pagos, rolesPago] = await Promise.all([
     fetchMiResumenHorarios(user),
     fetchMiResumenPagos(user),
     fetchMisJornadas(user),
-    fetchMisPagos(user)
+    fetchMisPagos(user),
+    fetchMisRolesPago(user)
   ]);
 
   return {
     resumen,
     resumenPagos,
     jornadas,
-    pagos
+    pagos,
+    rolesPago
   };
 }
 
@@ -1296,10 +1427,15 @@ function getPagoEmpleadoRecordId(record: AirtableRecord<HorarioPagoFields>) {
 
 export async function fetchHorariosAdminResumen(): Promise<HorarioAdminResumen> {
   const { fechaInicio, fechaFin } = getCurrentWeekRange();
-  const [registros, pagos] = await Promise.all([
+  const [rawRegistros, pagos, users] = await Promise.all([
     listRegistrosSemana(fechaInicio, fechaFin),
-    listPagosActivos()
+    listPagosActivos(),
+    listPortalUsers()
   ]);
+  const userMaps = buildPortalUserMaps(users);
+  const registros = rawRegistros.map((registro) =>
+    applyPortalUserToRegistro(registro, findPortalUserForEmpleado(userMaps, registro.empleadoRecordId, registro.correo))
+  );
   const empleadosMap = new Map<string, HorarioAdminEmpleadoResumen>();
 
   registros.forEach((registro) => {
@@ -1458,23 +1594,32 @@ async function updatePeriodoEstado(periodoId: string, estadoPeriodo: EstadoPerio
   return mapPeriodo(record);
 }
 
-async function hydratePeriodo(periodo: HorarioPeriodoPago): Promise<HorarioPeriodoPagoDetalle> {
+async function hydratePeriodo(
+  periodo: HorarioPeriodoPago,
+  userMaps?: ReturnType<typeof buildPortalUserMaps>
+): Promise<HorarioPeriodoPagoDetalle> {
   const [registros, pagos] = await Promise.all([
     listRegistrosByIds(periodo.registroIds),
     fetchPagosByPeriodo(periodo.id)
   ]);
-  const totals = calculatePeriodoTotals(registros, pagos);
+  const maps = userMaps || buildPortalUserMaps(await listPortalUsers());
+  const periodoUser = findPortalUserForEmpleado(maps, periodo.empleadoRecordId, periodo.correo);
+  const enrichedPeriodo = applyPortalUserToPeriodo(periodo, periodoUser);
+  const enrichedRegistros = registros.map((registro) =>
+    applyPortalUserToRegistro(registro, findPortalUserForEmpleado(maps, registro.empleadoRecordId, registro.correo))
+  );
+  const totals = calculatePeriodoTotals(enrichedRegistros, pagos);
   const estadoCalculado = periodo.estadoPeriodo === "Anulado" ? periodo.estadoPeriodo : getEstadoPeriodoFromTotals(totals.totalPagado, totals.saldoPendiente);
 
   return {
-    ...periodo,
+    ...enrichedPeriodo,
     estadoPeriodo: estadoCalculado,
     totalMinutos: totals.totalMinutos,
     totalHoras: totals.totalHoras,
     totalGanado: totals.totalGanado,
     totalPagado: totals.totalPagado,
     saldoPendiente: totals.saldoPendiente,
-    registros,
+    registros: enrichedRegistros,
     pagos
   };
 }
@@ -1487,7 +1632,8 @@ export async function fetchPeriodosPago() {
     "sort[1][direction]": "asc"
   });
   const records = await listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, query);
-  const periodos = await Promise.all(records.map((record) => hydratePeriodo(mapPeriodo(record))));
+  const userMaps = buildPortalUserMaps(await listPortalUsers());
+  const periodos = await Promise.all(records.map((record) => hydratePeriodo(mapPeriodo(record), userMaps)));
 
   return periodos;
 }
@@ -1498,6 +1644,58 @@ export async function fetchPeriodoPagoById(id: string): Promise<HorarioPeriodoPa
   }
 
   const record = await airtableRequest<AirtableRecord<HorarioPeriodoPagoFields>>(getTableUrl(PERIODOS_TABLE, id));
+
+  return hydratePeriodo(mapPeriodo(record));
+}
+
+export async function generarRolPagoPeriodo(input: GenerarRolPagoInput): Promise<HorarioPeriodoPagoDetalle> {
+  const periodo = await fetchPeriodoPagoById(input.periodoId);
+
+  if (!periodo) {
+    throw new Error("No se encontró el periodo de pago.");
+  }
+
+  if (!periodo.registros.length) {
+    throw new Error("No se puede generar un rol sin registros diarios vinculados.");
+  }
+
+  if (periodo.totalGanado <= 0) {
+    throw new Error("No se puede generar un rol sin total ganado.");
+  }
+
+  const pagosActivos = periodo.pagos.filter((pago) => pago.estadoPago === "Registrado");
+
+  if (!pagosActivos.length || periodo.totalPagado <= 0) {
+    throw new Error("No se puede generar el rol de pago porque este periodo aún no tiene pagos registrados.");
+  }
+
+  const generadoEn = new Date();
+  const generadoPor = input.adminUser.email || input.adminUser.nombre || "Administrador";
+  const pdfBytes = await generateRolPagoPdf({ periodo, generadoPor, generadoEn });
+  const filename = buildRolPagoFilename(periodo);
+  const blob = await put(`horarios/roles-pago/${periodo.id}/${Date.now()}-${filename}`, Buffer.from(pdfBytes), {
+    access: "private",
+    contentType: "application/pdf"
+  });
+  const estadoRol = periodo.rolGenerado || periodo.rolPagoBlobPathname ? "Regenerado" : "Generado";
+  const observacionRol = input.observacionRol?.trim();
+  const fields: HorarioPeriodoPagoFields = {
+    [HORARIOS_PERIODOS_FIELDS.rolPagoBlobUrl]: blob.url,
+    [HORARIOS_PERIODOS_FIELDS.rolPagoBlobPathname]: blob.pathname,
+    [HORARIOS_PERIODOS_FIELDS.rolGenerado]: true,
+    [HORARIOS_PERIODOS_FIELDS.fechaGeneracionRol]: generadoEn.toISOString(),
+    [HORARIOS_PERIODOS_FIELDS.generadoPor]: generadoPor,
+    [HORARIOS_PERIODOS_FIELDS.estadoRol]: estadoRol
+  };
+
+  if (observacionRol) {
+    fields[HORARIOS_PERIODOS_FIELDS.observacionRol] = observacionRol;
+  }
+
+  const record = await airtableRequest<AirtableRecord<HorarioPeriodoPagoFields>>(getTableUrl(PERIODOS_TABLE, periodo.id), {
+    method: "PATCH",
+    body: JSON.stringify({ fields })
+  });
 
   return hydratePeriodo(mapPeriodo(record));
 }
@@ -1526,6 +1724,8 @@ export async function fetchHorariosEmpleadosParaPeriodo(): Promise<HorarioEmplea
     .map((user) => ({
       empleadoRecordId: user.id,
       empleado: user.nombre || user.email,
+      cedula: user.cedula,
+      rol: user.rol,
       usuarioId: user.id,
       correo: user.email
     }))

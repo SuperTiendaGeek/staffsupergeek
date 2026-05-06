@@ -1,6 +1,7 @@
 export type PortalUser = {
   id: string;
   nombre: string;
+  cedula?: string;
   email: string;
   rol: string;
   appsPermitidas: string[];

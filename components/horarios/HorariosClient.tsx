@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import type { HorarioEmpleadoResumenPagos, HorarioEmpleadoVista, HorarioEstado, HorarioPago, HorarioRegistro, TipoMarcacion } from "@/types/horarios";
+import type { HorarioEmpleadoResumenPagos, HorarioEmpleadoRolPago, HorarioEmpleadoVista, HorarioEstado, HorarioPago, HorarioRegistro, TipoMarcacion } from "@/types/horarios";
 
 type HorariosClientProps = {
   initialEstado: HorarioEstado | null;
@@ -263,6 +263,55 @@ function PagosTable({ pagos }: { pagos: HorarioPago[] }) {
   );
 }
 
+function RolesPagoTable({ rolesPago }: { rolesPago: HorarioEmpleadoRolPago[] }) {
+  if (!rolesPago.length) {
+    return <p className="py-4 text-sm text-zinc-400">Aún no hay roles de pago disponibles.</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-[760px] w-full text-left text-sm">
+        <thead className="border-b border-white/10 text-xs uppercase tracking-normal text-zinc-500">
+          <tr>
+            <th className="px-3 py-3 font-medium">Periodo</th>
+            <th className="px-3 py-3 font-medium">Ganado</th>
+            <th className="px-3 py-3 font-medium">Pagado</th>
+            <th className="px-3 py-3 font-medium">Saldo</th>
+            <th className="px-3 py-3 font-medium">Generado</th>
+            <th className="px-3 py-3 font-medium">Estado</th>
+            <th className="px-3 py-3 font-medium">Rol</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/10 text-zinc-300">
+          {rolesPago.map((rol) => (
+            <tr key={rol.periodoId}>
+              <td className="px-3 py-3 font-medium text-white">{formatDate(rol.fechaInicio)} - {formatDate(rol.fechaFin)}</td>
+              <td className="px-3 py-3">{formatMoney(rol.totalGanado)}</td>
+              <td className="px-3 py-3">{formatMoney(rol.totalPagado)}</td>
+              <td className="px-3 py-3 font-semibold text-geek-lime">{formatMoney(rol.saldoPendiente)}</td>
+              <td className="px-3 py-3">{formatDate(rol.fechaGeneracionRol)}</td>
+              <td className="px-3 py-3">
+                <span className="inline-flex rounded-md border border-geek-lime/30 bg-geek-lime/10 px-2.5 py-1 text-xs font-semibold text-geek-lime">
+                  {rol.estadoRol}
+                </span>
+              </td>
+              <td className="px-3 py-3">
+                {rol.rolPagoBlobPathname ? (
+                  <a href={`/api/horarios/roles/${rol.periodoId}`} className="font-medium text-geek-lime transition hover:text-white">
+                    Descargar rol
+                  </a>
+                ) : (
+                  "--"
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function HorariosClient({ initialEstado, initialMiVista, initialError, isAdmin }: HorariosClientProps) {
   const router = useRouter();
   const [estado, setEstado] = useState(initialEstado);
@@ -277,6 +326,7 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
   const resumenPagos = initialMiVista?.resumenPagos;
   const misJornadas = initialMiVista?.jornadas || [];
   const misPagos = initialMiVista?.pagos || [];
+  const misRolesPago = initialMiVista?.rolesPago || [];
 
   const marcas = useMemo(
     () => [
@@ -466,6 +516,13 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
         <h2 className="text-lg font-semibold text-white">Mis pagos</h2>
         <div className="mt-4">
           <PagosTable pagos={misPagos} />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 backdrop-blur">
+        <h2 className="text-lg font-semibold text-white">Mis roles de pago</h2>
+        <div className="mt-4">
+          <RolesPagoTable rolesPago={misRolesPago} />
         </div>
       </section>
 

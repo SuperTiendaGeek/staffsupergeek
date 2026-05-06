@@ -5,6 +5,7 @@ import type { PortalUser, PortalUserInput } from "@/types/admin-users";
 export type AirtableUser = {
   recordId: string;
   nombre: string;
+  cedula?: string;
   email: string;
   passwordHash: string;
   rol: string;
@@ -26,6 +27,7 @@ type AirtableListResponse<TFields> = {
 type AirtableUserFields = {
   Nombre?: string;
   Email?: string;
+  "Cédula"?: string;
   "Password Hash"?: string;
   Rol?: string;
   Activo?: boolean;
@@ -122,6 +124,7 @@ function mapAirtableUser(record: AirtableRecord<AirtableUserFields>): AirtableUs
   return {
     recordId: record.id,
     nombre: fields.Nombre || fields.Email,
+    cedula: fields["Cédula"],
     email: fields.Email,
     passwordHash: fields["Password Hash"],
     rol: fields.Rol || "staff",
@@ -141,6 +144,7 @@ function mapPortalUser(record: AirtableRecord<AirtableUserFields>): PortalUser |
   return {
     id: record.id,
     nombre: fields.Nombre || fields.Email,
+    cedula: fields["Cédula"],
     email: fields.Email,
     rol: fields.Rol || "staff",
     activo: fields.Activo === true,

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AnularPagoHorarioButton } from "@/components/horarios/AnularPagoHorarioButton";
 import { HorarioPeriodoPagoClient } from "@/components/horarios/HorarioPeriodoPagoClient";
+import { RolPagoPeriodoClient } from "@/components/horarios/RolPagoPeriodoClient";
 import { PortalShell } from "@/components/PortalShell";
 import { isAdministratorRole } from "@/lib/apps";
 import { fetchPeriodoPagoById } from "@/lib/horarios/airtable";
@@ -118,6 +119,8 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
             </div>
           ))}
         </div>
+
+        <RolPagoPeriodoClient periodoId={periodo.id} rolGenerado={periodo.rolGenerado} rolPagoBlobPathname={periodo.rolPagoBlobPathname} />
 
         <section className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.035] shadow-2xl shadow-black/20 backdrop-blur">
           <div className="border-b border-white/10 px-4 py-4">

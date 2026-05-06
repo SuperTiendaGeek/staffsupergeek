@@ -30,6 +30,8 @@ export type HorarioRegistro = {
   id: string;
   empleado: string;
   empleadoRecordId?: string;
+  empleadoCedula?: string;
+  empleadoRol?: string;
   usuarioId: string;
   correo: string;
   fecha: string;
@@ -86,12 +88,15 @@ export type HorarioEmpleadoVista = {
   resumenPagos: HorarioEmpleadoResumenPagos;
   jornadas: HorarioRegistro[];
   pagos: HorarioPago[];
+  rolesPago: HorarioEmpleadoRolPago[];
 };
 
 export type HorarioAdminEmpleadoResumen = {
   empleadoKey: string;
   empleado: string;
   empleadoRecordId?: string;
+  empleadoCedula?: string;
+  empleadoRol?: string;
   usuarioId: string;
   correo: string;
   minutosTrabajados: number;
@@ -120,6 +125,8 @@ export type HorarioAdminResumen = {
 export type EstadoPeriodoPago = "Abierto" | "Parcialmente pagado" | "Pagado" | "Anulado";
 
 export type EstadoPagoHorario = "Registrado" | "Anulado";
+
+export type EstadoRolPago = "Pendiente" | "Generado" | "Regenerado" | "Anulado";
 
 export type HorarioEstadoGeneralPago =
   | "Sin jornadas pagables"
@@ -158,6 +165,8 @@ export type HorarioPeriodoPago = {
   id: string;
   empleado: string;
   empleadoRecordId?: string;
+  empleadoCedula?: string;
+  empleadoRol?: string;
   usuarioId: string;
   correo: string;
   fechaInicio: string;
@@ -170,6 +179,14 @@ export type HorarioPeriodoPago = {
   totalGanado: number;
   totalPagado: number;
   saldoPendiente: number;
+  rolPagoPdf: HorarioPagoComprobante[];
+  rolPagoBlobUrl?: string;
+  rolPagoBlobPathname?: string;
+  rolGenerado: boolean;
+  fechaGeneracionRol?: string;
+  generadoPor?: string;
+  observacionRol?: string;
+  estadoRol: EstadoRolPago | string;
 };
 
 export type HorarioPeriodoPagoDetalle = HorarioPeriodoPago & {
@@ -188,9 +205,28 @@ export type HorarioEmpleadoResumenPagos = {
   estadoGeneral: HorarioEstadoGeneralPago;
 };
 
+export type HorarioEmpleadoRolPago = {
+  periodoId: string;
+  empleado: string;
+  correo: string;
+  fechaInicio: string;
+  fechaFin: string;
+  estadoPeriodo: EstadoPeriodoPago | string;
+  totalGanado: number;
+  totalPagado: number;
+  saldoPendiente: number;
+  rolPagoPdf: HorarioPagoComprobante[];
+  rolPagoBlobUrl?: string;
+  rolPagoBlobPathname?: string;
+  fechaGeneracionRol?: string;
+  estadoRol: EstadoRolPago | string;
+};
+
 export type HorarioEmpleadoPeriodoOption = {
   empleadoRecordId: string;
   empleado: string;
+  cedula?: string;
+  rol?: string;
   usuarioId: string;
   correo: string;
 };
