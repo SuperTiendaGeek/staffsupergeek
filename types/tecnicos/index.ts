@@ -106,7 +106,7 @@ export interface ServicioPorOrden {
 }
 
 // Abono registrado para una orden (tabla Abonos por Orden).
-export interface AbonoComprobanteAdjunto {
+export interface AirtableAttachment {
   id: string | null;
   url: string;
   filename: string | null;
@@ -114,6 +114,8 @@ export interface AbonoComprobanteAdjunto {
   size: number | null;
   thumbnailUrl: string | null;
 }
+
+export interface AbonoComprobanteAdjunto extends AirtableAttachment {}
 
 export interface AbonoPorOrden {
   id: string;
@@ -138,6 +140,7 @@ export interface CatalogoRepuesto {
   costoBase: number | null;
   precioSugeridoCliente: number | null;
   activo: boolean;
+  fechaCreacion?: string | null;
 }
 
 // Item reutilizable del catalogo de servicios.
@@ -147,6 +150,7 @@ export interface CatalogoServicio {
   descripcion: string | null;
   costoSugerido: number | null;
   activo: boolean;
+  fechaCreacion?: string | null;
 }
 
 // Entidad principal que agrupa cliente, estados y costos.
@@ -172,6 +176,7 @@ export interface OrdenReparacion {
   servicios: ServicioOrden[];
   repuestosPorOrden?: RepuestoPorOrden[];
   serviciosPorOrden?: ServicioPorOrden[];
+  documentos: AirtableAttachment[];
 }
 
 // Respuesta generica pensada para APIs internas futuras.

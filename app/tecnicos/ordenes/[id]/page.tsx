@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { AppShell } from "@/components/tecnicos/layout/AppShell";
+import { OrdenDocumentosCard } from "@/components/tecnicos/OrdenDocumentosCard";
 import { ESTADOS_ORDEN, EstadoOrden } from "@/types/tecnicos";
 import { StatusFilterDropdown } from "@/components/tecnicos/ui/StatusFilterDropdown";
 import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
@@ -60,6 +61,8 @@ type AbonoItem = {
 
 type AbonoAdjuntoItem = AbonoItem["comprobantes"][number];
 
+type OrdenDocumentoItem = AbonoAdjuntoItem;
+
 type CatalogoRepuestoItem = {
   id: string;
   nombre: string;
@@ -104,6 +107,7 @@ type OrdenDetalle = {
   repuestosPorOrden: RepuestoItem[];
   serviciosPorOrden: ServicioItem[];
   abonosPorOrden: AbonoItem[];
+  documentos: OrdenDocumentoItem[];
 };
 
 const formatDate = (value?: string | null) => {
@@ -1827,6 +1831,7 @@ export default function OrdenDetallePage() {
       title="Detalle de orden"
       subtitle="Vista de solo lectura conectada a Airtable"
       active="ordenes"
+      hideTopBar
     >
       <div className="w-full max-w-7xl space-y-8">
         {loading && <div className="text-sm text-[var(--sg-text-secondary)]">Cargando orden...</div>}
@@ -2878,6 +2883,12 @@ export default function OrdenDetallePage() {
               </div>
             </section>
 
+            <OrdenDocumentosCard
+              ordenId={orden.recordId}
+              documentos={orden.documentos ?? []}
+              onOrdenUpdated={(updatedOrden) => setOrden(updatedOrden as OrdenDetalle)}
+            />
+
             <section className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-5 py-5 shadow-[var(--sg-shadow-card)]">
               <div className="space-y-2">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">
@@ -3539,4 +3550,3 @@ export default function OrdenDetallePage() {
     </AppShell>
   );
 }
-

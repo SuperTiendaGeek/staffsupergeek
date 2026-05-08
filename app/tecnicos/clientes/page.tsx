@@ -211,19 +211,11 @@ export default function ClientesPage() {
   return (
     <AppShell
       title="Clientes"
-      subtitle="Gestión de clientes registrados en SUPER GEEK"
       active="clientes"
+      hideTopBar
     >
       <div className="grid gap-6 xl:grid-cols-[minmax(0,4fr)_minmax(300px,1.1fr)]">
         <div className="w-full space-y-4">
-          <header className="flex items-center justify-between rounded-2xl border border-zinc-900/70 bg-[#181818] px-6 py-5 shadow-[0_18px_40px_rgba(0,0,0,0.45)]">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-zinc-500">Panel</p>
-              <h2 className="text-2xl font-semibold text-white">Clientes activos</h2>
-            </div>
-            <div className="text-xs text-zinc-500">Airtable | paginado</div>
-          </header>
-
           <section className="w-full space-y-4 rounded-2xl border border-zinc-900/70 bg-[#181818] p-6 shadow-[0_18px_40px_rgba(0,0,0,0.45)]">
             <div className="grid w-full items-end gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-4">
               <label className="w-full">
@@ -352,16 +344,7 @@ export default function ClientesPage() {
           <div className="rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_14px_32px_rgba(0,0,0,0.4)]">
             <p className="text-sm font-semibold text-white">Clientes en esta página</p>
             <p className="mt-2 text-3xl font-bold text-[#e3fc02]">{clientes.length}</p>
-            <p className="mt-1 text-xs text-zinc-500">Tanda actual desde Airtable</p>
-          </div>
-
-          <div className="space-y-3 rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_14px_32px_rgba(0,0,0,0.4)]">
-            <p className="text-sm font-semibold text-white">Datos disponibles</p>
-            <ul className="space-y-2 text-sm text-zinc-300">
-              <li>Nombre, contacto y documento</li>
-              <li>Conteo de órdenes vinculadas</li>
-              <li>Última fecha de ingreso</li>
-            </ul>
+            <p className="mt-1 text-xs text-zinc-500">Registros visibles</p>
           </div>
         </aside>
       </div>
@@ -375,7 +358,7 @@ export default function ClientesPage() {
                   Nuevo cliente
                 </h3>
                 <p className="mt-1 text-sm leading-6 text-[var(--sg-text-secondary)]">
-                  Registra la información básica del cliente en Airtable.
+                  Registra la información básica del cliente.
                 </p>
               </div>
               <Button

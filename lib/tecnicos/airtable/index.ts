@@ -12,6 +12,7 @@ import {
   CatalogoServicio,
   AbonoPorOrden,
   AbonoComprobanteAdjunto,
+  AirtableAttachment,
 } from "@/types/tecnicos";
 
 // Cliente base para server actions o rutas /api sin exponer credenciales.
@@ -154,6 +155,7 @@ export interface OrdenDetalle {
   repuestosPorOrden: RepuestoPorOrden[];
   serviciosPorOrden: ServicioPorOrden[];
   abonosPorOrden: AbonoPorOrden[];
+  documentos: AirtableAttachment[];
 }
 
 // Helpers
@@ -352,6 +354,7 @@ const mapCatalogoRepuestoRecord = (record: AirtableGenericRecord): CatalogoRepue
     costoBase: pickNumberField(f, ["Costo base"]),
     precioSugeridoCliente: pickNumberField(f, ["Precio sugerido al cliente"]),
     activo: f["Activo"] !== false,
+    fechaCreacion: pickOptionalStringField(f, ["Fecha de creación", "Fecha de creacion"]),
   };
 };
 const mapCatalogoServicioRecord = (record: AirtableGenericRecord): CatalogoServicio => {
@@ -362,6 +365,7 @@ const mapCatalogoServicioRecord = (record: AirtableGenericRecord): CatalogoServi
     descripcion: pickOptionalStringField(f, ["Descripción"]),
     costoSugerido: pickNumberField(f, ["Costo sugerido"]),
     activo: f["Activo"] !== false,
+    fechaCreacion: pickOptionalStringField(f, ["Fecha de creación", "Fecha de creacion"]),
   };
 };
 
@@ -1303,6 +1307,7 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     totalAPagarNV: pickNumberField(f, ["Total a Pagar NV"]),
     totalAbonadoNV: pickNumberField(f, ["Total Abonado NV"]),
     saldoNV: pickNumberField(f, ["Saldo NV"]),
+    documentos: parseAttachments(f["Documentos"]),
   };
 
   // Historial: preferir IDs vinculados desde la orden
@@ -1564,6 +1569,18 @@ export const fetchCatalogoRepuestos = async (
   client = getClient(),
   limit?: number
 ): Promise<CatalogoRepuesto[]> => {
+  return fetchCatalogoRepuestosGestion({ client, limit, activo: "activos" });
+};
+
+export const fetchCatalogoRepuestosGestion = async ({
+  client = getClient(),
+  limit,
+  activo = "todos",
+}: {
+  client?: AirtableClient;
+  limit?: number;
+  activo?: "todos" | "activos" | "inactivos";
+} = {}): Promise<CatalogoRepuesto[]> => {
   const records = await fetchAllTableRecords({
     tableName: AIRTABLE_TABLES.catalogoRepuestos,
     client,
@@ -1572,7 +1589,11 @@ export const fetchCatalogoRepuestos = async (
 
   return records
     .map((record) => mapCatalogoRepuestoRecord(record))
-    .filter((item) => item.activo)
+    .filter((item) => {
+      if (activo === "activos") return item.activo;
+      if (activo === "inactivos") return !item.activo;
+      return true;
+    })
     .sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
 };
 
@@ -1580,6 +1601,18 @@ export const fetchCatalogoServicios = async (
   client = getClient(),
   limit?: number
 ): Promise<CatalogoServicio[]> => {
+  return fetchCatalogoServiciosGestion({ client, limit, activo: "activos" });
+};
+
+export const fetchCatalogoServiciosGestion = async ({
+  client = getClient(),
+  limit,
+  activo = "todos",
+}: {
+  client?: AirtableClient;
+  limit?: number;
+  activo?: "todos" | "activos" | "inactivos";
+} = {}): Promise<CatalogoServicio[]> => {
   const records = await fetchAllTableRecords({
     tableName: AIRTABLE_TABLES.catalogoServicios,
     client,
@@ -1588,7 +1621,11 @@ export const fetchCatalogoServicios = async (
 
   return records
     .map((record) => mapCatalogoServicioRecord(record))
-    .filter((item) => item.activo)
+    .filter((item) => {
+      if (activo === "activos") return item.activo;
+      if (activo === "inactivos") return !item.activo;
+      return true;
+    })
     .sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
 };
 
@@ -1693,20 +1730,32 @@ const uploadAttachmentToRecord = async ({
 
 export const createCatalogoRepuesto = async ({
   nombre,
+  descripcionCorta,
+  skuCodigoInterno,
   costoBase,
   precioSugeridoCliente,
   proveedorHabitual,
+  activo = true,
 }: {
   nombre: string;
+  descripcionCorta?: string | null;
+  skuCodigoInterno?: string | null;
   costoBase?: number | null;
   precioSugeridoCliente?: number | null;
   proveedorHabitual?: string | null;
+  activo?: boolean;
 }): Promise<CatalogoRepuesto> => {
   const fields: Record<string, unknown> = {
     "Nombre del repuesto": nombre.trim(),
-    Activo: true,
+    Activo: activo,
   };
 
+  if (descripcionCorta && descripcionCorta.trim()) {
+    fields["Descripción corta"] = descripcionCorta.trim();
+  }
+  if (skuCodigoInterno && skuCodigoInterno.trim()) {
+    fields["SKU o código interno"] = skuCodigoInterno.trim();
+  }
   if (costoBase !== null && costoBase !== undefined) {
     fields["Costo base"] = costoBase;
   }
@@ -1721,24 +1770,104 @@ export const createCatalogoRepuesto = async ({
   return mapCatalogoRepuestoRecord(created);
 };
 
+export const updateCatalogoRepuesto = async ({
+  id,
+  nombre,
+  descripcionCorta,
+  skuCodigoInterno,
+  proveedorHabitual,
+  costoBase,
+  precioSugeridoCliente,
+  activo,
+}: {
+  id: string;
+  nombre?: string | null;
+  descripcionCorta?: string | null;
+  skuCodigoInterno?: string | null;
+  proveedorHabitual?: string | null;
+  costoBase?: number | null;
+  precioSugeridoCliente?: number | null;
+  activo?: boolean;
+}): Promise<CatalogoRepuesto> => {
+  const fields: Record<string, unknown> = {};
+
+  if (nombre !== undefined) {
+    const trimmed = nombre?.trim() || "";
+    if (!trimmed) throw new Error("El nombre del repuesto es obligatorio");
+    fields["Nombre del repuesto"] = trimmed;
+  }
+  if (descripcionCorta !== undefined) fields["Descripción corta"] = descripcionCorta?.trim() || "";
+  if (skuCodigoInterno !== undefined) fields["SKU o código interno"] = skuCodigoInterno?.trim() || "";
+  if (proveedorHabitual !== undefined) fields["Proveedor habitual"] = proveedorHabitual?.trim() || "";
+  if (costoBase !== undefined) fields["Costo base"] = costoBase;
+  if (precioSugeridoCliente !== undefined) fields["Precio sugerido al cliente"] = precioSugeridoCliente;
+  if (activo !== undefined) fields.Activo = activo;
+
+  const updated = await patchRecordFields({
+    tableName: AIRTABLE_TABLES.catalogoRepuestos,
+    recordId: id,
+    fields,
+  });
+  return mapCatalogoRepuestoRecord(updated);
+};
+
 export const createCatalogoServicio = async ({
   nombre,
+  descripcion,
   costoSugerido,
+  activo = true,
 }: {
   nombre: string;
+  descripcion?: string | null;
   costoSugerido?: number | null;
+  activo?: boolean;
 }): Promise<CatalogoServicio> => {
   const fields: Record<string, unknown> = {
     "Nombre del servicio": nombre.trim(),
-    Activo: true,
+    Activo: activo,
   };
 
+  if (descripcion && descripcion.trim()) {
+    fields["Descripción"] = descripcion.trim();
+  }
   if (costoSugerido !== null && costoSugerido !== undefined) {
     fields["Costo sugerido"] = costoSugerido;
   }
 
   const created = await createRecord(AIRTABLE_TABLES.catalogoServicios, fields);
   return mapCatalogoServicioRecord(created);
+};
+
+export const updateCatalogoServicio = async ({
+  id,
+  nombre,
+  descripcion,
+  costoSugerido,
+  activo,
+}: {
+  id: string;
+  nombre?: string | null;
+  descripcion?: string | null;
+  costoSugerido?: number | null;
+  activo?: boolean;
+}): Promise<CatalogoServicio> => {
+  const fields: Record<string, unknown> = {};
+
+  if (nombre !== undefined) {
+    const trimmed = nombre?.trim() || "";
+    if (!trimmed) throw new Error("El nombre del servicio es obligatorio");
+    fields["Nombre del servicio"] = trimmed;
+  }
+  if (descripcion !== undefined) fields["Descripción"] = descripcion?.trim() || "";
+  if (costoSugerido !== undefined) fields["Costo sugerido"] = costoSugerido;
+  if (activo !== undefined) fields.Activo = activo;
+
+  const updated = await patchRecordFields({
+    tableName: AIRTABLE_TABLES.catalogoServicios,
+    recordId: id,
+    fields,
+  });
+  return mapCatalogoServicioRecord(updated);
 };
 
 export const createRepuestoPorOrden = async ({
@@ -1979,6 +2108,109 @@ export const deleteComprobanteFromAbonoPorOrdenById = async ({
   return {
     abono: mapAbonoPorOrdenRecord(fresh, ordenId),
   };
+};
+
+export const addDocumentosToOrdenById = async ({
+  ordenRecordId,
+  documentos,
+}: {
+  ordenRecordId: string;
+  documentos: Array<{
+    filename: string;
+    contentType: string;
+    fileBase64: string;
+  }>;
+}): Promise<{ orden: OrdenDetalle; warning?: string | null }> => {
+  const recordId = ordenRecordId.trim();
+  if (!recordId) {
+    throw new Error("Falta id de la orden");
+  }
+  if (!documentos.length) {
+    throw new Error("Debes seleccionar al menos un documento.");
+  }
+
+  const { token, baseId } = loadAirtableEnv();
+  const client = getClient();
+  await fetchRecordById(AIRTABLE_TABLES.ordenes, recordId, client);
+
+  const failedFiles: string[] = [];
+
+  for (const documento of documentos) {
+    try {
+      await uploadAttachmentToRecord({
+        baseId,
+        authToken: token,
+        recordId,
+        attachmentFieldIdOrName: "Documentos",
+        filename: documento.filename,
+        contentType: documento.contentType,
+        fileBase64: documento.fileBase64,
+      });
+    } catch (error) {
+      console.error("No se pudo agregar documento a la orden:", error);
+      failedFiles.push(documento.filename);
+    }
+  }
+
+  if (failedFiles.length === documentos.length) {
+    throw new Error("No se pudo subir ningún documento.");
+  }
+
+  const orden = await fetchOrdenById(recordId);
+  if (!orden) {
+    throw new Error("No se pudo refrescar la orden.");
+  }
+
+  return {
+    orden,
+    warning: failedFiles.length
+      ? `No se pudieron subir: ${failedFiles.join(", ")}.`
+      : null,
+  };
+};
+
+export const deleteDocumentoFromOrdenById = async ({
+  ordenRecordId,
+  attachmentId,
+}: {
+  ordenRecordId: string;
+  attachmentId: string;
+}): Promise<{ orden: OrdenDetalle }> => {
+  const recordId = ordenRecordId.trim();
+  const removeId = attachmentId.trim();
+  if (!recordId) {
+    throw new Error("Falta id de la orden");
+  }
+  if (!removeId) {
+    throw new Error("Falta id del documento");
+  }
+
+  const client = getClient();
+  const current = await fetchRecordById(AIRTABLE_TABLES.ordenes, recordId, client);
+  const allAttachments = parseAttachments(current.fields?.["Documentos"]);
+  const filtered = allAttachments.filter((attachment) => attachment.id !== removeId);
+
+  if (filtered.length === allAttachments.length) {
+    throw new Error("No se encontró el documento seleccionado en esta orden.");
+  }
+
+  await patchRecordFields({
+    tableName: AIRTABLE_TABLES.ordenes,
+    recordId,
+    fields: {
+      Documentos: filtered.map((attachment) =>
+        attachment.id ? { id: attachment.id } : { url: attachment.url }
+      ),
+    },
+    client,
+  });
+
+  const orden = await fetchOrdenById(recordId);
+  if (!orden) {
+    throw new Error("No se pudo refrescar la orden.");
+  }
+
+  return { orden };
 };
 
 const mapHistorialRecord = (
@@ -2399,4 +2631,3 @@ export const createHistorialEntrada = async ({
 };
 
 export { AIRTABLE_TABLES };
-

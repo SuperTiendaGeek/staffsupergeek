@@ -411,26 +411,23 @@ export default function OrdenesPage() {
   return (
     <AppShell
       title="Ordenes"
-      subtitle="Listado conectado a Airtable (solo lectura)"
       active="ordenes"
+      hideTopBar
     >
       <div className="grid gap-6 xl:grid-cols-[minmax(0,4fr)_minmax(300px,1.1fr)]">
         <div className="w-full space-y-4">
-          <header className="flex items-center justify-between rounded-2xl border border-zinc-900/70 bg-[#181818] px-6 py-5 shadow-[0_18px_40px_rgba(0,0,0,0.45)]">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-zinc-500">Panel</p>
-              <h2 className="text-2xl font-semibold text-white">Ordenes activas</h2>
-            </div>
-            <div className="text-xs text-zinc-500">Airtable | paginado</div>
-          </header>
+          <section className="w-full space-y-4 rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_18px_40px_rgba(0,0,0,0.45)] sm:p-5">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-extrabold uppercase tracking-[0.14em] text-white">
+                  Buscar y filtrar
+                </h2>
+              </div>
 
-          <section className="w-full space-y-4 rounded-2xl border border-zinc-900/70 bg-[#181818] p-6 shadow-[0_18px_40px_rgba(0,0,0,0.45)]">
-            <div className="grid w-full items-end gap-3 lg:grid-cols-[minmax(0,2.5fr)_minmax(260px,1.2fr)_auto] lg:gap-4">
-              <label className="w-full">
-                <span className="text-xs font-semibold uppercase tracking-wide text-[#e3fc02]">
-                  Buscar en todas las ordenes
-                </span>
-                <div className="mt-2 flex items-center gap-3 rounded-lg border border-[#e3fc02] bg-[#121212] px-4 py-3 text-sm text-zinc-200 shadow-[0_6px_18px_rgba(0,0,0,0.35)]">
+              <div className="grid w-full gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] xl:grid-cols-[minmax(0,1fr)_minmax(230px,290px)_auto]">
+                <label className="w-full">
+                  <span className="sr-only">Buscar ordenes</span>
+                  <div className="flex h-14 items-center gap-3 rounded-xl border border-zinc-800 bg-[#121212] px-4 text-sm text-zinc-200 shadow-[0_8px_20px_rgba(0,0,0,0.28)] transition focus-within:border-[#e3fc02] focus-within:ring-2 focus-within:ring-[#e3fc02]/20">
                   <svg
                     aria-hidden="true"
                     viewBox="0 0 20 20"
@@ -443,32 +440,36 @@ export default function OrdenesPage() {
                     <line x1="13.5" y1="13.5" x2="18" y2="18" strokeLinecap="round" />
                   </svg>
                   <input
-                    placeholder="Cliente, ID, equipo, telefono o ingreso"
+                    placeholder="Buscar por cliente, ID o equipo"
                     value={searchTerm}
                     onChange={(e) => handleSearchChange(e.target.value)}
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-zinc-500"
+                    className="h-full w-full bg-transparent text-sm font-medium outline-none placeholder:text-zinc-500"
+                  />
+                  </div>
+                </label>
+
+                <div className="w-full">
+                  <StatusFilterDropdown
+                    value={selectedStatus}
+                    onChange={handleStatusChange}
+                    options={[
+                      { value: "Todos", label: "Todos los estados" },
+                      ...ESTADOS_ORDEN.map((estado) => ({ value: estado, label: estado })),
+                    ]}
+                    label=""
+                    buttonClassName="!h-14 !rounded-xl !border-zinc-800 !bg-[#121212] !px-4 !py-0 !font-semibold !shadow-[0_8px_20px_rgba(0,0,0,0.28)] hover:!border-[#e3fc02] focus:!ring-2 focus:!ring-[#e3fc02]/20"
+                    dropdownClassName="!max-w-none"
                   />
                 </div>
-              </label>
 
-              <div className="w-full">
-                <StatusFilterDropdown
-                  value={selectedStatus}
-                  onChange={handleStatusChange}
-                  options={[
-                    { value: "Todos", label: "Todos los estados" },
-                    ...ESTADOS_ORDEN.map((estado) => ({ value: estado, label: estado })),
-                  ]}
-                />
+                <button
+                  type="button"
+                  onClick={() => setOpenNuevaOrdenModal(true)}
+                  className="inline-flex h-14 w-full items-center justify-center whitespace-nowrap rounded-xl border border-[#e3fc02] bg-[#e3fc02] px-5 text-sm font-extrabold text-black shadow-[0_10px_22px_rgba(227,252,2,0.18)] transition hover:brightness-95 md:col-span-2 xl:col-span-1 xl:w-auto"
+                >
+                  + Nueva orden
+                </button>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setOpenNuevaOrdenModal(true)}
-                className="inline-flex h-[54px] items-center justify-center whitespace-nowrap rounded-lg bg-[#e3fc02] px-5 text-sm font-semibold text-black shadow-[0_10px_20px_rgba(227,252,2,0.25)] transition hover:brightness-95"
-              >
-                + Nueva orden
-              </button>
             </div>
 
             {loading && <div className="text-sm text-zinc-300">Cargando ordenes...</div>}
@@ -606,7 +607,7 @@ export default function OrdenesPage() {
           <div className="rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_14px_32px_rgba(0,0,0,0.4)]">
             <p className="text-sm font-semibold text-white">Ordenes en esta pagina</p>
             <p className="mt-2 text-3xl font-bold text-[#e3fc02]">{openOrders}</p>
-            <p className="mt-1 text-xs text-zinc-500">Tanda actual desde Airtable</p>
+            <p className="mt-1 text-xs text-zinc-500">Registros visibles</p>
           </div>
 
           <div className="space-y-3 rounded-[var(--sg-radius-lg)] border border-[var(--sg-border)] bg-[var(--sg-panel)] p-4 shadow-[var(--sg-shadow-card)]">
@@ -712,14 +713,6 @@ export default function OrdenesPage() {
             )}
           </div>
 
-          <div className="space-y-3 rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_14px_32px_rgba(0,0,0,0.4)]">
-            <p className="text-sm font-semibold text-white">Estado del sistema</p>
-            <ul className="space-y-2 text-sm text-zinc-300">
-              <li>UI: OK</li>
-              <li>Backend (Airtable): OK</li>
-              <li>Auth: pendiente</li>
-            </ul>
-          </div>
         </aside>
       </div>
 

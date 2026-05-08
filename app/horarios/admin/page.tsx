@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { HorariosAdminJornadasClient } from "@/components/horarios/HorariosAdminJornadasClient";
 import { HorariosAdminPeriodosClient } from "@/components/horarios/HorariosAdminPeriodosClient";
@@ -132,6 +133,7 @@ export default async function HorariosAdminPage() {
                   <th className="px-4 py-3 font-semibold">Total ganado</th>
                   <th className="px-4 py-3 font-semibold">Total pagado</th>
                   <th className="px-4 py-3 font-semibold">Saldo pendiente</th>
+                  <th className="px-4 py-3 font-semibold">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
@@ -147,11 +149,23 @@ export default async function HorariosAdminPage() {
                       <td className="px-4 py-4 font-semibold text-white">{formatMoney(empleado.totalGanado)}</td>
                       <td className="px-4 py-4 font-semibold text-zinc-100">{formatMoney(empleado.totalPagado)}</td>
                       <td className="px-4 py-4 font-semibold text-geek-lime">{formatMoney(empleado.saldoPendiente)}</td>
+                      <td className="px-4 py-4">
+                        {empleado.empleadoRecordId ? (
+                          <Link
+                            href={`/horarios/admin/empleados/${empleado.empleadoRecordId}`}
+                            className="inline-flex rounded-md border border-geek-lime/30 px-3 py-2 text-xs font-semibold text-geek-lime transition hover:border-white/40 hover:text-white"
+                          >
+                            Gestionar pagos
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-zinc-500">Sin empleado vinculado</span>
+                        )}
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-zinc-400">
+                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-400">
                       No hay registros finalizados o revisados para la semana actual.
                     </td>
                   </tr>

@@ -235,6 +235,21 @@ export type HorarioEmpleadoPeriodoOption = {
   correo: string;
 };
 
+export type HorarioAdminEmpleadoDetalle = {
+  empleado: HorarioEmpleadoPeriodoOption;
+  resumen: {
+    totalGanadoPendiente: number;
+    totalPagado: number;
+    saldoPendiente: number;
+    jornadasPendientesCount: number;
+    periodosCount: number;
+    pagosCount: number;
+  };
+  jornadasPendientes: HorarioRegistro[];
+  periodos: HorarioPeriodoPagoDetalle[];
+  pagos: HorarioPago[];
+};
+
 export type CorregirJornadaAdminInput = {
   entrada: string;
   salidaAlmuerzo?: string;
