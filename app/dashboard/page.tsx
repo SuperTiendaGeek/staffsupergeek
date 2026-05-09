@@ -16,8 +16,7 @@ export default async function DashboardPage() {
   return (
     <PortalShell
       eyebrow="Launcher interno"
-      title="Portal Staff SUPER GEEK"
-      description="Accede a las herramientas internas del equipo desde un solo lugar."
+      title="SUPER GEEK"
     >
       <AppLauncher apps={visibleApps} />
     </PortalShell>

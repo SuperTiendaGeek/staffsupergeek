@@ -8,6 +8,7 @@ export type AppIcon = "tools" | "finance" | "schedule" | "invoice" | "shipping" 
 
 export type AppPermissionName =
   | "Técnicos"
+  | "Cotizaciones"
   | "Finanzas"
   | "Horarios"
   | "Facturación"
@@ -35,6 +36,16 @@ export const staffApps: StaffApp[] = [
     icon: "tools",
     description: "Gestión de órdenes de reparación, estados, repuestos, servicios y abonos.",
     requiredRoles: ["admin", "manager", "technical"]
+  },
+  {
+    id: "cotizaciones",
+    name: "Cotizaciones",
+    permissionName: "Cotizaciones",
+    route: "/cotizaciones",
+    status: "Disponible",
+    icon: "invoice",
+    description: "Gestión inicial de cotizaciones, opciones para clientes y seguimiento de estados.",
+    requiredRoles: ["admin", "manager", "staff", "technical"]
   },
   {
     id: "finanzas",
@@ -90,6 +101,7 @@ export const staffApps: StaffApp[] = [
 
 export const routePermissions: Record<string, AppPermissionName> = {
   "/tecnicos": "Técnicos",
+  "/cotizaciones": "Cotizaciones",
   "/finanzas": "Finanzas",
   "/horarios": "Horarios",
   "/facturacion": "Facturación",
@@ -143,6 +155,10 @@ export function canAccessApp(subject: PermissionSubject, appName: AppPermissionN
 export function getRoutePermission(pathname: string) {
   if (pathname === "/api/tecnicos" || pathname.startsWith("/api/tecnicos/")) {
     return routePermissions["/tecnicos"];
+  }
+
+  if (pathname === "/api/cotizaciones" || pathname.startsWith("/api/cotizaciones/")) {
+    return routePermissions["/cotizaciones"];
   }
 
   if (pathname === "/api/horarios" || pathname.startsWith("/api/horarios/")) {
