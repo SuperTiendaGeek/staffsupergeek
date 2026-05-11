@@ -109,6 +109,7 @@ export type CotizacionListado = {
   totalAbonado: number | null;
   saldoPendiente: number | null;
   fechaCreacion: string;
+  itemPedidoId: string;
 };
 
 export type CotizacionResumenEstado = Record<EstadoCotizacion, number>;

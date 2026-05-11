@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 import {
   CUENTAS_DESTINO_ABONO_COTIZACION,
@@ -602,6 +603,12 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
               <div className="mt-3 rounded-xl border border-geek-lime/25 bg-geek-lime/10 p-3 text-sm">
                 <p className="font-semibold text-geek-lime">Pedido creado</p>
                 <p className="mt-1 text-zinc-200">Item Pedido ID: {cotizacion.itemPedidoId}</p>
+                <Link
+                  href={`/pedidos/${cotizacion.itemPedidoId}`}
+                  className="mt-3 inline-flex w-full justify-center rounded-xl border border-geek-lime bg-geek-lime px-4 py-2.5 text-sm font-extrabold text-black transition hover:brightness-95"
+                >
+                  Ver pedido
+                </Link>
               </div>
             ) : (
               <p className="mt-3 text-sm leading-6 text-zinc-300">

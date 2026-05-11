@@ -99,31 +99,49 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
                   <th className="px-4 py-3 text-right">Total Abonado</th>
                   <th className="px-4 py-3 text-right">Saldo Pendiente</th>
                   <th className="px-4 py-3">Fecha Creación</th>
+                  <th className="px-4 py-3 text-right">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {filtered.map((item) => (
-                  <tr key={item.id} className="transition hover:bg-white/[0.035]">
+                  <tr key={item.id} className="group transition hover:bg-white/[0.035]">
                     <td className="px-4 py-3 font-semibold text-geek-lime">
                       <Link href={`/cotizaciones/${item.id}`}>{item.codigo}</Link>
                     </td>
-                    <td className="px-4 py-3 text-white">{item.clienteNombre}</td>
-                    <td className="px-4 py-3 text-zinc-200">{item.productoSolicitado}</td>
-                    <td className="px-4 py-3 text-zinc-300">{item.categoria}</td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-full border border-geek-lime/25 bg-geek-lime/10 px-2.5 py-1 text-xs font-semibold text-geek-lime">
-                        {item.estado}
-                      </span>
+                    <td className="p-0" colSpan={8}>
+                      <Link href={`/cotizaciones/${item.id}`} className="grid grid-cols-[minmax(150px,1.1fr)_minmax(180px,1.4fr)_110px_150px_120px_120px_120px_minmax(130px,auto)] items-center">
+                        <span className="px-4 py-3 text-white">{item.clienteNombre}</span>
+                        <span className="px-4 py-3 text-zinc-200">{item.productoSolicitado}</span>
+                        <span className="px-4 py-3 text-zinc-300">{item.categoria}</span>
+                        <span className="px-4 py-3">
+                          <span className="rounded-full border border-geek-lime/25 bg-geek-lime/10 px-2.5 py-1 text-xs font-semibold text-geek-lime">
+                            {item.estado}
+                          </span>
+                        </span>
+                        <span className="px-4 py-3 text-right text-zinc-200">{money(item.totalCotizado)}</span>
+                        <span className="px-4 py-3 text-right text-zinc-200">{money(item.totalAbonado)}</span>
+                        <span className="px-4 py-3 text-right font-semibold text-white">{money(item.saldoPendiente)}</span>
+                        <span className="px-4 py-3 text-zinc-300">{formatStableDate(item.fechaCreacion)}</span>
+                      </Link>
                     </td>
-                    <td className="px-4 py-3 text-right text-zinc-200">{money(item.totalCotizado)}</td>
-                    <td className="px-4 py-3 text-right text-zinc-200">{money(item.totalAbonado)}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-white">{money(item.saldoPendiente)}</td>
-                    <td className="px-4 py-3 text-zinc-300">{formatStableDate(item.fechaCreacion)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {item.itemPedidoId ? (
+                        <Link
+                          href={`/pedidos/${item.itemPedidoId}`}
+                          onClick={(event) => event.stopPropagation()}
+                          className="inline-flex rounded-lg border border-geek-lime/40 px-3 py-2 text-xs font-bold text-geek-lime transition hover:bg-geek-lime/10"
+                        >
+                          Ver pedido
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-zinc-500">-</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-zinc-400">
+                    <td colSpan={10} className="px-4 py-10 text-center text-zinc-400">
                       No hay cotizaciones para los filtros seleccionados.
                     </td>
                   </tr>

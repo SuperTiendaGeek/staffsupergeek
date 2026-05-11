@@ -179,6 +179,7 @@ function mapCotizacion(record: AirtableRecord): CotizacionListado {
     totalAbonado: firstNumber(fields["Total Abonado"]),
     saldoPendiente: firstNumber(fields["Saldo Pendiente"]),
     fechaCreacion: firstString(fields["Fecha Creación"], record.createdTime ?? ""),
+    itemPedidoId: firstString(fields["Item Pedido ID"]),
   };
 }
 
