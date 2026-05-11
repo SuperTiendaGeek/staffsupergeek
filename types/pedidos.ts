@@ -3,6 +3,25 @@ export const CARRIERS_PEDIDO = ["UPS", "USPS", "FeDex", "Gofo", "Otros"] as cons
 export type CarrierPedido = (typeof CARRIERS_PEDIDO)[number];
 export type ProveedorOrigenPedido = "ECU" | "USA" | "CHN" | "";
 
+export type ProveedorPedido = {
+  id: string;
+  nombre: string;
+  direccion: ProveedorOrigenPedido;
+};
+
+export type EstadoPedidoOption = {
+  id: string;
+  name: string;
+};
+
+export type PedidoAttachment = {
+  id?: string | null;
+  url: string;
+  filename?: string | null;
+  size?: number | null;
+  type?: string | null;
+};
+
 export function normalizeCarrierPedido(value: unknown): CarrierPedido | "" {
   if (typeof value !== "string") return "";
   const normalized = value.trim().toLowerCase();
@@ -13,6 +32,8 @@ export function normalizeCarrierPedido(value: unknown): CarrierPedido | "" {
 export type PedidoItem = {
   id: string;
   codigo: string;
+  identificador: string;
+  skuProveedor: string;
   item: string;
   categoria: string;
   itemPara: string;
@@ -22,6 +43,7 @@ export type PedidoItem = {
   arancelItemSolo: number | null;
   ganancia: number | null;
   gananciaNeta: number | null;
+  proveedorId: string;
   proveedor: string;
   proveedorOrigen: ProveedorOrigenPedido;
   esProveedorLocal: boolean;
@@ -37,6 +59,7 @@ export type PedidoItem = {
   estadosPedido: string;
   notaInterna: string;
   notaPublica: string;
+  evidencias: PedidoAttachment[];
   cotizacionId: string;
   cotizacionCodigo: string;
   opcionCotizacionId: string;
@@ -50,11 +73,15 @@ export type PedidoItem = {
 };
 
 export type PedidoUpdateInput = {
+  proveedorId?: string;
+  fleteEcItemSolo?: number | null;
+  arancelItemSolo?: number | null;
   usaTracking?: string;
   ecTracking?: string;
   carrier?: CarrierPedido | "";
   recibido?: boolean;
   recibidoEnLv?: boolean;
+  estadosPedido?: string;
   notaInterna?: string;
   notaPublica?: string;
 };

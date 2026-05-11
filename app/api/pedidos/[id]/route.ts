@@ -7,6 +7,18 @@ export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
 
+function toNumberOrNull(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(",", ".");
+    if (!normalized) return null;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 export async function PATCH(request: Request, { params }: Params) {
   const { response } = await requirePedidosSession();
   if (response) return response;
@@ -21,11 +33,15 @@ export async function PATCH(request: Request, { params }: Params) {
 
   try {
     const data = await updatePedido(id, {
+      proveedorId: typeof body?.proveedorId === "string" ? body.proveedorId : undefined,
+      fleteEcItemSolo: toNumberOrNull(body?.fleteEcItemSolo),
+      arancelItemSolo: toNumberOrNull(body?.arancelItemSolo),
       usaTracking: typeof body?.usaTracking === "string" ? body.usaTracking : undefined,
       ecTracking: typeof body?.ecTracking === "string" ? body.ecTracking : undefined,
       carrier,
       recibido: typeof body?.recibido === "boolean" ? body.recibido : undefined,
       recibidoEnLv: typeof body?.recibidoEnLv === "boolean" ? body.recibidoEnLv : undefined,
+      estadosPedido: typeof body?.estadosPedido === "string" ? body.estadosPedido : undefined,
       notaInterna: typeof body?.notaInterna === "string" ? body.notaInterna : undefined,
       notaPublica: typeof body?.notaPublica === "string" ? body.notaPublica : undefined,
     });

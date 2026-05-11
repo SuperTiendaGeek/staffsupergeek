@@ -11,6 +11,7 @@ import {
   type AbonoCotizacion,
   type OpcionCotizacion,
 } from "@/types/cotizaciones";
+import { normalizeSku, validateSkuForItem } from "@/lib/sku/sku-service";
 
 type AirtableRecord = {
   id: string;
@@ -149,21 +150,6 @@ function mapCategoriaCotizacionToItem(categoria: string) {
     return "Repuesto";
   }
   return "Electronico";
-}
-
-function buildItemNotaInterna(cotizacion: CotizacionDetalle, opcion: OpcionCotizacion) {
-  return [
-    `Cotización: ${cotizacion.codigo}`,
-    `Cliente: ${cotizacion.clienteNombre}`,
-    `Producto solicitado: ${cotizacion.productoSolicitado}`,
-    cotizacion.descripcionRequerimiento ? `Descripción del requerimiento: ${cotizacion.descripcionRequerimiento}` : "",
-    cotizacion.observacionInterna ? `Nota interna de cotización: ${cotizacion.observacionInterna}` : "",
-    opcion.notaInterna ? `Nota interna de opción: ${opcion.notaInterna}` : "",
-    opcion.proveedor ? `Proveedor: ${opcion.proveedor}` : "",
-    opcion.urlProveedor ? `URL proveedor: ${opcion.urlProveedor}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
 }
 
 function mapCotizacion(record: AirtableRecord): CotizacionListado {
@@ -434,12 +420,6 @@ export async function createOpcionCotizacion(input: CrearOpcionCotizacionInput) 
   if (input.costoProveedor !== null && input.costoProveedor !== undefined) {
     fields["Costo Proveedor"] = input.costoProveedor;
   }
-  if (input.fleteEstimado !== null && input.fleteEstimado !== undefined) {
-    fields["Flete Estimado"] = input.fleteEstimado;
-  }
-  if (input.arancelImpuestos !== null && input.arancelImpuestos !== undefined) {
-    fields["Arancel / Impuestos"] = input.arancelImpuestos;
-  }
   if (input.otrosCostos !== null && input.otrosCostos !== undefined) {
     fields["Otros Costos"] = input.otrosCostos;
   }
@@ -592,7 +572,10 @@ export async function createAbonoCotizacion(input: CrearAbonoCotizacionInput) {
   };
 }
 
-export async function convertirCotizacionEnPedido(cotizacionId: string) {
+export async function convertirCotizacionEnPedido(
+  cotizacionId: string,
+  input: { skuInterno: string; skuProveedor?: string | null }
+) {
   const cotizacion = await fetchCotizacionById(cotizacionId);
 
   if (!cotizacion) {
@@ -617,16 +600,20 @@ export async function convertirCotizacionEnPedido(cotizacionId: string) {
     throw new Error("Registra al menos un abono antes de convertir la cotización en pedido.");
   }
 
+  const skuInterno = normalizeSku(input.skuInterno);
+  const skuValidation = await validateSkuForItem({ sku: skuInterno });
+  if (!skuValidation.valid) {
+    throw new Error(skuValidation.message || "El SKU interno no es válido.");
+  }
+
   const { client, url } = airtableUrl(COTIZACIONES_TABLES.item);
   const fields: Record<string, unknown> = {
     "Item Para": "Pedido",
     "Item": selectedOption.nombre || cotizacion.productoSolicitado,
     "Categoria": mapCategoriaCotizacionToItem(cotizacion.categoria),
+    "Identificador": skuInterno,
     "Precio Venta": selectedOption.precioVentaCliente ?? cotizacion.totalCotizado ?? 0,
     "Costo Proveedor": selectedOption.costoProveedor ?? 0,
-    "Flete EC (Item Solo)": selectedOption.fleteEstimado ?? 0,
-    "Arancel (Item Solo)": selectedOption.arancelImpuestos ?? 0,
-    "Nota Interna": buildItemNotaInterna(cotizacion, selectedOption),
     "Cotización ID": cotizacion.id,
     "Cotización Código": cotizacion.codigo,
     "Opción Cotización ID": selectedOption.id,
@@ -639,6 +626,11 @@ export async function convertirCotizacionEnPedido(cotizacionId: string) {
 
   if (selectedOption.notaParaCliente) {
     fields["Nota Pública"] = selectedOption.notaParaCliente;
+  }
+
+  const skuProveedor = normalizeSku(input.skuProveedor || "");
+  if (skuProveedor) {
+    fields["SKU Proveedor"] = skuProveedor;
   }
 
   const item = await airtableRequest<AirtableRecord>(url, {

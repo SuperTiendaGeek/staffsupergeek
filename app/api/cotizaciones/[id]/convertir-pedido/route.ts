@@ -6,14 +6,18 @@ export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function POST(_request: Request, { params }: Params) {
+export async function POST(request: Request, { params }: Params) {
   const { response } = await requireCotizacionesSession();
   if (response) return response;
 
   const { id } = await params;
+  const body = await request.json().catch(() => ({}));
 
   try {
-    const data = await convertirCotizacionEnPedido(id);
+    const data = await convertirCotizacionEnPedido(id, {
+      skuInterno: typeof body?.skuInterno === "string" ? body.skuInterno : "",
+      skuProveedor: typeof body?.skuProveedor === "string" ? body.skuProveedor : null,
+    });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     console.error("Error al convertir cotización en pedido:", error);

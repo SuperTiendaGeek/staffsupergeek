@@ -172,8 +172,6 @@ export type CrearOpcionCotizacionInput = {
   proveedor?: string | null;
   urlProveedor?: string | null;
   costoProveedor?: number | null;
-  fleteEstimado?: number | null;
-  arancelImpuestos?: number | null;
   otrosCostos?: number | null;
   precioVentaCliente?: number | null;
   notaInterna?: string | null;

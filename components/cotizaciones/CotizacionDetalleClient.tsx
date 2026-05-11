@@ -29,8 +29,6 @@ type OptionForm = {
   proveedor: string;
   urlProveedor: string;
   costoProveedor: string;
-  fleteEstimado: string;
-  arancelImpuestos: string;
   otrosCostos: string;
   precioVentaCliente: string;
   notaInterna: string;
@@ -45,14 +43,19 @@ type AbonoForm = {
   observacion: string;
 };
 
+type SkuCheckResponse = {
+  sku?: string;
+  available?: boolean;
+  exists?: boolean;
+  message?: string;
+};
+
 const emptyOptionForm: OptionForm = {
   nombre: "",
   descripcion: "",
   proveedor: "",
   urlProveedor: "",
   costoProveedor: "",
-  fleteEstimado: "",
-  arancelImpuestos: "",
   otrosCostos: "",
   precioVentaCliente: "",
   notaInterna: "",
@@ -105,6 +108,13 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
   const [abonoSaving, setAbonoSaving] = useState(false);
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const [convertingPedido, setConvertingPedido] = useState(false);
+  const [showSkuModal, setShowSkuModal] = useState(false);
+  const [skuInterno, setSkuInterno] = useState("");
+  const [skuProveedor, setSkuProveedor] = useState("");
+  const [skuMessage, setSkuMessage] = useState<string | null>(null);
+  const [skuAvailable, setSkuAvailable] = useState(false);
+  const [skuChecking, setSkuChecking] = useState(false);
+  const [skuGenerating, setSkuGenerating] = useState(false);
   const [pedidoMessage, setPedidoMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const whatsappUrl = useMemo(() => buildWhatsAppUrl(cotizacion), [cotizacion]);
@@ -162,8 +172,6 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
         body: JSON.stringify({
           ...optionForm,
           costoProveedor: numberOrNull(optionForm.costoProveedor),
-          fleteEstimado: numberOrNull(optionForm.fleteEstimado),
-          arancelImpuestos: numberOrNull(optionForm.arancelImpuestos),
           otrosCostos: numberOrNull(optionForm.otrosCostos),
           precioVentaCliente: numberOrNull(optionForm.precioVentaCliente),
         }),
@@ -274,12 +282,78 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
     }
   }
 
+  function openSkuModal() {
+    if (!canConvertPedido) return;
+    setSkuInterno("");
+    setSkuProveedor("");
+    setSkuMessage(null);
+    setSkuAvailable(false);
+    setShowSkuModal(true);
+  }
+
+  async function generarSku() {
+    setSkuGenerating(true);
+    setSkuMessage(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/items/sku/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: cotizacion.categoria }),
+      });
+      const payload = (await response.json().catch(() => null)) as { sku?: string; error?: string } | null;
+      if (!response.ok || !payload?.sku) {
+        throw new Error(payload?.error || "No se pudo generar el SKU.");
+      }
+      setSkuInterno(payload.sku);
+      setSkuAvailable(true);
+      setSkuMessage("SKU disponible.");
+    } catch (skuError) {
+      setSkuAvailable(false);
+      setSkuMessage(skuError instanceof Error ? skuError.message : "Error inesperado");
+    } finally {
+      setSkuGenerating(false);
+    }
+  }
+
+  async function validarSku() {
+    const cleanSku = skuInterno.trim().toUpperCase();
+    setSkuInterno(cleanSku);
+    setSkuChecking(true);
+    setSkuMessage(null);
+    setError(null);
+    try {
+      const response = await fetch(`/api/items/sku/check?sku=${encodeURIComponent(cleanSku)}`);
+      const payload = (await response.json().catch(() => null)) as SkuCheckResponse | null;
+      if (!response.ok || !payload) {
+        throw new Error(payload?.message || "No se pudo validar el SKU.");
+      }
+      setSkuInterno(payload.sku || cleanSku);
+      setSkuAvailable(Boolean(payload.available));
+      setSkuMessage(
+        payload.available
+          ? "SKU disponible."
+          : payload.message || "Este SKU ya está usado en otro item. Puedes guardar el código original como SKU proveedor y generar un SKU interno nuevo."
+      );
+      return Boolean(payload.available);
+    } catch (skuError) {
+      setSkuAvailable(false);
+      setSkuMessage(skuError instanceof Error ? skuError.message : "Error inesperado");
+      return false;
+    } finally {
+      setSkuChecking(false);
+    }
+  }
+
   async function convertirPedido() {
     if (!canConvertPedido) return;
-
-    if (!window.confirm("¿Convertir esta cotización aprobada en pedido Item?")) {
+    if (!skuInterno.trim()) {
+      setSkuMessage("Ingresa un SKU interno para convertir en pedido.");
       return;
     }
+
+    const isAvailable = skuAvailable || (await validarSku());
+    if (!isAvailable) return;
 
     setConvertingPedido(true);
     setPedidoMessage(null);
@@ -287,6 +361,11 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
     try {
       const response = await fetch(`/api/cotizaciones/${cotizacion.id}/convertir-pedido`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          skuInterno,
+          skuProveedor,
+        }),
       });
       const payload = await parseApi(response);
       if (!response.ok || !payload?.success) {
@@ -299,6 +378,7 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
         setAbonos(data.cotizacion.abonos || abonos);
       }
       setPedidoMessage(`Pedido creado: ${data.itemId || data.cotizacion?.itemPedidoId || "Item registrado"}`);
+      setShowSkuModal(false);
     } catch (convertError) {
       setError(convertError instanceof Error ? convertError.message : "Error inesperado");
     } finally {
@@ -307,6 +387,7 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
   }
 
   return (
+    <>
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="space-y-6">
         {error ? (
@@ -528,10 +609,9 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
                 </div>
 
                 {canSeeInternalCosts ? (
-                  <div className="mt-4 grid gap-2 border-t border-white/10 pt-4 text-sm sm:grid-cols-4">
+                  <div className="mt-4 grid gap-2 border-t border-white/10 pt-4 text-sm sm:grid-cols-3">
                     <Metric label="Costo proveedor" value={money(opcion.costoProveedor)} compact />
-                    <Metric label="Flete" value={money(opcion.fleteEstimado)} compact />
-                    <Metric label="Otros/Imp." value={money((opcion.arancelImpuestos ?? 0) + (opcion.otrosCostos ?? 0))} compact />
+                    <Metric label="Otros costos" value={money(opcion.otrosCostos)} compact />
                     <Metric label="Ganancia" value={money(opcion.gananciaEstimada)} compact />
                   </div>
                 ) : null}
@@ -572,8 +652,6 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
             {canSeeInternalCosts ? (
               <>
                 <Field label="Costo proveedor" type="number" value={optionForm.costoProveedor} onChange={(value) => setOptionForm((current) => ({ ...current, costoProveedor: value }))} />
-                <Field label="Flete estimado" type="number" value={optionForm.fleteEstimado} onChange={(value) => setOptionForm((current) => ({ ...current, fleteEstimado: value }))} />
-                <Field label="Arancel / Impuestos" type="number" value={optionForm.arancelImpuestos} onChange={(value) => setOptionForm((current) => ({ ...current, arancelImpuestos: value }))} />
                 <Field label="Otros costos" type="number" value={optionForm.otrosCostos} onChange={(value) => setOptionForm((current) => ({ ...current, otrosCostos: value }))} />
               </>
             ) : null}
@@ -628,7 +706,7 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
             <button
               type="button"
               disabled={!canConvertPedido || convertingPedido}
-              onClick={convertirPedido}
+              onClick={openSkuModal}
               className={`mt-4 w-full rounded-xl border px-4 py-3 text-sm font-extrabold transition ${
                 canConvertPedido
                   ? "border-geek-lime bg-geek-lime text-black shadow-glow hover:brightness-95"
@@ -673,6 +751,81 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
         </section>
       </aside>
     </div>
+    {showSkuModal ? (
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-6 backdrop-blur-sm">
+        <section className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/40">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold text-white">Asignar SKU al pedido</h2>
+              <p className="mt-2 text-sm leading-6 text-zinc-400">
+                Este pedido necesita un SKU interno único para control de inventario.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSkuModal(false)}
+              className="rounded-xl border border-white/10 px-3 py-2 text-sm font-semibold text-zinc-300 transition hover:border-geek-lime/40 hover:text-geek-lime"
+            >
+              Cerrar
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-3 rounded-xl border border-white/10 bg-[#111] p-4 text-sm sm:grid-cols-2">
+            <Row label="Producto / artículo" value={selectedOption?.nombre || cotizacion.productoSolicitado} />
+            <Row label="Categoría" value={cotizacion.categoria || "-"} />
+            <Row label="Proveedor seleccionado" value={selectedOption?.proveedor || "-"} />
+            <Row label="Cotización" value={cotizacion.codigo} />
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <Field label="SKU proveedor" value={skuProveedor} onChange={(value) => setSkuProveedor(value.toUpperCase())} />
+            <Field
+              label="SKU interno"
+              value={skuInterno}
+              onChange={(value) => {
+                setSkuInterno(value.toUpperCase());
+                setSkuAvailable(false);
+                setSkuMessage(null);
+              }}
+            />
+          </div>
+
+          {skuMessage ? (
+            <p className={`mt-4 rounded-xl border px-4 py-3 text-sm ${skuAvailable ? "border-geek-lime/30 bg-geek-lime/10 text-geek-lime" : "border-red-500/30 bg-red-500/10 text-red-200"}`}>
+              {skuMessage}
+            </p>
+          ) : null}
+
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              disabled={skuChecking || !skuInterno.trim()}
+              onClick={validarSku}
+              className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {skuChecking ? "Validando..." : "Validar SKU"}
+            </button>
+            <button
+              type="button"
+              disabled={skuGenerating}
+              onClick={generarSku}
+              className="rounded-xl border border-geek-lime/40 px-4 py-3 text-sm font-semibold text-geek-lime transition hover:bg-geek-lime/10 disabled:cursor-wait disabled:opacity-60"
+            >
+              {skuGenerating ? "Generando..." : "Generar SKU"}
+            </button>
+            <button
+              type="button"
+              disabled={convertingPedido || !skuInterno.trim()}
+              onClick={convertirPedido}
+              className="rounded-xl border border-geek-lime bg-geek-lime px-4 py-3 text-sm font-extrabold text-black transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {convertingPedido ? "Convirtiendo..." : "Convertir en pedido"}
+            </button>
+          </div>
+        </section>
+      </div>
+    ) : null}
+    </>
   );
 }
 

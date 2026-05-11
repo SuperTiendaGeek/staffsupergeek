@@ -40,8 +40,6 @@ export async function POST(request: Request, { params }: Params) {
       proveedor: typeof body?.proveedor === "string" ? body.proveedor : null,
       urlProveedor: typeof body?.urlProveedor === "string" ? body.urlProveedor : null,
       costoProveedor: toNumber(body?.costoProveedor),
-      fleteEstimado: toNumber(body?.fleteEstimado),
-      arancelImpuestos: toNumber(body?.arancelImpuestos),
       otrosCostos: toNumber(body?.otrosCostos),
       precioVentaCliente: toNumber(body?.precioVentaCliente),
       notaInterna: typeof body?.notaInterna === "string" ? body.notaInterna : null,
