@@ -9,11 +9,13 @@ import {
   type AbonoCotizacion,
   type CotizacionDetalle,
   type OpcionCotizacion,
+  type ProveedorCotizacion,
 } from "@/types/cotizaciones";
 import { formatStableDateTime } from "@/components/cotizaciones/utils/formatDate";
 
 type Props = {
   initialCotizacion: CotizacionDetalle;
+  proveedores: ProveedorCotizacion[];
   canSeeInternalCosts: boolean;
 };
 
@@ -26,7 +28,7 @@ type ApiResponse = {
 type OptionForm = {
   nombre: string;
   descripcion: string;
-  proveedor: string;
+  proveedorId: string;
   urlProveedor: string;
   costoProveedor: string;
   otrosCostos: string;
@@ -53,7 +55,7 @@ type SkuCheckResponse = {
 const emptyOptionForm: OptionForm = {
   nombre: "",
   descripcion: "",
-  proveedor: "",
+  proveedorId: "",
   urlProveedor: "",
   costoProveedor: "",
   otrosCostos: "",
@@ -96,7 +98,7 @@ function buildWhatsAppUrl(cotizacion: CotizacionDetalle) {
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
 
-export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts }: Props) {
+export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSeeInternalCosts }: Props) {
   const [cotizacion, setCotizacion] = useState(initialCotizacion);
   const [opciones, setOpciones] = useState(initialCotizacion.opciones);
   const [abonos, setAbonos] = useState(initialCotizacion.abonos);
@@ -118,8 +120,15 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
   const [pedidoMessage, setPedidoMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const whatsappUrl = useMemo(() => buildWhatsAppUrl(cotizacion), [cotizacion]);
+  const proveedoresById = useMemo(
+    () => new Map(proveedores.map((proveedor) => [proveedor.id, proveedor])),
+    [proveedores]
+  );
   const showAbonos = cotizacion.estado === "Aprobada" || cotizacion.estado === "Convertida en Pedido";
   const selectedOption = opciones.find((opcion) => opcion.seleccionadaPorCliente) || null;
+  const selectedOptionProveedor = selectedOption?.proveedorRecordIds[0]
+    ? proveedoresById.get(selectedOption.proveedorRecordIds[0])
+    : null;
   const registeredAbonosTotal = abonos
     .filter((abono) => abono.estado === "Registrado")
     .reduce((sum, abono) => sum + (abono.monto ?? 0), 0);
@@ -129,6 +138,8 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
       ? "La cotización debe estar aprobada."
       : !selectedOption
         ? "Selecciona una opción."
+        : !selectedOption.proveedorRecordIds[0]
+          ? "La opción seleccionada no tiene proveedor."
         : registeredAbonosTotal <= 0
           ? "Registra al menos un abono."
           : "";
@@ -161,6 +172,11 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
 
     if (!optionForm.nombre.trim()) {
       setError("El nombre de la opción es obligatorio.");
+      return;
+    }
+
+    if (!optionForm.proveedorId) {
+      setError("Selecciona el proveedor de la opción.");
       return;
     }
 
@@ -386,6 +402,15 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
     }
   }
 
+  function proveedorLabel(opcion: OpcionCotizacion) {
+    const proveedorId = opcion.proveedorRecordIds[0];
+    const proveedor = proveedorId ? proveedoresById.get(proveedorId) : null;
+    if (proveedor) {
+      return `${proveedor.nombre}${proveedor.direccion ? ` · ${proveedor.direccion}` : ""}`;
+    }
+    return opcion.proveedor || "-";
+  }
+
   return (
     <>
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -601,6 +626,10 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
                         Ver proveedor
                       </a>
                     ) : null}
+                    <p className="mt-2 text-xs font-semibold uppercase tracking-normal text-zinc-500">
+                      Proveedor
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-300">{proveedorLabel(opcion)}</p>
                   </div>
                   <div className="text-left sm:text-right">
                     <p className="text-xs uppercase tracking-normal text-zinc-500">Precio cliente</p>
@@ -647,7 +676,14 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <Field label="Nombre opción" value={optionForm.nombre} onChange={(value) => setOptionForm((current) => ({ ...current, nombre: value }))} />
             <Field label="URL proveedor" value={optionForm.urlProveedor} onChange={(value) => setOptionForm((current) => ({ ...current, urlProveedor: value }))} />
-            <Field label="Proveedor" value={optionForm.proveedor} onChange={(value) => setOptionForm((current) => ({ ...current, proveedor: value }))} />
+            <SelectField label="Proveedor" value={optionForm.proveedorId} onChange={(proveedorId) => setOptionForm((current) => ({ ...current, proveedorId }))}>
+              <option value="">Seleccionar proveedor</option>
+              {proveedores.map((proveedor) => (
+                <option key={proveedor.id} value={proveedor.id}>
+                  {proveedor.nombre}{proveedor.direccion ? ` · ${proveedor.direccion}` : ""}
+                </option>
+              ))}
+            </SelectField>
             <Field label="Precio venta cliente" type="number" value={optionForm.precioVentaCliente} onChange={(value) => setOptionForm((current) => ({ ...current, precioVentaCliente: value }))} />
             {canSeeInternalCosts ? (
               <>
@@ -773,7 +809,16 @@ export function CotizacionDetalleClient({ initialCotizacion, canSeeInternalCosts
           <div className="mt-5 grid gap-3 rounded-xl border border-white/10 bg-[#111] p-4 text-sm sm:grid-cols-2">
             <Row label="Producto / artículo" value={selectedOption?.nombre || cotizacion.productoSolicitado} />
             <Row label="Categoría" value={cotizacion.categoria || "-"} />
-            <Row label="Proveedor seleccionado" value={selectedOption?.proveedor || "-"} />
+            <Row
+              label="Proveedor heredado"
+              value={
+                selectedOptionProveedor
+                  ? `${selectedOptionProveedor.nombre}${selectedOptionProveedor.direccion ? ` · ${selectedOptionProveedor.direccion}` : ""}`
+                  : selectedOption
+                    ? proveedorLabel(selectedOption)
+                    : "-"
+              }
+            />
             <Row label="Cotización" value={cotizacion.codigo} />
           </div>
 
@@ -883,6 +928,31 @@ function Field({
         onChange={(event) => onChange(event.target.value)}
         className="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime"
       />
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  children,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime"
+      >
+        {children}
+      </select>
     </label>
   );
 }

@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { PedidoDetalleClient } from "@/components/pedidos/PedidoDetalleClient";
 import { PedidosShell } from "@/components/pedidos/PedidosShell";
 import { fetchCotizacionById } from "@/lib/cotizaciones/airtable";
-import { fetchEstadosPedidoOptions, fetchPedidoById, fetchProveedoresPedido } from "@/lib/pedidos/airtable";
+import { fetchEstadosPedidoOptions, fetchPedidoById } from "@/lib/pedidos/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -16,9 +16,8 @@ export default async function PedidoDetallePage({ params }: Props) {
   const { id } = await params;
   const pedido = await fetchPedidoById(id);
   if (!pedido) notFound();
-  const [cotizacionOrigen, proveedores, estadosPedidoOptions] = await Promise.all([
+  const [cotizacionOrigen, estadosPedidoOptions] = await Promise.all([
     pedido.cotizacionId ? fetchCotizacionById(pedido.cotizacionId) : Promise.resolve(null),
-    fetchProveedoresPedido(),
     fetchEstadosPedidoOptions(),
   ]);
 
@@ -27,7 +26,6 @@ export default async function PedidoDetallePage({ params }: Props) {
       <PedidoDetalleClient
         initialPedido={pedido}
         cotizacionOrigen={cotizacionOrigen}
-        proveedores={proveedores}
         estadosPedidoOptions={estadosPedidoOptions}
       />
     </PedidosShell>

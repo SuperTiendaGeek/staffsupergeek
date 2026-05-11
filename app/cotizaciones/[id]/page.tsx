@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { CotizacionDetalleClient } from "@/components/cotizaciones/CotizacionDetalleClient";
 import { CotizacionesShell } from "@/components/cotizaciones/CotizacionesShell";
-import { fetchCotizacionById } from "@/lib/cotizaciones/airtable";
+import { fetchCotizacionById, fetchProveedoresCotizacion } from "@/lib/cotizaciones/airtable";
 import { isAdministratorRole } from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
 
@@ -17,7 +17,10 @@ export default async function CotizacionDetallePage({ params }: Props) {
   if (!session) redirect("/login");
 
   const { id } = await params;
-  const cotizacion = await fetchCotizacionById(id);
+  const [cotizacion, proveedores] = await Promise.all([
+    fetchCotizacionById(id),
+    fetchProveedoresCotizacion(),
+  ]);
   if (!cotizacion) notFound();
 
   return (
@@ -34,6 +37,7 @@ export default async function CotizacionDetallePage({ params }: Props) {
     >
       <CotizacionDetalleClient
         initialCotizacion={cotizacion}
+        proveedores={proveedores}
         canSeeInternalCosts={isAdministratorRole(session.user.rol)}
       />
     </CotizacionesShell>

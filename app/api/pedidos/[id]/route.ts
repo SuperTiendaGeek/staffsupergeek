@@ -33,7 +33,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
   try {
     const data = await updatePedido(id, {
-      proveedorId: typeof body?.proveedorId === "string" ? body.proveedorId : undefined,
+      encargo: typeof body?.encargo === "boolean" ? body.encargo : undefined,
       fleteEcItemSolo: toNumberOrNull(body?.fleteEcItemSolo),
       arancelItemSolo: toNumberOrNull(body?.arancelItemSolo),
       usaTracking: typeof body?.usaTracking === "string" ? body.usaTracking : undefined,

@@ -408,7 +408,7 @@ export async function fetchPedidoById(id: string): Promise<PedidoItem | null> {
 
 export async function updatePedido(id: string, input: PedidoUpdateInput) {
   const fields: Record<string, unknown> = {};
-  if (input.proveedorId !== undefined) fields["Proveedor"] = input.proveedorId ? [input.proveedorId] : [];
+  if (input.encargo !== undefined) fields["Encargo"] = input.encargo;
   if (input.fleteEcItemSolo !== undefined) fields["Flete EC (Item Solo)"] = input.fleteEcItemSolo;
   if (input.arancelItemSolo !== undefined) fields["Arancel (Item Solo)"] = input.arancelItemSolo;
   if (input.usaTracking !== undefined) fields["USA Tracking"] = input.usaTracking;

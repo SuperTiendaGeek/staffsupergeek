@@ -24,10 +24,18 @@ export async function POST(request: Request, { params }: Params) {
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
   const nombre = String(body?.nombre ?? "").trim();
+  const proveedorId = String(body?.proveedorId ?? "").trim();
 
   if (!nombre) {
     return NextResponse.json(
       { success: false, error: "El nombre de la opción es obligatorio." },
+      { status: 400 }
+    );
+  }
+
+  if (!proveedorId) {
+    return NextResponse.json(
+      { success: false, error: "Selecciona el proveedor de la opción." },
       { status: 400 }
     );
   }
@@ -37,7 +45,7 @@ export async function POST(request: Request, { params }: Params) {
       cotizacionId: id,
       nombre,
       descripcion: typeof body?.descripcion === "string" ? body.descripcion : null,
-      proveedor: typeof body?.proveedor === "string" ? body.proveedor : null,
+      proveedorId,
       urlProveedor: typeof body?.urlProveedor === "string" ? body.urlProveedor : null,
       costoProveedor: toNumber(body?.costoProveedor),
       otrosCostos: toNumber(body?.otrosCostos),

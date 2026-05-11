@@ -73,7 +73,7 @@ export type PedidoItem = {
 };
 
 export type PedidoUpdateInput = {
-  proveedorId?: string;
+  encargo?: boolean;
   fleteEcItemSolo?: number | null;
   arancelItemSolo?: number | null;
   usaTracking?: string;

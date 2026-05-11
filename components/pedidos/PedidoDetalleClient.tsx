@@ -3,12 +3,11 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import type { CotizacionDetalle, OpcionCotizacion } from "@/types/cotizaciones";
-import { CARRIERS_PEDIDO, type EstadoPedidoOption, type PedidoItem, type ProveedorPedido } from "@/types/pedidos";
+import { CARRIERS_PEDIDO, type EstadoPedidoOption, type PedidoItem } from "@/types/pedidos";
 
 type Props = {
   initialPedido: PedidoItem;
   cotizacionOrigen: CotizacionDetalle | null;
-  proveedores: ProveedorPedido[];
   estadosPedidoOptions: EstadoPedidoOption[];
 };
 
@@ -49,12 +48,12 @@ async function parseApi(response: Response): Promise<ApiResponse | null> {
   }
 }
 
-export function PedidoDetalleClient({ initialPedido, cotizacionOrigen, proveedores, estadosPedidoOptions }: Props) {
+export function PedidoDetalleClient({ initialPedido, cotizacionOrigen, estadosPedidoOptions }: Props) {
   const [pedido, setPedido] = useState(initialPedido);
   const [showCotizacion, setShowCotizacion] = useState(false);
   const [form, setForm] = useState({
     estadosPedido: initialPedido.estadosPedido,
-    proveedorId: initialPedido.proveedorId,
+    encargo: initialPedido.estaEncargado,
     fleteEcItemSolo: numberInputValue(initialPedido.fleteEcItemSolo),
     arancelItemSolo: numberInputValue(initialPedido.arancelItemSolo),
     usaTracking: initialPedido.usaTracking,
@@ -70,7 +69,7 @@ export function PedidoDetalleClient({ initialPedido, cotizacionOrigen, proveedor
   const [error, setError] = useState<string | null>(null);
 
   const tipoPedido = pedido.esProveedorLocal ? "Local" : pedido.esProveedorExterior ? "Exterior" : "Por definir";
-  const mostrarRecepcionIntermediario = pedido.esProveedorExterior || pedido.estaEncargado;
+  const mostrarRecepcionIntermediario = pedido.esProveedorExterior || form.encargo;
   const fleteReal = numberOrNull(form.fleteEcItemSolo);
   const arancelReal = pedido.esProveedorExterior ? numberOrNull(form.arancelItemSolo) : null;
   const costoRealTotal = (pedido.costoProveedor ?? 0) + (fleteReal ?? 0) + (arancelReal ?? 0);
@@ -100,7 +99,7 @@ export function PedidoDetalleClient({ initialPedido, cotizacionOrigen, proveedor
       setForm((current) => ({
         ...current,
         estadosPedido: updatedPedido.estadosPedido,
-        proveedorId: updatedPedido.proveedorId,
+        encargo: updatedPedido.estaEncargado,
         fleteEcItemSolo: numberInputValue(updatedPedido.fleteEcItemSolo),
         arancelItemSolo: numberInputValue(updatedPedido.arancelItemSolo),
         notaInterna: isGeneratedPedidoNote(updatedPedido.notaInterna) ? "" : updatedPedido.notaInterna,
@@ -154,7 +153,6 @@ export function PedidoDetalleClient({ initialPedido, cotizacionOrigen, proveedor
         <div className="space-y-6">
           <PedidoSeguimientoCard
             pedido={pedido}
-            proveedores={proveedores}
             tipoPedido={tipoPedido}
             form={form}
             saving={saving}
@@ -257,7 +255,6 @@ function PedidoHeader({
 
 function PedidoSeguimientoCard({
   pedido,
-  proveedores,
   tipoPedido,
   form,
   saving,
@@ -266,13 +263,12 @@ function PedidoSeguimientoCard({
   onSubmit,
 }: {
   pedido: PedidoItem;
-  proveedores: ProveedorPedido[];
   tipoPedido: string;
   form: {
-    proveedorId: string;
     usaTracking: string;
     ecTracking: string;
     carrier: string;
+    encargo: boolean;
     recibido: boolean;
     recibidoEnLv: boolean;
   };
@@ -285,17 +281,17 @@ function PedidoSeguimientoCard({
     <Card title="Seguimiento y recepción">
       <form onSubmit={onSubmit} className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
-          <SelectField label="Proveedor" value={form.proveedorId} onChange={(proveedorId) => onChange({ proveedorId })}>
-            <option value="">Seleccionar proveedor</option>
-            {proveedores.map((proveedor) => (
-              <option key={proveedor.id} value={proveedor.id}>{proveedor.nombre}</option>
-            ))}
-          </SelectField>
+          <ReadOnly label="Proveedor" value={pedido.proveedor || "-"} />
           <div className="grid gap-3 sm:grid-cols-2">
             <ReadOnly label="Origen proveedor" value={pedido.proveedorOrigen || "-"} />
             <ReadOnly label="Tipo pedido" value={tipoPedido} />
           </div>
-          <ReadOnly label="Encargo con Roberto" value={pedido.estaEncargado ? "Sí" : "No"} />
+          {!pedido.proveedor ? (
+            <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm leading-6 text-amber-100 sm:col-span-2">
+              Este pedido no tiene proveedor heredado. Revisa la opción de cotización aprobada.
+            </p>
+          ) : null}
+          <CheckField label="Encargo con Roberto" checked={form.encargo} onChange={(encargo) => onChange({ encargo })} />
           <SelectField label="Carrier" value={form.carrier} onChange={(carrier) => onChange({ carrier })}>
             <option value="">Sin carrier</option>
             {CARRIERS_PEDIDO.map((carrier) => (
@@ -308,7 +304,7 @@ function PedidoSeguimientoCard({
           <Field label="EC Tracking" value={form.ecTracking} help={pedido.esProveedorExterior ? "Miami o intermediario hasta SUPER GEEK." : "Entrega local hasta SUPER GEEK."} onChange={(ecTracking) => onChange({ ecTracking })} />
         </div>
 
-        {pedido.estaEncargado ? (
+        {form.encargo ? (
           <p className="rounded-xl border border-geek-lime/25 bg-geek-lime/10 px-4 py-3 text-sm leading-6 text-zinc-200">
             Encargo con Roberto: este pedido será recibido primero por Roberto o un intermediario.
           </p>

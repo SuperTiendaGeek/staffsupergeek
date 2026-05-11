@@ -154,6 +154,12 @@ export type OpcionCotizacion = {
   notaParaCliente: string;
 };
 
+export type ProveedorCotizacion = {
+  id: string;
+  nombre: string;
+  direccion: "ECU" | "USA" | "CHN" | "";
+};
+
 export type CrearCotizacionInput = {
   cliente: CotizacionClienteSnapshot;
   productoSolicitado: string;
@@ -169,7 +175,7 @@ export type CrearOpcionCotizacionInput = {
   cotizacionId: string;
   nombre: string;
   descripcion?: string | null;
-  proveedor?: string | null;
+  proveedorId: string;
   urlProveedor?: string | null;
   costoProveedor?: number | null;
   otrosCostos?: number | null;

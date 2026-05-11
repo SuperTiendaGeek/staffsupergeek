@@ -10,6 +10,7 @@ import {
   type AirtableAttachment,
   type AbonoCotizacion,
   type OpcionCotizacion,
+  type ProveedorCotizacion,
 } from "@/types/cotizaciones";
 import { normalizeSku, validateSkuForItem } from "@/lib/sku/sku-service";
 
@@ -97,6 +98,12 @@ function firstNumber(value: unknown): number | null {
 
 function boolValue(value: unknown) {
   return value === true;
+}
+
+function normalizeProveedorDireccion(value: unknown): ProveedorCotizacion["direccion"] {
+  const normalized = firstString(value).trim().toUpperCase();
+  if (normalized === "ECU" || normalized === "USA" || normalized === "CHN") return normalized;
+  return "";
 }
 
 function attachmentList(value: unknown): AirtableAttachment[] {
@@ -191,6 +198,14 @@ function mapOpcion(record: AirtableRecord): OpcionCotizacion {
     seleccionadaPorCliente: boolValue(fields["Seleccionada por Cliente"]),
     notaInterna: firstString(fields["Nota Interna"]),
     notaParaCliente: firstString(fields["Nota para Cliente"]),
+  };
+}
+
+function mapProveedorCotizacion(record: AirtableRecord): ProveedorCotizacion {
+  return {
+    id: record.id,
+    nombre: firstString(record.fields["Nombre"], record.id),
+    direccion: normalizeProveedorDireccion(record.fields["Dirección"]),
   };
 }
 
@@ -406,11 +421,38 @@ export async function fetchOpcionesCotizacion(cotizacionId: string, codigoCotiza
   return (data.records ?? []).map(mapOpcion);
 }
 
+export async function fetchProveedoresCotizacion(): Promise<ProveedorCotizacion[]> {
+  const { client, url } = airtableUrl(COTIZACIONES_TABLES.proveedores);
+  const records: AirtableRecord[] = [];
+  let offset: string | null = null;
+
+  do {
+    const pageUrl = new URL(url);
+    pageUrl.searchParams.set("pageSize", "100");
+    pageUrl.searchParams.append("sort[0][field]", "Nombre");
+    pageUrl.searchParams.append("sort[0][direction]", "asc");
+    if (offset) pageUrl.searchParams.set("offset", offset);
+
+    const data = await airtableRequest<AirtableListResponse>(pageUrl.toString(), {
+      headers: client.headers,
+    });
+    records.push(...(data.records ?? []));
+    offset = data.offset ?? null;
+  } while (offset);
+
+  return records.map(mapProveedorCotizacion);
+}
+
 export async function createOpcionCotizacion(input: CrearOpcionCotizacionInput) {
+  if (!input.proveedorId) {
+    throw new Error("Selecciona el proveedor de la opción.");
+  }
+
   const { client, url } = airtableUrl(COTIZACIONES_TABLES.opciones);
   const fields: Record<string, unknown> = {
     "Cotización": [input.cotizacionId],
     "Nombre Opción": input.nombre,
+    "Proveedor": [input.proveedorId],
     "Estado Opción": "Disponible",
     "Seleccionada por Cliente": false,
   };
@@ -428,9 +470,6 @@ export async function createOpcionCotizacion(input: CrearOpcionCotizacionInput) 
   }
   if (input.notaInterna) fields["Nota Interna"] = input.notaInterna;
   if (input.notaParaCliente) fields["Nota para Cliente"] = input.notaParaCliente;
-
-  // El campo Proveedor puede ser vínculo en Airtable. En V1 guardamos URL/notas y no forzamos relación.
-  if (input.proveedor) fields["Nota Interna"] = [input.notaInterna, `Proveedor: ${input.proveedor}`].filter(Boolean).join("\n");
 
   const data = await airtableRequest<AirtableRecord>(url, {
     method: "POST",
@@ -595,6 +634,11 @@ export async function convertirCotizacionEnPedido(
     throw new Error("Selecciona una opción antes de convertir la cotización en pedido.");
   }
 
+  const proveedorId = selectedOption.proveedorRecordIds[0];
+  if (!proveedorId) {
+    throw new Error("La opción seleccionada no tiene proveedor registrado.");
+  }
+
   const registeredAbonos = cotizacion.abonos.filter((abono) => abono.estado === "Registrado");
   if (registeredAbonos.length === 0 || registeredAbonos.reduce((sum, abono) => sum + (abono.monto ?? 0), 0) <= 0) {
     throw new Error("Registra al menos un abono antes de convertir la cotización en pedido.");
@@ -614,6 +658,7 @@ export async function convertirCotizacionEnPedido(
     "Identificador": skuInterno,
     "Precio Venta": selectedOption.precioVentaCliente ?? cotizacion.totalCotizado ?? 0,
     "Costo Proveedor": selectedOption.costoProveedor ?? 0,
+    "Proveedor": [proveedorId],
     "Cotización ID": cotizacion.id,
     "Cotización Código": cotizacion.codigo,
     "Opción Cotización ID": selectedOption.id,
