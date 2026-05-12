@@ -6,6 +6,7 @@ import {
   type CrearAbonoCotizacionInput,
   type CrearCotizacionInput,
   type CrearOpcionCotizacionInput,
+  type ActualizarOpcionCotizacionInput,
   type EstadoCotizacion,
   type AirtableAttachment,
   type AbonoCotizacion,
@@ -26,8 +27,17 @@ type AirtableListResponse = {
 };
 
 type AirtableClient = {
+  baseId: string;
   baseUrl: string;
   headers: HeadersInit;
+};
+
+type AirtableUploadAttachmentInput = {
+  recordId: string;
+  attachmentFieldIdOrName: string;
+  filename: string;
+  contentType: string;
+  fileBase64: string;
 };
 
 export const COTIZACIONES_TABLES = {
@@ -37,6 +47,41 @@ export const COTIZACIONES_TABLES = {
   abonos: process.env.AIRTABLE_ABONOS_COTIZACION_TABLE?.trim() || "Abonos de Cotización",
   item: process.env.AIRTABLE_ITEM_TABLE?.trim() || "Item",
   proveedores: process.env.AIRTABLE_PROVEEDORES_TABLE?.trim() || "Proveedores",
+} as const;
+
+const OPCIONES_COTIZACION_FIELDS = {
+  opcion: "Opción",
+  cotizacion: "Cotización",
+  proveedor: "Proveedor",
+  productoDescripcion: "Producto / Descripción",
+  costoProveedor: "Costo Proveedor",
+  precioVentaCliente: "Precio Venta Cliente",
+  gananciaEstimada: "Ganancia Estimada",
+  fotos: "Fotos",
+  urlProveedor: "URL Proveedor",
+  tiempoEstimado: "Tiempo Estimado",
+  estadoOpcion: "Estado Opción",
+  estadoDeOpcion: "Estado de Opción",
+  opcionElegida: "Opción Elegida",
+  itemPedidoGenerado: "Item/Pedido Generado",
+  observacionesInternas: "Observaciones Internas",
+  notaParaCliente: "Nota para Cliente",
+} as const;
+
+const OPCIONES_COTIZACION_REQUIRED_CREATE_FIELDS = [
+  OPCIONES_COTIZACION_FIELDS.cotizacion,
+  OPCIONES_COTIZACION_FIELDS.proveedor,
+  OPCIONES_COTIZACION_FIELDS.productoDescripcion,
+  OPCIONES_COTIZACION_FIELDS.costoProveedor,
+  OPCIONES_COTIZACION_FIELDS.precioVentaCliente,
+] as const;
+
+const ESTADOS_OPCION_AIRTABLE = {
+  disponible: "Disponible",
+  ofrecidaAlCliente: "Ofrecida al Cliente",
+  seleccionada: "Seleccionada",
+  descartada: "Descartada",
+  noDisponible: "No Disponible",
 } as const;
 
 function getRequiredEnv(name: string, fallbackName?: string) {
@@ -60,12 +105,125 @@ function getClient(): AirtableClient {
     getRequiredEnv("AIRTABLE_BASE_ID");
 
   return {
+    baseId,
     baseUrl: `https://api.airtable.com/v0/${baseId}`,
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
   };
+}
+
+const airtableFieldsCache = new Map<string, Promise<Set<string> | null>>();
+
+async function getAirtableTableFields(tableName: string): Promise<Set<string> | null> {
+  const client = getClient();
+  const cacheKey = `${client.baseId}:${tableName}`;
+  const cached = airtableFieldsCache.get(cacheKey);
+  if (cached) return cached;
+
+  const request = (async () => {
+    try {
+      const response = await fetch(`https://api.airtable.com/v0/meta/bases/${client.baseId}/tables`, {
+        headers: client.headers,
+        cache: "no-store",
+      });
+      if (!response.ok) return null;
+      const data = (await response.json()) as {
+        tables?: Array<{ name?: string; fields?: Array<{ name?: string }> }>;
+      };
+      const table = data.tables?.find((item) => item.name === tableName);
+      if (!table?.fields) return null;
+      return new Set(
+        table.fields
+          .map((field) => field.name)
+          .filter((fieldName): fieldName is string => typeof fieldName === "string")
+      );
+    } catch {
+      return null;
+    }
+  })();
+
+  airtableFieldsCache.set(cacheKey, request);
+  return request;
+}
+
+async function airtableTableHasField(tableName: string, fieldName: string) {
+  const fields = await getAirtableTableFields(tableName);
+  if (fields) return fields.has(fieldName);
+
+  try {
+    const client = getClient();
+    const response = await fetch(`https://api.airtable.com/v0/meta/bases/${client.baseId}/tables`, {
+      headers: client.headers,
+      cache: "no-store",
+    });
+    if (!response.ok) return false;
+    const data = (await response.json()) as {
+      tables?: Array<{ name?: string; fields?: Array<{ name?: string }> }>;
+    };
+    const table = data.tables?.find((item) => item.name === tableName);
+    return Boolean(table?.fields?.some((field) => field.name === fieldName));
+  } catch {
+    return false;
+  }
+}
+
+async function getOpcionesCotizacionFields() {
+  return getAirtableTableFields(COTIZACIONES_TABLES.opciones);
+}
+
+function resolveOpcionEstadoFieldName(fields?: Set<string> | null) {
+  if (fields?.has(OPCIONES_COTIZACION_FIELDS.estadoOpcion)) {
+    return OPCIONES_COTIZACION_FIELDS.estadoOpcion;
+  }
+  if (fields?.has(OPCIONES_COTIZACION_FIELDS.estadoDeOpcion)) {
+    return OPCIONES_COTIZACION_FIELDS.estadoDeOpcion;
+  }
+  return OPCIONES_COTIZACION_FIELDS.estadoOpcion;
+}
+
+function fieldExists(fields: Set<string> | null | undefined, fieldName: string) {
+  return Boolean(fields?.has(fieldName));
+}
+
+function addOptionalAirtableField(
+  target: Record<string, unknown>,
+  availableFields: Set<string> | null | undefined,
+  fieldName: string,
+  value: unknown
+) {
+  if (value === null || value === undefined || value === "") return;
+  if (fieldExists(availableFields, fieldName)) target[fieldName] = value;
+}
+
+async function uploadAttachmentToRecord({
+  recordId,
+  attachmentFieldIdOrName,
+  filename,
+  contentType,
+  fileBase64,
+}: AirtableUploadAttachmentInput) {
+  const client = getClient();
+  const url = `https://content.airtable.com/v0/${encodeURIComponent(client.baseId)}/${encodeURIComponent(recordId)}/${encodeURIComponent(attachmentFieldIdOrName)}/uploadAttachment`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      ...client.headers,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      contentType,
+      filename,
+      file: fileBase64,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Airtable uploadAttachment error ${response.status}: ${text}`);
+  }
 }
 
 function airtableUrl(tableName: string, recordId?: string) {
@@ -98,6 +256,22 @@ function firstNumber(value: unknown): number | null {
 
 function boolValue(value: unknown) {
   return value === true;
+}
+
+function normalizeEstadoOpcionCotizacion(value: unknown) {
+  const raw = firstString(value).trim();
+  if (!raw) return ESTADOS_OPCION_AIRTABLE.disponible;
+
+  if (raw === "Borrador") return ESTADOS_OPCION_AIRTABLE.disponible;
+  if (raw === "Ofrecida") return ESTADOS_OPCION_AIRTABLE.ofrecidaAlCliente;
+  if (raw === "Elegida" || raw === "Convertida en pedido") {
+    return ESTADOS_OPCION_AIRTABLE.seleccionada;
+  }
+  if (raw === "Rechazada") return ESTADOS_OPCION_AIRTABLE.descartada;
+  if (raw === "Expirada") return ESTADOS_OPCION_AIRTABLE.noDisponible;
+
+  if (Object.values(ESTADOS_OPCION_AIRTABLE).some((estado) => estado === raw)) return raw;
+  return ESTADOS_OPCION_AIRTABLE.disponible;
 }
 
 function normalizeProveedorDireccion(value: unknown): ProveedorCotizacion["direccion"] {
@@ -156,6 +330,7 @@ function mapCategoriaCotizacionToItem(categoria: string) {
   if (normalized === "repuesto" || normalized === "mainboard" || normalized === "batería" || normalized === "bateria") {
     return "Repuesto";
   }
+  if (normalized === "accesorio") return "Accesorio";
   return "Electronico";
 }
 
@@ -172,32 +347,47 @@ function mapCotizacion(record: AirtableRecord): CotizacionListado {
     totalAbonado: firstNumber(fields["Total Abonado"]),
     saldoPendiente: firstNumber(fields["Saldo Pendiente"]),
     fechaCreacion: firstString(fields["Fecha Creación"], record.createdTime ?? ""),
-    itemPedidoId: firstString(fields["Item Pedido ID"]),
+    itemPedidoId: firstString(fields["Pedido Generado"]) || firstString(fields["Item Pedido ID"]),
   };
 }
 
 function mapOpcion(record: AirtableRecord): OpcionCotizacion {
   const fields = record.fields;
+  const estado = normalizeEstadoOpcionCotizacion(
+    fields[OPCIONES_COTIZACION_FIELDS.estadoOpcion] ||
+      fields[OPCIONES_COTIZACION_FIELDS.estadoDeOpcion]
+  );
+  const itemPedidoGeneradoIds = linkedIds(fields[OPCIONES_COTIZACION_FIELDS.itemPedidoGenerado]);
+  const seleccionadaPorCliente =
+    boolValue(fields[OPCIONES_COTIZACION_FIELDS.opcionElegida]) ||
+    estado === ESTADOS_OPCION_AIRTABLE.seleccionada ||
+    itemPedidoGeneradoIds.length > 0;
+  const productoDescripcion =
+    firstString(fields[OPCIONES_COTIZACION_FIELDS.productoDescripcion], "Opción sin descripción");
   return {
     id: record.id,
-    opcion: firstString(fields["Opción"], record.id),
-    nombre: firstString(fields["Nombre Opción"], "Opción sin nombre"),
-    descripcion: firstString(fields["Descripción"]),
-    fotos: attachmentList(fields["Fotos"]),
-    proveedor: firstString(fields["Proveedor"]),
-    proveedorRecordIds: linkedIds(fields["Proveedor"]),
-    urlProveedor: firstString(fields["URL Proveedor"]),
-    costoProveedor: firstNumber(fields["Costo Proveedor"]),
-    fleteEstimado: firstNumber(fields["Flete Estimado"]),
-    arancelImpuestos: firstNumber(fields["Arancel / Impuestos"]),
-    otrosCostos: firstNumber(fields["Otros Costos"]),
-    costoRealTotal: firstNumber(fields["Costo Real Total"]),
-    precioVentaCliente: firstNumber(fields["Precio Venta Cliente"]),
-    gananciaEstimada: firstNumber(fields["Ganancia Estimada"]),
-    estado: firstString(fields["Estado Opción"], "Disponible"),
-    seleccionadaPorCliente: boolValue(fields["Seleccionada por Cliente"]),
-    notaInterna: firstString(fields["Nota Interna"]),
-    notaParaCliente: firstString(fields["Nota para Cliente"]),
+    opcion: firstString(fields[OPCIONES_COTIZACION_FIELDS.opcion], record.id),
+    nombre: productoDescripcion,
+    descripcion: productoDescripcion,
+    fotos: attachmentList(fields[OPCIONES_COTIZACION_FIELDS.fotos]),
+    proveedor: firstString(fields[OPCIONES_COTIZACION_FIELDS.proveedor]),
+    proveedorRecordIds: linkedIds(fields[OPCIONES_COTIZACION_FIELDS.proveedor]),
+    urlProveedor: firstString(fields[OPCIONES_COTIZACION_FIELDS.urlProveedor]),
+    costoProveedor: firstNumber(fields[OPCIONES_COTIZACION_FIELDS.costoProveedor]),
+    fleteEstimado: null,
+    arancelImpuestos: null,
+    otrosCostos: null,
+    costoRealTotal: null,
+    precioVentaCliente: firstNumber(fields[OPCIONES_COTIZACION_FIELDS.precioVentaCliente]),
+    gananciaEstimada: firstNumber(fields[OPCIONES_COTIZACION_FIELDS.gananciaEstimada]),
+    tiempoEstimado: firstString(fields[OPCIONES_COTIZACION_FIELDS.tiempoEstimado]),
+    estado,
+    seleccionadaPorCliente,
+    itemPedidoGeneradoIds,
+    notaInterna: firstString(fields[OPCIONES_COTIZACION_FIELDS.observacionesInternas]),
+    notaParaCliente: firstString(fields[OPCIONES_COTIZACION_FIELDS.notaParaCliente]),
+    fechaCreacion: record.createdTime ?? "",
+    ultimaActualizacion: "",
   };
 }
 
@@ -296,8 +486,6 @@ export async function fetchCotizaciones({
   do {
     const pageUrl = new URL(url);
     pageUrl.searchParams.set("pageSize", "100");
-    pageUrl.searchParams.append("sort[0][field]", "Fecha Creación");
-    pageUrl.searchParams.append("sort[0][direction]", "desc");
     if (offset) pageUrl.searchParams.set("offset", offset);
     if (formulas.length === 1) pageUrl.searchParams.set("filterByFormula", formulas[0]);
     if (formulas.length > 1) pageUrl.searchParams.set("filterByFormula", `AND(${formulas.join(",")})`);
@@ -309,7 +497,9 @@ export async function fetchCotizaciones({
     offset = data.offset ?? null;
   } while (offset);
 
-  return records.map(mapCotizacion);
+  return records
+    .sort((a, b) => (b.createdTime ?? "").localeCompare(a.createdTime ?? ""))
+    .map(mapCotizacion);
 }
 
 export function summarizeCotizaciones(items: CotizacionListado[]): CotizacionResumenEstado {
@@ -323,10 +513,12 @@ export async function fetchCotizacionById(id: string): Promise<CotizacionDetalle
   const record = await fetchCotizacionRecord(id);
   if (!record) return null;
   const codigo = firstString(record.fields["Código Cotización"], record.id);
-  const [opciones, abonos] = await Promise.all([
+  const [opcionesNuevas, abonos] = await Promise.all([
     fetchOpcionesCotizacion(id, codigo),
     fetchAbonosCotizacion(id, codigo),
   ]);
+  const opciones =
+    opcionesNuevas.length > 0 ? opcionesNuevas : await fetchOpcionesLegacyDesdeItem(id, codigo);
   return mapCotizacionDetalle(record, opciones, abonos);
 }
 
@@ -418,7 +610,63 @@ export async function fetchOpcionesCotizacion(cotizacionId: string, codigoCotiza
     headers: client.headers,
   });
 
-  return (data.records ?? []).map(mapOpcion);
+  return (data.records ?? [])
+    .sort((a, b) => (a.createdTime ?? "").localeCompare(b.createdTime ?? ""))
+    .map(mapOpcion);
+}
+
+async function fetchOpcionesLegacyDesdeItem(cotizacionId: string, codigoCotizacion?: string) {
+  const { client, url } = airtableUrl(COTIZACIONES_TABLES.item);
+  const pageUrl = new URL(url);
+  const cotizacionFilters = [`({Cotización ID} & '') = '${escapeFormulaString(cotizacionId)}'`];
+  if (codigoCotizacion) {
+    cotizacionFilters.push(`({Cotización Código} & '') = '${escapeFormulaString(codigoCotizacion)}'`);
+  }
+  pageUrl.searchParams.set("pageSize", "100");
+  pageUrl.searchParams.set(
+    "filterByFormula",
+    `AND(OR(${cotizacionFilters.join(",")}), NOT({Item Para} = 'Pedido'))`
+  );
+
+  try {
+    const data = await airtableRequest<AirtableListResponse>(pageUrl.toString(), {
+      headers: client.headers,
+    });
+    return (data.records ?? []).map(mapOpcionLegacyDesdeItem);
+  } catch (error) {
+    console.warn("No se pudieron leer opciones antiguas desde Item:", error);
+    return [];
+  }
+}
+
+function mapOpcionLegacyDesdeItem(record: AirtableRecord): OpcionCotizacion {
+  const fields = record.fields;
+  const item = firstString(fields["Item"], "Opción antigua");
+  return {
+    id: record.id,
+    opcion: firstString(fields["Código"], record.id),
+    nombre: item,
+    descripcion: firstString(fields["Nota Pública"]) || firstString(fields["Nota Interna"]) || item,
+    fotos: attachmentList(fields["Fotos"]),
+    proveedor: firstString(fields["Proveedor"]),
+    proveedorRecordIds: linkedIds(fields["Proveedor"]),
+    urlProveedor: firstString(fields["URL Proveedor"]),
+    costoProveedor: firstNumber(fields["Costo Proveedor"]),
+    fleteEstimado: firstNumber(fields["Flete Estimado"]),
+    arancelImpuestos: firstNumber(fields["Arancel (Item Solo)"]),
+    otrosCostos: null,
+    costoRealTotal: null,
+    precioVentaCliente: firstNumber(fields["Precio Venta"]),
+    gananciaEstimada: firstNumber(fields["Ganancia"]),
+    tiempoEstimado: "",
+    estado: firstString(fields["Estados Pedido"]) || "Opción antigua",
+    seleccionadaPorCliente: false,
+    itemPedidoGeneradoIds: [],
+    notaInterna: firstString(fields["Nota Interna"]),
+    notaParaCliente: firstString(fields["Nota Pública"]),
+    fechaCreacion: record.createdTime ?? "",
+    ultimaActualizacion: "",
+  };
 }
 
 export async function fetchProveedoresCotizacion(): Promise<ProveedorCotizacion[]> {
@@ -448,28 +696,58 @@ export async function createOpcionCotizacion(input: CrearOpcionCotizacionInput) 
     throw new Error("Selecciona el proveedor de la opción.");
   }
 
+  const availableFields = await getOpcionesCotizacionFields();
+  if (availableFields) {
+    const missingFields = OPCIONES_COTIZACION_REQUIRED_CREATE_FIELDS.filter(
+      (fieldName) => !availableFields.has(fieldName)
+    );
+    if (missingFields.length > 0) {
+      throw new Error(
+        `Faltan campos obligatorios en Airtable para Opciones de Cotización: ${missingFields.join(", ")}.`
+      );
+    }
+  }
+
   const { client, url } = airtableUrl(COTIZACIONES_TABLES.opciones);
   const fields: Record<string, unknown> = {
-    "Cotización": [input.cotizacionId],
-    "Nombre Opción": input.nombre,
-    "Proveedor": [input.proveedorId],
-    "Estado Opción": "Disponible",
-    "Seleccionada por Cliente": false,
+    [OPCIONES_COTIZACION_FIELDS.cotizacion]: [input.cotizacionId],
+    [OPCIONES_COTIZACION_FIELDS.proveedor]: [input.proveedorId],
+    [OPCIONES_COTIZACION_FIELDS.productoDescripcion]: input.productoDescripcion,
   };
 
-  if (input.descripcion) fields["Descripción"] = input.descripcion;
-  if (input.urlProveedor) fields["URL Proveedor"] = input.urlProveedor;
   if (input.costoProveedor !== null && input.costoProveedor !== undefined) {
-    fields["Costo Proveedor"] = input.costoProveedor;
-  }
-  if (input.otrosCostos !== null && input.otrosCostos !== undefined) {
-    fields["Otros Costos"] = input.otrosCostos;
+    fields[OPCIONES_COTIZACION_FIELDS.costoProveedor] = input.costoProveedor;
   }
   if (input.precioVentaCliente !== null && input.precioVentaCliente !== undefined) {
-    fields["Precio Venta Cliente"] = input.precioVentaCliente;
+    fields[OPCIONES_COTIZACION_FIELDS.precioVentaCliente] = input.precioVentaCliente;
   }
-  if (input.notaInterna) fields["Nota Interna"] = input.notaInterna;
-  if (input.notaParaCliente) fields["Nota para Cliente"] = input.notaParaCliente;
+
+  addOptionalAirtableField(
+    fields,
+    availableFields,
+    resolveOpcionEstadoFieldName(availableFields),
+    ESTADOS_OPCION_AIRTABLE.disponible
+  );
+  addOptionalAirtableField(
+    fields,
+    availableFields,
+    OPCIONES_COTIZACION_FIELDS.opcionElegida,
+    false
+  );
+  addOptionalAirtableField(fields, availableFields, OPCIONES_COTIZACION_FIELDS.urlProveedor, input.urlProveedor);
+  addOptionalAirtableField(fields, availableFields, OPCIONES_COTIZACION_FIELDS.tiempoEstimado, input.tiempoEstimado);
+  addOptionalAirtableField(
+    fields,
+    availableFields,
+    OPCIONES_COTIZACION_FIELDS.observacionesInternas,
+    input.notaInterna
+  );
+  addOptionalAirtableField(
+    fields,
+    availableFields,
+    OPCIONES_COTIZACION_FIELDS.notaParaCliente,
+    input.notaParaCliente
+  );
 
   const data = await airtableRequest<AirtableRecord>(url, {
     method: "POST",
@@ -478,6 +756,111 @@ export async function createOpcionCotizacion(input: CrearOpcionCotizacionInput) 
   });
 
   return mapOpcion(data);
+}
+
+export async function addFotosToOpcionCotizacion(
+  opcionId: string,
+  fotos: Array<{ filename: string; contentType: string; fileBase64: string }>
+): Promise<{ opcion: OpcionCotizacion; warning?: string | null }> {
+  if (!opcionId) {
+    throw new Error("Falta id de opción de cotización.");
+  }
+  if (!fotos.length) {
+    const { client, url } = airtableUrl(COTIZACIONES_TABLES.opciones, opcionId);
+    const option = await airtableRequest<AirtableRecord>(url, { headers: client.headers });
+    return { opcion: mapOpcion(option), warning: null };
+  }
+
+  const availableFields = await getOpcionesCotizacionFields();
+  if (!fieldExists(availableFields, OPCIONES_COTIZACION_FIELDS.fotos)) {
+    const { client, url } = airtableUrl(COTIZACIONES_TABLES.opciones, opcionId);
+    const option = await airtableRequest<AirtableRecord>(url, { headers: client.headers });
+    return {
+      opcion: mapOpcion(option),
+      warning: `No se subieron fotos porque no existe el campo ${OPCIONES_COTIZACION_FIELDS.fotos}.`,
+    };
+  }
+
+  const failedFiles: string[] = [];
+
+  for (const foto of fotos) {
+    try {
+      await uploadAttachmentToRecord({
+        recordId: opcionId,
+        attachmentFieldIdOrName: OPCIONES_COTIZACION_FIELDS.fotos,
+        filename: foto.filename,
+        contentType: foto.contentType,
+        fileBase64: foto.fileBase64,
+      });
+    } catch (error) {
+      console.error("No se pudo agregar foto a la opción de cotización:", error);
+      failedFiles.push(foto.filename);
+    }
+  }
+
+  if (failedFiles.length === fotos.length) {
+    throw new Error("No se pudo subir ninguna foto.");
+  }
+
+  const { client, url } = airtableUrl(COTIZACIONES_TABLES.opciones, opcionId);
+  const option = await airtableRequest<AirtableRecord>(url, { headers: client.headers });
+
+  return {
+    opcion: mapOpcion(option),
+    warning: failedFiles.length > 0 ? `No se pudieron subir: ${failedFiles.join(", ")}.` : null,
+  };
+}
+
+export async function replaceFotosOpcionCotizacion(
+  opcionId: string,
+  fotosExistentes: AirtableAttachment[],
+  fotosNuevas: Array<{ filename: string; contentType: string; fileBase64: string }>
+) {
+  const current = await fetchOpcionCotizacionById(opcionId);
+  if (!current) {
+    throw new Error("Opción de cotización no encontrada.");
+  }
+  if (current.itemPedidoGeneradoIds.length > 0) {
+    throw new Error("No se puede editar una opción que ya fue convertida en pedido.");
+  }
+
+  const availableFields = await getOpcionesCotizacionFields();
+  if (!fieldExists(availableFields, OPCIONES_COTIZACION_FIELDS.fotos)) {
+    throw new Error("No se pudieron guardar las fotos. Intenta nuevamente.");
+  }
+
+  const currentUrls = new Set(current.fotos.map((foto) => foto.url));
+  const failedFiles: string[] = [];
+
+  for (const foto of fotosNuevas) {
+    try {
+      await uploadAttachmentToRecord({
+        recordId: opcionId,
+        attachmentFieldIdOrName: OPCIONES_COTIZACION_FIELDS.fotos,
+        filename: foto.filename,
+        contentType: foto.contentType,
+        fileBase64: foto.fileBase64,
+      });
+    } catch (error) {
+      console.error("No se pudo guardar foto de la opción de cotización:", error);
+      failedFiles.push(foto.filename);
+    }
+  }
+
+  if (failedFiles.length > 0) {
+    throw new Error("No se pudieron guardar las fotos. Intenta nuevamente.");
+  }
+
+  const latest = fotosNuevas.length > 0 ? await fetchOpcionCotizacionById(opcionId) : current;
+  const uploadedFotos = (latest?.fotos ?? []).filter((foto) => !currentUrls.has(foto.url));
+  const finalFotos = [...fotosExistentes, ...uploadedFotos].map((foto) => ({
+    ...(foto.id ? { id: foto.id } : { url: foto.url }),
+    ...(foto.filename ? { filename: foto.filename } : {}),
+  }));
+
+  return patchOpcion(opcionId, {
+    [OPCIONES_COTIZACION_FIELDS.fotos]: finalFotos,
+  });
 }
 
 async function patchOpcion(id: string, fields: Record<string, unknown>) {
@@ -490,31 +873,127 @@ async function patchOpcion(id: string, fields: Record<string, unknown>) {
   return mapOpcion(data);
 }
 
+export async function fetchOpcionCotizacionById(id: string) {
+  const { client, url } = airtableUrl(COTIZACIONES_TABLES.opciones, id);
+  const response = await fetch(url, { headers: client.headers, cache: "no-store" });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Airtable error ${response.status}: ${text}`);
+  }
+  return mapOpcion((await response.json()) as AirtableRecord);
+}
+
+export async function updateOpcionCotizacion(
+  id: string,
+  input: ActualizarOpcionCotizacionInput
+) {
+  const current = await fetchOpcionCotizacionById(id);
+  if (!current) {
+    throw new Error("Opción de cotización no encontrada.");
+  }
+  if (current.itemPedidoGeneradoIds.length > 0) {
+    throw new Error("No se puede editar una opción que ya fue convertida en pedido.");
+  }
+
+  const availableFields = await getOpcionesCotizacionFields();
+  const fields: Record<string, unknown> = {};
+
+  const setIfExists = (fieldName: string, value: unknown) => {
+    if (value === undefined || !fieldExists(availableFields, fieldName)) return;
+    fields[fieldName] = value;
+  };
+
+  setIfExists(OPCIONES_COTIZACION_FIELDS.productoDescripcion, input.productoDescripcion ?? undefined);
+  if (input.proveedorId !== undefined) {
+    setIfExists(OPCIONES_COTIZACION_FIELDS.proveedor, input.proveedorId ? [input.proveedorId] : []);
+  }
+  setIfExists(OPCIONES_COTIZACION_FIELDS.urlProveedor, input.urlProveedor ?? undefined);
+  setIfExists(OPCIONES_COTIZACION_FIELDS.tiempoEstimado, input.tiempoEstimado ?? undefined);
+  setIfExists(OPCIONES_COTIZACION_FIELDS.costoProveedor, input.costoProveedor ?? undefined);
+  setIfExists(OPCIONES_COTIZACION_FIELDS.precioVentaCliente, input.precioVentaCliente ?? undefined);
+  setIfExists(OPCIONES_COTIZACION_FIELDS.observacionesInternas, input.notaInterna ?? undefined);
+  setIfExists(OPCIONES_COTIZACION_FIELDS.notaParaCliente, input.notaParaCliente ?? undefined);
+  if (input.estado !== undefined) {
+    setIfExists(resolveOpcionEstadoFieldName(availableFields), input.estado);
+  }
+
+  if (Object.keys(fields).length === 0) return current;
+  return patchOpcion(id, fields);
+}
+
+export async function deleteOpcionCotizacion(id: string) {
+  const current = await fetchOpcionCotizacionById(id);
+  if (!current) {
+    throw new Error("Opción de cotización no encontrada.");
+  }
+  if (current.itemPedidoGeneradoIds.length > 0) {
+    throw new Error("No se puede eliminar una opción que ya fue convertida en pedido.");
+  }
+
+  const { client, url } = airtableUrl(COTIZACIONES_TABLES.opciones, id);
+  await airtableRequest<AirtableRecord>(url, {
+    method: "DELETE",
+    headers: client.headers,
+  });
+}
+
+async function addSeleccionadaPorClienteField(fields: Record<string, unknown>, value: boolean) {
+  if (
+    await airtableTableHasField(
+      COTIZACIONES_TABLES.opciones,
+      OPCIONES_COTIZACION_FIELDS.opcionElegida
+    )
+  ) {
+    fields[OPCIONES_COTIZACION_FIELDS.opcionElegida] = value;
+  }
+  return fields;
+}
+
 export async function seleccionarOpcionCotizacion(cotizacionId: string, opcionId: string) {
   const cotizacion = await fetchCotizacionRecord(cotizacionId);
   const codigo = cotizacion ? firstString(cotizacion.fields["Código Cotización"], cotizacion.id) : "";
   const opciones = await fetchOpcionesCotizacion(cotizacionId, codigo);
+  const availableFields = await getOpcionesCotizacionFields();
+  const estadoFieldName = resolveOpcionEstadoFieldName(availableFields);
 
   await Promise.all(
     opciones
       .filter((opcion) => opcion.id !== opcionId && opcion.seleccionadaPorCliente)
-      .map((opcion) =>
-        patchOpcion(opcion.id, {
-          "Seleccionada por Cliente": false,
-          "Estado Opción": "Disponible",
-        })
-      )
+      .map(async (opcion) => {
+        const fields: Record<string, unknown> = {};
+        if (
+          opcion.estado === ESTADOS_OPCION_AIRTABLE.seleccionada &&
+          fieldExists(availableFields, estadoFieldName)
+        ) {
+          fields[estadoFieldName] =
+            ESTADOS_OPCION_AIRTABLE.ofrecidaAlCliente;
+        }
+        await addSeleccionadaPorClienteField(fields, false);
+        if (Object.keys(fields).length === 0) return opcion;
+        return patchOpcion(opcion.id, fields);
+      })
   );
 
-  const selected = await patchOpcion(opcionId, {
-    "Seleccionada por Cliente": true,
-    "Estado Opción": "Seleccionada",
-  });
+  const selectedFields: Record<string, unknown> = {};
+  if (fieldExists(availableFields, estadoFieldName)) {
+    selectedFields[estadoFieldName] = ESTADOS_OPCION_AIRTABLE.seleccionada;
+  }
+  await addSeleccionadaPorClienteField(selectedFields, true);
+  const selected =
+    Object.keys(selectedFields).length > 0
+      ? await patchOpcion(opcionId, selectedFields)
+      : opciones.find((opcion) => opcion.id === opcionId);
+
+  if (!selected) {
+    throw new Error("Opción de cotización no encontrada.");
+  }
 
   const totalAbonado = firstNumber(cotizacion?.fields["Total Abonado"]) ?? 0;
   const updatedCotizacion = await patchCotizacion(cotizacionId, {
     "Estado Cotización": "Aprobada",
     "Total Cotizado": selected.precioVentaCliente ?? 0,
+    "Opción Elegida": [opcionId],
   });
   return {
     selected,
@@ -659,6 +1138,10 @@ export async function convertirCotizacionEnPedido(
     "Precio Venta": selectedOption.precioVentaCliente ?? cotizacion.totalCotizado ?? 0,
     "Costo Proveedor": selectedOption.costoProveedor ?? 0,
     "Proveedor": [proveedorId],
+    "Fotos": selectedOption.fotos.map((foto) => ({
+      url: foto.url,
+      ...(foto.filename ? { filename: foto.filename } : {}),
+    })),
     "Cotización ID": cotizacion.id,
     "Cotización Código": cotizacion.codigo,
     "Opción Cotización ID": selectedOption.id,
@@ -672,6 +1155,12 @@ export async function convertirCotizacionEnPedido(
   if (selectedOption.notaParaCliente) {
     fields["Nota Pública"] = selectedOption.notaParaCliente;
   }
+  if (selectedOption.notaInterna) {
+    fields["Nota Interna"] = selectedOption.notaInterna;
+  }
+  if (cotizacion.clienteRecordId && (await airtableTableHasField(COTIZACIONES_TABLES.item, "Clientes"))) {
+    fields["Clientes"] = [cotizacion.clienteRecordId];
+  }
 
   const skuProveedor = normalizeSku(input.skuProveedor || "");
   if (skuProveedor) {
@@ -684,9 +1173,27 @@ export async function convertirCotizacionEnPedido(
     body: JSON.stringify({ fields }),
   });
 
+  const availableOptionFields = await getOpcionesCotizacionFields();
+  const selectedOptionFields: Record<string, unknown> = {};
+  const estadoFieldName = resolveOpcionEstadoFieldName(availableOptionFields);
+  if (fieldExists(availableOptionFields, estadoFieldName)) {
+    selectedOptionFields[estadoFieldName] = ESTADOS_OPCION_AIRTABLE.seleccionada;
+  }
+  addOptionalAirtableField(
+    selectedOptionFields,
+    availableOptionFields,
+    OPCIONES_COTIZACION_FIELDS.itemPedidoGenerado,
+    [item.id]
+  );
+  await addSeleccionadaPorClienteField(selectedOptionFields, true);
+  if (Object.keys(selectedOptionFields).length > 0) {
+    await patchOpcion(selectedOption.id, selectedOptionFields);
+  }
+
   const updatedCotizacion = await patchCotizacion(cotizacionId, {
     "Estado Cotización": "Convertida en Pedido",
-    "Item Pedido ID": item.id,
+    "Opción Elegida": [selectedOption.id],
+    "Pedido Generado": [item.id],
   });
 
   return {

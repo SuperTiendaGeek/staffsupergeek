@@ -47,6 +47,17 @@ export const ESTADOS_OPCION_COTIZACION = [
 
 export type EstadoOpcionCotizacion = (typeof ESTADOS_OPCION_COTIZACION)[number];
 
+export const TIEMPOS_ESTIMADOS_OPCION_COTIZACION = [
+  "24 horas",
+  "2 a 3 días",
+  "1 semana",
+  "2 a 3 semanas",
+  "1 mes",
+  "Por confirmar",
+] as const;
+
+export type TiempoEstimadoOpcionCotizacion = (typeof TIEMPOS_ESTIMADOS_OPCION_COTIZACION)[number];
+
 export const METODOS_PAGO_ABONO_COTIZACION = [
   "Efectivo",
   "Transferencia bancaria",
@@ -148,10 +159,14 @@ export type OpcionCotizacion = {
   costoRealTotal: number | null;
   precioVentaCliente: number | null;
   gananciaEstimada: number | null;
+  tiempoEstimado: TiempoEstimadoOpcionCotizacion | string;
   estado: EstadoOpcionCotizacion | string;
   seleccionadaPorCliente: boolean;
+  itemPedidoGeneradoIds: string[];
   notaInterna: string;
   notaParaCliente: string;
+  fechaCreacion: string;
+  ultimaActualizacion: string;
 };
 
 export type ProveedorCotizacion = {
@@ -173,13 +188,24 @@ export type CrearCotizacionInput = {
 
 export type CrearOpcionCotizacionInput = {
   cotizacionId: string;
-  nombre: string;
-  descripcion?: string | null;
+  productoDescripcion: string;
   proveedorId: string;
   urlProveedor?: string | null;
+  tiempoEstimado?: string | null;
   costoProveedor?: number | null;
-  otrosCostos?: number | null;
   precioVentaCliente?: number | null;
+  notaInterna?: string | null;
+  notaParaCliente?: string | null;
+};
+
+export type ActualizarOpcionCotizacionInput = {
+  productoDescripcion?: string | null;
+  proveedorId?: string | null;
+  urlProveedor?: string | null;
+  tiempoEstimado?: string | null;
+  costoProveedor?: number | null;
+  precioVentaCliente?: number | null;
+  estado?: EstadoOpcionCotizacion | string | null;
   notaInterna?: string | null;
   notaParaCliente?: string | null;
 };
