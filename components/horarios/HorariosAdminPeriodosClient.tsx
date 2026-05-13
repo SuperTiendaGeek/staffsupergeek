@@ -115,9 +115,9 @@ export function HorariosAdminPeriodosClient({ periodos, empleados }: Props) {
                 <th className="px-4 py-3 font-semibold">Periodo</th>
                 <th className="px-4 py-3 font-semibold">Estado</th>
                 <th className="px-4 py-3 font-semibold">Total horas</th>
-                <th className="px-4 py-3 font-semibold">Ganado</th>
+                <th className="px-4 py-3 font-semibold">Total neto</th>
                 <th className="px-4 py-3 font-semibold">Pagado</th>
-                <th className="px-4 py-3 font-semibold">Saldo</th>
+                <th className="px-4 py-3 font-semibold">Saldo neto</th>
                 <th className="px-4 py-3 font-semibold">Acciones</th>
               </tr>
             </thead>
@@ -136,9 +136,9 @@ export function HorariosAdminPeriodosClient({ periodos, empleados }: Props) {
                       </span>
                     </td>
                     <td className="px-4 py-4 font-semibold text-white">{formatHours(periodo.totalHoras)}</td>
-                    <td className="px-4 py-4">{formatMoney(periodo.totalGanado)}</td>
+                    <td className="px-4 py-4">{formatMoney(periodo.totalNeto)}</td>
                     <td className="px-4 py-4">{formatMoney(periodo.totalPagado)}</td>
-                    <td className="px-4 py-4 font-semibold text-geek-lime">{formatMoney(periodo.saldoPendiente)}</td>
+                    <td className="px-4 py-4 font-semibold text-geek-lime">{formatMoney(periodo.saldoPendienteNeto)}</td>
                     <td className="px-4 py-4">
                       <Link href={`/horarios/admin/periodos/${periodo.id}`} className="font-semibold text-geek-lime transition hover:text-white">
                         Ver detalle

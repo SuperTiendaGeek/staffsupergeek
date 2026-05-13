@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AnularPagoHorarioButton } from "@/components/horarios/AnularPagoHorarioButton";
+import { HorarioAjustesPeriodoClient } from "@/components/horarios/HorarioAjustesPeriodoClient";
 import { HorarioPeriodoPagoClient } from "@/components/horarios/HorarioPeriodoPagoClient";
 import { RolPagoPeriodoClient } from "@/components/horarios/RolPagoPeriodoClient";
 import { PortalShell } from "@/components/PortalShell";
@@ -79,8 +80,10 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
   const metrics = [
     { label: "Total horas", value: formatHours(periodo.totalHoras) },
     { label: "Total ganado", value: formatMoney(periodo.totalGanado) },
+    { label: "Total ajustes", value: formatMoney(periodo.totalAjustes) },
+    { label: "Total neto", value: formatMoney(periodo.totalNeto) },
     { label: "Total pagado", value: formatMoney(periodo.totalPagado) },
-    { label: "Saldo pendiente", value: formatMoney(periodo.saldoPendiente) }
+    { label: "Saldo pendiente neto", value: formatMoney(periodo.saldoPendienteNeto) }
   ];
 
   return (
@@ -111,7 +114,7 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
           </div>
         </section>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {metrics.map((metric) => (
             <div key={metric.label} className="rounded-lg border border-white/10 bg-white/[0.045] p-5 shadow-2xl shadow-black/20 backdrop-blur">
               <p className="text-sm text-zinc-400">{metric.label}</p>
@@ -121,6 +124,8 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
         </div>
 
         <RolPagoPeriodoClient periodoId={periodo.id} rolGenerado={periodo.rolGenerado} rolPagoBlobPathname={periodo.rolPagoBlobPathname} />
+
+        <HorarioAjustesPeriodoClient periodo={periodo} />
 
         <section className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.035] shadow-2xl shadow-black/20 backdrop-blur">
           <div className="border-b border-white/10 px-4 py-4">

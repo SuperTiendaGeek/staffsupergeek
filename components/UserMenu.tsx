@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { isAdministratorRole } from "@/lib/apps";
 import type { SessionUser } from "@/lib/session";
 
@@ -41,13 +42,22 @@ export function UserMenu({ user }: UserMenuProps) {
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {user ? <NotificationBell /> : null}
         {isAdmin ? (
-          <Link
-            href="/admin/usuarios"
-            className="rounded-md border border-geek-lime/30 px-3 py-2 text-xs font-medium text-geek-lime transition hover:bg-geek-lime/10"
-          >
-            Usuarios
-          </Link>
+          <>
+            <Link
+              href="/admin/notificaciones"
+              className="rounded-md border border-white/10 px-3 py-2 text-xs font-medium text-zinc-200 transition hover:border-geek-lime/50 hover:bg-geek-lime/10 hover:text-geek-lime"
+            >
+              Notif.
+            </Link>
+            <Link
+              href="/admin/usuarios"
+              className="rounded-md border border-geek-lime/30 px-3 py-2 text-xs font-medium text-geek-lime transition hover:bg-geek-lime/10"
+            >
+              Usuarios
+            </Link>
+          </>
         ) : null}
         <form action="/api/auth/logout" method="post">
           <button

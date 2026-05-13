@@ -87,6 +87,7 @@ export type HorarioEmpleadoVista = {
   resumen: HorarioEmpleadoResumen;
   resumenPagos: HorarioEmpleadoResumenPagos;
   jornadas: HorarioRegistro[];
+  ajustes: HorarioAjuste[];
   pagos: HorarioPago[];
   rolesPago: HorarioEmpleadoRolPago[];
 };
@@ -102,6 +103,8 @@ export type HorarioAdminEmpleadoResumen = {
   minutosTrabajados: number;
   horasTrabajadas: number;
   totalGanado: number;
+  totalAjustes: number;
+  totalNeto: number;
   totalPagado: number;
   saldoPendiente: number;
   registrosCount: number;
@@ -116,6 +119,8 @@ export type HorarioAdminResumen = {
     minutosTrabajados: number;
     horasTrabajadas: number;
     totalGanado: number;
+    totalAjustes: number;
+    totalNeto: number;
     totalPagado: number;
     saldoPendiente: number;
   };
@@ -165,6 +170,22 @@ export type HorarioPago = {
   estadoPago: EstadoPagoHorario | string;
 };
 
+export type HorarioAjuste = {
+  id: string;
+  empleadoRecordId?: string;
+  registroDelDiaId?: string;
+  periodoPagoId?: string;
+  tipoAjuste: string;
+  minutosAjustados: number;
+  horasAjustadas: number;
+  montoAjustado: number;
+  motivo: string;
+  aprobadoPor?: string;
+  fechaAjuste: string;
+  estado: string;
+  esDescuento: boolean;
+};
+
 export type HorarioPeriodoPago = {
   id: string;
   empleado: string;
@@ -178,11 +199,15 @@ export type HorarioPeriodoPago = {
   estadoPeriodo: EstadoPeriodoPago | string;
   registroIds: string[];
   pagoIds: string[];
+  ajusteIds: string[];
   totalMinutos: number;
   totalHoras: number;
   totalGanado: number;
+  totalAjustes: number;
+  totalNeto: number;
   totalPagado: number;
   saldoPendiente: number;
+  saldoPendienteNeto: number;
   rolPagoPdf: HorarioPagoComprobante[];
   rolPagoBlobUrl?: string;
   rolPagoBlobPathname?: string;
@@ -196,6 +221,7 @@ export type HorarioPeriodoPago = {
 export type HorarioPeriodoPagoDetalle = HorarioPeriodoPago & {
   registros: HorarioRegistro[];
   pagos: HorarioPago[];
+  ajustes: HorarioAjuste[];
 };
 
 export type HorarioEmpleadoResumenPagos = {
@@ -217,8 +243,11 @@ export type HorarioEmpleadoRolPago = {
   fechaFin: string;
   estadoPeriodo: EstadoPeriodoPago | string;
   totalGanado: number;
+  totalAjustes: number;
+  totalNeto: number;
   totalPagado: number;
   saldoPendiente: number;
+  saldoPendienteNeto: number;
   rolPagoPdf: HorarioPagoComprobante[];
   rolPagoBlobUrl?: string;
   rolPagoBlobPathname?: string;

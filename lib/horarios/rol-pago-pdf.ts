@@ -218,8 +218,11 @@ export async function generateRolPagoPdf(input: GenerateRolPagoPdfInput) {
   y -= 34;
   drawKeyValue(page, "Total horas", `${input.periodo.totalHoras.toFixed(2)} h`, MARGIN, y, fonts);
   drawKeyValue(page, "Total ganado", formatMoney(input.periodo.totalGanado), MARGIN + 130, y, fonts);
-  drawKeyValue(page, "Total pagado", formatMoney(input.periodo.totalPagado), MARGIN + 260, y, fonts);
-  drawKeyValue(page, "Saldo pendiente", formatMoney(input.periodo.saldoPendiente), MARGIN + 390, y, fonts);
+  drawKeyValue(page, "Total ajustes", formatMoney(input.periodo.totalAjustes), MARGIN + 260, y, fonts);
+  drawKeyValue(page, "Total neto", formatMoney(input.periodo.totalNeto), MARGIN + 390, y, fonts);
+  y -= 26;
+  drawKeyValue(page, "Total pagado", formatMoney(input.periodo.totalPagado), MARGIN, y, fonts);
+  drawKeyValue(page, "Saldo pendiente neto", formatMoney(input.periodo.saldoPendienteNeto), MARGIN + 130, y, fonts);
   y -= 52;
 
   const jornadas = drawJornadasTable(pdf, page, y, input.periodo.registros, fonts);
