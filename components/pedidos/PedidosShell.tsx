@@ -4,12 +4,15 @@ import { getSessionFromCookie } from "@/lib/session";
 
 type Props = {
   title: string;
+  pageTitle?: string;
+  subtitle?: string;
   children: React.ReactNode;
   actions?: React.ReactNode;
 };
 
-export async function PedidosShell({ title, children, actions }: Props) {
+export async function PedidosShell({ title, pageTitle, subtitle, children, actions }: Props) {
   const session = await getSessionFromCookie();
+  const heading = pageTitle ?? title;
 
   return (
     <main className="min-h-screen bg-[#101010] text-white">
@@ -30,7 +33,10 @@ export async function PedidosShell({ title, children, actions }: Props) {
       </header>
       <section className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-2xl font-semibold tracking-normal text-white sm:text-3xl">{title}</h1>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-normal text-white sm:text-3xl">{heading}</h1>
+            {subtitle ? <p className="mt-2 text-sm font-medium text-zinc-400">{subtitle}</p> : null}
+          </div>
           {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
         </div>
         {children}

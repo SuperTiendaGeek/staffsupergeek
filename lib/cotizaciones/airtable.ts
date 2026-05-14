@@ -245,6 +245,10 @@ function addItemSnapshotField(
   logPayload: Record<string, unknown>
 ) {
   if (value === null || value === undefined || value === "") return;
+  if (!availableFields) {
+    target[fieldName] = value;
+    return;
+  }
   if (fieldExists(availableFields, fieldName)) {
     target[fieldName] = value;
     return;
@@ -559,6 +563,44 @@ async function airtableRecordExistsInTable(tableName: string, recordId: string) 
     headers: client.headers,
   });
   return Boolean(data.records?.some((record) => record.id === recordId));
+}
+
+function getCurrentPedidoYear(date = new Date()) {
+  return date.getFullYear();
+}
+
+function formatPedidoCode(year: number, consecutive: number) {
+  return `PED-${year}-${String(consecutive).padStart(6, "0")}`;
+}
+
+async function getNextPedidoConsecutivo(year: number) {
+  const { client, url } = airtableUrl(COTIZACIONES_TABLES.item);
+  const pageUrl = new URL(url);
+  pageUrl.searchParams.set("pageSize", "1");
+  pageUrl.searchParams.set(
+    "filterByFormula",
+    `AND({Item Para} = 'Pedido', {Pedido Año} = ${year}, ({Pedido Consecutivo} & '') != '')`
+  );
+  pageUrl.searchParams.append("sort[0][field]", "Pedido Consecutivo");
+  pageUrl.searchParams.append("sort[0][direction]", "desc");
+
+  const data = await airtableRequest<AirtableListResponse>(pageUrl.toString(), {
+    headers: client.headers,
+  });
+  const maxConsecutivo = firstNumber(data.records?.[0]?.fields["Pedido Consecutivo"]) ?? 0;
+  return maxConsecutivo + 1;
+}
+
+function ensurePedidoCodeFields(availableFields: Set<string> | null | undefined) {
+  if (!availableFields) return;
+  const missing = ["Pedido Año", "Pedido Consecutivo", "Código Pedido"].filter(
+    (fieldName) => !availableFields.has(fieldName)
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Faltan campos de código formal de pedido en ${COTIZACIONES_TABLES.item}: ${missing.join(", ")}.`
+    );
+  }
 }
 
 export async function fetchCotizaciones({
@@ -1271,11 +1313,25 @@ export async function convertirCotizacionEnPedido(
 
   const { client, url } = airtableUrl(COTIZACIONES_TABLES.item);
   const itemFields = await getAirtableTableFields(COTIZACIONES_TABLES.item);
+  ensurePedidoCodeFields(itemFields);
+  const pedidoAno = getCurrentPedidoYear();
+  const pedidoConsecutivo = await getNextPedidoConsecutivo(pedidoAno);
+  const codigoPedidoPreview = formatPedidoCode(pedidoAno, pedidoConsecutivo);
+  logConversion("Código formal de pedido calculado", {
+    cotizacionId,
+    opcionSeleccionadaId: selectedOption.id,
+    pedidoAno,
+    pedidoConsecutivo,
+    codigoPedidoPreview,
+  });
+
   const fields: Record<string, unknown> = {
     "Item Para": "Pedido",
     "Item": selectedOption.nombre || cotizacion.productoSolicitado,
     "Categoria": mapCategoriaCotizacionToItem(cotizacion.categoria),
     "Identificador": skuInterno,
+    "Pedido Año": pedidoAno,
+    "Pedido Consecutivo": pedidoConsecutivo,
     "Precio Venta": selectedOption.precioVentaCliente ?? cotizacion.totalCotizado ?? 0,
     "Costo Proveedor": selectedOption.costoProveedor ?? 0,
     "Proveedor": [proveedorId],

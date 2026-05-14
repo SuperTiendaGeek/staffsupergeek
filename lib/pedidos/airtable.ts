@@ -125,6 +125,7 @@ function attachmentList(value: unknown): PedidoItem["evidencias"] {
       filename?: unknown;
       size?: unknown;
       type?: unknown;
+      thumbnails?: unknown;
     };
     const url = typeof row.url === "string" ? row.url : "";
     if (!url) continue;
@@ -134,6 +135,7 @@ function attachmentList(value: unknown): PedidoItem["evidencias"] {
       filename: typeof row.filename === "string" ? row.filename : null,
       size: typeof row.size === "number" ? row.size : null,
       type: typeof row.type === "string" ? row.type : null,
+      thumbnails: row.thumbnails,
     });
   }
   return attachments;
@@ -200,6 +202,11 @@ function getProveedorOverride(providerOverride?: ProveedorPedido | { proveedor?:
   };
 }
 
+function formatPedidoCode(year: number | null, consecutive: number | null) {
+  if (!year || !consecutive) return "";
+  return `PED-${year}-${String(consecutive).padStart(6, "0")}`;
+}
+
 function mapPedido(record: AirtableRecord, providerOverride?: ProveedorPedido | { proveedor?: string; proveedorOrigen?: ProveedorOrigenPedido }): PedidoItem {
   const f = record.fields;
   const proveedorId = linkedIds(f["Proveedor"])[0] ?? "";
@@ -208,10 +215,18 @@ function mapPedido(record: AirtableRecord, providerOverride?: ProveedorPedido | 
   const proveedor = override.proveedor || providerFallback.proveedor;
   const proveedorOrigen = override.proveedorOrigen || providerFallback.proveedorOrigen;
   const encargo = boolValue(f["Encargo"]);
+  const identificador = firstString(f["Identificador"]);
+  const pedidoAno = firstNumber(f["Pedido Año"]);
+  const pedidoConsecutivo = firstNumber(f["Pedido Consecutivo"]);
+  const codigoPedido = firstString(f["Código Pedido"]) || formatPedidoCode(pedidoAno, pedidoConsecutivo);
   return {
     id: record.id,
-    codigo: firstString(f["Código"], record.id),
-    identificador: firstString(f["Identificador"]),
+    codigo: codigoPedido || identificador || record.id,
+    codigoPedido,
+    pedidoAno,
+    pedidoConsecutivo,
+    fechaOfertado: firstString(f["Fecha Ofertado"]),
+    identificador,
     skuProveedor: firstString(f["SKU Proveedor"]),
     item: firstString(f["Item"], "Sin item"),
     categoria: firstString(f["Categoria"]),
@@ -231,6 +246,7 @@ function mapPedido(record: AirtableRecord, providerOverride?: ProveedorPedido | 
     estadosPedido: firstString(f["Estados Pedido"]),
     notaInterna: cleanNotaInterna(firstString(f["Nota Interna"])),
     notaPublica: firstString(f["Nota Pública"]),
+    fotos: attachmentList(f["Fotos"]),
     evidencias: attachmentList(f["Evidencias"]),
     cotizacionId: firstString(f["Cotización ID"]),
     cotizacionCodigo: firstString(f["Cotización Código"]),
@@ -332,7 +348,7 @@ export async function fetchPedidos(): Promise<PedidoItem[]> {
       "filterByFormula",
       "AND({Item Para} = 'Pedido', OR(({Cotización ID} & '') != '', ({Cliente Nombre Snapshot} & '') != ''))"
     );
-    pageUrl.searchParams.append("sort[0][field]", "Código");
+    pageUrl.searchParams.append("sort[0][field]", "Código Pedido");
     pageUrl.searchParams.append("sort[0][direction]", "desc");
     if (offset) pageUrl.searchParams.set("offset", offset);
 

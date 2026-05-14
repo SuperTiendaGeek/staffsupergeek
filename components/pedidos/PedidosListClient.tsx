@@ -29,7 +29,7 @@ export function PedidosListClient({ initialItems }: Props) {
     const query = search.trim().toLowerCase();
     if (!query) return initialItems;
     return initialItems.filter((item) =>
-      [item.codigo, item.clienteNombreSnapshot, item.item, item.usaTracking, item.ecTracking]
+      [item.codigo, item.codigoPedido, item.identificador, item.clienteNombreSnapshot, item.item, item.usaTracking, item.ecTracking]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query))
     );

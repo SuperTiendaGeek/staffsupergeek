@@ -20,6 +20,7 @@ export type PedidoAttachment = {
   filename?: string | null;
   size?: number | null;
   type?: string | null;
+  thumbnails?: unknown;
 };
 
 export function normalizeCarrierPedido(value: unknown): CarrierPedido | "" {
@@ -32,6 +33,10 @@ export function normalizeCarrierPedido(value: unknown): CarrierPedido | "" {
 export type PedidoItem = {
   id: string;
   codigo: string;
+  codigoPedido: string;
+  pedidoAno: number | null;
+  pedidoConsecutivo: number | null;
+  fechaOfertado: string;
   identificador: string;
   skuProveedor: string;
   item: string;
@@ -59,6 +64,7 @@ export type PedidoItem = {
   estadosPedido: string;
   notaInterna: string;
   notaPublica: string;
+  fotos: PedidoAttachment[];
   evidencias: PedidoAttachment[];
   cotizacionId: string;
   cotizacionCodigo: string;

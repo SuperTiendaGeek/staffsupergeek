@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import type { CotizacionDetalle, OpcionCotizacion } from "@/types/cotizaciones";
-import { CARRIERS_PEDIDO, type EstadoPedidoOption, type PedidoItem } from "@/types/pedidos";
+import { CARRIERS_PEDIDO, type EstadoPedidoOption, type PedidoAttachment, type PedidoItem } from "@/types/pedidos";
 
 type Props = {
   initialPedido: PedidoItem;
@@ -38,6 +38,19 @@ function whatsappUrl(pedido: PedidoItem) {
 function isGeneratedPedidoNote(value: string) {
   const lines = value.trim().split("\n").map((line) => line.trim());
   return lines[0]?.startsWith("Cotización:") && lines.some((line) => line.startsWith("Producto solicitado:"));
+}
+
+function pedidoDisplayTitle(pedido: PedidoItem) {
+  return pedido.item || pedido.codigoPedido || pedido.identificador || pedido.id;
+}
+
+function thumbnailUrl(attachment: PedidoAttachment, size: "small" | "large" = "large") {
+  const thumbnails = attachment.thumbnails;
+  if (!thumbnails || typeof thumbnails !== "object") return attachment.url;
+  const rows = thumbnails as Record<string, { url?: unknown } | undefined>;
+  const preferred = rows[size]?.url;
+  const fallback = rows.large?.url || rows.full?.url || rows.small?.url;
+  return typeof preferred === "string" ? preferred : typeof fallback === "string" ? fallback : attachment.url;
 }
 
 async function parseApi(response: Response): Promise<ApiResponse | null> {
@@ -206,38 +219,54 @@ function PedidoHeader({
   savingEstado: boolean;
 }) {
   const hasCurrentEstado = estadoPedido && !estadosPedidoOptions.some((option) => option.name === estadoPedido);
+  const title = pedidoDisplayTitle(pedido);
+  const tipoPedido = pedido.esProveedorLocal ? "Local" : pedido.esProveedorExterior ? "Exterior" : "";
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/25">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 lg:max-w-[48%]">
-          <p className="text-xs font-bold uppercase tracking-normal text-geek-lime">{pedido.codigo}</p>
-          <h2 className="mt-1 text-2xl font-semibold text-white">{pedido.item}</h2>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
-            <Badge>{pedido.categoria || pedido.itemPara || "Item"}</Badge>
+    <section className="rounded-2xl border border-white/10 bg-[#181818] p-4 shadow-2xl shadow-black/25 sm:p-5">
+      <div className="grid gap-5 lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(280px,320px)] lg:items-stretch">
+        <PedidoFotos fotos={pedido.fotos} title={title} />
+        <div className="min-w-0 rounded-xl border border-white/10 bg-white/[0.025] p-4">
+          <p className="text-xs font-bold uppercase tracking-normal text-geek-lime">PEDIDO</p>
+          <h2 className="mt-2 text-xl font-semibold leading-snug text-white sm:text-2xl">{title}</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-400">
+            Pedido vinculado a la cotización y listo para seguimiento operativo.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
+            <Badge>Categoría: {pedido.categoria || pedido.itemPara || "Item"}</Badge>
             {pedido.identificador ? <Badge>SKU: {pedido.identificador}</Badge> : null}
+            {tipoPedido ? <Badge>Tipo: {tipoPedido}</Badge> : null}
           </div>
         </div>
-        <div className="w-full space-y-3 lg:w-auto lg:min-w-[420px]">
-          <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
-            <ActionLink href="/pedidos">Volver</ActionLink>
-            {cotizacionOrigen ? <ActionLink href={`/cotizaciones/${cotizacionOrigen.id}`}>Abrir cotización</ActionLink> : null}
+        <div className="flex flex-col rounded-xl border border-white/10 bg-[#111] p-4">
+          <div className="grid gap-2">
             <a
               href={whatsappUrl(pedido)}
               target="_blank"
               rel="noreferrer"
-              className={`rounded-xl border px-4 py-2.5 text-sm font-bold transition ${pedido.clienteTelefonoSnapshot ? "border-geek-lime bg-geek-lime text-black hover:brightness-95" : "pointer-events-none border-zinc-800 bg-zinc-900 text-zinc-500"}`}
+              className={`inline-flex min-h-11 items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-extrabold transition ${pedido.clienteTelefonoSnapshot ? "border-geek-lime bg-geek-lime text-black hover:brightness-95" : "pointer-events-none border-zinc-800 bg-zinc-900 text-zinc-500"}`}
             >
               WhatsApp
             </a>
+            {cotizacionOrigen ? <ActionLink href={`/cotizaciones/${cotizacionOrigen.id}`}>Abrir cotización</ActionLink> : null}
+            <ExternalActionLink href={`/api/pedidos/${pedido.id}/constancia`}>
+              Ver / imprimir constancia
+            </ExternalActionLink>
+            <ExternalActionLink href={`/api/pedidos/${pedido.id}/constancia?download=1`}>
+              Descargar constancia
+            </ExternalActionLink>
           </div>
-          <div className="ml-auto flex w-full items-center gap-3 sm:max-w-[420px]">
+          <div className="mt-4 border-t border-white/10 pt-4">
+            <label className="text-xs font-bold uppercase tracking-normal text-zinc-400" htmlFor="estado-pedido">
+              Estado del pedido
+            </label>
             <select
+              id="estado-pedido"
               aria-label="Estado del pedido"
               value={estadoPedido}
               disabled={savingEstado}
               onChange={(event) => onEstadoChange(event.target.value)}
-              className="h-11 min-w-0 flex-1 rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm font-semibold text-white outline-none focus:border-geek-lime disabled:cursor-wait disabled:opacity-70"
+              className="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#181818] px-4 text-sm font-semibold text-white outline-none focus:border-geek-lime disabled:cursor-wait disabled:opacity-70"
             >
               <option value="">Sin estado</option>
               {hasCurrentEstado ? <option value={estadoPedido}>{estadoPedido}</option> : null}
@@ -245,11 +274,86 @@ function PedidoHeader({
                 <option key={option.id || option.name} value={option.name}>{option.name}</option>
               ))}
             </select>
-            {savingEstado ? <span className="w-20 text-right text-xs font-semibold text-geek-lime">Guardando...</span> : null}
+            {savingEstado ? <p className="mt-2 text-xs font-semibold text-geek-lime">Guardando...</p> : null}
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+function PedidoFotos({ fotos, title }: { fotos: PedidoAttachment[]; title: string }) {
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const selected = selectedIndex === null ? null : fotos[selectedIndex] ?? null;
+
+  if (fotos.length === 0) {
+    return (
+      <div className="flex aspect-[4/3] items-center justify-center rounded-xl border border-dashed border-white/10 bg-[#111] px-4 text-center text-sm font-semibold text-zinc-500">
+        Sin fotos del producto
+      </div>
+    );
+  }
+
+  const openAt = (index: number) => setSelectedIndex(index);
+  const close = () => setSelectedIndex(null);
+  const previous = () => setSelectedIndex((current) => current === null ? null : (current - 1 + fotos.length) % fotos.length);
+  const next = () => setSelectedIndex((current) => current === null ? null : (current + 1) % fotos.length);
+
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        onClick={() => openAt(0)}
+        className="block aspect-[4/3] w-full overflow-hidden rounded-xl border border-white/10 bg-[#111] transition hover:border-geek-lime/40 focus:outline-none focus:ring-2 focus:ring-geek-lime/70"
+        aria-label="Abrir foto principal del pedido"
+      >
+        <img
+          src={thumbnailUrl(fotos[0], "large")}
+          alt={fotos[0].filename || title}
+          className="h-full w-full object-cover"
+        />
+      </button>
+      {fotos.length > 1 ? (
+        <div className="grid grid-cols-5 gap-2">
+          {fotos.slice(0, 5).map((foto, index) => (
+            <button
+              key={foto.id || foto.url}
+              type="button"
+              onClick={() => openAt(index)}
+              className="aspect-square overflow-hidden rounded-lg border border-white/10 bg-[#111] transition hover:border-geek-lime/40 focus:outline-none focus:ring-2 focus:ring-geek-lime/70"
+              aria-label={`Abrir foto ${index + 1} del pedido`}
+            >
+              <img src={thumbnailUrl(foto, "small")} alt={foto.filename || `${title} ${index + 1}`} className="h-full w-full object-cover" />
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {selected ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
+          <div className="relative flex max-h-full w-full max-w-5xl flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="truncate text-sm font-semibold text-zinc-200">{selected.filename || title}</p>
+              <button type="button" onClick={close} className="rounded-xl border border-white/10 bg-[#181818] px-4 py-2 text-sm font-bold text-white transition hover:border-geek-lime/40">
+                Cerrar
+              </button>
+            </div>
+            <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#111]">
+              <img src={selected.url} alt={selected.filename || title} className="max-h-[78vh] w-full object-contain" />
+              {fotos.length > 1 ? (
+                <>
+                  <button type="button" onClick={previous} className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-black/70 px-4 py-3 text-lg font-bold text-white transition hover:border-geek-lime/40" aria-label="Foto anterior">
+                    {"<"}
+                  </button>
+                  <button type="button" onClick={next} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-black/70 px-4 py-3 text-lg font-bold text-white transition hover:border-geek-lime/40" aria-label="Foto siguiente">
+                    {">"}
+                  </button>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -515,6 +619,10 @@ function Badge({ children }: { children: React.ReactNode }) {
 
 function ActionLink({ href, children }: { href: string; children: React.ReactNode }) {
   return <Link href={href} className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime">{children}</Link>;
+}
+
+function ExternalActionLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return <a href={href} target="_blank" rel="noreferrer" className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime">{children}</a>;
 }
 
 function ReadOnly({ label, value }: { label: string; value: string }) {
