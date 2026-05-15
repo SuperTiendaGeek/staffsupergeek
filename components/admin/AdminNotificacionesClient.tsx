@@ -20,6 +20,13 @@ type CreateResponse = {
   success?: boolean;
   error?: string;
   notification?: Notificacion;
+  notifications?: Notificacion[];
+  summary?: {
+    totalCreadas: number;
+    totalEmailsEnviados: number;
+    totalEmailsError: number;
+    errores?: Array<{ destinatarioId: string; error: string }>;
+  };
 };
 
 function formatDate(value?: string) {
@@ -44,7 +51,9 @@ export function AdminNotificacionesClient({ initialNotifications, users }: Admin
   const router = useRouter();
   const searchParams = useSearchParams();
   const [notifications, setNotifications] = useState(initialNotifications);
-  const [destinatarioId, setDestinatarioId] = useState(users[0]?.id || "");
+  const activeUsers = users.some((user) => user.activo) ? users.filter((user) => user.activo) : users;
+  const [modoEnvio, setModoEnvio] = useState<"seleccionar" | "todos">("seleccionar");
+  const [destinatarioIds, setDestinatarioIds] = useState<string[]>(users[0]?.id ? [users[0].id] : []);
   const [tipo, setTipo] = useState("Sistema");
   const [prioridad, setPrioridad] = useState("Normal");
   const [titulo, setTitulo] = useState("");
@@ -69,6 +78,12 @@ export function AdminNotificacionesClient({ initialNotifications, users }: Admin
     router.push(`/admin/notificaciones${params.toString() ? `?${params}` : ""}`);
   }
 
+  function toggleDestinatario(userId: string) {
+    setDestinatarioIds((current) =>
+      current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId]
+    );
+  }
+
   async function handleCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -81,7 +96,8 @@ export function AdminNotificacionesClient({ initialNotifications, users }: Admin
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          destinatarioId,
+          destinatarioIds: modoEnvio === "seleccionar" ? destinatarioIds : undefined,
+          enviarATodos: modoEnvio === "todos",
           tipo,
           prioridad,
           titulo,
@@ -94,19 +110,25 @@ export function AdminNotificacionesClient({ initialNotifications, users }: Admin
       });
       const result = (await response.json()) as CreateResponse;
 
-      if (!response.ok || !result.success || !result.notification) {
+      if (!response.ok || !result.success) {
         setError(result.error || "No se pudo crear la notificación");
         return;
       }
 
-      setNotifications((current) => [result.notification as Notificacion, ...current]);
+      const createdNotifications = result.notifications || (result.notification ? [result.notification] : []);
+      setNotifications((current) => [...createdNotifications, ...current]);
       setTitulo("");
       setMensaje("");
       setUrlAccion("");
       setEntidadTipo("");
       setEntidadId("");
       setEnviarEmail(false);
-      setNotice("Notificación creada correctamente.");
+      const summary = result.summary;
+      setNotice(
+        summary
+          ? `Notificaciones creadas: ${summary.totalCreadas}. Emails enviados: ${summary.totalEmailsEnviados}. Emails con error: ${summary.totalEmailsError}.`
+          : "Notificación creada correctamente."
+      );
       router.refresh();
     } catch {
       setError("No se pudo conectar con el servidor.");
@@ -145,12 +167,55 @@ export function AdminNotificacionesClient({ initialNotifications, users }: Admin
       <form onSubmit={handleCreate} className="rounded-lg border border-white/10 bg-white/[0.04] p-5 shadow-2xl shadow-black/20 backdrop-blur">
         <h2 className="text-lg font-semibold text-white">Crear notificación manual</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <label className="space-y-2">
-            <span className="text-sm text-zinc-300">Destinatario</span>
-            <select value={destinatarioId} onChange={(event) => setDestinatarioId(event.target.value)} required className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white">
-              {users.map((user) => <option key={user.id} value={user.id}>{user.nombre || user.email}</option>)}
-            </select>
-          </label>
+          <div className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-4 md:col-span-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white">Destinatarios</p>
+                <p className="mt-1 text-xs text-zinc-500">Se creará una notificación individual por cada usuario.</p>
+              </div>
+              <div className="grid gap-2 rounded-md border border-white/10 bg-black/30 p-1 text-sm sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setModoEnvio("seleccionar")}
+                  className={`rounded px-3 py-2 font-semibold transition ${modoEnvio === "seleccionar" ? "bg-geek-lime text-geek-black" : "text-zinc-300 hover:bg-white/10"}`}
+                >
+                  Seleccionar usuarios
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModoEnvio("todos")}
+                  className={`rounded px-3 py-2 font-semibold transition ${modoEnvio === "todos" ? "bg-geek-lime text-geek-black" : "text-zinc-300 hover:bg-white/10"}`}
+                >
+                  Todos activos
+                </button>
+              </div>
+            </div>
+
+            {modoEnvio === "todos" ? (
+              <p className="rounded-md border border-geek-lime/25 bg-geek-lime/10 px-3 py-3 text-sm text-zinc-200">
+                Se enviará una notificación individual a todos los usuarios activos ({activeUsers.length}).
+              </p>
+            ) : (
+              <div className="max-h-64 overflow-y-auto rounded-md border border-white/10 bg-black/30">
+                {users.length ? users.map((user) => (
+                  <label key={user.id} className="flex cursor-pointer items-center gap-3 border-b border-white/10 px-3 py-3 last:border-b-0 hover:bg-white/[0.04]">
+                    <input
+                      type="checkbox"
+                      checked={destinatarioIds.includes(user.id)}
+                      onChange={() => toggleDestinatario(user.id)}
+                      className="h-4 w-4 accent-geek-lime"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-white">{user.nombre || user.email}</span>
+                      <span className="mt-0.5 block truncate text-xs text-zinc-500">{user.email} · {user.rol}{user.activo ? "" : " · Inactivo"}</span>
+                    </span>
+                  </label>
+                )) : (
+                  <p className="px-3 py-4 text-sm text-zinc-400">No hay usuarios disponibles.</p>
+                )}
+              </div>
+            )}
+          </div>
           <label className="space-y-2">
             <span className="text-sm text-zinc-300">Título</span>
             <input value={titulo} onChange={(event) => setTitulo(event.target.value)} required className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white" />
@@ -191,7 +256,7 @@ export function AdminNotificacionesClient({ initialNotifications, users }: Admin
             Enviar email
           </label>
         </div>
-        <button type="submit" disabled={isSubmitting || !users.length} className="mt-4 rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white disabled:opacity-60">
+        <button type="submit" disabled={isSubmitting || !users.length || (modoEnvio === "seleccionar" && destinatarioIds.length === 0)} className="mt-4 rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white disabled:opacity-60">
           {isSubmitting ? "Creando..." : "Crear notificación"}
         </button>
       </form>
