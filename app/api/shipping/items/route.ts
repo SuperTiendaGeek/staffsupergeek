@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { canAccessApp } from "@/lib/apps";
-import { crearShippingItem, obtenerShippingProveedores } from "@/lib/shipping/airtable";
+import { crearOActualizarPagoPendienteParaItem, crearShippingItem, obtenerShippingProveedores } from "@/lib/shipping/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 import {
   SHIPPING_CREATABLE_ITEM_FOR_OPTIONS,
@@ -169,7 +169,31 @@ export async function POST(request: Request) {
 
   try {
     const result = await crearShippingItem(input, fotos);
-    return NextResponse.json({ success: true, data: result.item, warning: result.warning }, { status: 201 });
+    const warnings = result.warning ? [result.warning] : [];
+    const paymentWarnings: string[] = [];
+    let paymentLink = null;
+
+    try {
+      paymentLink = await crearOActualizarPagoPendienteParaItem(result.item, { proveedorId });
+      paymentWarnings.push(...paymentLink.warnings);
+    } catch (paymentError) {
+      console.error("Item creado, pero no se pudo vincular el pago de Shipping:", paymentError);
+      paymentWarnings.push(
+        `Item creado, pero revisar grupo de pago: ${paymentError instanceof Error ? paymentError.message : "no se pudo vincular el pago."}`
+      );
+    }
+    warnings.push(...paymentWarnings);
+
+    return NextResponse.json(
+      {
+        success: true,
+        data: result.item,
+        paymentLink,
+        paymentWarning: paymentWarnings.length > 0,
+        warning: warnings.length ? warnings.join(" ") : null,
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("Error al crear item de Shipping:", error);
     return NextResponse.json(

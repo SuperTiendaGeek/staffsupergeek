@@ -29,6 +29,40 @@ export type ShippingItem = {
   notaPublica: string;
   regalo: boolean;
   encargo: boolean;
+  fechaOfertado: string;
+};
+
+export type ShippingPendingPaymentItem = {
+  id: string;
+  codigo: string;
+  item: string;
+  proveedor: string;
+  fechaOfertado: string;
+  fechaGrupo: string;
+  costoProveedor: number | null;
+  regalo: boolean;
+};
+
+export type ShippingPaymentPreviewGroup = {
+  key: string;
+  pagoId: string;
+  proveedor: string;
+  proveedorNormalizado: string;
+  fechaGrupo: string;
+  fechaGrupoLabel: string;
+  itemConCostoCount: number;
+  regaloCount: number;
+  totalCostoProveedor: number;
+  status: "suggested";
+  items: ShippingPendingPaymentItem[];
+  itemsConCosto: ShippingPendingPaymentItem[];
+  regalos: ShippingPendingPaymentItem[];
+};
+
+export type ShippingPaymentPreparationPreview = {
+  gruposNuevosSugeridos: ShippingPaymentPreviewGroup[];
+  pagosExistentesPendientes: ShippingPago[];
+  itemsAntiguosPorRevisar: ShippingPendingPaymentItem[];
 };
 
 export type ShippingNewItemInput = {
@@ -49,6 +83,14 @@ export type ShippingNewItemInput = {
   notaPublica: string;
 };
 
+export type ShippingPaymentLinkResult = {
+  pagoId: string | null;
+  pagoRecordId: string | null;
+  action: "created" | "updated" | "skipped";
+  writtenFields: string[];
+  warnings: string[];
+};
+
 export type ShippingAttachmentInput = {
   filename: string;
   contentType: string;
@@ -63,8 +105,55 @@ export type ShippingPago = {
   transaccionId: string;
   proveedor: string;
   pagoRealizado: boolean;
+  pagoRealizadoValor: string;
   estadoPago: string;
   recargosPagoExterior: number | null;
+  fechaPagoReal: string;
+  metodoPago: string;
+  cuentaOrigen: string;
+  observacion: string;
+  registradoPor: string;
+  movimientoFinanzasId: string;
+  estadoIntegracionFinanzas: string;
+  comprobanteCount: number;
+  itemCount: number;
+};
+
+export const SHIPPING_PAYMENT_METHODS = ["PayPal", "Tarjeta", "Transferencia bancaria", "Efectivo", "Depósito", "Otro"] as const;
+export const SHIPPING_PAYMENT_SOURCE_ACCOUNTS = ["PayPal", "Banco Pichincha", "Caja", "PayPhone", "DataFast", "Otro"] as const;
+
+export type ShippingPaymentMethod = (typeof SHIPPING_PAYMENT_METHODS)[number];
+export type ShippingPaymentSourceAccount = (typeof SHIPPING_PAYMENT_SOURCE_ACCOUNTS)[number];
+
+export type ShippingPaymentRegistrationInput = {
+  pagoRecordId: string;
+  fechaPagoReal: string;
+  metodoPago: ShippingPaymentMethod;
+  cuentaOrigen: ShippingPaymentSourceAccount;
+  transaccionId: string;
+  observacion: string;
+  registradoPor: string;
+  comprobante?: ShippingAttachmentInput | null;
+};
+
+export type ShippingPaymentRegistrationResult = {
+  pago: ShippingPago;
+  warning: string | null;
+  writtenFields: string[];
+  pagoRealizadoWrittenAs: "checkbox" | "datetime";
+};
+
+// Contrato tentativo para la futura integración con Finanzas.
+// Por ahora Shipping solo prepara la vista previa; no crea movimientos reales.
+export type ShippingFinanceMovementDraft = {
+  fechaPago: string;
+  proveedor: string;
+  total: number;
+  metodoPago: string;
+  cuentaOrigen: string;
+  transaccionId: string;
+  comprobante: string;
+  movimientoFinanzasId: string | null;
 };
 
 export type ShippingPacking = {

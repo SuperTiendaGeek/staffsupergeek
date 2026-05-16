@@ -7,6 +7,12 @@ import type {
   ShippingItem,
   ShippingNewItemInput,
   ShippingPacking,
+  ShippingPaymentRegistrationInput,
+  ShippingPaymentRegistrationResult,
+  ShippingPaymentPreparationPreview,
+  ShippingPaymentLinkResult,
+  ShippingPaymentPreviewGroup,
+  ShippingPendingPaymentItem,
   ShippingPago,
   ShippingProveedor,
 } from "@/types/shipping";
@@ -21,12 +27,19 @@ type AirtableListResponse = {
   offset?: string;
 };
 
+type AirtablePatchResponse = {
+  records?: AirtableRecord[];
+};
+
 const SHIPPING_TABLES = {
   item: process.env.AIRTABLE_ITEM_TABLE?.trim() || "Item",
   pago: process.env.AIRTABLE_PAGO_TABLE?.trim() || "Pago",
   packing: process.env.AIRTABLE_PACKING_TABLE?.trim() || "Packing",
   proveedores: process.env.AIRTABLE_PROVEEDORES_TABLE?.trim() || "Proveedores",
 } as const;
+
+// Futuro: mover a configuración cuando el flujo de pagos Shipping esté estable.
+export const SHIPPING_PAYMENTS_START_DATE = "2026-05-15";
 
 function getRequiredEnv(name: "AIRTABLE_API_KEY" | "AIRTABLE_BASE_ID") {
   const value = process.env[name]?.trim();
@@ -58,6 +71,10 @@ function tableUrl(tableName: string) {
   return `${getClient().baseUrl}/${encodeURIComponent(tableName)}`;
 }
 
+function escapeAirtableFormulaString(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
 function firstString(value: unknown, fallback = "") {
   if (typeof value === "string") return value;
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
@@ -81,6 +98,14 @@ function boolValue(value: unknown) {
   return value === true;
 }
 
+function hasFilledValue(value: unknown) {
+  if (value === true) return true;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.length > 0;
+  return false;
+}
+
 function linkedCount(value: unknown) {
   return Array.isArray(value) ? value.length : 0;
 }
@@ -88,6 +113,38 @@ function linkedCount(value: unknown) {
 function hasLinkedValue(value: unknown) {
   if (Array.isArray(value)) return value.length > 0;
   return firstString(value).trim().length > 0;
+}
+
+function formatGroupDate(value: string) {
+  const date = value ? new Date(value) : new Date();
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Guayaquil",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(safeDate);
+  const year = parts.find((part) => part.type === "year")?.value ?? "0000";
+  const month = parts.find((part) => part.type === "month")?.value ?? "00";
+  const day = parts.find((part) => part.type === "day")?.value ?? "00";
+
+  return `${year}${month}${day}`;
+}
+
+function getServerDateGroupKey() {
+  return formatGroupDate(new Date().toISOString());
+}
+
+function dateKeyFromValue(value: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return formatGroupDate(value);
+}
+
+function formatGroupDateLabel(dateKey: string) {
+  if (!/^\d{8}$/.test(dateKey)) return dateKey;
+  return `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
 }
 
 export function normalizeText(value: unknown) {
@@ -105,7 +162,7 @@ export function isPaidStatus(value: unknown) {
   // Airtable puede exponer el estado como texto libre o single select.
   // Por ahora consideramos pagado solo estados explícitos para no marcar
   // como pagado un item cancelado, anulado o pendiente por error.
-  return normalized.includes("pagado") || normalized.includes("pago realizado") || normalized === "paid";
+  return normalized === "pagado" || normalized === "pago realizado" || normalized === "paid";
 }
 
 export function isPackingInPreparation(value: unknown) {
@@ -131,6 +188,25 @@ export function itemNeedsPayment(item: ShippingItem) {
 
 export function itemPaidWithoutPacking(item: ShippingItem) {
   return (item.pagoCount > 0 || isPaidStatus(item.estadoPago)) && item.packingCount === 0;
+}
+
+export function normalizarProveedorParaPagoId(proveedor: string) {
+  const normalized = proveedor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized || "SIN-PROVEEDOR";
+}
+
+function normalizeProveedorForPagoId(proveedor: string) {
+  return normalizarProveedorParaPagoId(proveedor);
+}
+
+export function generarPagoIdShipping(fechaGrupo: string, proveedor: string) {
+  return `PAY-${fechaGrupo}-${normalizarProveedorParaPagoId(proveedor)}`;
 }
 
 async function airtableRequest<T>(url: string, init: RequestInit = {}) {
@@ -199,6 +275,25 @@ async function listRecords(tableName: string, options: { pageSize?: number; maxR
   return options.maxRecords ? records.slice(0, options.maxRecords) : records;
 }
 
+async function patchRecord(tableName: string, recordId: string, fields: Record<string, unknown>) {
+  return airtableRequest<AirtableRecord>(`${tableUrl(tableName)}/${encodeURIComponent(recordId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ fields }),
+  });
+}
+
+async function patchRecordBatch(tableName: string, recordId: string, fields: Record<string, unknown>) {
+  const data = await airtableRequest<AirtablePatchResponse>(tableUrl(tableName), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{ id: recordId, fields }],
+      typecast: true,
+    }),
+  });
+
+  return data.records?.[0] ?? null;
+}
+
 function mapItem(record: AirtableRecord): ShippingItem {
   const f = record.fields;
   const pagoField = f["Pago"] ?? f["Pagos"] ?? f["Pago ID"];
@@ -226,11 +321,38 @@ function mapItem(record: AirtableRecord): ShippingItem {
     notaPublica: firstString(f["Nota Pública"]),
     regalo: boolValue(f["Regalo"]),
     encargo: boolValue(f["Encargo"]),
+    fechaOfertado: firstString(f["Fecha Ofertado"]),
+  };
+}
+
+function mapPendingPaymentItem(record: AirtableRecord): ShippingPendingPaymentItem | null {
+  const f = record.fields;
+  const pagoField = f["Pago"] ?? f["Pagos"] ?? f["Pago ID"];
+  const proveedor = firstString(f["Nombre Proveedor"]) || firstString(f["Proveedor"]);
+  const costoProveedor = firstNumber(f["Costo Proveedor"]);
+  const estadoPago = firstString(f["Estado Pago"]) || firstString(f["Estado de Pago"]);
+  const fechaOfertado = firstString(f["Fecha Ofertado"]);
+
+  if (!proveedor) return null;
+  if (costoProveedor !== null && costoProveedor < 0) return null;
+  if (hasLinkedValue(pagoField)) return null;
+  if (isPaidStatus(estadoPago)) return null;
+
+  return {
+    id: record.id,
+    codigo: firstString(f["Código"], record.id),
+    item: firstString(f["Item"], "Sin item"),
+    proveedor,
+    fechaOfertado,
+    fechaGrupo: dateKeyFromValue(fechaOfertado) ?? "SIN-FECHA",
+    costoProveedor,
+    regalo: boolValue(f["Regalo"]),
   };
 }
 
 function mapPago(record: AirtableRecord): ShippingPago {
   const f = record.fields;
+  const pagoRealizadoValue = f["Pago Realizado"];
   return {
     id: record.id,
     pagoId: firstString(f["Pago ID"], record.id),
@@ -238,9 +360,19 @@ function mapPago(record: AirtableRecord): ShippingPago {
     fechaPagoMax: firstString(f["Fecha de Pago Máx"]),
     transaccionId: firstString(f["Transacción ID"]),
     proveedor: firstString(f["Proveedor (from Items)"]),
-    pagoRealizado: boolValue(f["Pago Realizado"]),
+    pagoRealizado: hasFilledValue(pagoRealizadoValue),
+    pagoRealizadoValor: firstString(pagoRealizadoValue),
     estadoPago: firstString(f["Estado de Pago"]),
     recargosPagoExterior: firstNumber(f["Recargos Pago Exterior"]),
+    fechaPagoReal: firstString(f["Fecha de Pago Real"]),
+    metodoPago: firstString(f["Método de Pago"]),
+    cuentaOrigen: firstString(f["Cuenta Origen"]),
+    observacion: firstString(f["Observación"]),
+    registradoPor: firstString(f["Registrado por"]),
+    movimientoFinanzasId: firstString(f["Movimiento Finanzas ID"]),
+    estadoIntegracionFinanzas: firstString(f["Estado Integración Finanzas"]),
+    comprobanteCount: linkedCount(f["Comprobante"]),
+    itemCount: linkedCount(f["Items"] ?? f["Item"]),
   };
 }
 
@@ -294,6 +426,15 @@ export async function obtenerShippingPagosRecientes(limit = 50) {
   return records.map(mapPago);
 }
 
+export async function obtenerShippingPagoPorId(recordId: string) {
+  const record = await airtableRequest<AirtableRecord>(`${tableUrl(SHIPPING_TABLES.pago)}/${encodeURIComponent(recordId)}`);
+  return mapPago(record);
+}
+
+export async function obtenerShippingPagoRecordPorId(recordId: string) {
+  return airtableRequest<AirtableRecord>(`${tableUrl(SHIPPING_TABLES.pago)}/${encodeURIComponent(recordId)}`);
+}
+
 export async function obtenerShippingPackingsRecientes(limit = 50) {
   const records = await listRecords(SHIPPING_TABLES.packing, {
     maxRecords: limit,
@@ -310,6 +451,376 @@ export async function obtenerShippingProveedores(limit = 100) {
     sortDirection: "asc",
   });
   return records.map(mapProveedor);
+}
+
+export async function obtenerItemsPendientesDePago(limit = 500) {
+  const records = await listRecords(SHIPPING_TABLES.item, {
+    maxRecords: limit,
+    sortField: "Fecha Ofertado",
+    sortDirection: "desc",
+  });
+
+  return records.map(mapPendingPaymentItem).filter((item): item is ShippingPendingPaymentItem => Boolean(item));
+}
+
+export async function obtenerPagosExistentesPorPagoId(pagoIds: string[]) {
+  const requestedIds = new Set(pagoIds.filter(Boolean));
+  if (requestedIds.size === 0) return new Map<string, ShippingPago>();
+
+  const records = await listRecords(SHIPPING_TABLES.pago, {
+    maxRecords: 500,
+    sortField: "Fecha de Pago Máx",
+    sortDirection: "desc",
+  });
+  const pagos = records.map(mapPago);
+  const existing = new Map<string, ShippingPago>();
+
+  for (const pago of pagos) {
+    if (requestedIds.has(pago.pagoId)) {
+      existing.set(pago.pagoId, pago);
+    }
+  }
+
+  return existing;
+}
+
+function linkedRecordIds(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function getPagoItemsField(record: AirtableRecord) {
+  if (Array.isArray(record.fields.Items)) return "Items";
+  if (Array.isArray(record.fields.Item)) return "Item";
+  return "Items";
+}
+
+export function obtenerFechaGrupoPago(item: ShippingItem) {
+  return dateKeyFromValue(item.fechaOfertado) ?? getServerDateGroupKey();
+}
+
+export async function buscarPagoPorPagoId(pagoId: string) {
+  const records = await listRecords(SHIPPING_TABLES.pago, {
+    maxRecords: 1,
+    filterByFormula: `{Pago ID} = '${escapeAirtableFormulaString(pagoId)}'`,
+  });
+
+  return records[0] ?? null;
+}
+
+async function tryPatchOptionalPagoFields({
+  pagoRecordId,
+  proveedor,
+  proveedorId,
+}: {
+  pagoRecordId: string;
+  proveedor: string;
+  proveedorId?: string;
+}) {
+  const writtenFields: string[] = [];
+  const warnings: string[] = [];
+
+  if (proveedorId) {
+    try {
+      await patchRecordBatch(SHIPPING_TABLES.pago, pagoRecordId, { Proveedor: [proveedorId] });
+      writtenFields.push("Proveedor");
+    } catch (error) {
+      try {
+        await patchRecordBatch(SHIPPING_TABLES.pago, pagoRecordId, { Proveedor: proveedor });
+        writtenFields.push("Proveedor");
+      } catch (fallbackError) {
+        warnings.push(`No se pudo escribir Proveedor en Pago: ${fallbackError instanceof Error ? fallbackError.message : "campo no editable"}.`);
+      }
+    }
+  } else if (proveedor) {
+    try {
+      await patchRecordBatch(SHIPPING_TABLES.pago, pagoRecordId, { Proveedor: proveedor });
+      writtenFields.push("Proveedor");
+    } catch (error) {
+      warnings.push(`No se pudo escribir Proveedor en Pago: ${error instanceof Error ? error.message : "campo no editable"}.`);
+    }
+  }
+
+  try {
+    await patchRecordBatch(SHIPPING_TABLES.pago, pagoRecordId, { "Pago Realizado": false });
+    writtenFields.push("Pago Realizado");
+  } catch (error) {
+    warnings.push(`No se pudo escribir Pago Realizado en Pago: ${error instanceof Error ? error.message : "campo no editable"}.`);
+  }
+
+  return { writtenFields, warnings };
+}
+
+async function createPagoWithLinkedItem(pagoId: string, itemRecordId: string) {
+  const candidates = ["Items", "Item"] as const;
+  let lastError: unknown = null;
+
+  for (const fieldName of candidates) {
+    try {
+      const created = await airtableRequest<AirtableRecord>(tableUrl(SHIPPING_TABLES.pago), {
+        method: "POST",
+        body: JSON.stringify({
+          fields: {
+            "Pago ID": pagoId,
+            [fieldName]: [itemRecordId],
+          },
+          typecast: true,
+        }),
+      });
+
+      return { record: created, itemFieldName: fieldName };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("No se pudo crear el Pago pendiente.");
+}
+
+export async function crearPagoPendiente({
+  pagoId,
+  itemRecordId,
+  proveedor,
+  proveedorId,
+}: {
+  pagoId: string;
+  itemRecordId: string;
+  proveedor: string;
+  proveedorId?: string;
+}): Promise<ShippingPaymentLinkResult> {
+  const created = await createPagoWithLinkedItem(pagoId, itemRecordId);
+  const optionalResult = await tryPatchOptionalPagoFields({
+    pagoRecordId: created.record.id,
+    proveedor,
+    proveedorId,
+  });
+
+  return {
+    pagoId,
+    pagoRecordId: created.record.id,
+    action: "created",
+    writtenFields: ["Pago ID", created.itemFieldName, ...optionalResult.writtenFields],
+    warnings: optionalResult.warnings,
+  };
+}
+
+export async function agregarItemAPago(
+  pagoRecord: AirtableRecord,
+  itemRecordId: string,
+  options: { proveedor?: string; proveedorId?: string } = {}
+): Promise<ShippingPaymentLinkResult> {
+  const itemFieldName = getPagoItemsField(pagoRecord);
+  const currentItemIds = linkedRecordIds(pagoRecord.fields[itemFieldName]);
+  const nextItemIds = Array.from(new Set([...currentItemIds, itemRecordId]));
+  let writtenItemField = itemFieldName;
+  const warnings: string[] = [];
+
+  try {
+    await patchRecord(SHIPPING_TABLES.pago, pagoRecord.id, { [itemFieldName]: nextItemIds });
+  } catch (error) {
+    const fallbackFieldName = itemFieldName === "Items" ? "Item" : "Items";
+    await patchRecord(SHIPPING_TABLES.pago, pagoRecord.id, { [fallbackFieldName]: nextItemIds });
+    writtenItemField = fallbackFieldName;
+    warnings.push(`No se pudo usar el campo ${itemFieldName}; se vinculó usando ${fallbackFieldName}.`);
+  }
+
+  const optionalResult = options.proveedor
+    ? await tryPatchOptionalPagoFields({
+        pagoRecordId: pagoRecord.id,
+        proveedor: options.proveedor,
+        proveedorId: options.proveedorId,
+      })
+    : { writtenFields: [], warnings: [] };
+
+  if (optionalResult.warnings.length) {
+    warnings.push(...optionalResult.warnings);
+  }
+
+  return {
+    pagoId: firstString(pagoRecord.fields["Pago ID"], pagoRecord.id),
+    pagoRecordId: pagoRecord.id,
+    action: "updated",
+    writtenFields: [writtenItemField, ...optionalResult.writtenFields],
+    warnings,
+  };
+}
+
+export async function crearOActualizarPagoPendienteParaItem(item: ShippingItem, options: { proveedorId?: string } = {}): Promise<ShippingPaymentLinkResult> {
+  if (!item.proveedor) {
+    return {
+      pagoId: null,
+      pagoRecordId: null,
+      action: "skipped",
+      writtenFields: [],
+      warnings: ["El item se creó, pero no tiene proveedor para agrupar el pago."],
+    };
+  }
+
+  if (item.costoProveedor === null) {
+    return {
+      pagoId: null,
+      pagoRecordId: null,
+      action: "skipped",
+      writtenFields: [],
+      warnings: ["El item se creó, pero no tiene Costo Proveedor para agrupar el pago."],
+    };
+  }
+
+  if (item.costoProveedor < 0) {
+    throw new Error("Costo Proveedor no puede ser negativo para crear grupo de pago.");
+  }
+
+  const fechaGrupo = obtenerFechaGrupoPago(item);
+  const pagoId = generarPagoIdShipping(fechaGrupo, item.proveedor);
+  const existingPago = await buscarPagoPorPagoId(pagoId);
+
+  if (existingPago) {
+    return agregarItemAPago(existingPago, item.id, { proveedor: item.proveedor, proveedorId: options.proveedorId });
+  }
+
+  return crearPagoPendiente({
+    pagoId,
+    itemRecordId: item.id,
+    proveedor: item.proveedor,
+    proveedorId: options.proveedorId,
+  });
+}
+
+export function isPendingShippingPago(pago: ShippingPago) {
+  return !pago.pagoRealizado && !isPaidStatus(pago.estadoPago);
+}
+
+export function isShippingPagoPaid(pago: ShippingPago) {
+  return pago.pagoRealizado || isPaidStatus(pago.estadoPago);
+}
+
+async function writePagoRealizadoValue(pagoRecordId: string, paidAtIso: string) {
+  try {
+    await patchRecordBatch(SHIPPING_TABLES.pago, pagoRecordId, { "Pago Realizado": true });
+    return "checkbox" as const;
+  } catch (checkboxError) {
+    await patchRecordBatch(SHIPPING_TABLES.pago, pagoRecordId, { "Pago Realizado": paidAtIso });
+    return "datetime" as const;
+  }
+}
+
+async function patchEditablePagoFields(pagoRecordId: string, fields: Record<string, unknown>) {
+  const writtenFields: string[] = [];
+  const warnings: string[] = [];
+
+  for (const [fieldName, value] of Object.entries(fields)) {
+    try {
+      await patchRecordBatch(SHIPPING_TABLES.pago, pagoRecordId, { [fieldName]: value });
+      writtenFields.push(fieldName);
+    } catch (error) {
+      warnings.push(`No se pudo escribir ${fieldName}: ${error instanceof Error ? error.message : "campo no editable"}.`);
+    }
+  }
+
+  return { writtenFields, warnings };
+}
+
+export async function registrarPagoShipping(input: ShippingPaymentRegistrationInput): Promise<ShippingPaymentRegistrationResult> {
+  const paidAtIso = new Date().toISOString();
+  const fields: Record<string, unknown> = {
+    "Fecha de Pago Real": input.fechaPagoReal,
+    "Método de Pago": input.metodoPago,
+    "Cuenta Origen": input.cuentaOrigen,
+    "Transacción ID": input.transaccionId,
+    Observación: input.observacion,
+    "Registrado por": input.registradoPor,
+    "Estado Integración Finanzas": "Pendiente",
+    "Movimiento Finanzas ID": "",
+  };
+
+  const editableResult = await patchEditablePagoFields(input.pagoRecordId, fields);
+  const pagoRealizadoWrittenAs = await writePagoRealizadoValue(input.pagoRecordId, paidAtIso);
+
+  const warnings = [...editableResult.warnings];
+  if (input.comprobante) {
+    try {
+      await uploadAttachmentToRecord({
+        recordId: input.pagoRecordId,
+        attachmentFieldName: "Comprobante",
+        filename: input.comprobante.filename,
+        contentType: input.comprobante.contentType,
+        fileBase64: input.comprobante.fileBase64,
+      });
+    } catch (error) {
+      console.error("Pago registrado, pero comprobante no subido:", error);
+      warnings.push("Pago registrado, pero comprobante no subido.");
+    }
+  }
+
+  return {
+    pago: await obtenerShippingPagoPorId(input.pagoRecordId),
+    warning: warnings.length ? warnings.join(" ") : null,
+    writtenFields: [
+      ...editableResult.writtenFields,
+      "Pago Realizado",
+      ...(input.comprobante && !warnings.some((warning) => warning === "Pago registrado, pero comprobante no subido.") ? ["Comprobante"] : []),
+    ],
+    pagoRealizadoWrittenAs,
+  };
+}
+
+function isNewShippingPaymentFlowItem(item: ShippingPendingPaymentItem) {
+  const dateKey = dateKeyFromValue(item.fechaOfertado);
+  if (!dateKey) return false;
+  return dateKey >= SHIPPING_PAYMENTS_START_DATE.replaceAll("-", "");
+}
+
+function construirGruposSugeridos(items: ShippingPendingPaymentItem[]): ShippingPaymentPreviewGroup[] {
+  const groups = new Map<string, ShippingPendingPaymentItem[]>();
+
+  for (const item of items) {
+    const providerKey = normalizeProveedorForPagoId(item.proveedor);
+    const key = `${item.fechaGrupo}:${providerKey}`;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+
+  return Array.from(groups.entries())
+    .map(([key, groupItems]) => {
+      const firstItem = groupItems[0];
+      const proveedorNormalizado = normalizeProveedorForPagoId(firstItem.proveedor);
+      const pagoId = generarPagoIdShipping(firstItem.fechaGrupo, firstItem.proveedor);
+      const regalos = groupItems.filter((item) => item.regalo);
+      const itemsConCosto = groupItems.filter((item) => !item.regalo && item.costoProveedor !== null);
+
+      return {
+        key,
+        pagoId,
+        proveedor: firstItem.proveedor,
+        proveedorNormalizado,
+        fechaGrupo: firstItem.fechaGrupo,
+        fechaGrupoLabel: formatGroupDateLabel(firstItem.fechaGrupo),
+        itemConCostoCount: itemsConCosto.length,
+        regaloCount: regalos.length,
+        totalCostoProveedor: itemsConCosto.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0),
+        status: "suggested" as const,
+        items: groupItems,
+        itemsConCosto,
+        regalos,
+      };
+    })
+    .sort((a, b) => a.fechaGrupo.localeCompare(b.fechaGrupo) || a.proveedor.localeCompare(b.proveedor, "es"));
+}
+
+export async function construirPreparacionPagosShipping(): Promise<ShippingPaymentPreparationPreview> {
+  const [items, pagos] = await Promise.all([obtenerItemsPendientesDePago(), obtenerShippingPagosRecientes(500)]);
+  const itemsNuevos = items.filter(isNewShippingPaymentFlowItem);
+  const itemsAntiguosPorRevisar = items.filter((item) => !isNewShippingPaymentFlowItem(item));
+
+  return {
+    gruposNuevosSugeridos: construirGruposSugeridos(itemsNuevos),
+    pagosExistentesPendientes: pagos.filter(isPendingShippingPago),
+    itemsAntiguosPorRevisar,
+  };
+}
+
+export async function construirVistaPreviaPagosPendientes(): Promise<ShippingPaymentPreviewGroup[]> {
+  const items = await obtenerItemsPendientesDePago();
+  return construirGruposSugeridos(items.filter(isNewShippingPaymentFlowItem));
 }
 
 export async function crearShippingItem(input: ShippingNewItemInput, fotos: ShippingAttachmentInput[] = []) {

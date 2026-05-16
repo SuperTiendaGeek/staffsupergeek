@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 type PageProps = {
   searchParams?: Promise<{
     created?: string | string[];
+    paymentWarning?: string | string[];
   }>;
 };
 
@@ -21,6 +22,7 @@ export default async function ShippingItemsPage({ searchParams }: PageProps) {
   let error = "";
   const params = await searchParams;
   const created = getParam(params?.created) === "1";
+  const paymentWarning = getParam(params?.paymentWarning) === "1";
 
   try {
     items = await obtenerShippingItemsRecientes(100);
@@ -41,7 +43,13 @@ export default async function ShippingItemsPage({ searchParams }: PageProps) {
             + Nuevo Item
           </Link>
         </div>
-        {created ? <p className="rounded-lg border border-geek-lime/30 bg-geek-lime/10 px-4 py-3 text-sm text-geek-lime">Item creado correctamente.</p> : null}
+        {paymentWarning ? (
+          <p className="rounded-lg border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
+            Item creado, pero revisar grupo de pago.
+          </p>
+        ) : created ? (
+          <p className="rounded-lg border border-geek-lime/30 bg-geek-lime/10 px-4 py-3 text-sm text-geek-lime">Item creado correctamente.</p>
+        ) : null}
         {error ? <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p> : null}
         <ShippingTable
           title="Items"

@@ -79,7 +79,7 @@ function PendingPackingRow({ packing, detail }: { packing: ShippingPacking; deta
 }
 
 function FutureActions() {
-  const upcomingActions = ["+ Nuevo Packing", "Sincronizar Pagos Pendientes", "Generar Factura Packing"];
+  const upcomingActions = ["+ Nuevo Packing", "Generar Factura Packing"];
 
   return (
     <section className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
@@ -98,6 +98,12 @@ function FutureActions() {
           className="grid min-h-11 place-items-center rounded-md bg-geek-lime px-3 py-2 text-center text-sm font-semibold text-geek-black shadow-glow transition hover:bg-white"
         >
           + Nuevo Item
+        </Link>
+        <Link
+          href="/shipping/pagos/sincronizar"
+          className="grid min-h-11 place-items-center rounded-md border border-geek-lime/40 px-3 py-2 text-center text-sm font-semibold text-geek-lime transition hover:bg-geek-lime hover:text-geek-black"
+        >
+          Preparar Pagos
         </Link>
         {upcomingActions.map((action) => (
           <button

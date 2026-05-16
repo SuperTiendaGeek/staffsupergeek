@@ -13,6 +13,7 @@ type ApiResponse = {
   success?: boolean;
   error?: string;
   warning?: string | null;
+  paymentWarning?: boolean;
 };
 
 const categorias = ["Laptop", "Desktop", "Electronico", "Repuesto"];
@@ -71,7 +72,7 @@ export function NewShippingItemForm({ proveedores }: Props) {
         throw new Error(payload?.error || "No se pudo crear el item.");
       }
 
-      router.push("/shipping/items?created=1");
+      router.push(payload.paymentWarning ? "/shipping/items?created=1&paymentWarning=1" : "/shipping/items?created=1");
       router.refresh();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Error inesperado");
