@@ -85,6 +85,59 @@ function firstString(value: unknown, fallback = "") {
   return fallback;
 }
 
+function isAirtableRecordId(value: string) {
+  return /^rec[a-zA-Z0-9]{14}$/.test(value);
+}
+
+function getUniqueReadableValues(value: unknown) {
+  const values: string[] = [];
+
+  function collect(item: unknown) {
+    if (item === null || item === undefined) return;
+    if (Array.isArray(item)) {
+      for (const child of item) collect(child);
+      return;
+    }
+
+    if (typeof item === "object") {
+      const objectValue = item as { name?: unknown; id?: unknown };
+      collect(objectValue.name);
+      return;
+    }
+
+    if (typeof item === "number" && Number.isFinite(item)) {
+      values.push(String(item));
+      return;
+    }
+
+    if (typeof item !== "string") return;
+
+    for (const part of item.split(",")) {
+      const cleaned = part.trim();
+      if (!cleaned || isAirtableRecordId(cleaned)) continue;
+      values.push(cleaned);
+    }
+  }
+
+  collect(value);
+
+  const uniqueValues: string[] = [];
+  const seen = new Set<string>();
+  for (const valueItem of values) {
+    const key = valueItem.normalize("NFC").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueValues.push(valueItem);
+  }
+
+  return uniqueValues;
+}
+
+function uniqueReadableString(value: unknown, fallback = "") {
+  const values = getUniqueReadableValues(value);
+  return values.length ? values.join(", ") : fallback;
+}
+
 function firstNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -252,7 +305,10 @@ async function uploadAttachmentToRecord({
   }
 }
 
-async function listRecords(tableName: string, options: { pageSize?: number; maxRecords?: number; sortField?: string; sortDirection?: "asc" | "desc"; filterByFormula?: string } = {}) {
+async function listRecords(
+  tableName: string,
+  options: { pageSize?: number; maxRecords?: number; sortField?: string; sortDirection?: "asc" | "desc"; filterByFormula?: string; fields?: string[] } = {}
+) {
   const records: AirtableRecord[] = [];
   let offset: string | null = null;
 
@@ -261,6 +317,9 @@ async function listRecords(tableName: string, options: { pageSize?: number; maxR
     url.searchParams.set("pageSize", String(options.pageSize ?? 100));
     if (options.maxRecords) url.searchParams.set("maxRecords", String(options.maxRecords));
     if (options.filterByFormula) url.searchParams.set("filterByFormula", options.filterByFormula);
+    for (const field of options.fields ?? []) {
+      url.searchParams.append("fields[]", field);
+    }
     if (options.sortField) {
       url.searchParams.append("sort[0][field]", options.sortField);
       url.searchParams.append("sort[0][direction]", options.sortDirection ?? "desc");
@@ -353,13 +412,18 @@ function mapPendingPaymentItem(record: AirtableRecord): ShippingPendingPaymentIt
 function mapPago(record: AirtableRecord): ShippingPago {
   const f = record.fields;
   const pagoRealizadoValue = f["Pago Realizado"];
+  const proveedor =
+    firstString(f["Proveedor Único"]) ||
+    uniqueReadableString(f["Proveedor (from Items)"]) ||
+    uniqueReadableString(f["Nombre Proveedor"]) ||
+    uniqueReadableString(f["Proveedor"]);
   return {
     id: record.id,
     pagoId: firstString(f["Pago ID"], record.id),
     totalPago: firstNumber(f["Total Pago"]),
     fechaPagoMax: firstString(f["Fecha de Pago Máx"]),
     transaccionId: firstString(f["Transacción ID"]),
-    proveedor: firstString(f["Proveedor (from Items)"]),
+    proveedor,
     pagoRealizado: hasFilledValue(pagoRealizadoValue),
     pagoRealizadoValor: firstString(pagoRealizadoValue),
     estadoPago: firstString(f["Estado de Pago"]),
@@ -422,6 +486,26 @@ export async function obtenerShippingPagosRecientes(limit = 50) {
     maxRecords: limit,
     sortField: "Fecha de Pago Máx",
     sortDirection: "desc",
+    fields: [
+      "Pago ID",
+      "Items",
+      "Total Pago",
+      "Transacción ID",
+      "Pago Realizado",
+      "Estado de Pago",
+      "Recargos Pago Exterior",
+      "Fecha de Pago Máx",
+      "Fecha de Pago Real",
+      "Método de Pago",
+      "Cuenta Origen",
+      "Comprobante",
+      "Observación",
+      "Registrado por",
+      "Movimiento Finanzas ID",
+      "Estado Integración Finanzas",
+      "Proveedor Único",
+      "Proveedor (from Items)",
+    ],
   });
   return records.map(mapPago);
 }
