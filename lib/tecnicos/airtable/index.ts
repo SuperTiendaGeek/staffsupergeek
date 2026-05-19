@@ -88,6 +88,11 @@ export interface NuevoClienteInput {
   notas?: string | null;
 }
 
+export interface BuscarClienteDuplicadoInput {
+  cedula?: string | null;
+  telefono?: string | null;
+}
+
 export interface NuevaOrdenInput {
   clienteId?: string | null;
   nuevoCliente?: NuevoClienteInput | null;
@@ -934,6 +939,56 @@ export const buscarClientes = async ({
   }
 
   throw lastError ?? new Error("No se pudieron buscar clientes");
+};
+
+export const buscarClienteDuplicado = async ({
+  cedula,
+  telefono,
+}: BuscarClienteDuplicadoInput): Promise<ClienteBusqueda | null> => {
+  const normalizedCedula = cedula?.trim().toLowerCase() ?? "";
+  const normalizedTelefono = telefono?.trim().toLowerCase() ?? "";
+  if (!normalizedCedula && !normalizedTelefono) return null;
+
+  const client = getClient();
+  const fieldSets = [
+    ["C\u00e9dula", "Tel\u00e9fono"],
+    ["Cedula", "Telefono"],
+  ];
+  let lastError: Error | null = null;
+
+  for (const [cedulaField, telefonoField] of fieldSets) {
+    const clauses: string[] = [];
+    if (normalizedCedula) {
+      clauses.push(`LOWER({${cedulaField}} & "") = "${escapeAirtableFormulaString(normalizedCedula)}"`);
+    }
+    if (normalizedTelefono) {
+      clauses.push(`LOWER({${telefonoField}} & "") = "${escapeAirtableFormulaString(normalizedTelefono)}"`);
+    }
+
+    const url = new URL(`${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.clientes)}`);
+    url.searchParams.set("pageSize", "1");
+    url.searchParams.append("filterByFormula", clauses.length === 1 ? clauses[0] : `OR(${clauses.join(",")})`);
+
+    const res = await fetch(url.toString(), {
+      headers: client.headers,
+      cache: "no-store",
+    });
+
+    if (res.ok) {
+      const data = (await res.json()) as { records?: AirtableGenericRecord[] };
+      const record = data.records?.[0];
+      return record ? mapClienteRecord(record) : null;
+    }
+
+    const text = await res.text();
+    const error = new Error(`Airtable error ${res.status}: ${text}`);
+    lastError = error;
+    if (!isUnknownAirtableFieldError(error.message)) {
+      throw error;
+    }
+  }
+
+  throw lastError ?? new Error("No se pudo validar duplicados de clientes");
 };
 
 export const createCliente = async (input: NuevoClienteInput): Promise<ClienteBusqueda> => {

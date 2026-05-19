@@ -1512,7 +1512,7 @@ export default function OrdenDetallePage() {
       if (attempt + 1 >= maxAttempts) {
         setMensajeError((prev) => ({
           ...prev,
-          [historialId]: "AÃºn no disponible, intenta de nuevo.",
+          [historialId]: "Aún no disponible, intenta de nuevo.",
         }));
         setMensajeLoading((prev) => ({ ...prev, [historialId]: false }));
         pollingRefs.current.delete(historialId);
@@ -2109,8 +2109,8 @@ export default function OrdenDetallePage() {
                   Sin historial registrado.
                 </p>
               ) : (
-                <div className="space-y-4">
-                  {orden.historial.map((item, idx) => {
+                <div className="space-y-3">
+                  {orden.historial.map((item) => {
                     const title = buildTimelineTitle(item.estadoNuevo);
                     const notaLimpia = (item.nota ?? "").trim();
                     const showNota =
@@ -2123,134 +2123,128 @@ export default function OrdenDetallePage() {
                     return (
                       <div
                         key={item.id}
-                        className="grid grid-cols-[150px_48px_minmax(0,1fr)] items-start gap-5 text-sm text-[var(--sg-text-primary)]"
+                        className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-4 text-sm text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)]/50 hover:bg-[#181818]"
                       >
-                        <div className="whitespace-nowrap pr-4 text-right text-xs leading-5 text-[var(--sg-text-muted)]">
-                          <span className="inline-block rounded-full border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2.5 py-1">
-                          {formatTimelineDate(item.fecha)}
+                        <div className="flex flex-col gap-3 border-b border-[var(--sg-divider)] pb-3 sm:flex-row sm:items-start sm:justify-between">
+                          <span className="inline-flex w-fit whitespace-nowrap rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-1.5 text-xs leading-5 text-[var(--sg-text-muted)]">
+                            {formatTimelineDate(item.fecha)}
                           </span>
-                        </div>
-                        <div className="relative flex justify-center">
-                          {idx !== orden.historial.length - 1 && (
-                            <span className="absolute bottom-[-32px] left-1/2 top-5 w-px -translate-x-1/2 bg-[var(--sg-lime)]" aria-hidden="true" />
-                          )}
-                          <span className="relative z-10 inline-flex h-3.5 w-3.5 -translate-x-[1px] items-center justify-center">
-                            <span className="absolute inline-flex h-3.5 w-3.5 rounded-full bg-[var(--sg-lime)]" />
-                            <span className="absolute inline-flex h-3.5 w-3.5 rounded-full border border-[var(--sg-lime)] opacity-40" />
-                          </span>
-                        </div>
-                        <div className="space-y-2 border-b border-[var(--sg-divider)] pb-4 last:border-b-0">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 space-y-1">
-                              {isEditing ? (
-                                <div className="space-y-1">
-                                  <textarea
-                                    ref={editInlineRef}
-                                    value={editingValue}
-                                    onChange={(e) => setEditingValue(e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleSaveEdicion();
-                                      }
-                                      if (e.key === "Escape") {
-                                        e.preventDefault();
-                                        resetEditing();
-                                      }
-                                    }}
-                                    onBlur={handleBlurEdicion}
-                                    rows={2}
-                                    className="w-full resize-none rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                                    placeholder="Ajusta el estado"
-                                    disabled={editingSaving}
-                                  />
-                                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--sg-text-muted)]">
-                                    <span>Enter guarda Â· Esc cancela</span>
-                                    {editingSaving && <span className="text-[var(--sg-lime)]">Guardando...</span>}
-                                    {editingError && <span className="text-red-400">{editingError}</span>}
-                                  </div>
-                                </div>
+
+                          <div className="flex shrink-0 flex-wrap items-center gap-2 text-[12px] text-[var(--sg-text-muted)] sm:justify-end">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEdit(item)}
+                              className={actionButtonClass}
+                              title="Editar estado"
+                              aria-label="Editar estado"
+                              disabled={editingSaving && isEditing}
+                            >
+                              <EditIcon className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleGenerarMensaje(item.id)}
+                              className={actionButtonClass}
+                              title={item.estadoGeneradoIA ? "Regenerar mensaje IA" : "Generar mensaje IA"}
+                              aria-label={item.estadoGeneradoIA ? "Regenerar mensaje IA" : "Generar mensaje IA"}
+                              disabled={isMensajeLoading || editingId === item.id}
+                            >
+                              {isMensajeLoading ? (
+                                <span className="h-3 w-3 animate-spin rounded-full border border-[var(--sg-lime)] border-t-transparent" />
                               ) : (
-                                <p className="font-semibold leading-5 text-[var(--sg-text-primary)]">{title}</p>
+                                <RefreshIcon className="h-4 w-4" />
                               )}
-                              {item.tecnicoNombre && !isEditing && (
+                            </button>
+                            {item.estadoGeneradoIA && (
+                              <button
+                                type="button"
+                                onClick={() => toggleMensajeVisible(item.id)}
+                                className="inline-flex items-center gap-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 py-1 text-[12px] font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)]"
+                                title={mensajeVisible[item.id] ? "Ocultar mensaje" : "Ver mensaje"}
+                                aria-label={mensajeVisible[item.id] ? "Ocultar mensaje" : "Ver mensaje"}
+                              >
+                                <EyeIcon className="h-3.5 w-3.5" off={mensajeVisible[item.id]} />
+                                {mensajeVisible[item.id] ? "Ocultar" : "Ver"}
+                              </button>
+                            )}
+                            {item.estadoGeneradoIA && (
+                              <button
+                                type="button"
+                                onClick={() => handleWhatsappSend(item.id, item.estadoGeneradoIA)}
+                                className={actionButtonClass}
+                                title="Enviar por WhatsApp"
+                                aria-label="Enviar por WhatsApp"
+                              >
+                                <WhatsappIcon className="h-4 w-4 text-[var(--sg-lime)]" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDeleteConfirmId((prev) => (prev === item.id ? null : item.id))
+                              }
+                              className={actionButtonClass}
+                              title="Eliminar estado"
+                              aria-label="Eliminar estado"
+                              disabled={deletingId === item.id}
+                            >
+                              {deletingId === item.id ? (
+                                <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
+                              ) : (
+                                <TrashIcon className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="min-w-0 max-w-none space-y-3 pt-3">
+                          {isEditing ? (
+                            <div className="space-y-1">
+                              <textarea
+                                ref={editInlineRef}
+                                value={editingValue}
+                                onChange={(e) => setEditingValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSaveEdicion();
+                                  }
+                                  if (e.key === "Escape") {
+                                    e.preventDefault();
+                                    resetEditing();
+                                  }
+                                }}
+                                onBlur={handleBlurEdicion}
+                                rows={3}
+                                className="w-full resize-none rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-sm leading-relaxed text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
+                                placeholder="Ajusta el estado"
+                                disabled={editingSaving}
+                              />
+                              <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--sg-text-muted)]">
+                                <span>Enter guarda · Esc cancela</span>
+                                {editingSaving && <span className="text-[var(--sg-lime)]">Guardando...</span>}
+                                {editingError && <span className="text-red-400">{editingError}</span>}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <p className="w-full min-w-0 whitespace-pre-wrap text-base font-semibold leading-relaxed text-[var(--sg-text-primary)]">
+                                {title}
+                              </p>
+                              {item.tecnicoNombre && (
                                 <div className="text-xs leading-4 text-[var(--sg-text-muted)]">
                                   {item.tecnicoNombre}
                                 </div>
                               )}
-                              {showNota && !isEditing && (
-                                <div className="text-sm leading-5 text-[var(--sg-text-secondary)]">
+                              {showNota && (
+                                <div className="w-full max-w-none whitespace-pre-wrap text-sm leading-relaxed text-[var(--sg-text-secondary)]">
                                   {notaLimpia}
                                 </div>
                               )}
                             </div>
-                            <div className="flex shrink-0 items-center gap-2 pt-1 text-[12px] text-[var(--sg-text-muted)]">
-                              <button
-                                type="button"
-                                onClick={() => handleStartEdit(item)}
-                                className={actionButtonClass}
-                                title="Editar estado"
-                                aria-label="Editar estado"
-                                disabled={editingSaving && isEditing}
-                              >
-                                <EditIcon className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleGenerarMensaje(item.id)}
-                                className={actionButtonClass}
-                                title={item.estadoGeneradoIA ? "Regenerar mensaje IA" : "Generar mensaje IA"}
-                                aria-label={item.estadoGeneradoIA ? "Regenerar mensaje IA" : "Generar mensaje IA"}
-                                disabled={isMensajeLoading || editingId === item.id}
-                              >
-                                {isMensajeLoading ? (
-                                  <span className="h-3 w-3 animate-spin rounded-full border border-[var(--sg-lime)] border-t-transparent" />
-                                ) : (
-                                  <RefreshIcon className="h-4 w-4" />
-                                )}
-                              </button>
-                              {item.estadoGeneradoIA && (
-                                <button
-                                  type="button"
-                                  onClick={() => toggleMensajeVisible(item.id)}
-                                  className="inline-flex items-center gap-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-1 text-[12px] font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)]"
-                                  title={mensajeVisible[item.id] ? "Ocultar mensaje" : "Ver mensaje"}
-                                  aria-label={mensajeVisible[item.id] ? "Ocultar mensaje" : "Ver mensaje"}
-                                >
-                                  <EyeIcon className="h-3.5 w-3.5" off={mensajeVisible[item.id]} />
-                                  {mensajeVisible[item.id] ? "Ocultar" : "Ver"}
-                                </button>
-                              )}
-                              {item.estadoGeneradoIA && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleWhatsappSend(item.id, item.estadoGeneradoIA)}
-                                  className={actionButtonClass}
-                                  title="Enviar por WhatsApp"
-                                  aria-label="Enviar por WhatsApp"
-                                >
-                                  <WhatsappIcon className="h-4 w-4 text-[var(--sg-lime)]" />
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setDeleteConfirmId((prev) => (prev === item.id ? null : item.id))
-                                }
-                                className={actionButtonClass}
-                                title="Eliminar estado"
-                                aria-label="Eliminar estado"
-                                disabled={deletingId === item.id}
-                              >
-                                {deletingId === item.id ? (
-                                  <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
-                                ) : (
-                                  <TrashIcon className="h-4 w-4" />
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-3 border-t border-[var(--sg-divider)] pt-2 text-[12px] text-[var(--sg-text-muted)]">
+                          )}
+
+                          <div className="flex flex-wrap items-center gap-3 border-t border-[var(--sg-divider)] pt-3 text-[12px] text-[var(--sg-text-muted)]">
                             {isMensajeLoading && <span className="text-[var(--sg-lime)]">Generando mensaje...</span>}
                             {mensajeError[item.id] && (
                               <span className="text-red-400">{mensajeError[item.id]}</span>
@@ -2259,17 +2253,17 @@ export default function OrdenDetallePage() {
                               <span className="text-red-400">{whatsappError[item.id]}</span>
                             )}
                             {!item.estadoGeneradoIA && !isMensajeLoading && (
-                              <span>AÃºn sin mensaje IA</span>
+                              <span>Aún sin mensaje IA</span>
                             )}
                           </div>
                           {item.estadoGeneradoIA && mensajeVisible[item.id] && (
-                            <div className="mt-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm leading-6 text-[var(--sg-text-secondary)]">
+                            <div className="mt-2 w-full max-w-none whitespace-pre-wrap rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 text-sm leading-relaxed text-[var(--sg-text-secondary)]">
                               {item.estadoGeneradoIA}
                             </div>
                           )}
                           {deleteConfirmId === item.id && (
                             <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
-                              <span className="text-[var(--sg-text-muted)]">Â¿Eliminar este estado del historial?</span>
+                              <span className="text-[var(--sg-text-muted)]">¿Eliminar este estado del historial?</span>
                               <button
                                 type="button"
                                 onClick={() => setDeleteConfirmId(null)}
@@ -2308,14 +2302,10 @@ export default function OrdenDetallePage() {
                   + Agregar estado
                 </button>
               ) : (
-                <div className="mt-2 grid grid-cols-[150px_48px_minmax(0,1fr)] items-start gap-5 text-sm text-[var(--sg-text-primary)]">
-                  <div className="whitespace-nowrap pr-4 text-right text-xs leading-5 text-[var(--sg-text-muted)]">
-                    Ahora
-                  </div>
-                  <div className="relative flex justify-center">
-                    <span className="relative flex h-3.5 w-3.5 items-center justify-center">
-                      <span className="absolute inline-flex h-3.5 w-3.5 rounded-full bg-[var(--sg-lime)]" />
-                      <span className="absolute inline-flex h-3.5 w-3.5 rounded-full border border-[var(--sg-lime)] opacity-40" />
+                <div className="mt-3 rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-4 text-sm text-[var(--sg-text-primary)]">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--sg-divider)] pb-3">
+                    <span className="inline-flex w-fit whitespace-nowrap rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-1.5 text-xs leading-5 text-[var(--sg-text-muted)]">
+                      Ahora
                     </span>
                   </div>
                   <div className="space-y-1">
@@ -2339,15 +2329,15 @@ export default function OrdenDetallePage() {
                         if (avanceTexto.trim()) handleSaveInline();
                       }}
                       rows={2}
-                      className="w-full resize-none rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                      placeholder="Escribe una actualizaciÃ³n rÃ¡pida"
+                      className="w-full resize-none rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-sm leading-relaxed text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
+                      placeholder="Escribe una actualización rápida"
                       disabled={saving}
                     />
                     {nuevoEstadoError && (
                       <p className="text-xs text-red-400">{nuevoEstadoError}</p>
                     )}
                     <div className="flex items-center gap-3 text-[11px] text-[var(--sg-text-muted)]">
-                      <span>Enter para guardar Â· Esc para cancelar</span>
+                      <span>Enter para guardar · Esc para cancelar</span>
                       {saving && <span className="text-[var(--sg-lime)]">Guardando...</span>}
                     </div>
                   </div>

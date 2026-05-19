@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import { ClienteFormModal, type ClienteCreado } from "@/components/clientes/ClienteFormModal";
 import { CATEGORIAS_COTIZACION, type CotizacionClienteSnapshot } from "@/types/cotizaciones";
 
 type ClienteBusqueda = {
@@ -40,6 +41,7 @@ export function NuevaCotizacionClient() {
   const [observacionInterna, setObservacionInterna] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openNuevoClienteModal, setOpenNuevoClienteModal] = useState(false);
 
   useEffect(() => {
     const clean = query.trim();
@@ -70,7 +72,13 @@ export function NuevaCotizacionClient() {
     };
   }, [cliente, query]);
 
-  function selectCliente(item: ClienteBusqueda) {
+  function selectClienteSnapshot(item: {
+    id: string;
+    nombre: string;
+    telefono?: string;
+    correo?: string;
+    cedula?: string;
+  }) {
     setCliente({
       recordId: item.id,
       nombre: item.nombre,
@@ -80,6 +88,21 @@ export function NuevaCotizacionClient() {
     });
     setQuery(item.nombre);
     setClientes([]);
+    setError(null);
+  }
+
+  function selectCliente(item: ClienteBusqueda) {
+    selectClienteSnapshot(item);
+  }
+
+  function handleClienteCreado(item: ClienteCreado) {
+    selectClienteSnapshot(item);
+    setOpenNuevoClienteModal(false);
+  }
+
+  function handleClienteDuplicado(item: ClienteCreado) {
+    selectClienteSnapshot(item);
+    setOpenNuevoClienteModal(false);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -125,26 +148,36 @@ export function NuevaCotizacionClient() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <section className="space-y-5 rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/25">
-        {error ? (
-          <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-            {error}
-          </p>
-        ) : null}
+    <>
+      <form onSubmit={handleSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <section className="space-y-5 rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/25">
+          {error ? (
+            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+              {error}
+            </p>
+          ) : null}
 
-        <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">Cliente</span>
-          <input
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setCliente(null);
-            }}
-            placeholder="Buscar cliente por nombre, cédula o teléfono"
-            className="mt-2 h-12 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime"
-          />
-        </label>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">Cliente</span>
+            <input
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setCliente(null);
+              }}
+              placeholder="Buscar cliente por nombre, cédula o teléfono"
+              className="mt-2 h-12 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => setOpenNuevoClienteModal(true)}
+            className="inline-flex h-12 items-center justify-center whitespace-nowrap rounded-xl border border-geek-lime bg-geek-lime px-4 text-sm font-extrabold text-black shadow-glow transition hover:brightness-95"
+          >
+            + Nuevo cliente
+          </button>
+        </div>
 
         {buscando ? <p className="text-sm text-zinc-400">Buscando clientes...</p> : null}
         {clientes.length > 0 ? (
@@ -264,6 +297,14 @@ export function NuevaCotizacionClient() {
           <p className="mt-4 text-sm text-zinc-400">Busca y selecciona un cliente registrado.</p>
         )}
       </aside>
-    </form>
+      </form>
+      {openNuevoClienteModal ? (
+        <ClienteFormModal
+          onClose={() => setOpenNuevoClienteModal(false)}
+          onCreated={handleClienteCreado}
+          onDuplicate={handleClienteDuplicado}
+        />
+      ) : null}
+    </>
   );
 }

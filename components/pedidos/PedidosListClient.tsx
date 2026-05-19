@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { PedidoItem } from "@/types/pedidos";
+import { DataGridLinkCell, dataGridBadgeClass, dataGridCellClass, formatDataGridCode } from "@/components/DataGrid";
 
 type Props = {
   initialItems: PedidoItem[];
@@ -56,40 +56,93 @@ export function PedidosListClient({ initialItems }: Props) {
         </div>
         <div className="mt-5 overflow-hidden rounded-xl border border-white/10">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-white/10 text-sm">
+            <table className="w-full min-w-[1580px] table-fixed divide-y divide-white/10 text-sm">
+              <colgroup>
+                <col className="w-[105px]" />
+                <col className="w-[200px]" />
+                <col className="w-[320px]" />
+                <col className="w-[120px]" />
+                <col className="w-[130px]" />
+                <col className="w-[170px]" />
+                <col className="w-[200px]" />
+                <col className="w-[170px]" />
+                <col className="w-[170px]" />
+              </colgroup>
               <thead className="bg-white/[0.035] text-left text-xs uppercase tracking-normal text-zinc-400">
                 <tr>
-                  <th className="px-4 py-3">Código</th>
-                  <th className="px-4 py-3">Cliente</th>
-                  <th className="px-4 py-3">Item</th>
-                  <th className="px-4 py-3">Categoría</th>
-                  <th className="px-4 py-3 text-right">Precio Venta</th>
-                  <th className="px-4 py-3">Estado Pedido</th>
-                  <th className="px-4 py-3">Estado Instalación</th>
-                  <th className="px-4 py-3">USA Tracking</th>
-                  <th className="px-4 py-3">EC Tracking</th>
+                  <th className={`${dataGridCellClass} text-left`}>Código</th>
+                  <th className={`${dataGridCellClass} text-left`}>Cliente</th>
+                  <th className={`${dataGridCellClass} text-left`}>Item</th>
+                  <th className={`${dataGridCellClass} text-left`}>Categoría</th>
+                  <th className={`${dataGridCellClass} text-right`}>Precio Venta</th>
+                  <th className={`${dataGridCellClass} text-left`}>Estado Pedido</th>
+                  <th className={`${dataGridCellClass} text-left`}>Estado Instalación</th>
+                  <th className={`${dataGridCellClass} text-left`}>USA Tracking</th>
+                  <th className={`${dataGridCellClass} text-left`}>EC Tracking</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
-                {filtered.map((item) => (
-                  <tr key={item.id} className="transition hover:bg-white/[0.035]">
-                    <td className="px-4 py-3 font-semibold text-geek-lime">
-                      <Link href={`/pedidos/${item.id}`}>{item.codigo}</Link>
-                    </td>
-                    <td className="p-0" colSpan={8}>
-                      <Link href={`/pedidos/${item.id}`} className="grid grid-cols-[minmax(150px,1.1fr)_minmax(180px,1.4fr)_110px_120px_150px_160px_140px_140px] items-center">
-                        <span className="px-4 py-3 text-white">{item.clienteNombreSnapshot}</span>
-                        <span className="px-4 py-3 text-zinc-200">{item.item}</span>
-                        <span className="px-4 py-3 text-zinc-300">{item.categoria || "-"}</span>
-                        <span className="px-4 py-3 text-right text-zinc-200">{money(item.precioVenta)}</span>
-                        <span className="px-4 py-3 text-zinc-300">{item.estadosPedido || "-"}</span>
-                        <span className="px-4 py-3 text-zinc-300">{item.estadoInstalacion || "-"}</span>
-                        <span className="px-4 py-3 text-zinc-300">{item.usaTracking || "-"}</span>
-                        <span className="px-4 py-3 text-zinc-300">{item.ecTracking || "-"}</span>
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((item) => {
+                  const href = `/pedidos/${item.id}`;
+                  const precioVenta = money(item.precioVenta);
+                  const estadoPedido = item.estadosPedido || "-";
+                  const estadoInstalacion = item.estadoInstalacion || "-";
+                  const usaTracking = item.usaTracking || "-";
+                  const ecTracking = item.ecTracking || "-";
+                  const codigoCorto = formatDataGridCode(item.codigo);
+
+                  return (
+                    <tr key={item.id} className="h-[52px] transition hover:bg-white/[0.035]">
+                      <td className="font-semibold text-geek-lime">
+                        <DataGridLinkCell href={href} title={item.codigo} className="text-geek-lime">
+                          {codigoCorto}
+                        </DataGridLinkCell>
+                      </td>
+                      <td>
+                        <DataGridLinkCell href={href} title={item.clienteNombreSnapshot} className="text-white">
+                          {item.clienteNombreSnapshot || "-"}
+                        </DataGridLinkCell>
+                      </td>
+                      <td>
+                        <DataGridLinkCell href={href} title={item.item} className="text-zinc-200">
+                          {item.item || "-"}
+                        </DataGridLinkCell>
+                      </td>
+                      <td>
+                        <DataGridLinkCell href={href} title={item.categoria} className="text-zinc-300">
+                          {item.categoria || "-"}
+                        </DataGridLinkCell>
+                      </td>
+                      <td>
+                        <DataGridLinkCell href={href} title={precioVenta} className="text-right text-zinc-200">
+                          {precioVenta}
+                        </DataGridLinkCell>
+                      </td>
+                      <td>
+                        <DataGridLinkCell href={href} title={estadoPedido} className="text-geek-lime">
+                          <span className={`${dataGridBadgeClass} border-geek-lime/25 bg-geek-lime/10 text-geek-lime`}>
+                            <span className="min-w-0 truncate">{estadoPedido}</span>
+                          </span>
+                        </DataGridLinkCell>
+                      </td>
+                      <td>
+                        <DataGridLinkCell href={href} title={estadoInstalacion} className="text-zinc-300">
+                          {estadoInstalacion}
+                        </DataGridLinkCell>
+                      </td>
+                      <td>
+                        <DataGridLinkCell href={href} title={usaTracking} className="text-zinc-300">
+                          {usaTracking}
+                        </DataGridLinkCell>
+                      </td>
+                      <td>
+                        <DataGridLinkCell href={href} title={ecTracking} className="text-zinc-300">
+                          {ecTracking}
+                        </DataGridLinkCell>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-4 py-10 text-center text-zinc-400">

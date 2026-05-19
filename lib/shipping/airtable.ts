@@ -1,12 +1,19 @@
 import "server-only";
 
+import { SHIPPING_PACKING_STATUSES } from "@/types/shipping";
 import type {
   ShippingAttachmentInput,
+  ShippingCreatePackingResult,
   ShippingDashboardPendingWork,
   ShippingDashboardSummary,
   ShippingItem,
+  ShippingNewPackingInput,
   ShippingNewItemInput,
   ShippingPacking,
+  ShippingPackingAvailableItem,
+  ShippingPackingDetail,
+  ShippingPackingItem,
+  ShippingPackingLogisticsInput,
   ShippingPaymentRegistrationInput,
   ShippingPaymentRegistrationResult,
   ShippingPaymentPreparationPreview,
@@ -15,6 +22,7 @@ import type {
   ShippingPendingPaymentItem,
   ShippingPago,
   ShippingProveedor,
+  ShippingQuickPackingInput,
 } from "@/types/shipping";
 
 type AirtableRecord = {
@@ -369,6 +377,7 @@ function mapItem(record: AirtableRecord): ShippingItem {
     qty: firstNumber(f["Qty"]),
     peso: firstNumber(f["Peso (Kilos)"]),
     estadoPago: firstString(f["Estado Pago"]) || firstString(f["Estado de Pago"]),
+    estadoEmpaque: firstString(f["Estado Empaque"]),
     pago: firstString(pagoField),
     pagoCount: hasLinkedValue(pagoField) ? Math.max(1, linkedCount(pagoField)) : 0,
     packing: firstString(packingField),
@@ -442,12 +451,15 @@ function mapPago(record: AirtableRecord): ShippingPago {
 
 function mapPacking(record: AirtableRecord): ShippingPacking {
   const f = record.fields;
+  const itemIds = linkedRecordIds(f["Items"]);
   return {
     id: record.id,
     pack: firstString(f["Pack"], record.id),
     tipo: firstString(f["Tipo"]),
     estado: firstString(f["Estado"]),
-    items: firstString(f["Items"]),
+    items: itemIds.length === 1 ? "1 item" : itemIds.length > 1 ? `${itemIds.length} items` : "-",
+    itemIds,
+    itemCount: itemIds.length,
     costoTotalItems: firstNumber(f["Costo Total Items"]),
     peso: firstNumber(f["Peso (Kilos)"]),
     usaTracking: firstString(f["USA Tracking"]),
@@ -458,6 +470,24 @@ function mapPacking(record: AirtableRecord): ShippingPacking {
     arancel: firstNumber(f["Arancel"]),
     qtyRegalos: firstNumber(f["Qty Regalos"]),
     qtyEncargos: firstNumber(f["Qty Encargos"]),
+  };
+}
+
+function mapPackingItem(record: AirtableRecord): ShippingPackingItem {
+  const item = mapItem(record);
+  return {
+    id: item.id,
+    codigo: item.codigo,
+    item: item.item,
+    proveedor: item.proveedor,
+    costoProveedor: item.costoProveedor,
+    peso: item.peso,
+    regalo: item.regalo,
+    encargo: item.encargo,
+    usaTracking: item.usaTracking,
+    estadoPago: item.estadoPago,
+    estadoEmpaque: item.estadoEmpaque,
+    packingIds: linkedRecordIds(record.fields.Packing),
   };
 }
 
@@ -526,6 +556,298 @@ export async function obtenerShippingPackingsRecientes(limit = 50) {
     sortDirection: "desc",
   });
   return records.map(mapPacking);
+}
+
+function recordIdFilter(recordIds: string[]) {
+  if (recordIds.length === 1) return `RECORD_ID() = '${escapeAirtableFormulaString(recordIds[0])}'`;
+  return `OR(${recordIds.map((id) => `RECORD_ID() = '${escapeAirtableFormulaString(id)}'`).join(", ")})`;
+}
+
+async function obtenerShippingItemsPorIds(recordIds: string[]) {
+  if (recordIds.length === 0) return [];
+
+  const records = await listRecords(SHIPPING_TABLES.item, {
+    maxRecords: recordIds.length,
+    filterByFormula: recordIdFilter(recordIds),
+    fields: [
+      "Código",
+      "Item",
+      "Nombre Proveedor",
+      "Proveedor",
+      "Costo Proveedor",
+      "Peso (Kilos)",
+      "Regalo",
+      "Encargo",
+      "USA Tracking",
+      "EC Tracking",
+      "Carrier",
+      "Pago",
+      "Estado Pago",
+      "Packing",
+      "Estado Empaque",
+      "Fecha Ofertado",
+    ],
+  });
+
+  return records.map(mapPackingItem);
+}
+
+export async function obtenerShippingPackingPorId(recordId: string) {
+  const record = await airtableRequest<AirtableRecord>(`${tableUrl(SHIPPING_TABLES.packing)}/${encodeURIComponent(recordId)}`);
+  return mapPacking(record);
+}
+
+export async function obtenerEstadosPackingExistentes(limit = 500) {
+  const records = await listRecords(SHIPPING_TABLES.packing, {
+    maxRecords: limit,
+    fields: ["Estado"],
+  });
+
+  return Array.from(new Set(records.map((record) => firstString(record.fields.Estado)).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es"));
+}
+
+export async function obtenerShippingPackingDetalle(recordId: string): Promise<ShippingPackingDetail> {
+  const [packing, availableItems, existingStatuses] = await Promise.all([
+    obtenerShippingPackingPorId(recordId),
+    obtenerItemsDisponiblesParaPacking(500),
+    obtenerEstadosPackingExistentes(500),
+  ]);
+  const items = await obtenerShippingItemsPorIds(packing.itemIds);
+  const missingStatuses = SHIPPING_PACKING_STATUSES.filter((status) => !existingStatuses.includes(status));
+
+  return {
+    packing,
+    items,
+    availableItems,
+    existingStatuses,
+    missingStatuses,
+  };
+}
+
+function isItemAvailableForPacking(item: ShippingItem) {
+  return item.pagoCount > 0 && isPaidStatus(item.estadoPago) && item.packingCount === 0 && !isPackingReceived(item.estadoEmpaque);
+}
+
+export async function obtenerItemsDisponiblesParaPacking(limit = 500): Promise<ShippingPackingAvailableItem[]> {
+  const records = await listRecords(SHIPPING_TABLES.item, {
+    maxRecords: limit,
+    sortField: "Fecha Ofertado",
+    sortDirection: "desc",
+    fields: [
+      "Código",
+      "Item",
+      "Nombre Proveedor",
+      "Proveedor",
+      "Costo Proveedor",
+      "Peso (Kilos)",
+      "Regalo",
+      "Encargo",
+      "USA Tracking",
+      "EC Tracking",
+      "Carrier",
+      "Pago",
+      "Estado Pago",
+      "Packing",
+      "Estado Empaque",
+      "Fecha Ofertado",
+    ],
+  });
+
+  return records.map(mapItem).filter(isItemAvailableForPacking).map((item) => ({
+    id: item.id,
+    codigo: item.codigo,
+    item: item.item,
+    proveedor: item.proveedor,
+    costoProveedor: item.costoProveedor,
+    peso: item.peso,
+    regalo: item.regalo,
+    encargo: item.encargo,
+    usaTracking: item.usaTracking,
+    estadoPago: item.estadoPago,
+    estadoEmpaque: item.estadoEmpaque,
+  }));
+}
+
+async function patchEditablePackingFields(packingRecordId: string, fields: Record<string, unknown>) {
+  const writtenFields: string[] = [];
+  const warnings: string[] = [];
+
+  for (const [fieldName, value] of Object.entries(fields)) {
+    if (value === "" || value === null || value === undefined) continue;
+
+    try {
+      await patchRecordBatch(SHIPPING_TABLES.packing, packingRecordId, { [fieldName]: value });
+      writtenFields.push(fieldName);
+    } catch (error) {
+      warnings.push(`No se pudo escribir ${fieldName}: ${error instanceof Error ? error.message : "campo no editable"}.`);
+    }
+  }
+
+  return { writtenFields, warnings };
+}
+
+export async function crearShippingPacking(input: ShippingNewPackingInput): Promise<ShippingCreatePackingResult> {
+  const created = await airtableRequest<AirtableRecord>(tableUrl(SHIPPING_TABLES.packing), {
+    method: "POST",
+    body: JSON.stringify({
+      fields: {
+        Items: input.itemIds,
+      },
+      typecast: true,
+    }),
+  });
+
+  const editableFields: Record<string, unknown> = {
+    Tipo: input.tipo,
+    Estado: input.estado || "En preparación",
+    "Peso (Kilos)": input.peso,
+    "USA Tracking": input.usaTracking,
+    "EC Tracking": input.ecTracking,
+    "Fecha Envío": input.fechaEnvio,
+    "Arribo Estimado": input.arriboEstimado,
+    "Flete EC": input.fleteEc,
+    Arancel: input.arancel,
+  };
+
+  const patchResult = await patchEditablePackingFields(created.id, editableFields);
+  const warnings = [...patchResult.warnings];
+
+  if (input.carrier) warnings.push("Carrier no se guardó porque la tabla Packing no tiene un campo editable Carrier.");
+  if (input.observacion) warnings.push("Observación no se guardó porque la tabla Packing no tiene un campo editable de nota interna.");
+
+  return {
+    packing: mapPacking(await airtableRequest<AirtableRecord>(`${tableUrl(SHIPPING_TABLES.packing)}/${encodeURIComponent(created.id)}`)),
+    warning: warnings.length ? warnings.join(" ") : null,
+    writtenFields: ["Items", ...patchResult.writtenFields],
+  };
+}
+
+export async function crearShippingPackingRapido(input: ShippingQuickPackingInput = {}): Promise<ShippingCreatePackingResult> {
+  let created: AirtableRecord;
+
+  try {
+    created = await airtableRequest<AirtableRecord>(tableUrl(SHIPPING_TABLES.packing), {
+      method: "POST",
+      body: JSON.stringify({
+        fields: {
+          Tipo: input.tipo || "Caja",
+          Estado: input.estado || "En Proceso",
+        },
+        typecast: true,
+      }),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("Estado") && message.includes("INVALID_MULTIPLE_CHOICE_OPTIONS")) {
+      throw new Error('No se pudo crear el packing porque falta agregar la opción "En Proceso" al campo Estado de la tabla Packing.');
+    }
+    throw error;
+  }
+
+  const refreshed = await airtableRequest<AirtableRecord>(`${tableUrl(SHIPPING_TABLES.packing)}/${encodeURIComponent(created.id)}`);
+
+  return {
+    packing: mapPacking(refreshed),
+    warning: null,
+    writtenFields: ["Tipo", "Estado"],
+  };
+}
+
+export function isPackingInProcessStatus(status: string) {
+  return normalizeText(status) === "en proceso";
+}
+
+export function isPackingClosedStatus(status: string) {
+  return normalizeText(status) === "cerrado";
+}
+
+export function isPackingInTransitStatus(status: string) {
+  return normalizeText(status) === "en transito";
+}
+
+export function isPackingReceivedStatus(status: string) {
+  return normalizeText(status) === "recibido";
+}
+
+export function canEditPackingItems(status: string) {
+  return isPackingInProcessStatus(status);
+}
+
+export async function agregarItemsAShippingPacking(packingId: string, itemIds: string[]) {
+  const packing = await obtenerShippingPackingPorId(packingId);
+  if (!canEditPackingItems(packing.estado)) {
+    throw new Error("No se pueden modificar ítems porque el packing ya no está en proceso.");
+  }
+
+  const availableItems = await obtenerItemsDisponiblesParaPacking(500);
+  const availableIds = new Set(availableItems.map((item) => item.id));
+  const invalidIds = itemIds.filter((itemId) => !availableIds.has(itemId));
+  if (invalidIds.length > 0) {
+    throw new Error("Selecciona solo ítems pagados y sin packing.");
+  }
+
+  const nextItemIds = Array.from(new Set([...packing.itemIds, ...itemIds]));
+  await patchRecordBatch(SHIPPING_TABLES.packing, packingId, { Items: nextItemIds });
+  return obtenerShippingPackingDetalle(packingId);
+}
+
+export async function quitarItemDeShippingPacking(packingId: string, itemId: string) {
+  const packing = await obtenerShippingPackingPorId(packingId);
+  if (!canEditPackingItems(packing.estado)) {
+    throw new Error("No se pueden modificar ítems porque el packing ya no está en proceso.");
+  }
+
+  const nextItemIds = packing.itemIds.filter((currentItemId) => currentItemId !== itemId);
+  await patchRecordBatch(SHIPPING_TABLES.packing, packingId, { Items: nextItemIds });
+  return obtenerShippingPackingDetalle(packingId);
+}
+
+export async function cerrarShippingPacking(packingId: string) {
+  const packing = await obtenerShippingPackingPorId(packingId);
+  if (!isPackingInProcessStatus(packing.estado)) {
+    throw new Error("Solo se puede cerrar un packing en proceso.");
+  }
+  if (packing.itemIds.length === 0) {
+    throw new Error("Agrega al menos un item antes de cerrar el packing.");
+  }
+
+  await patchRecordBatch(SHIPPING_TABLES.packing, packingId, { Estado: "Cerrado" });
+  return obtenerShippingPackingDetalle(packingId);
+}
+
+export async function actualizarLogisticaShippingPacking(packingId: string, input: ShippingPackingLogisticsInput) {
+  const packing = await obtenerShippingPackingPorId(packingId);
+  if (!isPackingClosedStatus(packing.estado) && !isPackingInTransitStatus(packing.estado)) {
+    throw new Error("Los datos logísticos se editan cuando el packing está Cerrado o En Tránsito.");
+  }
+
+  const result = await patchEditablePackingFields(packingId, {
+    "Peso (Kilos)": input.peso,
+    "USA Tracking": input.usaTracking,
+    "EC Tracking": input.ecTracking,
+    "Fecha Envío": input.fechaEnvio,
+    "Arribo Estimado": input.arriboEstimado,
+    "Flete EC": input.fleteEc,
+    Arancel: input.arancel,
+  });
+
+  return {
+    detail: await obtenerShippingPackingDetalle(packingId),
+    warning: result.warnings.length ? result.warnings.join(" ") : null,
+  };
+}
+
+export async function marcarShippingPackingEnTransito(packingId: string) {
+  const packing = await obtenerShippingPackingPorId(packingId);
+  if (!isPackingClosedStatus(packing.estado)) {
+    throw new Error("Solo se puede marcar En Tránsito un packing cerrado.");
+  }
+  if (packing.peso === null || !packing.usaTracking) {
+    throw new Error("Registra peso y USA Tracking antes de marcar En Tránsito.");
+  }
+
+  await patchRecordBatch(SHIPPING_TABLES.packing, packingId, { Estado: "En Tránsito" });
+  return obtenerShippingPackingDetalle(packingId);
 }
 
 export async function obtenerShippingProveedores(limit = 100) {
