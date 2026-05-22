@@ -92,10 +92,10 @@ export const staffApps: StaffApp[] = [
     id: "shipping",
     name: "Shipping",
     permissionName: "Shipping",
-    route: "/shipping",
+    route: "/shipping-v2",
     status: "Disponible",
     icon: "shipping",
-    description: "Gestión de compras, pagos, packings, envíos e importaciones.",
+    description: "Control de inventario, pagos, packings, recepción y novedades.",
     requiredRoles: ["admin", "manager", "staff"]
   },
   {
@@ -117,7 +117,8 @@ export const routePermissions: Record<string, AppPermissionName> = {
   "/finanzas": "Finanzas",
   "/horarios": "Horarios",
   "/facturacion": "Facturación",
-  "/shipping": "Shipping"
+  "/shipping": "Shipping",
+  "/shipping-v2": "Shipping"
 };
 
 type PermissionSubject = StaffSession | SessionUser | null | undefined;
@@ -179,10 +180,6 @@ export function getRoutePermission(pathname: string) {
 
   if (pathname === "/api/horarios" || pathname.startsWith("/api/horarios/")) {
     return routePermissions["/horarios"];
-  }
-
-  if (pathname === "/api/shipping" || pathname.startsWith("/api/shipping/")) {
-    return routePermissions["/shipping"];
   }
 
   const matchingRoute = Object.keys(routePermissions).find(

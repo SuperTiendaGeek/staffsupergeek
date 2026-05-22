@@ -20,12 +20,12 @@ const privateRoutes = [
   "/tecnicos",
   "/api/tecnicos",
   "/api/horarios",
-  "/api/shipping",
   "/admin",
   "/api/admin",
   "/horarios",
   "/facturacion",
-  "/shipping"
+  "/shipping",
+  "/shipping-v2"
 ];
 
 function isPrivateRoute(pathname: string) {
@@ -129,12 +129,10 @@ export const config = {
     "/api/admin",
     "/api/cotizaciones",
     "/api/pedidos",
-    "/api/shipping",
     "/api/tecnicos/:path*",
     "/api/cotizaciones/:path*",
     "/api/pedidos/:path*",
     "/api/horarios/:path*",
-    "/api/shipping/:path*",
     "/api/admin/:path*",
     "/admin/:path*",
     "/acceso-denegado/:path*",
@@ -144,6 +142,7 @@ export const config = {
     "/tecnicos/:path*",
     "/horarios/:path*",
     "/facturacion/:path*",
-    "/shipping/:path*"
+    "/shipping",
+    "/shipping-v2/:path*"
   ]
 };
