@@ -25,7 +25,8 @@ const privateRoutes = [
   "/horarios",
   "/facturacion",
   "/shipping",
-  "/shipping-v2"
+  "/shipping-v2",
+  "/api/shipping-v2"
 ];
 
 function isPrivateRoute(pathname: string) {
@@ -134,6 +135,7 @@ export const config = {
     "/api/pedidos/:path*",
     "/api/horarios/:path*",
     "/api/admin/:path*",
+    "/api/shipping-v2/:path*",
     "/admin/:path*",
     "/acceso-denegado/:path*",
     "/finanzas/:path*",

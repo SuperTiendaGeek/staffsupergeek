@@ -1,0 +1,1900 @@
+{
+  "generatedAt": "2026-05-23T14:54:24.316Z",
+  "baseId": "appLkmz7I6vqJ2UXc",
+  "tables": {
+    "Shipping Proveedores": {
+      "id": "tblHy141rHAHyXt5W",
+      "fields": {
+        "Proveedor ID": {
+          "id": "fldFnHW9E3Fy1rYME",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Nombre proveedor": {
+          "id": "fld8jwxNW1u7duMED",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Estado proveedor": {
+          "id": "fldIdwWbWlPZaHpIz",
+          "type": "singleSelect",
+          "options": [
+            "Activo",
+            "Inactivo",
+            "En revisión"
+          ]
+        },
+        "Tipo de proveedor": {
+          "id": "fldH1sbCWC1p9ilEe",
+          "type": "singleSelect",
+          "options": [
+            "USA",
+            "Local",
+            "Marketplace",
+            "Interno",
+            "Logístico",
+            "Otro"
+          ]
+        },
+        "Requiere pago antes de envío": {
+          "id": "fldTnkcsnKJmCVNyy",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Plazo sugerido de pago en días": {
+          "id": "fldN7CQKY5eQcurmN",
+          "type": "number",
+          "kind": "number"
+        },
+        "Puede armar packings": {
+          "id": "fldk8UE7nBwbPxtXd",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Puede recibir encargos de terceros": {
+          "id": "fldfit2M9ICXDoRAO",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Permite triangulación": {
+          "id": "fldugDOf32xCpp2Ik",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Permite acceso portal proveedor": {
+          "id": "fldLGccG3ojv2wRjc",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Puede responder novedades o garantías": {
+          "id": "fld4S3FemVXIDcCjP",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Método de pago preferido": {
+          "id": "fldAC7lgqJuo92T8K",
+          "type": "singleSelect",
+          "options": [
+            "Transferencia bancaria",
+            "PayPal",
+            "Efectivo",
+            "Tarjeta",
+            "Depósito",
+            "Otro",
+            "No aplica"
+          ]
+        },
+        "Cuenta o destino de pago preferido": {
+          "id": "fldOEqY1mANAfblnp",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Regla de distribución de costos preferida": {
+          "id": "fldB7vqSGsoyyaqKe",
+          "type": "singleSelect",
+          "options": [
+            "Por costo del item",
+            "Por peso",
+            "Por cantidad",
+            "Manual",
+            "No definida"
+          ]
+        },
+        "Email de contacto": {
+          "id": "fld25dTKho41FgmXt",
+          "type": "email",
+          "kind": "email"
+        },
+        "Teléfono / WhatsApp": {
+          "id": "fldiKVWEH9f2vlQA9",
+          "type": "phoneNumber",
+          "kind": "phoneNumber"
+        },
+        "Notificar recepción por email": {
+          "id": "fldyXQym6PGj4HWnd",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Notificar novedades por email": {
+          "id": "fldrAoX3DbKqLhG52",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Permisos especiales": {
+          "id": "fldJxxVRsX0h0zL2f",
+          "type": "multipleSelects",
+          "options": [
+            "Puede incluir regalos",
+            "Puede editar tracking",
+            "Puede registrar peso",
+            "Puede marcar enviado",
+            "Puede proponer solución de garantía",
+            "Puede ver solo sus packings",
+            "Puede ver solo sus novedades",
+            "Requiere revisión administrativa"
+          ]
+        },
+        "Observaciones": {
+          "id": "fldtq2Tlsw7HH5GZ0",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Registrado por": {
+          "id": "fld3koKLXaghISGQa",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha de creación": {
+          "id": "fldg4etX5dSHHl6Oi",
+          "type": "dateTime"
+        },
+        "Última actualización": {
+          "id": "fldxFYDhuRXe4xSCy",
+          "type": "dateTime"
+        },
+        "Legacy Proveedor ID": {
+          "id": "fldaGT0p9178soR02",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fuente de migración": {
+          "id": "fldMrPPnPESYrjMuZ",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Shipping Items (Proveedor de compra)": {
+          "id": "fldjhEXQTQbnmaovy",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Shipping Items (Proveedor logístico / intermediario)": {
+          "id": "fldMwMphflH49XFpQ",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Shipping Pagos": {
+          "id": "fldzv4dJjXWzMRkZK",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl7dSFGRM3tzB4yB",
+          "linkedTableName": "Shipping Pagos"
+        },
+        "Shipping Finanzas Movimientos": {
+          "id": "fldZqja4TmWs8Nnla",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbla8HwlJLOX86fQJ",
+          "linkedTableName": "Shipping Finanzas Movimientos"
+        },
+        "Shipping Packings (Proveedor responsable)": {
+          "id": "fldL4hjlWc7N4tUld",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl5xN2KtZywxsCFS",
+          "linkedTableName": "Shipping Packings"
+        },
+        "Shipping Packings (Proveedor logístico / intermediario)": {
+          "id": "fldNOWsVLnIm4DBAr",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl5xN2KtZywxsCFS",
+          "linkedTableName": "Shipping Packings"
+        },
+        "Shipping Recepciones": {
+          "id": "fldvFAerpzL970tOz",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbltlDvs9vK5CbxtX",
+          "linkedTableName": "Shipping Recepciones"
+        },
+        "Shipping Novedades": {
+          "id": "fldbJfzym9cn6lQ1X",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblEMSkWkShYyrfkT",
+          "linkedTableName": "Shipping Novedades"
+        },
+        "Shipping Migraciones": {
+          "id": "fldN5f9IOcMP9F7fv",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS7OiyJaLUZhlDM",
+          "linkedTableName": "Shipping Migraciones"
+        },
+        "Shipping Eventos": {
+          "id": "fldM8xzrL7LYOOwnI",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS0nSrZnRNHS3xI",
+          "linkedTableName": "Shipping Eventos"
+        }
+      }
+    },
+    "Shipping Items": {
+      "id": "tbliTKAI8dAWwr1nh",
+      "fields": {
+        "Nombre del item": {
+          "id": "fldIvyL3XnoMMT3i2",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Item ID": {
+          "id": "fldCe4yFR032xDZ8V",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Descripción": {
+          "id": "fldBatGqWuoi0vYci",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Tipo de operación": {
+          "id": "fldGfGydXE6VKHqVx",
+          "type": "singleSelect",
+          "options": [
+            "Compra a proveedor",
+            "Compra ya pagada",
+            "Regalo de proveedor",
+            "Encargo enviado a proveedor",
+            "Reajuste de inventario",
+            "Uso local",
+            "Repuesto",
+            "Parte / componente",
+            "Despiece de equipo",
+            "Migración histórica",
+            "Corrección administrativa"
+          ]
+        },
+        "Tipo de item": {
+          "id": "fldacM42c4IJFKDUp",
+          "type": "singleSelect",
+          "options": [
+            "Equipo completo",
+            "Laptop",
+            "Desktop",
+            "Consola",
+            "Monitor",
+            "Componente",
+            "Parte",
+            "Repuesto",
+            "Accesorio",
+            "Uso local",
+            "Otro",
+            "Tablet"
+          ]
+        },
+        "Categoría": {
+          "id": "fldubEixMVermsKXV",
+          "type": "singleSelect",
+          "options": [
+            "Laptop",
+            "Desktop",
+            "All in One",
+            "Monitor",
+            "Consola",
+            "RAM",
+            "SSD",
+            "HDD",
+            "Pantalla",
+            "Teclado",
+            "Batería",
+            "Cargador",
+            "Mainboard",
+            "Tarjeta gráfica",
+            "Fuente de poder",
+            "Cable",
+            "Accesorio",
+            "Repuesto",
+            "Otro"
+          ]
+        },
+        "Estado Item": {
+          "id": "fldXg4Y5h2rvytukZ",
+          "type": "singleSelect",
+          "options": [
+            "Registrado",
+            "Pendiente de pago",
+            "Pagado",
+            "Pendiente de packing",
+            "En packing",
+            "En tránsito",
+            "Recibido",
+            "En revisión",
+            "Disponible",
+            "Reservado",
+            "Vendido",
+            "Uso local",
+            "Repuesto",
+            "Usado en reparación",
+            "Con novedad",
+            "En garantía con proveedor",
+            "Destinado a partes",
+            "Desarmado parcialmente",
+            "Desarmado completamente",
+            "Migrado",
+            "Cancelado",
+            "Archivado"
+          ]
+        },
+        "Estado de revisión": {
+          "id": "fldkCgxdeKxQkd2j8",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "Pendiente de recepción",
+            "Recibido pendiente de revisión",
+            "Recibido correctamente",
+            "Faltante",
+            "Dañado",
+            "Incompleto",
+            "Diferente al comprado",
+            "En garantía con proveedor",
+            "Aceptado con observación"
+          ]
+        },
+        "Estado de triangulación": {
+          "id": "fldDQSRQNZQqOgZXP",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "Pendiente de envío a intermediario",
+            "En camino a intermediario",
+            "Recibido por intermediario",
+            "Asignado a packing de intermediario",
+            "En tránsito desde intermediario",
+            "Recibido en destino",
+            "Con novedad",
+            "Cancelado"
+          ]
+        },
+        "Estado de despiece": {
+          "id": "fld7SvJlf4RSVg7V2",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "Evaluando despiece",
+            "Destinado a partes",
+            "Despiece en proceso",
+            "Despiece parcial",
+            "Despiece completo",
+            "Cancelado"
+          ]
+        },
+        "Proveedor de compra": {
+          "id": "fldvCzej6uvRQJ8aW",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Proveedor logístico / intermediario": {
+          "id": "fldKmTB85XjOtomyf",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Requiere pago": {
+          "id": "fldPpfNkrE4LazxxC",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Pago relacionado": {
+          "id": "fldXjUM6Nc89PoLzA",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblU6Nz8eAaAlq5Ll",
+          "linkedTableName": "Pago"
+        },
+        "Requiere packing": {
+          "id": "fldNrY0s3QJ1wAwiu",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Packing relacionado": {
+          "id": "fldWzTgaOEB452A0o",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl7VuutaZVLqMvxa",
+          "linkedTableName": "Packing"
+        },
+        "Afecta inventario": {
+          "id": "fldVF8A93oH3XIbVA",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Disponible para venta": {
+          "id": "fldNGTOQehHIzoNRX",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Reservado": {
+          "id": "fldA2lj41RedOapxK",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Costo proveedor": {
+          "id": "fldBQ0VU7fDgGOvOG",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Costo asignado por despiece": {
+          "id": "fldwPNnNYkCv26BBa",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Costo logístico asignado": {
+          "id": "fldG2oEMK1H3vnHvz",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Costo total estimado": {
+          "id": "fldCUDLY0UkGfs3yM",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Precio venta sugerido": {
+          "id": "fldTMSgsl5Fm6QWqP",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Precio venta final": {
+          "id": "fldST0lr5q3eKIc1o",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Cantidad": {
+          "id": "fldeH94NlFqWUZWwe",
+          "type": "number",
+          "kind": "number"
+        },
+        "Unidad": {
+          "id": "flddUjgeHzAIUM98M",
+          "type": "singleSelect",
+          "options": [
+            "Unidad",
+            "Lote",
+            "Pieza",
+            "Kit",
+            "Otro"
+          ]
+        },
+        "SKU interno": {
+          "id": "fldPNgbFlkA6XH4b4",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "SKU proveedor": {
+          "id": "fldbnb12bLcRmnvwS",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Número de serie": {
+          "id": "fld6qmqPu3eAiNX33",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Modelo": {
+          "id": "fldYZ1a5y6jWUSCDX",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Marca": {
+          "id": "fldneqCDKua8kgpS9",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Condición": {
+          "id": "fldMdOapWbaEstIu1",
+          "type": "singleSelect",
+          "options": [
+            "Usado",
+            "Open Box",
+            "Nuevo",
+            "Para partes",
+            "Dañado",
+            "No probado",
+            "Reacondicionado",
+            "Otro"
+          ]
+        },
+        "Ubicación actual": {
+          "id": "fld230iyav9Kq2uKi",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Origen físico actual": {
+          "id": "fldm97KNLCYRQCVbt",
+          "type": "singleSelect",
+          "options": [
+            "En proveedor",
+            "En intermediario",
+            "En tránsito",
+            "En Doral/Miami",
+            "En Ecuador",
+            "En tienda",
+            "En área técnica",
+            "En bodega",
+            "Desconocido"
+          ]
+        },
+        "Tracking hacia intermediario": {
+          "id": "fldW6hfdYDvXCUiFj",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Tracking desde intermediario": {
+          "id": "fldqSnXTuVlMCnwD7",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Tracking directo": {
+          "id": "fldTOBEiMlw6ooYh0",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Item padre": {
+          "id": "fldNsZnyq5V5cOCx1",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Items hijos": {
+          "id": "fldBEn772eSe1fstO",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Motivo de despiece": {
+          "id": "fldVgyVgot3Z9G04w",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Fecha de despiece": {
+          "id": "fldRYqc9eIy0zXD28",
+          "type": "dateTime"
+        },
+        "Responsable de despiece": {
+          "id": "fldQNnMT5N7XxcDnI",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Es regalo": {
+          "id": "fldLHBXTTEOnCHgbw",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Es parte recuperada": {
+          "id": "fldTl4B3K3jF2mHOt",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Es repuesto": {
+          "id": "fldH3kvLocLuatiF5",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Es uso local": {
+          "id": "fldKgNWYar9wMjXCv",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Fotos": {
+          "id": "fldIfhSPM29upwdKY",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Evidencias": {
+          "id": "fldnqMaoLOlYtw6m3",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Observaciones internas": {
+          "id": "fld0BmD07FtX7mgXw",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Observación para venta": {
+          "id": "fld93fPFFW9aoekqn",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Fecha de registro": {
+          "id": "fldlomf0MjFXCcaVM",
+          "type": "dateTime"
+        },
+        "Registrado por": {
+          "id": "fldsePlFZ8jjRdx4C",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Última actualización": {
+          "id": "fldrSUM9RjQCHQoth",
+          "type": "dateTime"
+        },
+        "Actualizado por": {
+          "id": "fld0QqHgc0BL5SsTP",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Legacy Item ID": {
+          "id": "fld0ry6phyCuKiCtN",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Legacy Pago ID": {
+          "id": "flduwqwPVD3UOSX9b",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Legacy Packing ID": {
+          "id": "fldhB5uPbToaYAHwI",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fuente de migración": {
+          "id": "fldQXOgJgFyZUN1y8",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Estado de migración": {
+          "id": "fldsaKHXzGDdTsObl",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "No migrado",
+            "Pendiente de revisión",
+            "Listo para migrar",
+            "Migrado",
+            "Migrado con observaciones",
+            "Error de migración",
+            "Omitido"
+          ]
+        },
+        "Shipping Pagos (Items relacionados)": {
+          "id": "fldb0ZZAxRSTx1Af8",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl7dSFGRM3tzB4yB",
+          "linkedTableName": "Shipping Pagos"
+        },
+        "Shipping Pagos (Regalos incluidos)": {
+          "id": "fldze0tIj6IL19rqg",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl7dSFGRM3tzB4yB",
+          "linkedTableName": "Shipping Pagos"
+        },
+        "Shipping Packings": {
+          "id": "fldIj9gTOtpTD7Xc3",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl5xN2KtZywxsCFS",
+          "linkedTableName": "Shipping Packings"
+        },
+        "Shipping Recepciones": {
+          "id": "fldSMRiYkW7ey9MVS",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbltlDvs9vK5CbxtX",
+          "linkedTableName": "Shipping Recepciones"
+        },
+        "Shipping Novedades": {
+          "id": "fldqChWrJSyhSwNoD",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblEMSkWkShYyrfkT",
+          "linkedTableName": "Shipping Novedades"
+        },
+        "Shipping Migraciones": {
+          "id": "fld8DbH8oGIOPmwXC",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS7OiyJaLUZhlDM",
+          "linkedTableName": "Shipping Migraciones"
+        },
+        "Shipping Eventos": {
+          "id": "fld6a0wcWWooYAezr",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS0nSrZnRNHS3xI",
+          "linkedTableName": "Shipping Eventos"
+        },
+        "Método de asignación SKU": {
+          "id": "fld9PX4EBCWW271y6",
+          "type": "singleSelect",
+          "options": [
+            "Usado desde proveedor",
+            "Generado automáticamente",
+            "Generado por duplicado",
+            "Asignado manualmente",
+            "Migrado",
+            "No migrado",
+            "Listo para migrar"
+          ]
+        },
+        "SKU proveedor fue usado como interno": {
+          "id": "fld4EyGA61GnDaMmF",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "SKU duplicado detectado": {
+          "id": "fldsB3DNvEbclZANw",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "SKU original sugerido": {
+          "id": "fldUQ1e2BWQx6K1ad",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        }
+      }
+    },
+    "Shipping Pagos": {
+      "id": "tbl7dSFGRM3tzB4yB",
+      "fields": {
+        "Pago ID": {
+          "id": "fldRjfvagilCQVZkN",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Estado Pago": {
+          "id": "fldo5GVDhjKAiQlb5",
+          "type": "singleSelect",
+          "options": [
+            "Borrador",
+            "Pendiente",
+            "Parcial",
+            "Pagado",
+            "En revisión",
+            "Anulado"
+          ]
+        },
+        "Proveedor": {
+          "id": "fldDl9PETCgbCotQV",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Items relacionados": {
+          "id": "fldKKHKcvbflbcyvt",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Total a pagar": {
+          "id": "fldlnZCugNX1tI1jk",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Total pagado": {
+          "id": "fld3wlWXGLNUidyPs",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Saldo pendiente": {
+          "id": "fldqvbD8WqPpj2PrY",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Regalos incluidos": {
+          "id": "fldzi4HnUOjnjLoDu",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Fecha de creación": {
+          "id": "fldlCACnUBDqoPwUu",
+          "type": "dateTime"
+        },
+        "Fecha de vencimiento sugerida": {
+          "id": "fld13kwhGZMBpTdpK",
+          "type": "date",
+          "kind": "date"
+        },
+        "Fecha real de pago": {
+          "id": "fld9WHK3A96XL5ZCp",
+          "type": "dateTime"
+        },
+        "Método de pago": {
+          "id": "fldRujqPU0m6A1juZ",
+          "type": "singleSelect",
+          "options": [
+            "Transferencia bancaria",
+            "PayPal",
+            "Efectivo",
+            "Tarjeta",
+            "Depósito",
+            "Otro",
+            "No aplica"
+          ]
+        },
+        "Cuenta origen": {
+          "id": "fld2e7ac68ExsKSP6",
+          "type": "singleSelect",
+          "options": [
+            "Banco Pichincha",
+            "Caja",
+            "PayPal",
+            "Tarjeta",
+            "Otra",
+            "No aplica"
+          ]
+        },
+        "Transacción ID": {
+          "id": "fldE0dkt9MfJCkpMW",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Comprobante": {
+          "id": "fldMsFw8C6FaJPucx",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Factura proveedor": {
+          "id": "fld1VY77SSPHsh5z5",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Observación": {
+          "id": "fldEkokPiRgtkZBnq",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Registrado por": {
+          "id": "fld9j5I9juLlJqcxv",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Pagado por": {
+          "id": "fldZzyD4zVkhLRMU8",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha de anulación": {
+          "id": "fldIk1jwIsMPwTlN6",
+          "type": "dateTime"
+        },
+        "Motivo de anulación": {
+          "id": "fldgxUJeRMYimvFZS",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Estado de integración con Finanzas": {
+          "id": "fldW2obrIZXwbzF41",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "Pendiente de generar",
+            "Pendiente de sincronizar",
+            "Sincronizado",
+            "Error",
+            "Anulado"
+          ]
+        },
+        "Legacy Pago ID": {
+          "id": "fldj2SPpaDzSHA0Uh",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fuente de migración": {
+          "id": "fld92jU04GzRHTTMa",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Estado de migración": {
+          "id": "fldSQpKUu5mNOsp8m",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "No migrado",
+            "Pendiente de revisión",
+            "Listo para migrar",
+            "Migrado",
+            "Migrado con observaciones",
+            "Error de migración",
+            "Omitido"
+          ]
+        },
+        "Shipping Finanzas Movimientos": {
+          "id": "fldoB84U31cinIBYv",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbla8HwlJLOX86fQJ",
+          "linkedTableName": "Shipping Finanzas Movimientos"
+        },
+        "Shipping Migraciones": {
+          "id": "fld0hiiApePHUrA0V",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS7OiyJaLUZhlDM",
+          "linkedTableName": "Shipping Migraciones"
+        },
+        "Shipping Eventos": {
+          "id": "fldNhwy3EZVRbACLy",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS0nSrZnRNHS3xI",
+          "linkedTableName": "Shipping Eventos"
+        }
+      }
+    },
+    "Shipping Finanzas Movimientos": {
+      "id": "tbla8HwlJLOX86fQJ",
+      "fields": {
+        "Movimiento Shipping ID": {
+          "id": "fld4B7edZicNA7fvD",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Origen": {
+          "id": "fldplAJWk47g02RDD",
+          "type": "singleSelect",
+          "options": [
+            "Shipping"
+          ]
+        },
+        "Tipo de movimiento": {
+          "id": "fldM0IEkliSUl4eKD",
+          "type": "singleSelect",
+          "options": [
+            "Egreso",
+            "Ingreso",
+            "Ajuste",
+            "No aplica"
+          ]
+        },
+        "Estado de integración": {
+          "id": "fld1XcQSwHVtQqJGF",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "Pendiente de generar",
+            "Pendiente de sincronizar",
+            "Sincronizado",
+            "Error",
+            "Anulado"
+          ]
+        },
+        "Pago Shipping relacionado": {
+          "id": "fldXC4QTW0wLTk02l",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl7dSFGRM3tzB4yB",
+          "linkedTableName": "Shipping Pagos"
+        },
+        "Proveedor": {
+          "id": "fldoZdKVp8Aa7rQ6X",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Monto": {
+          "id": "fldvvLnI9cKgwAzfg",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Fecha del movimiento": {
+          "id": "fld1J3W3XFbimL8dT",
+          "type": "dateTime"
+        },
+        "Método": {
+          "id": "fldF9kjnXHpSkQA03",
+          "type": "singleSelect",
+          "options": [
+            "Transferencia bancaria",
+            "PayPal",
+            "Efectivo",
+            "Tarjeta",
+            "Depósito",
+            "Otro",
+            "No aplica"
+          ]
+        },
+        "Cuenta origen": {
+          "id": "fldDgapZBDc1ZilkF",
+          "type": "singleSelect",
+          "options": [
+            "Banco Pichincha",
+            "Caja",
+            "PayPal",
+            "Tarjeta",
+            "Otra",
+            "No aplica"
+          ]
+        },
+        "Transacción ID": {
+          "id": "fldiByvm2jMLJ2M5z",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Comprobante": {
+          "id": "fld5m6M3YoYEi8I0I",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Movimiento Finanzas ID futuro": {
+          "id": "fldLOWZvgBAsJSotR",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Error de sincronización": {
+          "id": "fldJP8rvgMZCjns4W",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Fecha de sincronización": {
+          "id": "fldmqRsjmVi0Jm5Qd",
+          "type": "dateTime"
+        },
+        "Observación": {
+          "id": "fldIezxRVzrukXjzu",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Registrado por": {
+          "id": "fldok4TbRZuiyrsCG",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha de creación": {
+          "id": "fldN2ZfALwJmnhAmS",
+          "type": "dateTime"
+        },
+        "Fecha de anulación": {
+          "id": "fldkWH6moQ3xXCe6b",
+          "type": "dateTime"
+        },
+        "Motivo de anulación": {
+          "id": "fldZps7qyZb6xQVl4",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Shipping Eventos": {
+          "id": "fld1BL7gETk3zshTC",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS0nSrZnRNHS3xI",
+          "linkedTableName": "Shipping Eventos"
+        }
+      }
+    },
+    "Shipping Packings": {
+      "id": "tbl5xN2KtZywxsCFS",
+      "fields": {
+        "Packing ID": {
+          "id": "fldi3rGEJdRYTcVBQ",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Nombre Packing": {
+          "id": "fldSsSU9gq5TkT3kW",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Tipo de packing": {
+          "id": "fldCRXX1lx8sTOfDF",
+          "type": "singleSelect",
+          "options": [
+            "Caja",
+            "Paquete",
+            "Sobre",
+            "Pallet",
+            "Lote físico",
+            "Otro"
+          ]
+        },
+        "Estado Packing": {
+          "id": "fldhtzwJOCAuSLs1J",
+          "type": "singleSelect",
+          "options": [
+            "En Proceso",
+            "Cerrado",
+            "En tránsito",
+            "Recibido",
+            "En revisión",
+            "Con novedad",
+            "Cancelado",
+            "Cerrado final"
+          ]
+        },
+        "Proveedor responsable": {
+          "id": "fldqapC4hsflCczmx",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Proveedor logístico / intermediario": {
+          "id": "fldsHlP5EEJhdaHfS",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Items incluidos": {
+          "id": "fldegaoiJphT3ycKh",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Tracking principal": {
+          "id": "fldQj7EdKRHwbhSMa",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Empresa transportista": {
+          "id": "fldUXCrT3BZvDOPRX",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Peso": {
+          "id": "fldJXbQ7FpvmcXdX9",
+          "type": "number",
+          "kind": "number"
+        },
+        "Unidad de peso": {
+          "id": "fldAakmc0Sc8bLNLa",
+          "type": "singleSelect",
+          "options": [
+            "lb",
+            "kg",
+            "oz",
+            "g"
+          ]
+        },
+        "Flete": {
+          "id": "fldctLFG0UvXju7HE",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Arancel": {
+          "id": "fldTWVF3DhmdqFCTY",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Otros costos": {
+          "id": "flddmxwb9Wz84u4bB",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Regla de distribución de costos": {
+          "id": "fldmenXNRgzfCKjdd",
+          "type": "singleSelect",
+          "options": [
+            "Por costo del item",
+            "Por peso",
+            "Por cantidad",
+            "Manual",
+            "No definida"
+          ]
+        },
+        "Observación de costos": {
+          "id": "flde0xE4ptvBf4lsI",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Fecha de creación": {
+          "id": "fldWoSnrp04JFwJDo",
+          "type": "dateTime"
+        },
+        "Fecha de cierre": {
+          "id": "fldB2PEdYhHyWszD8",
+          "type": "dateTime"
+        },
+        "Fecha de envío": {
+          "id": "fldBMvIBxuE5hm8Nj",
+          "type": "dateTime"
+        },
+        "Fecha de recepción": {
+          "id": "fldAKwglbDrhCemov",
+          "type": "dateTime"
+        },
+        "Recibido por": {
+          "id": "fldyrv5jhoaD8jbz0",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Cerrado por": {
+          "id": "fldf7pmQ1CoIpkBUH",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Enviado por": {
+          "id": "fldCQ54aZrqlXvvWx",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Creado por": {
+          "id": "fldRgEwIoP6KY0LwH",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Evidencias": {
+          "id": "fld9ZmI9m6ZQze367",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Comprobante flete / arancel": {
+          "id": "fld4DbCoeskh8Qavo",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Observaciones": {
+          "id": "fldBLYrxlwqnPVX59",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Motivo de cancelación": {
+          "id": "fld42Tzsfut7l3eJ1",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Fecha de cancelación": {
+          "id": "fldeciKyuUbXIVsZo",
+          "type": "dateTime"
+        },
+        "Legacy Packing ID": {
+          "id": "fld8dzRNxw0jPjA6J",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fuente de migración": {
+          "id": "fldd1oAWvNQtyGrVI",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Estado de migración": {
+          "id": "flduzTZgt3GysZBB9",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "No migrado",
+            "Pendiente de revisión",
+            "Listo para migrar",
+            "Migrado",
+            "Migrado con observaciones",
+            "Error de migración",
+            "Omitido"
+          ]
+        },
+        "Shipping Recepciones": {
+          "id": "fldu26Qir7YvyMLkv",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbltlDvs9vK5CbxtX",
+          "linkedTableName": "Shipping Recepciones"
+        },
+        "Shipping Novedades": {
+          "id": "fld5f3AuRIHwGFX0Z",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblEMSkWkShYyrfkT",
+          "linkedTableName": "Shipping Novedades"
+        },
+        "Shipping Migraciones": {
+          "id": "fldSuAPnTVy1yQOjb",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS7OiyJaLUZhlDM",
+          "linkedTableName": "Shipping Migraciones"
+        },
+        "Shipping Eventos": {
+          "id": "fldXD79wJFWTTFGHd",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS0nSrZnRNHS3xI",
+          "linkedTableName": "Shipping Eventos"
+        }
+      }
+    },
+    "Shipping Recepciones": {
+      "id": "tbltlDvs9vK5CbxtX",
+      "fields": {
+        "Recepción ID": {
+          "id": "fldQhTcbwfixPzxzQ",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Estado Recepción": {
+          "id": "fldyJTi50rqoTM9P2",
+          "type": "singleSelect",
+          "options": [
+            "Pendiente de recepción",
+            "Recibido pendiente de revisión",
+            "Recibido correctamente",
+            "Faltante",
+            "Dañado",
+            "Incompleto",
+            "Diferente al comprado",
+            "En garantía con proveedor",
+            "Aceptado con observación"
+          ]
+        },
+        "Packing relacionado": {
+          "id": "fldzilHp4XBhMKjGG",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl5xN2KtZywxsCFS",
+          "linkedTableName": "Shipping Packings"
+        },
+        "Item revisado": {
+          "id": "fld404HYCLLqYoak9",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Proveedor responsable": {
+          "id": "fldk4E5yrHhohvJtq",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Fecha de recepción": {
+          "id": "fldD4pxAGQZxTywFq",
+          "type": "dateTime"
+        },
+        "Fecha de revisión": {
+          "id": "fldUczAvw05hexF6y",
+          "type": "dateTime"
+        },
+        "Recibido por": {
+          "id": "fld9crgpLekvssFDT",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Revisado por": {
+          "id": "fldfu98yDQ7hXxWQz",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Resultado de revisión": {
+          "id": "fldI5EG6dxRRTxkN5",
+          "type": "singleSelect",
+          "options": [
+            "Correcto",
+            "Faltante",
+            "Dañado",
+            "Incompleto",
+            "Diferente al comprado",
+            "Garantía",
+            "Aceptado con observación",
+            "Pendiente"
+          ]
+        },
+        "Decisión final": {
+          "id": "fldLIGfZ7KVoo49le",
+          "type": "singleSelect",
+          "options": [
+            "Pasar a disponible",
+            "Pasar a repuesto",
+            "Pasar a uso local",
+            "Crear novedad",
+            "Enviar a garantía",
+            "Destinar a partes",
+            "Archivar",
+            "Pendiente"
+          ]
+        },
+        "Observación de recepción": {
+          "id": "fldYeXKXBH2kk2L0X",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Observación de revisión": {
+          "id": "fldgH8WCtRwnXzW12",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Evidencias": {
+          "id": "fldeu0LDoSneEChmN",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Fotos recepción": {
+          "id": "fldspiIlgv3E01W6m",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Fecha de creación": {
+          "id": "fldCtMYmiparN4qI9",
+          "type": "dateTime"
+        },
+        "Registrado por": {
+          "id": "fldvFdHotl0fxOHkp",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Última actualización": {
+          "id": "fldWpRBBgnPGUQJvC",
+          "type": "dateTime"
+        },
+        "Actualizado por": {
+          "id": "fld7cgWQV3IZrlxpq",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Novedad relaciondad": {
+          "id": "flduO9I6aNFr49RUo",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblEMSkWkShYyrfkT",
+          "linkedTableName": "Shipping Novedades"
+        },
+        "Shipping Eventos": {
+          "id": "fldZ7Y6S3MoOn5Vm4",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS0nSrZnRNHS3xI",
+          "linkedTableName": "Shipping Eventos"
+        }
+      }
+    },
+    "Shipping Novedades": {
+      "id": "tblEMSkWkShYyrfkT",
+      "fields": {
+        "Novedad ID": {
+          "id": "fldtKFXPveBmEEdf2",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Tipo de novedad": {
+          "id": "fldYQlzlzD8B7RTpe",
+          "type": "singleSelect",
+          "options": [
+            "Faltante",
+            "Dañado",
+            "Incompleto",
+            "Diferente al comprado",
+            "Garantía",
+            "Reclamo",
+            "Error de registro",
+            "Otro"
+          ]
+        },
+        "Estado Novedad": {
+          "id": "fldBppyxyw19HbWSx",
+          "type": "singleSelect",
+          "options": [
+            "Abierta",
+            "En revisión interna",
+            "Enviada a proveedor",
+            "Esperando respuesta",
+            "Respondida por proveedor",
+            "En solución",
+            "Cerrada",
+            "Rechazada",
+            "Escalada",
+            "Cerrada sin respuesta"
+          ]
+        },
+        "Item relacionado": {
+          "id": "fldGuBd56X3tdeiLD",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Packing relacionado": {
+          "id": "fldNqXeLvUKfAJYlG",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl5xN2KtZywxsCFS",
+          "linkedTableName": "Shipping Packings"
+        },
+        "Recepción relacionada": {
+          "id": "fldCSAhDFK5hJaOTE",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbltlDvs9vK5CbxtX",
+          "linkedTableName": "Shipping Recepciones"
+        },
+        "Proveedor responsable": {
+          "id": "fldHj59cgjIcGtEbG",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Descripción": {
+          "id": "fldPd56f2bloWdkMO",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Evidencias": {
+          "id": "fldO01nmlTu4NkfoI",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Fecha de registro": {
+          "id": "fldTHf1qQr8lco7XD",
+          "type": "dateTime"
+        },
+        "Registrado por": {
+          "id": "flde9SP4HKodhYRDJ",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha enviada a proveedor": {
+          "id": "fldKrPW0H2VlPiIJs",
+          "type": "dateTime"
+        },
+        "Mensaje enviado al proveedor": {
+          "id": "fldcsqQm0XATmd4yN",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Respuesta del proveedor": {
+          "id": "fld0fL8VljwC1axMR",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Fecha de respuesta del proveedor": {
+          "id": "fldQINe2mke3cMvm2",
+          "type": "dateTime"
+        },
+        "Solución": {
+          "id": "fldfOKuc40Cxyj50t",
+          "type": "singleSelect",
+          "options": [
+            "Reembolso",
+            "Reemplazo",
+            "Crédito",
+            "Aceptado sin garantía",
+            "Aceptado con observación",
+            "Descuento",
+            "Pendiente",
+            "Otro"
+          ]
+        },
+        "Descripción de solución": {
+          "id": "fldhSXK0BC2wSQhiZ",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Fecha de cierre": {
+          "id": "fldaM4iXJ4BFhqRCt",
+          "type": "dateTime"
+        },
+        "Cerrado por": {
+          "id": "fld384fPfsNmjuFJk",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Observación final": {
+          "id": "fld4NddxOFy7leAap",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Monto reclamado": {
+          "id": "fldjXZ9kOgIYOM08d",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Monto recuperado": {
+          "id": "fldWXomPglS01mefn",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Comprobante de solución": {
+          "id": "fldecdrP8Q1ABEubj",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Prioridad": {
+          "id": "fldFwUTZ5e44TmShO",
+          "type": "singleSelect",
+          "options": [
+            "Baja",
+            "Media",
+            "Alta",
+            "Crítica"
+          ]
+        },
+        "Última actualización": {
+          "id": "fld6FYOoZ6CM0FVZ3",
+          "type": "dateTime"
+        },
+        "Actualizado por": {
+          "id": "fldykoagu3fybpqSi",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Shipping Eventos": {
+          "id": "fldDDtqBxwoWaysU4",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS0nSrZnRNHS3xI",
+          "linkedTableName": "Shipping Eventos"
+        }
+      }
+    },
+    "Shipping Migraciones": {
+      "id": "tblS7OiyJaLUZhlDM",
+      "fields": {
+        "Migración ID": {
+          "id": "fldDQIih5pWeFWBxi",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Estado Migración": {
+          "id": "fldOaFsCvlIDxSguQ",
+          "type": "singleSelect",
+          "options": [
+            "No migrado",
+            "Pendiente de revisión",
+            "Listo para migrar",
+            "Migrado",
+            "Migrado con observaciones",
+            "Error de migración",
+            "Omitido"
+          ]
+        },
+        "Fuente de migración": {
+          "id": "fldpfbZYhbkmrVE3B",
+          "type": "singleSelect",
+          "options": [
+            "Item antiguo",
+            "Pago antiguo",
+            "Packing antiguo",
+            "Proveedor antiguo",
+            "Importación manual",
+            "CSV",
+            "Otro"
+          ]
+        },
+        "Legacy Item ID": {
+          "id": "fld6eHjYBCDHfpFq5",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Legacy Pago ID": {
+          "id": "fldJhqqB4SgSegVCu",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Legacy Packing ID": {
+          "id": "fldJQXmGBRjGuXRd5",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Legacy Proveedor ID": {
+          "id": "fldQLhqGh7qm6DKpu",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Registro Item V2 creado": {
+          "id": "fld55XZjOhyHT6ify",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Registro Pago V2 creado": {
+          "id": "fld5AvO16n3AiSZXy",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl7dSFGRM3tzB4yB",
+          "linkedTableName": "Shipping Pagos"
+        },
+        "Registro Packing V2 creado": {
+          "id": "fld6koXiCLSSdr6jX",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl5xN2KtZywxsCFS",
+          "linkedTableName": "Shipping Packings"
+        },
+        "Registro Proveedor V2 relacionado": {
+          "id": "fldu3lls5SmDrcq7E",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Datos originales": {
+          "id": "fldzoc5mxL6b5R3R8",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Datos transformados": {
+          "id": "flddMOXTGvzaB6xFl",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Observación de migración": {
+          "id": "fldc92Duwwf4TZzBW",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Error de migración": {
+          "id": "fldywj3G8F70kDE7E",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Acción recomendada": {
+          "id": "flda1Mlwqx1ofEU0x",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Fecha de detección": {
+          "id": "fldIO9YNQRbcsEQmN",
+          "type": "dateTime"
+        },
+        "Fecha de migración": {
+          "id": "fld16YU5sM3qrwP0o",
+          "type": "dateTime"
+        },
+        "Migrado por": {
+          "id": "fldNlEBlXWESbWOrv",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Revisado por": {
+          "id": "fld6SwKPm6sFc9OW0",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha de revisión": {
+          "id": "fldE9Q3W7gy8bDXmi",
+          "type": "dateTime"
+        },
+        "Es duplicado": {
+          "id": "fldRjLrkW5gYEZQGu",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Omitido por decisión administrativa": {
+          "id": "fldd7e0oKX9omUdCg",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Motivo de omisión": {
+          "id": "fldDv7V4nDaNhQFrt",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Shipping Eventos": {
+          "id": "fldpTxkC8C0KlWPmI",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS0nSrZnRNHS3xI",
+          "linkedTableName": "Shipping Eventos"
+        }
+      }
+    },
+    "Shipping Eventos": {
+      "id": "tblS0nSrZnRNHS3xI",
+      "fields": {
+        "Evento ID": {
+          "id": "fldYFZcEhhBXAvnNs",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Tipo de entidad": {
+          "id": "fld2h57LYcIzGwVax",
+          "type": "singleSelect",
+          "options": [
+            "Shipping Item",
+            "Shipping Proveedor",
+            "Shipping Pago",
+            "Shipping Packing",
+            "Shipping Recepción",
+            "Shipping Novedad",
+            "Shipping Finanzas Movimiento",
+            "Shipping Migración",
+            "Otro"
+          ]
+        },
+        "Acción": {
+          "id": "fldbufd2pzzssOxxI",
+          "type": "singleSelect",
+          "options": [
+            "Creado",
+            "Actualizado",
+            "Cambio de estado",
+            "Anulado",
+            "Cancelado",
+            "Recibido",
+            "Revisado",
+            "Pagado",
+            "Sincronizado",
+            "Error",
+            "Despiece iniciado",
+            "Despiece actualizado",
+            "Novedad abierta",
+            "Novedad cerrada",
+            "Migrado",
+            "Corrección administrativa",
+            "Otro"
+          ]
+        },
+        "Item relacionado": {
+          "id": "fldh54GjH3V0kR82n",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Proveedor relacionado": {
+          "id": "fldkAooIqELJpHoUR",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Pago relacionado": {
+          "id": "flds29pH9pXWHxnjV",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl7dSFGRM3tzB4yB",
+          "linkedTableName": "Shipping Pagos"
+        },
+        "Packing relacionado": {
+          "id": "fld5kJCFCh91oHIm6",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl5xN2KtZywxsCFS",
+          "linkedTableName": "Shipping Packings"
+        },
+        "Recepción relacionada": {
+          "id": "fldQEYSo5rSp1bNI7",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbltlDvs9vK5CbxtX",
+          "linkedTableName": "Shipping Recepciones"
+        },
+        "Novedad relacionada": {
+          "id": "fld7WL10JEpQmltmQ",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblEMSkWkShYyrfkT",
+          "linkedTableName": "Shipping Novedades"
+        },
+        "Movimiento Finanzas relacionado": {
+          "id": "fldkadn9cc47B7ZWl",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbla8HwlJLOX86fQJ",
+          "linkedTableName": "Shipping Finanzas Movimientos"
+        },
+        "Migración relacionada": {
+          "id": "fldrBsmDPjmUF4Prc",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblS7OiyJaLUZhlDM",
+          "linkedTableName": "Shipping Migraciones"
+        },
+        "Estado anterior": {
+          "id": "fldfpFJbbnYv8TzBR",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Estado nuevo": {
+          "id": "fldZ3fbT7FYU7RL2n",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Descripción del evento": {
+          "id": "fldLftRYVXW6xBafb",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Observación": {
+          "id": "fldK38WyauSz2gfPU",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Registrado por": {
+          "id": "fldx8zZK65EppgGTw",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha del evento": {
+          "id": "fld4DaHmCvCg0qtyh",
+          "type": "dateTime"
+        },
+        "Datos relevantes": {
+          "id": "flddyCidC7WoaABZm",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Requiere revisión administrativa": {
+          "id": "fldu6Zxa5a8fUl8lx",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Revisado por": {
+          "id": "fldYouokJCnVyzick",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha de revisión": {
+          "id": "fldbYptjhymC4vhNr",
+          "type": "dateTime"
+        },
+        "Resultado de revisión": {
+          "id": "fldCf2WNWUzaPULcX",
+          "type": "singleSelect",
+          "options": [
+            "Pendiente",
+            "Aprobado",
+            "Rechazado",
+            "Corregido",
+            "No aplica"
+          ]
+        }
+      }
+    }
+  }
+}

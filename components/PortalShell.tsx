@@ -7,10 +7,12 @@ type PortalShellProps = {
   eyebrow?: string;
   title: string;
   description?: string;
+  density?: "default" | "compact";
 };
 
-export async function PortalShell({ children, eyebrow, title, description }: PortalShellProps) {
+export async function PortalShell({ children, eyebrow, title, description, density = "default" }: PortalShellProps) {
   const session = await getSessionFromCookie();
+  const isCompact = density === "compact";
 
   return (
     <main className="min-h-screen overflow-hidden px-4 py-5 sm:px-6 lg:px-8">
@@ -27,13 +29,13 @@ export async function PortalShell({ children, eyebrow, title, description }: Por
         <UserMenu user={session?.user} />
       </header>
 
-      <section className="mx-auto flex min-h-[calc(100vh-7rem)] w-full max-w-7xl flex-col items-center justify-center gap-10 py-10 sm:py-12">
-        <div className="w-full max-w-3xl text-center">
+      <section className={`mx-auto flex w-full max-w-7xl flex-col items-center ${isCompact ? "min-h-[calc(100vh-5rem)] justify-start gap-6 py-6 sm:py-7" : "min-h-[calc(100vh-7rem)] justify-center gap-10 py-10 sm:py-12"}`}>
+        <div className={`w-full ${isCompact ? "max-w-7xl text-left" : "max-w-3xl text-center"}`}>
           {eyebrow ? (
             <p className="mb-3 text-xs font-semibold uppercase tracking-normal text-geek-lime">{eyebrow}</p>
           ) : null}
-          <h1 className="text-3xl font-semibold tracking-normal text-white sm:text-4xl lg:text-5xl">{title}</h1>
-          {description ? <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-zinc-300">{description}</p> : null}
+          <h1 className={`${isCompact ? "text-3xl" : "text-3xl sm:text-4xl lg:text-5xl"} font-semibold tracking-normal text-white`}>{title}</h1>
+          {description ? <p className={`${isCompact ? "mt-2 max-w-3xl" : "mx-auto mt-4 max-w-2xl"} text-base leading-7 text-zinc-300`}>{description}</p> : null}
         </div>
 
         {children}

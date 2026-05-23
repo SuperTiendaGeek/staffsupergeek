@@ -178,6 +178,10 @@ export function getRoutePermission(pathname: string) {
     return routePermissions["/pedidos"];
   }
 
+  if (pathname === "/api/shipping-v2" || pathname.startsWith("/api/shipping-v2/")) {
+    return routePermissions["/shipping-v2"];
+  }
+
   if (pathname === "/api/horarios" || pathname.startsWith("/api/horarios/")) {
     return routePermissions["/horarios"];
   }

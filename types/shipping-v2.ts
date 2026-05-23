@@ -1,3 +1,5 @@
+import { SHIPPING_V2_ITEM_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+
 export type ShippingV2RecordBase = {
   id: string;
   createdTime?: string;
@@ -22,19 +24,126 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   pais?: string;
 };
 
+export type ShippingV2Attachment = {
+  id?: string;
+  url: string;
+  filename?: string;
+  type?: string;
+  width?: number;
+  height?: number;
+  thumbnailUrl?: string;
+};
+
 export type ShippingV2Item = ShippingV2RecordBase & {
+  itemId?: string;
   codigo: string;
+  skuInterno: string;
+  skuProveedor?: string;
+  metodoAsignacionSku?: string;
+  skuProveedorUsadoComoInterno: boolean | null;
+  skuDuplicadoDetectado: boolean | null;
+  skuOriginalSugerido?: string;
   nombre: string;
+  descripcion?: string;
+  modelo?: string;
+  marca?: string;
+  numeroSerie?: string;
+  categoria?: string;
+  tipoOperacion: string;
+  tipoItem: string;
+  condicion?: string;
+  cantidad: number | null;
+  unidad?: string;
   estado: ShippingV2ItemEstado | string;
+  estadoRevision?: string;
+  estadoTriangulacion?: string;
+  estadoDespiece?: string;
+  afectaInventario: boolean | null;
   proveedorId?: string;
   proveedorNombre?: string;
+  proveedorLogisticoId?: string;
+  proveedorLogisticoNombre?: string;
+  requierePago: boolean | null;
   costoProveedor: number | null;
+  costoAsignadoDespiece: number | null;
+  costoLogisticoAsignado: number | null;
+  costoTotalEstimado: number | null;
+  precioVentaSugerido: number | null;
   precioVenta: number | null;
   qty: number | null;
+  disponibleVenta: boolean | null;
+  reservado: boolean | null;
+  usoLocal: boolean | null;
+  esRepuesto: boolean | null;
+  esRegalo: boolean | null;
+  conNovedad: boolean | null;
+  ubicacionActual?: string;
+  origenFisicoActual?: string;
+  fechaRegistro?: string;
+  trackingDirecto?: string;
+  trackingHaciaIntermediario?: string;
+  trackingDesdeIntermediario?: string;
   trackingUsa?: string;
   trackingEc?: string;
+  requierePacking: boolean | null;
   packingId?: string;
   pagoId?: string;
+  itemPadreId?: string;
+  itemHijoIds: string[];
+  motivoDespiece?: string;
+  fechaDespiece?: string;
+  responsableDespiece?: string;
+  esParteRecuperada: boolean | null;
+  observacionesInternas?: string;
+  observacionVenta?: string;
+  legacyItemId?: string;
+  legacyPagoId?: string;
+  legacyPackingId?: string;
+  fuenteMigracion?: string;
+  estadoMigracion?: string;
+  registradoPor?: string;
+  ultimaActualizacion?: string;
+  actualizadoPor?: string;
+  fotos: ShippingV2Attachment[];
+  evidencias: ShippingV2Attachment[];
+};
+
+export const SHIPPING_V2_ITEM_ESTADOS = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoItem;
+export const SHIPPING_V2_TIPOS_OPERACION = SHIPPING_V2_ITEM_SELECT_OPTIONS.tipoOperacion;
+export const SHIPPING_V2_TIPOS_ITEM = SHIPPING_V2_ITEM_SELECT_OPTIONS.tipoItem;
+export const SHIPPING_V2_CATEGORIAS = SHIPPING_V2_ITEM_SELECT_OPTIONS.categoria;
+export const SHIPPING_V2_CONDICIONES = SHIPPING_V2_ITEM_SELECT_OPTIONS.condicion;
+export const SHIPPING_V2_ESTADOS_REVISION = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoRevision;
+export const SHIPPING_V2_ESTADOS_TRIANGULACION = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoTriangulacion;
+export const SHIPPING_V2_ESTADOS_DESPIECE = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoDespiece;
+
+export type ShippingV2ItemWriteInput = {
+  nombre?: string;
+  descripcion?: string;
+  tipoOperacion: string;
+  tipoItem: string;
+  categoria?: string;
+  estado: string;
+  proveedorId?: string;
+  proveedorLogisticoId?: string;
+  requierePago?: boolean;
+  requierePacking?: boolean;
+  afectaInventario?: boolean;
+  disponibleVenta?: boolean;
+  skuInterno?: string;
+  skuProveedor?: string;
+  modelo?: string;
+  marca?: string;
+  numeroSerie?: string;
+  condicion?: string;
+  costoProveedor?: number | null;
+  precioVentaSugerido?: number | null;
+  ubicacionActual?: string;
+  observacionesInternas?: string;
+  observacionVenta?: string;
+  estadoRevision?: string;
+  estadoTriangulacion?: string;
+  estadoDespiece?: string;
 };
 
 export type ShippingV2Pago = ShippingV2RecordBase & {

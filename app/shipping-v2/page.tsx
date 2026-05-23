@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PortalShell } from "@/components/PortalShell";
 import { getShippingV2DashboardSummary } from "@/lib/shipping-v2/airtable";
 import type { ShippingV2DashboardSummary } from "@/types/shipping-v2";
@@ -26,7 +27,14 @@ const kpiLabels: Array<{ key: keyof ShippingV2DashboardSummary; label: string; t
   { key: "novedadesAbiertas", label: "Novedades abiertas", tone: "yellow" },
 ];
 
-const quickAccess = ["Items", "Pagos", "Packings", "Recepcion", "Novedades", "Proveedores"];
+const quickAccess = [
+  { label: "Items", href: "/shipping-v2/items", active: true },
+  { label: "Pagos", href: null, active: false },
+  { label: "Packings", href: null, active: false },
+  { label: "Recepcion", href: null, active: false },
+  { label: "Novedades", href: null, active: false },
+  { label: "Proveedores", href: null, active: false },
+];
 
 const toneStyles = {
   lime: "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]",
@@ -89,12 +97,22 @@ export default async function ShippingV2Page() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {quickAccess.map((item) => (
-              <div
-                key={item}
-                className="rounded-full border border-[#3A3A36] bg-[#1E1E1E] px-5 py-4 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F]"
-              >
-                {item}
-              </div>
+              item.href ? (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-5 py-4 text-sm font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#1B1B1B]"
+                >
+                  {item.label}
+                </Link>
+              ) : (
+                <div
+                  key={item.label}
+                  className="rounded-full border border-[#3A3A36] bg-[#1E1E1E] px-5 py-4 text-sm font-semibold text-[#F5F5F5]"
+                >
+                  {item.label}
+                </div>
+              )
             ))}
           </div>
         </section>

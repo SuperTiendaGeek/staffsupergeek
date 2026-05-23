@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "shipping-v2:schema": "node scripts/inspect-shipping-v2-schema.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
