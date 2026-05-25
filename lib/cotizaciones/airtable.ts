@@ -49,6 +49,23 @@ export const COTIZACIONES_TABLES = {
   proveedores: process.env.AIRTABLE_PROVEEDORES_TABLE?.trim() || "Proveedores",
 } as const;
 
+const ABONOS_COTIZACION_FIELDS = {
+  cotizacion: "Cotización",
+  clienteNombre: "Cliente Nombre",
+  fechaAbono: "Fecha de Abono",
+  monto: "Monto",
+  metodoPago: "Método de Pago",
+  cuentaDestino: "Cuenta Destino",
+  comprobante: "Comprobante",
+  numeroTransaccion: "Número de Transacción",
+  registradoPor: "Registrado Por",
+  estadoAbono: "Estado del Abono",
+  estadoFinanciero: "Estado Financiero",
+  observacion: "Observación",
+  itemPedidoId: "Item Pedido ID",
+  creado: "Creado",
+} as const;
+
 const OPCIONES_COTIZACION_FIELDS = {
   opcion: "Opción",
   cotizacion: "Cotización",
@@ -172,6 +189,10 @@ async function airtableTableHasField(tableName: string, fieldName: string) {
 
 async function getOpcionesCotizacionFields() {
   return getAirtableTableFields(COTIZACIONES_TABLES.opciones);
+}
+
+async function getAbonosCotizacionFields() {
+  return getAirtableTableFields(COTIZACIONES_TABLES.abonos);
 }
 
 function resolveOpcionEstadoFieldName(fields?: Set<string> | null) {
@@ -465,20 +486,20 @@ function mapAbono(record: AirtableRecord): AbonoCotizacion {
   const fields = record.fields;
   return {
     id: record.id,
-    cotizacionRecordIds: linkedIds(fields["Cotización"]),
-    itemPedidoId: firstString(fields["Item Pedido ID"]),
-    clienteNombre: firstString(fields["Cliente Nombre"]),
-    fechaAbono: firstString(fields["Fecha de Abono"], record.createdTime ?? ""),
-    monto: firstNumber(fields["Monto"]),
-    metodoPago: firstString(fields["Método de Pago"], "Otro"),
-    cuentaDestino: firstString(fields["Cuenta Destino"], ""),
-    comprobante: attachmentList(fields["Comprobante"]),
-    numeroTransaccion: firstString(fields["Número de Transacción"]),
-    registradoPor: firstString(fields["Registrado Por"]),
-    estado: firstString(fields["Estado del Abono"], "Registrado"),
-    estadoFinanciero: firstString(fields["Estado Financiero"], "Pendiente de registrar"),
-    observacion: firstString(fields["Observación"]),
-    creado: firstString(fields["Creado"], record.createdTime ?? ""),
+    cotizacionRecordIds: linkedIds(fields[ABONOS_COTIZACION_FIELDS.cotizacion]),
+    itemPedidoId: firstString(fields[ABONOS_COTIZACION_FIELDS.itemPedidoId]),
+    clienteNombre: firstString(fields[ABONOS_COTIZACION_FIELDS.clienteNombre]),
+    fechaAbono: firstString(fields[ABONOS_COTIZACION_FIELDS.fechaAbono], record.createdTime ?? ""),
+    monto: firstNumber(fields[ABONOS_COTIZACION_FIELDS.monto]),
+    metodoPago: firstString(fields[ABONOS_COTIZACION_FIELDS.metodoPago], "Otro"),
+    cuentaDestino: firstString(fields[ABONOS_COTIZACION_FIELDS.cuentaDestino], ""),
+    comprobante: attachmentList(fields[ABONOS_COTIZACION_FIELDS.comprobante]),
+    numeroTransaccion: firstString(fields[ABONOS_COTIZACION_FIELDS.numeroTransaccion]),
+    registradoPor: firstString(fields[ABONOS_COTIZACION_FIELDS.registradoPor]),
+    estado: firstString(fields[ABONOS_COTIZACION_FIELDS.estadoAbono], "Registrado"),
+    estadoFinanciero: firstString(fields[ABONOS_COTIZACION_FIELDS.estadoFinanciero], "Pendiente de registrar"),
+    observacion: firstString(fields[ABONOS_COTIZACION_FIELDS.observacion]),
+    creado: firstString(fields[ABONOS_COTIZACION_FIELDS.creado], record.createdTime ?? ""),
   };
 }
 
@@ -1162,17 +1183,22 @@ function buildLinkedCotizacionFilter(cotizacionId: string, codigoCotizacion?: st
 
 export async function fetchAbonosCotizacion(cotizacionId: string, codigoCotizacion?: string) {
   const { client, url } = airtableUrl(COTIZACIONES_TABLES.abonos);
+  const availableFields = await getAbonosCotizacionFields();
+  const hasEstadoAbono = fieldExists(availableFields, ABONOS_COTIZACION_FIELDS.estadoAbono);
   const records: AirtableRecord[] = [];
   let offset: string | null = null;
 
   do {
     const pageUrl = new URL(url);
     pageUrl.searchParams.set("pageSize", "100");
+    const linkedFilter = buildLinkedCotizacionFilter(cotizacionId, codigoCotizacion);
     pageUrl.searchParams.set(
       "filterByFormula",
-      `AND(${buildLinkedCotizacionFilter(cotizacionId, codigoCotizacion)}, {Estado del Abono} = 'Registrado')`
+      hasEstadoAbono
+        ? `AND(${linkedFilter}, {${ABONOS_COTIZACION_FIELDS.estadoAbono}} = 'Registrado')`
+        : linkedFilter
     );
-    pageUrl.searchParams.append("sort[0][field]", "Fecha de Abono");
+    pageUrl.searchParams.append("sort[0][field]", ABONOS_COTIZACION_FIELDS.fechaAbono);
     pageUrl.searchParams.append("sort[0][direction]", "desc");
     if (offset) pageUrl.searchParams.set("offset", offset);
 
@@ -1186,6 +1212,44 @@ export async function fetchAbonosCotizacion(cotizacionId: string, codigoCotizaci
   return records.map(mapAbono);
 }
 
+async function fetchAbonoCotizacionRecord(id: string): Promise<AirtableRecord | null> {
+  const { client, url } = airtableUrl(COTIZACIONES_TABLES.abonos, id);
+  const response = await fetch(url, { headers: client.headers, cache: "no-store" });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Airtable error ${response.status}: ${text}`);
+  }
+  return (await response.json()) as AirtableRecord;
+}
+
+async function recalculateCotizacionAbonos(cotizacionId: string) {
+  const cotizacion = await fetchCotizacionRecord(cotizacionId);
+  if (!cotizacion) {
+    throw new Error("Cotización no encontrada");
+  }
+
+  const codigo = firstString(cotizacion.fields["Código Cotización"], cotizacion.id);
+  const abonos = await fetchAbonosCotizacion(cotizacionId, codigo);
+  const totalAbonado = abonos
+    .filter((abono) => abono.estado !== "Anulado")
+    .reduce((sum, abono) => sum + (abono.monto ?? 0), 0);
+  const updatedCotizacion = await patchCotizacion(cotizacionId, {
+    "Total Abonado": totalAbonado,
+  });
+
+  return {
+    abonos,
+    cotizacion: {
+      ...updatedCotizacion,
+      totalAbonado,
+      saldoPendiente:
+        updatedCotizacion.saldoPendiente ??
+        ((updatedCotizacion.totalCotizado ?? 0) - totalAbonado),
+    },
+  };
+}
+
 export async function createAbonoCotizacion(input: CrearAbonoCotizacionInput) {
   const cotizacion = await fetchCotizacionRecord(input.cotizacionId);
   if (!cotizacion) {
@@ -1193,21 +1257,31 @@ export async function createAbonoCotizacion(input: CrearAbonoCotizacionInput) {
   }
 
   const { client, url } = airtableUrl(COTIZACIONES_TABLES.abonos);
+  const availableFields = await getAbonosCotizacionFields();
   const fields: Record<string, unknown> = {
-    "Cotización": [input.cotizacionId],
-    "Cliente Nombre": input.clienteNombre,
-    "Fecha de Abono": input.fechaAbono || new Date().toISOString(),
-    "Monto": input.monto,
-    "Método de Pago": input.metodoPago,
-    "Registrado Por": input.registradoPor,
-    "Estado del Abono": "Registrado",
-    "Estado Financiero": "Pendiente de registrar",
+    [ABONOS_COTIZACION_FIELDS.cotizacion]: [input.cotizacionId],
+    [ABONOS_COTIZACION_FIELDS.clienteNombre]: input.clienteNombre,
+    [ABONOS_COTIZACION_FIELDS.fechaAbono]: input.fechaAbono || new Date().toISOString(),
+    [ABONOS_COTIZACION_FIELDS.monto]: input.monto,
+    [ABONOS_COTIZACION_FIELDS.metodoPago]: input.metodoPago,
+    [ABONOS_COTIZACION_FIELDS.registradoPor]: input.registradoPor,
   };
 
-  if (input.itemPedidoId) fields["Item Pedido ID"] = input.itemPedidoId;
-  if (input.cuentaDestino) fields["Cuenta Destino"] = input.cuentaDestino;
-  if (input.numeroTransaccion) fields["Número de Transacción"] = input.numeroTransaccion;
-  if (input.observacion) fields["Observación"] = input.observacion;
+  if (!availableFields || fieldExists(availableFields, ABONOS_COTIZACION_FIELDS.estadoAbono)) {
+    fields[ABONOS_COTIZACION_FIELDS.estadoAbono] = "Registrado";
+  }
+  if (!availableFields || fieldExists(availableFields, ABONOS_COTIZACION_FIELDS.estadoFinanciero)) {
+    fields[ABONOS_COTIZACION_FIELDS.estadoFinanciero] = "Pendiente de registrar";
+  }
+  if (input.itemPedidoId) fields[ABONOS_COTIZACION_FIELDS.itemPedidoId] = input.itemPedidoId;
+  addOptionalAirtableField(fields, availableFields, ABONOS_COTIZACION_FIELDS.cuentaDestino, input.cuentaDestino);
+  addOptionalAirtableField(
+    fields,
+    availableFields,
+    ABONOS_COTIZACION_FIELDS.numeroTransaccion,
+    input.numeroTransaccion
+  );
+  addOptionalAirtableField(fields, availableFields, ABONOS_COTIZACION_FIELDS.observacion, input.observacion);
 
   const created = await airtableRequest<AirtableRecord>(url, {
     method: "POST",
@@ -1233,6 +1307,56 @@ export async function createAbonoCotizacion(input: CrearAbonoCotizacionInput) {
         ((updatedCotizacion.totalCotizado ?? 0) - totalAbonado),
     },
   };
+}
+
+export async function anularOEliminarAbonoCotizacion(id: string) {
+  const currentRecord = await fetchAbonoCotizacionRecord(id);
+  if (!currentRecord) {
+    throw new Error("Abono de cotización no encontrado.");
+  }
+
+  const current = mapAbono(currentRecord);
+  const cotizacionId = current.cotizacionRecordIds[0];
+  if (!cotizacionId) {
+    throw new Error("El abono no está vinculado a una cotización.");
+  }
+
+  const { client, url } = airtableUrl(COTIZACIONES_TABLES.abonos, id);
+  const availableFields = await getAbonosCotizacionFields();
+  let action: "anulado" | "eliminado" = "eliminado";
+
+  if (!availableFields || fieldExists(availableFields, ABONOS_COTIZACION_FIELDS.estadoAbono)) {
+    const fields: Record<string, unknown> = {
+      [ABONOS_COTIZACION_FIELDS.estadoAbono]: "Anulado",
+    };
+    if (!availableFields || fieldExists(availableFields, ABONOS_COTIZACION_FIELDS.estadoFinanciero)) {
+      fields[ABONOS_COTIZACION_FIELDS.estadoFinanciero] = "Anulado";
+    }
+    try {
+      await airtableRequest<AirtableRecord>(url, {
+        method: "PATCH",
+        headers: client.headers,
+        body: JSON.stringify({ fields }),
+      });
+      action = "anulado";
+    } catch (error) {
+      if (availableFields || !String(error instanceof Error ? error.message : error).includes("UNKNOWN_FIELD")) {
+        throw error;
+      }
+      await airtableRequest<AirtableRecord>(url, {
+        method: "DELETE",
+        headers: client.headers,
+      });
+    }
+  } else {
+    await airtableRequest<AirtableRecord>(url, {
+      method: "DELETE",
+      headers: client.headers,
+    });
+  }
+
+  const data = await recalculateCotizacionAbonos(cotizacionId);
+  return { ...data, action };
 }
 
 export async function convertirCotizacionEnPedido(

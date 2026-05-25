@@ -16,8 +16,14 @@ export type ShippingV2MigracionEstado = "Pendiente" | "Procesada" | "Error" | "O
 export type ShippingV2EventoTipo = "Inventario" | "Pago" | "Packing" | "Recepcion" | "Novedad" | "Sistema";
 
 export type ShippingV2Proveedor = ShippingV2RecordBase & {
+  proveedorId?: string;
+  label: string;
   nombre: string;
   estado: ShippingV2ProveedorEstado | string;
+  tipoProveedor?: string;
+  puedeArmarPackings: boolean | null;
+  puedeRecibirEncargosTerceros: boolean | null;
+  permiteTriangulacion: boolean | null;
   contacto?: string;
   email?: string;
   telefono?: string;
@@ -35,6 +41,7 @@ export type ShippingV2Attachment = {
 };
 
 export type ShippingV2Item = ShippingV2RecordBase & {
+  sku: string;
   itemId?: string;
   codigo: string;
   skuInterno: string;
@@ -44,6 +51,7 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   skuDuplicadoDetectado: boolean | null;
   skuOriginalSugerido?: string;
   nombre: string;
+  aiNombre?: string;
   descripcion?: string;
   modelo?: string;
   marca?: string;
@@ -113,6 +121,7 @@ export const SHIPPING_V2_TIPOS_OPERACION = SHIPPING_V2_ITEM_SELECT_OPTIONS.tipoO
 export const SHIPPING_V2_TIPOS_ITEM = SHIPPING_V2_ITEM_SELECT_OPTIONS.tipoItem;
 export const SHIPPING_V2_CATEGORIAS = SHIPPING_V2_ITEM_SELECT_OPTIONS.categoria;
 export const SHIPPING_V2_CONDICIONES = SHIPPING_V2_ITEM_SELECT_OPTIONS.condicion;
+export const SHIPPING_V2_UNIDADES = SHIPPING_V2_ITEM_SELECT_OPTIONS.unidad;
 export const SHIPPING_V2_ESTADOS_REVISION = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoRevision;
 export const SHIPPING_V2_ESTADOS_TRIANGULACION = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoTriangulacion;
 export const SHIPPING_V2_ESTADOS_DESPIECE = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoDespiece;
@@ -130,17 +139,25 @@ export type ShippingV2ItemWriteInput = {
   requierePacking?: boolean;
   afectaInventario?: boolean;
   disponibleVenta?: boolean;
+  reservado?: boolean;
+  sku?: string;
   skuInterno?: string;
   skuProveedor?: string;
   modelo?: string;
   marca?: string;
   numeroSerie?: string;
   condicion?: string;
+  cantidad?: number | null;
+  unidad?: string;
   costoProveedor?: number | null;
   precioVentaSugerido?: number | null;
+  precioVenta?: number | null;
   ubicacionActual?: string;
+  origenFisicoActual?: string;
   observacionesInternas?: string;
   observacionVenta?: string;
+  esRepuesto?: boolean;
+  usoLocal?: boolean;
   estadoRevision?: string;
   estadoTriangulacion?: string;
   estadoDespiece?: string;

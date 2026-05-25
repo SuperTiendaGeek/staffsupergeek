@@ -11,6 +11,10 @@ import type {
   ShippingV2Proveedor,
   ShippingV2Recepcion,
 } from "@/types/shipping-v2";
+import { getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
+import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
+import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
+import { generateUniqueSkuFromExistingSkus, normalizeSku } from "@/lib/sku/sku-service";
 import { assertShippingV2GeneratedSchema, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
 
 type AirtableRecord = {
@@ -28,6 +32,12 @@ type AirtableRecordResponse = AirtableRecord;
 
 type AirtableMutationResponse = {
   records?: AirtableRecord[];
+};
+
+export type ShippingV2AttachmentUpload = {
+  filename: string;
+  contentType: string;
+  fileBase64: string;
 };
 
 function getRequiredEnv(name: "AIRTABLE_API_KEY" | "AIRTABLE_BASE_ID") {
@@ -60,6 +70,15 @@ function firstString(value: unknown, fallback = "") {
     return found === undefined ? fallback : String(found);
   }
   return fallback;
+}
+
+function aiTextString(value: unknown, fallback = "") {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const aiValue = (value as { value?: unknown }).value;
+    return firstString(aiValue, fallback);
+  }
+  return firstString(value, fallback);
 }
 
 function firstNumber(value: unknown): number | null {
@@ -148,6 +167,10 @@ function cleanString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function getOfficialSkuField() {
+  return SHIPPING_V2_ITEM_FIELDS.sku;
+}
+
 function selectOption(options: readonly string[], value: string) {
   return options.includes(value) ? value : options[0] ?? value;
 }
@@ -161,6 +184,34 @@ function compactFields(fields: Record<string, unknown>) {
       return true;
     })
   );
+}
+
+function isEmptyLinkedValue(value: unknown) {
+  return value === "" || value === null || value === undefined;
+}
+
+function normalizeInlineValue(type: string, value: unknown) {
+  if (type === "checkbox") return value === true || value === "true" || value === "on";
+  if (type === "number" || type === "currency") {
+    if (value === "" || value === null || value === undefined) return null;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = Number(value.trim().replace(",", "."));
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    throw new Error("Valor numérico inválido.");
+  }
+  if (type === "linkedRecord") {
+    if (isEmptyLinkedValue(value)) return [];
+    if (typeof value !== "string" || !value.trim()) throw new Error("Registro relacionado inválido.");
+    return [value.trim()];
+  }
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeSingleRecordId(value: unknown) {
+  if (Array.isArray(value)) return firstString(value);
+  return firstString(value);
 }
 
 function validateItemInput(input: ShippingV2ItemWriteInput) {
@@ -187,6 +238,64 @@ function validateItemInput(input: ShippingV2ItemWriteInput) {
   }
 }
 
+function applyCalculatedItemFlow(input: ShippingV2ItemWriteInput): ShippingV2ItemWriteInput {
+  const flow = getDefaultItemFlowByOperation({
+    tipoOperacion: cleanString(input.tipoOperacion),
+    categoria: cleanString(input.categoria),
+    tipoItem: cleanString(input.tipoItem),
+    proveedorCompra: cleanString(input.proveedorId),
+    proveedorLogistico: cleanString(input.proveedorLogisticoId),
+    origenFisicoActual: cleanString(input.origenFisicoActual),
+    estadoItem: cleanString(input.estado),
+  });
+
+  return {
+    ...input,
+    requierePago: flow.requierePago,
+    requierePacking: flow.requierePacking,
+    afectaInventario: flow.afectaInventario,
+    disponibleVenta: flow.disponibleParaVenta,
+    estado: flow.estadoItemSugerido,
+    estadoRevision: cleanString(input.estadoRevision) || flow.estadoRevisionSugerido,
+  };
+}
+
+async function validateItemProviderRules(input: { proveedorId?: string; proveedorLogisticoId?: string }) {
+  const proveedorId = cleanString(input.proveedorId);
+  if (proveedorId) {
+    const provider = await getShippingV2ProveedorById(proveedorId);
+    if (!provider) throw new Error("El proveedor seleccionado no existe.");
+    if (!canBePurchaseProvider(provider)) {
+      throw new Error("Este proveedor no puede usarse como proveedor de compra.");
+    }
+  }
+
+  const proveedorLogisticoId = cleanString(input.proveedorLogisticoId);
+  if (proveedorLogisticoId) {
+    const provider = await getShippingV2ProveedorById(proveedorLogisticoId);
+    if (!provider) throw new Error("El proveedor logístico seleccionado no existe.");
+    if (!canBeItemLogisticsProvider(provider)) {
+      throw new Error("Este proveedor no está configurado para recibir encargos, triangulación o armado de packings.");
+    }
+  }
+}
+
+async function validateInlineProviderRule(field: string, normalizedValue: unknown) {
+  const recordId = normalizeSingleRecordId(normalizedValue);
+  if (!recordId) return;
+
+  const provider = await getShippingV2ProveedorById(recordId);
+  if (!provider) throw new Error("El proveedor seleccionado no existe.");
+
+  if (field === SHIPPING_V2_ITEM_FIELDS.proveedorCompra && !canBePurchaseProvider(provider)) {
+    throw new Error("Este proveedor no puede usarse como proveedor de compra.");
+  }
+
+  if (field === SHIPPING_V2_ITEM_FIELDS.proveedorLogistico && !canBeItemLogisticsProvider(provider)) {
+    throw new Error("Este proveedor no está configurado para recibir encargos, triangulación o armado de packings.");
+  }
+}
+
 function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, unknown> = {}) {
   assertShippingV2GeneratedSchema();
   const F = SHIPPING_V2_ITEM_FIELDS;
@@ -205,19 +314,25 @@ function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, un
     [F.requierePacking]: Boolean(input.requierePacking),
     [F.afectaInventario]: Boolean(input.afectaInventario),
     [F.disponibleVenta]: Boolean(input.disponibleVenta),
-    [F.skuProveedor]: cleanString(input.skuProveedor),
+    [F.reservado]: Boolean(input.reservado),
+    [F.skuProveedor]: normalizeSku(cleanString(input.skuProveedor)),
     [F.modelo]: cleanString(input.modelo),
     [F.marca]: cleanString(input.marca),
     [F.numeroSerie]: cleanString(input.numeroSerie),
     [F.condicion]: cleanString(input.condicion),
+    [F.cantidad]: input.cantidad ?? undefined,
+    [F.unidad]: cleanString(input.unidad),
     [F.costoProveedor]: input.costoProveedor ?? undefined,
     [F.precioVentaSugerido]: input.precioVentaSugerido ?? undefined,
+    [F.precioVentaFinal]: input.precioVenta ?? undefined,
     [F.ubicacionActual]: cleanString(input.ubicacionActual),
     [F.observacionesInternas]: cleanString(input.observacionesInternas),
     [F.observacionVenta]: cleanString(input.observacionVenta),
     [F.estadoRevision]: cleanString(input.estadoRevision),
     [F.estadoTriangulacion]: cleanString(input.estadoTriangulacion),
     [F.estadoDespiece]: cleanString(input.estadoDespiece),
+    [F.esRepuesto]: Boolean(input.esRepuesto),
+    [F.esUsoLocal]: Boolean(input.usoLocal),
     [F.esRegalo]: tipoOperacion === "Regalo de proveedor",
     ...extra,
   });
@@ -238,6 +353,36 @@ async function airtableMutation<T>(url: string, init: RequestInit) {
   return (await response.json()) as T;
 }
 
+async function uploadAttachmentToRecord(input: {
+  recordId: string;
+  attachmentFieldIdOrName: string;
+  filename: string;
+  contentType: string;
+  fileBase64: string;
+}) {
+  const client = getClient();
+  const url = `https://content.airtable.com/v0/${encodeURIComponent(getRequiredEnv("AIRTABLE_BASE_ID"))}/${encodeURIComponent(input.recordId)}/${encodeURIComponent(input.attachmentFieldIdOrName)}/uploadAttachment`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      ...client.headers,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      contentType: input.contentType,
+      filename: input.filename,
+      file: input.fileBase64,
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Airtable Shipping V2 uploadAttachment ${response.status}: ${text}`);
+  }
+}
+
 async function airtableRequest<T>(url: string) {
   const response = await fetch(url, {
     headers: getClient().headers,
@@ -250,6 +395,41 @@ async function airtableRequest<T>(url: string) {
   }
 
   return (await response.json()) as T;
+}
+
+async function recordExists(tableName: string, recordId: string) {
+  const id = cleanString(recordId);
+  if (!id) return true;
+
+  const response = await fetch(`${tableUrl(tableName)}/${encodeURIComponent(id)}`, {
+    headers: getClient().headers,
+    cache: "no-store",
+  });
+
+  if (response.status === 404) return false;
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Airtable Shipping V2 error ${response.status}: ${text}`);
+  }
+  return true;
+}
+
+async function getRecordById(tableName: string, recordId: string) {
+  const id = cleanString(recordId);
+  if (!id) return null;
+
+  const response = await fetch(`${tableUrl(tableName)}/${encodeURIComponent(id)}`, {
+    headers: getClient().headers,
+    cache: "no-store",
+  });
+
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Airtable Shipping V2 error ${response.status}: ${text}`);
+  }
+
+  return (await response.json()) as AirtableRecordResponse;
 }
 
 async function listRecords(tableName: string, options: { maxRecords?: number; pageSize?: number; sortField?: string; sortDirection?: "asc" | "desc"; filterByFormula?: string } = {}) {
@@ -277,15 +457,26 @@ async function listRecords(tableName: string, options: { maxRecords?: number; pa
 
 function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
   const f = record.fields;
+  const proveedorId = firstString(f["Proveedor ID"]);
+  const nombre = firstString(f["Nombre proveedor"] ?? f["Nombre Proveedor"] ?? f.Nombre ?? f.Proveedor, record.id);
+  const label = proveedorId || nombre || record.id;
+  const tipoProveedor = firstString(f["Tipo de proveedor"]);
+
   return {
     id: record.id,
     createdTime: record.createdTime,
-    nombre: firstString(f.Nombre ?? f.Proveedor, record.id),
-    estado: firstString(f.Estado, "Activo"),
+    proveedorId,
+    label,
+    nombre,
+    estado: firstString(f["Estado proveedor"] ?? f.Estado, "Activo"),
+    tipoProveedor,
+    puedeArmarPackings: firstBoolean(f["Puede armar packings"]),
+    puedeRecibirEncargosTerceros: firstBoolean(f["Puede recibir encargos de terceros"]),
+    permiteTriangulacion: firstBoolean(f["Permite triangulación"] ?? f["Permite triangulacion"]),
     contacto: firstString(f.Contacto),
     email: firstString(f.Email),
     telefono: firstString(f.Telefono ?? f["Teléfono"]),
-    pais: firstString(f.Pais ?? f["País"]),
+    pais: firstString(f.Pais ?? f["País"] ?? tipoProveedor),
   };
 }
 
@@ -299,18 +490,22 @@ function mapItem(record: AirtableRecord): ShippingV2Item {
   const packingRelacionado = f[F.packingRelacionado];
   const pagoRelacionado = f[F.pagoRelacionado];
 
+  const sku = firstString(f[getOfficialSkuField()], record.id);
+
   return {
     id: record.id,
     createdTime: record.createdTime,
-    itemId: firstString(f[F.itemId]),
-    codigo: firstString(f[F.skuInterno], record.id),
-    skuInterno: firstString(f[F.skuInterno], record.id),
+    sku,
+    itemId: sku,
+    codigo: sku,
+    skuInterno: sku,
     skuProveedor: firstString(f[F.skuProveedor]),
     metodoAsignacionSku: firstString(f[F.metodoAsignacionSku]),
     skuProveedorUsadoComoInterno: firstBoolean(f[F.skuProveedorUsadoComoInterno]),
     skuDuplicadoDetectado: firstBoolean(f[F.skuDuplicadoDetectado]),
     skuOriginalSugerido: firstString(f[F.skuOriginalSugerido]),
     nombre: firstString(f[F.nombre]),
+    aiNombre: aiTextString(f[F.aiNombre]),
     descripcion: firstString(f[F.descripcion]),
     modelo: firstString(f[F.modelo]),
     marca: firstString(f[F.marca]),
@@ -319,8 +514,8 @@ function mapItem(record: AirtableRecord): ShippingV2Item {
     tipoOperacion: firstString(f[F.tipoOperacion]),
     tipoItem: firstString(f[F.tipoItem]),
     condicion: firstString(f[F.condicion]),
-    cantidad: firstNumber(f.Cantidad ?? f.Qty),
-    unidad: firstString(f.Unidad),
+    cantidad: firstNumber(f[F.cantidad]),
+    unidad: firstString(f[F.unidad]),
     estado: firstString(f[F.estadoItem], "Registrado"),
     estadoRevision: firstString(f[F.estadoRevision]),
     estadoTriangulacion: firstString(f[F.estadoTriangulacion]),
@@ -336,12 +531,12 @@ function mapItem(record: AirtableRecord): ShippingV2Item {
     costoLogisticoAsignado: firstNumber(f["Costo logístico asignado"] ?? f["Costo logistico asignado"] ?? f["Costo Logistico Asignado"]),
     costoTotalEstimado: firstNumber(f["Costo total estimado"] ?? f["Costo Total Estimado"]),
     precioVentaSugerido: firstNumber(f[F.precioVentaSugerido]),
-    precioVenta: firstNumber(f["Precio Venta"]),
-    qty: firstNumber(f.Qty ?? f.Cantidad),
+    precioVenta: firstNumber(f[F.precioVentaFinal]),
+    qty: firstNumber(f[F.cantidad]),
     disponibleVenta: firstBoolean(f[F.disponibleVenta]),
-    reservado: firstBoolean(f.Reservado),
-    usoLocal: firstBoolean(f["Uso local"] ?? f["Uso Local"]),
-    esRepuesto: firstBoolean(f["Es repuesto"] ?? f.Repuesto),
+    reservado: firstBoolean(f[F.reservado]),
+    usoLocal: firstBoolean(f[F.esUsoLocal]),
+    esRepuesto: firstBoolean(f[F.esRepuesto]),
     esRegalo: firstBoolean(f[F.esRegalo]),
     conNovedad: firstBoolean(f["Con novedad"] ?? f.Novedad ?? f.Novedades),
     ubicacionActual: firstString(f[F.ubicacionActual]),
@@ -371,8 +566,8 @@ function mapItem(record: AirtableRecord): ShippingV2Item {
     registradoPor: firstString(f["Registrado por"] ?? f["Registrado Por"]),
     ultimaActualizacion: firstString(f["Última actualización"] ?? f["Ultima actualizacion"] ?? f["Ultima Actualizacion"]),
     actualizadoPor: firstString(f["Actualizado por"] ?? f["Actualizado Por"]),
-    fotos: mapAttachments(f.Fotos ?? f.Foto ?? f.Imagenes ?? f["Imágenes"]),
-    evidencias: mapAttachments(f.Evidencias ?? f.Evidencia),
+    fotos: mapAttachments(f[F.fotos] ?? f.Foto ?? f.Imagenes ?? f["Imágenes"]),
+    evidencias: mapAttachments(f[F.evidencias] ?? f.Evidencia),
   };
 }
 
@@ -443,9 +638,26 @@ export async function getShippingV2Proveedores() {
   return records.map(mapProveedor);
 }
 
+async function getShippingV2ProveedorById(recordId: string) {
+  const record = await getRecordById(SHIPPING_V2_TABLES.proveedores, recordId);
+  return record ? mapProveedor(record) : null;
+}
+
 export async function getShippingV2Items() {
-  const records = await listRecords(SHIPPING_V2_TABLES.items, { maxRecords: 200 });
-  return records.map(mapItem);
+  const records = await listRecords(SHIPPING_V2_TABLES.items, {
+    maxRecords: 200,
+    sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro,
+    sortDirection: "desc",
+  });
+  return records
+    .map(mapItem)
+    .sort((a, b) => {
+      const aTime = Date.parse(a.fechaRegistro || a.createdTime || "");
+      const bTime = Date.parse(b.fechaRegistro || b.createdTime || "");
+      const safeATime = Number.isNaN(aTime) ? -Infinity : aTime;
+      const safeBTime = Number.isNaN(bTime) ? -Infinity : bTime;
+      return safeBTime - safeATime;
+    });
 }
 
 export async function getShippingV2ItemById(recordId: string) {
@@ -453,106 +665,46 @@ export async function getShippingV2ItemById(recordId: string) {
   if (!id) throw new Error("Record ID de item inválido.");
 
   const record = await airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`);
-  return mapItem(record);
+  const item = mapItem(record);
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[Shipping V2 AI Nombre]", {
+      recordId: id,
+      rawAiNombre: record.fields[SHIPPING_V2_ITEM_FIELDS.aiNombre],
+      mappedAiNombre: item.aiNombre,
+    });
+  }
+  return item;
 }
 
-export async function findShippingV2ItemBySkuInterno(skuInterno: string) {
+export async function findShippingV2ItemBySku(skuValue: string) {
   assertShippingV2GeneratedSchema();
-  const sku = cleanString(skuInterno);
+  const sku = normalizeSku(cleanString(skuValue));
   if (!sku) return null;
 
   const records = await listRecords(SHIPPING_V2_TABLES.items, {
     maxRecords: 1,
-    filterByFormula: `LOWER({${SHIPPING_V2_ITEM_FIELDS.skuInterno}}) = LOWER('${escapeFormulaString(sku)}')`,
+    filterByFormula: `LOWER({${getOfficialSkuField()}}) = LOWER('${escapeFormulaString(sku)}')`,
   });
 
   return records[0] ? mapItem(records[0]) : null;
 }
 
-async function findShippingV2ItemByItemId(itemId: string) {
-  assertShippingV2GeneratedSchema();
-  const value = cleanString(itemId);
-  if (!value) return null;
-
-  const records = await listRecords(SHIPPING_V2_TABLES.items, {
-    maxRecords: 1,
-    filterByFormula: `LOWER({${SHIPPING_V2_ITEM_FIELDS.itemId}}) = LOWER('${escapeFormulaString(value)}')`,
-  });
-
-  return records[0] ? mapItem(records[0]) : null;
+async function getExistingShippingV2Skus() {
+  const records = await listRecords(SHIPPING_V2_TABLES.items, { pageSize: 100 });
+  return records.map((record) => firstString(record.fields[getOfficialSkuField()])).filter(Boolean);
 }
 
-async function generateUniqueShippingV2Sku(prefix = "SKU") {
-  const year = new Date().getFullYear();
-
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const random = Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0");
-    const sku = `${prefix}-${year}-${random}`;
-    const existing = await findShippingV2ItemBySkuInterno(sku);
-    if (!existing) return sku;
-  }
-
-  throw new Error("No se pudo generar un SKU interno único. Intenta nuevamente.");
+async function generateUniqueShippingV2SkuForCategory(category?: string) {
+  return generateUniqueSkuFromExistingSkus(category, await getExistingShippingV2Skus());
 }
 
-async function generateUniqueShippingV2ItemId() {
-  const year = new Date().getFullYear();
+async function resolveOfficialSkuForCreate(input: ShippingV2ItemWriteInput) {
+  const manualSku = normalizeSku(cleanString(input.sku ?? input.skuInterno));
+  if (!manualSku) return generateUniqueShippingV2SkuForCategory(cleanString(input.categoria));
 
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const random = Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0");
-    const itemId = `ITEM-${year}-${random}`;
-    const existing = await findShippingV2ItemByItemId(itemId);
-    if (!existing) return itemId;
-  }
-
-  throw new Error("No se pudo generar un Item ID único. Intenta nuevamente.");
-}
-
-async function resolveSkuForCreate(input: ShippingV2ItemWriteInput) {
-  const manualSku = cleanString(input.skuInterno);
-  const proveedorSku = cleanString(input.skuProveedor);
-
-  if (manualSku) {
-    const existing = await findShippingV2ItemBySkuInterno(manualSku);
-    if (existing) throw new Error(`El SKU interno "${manualSku}" ya existe en otro item.`);
-
-    return {
-      skuInterno: manualSku,
-      metodoAsignacionSku: selectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.metodoAsignacionSku, "Asignado manualmente"),
-      skuProveedorUsadoComoInterno: false,
-      skuDuplicadoDetectado: false,
-      skuOriginalSugerido: "",
-    };
-  }
-
-  if (proveedorSku) {
-    const existing = await findShippingV2ItemBySkuInterno(proveedorSku);
-    if (!existing) {
-      return {
-        skuInterno: proveedorSku,
-        metodoAsignacionSku: selectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.metodoAsignacionSku, "Usado desde proveedor"),
-        skuProveedorUsadoComoInterno: true,
-        skuDuplicadoDetectado: false,
-        skuOriginalSugerido: "",
-      };
-    }
-
-    return {
-      skuInterno: await generateUniqueShippingV2Sku(),
-      metodoAsignacionSku: selectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.metodoAsignacionSku, "Generado por duplicado"),
-      skuProveedorUsadoComoInterno: false,
-      skuDuplicadoDetectado: true,
-      skuOriginalSugerido: proveedorSku,
-    };
-  }
-
-  return {
-    skuInterno: await generateUniqueShippingV2Sku(),
-    metodoAsignacionSku: selectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.metodoAsignacionSku, "Generado automáticamente"),
-    skuProveedorUsadoComoInterno: false,
-    skuDuplicadoDetectado: false,
-    skuOriginalSugerido: "",
-  };
+  const existing = await findShippingV2ItemBySku(manualSku);
+  if (existing) throw new Error("Este SKU ya existe en Shipping Items.");
+  return manualSku;
 }
 
 async function createShippingV2Event(input: {
@@ -586,18 +738,110 @@ async function createShippingV2Event(input: {
   }
 }
 
-export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string }) {
-  validateItemInput(input);
+async function validateInlineItemFieldChange(input: {
+  item: ShippingV2Item;
+  recordId: string;
+  field: string;
+  rawValue: unknown;
+  normalizedValue: unknown;
+}) {
+  const config = getShippingV2ItemEditField(input.field);
+  if (!config || (config.category !== "normal" && config.category !== "special")) {
+    throw new Error("Este campo no se puede editar inline.");
+  }
 
-  const sku = await resolveSkuForCreate(input);
-  const itemId = await generateUniqueShippingV2ItemId();
-  const fields = getItemFields(input, {
-    [SHIPPING_V2_ITEM_FIELDS.itemId]: itemId,
-    [SHIPPING_V2_ITEM_FIELDS.skuInterno]: sku.skuInterno,
-    [SHIPPING_V2_ITEM_FIELDS.metodoAsignacionSku]: sku.metodoAsignacionSku,
-    [SHIPPING_V2_ITEM_FIELDS.skuProveedorUsadoComoInterno]: sku.skuProveedorUsadoComoInterno,
-    [SHIPPING_V2_ITEM_FIELDS.skuDuplicadoDetectado]: sku.skuDuplicadoDetectado,
-    [SHIPPING_V2_ITEM_FIELDS.skuOriginalSugerido]: sku.skuOriginalSugerido,
+  if (config.type === "singleSelect") {
+    const value = cleanString(input.normalizedValue);
+    if (value && config.options && !config.options.includes(value)) {
+      throw new Error(`"${value}" no es una opción válida para ${config.label}.`);
+    }
+  }
+
+  if (config.type === "linkedRecord") {
+    await validateInlineProviderRule(input.field, input.normalizedValue);
+  }
+
+  if (input.field === SHIPPING_V2_ITEM_FIELDS.estadoItem && cleanString(input.normalizedValue) === "Disponible") {
+    throw new Error("Este cambio de estado requiere una acción controlada.");
+  }
+
+  if (input.field === SHIPPING_V2_ITEM_FIELDS.tipoOperacion && (input.item.pagoId || input.item.packingId)) {
+    throw new Error("No se puede cambiar el tipo de operación porque el Item ya tiene procesos relacionados.");
+  }
+
+  if (input.field === SHIPPING_V2_ITEM_FIELDS.proveedorCompra && input.item.pagoId) {
+    throw new Error("No se puede cambiar el proveedor de compra porque el Item ya tiene pago relacionado.");
+  }
+
+  if (input.field === SHIPPING_V2_ITEM_FIELDS.costoProveedor && input.item.pagoId) {
+    throw new Error("No se puede cambiar el costo proveedor porque el Item ya tiene pago relacionado.");
+  }
+
+  if (input.field === getOfficialSkuField()) {
+    const nextSku = normalizeSku(cleanString(input.normalizedValue));
+    if (!nextSku) throw new Error("SKU no puede quedar vacío.");
+    if (nextSku !== input.item.sku) {
+      const duplicated = await findShippingV2ItemBySku(nextSku);
+      if (duplicated && duplicated.id !== input.recordId) {
+        throw new Error("Este SKU ya existe en Shipping Items.");
+      }
+    }
+  }
+}
+
+export async function updateShippingV2ItemField(recordId: string, input: { field: string; value: unknown; eventDescription?: string }, options: { actualizadoPor: string }) {
+  assertShippingV2GeneratedSchema();
+  const id = cleanString(recordId);
+  const field = cleanString(input.field);
+  if (!id) throw new Error("Record ID de item inválido.");
+  if (!field) throw new Error("Campo inválido.");
+
+  const config = getShippingV2ItemEditField(field);
+  if (!config) throw new Error("Campo no reconocido para Shipping Items.");
+
+  const existing = await getShippingV2ItemById(id);
+  const normalizedValue = normalizeInlineValue(config.type, input.value);
+  await validateInlineItemFieldChange({ item: existing, recordId: id, field, rawValue: input.value, normalizedValue });
+
+  const fields: Record<string, unknown> = {
+    [field]: field === getOfficialSkuField() ? normalizeSku(cleanString(normalizedValue)) : normalizedValue,
+    [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+    [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.actualizadoPor,
+  };
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id, fields }] }),
+  });
+
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
+
+  const item = mapItem(updated);
+  await createShippingV2Event({
+    action: "Actualizado",
+    itemRecordId: item.id,
+    itemName: item.nombre,
+    registradoPor: options.actualizadoPor,
+    descripcion: input.eventDescription || `Campo "${config.label}" actualizado desde Portal Staff.`,
+  });
+
+  return item;
+}
+
+export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string }) {
+  const calculatedInput = applyCalculatedItemFlow(input);
+  validateItemInput(calculatedInput);
+  await validateItemProviderRules(calculatedInput);
+
+  const sku = await resolveOfficialSkuForCreate(calculatedInput);
+  const fields = getItemFields(calculatedInput, {
+    [getOfficialSkuField()]: sku,
+    [SHIPPING_V2_ITEM_FIELDS.skuInterno]: undefined,
+    [SHIPPING_V2_ITEM_FIELDS.metodoAsignacionSku]: undefined,
+    [SHIPPING_V2_ITEM_FIELDS.skuProveedorUsadoComoInterno]: undefined,
+    [SHIPPING_V2_ITEM_FIELDS.skuDuplicadoDetectado]: undefined,
+    [SHIPPING_V2_ITEM_FIELDS.skuOriginalSugerido]: undefined,
     [SHIPPING_V2_ITEM_FIELDS.fechaRegistro]: new Date().toISOString(),
     [SHIPPING_V2_ITEM_FIELDS.registradoPor]: options.registradoPor,
   });
@@ -616,7 +860,114 @@ export async function createShippingV2Item(input: ShippingV2ItemWriteInput, opti
     itemRecordId: item.id,
     itemName: item.nombre,
     registradoPor: options.registradoPor,
-    descripcion: `Item ${item.skuInterno} creado desde Portal Staff.`,
+    descripcion: `Item ${item.sku} creado desde Portal Staff.`,
+  });
+
+  return item;
+}
+
+export async function addFotosToShippingV2Item(
+  recordId: string,
+  fotos: ShippingV2AttachmentUpload[],
+  options: { registradoPor?: string } = {}
+) {
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  if (!fotos.length) return { item: await getShippingV2ItemById(id), warning: null as string | null, uploadedCount: 0 };
+
+  const failedFiles: string[] = [];
+
+  for (const foto of fotos) {
+    try {
+      await uploadAttachmentToRecord({
+        recordId: id,
+        attachmentFieldIdOrName: SHIPPING_V2_ITEM_FIELDS.fotos,
+        filename: foto.filename,
+        contentType: foto.contentType,
+        fileBase64: foto.fileBase64,
+      });
+    } catch (error) {
+      console.error("No se pudo agregar foto al Item de Shipping V2:", error);
+      failedFiles.push(foto.filename);
+    }
+  }
+
+  if (failedFiles.length === fotos.length) {
+    throw new Error("El Item se creó, pero no se pudo subir ninguna foto.");
+  }
+
+  const item = await getShippingV2ItemById(id);
+  await createShippingV2Event({
+    action: "Actualizado",
+    itemRecordId: item.id,
+    itemName: item.nombre,
+    registradoPor: options.registradoPor || "Portal Staff",
+    descripcion: fotos.length - failedFiles.length === 1 ? "Foto agregada al Item." : "Fotos agregadas al Item.",
+  });
+
+  return {
+    item,
+    warning: failedFiles.length > 0 ? `El Item se creó, pero no se pudieron subir: ${failedFiles.join(", ")}.` : null,
+    uploadedCount: fotos.length - failedFiles.length,
+  };
+}
+
+function keptAttachmentPayload(attachment: ShippingV2Attachment) {
+  if (attachment.id) return { id: attachment.id };
+  return {
+    url: attachment.url,
+    filename: attachment.filename || undefined,
+  };
+}
+
+export async function removeFotoFromShippingV2Item(
+  recordId: string,
+  input: { attachmentId?: string | null; url?: string | null; filename?: string | null },
+  options: { actualizadoPor: string }
+) {
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+
+  const attachmentId = cleanString(input.attachmentId);
+  const url = cleanString(input.url);
+  const filename = cleanString(input.filename);
+  if (!attachmentId && !url && !filename) {
+    throw new Error("Falta identificar la foto a eliminar.");
+  }
+
+  const current = await getShippingV2ItemById(id);
+  const nextFotos = current.fotos.filter((foto) => {
+    if (attachmentId && foto.id === attachmentId) return false;
+    if (url && foto.url === url) return false;
+    if (filename && foto.filename === filename) return false;
+    return true;
+  });
+
+  if (nextFotos.length === current.fotos.length) {
+    throw new Error("No se encontró la foto en el Item.");
+  }
+
+  const fields: Record<string, unknown> = {
+    [SHIPPING_V2_ITEM_FIELDS.fotos]: nextFotos.map(keptAttachmentPayload),
+    [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+    [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.actualizadoPor,
+  };
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id, fields }] }),
+  });
+
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
+
+  const item = mapItem(updated);
+  await createShippingV2Event({
+    action: "Actualizado",
+    itemRecordId: item.id,
+    itemName: item.nombre,
+    registradoPor: options.actualizadoPor,
+    descripcion: "Foto eliminada del Item.",
   });
 
   return item;
@@ -625,20 +976,22 @@ export async function createShippingV2Item(input: ShippingV2ItemWriteInput, opti
 export async function updateShippingV2Item(recordId: string, input: ShippingV2ItemWriteInput, options: { actualizadoPor: string }) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
-  validateItemInput(input);
+  const calculatedInput = applyCalculatedItemFlow(input);
+  validateItemInput(calculatedInput);
+  await validateItemProviderRules(calculatedInput);
 
   const existing = await getShippingV2ItemById(id);
-  const nextSku = cleanString(input.skuInterno);
+  const nextSku = normalizeSku(cleanString(calculatedInput.sku ?? calculatedInput.skuInterno));
 
-  if (nextSku && nextSku !== existing.skuInterno) {
-    const duplicated = await findShippingV2ItemBySkuInterno(nextSku);
+  if (nextSku && nextSku !== existing.sku) {
+    const duplicated = await findShippingV2ItemBySku(nextSku);
     if (duplicated && duplicated.id !== id) {
-      throw new Error(`El SKU interno "${nextSku}" ya existe en otro item.`);
+      throw new Error("Este SKU ya existe en Shipping Items.");
     }
   }
 
-  const fields = getItemFields(input, {
-    ...(nextSku ? { [SHIPPING_V2_ITEM_FIELDS.skuInterno]: nextSku } : {}),
+  const fields = getItemFields(calculatedInput, {
+    ...(nextSku ? { [getOfficialSkuField()]: nextSku } : {}),
     [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
     [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.actualizadoPor,
   });
@@ -657,7 +1010,7 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
     itemRecordId: item.id,
     itemName: item.nombre,
     registradoPor: options.actualizadoPor,
-    descripcion: `Item ${item.skuInterno} actualizado desde Portal Staff.`,
+    descripcion: `Item ${item.sku} actualizado desde Portal Staff.`,
   });
 
   return item;

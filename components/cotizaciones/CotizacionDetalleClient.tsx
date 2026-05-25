@@ -54,6 +54,12 @@ type AbonoForm = {
   observacion: string;
 };
 
+type AbonoDeleteResult = {
+  action?: "anulado" | "eliminado";
+  abonos?: AbonoCotizacion[];
+  cotizacion?: CotizacionDetalle;
+};
+
 type SkuCheckResponse = {
   sku?: string;
   available?: boolean;
@@ -84,6 +90,16 @@ const emptyAbonoForm: AbonoForm = {
 function money(value: number | null) {
   if (value === null || value === undefined) return "-";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+}
+
+function printableText(value: unknown) {
+  const text = value === null || value === undefined || value === "" ? "-" : String(value);
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function numberOrNull(value: string) {
@@ -120,6 +136,9 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
   const [abonoForm, setAbonoForm] = useState<AbonoForm>(emptyAbonoForm);
   const [showAbonoForm, setShowAbonoForm] = useState(false);
   const [abonoSaving, setAbonoSaving] = useState(false);
+  const [expandedAbonoId, setExpandedAbonoId] = useState<string | null>(null);
+  const [confirmAbono, setConfirmAbono] = useState<AbonoCotizacion | null>(null);
+  const [abonoDeletingId, setAbonoDeletingId] = useState<string | null>(null);
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const [convertingPedido, setConvertingPedido] = useState(false);
   const [showSkuModal, setShowSkuModal] = useState(false);
@@ -159,13 +178,20 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
     [proveedores]
   );
   const showAbonos = cotizacion.estado === "Aprobada" || cotizacion.estado === "Convertida en Pedido";
+  const abonosRegistrados = abonos.filter((abono) => abono.estado !== "Anulado");
+  const visualTotalAbonado = abonosRegistrados.reduce((sum, abono) => sum + (abono.monto ?? 0), 0);
+  const visualSaldoPendiente = (cotizacion.totalCotizado ?? 0) - visualTotalAbonado;
   const selectedOption = opciones.find((opcion) => opcion.seleccionadaPorCliente) || null;
+  const selectedTicketOption =
+    selectedOption ||
+    opciones.find((opcion) => {
+      const estado = String(opcion.estado || "").trim().toLowerCase();
+      return estado === "seleccionada" || estado === "aprobada" || estado === "elegida";
+    }) ||
+    null;
   const selectedOptionProveedor = selectedOption?.proveedorRecordIds[0]
     ? proveedoresById.get(selectedOption.proveedorRecordIds[0])
     : null;
-  const registeredAbonosTotal = abonos
-    .filter((abono) => abono.estado === "Registrado")
-    .reduce((sum, abono) => sum + (abono.monto ?? 0), 0);
   const convertBlockReason = cotizacion.itemPedidoId
     ? "Esta cotización ya fue convertida en pedido."
     : cotizacion.estado !== "Aprobada"
@@ -174,7 +200,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
         ? "Selecciona una opción."
         : !selectedOption.proveedorRecordIds[0]
           ? "La opción seleccionada no tiene proveedor."
-        : registeredAbonosTotal <= 0
+        : visualTotalAbonado <= 0
           ? "Registra al menos un abono."
           : "";
   const canConvertPedido = !convertBlockReason;
@@ -484,6 +510,124 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
     }
   }
 
+  function printAbonoTicket(abono: AbonoCotizacion) {
+    const ticketWindow = window.open("", "_blank", "width=420,height=720");
+    if (!ticketWindow) {
+      setError("No se pudo abrir la ventana de impresión. Revisa el bloqueador de ventanas.");
+      return;
+    }
+
+    const totalCotizado = cotizacion.totalCotizado ?? 0;
+    const totalAbonado = abonosRegistrados.reduce((sum, item) => sum + (item.monto ?? 0), 0);
+    const saldoPendiente = totalCotizado - totalAbonado;
+    const fecha = abono.fechaAbono || abono.creado || new Date().toISOString();
+    const productoTicket =
+      selectedTicketOption?.nombre ||
+      selectedTicketOption?.descripcion ||
+      cotizacion.productoSolicitado;
+    const rows: Array<{ label: string; value: string; wide?: boolean }> = [
+      { label: "Cotización", value: cotizacion.codigo },
+      { label: "Fecha", value: formatStableDateTime(fecha) },
+      { label: "Cliente", value: cotizacion.clienteNombre || abono.clienteNombre },
+      { label: "Cédula", value: cotizacion.clienteCedula },
+      { label: "Teléfono", value: cotizacion.clienteTelefono },
+      { label: "Producto / Cotización", value: productoTicket, wide: true },
+      { label: "Monto abonado", value: money(abono.monto) },
+      { label: "Método", value: abono.metodoPago },
+      { label: "Cuenta destino", value: abono.cuentaDestino },
+      { label: "Transacción", value: abono.numeroTransaccion },
+      { label: "Total cotizado", value: money(totalCotizado) },
+      { label: "Total abonado", value: money(totalAbonado) },
+      { label: "Saldo pendiente", value: money(saldoPendiente) },
+      { label: "Registrado por", value: abono.registradoPor },
+      { label: "Observación", value: abono.observacion || "-" },
+    ];
+
+    ticketWindow.document.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Comprobante de abono ${printableText(cotizacion.codigo)}</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+    body { width: 80mm; font-family: Arial, Helvetica, sans-serif; font-size: 12px; line-height: 1.35; }
+    .ticket { width: 80mm; padding: 5mm; background: #fff; color: #000; }
+    .center { text-align: center; }
+    .brand { font-size: 18px; font-weight: 800; letter-spacing: 0; }
+    .title { margin: 10px 0 8px; border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 7px 0; font-weight: 800; text-align: center; }
+    .row { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dotted #bbb; padding: 4px 0; }
+    .row span:first-child { font-weight: 700; max-width: 34mm; }
+    .row span:last-child { text-align: right; max-width: 36mm; overflow-wrap: anywhere; }
+    .row.wide { display: block; }
+    .row.wide span { display: block; max-width: none; text-align: left; }
+    .row.wide span:last-child { margin-top: 2px; }
+    .footer { margin-top: 10px; border-top: 1px dashed #000; padding-top: 8px; text-align: center; }
+    .no-print { margin: 12px 5mm; width: calc(80mm - 10mm); border: 1px solid #000; background: #fff; color: #000; padding: 8px; font-weight: 700; }
+    @page { size: 80mm auto; margin: 0; }
+    @media print {
+      html, body, .ticket { width: 80mm; background: #fff !important; color: #000 !important; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="ticket">
+    <div class="center">
+      <div class="brand">SUPER GEEK</div>
+      <div>RUC: 1003710272001</div>
+      <div>Otavalo - Ecuador</div>
+      <div>WhatsApp: 0968808149</div>
+    </div>
+    <div class="title">COMPROBANTE DE ABONO</div>
+    ${rows
+      .map(
+        ({ label, value, wide }) =>
+          `<div class="row${wide ? " wide" : ""}"><span>${printableText(label)}</span><span>${printableText(value)}</span></div>`
+      )
+      .join("")}
+    <div class="footer">
+      <p>Este comprobante deja constancia del abono registrado para esta cotización.</p>
+      <p><strong>Gracias por confiar en SUPER GEEK.</strong></p>
+    </div>
+  </div>
+  <button class="no-print" onclick="window.print()">Imprimir</button>
+  <script>
+    window.addEventListener("load", () => setTimeout(() => window.print(), 250));
+  </script>
+</body>
+</html>`);
+    ticketWindow.document.close();
+    ticketWindow.focus();
+  }
+
+  async function deleteAbono(abono: AbonoCotizacion) {
+    setAbonoDeletingId(abono.id);
+    setError(null);
+    try {
+      const response = await fetch(`/api/cotizaciones/abonos/${abono.id}`, { method: "DELETE" });
+      const payload = await parseApi(response);
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || "No se pudo anular o eliminar el abono.");
+      }
+      const data = payload.data as AbonoDeleteResult;
+      if (data.cotizacion) {
+        setCotizacion(data.cotizacion);
+      }
+      if (data.abonos) {
+        setAbonos(data.abonos);
+      } else {
+        setAbonos((current) => current.filter((item) => item.id !== abono.id));
+      }
+      setConfirmAbono(null);
+      setExpandedAbonoId((current) => (current === abono.id ? null : current));
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Error inesperado");
+    } finally {
+      setAbonoDeletingId(null);
+    }
+  }
+
   function openSkuModal() {
     if (!canConvertPedido) return;
     setSkuInterno("");
@@ -630,8 +774,8 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
 
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <Metric label="Total cotizado" value={money(cotizacion.totalCotizado)} />
-            <Metric label="Total abonado" value={money(cotizacion.totalAbonado)} />
-            <Metric label="Saldo pendiente" value={money(cotizacion.saldoPendiente)} />
+            <Metric label="Total abonado" value={money(visualTotalAbonado)} />
+            <Metric label="Saldo pendiente" value={money(visualSaldoPendiente)} />
           </div>
         </section>
 
@@ -655,8 +799,8 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
 
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <Metric label="Total cotizado" value={money(cotizacion.totalCotizado)} />
-              <Metric label="Total abonado" value={money(cotizacion.totalAbonado)} />
-              <Metric label="Saldo pendiente" value={money(cotizacion.saldoPendiente)} />
+              <Metric label="Total abonado" value={money(visualTotalAbonado)} />
+              <Metric label="Saldo pendiente" value={money(visualSaldoPendiente)} />
             </div>
 
             {showAbonoForm ? (
@@ -729,53 +873,142 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               </form>
             ) : null}
 
-            <div className="mt-5 overflow-hidden rounded-xl border border-white/10">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-white/10 text-sm">
-                  <thead className="bg-white/[0.035] text-left text-xs uppercase tracking-normal text-zinc-400">
+            <div className="mt-5 hidden overflow-hidden rounded-xl border border-white/10 md:block">
+              <table className="w-full table-fixed divide-y divide-white/10 text-sm">
+                <thead className="bg-white/[0.035] text-left text-xs uppercase tracking-normal text-zinc-400">
+                  <tr>
+                    <th className="w-[16%] px-4 py-3">Fecha</th>
+                    <th className="w-[12%] px-4 py-3 text-right">Monto</th>
+                    <th className="w-[15%] px-4 py-3">Método</th>
+                    <th className="w-[16%] px-4 py-3">Transacción</th>
+                    <th className="w-[15%] px-4 py-3">Registrado por</th>
+                    <th className="w-[26%] px-4 py-3 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {abonosRegistrados.map((abono) => {
+                    const expanded = expandedAbonoId === abono.id;
+                    const deleting = abonoDeletingId === abono.id;
+                    return (
+                      <tr key={abono.id} className="align-middle text-zinc-300">
+                        <td className="px-4 py-2.5">{formatStableDateTime(abono.fechaAbono)}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-white">{money(abono.monto)}</td>
+                        <td className="px-4 py-2.5">{abono.metodoPago || "-"}</td>
+                        <td className="px-4 py-2.5">
+                          <span className="block truncate" title={abono.numeroTransaccion || "-"}>
+                            {abono.numeroTransaccion || "-"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className="block truncate" title={abono.registradoPor || "-"}>
+                            {abono.registradoPor || "-"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex flex-nowrap items-center justify-end gap-1.5 whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedAbonoId((current) => (current === abono.id ? null : abono.id))}
+                              className="rounded-md border border-white/10 px-2 py-1.5 text-[11px] font-semibold leading-none text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime"
+                            >
+                              Ver
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => printAbonoTicket(abono)}
+                              className="rounded-md border border-geek-lime/40 bg-geek-lime/10 px-2 py-1.5 text-[11px] font-semibold leading-none text-geek-lime transition hover:bg-geek-lime/20"
+                            >
+                              Ticket
+                            </button>
+                            <button
+                              type="button"
+                              disabled={deleting}
+                              onClick={() => setConfirmAbono(abono)}
+                              className="rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1.5 text-[11px] font-semibold leading-none text-red-200 transition hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-60"
+                            >
+                              {deleting ? "Anulando..." : "Anular"}
+                            </button>
+                          </div>
+                          {expanded ? (
+                            <div className="mt-3 rounded-lg border border-white/10 bg-[#111] p-3 text-xs text-zinc-400">
+                              <p>Cuenta destino: <span className="text-zinc-200">{abono.cuentaDestino || "-"}</span></p>
+                              <p className="mt-1">Observación: <span className="text-zinc-200">{abono.observacion || "-"}</span></p>
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {abonosRegistrados.length === 0 ? (
                     <tr>
-                      <th className="px-4 py-3">Fecha</th>
-                      <th className="px-4 py-3 text-right">Monto</th>
-                      <th className="px-4 py-3">Método</th>
-                      <th className="px-4 py-3">Cuenta destino</th>
-                      <th className="px-4 py-3">Transacción</th>
-                      <th className="px-4 py-3">Registrado por</th>
-                      <th className="px-4 py-3">Observación</th>
-                      <th className="px-4 py-3">Ticket</th>
+                      <td colSpan={6} className="px-4 py-8 text-center text-zinc-400">
+                        Todavía no hay abonos registrados.
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/10">
-                    {abonos.map((abono) => (
-                      <tr key={abono.id} className="text-zinc-300">
-                        <td className="px-4 py-3">{formatStableDateTime(abono.fechaAbono)}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-white">{money(abono.monto)}</td>
-                        <td className="px-4 py-3">{abono.metodoPago}</td>
-                        <td className="px-4 py-3">{abono.cuentaDestino || "-"}</td>
-                        <td className="px-4 py-3">{abono.numeroTransaccion || "-"}</td>
-                        <td className="px-4 py-3">{abono.registradoPor || "-"}</td>
-                        <td className="px-4 py-3">{abono.observacion || "-"}</td>
-                        <td className="px-4 py-3">
-                          <button
-                            type="button"
-                            disabled
-                            className="rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-500"
-                          >
-                            Imprimir ticket
-                            <span className="ml-2 text-geek-lime/70">Próxima fase</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {abonos.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="px-4 py-8 text-center text-zinc-400">
-                          Todavía no hay abonos registrados.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-5 space-y-3 md:hidden">
+              {abonosRegistrados.map((abono) => {
+                const expanded = expandedAbonoId === abono.id;
+                const deleting = abonoDeletingId === abono.id;
+                return (
+                  <article key={abono.id} className="rounded-xl border border-white/10 bg-[#111] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-normal text-zinc-500">
+                          {formatStableDateTime(abono.fechaAbono)}
+                        </p>
+                        <p className="mt-1 text-2xl font-bold text-white">{money(abono.monto)}</p>
+                      </div>
+                      <span className="rounded-full border border-geek-lime/30 bg-geek-lime/10 px-2 py-1 text-xs font-semibold text-geek-lime">
+                        {abono.metodoPago || "Abono"}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid gap-2 text-sm text-zinc-300">
+                      <p>Transacción: <span className="text-zinc-100">{abono.numeroTransaccion || "-"}</span></p>
+                      <p>Registrado por: <span className="text-zinc-100">{abono.registradoPor || "-"}</span></p>
+                      {expanded ? (
+                        <>
+                          <p>Cuenta destino: <span className="text-zinc-100">{abono.cuentaDestino || "-"}</span></p>
+                          <p>Observación: <span className="text-zinc-100">{abono.observacion || "-"}</span></p>
+                        </>
+                      ) : null}
+                    </div>
+                    <div className="mt-4 grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedAbonoId((current) => (current === abono.id ? null : abono.id))}
+                        className="rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-200"
+                      >
+                        Detalle
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => printAbonoTicket(abono)}
+                        className="rounded-lg border border-geek-lime/40 bg-geek-lime/10 px-3 py-2 text-xs font-semibold text-geek-lime"
+                      >
+                        Ticket
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deleting}
+                        onClick={() => setConfirmAbono(abono)}
+                        className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-200 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {deleting ? "..." : "Anular"}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+              {abonosRegistrados.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-[#111] px-4 py-8 text-center text-sm text-zinc-400">
+                  Todavía no hay abonos registrados.
+                </div>
+              ) : null}
             </div>
           </section>
         ) : null}
@@ -1279,6 +1512,42 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               </button>
             </div>
           </form>
+        </section>
+      </div>
+    ) : null}
+    {confirmAbono ? (
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true">
+        <section className="w-full max-w-md rounded-2xl border border-red-400/25 bg-[#181818] p-5 shadow-2xl shadow-black/40">
+          <h2 className="text-xl font-semibold text-white">Anular abono</h2>
+          <p className="mt-3 text-sm leading-6 text-zinc-300">
+            ¿Seguro que deseas anular este abono de{" "}
+            <span className="font-bold text-white">{money(confirmAbono.monto)}</span>? Esta acción no debe usarse si el pago ya fue confirmado contablemente.
+          </p>
+          <p className="mt-2 text-xs leading-5 text-zinc-500">
+            Si Airtable todavía no tiene el campo Estado del Abono, el sistema lo eliminará como fallback temporal.
+          </p>
+          <div className="mt-4 rounded-xl border border-white/10 bg-[#111] p-3 text-sm text-zinc-300">
+            <p>Cliente: <span className="text-white">{cotizacion.clienteNombre || confirmAbono.clienteNombre}</span></p>
+            <p className="mt-1">Fecha: <span className="text-white">{formatStableDateTime(confirmAbono.fechaAbono)}</span></p>
+          </div>
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              disabled={abonoDeletingId === confirmAbono.id}
+              onClick={() => setConfirmAbono(null)}
+              className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={abonoDeletingId === confirmAbono.id}
+              onClick={() => deleteAbono(confirmAbono)}
+              className="rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-60"
+            >
+              {abonoDeletingId === confirmAbono.id ? "Procesando..." : "Confirmar anulación"}
+            </button>
+          </div>
         </section>
       </div>
     ) : null}

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-23T14:54:24.316Z",
+  "generatedAt": "2026-05-25T14:57:38.732Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -7,8 +7,7 @@
       "fields": {
         "Proveedor ID": {
           "id": "fldFnHW9E3Fy1rYME",
-          "type": "singleLineText",
-          "kind": "singleLineText"
+          "type": "formula"
         },
         "Nombre proveedor": {
           "id": "fld8jwxNW1u7duMED",
@@ -232,7 +231,11 @@
           "type": "singleLineText",
           "kind": "singleLineText"
         },
-        "Item ID": {
+        "AI Nombre del item": {
+          "id": "fldWS0nuWqJ8stRFU",
+          "type": "aiText"
+        },
+        "SKU": {
           "id": "fldCe4yFR032xDZ8V",
           "type": "singleLineText",
           "kind": "singleLineText"
@@ -264,17 +267,12 @@
           "type": "singleSelect",
           "options": [
             "Equipo completo",
-            "Laptop",
-            "Desktop",
-            "Consola",
-            "Monitor",
             "Componente",
             "Parte",
             "Repuesto",
             "Accesorio",
             "Uso local",
-            "Otro",
-            "Tablet"
+            "Otro"
           ]
         },
         "Categoría": {

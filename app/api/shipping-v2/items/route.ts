@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
-import { createShippingV2Item, getShippingV2Items } from "@/lib/shipping-v2/airtable";
+import { addFotosToShippingV2Item, createShippingV2Item, getShippingV2Items, type ShippingV2AttachmentUpload } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ShippingV2ItemWriteInput } from "@/types/shipping-v2";
 
 export const dynamic = "force-dynamic";
+
+const MAX_FOTOS_PER_ITEM = 10;
+const MAX_FOTO_SIZE = 10 * 1024 * 1024;
+const ALLOWED_FOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function toNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -34,6 +38,7 @@ function parseInput(body: Record<string, unknown>): ShippingV2ItemWriteInput {
     requierePacking: toBoolean(body.requierePacking),
     afectaInventario: toBoolean(body.afectaInventario),
     disponibleVenta: toBoolean(body.disponibleVenta),
+    sku: String(body.sku ?? body.skuInterno ?? ""),
     skuInterno: String(body.skuInterno ?? ""),
     skuProveedor: String(body.skuProveedor ?? ""),
     modelo: String(body.modelo ?? ""),
@@ -49,6 +54,45 @@ function parseInput(body: Record<string, unknown>): ShippingV2ItemWriteInput {
     estadoTriangulacion: String(body.estadoTriangulacion ?? ""),
     estadoDespiece: String(body.estadoDespiece ?? ""),
   };
+}
+
+function formDataToBody(formData: FormData) {
+  const body: Record<string, unknown> = {};
+  for (const [key, value] of formData.entries()) {
+    if (key === "fotos") continue;
+    body[key] = typeof value === "string" ? value : "";
+  }
+  return body;
+}
+
+async function parseFotos(formData: FormData): Promise<ShippingV2AttachmentUpload[]> {
+  const files = formData.getAll("fotos").filter((value): value is File => value instanceof File && value.size > 0);
+  if (files.length > MAX_FOTOS_PER_ITEM) {
+    throw new Error(`Puedes subir hasta ${MAX_FOTOS_PER_ITEM} fotos por item.`);
+  }
+
+  const fotos: ShippingV2AttachmentUpload[] = [];
+  for (const file of files) {
+    if (!ALLOWED_FOTO_TYPES.has(file.type)) {
+      throw new Error("Las fotos deben ser JPEG, PNG o WebP.");
+    }
+    if (file.size > MAX_FOTO_SIZE) {
+      throw new Error("Cada foto debe pesar máximo 10 MB.");
+    }
+
+    const bytes = await file.arrayBuffer();
+    if (bytes.byteLength === 0) {
+      throw new Error("Una de las fotos seleccionadas está vacía.");
+    }
+
+    fotos.push({
+      filename: file.name || `shipping-v2-foto-${Date.now()}`,
+      contentType: file.type,
+      fileBase64: Buffer.from(bytes).toString("base64"),
+    });
+  }
+
+  return fotos;
 }
 
 export async function GET() {
@@ -71,14 +115,44 @@ export async function POST(request: Request) {
   const { response, session } = await requireShippingV2Session();
   if (response) return response;
 
-  const body = await request.json().catch(() => ({}));
-
   try {
+    const contentType = request.headers.get("content-type") || "";
+    let body: Record<string, unknown>;
+    let fotos: ShippingV2AttachmentUpload[] = [];
+
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await request.formData();
+      body = formDataToBody(formData);
+      fotos = await parseFotos(formData);
+    } else {
+      body = await request.json().catch(() => ({}));
+    }
+
     const item = await createShippingV2Item(parseInput(body), {
       registradoPor: getShippingV2SessionName(session),
     });
 
-    return NextResponse.json({ success: true, data: item }, { status: 201 });
+    if (fotos.length > 0) {
+      const result = await addFotosToShippingV2Item(item.id, fotos, {
+        registradoPor: getShippingV2SessionName(session),
+      });
+      return NextResponse.json({
+        success: true,
+        data: result.item,
+        recordId: result.item.id,
+        aiNameSuggestionReviewAvailable: true,
+        warning: result.warning,
+        uploadedFotos: result.uploadedCount,
+      }, { status: 201 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: item,
+      recordId: item.id,
+      aiNameSuggestionReviewAvailable: true,
+      uploadedFotos: 0,
+    }, { status: 201 });
   } catch (error) {
     console.error("Error al crear item Shipping V2:", error);
     return NextResponse.json(

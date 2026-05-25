@@ -2,16 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, type InputHTMLAttributes, type MouseEvent, type ReactNode, type SelectHTMLAttributes } from "react";
+import { Fragment, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
+import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
+import { SHIPPING_V2_ITEM_EDIT_FIELDS, type ShippingV2ItemEditFieldConfig } from "@/lib/shipping-v2/item-edit-config";
+import { createShippingV2ProveedorLabelMap, getShippingV2ProveedorLabel, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
+import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import {
-  SHIPPING_V2_CATEGORIAS,
-  SHIPPING_V2_CONDICIONES,
-  SHIPPING_V2_ESTADOS_DESPIECE,
-  SHIPPING_V2_ESTADOS_REVISION,
-  SHIPPING_V2_ESTADOS_TRIANGULACION,
-  SHIPPING_V2_ITEM_ESTADOS,
-  SHIPPING_V2_TIPOS_ITEM,
-  SHIPPING_V2_TIPOS_OPERACION,
   type ShippingV2Attachment,
   type ShippingV2Item,
   type ShippingV2Proveedor,
@@ -24,31 +21,84 @@ type Props = {
 };
 
 type ItemFilterKey = "estado" | "tipoOperacion" | "proveedorCompra" | "tipoItem";
+type SortKey =
+  | "newest"
+  | "oldest"
+  | "sku-asc"
+  | "sku-desc"
+  | "name-asc"
+  | "name-desc"
+  | "estado"
+  | "proveedor-compra"
+  | "costo-desc"
+  | "precio-desc";
+type GroupKey =
+  | "none"
+  | "estado"
+  | "proveedor-compra"
+  | "proveedor-logistico"
+  | "packing"
+  | "tipo-operacion"
+  | "categoria";
 
 type ResolvedItem = ShippingV2Item & {
   proveedorCompraDisplay: string;
   proveedorLogisticoDisplay: string;
 };
 
+type ItemGroup = {
+  key: string;
+  label: string;
+  items: ResolvedItem[];
+};
+
 type DetailRow = {
   label: string;
-  value: ReactNode;
+  value: string | number | boolean | null | undefined;
+  displayValue?: ReactNode;
+  config?: ShippingV2ItemEditFieldConfig;
+  readOnly?: boolean;
+  options?: readonly string[] | readonly { value: string; label: string }[];
 };
 
 const ALL = "Todos";
 
 const columns = [
-  "SKU interno",
+  "SKU",
   "Nombre",
   "Tipo de operación",
   "Estado Item",
-  "Tipo de item",
+  "Rol general",
+  "Categoría",
   "Proveedor compra",
   "Proveedor logístico",
+  "Packing",
   "Costo proveedor",
-  "Disponible venta",
-  "Ubicacion",
+  "Precio venta",
   "Fecha registro",
+];
+
+const sortOptions: Array<{ value: SortKey; label: string }> = [
+  { value: "newest", label: "Más nuevos primero" },
+  { value: "oldest", label: "Más antiguos primero" },
+  { value: "sku-asc", label: "SKU A-Z" },
+  { value: "sku-desc", label: "SKU Z-A" },
+  { value: "name-asc", label: "Nombre A-Z" },
+  { value: "name-desc", label: "Nombre Z-A" },
+  { value: "estado", label: "Estado" },
+  { value: "proveedor-compra", label: "Proveedor de compra" },
+  { value: "costo-desc", label: "Costo mayor a menor" },
+  { value: "precio-desc", label: "Precio mayor a menor" },
+];
+
+const groupOptions: Array<{ value: GroupKey; label: string }> = [
+  { value: "none", label: "Sin agrupar" },
+  { value: "estado", label: "Estado Item" },
+  { value: "proveedor-compra", label: "Proveedor de compra" },
+  { value: "proveedor-logistico", label: "Proveedor logístico / intermediario" },
+  { value: "packing", label: "Packing relacionado" },
+  { value: "tipo-operacion", label: "Tipo de operación" },
+  { value: "categoria", label: "Categoría" },
 ];
 
 function normalizeText(value: string) {
@@ -85,19 +135,97 @@ function formatDate(value?: string) {
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("es-EC", {
     day: "2-digit",
-    month: "short",
+    month: "2-digit",
     year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
     timeZone: "America/Guayaquil",
-  }).format(date);
+  }).format(date).replace(",", "");
 }
 
-function providerMap(proveedores: ShippingV2Proveedor[]) {
-  return new Map(proveedores.map((proveedor) => [proveedor.id, proveedor.nombre]));
+function timestampValue(item: ResolvedItem) {
+  const parsed = Date.parse(item.fechaRegistro || item.createdTime || "");
+  return Number.isNaN(parsed) ? -Infinity : parsed;
 }
 
-function safeRelationName(value: string | undefined, namesById: Map<string, string>) {
-  if (!value) return "";
-  return namesById.get(value) || value;
+function compareText(a: string | null | undefined, b: string | null | undefined) {
+  return displayValue(a, "").localeCompare(displayValue(b, ""), "es", { numeric: true, sensitivity: "base" });
+}
+
+function compareNumberDesc(a: number | null | undefined, b: number | null | undefined) {
+  return (b ?? -Infinity) - (a ?? -Infinity);
+}
+
+function sortItems(items: ResolvedItem[], sortBy: SortKey) {
+  return [...items].sort((a, b) => {
+    const byNewest = timestampValue(b) - timestampValue(a);
+    const byOldest = timestampValue(a) - timestampValue(b);
+
+    switch (sortBy) {
+      case "oldest":
+        return byOldest || compareText(a.sku, b.sku);
+      case "sku-asc":
+        return compareText(a.sku, b.sku) || byNewest;
+      case "sku-desc":
+        return compareText(b.sku, a.sku) || byNewest;
+      case "name-asc":
+        return compareText(a.nombre, b.nombre) || byNewest;
+      case "name-desc":
+        return compareText(b.nombre, a.nombre) || byNewest;
+      case "estado":
+        return compareText(a.estado, b.estado) || byNewest;
+      case "proveedor-compra":
+        return compareText(a.proveedorCompraDisplay, b.proveedorCompraDisplay) || byNewest;
+      case "costo-desc":
+        return compareNumberDesc(a.costoProveedor, b.costoProveedor) || byNewest;
+      case "precio-desc":
+        return compareNumberDesc(a.precioVenta, b.precioVenta) || byNewest;
+      case "newest":
+      default:
+        return byNewest || compareText(a.sku, b.sku);
+    }
+  });
+}
+
+function packingLabel(item: ResolvedItem) {
+  return item.packingId || item.legacyPackingId || "";
+}
+
+function groupValue(item: ResolvedItem, groupBy: GroupKey) {
+  switch (groupBy) {
+    case "estado":
+      return item.estado;
+    case "proveedor-compra":
+      return item.proveedorCompraDisplay;
+    case "proveedor-logistico":
+      return item.proveedorLogisticoDisplay;
+    case "packing":
+      return packingLabel(item);
+    case "tipo-operacion":
+      return item.tipoOperacion;
+    case "categoria":
+      return item.categoria;
+    case "none":
+    default:
+      return "";
+  }
+}
+
+function groupItems(items: ResolvedItem[], groupBy: GroupKey): ItemGroup[] {
+  if (groupBy === "none") return [{ key: "all", label: "", items }];
+
+  const groups = new Map<string, ItemGroup>();
+  items.forEach((item) => {
+    const rawLabel = displayValue(groupValue(item, groupBy), "Sin dato");
+    const label = rawLabel === "—" ? "Sin dato" : rawLabel;
+    const key = normalizeText(label) || "sin-dato";
+    const group = groups.get(key) || { key, label, items: [] };
+    group.items.push(item);
+    groups.set(key, group);
+  });
+
+  return Array.from(groups.values());
 }
 
 function uniqueValues(items: ResolvedItem[], getValue: (item: ResolvedItem) => string | undefined) {
@@ -149,18 +277,6 @@ function OperationBadge({ value }: { value: string }) {
   return (
     <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${operationTone(value)}`}>
       {displayValue(value)}
-    </span>
-  );
-}
-
-function BooleanBadge({ value }: { value: boolean | null }) {
-  if (value === null) {
-    return <span className="text-[#A7A7A7]">—</span>;
-  }
-
-  return (
-    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${value ? "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]" : "border-[#3A3A36] bg-[#1E1E1E] text-[#A7A7A7]"}`}>
-      {value ? "Si" : "No"}
     </span>
   );
 }
@@ -306,6 +422,35 @@ function FilterGroup({
   );
 }
 
+function ControlSelect<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <label className="min-w-0">
+      <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as T)}
+        className="mt-2 h-10 w-full rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm font-medium text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function MobileItemCard({ item, onOpen }: { item: ResolvedItem; onOpen: () => void }) {
   return (
     <article
@@ -322,7 +467,7 @@ function MobileItemCard({ item, onOpen }: { item: ResolvedItem; onOpen: () => vo
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">{displayValue(item.skuInterno)}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">{displayValue(item.sku)}</p>
           <h3 className="mt-1 truncate text-base font-semibold text-[#F5F5F5]">{displayName(item.nombre)}</h3>
           <p className="mt-1 text-sm text-[#A7A7A7]">{displayValue(item.modelo || item.marca || item.tipoItem)}</p>
         </div>
@@ -330,25 +475,29 @@ function MobileItemCard({ item, onOpen }: { item: ResolvedItem; onOpen: () => vo
       </div>
       <dl className="mt-4 grid gap-2 text-sm">
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Operacion</dt><dd className="text-right text-[#F5F5F5]"><OperationBadge value={item.tipoOperacion} /></dd></div>
-        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Tipo</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.tipoItem)}</dd></div>
+        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Rol general</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.tipoItem)}</dd></div>
+        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Categoría</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.categoria)}</dd></div>
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Proveedor</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.proveedorCompraDisplay)}</dd></div>
+        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Packing</dt><dd className="text-right text-[#F5F5F5]">{displayValue(packingLabel(item))}</dd></div>
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Costo</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.costoProveedor)}</dd></div>
-        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Ubicacion</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.ubicacionActual)}</dd></div>
+        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Precio venta</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.precioVenta)}</dd></div>
+        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Fecha registro</dt><dd className="text-right text-[#F5F5F5]">{formatDate(item.fechaRegistro || item.createdTime)}</dd></div>
       </dl>
     </article>
   );
 }
 
-function DetailField({ label, value }: DetailRow) {
-  return (
-    <div className="rounded-[1rem] border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2">
-      <dt className="text-[11px] font-medium uppercase tracking-normal text-[#A7A7A7]">{label}</dt>
-      <dd className="mt-1 break-words text-sm font-medium text-[#F5F5F5]">{value || "—"}</dd>
-    </div>
-  );
-}
-
-function DetailSection({ title, accent, rows }: { title: string; accent: "lime" | "purple" | "orange" | "yellow"; rows: DetailRow[] }) {
+function DetailSection({
+  title,
+  accent,
+  rows,
+  onSave,
+}: {
+  title: string;
+  accent: "lime" | "purple" | "orange" | "yellow";
+  rows: DetailRow[];
+  onSave: (field: string, value: string | number | boolean | null) => Promise<void>;
+}) {
   const accentClass = {
     lime: "bg-[#D7FF4F]",
     purple: "bg-[#8B73FF]",
@@ -363,79 +512,20 @@ function DetailSection({ title, accent, rows }: { title: string; accent: "lime" 
         <h3 className="text-sm font-semibold text-[#F5F5F5]">{title}</h3>
       </div>
       <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {rows.map((row) => <DetailField key={row.label} {...row} />)}
+        {rows.map((row) => (
+          <InlineEditableField
+            key={row.label}
+            label={row.label}
+            value={row.value}
+            type={row.config?.type ?? "readOnly"}
+            readOnly={(row.readOnly ?? !row.config) || row.config?.category === "readOnly"}
+            options={row.options ?? row.config?.options}
+            displayValue={row.displayValue}
+            onSave={row.config && row.config.category !== "readOnly" ? (value) => onSave(row.config!.field, value) : undefined}
+          />
+        ))}
       </dl>
     </section>
-  );
-}
-
-function PhotoPlaceholder({ item }: { item: ResolvedItem }) {
-  const initials = displayName(item.nombre).slice(0, 2).toUpperCase();
-
-  return (
-    <div className="grid h-full min-h-72 place-items-center rounded-[1.5rem] border border-[#3A3A36] bg-[#1E1F1C]">
-      <div className="text-center">
-        <div className="mx-auto grid h-24 w-24 place-items-center rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-3xl font-black text-[#D7FF4F]">
-          {initials}
-        </div>
-        <p className="mt-4 text-sm font-medium text-[#A7A7A7]">Sin fotos disponibles</p>
-      </div>
-    </div>
-  );
-}
-
-function PhotoGallery({ item }: { item: ResolvedItem }) {
-  const [index, setIndex] = useState(0);
-  const photos = item.fotos;
-  const current = photos[index];
-
-  useEffect(() => {
-    setIndex(0);
-  }, [item.id]);
-
-  if (!photos.length || !current) {
-    return <PhotoPlaceholder item={item} />;
-  }
-
-  function move(direction: -1 | 1) {
-    setIndex((currentIndex) => (currentIndex + direction + photos.length) % photos.length);
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="relative overflow-hidden rounded-[1.5rem] border border-[#3A3A36] bg-[#151515]">
-        <img
-          src={current.url}
-          alt={current.filename || displayName(item.nombre)}
-          className="h-72 w-full object-contain"
-          loading="lazy"
-        />
-        <div className="absolute left-3 top-3 rounded-full border border-[#3A3A36] bg-black/55 px-3 py-1 text-xs font-semibold text-[#F5F5F5] backdrop-blur">
-          {index + 1} / {photos.length}
-        </div>
-        {photos.length > 1 ? (
-          <div className="absolute bottom-3 right-3 flex gap-2">
-            <button type="button" onClick={() => move(-1)} className="grid h-9 w-9 place-items-center rounded-full border border-[#3A3A36] bg-black/60 text-[#F5F5F5] backdrop-blur transition hover:border-[#D7FF4F] hover:text-[#D7FF4F]">‹</button>
-            <button type="button" onClick={() => move(1)} className="grid h-9 w-9 place-items-center rounded-full border border-[#3A3A36] bg-black/60 text-[#F5F5F5] backdrop-blur transition hover:border-[#D7FF4F] hover:text-[#D7FF4F]">›</button>
-          </div>
-        ) : null}
-      </div>
-
-      {photos.length > 1 ? (
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {photos.map((photo, photoIndex) => (
-            <button
-              key={photo.id || photo.url}
-              type="button"
-              onClick={() => setIndex(photoIndex)}
-              className={`h-16 w-20 shrink-0 overflow-hidden rounded-xl border transition ${photoIndex === index ? "border-[#D7FF4F]" : "border-[#3A3A36]"}`}
-            >
-              <img src={photo.thumbnailUrl || photo.url} alt={photo.filename || "Foto"} className="h-full w-full object-cover" loading="lazy" />
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
   );
 }
 
@@ -458,85 +548,6 @@ function attachmentList(attachments: ShippingV2Attachment[]) {
   );
 }
 
-type EditState = {
-  nombre: string;
-  descripcion: string;
-  tipoOperacion: string;
-  tipoItem: string;
-  categoria: string;
-  estado: string;
-  estadoRevision: string;
-  estadoTriangulacion: string;
-  estadoDespiece: string;
-  proveedorId: string;
-  proveedorLogisticoId: string;
-  requierePago: boolean;
-  requierePacking: boolean;
-  afectaInventario: boolean;
-  disponibleVenta: boolean;
-  costoProveedor: string;
-  precioVentaSugerido: string;
-  ubicacionActual: string;
-  condicion: string;
-  observacionesInternas: string;
-  observacionVenta: string;
-};
-
-function editStateFromItem(item: ResolvedItem): EditState {
-  return {
-    nombre: item.nombre || "",
-    descripcion: item.descripcion || "",
-    tipoOperacion: item.tipoOperacion || "",
-    tipoItem: item.tipoItem || "",
-    categoria: item.categoria || "",
-    estado: item.estado || SHIPPING_V2_ITEM_ESTADOS[0] || "",
-    estadoRevision: item.estadoRevision || "",
-    estadoTriangulacion: item.estadoTriangulacion || "",
-    estadoDespiece: item.estadoDespiece || "",
-    proveedorId: item.proveedorId || "",
-    proveedorLogisticoId: item.proveedorLogisticoId || "",
-    requierePago: item.requierePago === true,
-    requierePacking: item.requierePacking === true,
-    afectaInventario: item.afectaInventario === true,
-    disponibleVenta: item.disponibleVenta === true,
-    costoProveedor: item.costoProveedor === null ? "" : String(item.costoProveedor),
-    precioVentaSugerido: item.precioVentaSugerido === null ? "" : String(item.precioVentaSugerido),
-    ubicacionActual: item.ubicacionActual || "",
-    condicion: item.condicion || "",
-    observacionesInternas: item.observacionesInternas || "",
-    observacionVenta: item.observacionVenta || "",
-  };
-}
-
-function EditInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className="h-11 w-full rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70" />;
-}
-
-function EditSelect(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className="h-11 w-full rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70" />;
-}
-
-function EditField({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="block space-y-2">
-      <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function EditToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      className={`rounded-full border px-3 py-2 text-xs font-medium transition ${checked ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] bg-[#151515] text-[#F5F5F5] hover:border-[#D7FF4F]/50"}`}
-    >
-      {label}
-    </button>
-  );
-}
-
 function ItemDetailModal({
   item,
   proveedores,
@@ -548,189 +559,209 @@ function ItemDetailModal({
   onClose: () => void;
   onSaved: (item: ShippingV2Item) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState<EditState>(() => editStateFromItem(item));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [applyingAiName, setApplyingAiName] = useState(false);
+  const [ignoredAiName, setIgnoredAiName] = useState("");
+  const purchaseProviderOptions = useMemo(
+    () => proveedores.filter(canBePurchaseProvider).map((proveedor) => ({ value: proveedor.id, label: getShippingV2ProveedorLabel(proveedor) })),
+    [proveedores]
+  );
+  const itemLogisticsProviderOptions = useMemo(
+    () => proveedores.filter(canBeItemLogisticsProvider).map((proveedor) => ({ value: proveedor.id, label: getShippingV2ProveedorLabel(proveedor) })),
+    [proveedores]
+  );
 
-  function updateEdit<K extends keyof EditState>(key: K, value: EditState[K]) {
-    setEditForm((current) => ({ ...current, [key]: value }));
-  }
-
-  async function saveChanges() {
-    setSaving(true);
-    setError("");
-
+  async function saveField(field: string, value: string | number | boolean | null) {
     const response = await fetch(`/api/shipping-v2/items/${item.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...editForm,
-        skuInterno: item.skuInterno,
-        skuProveedor: item.skuProveedor || "",
-        tipoOperacion: editForm.tipoOperacion,
-        tipoItem: editForm.tipoItem,
-        categoria: editForm.categoria,
-        modelo: item.modelo || "",
-        marca: item.marca || "",
-        numeroSerie: item.numeroSerie || "",
-      }),
+      body: JSON.stringify({ field, value }),
     });
 
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok || !payload.success) {
-      setError(String(payload.error || "No se pudo actualizar el item."));
-      setSaving(false);
-      return;
+      throw new Error(String(payload.error || "No se pudo actualizar el item."));
     }
 
-    setSaving(false);
-    setEditing(false);
     onSaved(payload.data as ShippingV2Item);
+  }
+
+  async function applyAiNameSuggestion() {
+    const suggestion = item.aiNombre?.trim();
+    if (!suggestion || normalizeText(suggestion) === normalizeText(item.nombre)) return;
+
+    setApplyingAiName(true);
+    try {
+      const response = await fetch(`/api/shipping-v2/items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          field: C.nombre.field,
+          value: suggestion,
+          eventDescription: "Nombre del item actualizado con sugerencia IA.",
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) {
+        throw new Error(String(payload.error || "No se pudo aplicar la sugerencia IA."));
+      }
+      onSaved(payload.data as ShippingV2Item);
+      setIgnoredAiName("");
+    } finally {
+      setApplyingAiName(false);
+    }
+  }
+
+  async function refreshItem() {
+    const response = await fetch(`/api/shipping-v2/items/${item.id}`, { cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok && payload.success) {
+      onSaved(payload.data as ShippingV2Item);
+    }
   }
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        if (editing) {
-          setEditing(false);
-          setError("");
-        } else {
-          onClose();
-        }
-      }
+      if (event.key === "Escape") onClose();
     }
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [editing, onClose]);
+  }, [onClose]);
 
-  const displayPrice = item.precioVenta ?? item.precioVentaSugerido;
-  const displayPriceLabel = item.precioVenta !== null ? "Precio venta final" : "Precio venta sugerido";
+  useEffect(() => {
+    setIgnoredAiName("");
+    void refreshItem();
+    const timeout = window.setTimeout(() => {
+      void refreshItem();
+    }, 4000);
+    return () => window.clearTimeout(timeout);
+  }, [item.id]);
 
+  const C = SHIPPING_V2_ITEM_EDIT_FIELDS;
+  const ganancia = item.precioVenta !== null && item.costoProveedor !== null ? item.precioVenta - item.costoProveedor : null;
+  const aiNameSuggestion = item.aiNombre?.trim();
+  const hasAiNameSuggestion = Boolean(aiNameSuggestion && normalizeText(aiNameSuggestion) !== normalizeText(item.nombre) && aiNameSuggestion !== ignoredAiName);
+  const gananciaTone = ganancia !== null && ganancia < 0
+    ? "border-[#FF914D]/35 bg-[#FF914D]/10 text-[#FFB07A]"
+    : "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]";
   const sections: Array<{ title: string; accent: "lime" | "purple" | "orange" | "yellow"; rows: DetailRow[] }> = [
     {
       title: "Identificacion",
       accent: "lime",
       rows: [
-        { label: "Item ID", value: displayValue(item.itemId || item.id) },
-        { label: "SKU interno", value: displayValue(item.skuInterno) },
-        { label: "SKU proveedor", value: displayValue(item.skuProveedor) },
-        { label: "Metodo asignacion SKU", value: displayValue(item.metodoAsignacionSku) },
-        { label: "Proveedor usado como interno", value: displayBoolean(item.skuProveedorUsadoComoInterno) },
-        { label: "SKU duplicado", value: displayBoolean(item.skuDuplicadoDetectado) },
-        { label: "SKU original sugerido", value: displayValue(item.skuOriginalSugerido) },
-        { label: "Numero de serie", value: displayValue(item.numeroSerie) },
-        { label: "Marca", value: displayValue(item.marca) },
-        { label: "Modelo", value: displayValue(item.modelo) },
+        { label: C.sku.label, value: item.sku, config: C.sku },
+        { label: C.skuProveedor.label, value: item.skuProveedor, config: C.skuProveedor },
+        { label: C.numeroSerie.label, value: item.numeroSerie, config: C.numeroSerie },
+        { label: C.marca.label, value: item.marca, config: C.marca },
+        { label: C.modelo.label, value: item.modelo, config: C.modelo },
       ],
     },
     {
       title: "Informacion general",
       accent: "purple",
       rows: [
-        { label: "Nombre", value: displayName(item.nombre) },
-        { label: "Descripcion", value: displayValue(item.descripcion) },
-        { label: "Categoria", value: displayValue(item.categoria) },
-        { label: "Tipo de item", value: displayValue(item.tipoItem) },
-        { label: "Condicion", value: displayValue(item.condicion) },
-        { label: "Cantidad", value: displayValue(item.cantidad ?? item.qty) },
-        { label: "Unidad", value: displayValue(item.unidad) },
+        { label: C.nombre.label, value: item.nombre, displayValue: displayName(item.nombre), config: C.nombre },
+        { label: C.descripcion.label, value: item.descripcion, config: C.descripcion },
+        { label: C.categoria.label, value: item.categoria, config: C.categoria },
+        { label: C.tipoItem.label, value: item.tipoItem, config: C.tipoItem },
+        { label: C.condicion.label, value: item.condicion, config: C.condicion },
+        { label: C.cantidad.label, value: item.cantidad ?? item.qty, config: C.cantidad },
+        { label: C.unidad.label, value: item.unidad, config: C.unidad },
       ],
     },
     {
       title: "Estado e inventario",
       accent: "yellow",
       rows: [
-        { label: "Estado Item", value: <EstadoBadge estado={item.estado} /> },
-        { label: "Estado revision", value: displayValue(item.estadoRevision) },
-        { label: "Estado triangulacion", value: displayValue(item.estadoTriangulacion) },
-        { label: "Estado despiece", value: displayValue(item.estadoDespiece) },
-        { label: "Afecta inventario", value: displayBoolean(item.afectaInventario) },
-        { label: "Disponible venta", value: displayBoolean(item.disponibleVenta) },
-        { label: "Reservado", value: displayBoolean(item.reservado) },
-        { label: "Ubicacion actual", value: displayValue(item.ubicacionActual) },
-        { label: "Origen fisico actual", value: displayValue(item.origenFisicoActual) },
+        { label: C.estadoItem.label, value: item.estado, displayValue: <EstadoBadge estado={item.estado} />, config: C.estadoItem },
+        { label: C.estadoRevision.label, value: item.estadoRevision, config: C.estadoRevision },
+        { label: C.estadoTriangulacion.label, value: item.estadoTriangulacion, config: C.estadoTriangulacion },
+        { label: C.estadoDespiece.label, value: item.estadoDespiece, config: C.estadoDespiece },
+        { label: C.afectaInventario.label, value: item.afectaInventario, displayValue: displayBoolean(item.afectaInventario), config: C.afectaInventario },
+        { label: C.disponibleVenta.label, value: item.disponibleVenta, displayValue: `${displayBoolean(item.disponibleVenta)} · Puede ofrecerse o reservarse; no significa entrega inmediata.`, config: C.disponibleVenta },
+        { label: C.reservado.label, value: item.reservado, config: C.reservado },
+        { label: C.ubicacionActual.label, value: item.ubicacionActual, config: C.ubicacionActual },
+        { label: "Origen físico actual", value: item.origenFisicoActual, readOnly: true },
       ],
     },
     {
       title: "Proveedor y compra",
       accent: "orange",
       rows: [
-        { label: "Proveedor compra", value: displayValue(item.proveedorCompraDisplay) },
-        { label: "Proveedor logistico", value: displayValue(item.proveedorLogisticoDisplay) },
-        { label: "Requiere pago", value: displayBoolean(item.requierePago) },
-        { label: "Pago relacionado", value: displayValue(item.pagoId) },
-        { label: "Costo proveedor", value: formatCurrency(item.costoProveedor) },
-        { label: "Es regalo", value: displayBoolean(item.esRegalo) },
+        { label: C.proveedorCompra.label, value: item.proveedorId, displayValue: displayValue(item.proveedorCompraDisplay), config: C.proveedorCompra, options: purchaseProviderOptions },
+        { label: C.proveedorLogistico.label, value: item.proveedorLogisticoId, displayValue: displayValue(item.proveedorLogisticoDisplay), config: C.proveedorLogistico, options: itemLogisticsProviderOptions },
+        { label: C.requierePago.label, value: item.requierePago, displayValue: displayBoolean(item.requierePago), config: C.requierePago },
+        { label: C.pagoRelacionado.label, value: item.pagoId, config: C.pagoRelacionado },
+        { label: C.costoProveedor.label, value: item.costoProveedor, displayValue: formatCurrency(item.costoProveedor), config: C.costoProveedor },
+        { label: "Es regalo", value: item.esRegalo, displayValue: displayBoolean(item.esRegalo), readOnly: true },
       ],
     },
     {
       title: "Packing y tracking",
       accent: "purple",
       rows: [
-        { label: "Requiere packing", value: displayBoolean(item.requierePacking) },
-        { label: "Packing relacionado", value: displayValue(item.packingId) },
-        { label: "Tracking directo", value: displayValue(item.trackingDirecto) },
-        { label: "Tracking hacia intermediario", value: displayValue(item.trackingHaciaIntermediario) },
-        { label: "Tracking desde intermediario", value: displayValue(item.trackingDesdeIntermediario) },
+        { label: C.requierePacking.label, value: item.requierePacking, displayValue: displayBoolean(item.requierePacking), config: C.requierePacking },
+        { label: C.packingRelacionado.label, value: item.packingId, config: C.packingRelacionado },
+        { label: "Tracking directo", value: item.trackingDirecto, readOnly: true },
+        { label: "Tracking hacia intermediario", value: item.trackingHaciaIntermediario, readOnly: true },
+        { label: "Tracking desde intermediario", value: item.trackingDesdeIntermediario, readOnly: true },
       ],
     },
     {
       title: "Costos y venta",
       accent: "lime",
       rows: [
-        { label: "Costo proveedor", value: formatCurrency(item.costoProveedor) },
-        { label: "Costo asignado despiece", value: formatCurrency(item.costoAsignadoDespiece) },
-        { label: "Costo logistico asignado", value: formatCurrency(item.costoLogisticoAsignado) },
-        { label: "Costo total estimado", value: formatCurrency(item.costoTotalEstimado) },
-        { label: "Precio venta sugerido", value: formatCurrency(item.precioVentaSugerido) },
-        { label: "Precio venta final", value: formatCurrency(item.precioVenta) },
+        { label: C.costoProveedor.label, value: item.costoProveedor, displayValue: formatCurrency(item.costoProveedor), config: C.costoProveedor },
+        { label: "Costo asignado despiece", value: item.costoAsignadoDespiece, displayValue: formatCurrency(item.costoAsignadoDespiece), readOnly: true },
+        { label: "Costo logístico asignado", value: item.costoLogisticoAsignado, displayValue: formatCurrency(item.costoLogisticoAsignado), readOnly: true },
+        { label: "Costo total estimado", value: item.costoTotalEstimado, displayValue: formatCurrency(item.costoTotalEstimado), readOnly: true },
+        { label: C.precioVentaSugerido.label, value: item.precioVentaSugerido, displayValue: formatCurrency(item.precioVentaSugerido), config: C.precioVentaSugerido },
+        { label: C.precioVentaFinal.label, value: item.precioVenta, displayValue: formatCurrency(item.precioVenta), config: C.precioVentaFinal },
       ],
     },
     {
       title: "Despiece y repuestos",
       accent: "yellow",
       rows: [
-        { label: "Item padre", value: displayValue(item.itemPadreId) },
-        { label: "Items hijos", value: item.itemHijoIds.length ? item.itemHijoIds.join(", ") : "—" },
-        { label: "Motivo despiece", value: displayValue(item.motivoDespiece) },
-        { label: "Fecha despiece", value: formatDate(item.fechaDespiece) },
-        { label: "Responsable despiece", value: displayValue(item.responsableDespiece) },
-        { label: "Parte recuperada", value: displayBoolean(item.esParteRecuperada) },
-        { label: "Es repuesto", value: displayBoolean(item.esRepuesto) },
-        { label: "Uso local", value: displayBoolean(item.usoLocal) },
+        { label: C.itemPadre.label, value: item.itemPadreId, config: C.itemPadre },
+        { label: C.itemsHijos.label, value: item.itemHijoIds.join(", "), displayValue: item.itemHijoIds.length ? item.itemHijoIds.join(", ") : "—", config: C.itemsHijos },
+        { label: "Motivo despiece", value: item.motivoDespiece, readOnly: true },
+        { label: "Fecha despiece", value: item.fechaDespiece, displayValue: formatDate(item.fechaDespiece), readOnly: true },
+        { label: "Responsable despiece", value: item.responsableDespiece, readOnly: true },
+        { label: "Parte recuperada", value: item.esParteRecuperada, displayValue: displayBoolean(item.esParteRecuperada), readOnly: true },
+        { label: C.esRepuesto.label, value: item.esRepuesto, config: C.esRepuesto },
+        { label: C.esUsoLocal.label, value: item.usoLocal, config: C.esUsoLocal },
       ],
     },
     {
       title: "Observaciones y evidencias",
       accent: "orange",
       rows: [
-        { label: "Observaciones internas", value: displayValue(item.observacionesInternas) },
-        { label: "Observacion venta", value: displayValue(item.observacionVenta) },
-        { label: "Evidencias", value: attachmentList(item.evidencias) },
+        { label: C.observacionesInternas.label, value: item.observacionesInternas, config: C.observacionesInternas },
+        { label: C.observacionVenta.label, value: item.observacionVenta, config: C.observacionVenta },
+        { label: "Evidencias", value: "", displayValue: attachmentList(item.evidencias), readOnly: true },
       ],
     },
     {
       title: "Migracion",
       accent: "purple",
       rows: [
-        { label: "Legacy Item ID", value: displayValue(item.legacyItemId) },
-        { label: "Legacy Pago ID", value: displayValue(item.legacyPagoId) },
-        { label: "Legacy Packing ID", value: displayValue(item.legacyPackingId) },
-        { label: "Fuente migracion", value: displayValue(item.fuenteMigracion) },
-        { label: "Estado migracion", value: displayValue(item.estadoMigracion) },
+        { label: C.legacyItemId.label, value: item.legacyItemId, config: C.legacyItemId },
+        { label: C.legacyPagoId.label, value: item.legacyPagoId, config: C.legacyPagoId },
+        { label: C.legacyPackingId.label, value: item.legacyPackingId, config: C.legacyPackingId },
+        { label: C.fuenteMigracion.label, value: item.fuenteMigracion, config: C.fuenteMigracion },
+        { label: C.estadoMigracion.label, value: item.estadoMigracion, config: C.estadoMigracion },
       ],
     },
     {
       title: "Auditoria",
       accent: "lime",
       rows: [
-        { label: "Fecha registro", value: formatDate(item.fechaRegistro || item.createdTime) },
-        { label: "Registrado por", value: displayValue(item.registradoPor) },
-        { label: "Ultima actualizacion", value: formatDate(item.ultimaActualizacion) },
-        { label: "Actualizado por", value: displayValue(item.actualizadoPor) },
+        { label: C.fechaRegistro.label, value: item.fechaRegistro || item.createdTime, displayValue: formatDate(item.fechaRegistro || item.createdTime), config: C.fechaRegistro },
+        { label: C.registradoPor.label, value: item.registradoPor, config: C.registradoPor },
+        { label: C.ultimaActualizacion.label, value: item.ultimaActualizacion, displayValue: formatDate(item.ultimaActualizacion), config: C.ultimaActualizacion },
+        { label: C.actualizadoPor.label, value: item.actualizadoPor, config: C.actualizadoPor },
       ],
     },
   ];
@@ -745,19 +776,11 @@ function ItemDetailModal({
       <article className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[2rem] border border-[#3A3A36] bg-[#1E1F1C] shadow-2xl shadow-black/50">
         <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[#3A3A36] bg-[#1E1F1C]/95 px-5 py-4 backdrop-blur">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">{displayValue(item.skuInterno)}</p>
+            <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">{displayValue(item.sku)}</p>
             <h2 className="mt-1 truncate text-2xl font-semibold text-[#F5F5F5]">{displayName(item.nombre)}</h2>
+            <p className="mt-1 text-xs text-[#A7A7A7]">Haz clic en un campo editable para modificarlo.</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {!editing ? (
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className="rounded-full border border-[#D7FF4F]/60 bg-[#D7FF4F]/10 px-4 py-2 text-sm font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515]"
-              >
-                Editar
-              </button>
-            ) : null}
             <button
               type="button"
               onClick={onClose}
@@ -771,27 +794,107 @@ function ItemDetailModal({
 
         <div className="max-h-[calc(92vh-74px)] overflow-y-auto p-4 sm:p-5">
           <section className="grid gap-5 lg:grid-cols-[minmax(280px,420px)_1fr]">
-            <PhotoGallery item={item} />
+            <ItemPhotoViewer
+              itemId={item.id}
+              itemName={item.nombre}
+              fotos={item.fotos}
+              onUpdated={onSaved}
+            />
             <div className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2B27] p-5">
               <div className="flex flex-wrap gap-2">
                 <EstadoBadge estado={item.estado} />
                 <OperationBadge value={item.tipoOperacion} />
                 <AvailabilityBadge item={item} />
               </div>
-              <h3 className="mt-5 text-3xl font-semibold text-[#F5F5F5]">{displayName(item.nombre)}</h3>
-              <p className="mt-2 text-sm leading-6 text-[#A7A7A7]">{displayValue(item.descripcion, "Sin descripcion registrada.")}</p>
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[1.25rem] bg-[#D7FF4F] p-4 text-[#151515]">
-                  <p className="text-xs font-bold uppercase tracking-normal">{displayPriceLabel}</p>
-                  <p className="mt-2 text-3xl font-semibold tabular-nums">{formatCurrency(displayPrice)}</p>
+              <InlineEditableField
+                label={C.nombre.label}
+                value={item.nombre}
+                type={C.nombre.type}
+                displayValue={displayName(item.nombre)}
+                hideLabel
+                className="mt-5 rounded-lg transition"
+                valueClassName="min-h-9 break-words text-3xl font-semibold leading-tight text-[#F5F5F5]"
+                onSave={(value) => saveField(C.nombre.field, value)}
+              />
+              <InlineEditableField
+                label={C.descripcion.label}
+                value={item.descripcion}
+                type={C.descripcion.type}
+                displayValue={displayValue(item.descripcion, "Sin descripcion registrada.")}
+                hideLabel
+                className="mt-2 rounded-lg transition"
+                valueClassName="min-h-6 break-words text-sm leading-6 text-[#A7A7A7]"
+                onSave={(value) => saveField(C.descripcion.field, value)}
+              />
+              {hasAiNameSuggestion ? (
+                <div className="mt-4 rounded-[1.25rem] border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Sugerencia IA disponible</p>
+                  <p className="mt-2 text-sm text-[#A7A7A7]">Airtable AI generó una versión más ordenada. Puedes aplicarla si te parece correcta.</p>
+                  <div className="mt-3 grid gap-2">
+                    <div className="rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Nombre actual</p>
+                      <p className="mt-1 text-sm text-[#F5F5F5]">{displayName(item.nombre)}</p>
+                    </div>
+                    <div className="rounded-[1rem] border border-[#D7FF4F]/35 bg-[#151515] p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Nombre sugerido</p>
+                      <p className="mt-1 text-sm text-[#F5F5F5]">{aiNameSuggestion}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void applyAiNameSuggestion()}
+                      disabled={applyingAiName}
+                      className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-xs font-bold uppercase tracking-normal text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {applyingAiName ? "Aplicando..." : "Aplicar sugerencia"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIgnoredAiName(aiNameSuggestion || "")}
+                      disabled={applyingAiName}
+                      className="rounded-full border border-[#3A3A36] bg-[#252622] px-4 py-2 text-xs font-semibold uppercase tracking-normal text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60"
+                    >
+                      Ignorar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void refreshItem()}
+                      disabled={applyingAiName}
+                      className="rounded-full border border-[#3A3A36] bg-[#151515] px-4 py-2 text-xs font-semibold uppercase tracking-normal text-[#A7A7A7] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60"
+                    >
+                      Actualizar sugerencia
+                    </button>
+                  </div>
                 </div>
-                <div className="rounded-[1.25rem] border border-[#3A3A36] bg-[#151515] p-4">
-                  <p className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Costo proveedor</p>
-                  <p className="mt-2 text-2xl font-semibold text-[#F5F5F5] tabular-nums">{formatCurrency(item.costoProveedor)}</p>
+              ) : null}
+              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                <InlineEditableField
+                  label={C.precioVentaFinal.label}
+                  value={item.precioVenta}
+                  type={C.precioVentaFinal.type}
+                  displayValue={formatCurrency(item.precioVenta)}
+                  className="rounded-[1.25rem] bg-[#D7FF4F] p-4 text-[#151515] transition"
+                  labelClassName="text-xs font-bold uppercase tracking-normal text-[#151515]"
+                  valueClassName="mt-2 min-h-9 break-words text-3xl font-semibold tabular-nums text-[#151515]"
+                  onSave={(value) => saveField(C.precioVentaFinal.field, value)}
+                />
+                <InlineEditableField
+                  label={C.costoProveedor.label}
+                  value={item.costoProveedor}
+                  type={C.costoProveedor.type}
+                  displayValue={formatCurrency(item.costoProveedor)}
+                  className="rounded-[1.25rem] border border-[#3A3A36] bg-[#151515] p-4 transition"
+                  labelClassName="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]"
+                  valueClassName="mt-2 min-h-8 break-words text-2xl font-semibold text-[#F5F5F5] tabular-nums"
+                  onSave={(value) => saveField(C.costoProveedor.field, value)}
+                />
+                <div className={`rounded-[1.25rem] border p-4 ${gananciaTone}`}>
+                  <p className="text-xs font-semibold uppercase tracking-normal">Ganancia</p>
+                  <p className="mt-2 min-h-8 break-words text-2xl font-semibold tabular-nums">{formatCurrency(ganancia)}</p>
                 </div>
               </div>
               <div className="mt-5 flex flex-wrap gap-2">
-                {item.disponibleVenta ? <BooleanBadge value={item.disponibleVenta} /> : null}
                 {item.reservado ? <span className="rounded-full border border-[#F4E85B]/35 bg-[#F4E85B]/12 px-3 py-1 text-xs text-[#F4E85B]">Reservado</span> : null}
                 {item.usoLocal ? <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/12 px-3 py-1 text-xs text-[#C9BFFF]">Uso local</span> : null}
                 {item.esRepuesto ? <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/12 px-3 py-1 text-xs text-[#C9BFFF]">Repuesto</span> : null}
@@ -800,122 +903,9 @@ function ItemDetailModal({
             </div>
           </section>
 
-          {error ? (
-            <div className="mt-5 rounded-[1.25rem] border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{error}</div>
-          ) : null}
-
-          {editing ? (
-            <section className="mt-5 rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2B27] p-4">
-              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-[#F5F5F5]">Edición básica</h3>
-                  <p className="mt-1 text-sm text-[#A7A7A7]">No modifica pagos, packings, relaciones legacy, fotos ni evidencias.</p>
-                </div>
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => { setEditing(false); setEditForm(editStateFromItem(item)); setError(""); }} className="rounded-full border border-[#3A3A36] bg-[#151515] px-4 py-2 text-sm text-[#F5F5F5] transition hover:border-[#D7FF4F]/60">
-                    Cancelar
-                  </button>
-                  <button type="button" disabled={saving} onClick={saveChanges} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] transition disabled:cursor-not-allowed disabled:opacity-60">
-                    {saving ? "Guardando..." : "Guardar cambios"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                <EditField label="Nombre del item">
-                  <EditInput value={editForm.nombre} onChange={(event) => updateEdit("nombre", event.target.value)} />
-                </EditField>
-                <EditField label="Estado Item">
-                  <EditSelect value={editForm.estado} onChange={(event) => updateEdit("estado", event.target.value)}>
-                    {SHIPPING_V2_ITEM_ESTADOS.map((option) => <option key={option}>{option}</option>)}
-                  </EditSelect>
-                </EditField>
-                <EditField label="Tipo de operación">
-                  <EditSelect value={editForm.tipoOperacion} onChange={(event) => updateEdit("tipoOperacion", event.target.value)}>
-                    {SHIPPING_V2_TIPOS_OPERACION.map((option) => <option key={option}>{option}</option>)}
-                  </EditSelect>
-                </EditField>
-                <EditField label="Tipo de item">
-                  <EditSelect value={editForm.tipoItem} onChange={(event) => updateEdit("tipoItem", event.target.value)}>
-                    {SHIPPING_V2_TIPOS_ITEM.map((option) => <option key={option}>{option}</option>)}
-                  </EditSelect>
-                </EditField>
-                <EditField label="Categoría">
-                  <EditSelect value={editForm.categoria} onChange={(event) => updateEdit("categoria", event.target.value)}>
-                    <option value="">—</option>
-                    {SHIPPING_V2_CATEGORIAS.map((option) => <option key={option}>{option}</option>)}
-                  </EditSelect>
-                </EditField>
-                <EditField label="Condición">
-                  <EditSelect value={editForm.condicion} onChange={(event) => updateEdit("condicion", event.target.value)}>
-                    <option value="">—</option>
-                    {SHIPPING_V2_CONDICIONES.map((option) => <option key={option}>{option}</option>)}
-                  </EditSelect>
-                </EditField>
-                <EditField label="Estado revisión">
-                  <EditSelect value={editForm.estadoRevision} onChange={(event) => updateEdit("estadoRevision", event.target.value)}>
-                    <option value="">—</option>
-                    {SHIPPING_V2_ESTADOS_REVISION.map((option) => <option key={option}>{option}</option>)}
-                  </EditSelect>
-                </EditField>
-                <EditField label="Estado triangulación">
-                  <EditSelect value={editForm.estadoTriangulacion} onChange={(event) => updateEdit("estadoTriangulacion", event.target.value)}>
-                    <option value="">—</option>
-                    {SHIPPING_V2_ESTADOS_TRIANGULACION.map((option) => <option key={option}>{option}</option>)}
-                  </EditSelect>
-                </EditField>
-                <EditField label="Estado despiece">
-                  <EditSelect value={editForm.estadoDespiece} onChange={(event) => updateEdit("estadoDespiece", event.target.value)}>
-                    <option value="">—</option>
-                    {SHIPPING_V2_ESTADOS_DESPIECE.map((option) => <option key={option}>{option}</option>)}
-                  </EditSelect>
-                </EditField>
-                <EditField label="Proveedor compra">
-                  <EditSelect value={editForm.proveedorId} onChange={(event) => updateEdit("proveedorId", event.target.value)}>
-                    <option value="">Sin proveedor</option>
-                    {proveedores.map((proveedor) => <option key={proveedor.id} value={proveedor.id}>{proveedor.nombre}</option>)}
-                  </EditSelect>
-                </EditField>
-                <EditField label="Proveedor logístico">
-                  <EditSelect value={editForm.proveedorLogisticoId} onChange={(event) => updateEdit("proveedorLogisticoId", event.target.value)}>
-                    <option value="">Sin proveedor logístico</option>
-                    {proveedores.map((proveedor) => <option key={proveedor.id} value={proveedor.id}>{proveedor.nombre}</option>)}
-                  </EditSelect>
-                </EditField>
-                <EditField label="Ubicación actual">
-                  <EditInput value={editForm.ubicacionActual} onChange={(event) => updateEdit("ubicacionActual", event.target.value)} />
-                </EditField>
-                <EditField label="Costo proveedor">
-                  <EditInput type="number" step="0.01" value={editForm.costoProveedor} onChange={(event) => updateEdit("costoProveedor", event.target.value)} />
-                </EditField>
-                <EditField label="Precio venta sugerido">
-                  <EditInput type="number" step="0.01" value={editForm.precioVentaSugerido} onChange={(event) => updateEdit("precioVentaSugerido", event.target.value)} />
-                </EditField>
-                <div className="flex flex-wrap content-end gap-2">
-                  <EditToggle label="Requiere pago" checked={editForm.requierePago} onChange={(checked) => updateEdit("requierePago", checked)} />
-                  <EditToggle label="Requiere packing" checked={editForm.requierePacking} onChange={(checked) => updateEdit("requierePacking", checked)} />
-                  <EditToggle label="Afecta inventario" checked={editForm.afectaInventario} onChange={(checked) => updateEdit("afectaInventario", checked)} />
-                  <EditToggle label="Disponible venta" checked={editForm.disponibleVenta} onChange={(checked) => updateEdit("disponibleVenta", checked)} />
-                </div>
-                <label className="block space-y-2 md:col-span-2 xl:col-span-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Descripción</span>
-                  <textarea value={editForm.descripcion} onChange={(event) => updateEdit("descripcion", event.target.value)} className="min-h-24 w-full rounded-[1.25rem] border border-[#3A3A36] bg-[#151515] px-4 py-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70" />
-                </label>
-                <label className="block space-y-2 md:col-span-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Observaciones internas</span>
-                  <textarea value={editForm.observacionesInternas} onChange={(event) => updateEdit("observacionesInternas", event.target.value)} className="min-h-24 w-full rounded-[1.25rem] border border-[#3A3A36] bg-[#151515] px-4 py-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70" />
-                </label>
-                <label className="block space-y-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Observación para venta</span>
-                  <textarea value={editForm.observacionVenta} onChange={(event) => updateEdit("observacionVenta", event.target.value)} className="min-h-24 w-full rounded-[1.25rem] border border-[#3A3A36] bg-[#151515] px-4 py-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70" />
-                </label>
-              </div>
-            </section>
-          ) : (
-            <div className="mt-5 grid gap-4">
-              {sections.map((section) => <DetailSection key={section.title} {...section} />)}
-            </div>
-          )}
+          <div className="mt-5 grid gap-4">
+            {sections.map((section) => <DetailSection key={section.title} {...section} onSave={saveField} />)}
+          </div>
         </div>
       </article>
     </div>
@@ -929,16 +919,25 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
   const [tipoOperacion, setTipoOperacion] = useState(ALL);
   const [proveedorCompra, setProveedorCompra] = useState(ALL);
   const [tipoItem, setTipoItem] = useState(ALL);
+  const [sortBy, setSortBy] = useState<SortKey>("newest");
+  const [groupBy, setGroupBy] = useState<GroupKey>("none");
   const [selectedItem, setSelectedItem] = useState<ResolvedItem | null>(null);
   const [notice, setNotice] = useState("");
 
-  const namesById = useMemo(() => providerMap(proveedores), [proveedores]);
+  useEffect(() => {
+    const storedNotice = window.sessionStorage.getItem("shipping-v2:notice");
+    if (!storedNotice) return;
+    window.sessionStorage.removeItem("shipping-v2:notice");
+    setNotice(storedNotice);
+  }, []);
+
+  const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
 
   const resolvedItems = useMemo<ResolvedItem[]>(() => items.map((item) => ({
     ...item,
-    proveedorCompraDisplay: item.proveedorNombre || safeRelationName(item.proveedorId, namesById),
-    proveedorLogisticoDisplay: item.proveedorLogisticoNombre || safeRelationName(item.proveedorLogisticoId, namesById),
-  })), [items, namesById]);
+    proveedorCompraDisplay: resolveShippingV2ProveedorLabel(item.proveedorId, providerLabelsById),
+    proveedorLogisticoDisplay: resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabelsById),
+  })), [items, providerLabelsById]);
 
   const filterOptions = useMemo(() => ({
     estados: uniqueValues(resolvedItems, (item) => item.estado),
@@ -953,19 +952,12 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
     // Si Shipping Items crece a miles de registros, conviene mover esta busqueda a paginacion o filtros server-side.
     return resolvedItems.filter((item) => {
       const searchText = [
-        item.id,
-        item.itemId,
-        item.skuInterno,
-        item.codigo,
+        item.sku,
         item.skuProveedor,
         item.nombre,
         item.modelo,
         item.marca,
         item.numeroSerie,
-        item.descripcion,
-        item.categoria,
-        item.proveedorCompraDisplay,
-        item.proveedorLogisticoDisplay,
       ].map((value) => normalizeText(value ?? "")).join(" ");
 
       return (
@@ -977,6 +969,10 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
       );
     });
   }, [estado, proveedorCompra, resolvedItems, search, tipoItem, tipoOperacion]);
+
+  const sortedItems = useMemo(() => sortItems(filteredItems, sortBy), [filteredItems, sortBy]);
+  const groupedItems = useMemo(() => groupItems(sortedItems, groupBy), [groupBy, sortedItems]);
+  const visibleGroupCount = groupBy === "none" ? 0 : groupedItems.length;
 
   const summary = useMemo(() => ({
     total: resolvedItems.length,
@@ -1026,11 +1022,11 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
 
         <div className="relative mt-5 grid gap-4">
           <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Buscar por SKU, Item ID, nombre, descripcion, categoria, proveedor o serie</span>
+            <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Buscar por SKU, SKU proveedor, nombre, modelo, marca o serie</span>
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="SKU interno, SKU proveedor, Item ID, proveedor, descripcion, modelo o serie"
+              placeholder="SKU, SKU proveedor, nombre, modelo, marca o serie"
               className="mt-2 h-12 w-full rounded-full border border-[#3A3A36] bg-[#151515] px-5 text-sm text-[#F5F5F5] outline-none placeholder:text-[#A7A7A7] shadow-inner shadow-black/20 focus:border-[#D7FF4F]/70"
             />
           </label>
@@ -1039,7 +1035,12 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
             <FilterGroup label="Estado Item" values={filterOptions.estados} selected={estado} onChange={setEstado} />
             <FilterGroup label="Tipo de operación" values={filterOptions.operaciones} selected={tipoOperacion} onChange={setTipoOperacion} />
             <FilterGroup label="Proveedor compra" values={filterOptions.proveedores} selected={proveedorCompra} onChange={setProveedorCompra} />
-            <FilterGroup label="Tipo de item" values={filterOptions.tipos} selected={tipoItem} onChange={setTipoItem} />
+            <FilterGroup label="Rol general del item" values={filterOptions.tipos} selected={tipoItem} onChange={setTipoItem} />
+          </div>
+
+          <div className="grid gap-3 rounded-[1.35rem] border border-[#3A3A36] bg-[#151515]/70 p-3 sm:grid-cols-2 lg:max-w-3xl">
+            <ControlSelect label="Ordenar por" value={sortBy} options={sortOptions} onChange={setSortBy} />
+            <ControlSelect label="Agrupar por" value={groupBy} options={groupOptions} onChange={setGroupBy} />
           </div>
         </div>
       </section>
@@ -1061,7 +1062,10 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
         <div className="flex flex-col gap-2 border-b border-[#3A3A36] bg-[#30312D] px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-[#F5F5F5]">Listado</h2>
-            <p className="mt-1 text-sm text-[#A7A7A7]">Total leido: {resolvedItems.length} · Mostrando: {filteredItems.length}</p>
+            <p className="mt-1 text-sm text-[#A7A7A7]">
+              Total leído: {resolvedItems.length} · Mostrando: {sortedItems.length}
+              {visibleGroupCount ? ` · Grupos: ${visibleGroupCount}` : ""}
+            </p>
           </div>
           <span className="w-fit rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-4 py-2 text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">
             Solo lectura
@@ -1078,31 +1082,48 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
               </tr>
             </thead>
             <tbody className="text-[#F5F5F5]">
-              {filteredItems.length ? filteredItems.map((item) => (
-                <tr
-                  key={item.id}
-                  tabIndex={0}
-                  onClick={(event) => openItemFromRow(event, item)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setSelectedItem(item);
-                    }
-                  }}
-                  className="cursor-pointer transition hover:bg-[#CFFF3A]/[0.055] focus:bg-[#CFFF3A]/[0.055] focus:outline-none"
-                >
-                  <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 font-semibold text-[#CFFF3A]">{displayValue(item.skuInterno)}</td>
-                  <td className="max-w-[280px] border-b border-[#3A3A36]/80 px-4 py-3"><span className="block truncate">{displayName(item.nombre)}</span></td>
-                  <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3"><OperationBadge value={item.tipoOperacion} /></td>
-                  <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3"><EstadoBadge estado={item.estado} /></td>
-                  <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-[#A7A7A7]">{displayValue(item.tipoItem)}</td>
-                  <td className="max-w-[220px] border-b border-[#3A3A36]/80 px-4 py-3"><span className="block truncate">{displayValue(item.proveedorCompraDisplay)}</span></td>
-                  <td className="max-w-[220px] border-b border-[#3A3A36]/80 px-4 py-3"><span className="block truncate">{displayValue(item.proveedorLogisticoDisplay)}</span></td>
-                  <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-right tabular-nums">{formatCurrency(item.costoProveedor)}</td>
-                  <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3"><BooleanBadge value={item.disponibleVenta} /></td>
-                  <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-[#A7A7A7]">{displayValue(item.ubicacionActual)}</td>
-                  <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-[#A7A7A7]">{formatDate(item.fechaRegistro || item.createdTime)}</td>
-                </tr>
+              {sortedItems.length ? groupedItems.map((group) => (
+                <Fragment key={group.key}>
+                  {groupBy !== "none" ? (
+                    <tr>
+                      <td colSpan={columns.length} className="border-b border-[#3A3A36] bg-[#1E1F1C] px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-semibold text-[#F5F5F5]">{group.label}</span>
+                          <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-[11px] font-semibold text-[#D7FF4F]">
+                            {group.items.length} items
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  {group.items.map((item) => (
+                    <tr
+                      key={item.id}
+                      tabIndex={0}
+                      onClick={(event) => openItemFromRow(event, item)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedItem(item);
+                        }
+                      }}
+                      className="cursor-pointer transition hover:bg-[#CFFF3A]/[0.055] focus:bg-[#CFFF3A]/[0.055] focus:outline-none"
+                    >
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 font-semibold text-[#CFFF3A]">{displayValue(item.sku)}</td>
+                      <td className="max-w-[280px] border-b border-[#3A3A36]/80 px-4 py-3"><span className="block truncate">{displayName(item.nombre)}</span></td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3"><OperationBadge value={item.tipoOperacion} /></td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3"><EstadoBadge estado={item.estado} /></td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-[#A7A7A7]">{displayValue(item.tipoItem)}</td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-[#A7A7A7]">{displayValue(item.categoria)}</td>
+                      <td className="max-w-[220px] border-b border-[#3A3A36]/80 px-4 py-3"><span className="block truncate">{displayValue(item.proveedorCompraDisplay)}</span></td>
+                      <td className="max-w-[220px] border-b border-[#3A3A36]/80 px-4 py-3"><span className="block truncate">{displayValue(item.proveedorLogisticoDisplay)}</span></td>
+                      <td className="max-w-[180px] border-b border-[#3A3A36]/80 px-4 py-3 text-[#A7A7A7]"><span className="block truncate">{displayValue(packingLabel(item))}</span></td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-right tabular-nums">{formatCurrency(item.costoProveedor)}</td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-right tabular-nums">{formatCurrency(item.precioVenta)}</td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-[#A7A7A7]">{formatDate(item.fechaRegistro || item.createdTime)}</td>
+                    </tr>
+                  ))}
+                </Fragment>
               )) : (
                 <tr>
                   <td colSpan={columns.length} className="px-4 py-12 text-center text-[#A7A7A7]">
@@ -1115,8 +1136,20 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
         </div>
 
         <div className="grid gap-3 p-4 xl:hidden">
-          {filteredItems.length ? filteredItems.map((item) => (
-            <MobileItemCard key={item.id} item={item} onOpen={() => setSelectedItem(item)} />
+          {sortedItems.length ? groupedItems.map((group) => (
+            <div key={group.key} className="grid gap-3">
+              {groupBy !== "none" ? (
+                <div className="flex items-center justify-between rounded-[1.15rem] border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3">
+                  <span className="text-sm font-semibold text-[#F5F5F5]">{group.label}</span>
+                  <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-[11px] font-semibold text-[#D7FF4F]">
+                    {group.items.length} items
+                  </span>
+                </div>
+              ) : null}
+              {group.items.map((item) => (
+                <MobileItemCard key={item.id} item={item} onOpen={() => setSelectedItem(item)} />
+              ))}
+            </div>
           )) : (
             <div className="rounded-[1.35rem] border border-[#3A3A36] bg-[#1E1E1E] px-4 py-10 text-center text-sm text-[#A7A7A7]">
               No se encontraron items con los filtros actuales.
@@ -1133,8 +1166,8 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
           onSaved={(updatedItem) => {
             const resolved: ResolvedItem = {
               ...updatedItem,
-              proveedorCompraDisplay: updatedItem.proveedorNombre || safeRelationName(updatedItem.proveedorId, namesById),
-              proveedorLogisticoDisplay: updatedItem.proveedorLogisticoNombre || safeRelationName(updatedItem.proveedorLogisticoId, namesById),
+              proveedorCompraDisplay: resolveShippingV2ProveedorLabel(updatedItem.proveedorId, providerLabelsById),
+              proveedorLogisticoDisplay: resolveShippingV2ProveedorLabel(updatedItem.proveedorLogisticoId, providerLabelsById),
             };
             setSelectedItem(resolved);
             setNotice("Item actualizado correctamente.");

@@ -100,9 +100,38 @@ export function getSkuPrefixByCategory(category?: string): string {
 
   if (normalized === "laptop") return "LAP";
   if (normalized === "desktop" || normalized === "imac") return "DES";
+  if (normalized === "accesorio") return "ACC";
+  if (normalized === "ram") return "RAM";
+  if (normalized === "ssd") return "SSD";
+  if (normalized === "tablet") return "TAB";
   if (normalized === "repuesto" || normalized === "mainboard" || normalized === "bateria") return "REP";
   if (normalized === "electronico") return "ELE";
-  return "ITM";
+  return "OTR";
+}
+
+function nextSkuFromExistingSkus(category: string | undefined, existingSkus: Iterable<string>, exists: (sku: string) => boolean) {
+  const prefix = getSkuPrefixByCategory(category);
+  const sequenceNumbers = Array.from(existingSkus)
+    .map((sku) => normalizeSku(sku))
+    .map((sku) => {
+      const match = sku.match(SEQUENCE_PATTERN);
+      return match?.[1] === prefix ? Number(match[2]) : 0;
+    })
+    .filter((number) => Number.isFinite(number) && number > 0);
+
+  let currentNumber = Math.max(0, ...sequenceNumbers) + 1;
+  while (currentNumber < 1000000) {
+    const candidate = `${prefix}-${String(currentNumber).padStart(6, "0")}`;
+    if (!exists(candidate)) return candidate;
+    currentNumber += 1;
+  }
+
+  throw new Error(`No hay SKUs disponibles para el prefijo ${prefix}.`);
+}
+
+export function generateUniqueSkuFromExistingSkus(category: string | undefined, existingSkus: Iterable<string>): string {
+  const normalizedSkus = new Set(Array.from(existingSkus).map((sku) => normalizeSku(sku)).filter(Boolean));
+  return nextSkuFromExistingSkus(category, normalizedSkus, (sku) => normalizedSkus.has(normalizeSku(sku)));
 }
 
 async function findSkuRecord(sku: string, excludeRecordId?: string): Promise<AirtableRecord | null> {

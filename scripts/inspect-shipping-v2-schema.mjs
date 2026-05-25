@@ -19,7 +19,7 @@ const TABLES = {
 };
 
 const EXPECTED_ITEM_FIELDS = [
-  "Item ID",
+  "SKU",
   "Nombre del item",
   "Descripción",
   "Tipo de operación",
@@ -51,8 +51,10 @@ const EXPECTED_ITEM_FIELDS = [
 ];
 
 const ITEM_FIELD_KEYS = {
+  sku: "SKU",
   itemId: "Item ID",
   nombre: "Nombre del item",
+  aiNombre: "AI Nombre del item",
   descripcion: "Descripción",
   tipoOperacion: "Tipo de operación",
   tipoItem: "Tipo de item",
@@ -69,8 +71,12 @@ const ITEM_FIELD_KEYS = {
   packingRelacionado: "Packing relacionado",
   afectaInventario: "Afecta inventario",
   disponibleVenta: "Disponible para venta",
+  reservado: "Reservado",
   costoProveedor: "Costo proveedor",
+  precioVentaFinal: "Precio venta final",
   precioVentaSugerido: "Precio venta sugerido",
+  cantidad: "Cantidad",
+  unidad: "Unidad",
   skuInterno: "SKU interno",
   skuProveedor: "SKU proveedor",
   modelo: "Modelo",
@@ -78,6 +84,8 @@ const ITEM_FIELD_KEYS = {
   numeroSerie: "Número de serie",
   condicion: "Condición",
   ubicacionActual: "Ubicación actual",
+  fotos: "Fotos",
+  evidencias: "Evidencias",
   observacionesInternas: "Observaciones internas",
   observacionVenta: "Observación para venta",
   metodoAsignacionSku: "Método de asignación SKU",
@@ -89,6 +97,9 @@ const ITEM_FIELD_KEYS = {
   ultimaActualizacion: "Última actualización",
   actualizadoPor: "Actualizado por",
   esRegalo: "Es regalo",
+  esParteRecuperada: "Es parte recuperada",
+  esRepuesto: "Es repuesto",
+  esUsoLocal: "Es uso local",
 };
 
 function parseEnvLine(line) {
@@ -186,7 +197,11 @@ function simplifyField(field) {
 
 function validateExpectedItems(itemsTable) {
   const found = Object.keys(itemsTable.fields);
-  const missing = EXPECTED_ITEM_FIELDS.filter((field) => !itemsTable.fields[field]);
+  const hasOfficialSku = Boolean(itemsTable.fields["SKU"] || itemsTable.fields["Item ID"]);
+  const missing = EXPECTED_ITEM_FIELDS.filter((field) => {
+    if (field === "SKU") return !hasOfficialSku;
+    return !itemsTable.fields[field];
+  });
 
   if (!missing.length) {
     return { ok: true, found, missing: [], similar: {} };
@@ -205,6 +220,9 @@ function generatedTs(schema, validation) {
   const itemConstants = Object.fromEntries(
     Object.entries(ITEM_FIELD_KEYS).filter(([, fieldName]) => Boolean(itemsFields[fieldName]))
   );
+  const officialSkuField = itemsFields["SKU"] ? "SKU" : "Item ID";
+  itemConstants.sku = officialSkuField;
+  itemConstants.itemId = officialSkuField;
 
   const itemSelectOptions = Object.fromEntries(
     Object.entries(itemConstants)
