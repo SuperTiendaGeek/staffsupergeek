@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent,
 import {
   SHIPPING_V2_CATEGORIAS,
   SHIPPING_V2_CONDICIONES,
+  SHIPPING_V2_MODOS_LOGISTICOS,
   SHIPPING_V2_TIPOS_ITEM,
   SHIPPING_V2_TIPOS_OPERACION,
   type ShippingV2Proveedor,
@@ -38,6 +39,8 @@ type FormState = {
   requierePacking: boolean;
   afectaInventario: boolean;
   disponibleVenta: boolean;
+  modoLogistico: string;
+  trackingDirecto: string;
   sku: string;
   skuProveedor: string;
   modelo: string;
@@ -67,6 +70,8 @@ const initialState: FormState = {
   requierePacking: true,
   afectaInventario: true,
   disponibleVenta: false,
+  modoLogistico: "Pendiente de packing",
+  trackingDirecto: "",
   sku: "",
   skuProveedor: "",
   modelo: "",
@@ -118,6 +123,16 @@ function FlowBadge({ label, active }: { label: string; active: boolean }) {
 const MAX_PHOTOS = 10;
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024;
 const ALLOWED_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const PACKING_LOGISTICS_OPTIONS = ["Pendiente de packing", "Crear packing individual", "Asignar a packing existente"];
+const SIMPLE_LOGISTICS_OPTIONS = ["No aplica", "Tracking directo"];
+
+const LOGISTICS_MODE_HELP: Record<string, string> = {
+  "No aplica": "Este item no requiere gestión logística.",
+  "Tracking directo": "Usar para compras locales o envíos simples sin packing.",
+  "Pendiente de packing": "El item quedará pendiente para ser agregado luego a un packing.",
+  "Crear packing individual": "Usar cuando este item viajará solo en su propio paquete. La creación automática del packing se implementará después.",
+  "Asignar a packing existente": "Usar cuando el item debe agregarse a un packing ya creado. La selección de packing se implementará después.",
+};
 
 function formatFileSize(bytes: number) {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -146,6 +161,19 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
     }),
     [form.categoria, form.estado, form.proveedorId, form.proveedorLogisticoId, form.tipoItem, form.tipoOperacion]
   );
+  const logisticsOptions = useMemo(() => {
+    const allowed = calculatedFlow.requierePacking ? [...PACKING_LOGISTICS_OPTIONS, "Tracking directo"] : SIMPLE_LOGISTICS_OPTIONS;
+    return SHIPPING_V2_MODOS_LOGISTICOS.filter((option) => allowed.includes(option));
+  }, [calculatedFlow.requierePacking]);
+  const selectedModeUsesPacking = PACKING_LOGISTICS_OPTIONS.includes(form.modoLogistico);
+  const selectedModeUsesDirectTracking = form.modoLogistico === "Tracking directo";
+  const effectiveRequiresPacking = selectedModeUsesDirectTracking ? false : selectedModeUsesPacking ? true : calculatedFlow.requierePacking;
+  const modeHelpText = LOGISTICS_MODE_HELP[form.modoLogistico] ?? "";
+
+  useEffect(() => {
+    if (logisticsOptions.some((option) => option === form.modoLogistico)) return;
+    update("modoLogistico", logisticsOptions[0] ?? "No aplica");
+  }, [form.modoLogistico, logisticsOptions]);
 
   useEffect(() => {
     photosRef.current = photos;
@@ -222,9 +250,11 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
     const formData = new FormData();
     Object.entries(form).forEach(([key, value]) => formData.set(key, String(value)));
     formData.set("requierePago", String(calculatedFlow.requierePago));
-    formData.set("requierePacking", String(calculatedFlow.requierePacking));
+    formData.set("requierePacking", String(effectiveRequiresPacking));
     formData.set("afectaInventario", String(calculatedFlow.afectaInventario));
     formData.set("disponibleVenta", String(calculatedFlow.disponibleParaVenta));
+    formData.set("modoLogistico", form.modoLogistico);
+    formData.set("trackingDirecto", selectedModeUsesDirectTracking ? form.trackingDirecto : "");
     formData.set("estado", calculatedFlow.estadoItemSugerido);
     formData.set("estadoRevision", calculatedFlow.estadoRevisionSugerido);
     photos.forEach((photo) => formData.append("fotos", photo.file, photo.file.name));
@@ -371,9 +401,27 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <FlowBadge label="Requiere pago" active={calculatedFlow.requierePago} />
-            <FlowBadge label="Requiere packing" active={calculatedFlow.requierePacking} />
+            <FlowBadge label="Requiere packing" active={effectiveRequiresPacking} />
             <FlowBadge label="Afecta inventario" active={calculatedFlow.afectaInventario} />
             <FlowBadge label="Disponible venta/reserva" active={calculatedFlow.disponibleParaVenta} />
+          </div>
+          <div className="rounded-[1.25rem] border border-[#3A3A36] bg-[#1E1F1C] p-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Modo logístico">
+                <SelectInput value={form.modoLogistico} onChange={(event) => update("modoLogistico", event.target.value)}>
+                  {logisticsOptions.map((option) => <option key={option}>{option}</option>)}
+                </SelectInput>
+                {modeHelpText ? <p className="mt-2 text-xs leading-5 text-[#A7A7A7]">{modeHelpText}</p> : null}
+              </Field>
+              {selectedModeUsesDirectTracking ? (
+                <Field label="Tracking directo">
+                  <TextInput value={form.trackingDirecto} onChange={(event) => update("trackingDirecto", event.target.value)} placeholder="Número o URL de tracking simple" />
+                </Field>
+              ) : null}
+            </div>
+            {selectedModeUsesPacking ? (
+              <p className="mt-3 rounded-[1rem] border border-[#3A3A36] bg-[#151515] px-4 py-3 text-sm text-[#A7A7A7]">La logística principal se gestionará desde Packings.</p>
+            ) : null}
           </div>
           {calculatedFlow.notas.length > 0 ? (
             <div className="rounded-[1rem] border border-[#3A3A36] bg-[#151515] px-4 py-3 text-sm text-[#A7A7A7]">

@@ -40,6 +40,8 @@ export type ShippingV2AttachmentUpload = {
   fileBase64: string;
 };
 
+const PACKING_LOGISTICS_MODES = new Set(["Pendiente de packing", "Crear packing individual", "Asignar a packing existente"]);
+
 function getRequiredEnv(name: "AIRTABLE_API_KEY" | "AIRTABLE_BASE_ID") {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Falta ${name}. Definir en .env.local para habilitar Shipping.`);
@@ -70,6 +72,16 @@ function firstString(value: unknown, fallback = "") {
     return found === undefined ? fallback : String(found);
   }
   return fallback;
+}
+
+function isValidModoLogistico(value: string) {
+  return SHIPPING_V2_ITEM_SELECT_OPTIONS.modoLogistico.includes(value as never);
+}
+
+function resolveModoLogistico(inputValue: unknown, defaultValue: string) {
+  const value = cleanString(inputValue);
+  if (value && isValidModoLogistico(value)) return value;
+  return defaultValue;
 }
 
 function aiTextString(value: unknown, fallback = "") {
@@ -236,6 +248,19 @@ function validateItemInput(input: ShippingV2ItemWriteInput) {
   if (tipoOperacion === "Regalo de proveedor" && costoProveedor !== null && costoProveedor !== undefined && costoProveedor !== 0) {
     throw new Error("En regalos de proveedor, el costo proveedor debe estar vacío o ser 0.");
   }
+
+  const modoLogistico = cleanString(input.modoLogistico);
+  if (!modoLogistico || !isValidModoLogistico(modoLogistico)) {
+    throw new Error("Modo logístico inválido.");
+  }
+
+  if (input.requierePacking && modoLogistico === "No aplica") {
+    throw new Error("Si el item requiere packing, el modo logístico no puede ser No aplica.");
+  }
+
+  if (PACKING_LOGISTICS_MODES.has(modoLogistico) && !input.requierePacking) {
+    throw new Error("Los modos logísticos con packing requieren que Requiere packing quede activo.");
+  }
 }
 
 function applyCalculatedItemFlow(input: ShippingV2ItemWriteInput): ShippingV2ItemWriteInput {
@@ -249,12 +274,17 @@ function applyCalculatedItemFlow(input: ShippingV2ItemWriteInput): ShippingV2Ite
     estadoItem: cleanString(input.estado),
   });
 
+  const requestedMode = resolveModoLogistico(input.modoLogistico, flow.modoLogistico);
+  const modeUsesPacking = PACKING_LOGISTICS_MODES.has(requestedMode);
+  const modeUsesDirectTracking = requestedMode === "Tracking directo";
+
   return {
     ...input,
     requierePago: flow.requierePago,
-    requierePacking: flow.requierePacking,
+    requierePacking: modeUsesDirectTracking ? false : modeUsesPacking ? true : flow.requierePacking,
     afectaInventario: flow.afectaInventario,
     disponibleVenta: flow.disponibleParaVenta,
+    modoLogistico: requestedMode,
     estado: flow.estadoItemSugerido,
     estadoRevision: cleanString(input.estadoRevision) || flow.estadoRevisionSugerido,
   };
@@ -312,6 +342,7 @@ function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, un
     [F.proveedorLogistico]: cleanString(input.proveedorLogisticoId) ? [cleanString(input.proveedorLogisticoId)] : undefined,
     [F.requierePago]: Boolean(input.requierePago),
     [F.requierePacking]: Boolean(input.requierePacking),
+    [F.modoLogistico]: cleanString(input.modoLogistico),
     [F.afectaInventario]: Boolean(input.afectaInventario),
     [F.disponibleVenta]: Boolean(input.disponibleVenta),
     [F.reservado]: Boolean(input.reservado),
@@ -326,6 +357,7 @@ function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, un
     [F.precioVentaSugerido]: input.precioVentaSugerido ?? undefined,
     [F.precioVentaFinal]: input.precioVenta ?? undefined,
     [F.ubicacionActual]: cleanString(input.ubicacionActual),
+    [F.trackingDirecto]: cleanString(input.trackingDirecto),
     [F.observacionesInternas]: cleanString(input.observacionesInternas),
     [F.observacionVenta]: cleanString(input.observacionVenta),
     [F.estadoRevision]: cleanString(input.estadoRevision),
@@ -526,6 +558,7 @@ function mapItem(record: AirtableRecord): ShippingV2Item {
     proveedorLogisticoId: firstString(proveedorLogistico),
     proveedorLogisticoNombre: firstString(f["Proveedor logistico nombre"] ?? f["Proveedor logístico nombre"] ?? f["Proveedor Logistico Nombre"] ?? proveedorLogistico),
     requierePago: firstBoolean(f[F.requierePago]),
+    modoLogistico: firstString(f[F.modoLogistico]),
     costoProveedor: firstNumber(f[F.costoProveedor]),
     costoAsignadoDespiece: firstNumber(f["Costo asignado por despiece"] ?? f["Costo Asignado Despiece"]),
     costoLogisticoAsignado: firstNumber(f["Costo logístico asignado"] ?? f["Costo logistico asignado"] ?? f["Costo Logistico Asignado"]),
@@ -542,9 +575,9 @@ function mapItem(record: AirtableRecord): ShippingV2Item {
     ubicacionActual: firstString(f[F.ubicacionActual]),
     origenFisicoActual: firstString(f["Origen físico actual"] ?? f["Origen fisico actual"] ?? f["Origen Fisico Actual"]),
     fechaRegistro,
-    trackingDirecto: firstString(f["Tracking directo"] ?? f["Tracking Directo"]),
-    trackingHaciaIntermediario: firstString(f["Tracking hacia intermediario"] ?? f["Tracking Hacia Intermediario"]),
-    trackingDesdeIntermediario: firstString(f["Tracking desde intermediario"] ?? f["Tracking Desde Intermediario"]),
+    trackingDirecto: firstString(f[F.trackingDirecto]),
+    trackingHaciaIntermediario: firstString(f[F.trackingHaciaIntermediario]),
+    trackingDesdeIntermediario: firstString(f[F.trackingDesdeIntermediario]),
     trackingUsa: firstString(f["USA Tracking"] ?? f.TrackingUSA),
     trackingEc: firstString(f["EC Tracking"] ?? f.TrackingEC),
     requierePacking: firstBoolean(f[F.requierePacking]),
@@ -769,6 +802,18 @@ async function validateInlineItemFieldChange(input: {
     throw new Error("No se puede cambiar el tipo de operación porque el Item ya tiene procesos relacionados.");
   }
 
+  if (input.field === SHIPPING_V2_ITEM_FIELDS.modoLogistico) {
+    if (input.item.packingId) {
+      throw new Error("No se puede cambiar el modo logístico porque el Item ya tiene packing relacionado.");
+    }
+
+    const nextMode = cleanString(input.normalizedValue);
+    const flow = getDefaultItemFlowByOperation({ tipoOperacion: input.item.tipoOperacion, estadoItem: input.item.estado });
+    if (flow.requierePacking && nextMode === "No aplica") {
+      throw new Error("Si el item requiere packing, el modo logístico no puede ser No aplica.");
+    }
+  }
+
   if (input.field === SHIPPING_V2_ITEM_FIELDS.proveedorCompra && input.item.pagoId) {
     throw new Error("No se puede cambiar el proveedor de compra porque el Item ya tiene pago relacionado.");
   }
@@ -803,8 +848,16 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
   const normalizedValue = normalizeInlineValue(config.type, input.value);
   await validateInlineItemFieldChange({ item: existing, recordId: id, field, rawValue: input.value, normalizedValue });
 
+  const mode = field === SHIPPING_V2_ITEM_FIELDS.modoLogistico ? cleanString(normalizedValue) : "";
+  const logisticsFlowFields = mode
+    ? {
+      [SHIPPING_V2_ITEM_FIELDS.requierePacking]: PACKING_LOGISTICS_MODES.has(mode) ? true : false,
+    }
+    : {};
+
   const fields: Record<string, unknown> = {
     [field]: field === getOfficialSkuField() ? normalizeSku(cleanString(normalizedValue)) : normalizedValue,
+    ...logisticsFlowFields,
     [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
     [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.actualizadoPor,
   };
@@ -982,6 +1035,9 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
 
   const existing = await getShippingV2ItemById(id);
   const nextSku = normalizeSku(cleanString(calculatedInput.sku ?? calculatedInput.skuInterno));
+  if (existing.packingId && cleanString(calculatedInput.modoLogistico) !== cleanString(existing.modoLogistico)) {
+    throw new Error("No se puede cambiar el modo logístico porque el Item ya tiene packing relacionado.");
+  }
 
   if (nextSku && nextSku !== existing.sku) {
     const duplicated = await findShippingV2ItemBySku(nextSku);

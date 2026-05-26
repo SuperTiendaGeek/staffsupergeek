@@ -14,6 +14,7 @@ export type ShippingV2RecepcionEstado = "Pendiente" | "Parcial" | "Completa" | "
 export type ShippingV2NovedadEstado = "Abierta" | "En Revision" | "Resuelta" | "Cancelada";
 export type ShippingV2MigracionEstado = "Pendiente" | "Procesada" | "Error" | "Omitida";
 export type ShippingV2EventoTipo = "Inventario" | "Pago" | "Packing" | "Recepcion" | "Novedad" | "Sistema";
+export type ShippingV2ModoLogistico = (typeof SHIPPING_V2_ITEM_SELECT_OPTIONS.modoLogistico)[number];
 
 export type ShippingV2Proveedor = ShippingV2RecordBase & {
   proveedorId?: string;
@@ -72,6 +73,7 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   proveedorLogisticoId?: string;
   proveedorLogisticoNombre?: string;
   requierePago: boolean | null;
+  modoLogistico?: ShippingV2ModoLogistico | string;
   costoProveedor: number | null;
   costoAsignadoDespiece: number | null;
   costoLogisticoAsignado: number | null;
@@ -125,6 +127,7 @@ export const SHIPPING_V2_UNIDADES = SHIPPING_V2_ITEM_SELECT_OPTIONS.unidad;
 export const SHIPPING_V2_ESTADOS_REVISION = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoRevision;
 export const SHIPPING_V2_ESTADOS_TRIANGULACION = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoTriangulacion;
 export const SHIPPING_V2_ESTADOS_DESPIECE = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoDespiece;
+export const SHIPPING_V2_MODOS_LOGISTICOS = SHIPPING_V2_ITEM_SELECT_OPTIONS.modoLogistico;
 
 export type ShippingV2ItemWriteInput = {
   nombre?: string;
@@ -161,6 +164,8 @@ export type ShippingV2ItemWriteInput = {
   estadoRevision?: string;
   estadoTriangulacion?: string;
   estadoDespiece?: string;
+  modoLogistico?: ShippingV2ModoLogistico | string;
+  trackingDirecto?: string;
 };
 
 export type ShippingV2Pago = ShippingV2RecordBase & {

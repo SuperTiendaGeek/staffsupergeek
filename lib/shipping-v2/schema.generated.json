@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-25T14:57:38.732Z",
+  "generatedAt": "2026-05-26T13:27:25.170Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -728,6 +728,17 @@
           "id": "fldUQ1e2BWQx6K1ad",
           "type": "singleLineText",
           "kind": "singleLineText"
+        },
+        "Modo logístico": {
+          "id": "fldB3A7yAxCJDhZ83",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "Crear packing individual",
+            "Pendiente de packing",
+            "Tracking directo",
+            "Asignar a packing existente"
+          ]
         }
       }
     },

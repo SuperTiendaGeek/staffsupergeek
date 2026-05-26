@@ -53,6 +53,8 @@ function parseInput(body: Record<string, unknown>): ShippingV2ItemWriteInput {
     estadoRevision: String(body.estadoRevision ?? ""),
     estadoTriangulacion: String(body.estadoTriangulacion ?? ""),
     estadoDespiece: String(body.estadoDespiece ?? ""),
+    modoLogistico: String(body.modoLogistico ?? ""),
+    trackingDirecto: String(body.trackingDirecto ?? ""),
   };
 }
 

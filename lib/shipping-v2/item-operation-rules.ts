@@ -13,6 +13,7 @@ export type ShippingV2ItemFlowDefaults = {
   requierePacking: boolean;
   afectaInventario: boolean;
   disponibleParaVenta: boolean;
+  modoLogistico: string;
   estadoItemSugerido: string;
   estadoRevisionSugerido: string;
   notas: string[];
@@ -59,6 +60,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
     requierePacking: false,
     afectaInventario: true,
     disponibleParaVenta: false,
+    modoLogistico: "No aplica",
     estadoItemSugerido: currentState,
     estadoRevisionSugerido: "No aplica",
     notas: [],
@@ -70,6 +72,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       requierePacking: true,
       afectaInventario: true,
       disponibleParaVenta: true,
+      modoLogistico: "Pendiente de packing",
       estadoItemSugerido: "Pendiente de pago",
     });
     base.notas.push("Aunque esté pendiente de pago, puede ofrecerse o reservarse si fue aprobado para compra.");
@@ -79,6 +82,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       requierePacking: true,
       afectaInventario: true,
       disponibleParaVenta: true,
+      modoLogistico: "Pendiente de packing",
       estadoItemSugerido: "Pagado",
     });
     base.notas.push("Si viene del exterior, puede ofrecerse o reservarse aunque todavía esté pendiente de llegada.");
@@ -88,6 +92,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       requierePacking: true,
       afectaInventario: true,
       disponibleParaVenta: true,
+      modoLogistico: "Pendiente de packing",
       estadoItemSugerido: "Registrado",
     });
     base.notas.push("Puede ofrecerse después de registrarse si comercialmente se desea; la entrega depende de recepción y revisión.");
@@ -97,6 +102,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       requierePacking: true,
       afectaInventario: true,
       disponibleParaVenta: true,
+      modoLogistico: "Pendiente de packing",
       estadoItemSugerido: "Pendiente de packing",
     });
     base.notas.push("Puede ofrecerse o reservarse si el negocio ya lo considera aprobado.");
@@ -106,6 +112,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       requierePacking: false,
       afectaInventario: true,
       disponibleParaVenta: true,
+      modoLogistico: "No aplica",
       estadoItemSugerido: "Disponible",
     });
   } else if (operation === "uso local") {
@@ -114,6 +121,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       requierePacking: false,
       afectaInventario: true,
       disponibleParaVenta: false,
+      modoLogistico: "No aplica",
       estadoItemSugerido: "Uso local",
     });
   } else if (operation === "repuesto") {
@@ -122,6 +130,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       requierePacking: false,
       afectaInventario: true,
       disponibleParaVenta: false,
+      modoLogistico: "No aplica",
       estadoItemSugerido: "Repuesto",
     });
     base.notas.push("Un repuesto puede venderse en algunos casos, pero por defecto queda reservado para uso técnico.");
@@ -131,6 +140,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       requierePacking: false,
       afectaInventario: true,
       disponibleParaVenta: true,
+      modoLogistico: "No aplica",
       estadoItemSugerido: "Disponible",
     });
   } else if (operation === "despiece de equipo") {
@@ -139,6 +149,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       requierePacking: false,
       afectaInventario: true,
       disponibleParaVenta: false,
+      modoLogistico: "No aplica",
       estadoItemSugerido: "Destinado a partes",
     });
     base.notas.push("El Item padre no debe venderse como equipo completo. Los Items hijos creados después sí pueden quedar disponibles.");
@@ -148,6 +159,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       requierePacking: false,
       afectaInventario: true,
       disponibleParaVenta: false,
+      modoLogistico: "No aplica",
       estadoItemSugerido: "Migrado",
     });
     base.notas.push("No se asume que un Item migrado está disponible hasta revisarlo.");
@@ -157,6 +169,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       requierePacking: false,
       afectaInventario: false,
       disponibleParaVenta: false,
+      modoLogistico: "No aplica",
       estadoItemSugerido: currentState || "Registrado",
     });
   }

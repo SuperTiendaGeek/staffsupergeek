@@ -702,8 +702,20 @@ function ItemDetailModal({
       accent: "purple",
       rows: [
         { label: C.requierePacking.label, value: item.requierePacking, displayValue: displayBoolean(item.requierePacking), config: C.requierePacking },
+        {
+          label: C.modoLogistico.label,
+          value: item.modoLogistico,
+          displayValue: item.packingId ? (
+            <span>
+              {displayValue(item.modoLogistico)}
+              <span className="mt-1 block text-xs leading-5 text-[#FFB07A]">No se puede cambiar el modo logístico porque el Item ya tiene packing relacionado.</span>
+            </span>
+          ) : undefined,
+          config: C.modoLogistico,
+          readOnly: Boolean(item.packingId),
+        },
         { label: C.packingRelacionado.label, value: item.packingId, config: C.packingRelacionado },
-        { label: "Tracking directo", value: item.trackingDirecto, readOnly: true },
+        { label: C.trackingDirecto.label, value: item.trackingDirecto, config: C.trackingDirecto, readOnly: item.modoLogistico !== "Tracking directo" },
         { label: "Tracking hacia intermediario", value: item.trackingHaciaIntermediario, readOnly: true },
         { label: "Tracking desde intermediario", value: item.trackingDesdeIntermediario, readOnly: true },
       ],
@@ -898,6 +910,7 @@ function ItemDetailModal({
                 {item.reservado ? <span className="rounded-full border border-[#F4E85B]/35 bg-[#F4E85B]/12 px-3 py-1 text-xs text-[#F4E85B]">Reservado</span> : null}
                 {item.usoLocal ? <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/12 px-3 py-1 text-xs text-[#C9BFFF]">Uso local</span> : null}
                 {item.esRepuesto ? <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/12 px-3 py-1 text-xs text-[#C9BFFF]">Repuesto</span> : null}
+                {item.modoLogistico ? <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-3 py-1 text-xs text-[#A7A7A7]">{item.modoLogistico}</span> : null}
                 {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-3 py-1 text-xs text-[#FFB07A]">Con novedad</span> : null}
               </div>
             </div>
