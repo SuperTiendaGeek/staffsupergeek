@@ -7,15 +7,19 @@ import type {
   ShippingV2ItemWriteInput,
   ShippingV2Novedad,
   ShippingV2Packing,
+  ShippingV2PackingWriteInput,
   ShippingV2Pago,
   ShippingV2Proveedor,
   ShippingV2Recepcion,
 } from "@/types/shipping-v2";
+import type { StaffSession } from "@/lib/session";
+import { isAdministratorRole } from "@/lib/apps";
 import { getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
-import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
+import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
+import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { generateUniqueSkuFromExistingSkus, normalizeSku } from "@/lib/sku/sku-service";
-import { assertShippingV2GeneratedSchema, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
+import { assertShippingV2GeneratedSchema, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
 
 type AirtableRecord = {
   id: string;
@@ -41,6 +45,15 @@ export type ShippingV2AttachmentUpload = {
 };
 
 const PACKING_LOGISTICS_MODES = new Set(["Pendiente de packing", "Crear packing individual", "Asignar a packing existente"]);
+const OPEN_PACKING_STATUS = "En Proceso";
+const PACKING_CANDIDATE_STATES = new Set(["registrado", "pendiente de pago", "pagado", "pendiente de packing"]);
+const PACKING_BLOCKED_STATES = new Set(["vendido", "cancelado", "archivado", "destinado a partes", "desarmado parcialmente", "desarmado completamente"]);
+const PACKING_CANDIDATE_MODES = new Set(["Pendiente de packing", "Crear packing individual", "Asignar a packing existente"]);
+
+export type ShippingV2AccessContext = {
+  isAdmin: boolean;
+  providerId?: string;
+};
 
 function getRequiredEnv(name: "AIRTABLE_API_KEY" | "AIRTABLE_BASE_ID") {
   const value = process.env[name]?.trim();
@@ -100,6 +113,12 @@ function firstNumber(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function validateOptionalWeight(value: number | null | undefined) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("Peso inválido.");
+  if (value < 0) throw new Error("El peso no puede ser negativo.");
 }
 
 function firstBoolean(value: unknown): boolean | null {
@@ -183,8 +202,45 @@ function getOfficialSkuField() {
   return SHIPPING_V2_ITEM_FIELDS.sku;
 }
 
+function getOfficialPackingIdField() {
+  return SHIPPING_V2_PACKING_FIELDS.packingId;
+}
+
 function selectOption(options: readonly string[], value: string) {
   return options.includes(value) ? value : options[0] ?? value;
+}
+
+function hasOwnInput(input: ShippingV2PackingWriteInput, key: keyof ShippingV2PackingWriteInput) {
+  return Object.prototype.hasOwnProperty.call(input, key);
+}
+
+function providerNameFromLink(fields: Record<string, unknown>, linkValue: unknown, labels: string[]) {
+  for (const label of labels) {
+    const value = firstString(fields[label]);
+    if (value) return value;
+  }
+  return firstString(linkValue);
+}
+
+function isOpenPackingStatus(status: string) {
+  return normalizeStatus(status) === normalizeStatus(OPEN_PACKING_STATUS);
+}
+
+function canAccessPacking(packing: Pick<ShippingV2Packing, "proveedorResponsableId" | "proveedorLogisticoEcId">, access?: ShippingV2AccessContext) {
+  if (!access || access.isAdmin || !access.providerId) return true;
+  return packing.proveedorResponsableId === access.providerId || packing.proveedorLogisticoEcId === access.providerId;
+}
+
+function canAccessItem(item: Pick<ShippingV2Item, "proveedorId" | "proveedorLogisticoId">, access?: ShippingV2AccessContext) {
+  if (!access || access.isAdmin || !access.providerId) return true;
+  return item.proveedorId === access.providerId || item.proveedorLogisticoId === access.providerId;
+}
+
+function generatePackingId() {
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const time = String(now.getTime()).slice(-5);
+  return `PK-${date}-${time}`;
 }
 
 function compactFields(fields: Record<string, unknown>) {
@@ -385,6 +441,20 @@ async function airtableMutation<T>(url: string, init: RequestInit) {
   return (await response.json()) as T;
 }
 
+function logLinkedTableMismatch(context: {
+  action: string;
+  packingRecordId?: string;
+  itemRecordIds?: string[];
+  tableName: string;
+  fieldName: string;
+}) {
+  console.error("[Shipping V2 linked table mismatch]", context);
+}
+
+function isLinkedTableMismatch(error: unknown) {
+  return error instanceof Error && error.message.includes("ROW_TABLE_DOES_NOT_MATCH_LINKED_TABLE");
+}
+
 async function uploadAttachmentToRecord(input: {
   recordId: string;
   attachmentFieldIdOrName: string;
@@ -512,10 +582,14 @@ function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
   };
 }
 
-function mapItem(record: AirtableRecord): ShippingV2Item {
+type MapItemOptions = { includeAiName?: boolean };
+type MapPackingOptions = { includeItems?: boolean; includeAiName?: boolean };
+
+function mapItem(record: AirtableRecord, options: MapItemOptions = {}): ShippingV2Item {
   assertShippingV2GeneratedSchema();
   const F = SHIPPING_V2_ITEM_FIELDS;
   const f = record.fields;
+  const includeAiName = options.includeAiName !== false;
   const proveedorCompra = f[F.proveedorCompra];
   const proveedorLogistico = f[F.proveedorLogistico];
   const fechaRegistro = firstString(f[F.fechaRegistro], record.createdTime);
@@ -537,7 +611,7 @@ function mapItem(record: AirtableRecord): ShippingV2Item {
     skuDuplicadoDetectado: firstBoolean(f[F.skuDuplicadoDetectado]),
     skuOriginalSugerido: firstString(f[F.skuOriginalSugerido]),
     nombre: firstString(f[F.nombre]),
-    aiNombre: aiTextString(f[F.aiNombre]),
+    aiNombre: includeAiName ? aiTextString(f[F.aiNombre]) : "",
     descripcion: firstString(f[F.descripcion]),
     modelo: firstString(f[F.modelo]),
     marca: firstString(f[F.marca]),
@@ -622,19 +696,50 @@ function mapPago(record: AirtableRecord): ShippingV2Pago {
 }
 
 function mapPacking(record: AirtableRecord): ShippingV2Packing {
+  const F = SHIPPING_V2_PACKING_FIELDS;
   const f = record.fields;
+  const proveedorResponsable = f[F.proveedorResponsable];
+  const proveedorLogisticoEc = f[F.proveedorLogisticoEc];
+  const items = linkedRecordIds(f[F.itemsIncluidos]);
+  const estado = firstString(f[F.estado], OPEN_PACKING_STATUS);
   return {
     id: record.id,
     createdTime: record.createdTime,
-    packingId: firstString(f.Packing ?? f.Pack, record.id),
-    estado: firstString(f.Estado, "En Proceso"),
-    tipo: firstString(f.Tipo),
-    itemCount: linkedCount(f.Items ?? f.Item),
-    peso: firstNumber(f["Peso (Kilos)"] ?? f.Peso),
-    trackingUsa: firstString(f["USA Tracking"] ?? f.TrackingUSA),
-    trackingEc: firstString(f["EC Tracking"] ?? f.TrackingEC),
-    fechaEnvio: firstString(f["Fecha Envio"] ?? f["Fecha Envío"]),
-    arriboEstimado: firstString(f["Arribo Estimado"]),
+    packingId: firstString(f[F.packingId], record.id),
+    nombre: firstString(f[F.nombre]),
+    estado,
+    tipo: firstString(f[F.tipo]),
+    proveedorResponsableId: firstString(proveedorResponsable),
+    proveedorResponsableNombre: providerNameFromLink(f, proveedorResponsable, ["Nombre proveedor responsable", "Proveedor responsable nombre", "Proveedor Responsable Nombre"]),
+    proveedorLogisticoEcId: firstString(proveedorLogisticoEc),
+    proveedorLogisticoEcNombre: providerNameFromLink(f, proveedorLogisticoEc, ["Proveedor logístico EC nombre", "Proveedor logistico EC nombre", "Proveedor Logistico EC Nombre"]),
+    itemIds: items,
+    items: [],
+    itemCount: items.length,
+    trackingUsa: firstString(f[F.trackingUsa]),
+    transportistaUsa: firstString(f[F.transportistaUsa]),
+    trackingEc: firstString(f[F.trackingEc]),
+    transportistaEc: firstString(f[F.transportistaEc]),
+    peso: firstNumber(f[F.peso]),
+    unidadPeso: firstString(f[F.unidadPeso]),
+    flete: firstNumber(f[F.flete]),
+    arancel: firstNumber(f[F.arancel]),
+    otrosCostos: firstNumber(f[F.otrosCostos]),
+    reglaDistribucionCostos: firstString(f[F.reglaDistribucionCostos]),
+    observaciones: firstString(f[F.observaciones]),
+    fechaCreacion: firstString(f[F.fechaCreacion], record.createdTime),
+    fechaCierre: firstString(f[F.fechaCierre]),
+    cerradoPor: firstString(f[F.cerradoPor]),
+    creadoPor: firstString(f[F.creadoPor]),
+    conNovedad: normalizeStatus(estado).includes("novedad"),
+  };
+}
+
+function applyPackingProviderLabels(packing: ShippingV2Packing, labelsById: Map<string, string>) {
+  return {
+    ...packing,
+    proveedorResponsableNombre: resolveShippingV2ProveedorLabel(packing.proveedorResponsableId, labelsById),
+    proveedorLogisticoEcNombre: resolveShippingV2ProveedorLabel(packing.proveedorLogisticoEcId, labelsById),
   };
 }
 
@@ -671,19 +776,37 @@ export async function getShippingV2Proveedores() {
   return records.map(mapProveedor);
 }
 
+export async function getShippingV2AccessContextForSession(session: StaffSession | null): Promise<ShippingV2AccessContext> {
+  const role = session?.user.rol;
+  if (!session || isAdministratorRole(role) || ["manager", "gerente"].includes(normalizeStatus(role || ""))) {
+    return { isAdmin: true };
+  }
+
+  const email = session.user.email.trim().toLowerCase();
+  if (!email) return { isAdmin: true };
+
+  const proveedores = await getShippingV2Proveedores();
+  const provider = proveedores.find((item) => item.email?.trim().toLowerCase() === email);
+
+  // Assumption: the current Staff session does not store a provider record id.
+  // Provider-limited access is enabled when the user's email matches a Shipping Proveedor email.
+  // Internal staff users without that match keep broad Shipping access until user-provider mapping exists.
+  return provider ? { isAdmin: false, providerId: provider.id } : { isAdmin: true };
+}
+
 async function getShippingV2ProveedorById(recordId: string) {
   const record = await getRecordById(SHIPPING_V2_TABLES.proveedores, recordId);
   return record ? mapProveedor(record) : null;
 }
 
-export async function getShippingV2Items() {
+export async function getShippingV2Items(options: MapItemOptions = {}) {
   const records = await listRecords(SHIPPING_V2_TABLES.items, {
     maxRecords: 200,
     sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro,
     sortDirection: "desc",
   });
   return records
-    .map(mapItem)
+    .map((record) => mapItem(record, options))
     .sort((a, b) => {
       const aTime = Date.parse(a.fechaRegistro || a.createdTime || "");
       const bTime = Date.parse(b.fechaRegistro || b.createdTime || "");
@@ -693,13 +816,13 @@ export async function getShippingV2Items() {
     });
 }
 
-export async function getShippingV2ItemById(recordId: string) {
+export async function getShippingV2ItemById(recordId: string, options: MapItemOptions = {}) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
 
   const record = await airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`);
-  const item = mapItem(record);
-  if (process.env.NODE_ENV !== "production") {
+  const item = mapItem(record, options);
+  if (process.env.NODE_ENV !== "production" && process.env.SHIPPING_V2_DEBUG_AI_NAME === "true" && options.includeAiName !== false) {
     console.info("[Shipping V2 AI Nombre]", {
       recordId: id,
       rawAiNombre: record.fields[SHIPPING_V2_ITEM_FIELDS.aiNombre],
@@ -741,8 +864,10 @@ async function resolveOfficialSkuForCreate(input: ShippingV2ItemWriteInput) {
 }
 
 async function createShippingV2Event(input: {
-  action: "Creado" | "Actualizado";
-  itemRecordId: string;
+  action: "Creado" | "Actualizado" | "Cambio de estado" | "Otro";
+  entity?: "Shipping Item" | "Shipping Packing";
+  itemRecordId?: string;
+  packingRecordId?: string;
   itemName?: string;
   registradoPor: string;
   descripcion: string;
@@ -754,9 +879,10 @@ async function createShippingV2Event(input: {
         records: [
           {
             fields: compactFields({
-              "Tipo de entidad": "Shipping Item",
+              "Tipo de entidad": input.entity ?? "Shipping Item",
               "Acción": input.action,
-              "Item relacionado": [input.itemRecordId],
+              "Item relacionado": input.itemRecordId ? [input.itemRecordId] : undefined,
+              "Packing relacionado": input.packingRecordId ? [input.packingRecordId] : undefined,
               "Descripción del evento": input.descripcion,
               "Registrado por": input.registradoPor,
               "Fecha del evento": new Date().toISOString(),
@@ -1077,9 +1203,406 @@ export async function getShippingV2Pagos() {
   return records.map(mapPago);
 }
 
-export async function getShippingV2Packings() {
-  const records = await listRecords(SHIPPING_V2_TABLES.packings, { maxRecords: 200 });
-  return records.map(mapPacking);
+function packingFieldsFromInput(input: ShippingV2PackingWriteInput, extra: Record<string, unknown> = {}) {
+  const F = SHIPPING_V2_PACKING_FIELDS;
+  return compactFields({
+    [F.nombre]: cleanString(input.nombre),
+    [F.tipo]: selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.tipo, cleanString(input.tipo)),
+    [F.estado]: cleanString(input.estado) || OPEN_PACKING_STATUS,
+    [F.proveedorResponsable]: cleanString(input.proveedorResponsableId) ? [cleanString(input.proveedorResponsableId)] : undefined,
+    [F.proveedorLogisticoEc]: cleanString(input.proveedorLogisticoEcId) ? [cleanString(input.proveedorLogisticoEcId)] : undefined,
+    [F.trackingUsa]: cleanString(input.trackingUsa),
+    [F.transportistaUsa]: selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaUsa, cleanString(input.transportistaUsa)),
+    [F.trackingEc]: cleanString(input.trackingEc),
+    ...(hasOwnInput(input, "transportistaEc") ? { [F.transportistaEc]: selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaEc, cleanString(input.transportistaEc)) } : {}),
+    ...(hasOwnInput(input, "peso") ? { [F.peso]: input.peso ?? undefined } : {}),
+    ...(hasOwnInput(input, "unidadPeso") && cleanString(input.unidadPeso) ? { [F.unidadPeso]: selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.unidadPeso, cleanString(input.unidadPeso)) } : {}),
+    [F.observaciones]: cleanString(input.observaciones),
+    ...extra,
+  });
+}
+
+function packingPatchFieldsFromInput(input: ShippingV2PackingWriteInput) {
+  const F = SHIPPING_V2_PACKING_FIELDS;
+  const fields: Record<string, unknown> = {};
+  if (hasOwnInput(input, "nombre")) fields[F.nombre] = cleanString(input.nombre);
+  if (hasOwnInput(input, "tipo")) fields[F.tipo] = selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.tipo, cleanString(input.tipo));
+  if (hasOwnInput(input, "proveedorResponsableId")) {
+    const value = cleanString(input.proveedorResponsableId);
+    fields[F.proveedorResponsable] = value ? [value] : [];
+  }
+  if (hasOwnInput(input, "proveedorLogisticoEcId")) {
+    const value = cleanString(input.proveedorLogisticoEcId);
+    fields[F.proveedorLogisticoEc] = value ? [value] : [];
+  }
+  if (hasOwnInput(input, "trackingUsa")) fields[F.trackingUsa] = cleanString(input.trackingUsa);
+  if (hasOwnInput(input, "transportistaUsa")) fields[F.transportistaUsa] = selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaUsa, cleanString(input.transportistaUsa));
+  if (hasOwnInput(input, "trackingEc")) fields[F.trackingEc] = cleanString(input.trackingEc);
+  if (hasOwnInput(input, "peso")) fields[F.peso] = input.peso ?? null;
+  if (hasOwnInput(input, "unidadPeso")) fields[F.unidadPeso] = cleanString(input.unidadPeso) ? selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.unidadPeso, cleanString(input.unidadPeso)) : null;
+  if (hasOwnInput(input, "observaciones")) fields[F.observaciones] = cleanString(input.observaciones);
+  return fields;
+}
+
+function editablePackingKeysForStatus(status: string): Set<keyof ShippingV2PackingWriteInput> {
+  const normalized = normalizeStatus(status);
+  if (normalized === "en proceso") {
+    return new Set(["nombre", "tipo", "observaciones", "proveedorResponsableId", "proveedorLogisticoEcId", "trackingUsa", "transportistaUsa", "trackingEc", "peso", "unidadPeso"]);
+  }
+  if (normalized === "cerrado") {
+    return new Set(["proveedorLogisticoEcId", "trackingUsa", "transportistaUsa", "trackingEc", "peso", "unidadPeso"]);
+  }
+  if (normalized === "en transito") {
+    return new Set(["trackingUsa", "trackingEc", "peso", "unidadPeso"]);
+  }
+  return new Set();
+}
+
+function assertPackingPatchAllowed(status: string, input: ShippingV2PackingWriteInput) {
+  const allowed = editablePackingKeysForStatus(status);
+  const keys = Object.keys(input) as Array<keyof ShippingV2PackingWriteInput>;
+  if (!keys.length) throw new Error("No hay campos editables para actualizar.");
+  const disallowed = keys.filter((key) => !allowed.has(key));
+  if (disallowed.length) {
+    throw new Error(`No se puede editar ${disallowed.join(", ")} cuando el packing está en estado ${status}.`);
+  }
+}
+
+async function validatePackingLogisticsProvider(providerId?: string) {
+  const cleanId = cleanString(providerId);
+  if (!cleanId) return;
+  const provider = await getShippingV2ProveedorById(cleanId);
+  if (!provider) throw new Error("Proveedor logístico EC no encontrado.");
+  if (!canBePackingLogisticsProvider(provider)) {
+    throw new Error("El Proveedor logístico EC debe estar activo y ser compatible con logística.");
+  }
+}
+
+export async function getShippingV2Packings(access?: ShippingV2AccessContext) {
+  const [records, proveedores] = await Promise.all([
+    listRecords(SHIPPING_V2_TABLES.packings, {
+      maxRecords: 200,
+      sortField: SHIPPING_V2_PACKING_FIELDS.fechaCreacion,
+      sortDirection: "desc",
+    }),
+    getShippingV2Proveedores(),
+  ]);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+  return records
+    .map(mapPacking)
+    .map((packing) => applyPackingProviderLabels(packing, labelsById))
+    .filter((packing) => canAccessPacking(packing, access));
+}
+
+export async function getShippingV2PackingById(recordId: string, access?: ShippingV2AccessContext, options: MapPackingOptions = {}) {
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de packing inválido.");
+  const includeItems = options.includeItems !== false;
+
+  const [record, proveedores] = await Promise.all([
+    airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.packings)}/${encodeURIComponent(id)}`),
+    getShippingV2Proveedores(),
+  ]);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+  const packing = applyPackingProviderLabels(mapPacking(record), labelsById);
+  if (!canAccessPacking(packing, access)) throw new Error("No tienes acceso a este packing.");
+  if (!includeItems) return packing;
+  const itemRecords = await Promise.all(packing.itemIds.map((itemId) => getRecordById(SHIPPING_V2_TABLES.items, itemId)));
+  packing.items = itemRecords
+    .filter((record): record is AirtableRecord => Boolean(record))
+    .map((record) => mapItem(record, { includeAiName: options.includeAiName !== false }))
+    .filter((item) => canAccessItem(item, access));
+  return packing;
+}
+
+export async function createShippingV2Packing(input: ShippingV2PackingWriteInput, options: { creadoPor: string; access?: ShippingV2AccessContext }) {
+  assertShippingV2GeneratedSchema();
+  validateOptionalWeight(input.peso);
+  await validatePackingLogisticsProvider(input.proveedorLogisticoEcId);
+  if (options.access && !options.access.isAdmin && options.access.providerId) {
+    const responsable = cleanString(input.proveedorResponsableId);
+    const logisticoEc = cleanString(input.proveedorLogisticoEcId);
+    if (responsable !== options.access.providerId && logisticoEc !== options.access.providerId) {
+      throw new Error("No puedes crear packings para otro proveedor.");
+    }
+  }
+  const packingId = generatePackingId();
+  const fields = packingFieldsFromInput({ ...input, estado: OPEN_PACKING_STATUS }, {
+    [getOfficialPackingIdField()]: packingId,
+    [SHIPPING_V2_PACKING_FIELDS.fechaCreacion]: new Date().toISOString(),
+    [SHIPPING_V2_PACKING_FIELDS.creadoPor]: options.creadoPor,
+  });
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.packings), {
+    method: "POST",
+    body: JSON.stringify({ records: [{ fields }] }),
+  });
+  const created = response.records?.[0];
+  if (!created) throw new Error("Airtable no devolvió el packing creado.");
+  const packing = mapPacking(created);
+  await createShippingV2Event({
+    action: "Creado",
+    entity: "Shipping Packing",
+    packingRecordId: packing.id,
+    registradoPor: options.creadoPor,
+    descripcion: `Packing ${packing.packingId} creado desde Portal Staff.`,
+  });
+  return packing;
+}
+
+export async function updateShippingV2Packing(recordId: string, input: ShippingV2PackingWriteInput, options: { actualizadoPor: string; access?: ShippingV2AccessContext }) {
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de packing inválido.");
+  const existing = await getShippingV2PackingById(id, options.access, { includeItems: false, includeAiName: false });
+  assertPackingPatchAllowed(existing.estado, input);
+  validateOptionalWeight(input.peso);
+  if (hasOwnInput(input, "proveedorLogisticoEcId")) await validatePackingLogisticsProvider(input.proveedorLogisticoEcId);
+
+  const fields = packingPatchFieldsFromInput(input);
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.packings), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id, fields }] }),
+  });
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el packing actualizado.");
+  const packing = mapPacking(updated);
+  await createShippingV2Event({
+    action: "Actualizado",
+    entity: "Shipping Packing",
+    packingRecordId: packing.id,
+    registradoPor: options.actualizadoPor,
+    descripcion: `Packing ${packing.packingId} actualizado desde Portal Staff.`,
+  });
+  return getShippingV2PackingById(id, options.access, { includeAiName: false });
+}
+
+function isPackingCandidate(item: ShippingV2Item) {
+  const normalizedState = normalizeStatus(String(item.estado));
+  return Boolean(
+    item.requierePacking &&
+    !item.packingId &&
+    PACKING_CANDIDATE_STATES.has(normalizedState) &&
+    !PACKING_BLOCKED_STATES.has(normalizedState) &&
+    PACKING_CANDIDATE_MODES.has(String(item.modoLogistico || ""))
+  );
+}
+
+function isItemCompatibleWithPackingProvider(item: ShippingV2Item, packing: ShippingV2Packing) {
+  const packingProviderIds = new Set([
+    packing.proveedorResponsableId,
+    packing.proveedorLogisticoEcId,
+  ].filter(Boolean));
+  if (!packingProviderIds.size) return true;
+  return Boolean(
+    (item.proveedorId && packingProviderIds.has(item.proveedorId)) ||
+    (item.proveedorLogisticoId && packingProviderIds.has(item.proveedorLogisticoId))
+  );
+}
+
+function getPackingCandidateDiagnostics(items: ShippingV2Item[], packing: ShippingV2Packing) {
+  return {
+    totalItemsRead: items.length,
+    requiresPacking: items.filter((item) => Boolean(item.requierePacking)).length,
+    withoutPackingRelacionado: items.filter((item) => !item.packingId).length,
+    compatibleLogisticsMode: items.filter((item) => PACKING_CANDIDATE_MODES.has(String(item.modoLogistico || ""))).length,
+    validState: items.filter((item) => {
+      const state = normalizeStatus(String(item.estado));
+      return PACKING_CANDIDATE_STATES.has(state) && !PACKING_BLOCKED_STATES.has(state);
+    }).length,
+    compatibleProvider: items.filter((item) => isItemCompatibleWithPackingProvider(item, packing)).length,
+    finalCandidates: items.filter((item) => isPackingCandidate(item) && isItemCompatibleWithPackingProvider(item, packing)).length,
+  };
+}
+
+export async function getShippingV2PackingCandidateItems(packingId: string, access?: ShippingV2AccessContext) {
+  const packing = await getShippingV2PackingById(packingId, access, { includeItems: false, includeAiName: false });
+  const items = await getShippingV2Items({ includeAiName: false });
+  const scopedItems = items.filter((item) => canAccessItem(item, access));
+  if (process.env.NODE_ENV !== "production" && process.env.SHIPPING_V2_DEBUG_PACKINGS === "true") {
+    console.info("[Shipping V2 Packings candidatos]", {
+      packingId: packing.id,
+      packingProveedorResponsableId: packing.proveedorResponsableId || null,
+      packingProveedorLogisticoEcId: packing.proveedorLogisticoEcId || null,
+      ...getPackingCandidateDiagnostics(scopedItems, packing),
+    });
+  }
+  return scopedItems.filter((item) => isPackingCandidate(item) && isItemCompatibleWithPackingProvider(item, packing));
+}
+
+export async function addItemsToShippingV2Packing(packingId: string, itemIds: string[], options: { registradoPor: string; access?: ShippingV2AccessContext }) {
+  const id = cleanString(packingId);
+  const uniqueItemIds = Array.from(new Set(itemIds.map(cleanString).filter(Boolean)));
+  if (!id) throw new Error("Record ID de packing inválido.");
+  if (!uniqueItemIds.length) throw new Error("Selecciona al menos un item.");
+
+  const packing = await getShippingV2PackingById(id, options.access, { includeItems: false, includeAiName: false });
+  if (!isOpenPackingStatus(packing.estado)) throw new Error("Este packing ya no permite modificar items desde vista normal.");
+
+  const items = await Promise.all(uniqueItemIds.map((itemId) => getShippingV2ItemById(itemId, { includeAiName: false })));
+  for (const item of items) {
+    if (!canAccessItem(item, options.access)) throw new Error(`No tienes acceso al item ${item.sku}.`);
+    if (item.packingId && item.packingId !== id) throw new Error(`El item ${item.sku} ya está asignado a otro packing.`);
+    if (!item.requierePacking) throw new Error(`El item ${item.sku} no requiere packing.`);
+    if ((!isPackingCandidate(item) || !isItemCompatibleWithPackingProvider(item, packing)) && item.packingId !== id) {
+      throw new Error("Este Item no puede agregarse a este packing porque no cumple los criterios logísticos.");
+    }
+  }
+
+  const nextItemIds = Array.from(new Set([...packing.itemIds, ...uniqueItemIds]));
+  try {
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.packings), {
+      method: "PATCH",
+      body: JSON.stringify({ records: [{ id, fields: { [SHIPPING_V2_PACKING_FIELDS.itemsIncluidos]: nextItemIds } }] }),
+    });
+  } catch (error) {
+    if (isLinkedTableMismatch(error)) {
+      logLinkedTableMismatch({
+        action: "addItemsToShippingV2Packing.linkItems",
+        packingRecordId: id,
+        itemRecordIds: uniqueItemIds,
+        tableName: SHIPPING_V2_TABLES.packings,
+        fieldName: SHIPPING_V2_PACKING_FIELDS.itemsIncluidos,
+      });
+    }
+    throw error;
+  }
+
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: items.map((item) => ({
+        id: item.id,
+        fields: {
+          [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "En packing",
+          [SHIPPING_V2_ITEM_FIELDS.requierePacking]: true,
+          [SHIPPING_V2_ITEM_FIELDS.modoLogistico]: "Asignar a packing existente",
+          [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+          [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
+        },
+      })),
+    }),
+  });
+
+  await createShippingV2Event({
+    action: "Actualizado",
+    entity: "Shipping Packing",
+    packingRecordId: id,
+    registradoPor: options.registradoPor,
+    descripcion: `${uniqueItemIds.length} item(s) agregado(s) al packing.`,
+  });
+  return {
+    packing: {
+      id,
+      itemIds: nextItemIds,
+      itemCount: nextItemIds.length,
+    },
+    addedItems: items.map((item) => ({
+      ...item,
+      estado: "En packing",
+      requierePacking: true,
+      modoLogistico: "Asignar a packing existente",
+      packingId: id,
+    })),
+  };
+}
+
+export async function removeItemFromShippingV2Packing(packingId: string, itemId: string, options: { registradoPor: string; access?: ShippingV2AccessContext }) {
+  const id = cleanString(packingId);
+  const itemRecordId = cleanString(itemId);
+  if (!id || !itemRecordId) throw new Error("Packing o item inválido.");
+  const packing = await getShippingV2PackingById(id, options.access, { includeItems: false, includeAiName: false });
+  if (!isOpenPackingStatus(packing.estado)) throw new Error("Este packing ya no permite modificar items desde vista normal.");
+  if (!packing.itemIds.includes(itemRecordId)) throw new Error("El item no pertenece a este packing.");
+  const item = await getShippingV2ItemById(itemRecordId, { includeAiName: false });
+  if (!canAccessItem(item, options.access)) throw new Error("No tienes acceso a este item.");
+
+  const nextItemIds = packing.itemIds.filter((value) => value !== itemRecordId);
+  try {
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.packings), {
+      method: "PATCH",
+      body: JSON.stringify({ records: [{ id, fields: { [SHIPPING_V2_PACKING_FIELDS.itemsIncluidos]: nextItemIds } }] }),
+    });
+  } catch (error) {
+    if (isLinkedTableMismatch(error)) {
+      logLinkedTableMismatch({
+        action: "removeItemFromShippingV2Packing.unlinkItem",
+        packingRecordId: id,
+        itemRecordIds: [itemRecordId],
+        tableName: SHIPPING_V2_TABLES.packings,
+        fieldName: SHIPPING_V2_PACKING_FIELDS.itemsIncluidos,
+      });
+    }
+    throw error;
+  }
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{
+        id: itemRecordId,
+        fields: {
+          [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Pendiente de packing",
+          [SHIPPING_V2_ITEM_FIELDS.requierePacking]: true,
+          [SHIPPING_V2_ITEM_FIELDS.modoLogistico]: "Pendiente de packing",
+          [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+          [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
+        },
+      }],
+    }),
+  });
+  await createShippingV2Event({
+    action: "Actualizado",
+    entity: "Shipping Packing",
+    packingRecordId: id,
+    itemRecordId,
+    registradoPor: options.registradoPor,
+    descripcion: "Item removido del packing.",
+  });
+  return {
+    packing: {
+      id,
+      itemIds: nextItemIds,
+      itemCount: nextItemIds.length,
+    },
+    removedItem: {
+      ...item,
+      estado: "Pendiente de packing",
+      requierePacking: true,
+      modoLogistico: "Pendiente de packing",
+      packingId: "",
+    },
+  };
+}
+
+export async function closeShippingV2Packing(packingId: string, options: { cerradoPor: string; access?: ShippingV2AccessContext }) {
+  const id = cleanString(packingId);
+  if (!id) throw new Error("Record ID de packing inválido.");
+  const packing = await getShippingV2PackingById(id, options.access);
+  if (!isOpenPackingStatus(packing.estado)) throw new Error("Este packing ya no permite cierre desde vista normal.");
+  if (!packing.itemIds.length) throw new Error("No puedes cerrar un packing sin items.");
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.packings), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{
+        id,
+        fields: {
+          [SHIPPING_V2_PACKING_FIELDS.estado]: "Cerrado",
+          [SHIPPING_V2_PACKING_FIELDS.fechaCierre]: new Date().toISOString(),
+          [SHIPPING_V2_PACKING_FIELDS.cerradoPor]: options.cerradoPor,
+        },
+      }],
+    }),
+  });
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el packing cerrado.");
+  await createShippingV2Event({
+    action: "Cambio de estado",
+    entity: "Shipping Packing",
+    packingRecordId: id,
+    registradoPor: options.cerradoPor,
+    descripcion: "Packing cerrado desde Portal Staff.",
+  });
+  return getShippingV2PackingById(id, options.access);
 }
 
 export async function getShippingV2Recepciones() {

@@ -1,4 +1,4 @@
-import { SHIPPING_V2_ITEM_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+import { SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 
 export type ShippingV2RecordBase = {
   id: string;
@@ -9,7 +9,11 @@ export type ShippingV2ProveedorEstado = "Activo" | "Inactivo" | "En Revision";
 export type ShippingV2ItemEstado = "Borrador" | "Pendiente Pago" | "Pagado" | "En Transito" | "Disponible" | "Entregado" | "Cancelado";
 export type ShippingV2PagoEstado = "Pendiente" | "Pagado" | "Observado" | "Cancelado";
 export type ShippingV2FinanzasMovimientoEstado = "Pendiente" | "Sincronizado" | "Error" | "Cancelado";
-export type ShippingV2PackingEstado = "En Proceso" | "Cerrado" | "En Transito" | "Recibido" | "Cancelado";
+export type ShippingV2PackingEstado = (typeof SHIPPING_V2_PACKING_SELECT_OPTIONS.estado)[number];
+export type ShippingV2PackingTipo = (typeof SHIPPING_V2_PACKING_SELECT_OPTIONS.tipo)[number];
+export type ShippingV2PackingTransportistaUsa = (typeof SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaUsa)[number];
+export type ShippingV2PackingTransportistaEc = (typeof SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaEc)[number];
+export type ShippingV2PackingUnidadPeso = (typeof SHIPPING_V2_PACKING_SELECT_OPTIONS.unidadPeso)[number];
 export type ShippingV2RecepcionEstado = "Pendiente" | "Parcial" | "Completa" | "Observada";
 export type ShippingV2NovedadEstado = "Abierta" | "En Revision" | "Resuelta" | "Cancelada";
 export type ShippingV2MigracionEstado = "Pendiente" | "Procesada" | "Error" | "Omitida";
@@ -192,15 +196,54 @@ export type ShippingV2FinanzasMovimiento = ShippingV2RecordBase & {
 
 export type ShippingV2Packing = ShippingV2RecordBase & {
   packingId: string;
+  nombre: string;
   estado: ShippingV2PackingEstado | string;
-  tipo?: string;
+  tipo?: ShippingV2PackingTipo | string;
+  proveedorResponsableId?: string;
+  proveedorResponsableNombre?: string;
+  proveedorLogisticoEcId?: string;
+  proveedorLogisticoEcNombre?: string;
+  itemIds: string[];
+  items: ShippingV2Item[];
   itemCount: number;
-  peso: number | null;
   trackingUsa?: string;
+  transportistaUsa?: ShippingV2PackingTransportistaUsa | string;
   trackingEc?: string;
-  fechaEnvio?: string;
-  arriboEstimado?: string;
+  transportistaEc?: ShippingV2PackingTransportistaEc | string;
+  peso: number | null;
+  unidadPeso?: string;
+  flete: number | null;
+  arancel: number | null;
+  otrosCostos: number | null;
+  reglaDistribucionCostos?: string;
+  observaciones?: string;
+  fechaCreacion?: string;
+  fechaCierre?: string;
+  cerradoPor?: string;
+  creadoPor?: string;
+  conNovedad: boolean;
 };
+
+export type ShippingV2PackingWriteInput = {
+  nombre?: string;
+  tipo?: string;
+  estado?: string;
+  proveedorResponsableId?: string;
+  proveedorLogisticoEcId?: string;
+  trackingUsa?: string;
+  transportistaUsa?: string;
+  trackingEc?: string;
+  transportistaEc?: string;
+  peso?: number | null;
+  unidadPeso?: string;
+  observaciones?: string;
+};
+
+export const SHIPPING_V2_PACKING_ESTADOS = SHIPPING_V2_PACKING_SELECT_OPTIONS.estado;
+export const SHIPPING_V2_PACKING_TIPOS = SHIPPING_V2_PACKING_SELECT_OPTIONS.tipo;
+export const SHIPPING_V2_PACKING_TRANSPORTISTAS_USA = SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaUsa;
+export const SHIPPING_V2_PACKING_TRANSPORTISTAS_EC = SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaEc;
+export const SHIPPING_V2_PACKING_UNIDADES_PESO = SHIPPING_V2_PACKING_SELECT_OPTIONS.unidadPeso;
 
 export type ShippingV2Recepcion = ShippingV2RecordBase & {
   recepcionId: string;

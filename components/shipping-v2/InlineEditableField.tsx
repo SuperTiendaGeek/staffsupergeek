@@ -33,7 +33,7 @@ function stringifyValue(value: Props["value"]) {
 function normalizeForSave(type: ShippingV2InlineFieldType, value: string | boolean) {
   if (type === "checkbox") return Boolean(value);
   if (type === "number" || type === "currency") {
-    const text = String(value).trim();
+    const text = String(value).trim().replace(",", ".");
     if (!text) return null;
     const parsed = Number(text);
     if (!Number.isFinite(parsed)) throw new Error("Valor numérico inválido.");

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-26T13:27:25.170Z",
+  "generatedAt": "2026-05-27T22:06:56.205Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -1111,7 +1111,7 @@
           "linkedTableId": "tblHy141rHAHyXt5W",
           "linkedTableName": "Shipping Proveedores"
         },
-        "Proveedor logístico / intermediario": {
+        "Proveedor logístico EC": {
           "id": "fldsHlP5EEJhdaHfS",
           "type": "multipleRecordLinks",
           "linkedTableId": "tblHy141rHAHyXt5W",
@@ -1123,15 +1123,36 @@
           "linkedTableId": "tbliTKAI8dAWwr1nh",
           "linkedTableName": "Shipping Items"
         },
-        "Tracking principal": {
+        "Tracking USA": {
           "id": "fldQj7EdKRHwbhSMa",
           "type": "singleLineText",
           "kind": "singleLineText"
         },
-        "Empresa transportista": {
+        "Transportista USA": {
           "id": "fldUXCrT3BZvDOPRX",
-          "type": "singleLineText",
-          "kind": "singleLineText"
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "USPS",
+            "UPS",
+            "FedEx",
+            "DHL",
+            "Amazon Logistics",
+            "Otro"
+          ]
+        },
+        "Transportista EC": {
+          "id": "fldrFsltv8BoMFbgN",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "Laarbox",
+            "Servientrega",
+            "Urbano",
+            "Tramaco",
+            "DHL Ecuador",
+            "Otro"
+          ]
         },
         "Peso": {
           "id": "fldJXbQ7FpvmcXdX9",
@@ -1286,6 +1307,11 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblS0nSrZnRNHS3xI",
           "linkedTableName": "Shipping Eventos"
+        },
+        "Tracking EC": {
+          "id": "fldCInLNuMZbcPGsl",
+          "type": "singleLineText",
+          "kind": "singleLineText"
         }
       }
     },
