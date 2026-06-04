@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-27T22:06:56.205Z",
+  "generatedAt": "2026-06-04T20:48:07.379Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -220,6 +220,50 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblS0nSrZnRNHS3xI",
           "linkedTableName": "Shipping Eventos"
+        },
+        "Shipping Packings": {
+          "id": "fldDibSVnh1m4dYdA",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl5xN2KtZywxsCFS",
+          "linkedTableName": "Shipping Packings"
+        },
+        "Shipping Packings 2": {
+          "id": "fldUr8YFQQmoH7bBn",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl5xN2KtZywxsCFS",
+          "linkedTableName": "Shipping Packings"
+        },
+        "País / zona logística": {
+          "id": "fldwlx4q9nqdZebxV",
+          "type": "singleSelect",
+          "options": [
+            "USA",
+            "Ecuador",
+            "Miami / Casillero",
+            "Internacional",
+            "Local",
+            "Otro"
+          ]
+        },
+        "URL rastreo": {
+          "id": "fldBkp81YMbb4kwip",
+          "type": "url",
+          "kind": "url"
+        },
+        "Plantilla URL rastreo": {
+          "id": "fld0iYNRDR2xfeHut",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Permite rastreo web": {
+          "id": "fldX9dsa1WzGCxDnp",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Notas de rastreo": {
+          "id": "fldXl8BkVOmEZY9wg",
+          "type": "multilineText",
+          "kind": "multilineText"
         }
       }
     },
@@ -431,11 +475,6 @@
           "type": "currency",
           "kind": "currency"
         },
-        "Costo logístico asignado": {
-          "id": "fldG2oEMK1H3vnHvz",
-          "type": "currency",
-          "kind": "currency"
-        },
         "Costo total estimado": {
           "id": "fldCUDLY0UkGfs3yM",
           "type": "currency",
@@ -455,6 +494,34 @@
           "id": "fldeH94NlFqWUZWwe",
           "type": "number",
           "kind": "number"
+        },
+        "Total costo proveedor Packing": {
+          "id": "fld7mEPXQoXLxqlNP",
+          "type": "rollup"
+        },
+        "Cantidad items Packing": {
+          "id": "fldFOIcp1NncwkcZY",
+          "type": "multipleLookupValues"
+        },
+        "Costo flete asignado": {
+          "id": "fldd7aKGpVKXwqEym",
+          "type": "formula"
+        },
+        "Costo arancel asignado": {
+          "id": "fldPtrlL2WkHogeTo",
+          "type": "formula"
+        },
+        "Otros costos asignados": {
+          "id": "fldmTR5rZNwweHuLn",
+          "type": "formula"
+        },
+        "Costo logístico asignado": {
+          "id": "fldG2oEMK1H3vnHvz",
+          "type": "formula"
+        },
+        "Costo total unidad": {
+          "id": "fld1Wx6wiaQAVZGw7",
+          "type": "formula"
         },
         "Unidad": {
           "id": "flddUjgeHzAIUM98M",
@@ -739,6 +806,22 @@
             "Tracking directo",
             "Asignar a packing existente"
           ]
+        },
+        "Arancel Packing": {
+          "id": "fldInVD0tQMTn4cKT",
+          "type": "multipleLookupValues"
+        },
+        "Flete Packing": {
+          "id": "fldIf0K0L6BtwY52n",
+          "type": "multipleLookupValues"
+        },
+        "Otros costos Packing": {
+          "id": "fldq2LvcVOwEJrJh2",
+          "type": "multipleLookupValues"
+        },
+        "Regla distribución Packing": {
+          "id": "fld2Pu35JgsUUPa7Z",
+          "type": "multipleLookupValues"
         }
       }
     },
@@ -1123,6 +1206,14 @@
           "linkedTableId": "tbliTKAI8dAWwr1nh",
           "linkedTableName": "Shipping Items"
         },
+        "Costo Total Items Proveedor": {
+          "id": "fldzcAqHEf1RDmNwK",
+          "type": "rollup"
+        },
+        "Cantidad Items Packing": {
+          "id": "flda4nDZa9YkzpGNK",
+          "type": "count"
+        },
         "Tracking USA": {
           "id": "fldQj7EdKRHwbhSMa",
           "type": "singleLineText",
@@ -1130,44 +1221,20 @@
         },
         "Transportista USA": {
           "id": "fldUXCrT3BZvDOPRX",
-          "type": "singleSelect",
-          "options": [
-            "No aplica",
-            "USPS",
-            "UPS",
-            "FedEx",
-            "DHL",
-            "Amazon Logistics",
-            "Otro"
-          ]
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
         },
         "Transportista EC": {
           "id": "fldrFsltv8BoMFbgN",
-          "type": "singleSelect",
-          "options": [
-            "No aplica",
-            "Laarbox",
-            "Servientrega",
-            "Urbano",
-            "Tramaco",
-            "DHL Ecuador",
-            "Otro"
-          ]
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
         },
         "Peso": {
           "id": "fldJXbQ7FpvmcXdX9",
           "type": "number",
           "kind": "number"
-        },
-        "Unidad de peso": {
-          "id": "fldAakmc0Sc8bLNLa",
-          "type": "singleSelect",
-          "options": [
-            "lb",
-            "kg",
-            "oz",
-            "g"
-          ]
         },
         "Flete": {
           "id": "fldctLFG0UvXju7HE",

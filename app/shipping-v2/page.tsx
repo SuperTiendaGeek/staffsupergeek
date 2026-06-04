@@ -29,7 +29,7 @@ const kpiLabels: Array<{ key: keyof ShippingV2DashboardSummary; label: string; t
 
 const quickAccess = [
   { label: "Items", href: "/shipping-v2/items", active: true },
-  { label: "Pagos", href: null, active: false },
+  { label: "Pagos", href: "/shipping-v2/pagos", active: true },
   { label: "Packings", href: "/shipping-v2/packings", active: true },
   { label: "Recepcion", href: null, active: false },
   { label: "Novedades", href: null, active: false },

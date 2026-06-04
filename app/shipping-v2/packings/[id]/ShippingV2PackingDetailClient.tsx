@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
-import { SHIPPING_V2_PACKING_TIPOS, SHIPPING_V2_PACKING_TRANSPORTISTAS_USA, SHIPPING_V2_PACKING_UNIDADES_PESO, type ShippingV2Item, type ShippingV2Packing, type ShippingV2Proveedor } from "@/types/shipping-v2";
+import { buildTrackingUrl } from "@/lib/shipping-v2/tracking";
+import { getEcuadorTransportProvidersForPacking, getUsaTransportProviders, providerTrackingLabel } from "@/lib/shipping-v2/tracking-providers";
+import { SHIPPING_V2_PACKING_TIPOS, SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS, type ShippingV2Item, type ShippingV2Packing, type ShippingV2Proveedor } from "@/types/shipping-v2";
 
 type Props = { packing: ShippingV2Packing; candidates: ShippingV2Item[]; proveedores: ShippingV2Proveedor[] };
-type EditablePackingField = "nombre" | "tipo" | "observaciones" | "proveedorResponsableId" | "proveedorLogisticoEcId" | "trackingUsa" | "transportistaUsa" | "trackingEc" | "peso" | "unidadPeso";
+type EditablePackingField = "nombre" | "tipo" | "observaciones" | "proveedorResponsableId" | "trackingUsa" | "transportistaUsa" | "trackingEc" | "transportistaEc" | "peso";
 type SaveState = Record<string, "saving" | "saved" | "error" | undefined>;
 
 function display(value?: string | number | null) {
@@ -29,9 +31,13 @@ function formatCurrency(value: number | null | undefined) {
   return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(value);
 }
 
-function formatWeight(peso: number | null | undefined, unidadPeso?: string) {
+function formatCurrencyZero(value: number | null | undefined) {
+  return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(value ?? 0);
+}
+
+function formatWeight(peso: number | null | undefined) {
   if (peso === null || peso === undefined) return "Sin registrar";
-  return `${new Intl.NumberFormat("es-EC", { maximumFractionDigits: 2 }).format(peso)}${unidadPeso ? ` ${unidadPeso}` : ""}`;
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(peso)} kg`;
 }
 
 function normalize(value: string) {
@@ -83,6 +89,7 @@ function WeightSummaryBadge({
         type="number"
         readOnly={!canEditWeight}
         displayValue={formatWeight(peso)}
+        editSuffix="kg"
         className="rounded-lg transition"
         labelClassName="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]"
         valueClassName="mt-2 min-h-6 break-words text-sm font-semibold leading-tight text-[#F5F5F5] tabular-nums"
@@ -246,10 +253,63 @@ function EditableSelectField({
   );
 }
 
-function canUseAsEcLogisticsProvider(provider: ShippingV2Proveedor) {
-  const normalizedEstado = normalize(provider.estado || "");
-  const normalizedTipo = normalize(provider.tipoProveedor || "");
-  return normalizedEstado === "activo" && (normalizedTipo === "logistico" || Boolean(provider.puedeArmarPackings || provider.permiteTriangulacion));
+function TrackingActions({
+  tracking,
+  trackingUrl,
+  help,
+  copied,
+  onCopy,
+}: {
+  tracking?: string;
+  trackingUrl: string | null;
+  help?: string | null;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  if (!tracking?.trim()) return null;
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onCopy}
+          className="rounded-full border border-[#3A3A36] bg-[#151515] px-3 py-1 text-xs font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
+        >
+          {copied ? "Copiado" : "Copiar"}
+        </button>
+        {trackingUrl ? (
+          <a
+            href={trackingUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full border border-[#D7FF4F]/45 bg-[#D7FF4F]/10 px-3 py-1 text-xs font-semibold text-[#D7FF4F] transition hover:border-[#D7FF4F]"
+          >
+            Ver rastreo
+          </a>
+        ) : null}
+      </div>
+      {help ? <p className="text-xs leading-5 text-[#A7A7A7]">{help}</p> : null}
+    </div>
+  );
+}
+
+function trackingHelpMessage({
+  tracking,
+  providerId,
+  provider,
+  trackingUrl,
+  missingProviderText,
+}: {
+  tracking?: string;
+  providerId?: string;
+  provider?: ShippingV2Proveedor;
+  trackingUrl: string | null;
+  missingProviderText: string;
+}) {
+  if (!tracking?.trim() || trackingUrl) return null;
+  if (!providerId?.trim()) return missingProviderText;
+  if (!provider) return "No se pudo cargar la configuracion de rastreo del transportista seleccionado.";
+  return "Este transportista no tiene URL de rastreo configurada.";
 }
 
 function ItemCard({
@@ -258,6 +318,7 @@ function ItemCard({
   logisticsProviderLabel,
   action,
   draggable,
+  showCosts = false,
   onDragStart,
 }: {
   item: ShippingV2Item;
@@ -265,8 +326,18 @@ function ItemCard({
   logisticsProviderLabel?: string;
   action: ReactNode;
   draggable?: boolean;
+  showCosts?: boolean;
   onDragStart?: (event: DragEvent<HTMLElement>) => void;
 }) {
+  const costRows = [
+    { label: "Proveedor", value: item.costoProveedor },
+    { label: "Flete", value: item.costoFleteAsignado },
+    { label: "Arancel", value: item.costoArancelAsignado },
+    { label: "Otros", value: item.otrosCostosAsignados },
+    { label: "Logístico", value: item.costoLogisticoAsignado },
+    { label: "Total unidad", value: item.costoTotalUnidad },
+  ];
+
   return (
     <article
       draggable={draggable}
@@ -289,7 +360,178 @@ function ItemCard({
         <p>Categoría: <span className="text-[#F5F5F5]">{display(item.categoria)}</span></p>
         <p>Costo: <span className="text-[#F5F5F5]">{formatCurrency(item.costoProveedor)}</span></p>
       </div>
+      {showCosts ? <div className="mt-3 border-t border-[#2F302C] pt-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Costos</p>
+          <p className="text-xs font-semibold text-[#F5F5F5]">{formatCurrencyZero(item.costoTotalUnidad)}</p>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-[#A7A7A7] sm:grid-cols-3">
+          {costRows.map((row) => (
+            <p key={row.label} className="flex min-w-0 justify-between gap-2">
+              <span className="truncate">{row.label}</span>
+              <span className="shrink-0 font-semibold text-[#F5F5F5]">{formatCurrencyZero(row.value)}</span>
+            </p>
+          ))}
+        </div>
+      </div> : null}
     </article>
+  );
+}
+
+function moneyInputValue(value: number | null | undefined) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function parseMoneyInput(value: string) {
+  const text = value.trim().replace(",", ".");
+  if (!text) return 0;
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed)) throw new Error("Ingresa un valor numerico valido.");
+  if (parsed < 0) throw new Error("Los costos no pueden ser negativos.");
+  return parsed;
+}
+
+function safeMoneyInputValue(value: string) {
+  try {
+    return parseMoneyInput(value);
+  } catch {
+    return 0;
+  }
+}
+
+function LogisticsCostsSection({
+  packing,
+  canEdit,
+  onSaved,
+}: {
+  packing: ShippingV2Packing;
+  canEdit: boolean;
+  onSaved: (packing: ShippingV2Packing) => void;
+}) {
+  const [form, setForm] = useState({
+    flete: moneyInputValue(packing.flete),
+    arancel: moneyInputValue(packing.arancel),
+    otrosCostos: moneyInputValue(packing.otrosCostos),
+    reglaDistribucionCostos: packing.reglaDistribucionCostos || "No definida",
+    observacionCostos: packing.observacionCostos || "",
+  });
+  const [status, setStatus] = useState<"saving" | "saved" | "error" | undefined>();
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setForm({
+      flete: moneyInputValue(packing.flete),
+      arancel: moneyInputValue(packing.arancel),
+      otrosCostos: moneyInputValue(packing.otrosCostos),
+      reglaDistribucionCostos: packing.reglaDistribucionCostos || "No definida",
+      observacionCostos: packing.observacionCostos || "",
+    });
+  }, [packing]);
+
+  const flete = safeMoneyInputValue(form.flete);
+  const arancel = safeMoneyInputValue(form.arancel);
+  const otrosCostos = safeMoneyInputValue(form.otrosCostos);
+  const total = flete + arancel + otrosCostos;
+  const isPreliminary = normalize(packing.estado) === "en proceso";
+
+  function update(key: keyof typeof form, value: string) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function saveCosts() {
+    setStatus("saving");
+    setError("");
+    try {
+      const payload = {
+        flete: parseMoneyInput(form.flete),
+        arancel: parseMoneyInput(form.arancel),
+        otrosCostos: parseMoneyInput(form.otrosCostos),
+        reglaDistribucionCostos: form.reglaDistribucionCostos,
+        observacionCostos: form.observacionCostos,
+      };
+      const response = await fetch(`/api/shipping-v2/packings/${packing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const responsePayload = await response.json().catch(() => ({}));
+      if (!response.ok || !responsePayload.success) throw new Error(String(responsePayload.error || "No se pudieron guardar los costos."));
+      onSaved(responsePayload.data as ShippingV2Packing);
+      setStatus("saved");
+      window.setTimeout(() => setStatus(undefined), 1400);
+    } catch (saveError) {
+      setStatus("error");
+      setError(saveError instanceof Error ? saveError.message : "Error inesperado.");
+    }
+  }
+
+  const compactInputClass = "mt-1 h-7 w-full rounded border border-transparent bg-transparent p-0 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/55 focus:bg-[#101010] focus:px-2 disabled:opacity-70";
+  const compactSelectClass = "mt-1 h-8 w-full rounded border border-transparent bg-transparent p-0 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/55 focus:bg-[#101010] focus:px-2 disabled:opacity-70";
+  const compactTextareaClass = "mt-1 min-h-8 w-full resize-y rounded border border-transparent bg-transparent p-0 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/55 focus:bg-[#101010] focus:px-2 disabled:opacity-70";
+
+  return (
+    <section className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
+      <div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Costos logísticos</p>
+          <h3 className="mt-1 text-xl font-semibold text-[#F5F5F5]">Importación del packing</h3>
+          <p className="mt-1 text-sm leading-6 text-[#A7A7A7]">
+            {isPreliminary ? "Los costos finales se registran cuando el packing este cerrado o en transito." : "Registra los costos reales de importacion del grupo fisico."}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CostSummaryItem label="Flete">
+          <input inputMode="decimal" value={form.flete} disabled={!canEdit} onChange={(event) => update("flete", event.target.value)} className={compactInputClass} />
+        </CostSummaryItem>
+        <CostSummaryItem label="Arancel">
+          <input inputMode="decimal" value={form.arancel} disabled={!canEdit} onChange={(event) => update("arancel", event.target.value)} className={compactInputClass} />
+        </CostSummaryItem>
+        <CostSummaryItem label="Otros costos">
+          <input inputMode="decimal" value={form.otrosCostos} disabled={!canEdit} onChange={(event) => update("otrosCostos", event.target.value)} className={compactInputClass} />
+        </CostSummaryItem>
+        <CostSummaryItem label="Total logístico" value={formatCurrencyZero(total)} strong />
+        <CostSummaryItem label="Costo total proveedor items" value={formatCurrencyZero(packing.costoTotalItemsProveedor)} />
+        <CostSummaryItem label="Cantidad items" value={display(packing.cantidadItemsPacking ?? packing.itemCount)} />
+        <CostSummaryItem label="Regla distribución">
+          <select value={form.reglaDistribucionCostos} disabled={!canEdit} onChange={(event) => update("reglaDistribucionCostos", event.target.value)} className={compactSelectClass}>
+            {SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </CostSummaryItem>
+        <CostSummaryItem label="Observación costos">
+          <textarea value={form.observacionCostos} disabled={!canEdit} onChange={(event) => update("observacionCostos", event.target.value)} className={compactTextareaClass} />
+        </CostSummaryItem>
+      </div>
+
+      <p className="mt-3 text-xs leading-5 text-[#A7A7A7]">
+        La distribución por item se calcula automáticamente desde Airtable según la regla seleccionada.
+      </p>
+
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="grid gap-1 text-xs text-[#A7A7A7] sm:grid-cols-3 sm:gap-4">
+          <span>Cierre: <strong className="font-semibold text-[#F5F5F5]">{formatDate(packing.fechaCierre)}</strong></span>
+          <span>Envío: <strong className="font-semibold text-[#F5F5F5]">{formatDate(packing.fechaEnvio)}</strong></span>
+          <span>Recepción: <strong className="font-semibold text-[#F5F5F5]">{formatDate(packing.fechaRecepcion)}</strong></span>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {error ? <span className="text-sm font-semibold text-[#FFB07A]">{error}</span> : null}
+          <SaveBadge status={status} />
+          <button type="button" disabled={!canEdit || status === "saving"} onClick={() => void saveCosts()} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-5 py-2.5 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">
+            Guardar costos
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CostSummaryItem({ label, value, strong = false, children }: { label: string; value?: string; strong?: boolean; children?: ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-[0.75rem] border border-[#3A3A36] bg-[#151515] px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</p>
+      {children ?? <p className={`mt-1 truncate text-sm ${strong ? "font-bold text-[#D7FF4F]" : "font-semibold text-[#F5F5F5]"}`}>{value}</p>}
+    </div>
   );
 }
 
@@ -303,21 +545,88 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saveState, setSaveState] = useState<SaveState>({});
+  const [copiedTracking, setCopiedTracking] = useState<"usa" | "ec" | null>(null);
   const canEditItems = isOpen(packing.estado);
   const providerLabels = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
+  const providerById = useMemo(() => new Map(proveedores.map((provider) => [provider.id, provider])), [proveedores]);
   const responsableLabel = resolveShippingV2ProveedorLabel(packing.proveedorResponsableId, providerLabels);
-  const logisticsProviders = useMemo(() => proveedores.filter(canUseAsEcLogisticsProvider), [proveedores]);
+  const usaTransportProviders = useMemo(() => getUsaTransportProviders(proveedores), [proveedores]);
+  const ecuadorTransportProviders = useMemo(
+    () => getEcuadorTransportProvidersForPacking(proveedores, packing),
+    [packing, proveedores]
+  );
+  const selectedUsaTransportProvider = packing.transportistaUsa ? providerById.get(packing.transportistaUsa) : undefined;
+  const selectedEcTransportProvider = packing.transportistaEc ? providerById.get(packing.transportistaEc) : undefined;
   const providerOptions = useMemo(
     () => [{ value: "", label: "Sin proveedor" }, ...proveedores.map((provider) => ({ value: provider.id, label: provider.label || provider.proveedorId || provider.nombre || provider.id }))],
     [proveedores]
   );
-  const logisticsProviderOptions = useMemo(
-    () => [{ value: "", label: "Sin proveedor logístico EC" }, ...logisticsProviders.map((provider) => ({ value: provider.id, label: provider.label || provider.proveedorId || provider.nombre || provider.id }))],
-    [logisticsProviders]
+  const usaTransportProviderOptions = useMemo(
+    () => {
+      const options = usaTransportProviders.map((provider) => ({ value: provider.id, label: providerTrackingLabel(provider) }));
+      if (selectedUsaTransportProvider && !options.some((option) => option.value === selectedUsaTransportProvider.id)) {
+        options.unshift({ value: selectedUsaTransportProvider.id, label: providerTrackingLabel(selectedUsaTransportProvider) });
+      }
+      return [{ value: "", label: "Sin transportista USA" }, ...options];
+    },
+    [selectedUsaTransportProvider, usaTransportProviders]
+  );
+  const ecuadorTransportProviderOptions = useMemo(
+    () => {
+      const options = ecuadorTransportProviders.map((provider) => ({ value: provider.id, label: providerTrackingLabel(provider) }));
+      if (selectedEcTransportProvider && !options.some((option) => option.value === selectedEcTransportProvider.id)) {
+        options.unshift({ value: selectedEcTransportProvider.id, label: providerTrackingLabel(selectedEcTransportProvider) });
+      }
+      return [{ value: "", label: "Sin transportista EC" }, ...options];
+    },
+    [ecuadorTransportProviders, selectedEcTransportProvider]
   );
   const packingTypeOptions = useMemo(() => SHIPPING_V2_PACKING_TIPOS.map((option) => ({ value: option, label: option })), []);
-  const transportistaUsaOptions = useMemo(() => SHIPPING_V2_PACKING_TRANSPORTISTAS_USA.map((option) => ({ value: option, label: option })), []);
-  const unidadPesoOptions = useMemo(() => [{ value: "", label: "Sin unidad" }, ...SHIPPING_V2_PACKING_UNIDADES_PESO.map((option) => ({ value: option, label: option }))], []);
+  const trackingUsaUrl = buildTrackingUrl(selectedUsaTransportProvider, packing.trackingUsa);
+  const trackingEcUrl = buildTrackingUrl(selectedEcTransportProvider, packing.trackingEc);
+  const trackingUsaHelp = trackingHelpMessage({
+    tracking: packing.trackingUsa,
+    providerId: packing.transportistaUsa,
+    provider: selectedUsaTransportProvider,
+    trackingUrl: trackingUsaUrl,
+    missingProviderText: "Selecciona un transportista USA para habilitar el rastreo externo.",
+  });
+  const trackingEcHelp = trackingHelpMessage({
+    tracking: packing.trackingEc,
+    providerId: packing.transportistaEc,
+    provider: selectedEcTransportProvider,
+    trackingUrl: trackingEcUrl,
+    missingProviderText: "Selecciona un transportista EC para habilitar el rastreo externo.",
+  });
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    console.log("[Shipping V2 Tracking USA]", {
+      trackingUsa: packing.trackingUsa,
+      transportistaUsa: packing.transportistaUsa,
+      permiteRastreoWeb: selectedUsaTransportProvider?.permiteRastreoWeb,
+      plantillaUrlRastreo: selectedUsaTransportProvider?.plantillaUrlRastreo,
+      urlRastreo: selectedUsaTransportProvider?.urlRastreo,
+      trackingUrl: trackingUsaUrl,
+    });
+    console.log("[Shipping V2 Tracking EC]", {
+      trackingEc: packing.trackingEc,
+      transportistaEc: packing.transportistaEc,
+      permiteRastreoWeb: selectedEcTransportProvider?.permiteRastreoWeb,
+      plantillaUrlRastreo: selectedEcTransportProvider?.plantillaUrlRastreo,
+      urlRastreo: selectedEcTransportProvider?.urlRastreo,
+      trackingUrl: trackingEcUrl,
+    });
+  }, [
+    packing.trackingEc,
+    packing.trackingUsa,
+    packing.transportistaEc,
+    packing.transportistaUsa,
+    selectedEcTransportProvider,
+    selectedUsaTransportProvider,
+    trackingEcUrl,
+    trackingUsaUrl,
+  ]);
 
   const visibleCandidates = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -331,9 +640,22 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   function canEditField(field: EditablePackingField) {
     const state = normalize(packing.estado);
     if (state === "en proceso") return true;
-    if (state === "cerrado") return ["proveedorLogisticoEcId", "trackingUsa", "transportistaUsa", "trackingEc", "peso", "unidadPeso"].includes(field);
-    if (state === "en transito") return ["trackingUsa", "trackingEc", "peso", "unidadPeso"].includes(field);
+    if (state === "cerrado") return ["trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso"].includes(field);
+    if (state === "en transito") return ["trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso"].includes(field);
     return false;
+  }
+
+  function canEditLogisticsCosts() {
+    const state = normalize(packing.estado);
+    return ["en proceso", "cerrado", "en transito", "recibido"].includes(state);
+  }
+
+  async function copyTracking(kind: "usa" | "ec", value?: string) {
+    const text = value?.trim();
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    setCopiedTracking(kind);
+    window.setTimeout(() => setCopiedTracking((current) => current === kind ? null : current), 1400);
   }
 
   async function savePackingField(field: EditablePackingField, value: string | number | null) {
@@ -543,7 +865,10 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
             Volver a Packings
           </Link>
           {canEditItems ? (
-            <button type="button" disabled={busy} onClick={() => void closePacking()} className="inline-flex h-10 items-center justify-center rounded-full border border-[#6A6A64] bg-[#2A2A28]/80 px-5 text-sm font-semibold text-[#F5F5F5] shadow-inner shadow-white/5 transition hover:border-[#D7FF4F]/60 disabled:opacity-60">Cerrar packing</button>
+            <div className="flex flex-col items-stretch gap-2 sm:items-end">
+              <button type="button" disabled={busy} onClick={() => void closePacking()} className="inline-flex h-10 items-center justify-center rounded-full border border-[#6A6A64] bg-[#2A2A28]/80 px-5 text-sm font-semibold text-[#F5F5F5] shadow-inner shadow-white/5 transition hover:border-[#D7FF4F]/60 disabled:opacity-60">Cerrar packing</button>
+              <p className="max-w-sm text-xs leading-5 text-[#A7A7A7]">Después de cerrar el packing podrás registrar peso, tracking, flete y arancel.</p>
+            </div>
           ) : (
             <p className="rounded-full border border-[#3A3A36] bg-[#151515]/80 px-4 py-3 text-sm text-[#A7A7A7]">Este packing ya no permite modificar items desde vista normal.</p>
           )}
@@ -569,14 +894,6 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
               peso={packing.peso}
               canEditWeight={canEditField("peso")}
               onSaveWeight={(value) => saveInlinePackingField("peso", value)}
-            />
-            <HeaderProviderSelect
-              label="Unidad"
-              value={packing.unidadPeso}
-              options={unidadPesoOptions}
-              disabled={!canEditField("unidadPeso")}
-              status={saveState.unidadPeso}
-              onSave={(value) => void savePackingField("unidadPeso", value)}
             />
             <HeaderProviderSelect
               label="Responsable"
@@ -606,35 +923,6 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
       </section>
 
       {error ? <div className="rounded-[1.25rem] border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{error}</div> : null}
-
-      <section className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
-        <h3 className="mb-3 text-sm font-semibold text-[#F5F5F5]">Notas del packing</h3>
-        <EditableTextField label="Observaciones" value={packing.observaciones} multiline disabled={!canEditField("observaciones")} status={saveState.observaciones} onSave={(value) => void savePackingField("observaciones", value)} />
-      </section>
-
-      <section>
-        <div className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[#F5F5F5]">Tracking y logística</h3>
-          <div className="grid gap-4">
-            <div className="rounded-[1rem] border border-[#3A3A36] bg-[#1E1F1C] p-3">
-              <p className="text-xs font-semibold text-[#D7FF4F]">Ruta USA · Proveedor a Miami</p>
-              <p className="mt-1 text-xs text-[#A7A7A7]">Usa estos campos para la guía del proveedor o vendedor hasta Miami.</p>
-              <div className="mt-3 grid gap-3">
-                <EditableTextField label="Tracking USA" value={packing.trackingUsa} disabled={!canEditField("trackingUsa")} status={saveState.trackingUsa} onSave={(value) => void savePackingField("trackingUsa", value)} />
-                <EditableSelectField label="Transportista USA" value={packing.transportistaUsa} options={transportistaUsaOptions} disabled={!canEditField("transportistaUsa")} status={saveState.transportistaUsa} onSave={(value) => void savePackingField("transportistaUsa", value)} />
-              </div>
-            </div>
-            <div className="rounded-[1rem] border border-[#3A3A36] bg-[#1E1F1C] p-3">
-              <p className="text-xs font-semibold text-[#D7FF4F]">Ruta Ecuador · Miami a SUPER GEEK</p>
-              <p className="mt-1 text-xs text-[#A7A7A7]">Usa estos campos para la guía del operador logístico desde Miami hacia Ecuador.</p>
-              <div className="mt-3 grid gap-3">
-                <EditableSelectField label="Proveedor logístico EC" value={packing.proveedorLogisticoEcId} options={logisticsProviderOptions} disabled={!canEditField("proveedorLogisticoEcId")} status={saveState.proveedorLogisticoEcId} onSave={(value) => void savePackingField("proveedorLogisticoEcId", value)} />
-                <EditableTextField label="Tracking EC" value={packing.trackingEc} disabled={!canEditField("trackingEc")} status={saveState.trackingEc} onSave={(value) => void savePackingField("trackingEc", value)} />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
 
       <section className="rounded-[1.75rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
         <div className="mb-4">
@@ -719,6 +1007,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
                     item={item}
                     providerLabel={providerLabel}
                     logisticsProviderLabel={logisticsProviderLabel}
+                    showCosts
                     action={canEditItems ? <button type="button" disabled={busy} onClick={() => void removeItem(item)} className="min-w-[92px] rounded-full border border-[#FF914D]/45 px-3 py-1 text-xs font-semibold text-[#FFB07A] disabled:opacity-50">{busyItemId === item.id ? "Guardando..." : "Quitar"}</button> : null}
                   />
                 );
@@ -727,6 +1016,58 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
             </div>
           </section>
         </div>
+      </section>
+
+      <section>
+        <div className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
+          <h3 className="mb-3 text-sm font-semibold text-[#F5F5F5]">Tracking y logística</h3>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-[1rem] border border-[#3A3A36] bg-[#1E1F1C] p-3">
+              <p className="text-xs font-semibold text-[#D7FF4F]">Ruta USA · Proveedor a Miami</p>
+              <p className="mt-1 text-xs text-[#A7A7A7]">Usa estos campos para la guía del proveedor o vendedor hasta Miami.</p>
+              <div className="mt-3 grid gap-3">
+                <EditableTextField label="Tracking USA" value={packing.trackingUsa} disabled={!canEditField("trackingUsa")} status={saveState.trackingUsa} onSave={(value) => void savePackingField("trackingUsa", value)} />
+                <TrackingActions
+                  tracking={packing.trackingUsa}
+                  trackingUrl={trackingUsaUrl}
+                  help={trackingUsaHelp}
+                  copied={copiedTracking === "usa"}
+                  onCopy={() => void copyTracking("usa", packing.trackingUsa)}
+                />
+                <EditableSelectField label="Transportista USA" value={packing.transportistaUsa} options={usaTransportProviderOptions} disabled={!canEditField("transportistaUsa")} status={saveState.transportistaUsa} onSave={(value) => void savePackingField("transportistaUsa", value)} />
+              </div>
+            </div>
+            <div className="rounded-[1rem] border border-[#3A3A36] bg-[#1E1F1C] p-3">
+              <p className="text-xs font-semibold text-[#D7FF4F]">Ruta Ecuador · Miami a SUPER GEEK</p>
+              <p className="mt-1 text-xs text-[#A7A7A7]">Usa estos campos para la guía del operador logístico desde Miami hacia Ecuador.</p>
+              <div className="mt-3 grid gap-3">
+                <EditableTextField label="Tracking EC" value={packing.trackingEc} disabled={!canEditField("trackingEc")} status={saveState.trackingEc} onSave={(value) => void savePackingField("trackingEc", value)} />
+                <TrackingActions
+                  tracking={packing.trackingEc}
+                  trackingUrl={trackingEcUrl}
+                  help={trackingEcHelp}
+                  copied={copiedTracking === "ec"}
+                  onCopy={() => void copyTracking("ec", packing.trackingEc)}
+                />
+                <EditableSelectField label="Transportista EC" value={packing.transportistaEc} options={ecuadorTransportProviderOptions} disabled={!canEditField("transportistaEc")} status={saveState.transportistaEc} onSave={(value) => void savePackingField("transportistaEc", value)} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <LogisticsCostsSection
+        packing={packing}
+        canEdit={canEditLogisticsCosts()}
+        onSaved={(updatedPacking) => {
+          setPacking(updatedPacking);
+          router.refresh();
+        }}
+      />
+
+      <section className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
+        <h3 className="mb-3 text-sm font-semibold text-[#F5F5F5]">Notas del packing</h3>
+        <EditableTextField label="Observaciones" value={packing.observaciones} multiline disabled={!canEditField("observaciones")} status={saveState.observaciones} onSave={(value) => void savePackingField("observaciones", value)} />
       </section>
     </div>
   );

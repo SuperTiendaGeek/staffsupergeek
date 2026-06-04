@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import { getShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
-import { SHIPPING_V2_PACKING_TIPOS, SHIPPING_V2_PACKING_TRANSPORTISTAS_USA, SHIPPING_V2_PACKING_UNIDADES_PESO, type ShippingV2Proveedor } from "@/types/shipping-v2";
+import { getEcuadorTransportProvidersForPacking, getUsaTransportProviders, providerTrackingLabel } from "@/lib/shipping-v2/tracking-providers";
+import { SHIPPING_V2_PACKING_TIPOS, type ShippingV2Proveedor } from "@/types/shipping-v2";
 
 type Props = { proveedores: ShippingV2Proveedor[] };
 
@@ -12,12 +13,11 @@ const initialState = {
   nombre: "",
   tipo: SHIPPING_V2_PACKING_TIPOS[0] ?? "Caja",
   proveedorResponsableId: "",
-  proveedorLogisticoEcId: "",
   trackingUsa: "",
-  transportistaUsa: SHIPPING_V2_PACKING_TRANSPORTISTAS_USA[0] ?? "No aplica",
+  transportistaUsa: "",
   trackingEc: "",
+  transportistaEc: "",
   peso: "",
-  unidadPeso: "",
   observaciones: "",
 };
 
@@ -39,14 +39,8 @@ function isLocalPacking(tipo: string) {
 }
 
 function isLocalProvider(provider?: ShippingV2Proveedor) {
-  const value = `${provider?.tipoProveedor || ""} ${provider?.pais || ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const value = `${provider?.tipoProveedor || ""} ${provider?.paisZonaLogistica || provider?.pais || ""}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   return value.includes("local") || value.includes("nacional") || value.includes("ecuador");
-}
-
-function canUseAsEcLogisticsProvider(provider: ShippingV2Proveedor) {
-  const normalizedEstado = (provider.estado || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const normalizedTipo = (provider.tipoProveedor || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  return normalizedEstado === "activo" && (normalizedTipo === "logistico" || Boolean(provider.puedeArmarPackings || provider.permiteTriangulacion));
 }
 
 export function ShippingV2NewPackingForm({ proveedores }: Props) {
@@ -58,7 +52,11 @@ export function ShippingV2NewPackingForm({ proveedores }: Props) {
     () => proveedores.find((provider) => provider.id === form.proveedorResponsableId),
     [form.proveedorResponsableId, proveedores]
   );
-  const logisticsProviders = useMemo(() => proveedores.filter(canUseAsEcLogisticsProvider), [proveedores]);
+  const usaTransportProviders = useMemo(() => getUsaTransportProviders(proveedores), [proveedores]);
+  const ecuadorTransportProviders = useMemo(
+    () => getEcuadorTransportProvidersForPacking(proveedores, form),
+    [form, proveedores]
+  );
   const showLocalHelp = isLocalPacking(form.tipo) || isLocalProvider(selectedResponsibleProvider);
 
   function update(key: keyof typeof form, value: string) {
@@ -114,23 +112,22 @@ export function ShippingV2NewPackingForm({ proveedores }: Props) {
         <Field label="Tipo de packing"><select className={inputClass} value={form.tipo} onChange={(event) => update("tipo", event.target.value)}>{SHIPPING_V2_PACKING_TIPOS.map((option) => <option key={option}>{option}</option>)}</select></Field>
         <Field label="Estado Packing"><div className="flex h-12 items-center rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm font-semibold text-[#D7FF4F]">En Proceso</div></Field>
         <Field label="Proveedor responsable"><select className={inputClass} value={form.proveedorResponsableId} onChange={(event) => update("proveedorResponsableId", event.target.value)}><option value="">Sin proveedor</option>{proveedores.map((provider) => <option key={provider.id} value={provider.id}>{getShippingV2ProveedorLabel(provider)}</option>)}</select></Field>
-        <Field label="Peso" help="Opcional. Puede registrarse cuando la caja este lista para pesarse."><input className={inputClass} inputMode="decimal" value={form.peso} onChange={(event) => update("peso", event.target.value)} /></Field>
-        <Field label="Unidad de peso"><select className={inputClass} value={form.unidadPeso} onChange={(event) => update("unidadPeso", event.target.value)}><option value="">Sin unidad</option>{SHIPPING_V2_PACKING_UNIDADES_PESO.map((option) => <option key={option}>{option}</option>)}</select></Field>
+        <Field label="Peso en kg" help="Opcional. Puede registrarse cuando la caja este lista para pesarse."><input className={inputClass} inputMode="decimal" value={form.peso} onChange={(event) => update("peso", event.target.value)} /></Field>
         <div className="rounded-[1.25rem] border border-[#3A3A36] bg-[#1E1F1C] p-4 md:col-span-2">
           <h3 className="text-sm font-semibold text-[#F5F5F5]">Ruta USA · Proveedor a Miami</h3>
           {showLocalHelp ? <p className="mt-2 text-xs text-[#A7A7A7]">Para packings locales normalmente no se usa Tracking USA. Registra la guía en Tracking EC.</p> : null}
           <p className="mt-2 text-xs text-[#A7A7A7]">Usa estos campos para la guía del proveedor o vendedor hasta Miami.</p>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <Field label="Tracking USA"><input className={inputClass} value={form.trackingUsa} onChange={(event) => update("trackingUsa", event.target.value)} /></Field>
-            <Field label="Transportista USA"><select className={inputClass} value={form.transportistaUsa} onChange={(event) => update("transportistaUsa", event.target.value)}>{SHIPPING_V2_PACKING_TRANSPORTISTAS_USA.map((option) => <option key={option}>{option}</option>)}</select></Field>
+            <Field label="Transportista USA"><select className={inputClass} value={form.transportistaUsa} onChange={(event) => update("transportistaUsa", event.target.value)}><option value="">Sin transportista USA</option>{usaTransportProviders.map((provider) => <option key={provider.id} value={provider.id}>{providerTrackingLabel(provider)}</option>)}</select></Field>
           </div>
         </div>
         <div className="rounded-[1.25rem] border border-[#3A3A36] bg-[#1E1F1C] p-4 md:col-span-2">
           <h3 className="text-sm font-semibold text-[#F5F5F5]">Ruta Ecuador · Miami a SUPER GEEK</h3>
           <p className="mt-2 text-xs text-[#A7A7A7]">Usa estos campos para la guía del operador logístico desde Miami hacia Ecuador.</p>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <Field label="Proveedor logístico EC"><select className={inputClass} value={form.proveedorLogisticoEcId} onChange={(event) => update("proveedorLogisticoEcId", event.target.value)}><option value="">Sin proveedor logístico EC</option>{logisticsProviders.map((provider) => <option key={provider.id} value={provider.id}>{getShippingV2ProveedorLabel(provider)}</option>)}</select></Field>
             <Field label="Tracking EC"><input className={inputClass} value={form.trackingEc} onChange={(event) => update("trackingEc", event.target.value)} /></Field>
+            <Field label="Transportista EC"><select className={inputClass} value={form.transportistaEc} onChange={(event) => update("transportistaEc", event.target.value)}><option value="">Sin transportista EC</option>{ecuadorTransportProviders.map((provider) => <option key={provider.id} value={provider.id}>{providerTrackingLabel(provider)}</option>)}</select></Field>
           </div>
         </div>
         <label className="block space-y-2 md:col-span-2">

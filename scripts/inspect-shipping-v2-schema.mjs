@@ -39,6 +39,17 @@ const EXPECTED_ITEM_FIELDS = [
   "Afecta inventario",
   "Disponible para venta",
   "Costo proveedor",
+  "Flete Packing",
+  "Arancel Packing",
+  "Otros costos Packing",
+  "Regla distribución Packing",
+  "Total costo proveedor Packing",
+  "Cantidad items Packing",
+  "Costo flete asignado",
+  "Costo arancel asignado",
+  "Otros costos asignados",
+  "Costo logístico asignado",
+  "Costo total unidad",
   "Precio venta sugerido",
   "SKU interno",
   "SKU proveedor",
@@ -52,6 +63,56 @@ const EXPECTED_ITEM_FIELDS = [
   "Observación para venta",
 ];
 
+const EXPECTED_PROVIDER_FIELDS = [
+  "Proveedor ID",
+  "Nombre proveedor",
+  "Estado proveedor",
+  "Tipo de proveedor",
+  "País / zona logística",
+  "URL rastreo",
+  "Plantilla URL rastreo",
+  "Permite rastreo web",
+  "Notas de rastreo",
+];
+
+const EXPECTED_PAYMENT_FIELDS = [
+  "Pago ID",
+  "Estado Pago",
+  "Proveedor",
+  "Items relacionados",
+  "Total a pagar",
+  "Regalos incluidos",
+  "Fecha de creación",
+  "Fecha de vencimiento sugerida",
+  "Fecha real de pago",
+  "Método de pago",
+  "Cuenta origen",
+  "Transacción ID",
+  "Comprobante",
+  "Observación",
+  "Registrado por",
+  "Estado de integración con Finanzas",
+  "Shipping Finanzas Movimientos",
+];
+
+const EXPECTED_FINANCE_FIELDS = [
+  "Movimiento Shipping ID",
+  "Origen",
+  "Tipo de movimiento",
+  "Estado de integración",
+  "Pago Shipping relacionado",
+  "Proveedor",
+  "Monto",
+  "Fecha del movimiento",
+  "Método",
+  "Cuenta origen",
+  "Transacción ID",
+  "Comprobante",
+  "Observación",
+  "Registrado por",
+  "Fecha de creación",
+];
+
 const EXPECTED_PACKING_FIELDS = [
   "Packing ID",
   "Nombre Packing",
@@ -59,20 +120,24 @@ const EXPECTED_PACKING_FIELDS = [
   "Estado Packing",
   "Proveedor responsable",
   "Items incluidos",
+  "Costo Total Items Proveedor",
+  "Cantidad Items Packing",
   "Tracking USA",
   "Transportista USA",
   "Proveedor logístico EC",
   "Tracking EC",
   "Transportista EC",
   "Peso",
-  "Unidad de peso",
   "Flete",
   "Arancel",
   "Otros costos",
   "Regla de distribución de costos",
+  "Observación de costos",
   "Observaciones",
   "Fecha de creación",
   "Fecha de cierre",
+  "Fecha de envío",
+  "Fecha de recepción",
   "Cerrado por",
   "Creado por",
 ];
@@ -101,6 +166,17 @@ const ITEM_FIELD_KEYS = {
   disponibleVenta: "Disponible para venta",
   reservado: "Reservado",
   costoProveedor: "Costo proveedor",
+  fletePacking: "Flete Packing",
+  arancelPacking: "Arancel Packing",
+  otrosCostosPacking: "Otros costos Packing",
+  reglaDistribucionPacking: "Regla distribución Packing",
+  totalCostoProveedorPacking: "Total costo proveedor Packing",
+  cantidadItemsPacking: "Cantidad items Packing",
+  costoFleteAsignado: "Costo flete asignado",
+  costoArancelAsignado: "Costo arancel asignado",
+  otrosCostosAsignados: "Otros costos asignados",
+  costoLogisticoAsignado: "Costo logístico asignado",
+  costoTotalUnidad: "Costo total unidad",
   precioVentaFinal: "Precio venta final",
   precioVentaSugerido: "Precio venta sugerido",
   cantidad: "Cantidad",
@@ -133,6 +209,74 @@ const ITEM_FIELD_KEYS = {
   esUsoLocal: "Es uso local",
 };
 
+const PROVIDER_FIELD_KEYS = {
+  proveedorId: "Proveedor ID",
+  nombre: "Nombre proveedor",
+  estado: "Estado proveedor",
+  tipoProveedor: "Tipo de proveedor",
+  puedeArmarPackings: "Puede armar packings",
+  puedeRecibirEncargosTerceros: "Puede recibir encargos de terceros",
+  permiteTriangulacion: "Permite triangulación",
+  contacto: "Contacto",
+  email: "Email",
+  telefono: "Teléfono",
+  pais: "País",
+  paisZonaLogistica: "País / zona logística",
+  urlRastreo: "URL rastreo",
+  plantillaUrlRastreo: "Plantilla URL rastreo",
+  permiteRastreoWeb: "Permite rastreo web",
+  notasRastreo: "Notas de rastreo",
+};
+
+const PAYMENT_FIELD_KEYS = {
+  pagoId: "Pago ID",
+  estadoPago: "Estado Pago",
+  proveedor: "Proveedor",
+  itemsRelacionados: "Items relacionados",
+  totalAPagar: "Total a pagar",
+  totalPagado: "Total pagado",
+  saldoPendiente: "Saldo pendiente",
+  regalosIncluidos: "Regalos incluidos",
+  fechaCreacion: "Fecha de creación",
+  fechaVencimientoSugerida: "Fecha de vencimiento sugerida",
+  fechaPagoReal: "Fecha real de pago",
+  metodoPago: "Método de pago",
+  cuentaOrigen: "Cuenta origen",
+  transaccionId: "Transacción ID",
+  comprobante: "Comprobante",
+  facturaProveedor: "Factura proveedor",
+  observacion: "Observación",
+  registradoPor: "Registrado por",
+  pagadoPor: "Pagado por",
+  fechaAnulacion: "Fecha de anulación",
+  motivoAnulacion: "Motivo de anulación",
+  estadoIntegracionFinanzas: "Estado de integración con Finanzas",
+  movimientosFinanzas: "Shipping Finanzas Movimientos",
+};
+
+const FINANCE_FIELD_KEYS = {
+  movimientoShippingId: "Movimiento Shipping ID",
+  origen: "Origen",
+  tipoMovimiento: "Tipo de movimiento",
+  estadoIntegracion: "Estado de integración",
+  pagoShippingRelacionado: "Pago Shipping relacionado",
+  proveedor: "Proveedor",
+  monto: "Monto",
+  fechaMovimiento: "Fecha del movimiento",
+  metodo: "Método",
+  cuentaOrigen: "Cuenta origen",
+  transaccionId: "Transacción ID",
+  comprobante: "Comprobante",
+  movimientoFinanzasIdFuturo: "Movimiento Finanzas ID futuro",
+  errorSincronizacion: "Error de sincronización",
+  fechaSincronizacion: "Fecha de sincronización",
+  observacion: "Observación",
+  registradoPor: "Registrado por",
+  fechaCreacion: "Fecha de creación",
+  fechaAnulacion: "Fecha de anulación",
+  motivoAnulacion: "Motivo de anulación",
+};
+
 const PACKING_FIELD_KEYS = {
   packingId: "Packing ID",
   nombre: "Nombre Packing",
@@ -141,19 +285,23 @@ const PACKING_FIELD_KEYS = {
   proveedorResponsable: "Proveedor responsable",
   proveedorLogisticoEc: "Proveedor logístico EC",
   itemsIncluidos: "Items incluidos",
+  costoTotalItemsProveedor: "Costo Total Items Proveedor",
+  cantidadItemsPacking: "Cantidad Items Packing",
   trackingUsa: "Tracking USA",
   transportistaUsa: "Transportista USA",
   trackingEc: "Tracking EC",
   transportistaEc: "Transportista EC",
   peso: "Peso",
-  unidadPeso: "Unidad de peso",
   flete: "Flete",
   arancel: "Arancel",
   otrosCostos: "Otros costos",
   reglaDistribucionCostos: "Regla de distribución de costos",
+  observacionCostos: "Observación de costos",
   observaciones: "Observaciones",
   fechaCreacion: "Fecha de creación",
   fechaCierre: "Fecha de cierre",
+  fechaEnvio: "Fecha de envío",
+  fechaRecepcion: "Fecha de recepción",
   cerradoPor: "Cerrado por",
   creadoPor: "Creado por",
 };
@@ -281,6 +429,9 @@ function tsString(value) {
 
 function generatedTs(schema, validation) {
   const itemsFields = schema.tables[TABLES.items].fields;
+  const providerFields = schema.tables[TABLES.proveedores].fields;
+  const paymentFields = schema.tables[TABLES.pagos].fields;
+  const financeFields = schema.tables[TABLES.finanzasMovimientos].fields;
   const packingFields = schema.tables[TABLES.packings].fields;
   const itemConstants = Object.fromEntries(
     Object.entries(ITEM_FIELD_KEYS).filter(([, fieldName]) => Boolean(itemsFields[fieldName]))
@@ -295,8 +446,35 @@ function generatedTs(schema, validation) {
       .filter(([, field]) => field.type === "singleSelect" || field.type === "multipleSelects")
       .map(([key, field]) => [key, field.options ?? []])
   );
+  const providerConstants = Object.fromEntries(
+    Object.entries(PROVIDER_FIELD_KEYS).filter(([, fieldName]) => Boolean(providerFields[fieldName]))
+  );
+  const providerSelectOptions = Object.fromEntries(
+    Object.entries(providerConstants)
+      .map(([key, fieldName]) => [key, providerFields[fieldName]])
+      .filter(([, field]) => field.type === "singleSelect" || field.type === "multipleSelects")
+      .map(([key, field]) => [key, field.options ?? []])
+  );
   const packingConstants = Object.fromEntries(
     Object.entries(PACKING_FIELD_KEYS).filter(([, fieldName]) => Boolean(packingFields[fieldName]))
+  );
+  const paymentConstants = Object.fromEntries(
+    Object.entries(PAYMENT_FIELD_KEYS).filter(([, fieldName]) => Boolean(paymentFields[fieldName]))
+  );
+  const paymentSelectOptions = Object.fromEntries(
+    Object.entries(paymentConstants)
+      .map(([key, fieldName]) => [key, paymentFields[fieldName]])
+      .filter(([, field]) => field.type === "singleSelect" || field.type === "multipleSelects")
+      .map(([key, field]) => [key, field.options ?? []])
+  );
+  const financeConstants = Object.fromEntries(
+    Object.entries(FINANCE_FIELD_KEYS).filter(([, fieldName]) => Boolean(financeFields[fieldName]))
+  );
+  const financeSelectOptions = Object.fromEntries(
+    Object.entries(financeConstants)
+      .map(([key, fieldName]) => [key, financeFields[fieldName]])
+      .filter(([, field]) => field.type === "singleSelect" || field.type === "multipleSelects")
+      .map(([key, field]) => [key, field.options ?? []])
   );
   const packingSelectOptions = Object.fromEntries(
     Object.entries(packingConstants)
@@ -305,7 +483,7 @@ function generatedTs(schema, validation) {
       .map(([key, field]) => [key, field.options ?? []])
   );
 
-  return `/* eslint-disable */\n// This file is generated by scripts/inspect-shipping-v2-schema.mjs.\n// Do not edit by hand. Run: npm run shipping-v2:schema\n\nexport const SHIPPING_V2_SCHEMA_GENERATED_AT = ${JSON.stringify(schema.generatedAt)};\n\nexport const SHIPPING_V2_TABLES = ${tsString(TABLES)} as const;\n\nexport const SHIPPING_V2_ITEM_FIELDS = ${tsString(itemConstants)} as const;\n\nexport const SHIPPING_V2_ITEM_SELECT_OPTIONS = ${tsString(itemSelectOptions)} as const;\n\nexport const SHIPPING_V2_PACKING_FIELDS = ${tsString(packingConstants)} as const;\n\nexport const SHIPPING_V2_PACKING_SELECT_OPTIONS = ${tsString(packingSelectOptions)} as const;\n\nexport const SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION = ${tsString(validation.items)} as const;\n\nexport const SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION = ${tsString(validation.packings)} as const;\n\nexport function assertShippingV2GeneratedSchema() {\n  if (!SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Packings desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n}\n`;
+  return `/* eslint-disable */\n// This file is generated by scripts/inspect-shipping-v2-schema.mjs.\n// Do not edit by hand. Run: npm run shipping-v2:schema\n\nexport const SHIPPING_V2_SCHEMA_GENERATED_AT = ${JSON.stringify(schema.generatedAt)};\n\nexport const SHIPPING_V2_TABLES = ${tsString(TABLES)} as const;\n\nexport const SHIPPING_V2_ITEM_FIELDS = ${tsString(itemConstants)} as const;\n\nexport const SHIPPING_V2_ITEM_SELECT_OPTIONS = ${tsString(itemSelectOptions)} as const;\n\nexport const SHIPPING_V2_PROVIDER_FIELDS = ${tsString(providerConstants)} as const;\n\nexport const SHIPPING_V2_PROVIDER_SELECT_OPTIONS = ${tsString(providerSelectOptions)} as const;\n\nexport const SHIPPING_V2_PAYMENT_FIELDS = ${tsString(paymentConstants)} as const;\n\nexport const SHIPPING_V2_PAYMENT_SELECT_OPTIONS = ${tsString(paymentSelectOptions)} as const;\n\nexport const SHIPPING_V2_FINANCE_FIELDS = ${tsString(financeConstants)} as const;\n\nexport const SHIPPING_V2_FINANCE_SELECT_OPTIONS = ${tsString(financeSelectOptions)} as const;\n\nexport const SHIPPING_V2_PACKING_FIELDS = ${tsString(packingConstants)} as const;\n\nexport const SHIPPING_V2_PACKING_SELECT_OPTIONS = ${tsString(packingSelectOptions)} as const;\n\nexport const SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION = ${tsString(validation.items)} as const;\n\nexport const SHIPPING_V2_EXPECTED_PROVIDER_FIELDS_VALIDATION = ${tsString(validation.proveedores)} as const;\n\nexport const SHIPPING_V2_EXPECTED_PAYMENT_FIELDS_VALIDATION = ${tsString(validation.pagos)} as const;\n\nexport const SHIPPING_V2_EXPECTED_FINANCE_FIELDS_VALIDATION = ${tsString(validation.finanzas)} as const;\n\nexport const SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION = ${tsString(validation.packings)} as const;\n\nexport function assertShippingV2GeneratedSchema() {\n  if (!SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_PROVIDER_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Proveedores desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_PROVIDER_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_PAYMENT_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Pagos desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_PAYMENT_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_FINANCE_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Finanzas desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_FINANCE_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Packings desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n}\n`;
 }
 
 async function main() {
@@ -354,6 +532,9 @@ async function main() {
 
   const validation = {
     items: validateExpectedItems(schema.tables[TABLES.items]),
+    proveedores: validateExpectedFields(schema.tables[TABLES.proveedores], EXPECTED_PROVIDER_FIELDS),
+    pagos: validateExpectedFields(schema.tables[TABLES.pagos], EXPECTED_PAYMENT_FIELDS),
+    finanzas: validateExpectedFields(schema.tables[TABLES.finanzasMovimientos], EXPECTED_FINANCE_FIELDS),
     packings: validateExpectedFields(schema.tables[TABLES.packings], EXPECTED_PACKING_FIELDS),
   };
   for (const [name, result] of Object.entries(validation)) {
@@ -381,6 +562,12 @@ async function main() {
   console.log(`Generado: ${path.relative(ROOT, TS_OUT)}`);
   console.log("Campos reales detectados en Shipping Items:");
   for (const field of validation.items.found) console.log(`- ${field}`);
+  console.log("Campos reales detectados en Shipping Proveedores:");
+  for (const field of validation.proveedores.found) console.log(`- ${field}`);
+  console.log("Campos reales detectados en Shipping Pagos:");
+  for (const field of validation.pagos.found) console.log(`- ${field}`);
+  console.log("Campos reales detectados en Shipping Finanzas Movimientos:");
+  for (const field of validation.finanzas.found) console.log(`- ${field}`);
   console.log("Campos reales detectados en Shipping Packings:");
   for (const field of validation.packings.found) console.log(`- ${field}`);
 }

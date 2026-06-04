@@ -3,11 +3,18 @@ import "server-only";
 import type {
   ShippingV2DashboardSummary,
   ShippingV2Attachment,
+  ShippingV2FinanzasMovimiento,
   ShippingV2Item,
   ShippingV2ItemWriteInput,
   ShippingV2Novedad,
   ShippingV2Packing,
   ShippingV2PackingWriteInput,
+  ShippingV2PagoMarkPaidInput,
+  ShippingV2PagoPendingItem,
+  ShippingV2PagoSupportCard,
+  ShippingV2PagosSummary,
+  ShippingV2PagosWorkspace,
+  ShippingV2PagoWriteInput,
   ShippingV2Pago,
   ShippingV2Proveedor,
   ShippingV2Recepcion,
@@ -18,8 +25,9 @@ import { getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
+import { canBeUsaTransportProvider, isCompatibleEcuadorTransportProvider } from "@/lib/shipping-v2/tracking-providers";
 import { generateUniqueSkuFromExistingSkus, normalizeSku } from "@/lib/sku/sku-service";
-import { assertShippingV2GeneratedSchema, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
+import { assertShippingV2GeneratedSchema, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
 
 type AirtableRecord = {
   id: string;
@@ -112,6 +120,12 @@ function firstNumber(value: unknown): number | null {
     const parsed = Number(value.trim().replace(",", "."));
     return Number.isFinite(parsed) ? parsed : null;
   }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const parsed = firstNumber(item);
+      if (parsed !== null) return parsed;
+    }
+  }
   return null;
 }
 
@@ -119,6 +133,12 @@ function validateOptionalWeight(value: number | null | undefined) {
   if (value === undefined || value === null) return;
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("Peso inválido.");
   if (value < 0) throw new Error("El peso no puede ser negativo.");
+}
+
+function validateOptionalMoney(value: number | null | undefined, label: string) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${label} debe ser un número válido.`);
+  if (value < 0) throw new Error(`${label} no puede ser negativo.`);
 }
 
 function firstBoolean(value: unknown): boolean | null {
@@ -226,9 +246,12 @@ function isOpenPackingStatus(status: string) {
   return normalizeStatus(status) === normalizeStatus(OPEN_PACKING_STATUS);
 }
 
-function canAccessPacking(packing: Pick<ShippingV2Packing, "proveedorResponsableId" | "proveedorLogisticoEcId">, access?: ShippingV2AccessContext) {
+function canAccessPacking(packing: Pick<ShippingV2Packing, "proveedorResponsableId" | "proveedorLogisticoEcId" | "transportistaUsa" | "transportistaEc">, access?: ShippingV2AccessContext) {
   if (!access || access.isAdmin || !access.providerId) return true;
-  return packing.proveedorResponsableId === access.providerId || packing.proveedorLogisticoEcId === access.providerId;
+  return packing.proveedorResponsableId === access.providerId ||
+    packing.proveedorLogisticoEcId === access.providerId ||
+    packing.transportistaUsa === access.providerId ||
+    packing.transportistaEc === access.providerId;
 }
 
 function canAccessItem(item: Pick<ShippingV2Item, "proveedorId" | "proveedorLogisticoId">, access?: ShippingV2AccessContext) {
@@ -559,26 +582,36 @@ async function listRecords(tableName: string, options: { maxRecords?: number; pa
 
 function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
   const f = record.fields;
-  const proveedorId = firstString(f["Proveedor ID"]);
-  const nombre = firstString(f["Nombre proveedor"] ?? f["Nombre Proveedor"] ?? f.Nombre ?? f.Proveedor, record.id);
+  const F = SHIPPING_V2_PROVIDER_FIELDS;
+  const proveedorId = firstString(f[F.proveedorId]);
+  const nombre = firstString(f[F.nombre] ?? f["Nombre Proveedor"] ?? f.Nombre ?? f.Proveedor);
   const label = proveedorId || nombre || record.id;
-  const tipoProveedor = firstString(f["Tipo de proveedor"]);
+  const tipoProveedor = firstString(f[F.tipoProveedor]);
 
   return {
     id: record.id,
     createdTime: record.createdTime,
     proveedorId,
     label,
-    nombre,
-    estado: firstString(f["Estado proveedor"] ?? f.Estado, "Activo"),
+    nombre: nombre || label,
+    estado: firstString(f[F.estado] ?? f.Estado, "Activo"),
     tipoProveedor,
-    puedeArmarPackings: firstBoolean(f["Puede armar packings"]),
-    puedeRecibirEncargosTerceros: firstBoolean(f["Puede recibir encargos de terceros"]),
-    permiteTriangulacion: firstBoolean(f["Permite triangulación"] ?? f["Permite triangulacion"]),
+    requierePagoAntesEnvio: firstBoolean(f["Requiere pago antes de envío"]),
+    plazoSugeridoPagoDias: firstNumber(f["Plazo sugerido de pago en días"]),
+    metodoPagoPreferido: firstString(f["Método de pago preferido"]),
+    cuentaDestinoPagoPreferida: firstString(f["Cuenta o destino de pago preferido"]),
+    puedeArmarPackings: firstBoolean(f[F.puedeArmarPackings] ?? f["Puede armar packings"]),
+    puedeRecibirEncargosTerceros: firstBoolean(f[F.puedeRecibirEncargosTerceros] ?? f["Puede recibir encargos de terceros"]),
+    permiteTriangulacion: firstBoolean(f[F.permiteTriangulacion] ?? f["Permite triangulación"] ?? f["Permite triangulacion"]),
     contacto: firstString(f.Contacto),
-    email: firstString(f.Email),
-    telefono: firstString(f.Telefono ?? f["Teléfono"]),
+    email: firstString(f.Email ?? f["Email de contacto"]),
+    telefono: firstString(f.Telefono ?? f["Teléfono"] ?? f["Teléfono / WhatsApp"]),
     pais: firstString(f.Pais ?? f["País"] ?? tipoProveedor),
+    paisZonaLogistica: firstString(f[F.paisZonaLogistica] ?? f["País / zona logística"]),
+    urlRastreo: firstString(f[F.urlRastreo] ?? f["URL rastreo"]),
+    plantillaUrlRastreo: firstString(f[F.plantillaUrlRastreo] ?? f["Plantilla URL rastreo"]),
+    permiteRastreoWeb: firstBoolean(f[F.permiteRastreoWeb] ?? f["Permite rastreo web"]),
+    notasRastreo: firstString(f[F.notasRastreo] ?? f["Notas de rastreo"]),
   };
 }
 
@@ -595,6 +628,8 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
   const fechaRegistro = firstString(f[F.fechaRegistro], record.createdTime);
   const packingRelacionado = f[F.packingRelacionado];
   const pagoRelacionado = f[F.pagoRelacionado];
+  const pagoV2ItemIds = linkedRecordIds(f["Shipping Pagos (Items relacionados)"]);
+  const pagoV2RegaloIds = linkedRecordIds(f["Shipping Pagos (Regalos incluidos)"]);
 
   const sku = firstString(f[getOfficialSkuField()], record.id);
 
@@ -634,8 +669,18 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     requierePago: firstBoolean(f[F.requierePago]),
     modoLogistico: firstString(f[F.modoLogistico]),
     costoProveedor: firstNumber(f[F.costoProveedor]),
+    fletePacking: firstNumber(f[F.fletePacking]),
+    arancelPacking: firstNumber(f[F.arancelPacking]),
+    otrosCostosPacking: firstNumber(f[F.otrosCostosPacking]),
+    reglaDistribucionPacking: firstString(f[F.reglaDistribucionPacking]),
+    totalCostoProveedorPacking: firstNumber(f[F.totalCostoProveedorPacking]),
+    cantidadItemsPacking: firstNumber(f[F.cantidadItemsPacking]),
+    costoFleteAsignado: firstNumber(f[F.costoFleteAsignado]),
+    costoArancelAsignado: firstNumber(f[F.costoArancelAsignado]),
+    otrosCostosAsignados: firstNumber(f[F.otrosCostosAsignados]),
     costoAsignadoDespiece: firstNumber(f["Costo asignado por despiece"] ?? f["Costo Asignado Despiece"]),
-    costoLogisticoAsignado: firstNumber(f["Costo logístico asignado"] ?? f["Costo logistico asignado"] ?? f["Costo Logistico Asignado"]),
+    costoLogisticoAsignado: firstNumber(f[F.costoLogisticoAsignado] ?? f["Costo logístico asignado"] ?? f["Costo logistico asignado"] ?? f["Costo Logistico Asignado"]),
+    costoTotalUnidad: firstNumber(f[F.costoTotalUnidad]),
     costoTotalEstimado: firstNumber(f["Costo total estimado"] ?? f["Costo Total Estimado"]),
     precioVentaSugerido: firstNumber(f[F.precioVentaSugerido]),
     precioVenta: firstNumber(f[F.precioVentaFinal]),
@@ -655,8 +700,11 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     trackingUsa: firstString(f["USA Tracking"] ?? f.TrackingUSA),
     trackingEc: firstString(f["EC Tracking"] ?? f.TrackingEC),
     requierePacking: firstBoolean(f[F.requierePacking]),
+    pagoV2ItemIds,
+    pagoV2RegaloIds,
     packingId: firstString(packingRelacionado),
-    pagoId: firstString(pagoRelacionado),
+    pagoId: pagoV2ItemIds[0] ?? pagoV2RegaloIds[0],
+    legacyPagoRelacionadoIds: linkedRecordIds(pagoRelacionado),
     itemPadreId: firstString(f["Item padre"] ?? f["Item Padre"]),
     itemHijoIds: linkedRecordIds(f["Items hijos"] ?? f["Items Hijos"]),
     motivoDespiece: firstString(f["Motivo de despiece"] ?? f["Motivo Despiece"]),
@@ -678,20 +726,97 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
   };
 }
 
-function mapPago(record: AirtableRecord): ShippingV2Pago {
+function summarizePaymentItem(item: ShippingV2Item) {
+  return {
+    id: item.id,
+    sku: item.sku,
+    skuProveedor: item.skuProveedor,
+    nombre: item.nombre,
+    tipoOperacion: item.tipoOperacion,
+    tipoItem: item.tipoItem,
+    categoria: item.categoria,
+    estado: item.estado,
+    proveedorId: item.proveedorId,
+    proveedorNombre: item.proveedorNombre,
+    proveedorLogisticoId: item.proveedorLogisticoId,
+    proveedorLogisticoNombre: item.proveedorLogisticoNombre,
+    costoProveedor: item.costoProveedor,
+    esRegalo: item.esRegalo,
+  };
+}
+
+function mapPago(record: AirtableRecord, context: { labelsById?: Map<string, string>; itemsById?: Map<string, ShippingV2Item> } = {}): ShippingV2Pago {
+  const F = SHIPPING_V2_PAYMENT_FIELDS;
   const f = record.fields;
+  const proveedorId = firstString(f[F.proveedor]);
+  const itemIds = linkedRecordIds(f[F.itemsRelacionados]);
+  const regalosIds = linkedRecordIds(f[F.regalosIncluidos]);
+  const itemsResumen = itemIds.map((id) => context.itemsById?.get(id)).filter((item): item is ShippingV2Item => Boolean(item)).map(summarizePaymentItem);
+  const regalosResumen = regalosIds.map((id) => context.itemsById?.get(id)).filter((item): item is ShippingV2Item => Boolean(item)).map(summarizePaymentItem);
+  const estadoPago = firstString(f[F.estadoPago], "Pendiente");
+  const totalAPagar = firstNumber(f[F.totalAPagar]);
+  const movimientosFinanzasIds = linkedRecordIds(f[F.movimientosFinanzas]);
   return {
     id: record.id,
     createdTime: record.createdTime,
-    pagoId: firstString(f["Pago ID"] ?? f.Pago, record.id),
-    estado: firstString(f.Estado ?? f["Estado de Pago"], "Pendiente"),
-    proveedorId: firstString(f.Proveedor),
-    proveedorNombre: firstString(f["Nombre Proveedor"] ?? f["Proveedor Nombre"]),
-    total: firstNumber(f.Total ?? f["Total Pago"]),
-    fechaPagoMax: firstString(f["Fecha de Pago Max"] ?? f["Fecha de Pago Máx"]),
-    fechaPagoReal: firstString(f["Fecha de Pago Real"]),
-    metodoPago: firstString(f["Metodo de Pago"] ?? f["Método de Pago"]),
-    transaccionId: firstString(f["Transaccion ID"] ?? f["Transacción ID"]),
+    pagoId: firstString(f[F.pagoId], record.id),
+    estado: estadoPago,
+    estadoPago,
+    proveedorId,
+    proveedorNombre: resolveShippingV2ProveedorLabel(proveedorId, context.labelsById ?? new Map()),
+    itemIds,
+    itemsResumen,
+    regalosIds,
+    regalosResumen,
+    total: totalAPagar,
+    totalAPagar,
+    totalPagado: firstNumber(f[F.totalPagado]),
+    saldoPendiente: firstNumber(f[F.saldoPendiente]),
+    totalRegalos: regalosResumen.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0),
+    cantidadItems: itemIds.length,
+    cantidadRegalos: regalosIds.length,
+    fechaCreacion: firstString(f[F.fechaCreacion], record.createdTime),
+    fechaVencimientoSugerida: firstString(f[F.fechaVencimientoSugerida]),
+    fechaPagoMax: firstString(f[F.fechaVencimientoSugerida]),
+    fechaPagoReal: firstString(f[F.fechaPagoReal]),
+    metodoPago: firstString(f[F.metodoPago]),
+    cuentaOrigen: firstString(f[F.cuentaOrigen]),
+    transaccionId: firstString(f[F.transaccionId]),
+    comprobante: mapAttachments(f[F.comprobante]),
+    facturaProveedor: mapAttachments(f[F.facturaProveedor]),
+    observacion: firstString(f[F.observacion]),
+    registradoPor: firstString(f[F.registradoPor]),
+    pagadoPor: firstString(f[F.pagadoPor]),
+    estadoIntegracionFinanzas: firstString(f[F.estadoIntegracionFinanzas]),
+    movimientoFinanzasId: movimientosFinanzasIds[0],
+    movimientoFinanzasIds: movimientosFinanzasIds,
+    fechaAnulacion: firstString(f[F.fechaAnulacion]),
+    motivoAnulacion: firstString(f[F.motivoAnulacion]),
+  };
+}
+
+function mapFinanzasMovimiento(record: AirtableRecord, labelsById: Map<string, string> = new Map()): ShippingV2FinanzasMovimiento {
+  const F = SHIPPING_V2_FINANCE_FIELDS;
+  const f = record.fields;
+  const proveedorId = firstString(f[F.proveedor]);
+  return {
+    id: record.id,
+    createdTime: record.createdTime,
+    movimientoId: firstString(f[F.movimientoShippingId], record.id),
+    estado: firstString(f[F.estadoIntegracion], "Pendiente de sincronizar"),
+    origen: firstString(f[F.origen]),
+    tipoMovimiento: firstString(f[F.tipoMovimiento]),
+    pagoId: firstString(f[F.pagoShippingRelacionado]),
+    proveedorId,
+    proveedorNombre: resolveShippingV2ProveedorLabel(proveedorId, labelsById),
+    fecha: firstString(f[F.fechaMovimiento]),
+    monto: firstNumber(f[F.monto]),
+    metodo: firstString(f[F.metodo]),
+    cuentaOrigen: firstString(f[F.cuentaOrigen]),
+    transaccionId: firstString(f[F.transaccionId]),
+    comprobante: mapAttachments(f[F.comprobante]),
+    observacion: firstString(f[F.observacion]),
+    registradoPor: firstString(f[F.registradoPor]),
   };
 }
 
@@ -700,6 +825,8 @@ function mapPacking(record: AirtableRecord): ShippingV2Packing {
   const f = record.fields;
   const proveedorResponsable = f[F.proveedorResponsable];
   const proveedorLogisticoEc = f[F.proveedorLogisticoEc];
+  const transportistaUsa = f[F.transportistaUsa];
+  const transportistaEc = f[F.transportistaEc];
   const items = linkedRecordIds(f[F.itemsIncluidos]);
   const estado = firstString(f[F.estado], OPEN_PACKING_STATUS);
   return {
@@ -717,18 +844,25 @@ function mapPacking(record: AirtableRecord): ShippingV2Packing {
     items: [],
     itemCount: items.length,
     trackingUsa: firstString(f[F.trackingUsa]),
-    transportistaUsa: firstString(f[F.transportistaUsa]),
+    transportistaUsa: firstString(transportistaUsa),
+    transportistaUsaNombre: providerNameFromLink(f, transportistaUsa, ["Transportista USA nombre", "Transportista USA Nombre"]),
     trackingEc: firstString(f[F.trackingEc]),
-    transportistaEc: firstString(f[F.transportistaEc]),
+    transportistaEc: firstString(transportistaEc),
+    transportistaEcNombre: providerNameFromLink(f, transportistaEc, ["Transportista EC nombre", "Transportista EC Nombre"]),
     peso: firstNumber(f[F.peso]),
-    unidadPeso: firstString(f[F.unidadPeso]),
     flete: firstNumber(f[F.flete]),
     arancel: firstNumber(f[F.arancel]),
     otrosCostos: firstNumber(f[F.otrosCostos]),
+    costoTotalItemsProveedor: firstNumber(f[F.costoTotalItemsProveedor]),
+    cantidadItemsPacking: firstNumber(f[F.cantidadItemsPacking]),
     reglaDistribucionCostos: firstString(f[F.reglaDistribucionCostos]),
+    reglaDistribucion: firstString(f[F.reglaDistribucionCostos]),
+    observacionCostos: firstString(f[F.observacionCostos]),
     observaciones: firstString(f[F.observaciones]),
     fechaCreacion: firstString(f[F.fechaCreacion], record.createdTime),
     fechaCierre: firstString(f[F.fechaCierre]),
+    fechaEnvio: firstString(f[F.fechaEnvio]),
+    fechaRecepcion: firstString(f[F.fechaRecepcion]),
     cerradoPor: firstString(f[F.cerradoPor]),
     creadoPor: firstString(f[F.creadoPor]),
     conNovedad: normalizeStatus(estado).includes("novedad"),
@@ -740,6 +874,8 @@ function applyPackingProviderLabels(packing: ShippingV2Packing, labelsById: Map<
     ...packing,
     proveedorResponsableNombre: resolveShippingV2ProveedorLabel(packing.proveedorResponsableId, labelsById),
     proveedorLogisticoEcNombre: resolveShippingV2ProveedorLabel(packing.proveedorLogisticoEcId, labelsById),
+    transportistaUsaNombre: resolveShippingV2ProveedorLabel(packing.transportistaUsa, labelsById),
+    transportistaEcNombre: resolveShippingV2ProveedorLabel(packing.transportistaEc, labelsById),
   };
 }
 
@@ -1199,8 +1335,439 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
 }
 
 export async function getShippingV2Pagos() {
-  const records = await listRecords(SHIPPING_V2_TABLES.pagos, { maxRecords: 200 });
-  return records.map(mapPago);
+  const [records, proveedores, items] = await Promise.all([
+    listRecords(SHIPPING_V2_TABLES.pagos, { maxRecords: 200, sortField: SHIPPING_V2_PAYMENT_FIELDS.fechaCreacion, sortDirection: "desc" }),
+    getShippingV2Proveedores(),
+    getShippingV2Items({ includeAiName: false }),
+  ]);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  return records.map((record) => mapPago(record, { labelsById, itemsById }));
+}
+
+export async function getShippingV2PagoById(recordId: string) {
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de pago inválido.");
+  const [record, proveedores, items] = await Promise.all([
+    airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.pagos)}/${encodeURIComponent(id)}`),
+    getShippingV2Proveedores(),
+    getShippingV2Items({ includeAiName: false }),
+  ]);
+  return mapPago(record, {
+    labelsById: createShippingV2ProveedorLabelMap(proveedores),
+    itemsById: new Map(items.map((item) => [item.id, item])),
+  });
+}
+
+function isCancelledItem(item: Pick<ShippingV2Item, "estado" | "estadoRevision" | "estadoTriangulacion" | "estadoDespiece">) {
+  return [item.estado, item.estadoRevision, item.estadoTriangulacion, item.estadoDespiece].some((value) => {
+    const status = normalizeStatus(String(value ?? ""));
+    return status === "cancelado" || status === "anulado" || status === "archivado";
+  });
+}
+
+function isActivePaymentStatus(status: string) {
+  return normalizeStatus(status) !== "anulado";
+}
+
+function isPaidItemCandidate(item: Pick<ShippingV2Item, "estado" | "tipoOperacion">) {
+  return normalizeStatus(item.estado) === "pagado" || normalizeStatus(item.tipoOperacion) === "compra ya pagada";
+}
+
+function providerRequiredForPayment(item: Pick<ShippingV2Item, "tipoOperacion" | "requierePago">) {
+  if (!item.requierePago) return false;
+  return ["compra a proveedor", "compra ya pagada"].includes(normalizeStatus(item.tipoOperacion));
+}
+
+function itemIsLinkedToActivePayment(item: Pick<ShippingV2Item, "pagoV2ItemIds" | "pagoV2RegaloIds">, pagosById: Map<string, ShippingV2Pago>) {
+  const paymentIds = [...item.pagoV2ItemIds, ...item.pagoV2RegaloIds];
+  return paymentIds.some((id) => {
+    const pago = pagosById.get(id);
+    return pago ? isActivePaymentStatus(String(pago.estadoPago)) : true;
+  });
+}
+
+function toPendingPaymentItem(item: ShippingV2Item): ShippingV2PagoPendingItem {
+  return {
+    id: item.id,
+    sku: item.sku,
+    skuProveedor: item.skuProveedor,
+    nombre: item.nombre,
+    tipoOperacion: item.tipoOperacion,
+    tipoItem: item.tipoItem,
+    categoria: item.categoria,
+    estado: item.estado,
+    proveedorId: item.proveedorId,
+    proveedorNombre: item.proveedorNombre,
+    proveedorLogisticoId: item.proveedorLogisticoId,
+    proveedorLogisticoNombre: item.proveedorLogisticoNombre,
+    requierePago: item.requierePago,
+    costoProveedor: item.costoProveedor,
+    cantidad: item.cantidad,
+    esRegalo: item.esRegalo,
+    fechaRegistro: item.fechaRegistro,
+    pagoV2ItemIds: item.pagoV2ItemIds,
+    pagoV2RegaloIds: item.pagoV2RegaloIds,
+  };
+}
+
+function getPaymentSupportMissing(pago: ShippingV2Pago) {
+  const missing: string[] = [];
+  const metodo = normalizeStatus(pago.metodoPago ?? "");
+  const cuenta = normalizeStatus(pago.cuentaOrigen ?? "");
+  const finanzas = normalizeStatus(pago.estadoIntegracionFinanzas ?? "");
+
+  if (!pago.fechaPagoReal) missing.push("Fecha real de pago");
+  if (!pago.metodoPago || metodo === "no aplica") missing.push("Método de pago");
+  if (metodo !== "no aplica" && (!pago.cuentaOrigen || cuenta === "no aplica")) missing.push("Cuenta origen");
+  if (!pago.transaccionId && !pago.comprobante.length) missing.push("Comprobante o transacción ID");
+  if (!pago.movimientoFinanzasIds.length) missing.push("Movimiento puente");
+  if (!pago.estadoIntegracionFinanzas) missing.push("Estado Finanzas");
+  if (pago.estadoIntegracionFinanzas && !["pendiente de sincronizar", "sincronizado"].includes(finanzas)) missing.push("Estado Finanzas válido");
+
+  return missing;
+}
+
+function isCompletePaidPayment(pago: ShippingV2Pago) {
+  return normalizeStatus(String(pago.estadoPago)) === "pagado" && getPaymentSupportMissing(pago).length === 0;
+}
+
+function isPendingPayment(pago: ShippingV2Pago) {
+  return ["pendiente", "borrador", "parcial"].includes(normalizeStatus(String(pago.estadoPago)));
+}
+
+function computeSuggestedDueDate(provider: ShippingV2Proveedor | null, fallback?: string) {
+  const explicit = cleanString(fallback);
+  if (explicit) return explicit;
+  const days = provider?.plazoSugeridoPagoDias;
+  if (typeof days !== "number" || !Number.isFinite(days) || days <= 0) return "";
+  const date = new Date();
+  date.setDate(date.getDate() + Math.trunc(days));
+  return date.toISOString().slice(0, 10);
+}
+
+function computePagosSummary(porPagar: ShippingV2PagoPendingItem[], pagosPendientes: ShippingV2Pago[], pagadosSinSoporte: ShippingV2PagoSupportCard[], pagosCompletos: ShippingV2Pago[]): ShippingV2PagosSummary {
+  return {
+    totalPorPagar: porPagar.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0) + pagosPendientes.reduce((sum, pago) => sum + (pago.saldoPendiente ?? pago.totalAPagar ?? 0), 0),
+    totalPagadoSinSoporte: pagadosSinSoporte.reduce((sum, card) => sum + (card.total ?? 0), 0),
+    totalPagadoCompleto: pagosCompletos.reduce((sum, pago) => sum + (pago.totalPagado ?? pago.totalAPagar ?? 0), 0),
+    incompletos: pagadosSinSoporte.length,
+    porPagarCount: porPagar.length + pagosPendientes.length,
+    itemsSinPagoCount: porPagar.length,
+    pagosPendientesCount: pagosPendientes.length,
+    pagadosSinSoporteCount: pagadosSinSoporte.length,
+    pagosCompletosCount: pagosCompletos.length,
+  };
+}
+
+export async function getShippingV2PendingPaymentItems(context?: { pagos?: ShippingV2Pago[]; items?: ShippingV2Item[] }) {
+  const [pagos, items] = await Promise.all([
+    context?.pagos ? Promise.resolve(context.pagos) : getShippingV2Pagos(),
+    context?.items ? Promise.resolve(context.items) : getShippingV2Items({ includeAiName: false }),
+  ]);
+  const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
+  return items
+    .filter((item) => {
+      if (!item.requierePago) return false;
+      if (item.esRegalo) return false;
+      if (isCancelledItem(item)) return false;
+      if (providerRequiredForPayment(item) && !item.proveedorId) return false;
+      if (itemIsLinkedToActivePayment(item, pagosById)) return false;
+      if (isPaidItemCandidate(item)) return false;
+      return true;
+    })
+    .map(toPendingPaymentItem);
+}
+
+function getPaidItemsWithoutSupport(items: ShippingV2Item[], pagosById: Map<string, ShippingV2Pago>): ShippingV2PagoSupportCard[] {
+  return items
+    .filter((item) => {
+      if (!item.requierePago) return false;
+      if (item.esRegalo) return false;
+      if (isCancelledItem(item)) return false;
+      if (providerRequiredForPayment(item) && !item.proveedorId) return false;
+      if (itemIsLinkedToActivePayment(item, pagosById)) return false;
+      return isPaidItemCandidate(item);
+    })
+    .map((item) => {
+      const pendingItem = toPendingPaymentItem(item);
+      const missing = ["Pago Shipping V2", "Movimiento puente"];
+      if (!item.costoProveedor) missing.push("Costo proveedor");
+      return {
+        kind: "item" as const,
+        id: item.id,
+        item: pendingItem,
+        proveedorId: item.proveedorId,
+        proveedorNombre: item.proveedorNombre,
+        total: item.costoProveedor,
+        missing,
+      };
+    });
+}
+
+export async function getShippingV2PagosWorkspace(): Promise<ShippingV2PagosWorkspace> {
+  const [pagos, proveedores, items] = await Promise.all([
+    getShippingV2Pagos(),
+    getShippingV2Proveedores(),
+    getShippingV2Items({ includeAiName: false }),
+  ]);
+  const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
+  const itemsPendientes = await getShippingV2PendingPaymentItems({ pagos, items });
+  const pagosPendientes = pagos.filter(isPendingPayment);
+  const pagosPagados = pagos.filter((pago) => normalizeStatus(String(pago.estadoPago)) === "pagado");
+  const pagosCompletos = pagosPagados.filter(isCompletePaidPayment);
+  const pagosIncompletos: Extract<ShippingV2PagoSupportCard, { kind: "pago" }>[] = pagosPagados
+    .filter((pago) => !isCompletePaidPayment(pago))
+    .map((pago): Extract<ShippingV2PagoSupportCard, { kind: "pago" }> => ({
+      kind: "pago",
+      id: pago.id,
+      pago,
+      proveedorId: pago.proveedorId,
+      proveedorNombre: pago.proveedorNombre,
+      total: pago.totalPagado ?? pago.totalAPagar,
+      missing: getPaymentSupportMissing(pago),
+    }));
+  const itemsPagadosSinPago = getPaidItemsWithoutSupport(items, pagosById).filter((card): card is Extract<ShippingV2PagoSupportCard, { kind: "item" }> => card.kind === "item");
+  const pagadosSinSoporte = [...itemsPagadosSinPago, ...pagosIncompletos];
+  return {
+    pagos,
+    proveedores,
+    itemsPendientes,
+    porPagar: itemsPendientes,
+    pagosPendientes,
+    pendientes: {
+      itemsSinPago: itemsPendientes,
+      pagosPendientes,
+    },
+    pagadosSinSoporte,
+    sinSoporte: {
+      itemsPagadosSinPago,
+      pagosIncompletos,
+    },
+    pagosCompletos,
+    pagosRegistrados: pagos,
+    summary: computePagosSummary(itemsPendientes, pagosPendientes, pagadosSinSoporte, pagosCompletos),
+  };
+}
+
+function generatePaymentId() {
+  const now = new Date();
+  return `PAY-${now.toISOString().slice(0, 10).replace(/-/g, "")}-${String(now.getTime()).slice(-5)}`;
+}
+
+function generateFinanceMovementId() {
+  const now = new Date();
+  return `SFM-${now.toISOString().slice(0, 10).replace(/-/g, "")}-${String(now.getTime()).slice(-5)}`;
+}
+
+function attachmentFromUrl(urlValue?: string) {
+  const url = cleanString(urlValue);
+  return url ? [{ url }] : undefined;
+}
+
+async function assertItemsCanJoinPayment(itemIds: string[], regalosIds: string[]) {
+  const uniqueItemIds = Array.from(new Set(itemIds.map(cleanString).filter(Boolean)));
+  const uniqueGiftIds = Array.from(new Set(regalosIds.map(cleanString).filter(Boolean)));
+  const items = await Promise.all(uniqueItemIds.map((id) => getShippingV2ItemById(id, { includeAiName: false })));
+  const gifts = await Promise.all(uniqueGiftIds.map((id) => getShippingV2ItemById(id, { includeAiName: false })));
+  const activePayments = (await getShippingV2Pagos()).filter((pago) => isActivePaymentStatus(String(pago.estadoPago)));
+
+  for (const item of items) {
+    if (!item.requierePago || item.esRegalo) throw new Error(`El item ${item.sku} no genera pago operativo.`);
+    if (isCancelledItem(item)) throw new Error(`El item ${item.sku} está cancelado, anulado o archivado.`);
+    if (providerRequiredForPayment(item) && !item.proveedorId) throw new Error(`El item ${item.sku} requiere proveedor de compra.`);
+    const duplicated = activePayments.find((pago) => pago.itemIds.includes(item.id));
+    if (duplicated) throw new Error(`El item ${item.sku} ya está en el pago activo ${duplicated.pagoId}.`);
+  }
+  for (const gift of gifts) {
+    if (!gift.esRegalo) throw new Error(`El item ${gift.sku} no está marcado como regalo.`);
+    if (isCancelledItem(gift)) throw new Error(`El regalo ${gift.sku} está cancelado, anulado o archivado.`);
+    const duplicated = activePayments.find((pago) => pago.regalosIds.includes(gift.id));
+    if (duplicated) throw new Error(`El regalo ${gift.sku} ya está en el pago activo ${duplicated.pagoId}.`);
+  }
+  return { items, gifts };
+}
+
+export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, options: { registradoPor: string }) {
+  assertShippingV2GeneratedSchema();
+  const proveedorId = cleanString(input.proveedorId);
+  if (!proveedorId) throw new Error("Proveedor es obligatorio.");
+  const provider = await getShippingV2ProveedorById(proveedorId);
+  if (!provider) throw new Error("Proveedor no encontrado.");
+  const { items, gifts } = await assertItemsCanJoinPayment(input.itemIds ?? [], input.regalosIds ?? []);
+  if (!items.length) throw new Error("Selecciona al menos un item que genere pago.");
+  const mismatched = items.find((item) => item.proveedorId !== proveedorId);
+  if (mismatched) throw new Error(`El item ${mismatched.sku} pertenece a otro proveedor de compra.`);
+  const invalidGift = gifts.find((gift) => gift.proveedorId && gift.proveedorId !== proveedorId);
+  if (invalidGift) throw new Error(`El regalo ${invalidGift.sku} pertenece a otro proveedor.`);
+
+  const totalAPagar = items.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0);
+  const F = SHIPPING_V2_PAYMENT_FIELDS;
+  const requestedStatus = cleanString(input.estadoPago);
+  const estadoPago = normalizeStatus(requestedStatus) === "pagado" ? "Pagado" : requestedStatus || "Pendiente";
+  if (estadoPago === "Pagado") {
+    assertPaymentSupportInput(input);
+    const notPaidSupportItem = items.find((item) => !isPaidItemCandidate(item));
+    if (notPaidSupportItem) {
+      throw new Error(`El item ${notPaidSupportItem.sku} no está marcado como Pagado ni como Compra ya pagada.`);
+    }
+  }
+  const fields = compactFields({
+    [F.pagoId]: generatePaymentId(),
+    [F.estadoPago]: estadoPago,
+    [F.proveedor]: [proveedorId],
+    [F.itemsRelacionados]: items.map((item) => item.id),
+    [F.regalosIncluidos]: gifts.map((gift) => gift.id),
+    [F.totalAPagar]: totalAPagar,
+    [F.fechaCreacion]: new Date().toISOString(),
+    [F.fechaVencimientoSugerida]: computeSuggestedDueDate(provider, input.fechaVencimientoSugerida),
+    [F.observacion]: cleanString(input.observacion),
+    [F.estadoIntegracionFinanzas]: estadoPago === "Pagado" ? "Pendiente de sincronizar" : "Pendiente de generar",
+    [F.registradoPor]: options.registradoPor,
+  });
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.pagos), {
+    method: "POST",
+    body: JSON.stringify({ records: [{ fields }] }),
+  });
+  const created = response.records?.[0];
+  if (!created) throw new Error("Airtable no devolvió el pago creado.");
+  const pago = await getShippingV2PagoById(created.id);
+  if (estadoPago === "Pagado") {
+    return markShippingV2PagoAsPaid(pago.id, input, options);
+  }
+  return pago;
+}
+
+async function createFinanceMovementForPago(pago: ShippingV2Pago, input: ShippingV2PagoMarkPaidInput, registradoPor: string) {
+  if (pago.movimientoFinanzasIds.length) return pago.movimientoFinanzasIds[0];
+  const F = SHIPPING_V2_FINANCE_FIELDS;
+  const fields = compactFields({
+    [F.movimientoShippingId]: generateFinanceMovementId(),
+    [F.origen]: "Shipping",
+    [F.tipoMovimiento]: "Egreso",
+    [F.estadoIntegracion]: "Pendiente de sincronizar",
+    [F.pagoShippingRelacionado]: [pago.id],
+    [F.proveedor]: pago.proveedorId ? [pago.proveedorId] : undefined,
+    [F.monto]: pago.totalAPagar ?? 0,
+    [F.fechaMovimiento]: cleanString(input.fechaPagoReal) || new Date().toISOString(),
+    [F.metodo]: cleanString(input.metodoPago) || "No aplica",
+    [F.cuentaOrigen]: cleanString(input.cuentaOrigen) || "No aplica",
+    [F.transaccionId]: cleanString(input.transaccionId),
+    [F.comprobante]: attachmentFromUrl(input.comprobanteUrl),
+    [F.observacion]: cleanString(input.observacion),
+    [F.registradoPor]: registradoPor,
+    [F.fechaCreacion]: new Date().toISOString(),
+  });
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.finanzasMovimientos), {
+    method: "POST",
+    body: JSON.stringify({ records: [{ fields }] }),
+  });
+  const created = response.records?.[0];
+  if (!created) throw new Error("Airtable no devolvió el movimiento financiero.");
+  return created.id;
+}
+
+function assertPaymentSupportInput(input: ShippingV2PagoMarkPaidInput) {
+  const metodo = normalizeStatus(cleanString(input.metodoPago));
+  const cuenta = normalizeStatus(cleanString(input.cuentaOrigen));
+  if (!cleanString(input.fechaPagoReal)) throw new Error("Fecha real de pago es obligatoria para completar soporte.");
+  if (!cleanString(input.metodoPago) || metodo === "no aplica") throw new Error("Método de pago es obligatorio para completar soporte.");
+  if (metodo !== "no aplica" && (!cleanString(input.cuentaOrigen) || cuenta === "no aplica")) throw new Error("Cuenta origen es obligatoria para completar soporte.");
+  if (!cleanString(input.transaccionId) && !cleanString(input.comprobanteUrl)) throw new Error("Ingresa comprobante o transacción ID para completar soporte.");
+}
+
+function canMoveItemToPaidAfterPayment(item: ShippingV2Item) {
+  const estado = normalizeStatus(item.estado);
+  if (estado === "pendiente de pago") return true;
+  if (estado === "registrado" && item.requierePago) return true;
+  return false;
+}
+
+async function updateItemsToPaidAfterPayment(pago: Pick<ShippingV2Pago, "itemIds">) {
+  const uniqueItemIds = Array.from(new Set(pago.itemIds.map(cleanString).filter(Boolean)));
+  if (!uniqueItemIds.length) return;
+
+  const items = await Promise.all(uniqueItemIds.map((id) => getShippingV2ItemById(id, { includeAiName: false })));
+  const records = items
+    .filter(canMoveItemToPaidAfterPayment)
+    .map((item) => ({
+      id: item.id,
+      fields: {
+        [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Pagado",
+        [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+      },
+    }));
+
+  if (!records.length) return;
+  for (let index = 0; index < records.length; index += 10) {
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({ records: records.slice(index, index + 10) }),
+    });
+  }
+}
+
+export async function markShippingV2PagoAsPaid(recordId: string, input: ShippingV2PagoMarkPaidInput, options: { registradoPor: string }) {
+  const pago = await getShippingV2PagoById(recordId);
+  const status = normalizeStatus(String(pago.estadoPago));
+  if (status === "anulado") throw new Error("Un pago Anulado no puede marcarse como pagado.");
+  if (normalizeStatus(String(pago.estadoIntegracionFinanzas)).includes("sincronizado")) throw new Error("No se puede modificar un pago ya sincronizado con Finanzas.");
+  assertPaymentSupportInput(input);
+
+  const movementId = await createFinanceMovementForPago(pago, input, options.registradoPor);
+  const F = SHIPPING_V2_PAYMENT_FIELDS;
+  const fields = compactFields({
+    [F.estadoPago]: "Pagado",
+    [F.fechaPagoReal]: cleanString(input.fechaPagoReal) || new Date().toISOString(),
+    [F.metodoPago]: cleanString(input.metodoPago) || "No aplica",
+    [F.cuentaOrigen]: cleanString(input.cuentaOrigen) || "No aplica",
+    [F.transaccionId]: cleanString(input.transaccionId),
+    [F.comprobante]: attachmentFromUrl(input.comprobanteUrl),
+    [F.observacion]: cleanString(input.observacion) || pago.observacion,
+    [F.pagadoPor]: options.registradoPor,
+    [F.estadoIntegracionFinanzas]: "Pendiente de sincronizar",
+    [F.movimientosFinanzas]: [movementId],
+  });
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.pagos), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id: pago.id, fields }] }),
+  });
+  await updateItemsToPaidAfterPayment(pago);
+  return getShippingV2PagoById(pago.id);
+}
+
+export async function setShippingV2PagoInReview(recordId: string, options: { registradoPor: string }) {
+  const pago = await getShippingV2PagoById(recordId);
+  if (["pagado", "anulado"].includes(normalizeStatus(String(pago.estadoPago)))) throw new Error("Este pago no permite enviarse a revisión.");
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.pagos), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id: pago.id, fields: { [SHIPPING_V2_PAYMENT_FIELDS.estadoPago]: "En revisión" } }] }),
+  });
+  return getShippingV2PagoById(pago.id);
+}
+
+export async function cancelShippingV2Pago(recordId: string, input: { motivo?: string }, options: { registradoPor: string }) {
+  const pago = await getShippingV2PagoById(recordId);
+  if (normalizeStatus(String(pago.estadoPago)) === "pagado" && pago.movimientoFinanzasIds.length) {
+    throw new Error("No se puede anular libremente un pago pagado con movimiento financiero.");
+  }
+  const F = SHIPPING_V2_PAYMENT_FIELDS;
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.pagos), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{
+        id: pago.id,
+        fields: {
+          [F.estadoPago]: "Anulado",
+          [F.estadoIntegracionFinanzas]: "Anulado",
+          [F.fechaAnulacion]: new Date().toISOString(),
+          [F.motivoAnulacion]: cleanString(input.motivo),
+        },
+      }],
+    }),
+  });
+  return getShippingV2PagoById(pago.id);
 }
 
 function packingFieldsFromInput(input: ShippingV2PackingWriteInput, extra: Record<string, unknown> = {}) {
@@ -1212,11 +1779,15 @@ function packingFieldsFromInput(input: ShippingV2PackingWriteInput, extra: Recor
     [F.proveedorResponsable]: cleanString(input.proveedorResponsableId) ? [cleanString(input.proveedorResponsableId)] : undefined,
     [F.proveedorLogisticoEc]: cleanString(input.proveedorLogisticoEcId) ? [cleanString(input.proveedorLogisticoEcId)] : undefined,
     [F.trackingUsa]: cleanString(input.trackingUsa),
-    [F.transportistaUsa]: selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaUsa, cleanString(input.transportistaUsa)),
+    [F.transportistaUsa]: cleanString(input.transportistaUsa) ? [cleanString(input.transportistaUsa)] : undefined,
     [F.trackingEc]: cleanString(input.trackingEc),
-    ...(hasOwnInput(input, "transportistaEc") ? { [F.transportistaEc]: selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaEc, cleanString(input.transportistaEc)) } : {}),
+    ...(hasOwnInput(input, "transportistaEc") ? { [F.transportistaEc]: cleanString(input.transportistaEc) ? [cleanString(input.transportistaEc)] : undefined } : {}),
     ...(hasOwnInput(input, "peso") ? { [F.peso]: input.peso ?? undefined } : {}),
-    ...(hasOwnInput(input, "unidadPeso") && cleanString(input.unidadPeso) ? { [F.unidadPeso]: selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.unidadPeso, cleanString(input.unidadPeso)) } : {}),
+    ...(hasOwnInput(input, "flete") ? { [F.flete]: input.flete ?? undefined } : {}),
+    ...(hasOwnInput(input, "arancel") ? { [F.arancel]: input.arancel ?? undefined } : {}),
+    ...(hasOwnInput(input, "otrosCostos") ? { [F.otrosCostos]: input.otrosCostos ?? undefined } : {}),
+    ...(hasOwnInput(input, "reglaDistribucionCostos") ? { [F.reglaDistribucionCostos]: selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.reglaDistribucionCostos, cleanString(input.reglaDistribucionCostos)) } : {}),
+    ...(hasOwnInput(input, "observacionCostos") ? { [F.observacionCostos]: cleanString(input.observacionCostos) } : {}),
     [F.observaciones]: cleanString(input.observaciones),
     ...extra,
   });
@@ -1236,24 +1807,39 @@ function packingPatchFieldsFromInput(input: ShippingV2PackingWriteInput) {
     fields[F.proveedorLogisticoEc] = value ? [value] : [];
   }
   if (hasOwnInput(input, "trackingUsa")) fields[F.trackingUsa] = cleanString(input.trackingUsa);
-  if (hasOwnInput(input, "transportistaUsa")) fields[F.transportistaUsa] = selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaUsa, cleanString(input.transportistaUsa));
+  if (hasOwnInput(input, "transportistaUsa")) {
+    const value = cleanString(input.transportistaUsa);
+    fields[F.transportistaUsa] = value ? [value] : [];
+  }
   if (hasOwnInput(input, "trackingEc")) fields[F.trackingEc] = cleanString(input.trackingEc);
+  if (hasOwnInput(input, "transportistaEc")) {
+    const value = cleanString(input.transportistaEc);
+    fields[F.transportistaEc] = value ? [value] : [];
+  }
   if (hasOwnInput(input, "peso")) fields[F.peso] = input.peso ?? null;
-  if (hasOwnInput(input, "unidadPeso")) fields[F.unidadPeso] = cleanString(input.unidadPeso) ? selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.unidadPeso, cleanString(input.unidadPeso)) : null;
+  if (hasOwnInput(input, "flete")) fields[F.flete] = input.flete ?? null;
+  if (hasOwnInput(input, "arancel")) fields[F.arancel] = input.arancel ?? null;
+  if (hasOwnInput(input, "otrosCostos")) fields[F.otrosCostos] = input.otrosCostos ?? null;
+  if (hasOwnInput(input, "reglaDistribucionCostos")) fields[F.reglaDistribucionCostos] = cleanString(input.reglaDistribucionCostos) ? selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.reglaDistribucionCostos, cleanString(input.reglaDistribucionCostos)) : null;
+  if (hasOwnInput(input, "observacionCostos")) fields[F.observacionCostos] = cleanString(input.observacionCostos);
   if (hasOwnInput(input, "observaciones")) fields[F.observaciones] = cleanString(input.observaciones);
   return fields;
 }
 
 function editablePackingKeysForStatus(status: string): Set<keyof ShippingV2PackingWriteInput> {
   const normalized = normalizeStatus(status);
+  const logisticsCostKeys: Array<keyof ShippingV2PackingWriteInput> = ["flete", "arancel", "otrosCostos", "reglaDistribucionCostos", "observacionCostos"];
   if (normalized === "en proceso") {
-    return new Set(["nombre", "tipo", "observaciones", "proveedorResponsableId", "proveedorLogisticoEcId", "trackingUsa", "transportistaUsa", "trackingEc", "peso", "unidadPeso"]);
+    return new Set(["nombre", "tipo", "observaciones", "proveedorResponsableId", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso", ...logisticsCostKeys]);
   }
   if (normalized === "cerrado") {
-    return new Set(["proveedorLogisticoEcId", "trackingUsa", "transportistaUsa", "trackingEc", "peso", "unidadPeso"]);
+    return new Set(["trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso", ...logisticsCostKeys]);
   }
   if (normalized === "en transito") {
-    return new Set(["trackingUsa", "trackingEc", "peso", "unidadPeso"]);
+    return new Set(["trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso", ...logisticsCostKeys]);
+  }
+  if (normalized === "recibido") {
+    return new Set(logisticsCostKeys);
   }
   return new Set();
 }
@@ -1272,10 +1858,32 @@ async function validatePackingLogisticsProvider(providerId?: string) {
   const cleanId = cleanString(providerId);
   if (!cleanId) return;
   const provider = await getShippingV2ProveedorById(cleanId);
-  if (!provider) throw new Error("Proveedor logístico EC no encontrado.");
+  if (!provider) throw new Error("Proveedor logístico no encontrado.");
   if (!canBePackingLogisticsProvider(provider)) {
-    throw new Error("El Proveedor logístico EC debe estar activo y ser compatible con logística.");
+    throw new Error("El proveedor logístico debe estar activo y tener Tipo de proveedor = Logístico.");
   }
+}
+
+async function validatePackingTransportistas(input: ShippingV2PackingWriteInput) {
+  const [usaProvider, ecProvider] = await Promise.all([
+    cleanString(input.transportistaUsa) ? getShippingV2ProveedorById(cleanString(input.transportistaUsa)) : Promise.resolve(null),
+    cleanString(input.transportistaEc) ? getShippingV2ProveedorById(cleanString(input.transportistaEc)) : Promise.resolve(null),
+  ]);
+
+  if (cleanString(input.transportistaUsa) && (!usaProvider || !canBeUsaTransportProvider(usaProvider))) {
+    throw new Error("Este transportista no es compatible con esta ruta logística.");
+  }
+  if (cleanString(input.transportistaEc) && (!ecProvider || !isCompatibleEcuadorTransportProvider(ecProvider, input))) {
+    throw new Error("Este transportista no es compatible con esta ruta logística.");
+  }
+}
+
+function shouldValidatePackingRoute(input: ShippingV2PackingWriteInput) {
+  return hasOwnInput(input, "transportistaUsa") ||
+    hasOwnInput(input, "transportistaEc") ||
+    hasOwnInput(input, "trackingUsa") ||
+    hasOwnInput(input, "trackingEc") ||
+    hasOwnInput(input, "tipo");
 }
 
 export async function getShippingV2Packings(access?: ShippingV2AccessContext) {
@@ -1319,10 +1927,16 @@ export async function createShippingV2Packing(input: ShippingV2PackingWriteInput
   assertShippingV2GeneratedSchema();
   validateOptionalWeight(input.peso);
   await validatePackingLogisticsProvider(input.proveedorLogisticoEcId);
+  await validatePackingTransportistas(input);
   if (options.access && !options.access.isAdmin && options.access.providerId) {
     const responsable = cleanString(input.proveedorResponsableId);
     const logisticoEc = cleanString(input.proveedorLogisticoEcId);
-    if (responsable !== options.access.providerId && logisticoEc !== options.access.providerId) {
+    const transportistaUsa = cleanString(input.transportistaUsa);
+    const transportistaEc = cleanString(input.transportistaEc);
+    if (responsable !== options.access.providerId &&
+      logisticoEc !== options.access.providerId &&
+      transportistaUsa !== options.access.providerId &&
+      transportistaEc !== options.access.providerId) {
       throw new Error("No puedes crear packings para otro proveedor.");
     }
   }
@@ -1356,7 +1970,13 @@ export async function updateShippingV2Packing(recordId: string, input: ShippingV
   const existing = await getShippingV2PackingById(id, options.access, { includeItems: false, includeAiName: false });
   assertPackingPatchAllowed(existing.estado, input);
   validateOptionalWeight(input.peso);
+  validateOptionalMoney(input.flete, "Flete");
+  validateOptionalMoney(input.arancel, "Arancel");
+  validateOptionalMoney(input.otrosCostos, "Otros costos");
   if (hasOwnInput(input, "proveedorLogisticoEcId")) await validatePackingLogisticsProvider(input.proveedorLogisticoEcId);
+  if (shouldValidatePackingRoute(input)) {
+    await validatePackingTransportistas({ ...existing, ...input });
+  }
 
   const fields = packingPatchFieldsFromInput(input);
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.packings), {

@@ -1,4 +1,4 @@
-import { SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+import { SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 
 export type ShippingV2RecordBase = {
   id: string;
@@ -7,13 +7,10 @@ export type ShippingV2RecordBase = {
 
 export type ShippingV2ProveedorEstado = "Activo" | "Inactivo" | "En Revision";
 export type ShippingV2ItemEstado = "Borrador" | "Pendiente Pago" | "Pagado" | "En Transito" | "Disponible" | "Entregado" | "Cancelado";
-export type ShippingV2PagoEstado = "Pendiente" | "Pagado" | "Observado" | "Cancelado";
-export type ShippingV2FinanzasMovimientoEstado = "Pendiente" | "Sincronizado" | "Error" | "Cancelado";
+export type ShippingV2PagoEstado = (typeof SHIPPING_V2_PAYMENT_SELECT_OPTIONS.estadoPago)[number];
+export type ShippingV2FinanzasMovimientoEstado = (typeof SHIPPING_V2_FINANCE_SELECT_OPTIONS.estadoIntegracion)[number];
 export type ShippingV2PackingEstado = (typeof SHIPPING_V2_PACKING_SELECT_OPTIONS.estado)[number];
 export type ShippingV2PackingTipo = (typeof SHIPPING_V2_PACKING_SELECT_OPTIONS.tipo)[number];
-export type ShippingV2PackingTransportistaUsa = (typeof SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaUsa)[number];
-export type ShippingV2PackingTransportistaEc = (typeof SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaEc)[number];
-export type ShippingV2PackingUnidadPeso = (typeof SHIPPING_V2_PACKING_SELECT_OPTIONS.unidadPeso)[number];
 export type ShippingV2RecepcionEstado = "Pendiente" | "Parcial" | "Completa" | "Observada";
 export type ShippingV2NovedadEstado = "Abierta" | "En Revision" | "Resuelta" | "Cancelada";
 export type ShippingV2MigracionEstado = "Pendiente" | "Procesada" | "Error" | "Omitida";
@@ -26,6 +23,10 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   nombre: string;
   estado: ShippingV2ProveedorEstado | string;
   tipoProveedor?: string;
+  requierePagoAntesEnvio: boolean | null;
+  plazoSugeridoPagoDias: number | null;
+  metodoPagoPreferido?: string;
+  cuentaDestinoPagoPreferida?: string;
   puedeArmarPackings: boolean | null;
   puedeRecibirEncargosTerceros: boolean | null;
   permiteTriangulacion: boolean | null;
@@ -33,6 +34,11 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   email?: string;
   telefono?: string;
   pais?: string;
+  paisZonaLogistica?: string;
+  urlRastreo?: string;
+  plantillaUrlRastreo?: string;
+  permiteRastreoWeb: boolean | null;
+  notasRastreo?: string;
 };
 
 export type ShippingV2Attachment = {
@@ -79,8 +85,18 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   requierePago: boolean | null;
   modoLogistico?: ShippingV2ModoLogistico | string;
   costoProveedor: number | null;
+  fletePacking: number | null;
+  arancelPacking: number | null;
+  otrosCostosPacking: number | null;
+  reglaDistribucionPacking?: string;
+  totalCostoProveedorPacking: number | null;
+  cantidadItemsPacking: number | null;
+  costoFleteAsignado: number | null;
+  costoArancelAsignado: number | null;
+  otrosCostosAsignados: number | null;
   costoAsignadoDespiece: number | null;
   costoLogisticoAsignado: number | null;
+  costoTotalUnidad: number | null;
   costoTotalEstimado: number | null;
   precioVentaSugerido: number | null;
   precioVenta: number | null;
@@ -100,8 +116,13 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   trackingUsa?: string;
   trackingEc?: string;
   requierePacking: boolean | null;
+  pagoV2ItemIds: string[];
+  pagoV2RegaloIds: string[];
   packingId?: string;
+  /** @deprecated Campo legacy "Pago relacionado" apunta a la tabla vieja Pago. No usar para Shipping V2. */
   pagoId?: string;
+  /** @deprecated IDs de la tabla vieja Pago. No usar para Shipping V2. */
+  legacyPagoRelacionadoIds: string[];
   itemPadreId?: string;
   itemHijoIds: string[];
   motivoDespiece?: string;
@@ -175,23 +196,96 @@ export type ShippingV2ItemWriteInput = {
 export type ShippingV2Pago = ShippingV2RecordBase & {
   pagoId: string;
   estado: ShippingV2PagoEstado | string;
+  estadoPago: ShippingV2PagoEstado | string;
   proveedorId?: string;
   proveedorNombre?: string;
+  itemIds: string[];
+  itemsResumen: ShippingV2PagoItemResumen[];
+  regalosIds: string[];
+  regalosResumen: ShippingV2PagoItemResumen[];
   total: number | null;
+  totalAPagar: number | null;
+  totalPagado: number | null;
+  saldoPendiente: number | null;
+  totalRegalos: number | null;
+  cantidadItems: number;
+  cantidadRegalos: number;
+  fechaCreacion?: string;
+  fechaVencimientoSugerida?: string;
   fechaPagoMax?: string;
   fechaPagoReal?: string;
   metodoPago?: string;
+  cuentaOrigen?: string;
   transaccionId?: string;
+  comprobante: ShippingV2Attachment[];
+  facturaProveedor: ShippingV2Attachment[];
+  observacion?: string;
+  registradoPor?: string;
+  pagadoPor?: string;
+  estadoIntegracionFinanzas?: string;
+  movimientoFinanzasId?: string;
+  movimientoFinanzasIds: string[];
+  fechaAnulacion?: string;
+  motivoAnulacion?: string;
 };
+
+export type ShippingV2PagoItemResumen = Pick<
+  ShippingV2Item,
+  | "id"
+  | "sku"
+  | "skuProveedor"
+  | "nombre"
+  | "tipoOperacion"
+  | "tipoItem"
+  | "categoria"
+  | "estado"
+  | "proveedorId"
+  | "proveedorNombre"
+  | "proveedorLogisticoId"
+  | "proveedorLogisticoNombre"
+  | "costoProveedor"
+  | "esRegalo"
+>;
 
 export type ShippingV2FinanzasMovimiento = ShippingV2RecordBase & {
   movimientoId: string;
   estado: ShippingV2FinanzasMovimientoEstado | string;
+  origen?: string;
+  tipoMovimiento?: string;
   pagoId?: string;
+  proveedorId?: string;
+  proveedorNombre?: string;
   fecha?: string;
   monto: number | null;
+  metodo?: string;
   cuentaOrigen?: string;
-  referencia?: string;
+  transaccionId?: string;
+  comprobante: ShippingV2Attachment[];
+  observacion?: string;
+  registradoPor?: string;
+};
+
+export type ShippingV2PagoWriteInput = {
+  estadoPago?: string;
+  proveedorId?: string;
+  itemIds?: string[];
+  regalosIds?: string[];
+  fechaVencimientoSugerida?: string;
+  observacion?: string;
+  fechaPagoReal?: string;
+  metodoPago?: string;
+  cuentaOrigen?: string;
+  transaccionId?: string;
+  comprobanteUrl?: string;
+};
+
+export type ShippingV2PagoMarkPaidInput = {
+  fechaPagoReal?: string;
+  metodoPago?: string;
+  cuentaOrigen?: string;
+  transaccionId?: string;
+  comprobanteUrl?: string;
+  observacion?: string;
 };
 
 export type ShippingV2Packing = ShippingV2RecordBase & {
@@ -201,24 +295,33 @@ export type ShippingV2Packing = ShippingV2RecordBase & {
   tipo?: ShippingV2PackingTipo | string;
   proveedorResponsableId?: string;
   proveedorResponsableNombre?: string;
+  /** @deprecated Campo legacy en Packings. UI principal usa Transportista EC. */
   proveedorLogisticoEcId?: string;
+  /** @deprecated Campo legacy en Packings. UI principal usa Transportista EC. */
   proveedorLogisticoEcNombre?: string;
   itemIds: string[];
   items: ShippingV2Item[];
   itemCount: number;
   trackingUsa?: string;
-  transportistaUsa?: ShippingV2PackingTransportistaUsa | string;
+  transportistaUsa?: string;
+  transportistaUsaNombre?: string;
   trackingEc?: string;
-  transportistaEc?: ShippingV2PackingTransportistaEc | string;
+  transportistaEc?: string;
+  transportistaEcNombre?: string;
   peso: number | null;
-  unidadPeso?: string;
   flete: number | null;
   arancel: number | null;
   otrosCostos: number | null;
+  costoTotalItemsProveedor: number | null;
+  cantidadItemsPacking: number | null;
+  reglaDistribucion?: string;
   reglaDistribucionCostos?: string;
+  observacionCostos?: string;
   observaciones?: string;
   fechaCreacion?: string;
   fechaCierre?: string;
+  fechaEnvio?: string;
+  fechaRecepcion?: string;
   cerradoPor?: string;
   creadoPor?: string;
   conNovedad: boolean;
@@ -229,21 +332,24 @@ export type ShippingV2PackingWriteInput = {
   tipo?: string;
   estado?: string;
   proveedorResponsableId?: string;
+  /** @deprecated Campo legacy en Packings. UI principal usa Transportista EC. */
   proveedorLogisticoEcId?: string;
   trackingUsa?: string;
   transportistaUsa?: string;
   trackingEc?: string;
   transportistaEc?: string;
   peso?: number | null;
-  unidadPeso?: string;
+  flete?: number | null;
+  arancel?: number | null;
+  otrosCostos?: number | null;
+  reglaDistribucionCostos?: string;
+  observacionCostos?: string;
   observaciones?: string;
 };
 
 export const SHIPPING_V2_PACKING_ESTADOS = SHIPPING_V2_PACKING_SELECT_OPTIONS.estado;
 export const SHIPPING_V2_PACKING_TIPOS = SHIPPING_V2_PACKING_SELECT_OPTIONS.tipo;
-export const SHIPPING_V2_PACKING_TRANSPORTISTAS_USA = SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaUsa;
-export const SHIPPING_V2_PACKING_TRANSPORTISTAS_EC = SHIPPING_V2_PACKING_SELECT_OPTIONS.transportistaEc;
-export const SHIPPING_V2_PACKING_UNIDADES_PESO = SHIPPING_V2_PACKING_SELECT_OPTIONS.unidadPeso;
+export const SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS = SHIPPING_V2_PACKING_SELECT_OPTIONS.reglaDistribucionCostos;
 
 export type ShippingV2Recepcion = ShippingV2RecordBase & {
   recepcionId: string;
@@ -289,4 +395,79 @@ export type ShippingV2DashboardSummary = {
   packingsEnProceso: number;
   packingsEnTransito: number;
   novedadesAbiertas: number;
+};
+
+export type ShippingV2PagoPendingItem = Pick<
+  ShippingV2Item,
+  | "id"
+  | "sku"
+  | "skuProveedor"
+  | "nombre"
+  | "tipoOperacion"
+  | "tipoItem"
+  | "categoria"
+  | "estado"
+  | "proveedorId"
+  | "proveedorNombre"
+  | "proveedorLogisticoId"
+  | "proveedorLogisticoNombre"
+  | "requierePago"
+  | "costoProveedor"
+  | "cantidad"
+  | "esRegalo"
+  | "fechaRegistro"
+  | "pagoV2ItemIds"
+  | "pagoV2RegaloIds"
+>;
+
+export type ShippingV2PagoSupportCard =
+  | {
+      kind: "item";
+      id: string;
+      item: ShippingV2PagoPendingItem;
+      proveedorId?: string;
+      proveedorNombre?: string;
+      total: number | null;
+      missing: string[];
+    }
+  | {
+      kind: "pago";
+      id: string;
+      pago: ShippingV2Pago;
+      proveedorId?: string;
+      proveedorNombre?: string;
+      total: number | null;
+      missing: string[];
+    };
+
+export type ShippingV2PagosSummary = {
+  totalPorPagar: number;
+  totalPagadoSinSoporte: number;
+  totalPagadoCompleto: number;
+  incompletos: number;
+  porPagarCount: number;
+  itemsSinPagoCount: number;
+  pagosPendientesCount: number;
+  pagadosSinSoporteCount: number;
+  pagosCompletosCount: number;
+};
+
+export type ShippingV2PagosWorkspace = {
+  pagos: ShippingV2Pago[];
+  itemsPendientes: ShippingV2PagoPendingItem[];
+  porPagar: ShippingV2PagoPendingItem[];
+  pagosPendientes: ShippingV2Pago[];
+  pendientes: {
+    itemsSinPago: ShippingV2PagoPendingItem[];
+    pagosPendientes: ShippingV2Pago[];
+  };
+  pagadosSinSoporte: ShippingV2PagoSupportCard[];
+  sinSoporte: {
+    itemsPagadosSinPago: Extract<ShippingV2PagoSupportCard, { kind: "item" }>[];
+    pagosIncompletos: Extract<ShippingV2PagoSupportCard, { kind: "pago" }>[];
+  };
+  pagosCompletos: ShippingV2Pago[];
+  pagosRegistrados: ShippingV2Pago[];
+  proveedores: ShippingV2Proveedor[];
+  summary: ShippingV2PagosSummary;
 };

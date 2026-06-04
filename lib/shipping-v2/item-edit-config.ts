@@ -30,7 +30,7 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   proveedorCompra: { key: "proveedorId", field: F.proveedorCompra, label: "Proveedor de compra", category: "special", type: "linkedRecord" },
   proveedorLogistico: { key: "proveedorLogisticoId", field: F.proveedorLogistico, label: "Proveedor logístico / intermediario", category: "special", type: "linkedRecord" },
   requierePago: { key: "requierePago", field: F.requierePago, label: "Requiere pago", category: "readOnly", type: "readOnly" },
-  pagoRelacionado: { key: "pagoId", field: F.pagoRelacionado, label: "Pago relacionado", category: "readOnly", type: "readOnly" },
+  pagoRelacionado: { key: "pagoId", field: "Shipping Pagos (Items relacionados)", label: "Pago Shipping V2", category: "readOnly", type: "readOnly" },
   requierePacking: { key: "requierePacking", field: F.requierePacking, label: "Requiere packing", category: "readOnly", type: "readOnly" },
   packingRelacionado: { key: "packingId", field: F.packingRelacionado, label: "Packing relacionado", category: "readOnly", type: "readOnly" },
   modoLogistico: { key: "modoLogistico", field: F.modoLogistico, label: "Modo logístico", category: "special", type: "singleSelect", options: O.modoLogistico },

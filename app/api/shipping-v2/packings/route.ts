@@ -15,17 +15,19 @@ function parseOptionalWeight(value: unknown) {
 }
 
 function parseInput(body: Record<string, unknown>): ShippingV2PackingWriteInput {
+  const supportedKeys = new Set(["nombre", "tipo", "estado", "proveedorResponsableId", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso", "observaciones"]);
+  const unsupportedKey = Object.keys(body).find((key) => !supportedKeys.has(key));
+  if (unsupportedKey) throw new Error(`Campo no soportado para packing: ${unsupportedKey}.`);
   return {
     nombre: String(body.nombre ?? ""),
     tipo: String(body.tipo ?? ""),
     estado: String(body.estado ?? ""),
     proveedorResponsableId: String(body.proveedorResponsableId ?? ""),
-    proveedorLogisticoEcId: String(body.proveedorLogisticoEcId ?? ""),
     trackingUsa: String(body.trackingUsa ?? ""),
     transportistaUsa: String(body.transportistaUsa ?? ""),
     trackingEc: String(body.trackingEc ?? ""),
+    transportistaEc: String(body.transportistaEc ?? ""),
     peso: parseOptionalWeight(body.peso),
-    unidadPeso: String(body.unidadPeso ?? ""),
     observaciones: String(body.observaciones ?? ""),
   };
 }

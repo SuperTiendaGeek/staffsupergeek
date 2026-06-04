@@ -32,9 +32,9 @@ function display(value?: string | number | null) {
   return text || "—";
 }
 
-function formatWeight(peso: number | null | undefined, unidadPeso?: string) {
+function formatWeight(peso: number | null | undefined) {
   if (peso === null || peso === undefined) return "—";
-  return `${new Intl.NumberFormat("es-EC", { maximumFractionDigits: 2 }).format(peso)}${unidadPeso ? ` ${unidadPeso}` : ""}`;
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(peso)} kg`;
 }
 
 function Kpi({ label, value }: { label: string; value: number }) {
@@ -46,26 +46,17 @@ function Kpi({ label, value }: { label: string; value: number }) {
   );
 }
 
-function canUseAsEcLogisticsProvider(provider: ShippingV2Proveedor) {
-  const normalizedEstado = (provider.estado || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const normalizedTipo = (provider.tipoProveedor || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  return normalizedEstado === "activo" && (normalizedTipo === "logistico" || Boolean(provider.puedeArmarPackings || provider.permiteTriangulacion));
-}
-
 export function ShippingV2PackingsClient({ packings, proveedores, error }: Props) {
   const [estado, setEstado] = useState(ALL);
   const [tipo, setTipo] = useState(ALL);
   const [responsable, setResponsable] = useState(ALL);
-  const [logistico, setLogistico] = useState(ALL);
-  const logisticsProviders = useMemo(() => proveedores.filter(canUseAsEcLogisticsProvider), [proveedores]);
 
   const filtered = useMemo(() => packings.filter((packing) => {
     if (estado !== ALL && packing.estado !== estado) return false;
     if (tipo !== ALL && packing.tipo !== tipo) return false;
     if (responsable !== ALL && packing.proveedorResponsableId !== responsable) return false;
-    if (logistico !== ALL && packing.proveedorLogisticoEcId !== logistico) return false;
     return true;
-  }), [estado, logistico, packings, responsable, tipo]);
+  }), [estado, packings, responsable, tipo]);
 
   const kpis = {
     total: packings.length,
@@ -105,19 +96,18 @@ export function ShippingV2PackingsClient({ packings, proveedores, error }: Props
         <Kpi label="Con novedad" value={kpis.conNovedad} />
       </section>
 
-      <section className="grid gap-3 rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4 md:grid-cols-4">
+      <section className="grid gap-3 rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4 md:grid-cols-3">
         <select value={estado} onChange={(event) => setEstado(event.target.value)} className="h-11 rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5]"><option>{ALL}</option>{SHIPPING_V2_PACKING_ESTADOS.map((option) => <option key={option}>{option}</option>)}</select>
         <select value={tipo} onChange={(event) => setTipo(event.target.value)} className="h-11 rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5]"><option>{ALL}</option>{SHIPPING_V2_PACKING_TIPOS.map((option) => <option key={option}>{option}</option>)}</select>
         <select value={responsable} onChange={(event) => setResponsable(event.target.value)} className="h-11 rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5]"><option>{ALL}</option>{proveedores.map((provider) => <option key={provider.id} value={provider.id}>{getShippingV2ProveedorLabel(provider)}</option>)}</select>
-        <select value={logistico} onChange={(event) => setLogistico(event.target.value)} className="h-11 rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5]"><option>{ALL}</option>{logisticsProviders.map((provider) => <option key={provider.id} value={provider.id}>{getShippingV2ProveedorLabel(provider)}</option>)}</select>
       </section>
 
       <div className="overflow-hidden rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28]">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1040px] text-left text-sm">
+          <table className="w-full min-w-[1280px] text-left text-sm">
             <thead className="bg-[#151515] text-xs uppercase text-[#A7A7A7]">
               <tr>
-                {["Packing ID", "Alias / nombre interno", "Estado", "Items", "Peso", "Proveedor responsable", "Proveedor logístico EC", "Tracking USA", "Tracking EC", "Fecha creación"].map((head) => <th key={head} className="px-4 py-3 font-semibold">{head}</th>)}
+                {["Packing ID", "Alias / nombre interno", "Estado", "Items", "Peso", "Proveedor responsable", "Tracking USA", "Transportista USA", "Tracking EC", "Transportista EC", "Fecha creación"].map((head) => <th key={head} className="px-4 py-3 font-semibold">{head}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -127,11 +117,12 @@ export function ShippingV2PackingsClient({ packings, proveedores, error }: Props
                   <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.nombre)}</td>
                   <td className="px-4 py-3"><span className={`rounded-full border px-3 py-1 text-xs ${statusTone(packing.estado)}`}>{display(packing.estado)}</span></td>
                   <td className="px-4 py-3 text-[#F5F5F5]">{packing.itemCount} items</td>
-                  <td className="px-4 py-3 text-[#A7A7A7]">{formatWeight(packing.peso, packing.unidadPeso)}</td>
+                  <td className="px-4 py-3 text-[#A7A7A7]">{formatWeight(packing.peso)}</td>
                   <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.proveedorResponsableNombre)}</td>
-                  <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.proveedorLogisticoEcNombre)}</td>
                   <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.trackingUsa)}</td>
+                  <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.transportistaUsaNombre)}</td>
                   <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.trackingEc)}</td>
+                  <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.transportistaEcNombre)}</td>
                   <td className="px-4 py-3 text-[#A7A7A7]">{formatDate(packing.fechaCreacion || packing.createdTime)}</td>
                 </tr>
               ))}

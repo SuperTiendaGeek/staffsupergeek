@@ -20,6 +20,7 @@ type Props = {
   className?: string;
   labelClassName?: string;
   valueClassName?: string;
+  editSuffix?: ReactNode;
   hideLabel?: boolean;
   onSave?: (value: string | number | boolean | null) => Promise<void>;
 };
@@ -56,7 +57,7 @@ function StatusLabel({ status, error }: { status: SaveStatus; error: string }) {
   return null;
 }
 
-export function InlineEditableField({ label, value, type, options, readOnly, displayValue, className, labelClassName, valueClassName, hideLabel, onSave }: Props) {
+export function InlineEditableField({ label, value, type, options, readOnly, displayValue, className, labelClassName, valueClassName, editSuffix, hideLabel, onSave }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(stringifyValue(value));
   const [status, setStatus] = useState<SaveStatus>("idle");
@@ -162,16 +163,19 @@ export function InlineEditableField({ label, value, type, options, readOnly, dis
       )}
 
       {editing && (type === "text" || type === "number" || type === "currency") ? (
-        <input
-          autoFocus
-          type="text"
-          inputMode={type === "text" ? undefined : "decimal"}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={() => void commit()}
-          onKeyDown={handleTextKeyDown}
-          className={editTextClass}
-        />
+        <div className="flex items-center gap-2">
+          <input
+            autoFocus
+            type="text"
+            inputMode={type === "text" ? undefined : "decimal"}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={() => void commit()}
+            onKeyDown={handleTextKeyDown}
+            className={editTextClass}
+          />
+          {editSuffix ? <span className="shrink-0 text-sm font-semibold text-[#A7A7A7]">{editSuffix}</span> : null}
+        </div>
       ) : null}
 
       {editing && type === "textarea" ? (

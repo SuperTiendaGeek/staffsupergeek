@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getShippingV2AccessContextForSession, getShippingV2PackingById, updateShippingV2Packing } from "@/lib/shipping-v2/airtable";
+import { SHIPPING_V2_PACKING_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ShippingV2PackingWriteInput } from "@/types/shipping-v2";
 
@@ -16,12 +17,35 @@ function parseOptionalWeight(value: unknown) {
   return parsed;
 }
 
+function parseOptionalMoney(value: unknown, label: string) {
+  const text = String(value ?? "").trim().replace(",", ".");
+  if (!text) return null;
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed)) throw new Error(`${label} debe ser un número válido.`);
+  if (parsed < 0) throw new Error(`${label} no puede ser negativo.`);
+  return parsed;
+}
+
 function parseInput(body: Record<string, unknown>): ShippingV2PackingWriteInput {
+  const supportedKeys = new Set(["nombre", "tipo", "proveedorResponsableId", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "observaciones", "peso", "flete", "arancel", "otrosCostos", "reglaDistribucionCostos", "observacionCostos"]);
+  const unsupportedKey = Object.keys(body).find((key) => !supportedKeys.has(key));
+  if (unsupportedKey) throw new Error(`Campo no soportado para packing: ${unsupportedKey}.`);
   const input: ShippingV2PackingWriteInput = {};
-  for (const key of ["nombre", "tipo", "proveedorResponsableId", "proveedorLogisticoEcId", "trackingUsa", "transportistaUsa", "trackingEc", "unidadPeso", "observaciones"] as const) {
+  for (const key of ["nombre", "tipo", "proveedorResponsableId", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "observaciones"] as const) {
     if (Object.prototype.hasOwnProperty.call(body, key)) input[key] = String(body[key] ?? "");
   }
   if (Object.prototype.hasOwnProperty.call(body, "peso")) input.peso = parseOptionalWeight(body.peso);
+  if (Object.prototype.hasOwnProperty.call(body, "flete")) input.flete = parseOptionalMoney(body.flete, "Flete");
+  if (Object.prototype.hasOwnProperty.call(body, "arancel")) input.arancel = parseOptionalMoney(body.arancel, "Arancel");
+  if (Object.prototype.hasOwnProperty.call(body, "otrosCostos")) input.otrosCostos = parseOptionalMoney(body.otrosCostos, "Otros costos");
+  if (Object.prototype.hasOwnProperty.call(body, "reglaDistribucionCostos")) {
+    const value = String(body.reglaDistribucionCostos ?? "").trim();
+    if (value && !SHIPPING_V2_PACKING_SELECT_OPTIONS.reglaDistribucionCostos.includes(value as (typeof SHIPPING_V2_PACKING_SELECT_OPTIONS.reglaDistribucionCostos)[number])) {
+      throw new Error("Regla de distribución de costos inválida.");
+    }
+    input.reglaDistribucionCostos = value;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "observacionCostos")) input.observacionCostos = String(body.observacionCostos ?? "");
   return input;
 }
 
