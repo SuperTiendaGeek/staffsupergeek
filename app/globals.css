@@ -4,6 +4,26 @@
 
 :root {
   color-scheme: dark;
+  --background: 220 28% 4%;
+  --foreground: 0 0% 96%;
+  --card: 72 6% 12%;
+  --card-foreground: 0 0% 96%;
+  --popover: 72 6% 10%;
+  --popover-foreground: 0 0% 96%;
+  --primary: 78 100% 65%;
+  --primary-foreground: 0 0% 8%;
+  --secondary: 72 7% 16%;
+  --secondary-foreground: 0 0% 96%;
+  --muted: 72 6% 15%;
+  --muted-foreground: 0 0% 66%;
+  --accent: 78 100% 65%;
+  --accent-foreground: 0 0% 8%;
+  --destructive: 18 100% 65%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 60 4% 22%;
+  --input: 60 4% 22%;
+  --ring: 78 100% 65%;
+  --radius: 0.5rem;
 }
 
 * {

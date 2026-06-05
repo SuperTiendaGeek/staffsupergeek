@@ -74,7 +74,7 @@ export function NotificationsHistoryClient({ notifications }: NotificationsHisto
 
   return (
     <>
-      <section className="w-full max-w-5xl overflow-hidden rounded-lg border border-white/10 bg-white/[0.035] text-left shadow-2xl shadow-black/20 backdrop-blur">
+      <section className="w-full overflow-hidden rounded-lg border border-white/10 bg-white/[0.035] text-left shadow-2xl shadow-black/20 backdrop-blur">
         <div className="divide-y divide-white/10">
           {items.length ? (
             items.map((notification) => (

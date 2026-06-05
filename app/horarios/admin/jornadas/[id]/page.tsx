@@ -64,7 +64,7 @@ export default async function HorarioJornadaRevisionPage({ params }: PageProps) 
       title="Revisar jornada"
       description="Corrige una jornada incompleta y registra una marcación de ajuste administrativo."
     >
-      <section className="w-full max-w-5xl space-y-5 text-left">
+      <section className="w-full space-y-5 text-left">
         <Link href="/horarios/admin" className="text-sm font-semibold text-geek-lime transition hover:text-white">
           Volver a horarios y pagos
         </Link>

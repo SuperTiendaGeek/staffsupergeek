@@ -86,7 +86,7 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
       title="Empleado y pagos"
       description="Saldo, jornadas pendientes, periodos y pagos registrados del empleado."
     >
-      <section className="w-full max-w-6xl space-y-5 text-left">
+      <section className="w-full space-y-5 text-left">
         <Link href="/horarios/admin" className="text-sm font-semibold text-geek-lime transition hover:text-white">
           Volver a horarios y pagos
         </Link>

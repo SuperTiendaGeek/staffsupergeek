@@ -135,11 +135,14 @@ function Kpi({ label, value, tone }: { label: string; value: string | number; to
     muted: "text-[#F5F5F5]",
   }[tone];
   return (
-    <article className="relative min-h-28 overflow-hidden rounded-[1.35rem] border border-[#3A3A36] bg-[#30312D] p-4 shadow-xl shadow-black/20">
-      <div className="absolute -right-8 -top-12 h-24 w-24 rounded-full bg-[#D7FF4F] opacity-10" />
-      <p className={`text-3xl font-semibold leading-none tabular-nums ${toneClass}`}>{value}</p>
-      <p className="mt-2 text-xs font-medium text-[#A7A7A7]">{label}</p>
-      <div className="mt-4 h-1.5 w-14 rounded-full bg-[#D7FF4F]" />
+    <article className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2 shadow-lg shadow-black/10">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</p>
+          <p className={`mt-0.5 text-lg font-semibold leading-none tabular-nums xl:text-xl ${toneClass}`}>{value}</p>
+        </div>
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#D7FF4F]" />
+      </div>
     </article>
   );
 }
@@ -188,7 +191,7 @@ function DetailModal({ pago, onClose, onUpdated }: { pago: ShippingV2Pago; onClo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <section className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[1.25rem] border border-[#3A3A36] bg-[#1B1B1B] p-5 shadow-2xl">
+      <section className="max-h-[92vh] w-full max-w-[1800px] overflow-y-auto rounded-[1.25rem] border border-[#3A3A36] bg-[#1B1B1B] p-5 shadow-2xl">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Detalle de pago</p>
@@ -355,8 +358,8 @@ type FilterState = {
 function SelectFilter({ label, value, options, onChange }: { label: string; value: string; options: Array<{ value: string; label: string }>; onChange: (value: string) => void }) {
   return (
     <label className="min-w-0">
-      <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 h-10 w-full rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm font-medium text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70">
+      <span className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#121310] px-3 text-[13px] font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70">
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
     </label>
@@ -524,34 +527,34 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
   ];
 
   return (
-    <div className="w-full space-y-5 rounded-[2rem] border border-[#3A3A36] bg-[#1B1B1B] p-4 shadow-2xl shadow-black/30 sm:p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="w-full space-y-2.5">
+      <section className="flex flex-col gap-2 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 lg:flex-row lg:items-center lg:justify-between 2xl:px-4 2xl:py-3">
         <div>
-          <h2 className="text-xl font-semibold text-[#F5F5F5]">Pagos</h2>
-          <p className="mt-1 text-sm text-[#A7A7A7]">Pagos, soportes y movimientos de Shipping V2</p>
+          <h2 className="text-lg font-semibold text-[#F5F5F5]">Pagos</h2>
+          <p className="mt-0.5 text-sm text-[#A7A7A7]">Pagos, soportes y movimientos de Shipping V2</p>
         </div>
         <Link
           href="/shipping-v2"
-          className="rounded-full border border-[#D7FF4F]/45 bg-[#D7FF4F]/10 px-5 py-2.5 text-center text-sm font-bold text-[#D7FF4F] transition hover:border-[#D7FF4F] hover:bg-[#D7FF4F]/15"
+          className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-center text-sm font-bold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
         >
           Volver a Shipping
         </Link>
-      </div>
+      </section>
 
-      {error ? <div className="rounded-[1.25rem] border border-[#FF914D]/35 bg-[#FF914D]/10 p-4 text-sm text-[#FFB07A]">{error}</div> : null}
+      {error ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{error}</div> : null}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi label="Total pendiente" value={money(workspace.summary.totalPorPagar)} tone="yellow" />
         <Kpi label="Total sin soporte" value={money(workspace.summary.totalPagadoSinSoporte)} tone="support" />
         <Kpi label="Total pagado registrado" value={money(workspace.summary.totalPagadoCompleto)} tone="lime" />
         <Kpi label="Pagos incompletos o en revisión" value={workspace.summary.incompletos + workspace.pagos.filter((pago) => normalize(pago.estadoPago).includes("revision")).length} tone="muted" />
       </section>
 
-      <section className="rounded-[1.5rem] border border-[#3A3A36] bg-[#252622] p-4">
-        <div className="grid gap-3 xl:grid-cols-[1.5fr_repeat(5,minmax(0,1fr))]">
+      <section className="rounded-xl border border-[#30312D] bg-[#11120F] p-2 shadow-xl shadow-black/15">
+        <div className="grid gap-2 xl:grid-cols-[1.5fr_repeat(5,minmax(0,1fr))]">
           <label className="min-w-0">
-            <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Buscar</span>
-            <input value={filters.query} onChange={(event) => updateFilter("query", event.target.value)} placeholder="SKU, pago, proveedor, transacción..." className="mt-2 h-10 w-full rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70" />
+            <span className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">Buscar</span>
+            <input value={filters.query} onChange={(event) => updateFilter("query", event.target.value)} placeholder="SKU, pago, proveedor, transacción..." className="mt-1 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#121310] px-3 text-[13px] font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70" />
           </label>
           <SelectFilter label="Proveedor" value={filters.proveedor} options={[{ value: ALL, label: ALL }, ...proveedores]} onChange={(value) => updateFilter("proveedor", value)} />
           <SelectFilter label="Estado Pago" value={filters.estadoPago} options={paymentStates.map((value) => ({ value, label: value }))} onChange={(value) => updateFilter("estadoPago", value)} />
@@ -561,94 +564,100 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
         </div>
       </section>
 
-      <nav className="flex gap-2 overflow-x-auto rounded-[1.25rem] border border-[#3A3A36] bg-[#151515] p-2">
+      <nav className="flex gap-1.5 overflow-x-auto rounded-xl border border-[#30312D] bg-[#151515] p-1.5">
         {tabs.map((tab) => (
-          <button key={tab.key} onClick={() => setActiveTab(tab.key)} className={`shrink-0 rounded-full border px-4 py-2 text-sm font-semibold transition ${activeTab === tab.key ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] bg-[#20201E] text-[#F5F5F5] hover:border-[#D7FF4F]/50"}`}>
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)} className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${activeTab === tab.key ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] bg-[#20201E] text-[#F5F5F5] hover:border-[#D7FF4F]/50"}`}>
             {tab.label} <span className="ml-2 tabular-nums opacity-75">{tab.count}</span>
           </button>
         ))}
       </nav>
 
       {activeTab === "pendientes" ? (
-        <section className="space-y-4">
-          <div className="rounded-[1.25rem] border border-[#3A3A36] bg-[#252622] p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <section className="space-y-2.5">
+          <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
+            <div className="flex flex-col gap-2 border-b border-[#30312D] bg-[#20211D] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Items pendientes sin pago V2</h2>
-                <p className="mt-1 text-xs text-[#A7A7A7]">{selectedPendingItems.length} seleccionados · {money(selectedPendingItems.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0))}</p>
+                <p className="mt-0.5 text-xs text-[#A7A7A7]">{selectedPendingItems.length} seleccionados · {money(selectedPendingItems.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0))}</p>
               </div>
-              <button disabled={!canCreatePending} onClick={() => openCreate(selectedPendingItems, false)} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] disabled:opacity-50">Crear pago pendiente agrupado</button>
+              <button disabled={!canCreatePending} onClick={() => openCreate(selectedPendingItems, false)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Crear pago pendiente agrupado</button>
             </div>
-            <div className="mt-4 overflow-x-auto">
+            <div className="overflow-x-auto">
               <table className="w-full min-w-[1120px] text-left text-sm">
-                <thead className="text-xs uppercase text-[#A7A7A7]"><tr>{["", "SKU", "Nombre", "Proveedor", "Operación", "Estado", "Costo", "Registro", "Faltantes"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead>
+                <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "SKU", "Nombre", "Proveedor", "Operación", "Estado", "Costo", "Registro", "Faltantes"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
                 <tbody>{pendingItems.map((item) => <PendingItemRow key={item.id} item={item} selected={selectedPendingIds.includes(item.id)} onToggle={() => toggleId(item.id, setSelectedPendingIds)} />)}</tbody>
               </table>
-              {!pendingItems.length ? <p className="py-8 text-center text-sm text-[#A7A7A7]">No hay items pendientes con estos filtros.</p> : null}
+              {!pendingItems.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay items pendientes con estos filtros.</p> : null}
             </div>
           </div>
-          <div className="rounded-[1.25rem] border border-[#3A3A36] bg-[#252622] p-4">
-            <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Pagos reales pendientes</h2>
-            <div className="mt-4 overflow-x-auto">
+          <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
+            <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
+              <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Pagos reales pendientes</h2>
+            </div>
+            <div className="overflow-x-auto">
               <table className="w-full min-w-[1180px] text-left text-sm">
-                <thead className="text-xs uppercase text-[#A7A7A7]"><tr>{["", "Pago ID", "Proveedor", "Estado", "Items/Regalos", "Total", "Creación", "Fecha real", "Método", "Finanzas", "Acciones"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead>
+                <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "Pago ID", "Proveedor", "Estado", "Items/Regalos", "Total", "Creación", "Fecha real", "Método", "Finanzas", "Acciones"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
                 <tbody>{pendingPayments.map((pago) => <PagoRow key={pago.id} pago={pago} expanded={expandedPagoIds.includes(pago.id)} onToggle={() => toggleId(pago.id, setExpandedPagoIds)} onRegister={() => setSelectedPago(pago)} onComplete={() => setSelectedPago(pago)} onDetail={() => setSelectedPago(pago)} />)}</tbody>
               </table>
-              {!pendingPayments.length ? <p className="py-8 text-center text-sm text-[#A7A7A7]">No hay pagos pendientes con estos filtros.</p> : null}
+              {!pendingPayments.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay pagos pendientes con estos filtros.</p> : null}
             </div>
           </div>
         </section>
       ) : null}
 
       {activeTab === "sin-soporte" ? (
-        <section className="space-y-4">
-          <div className="rounded-[1.25rem] border border-[#3A3A36] bg-[#252622] p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <section className="space-y-2.5">
+          <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
+            <div className="flex flex-col gap-2 border-b border-[#30312D] bg-[#20211D] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Items pagados sin pago V2</h2>
-                <p className="mt-1 text-xs text-[#A7A7A7]">{selectedSupportItems.length} seleccionados · {money(selectedSupportItems.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0))}</p>
+                <p className="mt-0.5 text-xs text-[#A7A7A7]">{selectedSupportItems.length} seleccionados · {money(selectedSupportItems.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0))}</p>
               </div>
-              <button disabled={!canCreatePaid} onClick={() => openCreate(selectedSupportItems, true)} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] disabled:opacity-50">Registrar pago ya realizado agrupado</button>
+              <button disabled={!canCreatePaid} onClick={() => openCreate(selectedSupportItems, true)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Registrar pago ya realizado agrupado</button>
             </div>
-            <div className="mt-4 overflow-x-auto">
+            <div className="overflow-x-auto">
               <table className="w-full min-w-[980px] text-left text-sm">
-                <thead className="text-xs uppercase text-[#A7A7A7]"><tr>{["", "SKU", "Nombre", "Proveedor", "Operación", "Badge", "Costo", "Registro"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead>
+                <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "SKU", "Nombre", "Proveedor", "Operación", "Badge", "Costo", "Registro"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
                 <tbody>{supportItems.map((card) => <SupportItemRow key={card.id} card={card} selected={selectedSupportIds.includes(card.item.id)} onToggle={() => toggleId(card.item.id, setSelectedSupportIds)} />)}</tbody>
               </table>
-              {!supportItems.length ? <p className="py-8 text-center text-sm text-[#A7A7A7]">No hay items sin soporte con estos filtros.</p> : null}
+              {!supportItems.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay items sin soporte con estos filtros.</p> : null}
             </div>
           </div>
-          <div className="rounded-[1.25rem] border border-[#3A3A36] bg-[#252622] p-4">
-            <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Pagos reales incompletos</h2>
-            <div className="mt-4 grid gap-3">
+          <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
+            <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
+              <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Pagos reales incompletos</h2>
+            </div>
+            <div className="grid gap-2 p-2">
               {incompletePayments.map((card) => (
-                <article key={card.id} className="rounded-[1rem] border border-[#FF6B6B]/25 bg-[#151515] p-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <article key={card.id} className="rounded-xl border border-[#FF6B6B]/25 bg-[#151515] p-3">
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <div className="flex flex-wrap gap-2"><Badge tone="support">Pago incompleto</Badge>{!card.pago.movimientoFinanzasIds.length ? <Badge>Movimiento pendiente</Badge> : null}</div>
                       <h3 className="mt-2 text-base font-semibold text-[#F5F5F5]">{card.pago.pagoId} · {card.proveedorNombre || "Sin proveedor"}</h3>
                       <p className="mt-1 text-sm text-[#A7A7A7]">{card.pago.cantidadItems} items · {money(card.total)} · Finanzas: {card.pago.estadoIntegracionFinanzas || "-"}</p>
                     </div>
-                    <button onClick={() => setSelectedPago(card.pago)} className="rounded-full border border-[#FFB4A8]/45 px-4 py-2 text-sm font-semibold text-[#FFB4A8]">Completar soporte</button>
+                    <button onClick={() => setSelectedPago(card.pago)} className="rounded-lg border border-[#FFB4A8]/45 px-3 py-1.5 text-sm font-semibold text-[#FFB4A8]">Completar soporte</button>
                   </div>
-                  <div className="mt-3"><MissingList missing={card.missing} /></div>
+                  <div className="mt-2"><MissingList missing={card.missing} /></div>
                 </article>
               ))}
-              {!incompletePayments.length ? <p className="py-8 text-center text-sm text-[#A7A7A7]">No hay pagos incompletos con estos filtros.</p> : null}
+              {!incompletePayments.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay pagos incompletos con estos filtros.</p> : null}
             </div>
           </div>
         </section>
       ) : null}
 
       {activeTab === "registrados" ? (
-        <section className="rounded-[1.25rem] border border-[#3A3A36] bg-[#252622] p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Registros reales de Shipping Pagos</h2>
-          <div className="mt-4 overflow-x-auto">
+        <section className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
+          <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
+            <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Registros reales de Shipping Pagos</h2>
+          </div>
+          <div className="overflow-x-auto">
             <table className="w-full min-w-[1180px] text-left text-sm">
-              <thead className="text-xs uppercase text-[#A7A7A7]"><tr>{["", "Pago ID", "Proveedor", "Estado", "Items/Regalos", "Total", "Creación", "Fecha real", "Método", "Finanzas", "Acciones"].map((h) => <th key={h} className="px-4 py-3">{h}</th>)}</tr></thead>
+              <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "Pago ID", "Proveedor", "Estado", "Items/Regalos", "Total", "Creación", "Fecha real", "Método", "Finanzas", "Acciones"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
               <tbody>{registeredPayments.map((pago) => <PagoRow key={pago.id} pago={pago} expanded={expandedPagoIds.includes(pago.id)} onToggle={() => toggleId(pago.id, setExpandedPagoIds)} onRegister={() => setSelectedPago(pago)} onComplete={() => setSelectedPago(pago)} onDetail={() => setSelectedPago(pago)} />)}</tbody>
             </table>
-            {!registeredPayments.length ? <p className="py-8 text-center text-sm text-[#A7A7A7]">No hay pagos registrados con estos filtros.</p> : null}
+            {!registeredPayments.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay pagos registrados con estos filtros.</p> : null}
           </div>
         </section>
       ) : null}

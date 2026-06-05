@@ -414,20 +414,20 @@ export default function OrdenesPage() {
       active="ordenes"
       hideTopBar
     >
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,4fr)_minmax(300px,1.1fr)]">
-        <div className="w-full space-y-4">
-          <section className="w-full space-y-4 rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_18px_40px_rgba(0,0,0,0.45)] sm:p-5">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
+      <div className="grid gap-2.5 xl:grid-cols-[minmax(0,4fr)_minmax(280px,0.9fr)]">
+        <div className="w-full space-y-2.5">
+          <section className="w-full space-y-2.5 rounded-xl border border-[#30312D] bg-[#171814] p-2 shadow-2xl shadow-black/25">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3 px-1">
                 <h2 className="text-sm font-extrabold uppercase tracking-[0.14em] text-white">
                   Buscar y filtrar
                 </h2>
               </div>
 
-              <div className="grid w-full gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] xl:grid-cols-[minmax(0,1fr)_minmax(230px,290px)_auto]">
+              <div className="grid w-full gap-2 md:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] xl:grid-cols-[minmax(0,1fr)_minmax(230px,290px)_auto]">
                 <label className="w-full">
                   <span className="sr-only">Buscar ordenes</span>
-                  <div className="flex h-14 items-center gap-3 rounded-xl border border-zinc-800 bg-[#121212] px-4 text-sm text-zinc-200 shadow-[0_8px_20px_rgba(0,0,0,0.28)] transition focus-within:border-[#e3fc02] focus-within:ring-2 focus-within:ring-[#e3fc02]/20">
+                  <div className="flex h-10 items-center gap-2 rounded-lg border border-zinc-800 bg-[#121310] px-3 text-sm text-zinc-200 shadow-[0_8px_20px_rgba(0,0,0,0.18)] transition focus-within:border-[#e3fc02] focus-within:ring-2 focus-within:ring-[#e3fc02]/20">
                   <svg
                     aria-hidden="true"
                     viewBox="0 0 20 20"
@@ -457,7 +457,7 @@ export default function OrdenesPage() {
                       ...ESTADOS_ORDEN.map((estado) => ({ value: estado, label: estado })),
                     ]}
                     label=""
-                    buttonClassName="!h-14 !rounded-xl !border-zinc-800 !bg-[#121212] !px-4 !py-0 !font-semibold !shadow-[0_8px_20px_rgba(0,0,0,0.28)] hover:!border-[#e3fc02] focus:!ring-2 focus:!ring-[#e3fc02]/20"
+                    buttonClassName="!h-10 !rounded-lg !border-zinc-800 !bg-[#121310] !px-3 !py-0 !font-semibold !shadow-[0_8px_20px_rgba(0,0,0,0.18)] hover:!border-[#e3fc02] focus:!ring-2 focus:!ring-[#e3fc02]/20"
                     dropdownClassName="!max-w-none"
                   />
                 </div>
@@ -465,7 +465,7 @@ export default function OrdenesPage() {
                 <button
                   type="button"
                   onClick={() => setOpenNuevaOrdenModal(true)}
-                  className="inline-flex h-14 w-full items-center justify-center whitespace-nowrap rounded-xl border border-[#e3fc02] bg-[#e3fc02] px-5 text-sm font-extrabold text-black shadow-[0_10px_22px_rgba(227,252,2,0.18)] transition hover:brightness-95 md:col-span-2 xl:col-span-1 xl:w-auto"
+                  className="inline-flex h-10 w-full items-center justify-center whitespace-nowrap rounded-lg border border-[#e3fc02] bg-[#e3fc02] px-4 text-sm font-extrabold text-black shadow-[0_10px_22px_rgba(227,252,2,0.18)] transition hover:brightness-95 md:col-span-2 xl:col-span-1 xl:w-auto"
                 >
                   + Nueva orden
                 </button>
@@ -513,8 +513,8 @@ export default function OrdenesPage() {
                     No se encontraron ordenes con esos filtros.
                   </div>
                 ) : (
-                  <div className="w-full overflow-x-auto rounded-xl border border-zinc-900/80 bg-[#151515]">
-                    <div className="grid min-w-[960px] grid-cols-[90px_minmax(140px,1.15fr)_minmax(300px,2.7fr)_minmax(120px,0.9fr)_minmax(190px,1fr)_90px] border-b border-zinc-900/80 bg-[#0f0f0f]/70 px-6 py-3 text-[12px] uppercase tracking-wide text-zinc-500">
+                  <div className="w-full overflow-x-auto rounded-xl border border-[#30312D] bg-[#151515]">
+                    <div className="grid min-w-[960px] grid-cols-[90px_minmax(140px,1.15fr)_minmax(300px,2.7fr)_minmax(120px,0.9fr)_minmax(190px,1fr)_90px] border-b border-[#30312D] bg-[#20211D] px-3 py-2 text-[12px] uppercase tracking-wide text-zinc-500">
                       <span>ID</span>
                       <span>Cliente</span>
                       <span>Equipo</span>
@@ -537,7 +537,7 @@ export default function OrdenesPage() {
                         return (
                           <div
                             key={orden.recordId}
-                            className={`grid min-w-[960px] grid-cols-[90px_minmax(140px,1.15fr)_minmax(300px,2.7fr)_minmax(120px,0.9fr)_minmax(190px,1fr)_90px] items-center px-6 py-3 text-sm text-zinc-200 transition ${riskRowClass}`}
+                            className={`grid min-w-[960px] grid-cols-[90px_minmax(140px,1.15fr)_minmax(300px,2.7fr)_minmax(120px,0.9fr)_minmax(190px,1fr)_90px] items-center px-3 py-2.5 text-sm text-zinc-200 transition ${riskRowClass}`}
                           >
                             <span className="truncate font-semibold text-zinc-100">{orden.idVisible}</span>
                             <span className="truncate">{orden.clienteNombre || "Cliente no disponible"}</span>
@@ -575,7 +575,7 @@ export default function OrdenesPage() {
                   </div>
                 )}
 
-                <div className="flex flex-col gap-3 border-t border-zinc-900/80 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-2 border-t border-zinc-900/80 pt-2 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs text-zinc-500">
                     Pagina {pageNumber} | {ordenes.length} registros cargados
                   </p>
@@ -603,14 +603,14 @@ export default function OrdenesPage() {
           </section>
         </div>
 
-        <aside className="space-y-4">
-          <div className="rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_14px_32px_rgba(0,0,0,0.4)]">
+        <aside className="space-y-2.5">
+          <div className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2 shadow-xl shadow-black/20">
             <p className="text-sm font-semibold text-white">Ordenes en esta pagina</p>
-            <p className="mt-2 text-3xl font-bold text-[#e3fc02]">{openOrders}</p>
-            <p className="mt-1 text-xs text-zinc-500">Registros visibles</p>
+            <p className="mt-0.5 text-xl font-bold text-[#e3fc02]">{openOrders}</p>
+            <p className="text-xs text-zinc-500">Registros visibles</p>
           </div>
 
-          <div className="space-y-3 rounded-[var(--sg-radius-lg)] border border-[var(--sg-border)] bg-[var(--sg-panel)] p-4 shadow-[var(--sg-shadow-card)]">
+          <div className="space-y-2 rounded-xl border border-[var(--sg-border)] bg-[var(--sg-panel)] p-3 shadow-[var(--sg-shadow-card)]">
             <div>
               <p className="text-sm font-semibold text-[var(--sg-text-primary)]">
                 Resumen por estado
@@ -628,7 +628,7 @@ export default function OrdenesPage() {
                     key={estado}
                     type="button"
                     onClick={() => handleStatusSummaryClick(estado)}
-                    className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
+                    className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition ${
                       active
                         ? tone.activeClass
                         : `border-[var(--sg-border)] bg-[var(--sg-card)] ${tone.hoverClass}`
@@ -656,7 +656,7 @@ export default function OrdenesPage() {
             )}
           </div>
 
-          <div className="space-y-3 rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_14px_32px_rgba(0,0,0,0.4)]">
+          <div className="space-y-2 rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-xl shadow-black/20">
             <div>
               <p className="text-sm font-semibold text-white">Alertas de abandono</p>
               <p className="mt-1 text-xs text-zinc-500">Conteo global con los filtros activos</p>
@@ -664,7 +664,7 @@ export default function OrdenesPage() {
             <button
               type="button"
               onClick={() => handleRiskFilterChange("warning")}
-              className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+              className={`w-full rounded-lg border px-3 py-2 text-left transition ${
                 riskFilter === "warning"
                   ? "border-[var(--sg-warning)] bg-[var(--sg-warning-soft)]"
                   : "border-[var(--sg-border)] bg-[#151515] hover:border-[var(--sg-warning)] hover:bg-[var(--sg-warning-soft)]"
@@ -672,7 +672,7 @@ export default function OrdenesPage() {
             >
               <span className="flex items-center justify-between gap-3">
                 <span className="text-sm font-semibold text-white">Próximas a baja</span>
-                <span className="text-2xl font-extrabold text-[var(--sg-warning)]">
+                <span className="text-xl font-extrabold text-[var(--sg-warning)]">
                   {riskSummary.warningCount}
                 </span>
               </span>
@@ -683,7 +683,7 @@ export default function OrdenesPage() {
             <button
               type="button"
               onClick={() => handleRiskFilterChange("critical")}
-              className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+              className={`w-full rounded-lg border px-3 py-2 text-left transition ${
                 riskFilter === "critical"
                   ? "border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]"
                   : "border-[var(--sg-border)] bg-[#151515] hover:border-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
@@ -691,7 +691,7 @@ export default function OrdenesPage() {
             >
               <span className="flex items-center justify-between gap-3">
                 <span className="text-sm font-semibold text-white">Cumplen política de baja</span>
-                <span className="text-2xl font-extrabold text-[var(--sg-danger)]">
+                <span className="text-xl font-extrabold text-[var(--sg-danger)]">
                   {riskSummary.criticalCount}
                 </span>
               </span>

@@ -1833,7 +1833,7 @@ export default function OrdenDetallePage() {
       active="ordenes"
       hideTopBar
     >
-      <div className="w-full max-w-7xl space-y-8">
+      <div className="w-full space-y-2.5">
         {loading && <div className="text-sm text-[var(--sg-text-secondary)]">Cargando orden...</div>}
 
         {error && (
@@ -1843,13 +1843,13 @@ export default function OrdenDetallePage() {
         )}
 
         {!loading && !error && orden && (
-          <div className="space-y-8">
-            <section className="flex flex-col gap-4 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-5 py-4 shadow-[var(--sg-shadow-card)] md:flex-row md:items-center md:justify-between">
+          <div className="space-y-2.5">
+            <section className="flex flex-col gap-3 rounded-xl border border-[var(--sg-border)] bg-[#151613] px-3 py-2 shadow-[var(--sg-shadow-card)] md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">
+                <p className="text-[11px] font-semibold uppercase tracking-normal text-[var(--sg-text-muted)]">
                   Gestión de reparación
                 </p>
-                <h2 className="mt-1 flex flex-wrap items-center gap-3 text-2xl font-extrabold uppercase tracking-tight text-[var(--sg-text-primary)]">
+                <h2 className="mt-0.5 flex flex-wrap items-center gap-2 text-xl font-extrabold uppercase tracking-tight text-[var(--sg-text-primary)]">
                   <span>{orden.idVisible} - {orden.clienteNombre || "Cliente no disponible"}</span>
                 </h2>
               </div>
@@ -1892,13 +1892,13 @@ export default function OrdenDetallePage() {
 
             {abandonmentStatus.level !== "none" && (
               <section
-                className={`rounded-[var(--sg-radius-md)] border px-5 py-4 shadow-[var(--sg-shadow-card)] ${
+                className={`rounded-xl border px-3 py-2.5 shadow-[var(--sg-shadow-card)] ${
                   abandonmentStatus.level === "critical"
                     ? "border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]"
                     : "border-[var(--sg-warning)] bg-[var(--sg-warning-soft)]"
                 }`}
               >
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div className="min-w-0">
                     <p
                       className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${
@@ -1914,7 +1914,7 @@ export default function OrdenDetallePage() {
                         ? "Cumple política para baja"
                         : "Orden próxima a baja"}
                     </h3>
-                    <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--sg-text-primary)]">
+                    <p className="mt-1 max-w-3xl text-sm leading-5 text-[var(--sg-text-primary)]">
                       {abandonmentStatus.message}
                     </p>
                     {abandonmentStatus.referenceDate && (
@@ -1956,22 +1956,22 @@ export default function OrdenDetallePage() {
               </section>
             )}
 
-            <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(330px,0.85fr)]">
-              <div className="min-w-0 space-y-8">
-                <section className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-6 py-6 shadow-[var(--sg-shadow-card)]">
-                  <p className="border-b border-[var(--sg-divider)] pb-5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">
+            <div className="grid items-start gap-2.5 xl:grid-cols-[minmax(0,1.6fr)_minmax(310px,0.75fr)]">
+              <div className="min-w-0 space-y-2.5">
+                <section className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
+                  <p className="border-b border-[var(--sg-divider)] pb-2 text-[11px] font-semibold uppercase tracking-normal text-[var(--sg-text-muted)]">
                     Información general
                   </p>
 
-                  <div className="grid gap-7 pt-6 lg:grid-cols-[1fr_1.05fr_1fr] lg:gap-0">
+                  <div className="grid gap-4 pt-3 lg:grid-cols-[1fr_1.05fr_1fr] lg:gap-0">
                     <div className="min-w-0 lg:pr-7">
                       <span className="inline-flex rounded-[6px] border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                         Cliente
                       </span>
-                      <p className="mt-4 text-lg font-extrabold leading-tight text-[var(--sg-text-primary)]">
+                      <p className="mt-2 text-base font-extrabold leading-tight text-[var(--sg-text-primary)]">
                         {orden.clienteNombre || "Cliente no disponible"}
                       </p>
-                      <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-[var(--sg-text-secondary)]">
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[var(--sg-text-secondary)]">
                         <PhoneIcon className="h-4 w-4 shrink-0 text-[var(--sg-text-muted)]" />
                         <span>{orden.telefono || "Teléfono no disponible"}</span>
                         {buildWhatsAppLink(orden.telefono) ? (
@@ -1997,12 +1997,12 @@ export default function OrdenDetallePage() {
                       </div>
                     </div>
 
-                    <div className="min-w-0 border-t border-[var(--sg-divider)] pt-6 lg:border-l lg:border-t-0 lg:px-7 lg:pt-0">
+                    <div className="min-w-0 border-t border-[var(--sg-divider)] pt-4 lg:border-l lg:border-t-0 lg:px-5 lg:pt-0">
                       <span className="inline-flex rounded-[6px] border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                         Datos de la orden
                       </span>
-                      <div className="mt-5 space-y-6">
-                        <div className="flex items-start gap-4">
+                      <div className="mt-3 space-y-3">
+                        <div className="flex items-start gap-3">
                           <CalendarIcon className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-text-muted)]" />
                           <div className="min-w-0">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
@@ -2013,7 +2013,7 @@ export default function OrdenDetallePage() {
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-start gap-4">
+                        <div className="flex items-start gap-3">
                           <ToolsIcon className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-text-muted)]" />
                           <div className="min-w-0">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
@@ -2027,12 +2027,12 @@ export default function OrdenDetallePage() {
                       </div>
                     </div>
 
-                    <div className="min-w-0 border-t border-[var(--sg-divider)] pt-6 lg:border-l lg:border-t-0 lg:pl-7 lg:pt-0">
+                    <div className="min-w-0 border-t border-[var(--sg-divider)] pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
                       <span className="inline-flex rounded-[6px] border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                         Dispositivo
                       </span>
-                      <div className="mt-5 space-y-6">
-                        <div className="flex items-start gap-4">
+                      <div className="mt-3 space-y-3">
+                        <div className="flex items-start gap-3">
                           <DesktopIcon className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-text-muted)]" />
                           <div className="min-w-0">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
@@ -2043,7 +2043,7 @@ export default function OrdenDetallePage() {
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-start gap-4">
+                        <div className="flex items-start gap-3">
                           <UsbIcon className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-text-muted)]" />
                           <div className="min-w-0">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
@@ -2059,8 +2059,8 @@ export default function OrdenDetallePage() {
                   </div>
                 </section>
 
-            <section className="grid gap-4 md:grid-cols-2">
-              <div className="relative overflow-hidden rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-5 py-4 shadow-[var(--sg-shadow-card)]">
+            <section className="grid gap-2.5 md:grid-cols-2">
+              <div className="relative overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
                 <div className="absolute inset-y-4 left-0 w-1 rounded-r-full bg-[var(--sg-lime)]" />
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--sg-lime)]">Ingresa por</h3>
                 <p className="text-sm leading-6 text-[var(--sg-text-secondary)]">
@@ -2068,7 +2068,7 @@ export default function OrdenDetallePage() {
                 </p>
               </div>
 
-              <div className="relative space-y-3 overflow-hidden rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-5 py-4 shadow-[var(--sg-shadow-card)]">
+              <div className="relative space-y-2 overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
                 <div className="absolute inset-y-4 left-0 w-1 rounded-r-full bg-[var(--sg-lime)]" />
                 <div className="flex items-start justify-between gap-3">
                   <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--sg-lime)]">Nota interna</h3>
@@ -2090,8 +2090,8 @@ export default function OrdenDetallePage() {
               </div>
             </section>
 
-            <section className="space-y-6 rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-5 py-5 shadow-[var(--sg-shadow-card)]">
-              <div className="flex items-center justify-between border-b border-[var(--sg-divider)] pb-4">
+            <section className="space-y-3 rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
+              <div className="flex items-center justify-between border-b border-[var(--sg-divider)] pb-2">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">
                     Actividad
@@ -2109,7 +2109,7 @@ export default function OrdenDetallePage() {
                   Sin historial registrado.
                 </p>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {orden.historial.map((item) => {
                     const title = buildTimelineTitle(item.estadoNuevo);
                     const notaLimpia = (item.nota ?? "").trim();
@@ -2123,9 +2123,9 @@ export default function OrdenDetallePage() {
                     return (
                       <div
                         key={item.id}
-                        className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-4 text-sm text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)]/50 hover:bg-[#181818]"
+                        className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3 text-sm text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)]/50 hover:bg-[#181818]"
                       >
-                        <div className="flex flex-col gap-3 border-b border-[var(--sg-divider)] pb-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex flex-col gap-2 border-b border-[var(--sg-divider)] pb-2 sm:flex-row sm:items-start sm:justify-between">
                           <span className="inline-flex w-fit whitespace-nowrap rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-1.5 text-xs leading-5 text-[var(--sg-text-muted)]">
                             {formatTimelineDate(item.fecha)}
                           </span>
@@ -2197,7 +2197,7 @@ export default function OrdenDetallePage() {
                           </div>
                         </div>
 
-                        <div className="min-w-0 max-w-none space-y-3 pt-3">
+                        <div className="min-w-0 max-w-none space-y-2 pt-2">
                           {isEditing ? (
                             <div className="space-y-1">
                               <textarea
@@ -2838,25 +2838,25 @@ export default function OrdenDetallePage() {
             </div>
           </div>
 
-          <aside className="min-w-0 space-y-5 xl:sticky xl:top-6">
-            <section className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-5 py-5 shadow-[var(--sg-shadow-card)]">
-              <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">
+          <aside className="min-w-0 space-y-2.5 xl:sticky xl:top-20">
+            <section className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-normal text-[var(--sg-text-muted)]">
                   Documentos de taller
                 </p>
-                <h3 className="text-lg font-extrabold uppercase leading-tight tracking-wide text-[var(--sg-text-primary)]">
+                <h3 className="text-base font-extrabold uppercase leading-tight tracking-wide text-[var(--sg-text-primary)]">
                   Impresión
                 </h3>
-                <p className="max-w-[36ch] text-sm leading-6 text-[var(--sg-text-secondary)]">
+                <p className="max-w-[36ch] text-sm leading-5 text-[var(--sg-text-secondary)]">
                   Tickets y etiqueta operativa para recepción e identificación del equipo.
                 </p>
               </div>
-              <div className="mt-4 grid gap-2">
+              <div className="mt-3 grid gap-1.5">
                 <a
                   href={`/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/imprimir/ticket`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-[var(--sg-radius-md)] border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-4 text-sm font-extrabold text-[var(--sg-text-on-accent)] shadow-[0_10px_22px_rgba(227,252,2,0.18)] transition hover:brightness-95"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 text-sm font-extrabold text-[var(--sg-text-on-accent)] shadow-[0_10px_22px_rgba(227,252,2,0.18)] transition hover:brightness-95"
                 >
                   <PrintIcon className="h-4 w-4" />
                   Imprimir constancia
@@ -2865,7 +2865,7 @@ export default function OrdenDetallePage() {
                   href={`/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/imprimir/etiqueta`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-4 text-sm font-semibold text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-lime)]"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-3 text-sm font-semibold text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-lime)]"
                 >
                   <PrintIcon className="h-4 w-4" />
                   Imprimir etiqueta
@@ -2879,15 +2879,15 @@ export default function OrdenDetallePage() {
               onOrdenUpdated={(updatedOrden) => setOrden(updatedOrden as OrdenDetalle)}
             />
 
-            <section className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-5 py-5 shadow-[var(--sg-shadow-card)]">
-              <div className="space-y-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">
+            <section className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
+              <div className="space-y-1">
+                <p className="text-[11px] font-semibold uppercase tracking-normal text-[var(--sg-text-muted)]">
                   Resumen financiero
                 </p>
-                <h3 className="text-lg font-extrabold uppercase leading-tight tracking-wide text-[var(--sg-text-primary)]">
+                <h3 className="text-base font-extrabold uppercase leading-tight tracking-wide text-[var(--sg-text-primary)]">
                   Presupuesto y Abonos
                 </h3>
-                <p className="max-w-[36ch] text-sm leading-6 text-[var(--sg-text-secondary)]">
+                <p className="max-w-[36ch] text-sm leading-5 text-[var(--sg-text-secondary)]">
                   Resumen financiero con campos NV y movimientos de abonos de esta orden.
                 </p>
               </div>
@@ -2903,57 +2903,57 @@ export default function OrdenDetallePage() {
                 </div>
               )}
 
-              <div className="mt-6 grid grid-cols-1 overflow-hidden rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-divider)] sm:grid-cols-3 sm:grid-rows-2">
-                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-card)] px-4 py-4 sm:border-r">
+              <div className="mt-3 grid grid-cols-1 overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-divider)] sm:grid-cols-3 sm:grid-rows-2">
+                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-card)] px-3 py-2.5 sm:border-r">
                   <p className="text-[0.72rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-secondary)]">
                     Repuestos (NV)
                   </p>
-                  <p className="mt-2 text-[1.25rem] font-extrabold leading-none text-[var(--sg-text-primary)]">
+                  <p className="mt-1 text-base font-extrabold leading-none text-[var(--sg-text-primary)]">
                     {formatCurrency(orden.costoTotalRepuestosNV)}
                   </p>
                 </div>
-                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-card)] px-4 py-4 sm:border-r">
+                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-card)] px-3 py-2.5 sm:border-r">
                   <p className="text-[0.72rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-secondary)]">
                     Servicios (NV)
                   </p>
-                  <p className="mt-2 text-[1.25rem] font-extrabold leading-none text-[var(--sg-text-muted)]">
+                  <p className="mt-1 text-base font-extrabold leading-none text-[var(--sg-text-muted)]">
                     {formatCurrency(orden.costoTotalServiciosNV)}
                   </p>
                 </div>
-                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-warning-soft)] px-4 py-4 sm:border-b-0">
+                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-warning-soft)] px-3 py-2.5 sm:border-b-0">
                   <p className="text-[0.72rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-secondary)]">
                     Saldo (NV)
                   </p>
-                  <p className="mt-2 text-[1.25rem] font-extrabold leading-none text-[var(--sg-warning)]">
+                  <p className="mt-1 text-base font-extrabold leading-none text-[var(--sg-warning)]">
                     {formatCurrency(orden.saldoNV)}
                   </p>
                 </div>
-                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-lime-soft)] px-4 py-4 sm:border-b-0 sm:border-r">
+                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-lime-soft)] px-3 py-2.5 sm:border-b-0 sm:border-r">
                   <p className="text-[0.72rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-secondary)]">
                     Total a pagar (NV)
                   </p>
-                  <p className="mt-2 text-[1.25rem] font-extrabold leading-none text-[var(--sg-lime)]">
+                  <p className="mt-1 text-base font-extrabold leading-none text-[var(--sg-lime)]">
                     {formatCurrency(orden.totalAPagarNV)}
                   </p>
                 </div>
-                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-card)] px-4 py-4 sm:border-b-0 sm:border-r">
+                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-card)] px-3 py-2.5 sm:border-b-0 sm:border-r">
                   <p className="text-[0.72rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-secondary)]">
                     Total abonado (NV)
                   </p>
-                  <p className="mt-2 text-[1.25rem] font-extrabold leading-none text-[var(--sg-text-muted)]">
+                  <p className="mt-1 text-base font-extrabold leading-none text-[var(--sg-text-muted)]">
                     {formatCurrency(orden.totalAbonadoNV)}
                   </p>
                 </div>
                 <div className="hidden bg-[var(--sg-card)] sm:block" aria-hidden="true" />
               </div>
 
-              <div className="mt-7 space-y-3">
+              <div className="mt-4 space-y-2">
                 <h4 className="text-sm font-extrabold uppercase leading-tight tracking-wide text-[var(--sg-text-primary)]">
                   ABONOS REGISTRADOS ({(orden.abonosPorOrden ?? []).length} MOVIMIENTOS)
                 </h4>
 
                 {(orden.abonosPorOrden ?? []).length === 0 ? (
-                  <div className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-5 py-7 text-center">
+                  <div className="rounded-xl border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-center">
                     <div className="mx-auto mb-5 inline-flex h-11 w-11 items-center justify-center rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] text-[var(--sg-text-muted)]">
                       <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6" fill="none">
                         <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="1.8" />
@@ -3150,7 +3150,7 @@ export default function OrdenDetallePage() {
                 )}
               </div>
 
-              <div className="flex justify-center border-t border-[var(--sg-divider)] pt-5">
+              <div className="flex justify-center border-t border-[var(--sg-divider)] pt-3">
                 <button
                   type="button"
                   onClick={() => {
@@ -3158,7 +3158,7 @@ export default function OrdenDetallePage() {
                     setAbonoMessage(null);
                     setOpenAbonoModal(true);
                   }}
-                  className="inline-flex h-11 items-center justify-center rounded-[var(--sg-radius-md)] border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-7 text-[0.95rem] font-extrabold uppercase tracking-wide text-[var(--sg-text-on-accent)] shadow-[0_12px_24px_rgba(227,252,2,0.23)] transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-[var(--sg-lime)] focus:ring-offset-2 focus:ring-offset-[var(--sg-bg)]"
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-4 text-sm font-extrabold uppercase tracking-wide text-[var(--sg-text-on-accent)] shadow-[0_12px_24px_rgba(227,252,2,0.23)] transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-[var(--sg-lime)] focus:ring-offset-2 focus:ring-offset-[var(--sg-bg)]"
                 >
                   Registrar abono
                 </button>
@@ -3217,7 +3217,7 @@ export default function OrdenDetallePage() {
 
             {viewerAttachment && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm px-4">
-                <div className="relative w-full max-w-6xl rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
+                <div className="relative w-full max-w-[1800px] rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
                   <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
                     <div className="min-w-0">
                       <p className="text-xs uppercase tracking-wide text-zinc-400">Comprobante</p>

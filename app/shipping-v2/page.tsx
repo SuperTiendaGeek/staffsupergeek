@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PortalShell } from "@/components/PortalShell";
+import { StaffStatCard } from "@/components/staff/StaffDesignSystem";
 import { getShippingV2DashboardSummary } from "@/lib/shipping-v2/airtable";
 import type { ShippingV2DashboardSummary } from "@/types/shipping-v2";
 
@@ -44,13 +45,7 @@ const toneStyles = {
 };
 
 function KpiCard({ label, value, tone }: { label: string; value: number; tone: keyof typeof toneStyles }) {
-  return (
-    <article className="rounded-[1.75rem] border border-[#3A3A36] bg-[#2A2A28] p-5 shadow-2xl shadow-black/20">
-      <div className={`mb-8 h-2 w-12 rounded-full ${toneStyles[tone]}`} />
-      <p className="text-4xl font-semibold tracking-normal text-[#F5F5F5] tabular-nums">{value}</p>
-      <p className="mt-2 text-sm font-medium text-[#A7A7A7]">{label}</p>
-    </article>
-  );
+  return <StaffStatCard label={label} value={value} tone={tone} density="compact" />;
 }
 
 export default async function ShippingV2Page() {
@@ -70,45 +65,45 @@ export default async function ShippingV2Page() {
       title="Shipping V2"
       description="Control de inventario, pagos, packings y recepcion"
     >
-      <div className="w-full space-y-6 rounded-[2rem] border border-[#3A3A36] bg-[#1B1B1B] p-4 shadow-2xl shadow-black/30 sm:p-6">
+      <div className="w-full space-y-3">
         {error ? (
-          <section className="rounded-[1.5rem] border border-orange-300/25 bg-orange-300/10 p-5 text-orange-100">
+          <section className="rounded-xl border border-orange-300/25 bg-orange-300/10 px-3 py-2.5 text-orange-100">
             <p className="text-sm font-semibold uppercase tracking-normal">Airtable V2 no disponible</p>
-            <p className="mt-2 text-sm leading-6 text-orange-100/85">{error}</p>
+            <p className="mt-1 text-sm leading-5 text-orange-100/85">{error}</p>
           </section>
         ) : null}
 
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
           {kpiLabels.map((item) => (
             <KpiCard key={item.key} label={item.label} value={summary[item.key]} tone={item.tone} />
           ))}
         </section>
 
-        <section className="rounded-[1.75rem] border border-[#3A3A36] bg-[#2F2F2C] p-5">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <section className="rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/15">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-xl font-semibold text-[#F5F5F5]">Accesos rapidos</h2>
-              <p className="mt-1 text-sm text-[#A7A7A7]">Areas preparadas para la siguiente fase de Shipping V2.</p>
+              <h2 className="text-base font-semibold text-[#F5F5F5]">Accesos rapidos</h2>
+              <p className="mt-0.5 text-sm text-[#A7A7A7]">Areas preparadas para la siguiente fase de Shipping V2.</p>
             </div>
-            <span className="w-fit rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-4 py-2 text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">
+            <span className="w-fit rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-[12px] font-semibold uppercase tracking-normal text-[#D7FF4F]">
               Read-only
             </span>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
             {quickAccess.map((item) => (
               item.href ? (
                 <Link
                   key={item.label}
                   href={item.href}
-                  className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-5 py-4 text-sm font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#1B1B1B]"
+                  className="rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-2 text-sm font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#1B1B1B]"
                 >
                   {item.label}
                 </Link>
               ) : (
                 <div
                   key={item.label}
-                  className="rounded-full border border-[#3A3A36] bg-[#1E1E1E] px-5 py-4 text-sm font-semibold text-[#F5F5F5]"
+                  className="rounded-lg border border-[#3A3A36] bg-[#1E1E1E] px-3 py-2 text-sm font-semibold text-[#F5F5F5]"
                 >
                   {item.label}
                 </div>

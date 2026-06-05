@@ -1,0 +1,273 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import {
+  Bell,
+  CalendarClock,
+  ChevronLeft,
+  ChevronRight,
+  DollarSign,
+  FileText,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  PackageCheck,
+  ReceiptText,
+  Users,
+  Wrench,
+} from "lucide-react";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { isAdministratorRole } from "@/lib/apps";
+import type { SessionUser } from "@/lib/session";
+import { cn } from "@/lib/utils";
+
+type StaffAppFrameProps = {
+  children: React.ReactNode;
+  activeHref?: string;
+  sectionLabel?: string;
+  user?: SessionUser | null;
+};
+
+const SIDEBAR_PINNED_STORAGE_KEY = "supergeek.staff.sidebar.pinned";
+
+const navItems = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/cotizaciones", label: "Cotizaciones", icon: FileText },
+  { href: "/pedidos", label: "Pedidos", icon: ReceiptText },
+  { href: "/shipping-v2", label: "Shipping V2", icon: PackageCheck },
+  { href: "/horarios", label: "Control de Horarios", icon: CalendarClock },
+  { href: "/tecnicos", label: "Técnicos", icon: Wrench },
+  { href: "/admin/usuarios", label: "Usuarios", icon: Users },
+  { href: "/notificaciones", label: "Notificaciones", icon: Bell },
+  { href: "/finanzas", label: "Finanzas", icon: DollarSign },
+  { href: "/facturacion", label: "Facturación", icon: FileText },
+];
+
+function initials(name?: string) {
+  return (name || "Staff SUPER GEEK")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "SG";
+}
+
+function StaffLogo({ showText = true }: { showText?: boolean }) {
+  return (
+    <Link
+      href="/dashboard"
+      className={cn("flex items-center", showText ? "gap-3" : "justify-center")}
+      aria-label="Ir al dashboard"
+      title="Portal Staff"
+    >
+      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F] text-sm font-black text-[#10110E] shadow-glow">
+        SG
+      </div>
+      <div
+        className={cn(
+          "min-w-0 overflow-hidden transition-all duration-200 ease-out",
+          showText ? "ml-0 max-w-40 opacity-100" : "max-w-0 opacity-0"
+        )}
+      >
+        <p className="truncate text-[13px] font-black uppercase tracking-normal text-[#D7FF4F]">SUPER GEEK</p>
+        <p className="truncate text-[12px] text-[#A7A7A7]">Portal Staff</p>
+      </div>
+    </Link>
+  );
+}
+
+function NavList({ activeHref, mobile = false, expanded = true }: { activeHref?: string; mobile?: boolean; expanded?: boolean }) {
+  return (
+    <nav className="grid gap-1" aria-label="Navegacion principal">
+      {navItems.map((item) => {
+        const Icon = item.icon;
+        const active = activeHref ? item.href === activeHref || activeHref.startsWith(`${item.href}/`) : false;
+        const link = (
+          <Link
+            href={item.href}
+            title={!expanded ? item.label : undefined}
+            aria-label={item.label}
+            className={cn(
+              "group flex h-10 items-center rounded-lg border text-[13px] font-semibold transition 2xl:h-11 2xl:text-sm",
+              expanded ? "justify-start gap-3 px-3 2xl:px-3.5" : "justify-center gap-0 px-0",
+              active
+                ? "border-[#D7FF4F]/40 bg-[#D7FF4F]/12 text-[#D7FF4F]"
+                : "border-transparent text-[#CFCFCB] hover:border-[#3A3A36] hover:bg-[#252622] hover:text-[#F5F5F5]"
+            )}
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            <span
+              className={cn(
+                "overflow-hidden whitespace-nowrap transition-all duration-200 ease-out",
+                expanded ? "max-w-44 opacity-100" : "max-w-0 opacity-0"
+              )}
+            >
+              {item.label}
+            </span>
+          </Link>
+        );
+
+        return mobile ? (
+          <SheetClose key={item.href} asChild>
+            {link}
+          </SheetClose>
+        ) : (
+          <div key={item.href}>{link}</div>
+        );
+      })}
+    </nav>
+  );
+}
+
+export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Staff", user }: StaffAppFrameProps) {
+  const isAdmin = isAdministratorRole(user?.rol);
+  const [sidebarPinned, setSidebarPinned] = useState(true);
+  const [sidebarHovered, setSidebarHovered] = useState(false);
+  const sidebarExpanded = sidebarPinned || sidebarHovered;
+
+  useEffect(() => {
+    const storedValue = window.localStorage.getItem(SIDEBAR_PINNED_STORAGE_KEY);
+
+    if (storedValue === "false") {
+      setSidebarPinned(false);
+    } else if (storedValue === "true") {
+      setSidebarPinned(true);
+    }
+  }, []);
+
+  function toggleSidebarPinned() {
+    setSidebarPinned((current) => {
+      const nextValue = !current;
+      window.localStorage.setItem(SIDEBAR_PINNED_STORAGE_KEY, String(nextValue));
+      return nextValue;
+    });
+  }
+
+  return (
+    <main className="min-h-screen bg-[#07080A] text-[#F5F5F5]">
+      <div
+        className={cn(
+          "fixed inset-y-0 left-0 z-30 hidden border-r border-[#272824] bg-[#10110E]/95 py-3 shadow-2xl shadow-black/30 backdrop-blur transition-[width,padding] duration-200 ease-out xl:block",
+          sidebarExpanded ? "w-64 px-3 2xl:w-72 2xl:px-4" : "w-20 px-2"
+        )}
+        onMouseEnter={() => setSidebarHovered(true)}
+        onMouseLeave={() => setSidebarHovered(false)}
+      >
+        <div className="flex h-full flex-col">
+          <div className={cn("relative flex items-center py-2", sidebarExpanded ? "justify-between gap-2 px-2" : "justify-center px-0")}>
+            <StaffLogo showText={sidebarExpanded} />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={toggleSidebarPinned}
+              className={cn(
+                "shrink-0 border-[#3A3A36] bg-[#181916] text-[#CFCFCB] shadow-lg shadow-black/20 hover:border-[#D7FF4F]/60 hover:bg-[#252622] hover:text-[#D7FF4F]",
+                sidebarExpanded ? "h-8 w-8" : "absolute -right-3 top-3 h-7 w-7 rounded-full"
+              )}
+              aria-label={sidebarPinned ? "Colapsar sidebar" : "Fijar sidebar expandida"}
+              title={sidebarPinned ? "Colapsar sidebar" : "Fijar sidebar expandida"}
+            >
+              {sidebarPinned ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </Button>
+          </div>
+          <Separator className="my-3 bg-[#2F302B]" />
+          <NavList activeHref={activeHref} expanded={sidebarExpanded} />
+          <div
+            className={cn(
+              "mt-auto overflow-hidden rounded-xl border border-[#2F302B] bg-[#181916] transition-all duration-200 ease-out",
+              sidebarExpanded ? "p-3" : "grid place-items-center p-2"
+            )}
+            title={!sidebarExpanded ? `${user?.nombre || "Staff SUPER GEEK"} · ${user?.rol || "Staff"}` : undefined}
+          >
+            {sidebarExpanded ? (
+              <>
+                <p className="text-[12px] font-bold uppercase tracking-normal text-[#D7FF4F]">Staff activo</p>
+                <p className="mt-1 truncate text-sm font-semibold text-[#F5F5F5]">{user?.nombre || "Staff SUPER GEEK"}</p>
+                <p className="truncate text-[13px] text-[#A7A7A7]">{user?.rol || "Staff"}</p>
+              </>
+            ) : (
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#D7FF4F]/12 text-[12px] font-black text-[#D7FF4F]">
+                {initials(user?.nombre)}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className={cn("transition-[padding] duration-200 ease-out", sidebarPinned ? "xl:pl-64 2xl:pl-72" : "xl:pl-20")}>
+        <header className="sticky top-0 z-20 border-b border-[#272824] bg-[#0B0C0E]/86 backdrop-blur-xl">
+          <div className="flex h-14 items-center justify-between gap-3 px-3 sm:px-4 lg:px-6 xl:h-16 xl:px-7 2xl:px-9">
+            <div className="flex min-w-0 items-center gap-3">
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 border-[#3A3A36] bg-[#181916] text-[#F5F5F5] hover:border-[#D7FF4F]/60 hover:bg-[#252622] hover:text-[#D7FF4F] xl:hidden"
+                    aria-label="Abrir navegacion"
+                  >
+                    <Menu className="h-4 w-4" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-72 border-[#2F302B] bg-[#10110E] p-4 text-[#F5F5F5]">
+                  <SheetTitle className="sr-only">Navegacion del Portal Staff</SheetTitle>
+                  <StaffLogo />
+                  <Separator className="my-4 bg-[#2F302B]" />
+                  <NavList activeHref={activeHref} mobile />
+                </SheetContent>
+              </Sheet>
+              <div className="hidden xl:block">
+                <p className="text-[12px] font-bold uppercase tracking-normal text-[#D7FF4F]">{sectionLabel}</p>
+                <p className="text-sm text-[#A7A7A7]">Vista operativa</p>
+              </div>
+              <div className="xl:hidden">
+                <StaffLogo />
+              </div>
+            </div>
+
+            <div className="flex min-w-0 items-center gap-2">
+              {user ? <NotificationBell /> : null}
+              {isAdmin ? (
+                <>
+                  <Button asChild variant="outline" size="icon" className="hidden h-9 w-9 border-[#3A3A36] bg-[#181916] text-[#CFCFCB] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] sm:inline-flex xl:h-10 xl:w-10" title="Usuarios">
+                    <Link href="/admin/usuarios" aria-label="Usuarios">
+                      <Users className="h-4 w-4 xl:h-[18px] xl:w-[18px]" />
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline" size="icon" className="hidden h-9 w-9 border-[#3A3A36] bg-[#181916] text-[#CFCFCB] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] sm:inline-flex xl:h-10 xl:w-10" title="Notificaciones">
+                    <Link href="/admin/notificaciones" aria-label="Notificaciones">
+                      <Bell className="h-4 w-4 xl:h-[18px] xl:w-[18px]" />
+                    </Link>
+                  </Button>
+                </>
+              ) : null}
+              <div className="hidden min-w-0 items-center gap-2 rounded-lg border border-[#2F302B] bg-[#181916] px-2.5 py-1.5 md:flex xl:px-3 xl:py-2">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#D7FF4F]/12 text-[12px] font-black text-[#D7FF4F]">
+                  {initials(user?.nombre)}
+                </span>
+                <div className="min-w-0">
+                  <p className="max-w-36 truncate text-sm font-semibold xl:max-w-44">{user?.nombre || "Staff SUPER GEEK"}</p>
+                  <p className="truncate text-[12px] text-[#A7A7A7]">{user?.rol || "Staff"}</p>
+                </div>
+              </div>
+              <form action="/api/auth/logout" method="post">
+                <Button type="submit" variant="outline" size="icon" className="h-9 w-9 border-[#3A3A36] bg-[#181916] text-[#CFCFCB] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] xl:h-10 xl:w-10" aria-label="Cerrar sesion" title="Cerrar sesion">
+                  <LogOut className="h-4 w-4 xl:h-[18px] xl:w-[18px]" />
+                </Button>
+              </form>
+            </div>
+          </div>
+        </header>
+
+        <section className="min-h-[calc(100vh-3.5rem)] px-3 py-3 sm:px-4 lg:px-6 xl:min-h-[calc(100vh-4rem)] xl:px-7 xl:py-4 2xl:px-9">
+          {children}
+        </section>
+      </div>
+    </main>
+  );
+}

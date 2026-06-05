@@ -330,7 +330,7 @@ function PedidoFotos({ fotos, title }: { fotos: PedidoAttachment[]; title: strin
       ) : null}
       {selected ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
-          <div className="relative flex max-h-full w-full max-w-5xl flex-col gap-3">
+          <div className="relative flex max-h-full w-full max-w-[1800px] flex-col gap-3">
             <div className="flex items-center justify-between gap-3">
               <p className="truncate text-sm font-semibold text-zinc-200">{selected.filename || title}</p>
               <button type="button" onClick={close} className="rounded-xl border border-white/10 bg-[#181818] px-4 py-2 text-sm font-bold text-white transition hover:border-geek-lime/40">

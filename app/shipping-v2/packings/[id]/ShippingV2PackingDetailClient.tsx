@@ -54,7 +54,7 @@ function itemSearchText(item: ShippingV2Item, providerLabel: string, logisticsPr
 
 function SummaryBadge({ label, value, accent }: { label: string; value: string; accent?: "status" | "items" }) {
   return (
-    <div className="min-w-0 rounded-[1rem] border border-[#3A3A36] bg-[#171816]/80 px-4 py-3">
+    <div className="min-w-0 rounded-xl border border-[#3A3A36] bg-[#171816]/80 px-3 py-2">
       <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">
         {accent === "items" ? (
           <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 text-[#A7A7A7]">
@@ -64,7 +64,7 @@ function SummaryBadge({ label, value, accent }: { label: string; value: string; 
         ) : null}
         {label}
       </p>
-      <p className="mt-2 flex min-h-6 items-center gap-2 break-words text-sm font-semibold leading-tight text-[#F5F5F5]">
+      <p className="mt-1 flex min-h-6 items-center gap-2 break-words text-sm font-semibold leading-tight text-[#F5F5F5]">
         {accent === "status" ? <span className="h-2.5 w-2.5 rounded-full bg-[#7CFF4F] shadow-[0_0_14px_rgba(124,255,79,0.55)]" /> : null}
         {value}
       </p>
@@ -82,7 +82,7 @@ function WeightSummaryBadge({
   onSaveWeight: (value: string | number | boolean | null) => Promise<void>;
 }) {
   return (
-    <div className="min-w-0 rounded-[1rem] border border-[#3A3A36] bg-[#171816]/80 px-4 py-3">
+    <div className="min-w-0 rounded-xl border border-[#3A3A36] bg-[#171816]/80 px-3 py-2">
       <InlineEditableField
         label="Peso"
         value={peso}
@@ -115,7 +115,7 @@ function HeaderProviderSelect({
   onSave: (value: string) => void;
 }) {
   return (
-    <label className="block min-w-0 rounded-[1rem] border border-[#3A3A36] bg-[#171816]/80 px-4 py-3">
+    <label className="block min-w-0 rounded-xl border border-[#3A3A36] bg-[#171816]/80 px-3 py-2">
       <span className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">
         {label}
         <SaveBadge status={status} />
@@ -124,7 +124,7 @@ function HeaderProviderSelect({
         value={value || ""}
         disabled={disabled}
         onChange={(event) => onSave(event.target.value)}
-        className="mt-2 h-10 w-full rounded-full border border-[#4A4A45] bg-[#191A18]/80 px-4 text-sm font-semibold text-[#F5F5F5] outline-none transition hover:border-[#D7FF4F]/45 focus:border-[#D7FF4F]/70 disabled:opacity-70"
+        className="mt-1 h-9 w-full rounded-lg border border-[#4A4A45] bg-[#191A18]/80 px-3 text-[13px] font-semibold text-[#F5F5F5] outline-none transition hover:border-[#D7FF4F]/45 focus:border-[#D7FF4F]/70 disabled:opacity-70"
       >
         {options.map((option) => <option key={option.value || "empty"} value={option.value}>{option.label}</option>)}
       </select>
@@ -855,40 +855,40 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   }
 
   return (
-    <div className="w-full space-y-5 rounded-[2rem] border border-[#3A3A36] bg-[#1B1B1B] p-4 shadow-2xl shadow-black/30 sm:p-5">
-      <section className="overflow-hidden rounded-[1.75rem] border border-[#3A3A36] bg-[radial-gradient(circle_at_30%_20%,rgba(215,255,79,0.06),transparent_26%),linear-gradient(135deg,#252624,#121312)] px-5 py-5 shadow-2xl shadow-black/25 sm:px-6">
+    <div className="w-full space-y-2.5">
+      <section className="overflow-hidden rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2.5 shadow-xl shadow-black/20">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link
             href="/shipping-v2/packings"
-            className="inline-flex h-10 items-center justify-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-5 text-sm font-bold text-[#151515] shadow-[0_0_20px_rgba(215,255,79,0.14)] transition hover:brightness-105"
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] shadow-[0_0_20px_rgba(215,255,79,0.14)] transition hover:brightness-105"
           >
             Volver a Packings
           </Link>
           {canEditItems ? (
             <div className="flex flex-col items-stretch gap-2 sm:items-end">
-              <button type="button" disabled={busy} onClick={() => void closePacking()} className="inline-flex h-10 items-center justify-center rounded-full border border-[#6A6A64] bg-[#2A2A28]/80 px-5 text-sm font-semibold text-[#F5F5F5] shadow-inner shadow-white/5 transition hover:border-[#D7FF4F]/60 disabled:opacity-60">Cerrar packing</button>
+              <button type="button" disabled={busy} onClick={() => void closePacking()} className="inline-flex h-9 items-center justify-center rounded-lg border border-[#6A6A64] bg-[#2A2A28]/80 px-3 text-sm font-semibold text-[#F5F5F5] shadow-inner shadow-white/5 transition hover:border-[#D7FF4F]/60 disabled:opacity-60">Cerrar packing</button>
               <p className="max-w-sm text-xs leading-5 text-[#A7A7A7]">Después de cerrar el packing podrás registrar peso, tracking, flete y arancel.</p>
             </div>
           ) : (
-            <p className="rounded-full border border-[#3A3A36] bg-[#151515]/80 px-4 py-3 text-sm text-[#A7A7A7]">Este packing ya no permite modificar items desde vista normal.</p>
+            <p className="rounded-lg border border-[#3A3A36] bg-[#151515]/80 px-3 py-2 text-sm text-[#A7A7A7]">Este packing ya no permite modificar items desde vista normal.</p>
           )}
         </div>
 
-        <div className="mt-7 grid gap-5 xl:grid-cols-[minmax(300px,0.9fr)_minmax(520px,1.1fr)] xl:items-start">
+        <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(280px,0.75fr)_minmax(520px,1.25fr)] xl:items-start">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Packing ID</p>
-            <h2 className="mt-2 break-words text-2xl font-semibold leading-tight text-[#F5F5F5] sm:text-3xl">{display(packing.packingId)}</h2>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
+            <h2 className="mt-1 break-words text-xl font-semibold leading-tight text-[#F5F5F5] sm:text-2xl">{display(packing.packingId)}</h2>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <span className="inline-flex items-center gap-2 rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-xs font-semibold text-[#D7FF4F]">
                 <span className="h-2 w-2 rounded-full bg-[#7CFF4F] shadow-[0_0_14px_rgba(124,255,79,0.55)]" />
                 {display(packing.estado)}
               </span>
               {packing.observaciones?.trim() ? <span className="rounded-full border border-[#3A3A36] bg-[#171816]/80 px-3 py-1 text-xs font-semibold text-[#A7A7A7]">Con observación</span> : null}
             </div>
-            {packing.nombre?.trim() ? <p className="mt-3 text-sm font-medium text-[#A7A7A7]">{packing.nombre.trim()}</p> : null}
+            {packing.nombre?.trim() ? <p className="mt-2 text-sm font-medium text-[#A7A7A7]">{packing.nombre.trim()}</p> : null}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             <SummaryBadge label="Items" value={String(packing.itemCount)} accent="items" />
             <WeightSummaryBadge
               peso={packing.peso}
@@ -906,7 +906,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
           </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-[#A7A7A7]">
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-[#A7A7A7]">
           <HeaderFooterSelect
             label="Tipo"
             value={packing.tipo}
@@ -922,26 +922,26 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
         </div>
       </section>
 
-      {error ? <div className="rounded-[1.25rem] border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{error}</div> : null}
+      {error ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{error}</div> : null}
 
-      <section className="rounded-[1.75rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
-        <div className="mb-4">
+      <section className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
+        <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
           <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Armado del packing</p>
-          <h3 className="mt-1 text-xl font-semibold text-[#F5F5F5]">Items y caja</h3>
+          <h3 className="mt-0.5 text-base font-semibold text-[#F5F5F5]">Items y caja</h3>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(320px,0.95fr)_minmax(420px,1.05fr)]">
-          <aside className="rounded-[1.5rem] border border-[#3A3A36] bg-[#1E1F1C] p-4">
+        <div className="grid gap-2 p-2 xl:grid-cols-[minmax(340px,0.9fr)_minmax(520px,1.1fr)]">
+          <aside className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h4 className="text-sm font-semibold text-[#F5F5F5]">Items disponibles para packing</h4>
                 <p className="mt-1 text-xs text-[#A7A7A7]">{availableItems.length} items disponibles</p>
               </div>
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-1">
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filtrar items" className="h-11 rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 md:col-span-3 xl:col-span-1" />
+            <div className="mt-3 grid gap-2 md:grid-cols-3 xl:grid-cols-1">
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filtrar items" className="h-9 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 md:col-span-3 xl:col-span-1" />
             </div>
-            <div className="mt-4 grid max-h-[720px] gap-3 overflow-y-auto pr-1">
+            <div className="mt-3 grid max-h-[640px] gap-2 overflow-y-auto pr-1">
               {visibleCandidates.map((item) => {
                 const providerLabel = resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels) || item.proveedorNombre || "";
                 const logisticsProviderLabel = resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabels) || item.proveedorLogisticoNombre || "";
@@ -961,7 +961,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
                 );
               })}
               {!visibleCandidates.length ? (
-                <div className="rounded-[1rem] border border-[#3A3A36] bg-[#151515] px-4 py-4 text-sm text-[#A7A7A7]">
+                <div className="rounded-xl border border-[#3A3A36] bg-[#151515] px-3 py-3 text-sm text-[#A7A7A7]">
                   <p className="font-semibold text-[#F5F5F5]">No hay items disponibles para este packing.</p>
                   <ul className="mt-3 list-disc space-y-1 pl-5">
                     <li>Verifica que el Item tenga Requiere packing = Sí.</li>
@@ -982,22 +982,22 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
             }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
-            className={`relative overflow-hidden rounded-[1.5rem] border p-4 transition ${dragOver ? "border-[#D7FF4F] bg-[#D7FF4F]/10" : "border-[#3A3A36] bg-[#151515]"}`}
+            className={`relative overflow-hidden rounded-xl border p-3 transition ${dragOver ? "border-[#D7FF4F] bg-[#D7FF4F]/10" : "border-[#3A3A36] bg-[#151515]"}`}
           >
-            <div className="pointer-events-none absolute right-6 top-6 text-7xl font-black text-[#2A2A28]">BOX</div>
+            <div className="pointer-events-none absolute right-5 top-4 text-5xl font-black text-[#2A2A28]">BOX</div>
             <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Caja abierta / Packing actual</p>
-                <h4 className="mt-1 text-2xl font-semibold text-[#F5F5F5]">{display(packing.packingId)}</h4>
-                <p className="mt-2 text-sm text-[#A7A7A7]">{display(packing.estado)} · {packing.items.length} items</p>
+                <h4 className="mt-1 text-xl font-semibold text-[#F5F5F5]">{display(packing.packingId)}</h4>
+                <p className="mt-1 text-sm text-[#A7A7A7]">{display(packing.estado)} · {packing.items.length} items</p>
                 <p className="mt-1 text-sm text-[#A7A7A7]">Proveedor: {display(responsableLabel || packing.proveedorResponsableNombre)}</p>
                 {packing.trackingUsa ? <p className="mt-1 text-sm text-[#A7A7A7]">Tracking USA: {packing.trackingUsa}</p> : null}
                 {packing.trackingEc ? <p className="mt-1 text-sm text-[#A7A7A7]">Tracking EC: {packing.trackingEc}</p> : null}
               </div>
               {canEditItems ? <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-xs font-semibold text-[#D7FF4F]">Arrastra aqui</span> : null}
             </div>
-            {!canEditItems ? <p className="relative mt-4 rounded-[1rem] border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3 text-sm text-[#A7A7A7]">Este packing ya no permite modificar items desde vista normal.</p> : null}
-            <div className="relative mt-5 grid max-h-[720px] gap-3 overflow-y-auto pr-1">
+            {!canEditItems ? <p className="relative mt-3 rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#A7A7A7]">Este packing ya no permite modificar items desde vista normal.</p> : null}
+            <div className="relative mt-3 grid max-h-[640px] gap-2 overflow-y-auto pr-1">
               {packing.items.map((item) => {
                 const providerLabel = resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels) || item.proveedorNombre || "";
                 const logisticsProviderLabel = resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabels) || item.proveedorLogisticoNombre || "";
@@ -1012,7 +1012,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
                   />
                 );
               })}
-              {!packing.items.length ? <p className="rounded-[1rem] border border-dashed border-[#3A3A36] px-4 py-8 text-center text-sm text-[#A7A7A7]">La caja esta vacia. Agrega items desde el panel izquierdo.</p> : null}
+              {!packing.items.length ? <p className="rounded-xl border border-dashed border-[#3A3A36] px-3 py-5 text-center text-sm text-[#A7A7A7]">La caja esta vacia. Agrega items desde el panel izquierdo.</p> : null}
             </div>
           </section>
         </div>

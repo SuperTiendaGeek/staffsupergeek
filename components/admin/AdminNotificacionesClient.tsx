@@ -138,7 +138,7 @@ export function AdminNotificacionesClient({ initialNotifications, users }: Admin
   }
 
   return (
-    <section className="w-full max-w-6xl space-y-5 text-left">
+    <section className="w-full space-y-5 text-left">
       {notice ? <p className="rounded-md border border-geek-lime/30 bg-geek-lime/10 px-4 py-3 text-sm text-geek-lime">{notice}</p> : null}
       {error ? <p className="rounded-md border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-100">{error}</p> : null}
 

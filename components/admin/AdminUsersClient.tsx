@@ -269,7 +269,7 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
   }
 
   return (
-    <section className="w-full max-w-6xl space-y-5">
+    <section className="w-full space-y-5">
       <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.045] p-4 text-left shadow-2xl shadow-black/20 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-medium text-zinc-300">{users.length} usuarios registrados</p>

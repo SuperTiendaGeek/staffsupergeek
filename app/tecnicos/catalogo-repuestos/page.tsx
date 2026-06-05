@@ -22,7 +22,7 @@ export default async function CatalogoRepuestosPage() {
       active="catalogo-repuestos"
       hideTopBar
     >
-      <div className="w-full max-w-7xl space-y-5">
+      <div className="w-full space-y-5">
         {error ? <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p> : null}
         <CatalogoCrudClient mode="repuestos" initialItems={items} />
       </div>

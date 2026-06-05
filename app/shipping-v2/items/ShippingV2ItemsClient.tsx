@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
+import { StaffModal } from "@/components/staff/StaffDesignSystem";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { SHIPPING_V2_ITEM_EDIT_FIELDS, type ShippingV2ItemEditFieldConfig } from "@/lib/shipping-v2/item-edit-config";
 import { createShippingV2ProveedorLabelMap, getShippingV2ProveedorLabel, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
@@ -267,7 +272,7 @@ function operationTone(value: string) {
 
 function EstadoBadge({ estado }: { estado: string }) {
   return (
-    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${estadoTone(estado)}`}>
+    <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${estadoTone(estado)}`}>
       {displayValue(estado)}
     </span>
   );
@@ -275,7 +280,7 @@ function EstadoBadge({ estado }: { estado: string }) {
 
 function OperationBadge({ value }: { value: string }) {
   return (
-    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${operationTone(value)}`}>
+    <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${operationTone(value)}`}>
       {displayValue(value)}
     </span>
   );
@@ -302,89 +307,7 @@ function AvailabilityBadge({ item }: { item: ResolvedItem }) {
     tone = "border-[#D7FF4F]/35 bg-[#D7FF4F]/12 text-[#D7FF4F]";
   }
 
-  return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${tone}`}>{label}</span>;
-}
-
-function AccentIcon({ label, tone }: { label: string; tone: "lime" | "yellow" | "purple" | "orange" }) {
-  const toneClass = {
-    lime: "border-[#CFFF3A]/35 bg-[#CFFF3A]/15 text-[#CFFF3A]",
-    yellow: "border-[#F4E85B]/35 bg-[#F4E85B]/15 text-[#F4E85B]",
-    purple: "border-[#8B73FF]/35 bg-[#8B73FF]/15 text-[#B7A8FF]",
-    orange: "border-[#FF914D]/35 bg-[#FF914D]/15 text-[#FFB07A]",
-  }[tone];
-
-  return (
-    <span className={`grid h-8 w-8 place-items-center rounded-full border text-[11px] font-bold ${toneClass}`}>
-      {label}
-    </span>
-  );
-}
-
-function TotalMetricCard({ value }: { value: number }) {
-  return (
-    <article className="relative min-h-28 overflow-hidden rounded-[1.65rem] bg-[#D7FF4F] p-4 text-[#151515] shadow-2xl shadow-[#D7FF4F]/10 lg:col-span-2">
-      <div className="absolute -right-8 -top-12 h-28 w-28 rounded-full border-[16px] border-[#151515]/10" />
-      <div className="absolute bottom-4 right-5 flex h-14 w-20 items-end gap-1.5 opacity-25">
-        <span className="h-6 w-2.5 rounded-full bg-[#151515]" />
-        <span className="h-10 w-2.5 rounded-full bg-[#151515]" />
-        <span className="h-8 w-2.5 rounded-full bg-[#151515]" />
-        <span className="h-12 w-2.5 rounded-full bg-[#151515]" />
-      </div>
-      <div className="relative flex h-full flex-col justify-between">
-        <div className="flex items-center justify-between gap-4">
-          <span className="rounded-full bg-[#151515]/10 px-3 py-1 text-[11px] font-bold uppercase tracking-normal">Total Items</span>
-          <span className="grid h-9 w-9 place-items-center rounded-full bg-[#151515] text-xs font-black text-[#D7FF4F]">IT</span>
-        </div>
-        <div className="mt-4">
-          <p className="text-4xl font-semibold leading-none tabular-nums">{value}</p>
-          <p className="mt-1 max-w-sm text-sm font-medium text-[#151515]/75">Inventario leido</p>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function MetricCard({ label, value, tone }: { label: string; value: number; tone: "lime" | "yellow" | "purple" | "orange" }) {
-  const toneClass = {
-    lime: {
-      text: "text-[#CFFF3A]",
-      bar: "bg-[#CFFF3A]",
-      glow: "shadow-[#CFFF3A]/10",
-      icon: "OK",
-    },
-    yellow: {
-      text: "text-[#F4E85B]",
-      bar: "bg-[#F4E85B]",
-      glow: "shadow-[#F4E85B]/10",
-      icon: "$",
-    },
-    purple: {
-      text: "text-[#B7A8FF]",
-      bar: "bg-[#8B73FF]",
-      glow: "shadow-[#8B73FF]/10",
-      icon: "TR",
-    },
-    orange: {
-      text: "text-[#FFB07A]",
-      bar: "bg-[#FF914D]",
-      glow: "shadow-[#FF914D]/10",
-      icon: "!",
-    },
-  }[tone];
-
-  return (
-    <article className={`relative min-h-28 overflow-hidden rounded-[1.55rem] border border-[#3A3A36] bg-[#30312D] p-4 shadow-2xl ${toneClass.glow}`}>
-      <div className={`absolute -right-8 -top-12 h-24 w-24 rounded-full ${toneClass.bar} opacity-10`} />
-      <div className="relative flex items-start justify-between gap-4">
-        <div>
-          <p className={`text-3xl font-semibold leading-none tabular-nums ${toneClass.text}`}>{value}</p>
-          <p className="mt-2 text-xs font-medium leading-4 text-[#A7A7A7]">{label}</p>
-        </div>
-        <AccentIcon label={toneClass.icon} tone={tone} />
-      </div>
-      <div className={`mt-4 h-1.5 w-14 rounded-full ${toneClass.bar}`} />
-    </article>
-  );
+  return <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${tone}`}>{label}</span>;
 }
 
 function FilterGroup({
@@ -392,18 +315,20 @@ function FilterGroup({
   values,
   selected,
   onChange,
+  className = "",
 }: {
   label: string;
   values: string[];
   selected: string;
   onChange: (value: string) => void;
+  className?: string;
 }) {
   const options = [ALL, ...values];
 
   return (
-    <div className="min-w-0 space-y-2">
-      <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</p>
-      <div className="flex flex-wrap gap-2">
+    <div className={`min-w-0 space-y-1 ${className}`}>
+      <p className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</p>
+      <div className="flex max-h-16 flex-wrap gap-1 overflow-y-auto pr-1">
         {options.map((value) => {
           const active = selected === value;
           return (
@@ -411,7 +336,7 @@ function FilterGroup({
               key={value}
               type="button"
               onClick={() => onChange(value)}
-              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition ${active ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] shadow-lg shadow-[#D7FF4F]/10" : "border-[#3A3A36] bg-[#1E1E1E] text-[#F5F5F5] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"}`}
+              className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold transition ${active ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] shadow-lg shadow-[#D7FF4F]/10" : "border-[#3A3A36] bg-[#151613] text-[#D8D8D3] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"}`}
             >
               {value}
             </button>
@@ -435,11 +360,11 @@ function ControlSelect<T extends string>({
 }) {
   return (
     <label className="min-w-0">
-      <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
+      <span className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value as T)}
-        className="mt-2 h-10 w-full rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm font-medium text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
+        className="mt-1 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#121310] px-3 text-[13px] font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -448,6 +373,35 @@ function ControlSelect<T extends string>({
         ))}
       </select>
     </label>
+  );
+}
+
+function MiniMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number | string;
+  tone: "lime" | "yellow" | "purple" | "orange";
+}) {
+  const toneClass = {
+    lime: "text-[#D7FF4F] bg-[#D7FF4F]",
+    yellow: "text-[#F4E85B] bg-[#F4E85B]",
+    purple: "text-[#B7A8FF] bg-[#8B73FF]",
+    orange: "text-[#FFB07A] bg-[#FF914D]",
+  }[tone];
+
+  return (
+    <Card className="rounded-xl border-[#30312D] bg-[#171814] px-3 py-2 shadow-lg shadow-black/10">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</p>
+          <p className={`mt-0.5 text-lg font-semibold leading-none tabular-nums xl:text-xl ${toneClass.split(" ")[0]}`}>{value}</p>
+        </div>
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${toneClass.split(" ")[1]}`} />
+      </div>
+    </Card>
   );
 }
 
@@ -467,7 +421,7 @@ function MobileItemCard({ item, onOpen }: { item: ResolvedItem; onOpen: () => vo
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">{displayValue(item.sku)}</p>
+          <p className="text-[12px] font-semibold uppercase tracking-normal text-[#D7FF4F]">{displayValue(item.sku)}</p>
           <h3 className="mt-1 truncate text-base font-semibold text-[#F5F5F5]">{displayName(item.nombre)}</h3>
           <p className="mt-1 text-sm text-[#A7A7A7]">{displayValue(item.modelo || item.marca || item.tipoItem)}</p>
         </div>
@@ -539,7 +493,7 @@ function attachmentList(attachments: ShippingV2Attachment[]) {
           href={attachment.url}
           target="_blank"
           rel="noreferrer"
-          className="rounded-full border border-[#3A3A36] bg-[#151515] px-3 py-1 text-xs text-[#D7FF4F] transition hover:border-[#D7FF4F]"
+          className="rounded-full border border-[#3A3A36] bg-[#151515] px-3 py-1 text-[13px] text-[#D7FF4F] transition hover:border-[#D7FF4F]"
         >
           {attachment.filename || `Archivo ${index + 1}`}
         </a>
@@ -708,7 +662,7 @@ function ItemDetailModal({
           displayValue: item.packingId ? (
             <span>
               {displayValue(item.modoLogistico)}
-              <span className="mt-1 block text-xs leading-5 text-[#FFB07A]">No se puede cambiar el modo logístico porque el Item ya tiene packing relacionado.</span>
+              <span className="mt-1 block text-[13px] leading-5 text-[#FFB07A]">No se puede cambiar el modo logístico porque el Item ya tiene packing relacionado.</span>
             </span>
           ) : undefined,
           config: C.modoLogistico,
@@ -785,12 +739,12 @@ function ItemDetailModal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <article className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[2rem] border border-[#3A3A36] bg-[#1E1F1C] shadow-2xl shadow-black/50">
+      <StaffModal>
         <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[#3A3A36] bg-[#1E1F1C]/95 px-5 py-4 backdrop-blur">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">{displayValue(item.sku)}</p>
+            <p className="text-[13px] font-semibold uppercase tracking-normal text-[#D7FF4F]">{displayValue(item.sku)}</p>
             <h2 className="mt-1 truncate text-2xl font-semibold text-[#F5F5F5]">{displayName(item.nombre)}</h2>
-            <p className="mt-1 text-xs text-[#A7A7A7]">Haz clic en un campo editable para modificarlo.</p>
+            <p className="mt-1 text-[13px] text-[#A7A7A7]">Haz clic en un campo editable para modificarlo.</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
@@ -840,15 +794,15 @@ function ItemDetailModal({
               />
               {hasAiNameSuggestion ? (
                 <div className="mt-4 rounded-[1.25rem] border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Sugerencia IA disponible</p>
+                  <p className="text-[13px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Sugerencia IA disponible</p>
                   <p className="mt-2 text-sm text-[#A7A7A7]">Airtable AI generó una versión más ordenada. Puedes aplicarla si te parece correcta.</p>
                   <div className="mt-3 grid gap-2">
                     <div className="rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Nombre actual</p>
+                      <p className="text-[12px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Nombre actual</p>
                       <p className="mt-1 text-sm text-[#F5F5F5]">{displayName(item.nombre)}</p>
                     </div>
                     <div className="rounded-[1rem] border border-[#D7FF4F]/35 bg-[#151515] p-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Nombre sugerido</p>
+                      <p className="text-[12px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Nombre sugerido</p>
                       <p className="mt-1 text-sm text-[#F5F5F5]">{aiNameSuggestion}</p>
                     </div>
                   </div>
@@ -857,7 +811,7 @@ function ItemDetailModal({
                       type="button"
                       onClick={() => void applyAiNameSuggestion()}
                       disabled={applyingAiName}
-                      className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-xs font-bold uppercase tracking-normal text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold uppercase tracking-normal text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {applyingAiName ? "Aplicando..." : "Aplicar sugerencia"}
                     </button>
@@ -865,7 +819,7 @@ function ItemDetailModal({
                       type="button"
                       onClick={() => setIgnoredAiName(aiNameSuggestion || "")}
                       disabled={applyingAiName}
-                      className="rounded-full border border-[#3A3A36] bg-[#252622] px-4 py-2 text-xs font-semibold uppercase tracking-normal text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60"
+                      className="rounded-full border border-[#3A3A36] bg-[#252622] px-4 py-2 text-sm font-semibold uppercase tracking-normal text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60"
                     >
                       Ignorar
                     </button>
@@ -873,7 +827,7 @@ function ItemDetailModal({
                       type="button"
                       onClick={() => void refreshItem()}
                       disabled={applyingAiName}
-                      className="rounded-full border border-[#3A3A36] bg-[#151515] px-4 py-2 text-xs font-semibold uppercase tracking-normal text-[#A7A7A7] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60"
+                      className="rounded-full border border-[#3A3A36] bg-[#151515] px-4 py-2 text-sm font-semibold uppercase tracking-normal text-[#A7A7A7] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60"
                     >
                       Actualizar sugerencia
                     </button>
@@ -887,7 +841,7 @@ function ItemDetailModal({
                   type={C.precioVentaFinal.type}
                   displayValue={formatCurrency(item.precioVenta)}
                   className="rounded-[1.25rem] bg-[#D7FF4F] p-4 text-[#151515] transition"
-                  labelClassName="text-xs font-bold uppercase tracking-normal text-[#151515]"
+                  labelClassName="text-[13px] font-bold uppercase tracking-normal text-[#151515]"
                   valueClassName="mt-2 min-h-9 break-words text-3xl font-semibold tabular-nums text-[#151515]"
                   onSave={(value) => saveField(C.precioVentaFinal.field, value)}
                 />
@@ -897,21 +851,21 @@ function ItemDetailModal({
                   type={C.costoProveedor.type}
                   displayValue={formatCurrency(item.costoProveedor)}
                   className="rounded-[1.25rem] border border-[#3A3A36] bg-[#151515] p-4 transition"
-                  labelClassName="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]"
+                  labelClassName="text-[13px] font-semibold uppercase tracking-normal text-[#A7A7A7]"
                   valueClassName="mt-2 min-h-8 break-words text-2xl font-semibold text-[#F5F5F5] tabular-nums"
                   onSave={(value) => saveField(C.costoProveedor.field, value)}
                 />
                 <div className={`rounded-[1.25rem] border p-4 ${gananciaTone}`}>
-                  <p className="text-xs font-semibold uppercase tracking-normal">Ganancia</p>
+                  <p className="text-[13px] font-semibold uppercase tracking-normal">Ganancia</p>
                   <p className="mt-2 min-h-8 break-words text-2xl font-semibold tabular-nums">{formatCurrency(ganancia)}</p>
                 </div>
               </div>
               <div className="mt-5 flex flex-wrap gap-2">
-                {item.reservado ? <span className="rounded-full border border-[#F4E85B]/35 bg-[#F4E85B]/12 px-3 py-1 text-xs text-[#F4E85B]">Reservado</span> : null}
-                {item.usoLocal ? <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/12 px-3 py-1 text-xs text-[#C9BFFF]">Uso local</span> : null}
-                {item.esRepuesto ? <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/12 px-3 py-1 text-xs text-[#C9BFFF]">Repuesto</span> : null}
-                {item.modoLogistico ? <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-3 py-1 text-xs text-[#A7A7A7]">{item.modoLogistico}</span> : null}
-                {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-3 py-1 text-xs text-[#FFB07A]">Con novedad</span> : null}
+                {item.reservado ? <span className="rounded-full border border-[#F4E85B]/35 bg-[#F4E85B]/12 px-3 py-1 text-[13px] text-[#F4E85B]">Reservado</span> : null}
+                {item.usoLocal ? <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/12 px-3 py-1 text-[13px] text-[#C9BFFF]">Uso local</span> : null}
+                {item.esRepuesto ? <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/12 px-3 py-1 text-[13px] text-[#C9BFFF]">Repuesto</span> : null}
+                {item.modoLogistico ? <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-3 py-1 text-[13px] text-[#A7A7A7]">{item.modoLogistico}</span> : null}
+                {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-3 py-1 text-[13px] text-[#FFB07A]">Con novedad</span> : null}
               </div>
             </div>
           </section>
@@ -920,7 +874,7 @@ function ItemDetailModal({
             {sections.map((section) => <DetailSection key={section.title} {...section} onSave={saveField} />)}
           </div>
         </div>
-      </article>
+      </StaffModal>
     </div>
   );
 }
@@ -1002,95 +956,97 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
   }
 
   return (
-    <div className="w-full space-y-5 rounded-[2.2rem] border border-[#3A3A36] bg-[#151515] p-4 shadow-2xl shadow-black/40 sm:p-5">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <TotalMetricCard value={summary.total} />
-        <MetricCard label="Disponibles" value={summary.disponibles} tone="lime" />
-        <MetricCard label="Pendientes de pago" value={summary.pendientesPago} tone="yellow" />
-        <MetricCard label="En transito" value={summary.enTransito} tone="purple" />
-        <MetricCard label="Con novedad" value={summary.conNovedad} tone="orange" />
-      </section>
-
-      <section className="relative overflow-hidden rounded-[2rem] border border-[#3A3A36] bg-[#1E1F1C] p-5 shadow-2xl shadow-black/25">
-        <div className="absolute right-6 top-6 h-28 w-28 rounded-full bg-[#8B73FF]/10 blur-2xl" />
-        <div className="absolute bottom-0 right-28 h-24 w-24 rounded-full bg-[#FF914D]/10 blur-2xl" />
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1 text-[11px] font-bold uppercase tracking-normal text-[#151515]">Read-only</span>
-              <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/15 px-3 py-1 text-[11px] font-medium text-[#C9BFFF]">Shipping Items</span>
-            </div>
-            <h2 className="mt-3 text-2xl font-semibold text-[#F5F5F5]">Inventario principal</h2>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-[#A7A7A7]">Consulta operativa de items registrados en Shipping V2.</p>
+    <div className="w-full space-y-2.5">
+      <section className="flex flex-col gap-2 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 lg:flex-row lg:items-center lg:justify-between 2xl:px-4 2xl:py-3">
+        <div className="min-w-0">
+          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+            <Badge className="h-6 rounded-full border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2.5 text-[12px] font-bold uppercase text-[#D7FF4F] hover:bg-[#D7FF4F]/10">
+              Read-only
+            </Badge>
+            <Badge className="h-6 rounded-full border-[#8B73FF]/35 bg-[#8B73FF]/10 px-2.5 text-[12px] font-bold uppercase text-[#B7A8FF] hover:bg-[#8B73FF]/10">
+              Shipping Items
+            </Badge>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Link href="/shipping-v2" className="rounded-full border border-[#3A3A36] bg-[#252622] px-5 py-2.5 text-center text-sm font-medium text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]">
-              Dashboard
-            </Link>
-            <Link href="/shipping-v2/items/nuevo" className="rounded-full border border-[#D7FF4F]/70 bg-[#D7FF4F] px-5 py-2.5 text-center text-sm font-bold text-[#151515] transition hover:brightness-105">
-              Nuevo Item
-            </Link>
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="text-xl font-semibold leading-tight text-[#F5F5F5] 2xl:text-2xl">Items</h1>
+            <p className="text-sm text-[#A7A7A7]">Inventario principal de Shipping V2</p>
           </div>
         </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          <Button asChild variant="outline" size="sm" className="h-9 rounded-lg border-[#3A3A36] bg-[#1E1F1C] px-4 text-sm text-[#F5F5F5] hover:border-[#D7FF4F]/60 hover:bg-[#252622] hover:text-[#D7FF4F]">
+            <Link href="/shipping-v2">Dashboard</Link>
+          </Button>
+          <Button asChild size="sm" className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
+            <Link href="/shipping-v2/items/nuevo">Nuevo Item</Link>
+          </Button>
+        </div>
+      </section>
 
-        <div className="relative mt-5 grid gap-4">
-          <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Buscar por SKU, SKU proveedor, nombre, modelo, marca o serie</span>
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="SKU, SKU proveedor, nombre, modelo, marca o serie"
-              className="mt-2 h-12 w-full rounded-full border border-[#3A3A36] bg-[#151515] px-5 text-sm text-[#F5F5F5] outline-none placeholder:text-[#A7A7A7] shadow-inner shadow-black/20 focus:border-[#D7FF4F]/70"
-            />
-          </label>
+      <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
+        <MiniMetric label="Total Items" value={summary.total} tone="lime" />
+        <MiniMetric label="Disponibles" value={summary.disponibles} tone="lime" />
+        <MiniMetric label="Pendientes de pago" value={summary.pendientesPago} tone="yellow" />
+        <MiniMetric label="En transito" value={summary.enTransito} tone="purple" />
+        <MiniMetric label="Con novedad" value={summary.conNovedad} tone="orange" />
+      </section>
 
-          <div className="grid gap-4 xl:grid-cols-4">
+      <Card className="rounded-xl border-[#30312D] bg-[#11120F] p-2 shadow-xl shadow-black/15 2xl:p-3">
+        <div className="grid gap-2">
+          <div className="grid gap-2 lg:grid-cols-[minmax(320px,1fr)_minmax(180px,220px)_minmax(180px,220px)] lg:items-end">
+            <label className="block">
+              <span className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">Buscar</span>
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="SKU, proveedor, nombre, modelo, marca o serie"
+                className="mt-1 h-9 rounded-lg border-[#3A3A36] bg-[#151613] px-3 text-sm text-[#F5F5F5] shadow-inner shadow-black/20 placeholder:text-[#696A64] focus-visible:ring-[#D7FF4F]/35"
+              />
+            </label>
+            <ControlSelect label="Ordenar por" value={sortBy} options={sortOptions} onChange={setSortBy} />
+            <ControlSelect label="Agrupar por" value={groupBy} options={groupOptions} onChange={setGroupBy} />
+          </div>
+
+          <div className="grid gap-2 xl:grid-cols-4">
             <FilterGroup label="Estado Item" values={filterOptions.estados} selected={estado} onChange={setEstado} />
             <FilterGroup label="Tipo de operación" values={filterOptions.operaciones} selected={tipoOperacion} onChange={setTipoOperacion} />
             <FilterGroup label="Proveedor compra" values={filterOptions.proveedores} selected={proveedorCompra} onChange={setProveedorCompra} />
             <FilterGroup label="Rol general del item" values={filterOptions.tipos} selected={tipoItem} onChange={setTipoItem} />
           </div>
-
-          <div className="grid gap-3 rounded-[1.35rem] border border-[#3A3A36] bg-[#151515]/70 p-3 sm:grid-cols-2 lg:max-w-3xl">
-            <ControlSelect label="Ordenar por" value={sortBy} options={sortOptions} onChange={setSortBy} />
-            <ControlSelect label="Agrupar por" value={groupBy} options={groupOptions} onChange={setGroupBy} />
-          </div>
         </div>
-      </section>
+      </Card>
 
       {error ? (
-        <section className="rounded-[1.5rem] border border-orange-300/25 bg-orange-300/10 p-5 text-orange-100">
+        <section className="rounded-[1rem] border border-orange-300/25 bg-orange-300/10 p-3 text-orange-100">
           <p className="text-sm font-semibold uppercase tracking-normal">Airtable V2 no disponible</p>
-          <p className="mt-2 text-sm leading-6 text-orange-100/85">{error}</p>
+          <p className="mt-1 text-sm leading-5 text-orange-100/85">{error}</p>
         </section>
       ) : null}
 
       {notice ? (
-        <section className="rounded-[1.35rem] border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-4 py-3 text-sm font-medium text-[#D7FF4F]">
+        <section className="rounded-[1rem] border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-2 text-sm font-medium text-[#D7FF4F]">
           {notice}
         </section>
       ) : null}
 
-      <section className="overflow-hidden rounded-[2rem] border border-[#3A3A36] bg-[#2A2B27] shadow-2xl shadow-black/30">
-        <div className="flex flex-col gap-2 border-b border-[#3A3A36] bg-[#30312D] px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-[#F5F5F5]">Listado</h2>
-            <p className="mt-1 text-sm text-[#A7A7A7]">
-              Total leído: {resolvedItems.length} · Mostrando: {sortedItems.length}
+      <section className="overflow-hidden rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/25">
+        <div className="flex flex-col gap-1.5 border-b border-[#30312D] bg-[#20211D] px-3 py-2 sm:flex-row sm:items-center sm:justify-between 2xl:px-4 2xl:py-2.5">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-[#F5F5F5]">Listado</h2>
+            <p className="text-[13px] text-[#A7A7A7]">
+              Total leido: {resolvedItems.length} · Mostrando: {sortedItems.length}
               {visibleGroupCount ? ` · Grupos: ${visibleGroupCount}` : ""}
             </p>
           </div>
-          <span className="w-fit rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-4 py-2 text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">
+          <Badge className="h-6 w-fit rounded-full border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2.5 text-[12px] font-bold uppercase text-[#D7FF4F] hover:bg-[#D7FF4F]/10">
             Solo lectura
-          </span>
+          </Badge>
         </div>
-
         <div className="hidden max-w-full overflow-x-auto xl:block">
-          <table className="min-w-[1680px] border-separate border-spacing-0 text-left text-sm">
-            <thead className="text-[11px] uppercase tracking-normal text-[#A7A7A7]">
+          <table className="min-w-[1580px] border-separate border-spacing-0 text-left text-[13px] 2xl:min-w-[1660px] 2xl:text-sm">
+            <thead className="text-[12px] uppercase tracking-normal text-[#A7A7A7] 2xl:text-[13px]">
               <tr>
                 {columns.map((column) => (
-                  <th key={column} className="whitespace-nowrap border-b border-[#3A3A36] px-4 py-3 font-semibold">{column}</th>
+                  <th key={column} className="whitespace-nowrap border-b border-[#3A3A36] px-2.5 py-2 font-semibold 2xl:px-3 2xl:py-2.5">{column}</th>
                 ))}
               </tr>
             </thead>
@@ -1099,10 +1055,10 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
                 <Fragment key={group.key}>
                   {groupBy !== "none" ? (
                     <tr>
-                      <td colSpan={columns.length} className="border-b border-[#3A3A36] bg-[#1E1F1C] px-4 py-3">
+                      <td colSpan={columns.length} className="border-b border-[#3A3A36] bg-[#1E1F1C] px-2.5 py-2">
                         <div className="flex items-center justify-between gap-3">
                           <span className="font-semibold text-[#F5F5F5]">{group.label}</span>
-                          <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-[11px] font-semibold text-[#D7FF4F]">
+                          <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2.5 py-0.5 text-[12px] font-semibold text-[#D7FF4F]">
                             {group.items.length} items
                           </span>
                         </div>
@@ -1122,24 +1078,24 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
                       }}
                       className="cursor-pointer transition hover:bg-[#CFFF3A]/[0.055] focus:bg-[#CFFF3A]/[0.055] focus:outline-none"
                     >
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 font-semibold text-[#CFFF3A]">{displayValue(item.sku)}</td>
-                      <td className="max-w-[280px] border-b border-[#3A3A36]/80 px-4 py-3"><span className="block truncate">{displayName(item.nombre)}</span></td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3"><OperationBadge value={item.tipoOperacion} /></td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3"><EstadoBadge estado={item.estado} /></td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-[#A7A7A7]">{displayValue(item.tipoItem)}</td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-[#A7A7A7]">{displayValue(item.categoria)}</td>
-                      <td className="max-w-[220px] border-b border-[#3A3A36]/80 px-4 py-3"><span className="block truncate">{displayValue(item.proveedorCompraDisplay)}</span></td>
-                      <td className="max-w-[220px] border-b border-[#3A3A36]/80 px-4 py-3"><span className="block truncate">{displayValue(item.proveedorLogisticoDisplay)}</span></td>
-                      <td className="max-w-[180px] border-b border-[#3A3A36]/80 px-4 py-3 text-[#A7A7A7]"><span className="block truncate">{displayValue(packingLabel(item))}</span></td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-right tabular-nums">{formatCurrency(item.costoProveedor)}</td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-right tabular-nums">{formatCurrency(item.precioVenta)}</td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-4 py-3 text-[#A7A7A7]">{formatDate(item.fechaRegistro || item.createdTime)}</td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 font-semibold text-[#CFFF3A] 2xl:px-3 2xl:py-2.5">{displayValue(item.sku)}</td>
+                      <td className="max-w-[260px] border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:max-w-[320px] 2xl:px-3 2xl:py-2.5"><span className="block truncate">{displayName(item.nombre)}</span></td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:px-3 2xl:py-2.5"><OperationBadge value={item.tipoOperacion} /></td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:px-3 2xl:py-2.5"><EstadoBadge estado={item.estado} /></td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 text-[#A7A7A7] 2xl:px-3 2xl:py-2.5">{displayValue(item.tipoItem)}</td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 text-[#A7A7A7] 2xl:px-3 2xl:py-2.5">{displayValue(item.categoria)}</td>
+                      <td className="max-w-[200px] border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:max-w-[240px] 2xl:px-3 2xl:py-2.5"><span className="block truncate">{displayValue(item.proveedorCompraDisplay)}</span></td>
+                      <td className="max-w-[200px] border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:max-w-[240px] 2xl:px-3 2xl:py-2.5"><span className="block truncate">{displayValue(item.proveedorLogisticoDisplay)}</span></td>
+                      <td className="max-w-[160px] border-b border-[#3A3A36]/80 px-2.5 py-2 text-[#A7A7A7] 2xl:max-w-[190px] 2xl:px-3 2xl:py-2.5"><span className="block truncate">{displayValue(packingLabel(item))}</span></td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 text-right tabular-nums 2xl:px-3 2xl:py-2.5">{formatCurrency(item.costoProveedor)}</td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 text-right tabular-nums 2xl:px-3 2xl:py-2.5">{formatCurrency(item.precioVenta)}</td>
+                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 text-[#A7A7A7] 2xl:px-3 2xl:py-2.5">{formatDate(item.fechaRegistro || item.createdTime)}</td>
                     </tr>
                   ))}
                 </Fragment>
               )) : (
                 <tr>
-                  <td colSpan={columns.length} className="px-4 py-12 text-center text-[#A7A7A7]">
+                  <td colSpan={columns.length} className="px-4 py-10 text-center text-[#A7A7A7]">
                     No se encontraron items con los filtros actuales.
                   </td>
                 </tr>
@@ -1148,13 +1104,13 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
           </table>
         </div>
 
-        <div className="grid gap-3 p-4 xl:hidden">
+        <div className="grid gap-2 p-2 xl:hidden">
           {sortedItems.length ? groupedItems.map((group) => (
             <div key={group.key} className="grid gap-3">
               {groupBy !== "none" ? (
                 <div className="flex items-center justify-between rounded-[1.15rem] border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3">
                   <span className="text-sm font-semibold text-[#F5F5F5]">{group.label}</span>
-                  <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-[11px] font-semibold text-[#D7FF4F]">
+                  <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-[12px] font-semibold text-[#D7FF4F]">
                     {group.items.length} items
                   </span>
                 </div>

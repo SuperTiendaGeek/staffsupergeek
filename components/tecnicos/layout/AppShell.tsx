@@ -1,25 +1,48 @@
-import { Sidebar } from "./Sidebar";
-import { TecnicosGlobalTopBar } from "./TecnicosGlobalTopBar";
+import { StaffAppFrame } from "@/components/staff/StaffAppFrame";
 import React from "react";
 import styles from "./TecnicosTheme.module.css";
+
+type TecnicosActive = "ordenes" | "clientes" | "catalogo-repuestos" | "catalogo-servicios" | "configuracion";
 
 type AppShellProps = {
   title: string;
   subtitle?: string;
-  active?: Parameters<typeof Sidebar>[0]["active"];
+  active?: TecnicosActive;
   children: React.ReactNode;
   rightSlot?: React.ReactNode;
   hideTopBar?: boolean;
 };
 
-export function AppShell({ title, active, children }: AppShellProps) {
+function activeHref(active?: TecnicosActive) {
+  switch (active) {
+    case "clientes":
+      return "/tecnicos/clientes";
+    case "catalogo-repuestos":
+      return "/tecnicos/catalogo-repuestos";
+    case "catalogo-servicios":
+      return "/tecnicos/catalogo-servicios";
+    case "ordenes":
+      return "/tecnicos/ordenes";
+    case "configuracion":
+    default:
+      return "/tecnicos";
+  }
+}
+
+export function AppShell({ title, subtitle, active, children, rightSlot }: AppShellProps) {
   return (
-    <div className={`${styles.theme} min-h-screen bg-[#141414] text-white`}>
-      <Sidebar active={active} />
-      <div className="lg:ml-[220px]">
-        <TecnicosGlobalTopBar pageTitle={title} />
-        <main className="w-full space-y-6 px-4 py-5 sm:px-5 lg:px-7 lg:py-6">{children}</main>
+    <StaffAppFrame activeHref={activeHref(active)} sectionLabel="Técnicos">
+      <div className={`${styles.theme} space-y-4`}>
+        <div className="flex flex-col gap-3 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
+          <div className="min-w-0">
+            <p className="text-[12px] font-bold uppercase tracking-normal text-[#D7FF4F]">Gestión de Reparaciones</p>
+            <h1 className="mt-1 text-xl font-semibold tracking-normal text-white sm:text-2xl">{title}</h1>
+            {subtitle ? <p className="mt-1 text-sm font-medium text-zinc-400 sm:text-base">{subtitle}</p> : null}
+          </div>
+          {rightSlot ? <div className="flex shrink-0 flex-wrap items-center gap-2">{rightSlot}</div> : null}
+        </div>
+        {children}
       </div>
-    </div>
+    </StaffAppFrame>
   );
 }

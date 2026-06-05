@@ -83,63 +83,63 @@ export function HorariosAdminPeriodosClient({ periodos, empleados }: Props) {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.035] p-4 shadow-2xl shadow-black/20 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+    <section className="space-y-2.5">
+      <div className="flex flex-col gap-2 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-white">Periodos de pago</h2>
-          <p className="mt-1 text-sm text-zinc-400">Crea periodos, revisa saldos y registra pagos por empleado.</p>
+          <h2 className="text-base font-semibold text-white">Periodos de pago</h2>
+          <p className="mt-0.5 text-sm text-zinc-400">Crea periodos, revisa saldos y registra pagos por empleado.</p>
         </div>
         <button
           type="button"
           onClick={() => setIsOpen(true)}
           disabled={!canCreate}
-          className="rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-geek-lime px-3 py-2 text-sm font-semibold text-geek-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           Crear periodo
         </button>
       </div>
 
       {notice ? (
-        <p className="rounded-md border border-geek-lime/30 bg-geek-lime/10 px-4 py-3 text-sm text-geek-lime">{notice}</p>
+        <p className="rounded-xl border border-geek-lime/30 bg-geek-lime/10 px-3 py-2.5 text-sm text-geek-lime">{notice}</p>
       ) : null}
       {error ? (
-        <p className="rounded-md border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-100">{error}</p>
+        <p className="rounded-xl border border-red-400/30 bg-red-400/10 px-3 py-2.5 text-sm text-red-100">{error}</p>
       ) : null}
 
-      <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.035] shadow-2xl shadow-black/20 backdrop-blur">
+      <div className="overflow-hidden rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-white/10 text-left text-sm">
-            <thead className="bg-white/[0.04] text-xs uppercase text-zinc-400">
+            <thead className="bg-[#20211D] text-[12px] uppercase text-zinc-400">
               <tr>
-                <th className="px-4 py-3 font-semibold">Empleado</th>
-                <th className="px-4 py-3 font-semibold">Periodo</th>
-                <th className="px-4 py-3 font-semibold">Estado</th>
-                <th className="px-4 py-3 font-semibold">Total horas</th>
-                <th className="px-4 py-3 font-semibold">Total neto</th>
-                <th className="px-4 py-3 font-semibold">Pagado</th>
-                <th className="px-4 py-3 font-semibold">Saldo neto</th>
-                <th className="px-4 py-3 font-semibold">Acciones</th>
+                <th className="px-3 py-2 font-semibold">Empleado</th>
+                <th className="px-3 py-2 font-semibold">Periodo</th>
+                <th className="px-3 py-2 font-semibold">Estado</th>
+                <th className="px-3 py-2 font-semibold">Total horas</th>
+                <th className="px-3 py-2 font-semibold">Total neto</th>
+                <th className="px-3 py-2 font-semibold">Pagado</th>
+                <th className="px-3 py-2 font-semibold">Saldo neto</th>
+                <th className="px-3 py-2 font-semibold">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {periodos.length ? (
                 periodos.map((periodo) => (
                   <tr key={periodo.id} className="text-zinc-200">
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-2.5">
                       <p className="font-medium text-white">{periodo.empleado}</p>
                       <p className="text-xs text-zinc-500">{periodo.correo || periodo.usuarioId}</p>
                     </td>
-                    <td className="px-4 py-4">{periodo.fechaInicio} - {periodo.fechaFin}</td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-2.5">{periodo.fechaInicio} - {periodo.fechaFin}</td>
+                    <td className="px-3 py-2.5">
                       <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses(periodo.estadoPeriodo)}`}>
                         {periodo.estadoPeriodo}
                       </span>
                     </td>
-                    <td className="px-4 py-4 font-semibold text-white">{formatHours(periodo.totalHoras)}</td>
-                    <td className="px-4 py-4">{formatMoney(periodo.totalNeto)}</td>
-                    <td className="px-4 py-4">{formatMoney(periodo.totalPagado)}</td>
-                    <td className="px-4 py-4 font-semibold text-geek-lime">{formatMoney(periodo.saldoPendienteNeto)}</td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-2.5 font-semibold text-white">{formatHours(periodo.totalHoras)}</td>
+                    <td className="px-3 py-2.5">{formatMoney(periodo.totalNeto)}</td>
+                    <td className="px-3 py-2.5">{formatMoney(periodo.totalPagado)}</td>
+                    <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(periodo.saldoPendienteNeto)}</td>
+                    <td className="px-3 py-2.5">
                       <Link href={`/horarios/admin/periodos/${periodo.id}`} className="font-semibold text-geek-lime transition hover:text-white">
                         Ver detalle
                       </Link>
@@ -148,7 +148,7 @@ export function HorariosAdminPeriodosClient({ periodos, empleados }: Props) {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-zinc-400">
+                  <td colSpan={8} className="px-3 py-5 text-center text-zinc-400">
                     Aún no hay periodos de pago creados.
                   </td>
                 </tr>
@@ -159,8 +159,8 @@ export function HorariosAdminPeriodosClient({ periodos, empleados }: Props) {
       </div>
 
       {isOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8 backdrop-blur-sm">
-          <form onSubmit={handleSubmit} className="w-full max-w-lg rounded-lg border border-white/10 bg-geek-black p-5 shadow-2xl shadow-black">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-5 backdrop-blur-sm">
+          <form onSubmit={handleSubmit} className="w-full max-w-lg rounded-xl border border-[#30312D] bg-geek-black p-4 shadow-2xl shadow-black">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-white">Crear periodo</h3>

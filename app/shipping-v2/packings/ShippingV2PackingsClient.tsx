@@ -39,9 +39,14 @@ function formatWeight(peso: number | null | undefined) {
 
 function Kpi({ label, value }: { label: string; value: number }) {
   return (
-    <article className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
-      <p className="text-3xl font-semibold tabular-nums text-[#F5F5F5]">{value}</p>
-      <p className="mt-1 text-sm text-[#A7A7A7]">{label}</p>
+    <article className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2 shadow-lg shadow-black/10">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</p>
+          <p className="mt-0.5 text-lg font-semibold leading-none tabular-nums text-[#D7FF4F] xl:text-xl">{value}</p>
+        </div>
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#D7FF4F]" />
+      </div>
     </article>
   );
 }
@@ -68,26 +73,26 @@ export function ShippingV2PackingsClient({ packings, proveedores, error }: Props
   };
 
   return (
-    <div className="w-full space-y-5 rounded-[2rem] border border-[#3A3A36] bg-[#1B1B1B] p-4 shadow-2xl shadow-black/30 sm:p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="w-full space-y-2.5">
+      <section className="flex flex-col gap-2 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 lg:flex-row lg:items-center lg:justify-between 2xl:px-4 2xl:py-3">
         <div>
-          <h2 className="text-xl font-semibold text-[#F5F5F5]">Packings</h2>
-          <p className="mt-1 text-sm text-[#A7A7A7]">Cajas, paquetes y grupos físicos de Shipping V2</p>
+          <h2 className="text-lg font-semibold text-[#F5F5F5]">Packings</h2>
+          <p className="mt-0.5 text-sm text-[#A7A7A7]">Cajas, paquetes y grupos físicos de Shipping V2</p>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
           <Link
             href="/shipping-v2"
-            className="rounded-full border border-[#D7FF4F]/45 bg-[#D7FF4F]/10 px-5 py-2.5 text-center text-sm font-bold text-[#D7FF4F] transition hover:border-[#D7FF4F] hover:bg-[#D7FF4F]/15"
+            className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-center text-sm font-bold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
           >
             Volver a Shipping
           </Link>
-          <Link href="/shipping-v2/packings/nuevo" className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-5 py-2.5 text-center text-sm font-bold text-[#151515] transition hover:brightness-105">Nuevo Packing</Link>
+          <Link href="/shipping-v2/packings/nuevo" className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-center text-sm font-bold text-[#151515] transition hover:brightness-105">Nuevo Packing</Link>
         </div>
-      </div>
+      </section>
 
-      {error ? <div className="rounded-[1.25rem] border border-[#FF914D]/35 bg-[#FF914D]/10 p-4 text-sm text-[#FFB07A]">{error}</div> : null}
+      {error ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{error}</div> : null}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Kpi label="Total packings" value={kpis.total} />
         <Kpi label="En proceso" value={kpis.enProceso} />
         <Kpi label="Cerrados" value={kpis.cerrados} />
@@ -96,34 +101,34 @@ export function ShippingV2PackingsClient({ packings, proveedores, error }: Props
         <Kpi label="Con novedad" value={kpis.conNovedad} />
       </section>
 
-      <section className="grid gap-3 rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4 md:grid-cols-3">
-        <select value={estado} onChange={(event) => setEstado(event.target.value)} className="h-11 rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5]"><option>{ALL}</option>{SHIPPING_V2_PACKING_ESTADOS.map((option) => <option key={option}>{option}</option>)}</select>
-        <select value={tipo} onChange={(event) => setTipo(event.target.value)} className="h-11 rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5]"><option>{ALL}</option>{SHIPPING_V2_PACKING_TIPOS.map((option) => <option key={option}>{option}</option>)}</select>
-        <select value={responsable} onChange={(event) => setResponsable(event.target.value)} className="h-11 rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5]"><option>{ALL}</option>{proveedores.map((provider) => <option key={provider.id} value={provider.id}>{getShippingV2ProveedorLabel(provider)}</option>)}</select>
+      <section className="grid gap-2 rounded-xl border border-[#30312D] bg-[#11120F] p-2 shadow-xl shadow-black/15 md:grid-cols-3">
+        <select value={estado} onChange={(event) => setEstado(event.target.value)} className="h-9 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 text-[13px] font-semibold text-[#F5F5F5]"><option>{ALL}</option>{SHIPPING_V2_PACKING_ESTADOS.map((option) => <option key={option}>{option}</option>)}</select>
+        <select value={tipo} onChange={(event) => setTipo(event.target.value)} className="h-9 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 text-[13px] font-semibold text-[#F5F5F5]"><option>{ALL}</option>{SHIPPING_V2_PACKING_TIPOS.map((option) => <option key={option}>{option}</option>)}</select>
+        <select value={responsable} onChange={(event) => setResponsable(event.target.value)} className="h-9 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 text-[13px] font-semibold text-[#F5F5F5]"><option>{ALL}</option>{proveedores.map((provider) => <option key={provider.id} value={provider.id}>{getShippingV2ProveedorLabel(provider)}</option>)}</select>
       </section>
 
-      <div className="overflow-hidden rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28]">
+      <div className="overflow-hidden rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/25">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1280px] text-left text-sm">
-            <thead className="bg-[#151515] text-xs uppercase text-[#A7A7A7]">
+            <thead className="bg-[#20211D] text-[12px] uppercase text-[#A7A7A7]">
               <tr>
-                {["Packing ID", "Alias / nombre interno", "Estado", "Items", "Peso", "Proveedor responsable", "Tracking USA", "Transportista USA", "Tracking EC", "Transportista EC", "Fecha creación"].map((head) => <th key={head} className="px-4 py-3 font-semibold">{head}</th>)}
+                {["Packing ID", "Alias / nombre interno", "Estado", "Items", "Peso", "Proveedor responsable", "Tracking USA", "Transportista USA", "Tracking EC", "Transportista EC", "Fecha creación"].map((head) => <th key={head} className="px-3 py-2 font-semibold">{head}</th>)}
               </tr>
             </thead>
             <tbody>
               {filtered.map((packing) => (
                 <tr key={packing.id} className="border-t border-[#3A3A36]/80 hover:bg-[#1E1F1C]">
-                  <td className="px-4 py-3 font-semibold text-[#D7FF4F]"><Link href={`/shipping-v2/packings/${packing.id}`}>{display(packing.packingId)}</Link></td>
-                  <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.nombre)}</td>
-                  <td className="px-4 py-3"><span className={`rounded-full border px-3 py-1 text-xs ${statusTone(packing.estado)}`}>{display(packing.estado)}</span></td>
-                  <td className="px-4 py-3 text-[#F5F5F5]">{packing.itemCount} items</td>
-                  <td className="px-4 py-3 text-[#A7A7A7]">{formatWeight(packing.peso)}</td>
-                  <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.proveedorResponsableNombre)}</td>
-                  <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.trackingUsa)}</td>
-                  <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.transportistaUsaNombre)}</td>
-                  <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.trackingEc)}</td>
-                  <td className="px-4 py-3 text-[#A7A7A7]">{display(packing.transportistaEcNombre)}</td>
-                  <td className="px-4 py-3 text-[#A7A7A7]">{formatDate(packing.fechaCreacion || packing.createdTime)}</td>
+                  <td className="px-3 py-2.5 font-semibold text-[#D7FF4F]"><Link href={`/shipping-v2/packings/${packing.id}`}>{display(packing.packingId)}</Link></td>
+                  <td className="px-3 py-2.5 text-[#A7A7A7]">{display(packing.nombre)}</td>
+                  <td className="px-3 py-2.5"><span className={`rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${statusTone(packing.estado)}`}>{display(packing.estado)}</span></td>
+                  <td className="px-3 py-2.5 text-[#F5F5F5]">{packing.itemCount} items</td>
+                  <td className="px-3 py-2.5 text-[#A7A7A7]">{formatWeight(packing.peso)}</td>
+                  <td className="px-3 py-2.5 text-[#A7A7A7]">{display(packing.proveedorResponsableNombre)}</td>
+                  <td className="px-3 py-2.5 text-[#A7A7A7]">{display(packing.trackingUsa)}</td>
+                  <td className="px-3 py-2.5 text-[#A7A7A7]">{display(packing.transportistaUsaNombre)}</td>
+                  <td className="px-3 py-2.5 text-[#A7A7A7]">{display(packing.trackingEc)}</td>
+                  <td className="px-3 py-2.5 text-[#A7A7A7]">{display(packing.transportistaEcNombre)}</td>
+                  <td className="px-3 py-2.5 text-[#A7A7A7]">{formatDate(packing.fechaCreacion || packing.createdTime)}</td>
                 </tr>
               ))}
             </tbody>

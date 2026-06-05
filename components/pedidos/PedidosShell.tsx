@@ -1,6 +1,4 @@
-import Link from "next/link";
-import { UserMenu } from "@/components/UserMenu";
-import { getSessionFromCookie } from "@/lib/session";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 
 type Props = {
   title: string;
@@ -11,36 +9,21 @@ type Props = {
 };
 
 export async function PedidosShell({ title, pageTitle, subtitle, children, actions }: Props) {
-  const session = await getSessionFromCookie();
   const heading = pageTitle ?? title;
 
   return (
-    <main className="min-h-screen bg-[#101010] text-white">
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#151515]/95 shadow-[0_12px_32px_rgba(0,0,0,0.35)] backdrop-blur">
-        <div className="mx-auto flex min-h-[68px] w-full max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+    <StaffAppShell activeHref="/pedidos" sectionLabel="Pedidos">
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
           <div className="min-w-0">
-            <Link href="/dashboard" className="text-xs font-bold uppercase tracking-normal text-geek-lime">
-              SUPER GEEK
-            </Link>
-            <p className="truncate text-base font-semibold text-white sm:text-lg">
-              Pedidos · <span className="text-zinc-300">{title}</span>
-            </p>
+            <p className="text-[12px] font-bold uppercase tracking-normal text-[#D7FF4F]">Pedidos</p>
+            <h1 className="mt-1 text-xl font-semibold tracking-normal text-white sm:text-2xl">{heading}</h1>
+            {subtitle ? <p className="mt-1 text-sm font-medium text-zinc-400 sm:text-base">{subtitle}</p> : null}
           </div>
-          <div className="hidden md:block">
-            <UserMenu user={session?.user} />
-          </div>
-        </div>
-      </header>
-      <section className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-normal text-white sm:text-3xl">{heading}</h1>
-            {subtitle ? <p className="mt-2 text-sm font-medium text-zinc-400">{subtitle}</p> : null}
-          </div>
-          {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+          {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
         </div>
         {children}
-      </section>
-    </main>
+      </div>
+    </StaffAppShell>
   );
 }

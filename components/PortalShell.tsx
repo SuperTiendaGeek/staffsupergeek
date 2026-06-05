@@ -1,6 +1,4 @@
-import Link from "next/link";
-import { UserMenu } from "@/components/UserMenu";
-import { getSessionFromCookie } from "@/lib/session";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 
 type PortalShellProps = {
   children: React.ReactNode;
@@ -8,38 +6,48 @@ type PortalShellProps = {
   title: string;
   description?: string;
   density?: "default" | "compact";
+  activeHref?: string;
+  sectionLabel?: string;
 };
 
-export async function PortalShell({ children, eyebrow, title, description, density = "default" }: PortalShellProps) {
-  const session = await getSessionFromCookie();
+function inferActiveHref(title: string, eyebrow?: string) {
+  const value = `${eyebrow || ""} ${title}`.toLowerCase();
+
+  if (value.includes("shipping")) return "/shipping-v2";
+  if (value.includes("dashboard")) return "/dashboard";
+  if (value.includes("usuario")) return "/admin/usuarios";
+  if (value.includes("notific")) return "/notificaciones";
+  if (value.includes("horario") || value.includes("jornada") || value.includes("periodo")) return "/horarios";
+  if (value.includes("finanza")) return "/finanzas";
+  if (value.includes("factur")) return "/facturacion";
+
+  return "/dashboard";
+}
+
+export async function PortalShell({
+  children,
+  eyebrow,
+  title,
+  description,
+  density = "default",
+  activeHref,
+  sectionLabel,
+}: PortalShellProps) {
   const isCompact = density === "compact";
 
   return (
-    <main className="min-h-screen overflow-hidden px-4 py-5 sm:px-6 lg:px-8">
-      <header className="mx-auto flex w-full max-w-7xl flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <Link href="/dashboard" className="flex min-w-0 items-center gap-3" aria-label="Ir al dashboard">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-geek-lime/30 bg-geek-lime text-sm font-black tracking-normal text-geek-black shadow-glow">
-            SG
-          </div>
+    <StaffAppShell activeHref={activeHref || inferActiveHref(title, eyebrow)} sectionLabel={sectionLabel || eyebrow || title}>
+      <div className={isCompact ? "space-y-3" : "space-y-5"}>
+        <div className="flex flex-col gap-2 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 sm:px-4 sm:py-3">
+          {eyebrow ? <p className="text-[12px] font-bold uppercase tracking-normal text-[#D7FF4F]">{eyebrow}</p> : null}
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold uppercase tracking-normal text-geek-lime">SUPER GEEK</p>
-            <p className="truncate text-xs text-zinc-400">Portal Staff</p>
+            <h1 className={`${isCompact ? "text-xl sm:text-2xl" : "text-2xl sm:text-3xl"} font-semibold tracking-normal text-white`}>{title}</h1>
+            {description ? <p className="mt-1 max-w-4xl text-sm leading-6 text-zinc-300 sm:text-base">{description}</p> : null}
           </div>
-        </Link>
-        <UserMenu user={session?.user} />
-      </header>
-
-      <section className={`mx-auto flex w-full max-w-7xl flex-col items-center ${isCompact ? "min-h-[calc(100vh-5rem)] justify-start gap-6 py-6 sm:py-7" : "min-h-[calc(100vh-7rem)] justify-center gap-10 py-10 sm:py-12"}`}>
-        <div className={`w-full ${isCompact ? "max-w-7xl text-left" : "max-w-3xl text-center"}`}>
-          {eyebrow ? (
-            <p className="mb-3 text-xs font-semibold uppercase tracking-normal text-geek-lime">{eyebrow}</p>
-          ) : null}
-          <h1 className={`${isCompact ? "text-3xl" : "text-3xl sm:text-4xl lg:text-5xl"} font-semibold tracking-normal text-white`}>{title}</h1>
-          {description ? <p className={`${isCompact ? "mt-2 max-w-3xl" : "mx-auto mt-4 max-w-2xl"} text-base leading-7 text-zinc-300`}>{description}</p> : null}
         </div>
 
         {children}
-      </section>
-    </main>
+      </div>
+    </StaffAppShell>
   );
 }

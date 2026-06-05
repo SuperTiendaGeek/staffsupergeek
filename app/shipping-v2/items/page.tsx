@@ -1,4 +1,4 @@
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2Items, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import type { ShippingV2Item, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2ItemsClient } from "./ShippingV2ItemsClient";
@@ -18,13 +18,8 @@ export default async function ShippingV2ItemsPage() {
   }
 
   return (
-    <PortalShell
-      density="compact"
-      eyebrow="Shipping V2"
-      title="Items"
-      description="Inventario principal de Shipping V2"
-    >
+    <StaffAppShell activeHref="/shipping-v2/items" sectionLabel="Shipping V2">
       <ShippingV2ItemsClient items={items} proveedores={proveedores} error={error} />
-    </PortalShell>
+    </StaffAppShell>
   );
 }

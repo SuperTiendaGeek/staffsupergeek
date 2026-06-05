@@ -92,7 +92,7 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
       title="Periodo de pago"
       description="Detalle de registros vinculados y pagos del periodo."
     >
-      <section className="w-full max-w-6xl space-y-5 text-left">
+      <section className="w-full space-y-5 text-left">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link href="/horarios/admin" className="text-sm font-semibold text-geek-lime transition hover:text-white">
             Volver a horarios y pagos
