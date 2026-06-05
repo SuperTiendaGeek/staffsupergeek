@@ -60,55 +60,56 @@ export default async function HorarioJornadaRevisionPage({ params }: PageProps) 
 
   return (
     <PortalShell
+      density="compact"
       eyebrow="Administración"
       title="Revisar jornada"
       description="Corrige una jornada incompleta y registra una marcación de ajuste administrativo."
     >
-      <section className="w-full space-y-5 text-left">
+      <section className="w-full space-y-3 text-left">
         <Link href="/horarios/admin" className="text-sm font-semibold text-geek-lime transition hover:text-white">
           Volver a horarios y pagos
         </Link>
 
-        <section className="rounded-lg border border-white/10 bg-white/[0.045] p-5 shadow-2xl shadow-black/20 backdrop-blur">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <section className="rounded-lg border border-[#30312D] bg-[#151613] px-3 py-2.5 shadow-2xl shadow-black/20 backdrop-blur">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-sm text-zinc-400">Empleado</p>
-              <h2 className="mt-1 text-2xl font-semibold text-white">{jornada.empleado}</h2>
+              <h2 className="mt-1 text-xl font-semibold text-white">{jornada.empleado}</h2>
               <p className="mt-1 text-sm text-zinc-500">{jornada.correo || jornada.usuarioId}</p>
-              <p className="mt-4 text-sm text-zinc-300">Fecha: {jornada.fecha}</p>
+              <p className="mt-2 text-sm text-zinc-300">Fecha: {jornada.fecha}</p>
             </div>
             <span className="inline-flex rounded-md border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-xs font-semibold text-amber-100">
               {jornada.estadoDia}
             </span>
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-lg border border-[#30312D] bg-black/20 px-3 py-2">
               <p className="text-xs uppercase tracking-normal text-zinc-500">Entrada</p>
               <p className="mt-2 text-lg font-semibold text-white">{formatTime(jornada.entrada)}</p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+            <div className="rounded-lg border border-[#30312D] bg-black/20 px-3 py-2">
               <p className="text-xs uppercase tracking-normal text-zinc-500">Salida almuerzo</p>
               <p className="mt-2 text-lg font-semibold text-white">{formatTime(jornada.salidaAlmuerzo)}</p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+            <div className="rounded-lg border border-[#30312D] bg-black/20 px-3 py-2">
               <p className="text-xs uppercase tracking-normal text-zinc-500">Regreso almuerzo</p>
               <p className="mt-2 text-lg font-semibold text-white">{formatTime(jornada.regresoAlmuerzo)}</p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+            <div className="rounded-lg border border-[#30312D] bg-black/20 px-3 py-2">
               <p className="text-xs uppercase tracking-normal text-zinc-500">Salida final</p>
               <p className="mt-2 text-lg font-semibold text-white">{formatTime(jornada.salidaFinal)}</p>
             </div>
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-[#30312D] bg-black/20 px-3 py-2">
               <p className="text-xs uppercase tracking-normal text-zinc-500">Horas actuales</p>
               <p className="mt-2 text-lg font-semibold text-white">{jornada.horasTrabajadas.toFixed(2)} h</p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+            <div className="rounded-lg border border-[#30312D] bg-black/20 px-3 py-2">
               <p className="text-xs uppercase tracking-normal text-zinc-500">Total actual</p>
               <p className="mt-2 text-lg font-semibold text-geek-lime">{formatMoney(jornada.totalEstimadoDia)}</p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+            <div className="rounded-lg border border-[#30312D] bg-black/20 px-3 py-2">
               <p className="text-xs uppercase tracking-normal text-zinc-500">Valor hora</p>
               <p className="mt-2 text-lg font-semibold text-white">{formatMoney(jornada.valorHora)}</p>
             </div>

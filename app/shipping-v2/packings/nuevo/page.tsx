@@ -23,7 +23,7 @@ export default async function ShippingV2NewPackingPage() {
   return (
     <PortalShell density="compact" eyebrow="Shipping V2" title="Nuevo Packing" description="Crear grupo físico de items">
       {error ? (
-        <section className="mb-4 rounded-[1.5rem] border border-orange-300/25 bg-orange-300/10 p-5 text-orange-100">
+        <section className="mb-4 rounded-[1rem] border border-orange-300/25 bg-orange-300/10 p-4 text-orange-100">
           <p className="text-sm font-semibold uppercase tracking-normal">Airtable V2 no disponible</p>
           <p className="mt-2 text-sm leading-6 text-orange-100/85">{error}</p>
         </section>

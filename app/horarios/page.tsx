@@ -26,6 +26,7 @@ export default async function HorariosPage() {
 
   return (
     <PortalShell
+      density="compact"
       eyebrow="Control interno"
       title="Control de Horarios"
       description="Marca entrada, almuerzo, regreso y salida final con hora generada desde el servidor."

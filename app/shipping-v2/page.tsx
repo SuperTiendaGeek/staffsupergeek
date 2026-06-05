@@ -61,9 +61,10 @@ export default async function ShippingV2Page() {
 
   return (
     <PortalShell
-      eyebrow="Modulo interno"
+      density="compact"
       title="Shipping V2"
-      description="Control de inventario, pagos, packings y recepcion"
+      headerSubtitle="Control de inventario, pagos, packings y recepcion"
+      hidePageHeader
     >
       <div className="w-full space-y-3">
         {error ? (

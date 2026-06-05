@@ -96,7 +96,7 @@ function statusClasses(status?: string) {
     return "border-sky-300/30 bg-sky-300/10 text-sky-100";
   }
 
-  return "border-white/10 bg-white/[0.05] text-zinc-300";
+  return "border-[#30312D] bg-[#1E1F1C] text-zinc-300";
 }
 
 function paymentStatusClasses(status: HorarioEmpleadoResumenPagos["estadoGeneral"]) {
@@ -112,7 +112,7 @@ function paymentStatusClasses(status: HorarioEmpleadoResumenPagos["estadoGeneral
     return "border-sky-300/30 bg-sky-300/10 text-sky-100";
   }
 
-  return "border-white/10 bg-white/[0.05] text-zinc-300";
+  return "border-[#30312D] bg-[#1E1F1C] text-zinc-300";
 }
 
 function SummaryMetric({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
@@ -132,7 +132,7 @@ function EstadoPagoSection({ resumenPagos, tieneJornadasMes }: { resumenPagos: H
   const hasPeriodos = resumenPagos.periodosRegistrados > 0;
 
   return (
-    <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-2xl shadow-black/20">
+    <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-white">Estado de pago</h2>
@@ -143,7 +143,7 @@ function EstadoPagoSection({ resumenPagos, tieneJornadasMes }: { resumenPagos: H
         </span>
       </div>
       {!hasPeriodos ? (
-        <p className="mt-4 rounded-md border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300">
+        <p className="mt-3 rounded-md border border-[#30312D] bg-black/20 px-4 py-3 text-sm text-zinc-300">
           Aún no hay periodos de pago registrados.
         </p>
       ) : null}
@@ -164,35 +164,35 @@ function EstadoPagoSection({ resumenPagos, tieneJornadasMes }: { resumenPagos: H
 
 function JornadasTable({ jornadas }: { jornadas: HorarioRegistro[] }) {
   if (!jornadas.length) {
-    return <p className="py-4 text-sm text-zinc-400">No hay jornadas registradas en el periodo actual.</p>;
+    return <p className="py-3 text-sm text-zinc-400">No hay jornadas registradas en el periodo actual.</p>;
   }
 
   return (
     <div className="overflow-x-auto">
       <table className="min-w-[900px] w-full text-left text-sm">
-        <thead className="border-b border-white/10 text-xs uppercase tracking-normal text-zinc-500">
+        <thead className="border-b border-[#30312D] text-xs uppercase tracking-normal text-zinc-500">
           <tr>
-            <th className="px-3 py-3 font-medium">Fecha</th>
-            <th className="px-3 py-3 font-medium">Entrada</th>
-            <th className="px-3 py-3 font-medium">Salida almuerzo</th>
-            <th className="px-3 py-3 font-medium">Regreso almuerzo</th>
-            <th className="px-3 py-3 font-medium">Salida final</th>
-            <th className="px-3 py-3 font-medium">Horas</th>
-            <th className="px-3 py-3 font-medium">Total día</th>
-            <th className="px-3 py-3 font-medium">Estado</th>
+            <th className="px-3 py-2.5 font-medium">Fecha</th>
+            <th className="px-3 py-2.5 font-medium">Entrada</th>
+            <th className="px-3 py-2.5 font-medium">Salida almuerzo</th>
+            <th className="px-3 py-2.5 font-medium">Regreso almuerzo</th>
+            <th className="px-3 py-2.5 font-medium">Salida final</th>
+            <th className="px-3 py-2.5 font-medium">Horas</th>
+            <th className="px-3 py-2.5 font-medium">Total día</th>
+            <th className="px-3 py-2.5 font-medium">Estado</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-white/10 text-zinc-300">
           {jornadas.map((jornada) => (
             <tr key={jornada.id}>
-              <td className="px-3 py-3 font-medium text-white">{formatDate(jornada.fecha)}</td>
-              <td className="px-3 py-3">{formatTime(jornada.entrada)}</td>
-              <td className="px-3 py-3">{formatTime(jornada.salidaAlmuerzo)}</td>
-              <td className="px-3 py-3">{formatTime(jornada.regresoAlmuerzo)}</td>
-              <td className="px-3 py-3">{formatTime(jornada.salidaFinal)}</td>
-              <td className="px-3 py-3">{formatHours(jornada.horasTrabajadas)}</td>
-              <td className="px-3 py-3 font-semibold text-geek-lime">{formatMoney(jornada.totalEstimadoDia)}</td>
-              <td className="px-3 py-3">
+              <td className="px-3 py-2.5 font-medium text-white">{formatDate(jornada.fecha)}</td>
+              <td className="px-3 py-2.5">{formatTime(jornada.entrada)}</td>
+              <td className="px-3 py-2.5">{formatTime(jornada.salidaAlmuerzo)}</td>
+              <td className="px-3 py-2.5">{formatTime(jornada.regresoAlmuerzo)}</td>
+              <td className="px-3 py-2.5">{formatTime(jornada.salidaFinal)}</td>
+              <td className="px-3 py-2.5">{formatHours(jornada.horasTrabajadas)}</td>
+              <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(jornada.totalEstimadoDia)}</td>
+              <td className="px-3 py-2.5">
                 <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses(jornada.estadoDia)}`}>
                   {jornada.estadoDia}
                 </span>
@@ -207,23 +207,23 @@ function JornadasTable({ jornadas }: { jornadas: HorarioRegistro[] }) {
 
 function PagosTable({ pagos }: { pagos: HorarioPago[] }) {
   if (!pagos.length) {
-    return <p className="py-4 text-sm text-zinc-400">Aún no hay pagos registrados para tu usuario.</p>;
+    return <p className="py-3 text-sm text-zinc-400">Aún no hay pagos registrados para tu usuario.</p>;
   }
 
   return (
     <div className="overflow-x-auto">
       <table className="min-w-[1080px] w-full text-left text-sm">
-        <thead className="border-b border-white/10 text-xs uppercase tracking-normal text-zinc-500">
+        <thead className="border-b border-[#30312D] text-xs uppercase tracking-normal text-zinc-500">
           <tr>
-            <th className="px-3 py-3 font-medium">Fecha de pago</th>
-            <th className="px-3 py-3 font-medium">Periodo</th>
-            <th className="px-3 py-3 font-medium">Monto pagado</th>
-            <th className="px-3 py-3 font-medium">Método</th>
-            <th className="px-3 py-3 font-medium">Transacción</th>
-            <th className="px-3 py-3 font-medium">Banco / Cuenta Origen</th>
-            <th className="px-3 py-3 font-medium">Estado</th>
-            <th className="px-3 py-3 font-medium">Comprobante</th>
-            <th className="px-3 py-3 font-medium">Rol</th>
+            <th className="px-3 py-2.5 font-medium">Fecha de pago</th>
+            <th className="px-3 py-2.5 font-medium">Periodo</th>
+            <th className="px-3 py-2.5 font-medium">Monto pagado</th>
+            <th className="px-3 py-2.5 font-medium">Método</th>
+            <th className="px-3 py-2.5 font-medium">Transacción</th>
+            <th className="px-3 py-2.5 font-medium">Banco / Cuenta Origen</th>
+            <th className="px-3 py-2.5 font-medium">Estado</th>
+            <th className="px-3 py-2.5 font-medium">Comprobante</th>
+            <th className="px-3 py-2.5 font-medium">Rol</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-white/10 text-zinc-300">
@@ -236,18 +236,18 @@ function PagosTable({ pagos }: { pagos: HorarioPago[] }) {
 
             return (
               <tr key={pago.id}>
-                <td className="px-3 py-3 font-medium text-white">{formatDate(pago.fechaPago)}</td>
-                <td className="px-3 py-3">{periodo}</td>
-                <td className="px-3 py-3 font-semibold text-geek-lime">{formatMoney(pago.montoPagado)}</td>
-                <td className="px-3 py-3">{pago.metodoPago || "--"}</td>
-                <td className="px-3 py-3">{pago.numeroTransaccion || "--"}</td>
-                <td className="px-3 py-3">{pago.bancoCuentaOrigen || "--"}</td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-2.5 font-medium text-white">{formatDate(pago.fechaPago)}</td>
+                <td className="px-3 py-2.5">{periodo}</td>
+                <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(pago.montoPagado)}</td>
+                <td className="px-3 py-2.5">{pago.metodoPago || "--"}</td>
+                <td className="px-3 py-2.5">{pago.numeroTransaccion || "--"}</td>
+                <td className="px-3 py-2.5">{pago.bancoCuentaOrigen || "--"}</td>
+                <td className="px-3 py-2.5">
                   <span className="inline-flex rounded-md border border-geek-lime/30 bg-geek-lime/10 px-2.5 py-1 text-xs font-semibold text-geek-lime">
                     {pago.estadoPago || "Registrado"}
                   </span>
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-2.5">
                   {comprobante ? (
                     <a
                       href={comprobante.url}
@@ -261,7 +261,7 @@ function PagosTable({ pagos }: { pagos: HorarioPago[] }) {
                     "--"
                   )}
                 </td>
-                <td className="px-3 py-3">
+                <td className="px-3 py-2.5">
                   {hasRol ? (
                     <a
                       href={`/api/horarios/roles/${pago.periodoPagoId}`}
@@ -284,29 +284,29 @@ function PagosTable({ pagos }: { pagos: HorarioPago[] }) {
 
 function AjustesTable({ ajustes }: { ajustes: HorarioAjuste[] }) {
   if (!ajustes.length) {
-    return <p className="py-4 text-sm text-zinc-400">No hay ajustes ni descuentos registrados para tus periodos.</p>;
+    return <p className="py-3 text-sm text-zinc-400">No hay ajustes ni descuentos registrados para tus periodos.</p>;
   }
 
   return (
     <div className="overflow-x-auto">
       <table className="min-w-[720px] w-full text-left text-sm">
-        <thead className="border-b border-white/10 text-xs uppercase tracking-normal text-zinc-500">
+        <thead className="border-b border-[#30312D] text-xs uppercase tracking-normal text-zinc-500">
           <tr>
-            <th className="px-3 py-3 font-medium">Fecha</th>
-            <th className="px-3 py-3 font-medium">Motivo</th>
-            <th className="px-3 py-3 font-medium">Horas descontadas</th>
-            <th className="px-3 py-3 font-medium">Monto descontado</th>
-            <th className="px-3 py-3 font-medium">Estado</th>
+            <th className="px-3 py-2.5 font-medium">Fecha</th>
+            <th className="px-3 py-2.5 font-medium">Motivo</th>
+            <th className="px-3 py-2.5 font-medium">Horas descontadas</th>
+            <th className="px-3 py-2.5 font-medium">Monto descontado</th>
+            <th className="px-3 py-2.5 font-medium">Estado</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-white/10 text-zinc-300">
           {ajustes.map((ajuste) => (
             <tr key={ajuste.id}>
-              <td className="px-3 py-3 font-medium text-white">{formatDate(ajuste.fechaAjuste)}</td>
-              <td className="px-3 py-3">{ajuste.motivo || "--"}</td>
-              <td className="px-3 py-3">{formatHours(Math.abs(ajuste.horasAjustadas || ajuste.minutosAjustados / 60))}</td>
-              <td className="px-3 py-3 font-semibold text-red-100">{formatMoney(ajuste.montoAjustado)}</td>
-              <td className="px-3 py-3">
+              <td className="px-3 py-2.5 font-medium text-white">{formatDate(ajuste.fechaAjuste)}</td>
+              <td className="px-3 py-2.5">{ajuste.motivo || "--"}</td>
+              <td className="px-3 py-2.5">{formatHours(Math.abs(ajuste.horasAjustadas || ajuste.minutosAjustados / 60))}</td>
+              <td className="px-3 py-2.5 font-semibold text-red-100">{formatMoney(ajuste.montoAjustado)}</td>
+              <td className="px-3 py-2.5">
                 <span className="inline-flex rounded-md border border-geek-lime/30 bg-geek-lime/10 px-2.5 py-1 text-xs font-semibold text-geek-lime">
                   {ajuste.estado || "Aplicado"}
                 </span>
@@ -430,7 +430,7 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
       ) : null}
 
       <div className="grid gap-2.5 lg:grid-cols-[1.15fr_0.85fr]">
-        <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-2xl shadow-black/20">
+        <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses(estadoDia)}`}>
@@ -466,18 +466,18 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
           </div>
         </section>
 
-        <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-2xl shadow-black/20">
+        <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
           <h2 className="text-lg font-semibold text-white">Resumen del día</h2>
           <div className="mt-3 space-y-2.5">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+            <div className="flex items-center justify-between border-b border-[#30312D] pb-3">
               <span className="text-sm text-zinc-400">Horas trabajadas</span>
               <span className="font-semibold text-white">{formatHours(estado?.resumen.horasTrabajadas || 0)}</span>
             </div>
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+            <div className="flex items-center justify-between border-b border-[#30312D] pb-3">
               <span className="text-sm text-zinc-400">Minutos trabajados</span>
               <span className="font-semibold text-white">{estado?.resumen.minutosTrabajados || 0}</span>
             </div>
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+            <div className="flex items-center justify-between border-b border-[#30312D] pb-3">
               <span className="text-sm text-zinc-400">Sueldo base</span>
               <span className="font-semibold text-white">{formatMoney(estado?.resumen.sueldoBase || 482)}</span>
             </div>
@@ -490,7 +490,7 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
       </div>
 
       {miResumen ? (
-        <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-2xl shadow-black/20">
+        <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-white">Mi resumen</h2>
@@ -512,28 +512,28 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
 
       {resumenPagos ? <EstadoPagoSection resumenPagos={resumenPagos} tieneJornadasMes={(miResumen?.mes.totalEstimado || 0) > 0} /> : null}
 
-      <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-2xl shadow-black/20">
+      <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
         <h2 className="text-lg font-semibold text-white">Ajustes y descuentos del periodo</h2>
         <div className="mt-2">
           <AjustesTable ajustes={misAjustes} />
         </div>
       </section>
 
-      <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-2xl shadow-black/20">
+      <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
         <h2 className="text-lg font-semibold text-white">Mis jornadas</h2>
         <div className="mt-2">
           <JornadasTable jornadas={misJornadas} />
         </div>
       </section>
 
-      <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-2xl shadow-black/20">
+      <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
         <h2 className="text-lg font-semibold text-white">Mis pagos</h2>
         <div className="mt-2">
           <PagosTable pagos={misPagos} />
         </div>
       </section>
 
-      <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-2xl shadow-black/20">
+      <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
         <h2 className="text-lg font-semibold text-white">Historial de marcaciones</h2>
         <div className="mt-2 divide-y divide-white/10">
           {estado?.marcaciones.length ? (
@@ -547,7 +547,7 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
               </div>
             ))
           ) : (
-            <p className="py-4 text-sm text-zinc-400">Aún no hay marcaciones registradas hoy.</p>
+            <p className="py-3 text-sm text-zinc-400">Aún no hay marcaciones registradas hoy.</p>
           )}
         </div>
       </section>

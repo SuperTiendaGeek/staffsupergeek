@@ -89,15 +89,15 @@ export function HorarioJornadaRevisionClient({ jornada }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-lg border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 backdrop-blur">
-      <div className="grid gap-4 sm:grid-cols-2">
+    <form onSubmit={handleSubmit} className="rounded-lg border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20 backdrop-blur">
+      <div className="grid gap-2 sm:grid-cols-2">
         <label className="block">
           <span className="text-sm font-medium text-zinc-300">Entrada</span>
           <input
             type="datetime-local"
             value={entrada}
             onChange={(event) => setEntrada(event.target.value)}
-            className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+            className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
             required
           />
         </label>
@@ -107,7 +107,7 @@ export function HorarioJornadaRevisionClient({ jornada }: Props) {
             type="datetime-local"
             value={salidaFinal}
             onChange={(event) => setSalidaFinal(event.target.value)}
-            className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+            className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
             required
           />
         </label>
@@ -117,7 +117,7 @@ export function HorarioJornadaRevisionClient({ jornada }: Props) {
             type="datetime-local"
             value={salidaAlmuerzo}
             onChange={(event) => setSalidaAlmuerzo(event.target.value)}
-            className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+            className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
           />
         </label>
         <label className="block">
@@ -126,7 +126,7 @@ export function HorarioJornadaRevisionClient({ jornada }: Props) {
             type="datetime-local"
             value={regresoAlmuerzo}
             onChange={(event) => setRegresoAlmuerzo(event.target.value)}
-            className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+            className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
           />
         </label>
         <label className="block sm:col-span-2">
@@ -134,7 +134,7 @@ export function HorarioJornadaRevisionClient({ jornada }: Props) {
           <select
             value={estadoDia}
             onChange={(event) => setEstadoDia(event.target.value as CorregirJornadaAdminInput["estadoDia"])}
-            className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+            className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
           >
             <option value="Revisado" className="bg-geek-black">Revisado</option>
             <option value="Finalizado" className="bg-geek-black">Finalizado</option>
@@ -146,23 +146,23 @@ export function HorarioJornadaRevisionClient({ jornada }: Props) {
             value={observaciones}
             onChange={(event) => setObservaciones(event.target.value)}
             rows={4}
-            className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+            className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
           />
         </label>
       </div>
 
       {notice ? (
-        <p className="mt-4 rounded-md border border-geek-lime/30 bg-geek-lime/10 px-4 py-3 text-sm text-geek-lime">{notice}</p>
+        <p className="mt-3 rounded-md border border-geek-lime/30 bg-geek-lime/10 px-3 py-2 text-sm text-geek-lime">{notice}</p>
       ) : null}
       {error ? (
-        <p className="mt-4 rounded-md border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-100">{error}</p>
+        <p className="mt-3 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p>
       ) : null}
 
       <div className="mt-6 flex justify-end">
         <button
           type="submit"
           disabled={isSubmitting}
-          className="rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md bg-geek-lime px-3 py-2 text-sm font-semibold text-geek-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSubmitting ? "Guardando..." : "Guardar corrección"}
         </button>

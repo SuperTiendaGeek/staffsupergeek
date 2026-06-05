@@ -35,7 +35,7 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
   return (
     <PortalShell density="compact" eyebrow="Shipping V2" title="Detalle Packing" description="Gestión de grupo físico de items">
       {error || !packing ? (
-        <section className="rounded-[1.5rem] border border-orange-300/25 bg-orange-300/10 p-5 text-orange-100">
+        <section className="rounded-[1rem] border border-orange-300/25 bg-orange-300/10 p-4 text-orange-100">
           <p className="text-sm font-semibold uppercase tracking-normal">Packing no disponible</p>
           <p className="mt-2 text-sm leading-6 text-orange-100/85">{error || "No se pudo cargar el packing."}</p>
         </section>

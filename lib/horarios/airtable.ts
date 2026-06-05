@@ -35,6 +35,7 @@ import { HORARIO_METODOS_PAGO } from "@/types/horarios";
 const SUELDO_BASE = 482;
 const HORAS_BASE_MES = 160;
 const VALOR_HORA = SUELDO_BASE / HORAS_BASE_MES;
+const MONEY_TOLERANCE = 0.01;
 const HORARIOS_TIME_ZONE = process.env.HORARIOS_TIME_ZONE?.trim() || "America/Guayaquil";
 const REGISTROS_TABLE = process.env.AIRTABLE_HORARIOS_REGISTROS_TABLE?.trim() || "Horarios Registros";
 const MARCACIONES_TABLE = process.env.AIRTABLE_HORARIOS_MARCACIONES_TABLE?.trim() || "Horarios Marcaciones";
@@ -247,6 +248,11 @@ type CrearPeriodoPagoInput = {
   fechaFin: string;
 };
 
+type CerrarPeriodoHastaFechaInput = {
+  periodoId: string;
+  fechaCorte: string;
+};
+
 type RegistrarPagoHorarioInput = {
   periodoId: string;
   fechaPago: string;
@@ -356,15 +362,34 @@ async function parseAirtableJson<T>(response: Response) {
   return (await response.json()) as T;
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function airtableRequest<T>(url: string, init?: RequestInit) {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      ...getAirtableHeaders(),
-      ...init?.headers
-    },
-    cache: "no-store"
-  });
+  let response: Response | null = null;
+  const retryableStatuses = new Set([429, 502, 503, 504]);
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        ...getAirtableHeaders(),
+        ...init?.headers
+      },
+      cache: "no-store"
+    });
+
+    if (!retryableStatuses.has(response.status) || attempt === 2) {
+      break;
+    }
+
+    await wait(450 * (attempt + 1));
+  }
+
+  if (!response) {
+    throw new Error("Airtable horarios request failed without response");
+  }
 
   if (!response.ok) {
     const responseText = await response.text();
@@ -1261,6 +1286,11 @@ function createEmptyEmpleadoResumen(registro: HorarioRegistro): HorarioAdminEmpl
     totalNeto: 0,
     totalPagado: 0,
     saldoPendiente: 0,
+    generadoEnRango: 0,
+    pagadoAsociado: 0,
+    saldoPendienteReal: 0,
+    pendienteNuevoSinPeriodo: 0,
+    jornadasSinPeriodoCount: 0,
     registrosCount: 0
   };
 }
@@ -1281,6 +1311,11 @@ function createEmptyEmpleadoResumenFromUser(user: PortalUser): HorarioAdminEmple
     totalNeto: 0,
     totalPagado: 0,
     saldoPendiente: 0,
+    generadoEnRango: 0,
+    pagadoAsociado: 0,
+    saldoPendienteReal: 0,
+    pendienteNuevoSinPeriodo: 0,
+    jornadasSinPeriodoCount: 0,
     registrosCount: 0
   };
 }
@@ -1584,10 +1619,6 @@ export async function fetchMiVistaHorarios(user: SessionUser): Promise<HorarioEm
   };
 }
 
-function getPagoEmpleadoRecordId(record: AirtableRecord<HorarioPagoFields>) {
-  return getLinkedRecordId(record.fields[HORARIOS_PAGOS_FIELDS.empleado]);
-}
-
 export async function fetchHorariosAdminResumen(input?: { fechaInicio?: string; fechaFin?: string }): Promise<HorarioAdminResumen> {
   const defaultRange = getCurrentWeekRange();
   const fechaInicio = input?.fechaInicio || defaultRange.fechaInicio;
@@ -1600,13 +1631,29 @@ export async function fetchHorariosAdminResumen(input?: { fechaInicio?: string; 
     throw new Error("La fecha fin no puede ser anterior a la fecha inicio.");
   }
 
-  const [rawRegistros, pagos, ajustes, users] = await Promise.all([
+  const [rawRegistros, pagos, ajustes, users, periodosRecords] = await Promise.all([
     listRegistrosSemana(fechaInicio, fechaFin),
     listPagosActivosByDateRange(fechaInicio, fechaFin),
-    listAjustesAplicadosByDateRange(fechaInicio, fechaFin),
-    listPortalUsers()
+    listAjustesAplicadosByDateRange(fechaInicio, fechaFin).catch((error) => {
+      console.warn("No se pudieron cargar ajustes del rango. Se continuará sin ajustes en el resumen admin.", error);
+      return [];
+    }),
+    listPortalUsers(),
+    listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, new URLSearchParams({
+      "sort[0][field]": HORARIOS_PERIODOS_FIELDS.fechaInicio,
+      "sort[0][direction]": "desc"
+    }))
   ]);
   const userMaps = buildPortalUserMaps(users);
+  const pagosMapeados = pagos.map(mapPago);
+  const periodos = periodosRecords.map(mapPeriodo);
+  const periodosActivos = periodos.filter((periodo) => getEffectiveEstadoPeriodo(periodo) !== "Anulado");
+  const registrosEnPeriodo = new Set(periodosActivos.flatMap((periodo) => periodo.registroIds));
+  const periodosConSaldoReal = periodosActivos.filter((periodo) => {
+    const estado = getEffectiveEstadoPeriodo(periodo);
+
+    return estado !== "Pagado" && estado !== "Cerrado" && periodo.saldoPendienteNeto > 0;
+  });
   const registros = rawRegistros.map((registro) =>
     applyPortalUserToRegistro(registro, findPortalUserForEmpleado(userMaps, registro.empleadoRecordId, registro.correo))
   );
@@ -1619,7 +1666,14 @@ export async function fetchHorariosAdminResumen(input?: { fechaInicio?: string; 
     empleadoResumen.minutosTrabajados += registro.minutosTrabajados;
     empleadoResumen.horasTrabajadas += registro.horasTrabajadas;
     empleadoResumen.totalGanado += registro.totalEstimadoDia;
+    empleadoResumen.generadoEnRango += registro.totalEstimadoDia;
     empleadoResumen.registrosCount += 1;
+
+    if (!registrosEnPeriodo.has(registro.id)) {
+      empleadoResumen.pendienteNuevoSinPeriodo += registro.totalEstimadoDia;
+      empleadoResumen.jornadasSinPeriodoCount += 1;
+    }
+
     empleadosMap.set(key, empleadoResumen);
   });
 
@@ -1645,20 +1699,43 @@ export async function fetchHorariosAdminResumen(input?: { fechaInicio?: string; 
     empleadosMap.set(ajuste.empleadoRecordId, empleadoResumen);
   });
 
-  pagos.forEach((pago) => {
-    const empleadoRecordId = getPagoEmpleadoRecordId(pago);
+  pagosMapeados.forEach((pago) => {
+    const empleadoRecordId = pago.empleadoRecordId;
 
     if (!empleadoRecordId) {
       return;
     }
 
-    const empleadoResumen = empleadosMap.get(empleadoRecordId);
+    const empleadoUser = userMaps.byId.get(empleadoRecordId);
+    const empleadoResumen =
+      empleadosMap.get(empleadoRecordId) ||
+      (empleadoUser ? createEmptyEmpleadoResumenFromUser(empleadoUser) : null);
 
     if (!empleadoResumen) {
       return;
     }
 
-    empleadoResumen.totalPagado += pago.fields[HORARIOS_PAGOS_FIELDS.montoPagado] || 0;
+    empleadoResumen.totalPagado += pago.montoPagado;
+    empleadoResumen.pagadoAsociado += pago.montoPagado;
+    empleadosMap.set(empleadoRecordId, empleadoResumen);
+  });
+
+  periodosConSaldoReal.forEach((periodo) => {
+    if (!periodo.empleadoRecordId) {
+      return;
+    }
+
+    const empleadoUser = userMaps.byId.get(periodo.empleadoRecordId);
+    const empleadoResumen =
+      empleadosMap.get(periodo.empleadoRecordId) ||
+      (empleadoUser ? createEmptyEmpleadoResumenFromUser(empleadoUser) : null);
+
+    if (!empleadoResumen) {
+      return;
+    }
+
+    empleadoResumen.saldoPendienteReal += periodo.saldoPendienteNeto;
+    empleadosMap.set(periodo.empleadoRecordId, empleadoResumen);
   });
 
   const empleados = Array.from(empleadosMap.values())
@@ -1669,15 +1746,21 @@ export async function fetchHorariosAdminResumen(input?: { fechaInicio?: string; 
       totalAjustes: roundMoney(empleado.totalAjustes),
       totalNeto: roundMoney(empleado.totalGanado + empleado.totalAjustes),
       totalPagado: roundMoney(empleado.totalPagado),
-      saldoPendiente: Math.max(0, roundMoney(empleado.totalGanado + empleado.totalAjustes - empleado.totalPagado))
+      saldoPendiente: Math.max(0, roundMoney(empleado.saldoPendienteReal)),
+      generadoEnRango: roundMoney(empleado.generadoEnRango),
+      pagadoAsociado: roundMoney(empleado.pagadoAsociado),
+      saldoPendienteReal: Math.max(0, roundMoney(empleado.saldoPendienteReal)),
+      pendienteNuevoSinPeriodo: roundMoney(empleado.pendienteNuevoSinPeriodo)
     }))
-    .sort((first, second) => second.saldoPendiente - first.saldoPendiente || first.empleado.localeCompare(second.empleado));
+    .sort((first, second) => second.saldoPendienteReal - first.saldoPendienteReal || first.empleado.localeCompare(second.empleado));
 
   const totalMinutos = empleados.reduce((total, empleado) => total + empleado.minutosTrabajados, 0);
   const totalGanado = empleados.reduce((total, empleado) => total + empleado.totalGanado, 0);
   const totalAjustes = empleados.reduce((total, empleado) => total + empleado.totalAjustes, 0);
   const totalNeto = empleados.reduce((total, empleado) => total + empleado.totalNeto, 0);
-  const totalPagado = empleados.reduce((total, empleado) => total + empleado.totalPagado, 0);
+  const totalPagado = pagosMapeados.reduce((total, pago) => total + pago.montoPagado, 0);
+  const saldoPendienteReal = periodosConSaldoReal.reduce((total, periodo) => total + periodo.saldoPendienteNeto, 0);
+  const pendienteNuevoSinPeriodo = empleados.reduce((total, empleado) => total + empleado.pendienteNuevoSinPeriodo, 0);
 
   return {
     periodo: {
@@ -1691,7 +1774,11 @@ export async function fetchHorariosAdminResumen(input?: { fechaInicio?: string; 
       totalAjustes: roundMoney(totalAjustes),
       totalNeto: roundMoney(totalNeto),
       totalPagado: roundMoney(totalPagado),
-      saldoPendiente: Math.max(0, roundMoney(totalNeto - totalPagado))
+      saldoPendiente: Math.max(0, roundMoney(saldoPendienteReal)),
+      generadoEnRango: roundMoney(totalGanado),
+      pagadoEnRango: roundMoney(totalPagado),
+      saldoPendienteReal: Math.max(0, roundMoney(saldoPendienteReal)),
+      pendienteNuevoSinPeriodo: roundMoney(pendienteNuevoSinPeriodo)
     },
     empleados
   };
@@ -1746,16 +1833,38 @@ function calculatePeriodoTotals(registros: HorarioRegistro[], pagos: HorarioPago
   };
 }
 
-function getEstadoPeriodoFromTotals(totalPagado: number, saldoPendiente: number): EstadoPeriodoPago {
+function getEstadoPeriodoFromTotals(totalPagado: number, saldoPendiente: number, totalNeto = 0): EstadoPeriodoPago {
+  if (totalNeto > 0 && (totalPagado >= totalNeto - MONEY_TOLERANCE || saldoPendiente <= MONEY_TOLERANCE)) {
+    return "Pagado";
+  }
+
   if (totalPagado <= 0) {
     return "Abierto";
   }
 
-  if (saldoPendiente <= 0) {
+  if (saldoPendiente <= MONEY_TOLERANCE) {
     return "Pagado";
   }
 
   return "Parcialmente pagado";
+}
+
+function getEffectiveEstadoPeriodo(periodo: Pick<HorarioPeriodoPago, "estadoPeriodo" | "totalNeto" | "totalPagado" | "saldoPendienteNeto">): EstadoPeriodoPago | string {
+  if (periodo.estadoPeriodo === "Anulado" || periodo.estadoPeriodo === "Cerrado") {
+    return periodo.estadoPeriodo;
+  }
+
+  return getEstadoPeriodoFromTotals(periodo.totalPagado, periodo.saldoPendienteNeto, periodo.totalNeto);
+}
+
+function hasPagosActivos(pagos: HorarioPago[]) {
+  return pagos.some((pago) => pago.estadoPago !== "Anulado");
+}
+
+function shouldBlockPeriodoAutoSync(periodo: HorarioPeriodoPago, pagos?: HorarioPago[]) {
+  const estado = getEffectiveEstadoPeriodo(periodo);
+
+  return estado === "Anulado" || estado === "Pagado" || estado === "Cerrado" || periodo.totalPagado > 0 || Boolean(pagos && hasPagosActivos(pagos));
 }
 
 async function listRegistrosByIds(recordIds: string[]) {
@@ -1785,6 +1894,29 @@ async function listRegistrosPeriodoCandidate(fechaInicio: string, fechaFin: stri
   return records.map(mapRegistro).filter((registro) => registro.empleadoRecordId === empleadoId);
 }
 
+async function listRegistroIdsVinculadosAotrosPeriodos(excludedPeriodoId?: string) {
+  const records = await listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, new URLSearchParams());
+  const linkedIds = new Set<string>();
+
+  records
+    .map(mapPeriodo)
+    .filter((periodo) => periodo.id !== excludedPeriodoId && getEffectiveEstadoPeriodo(periodo) !== "Anulado")
+    .forEach((periodo) => {
+      periodo.registroIds.forEach((registroId) => linkedIds.add(registroId));
+    });
+
+  return linkedIds;
+}
+
+async function listRegistrosPeriodoDisponibles(fechaInicio: string, fechaFin: string, empleadoId: string, excludedPeriodoId?: string) {
+  const [registros, registrosVinculados] = await Promise.all([
+    listRegistrosPeriodoCandidate(fechaInicio, fechaFin, empleadoId),
+    listRegistroIdsVinculadosAotrosPeriodos(excludedPeriodoId)
+  ]);
+
+  return registros.filter((registro) => !registrosVinculados.has(registro.id));
+}
+
 async function listRegistrosPagablesByEmpleado(empleadoId: string) {
   const query = new URLSearchParams({
     filterByFormula: `OR({${HORARIOS_REGISTROS_FIELDS.estadoDia}} = 'Finalizado', {${HORARIOS_REGISTROS_FIELDS.estadoDia}} = 'Revisado')`,
@@ -1796,16 +1928,21 @@ async function listRegistrosPagablesByEmpleado(empleadoId: string) {
   return records.map(mapRegistro).filter((registro) => registro.empleadoRecordId === empleadoId);
 }
 
-async function findPeriodoDuplicado(empleadoId: string, fechaInicio: string, fechaFin: string) {
-  const query = new URLSearchParams({
-    filterByFormula: `AND(DATETIME_FORMAT({${HORARIOS_PERIODOS_FIELDS.fechaInicio}}, 'YYYY-MM-DD') = '${escapeFormulaString(fechaInicio)}', DATETIME_FORMAT({${HORARIOS_PERIODOS_FIELDS.fechaFin}}, 'YYYY-MM-DD') = '${escapeFormulaString(fechaFin)}')`
-  });
-  const records = await listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, query);
+async function findPeriodoSolapado(empleadoId: string, fechaInicio: string, fechaFin: string, excludedPeriodoId?: string) {
+  const records = await listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, new URLSearchParams());
 
-  return records.map(mapPeriodo).find((periodo) => periodo.empleadoRecordId === empleadoId) || null;
+  return records
+    .map(mapPeriodo)
+    .find((periodo) => {
+      if (periodo.id === excludedPeriodoId || periodo.empleadoRecordId !== empleadoId || getEffectiveEstadoPeriodo(periodo) === "Anulado") {
+        return false;
+      }
+
+      return periodo.fechaInicio <= fechaFin && periodo.fechaFin >= fechaInicio;
+    }) || null;
 }
 
-async function updatePeriodoEstado(periodoId: string, estadoPeriodo: EstadoPeriodoPago) {
+async function updatePeriodoEstado(periodoId: string, estadoPeriodo: EstadoPeriodoPago | string) {
   const record = await airtableRequest<AirtableRecord<HorarioPeriodoPagoFields>>(getTableUrl(PERIODOS_TABLE, periodoId), {
     method: "PATCH",
     body: JSON.stringify({
@@ -1813,6 +1950,15 @@ async function updatePeriodoEstado(periodoId: string, estadoPeriodo: EstadoPerio
         [HORARIOS_PERIODOS_FIELDS.estadoPeriodo]: estadoPeriodo
       }
     })
+  });
+
+  return mapPeriodo(record);
+}
+
+async function updatePeriodoFields(periodoId: string, fields: HorarioPeriodoPagoFields) {
+  const record = await airtableRequest<AirtableRecord<HorarioPeriodoPagoFields>>(getTableUrl(PERIODOS_TABLE, periodoId), {
+    method: "PATCH",
+    body: JSON.stringify({ fields })
   });
 
   return mapPeriodo(record);
@@ -1833,8 +1979,14 @@ async function syncPeriodoRegistros(periodo: HorarioPeriodoPago) {
     return periodo;
   }
 
-  const registros = await listRegistrosPeriodoCandidate(periodo.fechaInicio, periodo.fechaFin, periodo.empleadoRecordId);
-  const registroIds = Array.from(new Set(registros.map((registro) => registro.id)));
+  const pagos = await fetchPagosByPeriodo(periodo.id);
+
+  if (shouldBlockPeriodoAutoSync(periodo, pagos)) {
+    return periodo;
+  }
+
+  const registros = await listRegistrosPeriodoDisponibles(periodo.fechaInicio, periodo.fechaFin, periodo.empleadoRecordId, periodo.id);
+  const registroIds = Array.from(new Set([...periodo.registroIds, ...registros.map((registro) => registro.id)]));
 
   if (sameRecordIds(periodo.registroIds, registroIds)) {
     return periodo;
@@ -1858,11 +2010,15 @@ async function hydratePeriodo(
   options?: { syncRegistros?: boolean }
 ): Promise<HorarioPeriodoPagoDetalle> {
   const syncedPeriodo = options?.syncRegistros ? await syncPeriodoRegistros(periodo) : periodo;
-  const [registros, pagos, ajustes] = await Promise.all([
+  const [registros, pagos, ajustesResult] = await Promise.all([
     listRegistrosByIds(syncedPeriodo.registroIds),
     fetchPagosByPeriodo(syncedPeriodo.id),
-    fetchAjustesByPeriodo(syncedPeriodo.id)
+    fetchAjustesByPeriodo(syncedPeriodo.id).catch((error) => {
+      console.warn(`No se pudieron cargar ajustes del periodo ${syncedPeriodo.id}. Se continuará sin ajustes.`, error);
+      return [];
+    })
   ]);
+  const ajustes = ajustesResult;
   const maps = userMaps || buildPortalUserMaps(await listPortalUsers());
   const periodoUser = findPortalUserForEmpleado(maps, syncedPeriodo.empleadoRecordId, syncedPeriodo.correo);
   const enrichedPeriodo = applyPortalUserToPeriodo(syncedPeriodo, periodoUser);
@@ -1870,7 +2026,14 @@ async function hydratePeriodo(
     applyPortalUserToRegistro(registro, findPortalUserForEmpleado(maps, registro.empleadoRecordId, registro.correo))
   );
   const totals = calculatePeriodoTotals(enrichedRegistros, pagos, ajustes);
-  const estadoCalculado = syncedPeriodo.estadoPeriodo === "Anulado" ? syncedPeriodo.estadoPeriodo : getEstadoPeriodoFromTotals(totals.totalPagado, totals.saldoPendiente);
+  const estadoCalculado =
+    syncedPeriodo.estadoPeriodo === "Anulado" || syncedPeriodo.estadoPeriodo === "Cerrado"
+      ? syncedPeriodo.estadoPeriodo
+      : getEstadoPeriodoFromTotals(totals.totalPagado, totals.saldoPendiente, totals.totalNeto);
+
+  if (estadoCalculado !== syncedPeriodo.estadoPeriodo && syncedPeriodo.estadoPeriodo !== "Anulado" && syncedPeriodo.estadoPeriodo !== "Cerrado") {
+    await updatePeriodoEstado(syncedPeriodo.id, estadoCalculado);
+  }
 
   return {
     ...enrichedPeriodo,
@@ -1898,9 +2061,57 @@ export async function fetchPeriodosPago() {
   });
   const records = await listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, query);
   const userMaps = buildPortalUserMaps(await listPortalUsers());
-  const periodos = await Promise.all(records.map((record) => hydratePeriodo(mapPeriodo(record), userMaps)));
 
-  return periodos;
+  return records.map((record) => {
+    const periodo = mapPeriodo(record);
+    const periodoUser = findPortalUserForEmpleado(userMaps, periodo.empleadoRecordId, periodo.correo);
+    const enrichedPeriodo = applyPortalUserToPeriodo(periodo, periodoUser);
+
+    return {
+      ...enrichedPeriodo,
+      estadoPeriodo: getEffectiveEstadoPeriodo(enrichedPeriodo),
+      registros: [],
+      pagos: [],
+      ajustes: []
+    };
+  });
+}
+
+export async function actualizarEstadosPeriodosPago(): Promise<{
+  revisados: number;
+  actualizados: number;
+  periodos: Array<{ id: string; estadoAnterior: string; estadoNuevo: string }>;
+}> {
+  const records = await listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, new URLSearchParams({
+    "sort[0][field]": HORARIOS_PERIODOS_FIELDS.fechaInicio,
+    "sort[0][direction]": "desc"
+  }));
+  const cambios: Array<{ id: string; estadoAnterior: string; estadoNuevo: string }> = [];
+
+  for (const record of records) {
+    const periodo = mapPeriodo(record);
+
+    if (periodo.estadoPeriodo === "Anulado" || periodo.estadoPeriodo === "Cerrado") {
+      continue;
+    }
+
+    const estadoNuevo = getEffectiveEstadoPeriodo(periodo);
+
+    if (estadoNuevo !== periodo.estadoPeriodo) {
+      await updatePeriodoEstado(periodo.id, estadoNuevo);
+      cambios.push({
+        id: periodo.id,
+        estadoAnterior: periodo.estadoPeriodo,
+        estadoNuevo
+      });
+    }
+  }
+
+  return {
+    revisados: records.length,
+    actualizados: cambios.length,
+    periodos: cambios
+  };
 }
 
 export async function fetchPeriodoPagoById(id: string): Promise<HorarioPeriodoPagoDetalle | null> {
@@ -2010,16 +2221,16 @@ export async function crearPeriodoPago(input: CrearPeriodoPagoInput): Promise<Ho
     throw new Error("La fecha fin no puede ser anterior a la fecha inicio.");
   }
 
-  const existing = await findPeriodoDuplicado(empleadoId, fechaInicio, fechaFin);
+  const overlapping = await findPeriodoSolapado(empleadoId, fechaInicio, fechaFin);
 
-  if (existing) {
-    return hydratePeriodo(existing, undefined, { syncRegistros: true });
+  if (overlapping) {
+    throw new Error(`Ya existe un periodo para este empleado que se solapa con el rango seleccionado: ${overlapping.fechaInicio} - ${overlapping.fechaFin}.`);
   }
 
-  const registros = await listRegistrosPeriodoCandidate(fechaInicio, fechaFin, empleadoId);
+  const registros = await listRegistrosPeriodoDisponibles(fechaInicio, fechaFin, empleadoId);
 
   if (!registros.length) {
-    throw new Error("No hay jornadas finalizadas o revisadas para este empleado en el rango seleccionado.");
+    throw new Error("No hay jornadas finalizadas o revisadas disponibles para este empleado en el rango seleccionado.");
   }
 
   const firstRegistro = registros[0];
@@ -2039,6 +2250,97 @@ export async function crearPeriodoPago(input: CrearPeriodoPagoInput): Promise<Ho
   });
 
   return hydratePeriodo(mapPeriodo(record));
+}
+
+export async function eliminarPeriodoPago(periodoId: string): Promise<{ deleted: true; id: string }> {
+  assertAirtableRecordId(periodoId, "Periodo");
+
+  const periodo = await fetchPeriodoPagoById(periodoId);
+
+  if (!periodo) {
+    throw new Error("No se encontró el periodo de pago.");
+  }
+
+  if (hasPagosActivos(periodo.pagos)) {
+    throw new Error("Este periodo tiene pagos registrados. Primero anula o elimina los pagos antes de eliminar el periodo.");
+  }
+
+  if (periodo.registroIds.length) {
+    await airtableRequest<AirtableRecord<HorarioPeriodoPagoFields>>(getTableUrl(PERIODOS_TABLE, periodo.id), {
+      method: "PATCH",
+      body: JSON.stringify({
+        fields: {
+          [HORARIOS_PERIODOS_FIELDS.registrosPeriodo]: []
+        }
+      })
+    });
+  }
+
+  await airtableRequest<{ deleted: boolean; id: string }>(getTableUrl(PERIODOS_TABLE, periodo.id), {
+    method: "DELETE"
+  });
+
+  return { deleted: true, id: periodo.id };
+}
+
+export async function cerrarPeriodoHastaFecha(input: CerrarPeriodoHastaFechaInput): Promise<{
+  periodo: HorarioPeriodoPagoDetalle;
+  nuevoPeriodo: HorarioPeriodoPagoDetalle | null;
+  jornadasRetiradas: number;
+}> {
+  const periodoId = input.periodoId.trim();
+  const fechaCorte = input.fechaCorte.trim();
+
+  assertAirtableRecordId(periodoId, "Periodo");
+  validateDateKey(fechaCorte, "Fecha de corte");
+
+  const periodo = await fetchPeriodoPagoById(periodoId);
+
+  if (!periodo) {
+    throw new Error("No se encontró el periodo de pago.");
+  }
+
+  if (periodo.estadoPeriodo === "Anulado") {
+    throw new Error("No se puede cerrar un periodo anulado.");
+  }
+
+  if (!periodo.empleadoRecordId) {
+    throw new Error("El periodo no tiene empleado vinculado.");
+  }
+
+  if (fechaCorte < periodo.fechaInicio || fechaCorte > periodo.fechaFin) {
+    throw new Error("La fecha de corte debe estar dentro del rango actual del periodo.");
+  }
+
+  const registrosDentro = periodo.registros.filter((registro) => registro.fecha <= fechaCorte);
+  const registrosPosteriores = periodo.registros.filter((registro) => registro.fecha > fechaCorte);
+
+  if (!registrosDentro.length) {
+    throw new Error("El periodo debe conservar al menos una jornada hasta la fecha de corte.");
+  }
+
+  if (!registrosPosteriores.length && periodo.fechaFin === fechaCorte) {
+    throw new Error("No hay jornadas posteriores para retirar de este periodo.");
+  }
+
+  const totals = calculatePeriodoTotals(registrosDentro, periodo.pagos, periodo.ajustes);
+  const estadoPeriodo =
+    periodo.estadoPeriodo === "Cerrado"
+      ? periodo.estadoPeriodo
+      : getEstadoPeriodoFromTotals(totals.totalPagado, totals.saldoPendiente, totals.totalNeto);
+  const periodoActualizadoBase = await updatePeriodoFields(periodo.id, {
+    [HORARIOS_PERIODOS_FIELDS.fechaFin]: fechaCorte,
+    [HORARIOS_PERIODOS_FIELDS.registrosPeriodo]: registrosDentro.map((registro) => registro.id),
+    [HORARIOS_PERIODOS_FIELDS.estadoPeriodo]: estadoPeriodo
+  });
+
+  const periodoActualizado = await hydratePeriodo(periodoActualizadoBase);
+
+  return {
+    periodo: periodoActualizado,
+    nuevoPeriodo: null,
+    jornadasRetiradas: registrosPosteriores.length
+  };
 }
 
 export async function fetchHorarioEmpleadoAdminDetalle(empleadoId: string): Promise<HorarioAdminEmpleadoDetalle | null> {
@@ -2188,7 +2490,10 @@ export async function anularPagoHorario(input: AnularPagoHorarioInput): Promise<
   });
   const pagos = await fetchPagosByPeriodo(periodo.id);
   const totals = calculatePeriodoTotals(periodo.registros, pagos, periodo.ajustes);
-  const estadoPeriodo = periodo.estadoPeriodo === "Anulado" ? "Anulado" : getEstadoPeriodoFromTotals(totals.totalPagado, totals.saldoPendiente);
+  const estadoPeriodo =
+    periodo.estadoPeriodo === "Anulado" || periodo.estadoPeriodo === "Cerrado"
+      ? periodo.estadoPeriodo
+      : getEstadoPeriodoFromTotals(totals.totalPagado, totals.saldoPendiente, totals.totalNeto);
 
   if (estadoPeriodo !== periodo.estadoPeriodo) {
     await updatePeriodoEstado(periodo.id, estadoPeriodo);
@@ -2261,7 +2566,10 @@ export async function registrarAmonestacionHorario(input: RegistrarAmonestacionH
   });
   const ajustes = await fetchAjustesByPeriodo(periodo.id);
   const totals = calculatePeriodoTotals(periodo.registros, periodo.pagos, ajustes);
-  const estadoPeriodo = periodo.estadoPeriodo === "Anulado" ? "Anulado" : getEstadoPeriodoFromTotals(totals.totalPagado, totals.saldoPendienteNeto);
+  const estadoPeriodo =
+    periodo.estadoPeriodo === "Anulado" || periodo.estadoPeriodo === "Cerrado"
+      ? periodo.estadoPeriodo
+      : getEstadoPeriodoFromTotals(totals.totalPagado, totals.saldoPendienteNeto, totals.totalNeto);
 
   if (estadoPeriodo !== periodo.estadoPeriodo) {
     await updatePeriodoEstado(periodo.id, estadoPeriodo);
@@ -2359,7 +2667,10 @@ export async function registrarPagoHorario(input: RegistrarPagoHorarioInput): Pr
 
   const pagos = await fetchPagosByPeriodo(periodo.id);
   const totals = calculatePeriodoTotals(periodo.registros, pagos, periodo.ajustes);
-  const estadoPeriodo = periodo.estadoPeriodo === "Anulado" ? "Anulado" : getEstadoPeriodoFromTotals(totals.totalPagado, totals.saldoPendiente);
+  const estadoPeriodo =
+    periodo.estadoPeriodo === "Anulado" || periodo.estadoPeriodo === "Cerrado"
+      ? periodo.estadoPeriodo
+      : getEstadoPeriodoFromTotals(totals.totalPagado, totals.saldoPendiente, totals.totalNeto);
 
   if (estadoPeriodo !== periodo.estadoPeriodo) {
     await updatePeriodoEstado(periodo.id, estadoPeriodo);

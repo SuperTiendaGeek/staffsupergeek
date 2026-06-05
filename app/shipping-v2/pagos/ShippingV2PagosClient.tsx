@@ -191,7 +191,7 @@ function DetailModal({ pago, onClose, onUpdated }: { pago: ShippingV2Pago; onClo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <section className="max-h-[92vh] w-full max-w-[1800px] overflow-y-auto rounded-[1.25rem] border border-[#3A3A36] bg-[#1B1B1B] p-5 shadow-2xl">
+      <section className="max-h-[92vh] w-full max-w-[1800px] overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#1B1B1B] p-4 shadow-2xl">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Detalle de pago</p>
@@ -291,7 +291,7 @@ function CreatePaymentModal({ selectedItems, registerPaidDefault, onClose, onCre
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[1.25rem] border border-[#3A3A36] bg-[#1B1B1B] p-5 shadow-2xl">
+      <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#1B1B1B] p-4 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">{registerPaidDefault ? "Registrar pago ya realizado" : "Crear pago pendiente"}</p>

@@ -52,24 +52,24 @@ function metricCards(resumen: HorarioAdminResumen | null) {
 
   return [
     {
-      label: "Horas finalizadas del rango",
-      value: formatHours(totales?.horasTrabajadas || 0),
-      helper: `${totales?.minutosTrabajados || 0} min`
-    },
-    {
-      label: "A pagar en el rango",
-      value: formatMoney(totales?.totalNeto || 0),
-      helper: "Neto después de descuentos"
+      label: "Generado en el rango",
+      value: formatMoney(totales?.generadoEnRango ?? totales?.totalNeto ?? 0),
+      helper: "Jornadas finalizadas o revisadas"
     },
     {
       label: "Pagado en el rango",
-      value: formatMoney(totales?.totalPagado || 0),
-      helper: "Pagos activos con fecha dentro del rango"
+      value: formatMoney(totales?.pagadoEnRango ?? totales?.totalPagado ?? 0),
+      helper: "Pagos activos registrados en el rango"
     },
     {
-      label: "Pendiente del rango",
-      value: formatMoney(totales?.saldoPendiente || 0),
-      helper: "A pagar menos pagado"
+      label: "Saldo pendiente real",
+      value: formatMoney(totales?.saldoPendienteReal ?? totales?.saldoPendiente ?? 0),
+      helper: "Saldos de periodos abiertos o parciales"
+    },
+    {
+      label: "Pendiente nuevo sin periodo",
+      value: formatMoney(totales?.pendienteNuevoSinPeriodo ?? 0),
+      helper: "Jornadas del rango aún no agrupadas"
     }
   ];
 }
@@ -94,20 +94,41 @@ export default async function HorariosAdminPage({ searchParams }: PageProps) {
   const fechaInicio = normalizeDateParam(params?.inicio);
   const fechaFin = normalizeDateParam(params?.fin);
 
-  try {
-    [resumen, periodos, empleados, jornadasIncompletas] = await Promise.all([
-      fetchHorariosAdminResumen({ fechaInicio, fechaFin }),
-      fetchPeriodosPago(),
-      fetchHorariosEmpleadosParaPeriodo(),
-      fetchJornadasIncompletasAdmin()
-    ]);
-  } catch (loadError) {
-    console.error("Error al cargar vista admin de horarios:", loadError);
-    error = "No se pudo cargar la vista administrativa de horarios.";
+  const [resumenResult, periodosResult, empleadosResult, jornadasResult] = await Promise.allSettled([
+    fetchHorariosAdminResumen({ fechaInicio, fechaFin }),
+    fetchPeriodosPago(),
+    fetchHorariosEmpleadosParaPeriodo(),
+    fetchJornadasIncompletasAdmin()
+  ]);
+
+  if (resumenResult.status === "fulfilled") {
+    resumen = resumenResult.value;
+  } else {
+    console.error("Error al cargar resumen admin de horarios:", resumenResult.reason);
+    error = "No se pudo cargar el resumen administrativo de horarios.";
+  }
+
+  if (periodosResult.status === "fulfilled") {
+    periodos = periodosResult.value;
+  } else {
+    console.warn("No se pudieron cargar periodos de pago en la vista admin:", periodosResult.reason);
+  }
+
+  if (empleadosResult.status === "fulfilled") {
+    empleados = empleadosResult.value;
+  } else {
+    console.warn("No se pudieron cargar empleados para periodos de pago:", empleadosResult.reason);
+  }
+
+  if (jornadasResult.status === "fulfilled") {
+    jornadasIncompletas = jornadasResult.value;
+  } else {
+    console.warn("No se pudieron cargar jornadas incompletas:", jornadasResult.reason);
   }
 
   return (
     <PortalShell
+      density="compact"
       eyebrow="Administración"
       title="Horarios y pagos"
       description="Consulta horas finalizadas, pagos y saldos pendientes por empleado según el rango seleccionado."
@@ -173,11 +194,11 @@ export default async function HorariosAdminPage({ searchParams }: PageProps) {
                   <th className="px-3 py-2 font-semibold">Empleado</th>
                   <th className="px-3 py-2 font-semibold">Días finalizados</th>
                   <th className="px-3 py-2 font-semibold">Horas trabajadas</th>
-                  <th className="px-3 py-2 font-semibold">Bruto</th>
-                  <th className="px-3 py-2 font-semibold">Descuentos</th>
-                  <th className="px-3 py-2 font-semibold">Neto a pagar</th>
-                  <th className="px-3 py-2 font-semibold">Total pagado</th>
-                  <th className="px-3 py-2 font-semibold">Saldo pendiente</th>
+                  <th className="px-3 py-2 font-semibold">Generado en rango</th>
+                  <th className="px-3 py-2 font-semibold">Ajustes rango</th>
+                  <th className="px-3 py-2 font-semibold">Pagado asociado</th>
+                  <th className="px-3 py-2 font-semibold">Saldo pendiente real</th>
+                  <th className="px-3 py-2 font-semibold">Sin periodo</th>
                   <th className="px-3 py-2 font-semibold">Acción</th>
                 </tr>
               </thead>
@@ -191,13 +212,16 @@ export default async function HorariosAdminPage({ searchParams }: PageProps) {
                       </td>
                       <td className="px-3 py-2.5">{empleado.registrosCount}</td>
                       <td className="px-3 py-2.5 font-semibold text-white">{formatHours(empleado.horasTrabajadas)}</td>
-                      <td className="px-3 py-2.5 font-semibold text-white">{formatMoney(empleado.totalGanado)}</td>
+                      <td className="px-3 py-2.5 font-semibold text-white">{formatMoney(empleado.generadoEnRango ?? empleado.totalGanado)}</td>
                       <td className={`px-3 py-2.5 font-semibold ${empleado.totalAjustes < 0 ? "text-red-100" : "text-zinc-300"}`}>
                         {formatMoney(empleado.totalAjustes)}
                       </td>
-                      <td className="px-3 py-2.5 font-semibold text-white">{formatMoney(empleado.totalNeto)}</td>
-                      <td className="px-3 py-2.5 font-semibold text-zinc-100">{formatMoney(empleado.totalPagado)}</td>
-                      <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(empleado.saldoPendiente)}</td>
+                      <td className="px-3 py-2.5 font-semibold text-zinc-100">{formatMoney(empleado.pagadoAsociado ?? empleado.totalPagado)}</td>
+                      <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(empleado.saldoPendienteReal ?? empleado.saldoPendiente)}</td>
+                      <td className="px-3 py-2.5">
+                        <p className="font-semibold text-white">{formatMoney(empleado.pendienteNuevoSinPeriodo ?? 0)}</p>
+                        <p className="text-xs text-zinc-500">{empleado.jornadasSinPeriodoCount ?? 0} jornadas</p>
+                      </td>
                       <td className="px-3 py-2.5">
                         {empleado.empleadoRecordId ? (
                           <Link

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { CerrarPeriodoHastaFechaButton } from "@/components/horarios/CerrarPeriodoHastaFechaButton";
 import { PortalShell } from "@/components/PortalShell";
 import { isAdministratorRole } from "@/lib/apps";
 import { fetchHorarioEmpleadoAdminDetalle } from "@/lib/horarios/airtable";
@@ -52,7 +53,7 @@ function statusClasses(status: string) {
     return "border-amber-300/30 bg-amber-300/10 text-amber-100";
   }
 
-  return "border-white/10 bg-white/[0.05] text-zinc-300";
+  return "border-[#30312D] bg-white/[0.05] text-zinc-300";
 }
 
 export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
@@ -82,22 +83,23 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
 
   return (
     <PortalShell
+      density="compact"
       eyebrow="Administración"
       title="Empleado y pagos"
       description="Saldo, jornadas pendientes, periodos y pagos registrados del empleado."
     >
-      <section className="w-full space-y-5 text-left">
+      <section className="w-full space-y-3 text-left">
         <Link href="/horarios/admin" className="text-sm font-semibold text-geek-lime transition hover:text-white">
           Volver a horarios y pagos
         </Link>
 
-        <section className="rounded-lg border border-white/10 bg-white/[0.045] p-5 shadow-2xl shadow-black/20 backdrop-blur">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <section className="rounded-lg border border-[#30312D] bg-[#151613] px-3 py-2.5 shadow-2xl shadow-black/20 backdrop-blur">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-sm text-zinc-400">Empleado</p>
-              <h2 className="mt-1 text-2xl font-semibold text-white">{detalle.empleado.empleado}</h2>
+              <h2 className="mt-1 text-xl font-semibold text-white">{detalle.empleado.empleado}</h2>
               <p className="mt-1 text-sm text-zinc-500">{detalle.empleado.correo || detalle.empleado.usuarioId}</p>
-              <p className="mt-4 text-sm text-zinc-300">
+              <p className="mt-2 text-sm text-zinc-300">
                 {[detalle.empleado.rol, detalle.empleado.cedula].filter(Boolean).join(" · ") || "Datos administrativos no registrados"}
               </p>
             </div>
@@ -109,25 +111,25 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
                 Registrar pago
               </Link>
             ) : (
-              <span className="rounded-md border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-400">
+              <span className="rounded-md border border-[#30312D] px-4 py-2.5 text-sm font-medium text-zinc-400">
                 Sin periodo para pago
               </span>
             )}
           </div>
         </section>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {metrics.map((metric) => (
-            <div key={metric.label} className="rounded-lg border border-white/10 bg-white/[0.045] p-5 shadow-2xl shadow-black/20 backdrop-blur">
+            <div key={metric.label} className="rounded-lg border border-[#30312D] bg-[#151613] px-3 py-2.5 shadow-2xl shadow-black/20 backdrop-blur">
               <p className="text-sm text-zinc-400">{metric.label}</p>
-              <p className="mt-2 text-2xl font-semibold text-white">{metric.value}</p>
+              <p className="mt-2 text-xl font-semibold text-white">{metric.value}</p>
               <p className="mt-2 text-xs text-zinc-500">{metric.helper}</p>
             </div>
           ))}
         </div>
 
-        <section className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.035] shadow-2xl shadow-black/20 backdrop-blur">
-          <div className="border-b border-white/10 px-4 py-4">
+        <section className="overflow-hidden rounded-lg border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20 backdrop-blur">
+          <div className="border-b border-[#30312D] px-3 py-2.5">
             <h2 className="text-lg font-semibold text-white">Jornadas pendientes de pago</h2>
             <p className="mt-1 text-sm text-zinc-400">Finalizadas o revisadas que todavía no están dentro de un periodo activo.</p>
           </div>
@@ -135,24 +137,24 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
             <table className="min-w-full divide-y divide-white/10 text-left text-sm">
               <thead className="bg-white/[0.04] text-xs uppercase text-zinc-400">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Fecha</th>
-                  <th className="px-4 py-3 font-semibold">Entrada</th>
-                  <th className="px-4 py-3 font-semibold">Salida final</th>
-                  <th className="px-4 py-3 font-semibold">Horas</th>
-                  <th className="px-4 py-3 font-semibold">Total día</th>
-                  <th className="px-4 py-3 font-semibold">Estado</th>
+                  <th className="px-3 py-2 font-semibold">Fecha</th>
+                  <th className="px-3 py-2 font-semibold">Entrada</th>
+                  <th className="px-3 py-2 font-semibold">Salida final</th>
+                  <th className="px-3 py-2 font-semibold">Horas</th>
+                  <th className="px-3 py-2 font-semibold">Total día</th>
+                  <th className="px-3 py-2 font-semibold">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {detalle.jornadasPendientes.length ? (
                   detalle.jornadasPendientes.map((registro) => (
                     <tr key={registro.id} className="text-zinc-200">
-                      <td className="px-4 py-4">{registro.fecha}</td>
-                      <td className="px-4 py-4">{formatTime(registro.entrada)}</td>
-                      <td className="px-4 py-4">{formatTime(registro.salidaFinal)}</td>
-                      <td className="px-4 py-4 font-semibold text-white">{formatHours(registro.horasTrabajadas)}</td>
-                      <td className="px-4 py-4 font-semibold text-geek-lime">{formatMoney(registro.totalEstimadoDia)}</td>
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-2.5">{registro.fecha}</td>
+                      <td className="px-3 py-2.5">{formatTime(registro.entrada)}</td>
+                      <td className="px-3 py-2.5">{formatTime(registro.salidaFinal)}</td>
+                      <td className="px-3 py-2.5 font-semibold text-white">{formatHours(registro.horasTrabajadas)}</td>
+                      <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(registro.totalEstimadoDia)}</td>
+                      <td className="px-3 py-2.5">
                         <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses(registro.estadoDia)}`}>
                           {registro.estadoDia}
                         </span>
@@ -161,7 +163,7 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-zinc-400">
+                    <td colSpan={6} className="px-3 py-5 text-center text-zinc-400">
                       No hay jornadas pendientes fuera de periodos.
                     </td>
                   </tr>
@@ -171,44 +173,51 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.035] shadow-2xl shadow-black/20 backdrop-blur">
-          <div className="border-b border-white/10 px-4 py-4">
+        <section className="overflow-hidden rounded-lg border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20 backdrop-blur">
+          <div className="border-b border-[#30312D] px-3 py-2.5">
             <h2 className="text-lg font-semibold text-white">Periodos existentes</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-white/10 text-left text-sm">
               <thead className="bg-white/[0.04] text-xs uppercase text-zinc-400">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Periodo</th>
-                  <th className="px-4 py-3 font-semibold">Estado</th>
-                  <th className="px-4 py-3 font-semibold">Horas</th>
-                  <th className="px-4 py-3 font-semibold">Total neto</th>
-                  <th className="px-4 py-3 font-semibold">Pagado</th>
-                  <th className="px-4 py-3 font-semibold">Saldo neto</th>
-                  <th className="px-4 py-3 font-semibold">Acciones</th>
+                  <th className="px-3 py-2 font-semibold">Periodo</th>
+                  <th className="px-3 py-2 font-semibold">Estado</th>
+                  <th className="px-3 py-2 font-semibold">Horas</th>
+                  <th className="px-3 py-2 font-semibold">Total neto</th>
+                  <th className="px-3 py-2 font-semibold">Pagado</th>
+                  <th className="px-3 py-2 font-semibold">Saldo neto</th>
+                  <th className="px-3 py-2 font-semibold">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {detalle.periodos.length ? (
                   detalle.periodos.map((periodo) => (
                     <tr key={periodo.id} className="text-zinc-200">
-                      <td className="px-4 py-4">{periodo.fechaInicio} - {periodo.fechaFin}</td>
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-2.5">{periodo.fechaInicio} - {periodo.fechaFin}</td>
+                      <td className="px-3 py-2.5">
                         <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses(periodo.estadoPeriodo)}`}>
                           {periodo.estadoPeriodo}
                         </span>
                       </td>
-                      <td className="px-4 py-4 font-semibold text-white">{formatHours(periodo.totalHoras)}</td>
-                      <td className="px-4 py-4">{formatMoney(periodo.totalNeto)}</td>
-                      <td className="px-4 py-4">{formatMoney(periodo.totalPagado)}</td>
-                      <td className="px-4 py-4 font-semibold text-geek-lime">{formatMoney(periodo.saldoPendienteNeto)}</td>
-                      <td className="px-4 py-4">
-                        <div className="flex flex-wrap gap-3">
-                          <Link href={`/horarios/admin/periodos/${periodo.id}`} className="font-semibold text-geek-lime transition hover:text-white">
+                      <td className="px-3 py-2.5 font-semibold text-white">{formatHours(periodo.totalHoras)}</td>
+                      <td className="px-3 py-2.5">{formatMoney(periodo.totalNeto)}</td>
+                      <td className="px-3 py-2.5">{formatMoney(periodo.totalPagado)}</td>
+                      <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(periodo.saldoPendienteNeto)}</td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            href={`/horarios/admin/periodos/${periodo.id}`}
+                            className="inline-flex rounded-md border border-geek-lime/30 px-2.5 py-1.5 text-xs font-semibold text-geek-lime transition hover:border-white/40 hover:text-white"
+                          >
                             Registrar pago
                           </Link>
+                          <CerrarPeriodoHastaFechaButton periodoId={periodo.id} fechaInicio={periodo.fechaInicio} fechaFin={periodo.fechaFin} />
                           {periodo.totalPagado > 0 ? (
-                            <Link href={`/horarios/admin/periodos/${periodo.id}`} className="font-semibold text-zinc-200 transition hover:text-white">
+                            <Link
+                              href={`/horarios/admin/periodos/${periodo.id}`}
+                              className="inline-flex rounded-md border border-[#30312D] px-2.5 py-1.5 text-xs font-semibold text-zinc-200 transition hover:border-white/40 hover:text-white"
+                            >
                               Generar rol
                             </Link>
                           ) : null}
@@ -218,7 +227,7 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-400">
+                    <td colSpan={7} className="px-3 py-5 text-center text-zinc-400">
                       No hay periodos registrados para este empleado.
                     </td>
                   </tr>
@@ -228,33 +237,33 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.035] shadow-2xl shadow-black/20 backdrop-blur">
-          <div className="border-b border-white/10 px-4 py-4">
+        <section className="overflow-hidden rounded-lg border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20 backdrop-blur">
+          <div className="border-b border-[#30312D] px-3 py-2.5">
             <h2 className="text-lg font-semibold text-white">Pagos realizados</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-white/10 text-left text-sm">
               <thead className="bg-white/[0.04] text-xs uppercase text-zinc-400">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">Fecha</th>
-                  <th className="px-4 py-3 font-semibold">Monto</th>
-                  <th className="px-4 py-3 font-semibold">Método</th>
-                  <th className="px-4 py-3 font-semibold">Transacción</th>
+                  <th className="px-3 py-2 font-semibold">Fecha</th>
+                  <th className="px-3 py-2 font-semibold">Monto</th>
+                  <th className="px-3 py-2 font-semibold">Método</th>
+                  <th className="px-3 py-2 font-semibold">Transacción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {detalle.pagos.length ? (
                   detalle.pagos.map((pago) => (
                     <tr key={pago.id} className="text-zinc-200">
-                      <td className="px-4 py-4">{pago.fechaPago}</td>
-                      <td className="px-4 py-4 font-semibold text-geek-lime">{formatMoney(pago.montoPagado)}</td>
-                      <td className="px-4 py-4">{pago.metodoPago || "--"}</td>
-                      <td className="px-4 py-4">{pago.numeroTransaccion || "--"}</td>
+                      <td className="px-3 py-2.5">{pago.fechaPago}</td>
+                      <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(pago.montoPagado)}</td>
+                      <td className="px-3 py-2.5">{pago.metodoPago || "--"}</td>
+                      <td className="px-3 py-2.5">{pago.numeroTransaccion || "--"}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-zinc-400">
+                    <td colSpan={4} className="px-3 py-5 text-center text-zinc-400">
                       No hay pagos activos registrados para este empleado.
                     </td>
                   </tr>

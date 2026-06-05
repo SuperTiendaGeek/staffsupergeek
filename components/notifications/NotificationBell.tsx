@@ -257,8 +257,9 @@ export function NotificationBell() {
         ref={buttonRef}
         type="button"
         onClick={handleToggle}
-        className="relative grid h-10 w-10 place-items-center rounded-md border border-white/10 bg-black/20 text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime"
-        aria-label="Abrir notificaciones"
+        className="relative grid h-9 w-9 place-items-center rounded-md border border-[#3A3A36] bg-[#181916] text-[#CFCFCB] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] xl:h-10 xl:w-10"
+        aria-label="Mis notificaciones"
+        title="Mis notificaciones"
       >
         <BellIcon />
         {unreadCount > 0 ? (

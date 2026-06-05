@@ -1,7 +1,8 @@
 "use client";
 
+import { animate, stagger } from "animejs";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Bell,
   CalendarClock,
@@ -11,6 +12,7 @@ import {
   FileText,
   LayoutDashboard,
   LogOut,
+  Megaphone,
   Menu,
   PackageCheck,
   ReceiptText,
@@ -19,6 +21,13 @@ import {
 } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { isAdministratorRole } from "@/lib/apps";
@@ -29,6 +38,7 @@ type StaffAppFrameProps = {
   children: React.ReactNode;
   activeHref?: string;
   sectionLabel?: string;
+  headerSubtitle?: string;
   user?: SessionUser | null;
 };
 
@@ -89,13 +99,14 @@ function NavList({ activeHref, mobile = false, expanded = true }: { activeHref?:
         const link = (
           <Link
             href={item.href}
+            data-sidebar-nav-item
             title={!expanded ? item.label : undefined}
             aria-label={item.label}
             className={cn(
               "group flex h-10 items-center rounded-lg border text-[13px] font-semibold transition 2xl:h-11 2xl:text-sm",
               expanded ? "justify-start gap-3 px-3 2xl:px-3.5" : "justify-center gap-0 px-0",
               active
-                ? "border-[#D7FF4F]/40 bg-[#D7FF4F]/12 text-[#D7FF4F]"
+                ? "border-[#D7FF4F]/50 bg-[#D7FF4F]/12 text-[#D7FF4F] shadow-[inset_3px_0_0_rgba(215,255,79,0.9),0_0_18px_rgba(215,255,79,0.10)]"
                 : "border-transparent text-[#CFCFCB] hover:border-[#3A3A36] hover:bg-[#252622] hover:text-[#F5F5F5]"
             )}
           >
@@ -123,11 +134,81 @@ function NavList({ activeHref, mobile = false, expanded = true }: { activeHref?:
   );
 }
 
-export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Staff", user }: StaffAppFrameProps) {
+function StaffUserDropdown({ user }: { user?: SessionUser | null }) {
+  const displayName = user?.nombre || "Staff SUPER GEEK";
+  const role = user?.rol || "Staff";
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-9 w-9 border-[#3A3A36] bg-[#181916] text-[12px] font-black text-[#D7FF4F] hover:border-[#D7FF4F]/60 hover:bg-[#252622] hover:text-[#D7FF4F] xl:h-10 xl:w-10"
+          aria-label={`Cuenta de ${displayName}`}
+          title={displayName}
+        >
+          {initials(displayName)}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60 border-[#30312D] bg-[#10110E] p-2 text-[#F5F5F5] shadow-2xl shadow-black/50">
+        <DropdownMenuLabel className="px-2 py-2">
+          <span className="block truncate text-sm font-semibold text-white">{displayName}</span>
+          <span className="mt-0.5 block truncate text-xs font-medium text-[#A7A7A7]">{role}</span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator className="bg-[#30312D]" />
+        <form action="/api/auth/logout" method="post">
+          <button
+            type="submit"
+            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm font-semibold text-[#CFCFCB] outline-none transition hover:bg-[#252622] hover:text-[#D7FF4F] focus:bg-[#252622] focus:text-[#D7FF4F]"
+          >
+            <LogOut className="h-4 w-4" />
+            Cerrar sesión
+          </button>
+        </form>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Staff", headerSubtitle, user }: StaffAppFrameProps) {
   const isAdmin = isAdministratorRole(user?.rol);
+  const desktopSidebarRef = useRef<HTMLDivElement | null>(null);
   const [sidebarPinned, setSidebarPinned] = useState(true);
   const [sidebarHovered, setSidebarHovered] = useState(false);
   const sidebarExpanded = sidebarPinned || sidebarHovered;
+
+  useEffect(() => {
+    const sidebar = desktopSidebarRef.current;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (!sidebar || prefersReducedMotion) {
+      return;
+    }
+
+    const navLinks = Array.from(sidebar.querySelectorAll<HTMLElement>("[data-sidebar-nav-item]"));
+    const sidebarAnimation = animate(sidebar, {
+      opacity: { from: 0, to: 1 },
+      x: { from: -16, to: 0 },
+      duration: 420,
+      ease: "outCubic",
+    });
+    const navAnimation = navLinks.length
+      ? animate(navLinks, {
+          opacity: { from: 0, to: 1 },
+          x: { from: -8, to: 0 },
+          delay: stagger(35, { start: 90 }),
+          duration: 360,
+          ease: "outCubic",
+        })
+      : null;
+
+    return () => {
+      sidebarAnimation.cancel();
+      navAnimation?.cancel();
+    };
+  }, []);
 
   useEffect(() => {
     const storedValue = window.localStorage.getItem(SIDEBAR_PINNED_STORAGE_KEY);
@@ -150,6 +231,7 @@ export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Sta
   return (
     <main className="min-h-screen bg-[#07080A] text-[#F5F5F5]">
       <div
+        ref={desktopSidebarRef}
         className={cn(
           "fixed inset-y-0 left-0 z-30 hidden border-r border-[#272824] bg-[#10110E]/95 py-3 shadow-2xl shadow-black/30 backdrop-blur transition-[width,padding] duration-200 ease-out xl:block",
           sidebarExpanded ? "w-64 px-3 2xl:w-72 2xl:px-4" : "w-20 px-2"
@@ -201,8 +283,8 @@ export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Sta
 
       <div className={cn("transition-[padding] duration-200 ease-out", sidebarPinned ? "xl:pl-64 2xl:pl-72" : "xl:pl-20")}>
         <header className="sticky top-0 z-20 border-b border-[#272824] bg-[#0B0C0E]/86 backdrop-blur-xl">
-          <div className="flex h-14 items-center justify-between gap-3 px-3 sm:px-4 lg:px-6 xl:h-16 xl:px-7 2xl:px-9">
-            <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-14 items-center justify-between gap-2 px-3 sm:px-4 lg:px-6 xl:px-7 2xl:px-9">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <Sheet>
                 <SheetTrigger asChild>
                   <Button
@@ -221,16 +303,13 @@ export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Sta
                   <NavList activeHref={activeHref} mobile />
                 </SheetContent>
               </Sheet>
-              <div className="hidden xl:block">
-                <p className="text-[12px] font-bold uppercase tracking-normal text-[#D7FF4F]">{sectionLabel}</p>
-                <p className="text-sm text-[#A7A7A7]">Vista operativa</p>
-              </div>
-              <div className="xl:hidden">
-                <StaffLogo />
+              <div className="min-w-0">
+                <p className="truncate text-[13px] font-bold uppercase tracking-normal text-[#D7FF4F] sm:text-sm">{sectionLabel}</p>
+                {headerSubtitle ? <p className="hidden truncate text-xs text-[#A7A7A7] md:block">{headerSubtitle}</p> : null}
               </div>
             </div>
 
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
               {user ? <NotificationBell /> : null}
               {isAdmin ? (
                 <>
@@ -239,27 +318,14 @@ export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Sta
                       <Users className="h-4 w-4 xl:h-[18px] xl:w-[18px]" />
                     </Link>
                   </Button>
-                  <Button asChild variant="outline" size="icon" className="hidden h-9 w-9 border-[#3A3A36] bg-[#181916] text-[#CFCFCB] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] sm:inline-flex xl:h-10 xl:w-10" title="Notificaciones">
-                    <Link href="/admin/notificaciones" aria-label="Notificaciones">
-                      <Bell className="h-4 w-4 xl:h-[18px] xl:w-[18px]" />
+                  <Button asChild variant="outline" size="icon" className="hidden h-9 w-9 border-[#3A3A36] bg-[#181916] text-[#CFCFCB] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] sm:inline-flex xl:h-10 xl:w-10" title="Administrar notificaciones">
+                    <Link href="/admin/notificaciones" aria-label="Administrar notificaciones">
+                      <Megaphone className="h-4 w-4 xl:h-[18px] xl:w-[18px]" />
                     </Link>
                   </Button>
                 </>
               ) : null}
-              <div className="hidden min-w-0 items-center gap-2 rounded-lg border border-[#2F302B] bg-[#181916] px-2.5 py-1.5 md:flex xl:px-3 xl:py-2">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-[#D7FF4F]/12 text-[12px] font-black text-[#D7FF4F]">
-                  {initials(user?.nombre)}
-                </span>
-                <div className="min-w-0">
-                  <p className="max-w-36 truncate text-sm font-semibold xl:max-w-44">{user?.nombre || "Staff SUPER GEEK"}</p>
-                  <p className="truncate text-[12px] text-[#A7A7A7]">{user?.rol || "Staff"}</p>
-                </div>
-              </div>
-              <form action="/api/auth/logout" method="post">
-                <Button type="submit" variant="outline" size="icon" className="h-9 w-9 border-[#3A3A36] bg-[#181916] text-[#CFCFCB] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] xl:h-10 xl:w-10" aria-label="Cerrar sesion" title="Cerrar sesion">
-                  <LogOut className="h-4 w-4 xl:h-[18px] xl:w-[18px]" />
-                </Button>
-              </form>
+              <StaffUserDropdown user={user} />
             </div>
           </div>
         </header>

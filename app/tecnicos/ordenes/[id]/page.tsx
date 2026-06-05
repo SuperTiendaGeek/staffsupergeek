@@ -2105,7 +2105,7 @@ export default function OrdenDetallePage() {
                 </span>
               </div>
               {orden.historial.length === 0 ? (
-                <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-5 text-sm text-[var(--sg-text-secondary)]">
+                <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-sm text-[var(--sg-text-secondary)]">
                   Sin historial registrado.
                 </p>
               ) : (
@@ -2351,7 +2351,7 @@ export default function OrdenDetallePage() {
                   showRepuestoResults ? "z-[80]" : "z-10"
                 }`}
               >
-                <section className="relative isolate h-full space-y-5 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-5 py-5 shadow-[var(--sg-shadow-card)]">
+                <section className="relative isolate h-full space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
               <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] pb-4">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">
@@ -2529,7 +2529,7 @@ export default function OrdenDetallePage() {
               </div>
 
               {(orden.repuestosPorOrden ?? []).length === 0 ? (
-                <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-5 text-sm text-[var(--sg-text-secondary)]">
+                <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-sm text-[var(--sg-text-secondary)]">
                   Aun no se han registrado repuestos en esta orden.
                 </p>
               ) : (
@@ -2619,7 +2619,7 @@ export default function OrdenDetallePage() {
                   showServicioResults ? "z-[80]" : "z-10"
                 }`}
               >
-                <section className="relative isolate h-full space-y-5 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-5 py-5 shadow-[var(--sg-shadow-card)]">
+                <section className="relative isolate h-full space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
               <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] pb-4">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">
@@ -2763,7 +2763,7 @@ export default function OrdenDetallePage() {
               </div>
 
               {(orden.serviciosPorOrden ?? []).length === 0 ? (
-                <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-5 text-sm text-[var(--sg-text-secondary)]">
+                <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-sm text-[var(--sg-text-secondary)]">
                   Aun no se han registrado servicios en esta orden.
                 </p>
               ) : (
@@ -3169,7 +3169,7 @@ export default function OrdenDetallePage() {
 
             {bajaModalOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm">
-                <div className="w-full max-w-lg rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] p-5 shadow-2xl">
+                <div className="w-full max-w-lg rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] p-4 shadow-2xl">
                   <div className="space-y-2 border-b border-[var(--sg-divider)] pb-4">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-danger)]">
                       Confirmación requerida
@@ -3308,7 +3308,7 @@ export default function OrdenDetallePage() {
                       </div>
                     )}
                     {!viewerAttachmentIsImage && !viewerAttachmentIsPdf && (
-                      <div className="rounded-md border border-zinc-800 bg-zinc-900/70 px-4 py-5 text-sm text-zinc-300">
+                      <div className="rounded-md border border-zinc-800 bg-zinc-900/70 px-3 py-4 text-sm text-zinc-300">
                         Este archivo no tiene vista previa embebida.
                       </div>
                     )}

@@ -50,7 +50,7 @@ export function RolPagoPeriodoClient({ periodoId, rolGenerado, rolPagoBlobPathna
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-white/10 bg-white/[0.035] p-4 shadow-2xl shadow-black/20 backdrop-blur">
+    <div className="space-y-3 rounded-lg border border-[#30312D] bg-[#171814] px-3 py-2 shadow-2xl shadow-black/20 backdrop-blur">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-white">Rol de pago</h2>
@@ -58,7 +58,7 @@ export function RolPagoPeriodoClient({ periodoId, rolGenerado, rolPagoBlobPathna
         </div>
         <div className="flex flex-wrap gap-2">
           {hasRol ? (
-            <a href={`/api/horarios/roles/${periodoId}`} className="rounded-md border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:border-geek-lime/50 hover:text-geek-lime">
+            <a href={`/api/horarios/roles/${periodoId}`} className="rounded-md border border-[#30312D] px-3 py-2 text-sm font-medium text-zinc-200 transition hover:border-geek-lime/50 hover:text-geek-lime">
               Ver rol de pago
             </a>
           ) : null}
@@ -66,17 +66,17 @@ export function RolPagoPeriodoClient({ periodoId, rolGenerado, rolPagoBlobPathna
             type="button"
             onClick={handleGenerate}
             disabled={isSubmitting}
-            className="rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md bg-geek-lime px-3 py-2 text-sm font-semibold text-geek-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSubmitting ? "Generando..." : hasRol ? "Regenerar rol de pago" : "Generar rol de pago"}
           </button>
         </div>
       </div>
       {notice ? (
-        <p className="rounded-md border border-geek-lime/30 bg-geek-lime/10 px-4 py-3 text-sm text-geek-lime">{notice}</p>
+        <p className="rounded-md border border-geek-lime/30 bg-geek-lime/10 px-3 py-2 text-sm text-geek-lime">{notice}</p>
       ) : null}
       {error ? (
-        <p className="rounded-md border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-100">{error}</p>
+        <p className="rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p>
       ) : null}
     </div>
   );

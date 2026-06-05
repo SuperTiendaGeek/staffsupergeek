@@ -8,10 +8,10 @@ type CardProps = ComponentPropsWithoutRef<"section"> & {
 };
 
 const variantClasses: Record<CardVariant, string> = {
-  base: "sg-card p-5 sm:p-6",
+  base: "sg-card p-4 sm:p-5",
   compact:
-    "rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] p-4 shadow-[var(--sg-shadow-card)]",
-  side: "sg-card min-h-full p-5 sm:p-6",
+    "rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] p-3.5 shadow-[var(--sg-shadow-card)]",
+  side: "sg-card min-h-full p-4 sm:p-5",
 };
 
 export function Card({ variant = "base", className, ...props }: CardProps) {

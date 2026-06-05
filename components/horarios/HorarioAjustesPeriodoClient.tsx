@@ -31,7 +31,7 @@ function statusClasses(status?: string) {
     return "border-geek-lime/30 bg-geek-lime/10 text-geek-lime";
   }
 
-  return "border-white/10 bg-white/[0.05] text-zinc-300";
+  return "border-[#30312D] bg-white/[0.05] text-zinc-300";
 }
 
 export function HorarioAjustesPeriodoClient({ periodo }: HorarioAjustesPeriodoClientProps) {
@@ -86,7 +86,7 @@ export function HorarioAjustesPeriodoClient({ periodo }: HorarioAjustesPeriodoCl
   }
 
   return (
-    <section className="rounded-lg border border-white/10 bg-white/[0.035] p-5 shadow-2xl shadow-black/20 backdrop-blur">
+    <section className="rounded-lg border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20 backdrop-blur">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-white">Ajustes y amonestaciones</h2>
@@ -99,10 +99,10 @@ export function HorarioAjustesPeriodoClient({ periodo }: HorarioAjustesPeriodoCl
         ) : null}
       </div>
 
-      {notice ? <p className="mt-4 rounded-md border border-geek-lime/30 bg-geek-lime/10 px-4 py-3 text-sm text-geek-lime">{notice}</p> : null}
-      {error ? <p className="mt-4 rounded-md border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-100">{error}</p> : null}
+      {notice ? <p className="mt-3 rounded-md border border-geek-lime/30 bg-geek-lime/10 px-3 py-2 text-sm text-geek-lime">{notice}</p> : null}
+      {error ? <p className="mt-3 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
 
-      <form onSubmit={handleSubmit} className="mt-5 grid gap-3 lg:grid-cols-[0.7fr_1.4fr_1fr_auto] lg:items-end">
+      <form onSubmit={handleSubmit} className="mt-3 grid gap-3 lg:grid-cols-[0.7fr_1.4fr_1fr_auto] lg:items-end">
         <label className="space-y-2">
           <span className="text-xs font-semibold uppercase tracking-normal text-zinc-500">Horas a descontar</span>
           <input
@@ -112,7 +112,7 @@ export function HorarioAjustesPeriodoClient({ periodo }: HorarioAjustesPeriodoCl
             value={horasDescontadas}
             onChange={(event) => setHorasDescontadas(event.target.value)}
             required
-            className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-geek-lime/60"
+            className="w-full rounded-md border border-[#30312D] bg-black/40 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-geek-lime/60"
             placeholder="1.00"
           />
         </label>
@@ -123,7 +123,7 @@ export function HorarioAjustesPeriodoClient({ periodo }: HorarioAjustesPeriodoCl
             value={motivo}
             onChange={(event) => setMotivo(event.target.value)}
             required
-            className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-geek-lime/60"
+            className="w-full rounded-md border border-[#30312D] bg-black/40 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-geek-lime/60"
             placeholder="Motivo visible para el empleado"
           />
         </label>
@@ -132,7 +132,7 @@ export function HorarioAjustesPeriodoClient({ periodo }: HorarioAjustesPeriodoCl
           <select
             value={registroId}
             onChange={(event) => setRegistroId(event.target.value)}
-            className="w-full rounded-md border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-white outline-none transition focus:border-geek-lime/60"
+            className="w-full rounded-md border border-[#30312D] bg-black/40 px-3 py-2.5 text-sm text-white outline-none transition focus:border-geek-lime/60"
           >
             <option value="">Sin registro específico</option>
             {periodo.registros.map((registro) => (
@@ -145,15 +145,15 @@ export function HorarioAjustesPeriodoClient({ periodo }: HorarioAjustesPeriodoCl
         <button
           type="submit"
           disabled={isSubmitting}
-          className="rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-md bg-geek-lime px-3 py-2 text-sm font-semibold text-geek-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isSubmitting ? "Guardando..." : "Registrar"}
         </button>
       </form>
 
-      <div className="mt-5 overflow-x-auto">
+      <div className="mt-3 overflow-x-auto">
         <table className="min-w-[760px] w-full text-left text-sm">
-          <thead className="border-b border-white/10 text-xs uppercase tracking-normal text-zinc-500">
+          <thead className="border-b border-[#30312D] text-xs uppercase tracking-normal text-zinc-500">
             <tr>
               <th className="px-3 py-3 font-medium">Fecha</th>
               <th className="px-3 py-3 font-medium">Motivo</th>
@@ -181,7 +181,7 @@ export function HorarioAjustesPeriodoClient({ periodo }: HorarioAjustesPeriodoCl
               ))
             ) : (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-zinc-400">
+                <td colSpan={6} className="px-3 py-5 text-center text-zinc-400">
                   No hay ajustes registrados para este periodo.
                 </td>
               </tr>

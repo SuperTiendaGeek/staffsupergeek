@@ -107,6 +107,11 @@ export type HorarioAdminEmpleadoResumen = {
   totalNeto: number;
   totalPagado: number;
   saldoPendiente: number;
+  generadoEnRango: number;
+  pagadoAsociado: number;
+  saldoPendienteReal: number;
+  pendienteNuevoSinPeriodo: number;
+  jornadasSinPeriodoCount: number;
   registrosCount: number;
 };
 
@@ -123,11 +128,15 @@ export type HorarioAdminResumen = {
     totalNeto: number;
     totalPagado: number;
     saldoPendiente: number;
+    generadoEnRango: number;
+    pagadoEnRango: number;
+    saldoPendienteReal: number;
+    pendienteNuevoSinPeriodo: number;
   };
   empleados: HorarioAdminEmpleadoResumen[];
 };
 
-export type EstadoPeriodoPago = "Abierto" | "Parcialmente pagado" | "Pagado" | "Anulado";
+export type EstadoPeriodoPago = "Abierto" | "Parcialmente pagado" | "Pagado" | "Cerrado" | "Anulado";
 
 export type EstadoPagoHorario = "Registrado" | "Anulado";
 

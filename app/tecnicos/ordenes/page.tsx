@@ -719,9 +719,9 @@ export default function OrdenesPage() {
       {openNuevaOrdenModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm">
           <div className="flex max-h-[92vh] w-full max-w-[820px] flex-col overflow-hidden rounded-[var(--sg-radius-lg)] border border-[var(--sg-border)] bg-[var(--sg-card)] shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] px-5 py-4">
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--sg-divider)] px-4 py-3">
               <div>
-                <h3 className="text-xl font-extrabold text-[var(--sg-text-primary)]">
+                <h3 className="text-lg font-extrabold text-[var(--sg-text-primary)]">
                   Nueva orden de reparación
                 </h3>
                 <p className="mt-1 text-sm leading-6 text-[var(--sg-text-secondary)]">
@@ -741,7 +741,7 @@ export default function OrdenesPage() {
               </Button>
             </div>
 
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
               <section className="space-y-4">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">

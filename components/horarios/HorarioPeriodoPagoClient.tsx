@@ -95,39 +95,39 @@ export function HorarioPeriodoPagoClient({ periodoId }: Props) {
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white"
+          className="rounded-md bg-geek-lime px-3 py-2 text-sm font-semibold text-geek-black transition hover:bg-white"
         >
           Registrar pago
         </button>
         {notice ? (
-          <p className="rounded-md border border-geek-lime/30 bg-geek-lime/10 px-4 py-3 text-sm text-geek-lime">{notice}</p>
+          <p className="rounded-md border border-geek-lime/30 bg-geek-lime/10 px-3 py-2 text-sm text-geek-lime">{notice}</p>
         ) : null}
         {error ? (
-          <p className="rounded-md border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-100">{error}</p>
+          <p className="rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p>
         ) : null}
       </div>
 
       {isOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8 backdrop-blur-sm">
-          <form onSubmit={handleSubmit} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-white/10 bg-geek-black p-5 shadow-2xl shadow-black">
-            <div className="flex items-start justify-between gap-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-5 backdrop-blur-sm">
+          <form onSubmit={handleSubmit} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[#30312D] bg-geek-black px-3 py-2.5 shadow-2xl shadow-black">
+            <div className="flex items-start justify-between gap-2">
               <div>
                 <h3 className="text-lg font-semibold text-white">Registrar pago</h3>
                 <p className="mt-1 text-sm text-zinc-400">El estado del periodo se actualizará según el saldo.</p>
               </div>
-              <button type="button" onClick={() => setIsOpen(false)} className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-zinc-300 hover:text-white">
+              <button type="button" onClick={() => setIsOpen(false)} className="rounded-md border border-[#30312D] px-3 py-1.5 text-sm text-zinc-300 hover:text-white">
                 Cerrar
               </button>
             </div>
 
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <label className="block">
                 <span className="text-sm font-medium text-zinc-300">Fecha de pago</span>
                 <input
                   type="date"
                   value={fechaPago}
                   onChange={(event) => setFechaPago(event.target.value)}
-                  className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
                   required
                 />
               </label>
@@ -139,7 +139,7 @@ export function HorarioPeriodoPagoClient({ periodoId }: Props) {
                   step="0.01"
                   value={montoPagado}
                   onChange={(event) => setMontoPagado(event.target.value)}
-                  className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
                   required
                 />
               </label>
@@ -148,7 +148,7 @@ export function HorarioPeriodoPagoClient({ periodoId }: Props) {
                 <select
                   value={metodoPago}
                   onChange={(event) => setMetodoPago(event.target.value as HorarioMetodoPago)}
-                  className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
                   required
                 >
                   {HORARIO_METODOS_PAGO.map((metodo) => (
@@ -163,7 +163,7 @@ export function HorarioPeriodoPagoClient({ periodoId }: Props) {
                 <input
                   value={numeroTransaccion}
                   onChange={(event) => setNumeroTransaccion(event.target.value)}
-                  className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
                 />
               </label>
               <label className="block sm:col-span-2">
@@ -171,7 +171,7 @@ export function HorarioPeriodoPagoClient({ periodoId }: Props) {
                 <input
                   value={bancoCuentaOrigen}
                   onChange={(event) => setBancoCuentaOrigen(event.target.value)}
-                  className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
                 />
               </label>
               <label className="block sm:col-span-2">
@@ -180,7 +180,7 @@ export function HorarioPeriodoPagoClient({ periodoId }: Props) {
                   value={observacion}
                   onChange={(event) => setObservacion(event.target.value)}
                   rows={3}
-                  className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
                 />
               </label>
               <label className="block sm:col-span-2">
@@ -189,17 +189,17 @@ export function HorarioPeriodoPagoClient({ periodoId }: Props) {
                   type="file"
                   accept="image/*,application/pdf"
                   onChange={(event) => setComprobante(event.target.files?.[0] || null)}
-                  className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 file:mr-3 file:rounded-md file:border-0 file:bg-geek-lime file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-geek-black"
+                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-zinc-200 file:mr-3 file:rounded-md file:border-0 file:bg-geek-lime file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-geek-black"
                 />
                 {comprobante ? <p className="mt-2 text-xs text-zinc-500">Archivo seleccionado: {comprobante.name}</p> : null}
               </label>
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setIsOpen(false)} className="rounded-md border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-200 hover:text-white">
+              <button type="button" onClick={() => setIsOpen(false)} className="rounded-md border border-[#30312D] px-3 py-2 text-sm font-medium text-zinc-200 hover:text-white">
                 Cancelar
               </button>
-              <button type="submit" disabled={isSubmitting} className="rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="submit" disabled={isSubmitting} className="rounded-md bg-geek-lime px-3 py-2 text-sm font-semibold text-geek-black hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">
                 {isSubmitting ? "Guardando..." : "Guardar pago"}
               </button>
             </div>
