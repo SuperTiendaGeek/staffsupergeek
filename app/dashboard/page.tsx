@@ -1,17 +1,11 @@
 import { AppLauncher } from "@/components/AppLauncher";
 import { PortalShell } from "@/components/PortalShell";
-import { canAccessApp, isAdministratorRole, staffApps } from "@/lib/apps";
+import { getVisibleStaffApps } from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
 
 export default async function DashboardPage() {
   const session = await getSessionFromCookie();
-  const visibleApps = staffApps.filter((app) => {
-    if (app.id === "usuarios") {
-      return isAdministratorRole(session?.user.rol);
-    }
-
-    return canAccessApp(session, app.permissionName);
-  });
+  const visibleApps = getVisibleStaffApps(session);
 
   return (
     <PortalShell

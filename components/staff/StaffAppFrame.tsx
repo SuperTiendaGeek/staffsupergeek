@@ -4,7 +4,6 @@ import { animate, stagger } from "animejs";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
-  Bell,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +18,7 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +31,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { isAdministratorRole } from "@/lib/apps";
+import type { StaffApp } from "@/lib/apps";
 import type { SessionUser } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -40,22 +41,32 @@ type StaffAppFrameProps = {
   sectionLabel?: string;
   headerSubtitle?: string;
   user?: SessionUser | null;
+  apps: StaffApp[];
 };
 
 const SIDEBAR_PINNED_STORAGE_KEY = "supergeek.staff.sidebar.pinned";
 
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/cotizaciones", label: "Cotizaciones", icon: FileText },
-  { href: "/pedidos", label: "Pedidos", icon: ReceiptText },
-  { href: "/shipping-v2", label: "Shipping V2", icon: PackageCheck },
-  { href: "/horarios", label: "Control de Horarios", icon: CalendarClock },
-  { href: "/tecnicos", label: "Técnicos", icon: Wrench },
-  { href: "/admin/usuarios", label: "Usuarios", icon: Users },
-  { href: "/notificaciones", label: "Notificaciones", icon: Bell },
-  { href: "/finanzas", label: "Finanzas", icon: DollarSign },
-  { href: "/facturacion", label: "Facturación", icon: FileText },
-];
+const appIconById: Partial<Record<string, LucideIcon>> = {
+  cotizaciones: FileText,
+  pedidos: ReceiptText,
+  shipping: PackageCheck,
+  horarios: CalendarClock,
+  tecnicos: Wrench,
+  usuarios: Users,
+  finanzas: DollarSign,
+  facturacion: FileText,
+};
+
+function buildNavItems(apps: StaffApp[]) {
+  return [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    ...apps.map((app) => ({
+      href: app.route,
+      label: app.id === "shipping" ? "Shipping V2" : app.name,
+      icon: appIconById[app.id] || LayoutDashboard,
+    })),
+  ];
+}
 
 function initials(name?: string) {
   return (name || "Staff SUPER GEEK")
@@ -90,7 +101,7 @@ function StaffLogo({ showText = true }: { showText?: boolean }) {
   );
 }
 
-function NavList({ activeHref, mobile = false, expanded = true }: { activeHref?: string; mobile?: boolean; expanded?: boolean }) {
+function NavList({ activeHref, navItems, mobile = false, expanded = true }: { activeHref?: string; navItems: ReturnType<typeof buildNavItems>; mobile?: boolean; expanded?: boolean }) {
   return (
     <nav className="grid gap-1" aria-label="Navegacion principal">
       {navItems.map((item) => {
@@ -172,8 +183,9 @@ function StaffUserDropdown({ user }: { user?: SessionUser | null }) {
   );
 }
 
-export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Staff", headerSubtitle, user }: StaffAppFrameProps) {
+export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Staff", headerSubtitle, user, apps }: StaffAppFrameProps) {
   const isAdmin = isAdministratorRole(user?.rol);
+  const navItems = buildNavItems(apps);
   const desktopSidebarRef = useRef<HTMLDivElement | null>(null);
   const [sidebarPinned, setSidebarPinned] = useState(true);
   const [sidebarHovered, setSidebarHovered] = useState(false);
@@ -258,7 +270,7 @@ export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Sta
             </Button>
           </div>
           <Separator className="my-3 bg-[#2F302B]" />
-          <NavList activeHref={activeHref} expanded={sidebarExpanded} />
+          <NavList activeHref={activeHref} navItems={navItems} expanded={sidebarExpanded} />
           <div
             className={cn(
               "mt-auto overflow-hidden rounded-xl border border-[#2F302B] bg-[#181916] transition-all duration-200 ease-out",
@@ -300,7 +312,7 @@ export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Sta
                   <SheetTitle className="sr-only">Navegacion del Portal Staff</SheetTitle>
                   <StaffLogo />
                   <Separator className="my-4 bg-[#2F302B]" />
-                  <NavList activeHref={activeHref} mobile />
+                  <NavList activeHref={activeHref} navItems={navItems} mobile />
                 </SheetContent>
               </Sheet>
               <div className="min-w-0">

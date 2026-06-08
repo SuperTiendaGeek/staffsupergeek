@@ -165,6 +165,16 @@ export function canAccessApp(subject: PermissionSubject, appName: AppPermissionN
   return user.appsPermitidas.some((allowedApp) => normalizePermissionValue(allowedApp) === requestedPermission);
 }
 
+export function getVisibleStaffApps(subject: PermissionSubject) {
+  return staffApps.filter((app) => {
+    if (app.id === "usuarios") {
+      return isAdministratorRole(getPermissionUser(subject)?.rol);
+    }
+
+    return canAccessApp(subject, app.permissionName);
+  });
+}
+
 export function getRoutePermission(pathname: string) {
   if (pathname === "/api/tecnicos" || pathname.startsWith("/api/tecnicos/")) {
     return routePermissions["/tecnicos"];

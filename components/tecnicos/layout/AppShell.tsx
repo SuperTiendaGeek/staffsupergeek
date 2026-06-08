@@ -1,4 +1,5 @@
 import { StaffAppFrame } from "@/components/staff/StaffAppFrame";
+import { staffApps } from "@/lib/apps";
 import React from "react";
 import styles from "./TecnicosTheme.module.css";
 
@@ -30,8 +31,10 @@ function activeHref(active?: TecnicosActive) {
 }
 
 export function AppShell({ title, subtitle, active, children, rightSlot }: AppShellProps) {
+  const tecnicosApps = staffApps.filter((app) => app.id === "tecnicos");
+
   return (
-    <StaffAppFrame activeHref={activeHref(active)} sectionLabel="Técnicos">
+    <StaffAppFrame activeHref={activeHref(active)} sectionLabel="Técnicos" apps={tecnicosApps}>
       <div className={`${styles.theme} space-y-4`}>
         <div className="flex flex-col gap-3 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
           <div className="min-w-0">

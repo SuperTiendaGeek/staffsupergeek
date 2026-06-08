@@ -17,6 +17,7 @@ function inferActiveHref(title: string, eyebrow?: string) {
 
   if (value.includes("shipping")) return "/shipping-v2";
   if (value.includes("dashboard")) return "/dashboard";
+  if (value.includes("acceso denegado")) return "";
   if (value.includes("usuario")) return "/admin/usuarios";
   if (value.includes("notific")) return "/notificaciones";
   if (value.includes("horario") || value.includes("jornada") || value.includes("periodo")) return "/horarios";
