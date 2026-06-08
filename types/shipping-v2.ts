@@ -107,6 +107,25 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   esRepuesto: boolean | null;
   esRegalo: boolean | null;
   conNovedad: boolean | null;
+  revisadoFisicamente: boolean | null;
+  revisadoPor?: string;
+  fechaRevision?: string;
+  fotosTomadas: boolean | null;
+  fotosTomadasPor?: string;
+  fechaFotos?: string;
+  shopifyPublicado: boolean | null;
+  shopifyPublicadoPor?: string;
+  fechaShopifyPublicado?: string;
+  marketplacePublicado: boolean | null;
+  marketplacePublicadoPor?: string;
+  fechaMarketplacePublicado?: string;
+  mercadoLibrePublicado: boolean | null;
+  mercadoLibrePublicadoPor?: string;
+  fechaMercadoLibrePublicado?: string;
+  gruposFacebookPublicado: boolean | null;
+  facebookPublicadoPor?: string;
+  fechaFacebookPublicado?: string;
+  observacionRecepcion?: string;
   ubicacionActual?: string;
   origenFisicoActual?: string;
   fechaRegistro?: string;
@@ -345,6 +364,39 @@ export type ShippingV2PackingWriteInput = {
   reglaDistribucionCostos?: string;
   observacionCostos?: string;
   observaciones?: string;
+};
+
+export type ShippingV2PackingStatusAction =
+  | "close"
+  | "mark-in-transit"
+  | "mark-received"
+  | "start-review"
+  | "continue-review"
+  | "restore-in-transit"
+  | "restore-received"
+  | "restore-review"
+  | "close-final"
+  | "cancel";
+
+export type ShippingV2PackingNovedadInput = {
+  tipo: string;
+  descripcion: string;
+  evidenciaUrl?: string;
+};
+
+export type ShippingV2RecepcionChecklistAction =
+  | "reviewed"
+  | "photos-taken"
+  | "published-shopify"
+  | "published-marketplace"
+  | "published-mercado-libre"
+  | "published-facebook";
+
+export type ShippingV2ItemNovedadInput = {
+  tipo: string;
+  descripcion: string;
+  evidenciaUrl?: string;
+  packingId?: string;
 };
 
 export const SHIPPING_V2_PACKING_ESTADOS = SHIPPING_V2_PACKING_SELECT_OPTIONS.estado;

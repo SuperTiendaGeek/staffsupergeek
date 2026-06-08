@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-04T20:48:07.379Z",
+  "generatedAt": "2026-06-07T23:00:36.018Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -822,6 +822,95 @@
         "Regla distribución Packing": {
           "id": "fld2Pu35JgsUUPa7Z",
           "type": "multipleLookupValues"
+        },
+        "Revisado física/técnicamente": {
+          "id": "fldpbcQThATM9U19E",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Revisado por": {
+          "id": "fld1VxfkogK8jq5f4",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha revisión": {
+          "id": "fldFFZGfpyPENKhLC",
+          "type": "dateTime"
+        },
+        "Fotos tomadas": {
+          "id": "fldvScKPcCp5QD3ef",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Fotos tomadas por": {
+          "id": "fldUS8vu35acg4Bzo",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha fotos": {
+          "id": "fldaMi9l2XoQ167kS",
+          "type": "dateTime"
+        },
+        "Shopify publicado": {
+          "id": "fldQEUR1rQ9Tlny4u",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Shopify publicado por": {
+          "id": "fld6ZbX7TTrmYgDZg",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha Shopify publicado": {
+          "id": "fld2VIU0WnG7vxXmC",
+          "type": "dateTime"
+        },
+        "Marketplace publicado": {
+          "id": "fldvXaLLFhA6nRycq",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Marketplace publicado por": {
+          "id": "fldbQ30qKhtCdZjBD",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha Marketplace publicado": {
+          "id": "fldusc5yww2pmkQex",
+          "type": "dateTime"
+        },
+        "Mercado Libre publicado": {
+          "id": "fldecr5F2x8TkVC0G",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Mercado Libre publicado por": {
+          "id": "fldq8zKmGiBqH89Bo",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha Mercado Libre publicado": {
+          "id": "fldYpcZQ2CtPa3K3f",
+          "type": "dateTime"
+        },
+        "Grupos Facebook publicado": {
+          "id": "fldSz1FS67kPjgzFW",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Facebook publicado por": {
+          "id": "fldQrcnzK8CIF847K",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha Facebook publicado": {
+          "id": "fldBW8YHzWRus6PW2",
+          "type": "dateTime"
+        },
+        "Observación recepción": {
+          "id": "fldwJm6ZeYukVlNNG",
+          "type": "multilineText",
+          "kind": "multilineText"
         }
       }
     },
@@ -1540,7 +1629,10 @@
             "Garantía",
             "Reclamo",
             "Error de registro",
-            "Otro"
+            "Otro",
+            "Tracking sin movimiento",
+            "Demora en aduana",
+            "Diferencia de peso"
           ]
         },
         "Estado Novedad": {

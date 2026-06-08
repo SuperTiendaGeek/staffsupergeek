@@ -62,7 +62,7 @@ const initialState: FormState = {
   descripcion: "",
   tipoOperacion: firstOption(SHIPPING_V2_TIPOS_OPERACION),
   tipoItem: firstOption(SHIPPING_V2_TIPOS_ITEM),
-  categoria: firstOption(SHIPPING_V2_CATEGORIAS),
+  categoria: "",
   estado: "Registrado",
   proveedorId: "",
   proveedorLogisticoId: "",
@@ -84,11 +84,15 @@ const initialState: FormState = {
   observacionesInternas: "",
 };
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, children, required, error }: { label: string; children: ReactNode; required?: boolean; error?: string }) {
   return (
-    <label className="block space-y-2">
-      <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
+    <label className="block min-w-0 space-y-1.5">
+      <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">
+        {label}
+        {required ? <span className="ml-1 text-[#FF914D]">*</span> : null}
+      </span>
       {children}
+      {error ? <p className="text-xs leading-5 text-[#FFB07A]">{error}</p> : null}
     </label>
   );
 }
@@ -97,26 +101,61 @@ function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className="h-12 w-full rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5] outline-none placeholder:text-[#A7A7A7] transition focus:border-[#D7FF4F]/70"
+      className="h-9 w-full rounded-lg border border-[#3A3A36] bg-[#151515] px-3 text-sm text-[#F5F5F5] outline-none placeholder:text-[#696A64] transition focus:border-[#D7FF4F]/70"
     />
   );
 }
 
 function SelectInput(props: SelectHTMLAttributes<HTMLSelectElement>) {
+  const invalid = props["aria-invalid"] === true || props["aria-invalid"] === "true";
+
   return (
     <select
       {...props}
-      className="h-12 w-full rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
+      className={`h-9 w-full rounded-lg border bg-[#151515] px-3 text-sm font-semibold text-[#F5F5F5] outline-none transition ${invalid ? "border-[#FF914D]/70 focus:border-[#FF914D]" : "border-[#3A3A36] focus:border-[#D7FF4F]/70"}`}
     />
   );
 }
 
 function FlowBadge({ label, active }: { label: string; active: boolean }) {
   return (
-    <div className={`rounded-[1rem] border px-4 py-3 ${active ? "border-[#D7FF4F]/55 bg-[#D7FF4F]/12" : "border-[#3A3A36] bg-[#151515]"}`}>
+    <div className={`rounded-lg border px-3 py-2 ${active ? "border-[#D7FF4F]/55 bg-[#D7FF4F]/12" : "border-[#3A3A36] bg-[#151515]"}`}>
       <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</p>
-      <p className={`mt-1 text-sm font-bold ${active ? "text-[#D7FF4F]" : "text-[#A7A7A7]"}`}>{active ? "Activo" : "No activo"}</p>
+      <p className={`mt-0.5 text-sm font-bold ${active ? "text-[#D7FF4F]" : "text-[#A7A7A7]"}`}>{active ? "Sí" : "No"}</p>
     </div>
+  );
+}
+
+function FormCard({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return (
+    <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-xl shadow-black/15">
+      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-[#F5F5F5]">{title}</h2>
+          {description ? <p className="mt-0.5 text-[13px] leading-5 text-[#A7A7A7]">{description}</p> : null}
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function TextArea({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
+  placeholder?: string;
+}) {
+  return (
+    <textarea
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      className="min-h-20 w-full rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2 text-sm text-[#F5F5F5] outline-none placeholder:text-[#696A64] transition focus:border-[#D7FF4F]/70"
+    />
   );
 }
 
@@ -144,6 +183,7 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
   const [form, setForm] = useState<FormState>(initialState);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [photos, setPhotos] = useState<SelectedPhoto[]>([]);
   const photosRef = useRef<SelectedPhoto[]>([]);
   const purchaseProviders = proveedores.filter(canBePurchaseProvider);
@@ -169,6 +209,9 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
   const selectedModeUsesDirectTracking = form.modoLogistico === "Tracking directo";
   const effectiveRequiresPacking = selectedModeUsesDirectTracking ? false : selectedModeUsesPacking ? true : calculatedFlow.requierePacking;
   const modeHelpText = LOGISTICS_MODE_HELP[form.modoLogistico] ?? "";
+  const showProviderWarning = calculatedFlow.requierePago && !form.proveedorId;
+  const showCostWarning = calculatedFlow.requierePago && !form.costoProveedor;
+  const showCategoryWarning = submitAttempted && !form.categoria;
 
   useEffect(() => {
     if (logisticsOptions.some((option) => option === form.modoLogistico)) return;
@@ -245,6 +288,13 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setSubmitAttempted(true);
+
+    if (!form.categoria) {
+      setError("Selecciona una categoría técnica/comercial para crear el item.");
+      return;
+    }
+
     setSaving(true);
 
     const formData = new FormData();
@@ -284,202 +334,197 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="w-full space-y-5 rounded-[2.2rem] border border-[#3A3A36] bg-[#151515] p-4 shadow-2xl shadow-black/40 sm:p-5">
-      <section className="rounded-[2rem] border border-[#3A3A36] bg-[#1E1F1C] p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <span className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1 text-[11px] font-bold uppercase tracking-normal text-[#151515]">Nuevo registro</span>
-            <h2 className="mt-4 text-2xl font-semibold text-[#F5F5F5]">Crear Item</h2>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-[#A7A7A7]">Alta manual en Shipping Items. No crea pagos, packings ni movimientos financieros.</p>
-          </div>
-          <Link href="/shipping-v2/items" className="rounded-full border border-[#3A3A36] bg-[#252622] px-5 py-2.5 text-center text-sm font-medium text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]">
-            Volver
-          </Link>
-        </div>
-      </section>
-
+    <form onSubmit={handleSubmit} noValidate className="w-full max-w-none space-y-3">
       {error ? (
-        <div className="rounded-[1.35rem] border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{error}</div>
+        <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{error}</div>
       ) : null}
 
-      <section className="grid gap-4 rounded-[2rem] border border-[#3A3A36] bg-[#2A2B27] p-5 md:grid-cols-2">
-        <Field label="Nombre del item">
-          <TextInput value={form.nombre} onChange={(event) => update("nombre", event.target.value)} placeholder="Sin nombre si se deja vacío" />
-          {showFastNameSuggestion ? (
-            <div className="rounded-[1rem] border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Versión rápida sugerida</p>
-              <p className="mt-1 text-sm text-[#F5F5F5]">{fastNameSuggestion}</p>
-              <button
-                type="button"
-                onClick={() => update("nombre", fastNameSuggestion)}
-                className="mt-2 rounded-full border border-[#D7FF4F] px-3 py-1.5 text-xs font-bold uppercase tracking-normal text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515]"
-              >
-                Usar versión rápida
-              </button>
+      <div className="grid gap-3 lg:grid-cols-12 lg:items-start">
+        <div className="space-y-3 lg:col-span-8">
+          <FormCard title="Datos principales" description="Alta manual en Shipping Items. No crea pagos, packings ni movimientos financieros.">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div className="md:col-span-2 xl:col-span-3">
+                <Field label="Nombre del item">
+                  <TextInput value={form.nombre} onChange={(event) => update("nombre", event.target.value)} placeholder="Sin nombre si se deja vacío" />
+                  {showFastNameSuggestion ? (
+                    <div className="mt-2 rounded-lg border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-3 py-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Versión rápida sugerida</p>
+                      <p className="mt-1 text-sm text-[#F5F5F5]">{fastNameSuggestion}</p>
+                      <button type="button" onClick={() => update("nombre", fastNameSuggestion)} className="mt-2 rounded-lg border border-[#D7FF4F] px-3 py-1.5 text-xs font-bold uppercase tracking-normal text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515]">
+                        Usar versión rápida
+                      </button>
+                    </div>
+                  ) : null}
+                </Field>
+              </div>
+              <Field label="Tipo de operación">
+                <SelectInput value={form.tipoOperacion} onChange={(event) => update("tipoOperacion", event.target.value)}>
+                  {SHIPPING_V2_TIPOS_OPERACION.map((option) => <option key={option}>{option}</option>)}
+                </SelectInput>
+              </Field>
+              <Field label="Rol general del item">
+                <SelectInput value={form.tipoItem} onChange={(event) => update("tipoItem", event.target.value)}>
+                  {SHIPPING_V2_TIPOS_ITEM.map((option) => <option key={option}>{option}</option>)}
+                </SelectInput>
+              </Field>
+              <Field label="Estado item sugerido">
+                <div className="flex h-9 items-center rounded-lg border border-[#3A3A36] bg-[#151515] px-3 text-sm font-semibold text-[#F5F5F5]">
+                  {calculatedFlow.estadoItemSugerido}
+                </div>
+              </Field>
+              <Field label="Categoría técnica/comercial" required={showCategoryWarning} error={showCategoryWarning ? "Campo obligatorio." : undefined}>
+                <SelectInput value={form.categoria} aria-invalid={showCategoryWarning} onChange={(event) => update("categoria", event.target.value)}>
+                  <option value="">Selecciona una categoría</option>
+                  {SHIPPING_V2_CATEGORIAS.map((option) => <option key={option}>{option}</option>)}
+                </SelectInput>
+              </Field>
+              <Field label="Condición">
+                <SelectInput value={form.condicion} onChange={(event) => update("condicion", event.target.value)}>
+                  <option value="">—</option>
+                  {SHIPPING_V2_CONDICIONES.map((option) => <option key={option}>{option}</option>)}
+                </SelectInput>
+              </Field>
             </div>
-          ) : null}
-        </Field>
-        <Field label="Tipo de operación">
-          <SelectInput value={form.tipoOperacion} onChange={(event) => update("tipoOperacion", event.target.value)}>
-            {SHIPPING_V2_TIPOS_OPERACION.map((option) => <option key={option}>{option}</option>)}
-          </SelectInput>
-        </Field>
-        <Field label="Rol general del item">
-          <SelectInput value={form.tipoItem} onChange={(event) => update("tipoItem", event.target.value)}>
-            {SHIPPING_V2_TIPOS_ITEM.map((option) => <option key={option}>{option}</option>)}
-          </SelectInput>
-        </Field>
-        <Field label="Estado Item sugerido">
-          <div className="flex h-12 items-center rounded-full border border-[#3A3A36] bg-[#151515] px-4 text-sm font-semibold text-[#F5F5F5]">
-            {calculatedFlow.estadoItemSugerido}
-          </div>
-        </Field>
-        <Field label="Proveedor de compra">
-          <SelectInput value={form.proveedorId} onChange={(event) => update("proveedorId", event.target.value)}>
-            <option value="">Sin proveedor</option>
-            {purchaseProviders.map((proveedor) => <option key={proveedor.id} value={proveedor.id}>{getShippingV2ProveedorLabel(proveedor)}</option>)}
-          </SelectInput>
-        </Field>
-        <Field label="Proveedor logístico / intermediario">
-          <SelectInput value={form.proveedorLogisticoId} onChange={(event) => update("proveedorLogisticoId", event.target.value)}>
-            <option value="">Sin proveedor logístico</option>
-            {itemLogisticsProviders.map((proveedor) => <option key={proveedor.id} value={proveedor.id}>{getShippingV2ProveedorLabel(proveedor)}</option>)}
-          </SelectInput>
-        </Field>
-        <Field label="SKU">
-          <TextInput value={form.sku} onChange={(event) => update("sku", event.target.value.toUpperCase())} placeholder="Opcional, se genera si queda vacío" />
-        </Field>
-        <Field label="SKU proveedor">
-          <TextInput value={form.skuProveedor} onChange={(event) => update("skuProveedor", event.target.value)} />
-        </Field>
-        <Field label="Modelo">
-          <TextInput value={form.modelo} onChange={(event) => update("modelo", event.target.value)} />
-        </Field>
-        <Field label="Marca">
-          <TextInput value={form.marca} onChange={(event) => update("marca", event.target.value)} />
-        </Field>
-        <Field label="Número de serie">
-          <TextInput value={form.numeroSerie} onChange={(event) => update("numeroSerie", event.target.value)} />
-        </Field>
-        <Field label="Condición">
-          <SelectInput value={form.condicion} onChange={(event) => update("condicion", event.target.value)}>
-            <option value="">—</option>
-            {SHIPPING_V2_CONDICIONES.map((option) => <option key={option}>{option}</option>)}
-          </SelectInput>
-        </Field>
-        <Field label="Categoría técnica/comercial">
-          <SelectInput value={form.categoria} onChange={(event) => update("categoria", event.target.value)}>
-            <option value="">—</option>
-            {SHIPPING_V2_CATEGORIAS.map((option) => <option key={option}>{option}</option>)}
-          </SelectInput>
-        </Field>
-        <Field label="Ubicación actual">
-          <TextInput value={form.ubicacionActual} onChange={(event) => update("ubicacionActual", event.target.value)} />
-        </Field>
-        <Field label="Costo proveedor">
-          <TextInput type="number" step="0.01" value={form.costoProveedor} onChange={(event) => update("costoProveedor", event.target.value)} />
-        </Field>
-        <Field label="Precio venta sugerido">
-          <TextInput type="number" step="0.01" value={form.precioVentaSugerido} onChange={(event) => update("precioVentaSugerido", event.target.value)} />
-        </Field>
-        <label className="block space-y-2 md:col-span-2">
-          <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Descripción</span>
-          <textarea value={form.descripcion} onChange={(event) => update("descripcion", event.target.value)} className="min-h-28 w-full rounded-[1.25rem] border border-[#3A3A36] bg-[#151515] px-4 py-3 text-sm text-[#F5F5F5] outline-none placeholder:text-[#A7A7A7] transition focus:border-[#D7FF4F]/70" />
-        </label>
-        <label className="block space-y-2 md:col-span-2">
-          <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Observaciones internas</span>
-          <textarea value={form.observacionesInternas} onChange={(event) => update("observacionesInternas", event.target.value)} className="min-h-28 w-full rounded-[1.25rem] border border-[#3A3A36] bg-[#151515] px-4 py-3 text-sm text-[#F5F5F5] outline-none placeholder:text-[#A7A7A7] transition focus:border-[#D7FF4F]/70" />
-        </label>
-      </section>
+          </FormCard>
 
-      <section className="rounded-[2rem] border border-[#3A3A36] bg-[#2A2B27] p-5">
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Flujo calculado</h3>
-            <p className="mt-1 text-sm text-[#A7A7A7]">Estos valores se calculan según el tipo de operación para evitar errores de ingreso.</p>
-            <p className="mt-2 text-xs text-[#D7FF4F]">Disponible para venta significa que el Item puede ofrecerse o reservarse. No necesariamente significa entrega inmediata.</p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <FlowBadge label="Requiere pago" active={calculatedFlow.requierePago} />
-            <FlowBadge label="Requiere packing" active={effectiveRequiresPacking} />
-            <FlowBadge label="Afecta inventario" active={calculatedFlow.afectaInventario} />
-            <FlowBadge label="Disponible venta/reserva" active={calculatedFlow.disponibleParaVenta} />
-          </div>
-          <div className="rounded-[1.25rem] border border-[#3A3A36] bg-[#1E1F1C] p-4">
-            <div className="grid gap-4 md:grid-cols-2">
+          <FormCard title="Proveedor y logística">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <Field label="Proveedor de compra">
+                <SelectInput value={form.proveedorId} onChange={(event) => update("proveedorId", event.target.value)}>
+                  <option value="">Sin proveedor</option>
+                  {purchaseProviders.map((proveedor) => <option key={proveedor.id} value={proveedor.id}>{getShippingV2ProveedorLabel(proveedor)}</option>)}
+                </SelectInput>
+                {showProviderWarning ? <p className="text-xs leading-5 text-[#FFB07A]">Este flujo requiere proveedor de compra.</p> : null}
+              </Field>
+              <Field label="Proveedor logístico / intermediario">
+                <SelectInput value={form.proveedorLogisticoId} onChange={(event) => update("proveedorLogisticoId", event.target.value)}>
+                  <option value="">Sin proveedor logístico</option>
+                  {itemLogisticsProviders.map((proveedor) => <option key={proveedor.id} value={proveedor.id}>{getShippingV2ProveedorLabel(proveedor)}</option>)}
+                </SelectInput>
+              </Field>
               <Field label="Modo logístico">
                 <SelectInput value={form.modoLogistico} onChange={(event) => update("modoLogistico", event.target.value)}>
                   {logisticsOptions.map((option) => <option key={option}>{option}</option>)}
                 </SelectInput>
-                {modeHelpText ? <p className="mt-2 text-xs leading-5 text-[#A7A7A7]">{modeHelpText}</p> : null}
+              </Field>
+              <Field label="Ubicación actual">
+                <TextInput value={form.ubicacionActual} onChange={(event) => update("ubicacionActual", event.target.value)} />
               </Field>
               {selectedModeUsesDirectTracking ? (
-                <Field label="Tracking directo">
-                  <TextInput value={form.trackingDirecto} onChange={(event) => update("trackingDirecto", event.target.value)} placeholder="Número o URL de tracking simple" />
-                </Field>
+                <div className="md:col-span-2">
+                  <Field label="Tracking directo">
+                    <TextInput value={form.trackingDirecto} onChange={(event) => update("trackingDirecto", event.target.value)} placeholder="Número o URL de tracking simple" />
+                  </Field>
+                </div>
               ) : null}
             </div>
+            {modeHelpText ? <p className="mt-2 text-xs leading-5 text-[#A7A7A7]">{modeHelpText}</p> : null}
+          </FormCard>
+
+          <FormCard title="Identificación técnica">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <Field label="SKU">
+                <TextInput value={form.sku} onChange={(event) => update("sku", event.target.value.toUpperCase())} placeholder="Opcional" />
+                {!form.sku ? <p className="text-xs leading-5 text-[#D7FF4F]">Se generará automáticamente si lo dejas vacío.</p> : null}
+              </Field>
+              <Field label="SKU proveedor">
+                <TextInput value={form.skuProveedor} onChange={(event) => update("skuProveedor", event.target.value)} placeholder="Opcional" />
+              </Field>
+              <Field label="Marca">
+                <TextInput value={form.marca} onChange={(event) => update("marca", event.target.value)} />
+              </Field>
+              <Field label="Modelo">
+                <TextInput value={form.modelo} onChange={(event) => update("modelo", event.target.value)} />
+              </Field>
+              <Field label="Número de serie">
+                <TextInput value={form.numeroSerie} onChange={(event) => update("numeroSerie", event.target.value)} />
+              </Field>
+            </div>
+          </FormCard>
+
+          <FormCard title="Costos y venta" description="Flete, arancel y costo total unidad se calculan luego desde Packing.">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <Field label="Costo proveedor">
+                <TextInput type="number" step="0.01" value={form.costoProveedor} onChange={(event) => update("costoProveedor", event.target.value)} />
+                {showCostWarning ? <p className="text-xs leading-5 text-[#FFB07A]">Este flujo requiere costo proveedor.</p> : null}
+              </Field>
+              <Field label="Precio venta sugerido">
+                <TextInput type="number" step="0.01" value={form.precioVentaSugerido} onChange={(event) => update("precioVentaSugerido", event.target.value)} />
+              </Field>
+            </div>
+          </FormCard>
+
+          <FormCard title="Descripción y observaciones">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="Descripción">
+                <TextArea value={form.descripcion} onChange={(event) => update("descripcion", event.target.value)} />
+              </Field>
+              <Field label="Observaciones internas">
+                <TextArea value={form.observacionesInternas} onChange={(event) => update("observacionesInternas", event.target.value)} />
+              </Field>
+            </div>
+          </FormCard>
+        </div>
+
+        <aside className="space-y-3 lg:col-span-4">
+          <FormCard title="Flujo calculado" description="El flujo se calcula según el tipo de operación. Puedes ajustar algunos valores si el formulario lo permite.">
+            <div className="grid grid-cols-2 gap-2">
+              <FlowBadge label="Requiere pago" active={calculatedFlow.requierePago} />
+              <FlowBadge label="Requiere packing" active={effectiveRequiresPacking} />
+              <FlowBadge label="Afecta inventario" active={calculatedFlow.afectaInventario} />
+              <FlowBadge label="Disponible venta" active={calculatedFlow.disponibleParaVenta} />
+            </div>
+            <div className="mt-3 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2">
+              <p className="text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Modo logístico</p>
+              <p className="mt-0.5 text-sm font-semibold text-[#F5F5F5]">{form.modoLogistico}</p>
+            </div>
             {selectedModeUsesPacking ? (
-              <p className="mt-3 rounded-[1rem] border border-[#3A3A36] bg-[#151515] px-4 py-3 text-sm text-[#A7A7A7]">La logística principal se gestionará desde Packings.</p>
+              <p className="mt-2 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2 text-xs leading-5 text-[#A7A7A7]">La logística principal se gestionará desde Packings.</p>
             ) : null}
-          </div>
-          {calculatedFlow.notas.length > 0 ? (
-            <div className="rounded-[1rem] border border-[#3A3A36] bg-[#151515] px-4 py-3 text-sm text-[#A7A7A7]">
-              {calculatedFlow.notas.map((nota) => <p key={nota}>{nota}</p>)}
-            </div>
-          ) : null}
-        </div>
-      </section>
+            {calculatedFlow.notas.length > 0 ? (
+              <div className="mt-2 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2 text-xs leading-5 text-[#A7A7A7]">
+                {calculatedFlow.notas.map((nota) => <p key={nota}>{nota}</p>)}
+              </div>
+            ) : null}
+          </FormCard>
 
-      <section className="rounded-[2rem] border border-[#3A3A36] bg-[#2A2B27] p-5">
-        <div className="flex flex-col gap-4">
-          <div>
-            <h3 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Fotos del item</h3>
-            <p className="mt-1 text-sm text-[#A7A7A7]">Hasta 10 imágenes JPEG, PNG o WebP. Máximo 10 MB por imagen.</p>
-          </div>
-
-          <label
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={handleDrop}
-            className="grid min-h-36 cursor-pointer place-items-center rounded-[1.5rem] border border-dashed border-[#D7FF4F]/35 bg-[#151515] px-5 py-6 text-center transition hover:border-[#D7FF4F]/70 hover:bg-[#1E1F1C]"
-          >
-            <input type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" onChange={handlePhotoInput} />
-            <span className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-xs font-bold uppercase tracking-normal text-[#151515]">Seleccionar fotos</span>
-            <span className="mt-3 block text-sm text-[#A7A7A7]">También puedes arrastrarlas aquí</span>
-          </label>
-
-          {photos.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {photos.map((photo) => (
-                <div key={photo.id} className="overflow-hidden rounded-[1.25rem] border border-[#3A3A36] bg-[#151515]">
-                  <img src={photo.previewUrl} alt={photo.file.name} className="h-32 w-full object-cover" />
-                  <div className="space-y-2 p-3">
-                    <div>
-                      <p className="truncate text-xs font-semibold text-[#F5F5F5]" title={photo.file.name}>{photo.file.name}</p>
-                      <p className="mt-0.5 text-[11px] text-[#A7A7A7]">{formatFileSize(photo.file.size)}</p>
+          <FormCard title="Fotos del item" description="Hasta 10 imágenes JPG, PNG o WebP.">
+            <label onDragOver={(event) => event.preventDefault()} onDrop={handleDrop} className="grid min-h-28 cursor-pointer place-items-center rounded-xl border border-dashed border-[#D7FF4F]/35 bg-[#151515] px-4 py-5 text-center transition hover:border-[#D7FF4F]/70 hover:bg-[#1E1F1C]">
+              <input type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" onChange={handlePhotoInput} />
+              <span className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-xs font-bold uppercase tracking-normal text-[#151515]">Seleccionar fotos</span>
+              <span className="mt-2 block text-xs text-[#A7A7A7]">También puedes arrastrarlas aquí</span>
+            </label>
+            {photos.length > 0 ? (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
+                {photos.map((photo) => (
+                  <div key={photo.id} className="overflow-hidden rounded-xl border border-[#3A3A36] bg-[#151515]">
+                    <img src={photo.previewUrl} alt={photo.file.name} className="h-24 w-full object-cover" />
+                    <div className="space-y-2 p-2">
+                      <div>
+                        <p className="truncate text-xs font-semibold text-[#F5F5F5]" title={photo.file.name}>{photo.file.name}</p>
+                        <p className="mt-0.5 text-[11px] text-[#A7A7A7]">{formatFileSize(photo.file.size)}</p>
+                      </div>
+                      <button type="button" onClick={() => removePhoto(photo.id)} className="w-full rounded-lg border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#F5F5F5] transition hover:border-[#FF914D]/60 hover:text-[#FFB07A]">
+                        Quitar
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => removePhoto(photo.id)}
-                      className="w-full rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#F5F5F5] transition hover:border-[#FF914D]/60 hover:text-[#FFB07A]"
-                    >
-                      Quitar
-                    </button>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </section>
+                ))}
+              </div>
+            ) : null}
+          </FormCard>
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-        <Link href="/shipping-v2/items" className="rounded-full border border-[#3A3A36] bg-[#252622] px-5 py-3 text-center text-sm font-medium text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]">
-          Cancelar
-        </Link>
-        <button type="submit" disabled={saving} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-6 py-3 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60">
-          {saving ? "Guardando..." : "Crear Item"}
-        </button>
+          <section className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+              <Link href="/shipping-v2/items" className="rounded-lg border border-[#3A3A36] bg-[#252622] px-4 py-2.5 text-center text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]">
+                Cancelar
+              </Link>
+              <button type="submit" disabled={saving} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2.5 text-sm font-black text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60">
+                {saving ? "Guardando..." : "Crear item"}
+              </button>
+            </div>
+          </section>
+        </aside>
       </div>
     </form>
   );

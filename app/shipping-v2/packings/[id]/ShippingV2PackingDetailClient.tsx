@@ -7,9 +7,9 @@ import { InlineEditableField } from "@/components/shipping-v2/InlineEditableFiel
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { buildTrackingUrl } from "@/lib/shipping-v2/tracking";
 import { getEcuadorTransportProvidersForPacking, getUsaTransportProviders, providerTrackingLabel } from "@/lib/shipping-v2/tracking-providers";
-import { SHIPPING_V2_PACKING_TIPOS, SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS, type ShippingV2Item, type ShippingV2Packing, type ShippingV2Proveedor } from "@/types/shipping-v2";
+import { SHIPPING_V2_PACKING_TIPOS, SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS, type ShippingV2Item, type ShippingV2Novedad, type ShippingV2Packing, type ShippingV2PackingStatusAction, type ShippingV2Proveedor } from "@/types/shipping-v2";
 
-type Props = { packing: ShippingV2Packing; candidates: ShippingV2Item[]; proveedores: ShippingV2Proveedor[] };
+type Props = { packing: ShippingV2Packing; candidates: ShippingV2Item[]; proveedores: ShippingV2Proveedor[]; novedades: ShippingV2Novedad[]; isAdmin: boolean };
 type EditablePackingField = "nombre" | "tipo" | "observaciones" | "proveedorResponsableId" | "trackingUsa" | "transportistaUsa" | "trackingEc" | "transportistaEc" | "peso";
 type SaveState = Record<string, "saving" | "saved" | "error" | undefined>;
 
@@ -293,6 +293,383 @@ function TrackingActions({
   );
 }
 
+type PackingStatusConfig = {
+  action?: ShippingV2PackingStatusAction;
+  label?: string;
+  description: string;
+  disabled?: boolean;
+  legacyNovedad?: boolean;
+};
+
+type StatusModalAction = {
+  action: ShippingV2PackingStatusAction;
+  title: string;
+  label: string;
+  description: string;
+  fieldLabel: string;
+};
+
+const NOVEDAD_TYPES = [
+  "Demora en aduana",
+  "Tracking sin movimiento",
+  "Packing perdido",
+  "Caja golpeada",
+  "Diferencia de peso",
+  "Retenido por courier",
+  "Otro",
+];
+
+function statusToneClass(status: string) {
+  const state = normalize(status);
+  if (state === "en proceso") return "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]";
+  if (state === "cerrado") return "border-[#F4E85B]/35 bg-[#F4E85B]/10 text-[#F4E85B]";
+  if (state === "en transito") return "border-[#8B73FF]/35 bg-[#8B73FF]/10 text-[#C9BFFF]";
+  if (state === "recibido" || state === "en revision") return "border-[#4FC3FF]/35 bg-[#4FC3FF]/10 text-[#BDEAFF]";
+  if (state === "con novedad" || state === "cancelado") return "border-[#FF914D]/35 bg-[#FF914D]/10 text-[#FFB07A]";
+  return "border-[#3A3A36] bg-[#151515] text-[#A7A7A7]";
+}
+
+function getPackingStatusConfig(status: string, input: { hasOpenNovedades: boolean }): PackingStatusConfig {
+  const state = normalize(status);
+  if (state === "en proceso") {
+    return { action: "close", label: "Cerrar packing", description: "Finaliza el armado y bloquea cambios normales de items." };
+  }
+  if (state === "cerrado") {
+    return { action: "mark-in-transit", label: "Marcar en tránsito", description: "Confirma manualmente que el packing ya salió hacia destino." };
+  }
+  if (state === "en transito") {
+    return { action: "mark-received", label: "Marcar recibido", description: "Registra recepción sin liberar inventario automáticamente." };
+  }
+  if (state === "recibido") {
+    return { action: "start-review", label: "Iniciar revisión", description: "Pasa el contenido a revisión operativa." };
+  }
+  if (state === "en revision") {
+    return {
+      action: "close-final",
+      label: "Cerrar final",
+      description: input.hasOpenNovedades ? "Hay novedades pendientes antes del cierre final." : "Sin novedades pendientes: listo para cierre final.",
+      disabled: input.hasOpenNovedades,
+    };
+  }
+  if (state === "con novedad") {
+    return {
+      description: "Estado legacy: restaura manualmente el estado operativo correcto.",
+      legacyNovedad: true,
+    };
+  }
+  if (state === "cancelado") {
+    return { description: "Packing cancelado. La operación quedó bloqueada.", disabled: true };
+  }
+  if (state === "cerrado final") {
+    return { description: "Packing cerrado final. Solo lectura.", disabled: true };
+  }
+  return { description: "Estado sin acción operativa configurada.", disabled: true };
+}
+
+function StatusActionPanel({
+  packing,
+  novedades,
+  isAdmin,
+  busy,
+  actionBusy,
+  onRunAction,
+  onOpenNovedad,
+  onOpenNovedades,
+  onOpenStatusModal,
+}: {
+  packing: ShippingV2Packing;
+  novedades: ShippingV2Novedad[];
+  isAdmin: boolean;
+  busy: boolean;
+  actionBusy: ShippingV2PackingStatusAction | "";
+  onRunAction: (action: ShippingV2PackingStatusAction) => void;
+  onOpenNovedad: () => void;
+  onOpenNovedades: () => void;
+  onOpenStatusModal: (action: StatusModalAction) => void;
+}) {
+  const openNovedades = novedades.filter((novedad) => isOpenNovedadStatus(novedad.estado));
+  const state = normalize(packing.estado);
+  const config = getPackingStatusConfig(packing.estado, { hasOpenNovedades: openNovedades.length > 0 });
+  const canCancel = isAdmin && !["cancelado", "cerrado final"].includes(state);
+  const canRegisterNovedad = ["en proceso", "cerrado", "en transito", "recibido", "en revision"].includes(state) || (isAdmin && state === "cerrado final");
+  const canRestoreLegacyNovedad = isAdmin && state === "con novedad";
+
+  return (
+    <div className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-xl shadow-black/20">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="grid min-w-0 gap-2 sm:grid-cols-[auto_1fr] sm:items-center">
+          <span className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${statusToneClass(packing.estado)}`}>
+            <span className="h-2 w-2 rounded-full bg-current" />
+            {display(packing.estado)}
+          </span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Control operativo</p>
+            <p className="mt-0.5 text-sm leading-5 text-[#F5F5F5]">{config.description}</p>
+            {(packing.trackingUsa || packing.trackingEc) && state === "cerrado" ? (
+              <p className="mt-0.5 text-xs leading-5 text-[#D7FF4F]">Tracking registrado; el tránsito sigue requiriendo confirmación.</p>
+            ) : null}
+            {openNovedades.length ? (
+              <p className="mt-1 text-xs leading-5 text-[#FFB07A]">Este packing tiene novedades pendientes.</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+          {openNovedades.length ? (
+            <span className="inline-flex h-9 items-center rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 text-xs font-bold text-[#FFB07A]">
+              {openNovedades.length} novedades abiertas
+            </span>
+          ) : null}
+
+          {config.action ? (
+            <button
+              type="button"
+              disabled={busy || config.disabled}
+              onClick={() => onRunAction(config.action as ShippingV2PackingStatusAction)}
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50"
+            >
+              {actionBusy === config.action ? "Procesando..." : config.label}
+            </button>
+          ) : null}
+
+          {canRegisterNovedad ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onOpenNovedad}
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] disabled:opacity-50"
+            >
+              Registrar novedad
+            </button>
+          ) : null}
+
+          {novedades.length ? (
+            <button
+              type="button"
+              onClick={onOpenNovedades}
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D7FF4F]/45 bg-[#D7FF4F]/10 px-3 text-sm font-semibold text-[#D7FF4F] transition hover:border-[#D7FF4F]"
+            >
+              Ver novedades
+            </button>
+          ) : null}
+
+          {(canCancel || canRestoreLegacyNovedad) ? (
+            <details className="relative">
+              <summary className="flex h-9 cursor-pointer list-none items-center rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/45 hover:text-[#F5F5F5]">
+                Más acciones
+              </summary>
+              <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-[#3A3A36] bg-[#10110F] p-2 shadow-2xl shadow-black/50">
+                {canRestoreLegacyNovedad ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onOpenStatusModal({
+                        action: "restore-in-transit",
+                        title: "Volver a En tránsito",
+                        label: "Restaurar estado",
+                        fieldLabel: "Confirmación administrativa",
+                        description: "Solo cambia el estado principal del packing. No modifica items ni novedades.",
+                      })}
+                      className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#F5F5F5] hover:bg-[#1E1F1C] disabled:opacity-50"
+                    >
+                      Volver a En tránsito
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onOpenStatusModal({
+                        action: "restore-received",
+                        title: "Volver a Recibido",
+                        label: "Restaurar estado",
+                        fieldLabel: "Confirmación administrativa",
+                        description: "Solo cambia el estado principal del packing. No modifica items ni novedades.",
+                      })}
+                      className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#F5F5F5] hover:bg-[#1E1F1C] disabled:opacity-50"
+                    >
+                      Volver a Recibido
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onOpenStatusModal({
+                        action: "restore-review",
+                        title: "Volver a En revisión",
+                        label: "Restaurar estado",
+                        fieldLabel: "Confirmación administrativa",
+                        description: "Solo cambia el estado principal del packing. No modifica items ni novedades.",
+                      })}
+                      className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#F5F5F5] hover:bg-[#1E1F1C] disabled:opacity-50"
+                    >
+                      Volver a En revisión
+                    </button>
+                  </>
+                ) : null}
+                {canCancel ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onOpenStatusModal({
+                      action: "cancel",
+                      title: "Cancelar packing",
+                      label: "Cancelar packing",
+                      fieldLabel: "Motivo de cancelación",
+                      description: "Esta acción queda registrada como administrativa.",
+                    })}
+                    className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#FFB07A] hover:bg-[#2A1B14] disabled:opacity-50"
+                  >
+                    Cancelar packing
+                  </button>
+                ) : null}
+              </div>
+            </details>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function isOpenNovedadStatus(status: string) {
+  const state = normalize(status);
+  return Boolean(state && !["resuelta", "resuelto", "cancelada", "cancelado", "cerrada", "cerrado"].includes(state));
+}
+
+function ModalShell({ title, description, children, onClose }: { title: string; description?: string; children: ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
+      <div className="w-full max-w-lg rounded-xl border border-[#3A3A36] bg-[#151613] shadow-2xl shadow-black/50">
+        <div className="border-b border-[#30312D] px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-[#F5F5F5]">{title}</h3>
+              {description ? <p className="mt-1 text-sm leading-5 text-[#A7A7A7]">{description}</p> : null}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] text-sm font-bold text-[#A7A7A7] transition hover:border-[#D7FF4F]/55 hover:text-[#F5F5F5]"
+              aria-label="Cerrar modal"
+            >
+              X
+            </button>
+          </div>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function StatusDecisionModal({
+  modal,
+  value,
+  busy,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  modal: StatusModalAction;
+  value: string;
+  busy: boolean;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <ModalShell title={modal.title} description={modal.description} onClose={onClose}>
+      <label className="block">
+        <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">{modal.fieldLabel}</span>
+        <textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          disabled={busy}
+          className="mt-2 min-h-28 w-full resize-y rounded-lg border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-60"
+        />
+      </label>
+      <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button type="button" disabled={busy} onClick={onClose} className="h-9 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45 disabled:opacity-50">Cancelar</button>
+        <button type="button" disabled={busy || !value.trim()} onClick={onSubmit} className="h-9 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">{busy ? "Guardando..." : modal.label}</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function NovedadModal({
+  form,
+  busy,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  form: { tipo: string; descripcion: string; evidenciaUrl: string };
+  busy: boolean;
+  onChange: (form: { tipo: string; descripcion: string; evidenciaUrl: string }) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <ModalShell title="Registrar novedad" description="La novedad quedará relacionada al packing y moverá el estado a Con novedad cuando aplique." onClose={onClose}>
+      <div className="grid gap-3">
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Tipo de novedad</span>
+          <select
+            value={form.tipo}
+            disabled={busy}
+            onChange={(event) => onChange({ ...form, tipo: event.target.value })}
+            className="mt-2 h-10 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-sm font-semibold text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-60"
+          >
+            {NOVEDAD_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Descripción</span>
+          <textarea
+            value={form.descripcion}
+            disabled={busy}
+            onChange={(event) => onChange({ ...form, descripcion: event.target.value })}
+            className="mt-2 min-h-28 w-full resize-y rounded-lg border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-60"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Evidencia URL</span>
+          <input
+            value={form.evidenciaUrl}
+            disabled={busy}
+            onChange={(event) => onChange({ ...form, evidenciaUrl: event.target.value })}
+            placeholder="Opcional"
+            className="mt-2 h-10 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-60"
+          />
+        </label>
+      </div>
+      <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button type="button" disabled={busy} onClick={onClose} className="h-9 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45 disabled:opacity-50">Cancelar</button>
+        <button type="button" disabled={busy || !form.descripcion.trim()} onClick={onSubmit} className="h-9 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">{busy ? "Guardando..." : "Guardar novedad"}</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function NovedadesModal({ novedades, onClose }: { novedades: ShippingV2Novedad[]; onClose: () => void }) {
+  return (
+    <ModalShell title="Novedades del packing" description={`${novedades.length} novedad(es) relacionadas.`} onClose={onClose}>
+      <div className="grid max-h-[420px] gap-2 overflow-y-auto pr-1">
+        {novedades.map((novedad) => (
+          <article key={novedad.id} className="rounded-lg border border-[#30312D] bg-[#101010] px-3 py-2">
+            <p className="text-sm font-semibold text-[#F5F5F5]">{display(novedad.titulo)}</p>
+            <p className="mt-1 text-xs text-[#A7A7A7]">Estado: {display(novedad.estado)} · Severidad: {display(novedad.severidad)}</p>
+            {novedad.descripcion ? <p className="mt-2 text-sm leading-5 text-[#A7A7A7]">{novedad.descripcion}</p> : null}
+          </article>
+        ))}
+        {!novedades.length ? <p className="rounded-lg border border-[#30312D] bg-[#101010] px-3 py-3 text-sm text-[#A7A7A7]">No hay novedades relacionadas cargadas para este packing.</p> : null}
+      </div>
+      <div className="mt-4 flex justify-end">
+        <button type="button" onClick={onClose} className="h-9 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45">Cerrar</button>
+      </div>
+    </ModalShell>
+  );
+}
+
 function trackingHelpMessage({
   tracking,
   providerId,
@@ -535,7 +912,7 @@ function CostSummaryItem({ label, value, strong = false, children }: { label: st
   );
 }
 
-export function ShippingV2PackingDetailClient({ packing: initialPacking, candidates, proveedores }: Props) {
+export function ShippingV2PackingDetailClient({ packing: initialPacking, candidates, proveedores, novedades, isAdmin }: Props) {
   const router = useRouter();
   const [packing, setPacking] = useState(initialPacking);
   const [availableItems, setAvailableItems] = useState(candidates.filter((item) => !initialPacking.itemIds.includes(item.id)));
@@ -543,9 +920,16 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   const [dragOver, setDragOver] = useState(false);
   const [busyItemId, setBusyItemId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [actionBusy, setActionBusy] = useState<ShippingV2PackingStatusAction | "">("");
   const [error, setError] = useState("");
   const [saveState, setSaveState] = useState<SaveState>({});
   const [copiedTracking, setCopiedTracking] = useState<"usa" | "ec" | null>(null);
+  const [packingNovedades, setPackingNovedades] = useState(novedades);
+  const [statusModal, setStatusModal] = useState<StatusModalAction | null>(null);
+  const [statusDecision, setStatusDecision] = useState("");
+  const [showNovedadModal, setShowNovedadModal] = useState(false);
+  const [showNovedadesModal, setShowNovedadesModal] = useState(false);
+  const [novedadForm, setNovedadForm] = useState({ tipo: NOVEDAD_TYPES[0], descripcion: "", evidenciaUrl: "" });
   const canEditItems = isOpen(packing.estado);
   const providerLabels = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
   const providerById = useMemo(() => new Map(proveedores.map((provider) => [provider.id, provider])), [proveedores]);
@@ -598,6 +982,8 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     trackingUrl: trackingEcUrl,
     missingProviderText: "Selecciona un transportista EC para habilitar el rastreo externo.",
   });
+
+  useEffect(() => setPackingNovedades(novedades), [novedades]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -832,17 +1218,51 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     }
   }
 
-  async function closePacking() {
+  async function runStatusAction(action: ShippingV2PackingStatusAction, decisionText = "") {
+    if (busy) return;
     setBusy(true);
+    setActionBusy(action);
     setError("");
     try {
-      const response = await fetch(`/api/shipping-v2/packings/${packing.id}/close`, { method: "POST" });
+      const response = await fetch(`/api/shipping-v2/packings/${packing.id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, decision: decisionText }),
+      });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo cerrar el packing."));
+      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo cambiar el estado del packing."));
       setPacking(payload.data as ShippingV2Packing);
+      setStatusDecision("");
+      setStatusModal(null);
+      router.refresh();
     } catch (mutationError) {
       setError(mutationError instanceof Error ? mutationError.message : "Error inesperado.");
       router.refresh();
+    } finally {
+      setBusy(false);
+      setActionBusy("");
+    }
+  }
+
+  async function saveNovedad() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/shipping-v2/packings/${packing.id}/novedades`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(novedadForm),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo registrar la novedad."));
+      setPacking(payload.data as ShippingV2Packing);
+      if (payload.novedad) setPackingNovedades((current) => [payload.novedad as ShippingV2Novedad, ...current]);
+      setNovedadForm({ tipo: NOVEDAD_TYPES[0], descripcion: "", evidenciaUrl: "" });
+      setShowNovedadModal(false);
+      router.refresh();
+    } catch (mutationError) {
+      setError(mutationError instanceof Error ? mutationError.message : "Error inesperado.");
     } finally {
       setBusy(false);
     }
@@ -864,14 +1284,23 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
           >
             Volver a Packings
           </Link>
-          {canEditItems ? (
-            <div className="flex flex-col items-stretch gap-2 sm:items-end">
-              <button type="button" disabled={busy} onClick={() => void closePacking()} className="inline-flex h-9 items-center justify-center rounded-lg border border-[#6A6A64] bg-[#2A2A28]/80 px-3 text-sm font-semibold text-[#F5F5F5] shadow-inner shadow-white/5 transition hover:border-[#D7FF4F]/60 disabled:opacity-60">Cerrar packing</button>
-              <p className="max-w-sm text-xs leading-5 text-[#A7A7A7]">Después de cerrar el packing podrás registrar peso, tracking, flete y arancel.</p>
-            </div>
-          ) : (
-            <p className="rounded-lg border border-[#3A3A36] bg-[#151515]/80 px-3 py-2 text-sm text-[#A7A7A7]">Este packing ya no permite modificar items desde vista normal.</p>
-          )}
+        </div>
+
+        <div className="mt-3">
+          <StatusActionPanel
+            packing={packing}
+            novedades={packingNovedades}
+            isAdmin={isAdmin}
+            busy={busy}
+            actionBusy={actionBusy}
+            onRunAction={(action) => void runStatusAction(action)}
+            onOpenNovedad={() => setShowNovedadModal(true)}
+            onOpenNovedades={() => setShowNovedadesModal(true)}
+            onOpenStatusModal={(modal) => {
+              setStatusDecision("");
+              setStatusModal(modal);
+            }}
+          />
         </div>
 
         <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(280px,0.75fr)_minmax(520px,1.25fr)] xl:items-start">
@@ -1069,6 +1498,38 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
         <h3 className="mb-3 text-sm font-semibold text-[#F5F5F5]">Notas del packing</h3>
         <EditableTextField label="Observaciones" value={packing.observaciones} multiline disabled={!canEditField("observaciones")} status={saveState.observaciones} onSave={(value) => void savePackingField("observaciones", value)} />
       </section>
+
+      {statusModal ? (
+        <StatusDecisionModal
+          modal={statusModal}
+          value={statusDecision}
+          busy={busy}
+          onChange={setStatusDecision}
+          onClose={() => {
+            if (busy) return;
+            setStatusModal(null);
+            setStatusDecision("");
+          }}
+          onSubmit={() => void runStatusAction(statusModal.action, statusDecision.trim())}
+        />
+      ) : null}
+
+      {showNovedadModal ? (
+        <NovedadModal
+          form={novedadForm}
+          busy={busy}
+          onChange={setNovedadForm}
+          onClose={() => {
+            if (busy) return;
+            setShowNovedadModal(false);
+          }}
+          onSubmit={() => void saveNovedad()}
+        />
+      ) : null}
+
+      {showNovedadesModal ? (
+        <NovedadesModal novedades={packingNovedades} onClose={() => setShowNovedadesModal(false)} />
+      ) : null}
     </div>
   );
 }

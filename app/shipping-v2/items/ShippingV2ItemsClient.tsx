@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
-import { StaffModal } from "@/components/staff/StaffDesignSystem";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,6 +15,8 @@ import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shippin
 import {
   type ShippingV2Attachment,
   type ShippingV2Item,
+  type ShippingV2Packing,
+  type ShippingV2Pago,
   type ShippingV2Proveedor,
 } from "@/types/shipping-v2";
 
@@ -46,7 +47,7 @@ type GroupKey =
   | "tipo-operacion"
   | "categoria";
 
-type ResolvedItem = ShippingV2Item & {
+export type ResolvedItem = ShippingV2Item & {
   proveedorCompraDisplay: string;
   proveedorLogisticoDisplay: string;
 };
@@ -65,6 +66,8 @@ type DetailRow = {
   readOnly?: boolean;
   options?: readonly string[] | readonly { value: string; label: string }[];
 };
+
+type ItemDetailTabKey = "general" | "costos" | "logistica" | "pago" | "packing" | "observaciones";
 
 const ALL = "Todos";
 
@@ -460,12 +463,12 @@ function DetailSection({
   }[accent];
 
   return (
-    <section className="rounded-[1.35rem] border border-[#3A3A36] bg-[#2A2B27] p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span className={`h-2.5 w-2.5 rounded-full ${accentClass}`} />
+    <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-lg shadow-black/10">
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className={`h-2 w-2 rounded-full ${accentClass}`} />
         <h3 className="text-sm font-semibold text-[#F5F5F5]">{title}</h3>
       </div>
-      <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {rows.map((row) => (
           <InlineEditableField
             key={row.label}
@@ -502,19 +505,68 @@ function attachmentList(attachments: ShippingV2Attachment[]) {
   );
 }
 
-function ItemDetailModal({
-  item,
+function DetailMetric({
+  label,
+  value,
+  featured,
+  tone = "neutral",
+}: {
+  label: string;
+  value: ReactNode;
+  featured?: boolean;
+  tone?: "lime" | "orange" | "neutral";
+}) {
+  const valueClass = featured
+    ? "text-[#151515]"
+    : tone === "orange"
+      ? "text-[#FFB07A]"
+      : tone === "lime"
+        ? "text-[#D7FF4F]"
+        : "text-[#F5F5F5]";
+
+  return (
+    <article className={`rounded-xl border px-3 py-2 shadow-lg shadow-black/10 ${featured ? "border-[#D7FF4F] bg-[#D7FF4F]" : "border-[#30312D] bg-[#171814]"}`}>
+      <p className={`truncate text-[11px] font-bold uppercase tracking-normal ${featured ? "text-[#151515]/70" : "text-[#8F908A]"}`}>{label}</p>
+      <p className={`mt-1 text-lg font-semibold leading-none tabular-nums ${valueClass}`}>{value}</p>
+    </article>
+  );
+}
+
+function BooleanPill({ label, value }: { label: string; value: boolean | null }) {
+  return (
+    <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${value ? "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]" : "border-[#3A3A36] bg-[#151515] text-[#A7A7A7]"}`}>
+      {label}: {displayBoolean(value)}
+    </span>
+  );
+}
+
+function SmallDataRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-[#30312D]/80 py-2 last:border-b-0">
+      <span className="text-[12px] font-semibold uppercase tracking-normal text-[#8F908A]">{label}</span>
+      <span className="min-w-0 text-right text-sm font-medium text-[#F5F5F5]">{value}</span>
+    </div>
+  );
+}
+
+export function ShippingV2ItemDetailView({
+  item: initialItem,
   proveedores,
-  onClose,
+  pago,
+  packing,
   onSaved,
 }: {
   item: ResolvedItem;
   proveedores: ShippingV2Proveedor[];
-  onClose: () => void;
-  onSaved: (item: ShippingV2Item) => void;
+  pago?: ShippingV2Pago | null;
+  packing?: ShippingV2Packing | null;
+  onSaved?: (item: ShippingV2Item) => void;
 }) {
+  const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
+  const [item, setItem] = useState(initialItem);
   const [applyingAiName, setApplyingAiName] = useState(false);
   const [ignoredAiName, setIgnoredAiName] = useState("");
+  const [activeTab, setActiveTab] = useState<ItemDetailTabKey>("general");
   const purchaseProviderOptions = useMemo(
     () => proveedores.filter(canBePurchaseProvider).map((proveedor) => ({ value: proveedor.id, label: getShippingV2ProveedorLabel(proveedor) })),
     [proveedores]
@@ -523,6 +575,20 @@ function ItemDetailModal({
     () => proveedores.filter(canBeItemLogisticsProvider).map((proveedor) => ({ value: proveedor.id, label: getShippingV2ProveedorLabel(proveedor) })),
     [proveedores]
   );
+
+  useEffect(() => {
+    setItem(initialItem);
+  }, [initialItem]);
+
+  function handleSaved(updatedItem: ShippingV2Item) {
+    const resolved: ResolvedItem = {
+      ...updatedItem,
+      proveedorCompraDisplay: resolveShippingV2ProveedorLabel(updatedItem.proveedorId, providerLabelsById),
+      proveedorLogisticoDisplay: resolveShippingV2ProveedorLabel(updatedItem.proveedorLogisticoId, providerLabelsById),
+    };
+    setItem(resolved);
+    onSaved?.(updatedItem);
+  }
 
   async function saveField(field: string, value: string | number | boolean | null) {
     const response = await fetch(`/api/shipping-v2/items/${item.id}`, {
@@ -537,7 +603,7 @@ function ItemDetailModal({
       throw new Error(String(payload.error || "No se pudo actualizar el item."));
     }
 
-    onSaved(payload.data as ShippingV2Item);
+    handleSaved(payload.data as ShippingV2Item);
   }
 
   async function applyAiNameSuggestion() {
@@ -559,7 +625,7 @@ function ItemDetailModal({
       if (!response.ok || !payload.success) {
         throw new Error(String(payload.error || "No se pudo aplicar la sugerencia IA."));
       }
-      onSaved(payload.data as ShippingV2Item);
+      handleSaved(payload.data as ShippingV2Item);
       setIgnoredAiName("");
     } finally {
       setApplyingAiName(false);
@@ -570,18 +636,9 @@ function ItemDetailModal({
     const response = await fetch(`/api/shipping-v2/items/${item.id}`, { cache: "no-store" });
     const payload = await response.json().catch(() => ({}));
     if (response.ok && payload.success) {
-      onSaved(payload.data as ShippingV2Item);
+      handleSaved(payload.data as ShippingV2Item);
     }
   }
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
 
   useEffect(() => {
     setIgnoredAiName("");
@@ -596,12 +653,11 @@ function ItemDetailModal({
   const ganancia = item.precioVenta !== null && item.costoProveedor !== null ? item.precioVenta - item.costoProveedor : null;
   const aiNameSuggestion = item.aiNombre?.trim();
   const hasAiNameSuggestion = Boolean(aiNameSuggestion && normalizeText(aiNameSuggestion) !== normalizeText(item.nombre) && aiNameSuggestion !== ignoredAiName);
-  const gananciaTone = ganancia !== null && ganancia < 0
-    ? "border-[#FF914D]/35 bg-[#FF914D]/10 text-[#FFB07A]"
-    : "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]";
-  const sections: Array<{ title: string; accent: "lime" | "purple" | "orange" | "yellow"; rows: DetailRow[] }> = [
+  const tabs: Array<{ key: ItemDetailTabKey; label: string; title: string; accent: "lime" | "purple" | "orange" | "yellow"; rows: DetailRow[] }> = [
     {
-      title: "Identificacion",
+      key: "general",
+      label: "General",
+      title: "Datos generales",
       accent: "lime",
       rows: [
         { label: C.sku.label, value: item.sku, config: C.sku },
@@ -609,272 +665,251 @@ function ItemDetailModal({
         { label: C.numeroSerie.label, value: item.numeroSerie, config: C.numeroSerie },
         { label: C.marca.label, value: item.marca, config: C.marca },
         { label: C.modelo.label, value: item.modelo, config: C.modelo },
-      ],
-    },
-    {
-      title: "Informacion general",
-      accent: "purple",
-      rows: [
-        { label: C.nombre.label, value: item.nombre, displayValue: displayName(item.nombre), config: C.nombre },
-        { label: C.descripcion.label, value: item.descripcion, config: C.descripcion },
         { label: C.categoria.label, value: item.categoria, config: C.categoria },
         { label: C.tipoItem.label, value: item.tipoItem, config: C.tipoItem },
         { label: C.condicion.label, value: item.condicion, config: C.condicion },
         { label: C.cantidad.label, value: item.cantidad ?? item.qty, config: C.cantidad },
         { label: C.unidad.label, value: item.unidad, config: C.unidad },
-      ],
-    },
-    {
-      title: "Estado e inventario",
-      accent: "yellow",
-      rows: [
         { label: C.estadoItem.label, value: item.estado, displayValue: <EstadoBadge estado={item.estado} />, config: C.estadoItem },
         { label: C.estadoRevision.label, value: item.estadoRevision, config: C.estadoRevision },
-        { label: C.estadoTriangulacion.label, value: item.estadoTriangulacion, config: C.estadoTriangulacion },
-        { label: C.estadoDespiece.label, value: item.estadoDespiece, config: C.estadoDespiece },
         { label: C.afectaInventario.label, value: item.afectaInventario, displayValue: displayBoolean(item.afectaInventario), config: C.afectaInventario },
-        { label: C.disponibleVenta.label, value: item.disponibleVenta, displayValue: `${displayBoolean(item.disponibleVenta)} · Puede ofrecerse o reservarse; no significa entrega inmediata.`, config: C.disponibleVenta },
+        { label: C.disponibleVenta.label, value: item.disponibleVenta, displayValue: displayBoolean(item.disponibleVenta), config: C.disponibleVenta },
         { label: C.reservado.label, value: item.reservado, config: C.reservado },
         { label: C.ubicacionActual.label, value: item.ubicacionActual, config: C.ubicacionActual },
         { label: "Origen físico actual", value: item.origenFisicoActual, readOnly: true },
       ],
     },
     {
-      title: "Proveedor y compra",
-      accent: "orange",
-      rows: [
-        { label: C.proveedorCompra.label, value: item.proveedorId, displayValue: displayValue(item.proveedorCompraDisplay), config: C.proveedorCompra, options: purchaseProviderOptions },
-        { label: C.proveedorLogistico.label, value: item.proveedorLogisticoId, displayValue: displayValue(item.proveedorLogisticoDisplay), config: C.proveedorLogistico, options: itemLogisticsProviderOptions },
-        { label: C.requierePago.label, value: item.requierePago, displayValue: displayBoolean(item.requierePago), config: C.requierePago },
-        { label: C.pagoRelacionado.label, value: item.pagoId, config: C.pagoRelacionado },
-        { label: C.costoProveedor.label, value: item.costoProveedor, displayValue: formatCurrency(item.costoProveedor), config: C.costoProveedor },
-        { label: "Es regalo", value: item.esRegalo, displayValue: displayBoolean(item.esRegalo), readOnly: true },
-      ],
-    },
-    {
-      title: "Packing y tracking",
-      accent: "purple",
-      rows: [
-        { label: C.requierePacking.label, value: item.requierePacking, displayValue: displayBoolean(item.requierePacking), config: C.requierePacking },
-        {
-          label: C.modoLogistico.label,
-          value: item.modoLogistico,
-          displayValue: item.packingId ? (
-            <span>
-              {displayValue(item.modoLogistico)}
-              <span className="mt-1 block text-[13px] leading-5 text-[#FFB07A]">No se puede cambiar el modo logístico porque el Item ya tiene packing relacionado.</span>
-            </span>
-          ) : undefined,
-          config: C.modoLogistico,
-          readOnly: Boolean(item.packingId),
-        },
-        { label: C.packingRelacionado.label, value: item.packingId, config: C.packingRelacionado },
-        { label: C.trackingDirecto.label, value: item.trackingDirecto, config: C.trackingDirecto, readOnly: item.modoLogistico !== "Tracking directo" },
-        { label: "Tracking hacia intermediario", value: item.trackingHaciaIntermediario, readOnly: true },
-        { label: "Tracking desde intermediario", value: item.trackingDesdeIntermediario, readOnly: true },
-      ],
-    },
-    {
+      key: "costos",
+      label: "Costos",
       title: "Costos y venta",
       accent: "lime",
       rows: [
         { label: C.costoProveedor.label, value: item.costoProveedor, displayValue: formatCurrency(item.costoProveedor), config: C.costoProveedor },
-        { label: "Costo asignado despiece", value: item.costoAsignadoDespiece, displayValue: formatCurrency(item.costoAsignadoDespiece), readOnly: true },
+        { label: "Costo flete asignado", value: item.costoFleteAsignado, displayValue: formatCurrency(item.costoFleteAsignado), readOnly: true },
+        { label: "Costo arancel asignado", value: item.costoArancelAsignado, displayValue: formatCurrency(item.costoArancelAsignado), readOnly: true },
+        { label: "Otros costos asignados", value: item.otrosCostosAsignados, displayValue: formatCurrency(item.otrosCostosAsignados), readOnly: true },
         { label: "Costo logístico asignado", value: item.costoLogisticoAsignado, displayValue: formatCurrency(item.costoLogisticoAsignado), readOnly: true },
+        { label: "Costo total unidad", value: item.costoTotalUnidad, displayValue: formatCurrency(item.costoTotalUnidad), readOnly: true },
+        { label: "Costo asignado despiece", value: item.costoAsignadoDespiece, displayValue: formatCurrency(item.costoAsignadoDespiece), readOnly: true },
         { label: "Costo total estimado", value: item.costoTotalEstimado, displayValue: formatCurrency(item.costoTotalEstimado), readOnly: true },
         { label: C.precioVentaSugerido.label, value: item.precioVentaSugerido, displayValue: formatCurrency(item.precioVentaSugerido), config: C.precioVentaSugerido },
         { label: C.precioVentaFinal.label, value: item.precioVenta, displayValue: formatCurrency(item.precioVenta), config: C.precioVentaFinal },
+        { label: "Ganancia", value: ganancia, displayValue: formatCurrency(ganancia), readOnly: true },
       ],
     },
     {
-      title: "Despiece y repuestos",
+      key: "logistica",
+      label: "Logística",
+      title: "Proveedores y logística",
+      accent: "orange",
+      rows: [
+        { label: C.proveedorCompra.label, value: item.proveedorId, displayValue: displayValue(item.proveedorCompraDisplay), config: C.proveedorCompra, options: purchaseProviderOptions },
+        { label: C.proveedorLogistico.label, value: item.proveedorLogisticoId, displayValue: displayValue(item.proveedorLogisticoDisplay), config: C.proveedorLogistico, options: itemLogisticsProviderOptions },
+        { label: C.modoLogistico.label, value: item.modoLogistico, config: C.modoLogistico, readOnly: Boolean(item.packingId) },
+        { label: "Tracking hacia intermediario", value: item.trackingHaciaIntermediario, readOnly: true },
+        { label: "Tracking desde intermediario", value: item.trackingDesdeIntermediario, readOnly: true },
+        { label: C.estadoTriangulacion.label, value: item.estadoTriangulacion, config: C.estadoTriangulacion },
+        { label: C.estadoDespiece.label, value: item.estadoDespiece, config: C.estadoDespiece },
+      ],
+    },
+    {
+      key: "pago",
+      label: "Pago",
+      title: "Pago relacionado",
       accent: "yellow",
       rows: [
-        { label: C.itemPadre.label, value: item.itemPadreId, config: C.itemPadre },
-        { label: C.itemsHijos.label, value: item.itemHijoIds.join(", "), displayValue: item.itemHijoIds.length ? item.itemHijoIds.join(", ") : "—", config: C.itemsHijos },
-        { label: "Motivo despiece", value: item.motivoDespiece, readOnly: true },
-        { label: "Fecha despiece", value: item.fechaDespiece, displayValue: formatDate(item.fechaDespiece), readOnly: true },
-        { label: "Responsable despiece", value: item.responsableDespiece, readOnly: true },
-        { label: "Parte recuperada", value: item.esParteRecuperada, displayValue: displayBoolean(item.esParteRecuperada), readOnly: true },
-        { label: C.esRepuesto.label, value: item.esRepuesto, config: C.esRepuesto },
-        { label: C.esUsoLocal.label, value: item.usoLocal, config: C.esUsoLocal },
+        { label: C.requierePago.label, value: item.requierePago, displayValue: displayBoolean(item.requierePago), config: C.requierePago },
+        { label: "Pago Shipping V2 relacionado", value: item.pagoId, displayValue: pago?.pagoId || item.pagoId || "—", config: C.pagoRelacionado },
+        { label: "Estado de pago", value: pago?.estadoPago, displayValue: pago?.estadoPago ? <EstadoBadge estado={pago.estadoPago} /> : "—", readOnly: true },
+        { label: "Total del pago", value: pago?.totalAPagar ?? pago?.total, displayValue: formatCurrency(pago?.totalAPagar ?? pago?.total ?? null), readOnly: true },
+        { label: "Fecha real de pago", value: pago?.fechaPagoReal, displayValue: formatDate(pago?.fechaPagoReal), readOnly: true },
+        { label: "Pago legacy", value: item.legacyPagoId || item.legacyPagoRelacionadoIds.join(", "), readOnly: true },
       ],
     },
     {
-      title: "Observaciones y evidencias",
+      key: "packing",
+      label: "Packing",
+      title: "Packing y tracking",
+      accent: "purple",
+      rows: [
+        { label: C.requierePacking.label, value: item.requierePacking, displayValue: displayBoolean(item.requierePacking), config: C.requierePacking },
+        { label: C.packingRelacionado.label, value: item.packingId, displayValue: packing?.packingId || item.packingId || "—", config: C.packingRelacionado },
+        { label: "Estado packing", value: packing?.estado, displayValue: packing?.estado ? <EstadoBadge estado={packing.estado} /> : "—", readOnly: true },
+        { label: C.trackingDirecto.label, value: item.trackingDirecto, config: C.trackingDirecto, readOnly: item.modoLogistico !== "Tracking directo" },
+        { label: "Tracking USA", value: packing?.trackingUsa || item.trackingUsa, readOnly: true },
+        { label: "Tracking EC", value: packing?.trackingEc || item.trackingEc, readOnly: true },
+        { label: "Peso", value: packing?.peso, displayValue: packing?.peso === null || packing?.peso === undefined ? "—" : `${packing.peso} kg`, readOnly: true },
+      ],
+    },
+    {
+      key: "observaciones",
+      label: "Observaciones",
+      title: "Observaciones y auditoría",
       accent: "orange",
       rows: [
         { label: C.observacionesInternas.label, value: item.observacionesInternas, config: C.observacionesInternas },
         { label: C.observacionVenta.label, value: item.observacionVenta, config: C.observacionVenta },
         { label: "Evidencias", value: "", displayValue: attachmentList(item.evidencias), readOnly: true },
-      ],
-    },
-    {
-      title: "Migracion",
-      accent: "purple",
-      rows: [
+        { label: C.itemPadre.label, value: item.itemPadreId, config: C.itemPadre },
+        { label: C.itemsHijos.label, value: item.itemHijoIds.join(", "), displayValue: item.itemHijoIds.length ? item.itemHijoIds.join(", ") : "—", config: C.itemsHijos },
+        { label: "Motivo despiece", value: item.motivoDespiece, readOnly: true },
+        { label: "Fecha despiece", value: item.fechaDespiece, displayValue: formatDate(item.fechaDespiece), readOnly: true },
+        { label: C.fechaRegistro.label, value: item.fechaRegistro || item.createdTime, displayValue: formatDate(item.fechaRegistro || item.createdTime), config: C.fechaRegistro },
+        { label: C.registradoPor.label, value: item.registradoPor, config: C.registradoPor },
+        { label: C.ultimaActualizacion.label, value: item.ultimaActualizacion, displayValue: formatDate(item.ultimaActualizacion), config: C.ultimaActualizacion },
+        { label: C.actualizadoPor.label, value: item.actualizadoPor, config: C.actualizadoPor },
         { label: C.legacyItemId.label, value: item.legacyItemId, config: C.legacyItemId },
-        { label: C.legacyPagoId.label, value: item.legacyPagoId, config: C.legacyPagoId },
         { label: C.legacyPackingId.label, value: item.legacyPackingId, config: C.legacyPackingId },
         { label: C.fuenteMigracion.label, value: item.fuenteMigracion, config: C.fuenteMigracion },
         { label: C.estadoMigracion.label, value: item.estadoMigracion, config: C.estadoMigracion },
       ],
     },
-    {
-      title: "Auditoria",
-      accent: "lime",
-      rows: [
-        { label: C.fechaRegistro.label, value: item.fechaRegistro || item.createdTime, displayValue: formatDate(item.fechaRegistro || item.createdTime), config: C.fechaRegistro },
-        { label: C.registradoPor.label, value: item.registradoPor, config: C.registradoPor },
-        { label: C.ultimaActualizacion.label, value: item.ultimaActualizacion, displayValue: formatDate(item.ultimaActualizacion), config: C.ultimaActualizacion },
-        { label: C.actualizadoPor.label, value: item.actualizadoPor, config: C.actualizadoPor },
-      ],
-    },
   ];
+  const activeSection = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 backdrop-blur-md sm:p-6"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <StaffModal>
-        <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[#3A3A36] bg-[#1E1F1C]/95 px-5 py-4 backdrop-blur">
-          <div className="min-w-0">
-            <p className="text-[13px] font-semibold uppercase tracking-normal text-[#D7FF4F]">{displayValue(item.sku)}</p>
-            <h2 className="mt-1 truncate text-2xl font-semibold text-[#F5F5F5]">{displayName(item.nombre)}</h2>
-            <p className="mt-1 text-[13px] text-[#A7A7A7]">Haz clic en un campo editable para modificarlo.</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="grid h-10 w-10 place-items-center rounded-full border border-[#3A3A36] bg-[#151515] text-xl text-[#F5F5F5] transition hover:border-[#D7FF4F] hover:text-[#D7FF4F]"
-              aria-label="Cerrar detalle"
-            >
-              ×
-            </button>
-          </div>
-        </header>
+    <div className="w-full max-w-none space-y-3">
+      <section className="grid w-full gap-3 xl:grid-cols-12">
+        <aside className="space-y-3 xl:col-span-4 2xl:col-span-3">
+          <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-[#F5F5F5]">Fotos</h2>
+              <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-2.5 py-0.5 text-[12px] font-semibold text-[#A7A7A7]">{item.fotos.length} fotos</span>
+            </div>
+            <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={handleSaved} density="compact" />
+          </article>
 
-        <div className="max-h-[calc(92vh-74px)] overflow-y-auto p-4 sm:p-5">
-          <section className="grid gap-5 lg:grid-cols-[minmax(280px,420px)_1fr]">
-            <ItemPhotoViewer
-              itemId={item.id}
-              itemName={item.nombre}
-              fotos={item.fotos}
-              onUpdated={onSaved}
+          <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
+            <h2 className="text-sm font-semibold text-[#F5F5F5]">Resumen rápido</h2>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <InlineEditableField
+                label={C.precioVentaFinal.label}
+                value={item.precioVenta}
+                type={C.precioVentaFinal.type}
+                displayValue={formatCurrency(item.precioVenta)}
+                className="rounded-xl border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-[#151515] transition"
+                labelClassName="text-[11px] font-bold uppercase tracking-normal text-[#151515]/70"
+                valueClassName="mt-1 min-h-5 break-words text-lg font-semibold tabular-nums text-[#151515]"
+                onSave={(value) => saveField(C.precioVentaFinal.field, value)}
+              />
+              <DetailMetric label="Costo total unidad" value={formatCurrency(item.costoTotalUnidad)} />
+              <InlineEditableField
+                label={C.costoProveedor.label}
+                value={item.costoProveedor}
+                type={C.costoProveedor.type}
+                displayValue={formatCurrency(item.costoProveedor)}
+                className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2 transition"
+                labelClassName="text-[11px] font-bold uppercase tracking-normal text-[#8F908A]"
+                valueClassName="mt-1 min-h-5 break-words text-lg font-semibold tabular-nums text-[#F5F5F5]"
+                onSave={(value) => saveField(C.costoProveedor.field, value)}
+              />
+              <DetailMetric label="Costo logístico" value={formatCurrency(item.costoLogisticoAsignado)} />
+              <DetailMetric label="Ganancia" value={formatCurrency(ganancia)} tone={ganancia !== null && ganancia < 0 ? "orange" : "lime"} />
+            </div>
+          </article>
+
+          <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
+            <h2 className="text-sm font-semibold text-[#F5F5F5]">Estado y disponibilidad</h2>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <EstadoBadge estado={item.estado} />
+              <OperationBadge value={item.tipoOperacion} />
+              <AvailabilityBadge item={item} />
+              <BooleanPill label="Requiere pago" value={item.requierePago} />
+              <BooleanPill label="Requiere packing" value={item.requierePacking} />
+              <BooleanPill label="Disponible venta" value={item.disponibleVenta} />
+            </div>
+            <div className="mt-3">
+              <SmallDataRow label="Ubicación" value={displayValue(item.ubicacionActual)} />
+              <SmallDataRow label="Packing" value={displayValue(packing?.packingId || item.packingId)} />
+              <SmallDataRow label="Pago" value={displayValue(pago?.pagoId || item.pagoId)} />
+            </div>
+          </article>
+        </aside>
+
+        <main className="space-y-3 xl:col-span-8 2xl:col-span-9">
+          <article className="rounded-xl border border-[#30312D] bg-[#171814] p-4 shadow-xl shadow-black/15">
+            <div className="flex flex-wrap gap-2">
+              <EstadoBadge estado={item.estado} />
+              <OperationBadge value={item.tipoOperacion} />
+              <AvailabilityBadge item={item} />
+              {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-2.5 py-0.5 text-[12px] font-semibold text-[#FFB07A]">Con novedad</span> : null}
+            </div>
+            <InlineEditableField
+              label={C.nombre.label}
+              value={item.nombre}
+              type={C.nombre.type}
+              displayValue={displayName(item.nombre)}
+              hideLabel
+              className="mt-3 rounded-lg transition"
+              valueClassName="min-h-8 break-words text-2xl font-semibold leading-tight text-[#F5F5F5] lg:text-3xl"
+              onSave={(value) => saveField(C.nombre.field, value)}
             />
-            <div className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2B27] p-5">
-              <div className="flex flex-wrap gap-2">
-                <EstadoBadge estado={item.estado} />
-                <OperationBadge value={item.tipoOperacion} />
-                <AvailabilityBadge item={item} />
-              </div>
-              <InlineEditableField
-                label={C.nombre.label}
-                value={item.nombre}
-                type={C.nombre.type}
-                displayValue={displayName(item.nombre)}
-                hideLabel
-                className="mt-5 rounded-lg transition"
-                valueClassName="min-h-9 break-words text-3xl font-semibold leading-tight text-[#F5F5F5]"
-                onSave={(value) => saveField(C.nombre.field, value)}
-              />
-              <InlineEditableField
-                label={C.descripcion.label}
-                value={item.descripcion}
-                type={C.descripcion.type}
-                displayValue={displayValue(item.descripcion, "Sin descripcion registrada.")}
-                hideLabel
-                className="mt-2 rounded-lg transition"
-                valueClassName="min-h-6 break-words text-sm leading-6 text-[#A7A7A7]"
-                onSave={(value) => saveField(C.descripcion.field, value)}
-              />
-              {hasAiNameSuggestion ? (
-                <div className="mt-4 rounded-[1.25rem] border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 p-4">
-                  <p className="text-[13px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Sugerencia IA disponible</p>
-                  <p className="mt-2 text-sm text-[#A7A7A7]">Airtable AI generó una versión más ordenada. Puedes aplicarla si te parece correcta.</p>
-                  <div className="mt-3 grid gap-2">
-                    <div className="rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-3">
-                      <p className="text-[12px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Nombre actual</p>
-                      <p className="mt-1 text-sm text-[#F5F5F5]">{displayName(item.nombre)}</p>
+            <InlineEditableField
+              label={C.descripcion.label}
+              value={item.descripcion}
+              type={C.descripcion.type}
+              displayValue={displayValue(item.descripcion, "Sin descripción registrada.")}
+              hideLabel
+              className="mt-2 rounded-lg transition"
+              valueClassName="min-h-5 break-words text-sm leading-6 text-[#A7A7A7]"
+              onSave={(value) => saveField(C.descripcion.field, value)}
+            />
+          </article>
+
+          {hasAiNameSuggestion ? (
+            <article className="rounded-xl border border-[#D7FF4F]/25 bg-[#151613] p-3 shadow-lg shadow-black/10">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[#D7FF4F]">Sugerencia de nombre</p>
+                  <div className="mt-2 grid gap-2 lg:grid-cols-2">
+                    <div className="min-w-0 rounded-lg border border-[#30312D] bg-[#11120F] px-3 py-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Nombre actual</p>
+                      <p className="mt-1 truncate text-sm text-[#F5F5F5]">{displayName(item.nombre)}</p>
                     </div>
-                    <div className="rounded-[1rem] border border-[#D7FF4F]/35 bg-[#151515] p-3">
-                      <p className="text-[12px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Nombre sugerido</p>
-                      <p className="mt-1 text-sm text-[#F5F5F5]">{aiNameSuggestion}</p>
+                    <div className="min-w-0 rounded-lg border border-[#D7FF4F]/30 bg-[#11120F] px-3 py-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Nombre sugerido</p>
+                      <p className="mt-1 truncate text-sm text-[#F5F5F5]">{aiNameSuggestion}</p>
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void applyAiNameSuggestion()}
-                      disabled={applyingAiName}
-                      className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold uppercase tracking-normal text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {applyingAiName ? "Aplicando..." : "Aplicar sugerencia"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIgnoredAiName(aiNameSuggestion || "")}
-                      disabled={applyingAiName}
-                      className="rounded-full border border-[#3A3A36] bg-[#252622] px-4 py-2 text-sm font-semibold uppercase tracking-normal text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60"
-                    >
-                      Ignorar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void refreshItem()}
-                      disabled={applyingAiName}
-                      className="rounded-full border border-[#3A3A36] bg-[#151515] px-4 py-2 text-sm font-semibold uppercase tracking-normal text-[#A7A7A7] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60"
-                    >
-                      Actualizar sugerencia
-                    </button>
-                  </div>
                 </div>
-              ) : null}
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                <InlineEditableField
-                  label={C.precioVentaFinal.label}
-                  value={item.precioVenta}
-                  type={C.precioVentaFinal.type}
-                  displayValue={formatCurrency(item.precioVenta)}
-                  className="rounded-[1.25rem] bg-[#D7FF4F] p-4 text-[#151515] transition"
-                  labelClassName="text-[13px] font-bold uppercase tracking-normal text-[#151515]"
-                  valueClassName="mt-2 min-h-9 break-words text-3xl font-semibold tabular-nums text-[#151515]"
-                  onSave={(value) => saveField(C.precioVentaFinal.field, value)}
-                />
-                <InlineEditableField
-                  label={C.costoProveedor.label}
-                  value={item.costoProveedor}
-                  type={C.costoProveedor.type}
-                  displayValue={formatCurrency(item.costoProveedor)}
-                  className="rounded-[1.25rem] border border-[#3A3A36] bg-[#151515] p-4 transition"
-                  labelClassName="text-[13px] font-semibold uppercase tracking-normal text-[#A7A7A7]"
-                  valueClassName="mt-2 min-h-8 break-words text-2xl font-semibold text-[#F5F5F5] tabular-nums"
-                  onSave={(value) => saveField(C.costoProveedor.field, value)}
-                />
-                <div className={`rounded-[1.25rem] border p-4 ${gananciaTone}`}>
-                  <p className="text-[13px] font-semibold uppercase tracking-normal">Ganancia</p>
-                  <p className="mt-2 min-h-8 break-words text-2xl font-semibold tabular-nums">{formatCurrency(ganancia)}</p>
+                <div className="flex shrink-0 flex-wrap gap-1.5">
+                  <button type="button" onClick={() => void applyAiNameSuggestion()} disabled={applyingAiName} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60">
+                    {applyingAiName ? "Aplicando..." : "Aplicar"}
+                  </button>
+                  <button type="button" onClick={() => setIgnoredAiName(aiNameSuggestion || "")} disabled={applyingAiName} className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60">
+                    Ignorar
+                  </button>
+                  <button type="button" onClick={() => void refreshItem()} disabled={applyingAiName} className="rounded-lg border border-[#3A3A36] bg-[#11120F] px-3 py-2 text-sm font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60">
+                    Actualizar
+                  </button>
                 </div>
               </div>
-              <div className="mt-5 flex flex-wrap gap-2">
-                {item.reservado ? <span className="rounded-full border border-[#F4E85B]/35 bg-[#F4E85B]/12 px-3 py-1 text-[13px] text-[#F4E85B]">Reservado</span> : null}
-                {item.usoLocal ? <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/12 px-3 py-1 text-[13px] text-[#C9BFFF]">Uso local</span> : null}
-                {item.esRepuesto ? <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/12 px-3 py-1 text-[13px] text-[#C9BFFF]">Repuesto</span> : null}
-                {item.modoLogistico ? <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-3 py-1 text-[13px] text-[#A7A7A7]">{item.modoLogistico}</span> : null}
-                {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-3 py-1 text-[13px] text-[#FFB07A]">Con novedad</span> : null}
-              </div>
+            </article>
+          ) : null}
+
+          <section className="rounded-xl border border-[#30312D] bg-[#11120F] p-2 shadow-xl shadow-black/15">
+            <div className="flex gap-1 overflow-x-auto pb-1">
+              {tabs.map((tab) => {
+                const active = tab.key === activeTab;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-semibold transition ${active ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#30312D] bg-[#171814] text-[#A7A7A7] hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F]"}`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-2">
+              <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} />
             </div>
           </section>
-
-          <div className="mt-5 grid gap-4">
-            {sections.map((section) => <DetailSection key={section.title} {...section} onSave={saveField} />)}
-          </div>
-        </div>
-      </StaffModal>
+        </main>
+      </section>
     </div>
   );
 }
@@ -888,7 +923,6 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
   const [tipoItem, setTipoItem] = useState(ALL);
   const [sortBy, setSortBy] = useState<SortKey>("newest");
   const [groupBy, setGroupBy] = useState<GroupKey>("none");
-  const [selectedItem, setSelectedItem] = useState<ResolvedItem | null>(null);
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -952,7 +986,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
   function openItemFromRow(event: MouseEvent<HTMLElement>, item: ResolvedItem) {
     const target = event.target as HTMLElement;
     if (target.closest("a,button,input,select,textarea")) return;
-    setSelectedItem(item);
+    router.push(`/shipping-v2/items/${item.id}`);
   }
 
   return (
@@ -1073,7 +1107,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
-                          setSelectedItem(item);
+                          router.push(`/shipping-v2/items/${item.id}`);
                         }
                       }}
                       className="cursor-pointer transition hover:bg-[#CFFF3A]/[0.055] focus:bg-[#CFFF3A]/[0.055] focus:outline-none"
@@ -1116,7 +1150,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
                 </div>
               ) : null}
               {group.items.map((item) => (
-                <MobileItemCard key={item.id} item={item} onOpen={() => setSelectedItem(item)} />
+                <MobileItemCard key={item.id} item={item} onOpen={() => router.push(`/shipping-v2/items/${item.id}`)} />
               ))}
             </div>
           )) : (
@@ -1127,23 +1161,6 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
         </div>
       </section>
 
-      {selectedItem ? (
-        <ItemDetailModal
-          item={selectedItem}
-          proveedores={proveedores}
-          onClose={() => setSelectedItem(null)}
-          onSaved={(updatedItem) => {
-            const resolved: ResolvedItem = {
-              ...updatedItem,
-              proveedorCompraDisplay: resolveShippingV2ProveedorLabel(updatedItem.proveedorId, providerLabelsById),
-              proveedorLogisticoDisplay: resolveShippingV2ProveedorLabel(updatedItem.proveedorLogisticoId, providerLabelsById),
-            };
-            setSelectedItem(resolved);
-            setNotice("Item actualizado correctamente.");
-            router.refresh();
-          }}
-        />
-      ) : null}
     </div>
   );
 }

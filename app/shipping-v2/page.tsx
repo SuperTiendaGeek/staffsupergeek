@@ -32,7 +32,7 @@ const quickAccess = [
   { label: "Items", href: "/shipping-v2/items", active: true },
   { label: "Pagos", href: "/shipping-v2/pagos", active: true },
   { label: "Packings", href: "/shipping-v2/packings", active: true },
-  { label: "Recepcion", href: null, active: false },
+  { label: "Recepcion", href: "/shipping-v2/recepcion", active: true },
   { label: "Novedades", href: null, active: false },
   { label: "Proveedores", href: null, active: false },
 ];

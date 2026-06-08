@@ -9,6 +9,7 @@ type Props = {
   fotos: ShippingV2Attachment[];
   onUpdated: (item: ShippingV2Item) => void;
   canEdit?: boolean;
+  density?: "default" | "compact";
 };
 
 const MAX_FOTOS_PER_ITEM = 10;
@@ -24,7 +25,7 @@ function photoKey(photo: ShippingV2Attachment) {
   return photo.id || photo.url || photo.filename || "foto";
 }
 
-export function ItemPhotoViewer({ itemId, itemName, fotos, onUpdated, canEdit = true }: Props) {
+export function ItemPhotoViewer({ itemId, itemName, fotos, onUpdated, canEdit = true, density = "default" }: Props) {
   const [index, setIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -35,6 +36,9 @@ export function ItemPhotoViewer({ itemId, itemName, fotos, onUpdated, canEdit = 
   const current = fotos[index] || null;
   const hasFotos = fotos.length > 0;
   const initials = displayName(itemName).slice(0, 2).toUpperCase();
+  const frameMinHeight = density === "compact" ? "min-h-56" : "min-h-72";
+  const imageHeight = density === "compact" ? "h-56" : "h-72";
+  const placeholderSize = density === "compact" ? "h-16 w-16 text-2xl" : "h-24 w-24 text-3xl";
 
   useEffect(() => {
     setIndex((currentIndex) => {
@@ -144,25 +148,25 @@ export function ItemPhotoViewer({ itemId, itemName, fotos, onUpdated, canEdit = 
         onChange={(event) => void uploadFiles(Array.from(event.target.files ?? []))}
       />
 
-      <div className="group relative min-h-72 overflow-hidden rounded-[1.5rem] border border-[#3A3A36] bg-[#151515]">
+      <div className={`group relative ${frameMinHeight} overflow-hidden rounded-xl border border-[#3A3A36] bg-[#151515] shadow-lg shadow-black/10`}>
         {hasFotos && current ? (
           <button
             type="button"
             onClick={() => setLightboxOpen(true)}
-            className="block h-full min-h-72 w-full bg-black"
+            className={`block h-full ${frameMinHeight} w-full bg-black`}
             aria-label="Ver foto en grande"
           >
             <img
               src={current.url}
               alt={current.filename || displayName(itemName)}
-              className="h-72 w-full object-contain"
+              className={`${imageHeight} w-full object-contain`}
               loading="lazy"
             />
           </button>
         ) : (
-          <div className="grid h-full min-h-72 place-items-center bg-[#1E1F1C]">
+          <div className={`grid h-full ${frameMinHeight} place-items-center bg-[#1E1F1C]`}>
             <div className="text-center">
-              <div className="mx-auto grid h-24 w-24 place-items-center rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-3xl font-black text-[#D7FF4F]">
+              <div className={`mx-auto grid ${placeholderSize} place-items-center rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 font-black text-[#D7FF4F]`}>
                 {initials}
               </div>
               <p className="mt-4 text-sm font-medium text-[#A7A7A7]">Sin fotos disponibles</p>

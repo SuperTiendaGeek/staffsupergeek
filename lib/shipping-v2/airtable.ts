@@ -18,6 +18,10 @@ import type {
   ShippingV2Pago,
   ShippingV2Proveedor,
   ShippingV2Recepcion,
+  ShippingV2PackingStatusAction,
+  ShippingV2PackingNovedadInput,
+  ShippingV2RecepcionChecklistAction,
+  ShippingV2ItemNovedadInput,
 } from "@/types/shipping-v2";
 import type { StaffSession } from "@/lib/session";
 import { isAdministratorRole } from "@/lib/apps";
@@ -691,6 +695,25 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     esRepuesto: firstBoolean(f[F.esRepuesto]),
     esRegalo: firstBoolean(f[F.esRegalo]),
     conNovedad: firstBoolean(f["Con novedad"] ?? f.Novedad ?? f.Novedades),
+    revisadoFisicamente: firstBoolean(f["Revisado física/técnicamente"]),
+    revisadoPor: firstString(f["Revisado por"]),
+    fechaRevision: firstString(f["Fecha revisión"]),
+    fotosTomadas: firstBoolean(f["Fotos tomadas"]),
+    fotosTomadasPor: firstString(f["Fotos tomadas por"]),
+    fechaFotos: firstString(f["Fecha fotos"]),
+    shopifyPublicado: firstBoolean(f["Shopify publicado"]),
+    shopifyPublicadoPor: firstString(f["Shopify publicado por"]),
+    fechaShopifyPublicado: firstString(f["Fecha Shopify publicado"]),
+    marketplacePublicado: firstBoolean(f["Marketplace publicado"]),
+    marketplacePublicadoPor: firstString(f["Marketplace publicado por"]),
+    fechaMarketplacePublicado: firstString(f["Fecha Marketplace publicado"]),
+    mercadoLibrePublicado: firstBoolean(f["Mercado Libre publicado"]),
+    mercadoLibrePublicadoPor: firstString(f["Mercado Libre publicado por"]),
+    fechaMercadoLibrePublicado: firstString(f["Fecha Mercado Libre publicado"]),
+    gruposFacebookPublicado: firstBoolean(f["Grupos Facebook publicado"]),
+    facebookPublicadoPor: firstString(f["Facebook publicado por"]),
+    fechaFacebookPublicado: firstString(f["Fecha Facebook publicado"]),
+    observacionRecepcion: firstString(f["Observación recepción"]),
     ubicacionActual: firstString(f[F.ubicacionActual]),
     origenFisicoActual: firstString(f["Origen físico actual"] ?? f["Origen fisico actual"] ?? f["Origen Fisico Actual"]),
     fechaRegistro,
@@ -898,11 +921,11 @@ function mapNovedad(record: AirtableRecord): ShippingV2Novedad {
   return {
     id: record.id,
     createdTime: record.createdTime,
-    titulo: firstString(f.Titulo ?? f["Título"] ?? f.Novedad, "Sin titulo"),
-    estado: firstString(f.Estado, "Abierta"),
-    severidad: firstString(f.Severidad),
-    itemId: firstString(f.Item),
-    packingId: firstString(f.Packing),
+    titulo: firstString(f.Titulo ?? f["Título"] ?? f.Novedad ?? f["Novedad ID"] ?? f["Tipo de novedad"], "Sin titulo"),
+    estado: firstString(f["Estado Novedad"] ?? f.Estado, "Abierta"),
+    severidad: firstString(f.Severidad ?? f["Tipo de novedad"]),
+    itemId: firstString(f["Item relacionado"] ?? f.Item),
+    packingId: firstString(f["Packing relacionado"] ?? f.Packing),
     descripcion: firstString(f.Descripcion ?? f["Descripción"]),
   };
 }
@@ -1000,13 +1023,17 @@ async function resolveOfficialSkuForCreate(input: ShippingV2ItemWriteInput) {
 }
 
 async function createShippingV2Event(input: {
-  action: "Creado" | "Actualizado" | "Cambio de estado" | "Otro";
-  entity?: "Shipping Item" | "Shipping Packing";
+  action: "Creado" | "Actualizado" | "Cambio de estado" | "Novedad abierta" | "Otro";
+  entity?: "Shipping Item" | "Shipping Packing" | "Shipping Novedad";
   itemRecordId?: string;
   packingRecordId?: string;
+  novedadRecordId?: string;
   itemName?: string;
   registradoPor: string;
   descripcion: string;
+  estadoAnterior?: string;
+  estadoNuevo?: string;
+  observacion?: string;
 }) {
   try {
     await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.eventos), {
@@ -1019,7 +1046,11 @@ async function createShippingV2Event(input: {
               "Acción": input.action,
               "Item relacionado": input.itemRecordId ? [input.itemRecordId] : undefined,
               "Packing relacionado": input.packingRecordId ? [input.packingRecordId] : undefined,
+              "Novedad relacionada": input.novedadRecordId ? [input.novedadRecordId] : undefined,
+              "Estado anterior": input.estadoAnterior,
+              "Estado nuevo": input.estadoNuevo,
               "Descripción del evento": input.descripcion,
+              "Observación": input.observacion,
               "Registrado por": input.registradoPor,
               "Fecha del evento": new Date().toISOString(),
               "Datos relevantes": input.itemName,
@@ -2223,6 +2254,429 @@ export async function closeShippingV2Packing(packingId: string, options: { cerra
     descripcion: "Packing cerrado desde Portal Staff.",
   });
   return getShippingV2PackingById(id, options.access);
+}
+
+function isOpenNovedadStatus(status: string) {
+  const normalized = normalizeStatus(status);
+  return Boolean(normalized && !["resuelta", "resuelto", "cancelada", "cancelado", "cerrada", "cerrado"].includes(normalized));
+}
+
+function isCriticalNovedadType(type: string) {
+  const normalized = normalizeStatus(type);
+  return ["faltante", "danado", "dañado", "incompleto", "diferente al comprado", "garantia con proveedor", "garantia"].includes(normalized);
+}
+
+function revisionStateForNovedad(type: string) {
+  const normalized = normalizeStatus(type);
+  if (normalized === "faltante") return "Faltante";
+  if (normalized === "danado" || normalized === "dañado") return "Dañado";
+  if (normalized === "incompleto") return "Incompleto";
+  if (normalized === "diferente al comprado") return "Diferente al comprado";
+  if (normalized === "garantia con proveedor" || normalized === "garantia") return "En garantía con proveedor";
+  return "Aceptado con observación";
+}
+
+const RECEPTION_CHECKLIST_FIELDS: Record<ShippingV2RecepcionChecklistAction, { checked: string; by: string; date: string; label: string }> = {
+  reviewed: { checked: "Revisado física/técnicamente", by: "Revisado por", date: "Fecha revisión", label: "Revisado física/técnicamente" },
+  "photos-taken": { checked: "Fotos tomadas", by: "Fotos tomadas por", date: "Fecha fotos", label: "Fotos tomadas" },
+  "published-shopify": { checked: "Shopify publicado", by: "Shopify publicado por", date: "Fecha Shopify publicado", label: "Shopify publicado" },
+  "published-marketplace": { checked: "Marketplace publicado", by: "Marketplace publicado por", date: "Fecha Marketplace publicado", label: "Marketplace publicado" },
+  "published-mercado-libre": { checked: "Mercado Libre publicado", by: "Mercado Libre publicado por", date: "Fecha Mercado Libre publicado", label: "Mercado Libre publicado" },
+  "published-facebook": { checked: "Grupos Facebook publicado", by: "Facebook publicado por", date: "Fecha Facebook publicado", label: "Grupos Facebook publicado" },
+};
+
+export async function updateShippingV2ReceptionChecklistItem(
+  recordId: string,
+  input: { action: ShippingV2RecepcionChecklistAction; value: boolean; note?: string },
+  options: { actualizadoPor: string }
+) {
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  const item = await getShippingV2ItemById(id, { includeAiName: false });
+  const now = new Date().toISOString();
+  const note = cleanString(input.note);
+  const fields: Record<string, unknown> = {
+    [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: now,
+    [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.actualizadoPor,
+  };
+  const checklistFields = RECEPTION_CHECKLIST_FIELDS[input.action];
+  if (!checklistFields) throw new Error("Acción de recepción no soportada.");
+  fields[checklistFields.checked] = input.value;
+  if (input.value) {
+    fields[checklistFields.by] = options.actualizadoPor;
+    fields[checklistFields.date] = now;
+  }
+  if (note) fields["Observación recepción"] = `${item.observacionRecepcion ? `${item.observacionRecepcion}\n` : ""}[${now}] ${options.actualizadoPor}: ${note}`;
+
+  if (input.action === "reviewed") {
+    fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = input.value ? "Recibido correctamente" : "Recibido pendiente de revisión";
+    if (input.value && normalizeStatus(item.estado) === "recibido") fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = "En revisión";
+  }
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id, fields }] }),
+  });
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
+  const updatedItem = mapItem(updated);
+  await createShippingV2Event({
+    action: "Actualizado",
+    itemRecordId: id,
+    itemName: updatedItem.nombre,
+    registradoPor: options.actualizadoPor,
+    descripcion: `Recepción: ${checklistFields.label} = ${input.value ? "sí" : "no"}.`,
+    observacion: note,
+  });
+  return updatedItem;
+}
+
+function generateItemNovedadId(item: ShippingV2Item) {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const time = String(Date.now()).slice(-5);
+  return `NOV-${item.sku || item.id}-${date}-${time}`;
+}
+
+export async function createShippingV2ItemNovedad(
+  recordId: string,
+  input: ShippingV2ItemNovedadInput,
+  options: { registradoPor: string }
+) {
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  const tipo = cleanString(input.tipo);
+  const descripcion = cleanString(input.descripcion);
+  const evidenciaUrl = cleanString(input.evidenciaUrl);
+  const packingId = cleanString(input.packingId);
+  if (!tipo) throw new Error("Selecciona un tipo de novedad.");
+  if (!descripcion) throw new Error("Describe la novedad del item.");
+
+  const item = await getShippingV2ItemById(id, { includeAiName: false });
+  const critical = isCriticalNovedadType(tipo);
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
+    method: "POST",
+    body: JSON.stringify({
+      typecast: true,
+      records: [{
+        fields: compactFields({
+          "Novedad ID": generateItemNovedadId(item),
+          "Tipo de novedad": tipo,
+          "Estado Novedad": "Abierta",
+          "Item relacionado": [item.id],
+          "Packing relacionado": packingId ? [packingId] : undefined,
+          "Descripción": descripcion,
+          "Evidencias": evidenciaUrl ? [{ url: evidenciaUrl }] : undefined,
+          "Fecha de registro": new Date().toISOString(),
+          "Registrado por": options.registradoPor,
+        }),
+      }],
+    }),
+  });
+  const created = response.records?.[0];
+  if (!created) throw new Error("Airtable no devolvió la novedad creada.");
+
+  let updatedItem = item;
+  if (critical) {
+    const itemResponse = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({
+        records: [{
+          id: item.id,
+          fields: {
+            [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Con novedad",
+            [SHIPPING_V2_ITEM_FIELDS.estadoRevision]: revisionStateForNovedad(tipo),
+            [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+            [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
+          },
+        }],
+      }),
+    });
+    const updated = itemResponse.records?.[0];
+    if (updated) updatedItem = mapItem(updated);
+  }
+
+  await createShippingV2Event({
+    action: "Novedad abierta",
+    entity: "Shipping Novedad",
+    itemRecordId: item.id,
+    packingRecordId: packingId || undefined,
+    novedadRecordId: created.id,
+    registradoPor: options.registradoPor,
+    descripcion: `Novedad de item registrada: ${tipo}.`,
+    observacion: descripcion,
+  });
+
+  return { item: updatedItem, novedad: mapNovedad(created) };
+}
+
+async function getOpenNovedadesForPacking(packing: ShippingV2Packing) {
+  const records = await listRecords(SHIPPING_V2_TABLES.novedades, { maxRecords: 200 });
+  return records
+    .map(mapNovedad)
+    .filter((novedad) => {
+      const relatedToPacking = novedad.packingId === packing.id || Boolean(novedad.itemId && packing.itemIds.includes(novedad.itemId));
+      return relatedToPacking && isOpenNovedadStatus(novedad.estado);
+    });
+}
+
+async function patchPackingStatus(input: {
+  packing: ShippingV2Packing;
+  estado: string;
+  actor: string;
+  fields?: Record<string, unknown>;
+  descripcion: string;
+  observacion?: string;
+  access?: ShippingV2AccessContext;
+}) {
+  const previousStatus = input.packing.estado;
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.packings), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{
+        id: input.packing.id,
+        fields: {
+          [SHIPPING_V2_PACKING_FIELDS.estado]: input.estado,
+          ...(input.fields ?? {}),
+        },
+      }],
+    }),
+  });
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el packing actualizado.");
+  await createShippingV2Event({
+    action: "Cambio de estado",
+    entity: "Shipping Packing",
+    packingRecordId: input.packing.id,
+    registradoPor: input.actor,
+    descripcion: input.descripcion,
+    estadoAnterior: previousStatus,
+    estadoNuevo: input.estado,
+    observacion: input.observacion,
+  });
+  return getShippingV2PackingById(input.packing.id, input.access);
+}
+
+async function updatePackingItemsForStatus(packing: ShippingV2Packing, fields: Record<string, unknown>) {
+  if (!packing.itemIds.length) return;
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: packing.itemIds.map((itemId) => ({
+        id: itemId,
+        fields,
+      })),
+    }),
+  });
+}
+
+export async function transitionShippingV2PackingStatus(
+  packingId: string,
+  input: { action: ShippingV2PackingStatusAction; actor: string; decision?: string; access?: ShippingV2AccessContext }
+) {
+  const id = cleanString(packingId);
+  if (!id) throw new Error("Record ID de packing inválido.");
+  const packing = await getShippingV2PackingById(id, input.access);
+  const currentStatus = normalizeStatus(packing.estado);
+  const now = new Date().toISOString();
+  const decision = cleanString(input.decision);
+
+  if (input.action === "close") {
+    return closeShippingV2Packing(id, { cerradoPor: input.actor, access: input.access });
+  }
+
+  if (input.action === "mark-in-transit") {
+    if (currentStatus !== "cerrado") throw new Error("Solo puedes marcar en tránsito un packing cerrado.");
+    await updatePackingItemsForStatus(packing, {
+      [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "En tránsito",
+      [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: now,
+      [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: input.actor,
+    });
+    return patchPackingStatus({
+      packing,
+      estado: "En tránsito",
+      actor: input.actor,
+      access: input.access,
+      fields: {
+        [SHIPPING_V2_PACKING_FIELDS.fechaEnvio]: now,
+        "Enviado por": input.actor,
+      },
+      descripcion: "Packing marcado en tránsito desde Portal Staff.",
+    });
+  }
+
+  if (input.action === "mark-received") {
+    if (currentStatus !== "en transito") throw new Error("Solo puedes marcar recibido un packing en tránsito.");
+    await updatePackingItemsForStatus(packing, {
+      [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Recibido",
+      [SHIPPING_V2_ITEM_FIELDS.estadoRevision]: "Recibido pendiente de revisión",
+      [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: now,
+      [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: input.actor,
+    });
+    return patchPackingStatus({
+      packing,
+      estado: "Recibido",
+      actor: input.actor,
+      access: input.access,
+      fields: {
+        [SHIPPING_V2_PACKING_FIELDS.fechaRecepcion]: now,
+        "Recibido por": input.actor,
+      },
+      descripcion: "Packing marcado como recibido desde Portal Staff. Los items quedan pendientes de revisión.",
+    });
+  }
+
+  if (input.action === "start-review") {
+    if (currentStatus !== "recibido") throw new Error("Solo puedes iniciar revisión de un packing recibido.");
+    await updatePackingItemsForStatus(packing, {
+      [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "En revisión",
+      [SHIPPING_V2_ITEM_FIELDS.estadoRevision]: "Recibido pendiente de revisión",
+      [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: now,
+      [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: input.actor,
+    });
+    return patchPackingStatus({
+      packing,
+      estado: "En revisión",
+      actor: input.actor,
+      access: input.access,
+      descripcion: "Revisión de packing iniciada desde Portal Staff.",
+    });
+  }
+
+  if (input.action === "continue-review") {
+    if (currentStatus !== "con novedad") throw new Error("Solo puedes continuar revisión desde un packing con novedad.");
+    return patchPackingStatus({
+      packing,
+      estado: "En revisión",
+      actor: input.actor,
+      access: input.access,
+      descripcion: "Revisión de packing continuada desde una novedad.",
+      observacion: decision,
+    });
+  }
+
+  if (input.action === "restore-in-transit" || input.action === "restore-received" || input.action === "restore-review") {
+    if (!input.access?.isAdmin) throw new Error("Solo un administrador puede restaurar el estado operativo.");
+    if (currentStatus !== "con novedad") throw new Error("Esta acción solo aplica a packings legacy en estado Con novedad.");
+    if (!decision) throw new Error("Registra una confirmación para restaurar el estado operativo.");
+    const nextStatus = input.action === "restore-in-transit" ? "En tránsito" : input.action === "restore-received" ? "Recibido" : "En revisión";
+    return patchPackingStatus({
+      packing,
+      estado: nextStatus,
+      actor: input.actor,
+      access: input.access,
+      descripcion: `Estado operativo restaurado a ${nextStatus} desde estado legacy Con novedad.`,
+      observacion: decision,
+    });
+  }
+
+  if (input.action === "close-final") {
+    if (currentStatus !== "en revision" && currentStatus !== "con novedad") {
+      throw new Error("Solo puedes cerrar final un packing en revisión o con novedad.");
+    }
+    const openNovedades = await getOpenNovedadesForPacking(packing);
+    if (currentStatus === "en revision" && openNovedades.length) {
+      throw new Error("No puedes cerrar final mientras existan novedades pendientes.");
+    }
+    if (currentStatus === "con novedad") {
+      if (!input.access?.isAdmin) throw new Error("Solo un administrador puede cerrar un packing con novedad.");
+      if (!decision) throw new Error("Registra una decisión para cerrar un packing con novedad.");
+    }
+    return patchPackingStatus({
+      packing,
+      estado: "Cerrado final",
+      actor: input.actor,
+      access: input.access,
+      descripcion: currentStatus === "con novedad" ? "Packing con novedad cerrado final con decisión administrativa." : "Packing cerrado final desde Portal Staff.",
+      observacion: decision,
+    });
+  }
+
+  if (input.action === "cancel") {
+    if (!input.access?.isAdmin) throw new Error("Solo un administrador puede cancelar packings.");
+    if (currentStatus === "cerrado final") throw new Error("No puedes cancelar un packing cerrado final.");
+    if (!decision) throw new Error("Registra un motivo para cancelar el packing.");
+    return patchPackingStatus({
+      packing,
+      estado: "Cancelado",
+      actor: input.actor,
+      access: input.access,
+      fields: {
+        "Fecha de cancelación": now,
+        "Motivo de cancelación": decision || "Cancelado desde Portal Staff.",
+      },
+      descripcion: "Packing cancelado desde Portal Staff.",
+      observacion: decision,
+    });
+  }
+
+  throw new Error("Acción de estado no soportada.");
+}
+
+function generateNovedadId(packing: ShippingV2Packing) {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const time = String(Date.now()).slice(-5);
+  return `NOV-${packing.packingId || packing.id}-${date}-${time}`;
+}
+
+export async function createShippingV2PackingNovedad(
+  packingId: string,
+  input: ShippingV2PackingNovedadInput,
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  const id = cleanString(packingId);
+  if (!id) throw new Error("Record ID de packing inválido.");
+  const tipo = cleanString(input.tipo);
+  const descripcion = cleanString(input.descripcion);
+  const evidenciaUrl = cleanString(input.evidenciaUrl);
+  if (!tipo) throw new Error("Selecciona un tipo de novedad.");
+  if (!descripcion) throw new Error("Describe la novedad del packing.");
+
+  const packing = await getShippingV2PackingById(id, options.access, { includeAiName: false });
+  const currentStatus = normalizeStatus(packing.estado);
+  if (currentStatus === "cancelado") {
+    throw new Error("No puedes registrar novedades en un packing cancelado.");
+  }
+  if (currentStatus === "cerrado final" && !options.access?.isAdmin) {
+    throw new Error("Solo un administrador puede registrar novedades administrativas en un packing cerrado final.");
+  }
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
+    method: "POST",
+    body: JSON.stringify({
+      typecast: true,
+      records: [{
+        fields: compactFields({
+          "Novedad ID": generateNovedadId(packing),
+          "Tipo de novedad": tipo,
+          "Estado Novedad": "Abierta",
+          "Packing relacionado": [packing.id],
+          "Proveedor responsable": packing.proveedorResponsableId ? [packing.proveedorResponsableId] : undefined,
+          "Descripción": descripcion,
+          "Evidencias": evidenciaUrl ? [{ url: evidenciaUrl }] : undefined,
+          "Fecha de registro": new Date().toISOString(),
+          "Registrado por": options.registradoPor,
+        }),
+      }],
+    }),
+  });
+  const created = response.records?.[0];
+  if (!created) throw new Error("Airtable no devolvió la novedad creada.");
+
+  await createShippingV2Event({
+    action: "Novedad abierta",
+    entity: "Shipping Novedad",
+    packingRecordId: packing.id,
+    novedadRecordId: created.id,
+    registradoPor: options.registradoPor,
+    descripcion: `Novedad de packing registrada: ${tipo}.`,
+    observacion: descripcion,
+  });
+
+  return {
+    packing,
+    novedad: mapNovedad(created),
+  };
 }
 
 export async function getShippingV2Recepciones() {

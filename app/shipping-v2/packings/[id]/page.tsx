@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import { PortalShell } from "@/components/PortalShell";
-import { getShippingV2AccessContextForSession, getShippingV2PackingById, getShippingV2PackingCandidateItems, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
+import { getShippingV2AccessContextForSession, getShippingV2Novedades, getShippingV2PackingById, getShippingV2PackingCandidateItems, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
-import type { ShippingV2Item, ShippingV2Packing, ShippingV2Proveedor } from "@/types/shipping-v2";
+import type { ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2PackingDetailClient } from "./ShippingV2PackingDetailClient";
 
 export const dynamic = "force-dynamic";
@@ -14,16 +14,24 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
   let packing: ShippingV2Packing | null = null;
   let candidates: ShippingV2Item[] = [];
   let proveedores: ShippingV2Proveedor[] = [];
+  let novedades: ShippingV2Novedad[] = [];
+  let isAdmin = false;
   let error = "";
 
   try {
     const session = await getSessionFromCookie();
     const access = await getShippingV2AccessContextForSession(session);
-    [packing, candidates, proveedores] = await Promise.all([
+    isAdmin = access.isAdmin;
+    const [loadedPacking, loadedCandidates, loadedProveedores, loadedNovedades] = await Promise.all([
       getShippingV2PackingById(id, access, { includeAiName: false }),
       getShippingV2PackingCandidateItems(id, access),
       getShippingV2Proveedores(),
+      getShippingV2Novedades(),
     ]);
+    packing = loadedPacking;
+    candidates = loadedCandidates;
+    proveedores = loadedProveedores;
+    novedades = loadedNovedades.filter((novedad) => novedad.packingId === loadedPacking.id || Boolean(novedad.itemId && loadedPacking.itemIds.includes(novedad.itemId)));
     if (!access.isAdmin && access.providerId) proveedores = proveedores.filter((provider) => provider.id === access.providerId);
   } catch (loadError) {
     console.error("Error al cargar detalle de packing Shipping V2:", loadError);
@@ -40,7 +48,7 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
           <p className="mt-2 text-sm leading-6 text-orange-100/85">{error || "No se pudo cargar el packing."}</p>
         </section>
       ) : (
-        <ShippingV2PackingDetailClient packing={packing} candidates={candidates} proveedores={proveedores} />
+        <ShippingV2PackingDetailClient packing={packing} candidates={candidates} proveedores={proveedores} novedades={novedades} isAdmin={isAdmin} />
       )}
     </PortalShell>
   );

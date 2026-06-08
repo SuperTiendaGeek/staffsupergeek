@@ -1,4 +1,7 @@
-import { PortalShell } from "@/components/PortalShell";
+import Link from "next/link";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
+import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSystem";
+import { Button } from "@/components/ui/button";
 import { getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import type { ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2NewItemForm } from "./ShippingV2NewItemForm";
@@ -17,19 +20,26 @@ export default async function ShippingV2NewItemPage() {
   }
 
   return (
-    <PortalShell
-      density="compact"
-      eyebrow="Shipping V2"
-      title="Nuevo Item"
-      description="Crear registro manual en Shipping Items"
-    >
-      {error ? (
-        <section className="mb-4 rounded-[1.5rem] border border-orange-300/25 bg-orange-300/10 p-5 text-orange-100">
-          <p className="text-sm font-semibold uppercase tracking-normal">Airtable V2 no disponible</p>
-          <p className="mt-2 text-sm leading-6 text-orange-100/85">{error}</p>
-        </section>
-      ) : null}
-      <ShippingV2NewItemForm proveedores={proveedores} />
-    </PortalShell>
+    <StaffAppShell activeHref="/shipping-v2/items" sectionLabel="Shipping V2">
+      <div className="w-full max-w-none space-y-3">
+        <StaffPageHeader
+          eyebrow={<StaffBadge tone="lime">SHIPPING V2</StaffBadge>}
+          title="Nuevo item"
+          description="Registro manual en inventario Shipping V2"
+          actions={
+            <Button asChild className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
+              <Link href="/shipping-v2/items">Volver a Items</Link>
+            </Button>
+          }
+        />
+        {error ? (
+          <section className="rounded-xl border border-orange-300/25 bg-orange-300/10 p-4 text-orange-100">
+            <p className="text-sm font-semibold uppercase tracking-normal">Airtable V2 no disponible</p>
+            <p className="mt-2 text-sm leading-6 text-orange-100/85">{error}</p>
+          </section>
+        ) : null}
+        <ShippingV2NewItemForm proveedores={proveedores} />
+      </div>
+    </StaffAppShell>
   );
 }
