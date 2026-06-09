@@ -1678,6 +1678,25 @@ async function createShippingV2Event(input: {
   }
 }
 
+function shouldLogShippingV2ItemFieldEvent(config: { field: string; category: string }) {
+  const criticalFields = new Set<string>([
+    SHIPPING_V2_ITEM_FIELDS.estadoItem,
+    SHIPPING_V2_ITEM_FIELDS.estadoRevision,
+    SHIPPING_V2_ITEM_FIELDS.estadoTriangulacion,
+    SHIPPING_V2_ITEM_FIELDS.estadoDespiece,
+    SHIPPING_V2_ITEM_FIELDS.modoLogistico,
+    SHIPPING_V2_ITEM_FIELDS.proveedorCompra,
+    SHIPPING_V2_ITEM_FIELDS.proveedorLogistico,
+    SHIPPING_V2_ITEM_FIELDS.costoProveedor,
+    SHIPPING_V2_ITEM_FIELDS.precioVentaFinal,
+    SHIPPING_V2_ITEM_FIELDS.sku,
+    SHIPPING_V2_ITEM_FIELDS.skuProveedor,
+    SHIPPING_V2_ITEM_FIELDS.tipoOperacion,
+  ]);
+
+  return config.category === "special" || criticalFields.has(config.field);
+}
+
 async function validateInlineItemFieldChange(input: {
   item: ShippingV2Item;
   recordId: string;
@@ -1778,13 +1797,15 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
   if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
 
   const item = mapItem(updated);
-  await createShippingV2Event({
-    action: "Actualizado",
-    itemRecordId: item.id,
-    itemName: item.nombre,
-    registradoPor: options.actualizadoPor,
-    descripcion: input.eventDescription || `Campo "${config.label}" actualizado desde Portal Staff.`,
-  });
+  if (shouldLogShippingV2ItemFieldEvent(config)) {
+    await createShippingV2Event({
+      action: "Actualizado",
+      itemRecordId: item.id,
+      itemName: item.nombre,
+      registradoPor: options.actualizadoPor,
+      descripcion: input.eventDescription || `Campo crítico "${config.label}" actualizado desde Portal Staff.`,
+    });
+  }
 
   return item;
 }
@@ -2112,13 +2133,15 @@ export async function updateShippingV2ItemTechnicalSheet(
   if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
 
   const item = mapItem(updated);
-  await createShippingV2Event({
-    action: "Actualizado",
-    itemRecordId: item.id,
-    itemName: item.nombre,
-    registradoPor: options.actualizadoPor,
-    descripcion: input.reviewed ? `Ficha técnica ${item.sku} revisada desde Portal Staff.` : `Ficha técnica ${item.sku} actualizada desde Portal Staff.`,
-  });
+  if (input.reviewed) {
+    await createShippingV2Event({
+      action: "Actualizado",
+      itemRecordId: item.id,
+      itemName: item.nombre,
+      registradoPor: options.actualizadoPor,
+      descripcion: `Ficha técnica ${item.sku} revisada desde Portal Staff.`,
+    });
+  }
 
   return item;
 }

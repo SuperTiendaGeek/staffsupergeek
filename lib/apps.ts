@@ -107,6 +107,16 @@ export const staffApps: StaffApp[] = [
     icon: "users",
     description: "Gestión de usuarios, roles, accesos y estado de las cuentas del portal.",
     requiredRoles: ["admin"]
+  },
+  {
+    id: "airtable-usage",
+    name: "Uso de Airtable",
+    permissionName: "Administración",
+    route: "/admin/airtable-usage",
+    status: "Disponible",
+    icon: "finance",
+    description: "Monitoreo de records acumulados por tabla para evitar límites del plan.",
+    requiredRoles: ["admin"]
   }
 ];
 
@@ -167,7 +177,7 @@ export function canAccessApp(subject: PermissionSubject, appName: AppPermissionN
 
 export function getVisibleStaffApps(subject: PermissionSubject) {
   return staffApps.filter((app) => {
-    if (app.id === "usuarios") {
+    if (app.permissionName === "Administración") {
       return isAdministratorRole(getPermissionUser(subject)?.rol);
     }
 
