@@ -64,6 +64,17 @@ function openSkuLabel(itemId: string) {
   window.open(`/shipping-v2/recepcion/etiqueta/${encodeURIComponent(itemId)}`, "_blank", "noopener,noreferrer");
 }
 
+function openTechnicalSheetEditor(itemId: string) {
+  window.location.href = `/shipping-v2/recepcion/ficha/${encodeURIComponent(itemId)}`;
+}
+
+function openTechnicalSheet(item: ShippingV2Item) {
+  const path = item.technicalSheet.fichaTecnicaGenerada
+    ? `/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}/print?print=1`
+    : `/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}`;
+  window.open(path, item.technicalSheet.fichaTecnicaGenerada ? "_blank" : "_self", "noopener,noreferrer");
+}
+
 function stateTone(state: string) {
   const normalized = normalize(state);
   if (normalized.includes("disponible") || normalized.includes("recibido correctamente")) return "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]";
@@ -291,7 +302,8 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
                   <div className="flex flex-wrap gap-1.5">
                     <button type="button" onClick={() => setModalItem(item)} className="h-8 rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 text-xs font-bold text-[#FFB07A] transition hover:border-[#FF914D]">Registrar novedad</button>
                     <button type="button" onClick={() => openSkuLabel(item.id)} className="h-8 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-xs font-bold text-[#F5F5F5] transition hover:border-[#D7FF4F]/55">Imprimir etiqueta SKU</button>
-                    <button type="button" onClick={() => setMessage("Ficha informativa preparada para la siguiente fase de impresión.")} className="h-8 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-xs font-bold text-[#F5F5F5] transition hover:border-[#D7FF4F]/55">Imprimir ficha</button>
+                    <button type="button" onClick={() => openTechnicalSheetEditor(item.id)} className="h-8 rounded-lg border border-[#4FC3FF]/35 bg-[#4FC3FF]/10 px-3 text-xs font-bold text-[#BDEAFF] transition hover:border-[#4FC3FF]">Preparar ficha</button>
+                    <button type="button" onClick={() => openTechnicalSheet(item)} className="h-8 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-xs font-bold text-[#F5F5F5] transition hover:border-[#D7FF4F]/55">Imprimir ficha</button>
                   </div>
                 </div>
               </div>

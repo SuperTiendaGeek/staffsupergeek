@@ -3,9 +3,14 @@ import "server-only";
 import type {
   ShippingV2DashboardSummary,
   ShippingV2Attachment,
+  ShippingV2ComputerCatalogCreateInput,
+  ShippingV2ComputerCatalogEntry,
+  ShippingV2CpuCatalogCreateInput,
+  ShippingV2CpuCatalogEntry,
   ShippingV2FinanzasMovimiento,
   ShippingV2Item,
   ShippingV2ItemWriteInput,
+  ShippingV2TechnicalSheetInput,
   ShippingV2Novedad,
   ShippingV2Packing,
   ShippingV2PackingWriteInput,
@@ -22,16 +27,18 @@ import type {
   ShippingV2PackingNovedadInput,
   ShippingV2RecepcionChecklistAction,
   ShippingV2ItemNovedadInput,
+  ShippingV2TechnicalOption,
 } from "@/types/shipping-v2";
 import type { StaffSession } from "@/lib/session";
-import { isAdministratorRole } from "@/lib/apps";
+import { canAccessApp, isAdministratorRole } from "@/lib/apps";
 import { getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { canBeUsaTransportProvider, isCompatibleEcuadorTransportProvider } from "@/lib/shipping-v2/tracking-providers";
 import { generateUniqueSkuFromExistingSkus, normalizeSku } from "@/lib/sku/sku-service";
-import { assertShippingV2GeneratedSchema, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
+import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
+import { calculateShippingV2BatteryState, shippingV2CategoryDoesNotUseScreenOrBattery, shippingV2CategoryHasBattery } from "@/lib/shipping-v2/technical-sheet";
 
 type AirtableRecord = {
   id: string;
@@ -49,6 +56,8 @@ type AirtableRecordResponse = AirtableRecord;
 type AirtableMutationResponse = {
   records?: AirtableRecord[];
 };
+
+export type ShippingV2TechnicalOptionType = "connectivity" | "port" | "extraFeature";
 
 export type ShippingV2AttachmentUpload = {
   filename: string;
@@ -202,6 +211,31 @@ function mapAttachments(value: unknown): ShippingV2Attachment[] {
     .filter((item): item is ShippingV2Attachment => Boolean(item));
 }
 
+function stringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => firstString(item))
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  const text = firstString(value);
+  if (!text) return [];
+  return text.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean);
+}
+
+const TECHNICAL_OPTION_ALIASES: Record<string, string> = {
+  bluetooh: "Bluetooth",
+  wifi: "Wi-Fi",
+  wi_fi: "Wi-Fi",
+  lan: "Ethernet",
+  "usb c": "USB-C",
+  usbc: "USB-C",
+  "usb c port": "USB-C",
+  "usb-c port": "USB-C",
+  audio: "Audio Jack",
+  jack: "Audio Jack",
+};
+
 function linkedCount(value: unknown) {
   return Array.isArray(value) ? value.length : 0;
 }
@@ -212,6 +246,181 @@ function normalizeStatus(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function normalizeTechnicalOption(value: string) {
+  return normalizeStatus(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function normalizeShippingV2TechnicalOptionLabel(value: string) {
+  const trimmed = cleanString(value).replace(/\s+/g, " ");
+  if (!trimmed) return "";
+  const normalized = normalizeTechnicalOption(trimmed);
+  return TECHNICAL_OPTION_ALIASES[normalized] ?? trimmed;
+}
+
+function normalizeShippingV2TechnicalOptionLabelForType(type: ShippingV2TechnicalOptionType, value: string) {
+  const trimmed = cleanString(value).replace(/\s+/g, " ");
+  if (!trimmed) return "";
+  const normalized = normalizeTechnicalOption(trimmed);
+  if (type === "connectivity" && ["lan", "rj45"].includes(normalized)) return "Ethernet";
+  if (["wifi", "wi fi"].includes(normalized)) return "Wi-Fi";
+  if (["usb c", "usb type c", "usbc"].includes(normalized)) return "USB-C";
+  return TECHNICAL_OPTION_ALIASES[normalized] ?? trimmed;
+}
+
+function getShippingV2TechnicalOptionConfig(type: ShippingV2TechnicalOptionType) {
+  if (type === "connectivity") {
+    return {
+      table: SHIPPING_V2_TABLES.connectivityCatalog,
+      fields: SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS,
+    };
+  }
+  if (type === "port") {
+    return {
+      table: SHIPPING_V2_TABLES.portsCatalog,
+      fields: SHIPPING_V2_PORTS_CATALOG_FIELDS,
+    };
+  }
+  return {
+    table: SHIPPING_V2_TABLES.extraFeaturesCatalog,
+    fields: SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS,
+  };
+}
+
+function mapTechnicalOptionRecord(record: AirtableRecord, fields: typeof SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS): ShippingV2TechnicalOption {
+  const f = record.fields;
+  return {
+    id: record.id,
+    createdTime: record.createdTime,
+    name: firstString(f[fields.name]),
+    aliases: stringArray(f[fields.aliases]),
+    active: firstBoolean(f[fields.active]),
+    order: firstNumber(f[fields.order]),
+    description: firstString(f[fields.description]),
+    createdFromPortal: firstBoolean(f[fields.createdFromPortal]),
+    createdAt: firstString(f[fields.createdAt]),
+    createdBy: firstString(f[fields.createdBy]),
+    notes: firstString(f[fields.notes]),
+  };
+}
+
+async function listTechnicalOptions(type: ShippingV2TechnicalOptionType) {
+  const config = getShippingV2TechnicalOptionConfig(type);
+  const records = await listRecords(config.table, {
+    pageSize: 100,
+    sortField: config.fields.order,
+    sortDirection: "asc",
+  });
+  const all = records
+    .map((record) => mapTechnicalOptionRecord(record, config.fields))
+    .filter((option) => option.name);
+  const active = all.filter((option) => option.active === true);
+  const options = active.length ? active : all;
+  return options.sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name));
+}
+
+export async function listConnectivityOptions() {
+  return listTechnicalOptions("connectivity");
+}
+
+export async function listPortOptions() {
+  return listTechnicalOptions("port");
+}
+
+export async function listExtraFeatureOptions() {
+  return listTechnicalOptions("extraFeature");
+}
+
+export async function getShippingV2TechnicalOptionSets() {
+  const [connectivity, ports, extraFeatures] = await Promise.all([
+    listConnectivityOptions(),
+    listPortOptions(),
+    listExtraFeatureOptions(),
+  ]);
+  return { connectivity, ports, extraFeatures };
+}
+
+function normalizeCpuCatalogModel(value: string) {
+  return normalizeStatus(value)
+    .replace(/\b(intel|amd|apple|qualcomm)\b/g, " ")
+    .replace(/\b(cpu|processor|procesador)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\bpro\b/g, " pro ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeComputerCatalogText(value: string) {
+  return normalizeStatus(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripComputerBrandFromModel(computerModel: string, brand?: string) {
+  let model = cleanString(computerModel);
+  const candidates = [cleanString(brand), ...SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS.brand].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    model = model.replace(new RegExp(`^\\s*${escaped}\\b\\s*`, "i"), "").trim();
+  }
+
+  return model;
+}
+
+function computerCatalogSearchKeys(brand: string | undefined, model: string) {
+  const cleanBrand = cleanString(brand);
+  const cleanModel = stripComputerBrandFromModel(model, cleanBrand);
+  const combined = [cleanBrand, cleanModel].filter(Boolean).join(" ");
+  const normalizedCombined = normalizeComputerCatalogText(combined || cleanModel || model);
+  const normalizedModel = normalizeComputerCatalogText(cleanModel || model);
+  return {
+    normalizedCombined,
+    compactCombined: normalizedCombined.replace(/\s+/g, ""),
+    normalizedModel,
+    compactModel: normalizedModel.replace(/\s+/g, ""),
+  };
+}
+
+function stripCpuBrandFromModel(cpuModel: string, cpuBrand?: string) {
+  let model = cleanString(cpuModel);
+  const brand = cleanString(cpuBrand);
+  const brands = brand ? [brand] : ["AMD", "Intel", "Apple", "Qualcomm"];
+
+  for (const candidate of brands) {
+    const normalizedCandidate = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    model = model.replace(new RegExp(`^\\s*${normalizedCandidate}\\b\\s*`, "i"), "").trim();
+  }
+
+  return model;
+}
+
+function cpuCatalogSearchKeys(value: string) {
+  const normalized = normalizeCpuCatalogModel(value);
+  const compact = normalized.replace(/\s+/g, "");
+  return { normalized, compact };
+}
+
+function normalizeCpuFrequency(value: unknown) {
+  const text = cleanString(value);
+  if (!text) return "";
+  const match = text.replace(",", ".").match(/(\d+(?:\.\d+)?)/);
+  if (!match) return text;
+  return `${Number(match[1]).toFixed(2)}GHz`;
+}
+
+function cpuFrequencyWithoutUnit(value: string) {
+  return value.replace(/\s*ghz\s*$/i, "").trim();
+}
+
+function buildOriginalCpuFrequency(baseFrequency: string, turboFrequency: string) {
+  if (!baseFrequency || !turboFrequency) return "";
+  return `${cpuFrequencyWithoutUnit(baseFrequency)}-${cpuFrequencyWithoutUnit(turboFrequency)}`;
 }
 
 function escapeFormulaString(value: string) {
@@ -232,6 +441,30 @@ function getOfficialPackingIdField() {
 
 function selectOption(options: readonly string[], value: string) {
   return options.includes(value) ? value : options[0] ?? value;
+}
+
+function optionalSelectOption(options: readonly string[], value: unknown) {
+  const text = cleanString(value);
+  if (!text) return null;
+  if (!options.includes(text)) throw new Error(`"${text}" no es una opción válida.`);
+  return text;
+}
+
+function optionalTextField(value: unknown) {
+  const text = cleanString(value);
+  return text || null;
+}
+
+function optionalNumberField(value: unknown) {
+  if (value === "" || value === null || value === undefined) return null;
+  const number = firstNumber(value);
+  if (number === null) throw new Error("Valor numérico inválido.");
+  return number;
+}
+
+function knownOptionOrUndefined(options: readonly string[], value: string) {
+  if (!value) return undefined;
+  return !options.length || options.includes(value) ? value : undefined;
 }
 
 function hasOwnInput(input: ShippingV2PackingWriteInput, key: keyof ShippingV2PackingWriteInput) {
@@ -619,6 +852,98 @@ function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
   };
 }
 
+function mapCpuCatalogEntry(record: AirtableRecord): ShippingV2CpuCatalogEntry {
+  const f = record.fields;
+  const F = SHIPPING_V2_CPU_CATALOG_FIELDS;
+
+  return {
+    id: record.id,
+    createdTime: record.createdTime,
+    cpuModel: firstString(f[F.cpuModel]),
+    cpuBrand: firstString(f[F.cpuBrand]),
+    baseFrequency: firstString(f[F.baseFrequency]),
+    turboFrequency: firstString(f[F.turboFrequency]),
+    originalFrequency: firstString(f[F.originalFrequency]),
+    suggestedRamType: firstString(f[F.suggestedRamType]),
+    integratedGpu: firstString(f[F.integratedGpu]),
+    sourceName: firstString(f[F.sourceName]),
+    sourceUrl: firstString(f[F.sourceUrl]),
+    verified: firstBoolean(f[F.verified]),
+    usageCount: firstNumber(f[F.usageCount]),
+    lastReviewedAt: firstString(f[F.lastReviewedAt]),
+    notes: firstString(f[F.notes]),
+  };
+}
+
+function mapComputerCatalogEntry(record: AirtableRecord): ShippingV2ComputerCatalogEntry {
+  const f = record.fields;
+  const F = SHIPPING_V2_COMPUTER_CATALOG_FIELDS;
+
+  return {
+    id: record.id,
+    createdTime: record.createdTime,
+    computerModel: firstString(f[F.computerModel]),
+    brand: firstString(f[F.brand]),
+    suggestedScreenSize: firstString(f[F.suggestedScreenSize]),
+    suggestedScreenResolution: firstString(f[F.suggestedScreenResolution]),
+    suggestedOperatingSystem: firstString(f[F.suggestedOperatingSystem]),
+    suggestedConnectivityV2Ids: linkedRecordIds(f[F.suggestedConnectivityV2]),
+    suggestedPortV2Ids: linkedRecordIds(f[F.suggestedPortsV2]),
+    suggestedExtraFeatureV2Ids: linkedRecordIds(f[F.suggestedExtraFeaturesV2]),
+    suggestedConnectivityV2Names: [],
+    suggestedPortV2Names: [],
+    suggestedExtraFeatureV2Names: [],
+    batteryApplies: firstString(f[F.batteryApplies]),
+    suggestedGpu: firstString(f[F.suggestedGpu]),
+    sourceName: firstString(f[F.sourceName]),
+    sourceUrl: firstString(f[F.sourceUrl]),
+    verified: firstBoolean(f[F.verified]),
+    usageCount: firstNumber(f[F.usageCount]),
+    lastReviewedAt: firstString(f[F.lastReviewedAt]),
+    notes: firstString(f[F.notes]),
+  };
+}
+
+function rankCpuCatalogEntry(entry: ShippingV2CpuCatalogEntry, query: string) {
+  const entryModel = stripCpuBrandFromModel(entry.cpuModel, entry.cpuBrand);
+  const entryWithBrand = [entry.cpuBrand, entryModel].filter(Boolean).join(" ");
+  const entryKeys = cpuCatalogSearchKeys(entryWithBrand || entry.cpuModel);
+  const entryModelOnlyKeys = cpuCatalogSearchKeys(entryModel || entry.cpuModel);
+  const queryKeys = cpuCatalogSearchKeys(query);
+  if (!queryKeys.normalized) return 100;
+  if (entryKeys.compact === queryKeys.compact) return 0;
+  if (entryModelOnlyKeys.compact === queryKeys.compact) return 0;
+  if (entryKeys.normalized === queryKeys.normalized) return 1;
+  if (entryModelOnlyKeys.normalized === queryKeys.normalized) return 1;
+  if (entryKeys.normalized.includes(queryKeys.normalized) || queryKeys.normalized.includes(entryKeys.normalized)) return 2;
+  if (entryModelOnlyKeys.normalized.includes(queryKeys.normalized) || queryKeys.normalized.includes(entryModelOnlyKeys.normalized)) return 2;
+  if (entryKeys.compact.includes(queryKeys.compact) || queryKeys.compact.includes(entryKeys.compact)) return 3;
+  if (entryModelOnlyKeys.compact.includes(queryKeys.compact) || queryKeys.compact.includes(entryModelOnlyKeys.compact)) return 3;
+  return 100;
+}
+
+function isCpuCatalogBrand(value: string) {
+  return SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS.cpuBrand.includes(value as never);
+}
+
+function isCpuCatalogRamType(value: string) {
+  return SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS.suggestedRamType.includes(value as never);
+}
+
+function rankComputerCatalogEntry(entry: ShippingV2ComputerCatalogEntry, brand: string, model: string) {
+  const entryKeys = computerCatalogSearchKeys(entry.brand, entry.computerModel);
+  const queryKeys = computerCatalogSearchKeys(brand, model);
+  if (!queryKeys.normalizedCombined && !queryKeys.normalizedModel) return 100;
+  if (entryKeys.compactCombined === queryKeys.compactCombined) return 0;
+  if (entryKeys.compactModel === queryKeys.compactModel) return brand ? 1 : 0;
+  if (entryKeys.normalizedCombined === queryKeys.normalizedCombined) return 1;
+  if (entryKeys.normalizedModel === queryKeys.normalizedModel) return 1;
+  if (entryKeys.normalizedCombined.includes(queryKeys.normalizedModel) || entryKeys.normalizedModel.includes(queryKeys.normalizedModel)) return 2;
+  if (queryKeys.normalizedModel.includes(entryKeys.normalizedModel)) return 3;
+  if (entryKeys.compactCombined.includes(queryKeys.compactModel) || entryKeys.compactModel.includes(queryKeys.compactModel)) return 4;
+  return 100;
+}
+
 type MapItemOptions = { includeAiName?: boolean };
 type MapPackingOptions = { includeItems?: boolean; includeAiName?: boolean };
 
@@ -714,6 +1039,37 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     facebookPublicadoPor: firstString(f["Facebook publicado por"]),
     fechaFacebookPublicado: firstString(f["Fecha Facebook publicado"]),
     observacionRecepcion: firstString(f["Observación recepción"]),
+    technicalSheet: {
+      marcaFicha: firstString(f[F.marcaFicha]),
+      modeloFicha: firstString(f[F.modeloFicha]),
+      sistemaOperativo: firstString(f[F.sistemaOperativo]),
+      pantallaTamano: firstString(f[F.pantallaTamano]),
+      pantallaResolucion: firstString(f[F.pantallaResolucion]),
+      cpuMarca: firstString(f[F.cpuMarca]),
+      cpuModelo: firstString(f[F.cpuModelo]),
+      cpuFrecuenciaBase: firstString(f[F.cpuFrecuenciaBase]),
+      cpuFrecuenciaTurbo: firstString(f[F.cpuFrecuenciaTurbo]),
+      ramCapacidad: firstString(f[F.ramCapacidad]),
+      ramTipo: firstString(f[F.ramTipo]),
+      almacenamientoPrincipal: firstString(f[F.almacenamientoPrincipal]),
+      almacenamientoTipo: firstString(f[F.almacenamientoTipo]),
+      gpu: firstString(f[F.gpu]),
+      bateriaSalud: firstNumber(f[F.bateriaSalud]),
+      bateriaEstado: firstString(f[F.bateriaEstado]),
+      connectivityV2Ids: linkedRecordIds(f[F.conectividadV2]),
+      portV2Ids: linkedRecordIds(f[F.puertosV2]),
+      extraFeatureV2Ids: linkedRecordIds(f[F.caracteristicasExtrasV2]),
+      connectivityV2Names: [],
+      portV2Names: [],
+      extraFeatureV2Names: [],
+      observacionFichaTecnica: firstString(f[F.observacionFichaTecnica]),
+      fichaTecnicaGenerada: firstBoolean(f[F.fichaTecnicaGenerada]),
+      fichaTecnicaRevisada: firstBoolean(f[F.fichaTecnicaRevisada]),
+      fichaTecnicaGeneradaPor: firstString(f[F.fichaTecnicaGeneradaPor]),
+      fichaTecnicaRevisadaPor: firstString(f[F.fichaTecnicaRevisadaPor]),
+      fechaFichaTecnicaGenerada: firstString(f[F.fechaFichaTecnicaGenerada]),
+      fechaFichaTecnicaRevisada: firstString(f[F.fechaFichaTecnicaRevisada]),
+    },
     ubicacionActual: firstString(f[F.ubicacionActual]),
     origenFisicoActual: firstString(f["Origen físico actual"] ?? f["Origen fisico actual"] ?? f["Origen Fisico Actual"]),
     fechaRegistro,
@@ -1002,6 +1358,264 @@ export async function findShippingV2ItemBySku(skuValue: string) {
   });
 
   return records[0] ? mapItem(records[0]) : null;
+}
+
+export async function listCpuCatalogEntries(options: { query?: string; maxResults?: number } = {}) {
+  assertShippingV2GeneratedSchema();
+  const records = await listRecords(SHIPPING_V2_TABLES.cpuCatalog, {
+    maxRecords: 500,
+    sortField: SHIPPING_V2_CPU_CATALOG_FIELDS.usageCount,
+    sortDirection: "desc",
+  });
+  const entries = records.map(mapCpuCatalogEntry).filter((entry) => entry.cpuModel);
+  const query = cleanString(options.query);
+  const maxResults = options.maxResults ?? 10;
+  if (!query) return entries.slice(0, maxResults);
+
+  return entries
+    .map((entry) => ({ entry, rank: rankCpuCatalogEntry(entry, query) }))
+    .filter((item) => item.rank < 100)
+    .sort((a, b) => a.rank - b.rank || (b.entry.usageCount ?? 0) - (a.entry.usageCount ?? 0) || a.entry.cpuModel.localeCompare(b.entry.cpuModel))
+    .slice(0, maxResults)
+    .map((item) => item.entry);
+}
+
+export async function findCpuCatalogEntryByModel(cpuModel: string) {
+  const query = cleanString(cpuModel);
+  if (!query) return null;
+  const matches = await listCpuCatalogEntries({ query, maxResults: 1 });
+  const match = matches[0];
+  return match && rankCpuCatalogEntry(match, query) <= 1 ? match : null;
+}
+
+export async function createCpuCatalogEntryFromTechnicalSheet(input: ShippingV2CpuCatalogCreateInput) {
+  assertShippingV2GeneratedSchema();
+  const cpuBrand = cleanString(input.cpuBrand);
+  const model = stripCpuBrandFromModel(input.cpuModel, cpuBrand);
+  if (!model) throw new Error("CPU modelo es obligatorio para crear catálogo.");
+
+  const existing = await findCpuCatalogEntryByModel([cpuBrand, model].filter(Boolean).join(" "));
+  if (existing) return existing;
+
+  const F = SHIPPING_V2_CPU_CATALOG_FIELDS;
+  const suggestedRamType = cleanString(input.suggestedRamType);
+  const baseFrequency = normalizeCpuFrequency(input.baseFrequency);
+  const turboFrequency = normalizeCpuFrequency(input.turboFrequency);
+  const originalFrequency = baseFrequency && turboFrequency
+    ? buildOriginalCpuFrequency(baseFrequency, turboFrequency)
+    : cleanString(input.originalFrequency);
+  const now = new Date().toISOString();
+
+  // TODO: add a one-off cleanup tool if legacy catalog rows need model/brand/frequency normalization.
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.cpuCatalog), {
+    method: "POST",
+    body: JSON.stringify({
+      records: [
+        {
+          fields: compactFields({
+            [F.cpuModel]: model,
+            [F.cpuBrand]: cpuBrand && isCpuCatalogBrand(cpuBrand) ? cpuBrand : undefined,
+            [F.baseFrequency]: baseFrequency,
+            [F.turboFrequency]: turboFrequency,
+            [F.originalFrequency]: originalFrequency,
+            [F.suggestedRamType]: suggestedRamType && isCpuCatalogRamType(suggestedRamType) ? suggestedRamType : undefined,
+            [F.integratedGpu]: cleanString(input.integratedGpu),
+            [F.sourceName]: cleanString(input.sourceName),
+            [F.sourceUrl]: cleanString(input.sourceUrl),
+            [F.verified]: Boolean(input.verified),
+            [F.usageCount]: input.usageCount ?? 1,
+            [F.lastReviewedAt]: input.lastReviewedAt || now,
+            [F.notes]: cleanString(input.notes),
+          }),
+        },
+      ],
+    }),
+  });
+
+  const created = response.records?.[0];
+  if (!created) throw new Error("Airtable no devolvió el CPU creado.");
+  return mapCpuCatalogEntry(created);
+}
+
+export async function incrementCpuCatalogUsage(entryId: string) {
+  const id = cleanString(entryId);
+  if (!id) return null;
+
+  const existingRecord = await getRecordById(SHIPPING_V2_TABLES.cpuCatalog, id);
+  if (!existingRecord) return null;
+  const existing = mapCpuCatalogEntry(existingRecord);
+  const F = SHIPPING_V2_CPU_CATALOG_FIELDS;
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.cpuCatalog), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [
+        {
+          id,
+          fields: {
+            [F.usageCount]: (existing.usageCount ?? 0) + 1,
+          },
+        },
+      ],
+    }),
+  });
+
+  return response.records?.[0] ? mapCpuCatalogEntry(response.records[0]) : null;
+}
+
+export async function listComputerCatalogEntries(options: { brand?: string; model?: string; maxResults?: number } = {}) {
+  assertShippingV2GeneratedSchema();
+  const records = await listRecords(SHIPPING_V2_TABLES.computerCatalog, {
+    maxRecords: 1000,
+    sortField: SHIPPING_V2_COMPUTER_CATALOG_FIELDS.usageCount,
+    sortDirection: "desc",
+  });
+  const entries = records.map(mapComputerCatalogEntry).filter((entry) => entry.computerModel);
+  const brand = cleanString(options.brand);
+  const model = cleanString(options.model);
+  const maxResults = options.maxResults ?? 10;
+  if (!brand && !model) return entries.slice(0, maxResults);
+
+  return entries
+    .map((entry) => ({ entry, rank: rankComputerCatalogEntry(entry, brand, model) }))
+    .filter((item) => item.rank < 100)
+    .sort((a, b) => a.rank - b.rank || (b.entry.usageCount ?? 0) - (a.entry.usageCount ?? 0) || a.entry.computerModel.localeCompare(b.entry.computerModel))
+    .slice(0, maxResults)
+    .map((item) => item.entry);
+}
+
+export async function findComputerCatalogEntryByBrandAndModel(brand: string, model: string) {
+  const cleanBrand = cleanString(brand);
+  const cleanModel = cleanString(model);
+  if (!cleanBrand && !cleanModel) return null;
+  const matches = await listComputerCatalogEntries({ brand: cleanBrand, model: cleanModel, maxResults: 1 });
+  const match = matches[0];
+  return match && rankComputerCatalogEntry(match, cleanBrand, cleanModel) <= 1 ? match : null;
+}
+
+export async function createComputerCatalogEntryFromTechnicalSheet(input: ShippingV2ComputerCatalogCreateInput) {
+  assertShippingV2GeneratedSchema();
+  const brand = cleanString(input.brand);
+  const model = stripComputerBrandFromModel(input.computerModel, brand);
+  if (!model) throw new Error("Modelo computador es obligatorio para crear catálogo.");
+
+  const existing = await findComputerCatalogEntryByBrandAndModel(brand, model);
+  if (existing) return existing;
+
+  const F = SHIPPING_V2_COMPUTER_CATALOG_FIELDS;
+  const now = new Date().toISOString();
+  const connectivityV2Ids = linkedRecordIds(input.suggestedConnectivityV2Ids);
+  const portV2Ids = linkedRecordIds(input.suggestedPortV2Ids);
+  const extraFeatureV2Ids = linkedRecordIds(input.suggestedExtraFeatureV2Ids);
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.computerCatalog), {
+    method: "POST",
+    body: JSON.stringify({
+      records: [
+        {
+          fields: compactFields({
+            [F.computerModel]: model,
+            [F.brand]: knownOptionOrUndefined(SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS.brand, brand),
+            [F.suggestedScreenSize]: knownOptionOrUndefined(SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS.suggestedScreenSize, cleanString(input.suggestedScreenSize)),
+            [F.suggestedScreenResolution]: knownOptionOrUndefined(SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS.suggestedScreenResolution, cleanString(input.suggestedScreenResolution)),
+            [F.suggestedOperatingSystem]: knownOptionOrUndefined(SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS.suggestedOperatingSystem, cleanString(input.suggestedOperatingSystem)),
+            [F.suggestedConnectivityV2]: connectivityV2Ids,
+            [F.suggestedPortsV2]: portV2Ids,
+            [F.suggestedExtraFeaturesV2]: extraFeatureV2Ids,
+            [F.batteryApplies]: knownOptionOrUndefined(SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS.batteryApplies, cleanString(input.batteryApplies)),
+            [F.suggestedGpu]: cleanString(input.suggestedGpu),
+            [F.sourceName]: cleanString(input.sourceName),
+            [F.sourceUrl]: cleanString(input.sourceUrl),
+            [F.verified]: Boolean(input.verified),
+            [F.usageCount]: input.usageCount ?? 1,
+            [F.lastReviewedAt]: input.lastReviewedAt || now,
+            [F.notes]: cleanString(input.notes),
+          }),
+        },
+      ],
+    }),
+  });
+
+  const created = response.records?.[0];
+  if (!created) throw new Error("Airtable no devolvió el modelo creado.");
+  return mapComputerCatalogEntry(created);
+}
+
+export async function incrementComputerCatalogUsage(entryId: string) {
+  const id = cleanString(entryId);
+  if (!id) return null;
+
+  const existingRecord = await getRecordById(SHIPPING_V2_TABLES.computerCatalog, id);
+  if (!existingRecord) return null;
+  const existing = mapComputerCatalogEntry(existingRecord);
+  const F = SHIPPING_V2_COMPUTER_CATALOG_FIELDS;
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.computerCatalog), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [
+        {
+          id,
+          fields: {
+            [F.usageCount]: (existing.usageCount ?? 0) + 1,
+          },
+        },
+      ],
+    }),
+  });
+
+  return response.records?.[0] ? mapComputerCatalogEntry(response.records[0]) : null;
+}
+
+export async function createShippingV2TechnicalOption(input: {
+  type: ShippingV2TechnicalOptionType;
+  label: string;
+  session: StaffSession | null;
+}) {
+  if (!input.session || (!isAdministratorRole(input.session.user.rol) && !canAccessApp(input.session, "Shipping"))) {
+    throw new Error("No tienes permiso para crear opciones técnicas.");
+  }
+
+  const config = getShippingV2TechnicalOptionConfig(input.type);
+  const option = normalizeShippingV2TechnicalOptionLabelForType(input.type, input.label);
+  if (!option) throw new Error("Nombre de opción obligatorio.");
+
+  const normalizedOption = normalizeTechnicalOption(option);
+  const existingOptions = await listTechnicalOptions(input.type);
+  const existing = existingOptions.find((candidate) => {
+    if (normalizeTechnicalOption(candidate.name) === normalizedOption) return true;
+    return candidate.aliases.some((alias) => normalizeTechnicalOption(alias) === normalizedOption);
+  });
+
+  if (existing) {
+    return { ok: true, alreadyExists: true, option: { id: existing.id, name: existing.name }, type: input.type };
+  }
+
+  const maxOrder = existingOptions.reduce((max, item) => Math.max(max, item.order ?? 0), 0);
+  const now = new Date().toISOString();
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(config.table), {
+    method: "POST",
+    body: JSON.stringify({
+      records: [
+        {
+          fields: compactFields({
+            [config.fields.name]: option,
+            [config.fields.aliases]: "",
+            [config.fields.active]: true,
+            [config.fields.order]: maxOrder + 1,
+            [config.fields.description]: "",
+            [config.fields.createdFromPortal]: true,
+            [config.fields.createdAt]: now,
+            [config.fields.createdBy]: input.session.user.nombre || input.session.user.email,
+            [config.fields.notes]: "Creado desde editor de ficha técnica",
+          }),
+        },
+      ],
+    }),
+  });
+
+  const created = response.records?.[0];
+  if (!created) throw new Error("Airtable no devolvió la opción técnica creada.");
+  const mapped = mapTechnicalOptionRecord(created, config.fields);
+  return { ok: true, alreadyExists: false, option: { id: mapped.id, name: mapped.name }, type: input.type };
 }
 
 async function getExistingShippingV2Skus() {
@@ -1360,6 +1974,150 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
     itemName: item.nombre,
     registradoPor: options.actualizadoPor,
     descripcion: `Item ${item.sku} actualizado desde Portal Staff.`,
+  });
+
+  return item;
+}
+
+export async function updateShippingV2ItemTechnicalSheet(
+  recordId: string,
+  input: ShippingV2TechnicalSheetInput,
+  options: { actualizadoPor: string }
+) {
+  assertShippingV2GeneratedSchema();
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+
+  const existing = await getShippingV2ItemById(id, { includeAiName: false });
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const now = new Date().toISOString();
+  const batteryHealth = shippingV2CategoryDoesNotUseScreenOrBattery(existing.categoria) ? null : optionalNumberField(input.bateriaSalud);
+  const batteryState = calculateShippingV2BatteryState(existing.categoria, batteryHealth);
+  const cpuModel = cleanString(input.cpuModelo);
+  const cpuFrequencyBase = normalizeCpuFrequency(input.cpuFrecuenciaBase);
+  const cpuFrequencyTurbo = normalizeCpuFrequency(input.cpuFrecuenciaTurbo);
+  const connectivityV2Ids = linkedRecordIds(input.connectivityV2Ids);
+  const portV2Ids = linkedRecordIds(input.portV2Ids);
+  const extraFeatureV2Ids = linkedRecordIds(input.extraFeatureV2Ids);
+  const brandFicha = cleanString(input.marcaFicha);
+  const modelFicha = cleanString(input.modeloFicha);
+
+  if (cpuModel) {
+    const existingCpu = await findCpuCatalogEntryByModel(cpuModel);
+    if (existingCpu) {
+      await incrementCpuCatalogUsage(existingCpu.id);
+    } else if (
+      cpuFrequencyBase ||
+      cpuFrequencyTurbo ||
+      cleanString(input.ramTipo) ||
+      cleanString(input.gpu)
+    ) {
+      await createCpuCatalogEntryFromTechnicalSheet({
+        cpuModel,
+        cpuBrand: cleanString(input.cpuMarca),
+        baseFrequency: cpuFrequencyBase,
+        turboFrequency: cpuFrequencyTurbo,
+        suggestedRamType: cleanString(input.ramTipo),
+        integratedGpu: cleanString(input.gpu),
+        sourceName: "Ingresado desde ficha técnica",
+        verified: false,
+        usageCount: 1,
+        lastReviewedAt: now,
+        notes: `Creado automáticamente desde ficha técnica del item ${existing.sku}`,
+      });
+    }
+  }
+
+  if (brandFicha && modelFicha) {
+    const existingComputer = await findComputerCatalogEntryByBrandAndModel(brandFicha, modelFicha);
+    if (existingComputer) {
+      await incrementComputerCatalogUsage(existingComputer.id);
+    } else if (
+      cleanString(input.pantallaTamano) ||
+      cleanString(input.pantallaResolucion) ||
+      cleanString(input.sistemaOperativo) ||
+      connectivityV2Ids.length ||
+      portV2Ids.length ||
+      extraFeatureV2Ids.length ||
+      cleanString(input.gpu)
+    ) {
+      const batteryApplies = batteryState === "No aplica"
+        ? "No"
+        : batteryHealth !== null || shippingV2CategoryHasBattery(existing.categoria)
+          ? "Sí"
+          : "No especificado";
+      await createComputerCatalogEntryFromTechnicalSheet({
+        computerModel: modelFicha,
+        brand: brandFicha,
+        suggestedScreenSize: cleanString(input.pantallaTamano),
+        suggestedScreenResolution: cleanString(input.pantallaResolucion),
+        suggestedOperatingSystem: cleanString(input.sistemaOperativo),
+        suggestedConnectivityV2Ids: connectivityV2Ids,
+        suggestedPortV2Ids: portV2Ids,
+        suggestedExtraFeatureV2Ids: extraFeatureV2Ids,
+        batteryApplies,
+        suggestedGpu: cleanString(input.gpu),
+        sourceName: "Ingresado desde ficha técnica",
+        verified: false,
+        usageCount: 1,
+        lastReviewedAt: now,
+        notes: `Creado automáticamente desde ficha técnica del item ${existing.sku}`,
+      });
+    }
+  }
+
+  const fields: Record<string, unknown> = {
+    [F.marcaFicha]: optionalTextField(brandFicha),
+    [F.modeloFicha]: optionalTextField(modelFicha),
+    [F.sistemaOperativo]: optionalSelectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.sistemaOperativo, input.sistemaOperativo),
+    [F.pantallaTamano]: shippingV2CategoryDoesNotUseScreenOrBattery(existing.categoria) ? "No aplica" : optionalSelectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.pantallaTamano, input.pantallaTamano),
+    [F.pantallaResolucion]: shippingV2CategoryDoesNotUseScreenOrBattery(existing.categoria) ? "No aplica" : optionalSelectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.pantallaResolucion, input.pantallaResolucion),
+    [F.cpuMarca]: optionalSelectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.cpuMarca, input.cpuMarca),
+    [F.cpuModelo]: optionalTextField(cpuModel),
+    [F.cpuFrecuenciaBase]: optionalTextField(cpuFrequencyBase),
+    [F.cpuFrecuenciaTurbo]: optionalTextField(cpuFrequencyTurbo),
+    [F.ramCapacidad]: optionalSelectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.ramCapacidad, input.ramCapacidad),
+    [F.ramTipo]: optionalSelectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.ramTipo, input.ramTipo),
+    [F.almacenamientoPrincipal]: optionalTextField(input.almacenamientoPrincipal),
+    [F.almacenamientoTipo]: optionalSelectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.almacenamientoTipo, input.almacenamientoTipo),
+    [F.gpu]: optionalTextField(input.gpu),
+    [F.bateriaSalud]: batteryHealth,
+    [F.bateriaEstado]: batteryState || null,
+    [F.conectividadV2]: connectivityV2Ids,
+    [F.puertosV2]: portV2Ids,
+    [F.caracteristicasExtrasV2]: extraFeatureV2Ids,
+    [F.observacionFichaTecnica]: optionalTextField(input.observacionFichaTecnica),
+    [F.ultimaActualizacion]: now,
+    [F.actualizadoPor]: options.actualizadoPor,
+  };
+
+  if (input.generated) {
+    fields[F.fichaTecnicaGenerada] = true;
+    fields[F.fichaTecnicaGeneradaPor] = options.actualizadoPor;
+    fields[F.fechaFichaTecnicaGenerada] = now;
+  }
+
+  if (input.reviewed) {
+    fields[F.fichaTecnicaRevisada] = true;
+    fields[F.fichaTecnicaRevisadaPor] = options.actualizadoPor;
+    fields[F.fechaFichaTecnicaRevisada] = now;
+  }
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id, fields }] }),
+  });
+
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
+
+  const item = mapItem(updated);
+  await createShippingV2Event({
+    action: "Actualizado",
+    itemRecordId: item.id,
+    itemName: item.nombre,
+    registradoPor: options.actualizadoPor,
+    descripcion: input.reviewed ? `Ficha técnica ${item.sku} revisada desde Portal Staff.` : `Ficha técnica ${item.sku} actualizada desde Portal Staff.`,
   });
 
   return item;

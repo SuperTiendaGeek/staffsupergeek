@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-07T23:00:36.018Z",
+  "generatedAt": "2026-06-09T17:16:24.226Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -911,6 +911,288 @@
           "id": "fldwJm6ZeYukVlNNG",
           "type": "multilineText",
           "kind": "multilineText"
+        },
+        "Ficha técnica generada por": {
+          "id": "fldQvXkSa9b50md6F",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Marca ficha": {
+          "id": "fldH09J89n5iA3vRY",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Modelo ficha": {
+          "id": "fldic795oPhPjQQJx",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Sistema operativo": {
+          "id": "fldXt0eDfPAGrCNO5",
+          "type": "singleSelect",
+          "options": [
+            "Windows 11 Pro",
+            "Windows 11 Home",
+            "Windows 10 Pro",
+            "Windows 10 Home",
+            "ChromeOS",
+            "macOS",
+            "Linux",
+            "Sin sistema",
+            "No aplica",
+            "Otro"
+          ]
+        },
+        "Pantalla tamaño": {
+          "id": "fldVhzG1EKJCvtF5d",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "10.1\"",
+            "10.8\"",
+            "11.6\"",
+            "12\"",
+            "12.1\"",
+            "12.3\"",
+            "12.5\"",
+            "13\"",
+            "13.3\"",
+            "13.5\"",
+            "14\"",
+            "15\"",
+            "15.6\"",
+            "16\"",
+            "17\"",
+            "17.3\"",
+            "Otro"
+          ]
+        },
+        "Pantalla resolución": {
+          "id": "fld8g1eVc0DrZFkxf",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "1366x768 (HD)",
+            "1600x900 (HD+)",
+            "1920x1080 (FHD)",
+            "1920x1200 (FHD+)",
+            "2160x1440 (2K)",
+            "2256x1504 (2.2K)",
+            "2560x1440 (QHD / 2K)",
+            "2560x1600 (2.5K)",
+            "2880x1800 (3K)",
+            "3000x2000 (3K)",
+            "3200x1800 (QHD+)",
+            "3840x2160 (4K UHD)",
+            "Touch",
+            "Otro"
+          ]
+        },
+        "CPU marca": {
+          "id": "fldb3fxwE0ciJoL7Z",
+          "type": "singleSelect",
+          "options": [
+            "Intel",
+            "AMD",
+            "Apple",
+            "Qualcomm",
+            "Otro"
+          ]
+        },
+        "CPU modelo": {
+          "id": "fldYlF26NcUkDBkin",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "CPU frecuencia base": {
+          "id": "fldbLhxTt0O81o59Q",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "CPU frecuencia turbo": {
+          "id": "fldWPGq9IaLwrPq4F",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "RAM capacidad": {
+          "id": "fldYBjIaoOuRSxHVh",
+          "type": "singleSelect",
+          "options": [
+            "2GB",
+            "4GB",
+            "6GB",
+            "8GB",
+            "12GB",
+            "16GB",
+            "24GB",
+            "32GB",
+            "64GB",
+            "128GB",
+            "Otro"
+          ]
+        },
+        "RAM tipo": {
+          "id": "fldJvKhXTmgy2iT4M",
+          "type": "singleSelect",
+          "options": [
+            "DDR3",
+            "DDR3L",
+            "DDR4",
+            "DDR5",
+            "LPDDR3",
+            "LPDDR4",
+            "LPDDR4X",
+            "LPDDR5",
+            "LPDDR5X",
+            "Otro",
+            "No especificado"
+          ]
+        },
+        "Almacenamiento principal": {
+          "id": "fldBy1X73RHiULG77",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Almacenamiento tipo": {
+          "id": "fld5KwsFUbhoO6qgs",
+          "type": "singleSelect",
+          "options": [
+            "SSD",
+            "M.2 SSD",
+            "NVMe SSD",
+            "HDD",
+            "eMMC",
+            "Fusion Drive",
+            "Sin almacenamiento",
+            "Otro",
+            "No especificado"
+          ]
+        },
+        "GPU": {
+          "id": "fldJiQ9BuKIitUkPj",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Batería salud %": {
+          "id": "fldAS7uTjneJExIMf",
+          "type": "number",
+          "kind": "number"
+        },
+        "Batería estado": {
+          "id": "fldxVNmTQVpbZG7t6",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "Excelente",
+            "Muy buena",
+            "Buena / Aceptable",
+            "Regular / Requiere Servicio",
+            "Mala / Agotada"
+          ]
+        },
+        "Conectividad": {
+          "id": "fldQKrsezjRzDXn0o",
+          "type": "multipleSelects",
+          "options": [
+            "Wi-Fi",
+            "Bluetooth",
+            "Ethernet",
+            "SIM Slot",
+            "LTE-GSM"
+          ]
+        },
+        "Puertos": {
+          "id": "fld4YDfUYV7TLtEx1",
+          "type": "multipleSelects",
+          "options": [
+            "USB 2.0",
+            "USB 3.0",
+            "USB-C",
+            "Thunderbolt",
+            "Thunderbolt 2",
+            "Thunderbolt 3 USB-C",
+            "Thunderbolt 4 USB-C",
+            "HDMI",
+            "Micro HDMI",
+            "DisplayPort",
+            "VGA",
+            "DVI",
+            "Ethernet",
+            "Audio Jack",
+            "SD Card Slot",
+            "microSD Card Slot",
+            "SIM Slot",
+            "DVD Drive",
+            "Micro-USB",
+            "Puerto Serial",
+            "Puertos sugeridos"
+          ]
+        },
+        "Características extras": {
+          "id": "fldo79iSWD8Pyb5NF",
+          "type": "multipleSelects",
+          "options": [
+            "Cámara",
+            "Micrófono",
+            "Teclado retroiluminado",
+            "Teclado RGB",
+            "Pantalla táctil",
+            "Pantalla OLED",
+            "Pantalla desplegable",
+            "Convertible 2 en 1",
+            "Lápiz óptico",
+            "Touch Bar",
+            "Touch ID",
+            "Unidad óptica",
+            "SPDIF",
+            "Características extras sugeridas"
+          ]
+        },
+        "Observación ficha técnica": {
+          "id": "fldAGFII2vp2NN9WW",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Ficha técnica generada": {
+          "id": "fldqGh0f3CXQPs7Gy",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Ficha técnica revisada": {
+          "id": "fldpgYW7TSh48KFBO",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Ficha técnica revisada por": {
+          "id": "fldcedk0J8AEmRRng",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha ficha técnica revisada": {
+          "id": "fldWcb1yVqH5HDp7J",
+          "type": "dateTime"
+        },
+        "Fecha ficha técnica generada": {
+          "id": "fldf1UL0pbtyw4zTn",
+          "type": "dateTime"
+        },
+        "Conectividad V2": {
+          "id": "fldPZIgwXDr8Wkb9y",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblOtzLSCGAG3kCxc",
+          "linkedTableName": "Catálogo Conectividad"
+        },
+        "Puertos V2": {
+          "id": "fldY3mY4h84VwnhzV",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblpBJRuJjyY5beiS",
+          "linkedTableName": "Catálogo Puertos"
+        },
+        "Características extras V2": {
+          "id": "fld88v5S7ztr40flg",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblIbgM5pzsX2WIpf",
+          "linkedTableName": "Catálogo Características Extras"
         }
       }
     },
@@ -2087,6 +2369,502 @@
             "Corregido",
             "No aplica"
           ]
+        }
+      }
+    },
+    "Catálogo CPUs": {
+      "id": "tblwc7IgyDaLbwrb3",
+      "fields": {
+        "CPU modelo": {
+          "id": "fldolwJEFmvMa6kIG",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "CPU marca": {
+          "id": "fldIse5p4yCi2y3aZ",
+          "type": "singleSelect",
+          "options": [
+            "Intel",
+            "AMD",
+            "Apple",
+            "Qualcomm",
+            "Otro",
+            "CPU marca"
+          ]
+        },
+        "Frecuencia base": {
+          "id": "fldCeLb3IYAX0y7ZD",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Frecuencia turbo": {
+          "id": "fldTP1XgEJd0CkJ9O",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Frecuencia original": {
+          "id": "fld6awyQKX1ylY0e5",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "RAM tipo sugerida": {
+          "id": "fldc4tUsq3JFhH41w",
+          "type": "singleSelect",
+          "options": [
+            "DDR3",
+            "DDR3L",
+            "DDR4",
+            "DDR5",
+            "LPDDR3",
+            "LPDDR4",
+            "LPDDR4X",
+            "LPDDR5",
+            "LPDDR5X",
+            "Otro",
+            "No especificado",
+            "RAM tipo sugerida"
+          ]
+        },
+        "GPU integrada": {
+          "id": "fld1anhkrpKIBwo5x",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fuente nombre": {
+          "id": "fldlE3pLs3l3rd1Ym",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fuente": {
+          "id": "fldM8BeDY1KJqowaO",
+          "type": "url",
+          "kind": "url"
+        },
+        "Verificado": {
+          "id": "fldEU3KufrxgPnALM",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Veces usado": {
+          "id": "fldSE7gF3LP326ylr",
+          "type": "number",
+          "kind": "number"
+        },
+        "Última revisión": {
+          "id": "fldZ9CGKHAuE4HWhk",
+          "type": "dateTime"
+        },
+        "Observaciones": {
+          "id": "fldNoroGY23weknPh",
+          "type": "multilineText",
+          "kind": "multilineText"
+        }
+      }
+    },
+    "Catálogo Computadores": {
+      "id": "tblXqQ9mRiUwpEo7I",
+      "fields": {
+        "Modelo computador": {
+          "id": "fldH2KiZGSBQiURK4",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Marca": {
+          "id": "fld4VK8eXP4A0bK8W",
+          "type": "singleSelect",
+          "options": [
+            "ACEPC",
+            "ASUS",
+            "Acer",
+            "Apple",
+            "Asus ROG",
+            "Azulle",
+            "Clevo",
+            "Dell",
+            "HP",
+            "Intel",
+            "LG",
+            "Lenovo",
+            "MSI",
+            "Microsoft",
+            "Samsung",
+            "Zotac",
+            "Otro",
+            "Marca"
+          ]
+        },
+        "Pantalla tamaño sugerida": {
+          "id": "fldUrvXz62iGAxYvy",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "10\"",
+            "10.3\"",
+            "10.8\"",
+            "11.6\"",
+            "12.2\"",
+            "12.3\"",
+            "12.5\"",
+            "13\"",
+            "13.3\"",
+            "14\"",
+            "15.4\"",
+            "15.6\"",
+            "16\"",
+            "17.3\"",
+            "21.5\"",
+            "21.5\" 4K",
+            "Otro",
+            "Pantalla tamaño sugerida"
+          ]
+        },
+        "Pantalla resolución sugerida": {
+          "id": "fldZYjWJADMrbpZbv",
+          "type": "singleSelect",
+          "options": [
+            "No aplica",
+            "1366x768 (HD)",
+            "1440x900",
+            "1600x900 (HD+)",
+            "1800x1200",
+            "1920x1080 (FHD)",
+            "1920x1200 (FHD+)",
+            "2400x1600 (2.5K)",
+            "2560x1440 (QHD / 2K)",
+            "2560x1600 (2.5K)",
+            "2880x1800 (3K)",
+            "3072x1920 (Retina)",
+            "3840x2160 (4K UHD)",
+            "4096x2304 (4K Retina)",
+            "Otro",
+            "Pantalla resolución sugerida"
+          ]
+        },
+        "Sistema operativo sugerido": {
+          "id": "fldU4NzWHfvtCIdru",
+          "type": "singleSelect",
+          "options": [
+            "Windows 11 Pro",
+            "Windows 11 Home",
+            "Windows 10 Pro",
+            "Windows 10 Home",
+            "Windows 10 miniOS",
+            "ChromeOS",
+            "macOS Sonoma",
+            "macOS Sequoia",
+            "macOS Ventura",
+            "macOS Monterey",
+            "Linux",
+            "Linux Mint",
+            "Sin sistema",
+            "No aplica",
+            "Otro",
+            "Sistema operativo sugerido"
+          ]
+        },
+        "Conectividad sugerida": {
+          "id": "fldLdaC2YTEU4zoLh",
+          "type": "multipleSelects",
+          "options": [
+            "Wi-Fi",
+            "Bluetooth",
+            "Ethernet",
+            "SIM Slot",
+            "LTE-GSM"
+          ]
+        },
+        "Puertos sugeridos": {
+          "id": "fldkSpsg92gVpu884",
+          "type": "multipleSelects",
+          "options": [
+            "USB 2.0",
+            "USB 3.0",
+            "USB-C",
+            "Thunderbolt",
+            "Thunderbolt 2",
+            "Thunderbolt 3 USB-C",
+            "Thunderbolt 4 USB-C",
+            "HDMI",
+            "Micro HDMI",
+            "DisplayPort",
+            "Mini DisplayPort",
+            "VGA",
+            "DVI",
+            "Ethernet",
+            "Audio Jack",
+            "SD Card Slot",
+            "microSD Card Slot",
+            "SIM Slot",
+            "DVD Drive",
+            "Micro-USB",
+            "Puerto Serial",
+            "Puertos sugeridos"
+          ]
+        },
+        "Características extras sugeridas": {
+          "id": "fldg6z4kpEGOEiy2f",
+          "type": "multipleSelects",
+          "options": [
+            "Cámara",
+            "Micrófono",
+            "Teclado retroiluminado",
+            "Teclado RGB",
+            "Pantalla táctil",
+            "Pantalla OLED",
+            "Pantalla desplegable",
+            "Convertible 2 en 1",
+            "Lápiz óptico",
+            "Touch Bar",
+            "Touch ID",
+            "Unidad óptica",
+            "SPDIF",
+            "Características extras sugeridas"
+          ]
+        },
+        "Batería aplica": {
+          "id": "fldjXw2xC6SK8uN1f",
+          "type": "singleSelect",
+          "options": [
+            "Sí",
+            "No",
+            "No especificado",
+            "Batería aplica"
+          ]
+        },
+        "GPU sugerida": {
+          "id": "fldWuaM7k8wx9R2Cl",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fuente nombre": {
+          "id": "fld1KrcAkSRZSFzPV",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fuente": {
+          "id": "fldY2DLBZcWdcGenC",
+          "type": "url",
+          "kind": "url"
+        },
+        "Verificado": {
+          "id": "fld88PLret3T8eJ35",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Veces usado": {
+          "id": "fldl4xi4EvoEz8moj",
+          "type": "number",
+          "kind": "number"
+        },
+        "Última revisión": {
+          "id": "fldJo2IptaPZ0nwtG",
+          "type": "dateTime"
+        },
+        "Observaciones": {
+          "id": "fldr3v1dDbVarZr7u",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Conectividad sugerida V2": {
+          "id": "fldNd6yF5SaFBB9KE",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblOtzLSCGAG3kCxc",
+          "linkedTableName": "Catálogo Conectividad"
+        },
+        "Puertos sugeridos V2": {
+          "id": "fldxJW1iLe6RiD4DL",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblpBJRuJjyY5beiS",
+          "linkedTableName": "Catálogo Puertos"
+        },
+        "Características extras sugeridas V2": {
+          "id": "fld63QNgfdZ2t9INj",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblIbgM5pzsX2WIpf",
+          "linkedTableName": "Catálogo Características Extras"
+        }
+      }
+    },
+    "Catálogo Conectividad": {
+      "id": "tblOtzLSCGAG3kCxc",
+      "fields": {
+        "Nombre": {
+          "id": "fldKJKmjxTrnEpIj4",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Alias": {
+          "id": "fldMXznMNA2lDQpkS",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Activo": {
+          "id": "fld5bKIlXDxASZ6or",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Orden": {
+          "id": "fldcy0xZcYeQnJdZY",
+          "type": "number",
+          "kind": "number"
+        },
+        "Descripción": {
+          "id": "fldeh1zPaqrzTdHc5",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Creado desde Portal": {
+          "id": "fldTFyblp1vQln9Rq",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Fecha creación": {
+          "id": "fldcYmdqy8gSfpAVX",
+          "type": "dateTime"
+        },
+        "Creado por": {
+          "id": "fldbIIe8dqSMptWZS",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Observaciones": {
+          "id": "fldgtAn9UTBLy59PA",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Shipping Items": {
+          "id": "fldXW9FYxiBtJQRmO",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Catálogo Computadores": {
+          "id": "fldEvJ599ebi0hHSJ",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblXqQ9mRiUwpEo7I",
+          "linkedTableName": "Catálogo Computadores"
+        }
+      }
+    },
+    "Catálogo Puertos": {
+      "id": "tblpBJRuJjyY5beiS",
+      "fields": {
+        "Nombre": {
+          "id": "fldXfI1klUiTvCGdO",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Alias": {
+          "id": "fldm4zTEI82SxeL2D",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Activo": {
+          "id": "fldxLdrYFVpwhQ6SE",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Orden": {
+          "id": "fldfDJSffdwHLNHZD",
+          "type": "number",
+          "kind": "number"
+        },
+        "Descripción": {
+          "id": "fldIBAyUWde4MvAoE",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Creado desde Portal": {
+          "id": "fld5rYKsIh2EfaSiu",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Fecha creación": {
+          "id": "fldcCQCQ3Iuo9HQvz",
+          "type": "dateTime"
+        },
+        "Creado por": {
+          "id": "fldUmGcFZsUE1iFSf",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Observaciones": {
+          "id": "fldKiUNzoBbSHKStq",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Shipping Items": {
+          "id": "fldjQiseW1PptO6g4",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Catálogo Computadores": {
+          "id": "fldkqqdQQyrkNKvRT",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblXqQ9mRiUwpEo7I",
+          "linkedTableName": "Catálogo Computadores"
+        }
+      }
+    },
+    "Catálogo Características Extras": {
+      "id": "tblIbgM5pzsX2WIpf",
+      "fields": {
+        "Nombre": {
+          "id": "fldYGzhkggTPMWc1E",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Alias": {
+          "id": "fldx93z0NWVkA6i3U",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Activo": {
+          "id": "fldP9pxODhEP7S0jf",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Orden": {
+          "id": "fldRSdZ2rtFlt5OAo",
+          "type": "number",
+          "kind": "number"
+        },
+        "Descripción": {
+          "id": "fldKPQBGoO3oyQ0oq",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Creado desde Portal": {
+          "id": "fldcGVEemspbsQTX2",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Fecha creación": {
+          "id": "fldgsVKWgcyKyDtLV",
+          "type": "dateTime"
+        },
+        "Creado por": {
+          "id": "fldMXtxzKOU86BANX",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Observaciones": {
+          "id": "fldobuvIcZOJdt7IT",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Shipping Items": {
+          "id": "fldHPu0iQhhiqVtnx",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Catálogo Computadores": {
+          "id": "fldYtefjiaJ3GKtvM",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblXqQ9mRiUwpEo7I",
+          "linkedTableName": "Catálogo Computadores"
         }
       }
     }

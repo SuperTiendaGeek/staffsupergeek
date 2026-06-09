@@ -16,6 +16,11 @@ const TABLES = {
   novedades: "Shipping Novedades",
   migraciones: "Shipping Migraciones",
   eventos: "Shipping Eventos",
+  cpuCatalog: "Catálogo CPUs",
+  computerCatalog: "Catálogo Computadores",
+  connectivityCatalog: "Catálogo Conectividad",
+  portsCatalog: "Catálogo Puertos",
+  extraFeaturesCatalog: "Catálogo Características Extras",
 };
 
 const EXPECTED_ITEM_FIELDS = [
@@ -61,6 +66,32 @@ const EXPECTED_ITEM_FIELDS = [
   "Tracking directo",
   "Observaciones internas",
   "Observación para venta",
+  "Marca ficha",
+  "Modelo ficha",
+  "Sistema operativo",
+  "Pantalla tamaño",
+  "Pantalla resolución",
+  "CPU marca",
+  "CPU modelo",
+  "CPU frecuencia base",
+  "CPU frecuencia turbo",
+  "RAM capacidad",
+  "RAM tipo",
+  "Almacenamiento principal",
+  "Almacenamiento tipo",
+  "GPU",
+  "Batería salud %",
+  "Batería estado",
+  "Conectividad V2",
+  "Puertos V2",
+  "Características extras V2",
+  "Observación ficha técnica",
+  "Ficha técnica generada",
+  "Ficha técnica revisada",
+  "Ficha técnica revisada por",
+  "Fecha ficha técnica revisada",
+  "Fecha ficha técnica generada",
+  "Ficha técnica generada por",
 ];
 
 const EXPECTED_PROVIDER_FIELDS = [
@@ -142,6 +173,45 @@ const EXPECTED_PACKING_FIELDS = [
   "Creado por",
 ];
 
+const EXPECTED_CPU_CATALOG_FIELDS = [
+  "CPU modelo",
+  "CPU marca",
+  "Frecuencia base",
+  "Frecuencia turbo",
+  "Frecuencia original",
+  "RAM tipo sugerida",
+  "GPU integrada",
+  "Fuente nombre",
+  "Fuente",
+  "Verificado",
+  "Veces usado",
+  "Última revisión",
+  "Observaciones",
+];
+
+const EXPECTED_COMPUTER_CATALOG_FIELDS = [
+  "Modelo computador",
+  "Marca",
+  "Pantalla tamaño sugerida",
+  "Pantalla resolución sugerida",
+  "Sistema operativo sugerido",
+  "Conectividad sugerida V2",
+  "Puertos sugeridos V2",
+  "Características extras sugeridas V2",
+  "Batería aplica",
+  "GPU sugerida",
+  "Fuente nombre",
+  "Fuente",
+  "Verificado",
+  "Veces usado",
+  "Última revisión",
+  "Observaciones",
+];
+
+const EXPECTED_TECHNICAL_MASTER_FIELDS = [
+  "Nombre",
+];
+
 const ITEM_FIELD_KEYS = {
   sku: "SKU",
   itemId: "Item ID",
@@ -195,6 +265,32 @@ const ITEM_FIELD_KEYS = {
   evidencias: "Evidencias",
   observacionesInternas: "Observaciones internas",
   observacionVenta: "Observación para venta",
+  marcaFicha: "Marca ficha",
+  modeloFicha: "Modelo ficha",
+  sistemaOperativo: "Sistema operativo",
+  pantallaTamano: "Pantalla tamaño",
+  pantallaResolucion: "Pantalla resolución",
+  cpuMarca: "CPU marca",
+  cpuModelo: "CPU modelo",
+  cpuFrecuenciaBase: "CPU frecuencia base",
+  cpuFrecuenciaTurbo: "CPU frecuencia turbo",
+  ramCapacidad: "RAM capacidad",
+  ramTipo: "RAM tipo",
+  almacenamientoPrincipal: "Almacenamiento principal",
+  almacenamientoTipo: "Almacenamiento tipo",
+  gpu: "GPU",
+  bateriaSalud: "Batería salud %",
+  bateriaEstado: "Batería estado",
+  conectividadV2: "Conectividad V2",
+  puertosV2: "Puertos V2",
+  caracteristicasExtrasV2: "Características extras V2",
+  observacionFichaTecnica: "Observación ficha técnica",
+  fichaTecnicaGenerada: "Ficha técnica generada",
+  fichaTecnicaRevisada: "Ficha técnica revisada",
+  fichaTecnicaRevisadaPor: "Ficha técnica revisada por",
+  fechaFichaTecnicaRevisada: "Fecha ficha técnica revisada",
+  fechaFichaTecnicaGenerada: "Fecha ficha técnica generada",
+  fichaTecnicaGeneradaPor: "Ficha técnica generada por",
   metodoAsignacionSku: "Método de asignación SKU",
   skuProveedorUsadoComoInterno: "SKU proveedor fue usado como interno",
   skuDuplicadoDetectado: "SKU duplicado detectado",
@@ -304,6 +400,53 @@ const PACKING_FIELD_KEYS = {
   fechaRecepcion: "Fecha de recepción",
   cerradoPor: "Cerrado por",
   creadoPor: "Creado por",
+};
+
+const CPU_CATALOG_FIELD_KEYS = {
+  cpuModel: "CPU modelo",
+  cpuBrand: "CPU marca",
+  baseFrequency: "Frecuencia base",
+  turboFrequency: "Frecuencia turbo",
+  originalFrequency: "Frecuencia original",
+  suggestedRamType: "RAM tipo sugerida",
+  integratedGpu: "GPU integrada",
+  sourceName: "Fuente nombre",
+  sourceUrl: "Fuente",
+  verified: "Verificado",
+  usageCount: "Veces usado",
+  lastReviewedAt: "Última revisión",
+  notes: "Observaciones",
+};
+
+const COMPUTER_CATALOG_FIELD_KEYS = {
+  computerModel: "Modelo computador",
+  brand: "Marca",
+  suggestedScreenSize: "Pantalla tamaño sugerida",
+  suggestedScreenResolution: "Pantalla resolución sugerida",
+  suggestedOperatingSystem: "Sistema operativo sugerido",
+  suggestedConnectivityV2: "Conectividad sugerida V2",
+  suggestedPortsV2: "Puertos sugeridos V2",
+  suggestedExtraFeaturesV2: "Características extras sugeridas V2",
+  batteryApplies: "Batería aplica",
+  suggestedGpu: "GPU sugerida",
+  sourceName: "Fuente nombre",
+  sourceUrl: "Fuente",
+  verified: "Verificado",
+  usageCount: "Veces usado",
+  lastReviewedAt: "Última revisión",
+  notes: "Observaciones",
+};
+
+const TECHNICAL_MASTER_FIELD_KEYS = {
+  name: "Nombre",
+  aliases: "Alias",
+  active: "Activo",
+  order: "Orden",
+  description: "Descripción",
+  createdFromPortal: "Creado desde Portal",
+  createdAt: "Fecha creación",
+  createdBy: "Creado por",
+  notes: "Observaciones",
 };
 
 function parseEnvLine(line) {
@@ -416,10 +559,11 @@ function validateExpectedItems(itemsTable) {
 }
 
 function validateExpectedFields(table, expectedFields) {
-  const found = Object.keys(table.fields);
+  const allFound = Object.keys(table.fields);
+  const found = expectedFields.filter((field) => table.fields[field]);
   const missing = expectedFields.filter((field) => !table.fields[field]);
   if (!missing.length) return { ok: true, found, missing: [], similar: {} };
-  const similar = Object.fromEntries(missing.map((field) => [field, findSimilarFields(field, found)]));
+  const similar = Object.fromEntries(missing.map((field) => [field, findSimilarFields(field, allFound)]));
   return { ok: false, found, missing, similar };
 }
 
@@ -433,6 +577,11 @@ function generatedTs(schema, validation) {
   const paymentFields = schema.tables[TABLES.pagos].fields;
   const financeFields = schema.tables[TABLES.finanzasMovimientos].fields;
   const packingFields = schema.tables[TABLES.packings].fields;
+  const cpuCatalogFields = schema.tables[TABLES.cpuCatalog].fields;
+  const computerCatalogFields = schema.tables[TABLES.computerCatalog].fields;
+  const connectivityCatalogFields = schema.tables[TABLES.connectivityCatalog].fields;
+  const portsCatalogFields = schema.tables[TABLES.portsCatalog].fields;
+  const extraFeaturesCatalogFields = schema.tables[TABLES.extraFeaturesCatalog].fields;
   const itemConstants = Object.fromEntries(
     Object.entries(ITEM_FIELD_KEYS).filter(([, fieldName]) => Boolean(itemsFields[fieldName]))
   );
@@ -482,8 +631,35 @@ function generatedTs(schema, validation) {
       .filter(([, field]) => field.type === "singleSelect" || field.type === "multipleSelects")
       .map(([key, field]) => [key, field.options ?? []])
   );
+  const cpuCatalogConstants = Object.fromEntries(
+    Object.entries(CPU_CATALOG_FIELD_KEYS).filter(([, fieldName]) => Boolean(cpuCatalogFields[fieldName]))
+  );
+  const cpuCatalogSelectOptions = Object.fromEntries(
+    Object.entries(cpuCatalogConstants)
+      .map(([key, fieldName]) => [key, cpuCatalogFields[fieldName]])
+      .filter(([, field]) => field.type === "singleSelect" || field.type === "multipleSelects")
+      .map(([key, field]) => [key, field.options ?? []])
+  );
+  const computerCatalogConstants = Object.fromEntries(
+    Object.entries(COMPUTER_CATALOG_FIELD_KEYS).filter(([, fieldName]) => Boolean(computerCatalogFields[fieldName]))
+  );
+  const computerCatalogSelectOptions = Object.fromEntries(
+    Object.entries(computerCatalogConstants)
+      .map(([key, fieldName]) => [key, computerCatalogFields[fieldName]])
+      .filter(([, field]) => field.type === "singleSelect" || field.type === "multipleSelects")
+      .map(([key, field]) => [key, field.options ?? []])
+  );
+  const connectivityCatalogConstants = Object.fromEntries(
+    Object.entries(TECHNICAL_MASTER_FIELD_KEYS).filter(([, fieldName]) => Boolean(connectivityCatalogFields[fieldName]))
+  );
+  const portsCatalogConstants = Object.fromEntries(
+    Object.entries(TECHNICAL_MASTER_FIELD_KEYS).filter(([, fieldName]) => Boolean(portsCatalogFields[fieldName]))
+  );
+  const extraFeaturesCatalogConstants = Object.fromEntries(
+    Object.entries(TECHNICAL_MASTER_FIELD_KEYS).filter(([, fieldName]) => Boolean(extraFeaturesCatalogFields[fieldName]))
+  );
 
-  return `/* eslint-disable */\n// This file is generated by scripts/inspect-shipping-v2-schema.mjs.\n// Do not edit by hand. Run: npm run shipping-v2:schema\n\nexport const SHIPPING_V2_SCHEMA_GENERATED_AT = ${JSON.stringify(schema.generatedAt)};\n\nexport const SHIPPING_V2_TABLES = ${tsString(TABLES)} as const;\n\nexport const SHIPPING_V2_ITEM_FIELDS = ${tsString(itemConstants)} as const;\n\nexport const SHIPPING_V2_ITEM_SELECT_OPTIONS = ${tsString(itemSelectOptions)} as const;\n\nexport const SHIPPING_V2_PROVIDER_FIELDS = ${tsString(providerConstants)} as const;\n\nexport const SHIPPING_V2_PROVIDER_SELECT_OPTIONS = ${tsString(providerSelectOptions)} as const;\n\nexport const SHIPPING_V2_PAYMENT_FIELDS = ${tsString(paymentConstants)} as const;\n\nexport const SHIPPING_V2_PAYMENT_SELECT_OPTIONS = ${tsString(paymentSelectOptions)} as const;\n\nexport const SHIPPING_V2_FINANCE_FIELDS = ${tsString(financeConstants)} as const;\n\nexport const SHIPPING_V2_FINANCE_SELECT_OPTIONS = ${tsString(financeSelectOptions)} as const;\n\nexport const SHIPPING_V2_PACKING_FIELDS = ${tsString(packingConstants)} as const;\n\nexport const SHIPPING_V2_PACKING_SELECT_OPTIONS = ${tsString(packingSelectOptions)} as const;\n\nexport const SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION = ${tsString(validation.items)} as const;\n\nexport const SHIPPING_V2_EXPECTED_PROVIDER_FIELDS_VALIDATION = ${tsString(validation.proveedores)} as const;\n\nexport const SHIPPING_V2_EXPECTED_PAYMENT_FIELDS_VALIDATION = ${tsString(validation.pagos)} as const;\n\nexport const SHIPPING_V2_EXPECTED_FINANCE_FIELDS_VALIDATION = ${tsString(validation.finanzas)} as const;\n\nexport const SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION = ${tsString(validation.packings)} as const;\n\nexport function assertShippingV2GeneratedSchema() {\n  if (!SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_PROVIDER_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Proveedores desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_PROVIDER_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_PAYMENT_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Pagos desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_PAYMENT_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_FINANCE_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Finanzas desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_FINANCE_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Packings desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n}\n`;
+  return `/* eslint-disable */\n// This file is generated by scripts/inspect-shipping-v2-schema.mjs.\n// Do not edit by hand. Run: npm run shipping-v2:schema\n\nexport const SHIPPING_V2_SCHEMA_GENERATED_AT = ${JSON.stringify(schema.generatedAt)};\n\nexport const SHIPPING_V2_TABLES = ${tsString(TABLES)} as const;\n\nexport const SHIPPING_V2_ITEM_FIELDS = ${tsString(itemConstants)} as const;\n\nexport const SHIPPING_V2_ITEM_SELECT_OPTIONS = ${tsString(itemSelectOptions)} as const;\n\nexport const SHIPPING_V2_PROVIDER_FIELDS = ${tsString(providerConstants)} as const;\n\nexport const SHIPPING_V2_PROVIDER_SELECT_OPTIONS = ${tsString(providerSelectOptions)} as const;\n\nexport const SHIPPING_V2_PAYMENT_FIELDS = ${tsString(paymentConstants)} as const;\n\nexport const SHIPPING_V2_PAYMENT_SELECT_OPTIONS = ${tsString(paymentSelectOptions)} as const;\n\nexport const SHIPPING_V2_FINANCE_FIELDS = ${tsString(financeConstants)} as const;\n\nexport const SHIPPING_V2_FINANCE_SELECT_OPTIONS = ${tsString(financeSelectOptions)} as const;\n\nexport const SHIPPING_V2_PACKING_FIELDS = ${tsString(packingConstants)} as const;\n\nexport const SHIPPING_V2_PACKING_SELECT_OPTIONS = ${tsString(packingSelectOptions)} as const;\n\nexport const SHIPPING_V2_CPU_CATALOG_FIELDS = ${tsString(cpuCatalogConstants)} as const;\n\nexport const SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS = ${tsString(cpuCatalogSelectOptions)} as const;\n\nexport const SHIPPING_V2_COMPUTER_CATALOG_FIELDS = ${tsString(computerCatalogConstants)} as const;\n\nexport const SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS = ${tsString(computerCatalogSelectOptions)} as const;\n\nexport const SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS = ${tsString(connectivityCatalogConstants)} as const;\n\nexport const SHIPPING_V2_PORTS_CATALOG_FIELDS = ${tsString(portsCatalogConstants)} as const;\n\nexport const SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS = ${tsString(extraFeaturesCatalogConstants)} as const;\n\nexport const SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION = ${tsString(validation.items)} as const;\n\nexport const SHIPPING_V2_EXPECTED_PROVIDER_FIELDS_VALIDATION = ${tsString(validation.proveedores)} as const;\n\nexport const SHIPPING_V2_EXPECTED_PAYMENT_FIELDS_VALIDATION = ${tsString(validation.pagos)} as const;\n\nexport const SHIPPING_V2_EXPECTED_FINANCE_FIELDS_VALIDATION = ${tsString(validation.finanzas)} as const;\n\nexport const SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION = ${tsString(validation.packings)} as const;\n\nexport const SHIPPING_V2_EXPECTED_CPU_CATALOG_FIELDS_VALIDATION = ${tsString(validation.cpuCatalog)} as const;\n\nexport const SHIPPING_V2_EXPECTED_COMPUTER_CATALOG_FIELDS_VALIDATION = ${tsString(validation.computerCatalog)} as const;\n\nexport const SHIPPING_V2_EXPECTED_CONNECTIVITY_CATALOG_FIELDS_VALIDATION = ${tsString(validation.connectivityCatalog)} as const;\n\nexport const SHIPPING_V2_EXPECTED_PORTS_CATALOG_FIELDS_VALIDATION = ${tsString(validation.portsCatalog)} as const;\n\nexport const SHIPPING_V2_EXPECTED_EXTRA_FEATURES_CATALOG_FIELDS_VALIDATION = ${tsString(validation.extraFeaturesCatalog)} as const;\n\nexport function assertShippingV2GeneratedSchema() {\n  if (!SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_ITEM_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_PROVIDER_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Proveedores desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_PROVIDER_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_PAYMENT_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Pagos desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_PAYMENT_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_FINANCE_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Finanzas desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_FINANCE_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Shipping V2 Packings desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_PACKING_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_CPU_CATALOG_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Catálogo CPUs desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_CPU_CATALOG_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_COMPUTER_CATALOG_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Catálogo Computadores desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_COMPUTER_CATALOG_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_CONNECTIVITY_CATALOG_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Catálogo Conectividad desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_CONNECTIVITY_CATALOG_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_PORTS_CATALOG_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Catálogo Puertos desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_PORTS_CATALOG_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n  if (!SHIPPING_V2_EXPECTED_EXTRA_FEATURES_CATALOG_FIELDS_VALIDATION.ok) {\n    throw new Error(\`Schema Catálogo Características Extras desactualizado o incompleto. Ejecuta npm run shipping-v2:schema. Campos faltantes: \${SHIPPING_V2_EXPECTED_EXTRA_FEATURES_CATALOG_FIELDS_VALIDATION.missing.join(", ")}\`);\n  }\n}\n`;
 }
 
 async function main() {
@@ -536,6 +712,11 @@ async function main() {
     pagos: validateExpectedFields(schema.tables[TABLES.pagos], EXPECTED_PAYMENT_FIELDS),
     finanzas: validateExpectedFields(schema.tables[TABLES.finanzasMovimientos], EXPECTED_FINANCE_FIELDS),
     packings: validateExpectedFields(schema.tables[TABLES.packings], EXPECTED_PACKING_FIELDS),
+    cpuCatalog: validateExpectedFields(schema.tables[TABLES.cpuCatalog], EXPECTED_CPU_CATALOG_FIELDS),
+    computerCatalog: validateExpectedFields(schema.tables[TABLES.computerCatalog], EXPECTED_COMPUTER_CATALOG_FIELDS),
+    connectivityCatalog: validateExpectedFields(schema.tables[TABLES.connectivityCatalog], EXPECTED_TECHNICAL_MASTER_FIELDS),
+    portsCatalog: validateExpectedFields(schema.tables[TABLES.portsCatalog], EXPECTED_TECHNICAL_MASTER_FIELDS),
+    extraFeaturesCatalog: validateExpectedFields(schema.tables[TABLES.extraFeaturesCatalog], EXPECTED_TECHNICAL_MASTER_FIELDS),
   };
   for (const [name, result] of Object.entries(validation)) {
     if (!result.ok) {
@@ -570,6 +751,16 @@ async function main() {
   for (const field of validation.finanzas.found) console.log(`- ${field}`);
   console.log("Campos reales detectados en Shipping Packings:");
   for (const field of validation.packings.found) console.log(`- ${field}`);
+  console.log("Campos reales detectados en Catálogo CPUs:");
+  for (const field of validation.cpuCatalog.found) console.log(`- ${field}`);
+  console.log("Campos reales detectados en Catálogo Computadores:");
+  for (const field of validation.computerCatalog.found) console.log(`- ${field}`);
+  console.log("Campos reales detectados en Catálogo Conectividad:");
+  for (const field of validation.connectivityCatalog.found) console.log(`- ${field}`);
+  console.log("Campos reales detectados en Catálogo Puertos:");
+  for (const field of validation.portsCatalog.found) console.log(`- ${field}`);
+  console.log("Campos reales detectados en Catálogo Características Extras:");
+  for (const field of validation.extraFeaturesCatalog.found) console.log(`- ${field}`);
 }
 
 main().catch((error) => {

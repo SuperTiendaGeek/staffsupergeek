@@ -1,4 +1,4 @@
-import { SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+import { SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 
 export type ShippingV2RecordBase = {
   id: string;
@@ -16,6 +16,143 @@ export type ShippingV2NovedadEstado = "Abierta" | "En Revision" | "Resuelta" | "
 export type ShippingV2MigracionEstado = "Pendiente" | "Procesada" | "Error" | "Omitida";
 export type ShippingV2EventoTipo = "Inventario" | "Pago" | "Packing" | "Recepcion" | "Novedad" | "Sistema";
 export type ShippingV2ModoLogistico = (typeof SHIPPING_V2_ITEM_SELECT_OPTIONS.modoLogistico)[number];
+export type ShippingV2BateriaEstado = (typeof SHIPPING_V2_ITEM_SELECT_OPTIONS.bateriaEstado)[number];
+export type ShippingV2CpuCatalogBrand = (typeof SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS.cpuBrand)[number];
+export type ShippingV2CpuCatalogRamType = (typeof SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS.suggestedRamType)[number];
+export type ShippingV2ComputerCatalogBrand = (typeof SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS.brand)[number];
+export type ShippingV2ComputerCatalogBatteryApplies = (typeof SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS.batteryApplies)[number];
+
+export type ShippingV2TechnicalOption = ShippingV2RecordBase & {
+  name: string;
+  aliases: string[];
+  active: boolean | null;
+  order: number | null;
+  description?: string;
+  createdFromPortal: boolean | null;
+  createdAt?: string;
+  createdBy?: string;
+  notes?: string;
+};
+
+export type ShippingV2CpuCatalogEntry = ShippingV2RecordBase & {
+  cpuModel: string;
+  cpuBrand?: ShippingV2CpuCatalogBrand | string;
+  baseFrequency?: string;
+  turboFrequency?: string;
+  originalFrequency?: string;
+  suggestedRamType?: ShippingV2CpuCatalogRamType | string;
+  integratedGpu?: string;
+  sourceName?: string;
+  sourceUrl?: string;
+  verified: boolean | null;
+  usageCount: number | null;
+  lastReviewedAt?: string;
+  notes?: string;
+};
+
+export type ShippingV2CpuCatalogCreateInput = {
+  cpuModel: string;
+  cpuBrand?: string;
+  baseFrequency?: string;
+  turboFrequency?: string;
+  originalFrequency?: string;
+  suggestedRamType?: string;
+  integratedGpu?: string;
+  sourceName?: string;
+  sourceUrl?: string;
+  verified?: boolean;
+  usageCount?: number;
+  lastReviewedAt?: string;
+  notes?: string;
+};
+
+export type ShippingV2ComputerCatalogEntry = ShippingV2RecordBase & {
+  computerModel: string;
+  brand?: ShippingV2ComputerCatalogBrand | string;
+  suggestedScreenSize?: string;
+  suggestedScreenResolution?: string;
+  suggestedOperatingSystem?: string;
+  suggestedConnectivityV2Ids: string[];
+  suggestedPortV2Ids: string[];
+  suggestedExtraFeatureV2Ids: string[];
+  suggestedConnectivityV2Names: string[];
+  suggestedPortV2Names: string[];
+  suggestedExtraFeatureV2Names: string[];
+  batteryApplies?: ShippingV2ComputerCatalogBatteryApplies | string;
+  suggestedGpu?: string;
+  sourceName?: string;
+  sourceUrl?: string;
+  verified: boolean | null;
+  usageCount: number | null;
+  lastReviewedAt?: string;
+  notes?: string;
+};
+
+export type ShippingV2ComputerCatalogCreateInput = {
+  computerModel: string;
+  brand?: string;
+  suggestedScreenSize?: string;
+  suggestedScreenResolution?: string;
+  suggestedOperatingSystem?: string;
+  suggestedConnectivityV2Ids?: string[];
+  suggestedPortV2Ids?: string[];
+  suggestedExtraFeatureV2Ids?: string[];
+  batteryApplies?: string;
+  suggestedGpu?: string;
+  sourceName?: string;
+  sourceUrl?: string;
+  verified?: boolean;
+  usageCount?: number;
+  lastReviewedAt?: string;
+  notes?: string;
+};
+
+export type ShippingV2TechnicalSheet = {
+  marcaFicha?: string;
+  modeloFicha?: string;
+  sistemaOperativo?: string;
+  pantallaTamano?: string;
+  pantallaResolucion?: string;
+  cpuMarca?: string;
+  cpuModelo?: string;
+  cpuFrecuenciaBase?: string;
+  cpuFrecuenciaTurbo?: string;
+  ramCapacidad?: string;
+  ramTipo?: string;
+  almacenamientoPrincipal?: string;
+  almacenamientoTipo?: string;
+  gpu?: string;
+  bateriaSalud: number | null;
+  bateriaEstado?: ShippingV2BateriaEstado | string;
+  connectivityV2Ids: string[];
+  portV2Ids: string[];
+  extraFeatureV2Ids: string[];
+  connectivityV2Names: string[];
+  portV2Names: string[];
+  extraFeatureV2Names: string[];
+  observacionFichaTecnica?: string;
+  fichaTecnicaGenerada: boolean | null;
+  fichaTecnicaRevisada: boolean | null;
+  fichaTecnicaGeneradaPor?: string;
+  fichaTecnicaRevisadaPor?: string;
+  fechaFichaTecnicaGenerada?: string;
+  fechaFichaTecnicaRevisada?: string;
+};
+
+export type ShippingV2TechnicalSheetInput = Partial<Omit<
+  ShippingV2TechnicalSheet,
+  | "bateriaSalud"
+  | "fichaTecnicaGenerada"
+  | "fichaTecnicaRevisada"
+  | "fichaTecnicaGeneradaPor"
+  | "fichaTecnicaRevisadaPor"
+  | "fechaFichaTecnicaGenerada"
+  | "fechaFichaTecnicaRevisada"
+>> & {
+  bateriaSalud?: number | string | null;
+  generated?: boolean;
+  reviewed?: boolean;
+};
 
 export type ShippingV2Proveedor = ShippingV2RecordBase & {
   proveedorId?: string;
@@ -126,6 +263,7 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   facebookPublicadoPor?: string;
   fechaFacebookPublicado?: string;
   observacionRecepcion?: string;
+  technicalSheet: ShippingV2TechnicalSheet;
   ubicacionActual?: string;
   origenFisicoActual?: string;
   fechaRegistro?: string;
