@@ -7,6 +7,7 @@ import type {
   ShippingV2ComputerCatalogEntry,
   ShippingV2CpuCatalogCreateInput,
   ShippingV2CpuCatalogEntry,
+  ShippingV2Destinatario,
   ShippingV2FinanzasMovimiento,
   ShippingV2Item,
   ShippingV2ItemWriteInput,
@@ -19,6 +20,7 @@ import type {
   ShippingV2PagoSupportCard,
   ShippingV2PagosSummary,
   ShippingV2PagosWorkspace,
+  ShippingV2PackingInvoiceData,
   ShippingV2PagoWriteInput,
   ShippingV2Pago,
   ShippingV2Proveedor,
@@ -37,7 +39,7 @@ import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } fr
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { canBeUsaTransportProvider, isCompatibleEcuadorTransportProvider } from "@/lib/shipping-v2/tracking-providers";
 import { generateUniqueSkuFromExistingSkus, normalizeSku } from "@/lib/sku/sku-service";
-import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
+import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
 import { calculateShippingV2BatteryState, shippingV2CategoryDoesNotUseScreenOrBattery, shippingV2CategoryHasBattery } from "@/lib/shipping-v2/technical-sheet";
 
 type AirtableRecord = {
@@ -70,6 +72,10 @@ const OPEN_PACKING_STATUS = "En Proceso";
 const PACKING_CANDIDATE_STATES = new Set(["registrado", "pendiente de pago", "pagado", "pendiente de packing"]);
 const PACKING_BLOCKED_STATES = new Set(["vendido", "cancelado", "archivado", "destinado a partes", "desarmado parcialmente", "desarmado completamente"]);
 const PACKING_CANDIDATE_MODES = new Set(["Pendiente de packing", "Crear packing individual", "Asignar a packing existente"]);
+const SHIPPING_V2_DESTINATARIOS_TABLE = "Shipping Destinatarios";
+const SHIPPING_V2_DESTINATARIO_PACKING_FIELD = "Packing vinculado";
+const SHIPPING_V2_PACKING_ORDER_REFERENCE_FIELD = "Orden referencia";
+const SHIPPING_V2_PACKING_INVOICE_FIELD = "Factura";
 
 export type ShippingV2AccessContext = {
   isAdmin: boolean;
@@ -429,6 +435,38 @@ function escapeFormulaString(value: string) {
 
 function cleanString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeSingleSelectValue(value: unknown) {
+  return cleanString(value).replace(/^"+|"+$/g, "").trim();
+}
+
+function isAllowedInBothSelects(value: string, firstOptions: readonly string[], secondOptions: readonly string[]) {
+  return firstOptions.includes(value) && secondOptions.includes(value);
+}
+
+function normalizeAndValidatePaymentSupportInput(input: ShippingV2PagoMarkPaidInput) {
+  const metodoPago = normalizeSingleSelectValue(input.metodoPago);
+  const cuentaOrigen = normalizeSingleSelectValue(input.cuentaOrigen);
+  const metodo = normalizeStatus(metodoPago);
+  const cuenta = normalizeStatus(cuentaOrigen);
+
+  if (!cleanString(input.fechaPagoReal)) throw new Error("Fecha real de pago es obligatoria para completar soporte.");
+  if (!metodoPago || metodo === "no aplica") throw new Error("Selecciona un método de pago válido.");
+  if (!isAllowedInBothSelects(metodoPago, SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago, SHIPPING_V2_FINANCE_SELECT_OPTIONS.metodo)) {
+    throw new Error("Método de pago no válido. Selecciona una opción existente.");
+  }
+  if (!cuentaOrigen || cuenta === "no aplica") throw new Error("Selecciona una cuenta origen válida.");
+  if (!isAllowedInBothSelects(cuentaOrigen, SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen, SHIPPING_V2_FINANCE_SELECT_OPTIONS.cuentaOrigen)) {
+    throw new Error("Cuenta origen no válida. Selecciona una opción existente.");
+  }
+  if (!cleanString(input.transaccionId) && !cleanString(input.comprobanteUrl)) throw new Error("Ingresa comprobante o transacción ID para completar soporte.");
+
+  return {
+    ...input,
+    metodoPago,
+    cuentaOrigen,
+  };
 }
 
 function getOfficialSkuField() {
@@ -847,6 +885,9 @@ function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
     paisZonaLogistica: firstString(f[F.paisZonaLogistica] ?? f["País / zona logística"]),
     urlRastreo: firstString(f[F.urlRastreo] ?? f["URL rastreo"]),
     plantillaUrlRastreo: firstString(f[F.plantillaUrlRastreo] ?? f["Plantilla URL rastreo"]),
+    website: firstString(f["Website proveedor"] ?? f.Website ?? f["Sitio web"] ?? f["Página web"]),
+    pieFactura: firstString(f["Pie factura"]),
+    logoProveedor: mapAttachments(f["Logo proveedor"] ?? f.Logo),
     permiteRastreoWeb: firstBoolean(f[F.permiteRastreoWeb] ?? f["Permite rastreo web"]),
     notasRastreo: firstString(f[F.notasRastreo] ?? f["Notas de rastreo"]),
   };
@@ -1215,6 +1256,9 @@ function mapPacking(record: AirtableRecord): ShippingV2Packing {
     nombre: firstString(f[F.nombre]),
     estado,
     tipo: firstString(f[F.tipo]),
+    // TODO: replace literal with generated schema field after Shipping Packings schema includes it.
+    ordenReferencia: firstString(f[SHIPPING_V2_PACKING_ORDER_REFERENCE_FIELD] ?? f["Orden Referencia"] ?? f["Order Reference"]),
+    factura: mapAttachments(f[SHIPPING_V2_PACKING_INVOICE_FIELD] ?? f["Factura proveedor"] ?? f.Invoice),
     proveedorResponsableId: firstString(proveedorResponsable),
     proveedorResponsableNombre: providerNameFromLink(f, proveedorResponsable, ["Nombre proveedor responsable", "Proveedor responsable nombre", "Proveedor Responsable Nombre"]),
     proveedorLogisticoEcId: firstString(proveedorLogisticoEc),
@@ -1256,6 +1300,51 @@ function applyPackingProviderLabels(packing: ShippingV2Packing, labelsById: Map<
     transportistaUsaNombre: resolveShippingV2ProveedorLabel(packing.transportistaUsa, labelsById),
     transportistaEcNombre: resolveShippingV2ProveedorLabel(packing.transportistaEc, labelsById),
   };
+}
+
+function mapDestinatario(record: AirtableRecord): ShippingV2Destinatario {
+  const f = record.fields;
+  return {
+    id: record.id,
+    createdTime: record.createdTime,
+    nombre: firstString(f.Destinatario ?? f.Nombre ?? f["Nombre destinatario"], "Sin destinatario"),
+    empresa: firstString(f["Empresa / Casillero"] ?? f.Empresa ?? f.Casillero),
+    direccion: firstString(f["Dirección"] ?? f.Direccion ?? f["Dirección línea 1"] ?? f["Direccion linea 1"]),
+    direccionLinea2: firstString(f["Dirección línea 2"] ?? f["Direccion linea 2"] ?? f["Dirección 2"] ?? f["Address line 2"]),
+    ciudad: firstString(f.Ciudad ?? f.City),
+    estado: firstString(f.Estado ?? f.State),
+    codigoPostal: firstString(f["Código postal / ZIP"] ?? f["Codigo postal / ZIP"] ?? f["Código postal"] ?? f.ZIP ?? f.Zip),
+    pais: firstString(f["País"] ?? f.Pais ?? f.Country, "USA"),
+    telefono: firstString(f["Teléfono"] ?? f.Telefono ?? f.Phone),
+    packingIds: linkedRecordIds(f["Packing vinculado"] ?? f.Packing ?? f["Packing relacionado"]),
+    packingLabels: [firstString(f["Packing ID (from Packing vinculado)"] ?? f["Packing ID"] ?? f["Packing"])].filter(Boolean),
+  };
+}
+
+function destinatarioMatchesPacking(destinatario: ShippingV2Destinatario, packing: ShippingV2Packing) {
+  return destinatario.packingIds.includes(packing.id) || destinatario.packingLabels.includes(packing.packingId);
+}
+
+function sanitizeFilenamePart(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function invoiceDateStamp(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guayaquil", year: "numeric", month: "2-digit", day: "2-digit" }).format(date).replace(/-/g, "");
+}
+
+export async function getShippingV2Destinatarios() {
+  const records = await listRecords(SHIPPING_V2_DESTINATARIOS_TABLE, { maxRecords: 500 });
+  return records.map(mapDestinatario);
+}
+
+export function findShippingV2PackingDestinatario(destinatarios: ShippingV2Destinatario[], packing: ShippingV2Packing) {
+  return destinatarios.find((destinatario) => destinatarioMatchesPacking(destinatario, packing)) ?? null;
 }
 
 function mapRecepcion(record: AirtableRecord): ShippingV2Recepcion {
@@ -2418,7 +2507,7 @@ export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, opti
   const requestedStatus = cleanString(input.estadoPago);
   const estadoPago = normalizeStatus(requestedStatus) === "pagado" ? "Pagado" : requestedStatus || "Pendiente";
   if (estadoPago === "Pagado") {
-    assertPaymentSupportInput(input);
+    normalizeAndValidatePaymentSupportInput(input);
     const notPaidSupportItem = items.find((item) => !isPaidItemCandidate(item));
     if (notPaidSupportItem) {
       throw new Error(`El item ${notPaidSupportItem.sku} no está marcado como Pagado ni como Compra ya pagada.`);
@@ -2453,6 +2542,7 @@ export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, opti
 
 async function createFinanceMovementForPago(pago: ShippingV2Pago, input: ShippingV2PagoMarkPaidInput, registradoPor: string) {
   if (pago.movimientoFinanzasIds.length) return pago.movimientoFinanzasIds[0];
+  const supportInput = normalizeAndValidatePaymentSupportInput(input);
   const F = SHIPPING_V2_FINANCE_FIELDS;
   const fields = compactFields({
     [F.movimientoShippingId]: generateFinanceMovementId(),
@@ -2462,9 +2552,9 @@ async function createFinanceMovementForPago(pago: ShippingV2Pago, input: Shippin
     [F.pagoShippingRelacionado]: [pago.id],
     [F.proveedor]: pago.proveedorId ? [pago.proveedorId] : undefined,
     [F.monto]: pago.totalAPagar ?? 0,
-    [F.fechaMovimiento]: cleanString(input.fechaPagoReal) || new Date().toISOString(),
-    [F.metodo]: cleanString(input.metodoPago) || "No aplica",
-    [F.cuentaOrigen]: cleanString(input.cuentaOrigen) || "No aplica",
+    [F.fechaMovimiento]: cleanString(supportInput.fechaPagoReal) || new Date().toISOString(),
+    [F.metodo]: supportInput.metodoPago,
+    [F.cuentaOrigen]: supportInput.cuentaOrigen,
     [F.transaccionId]: cleanString(input.transaccionId),
     [F.comprobante]: attachmentFromUrl(input.comprobanteUrl),
     [F.observacion]: cleanString(input.observacion),
@@ -2478,15 +2568,6 @@ async function createFinanceMovementForPago(pago: ShippingV2Pago, input: Shippin
   const created = response.records?.[0];
   if (!created) throw new Error("Airtable no devolvió el movimiento financiero.");
   return created.id;
-}
-
-function assertPaymentSupportInput(input: ShippingV2PagoMarkPaidInput) {
-  const metodo = normalizeStatus(cleanString(input.metodoPago));
-  const cuenta = normalizeStatus(cleanString(input.cuentaOrigen));
-  if (!cleanString(input.fechaPagoReal)) throw new Error("Fecha real de pago es obligatoria para completar soporte.");
-  if (!cleanString(input.metodoPago) || metodo === "no aplica") throw new Error("Método de pago es obligatorio para completar soporte.");
-  if (metodo !== "no aplica" && (!cleanString(input.cuentaOrigen) || cuenta === "no aplica")) throw new Error("Cuenta origen es obligatoria para completar soporte.");
-  if (!cleanString(input.transaccionId) && !cleanString(input.comprobanteUrl)) throw new Error("Ingresa comprobante o transacción ID para completar soporte.");
 }
 
 function canMoveItemToPaidAfterPayment(item: ShippingV2Item) {
@@ -2525,15 +2606,15 @@ export async function markShippingV2PagoAsPaid(recordId: string, input: Shipping
   const status = normalizeStatus(String(pago.estadoPago));
   if (status === "anulado") throw new Error("Un pago Anulado no puede marcarse como pagado.");
   if (normalizeStatus(String(pago.estadoIntegracionFinanzas)).includes("sincronizado")) throw new Error("No se puede modificar un pago ya sincronizado con Finanzas.");
-  assertPaymentSupportInput(input);
+  const supportInput = normalizeAndValidatePaymentSupportInput(input);
 
-  const movementId = await createFinanceMovementForPago(pago, input, options.registradoPor);
+  const movementId = await createFinanceMovementForPago(pago, supportInput, options.registradoPor);
   const F = SHIPPING_V2_PAYMENT_FIELDS;
   const fields = compactFields({
     [F.estadoPago]: "Pagado",
-    [F.fechaPagoReal]: cleanString(input.fechaPagoReal) || new Date().toISOString(),
-    [F.metodoPago]: cleanString(input.metodoPago) || "No aplica",
-    [F.cuentaOrigen]: cleanString(input.cuentaOrigen) || "No aplica",
+    [F.fechaPagoReal]: cleanString(supportInput.fechaPagoReal) || new Date().toISOString(),
+    [F.metodoPago]: supportInput.metodoPago,
+    [F.cuentaOrigen]: supportInput.cuentaOrigen,
     [F.transaccionId]: cleanString(input.transaccionId),
     [F.comprobante]: attachmentFromUrl(input.comprobanteUrl),
     [F.observacion]: cleanString(input.observacion) || pago.observacion,
@@ -2600,6 +2681,8 @@ function packingFieldsFromInput(input: ShippingV2PackingWriteInput, extra: Recor
     ...(hasOwnInput(input, "otrosCostos") ? { [F.otrosCostos]: input.otrosCostos ?? undefined } : {}),
     ...(hasOwnInput(input, "reglaDistribucionCostos") ? { [F.reglaDistribucionCostos]: selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.reglaDistribucionCostos, cleanString(input.reglaDistribucionCostos)) } : {}),
     ...(hasOwnInput(input, "observacionCostos") ? { [F.observacionCostos]: cleanString(input.observacionCostos) } : {}),
+    // TODO: replace literal with generated schema field after Shipping Packings schema includes it.
+    ...(hasOwnInput(input, "ordenReferencia") ? { [SHIPPING_V2_PACKING_ORDER_REFERENCE_FIELD]: cleanString(input.ordenReferencia) } : {}),
     [F.observaciones]: cleanString(input.observaciones),
     ...extra,
   });
@@ -2635,6 +2718,7 @@ function packingPatchFieldsFromInput(input: ShippingV2PackingWriteInput) {
   if (hasOwnInput(input, "reglaDistribucionCostos")) fields[F.reglaDistribucionCostos] = cleanString(input.reglaDistribucionCostos) ? selectOption(SHIPPING_V2_PACKING_SELECT_OPTIONS.reglaDistribucionCostos, cleanString(input.reglaDistribucionCostos)) : null;
   if (hasOwnInput(input, "observacionCostos")) fields[F.observacionCostos] = cleanString(input.observacionCostos);
   if (hasOwnInput(input, "observaciones")) fields[F.observaciones] = cleanString(input.observaciones);
+  if (hasOwnInput(input, "ordenReferencia")) fields[SHIPPING_V2_PACKING_ORDER_REFERENCE_FIELD] = cleanString(input.ordenReferencia);
   return fields;
 }
 
@@ -2642,16 +2726,16 @@ function editablePackingKeysForStatus(status: string): Set<keyof ShippingV2Packi
   const normalized = normalizeStatus(status);
   const logisticsCostKeys: Array<keyof ShippingV2PackingWriteInput> = ["flete", "arancel", "otrosCostos", "reglaDistribucionCostos", "observacionCostos"];
   if (normalized === "en proceso") {
-    return new Set(["nombre", "tipo", "observaciones", "proveedorResponsableId", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso", ...logisticsCostKeys]);
+    return new Set(["nombre", "tipo", "ordenReferencia", "observaciones", "proveedorResponsableId", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso", ...logisticsCostKeys]);
   }
   if (normalized === "cerrado") {
-    return new Set(["trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso", ...logisticsCostKeys]);
+    return new Set(["ordenReferencia", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso", ...logisticsCostKeys]);
   }
   if (normalized === "en transito") {
-    return new Set(["trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso", ...logisticsCostKeys]);
+    return new Set(["ordenReferencia", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso", ...logisticsCostKeys]);
   }
   if (normalized === "recibido") {
-    return new Set(logisticsCostKeys);
+    return new Set(["ordenReferencia", ...logisticsCostKeys]);
   }
   return new Set();
 }
@@ -2733,6 +2817,164 @@ export async function getShippingV2PackingById(recordId: string, access?: Shippi
     .map((record) => mapItem(record, { includeAiName: options.includeAiName !== false }))
     .filter((item) => canAccessItem(item, access));
   return packing;
+}
+
+export async function getShippingV2PackingInvoiceData(recordId: string, access?: ShippingV2AccessContext): Promise<ShippingV2PackingInvoiceData> {
+  const packing = await getShippingV2PackingById(recordId, access, { includeAiName: false });
+  if (!packing) throw new Error("Packing no encontrado.");
+  if (!packing.items.length) throw new Error("Este packing no tiene items vinculados. Agrega items antes de generar la factura.");
+
+  const providerId = packing.proveedorResponsableId || packing.items.find((item) => item.proveedorId)?.proveedorId || "";
+  if (!providerId) throw new Error("Este packing no tiene proveedor relacionado. Asigna un proveedor antes de generar la factura.");
+  const provider = await getShippingV2ProveedorById(providerId);
+  if (!provider) throw new Error("Proveedor no encontrado. Revisa el proveedor relacionado del packing.");
+
+  const destinatarios = (await listRecords(SHIPPING_V2_DESTINATARIOS_TABLE, { maxRecords: 200 })).map(mapDestinatario);
+  const matchingDestinatarios = destinatarios.filter((destinatario) => destinatarioMatchesPacking(destinatario, packing));
+  const recipient = matchingDestinatarios[0];
+  if (!recipient) throw new Error("Este packing no tiene destinatario vinculado. Agrega un destinatario antes de generar la factura.");
+
+  const warnings: string[] = [];
+  if (matchingDestinatarios.length > 1) warnings.push("Este packing tiene varios destinatarios vinculados; se usó el primero.");
+  if (!provider.logoProveedor.length) warnings.push("Proveedor sin logo; la factura se generó sin logo.");
+  if (!provider.website) warnings.push("Proveedor sin website registrado.");
+  if (!provider.email) warnings.push("Proveedor sin email registrado.");
+  if (!packing.ordenReferencia) warnings.push("Recomendado: ingresa Orden referencia antes de generar factura.");
+  if (!packing.trackingUsa && !packing.trackingEc) warnings.push("Packing sin tracking registrado.");
+
+  const items = packing.items.map((item) => {
+    const quantity = item.cantidad && item.cantidad > 0 ? item.cantidad : 1;
+    const unitPrice = item.costoProveedor ?? item.precioVentaSugerido ?? item.precioVenta ?? 0;
+    if (!item.skuProveedor) warnings.push(`Item ${item.sku || item.id} sin SKU proveedor.`);
+    if (!unitPrice) warnings.push(`Item ${item.sku || item.id} sin precio/costo proveedor.`);
+    return {
+      id: item.id,
+      skuProveedor: item.skuProveedor,
+      description: item.nombre || item.descripcion || item.sku || item.id,
+      quantity,
+      unitPrice,
+      lineTotal: quantity * unitPrice,
+    };
+  });
+  const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+  const stamp = invoiceDateStamp();
+  const invoiceNumber = `INV-${sanitizeFilenamePart(packing.packingId || packing.id)}-${stamp}`;
+  const reference = sanitizeFilenamePart(packing.ordenReferencia || packing.trackingUsa || packing.trackingEc || stamp);
+  const filename = `invoice-${sanitizeFilenamePart(packing.packingId || packing.id)}-${reference || stamp}.pdf`;
+
+  return {
+    packing: {
+      id: packing.id,
+      packingId: packing.packingId,
+      tracking: packing.trackingUsa || packing.trackingEc,
+      ordenReferencia: packing.ordenReferencia,
+      fechaEnvio: packing.fechaEnvio,
+      fechaCreacion: packing.fechaCreacion,
+      factura: packing.factura,
+    },
+    provider: {
+      id: provider.id,
+      name: provider.nombre || provider.label,
+      logoUrl: provider.logoProveedor[0]?.thumbnailUrl || provider.logoProveedor[0]?.url,
+      website: provider.website,
+      email: provider.email,
+      invoiceFooter: provider.pieFactura,
+    },
+    recipient: {
+      name: recipient.nombre,
+      company: recipient.empresa,
+      address1: recipient.direccion,
+      address2: recipient.direccionLinea2,
+      city: recipient.ciudad,
+      state: recipient.estado,
+      zip: recipient.codigoPostal,
+      country: recipient.pais,
+      phone: recipient.telefono,
+    },
+    items,
+    totals: {
+      subtotal,
+      total: subtotal,
+      currency: "USD",
+    },
+    invoice: {
+      invoiceNumber,
+      filename,
+      generatedAt: new Date().toISOString(),
+    },
+    warnings,
+  };
+}
+
+export async function linkShippingV2DestinatarioToPacking(
+  packingId: string,
+  destinatarioId: string,
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  const packing = await getShippingV2PackingById(packingId, options.access, { includeAiName: false });
+  const record = await getRecordById(SHIPPING_V2_DESTINATARIOS_TABLE, cleanString(destinatarioId));
+  if (!record) throw new Error("Destinatario no encontrado.");
+  const destinatario = mapDestinatario(record);
+  const nextPackingIds = Array.from(new Set([...destinatario.packingIds, packing.id]));
+
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_DESTINATARIOS_TABLE), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [
+        {
+          id: destinatario.id,
+          fields: {
+            [SHIPPING_V2_DESTINATARIO_PACKING_FIELD]: nextPackingIds,
+          },
+        },
+      ],
+    }),
+  });
+
+  await createShippingV2Event({
+    action: "Actualizado",
+    entity: "Shipping Packing",
+    packingRecordId: packing.id,
+    registradoPor: options.registradoPor,
+    descripcion: "Destinatario vinculado al packing",
+    observacion: destinatario.nombre,
+  });
+
+  const updatedRecord = await getRecordById(SHIPPING_V2_DESTINATARIOS_TABLE, destinatario.id);
+  return {
+    packing,
+    destinatario: updatedRecord ? mapDestinatario(updatedRecord) : { ...destinatario, packingIds: nextPackingIds },
+  };
+}
+
+export async function attachShippingV2PackingInvoice(input: {
+  packingId: string;
+  filename: string;
+  pdfBytes: Uint8Array;
+  registradoPor: string;
+  invoiceNumber: string;
+}) {
+  await uploadAttachmentToRecord({
+    recordId: input.packingId,
+    attachmentFieldIdOrName: SHIPPING_V2_PACKING_INVOICE_FIELD,
+    filename: input.filename,
+    contentType: "application/pdf",
+    fileBase64: Buffer.from(input.pdfBytes).toString("base64"),
+  });
+  await createShippingV2Event({
+    action: "Otro",
+    entity: "Shipping Packing",
+    packingRecordId: input.packingId,
+    registradoPor: input.registradoPor,
+    descripcion: "Factura proveedor generada",
+    observacion: `${input.filename} · ${input.invoiceNumber}`,
+  });
+  const updated = await getShippingV2PackingById(input.packingId, undefined, { includeAiName: false });
+  const attachment = updated.factura[0];
+  return {
+    packing: updated,
+    attachment,
+  };
 }
 
 export async function createShippingV2Packing(input: ShippingV2PackingWriteInput, options: { creadoPor: string; access?: ShippingV2AccessContext }) {

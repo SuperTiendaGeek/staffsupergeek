@@ -27,11 +27,11 @@ function parseOptionalMoney(value: unknown, label: string) {
 }
 
 function parseInput(body: Record<string, unknown>): ShippingV2PackingWriteInput {
-  const supportedKeys = new Set(["nombre", "tipo", "proveedorResponsableId", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "observaciones", "peso", "flete", "arancel", "otrosCostos", "reglaDistribucionCostos", "observacionCostos"]);
+  const supportedKeys = new Set(["nombre", "tipo", "ordenReferencia", "proveedorResponsableId", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "observaciones", "peso", "flete", "arancel", "otrosCostos", "reglaDistribucionCostos", "observacionCostos"]);
   const unsupportedKey = Object.keys(body).find((key) => !supportedKeys.has(key));
   if (unsupportedKey) throw new Error(`Campo no soportado para packing: ${unsupportedKey}.`);
   const input: ShippingV2PackingWriteInput = {};
-  for (const key of ["nombre", "tipo", "proveedorResponsableId", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "observaciones"] as const) {
+  for (const key of ["nombre", "tipo", "ordenReferencia", "proveedorResponsableId", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "observaciones"] as const) {
     if (Object.prototype.hasOwnProperty.call(body, key)) input[key] = String(body[key] ?? "");
   }
   if (Object.prototype.hasOwnProperty.call(body, "peso")) input.peso = parseOptionalWeight(body.peso);

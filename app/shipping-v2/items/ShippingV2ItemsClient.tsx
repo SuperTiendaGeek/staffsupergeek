@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Fragment, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
 import { Badge } from "@/components/ui/badge";
@@ -71,20 +71,84 @@ type ItemDetailTabKey = "general" | "costos" | "logistica" | "pago" | "packing" 
 
 const ALL = "Todos";
 
-const columns = [
-  "SKU",
-  "Nombre",
-  "Tipo de operación",
-  "Estado Item",
-  "Rol general",
-  "Categoría",
-  "Proveedor compra",
-  "Proveedor logístico",
-  "Packing",
-  "Costo proveedor",
-  "Precio venta",
-  "Fecha registro",
+const COLUMN_WIDTHS_STORAGE_KEY = "shipping-v2-items-column-widths";
+const TABLE_VIEW_STORAGE_KEY = "shipping-v2-items-table-view";
+
+type ShippingV2ItemsColumnKey =
+  | "sku"
+  | "supplierSku"
+  | "name"
+  | "operationType"
+  | "itemStatus"
+  | "generalRole"
+  | "category"
+  | "purchaseProvider"
+  | "logisticProvider"
+  | "packing"
+  | "providerCost"
+  | "salePrice"
+  | "createdAt"
+  | "brand"
+  | "model"
+  | "serial"
+  | "condition"
+  | "location"
+  | "triangulationStatus"
+  | "reviewStatus"
+  | "availability"
+  | "requiresPayment"
+  | "requiresPacking"
+  | "physicalReview"
+  | "notes";
+
+type ShippingV2ItemsColumn = {
+  key: ShippingV2ItemsColumnKey;
+  label: string;
+  defaultWidth: number;
+  minWidth: number;
+  maxWidth?: number;
+  align?: "left" | "right" | "center";
+  defaultVisible: boolean;
+  required?: boolean;
+  category: "Principal" | "Compra" | "Logística" | "Inventario" | "Revisión" | "Sistema";
+};
+
+const AVAILABLE_COLUMNS: ShippingV2ItemsColumn[] = [
+  { key: "sku", label: "SKU", defaultWidth: 110, minWidth: 90, defaultVisible: true, required: true, category: "Principal" },
+  { key: "supplierSku", label: "SKU proveedor", defaultWidth: 140, minWidth: 110, defaultVisible: true, category: "Principal" },
+  { key: "name", label: "Nombre", defaultWidth: 280, minWidth: 180, defaultVisible: true, required: true, category: "Principal" },
+  { key: "operationType", label: "Tipo de operación", defaultWidth: 150, minWidth: 130, defaultVisible: true, category: "Compra" },
+  { key: "itemStatus", label: "Estado item", defaultWidth: 140, minWidth: 120, defaultVisible: true, category: "Principal" },
+  { key: "generalRole", label: "Rol general", defaultWidth: 140, minWidth: 120, defaultVisible: true, category: "Principal" },
+  { key: "category", label: "Categoría", defaultWidth: 120, minWidth: 100, defaultVisible: true, category: "Principal" },
+  { key: "purchaseProvider", label: "Proveedor compra", defaultWidth: 160, minWidth: 130, defaultVisible: true, category: "Compra" },
+  { key: "logisticProvider", label: "Proveedor logístico", defaultWidth: 170, minWidth: 140, defaultVisible: true, category: "Logística" },
+  { key: "packing", label: "Packing", defaultWidth: 120, minWidth: 100, defaultVisible: true, category: "Logística" },
+  { key: "providerCost", label: "Costo proveedor", defaultWidth: 130, minWidth: 110, align: "right", defaultVisible: true, category: "Compra" },
+  { key: "salePrice", label: "Precio venta", defaultWidth: 120, minWidth: 100, align: "right", defaultVisible: true, category: "Inventario" },
+  { key: "createdAt", label: "Fecha registro", defaultWidth: 150, minWidth: 130, defaultVisible: true, category: "Sistema" },
+  { key: "brand", label: "Marca", defaultWidth: 120, minWidth: 100, defaultVisible: false, category: "Principal" },
+  { key: "model", label: "Modelo", defaultWidth: 160, minWidth: 120, defaultVisible: false, category: "Principal" },
+  { key: "serial", label: "Serie", defaultWidth: 150, minWidth: 120, defaultVisible: false, category: "Principal" },
+  { key: "condition", label: "Condición", defaultWidth: 130, minWidth: 110, defaultVisible: false, category: "Inventario" },
+  { key: "location", label: "Ubicación", defaultWidth: 140, minWidth: 110, defaultVisible: false, category: "Inventario" },
+  { key: "triangulationStatus", label: "Triangulación", defaultWidth: 150, minWidth: 120, defaultVisible: false, category: "Logística" },
+  { key: "reviewStatus", label: "Estado revisión", defaultWidth: 150, minWidth: 120, defaultVisible: false, category: "Revisión" },
+  { key: "availability", label: "Disponibilidad", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Inventario" },
+  { key: "requiresPayment", label: "Requiere pago", defaultWidth: 130, minWidth: 110, defaultVisible: false, category: "Compra" },
+  { key: "requiresPacking", label: "Requiere packing", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Logística" },
+  { key: "physicalReview", label: "Revisión física", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Revisión" },
+  { key: "notes", label: "Observaciones", defaultWidth: 260, minWidth: 180, defaultVisible: false, category: "Principal" },
 ];
+
+const COLUMN_CATEGORIES: ShippingV2ItemsColumn["category"][] = ["Principal", "Compra", "Logística", "Inventario", "Revisión", "Sistema"];
+
+type ShippingV2ItemsColumnWidths = Record<ShippingV2ItemsColumnKey, number>;
+
+type ShippingV2ItemsTableViewConfig = {
+  orderedColumnKeys: ShippingV2ItemsColumnKey[];
+  visibleColumnKeys: ShippingV2ItemsColumnKey[];
+};
 
 const sortOptions: Array<{ value: SortKey; label: string }> = [
   { value: "newest", label: "Más nuevos primero" },
@@ -125,6 +189,74 @@ function displayValue(value?: string | number | null, fallback = "—") {
 
 function displayName(value?: string | null) {
   return displayValue(value, "Sin nombre");
+}
+
+function createDefaultColumnWidths(): ShippingV2ItemsColumnWidths {
+  return AVAILABLE_COLUMNS.reduce((widths, column) => {
+    widths[column.key] = column.defaultWidth;
+    return widths;
+  }, {} as ShippingV2ItemsColumnWidths);
+}
+
+function clampColumnWidth(width: number, column: ShippingV2ItemsColumn) {
+  return Math.min(Math.max(width, column.minWidth), column.maxWidth ?? Number.POSITIVE_INFINITY);
+}
+
+function isColumnKey(value: unknown): value is ShippingV2ItemsColumnKey {
+  return typeof value === "string" && AVAILABLE_COLUMNS.some((column) => column.key === value);
+}
+
+function createDefaultTableViewConfig(): ShippingV2ItemsTableViewConfig {
+  return {
+    orderedColumnKeys: AVAILABLE_COLUMNS.map((column) => column.key),
+    visibleColumnKeys: AVAILABLE_COLUMNS.filter((column) => column.defaultVisible).map((column) => column.key),
+  };
+}
+
+function sanitizeTableViewConfig(input?: Partial<ShippingV2ItemsTableViewConfig> | null): ShippingV2ItemsTableViewConfig {
+  const defaults = createDefaultTableViewConfig();
+  const orderedFromInput = Array.isArray(input?.orderedColumnKeys)
+    ? input.orderedColumnKeys.filter(isColumnKey)
+    : defaults.orderedColumnKeys;
+  const visibleFromInput = Array.isArray(input?.visibleColumnKeys)
+    ? input.visibleColumnKeys.filter(isColumnKey)
+    : defaults.visibleColumnKeys;
+
+  const orderedColumnKeys = [
+    ...orderedFromInput,
+    ...AVAILABLE_COLUMNS.map((column) => column.key).filter((key) => !orderedFromInput.includes(key)),
+  ];
+  const visibleColumnKeys = new Set<ShippingV2ItemsColumnKey>(visibleFromInput);
+
+  AVAILABLE_COLUMNS.forEach((column) => {
+    if (column.required || (column.defaultVisible && !Array.isArray(input?.visibleColumnKeys))) {
+      visibleColumnKeys.add(column.key);
+    }
+    if (column.defaultVisible && Array.isArray(input?.visibleColumnKeys) && !orderedFromInput.includes(column.key)) {
+      visibleColumnKeys.add(column.key);
+    }
+  });
+
+  return {
+    orderedColumnKeys,
+    visibleColumnKeys: orderedColumnKeys.filter((key) => visibleColumnKeys.has(key)),
+  };
+}
+
+function moveColumnKey(
+  keys: ShippingV2ItemsColumnKey[],
+  draggedKey: ShippingV2ItemsColumnKey,
+  targetKey: ShippingV2ItemsColumnKey,
+  placement: "before" | "after"
+) {
+  if (draggedKey === targetKey) return keys;
+  const withoutDragged = keys.filter((key) => key !== draggedKey);
+  const targetIndex = withoutDragged.indexOf(targetKey);
+  if (targetIndex === -1) return keys;
+  const insertIndex = placement === "after" ? targetIndex + 1 : targetIndex;
+  const next = [...withoutDragged];
+  next.splice(insertIndex, 0, draggedKey);
+  return next;
 }
 
 function displayBoolean(value: boolean | null) {
@@ -198,6 +330,135 @@ function sortItems(items: ResolvedItem[], sortBy: SortKey) {
 
 function packingLabel(item: ResolvedItem) {
   return item.packingId || item.legacyPackingId || "";
+}
+
+function supplierSkuLabel(item: ResolvedItem) {
+  return displayValue(item.skuProveedor);
+}
+
+function availabilityLabel(item: ResolvedItem) {
+  if (item.conNovedad) return "Con novedad";
+  if (item.reservado) return "Reservado";
+  if (item.usoLocal) return "Uso local";
+  if (item.esRepuesto) return "Repuesto";
+  if (item.disponibleVenta) return "Disponible para venta";
+  return "No disponible";
+}
+
+function notesLabel(item: ResolvedItem) {
+  return displayValue(item.observacionVenta || item.observacionRecepcion);
+}
+
+function getItemCellTitle(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey) {
+  switch (columnKey) {
+    case "sku":
+      return displayValue(item.sku);
+    case "supplierSku":
+      return supplierSkuLabel(item);
+    case "name":
+      return displayName(item.nombre);
+    case "generalRole":
+      return displayValue(item.tipoItem);
+    case "category":
+      return displayValue(item.categoria);
+    case "purchaseProvider":
+      return displayValue(item.proveedorCompraDisplay);
+    case "logisticProvider":
+      return displayValue(item.proveedorLogisticoDisplay);
+    case "packing":
+      return displayValue(packingLabel(item));
+    case "providerCost":
+      return formatCurrency(item.costoProveedor);
+    case "salePrice":
+      return formatCurrency(item.precioVenta);
+    case "createdAt":
+      return formatDate(item.fechaRegistro || item.createdTime);
+    case "brand":
+      return displayValue(item.marca);
+    case "model":
+      return displayValue(item.modelo);
+    case "serial":
+      return displayValue(item.numeroSerie);
+    case "condition":
+      return displayValue(item.condicion);
+    case "location":
+      return displayValue(item.ubicacionActual);
+    case "triangulationStatus":
+      return displayValue(item.estadoTriangulacion);
+    case "reviewStatus":
+      return displayValue(item.estadoRevision);
+    case "availability":
+      return availabilityLabel(item);
+    case "requiresPayment":
+      return displayBoolean(item.requierePago);
+    case "requiresPacking":
+      return displayBoolean(item.requierePacking);
+    case "physicalReview":
+      return displayBoolean(item.revisadoFisicamente);
+    case "notes":
+      return notesLabel(item);
+    case "operationType":
+    case "itemStatus":
+    default:
+      return undefined;
+  }
+}
+
+function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey) {
+  switch (columnKey) {
+    case "sku":
+      return displayValue(item.sku);
+    case "supplierSku":
+      return supplierSkuLabel(item);
+    case "name":
+      return <span className="block truncate">{displayName(item.nombre)}</span>;
+    case "operationType":
+      return <OperationBadge value={item.tipoOperacion} />;
+    case "itemStatus":
+      return <EstadoBadge estado={item.estado} />;
+    case "generalRole":
+      return displayValue(item.tipoItem);
+    case "category":
+      return displayValue(item.categoria);
+    case "purchaseProvider":
+      return <span className="block truncate">{displayValue(item.proveedorCompraDisplay)}</span>;
+    case "logisticProvider":
+      return <span className="block truncate">{displayValue(item.proveedorLogisticoDisplay)}</span>;
+    case "packing":
+      return <span className="block truncate">{displayValue(packingLabel(item))}</span>;
+    case "providerCost":
+      return formatCurrency(item.costoProveedor);
+    case "salePrice":
+      return formatCurrency(item.precioVenta);
+    case "createdAt":
+      return formatDate(item.fechaRegistro || item.createdTime);
+    case "brand":
+      return displayValue(item.marca);
+    case "model":
+      return <span className="block truncate">{displayValue(item.modelo)}</span>;
+    case "serial":
+      return <span className="block truncate">{displayValue(item.numeroSerie)}</span>;
+    case "condition":
+      return displayValue(item.condicion);
+    case "location":
+      return <span className="block truncate">{displayValue(item.ubicacionActual)}</span>;
+    case "triangulationStatus":
+      return displayValue(item.estadoTriangulacion);
+    case "reviewStatus":
+      return displayValue(item.estadoRevision);
+    case "availability":
+      return <AvailabilityBadge item={item} />;
+    case "requiresPayment":
+      return displayBoolean(item.requierePago);
+    case "requiresPacking":
+      return displayBoolean(item.requierePacking);
+    case "physicalReview":
+      return displayBoolean(item.revisadoFisicamente);
+    case "notes":
+      return <span className="block truncate">{notesLabel(item)}</span>;
+    default:
+      return "—";
+  }
 }
 
 function groupValue(item: ResolvedItem, groupBy: GroupKey) {
@@ -924,6 +1185,11 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>("newest");
   const [groupBy, setGroupBy] = useState<GroupKey>("none");
   const [notice, setNotice] = useState("");
+  const [columnWidths, setColumnWidths] = useState<ShippingV2ItemsColumnWidths>(() => createDefaultColumnWidths());
+  const [tableView, setTableView] = useState<ShippingV2ItemsTableViewConfig>(() => createDefaultTableViewConfig());
+  const [fieldsPanelOpen, setFieldsPanelOpen] = useState(false);
+  const [draggedColumnKey, setDraggedColumnKey] = useState<ShippingV2ItemsColumnKey | null>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const storedNotice = window.sessionStorage.getItem("shipping-v2:notice");
@@ -931,6 +1197,151 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
     window.sessionStorage.removeItem("shipping-v2:notice");
     setNotice(storedNotice);
   }, []);
+
+  useEffect(() => {
+    const storedWidths = window.localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
+    if (!storedWidths) return;
+
+    try {
+      const parsed = JSON.parse(storedWidths) as Partial<Record<ShippingV2ItemsColumnKey, unknown>>;
+      setColumnWidths((current) => {
+        const next = { ...current };
+        AVAILABLE_COLUMNS.forEach((column) => {
+          const savedWidth = parsed[column.key];
+          if (typeof savedWidth === "number" && Number.isFinite(savedWidth)) {
+            next[column.key] = clampColumnWidth(savedWidth, column);
+          }
+        });
+        return next;
+      });
+    } catch {
+      window.localStorage.removeItem(COLUMN_WIDTHS_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    const storedView = window.localStorage.getItem(TABLE_VIEW_STORAGE_KEY);
+    if (!storedView) return;
+
+    try {
+      const parsed = JSON.parse(storedView) as Partial<ShippingV2ItemsTableViewConfig>;
+      setTableView(sanitizeTableViewConfig(parsed));
+    } catch {
+      window.localStorage.removeItem(TABLE_VIEW_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      resizeCleanupRef.current?.();
+    };
+  }, []);
+
+  const persistColumnWidths = useCallback((widths: ShippingV2ItemsColumnWidths) => {
+    window.localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(widths));
+  }, []);
+
+  const persistTableView = useCallback((config: ShippingV2ItemsTableViewConfig) => {
+    window.localStorage.setItem(TABLE_VIEW_STORAGE_KEY, JSON.stringify(config));
+  }, []);
+
+  const resetColumnWidths = useCallback(() => {
+    const defaults = createDefaultColumnWidths();
+    setColumnWidths(defaults);
+    persistColumnWidths(defaults);
+  }, [persistColumnWidths]);
+
+  const updateTableView = useCallback((updater: (current: ShippingV2ItemsTableViewConfig) => ShippingV2ItemsTableViewConfig) => {
+    setTableView((current) => {
+      const next = sanitizeTableViewConfig(updater(current));
+      persistTableView(next);
+      return next;
+    });
+  }, [persistTableView]);
+
+  const toggleColumnVisibility = useCallback((column: ShippingV2ItemsColumn) => {
+    if (column.required) return;
+    updateTableView((current) => {
+      const visible = new Set(current.visibleColumnKeys);
+      if (visible.has(column.key)) {
+        visible.delete(column.key);
+      } else {
+        visible.add(column.key);
+      }
+      return {
+        ...current,
+        visibleColumnKeys: current.orderedColumnKeys.filter((key) => visible.has(key)),
+      };
+    });
+  }, [updateTableView]);
+
+  const startColumnResize = useCallback((event: MouseEvent<HTMLElement>, column: ShippingV2ItemsColumn) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    resizeCleanupRef.current?.();
+
+    const startX = event.clientX;
+    const startWidth = columnWidths[column.key];
+    const originalUserSelect = document.body.style.userSelect;
+    const originalCursor = document.body.style.cursor;
+    let latestWidths: ShippingV2ItemsColumnWidths | null = null;
+
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+
+    const handleMouseMove = (moveEvent: globalThis.MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const nextWidth = clampColumnWidth(startWidth + delta, column);
+
+      setColumnWidths((current) => {
+        const next = { ...current, [column.key]: nextWidth };
+        latestWidths = next;
+        return next;
+      });
+    };
+
+    const cleanup = () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", cleanup);
+      document.body.style.userSelect = originalUserSelect;
+      document.body.style.cursor = originalCursor;
+      if (latestWidths) {
+        persistColumnWidths(latestWidths);
+      }
+      resizeCleanupRef.current = null;
+    };
+
+    resizeCleanupRef.current = cleanup;
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", cleanup);
+  }, [columnWidths, persistColumnWidths]);
+
+  const handleColumnDragStart = useCallback((event: DragEvent<HTMLTableCellElement>, columnKey: ShippingV2ItemsColumnKey) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-column-resize-handle]")) {
+      event.preventDefault();
+      return;
+    }
+    setDraggedColumnKey(columnKey);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", columnKey);
+  }, []);
+
+  const handleColumnDrop = useCallback((event: DragEvent<HTMLTableCellElement>, targetKey: ShippingV2ItemsColumnKey) => {
+    event.preventDefault();
+    const droppedKey = draggedColumnKey ?? event.dataTransfer.getData("text/plain");
+    if (!isColumnKey(droppedKey) || droppedKey === targetKey) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const placement = event.clientX > rect.left + rect.width / 2 ? "after" : "before";
+
+    updateTableView((current) => ({
+      ...current,
+      orderedColumnKeys: moveColumnKey(current.orderedColumnKeys, droppedKey, targetKey, placement),
+    }));
+    setDraggedColumnKey(null);
+  }, [draggedColumnKey, updateTableView]);
 
   const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
 
@@ -974,6 +1385,13 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
   const sortedItems = useMemo(() => sortItems(filteredItems, sortBy), [filteredItems, sortBy]);
   const groupedItems = useMemo(() => groupItems(sortedItems, groupBy), [groupBy, sortedItems]);
   const visibleGroupCount = groupBy === "none" ? 0 : groupedItems.length;
+  const visibleColumns = useMemo(() => {
+    const visibleKeys = new Set(tableView.visibleColumnKeys);
+    return tableView.orderedColumnKeys
+      .map((key) => AVAILABLE_COLUMNS.find((column) => column.key === key))
+      .filter((column): column is ShippingV2ItemsColumn => Boolean(column && visibleKeys.has(column.key)));
+  }, [tableView]);
+  const tableWidth = useMemo(() => visibleColumns.reduce((total, column) => total + columnWidths[column.key], 0), [columnWidths, visibleColumns]);
 
   const summary = useMemo(() => ({
     total: resolvedItems.length,
@@ -1062,7 +1480,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
         </section>
       ) : null}
 
-      <section className="overflow-hidden rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/25">
+      <section className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/25">
         <div className="flex flex-col gap-1.5 border-b border-[#30312D] bg-[#20211D] px-3 py-2 sm:flex-row sm:items-center sm:justify-between 2xl:px-4 2xl:py-2.5">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-[#F5F5F5]">Listado</h2>
@@ -1071,16 +1489,112 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
               {visibleGroupCount ? ` · Grupos: ${visibleGroupCount}` : ""}
             </p>
           </div>
-          <Badge className="h-6 w-fit rounded-full border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2.5 text-[12px] font-bold uppercase text-[#D7FF4F] hover:bg-[#D7FF4F]/10">
-            Solo lectura
-          </Badge>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setFieldsPanelOpen((open) => !open)}
+                className={`h-7 rounded-lg border px-2.5 text-[12px] font-semibold transition ${fieldsPanelOpen ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] bg-[#151613] text-[#A7A7A7] hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F]"}`}
+              >
+                Campos
+              </button>
+              {fieldsPanelOpen ? (
+                <div className="absolute right-0 z-30 mt-2 w-[320px] overflow-hidden rounded-xl border border-[#30312D] bg-[#11120F] shadow-2xl shadow-black/40">
+                  <div className="border-b border-[#30312D] px-3 py-2">
+                    <p className="text-sm font-semibold text-[#F5F5F5]">Campos visibles</p>
+                    <p className="mt-0.5 text-[12px] text-[#8F908A]">{visibleColumns.length} de {AVAILABLE_COLUMNS.length} columnas activas</p>
+                  </div>
+                  <div className="max-h-[420px] overflow-y-auto p-2">
+                    {COLUMN_CATEGORIES.map((category) => {
+                      const categoryColumns = AVAILABLE_COLUMNS.filter((column) => column.category === category);
+                      if (!categoryColumns.length) return null;
+                      return (
+                        <section key={category} className="mb-2 last:mb-0">
+                          <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-normal text-[#8F908A]">{category}</p>
+                          <div className="grid gap-1">
+                            {categoryColumns.map((column) => {
+                              const checked = tableView.visibleColumnKeys.includes(column.key);
+                              return (
+                                <label
+                                  key={column.key}
+                                  className={`flex items-center justify-between gap-3 rounded-lg border px-2.5 py-2 text-sm transition ${checked ? "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#F5F5F5]" : "border-[#30312D] bg-[#171814] text-[#A7A7A7] hover:border-[#D7FF4F]/35 hover:text-[#F5F5F5]"}`}
+                                >
+                                  <span className="min-w-0">
+                                    <span className="block truncate font-semibold">{column.label}</span>
+                                    {column.required ? <span className="text-[11px] text-[#8F908A]">Obligatoria</span> : null}
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={column.required}
+                                    onChange={() => toggleColumnVisibility(column)}
+                                    className="h-4 w-4 accent-[#D7FF4F] disabled:opacity-50"
+                                  />
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={resetColumnWidths}
+              className="h-7 rounded-lg border border-[#3A3A36] bg-[#151613] px-2.5 text-[12px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F]"
+            >
+              Reset anchos
+            </button>
+            <Badge className="h-6 w-fit rounded-full border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2.5 text-[12px] font-bold uppercase text-[#D7FF4F] hover:bg-[#D7FF4F]/10">
+              Solo lectura
+            </Badge>
+          </div>
         </div>
         <div className="hidden max-w-full overflow-x-auto xl:block">
-          <table className="min-w-[1580px] border-separate border-spacing-0 text-left text-[13px] 2xl:min-w-[1660px] 2xl:text-sm">
+          <table
+            className="border-separate border-spacing-0 text-left text-[13px] 2xl:text-sm"
+            style={{ tableLayout: "fixed", width: tableWidth, minWidth: tableWidth }}
+          >
+            <colgroup>
+              {visibleColumns.map((column) => (
+                <col key={column.key} style={{ width: columnWidths[column.key], minWidth: column.minWidth }} />
+              ))}
+            </colgroup>
             <thead className="text-[12px] uppercase tracking-normal text-[#A7A7A7] 2xl:text-[13px]">
               <tr>
-                {columns.map((column) => (
-                  <th key={column} className="whitespace-nowrap border-b border-[#3A3A36] px-2.5 py-2 font-semibold 2xl:px-3 2xl:py-2.5">{column}</th>
+                {visibleColumns.map((column) => (
+                  <th
+                    key={column.key}
+                    draggable
+                    onDragStart={(event) => handleColumnDragStart(event, column.key)}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={(event) => handleColumnDrop(event, column.key)}
+                    onDragEnd={() => setDraggedColumnKey(null)}
+                    style={{
+                      width: columnWidths[column.key],
+                      minWidth: column.minWidth,
+                      maxWidth: column.maxWidth,
+                    }}
+                    className={`relative whitespace-nowrap border-b border-[#3A3A36] px-2.5 py-2 font-semibold select-none 2xl:px-3 2xl:py-2.5 ${draggedColumnKey === column.key ? "bg-[#D7FF4F]/10 text-[#D7FF4F]" : ""} ${column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"}`}
+                  >
+                    <div className="min-w-0 cursor-grab pr-2 active:cursor-grabbing">
+                      <span className="block truncate">{column.label}</span>
+                    </div>
+                    <span
+                      data-column-resize-handle
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label={`Redimensionar columna ${column.label}`}
+                      onMouseDown={(event) => startColumnResize(event, column)}
+                      className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none after:absolute after:right-0 after:top-1/2 after:h-6 after:w-px after:-translate-y-1/2 after:bg-transparent after:transition hover:after:bg-[#D7FF4F]/70"
+                    />
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -1089,7 +1603,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
                 <Fragment key={group.key}>
                   {groupBy !== "none" ? (
                     <tr>
-                      <td colSpan={columns.length} className="border-b border-[#3A3A36] bg-[#1E1F1C] px-2.5 py-2">
+                      <td colSpan={visibleColumns.length} className="border-b border-[#3A3A36] bg-[#1E1F1C] px-2.5 py-2">
                         <div className="flex items-center justify-between gap-3">
                           <span className="font-semibold text-[#F5F5F5]">{group.label}</span>
                           <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2.5 py-0.5 text-[12px] font-semibold text-[#D7FF4F]">
@@ -1112,24 +1626,29 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
                       }}
                       className="cursor-pointer transition hover:bg-[#CFFF3A]/[0.055] focus:bg-[#CFFF3A]/[0.055] focus:outline-none"
                     >
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 font-semibold text-[#CFFF3A] 2xl:px-3 2xl:py-2.5">{displayValue(item.sku)}</td>
-                      <td className="max-w-[260px] border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:max-w-[320px] 2xl:px-3 2xl:py-2.5"><span className="block truncate">{displayName(item.nombre)}</span></td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:px-3 2xl:py-2.5"><OperationBadge value={item.tipoOperacion} /></td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:px-3 2xl:py-2.5"><EstadoBadge estado={item.estado} /></td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 text-[#A7A7A7] 2xl:px-3 2xl:py-2.5">{displayValue(item.tipoItem)}</td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 text-[#A7A7A7] 2xl:px-3 2xl:py-2.5">{displayValue(item.categoria)}</td>
-                      <td className="max-w-[200px] border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:max-w-[240px] 2xl:px-3 2xl:py-2.5"><span className="block truncate">{displayValue(item.proveedorCompraDisplay)}</span></td>
-                      <td className="max-w-[200px] border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:max-w-[240px] 2xl:px-3 2xl:py-2.5"><span className="block truncate">{displayValue(item.proveedorLogisticoDisplay)}</span></td>
-                      <td className="max-w-[160px] border-b border-[#3A3A36]/80 px-2.5 py-2 text-[#A7A7A7] 2xl:max-w-[190px] 2xl:px-3 2xl:py-2.5"><span className="block truncate">{displayValue(packingLabel(item))}</span></td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 text-right tabular-nums 2xl:px-3 2xl:py-2.5">{formatCurrency(item.costoProveedor)}</td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 text-right tabular-nums 2xl:px-3 2xl:py-2.5">{formatCurrency(item.precioVenta)}</td>
-                      <td className="whitespace-nowrap border-b border-[#3A3A36]/80 px-2.5 py-2 text-[#A7A7A7] 2xl:px-3 2xl:py-2.5">{formatDate(item.fechaRegistro || item.createdTime)}</td>
+                      {visibleColumns.map((column) => {
+                        const mutedColumn = column.key === "generalRole" || column.key === "category" || column.key === "packing" || column.key === "createdAt" || column.key === "brand" || column.key === "model" || column.key === "serial" || column.key === "condition" || column.key === "location" || column.key === "triangulationStatus" || column.key === "reviewStatus" || column.key === "requiresPayment" || column.key === "requiresPacking" || column.key === "physicalReview" || column.key === "notes";
+                        return (
+                          <td
+                            key={column.key}
+                            title={getItemCellTitle(item, column.key)}
+                            style={{
+                              width: columnWidths[column.key],
+                              minWidth: column.minWidth,
+                              maxWidth: column.maxWidth,
+                            }}
+                            className={`overflow-hidden border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:px-3 2xl:py-2.5 ${column.key === "sku" ? "whitespace-nowrap font-semibold text-[#CFFF3A]" : ""} ${column.align === "right" ? "whitespace-nowrap text-right tabular-nums" : "whitespace-nowrap"} ${mutedColumn ? "text-[#A7A7A7]" : ""}`}
+                          >
+                            {renderItemCell(item, column.key)}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </Fragment>
               )) : (
                 <tr>
-                  <td colSpan={columns.length} className="px-4 py-10 text-center text-[#A7A7A7]">
+                  <td colSpan={visibleColumns.length} className="px-4 py-10 text-center text-[#A7A7A7]">
                     No se encontraron items con los filtros actuales.
                   </td>
                 </tr>

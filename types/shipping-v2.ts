@@ -174,6 +174,9 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   paisZonaLogistica?: string;
   urlRastreo?: string;
   plantillaUrlRastreo?: string;
+  website?: string;
+  pieFactura?: string;
+  logoProveedor: ShippingV2Attachment[];
   permiteRastreoWeb: boolean | null;
   notasRastreo?: string;
 };
@@ -450,6 +453,8 @@ export type ShippingV2Packing = ShippingV2RecordBase & {
   nombre: string;
   estado: ShippingV2PackingEstado | string;
   tipo?: ShippingV2PackingTipo | string;
+  ordenReferencia?: string;
+  factura: ShippingV2Attachment[];
   proveedorResponsableId?: string;
   proveedorResponsableNombre?: string;
   /** @deprecated Campo legacy en Packings. UI principal usa Transportista EC. */
@@ -484,9 +489,74 @@ export type ShippingV2Packing = ShippingV2RecordBase & {
   conNovedad: boolean;
 };
 
+export type ShippingV2Destinatario = ShippingV2RecordBase & {
+  nombre: string;
+  empresa?: string;
+  direccion: string;
+  direccionLinea2?: string;
+  ciudad: string;
+  estado?: string;
+  codigoPostal?: string;
+  pais: string;
+  telefono?: string;
+  packingIds: string[];
+  packingLabels: string[];
+};
+
+export type ShippingV2PackingInvoiceData = {
+  packing: {
+    id: string;
+    packingId: string;
+    tracking?: string;
+    ordenReferencia?: string;
+    fechaEnvio?: string;
+    fechaCreacion?: string;
+    factura: ShippingV2Attachment[];
+  };
+  provider: {
+    id: string;
+    name: string;
+    logoUrl?: string;
+    website?: string;
+    email?: string;
+    invoiceFooter?: string;
+  };
+  recipient: {
+    name: string;
+    company?: string;
+    address1: string;
+    address2?: string;
+    city: string;
+    state?: string;
+    zip?: string;
+    country: string;
+    phone?: string;
+  };
+  items: Array<{
+    id: string;
+    skuProveedor?: string;
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+  }>;
+  totals: {
+    subtotal: number;
+    total: number;
+    currency: "USD";
+  };
+  invoice: {
+    invoiceNumber: string;
+    filename: string;
+    generatedAt: string;
+  };
+  warnings: string[];
+};
+
 export type ShippingV2PackingWriteInput = {
   nombre?: string;
   tipo?: string;
+  ordenReferencia?: string;
   estado?: string;
   proveedorResponsableId?: string;
   /** @deprecated Campo legacy en Packings. UI principal usa Transportista EC. */

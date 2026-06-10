@@ -2,18 +2,43 @@
 
 import Link from "next/link";
 import { useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import type { ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagoSupportCard, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 
 type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string };
 type TabKey = "pendientes" | "sin-soporte" | "registrados";
 
 const ALL = "Todos";
-const paymentMethods = ["Todos", "Transferencia bancaria", "PayPal", "Efectivo", "Tarjeta", "Depósito", "Otro", "No aplica"];
-const paymentStates = ["Todos", "Borrador", "Pendiente", "Parcial", "Pagado", "En revisión", "Anulado"];
-const financeStates = ["Todos", "No aplica", "Pendiente de generar", "Pendiente de sincronizar", "Sincronizado", "Error", "Anulado"];
+const paymentMethods = [ALL, ...SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago];
+const supportPaymentMethods = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((method) => method !== "No aplica");
+const financeAccountOptions = new Set<string>(SHIPPING_V2_FINANCE_SELECT_OPTIONS.cuentaOrigen);
+const paymentAccounts = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((account) => account !== "No aplica" && financeAccountOptions.has(account));
+const paymentStates = [ALL, ...SHIPPING_V2_PAYMENT_SELECT_OPTIONS.estadoPago];
+const financeStates = [ALL, ...SHIPPING_V2_PAYMENT_SELECT_OPTIONS.estadoIntegracionFinanzas];
 
 function normalize(value?: string | number | null) {
   return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+function normalizeSingleSelectValue(value?: string | null) {
+  return String(value ?? "").trim().replace(/^"+|"+$/g, "").trim();
+}
+
+function safePaymentMethod(value?: string | null) {
+  const normalized = normalizeSingleSelectValue(value);
+  return SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.includes(normalized as never) && normalized !== "No aplica" ? normalized : "Transferencia bancaria";
+}
+
+function safePaymentAccount(value?: string | null) {
+  const normalized = normalizeSingleSelectValue(value);
+  return paymentAccounts.includes(normalized as never) && normalized !== "No aplica" ? normalized : "";
+}
+
+function validatePaymentSupportForm(input: { cuentaOrigen: string }) {
+  const cuentaOrigen = normalizeSingleSelectValue(input.cuentaOrigen);
+  if (!cuentaOrigen || cuentaOrigen === "No aplica") return "Selecciona una cuenta origen válida antes de marcar el pago como pagado.";
+  if (!paymentAccounts.includes(cuentaOrigen as never)) return "Cuenta origen no válida. Selecciona una opción existente.";
+  return "";
 }
 
 function buildSearchText(parts: Array<string | number | boolean | null | undefined>) {
@@ -161,8 +186,8 @@ function DetailModal({ pago, onClose, onUpdated }: { pago: ShippingV2Pago; onClo
   const [error, setError] = useState("");
   const [paidForm, setPaidForm] = useState({
     fechaPagoReal: pago.fechaPagoReal ? pago.fechaPagoReal.slice(0, 16) : new Date().toISOString().slice(0, 16),
-    metodoPago: pago.metodoPago && pago.metodoPago !== "No aplica" ? pago.metodoPago : "Transferencia bancaria",
-    cuentaOrigen: pago.cuentaOrigen && pago.cuentaOrigen !== "No aplica" ? pago.cuentaOrigen : "Banco Pichincha",
+    metodoPago: safePaymentMethod(pago.metodoPago),
+    cuentaOrigen: safePaymentAccount(pago.cuentaOrigen),
     transaccionId: pago.transaccionId || "",
     comprobanteUrl: pago.comprobante[0]?.url || "",
     observacion: pago.observacion || "",
@@ -173,6 +198,14 @@ function DetailModal({ pago, onClose, onUpdated }: { pago: ShippingV2Pago; onClo
   async function mutate(action: "mark-paid" | "review" | "cancel", body: Record<string, unknown> = {}) {
     setBusy(action);
     setError("");
+    if (action === "mark-paid") {
+      const validationError = validatePaymentSupportForm(paidForm);
+      if (validationError) {
+        setBusy("");
+        setError(validationError);
+        return;
+      }
+    }
     const response = await fetch(`/api/shipping-v2/pagos/${pago.id}/${action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -219,8 +252,11 @@ function DetailModal({ pago, onClose, onUpdated }: { pago: ShippingV2Pago; onClo
             <h3 className="font-semibold text-[#F5F5F5]">Registrar soporte</h3>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <input aria-label="Fecha real de pago" type="datetime-local" value={paidForm.fechaPagoReal} onChange={(event) => setPaidForm((current) => ({ ...current, fechaPagoReal: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
-              <select aria-label="Método de pago" value={paidForm.metodoPago} onChange={(event) => setPaidForm((current) => ({ ...current, metodoPago: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">{paymentMethods.filter((item) => item !== ALL).map((item) => <option key={item}>{item}</option>)}</select>
-              <input value={paidForm.cuentaOrigen} onChange={(event) => setPaidForm((current) => ({ ...current, cuentaOrigen: event.target.value }))} placeholder="Cuenta origen" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
+              <select aria-label="Método de pago" value={paidForm.metodoPago} onChange={(event) => setPaidForm((current) => ({ ...current, metodoPago: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">{supportPaymentMethods.map((item) => <option key={item}>{item}</option>)}</select>
+              <select aria-label="Cuenta origen" value={paidForm.cuentaOrigen} onChange={(event) => setPaidForm((current) => ({ ...current, cuentaOrigen: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">
+                <option value="">Selecciona cuenta origen</option>
+                {paymentAccounts.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
               <input value={paidForm.transaccionId} onChange={(event) => setPaidForm((current) => ({ ...current, transaccionId: event.target.value }))} placeholder="Transacción ID" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
               <input value={paidForm.comprobanteUrl} onChange={(event) => setPaidForm((current) => ({ ...current, comprobanteUrl: event.target.value }))} placeholder="URL comprobante" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5] sm:col-span-2" />
             </div>
@@ -252,7 +288,7 @@ function CreatePaymentModal({ selectedItems, registerPaidDefault, onClose, onCre
     observacion: "",
     fechaPagoReal: new Date().toISOString().slice(0, 16),
     metodoPago: "Transferencia bancaria",
-    cuentaOrigen: "Banco Pichincha",
+    cuentaOrigen: "",
     transaccionId: "",
     comprobanteUrl: "",
   });
@@ -266,6 +302,14 @@ function CreatePaymentModal({ selectedItems, registerPaidDefault, onClose, onCre
   async function createPayment() {
     setBusy(true);
     setError("");
+    if (registerPaidDefault) {
+      const validationError = validatePaymentSupportForm(form);
+      if (validationError) {
+        setBusy(false);
+        setError(validationError);
+        return;
+      }
+    }
     const response = await fetch("/api/shipping-v2/pagos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -314,8 +358,11 @@ function CreatePaymentModal({ selectedItems, registerPaidDefault, onClose, onCre
         {registerPaidDefault ? (
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <input aria-label="Fecha real de pago" type="datetime-local" value={form.fechaPagoReal} onChange={(event) => setForm((current) => ({ ...current, fechaPagoReal: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
-            <select aria-label="Método de pago" value={form.metodoPago} onChange={(event) => setForm((current) => ({ ...current, metodoPago: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">{paymentMethods.filter((item) => item !== ALL).map((item) => <option key={item}>{item}</option>)}</select>
-            <input value={form.cuentaOrigen} onChange={(event) => setForm((current) => ({ ...current, cuentaOrigen: event.target.value }))} placeholder="Cuenta origen" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
+            <select aria-label="Método de pago" value={form.metodoPago} onChange={(event) => setForm((current) => ({ ...current, metodoPago: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">{supportPaymentMethods.map((item) => <option key={item}>{item}</option>)}</select>
+            <select aria-label="Cuenta origen" value={form.cuentaOrigen} onChange={(event) => setForm((current) => ({ ...current, cuentaOrigen: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">
+              <option value="">Selecciona cuenta origen</option>
+              {paymentAccounts.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
             <input value={form.transaccionId} onChange={(event) => setForm((current) => ({ ...current, transaccionId: event.target.value }))} placeholder="Transacción ID" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
             <input value={form.comprobanteUrl} onChange={(event) => setForm((current) => ({ ...current, comprobanteUrl: event.target.value }))} placeholder="URL comprobante" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5] sm:col-span-2" />
           </div>

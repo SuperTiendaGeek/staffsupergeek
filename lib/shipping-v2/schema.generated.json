@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-09T17:16:24.226Z",
+  "generatedAt": "2026-06-10T21:50:43.393Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -264,6 +264,21 @@
           "id": "fldXl8BkVOmEZY9wg",
           "type": "multilineText",
           "kind": "multilineText"
+        },
+        "Logo proveedor": {
+          "id": "fld1rDlCCEJcvvOVu",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Website proveedor": {
+          "id": "flde28emZtEYaivdz",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Email proveedor": {
+          "id": "fldVsI2W2DsjD3Hac",
+          "type": "email",
+          "kind": "email"
         }
       }
     },
@@ -1193,6 +1208,12 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblIbgM5pzsX2WIpf",
           "linkedTableName": "Catálogo Características Extras"
+        },
+        "Shipping Destinatarios": {
+          "id": "fldqlpFo8TPhRr42w",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblfPAF3lsZkOO7me",
+          "linkedTableName": "Shipping Destinatarios"
         }
       }
     },
@@ -1279,10 +1300,12 @@
           "id": "fld2e7ac68ExsKSP6",
           "type": "singleSelect",
           "options": [
-            "Banco Pichincha",
+            "Tarjeta C. Pichincha",
+            "Tarjeta D. Supe Geek ",
+            "Tarjeta C. Pacificard",
+            "Tarjeta C. Produbanco",
             "Caja",
             "PayPal",
-            "Tarjeta",
             "Otra",
             "No aplica"
           ]
@@ -1748,6 +1771,22 @@
         },
         "Tracking EC": {
           "id": "fldCInLNuMZbcPGsl",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Factura": {
+          "id": "fldip5LBJdfz8jRFt",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Shipping Destinatarios": {
+          "id": "fldZ0mYxIQMfZz8Uf",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblfPAF3lsZkOO7me",
+          "linkedTableName": "Shipping Destinatarios"
+        },
+        "Orden referencia": {
+          "id": "fldZ5zYSP6wcgjijY",
           "type": "singleLineText",
           "kind": "singleLineText"
         }

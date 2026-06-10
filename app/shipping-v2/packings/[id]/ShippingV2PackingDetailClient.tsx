@@ -7,10 +7,10 @@ import { InlineEditableField } from "@/components/shipping-v2/InlineEditableFiel
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { buildTrackingUrl } from "@/lib/shipping-v2/tracking";
 import { getEcuadorTransportProvidersForPacking, getUsaTransportProviders, providerTrackingLabel } from "@/lib/shipping-v2/tracking-providers";
-import { SHIPPING_V2_PACKING_TIPOS, SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS, type ShippingV2Item, type ShippingV2Novedad, type ShippingV2Packing, type ShippingV2PackingStatusAction, type ShippingV2Proveedor } from "@/types/shipping-v2";
+import { SHIPPING_V2_PACKING_TIPOS, SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS, type ShippingV2Destinatario, type ShippingV2Item, type ShippingV2Novedad, type ShippingV2Packing, type ShippingV2PackingStatusAction, type ShippingV2Proveedor } from "@/types/shipping-v2";
 
-type Props = { packing: ShippingV2Packing; candidates: ShippingV2Item[]; proveedores: ShippingV2Proveedor[]; novedades: ShippingV2Novedad[]; isAdmin: boolean };
-type EditablePackingField = "nombre" | "tipo" | "observaciones" | "proveedorResponsableId" | "trackingUsa" | "transportistaUsa" | "trackingEc" | "transportistaEc" | "peso";
+type Props = { packing: ShippingV2Packing; candidates: ShippingV2Item[]; proveedores: ShippingV2Proveedor[]; novedades: ShippingV2Novedad[]; destinatarios: ShippingV2Destinatario[]; isAdmin: boolean };
+type EditablePackingField = "nombre" | "tipo" | "ordenReferencia" | "observaciones" | "proveedorResponsableId" | "trackingUsa" | "transportistaUsa" | "trackingEc" | "transportistaEc" | "peso";
 type SaveState = Record<string, "saving" | "saved" | "error" | undefined>;
 
 function display(value?: string | number | null) {
@@ -50,6 +50,33 @@ function isOpen(status: string) {
 
 function itemSearchText(item: ShippingV2Item, providerLabel: string, logisticsProviderLabel: string) {
   return [item.sku, item.nombre, item.estado, item.tipoOperacion, item.categoria, providerLabel, logisticsProviderLabel, item.modoLogistico].join(" ").toLowerCase();
+}
+
+function destinatarioMatchesPacking(destinatario: ShippingV2Destinatario, packing: ShippingV2Packing) {
+  return destinatario.packingIds.includes(packing.id) || destinatario.packingLabels.includes(packing.packingId);
+}
+
+function destinatarioOptionLabel(destinatario: ShippingV2Destinatario) {
+  return [
+    destinatario.nombre,
+    destinatario.empresa,
+    [destinatario.ciudad, destinatario.estado].filter(Boolean).join(", "),
+    destinatario.direccion,
+  ].filter(Boolean).join(" · ");
+}
+
+function DestinatarioSummary({ destinatario }: { destinatario: ShippingV2Destinatario }) {
+  return (
+    <div className="mt-3 grid gap-1.5 text-sm text-[#A7A7A7]">
+      <p className="font-semibold text-[#F5F5F5]">{display(destinatario.nombre)}</p>
+      {destinatario.empresa ? <p>{destinatario.empresa}</p> : null}
+      <p>{display(destinatario.direccion)}</p>
+      {destinatario.direccionLinea2 ? <p>{destinatario.direccionLinea2}</p> : null}
+      <p>{[destinatario.ciudad, destinatario.estado, destinatario.codigoPostal].filter(Boolean).join(", ") || "-"}</p>
+      <p>{display(destinatario.pais)}</p>
+      {destinatario.telefono ? <p>Teléfono: <span className="text-[#F5F5F5]">{destinatario.telefono}</span></p> : null}
+    </div>
+  );
 }
 
 function SummaryBadge({ label, value, accent }: { label: string; value: string; accent?: "status" | "items" }) {
@@ -177,6 +204,7 @@ function EditableTextField({
   status,
   multiline,
   help,
+  placeholder,
   onSave,
 }: {
   label: string;
@@ -185,6 +213,7 @@ function EditableTextField({
   status?: "saving" | "saved" | "error";
   multiline?: boolean;
   help?: string;
+  placeholder?: string;
   onSave: (value: string) => void;
 }) {
   const [localValue, setLocalValue] = useState(value || "");
@@ -202,6 +231,7 @@ function EditableTextField({
         <textarea
           value={localValue}
           disabled={disabled}
+          placeholder={placeholder}
           onChange={(event) => setLocalValue(event.target.value)}
           onBlur={commit}
           className="mt-2 min-h-20 w-full resize-y rounded-[0.85rem] border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm font-medium text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-70"
@@ -912,15 +942,21 @@ function CostSummaryItem({ label, value, strong = false, children }: { label: st
   );
 }
 
-export function ShippingV2PackingDetailClient({ packing: initialPacking, candidates, proveedores, novedades, isAdmin }: Props) {
+export function ShippingV2PackingDetailClient({ packing: initialPacking, candidates, proveedores, novedades, destinatarios, isAdmin }: Props) {
   const router = useRouter();
   const [packing, setPacking] = useState(initialPacking);
+  const [shippingDestinatarios, setShippingDestinatarios] = useState(destinatarios);
+  const [selectedDestinatarioId, setSelectedDestinatarioId] = useState("");
+  const [destinatarioBusy, setDestinatarioBusy] = useState(false);
+  const [destinatarioNotice, setDestinatarioNotice] = useState("");
   const [availableItems, setAvailableItems] = useState(candidates.filter((item) => !initialPacking.itemIds.includes(item.id)));
   const [query, setQuery] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [busyItemId, setBusyItemId] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState<ShippingV2PackingStatusAction | "">("");
+  const [invoiceBusy, setInvoiceBusy] = useState(false);
+  const [invoiceNotice, setInvoiceNotice] = useState("");
   const [error, setError] = useState("");
   const [saveState, setSaveState] = useState<SaveState>({});
   const [copiedTracking, setCopiedTracking] = useState<"usa" | "ec" | null>(null);
@@ -982,8 +1018,17 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     trackingUrl: trackingEcUrl,
     missingProviderText: "Selecciona un transportista EC para habilitar el rastreo externo.",
   });
+  const currentDestinatario = useMemo(
+    () => shippingDestinatarios.find((destinatario) => destinatarioMatchesPacking(destinatario, packing)) ?? null,
+    [packing, shippingDestinatarios]
+  );
+  const missingTracking = !packing.trackingUsa?.trim() && !packing.trackingEc?.trim();
 
   useEffect(() => setPackingNovedades(novedades), [novedades]);
+  useEffect(() => setShippingDestinatarios(destinatarios), [destinatarios]);
+  useEffect(() => {
+    if (currentDestinatario) setSelectedDestinatarioId(currentDestinatario.id);
+  }, [currentDestinatario]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -1024,6 +1069,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   }, [availableItems, providerLabels, query]);
 
   function canEditField(field: EditablePackingField) {
+    if (field === "ordenReferencia") return true;
     const state = normalize(packing.estado);
     if (state === "en proceso") return true;
     if (state === "cerrado") return ["trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso"].includes(field);
@@ -1268,10 +1314,65 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     }
   }
 
+  async function linkDestinatario() {
+    const destinatarioId = selectedDestinatarioId.trim();
+    if (!destinatarioId || destinatarioBusy) return;
+    setDestinatarioBusy(true);
+    setDestinatarioNotice("");
+    setError("");
+    try {
+      const response = await fetch(`/api/shipping-v2/packings/${packing.id}/destinatario`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destinatarioId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo vincular el destinatario."));
+      const updatedDestinatario = payload.data as ShippingV2Destinatario;
+      setShippingDestinatarios((current) => [
+        updatedDestinatario,
+        ...current.filter((destinatario) => destinatario.id !== updatedDestinatario.id),
+      ]);
+      setDestinatarioNotice("Destinatario vinculado correctamente.");
+      router.refresh();
+    } catch (linkError) {
+      setError(linkError instanceof Error ? linkError.message : "Error al vincular destinatario.");
+    } finally {
+      setDestinatarioBusy(false);
+    }
+  }
+
   function handleDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault();
     const itemId = event.dataTransfer.getData("text/plain");
     if (itemId) void addItems([itemId]);
+  }
+
+  async function generateProviderInvoice() {
+    if (invoiceBusy) return;
+    if (!currentDestinatario) {
+      setError("Falta vincular destinatario para generar la factura.");
+      return;
+    }
+    if (packing.factura.length) {
+      const confirmed = window.confirm("Este packing ya tiene una factura. ¿Quieres reemplazarla?");
+      if (!confirmed) return;
+    }
+    setInvoiceBusy(true);
+    setInvoiceNotice("");
+    setError("");
+    try {
+      const response = await fetch(`/api/shipping-v2/packings/${packing.id}/invoice`, { method: "POST" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo generar la factura proveedor."));
+      setPacking(payload.data as ShippingV2Packing);
+      setInvoiceNotice("Factura generada correctamente.");
+      router.refresh();
+    } catch (invoiceError) {
+      setError(invoiceError instanceof Error ? invoiceError.message : "Error inesperado al generar factura.");
+    } finally {
+      setInvoiceBusy(false);
+    }
   }
 
   return (
@@ -1284,7 +1385,49 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
           >
             Volver a Packings
           </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {packing.factura[0]?.url ? (
+              <a
+                href={packing.factura[0].url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
+              >
+                Ver factura
+              </a>
+            ) : null}
+            <button
+              type="button"
+              disabled={invoiceBusy || !currentDestinatario}
+              title={!currentDestinatario ? "Vincula un destinatario antes de generar la factura." : undefined}
+              onClick={() => void generateProviderInvoice()}
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D7FF4F]/70 bg-[#D7FF4F]/10 px-3 text-sm font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {invoiceBusy ? "Generando factura..." : packing.factura.length ? "Regenerar factura proveedor" : "Generar factura proveedor"}
+            </button>
+          </div>
         </div>
+        {!currentDestinatario ? (
+          <p className="mt-3 rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">
+            Falta vincular destinatario para generar la factura.
+          </p>
+        ) : null}
+        {!packing.ordenReferencia ? (
+          <p className="mt-3 rounded-lg border border-yellow-300/25 bg-yellow-300/10 px-3 py-2 text-sm text-yellow-100">
+            Recomendado: ingresa Orden referencia antes de generar factura.
+          </p>
+        ) : null}
+        {missingTracking ? (
+          <p className="mt-3 rounded-lg border border-yellow-300/20 bg-yellow-300/5 px-3 py-2 text-sm text-yellow-100">
+            Este packing no tiene tracking registrado.
+          </p>
+        ) : null}
+        {invoiceNotice ? (
+          <p className="mt-3 rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-2 text-sm font-semibold text-[#D7FF4F]">{invoiceNotice}</p>
+        ) : null}
+        {destinatarioNotice ? (
+          <p className="mt-3 rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-2 text-sm font-semibold text-[#D7FF4F]">{destinatarioNotice}</p>
+        ) : null}
 
         <div className="mt-3">
           <StatusActionPanel
@@ -1301,6 +1444,50 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
               setStatusModal(modal);
             }}
           />
+        </div>
+
+        <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
+          <EditableTextField
+            label="Orden referencia"
+            value={packing.ordenReferencia}
+            disabled={!canEditField("ordenReferencia")}
+            status={saveState.ordenReferencia}
+            placeholder="Ej. #6739, PO-12345, ORDER-123..."
+            help="Dato recomendado para invoice; no bloquea la generación."
+            onSave={(value) => void savePackingField("ordenReferencia", value)}
+          />
+          <section className="min-w-0 overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#151515] px-4 py-3">
+            <div className="grid min-w-0 gap-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Destinatario / dirección de envío</p>
+                {currentDestinatario ? (
+                  <DestinatarioSummary destinatario={currentDestinatario} />
+                ) : (
+                  <p className="mt-3 text-sm text-[#A7A7A7]">Este packing no tiene destinatario vinculado.</p>
+                )}
+              </div>
+              <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <select
+                  value={selectedDestinatarioId}
+                  onChange={(event) => setSelectedDestinatarioId(event.target.value)}
+                  className="h-9 min-w-0 truncate rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-xs font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
+                >
+                  <option value="">Seleccionar destinatario</option>
+                  {shippingDestinatarios.map((destinatario) => (
+                    <option key={destinatario.id} value={destinatario.id}>{destinatarioOptionLabel(destinatario)}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!selectedDestinatarioId || destinatarioBusy}
+                  onClick={() => void linkDestinatario()}
+                  className="h-9 max-w-full truncate rounded-lg border border-[#D7FF4F]/70 bg-[#D7FF4F]/10 px-3 text-xs font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {destinatarioBusy ? "Vinculando..." : currentDestinatario ? "Cambiar destinatario" : "Vincular destinatario"}
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
 
         <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(280px,0.75fr)_minmax(520px,1.25fr)] xl:items-start">
