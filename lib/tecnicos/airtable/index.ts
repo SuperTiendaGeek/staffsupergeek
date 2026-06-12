@@ -142,6 +142,7 @@ export interface OrdenDetalle {
   ingresaPor: string;
   tipoOrden: TipoOrden | string;
   clienteNombre: string;
+  clienteRecordId: string | null;
   cedula: string;
   telefono: string;
   equipo: string;
@@ -1327,6 +1328,15 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     "Cliente no disponible"
   );
 
+  const clienteRaw = f["Cliente"];
+  const clienteRecordId =
+    Array.isArray(clienteRaw) &&
+    clienteRaw.length > 0 &&
+    typeof clienteRaw[0] === "string" &&
+    (clienteRaw[0] as string).startsWith("rec")
+      ? (clienteRaw[0] as string)
+      : null;
+
   const tipoOrden = pickStringField(
     f,
     ["Tipo Orden", "Tipo de Orden"],
@@ -1346,6 +1356,7 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     ingresaPor: safeString(f["Ingresa Por"], "No disponible"),
     tipoOrden,
     clienteNombre,
+    clienteRecordId,
     cedula: pickStringField(f, ["CedulaTXT", "C\u00e9dulaTXT", "Cedula", "C\u00e9dula"], "-"),
     telefono: pickStringField(f, ["TelefonoTXT", "Telefono"], "-"),
     equipo: safeString(f["Equipo"], "No disponible"),
@@ -2422,6 +2433,52 @@ export const updateOrdenNotaInterna = async ({
   }
 
   return { notaInterna };
+};
+
+// --- Escritura: actualizar campos directos de la orden ---
+export const updateOrdenCampos = async ({
+  ordenRecordId,
+  campos,
+}: {
+  ordenRecordId: string;
+  campos: Partial<{ equipo: string; accesorios: string; telefono: string; ingresaPor: string }>;
+}): Promise<void> => {
+  const client = getClient();
+  const url = `${client.baseUrl}/${encodeURIComponent(
+    AIRTABLE_TABLES.ordenes
+  )}/${encodeURIComponent(ordenRecordId)}`;
+
+  const fields: Record<string, string> = {};
+  if (campos.equipo !== undefined) fields["Equipo"] = campos.equipo;
+  if (campos.accesorios !== undefined) fields["Accesorios"] = campos.accesorios;
+  if (campos.ingresaPor !== undefined) fields["Ingresa Por"] = campos.ingresaPor;
+
+  const doUpdate = async (f: Record<string, string>) => {
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: client.headers,
+      body: JSON.stringify({ fields: f }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Airtable error ${res.status}: ${text}`);
+    }
+  };
+
+  if (campos.telefono !== undefined) {
+    try {
+      await doUpdate({ ...fields, Telefono: campos.telefono });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("UNKNOWN_FIELD_NAME")) {
+        await doUpdate({ ...fields, "Teléfono": campos.telefono });
+      } else {
+        throw err;
+      }
+    }
+  } else if (Object.keys(fields).length > 0) {
+    await doUpdate(fields);
+  }
 };
 
 // --- Escritura: marcar solicitud de mensaje cliente en historial ---

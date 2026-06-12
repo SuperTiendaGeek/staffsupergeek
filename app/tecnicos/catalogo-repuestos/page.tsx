@@ -1,5 +1,6 @@
-import { AppShell } from "@/components/tecnicos/layout/AppShell";
+import { PortalShell } from "@/components/PortalShell";
 import { CatalogoCrudClient } from "@/components/tecnicos/CatalogoCrudClient";
+import styles from "@/components/tecnicos/layout/TecnicosTheme.module.css";
 import { fetchCatalogoRepuestosGestion } from "@/lib/tecnicos/airtable";
 import type { CatalogoRepuesto } from "@/types/tecnicos";
 
@@ -17,15 +18,17 @@ export default async function CatalogoRepuestosPage() {
   }
 
   return (
-    <AppShell
+    <PortalShell
+      eyebrow="Gestión de Reparaciones"
       title="Catálogo Repuestos"
-      active="catalogo-repuestos"
-      hideTopBar
+      activeHref="/tecnicos/catalogo-repuestos"
+      sectionLabel="Técnicos"
+      density="compact"
     >
-      <div className="w-full space-y-5">
+      <div className={`${styles.theme} w-full space-y-5`}>
         {error ? <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p> : null}
         <CatalogoCrudClient mode="repuestos" initialItems={items} />
       </div>
-    </AppShell>
+    </PortalShell>
   );
 }

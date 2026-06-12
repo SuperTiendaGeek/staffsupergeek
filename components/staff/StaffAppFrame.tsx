@@ -7,14 +7,18 @@ import {
   CalendarClock,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
+  Cog,
   DollarSign,
   FileText,
   LayoutDashboard,
   LogOut,
   Megaphone,
   Menu,
+  Package,
   PackageCheck,
   ReceiptText,
+  UserRound,
   Users,
   Wrench,
 } from "lucide-react";
@@ -57,13 +61,30 @@ const appIconById: Partial<Record<string, LucideIcon>> = {
   facturacion: FileText,
 };
 
-function buildNavItems(apps: StaffApp[]) {
+type SubNavItem = { href: string; label: string; icon: LucideIcon };
+
+type NavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  subItems?: SubNavItem[];
+};
+
+const tecnicosSubItems: SubNavItem[] = [
+  { href: "/tecnicos/ordenes", label: "Órdenes", icon: ClipboardList },
+  { href: "/tecnicos/clientes", label: "Clientes", icon: UserRound },
+  { href: "/tecnicos/catalogo-repuestos", label: "Repuestos", icon: Package },
+  { href: "/tecnicos/catalogo-servicios", label: "Servicios", icon: Cog },
+];
+
+function buildNavItems(apps: StaffApp[]): NavItem[] {
   return [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     ...apps.map((app) => ({
       href: app.route,
       label: app.id === "shipping" ? "Shipping V2" : app.name,
-      icon: appIconById[app.id] || LayoutDashboard,
+      icon: appIconById[app.id] ?? LayoutDashboard,
+      subItems: app.id === "tecnicos" ? tecnicosSubItems : undefined,
     })),
   ];
 }
@@ -101,12 +122,14 @@ function StaffLogo({ showText = true }: { showText?: boolean }) {
   );
 }
 
-function NavList({ activeHref, navItems, mobile = false, expanded = true }: { activeHref?: string; navItems: ReturnType<typeof buildNavItems>; mobile?: boolean; expanded?: boolean }) {
+function NavList({ activeHref, navItems, mobile = false, expanded = true }: { activeHref?: string; navItems: NavItem[]; mobile?: boolean; expanded?: boolean }) {
   return (
     <nav className="grid gap-1" aria-label="Navegacion principal">
       {navItems.map((item) => {
         const Icon = item.icon;
         const active = activeHref ? item.href === activeHref || activeHref.startsWith(`${item.href}/`) : false;
+        const showSubItems = active && !!item.subItems?.length && (expanded || mobile);
+
         const link = (
           <Link
             href={item.href}
@@ -115,7 +138,7 @@ function NavList({ activeHref, navItems, mobile = false, expanded = true }: { ac
             aria-label={item.label}
             className={cn(
               "group flex h-10 items-center rounded-lg border text-[13px] font-semibold transition 2xl:h-11 2xl:text-sm",
-              expanded ? "justify-start gap-3 px-3 2xl:px-3.5" : "justify-center gap-0 px-0",
+              expanded || mobile ? "justify-start gap-3 px-3 2xl:px-3.5" : "justify-center gap-0 px-0",
               active
                 ? "border-[#D7FF4F]/50 bg-[#D7FF4F]/12 text-[#D7FF4F] shadow-[inset_3px_0_0_rgba(215,255,79,0.9),0_0_18px_rgba(215,255,79,0.10)]"
                 : "border-transparent text-[#CFCFCB] hover:border-[#3A3A36] hover:bg-[#252622] hover:text-[#F5F5F5]"
@@ -125,7 +148,7 @@ function NavList({ activeHref, navItems, mobile = false, expanded = true }: { ac
             <span
               className={cn(
                 "overflow-hidden whitespace-nowrap transition-all duration-200 ease-out",
-                expanded ? "max-w-44 opacity-100" : "max-w-0 opacity-0"
+                expanded || mobile ? "max-w-44 opacity-100" : "max-w-0 opacity-0"
               )}
             >
               {item.label}
@@ -133,12 +156,45 @@ function NavList({ activeHref, navItems, mobile = false, expanded = true }: { ac
           </Link>
         );
 
+        const subNav = showSubItems ? (
+          <div className="ml-3 mt-0.5 space-y-0.5 border-l border-[#2F302B] pl-3">
+            {item.subItems!.map((sub) => {
+              const SubIcon = sub.icon;
+              const subActive = activeHref === sub.href || activeHref?.startsWith(`${sub.href}/`);
+              const subLink = (
+                <Link
+                  href={sub.href}
+                  aria-label={sub.label}
+                  className={cn(
+                    "flex h-8 items-center gap-2.5 rounded-md border px-2.5 text-[12px] font-medium transition",
+                    subActive
+                      ? "border-[#D7FF4F]/30 bg-[#D7FF4F]/8 text-[#D7FF4F]"
+                      : "border-transparent text-[#A7A7A7] hover:border-[#3A3A36] hover:bg-[#1E1F1C] hover:text-[#F5F5F5]"
+                  )}
+                >
+                  <SubIcon className="h-3.5 w-3.5 shrink-0" />
+                  {sub.label}
+                </Link>
+              );
+              return mobile ? (
+                <SheetClose key={sub.href} asChild>{subLink}</SheetClose>
+              ) : (
+                <div key={sub.href}>{subLink}</div>
+              );
+            })}
+          </div>
+        ) : null;
+
         return mobile ? (
-          <SheetClose key={item.href} asChild>
-            {link}
-          </SheetClose>
+          <div key={item.href}>
+            <SheetClose asChild>{link}</SheetClose>
+            {subNav}
+          </div>
         ) : (
-          <div key={item.href}>{link}</div>
+          <div key={item.href}>
+            {link}
+            {subNav}
+          </div>
         );
       })}
     </nav>
