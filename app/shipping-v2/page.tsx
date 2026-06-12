@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffStatCard } from "@/components/staff/StaffDesignSystem";
 import { getShippingV2DashboardSummary } from "@/lib/shipping-v2/airtable";
 import type { ShippingV2DashboardSummary } from "@/types/shipping-v2";
@@ -60,12 +60,7 @@ export default async function ShippingV2Page() {
   }
 
   return (
-    <PortalShell
-      density="compact"
-      title="Shipping V2"
-      headerSubtitle="Control de inventario, pagos, packings y recepcion"
-      hidePageHeader
-    >
+    <StaffAppShell activeHref="/shipping-v2" sectionLabel="Shipping V2">
       <div className="w-full space-y-3">
         {error ? (
           <section className="rounded-xl border border-orange-300/25 bg-orange-300/10 px-3 py-2.5 text-orange-100">
@@ -113,6 +108,6 @@ export default async function ShippingV2Page() {
           </div>
         </section>
       </div>
-    </PortalShell>
+    </StaffAppShell>
   );
 }

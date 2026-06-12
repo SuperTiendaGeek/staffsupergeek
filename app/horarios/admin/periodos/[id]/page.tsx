@@ -4,7 +4,7 @@ import { AnularPagoHorarioButton } from "@/components/horarios/AnularPagoHorario
 import { HorarioAjustesPeriodoClient } from "@/components/horarios/HorarioAjustesPeriodoClient";
 import { HorarioPeriodoPagoClient } from "@/components/horarios/HorarioPeriodoPagoClient";
 import { RolPagoPeriodoClient } from "@/components/horarios/RolPagoPeriodoClient";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { isAdministratorRole } from "@/lib/apps";
 import { fetchPeriodoPagoById } from "@/lib/horarios/airtable";
 import { getSessionFromCookie } from "@/lib/session";
@@ -87,12 +87,7 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
   ];
 
   return (
-    <PortalShell
-      density="compact"
-      eyebrow="Administración"
-      title="Periodo de pago"
-      description="Detalle de registros vinculados y pagos del periodo."
-    >
+    <StaffAppShell activeHref="/horarios" sectionLabel="Horarios">
       <section className="w-full space-y-3 text-left">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link href="/horarios/admin" className="text-sm font-semibold text-geek-lime transition hover:text-white">
@@ -235,6 +230,6 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
           </div>
         </section>
       </section>
-    </PortalShell>
+    </StaffAppShell>
   );
 }

@@ -1,4 +1,4 @@
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { CatalogoCrudClient } from "@/components/tecnicos/CatalogoCrudClient";
 import styles from "@/components/tecnicos/layout/TecnicosTheme.module.css";
 import { fetchCatalogoServiciosGestion } from "@/lib/tecnicos/airtable";
@@ -18,17 +18,11 @@ export default async function CatalogoServiciosPage() {
   }
 
   return (
-    <PortalShell
-      eyebrow="Gestión de Reparaciones"
-      title="Catálogo Servicios"
-      activeHref="/tecnicos/catalogo-servicios"
-      sectionLabel="Técnicos"
-      density="compact"
-    >
+    <StaffAppShell activeHref="/tecnicos/catalogo-servicios" sectionLabel="Técnicos">
       <div className={`${styles.theme} w-full space-y-5`}>
         {error ? <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p> : null}
         <CatalogoCrudClient mode="servicios" initialItems={items} />
       </div>
-    </PortalShell>
+    </StaffAppShell>
   );
 }

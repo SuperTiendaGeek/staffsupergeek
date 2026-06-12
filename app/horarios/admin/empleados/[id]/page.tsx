@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { CerrarPeriodoHastaFechaButton } from "@/components/horarios/CerrarPeriodoHastaFechaButton";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { isAdministratorRole } from "@/lib/apps";
 import { fetchHorarioEmpleadoAdminDetalle } from "@/lib/horarios/airtable";
 import { getSessionFromCookie } from "@/lib/session";
@@ -82,12 +82,7 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
   ];
 
   return (
-    <PortalShell
-      density="compact"
-      eyebrow="Administración"
-      title="Empleado y pagos"
-      description="Saldo, jornadas pendientes, periodos y pagos registrados del empleado."
-    >
+    <StaffAppShell activeHref="/horarios" sectionLabel="Horarios">
       <section className="w-full space-y-3 text-left">
         <Link href="/horarios/admin" className="text-sm font-semibold text-geek-lime transition hover:text-white">
           Volver a horarios y pagos
@@ -273,6 +268,6 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
           </div>
         </section>
       </section>
-    </PortalShell>
+    </StaffAppShell>
   );
 }

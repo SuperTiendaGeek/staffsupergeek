@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { HorariosAdminJornadasClient } from "@/components/horarios/HorariosAdminJornadasClient";
 import { HorariosAdminPeriodosClient } from "@/components/horarios/HorariosAdminPeriodosClient";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffStatCard } from "@/components/staff/StaffDesignSystem";
 import { isAdministratorRole } from "@/lib/apps";
 import { fetchHorariosAdminResumen, fetchHorariosEmpleadosParaPeriodo, fetchJornadasIncompletasAdmin, fetchPeriodosPago } from "@/lib/horarios/airtable";
@@ -127,12 +127,7 @@ export default async function HorariosAdminPage({ searchParams }: PageProps) {
   }
 
   return (
-    <PortalShell
-      density="compact"
-      eyebrow="Administración"
-      title="Horarios y pagos"
-      description="Consulta horas finalizadas, pagos y saldos pendientes por empleado según el rango seleccionado."
-    >
+    <StaffAppShell activeHref="/horarios" sectionLabel="Horarios">
       <section className="w-full space-y-2.5 text-left">
         <div className="rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -252,6 +247,6 @@ export default async function HorariosAdminPage({ searchParams }: PageProps) {
 
         <HorariosAdminPeriodosClient periodos={periodos} empleados={empleados} />
       </section>
-    </PortalShell>
+    </StaffAppShell>
   );
 }

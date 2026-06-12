@@ -1,4 +1,4 @@
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2PagosWorkspace } from "@/lib/shipping-v2/airtable";
 import type { ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 import { ShippingV2PagosClient } from "./ShippingV2PagosClient";
@@ -45,8 +45,8 @@ export default async function ShippingV2PagosPage() {
   }
 
   return (
-    <PortalShell density="compact" eyebrow="Shipping V2" title="Pagos Shipping V2" description="Tablero operativo de pagos, soporte y Finanzas">
+    <StaffAppShell activeHref="/shipping-v2/pagos" sectionLabel="Shipping V2">
       <ShippingV2PagosClient initialWorkspace={workspace} error={error} />
-    </PortalShell>
+    </StaffAppShell>
   );
 }

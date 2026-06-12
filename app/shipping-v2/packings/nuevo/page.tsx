@@ -1,4 +1,4 @@
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 import type { ShippingV2Proveedor } from "@/types/shipping-v2";
@@ -21,7 +21,7 @@ export default async function ShippingV2NewPackingPage() {
   }
 
   return (
-    <PortalShell density="compact" eyebrow="Shipping V2" title="Nuevo Packing" description="Crear grupo físico de items">
+    <StaffAppShell activeHref="/shipping-v2/packings" sectionLabel="Shipping V2">
       {error ? (
         <section className="mb-4 rounded-[1rem] border border-orange-300/25 bg-orange-300/10 p-4 text-orange-100">
           <p className="text-sm font-semibold uppercase tracking-normal">Airtable V2 no disponible</p>
@@ -29,6 +29,6 @@ export default async function ShippingV2NewPackingPage() {
         </section>
       ) : null}
       <ShippingV2NewPackingForm proveedores={proveedores} />
-    </PortalShell>
+    </StaffAppShell>
   );
 }

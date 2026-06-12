@@ -1,4 +1,4 @@
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2ItemById, getShippingV2TechnicalOptionSets } from "@/lib/shipping-v2/airtable";
 import { ShippingV2FichaTecnicaClient } from "./ShippingV2FichaTecnicaClient";
 
@@ -16,8 +16,8 @@ export default async function ShippingV2FichaTecnicaPage({ params }: Props) {
   ]);
 
   return (
-    <PortalShell density="compact" eyebrow="Shipping V2" title="Ficha técnica" description="Preparación técnica para publicación e impresión">
+    <StaffAppShell activeHref="/shipping-v2/recepcion" sectionLabel="Shipping V2">
       <ShippingV2FichaTecnicaClient item={item} technicalOptions={technicalOptions} />
-    </PortalShell>
+    </StaffAppShell>
   );
 }

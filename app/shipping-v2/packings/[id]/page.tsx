@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2Destinatarios, getShippingV2Novedades, getShippingV2PackingById, getShippingV2PackingCandidateItems, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 import type { ShippingV2Destinatario, ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Proveedor } from "@/types/shipping-v2";
@@ -44,7 +44,7 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
   if (!packing && !error) notFound();
 
   return (
-    <PortalShell density="compact" eyebrow="Shipping V2" title="Detalle Packing" description="Gestión de grupo físico de items">
+    <StaffAppShell activeHref="/shipping-v2/packings" sectionLabel="Shipping V2">
       {error || !packing ? (
         <section className="rounded-[1rem] border border-orange-300/25 bg-orange-300/10 p-4 text-orange-100">
           <p className="text-sm font-semibold uppercase tracking-normal">Packing no disponible</p>
@@ -53,6 +53,6 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
       ) : (
         <ShippingV2PackingDetailClient packing={packing} candidates={candidates} proveedores={proveedores} novedades={novedades} destinatarios={destinatarios} isAdmin={isAdmin} />
       )}
-    </PortalShell>
+    </StaffAppShell>
   );
 }

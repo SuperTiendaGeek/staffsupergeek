@@ -1,5 +1,5 @@
 import { HorariosClient } from "@/components/horarios/HorariosClient";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { isAdministratorRole } from "@/lib/apps";
 import { fetchMiVistaHorarios, getHorarioEstado } from "@/lib/horarios/airtable";
 import { getSessionFromCookie } from "@/lib/session";
@@ -25,18 +25,13 @@ export default async function HorariosPage() {
   }
 
   return (
-    <PortalShell
-      density="compact"
-      eyebrow="Control interno"
-      title="Control de Horarios"
-      description="Marca entrada, almuerzo, regreso y salida final con hora generada desde el servidor."
-    >
+    <StaffAppShell activeHref="/horarios" sectionLabel="Horarios">
       <HorariosClient
         initialEstado={estado}
         initialMiVista={miVista}
         initialError={initialError}
         isAdmin={isAdministratorRole(session?.user.rol)}
       />
-    </PortalShell>
+    </StaffAppShell>
   );
 }

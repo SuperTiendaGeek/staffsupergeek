@@ -1,18 +1,12 @@
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { OrdenesPageClient } from "./OrdenesPageClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrdenesPage() {
   return (
-    <PortalShell
-      eyebrow="Gestión de Reparaciones"
-      title="Ordenes"
-      activeHref="/tecnicos/ordenes"
-      sectionLabel="Técnicos"
-      density="compact"
-    >
+    <StaffAppShell activeHref="/tecnicos/ordenes" sectionLabel="Técnicos">
       <OrdenesPageClient />
-    </PortalShell>
+    </StaffAppShell>
   );
 }

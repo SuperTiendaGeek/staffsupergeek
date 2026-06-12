@@ -1,4 +1,4 @@
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2Items, getShippingV2Novedades, getShippingV2Packings, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 import type { ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Proveedor } from "@/types/shipping-v2";
@@ -59,8 +59,8 @@ export default async function ShippingV2RecepcionPage() {
   }
 
   return (
-    <PortalShell density="compact" eyebrow="Shipping V2" title="Recepción" description="Revisión y preparación comercial de items recibidos">
+    <StaffAppShell activeHref="/shipping-v2/recepcion" sectionLabel="Shipping V2">
       <ShippingV2RecepcionClient items={items} packings={packings} proveedores={proveedores} novedades={novedades} error={error} />
-    </PortalShell>
+    </StaffAppShell>
   );
 }

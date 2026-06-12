@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { HorarioJornadaRevisionClient } from "@/components/horarios/HorarioJornadaRevisionClient";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { isAdministratorRole } from "@/lib/apps";
 import { fetchHorarioRegistroById } from "@/lib/horarios/airtable";
 import { getSessionFromCookie } from "@/lib/session";
@@ -59,12 +59,7 @@ export default async function HorarioJornadaRevisionPage({ params }: PageProps) 
   }
 
   return (
-    <PortalShell
-      density="compact"
-      eyebrow="Administración"
-      title="Revisar jornada"
-      description="Corrige una jornada incompleta y registra una marcación de ajuste administrativo."
-    >
+    <StaffAppShell activeHref="/horarios" sectionLabel="Horarios">
       <section className="w-full space-y-3 text-left">
         <Link href="/horarios/admin" className="text-sm font-semibold text-geek-lime transition hover:text-white">
           Volver a horarios y pagos
@@ -118,6 +113,6 @@ export default async function HorarioJornadaRevisionPage({ params }: PageProps) 
 
         <HorarioJornadaRevisionClient jornada={jornada} />
       </section>
-    </PortalShell>
+    </StaffAppShell>
   );
 }
