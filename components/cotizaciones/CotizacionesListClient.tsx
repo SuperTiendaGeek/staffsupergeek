@@ -40,8 +40,8 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
   }, [estado, items, search]);
 
   return (
-    <div className="space-y-5">
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+    <div className="space-y-3">
+      <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         {ESTADOS_COTIZACION.map((item) => {
           const active = estado === item;
           return (
@@ -49,22 +49,22 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
               key={item}
               type="button"
               onClick={() => setEstado(active ? "Todos" : item)}
-              className={`rounded-xl border p-4 text-left transition ${
+              className={`rounded-lg border px-3 py-2 text-left transition ${
                 active
                   ? "border-geek-lime bg-geek-lime/12 shadow-glow"
                   : "border-white/10 bg-white/[0.045] hover:border-geek-lime/40 hover:bg-white/[0.07]"
               }`}
             >
-              <p className="text-2xl font-bold text-white">{initialSummary[item] ?? 0}</p>
-              <p className="mt-1 text-xs font-semibold uppercase tracking-normal text-zinc-300">{item}</p>
+              <p className="text-lg font-bold text-white">{initialSummary[item] ?? 0}</p>
+              <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-normal text-zinc-300">{item}</p>
             </button>
           );
         })}
       </section>
 
-      <section className="rounded-2xl border border-white/10 bg-[#181818] p-4 shadow-2xl shadow-black/25 sm:p-5">
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="flex h-12 items-center rounded-xl border border-zinc-800 bg-[#111] px-4 focus-within:border-geek-lime">
+      <section className="rounded-xl border border-white/10 bg-[#181818] p-3 shadow-2xl shadow-black/25">
+        <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="flex h-9 items-center rounded-lg border border-zinc-800 bg-[#111] px-3 focus-within:border-geek-lime">
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -75,7 +75,7 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
           <select
             value={estado}
             onChange={(event) => setEstado(event.target.value as EstadoCotizacion | "Todos")}
-            className="h-12 rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm font-semibold text-white outline-none focus:border-geek-lime"
+            className="h-9 rounded-lg border border-zinc-800 bg-[#111] px-3 text-sm font-semibold text-white outline-none focus:border-geek-lime"
           >
             <option value="Todos">Todos los estados</option>
             {ESTADOS_COTIZACION.map((item) => (
@@ -86,7 +86,7 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
           </select>
         </div>
 
-        <div className="mt-5 overflow-hidden rounded-xl border border-white/10">
+        <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1440px] table-fixed divide-y divide-white/10 text-sm">
               <colgroup>

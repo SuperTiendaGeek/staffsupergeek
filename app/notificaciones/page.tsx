@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { NotificationsHistoryClient } from "@/components/notifications/NotificationsHistoryClient";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { obtenerNotificacionesUsuario } from "@/lib/notificaciones/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 
@@ -16,12 +16,8 @@ export default async function NotificacionesPage() {
   const notifications = await obtenerNotificacionesUsuario(session.user.userId, { limit: 100, includeArchived: true });
 
   return (
-    <PortalShell
-      eyebrow="Portal Staff"
-      title="Notificaciones"
-      description="Historial de avisos internos, tareas y eventos relevantes para tu usuario."
-    >
+    <StaffAppShell activeHref="/notificaciones" sectionLabel="Portal Staff">
       <NotificationsHistoryClient notifications={notifications} />
-    </PortalShell>
+    </StaffAppShell>
   );
 }

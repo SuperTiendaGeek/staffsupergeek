@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getAirtableUsageReport, type AirtableUsageLevel } from "@/lib/admin/airtable-usage";
 import { getAdminSession } from "@/lib/admin-auth";
 
@@ -57,12 +57,7 @@ export default async function AirtableUsagePage() {
   const progressWidth = `${Math.min(100, Math.max(0, report.percentageUsed)).toFixed(2)}%`;
 
   return (
-    <PortalShell
-      eyebrow="Administración"
-      title="Uso de Airtable"
-      description="Monitoreo interno de records acumulados para evitar llegar al límite del plan Team."
-      activeHref="/admin/airtable-usage"
-    >
+    <StaffAppShell activeHref="/admin/airtable-usage" sectionLabel="Administración">
       <div className="space-y-3">
         <section className="rounded-xl border border-[#30312D] bg-[#151613] p-4 shadow-xl shadow-black/20">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -162,6 +157,6 @@ export default async function AirtableUsagePage() {
           </div>
         </section>
       </div>
-    </PortalShell>
+    </StaffAppShell>
   );
 }

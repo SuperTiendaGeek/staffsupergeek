@@ -1,5 +1,5 @@
 import { AppLauncher } from "@/components/AppLauncher";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getVisibleStaffApps } from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
 
@@ -8,11 +8,8 @@ export default async function DashboardPage() {
   const visibleApps = getVisibleStaffApps(session);
 
   return (
-    <PortalShell
-      eyebrow="Launcher interno"
-      title="SUPER GEEK"
-    >
+    <StaffAppShell activeHref="/dashboard" sectionLabel="Portal Staff">
       <AppLauncher apps={visibleApps} />
-    </PortalShell>
+    </StaffAppShell>
   );
 }

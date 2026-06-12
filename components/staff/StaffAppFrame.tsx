@@ -351,7 +351,7 @@ export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Sta
 
       <div className={cn("transition-[padding] duration-200 ease-out", sidebarPinned ? "xl:pl-64 2xl:pl-72" : "xl:pl-20")}>
         <header className="sticky top-0 z-20 border-b border-[#272824] bg-[#0B0C0E]/86 backdrop-blur-xl">
-          <div className="flex h-14 items-center justify-between gap-2 px-3 sm:px-4 lg:px-6 xl:px-7 2xl:px-9">
+          <div className="flex h-12 items-center justify-between gap-2 px-3 sm:px-4 lg:px-5 xl:px-5 2xl:px-6">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <Sheet>
                 <SheetTrigger asChild>
@@ -398,7 +398,7 @@ export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Sta
           </div>
         </header>
 
-        <section className="min-h-[calc(100vh-3.5rem)] px-3 py-3 sm:px-4 lg:px-6 xl:min-h-[calc(100vh-4rem)] xl:px-7 xl:py-4 2xl:px-9">
+        <section className="min-h-[calc(100vh-3rem)] px-3 py-2.5 sm:px-4 lg:px-5 xl:min-h-[calc(100vh-3rem)] xl:px-5 xl:py-3 2xl:px-6">
           {children}
         </section>
       </div>

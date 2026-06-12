@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { AdminUsersClient } from "@/components/admin/AdminUsersClient";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getAdminSession } from "@/lib/admin-auth";
 import { listPortalUsers } from "@/lib/airtable";
 import { staffApps } from "@/lib/apps";
@@ -20,16 +20,12 @@ export default async function AdminUsersPage() {
     .map((app) => app.permissionName);
 
   return (
-    <PortalShell
-      eyebrow="Administración"
-      title="Usuarios del portal"
-      description="Administra cuentas, permisos y estados de acceso del portal Staff SUPER GEEK."
-    >
+    <StaffAppShell activeHref="/admin/usuarios" sectionLabel="Administración">
       <AdminUsersClient
         initialUsers={users}
         availableApps={availableApps}
         currentUserId={session.user.userId}
       />
-    </PortalShell>
+    </StaffAppShell>
   );
 }

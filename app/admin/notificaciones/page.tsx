@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { AdminNotificacionesClient } from "@/components/admin/AdminNotificacionesClient";
-import { PortalShell } from "@/components/PortalShell";
+import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getAdminSession } from "@/lib/admin-auth";
 import { listPortalUsers } from "@/lib/airtable";
 import { obtenerNotificacionesAdmin } from "@/lib/notificaciones/airtable";
@@ -40,12 +40,8 @@ export default async function AdminNotificacionesPage({ searchParams }: PageProp
   ]);
 
   return (
-    <PortalShell
-      eyebrow="Administración"
-      title="Notificaciones"
-      description="Consulta y crea notificaciones internas para el equipo."
-    >
+    <StaffAppShell activeHref="/admin/notificaciones" sectionLabel="Administración">
       <AdminNotificacionesClient initialNotifications={notifications} users={users} />
-    </PortalShell>
+    </StaffAppShell>
   );
 }

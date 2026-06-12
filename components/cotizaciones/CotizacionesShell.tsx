@@ -11,7 +11,7 @@ export async function CotizacionesShell({ title, children, actions }: Props) {
 
   return (
     <StaffAppShell activeHref="/cotizaciones" sectionLabel="Cotizaciones">
-      <div className="space-y-4">
+      <div className="space-y-3">
         {showHeading || actions ? (
           <div className="flex flex-col gap-3 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
             {showHeading ? (

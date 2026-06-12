@@ -36,8 +36,8 @@ export function PedidosListClient({ initialItems }: Props) {
   }, [initialItems, search]);
 
   return (
-    <div className="space-y-5">
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="space-y-3">
+      <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
         <Metric label="Total pedidos" value={summary.total} />
         <Metric label="En tránsito" value={summary.transito} />
         <Metric label="Recibidos" value={summary.recibidos} />
@@ -45,8 +45,8 @@ export function PedidosListClient({ initialItems }: Props) {
         <Metric label="Pendientes de crear orden técnica" value={summary.pendientesOrden} />
       </section>
 
-      <section className="rounded-2xl border border-white/10 bg-[#181818] p-4 shadow-2xl shadow-black/25 sm:p-5">
-        <div className="flex h-12 items-center rounded-xl border border-zinc-800 bg-[#111] px-4 focus-within:border-geek-lime">
+      <section className="rounded-xl border border-white/10 bg-[#181818] p-3 shadow-2xl shadow-black/25">
+        <div className="flex h-9 items-center rounded-lg border border-zinc-800 bg-[#111] px-3 focus-within:border-geek-lime">
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -54,7 +54,7 @@ export function PedidosListClient({ initialItems }: Props) {
             className="h-full w-full bg-transparent text-sm text-white outline-none placeholder:text-zinc-500"
           />
         </div>
-        <div className="mt-5 overflow-hidden rounded-xl border border-white/10">
+        <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1580px] table-fixed divide-y divide-white/10 text-sm">
               <colgroup>
@@ -161,9 +161,9 @@ export function PedidosListClient({ initialItems }: Props) {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.045] p-4">
-      <p className="text-2xl font-bold text-white">{value}</p>
-      <p className="mt-1 text-xs font-semibold uppercase tracking-normal text-zinc-400">{label}</p>
+    <div className="rounded-lg border border-white/10 bg-white/[0.045] px-3 py-2">
+      <p className="text-lg font-bold text-white">{value}</p>
+      <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-normal text-zinc-400">{label}</p>
     </div>
   );
 }
