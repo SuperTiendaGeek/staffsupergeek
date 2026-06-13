@@ -39,7 +39,7 @@ export function StatusFilterDropdown({
   return (
     <div className={`w-full ${className}`} ref={ref}>
       {label && (
-        <span className="text-[11px] uppercase tracking-[0.08em] text-[#e3fc02] font-semibold">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#D7FF4F]">
           {label}
         </span>
       )}
@@ -48,13 +48,13 @@ export function StatusFilterDropdown({
         onClick={() => setOpen((v) => !v)}
         className={`${
           label ? "mt-2" : ""
-        } relative w-full rounded-lg border border-[#e3fc02] bg-[#121212] px-4 py-2.5 text-left text-sm font-semibold text-zinc-200 shadow-[0_10px_24px_rgba(0,0,0,0.35)] flex items-center justify-between transition hover:border-[#f3ff56] focus:outline-none focus:ring-2 focus:ring-[#e3fc02]/60 ${buttonClassName}`}
+        } relative flex w-full items-center justify-between rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-4 py-2.5 text-left text-sm font-semibold text-[#F5F5F5] shadow-[0_4px_12px_rgba(0,0,0,0.28)] transition hover:border-[#D7FF4F]/50 focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/40 ${buttonClassName}`}
       >
         <span className="truncate">{selectedLabel}</span>
         <svg
           aria-hidden="true"
           viewBox="0 0 20 20"
-          className={`h-4 w-4 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 text-[#A7A7A7] transition-transform ${open ? "rotate-180" : ""}`}
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
@@ -64,7 +64,7 @@ export function StatusFilterDropdown({
       </button>
       {open && (
         <div
-          className={`absolute z-40 mt-2 min-w-[220px] w-full max-w-[280px] overflow-hidden rounded-lg border border-zinc-800 bg-[#151515] shadow-[0_16px_34px_rgba(0,0,0,0.45)] ${dropdownClassName}`}
+          className={`absolute z-40 mt-1.5 w-full min-w-[220px] max-w-[280px] overflow-hidden rounded-lg border border-[#3A3A36] bg-[#252622] shadow-[0_12px_28px_rgba(0,0,0,0.40)] ${dropdownClassName}`}
         >
           <ul className="max-h-64 overflow-y-auto py-1">
             {options.map((opt) => {
@@ -77,10 +77,10 @@ export function StatusFilterDropdown({
                       onChange(opt.value);
                       setOpen(false);
                     }}
-                    className={`w-full text-left px-4 py-2.5 text-sm transition ${
+                    className={`w-full px-4 py-2.5 text-left text-sm transition ${
                       active
-                        ? "bg-[#1f1f1f] text-white border-l-2 border-[#e3fc02]"
-                        : "text-zinc-200 hover:bg-[#1d1d1d]"
+                        ? "border-l-2 border-[#D7FF4F] bg-[#2D2E2A] text-white"
+                        : "text-[#CFCFCB] hover:bg-[#2D2E2A] hover:text-[#F5F5F5]"
                     }`}
                   >
                     {opt.label}
