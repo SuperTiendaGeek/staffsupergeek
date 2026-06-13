@@ -746,23 +746,23 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="space-y-6">
         {error ? (
-          <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
             {error}
           </p>
         ) : null}
 
-        <section className="rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/25">
+        <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/25">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-normal text-geek-lime">{cotizacion.codigo}</p>
+              <p className="text-sm font-semibold uppercase tracking-normal text-[#D7FF4F]">{cotizacion.codigo}</p>
               <h2 className="mt-1 text-2xl font-semibold text-white">{cotizacion.productoSolicitado}</h2>
-              <p className="mt-2 text-sm text-zinc-300">{cotizacion.descripcionRequerimiento || "Sin descripción"}</p>
+              <p className="mt-2 text-sm text-[#CFCFCB]">{cotizacion.descripcionRequerimiento || "Sin descripción"}</p>
             </div>
             <select
               value={cotizacion.estado}
               onChange={(event) => updateEstado(event.target.value)}
               disabled={estadoSaving}
-              className="h-11 rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm font-semibold text-white outline-none focus:border-geek-lime disabled:opacity-60"
+              className="h-9 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70 disabled:opacity-60"
             >
               {ESTADOS_COTIZACION.map((item) => (
                 <option key={item} value={item}>
@@ -780,18 +780,18 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
         </section>
 
         {showAbonos ? (
-          <section className="rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/25">
+          <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/25">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-white">Abonos de cotización</h2>
-                <p className="mt-1 text-sm text-zinc-400">
+                <p className="mt-1 text-sm text-[#A7A7A7]">
                   Registra pagos o anticipos del cliente para esta cotización.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAbonoForm((current) => !current)}
-                className="rounded-xl border border-geek-lime bg-geek-lime px-4 py-2.5 text-sm font-extrabold text-black shadow-glow transition hover:brightness-95"
+                className="inline-flex h-9 items-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-bold text-[#10110E] transition hover:brightness-105"
               >
                 {showAbonoForm ? "Cerrar formulario" : "Registrar abono"}
               </button>
@@ -804,7 +804,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
             </div>
 
             {showAbonoForm ? (
-              <form onSubmit={addAbono} className="mt-5 rounded-xl border border-white/10 bg-[#111] p-4">
+              <form onSubmit={addAbono} className="mt-5 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field
                     label="Monto"
@@ -813,7 +813,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                     onChange={(value) => setAbonoForm((current) => ({ ...current, monto: value }))}
                   />
                   <label className="block">
-                    <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">
+                    <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">
                       Método de Pago
                     </span>
                     <select
@@ -821,7 +821,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                       onChange={(event) =>
                         setAbonoForm((current) => ({ ...current, metodoPago: event.target.value }))
                       }
-                      className="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime"
+                      className="mt-1.5 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
                     >
                       {METODOS_PAGO_ABONO_COTIZACION.map((metodo) => (
                         <option key={metodo} value={metodo}>
@@ -831,7 +831,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                     </select>
                   </label>
                   <label className="block">
-                    <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">
+                    <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">
                       Cuenta Destino
                     </span>
                     <select
@@ -839,7 +839,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                       onChange={(event) =>
                         setAbonoForm((current) => ({ ...current, cuentaDestino: event.target.value }))
                       }
-                      className="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime"
+                      className="mt-1.5 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
                     >
                       {CUENTAS_DESTINO_ABONO_COTIZACION.map((cuenta) => (
                         <option key={cuenta} value={cuenta}>
@@ -865,7 +865,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                   <button
                     type="submit"
                     disabled={abonoSaving}
-                    className="rounded-xl border border-geek-lime bg-geek-lime px-5 py-3 text-sm font-extrabold text-black transition hover:brightness-95 disabled:cursor-wait disabled:opacity-60"
+                    className="inline-flex h-9 items-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-bold text-[#10110E] transition hover:brightness-105 disabled:cursor-wait disabled:opacity-60"
                   >
                     {abonoSaving ? "Guardando..." : "Guardar abono"}
                   </button>
@@ -873,9 +873,9 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               </form>
             ) : null}
 
-            <div className="mt-5 hidden overflow-hidden rounded-xl border border-white/10 md:block">
-              <table className="w-full table-fixed divide-y divide-white/10 text-sm">
-                <thead className="bg-white/[0.035] text-left text-xs uppercase tracking-normal text-zinc-400">
+            <div className="mt-5 hidden overflow-hidden rounded-lg border border-[#3A3A36] md:block">
+              <table className="w-full table-fixed divide-y divide-[#3A3A36] text-sm">
+                <thead className="bg-[#30312D] text-left text-xs uppercase tracking-normal text-[#A7A7A7]">
                   <tr>
                     <th className="w-[16%] px-4 py-3">Fecha</th>
                     <th className="w-[12%] px-4 py-3 text-right">Monto</th>
@@ -885,12 +885,12 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                     <th className="w-[26%] px-4 py-3 text-right">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/10">
+                <tbody className="divide-y divide-[#3A3A36]">
                   {abonosRegistrados.map((abono) => {
                     const expanded = expandedAbonoId === abono.id;
                     const deleting = abonoDeletingId === abono.id;
                     return (
-                      <tr key={abono.id} className="align-middle text-zinc-300">
+                      <tr key={abono.id} className="align-middle text-[#CFCFCB]">
                         <td className="px-4 py-2.5">{formatStableDateTime(abono.fechaAbono)}</td>
                         <td className="px-4 py-2.5 text-right font-semibold text-white">{money(abono.monto)}</td>
                         <td className="px-4 py-2.5">{abono.metodoPago || "-"}</td>
@@ -909,14 +909,14 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                             <button
                               type="button"
                               onClick={() => setExpandedAbonoId((current) => (current === abono.id ? null : abono.id))}
-                              className="rounded-md border border-white/10 px-2 py-1.5 text-[11px] font-semibold leading-none text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime"
+                              className="rounded-md border border-[#3A3A36] px-2 py-1.5 text-[11px] font-semibold leading-none text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
                             >
                               Ver
                             </button>
                             <button
                               type="button"
                               onClick={() => printAbonoTicket(abono)}
-                              className="rounded-md border border-geek-lime/40 bg-geek-lime/10 px-2 py-1.5 text-[11px] font-semibold leading-none text-geek-lime transition hover:bg-geek-lime/20"
+                              className="rounded-md border border-[#D7FF4F]/40 bg-[#D7FF4F]/10 px-2 py-1.5 text-[11px] font-semibold leading-none text-[#D7FF4F] transition hover:bg-[#D7FF4F]/20"
                             >
                               Ticket
                             </button>
@@ -930,9 +930,9 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                             </button>
                           </div>
                           {expanded ? (
-                            <div className="mt-3 rounded-lg border border-white/10 bg-[#111] p-3 text-xs text-zinc-400">
-                              <p>Cuenta destino: <span className="text-zinc-200">{abono.cuentaDestino || "-"}</span></p>
-                              <p className="mt-1">Observación: <span className="text-zinc-200">{abono.observacion || "-"}</span></p>
+                            <div className="mt-3 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-3 text-xs text-[#A7A7A7]">
+                              <p>Cuenta destino: <span className="text-[#CFCFCB]">{abono.cuentaDestino || "-"}</span></p>
+                              <p className="mt-1">Observación: <span className="text-[#CFCFCB]">{abono.observacion || "-"}</span></p>
                             </div>
                           ) : null}
                         </td>
@@ -941,7 +941,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                   })}
                   {abonosRegistrados.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-zinc-400">
+                      <td colSpan={6} className="px-4 py-8 text-center text-[#A7A7A7]">
                         Todavía no hay abonos registrados.
                       </td>
                     </tr>
@@ -955,25 +955,25 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                 const expanded = expandedAbonoId === abono.id;
                 const deleting = abonoDeletingId === abono.id;
                 return (
-                  <article key={abono.id} className="rounded-xl border border-white/10 bg-[#111] p-4">
+                  <article key={abono.id} className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-xs uppercase tracking-normal text-zinc-500">
+                        <p className="text-xs uppercase tracking-normal text-[#A7A7A7]">
                           {formatStableDateTime(abono.fechaAbono)}
                         </p>
                         <p className="mt-1 text-2xl font-bold text-white">{money(abono.monto)}</p>
                       </div>
-                      <span className="rounded-full border border-geek-lime/30 bg-geek-lime/10 px-2 py-1 text-xs font-semibold text-geek-lime">
+                      <span className="rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-2 py-1 text-xs font-semibold text-[#D7FF4F]">
                         {abono.metodoPago || "Abono"}
                       </span>
                     </div>
-                    <div className="mt-3 grid gap-2 text-sm text-zinc-300">
-                      <p>Transacción: <span className="text-zinc-100">{abono.numeroTransaccion || "-"}</span></p>
-                      <p>Registrado por: <span className="text-zinc-100">{abono.registradoPor || "-"}</span></p>
+                    <div className="mt-3 grid gap-2 text-sm text-[#CFCFCB]">
+                      <p>Transacción: <span className="text-[#F5F5F5]">{abono.numeroTransaccion || "-"}</span></p>
+                      <p>Registrado por: <span className="text-[#F5F5F5]">{abono.registradoPor || "-"}</span></p>
                       {expanded ? (
                         <>
-                          <p>Cuenta destino: <span className="text-zinc-100">{abono.cuentaDestino || "-"}</span></p>
-                          <p>Observación: <span className="text-zinc-100">{abono.observacion || "-"}</span></p>
+                          <p>Cuenta destino: <span className="text-[#F5F5F5]">{abono.cuentaDestino || "-"}</span></p>
+                          <p>Observación: <span className="text-[#F5F5F5]">{abono.observacion || "-"}</span></p>
                         </>
                       ) : null}
                     </div>
@@ -981,14 +981,14 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                       <button
                         type="button"
                         onClick={() => setExpandedAbonoId((current) => (current === abono.id ? null : abono.id))}
-                        className="rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-200"
+                        className="rounded-lg border border-[#3A3A36] px-3 py-2 text-xs font-semibold text-[#CFCFCB]"
                       >
                         Detalle
                       </button>
                       <button
                         type="button"
                         onClick={() => printAbonoTicket(abono)}
-                        className="rounded-lg border border-geek-lime/40 bg-geek-lime/10 px-3 py-2 text-xs font-semibold text-geek-lime"
+                        className="rounded-lg border border-[#D7FF4F]/40 bg-[#D7FF4F]/10 px-3 py-2 text-xs font-semibold text-[#D7FF4F]"
                       >
                         Ticket
                       </button>
@@ -1005,7 +1005,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                 );
               })}
               {abonosRegistrados.length === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-[#111] px-4 py-8 text-center text-sm text-zinc-400">
+                <div className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-4 py-8 text-center text-sm text-[#A7A7A7]">
                   Todavía no hay abonos registrados.
                 </div>
               ) : null}
@@ -1013,7 +1013,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
           </section>
         ) : null}
 
-        <section className="rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/25">
+        <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/25">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold text-white">Opciones de cotización</h2>
             <div className="flex flex-col gap-2 sm:items-end">
@@ -1022,19 +1022,19 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                 target="_blank"
                 rel="noreferrer"
                 aria-disabled={!todasOpcionesWhatsAppUrl || opcionesDisponibles.length === 0}
-                className={`inline-flex justify-center rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                className={`inline-flex justify-center rounded-full border px-3 py-2 text-sm font-semibold transition ${
                   todasOpcionesWhatsAppUrl && opcionesDisponibles.length > 0
-                    ? "border-geek-lime bg-geek-lime text-black hover:brightness-95"
-                    : "pointer-events-none border-white/10 bg-[#111] text-zinc-500"
+                    ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E] hover:brightness-105"
+                    : "pointer-events-none border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7]"
                 }`}
               >
                 WhatsApp con todas las opciones
               </a>
               {!cotizacion.clienteTelefono ? (
-                <p className="text-xs text-zinc-500">No hay teléfono registrado para el cliente.</p>
+                <p className="text-xs text-[#A7A7A7]">No hay teléfono registrado para el cliente.</p>
               ) : null}
               {copiedMessage ? (
-                <p className="text-xs font-semibold text-geek-lime">{copiedMessage}</p>
+                <p className="text-xs font-semibold text-[#D7FF4F]">{copiedMessage}</p>
               ) : null}
             </div>
           </div>
@@ -1047,52 +1047,52 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               return (
                 <article
                   key={opcion.id}
-                  className="rounded-xl border border-white/10 bg-[#111] p-4"
+                  className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-4"
                 >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-semibold text-white">{opcion.nombre}</h3>
                       {opcion.seleccionadaPorCliente ? (
-                        <span className="rounded-full bg-geek-lime px-2 py-0.5 text-xs font-bold text-black">
+                        <span className="rounded-full bg-[#D7FF4F] px-2 py-0.5 text-xs font-bold text-[#10110E]">
                           Seleccionada
                         </span>
                       ) : null}
                     </div>
                     {opcion.notaParaCliente ? (
-                      <p className="mt-1 text-sm text-zinc-300">{opcion.notaParaCliente}</p>
+                      <p className="mt-1 text-sm text-[#CFCFCB]">{opcion.notaParaCliente}</p>
                     ) : null}
                     {opcion.urlProveedor ? (
                       <a
                         href={opcion.urlProveedor}
                         target="_blank"
                         rel="noreferrer"
-                        className="mt-2 inline-flex text-sm font-semibold text-geek-lime hover:underline"
+                        className="mt-2 inline-flex text-sm font-semibold text-[#D7FF4F] hover:underline"
                       >
                         Ver proveedor
                       </a>
                     ) : null}
-                    <p className="mt-2 text-xs font-semibold uppercase tracking-normal text-zinc-500">
+                    <p className="mt-2 text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">
                       Proveedor
                     </p>
-                    <p className="mt-1 text-sm text-zinc-300">{proveedorLabel(opcion)}</p>
+                    <p className="mt-1 text-sm text-[#CFCFCB]">{proveedorLabel(opcion)}</p>
                     {opcion.urlProveedor ? null : (
-                      <p className="mt-2 text-xs text-zinc-500">Sin URL de proveedor</p>
+                      <p className="mt-2 text-xs text-[#A7A7A7]">Sin URL de proveedor</p>
                     )}
                   </div>
                   <div className="text-left sm:text-right">
-                    <p className="text-xs uppercase tracking-normal text-zinc-500">Precio cliente</p>
+                    <p className="text-xs uppercase tracking-normal text-[#A7A7A7]">Precio cliente</p>
                     <p className="text-lg font-bold text-white">{money(opcion.precioVentaCliente)}</p>
                   </div>
                 </div>
 
                 {opcion.fotos.length > 0 ? (
                   <>
-                    <p className="mt-4 text-xs text-zinc-500">
+                    <p className="mt-4 text-xs text-[#A7A7A7]">
                       Las fotos deben adjuntarse manualmente en WhatsApp.
                     </p>
                     {imageCopyMessage ? (
-                      <p className="mt-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2 text-xs text-zinc-300">
+                      <p className="mt-2 rounded-lg border border-[#3A3A36] bg-[#30312D] px-3 py-2 text-xs text-[#CFCFCB]">
                         {imageCopyMessage}
                       </p>
                     ) : null}
@@ -1100,7 +1100,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                       {opcion.fotos.map((foto) => (
                         <div
                           key={foto.id || foto.url}
-                          className="overflow-hidden rounded-xl border border-white/10 bg-black"
+                          className="overflow-hidden rounded-lg border border-[#3A3A36] bg-[#1E1F1C]"
                         >
                           <a
                             href={foto.url}
@@ -1114,11 +1114,11 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                               className="aspect-square w-full object-cover transition group-hover:scale-105"
                             />
                           </a>
-                          <div className="grid grid-cols-2 gap-px border-t border-white/10 bg-white/10">
+                          <div className="grid grid-cols-2 gap-px border-t border-[#3A3A36] bg-[#3A3A36]">
                             <button
                               type="button"
                               onClick={() => copyOptionImage(foto.url)}
-                              className="bg-[#111] px-2 py-2 text-xs font-semibold text-zinc-200 transition hover:text-geek-lime"
+                              className="bg-[#1E1F1C] px-2 py-2 text-xs font-semibold text-[#CFCFCB] transition hover:text-[#D7FF4F]"
                             >
                               Copiar imagen
                             </button>
@@ -1126,7 +1126,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                               href={foto.url}
                               target="_blank"
                               rel="noreferrer"
-                              className="bg-[#111] px-2 py-2 text-center text-xs font-semibold text-zinc-200 transition hover:text-geek-lime"
+                              className="bg-[#1E1F1C] px-2 py-2 text-center text-xs font-semibold text-[#CFCFCB] transition hover:text-[#D7FF4F]"
                             >
                               Abrir imagen
                             </a>
@@ -1137,13 +1137,13 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                   </>
                 ) : null}
 
-                <div className="mt-4 grid gap-2 border-t border-white/10 pt-4 text-sm sm:grid-cols-3">
+                <div className="mt-4 grid gap-2 border-t border-[#3A3A36] pt-4 text-sm sm:grid-cols-3">
                   <Metric label="Tiempo estimado" value={opcion.tiempoEstimado || "-"} compact />
                   <Metric label="Estado" value={opcion.estado || "-"} compact />
                 </div>
 
                 {canSeeInternalCosts ? (
-                  <div className="mt-4 grid gap-2 border-t border-white/10 pt-4 text-sm sm:grid-cols-3">
+                  <div className="mt-4 grid gap-2 border-t border-[#3A3A36] pt-4 text-sm sm:grid-cols-3">
                     <Metric label="Costo proveedor" value={money(opcion.costoProveedor)} compact />
                     <Metric label="Precio venta" value={money(opcion.precioVentaCliente)} compact />
                     <Metric label="Ganancia" value={money(opcion.gananciaEstimada)} compact />
@@ -1162,10 +1162,10 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                     target="_blank"
                     rel="noreferrer"
                     aria-disabled={!optionWhatsAppUrl}
-                    className={`inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border px-3 text-sm font-semibold transition ${
+                    className={`inline-flex h-9 items-center justify-center whitespace-nowrap rounded-full border px-3 text-sm font-semibold transition ${
                       optionWhatsAppUrl
-                        ? "border-geek-lime bg-geek-lime text-black hover:brightness-95"
-                        : "pointer-events-none border-white/10 bg-[#181818] text-zinc-500"
+                        ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E] hover:brightness-105"
+                        : "pointer-events-none border-[#3A3A36] bg-[#252622] text-[#A7A7A7]"
                     }`}
                   >
                     WhatsApp
@@ -1173,14 +1173,14 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                   <button
                     type="button"
                     onClick={() => copyMessage(optionMessage, "Mensaje copiado.")}
-                    className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border border-white/10 px-3 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime"
+                    className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border border-[#3A3A36] px-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
                   >
                     Copiar
                   </button>
                   {opcion.fotos.length > 0 ? (
                     <a
                       href={`/api/cotizaciones/opciones/${opcion.id}/fotos.zip`}
-                      className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border border-white/10 px-3 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime"
+                      className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border border-[#3A3A36] px-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
                     >
                       Fotos
                     </a>
@@ -1190,7 +1190,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                     disabled={isOptionConverted(opcion)}
                     onClick={() => startEditingOption(opcion)}
                     title={isOptionConverted(opcion) ? "No se puede editar una opción convertida en pedido." : undefined}
-                    className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border border-white/10 px-3 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border border-[#3A3A36] px-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Editar
                   </button>
@@ -1203,7 +1203,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                     {deletingOptionId === opcion.id ? "Eliminando..." : "Eliminar"}
                   </button>
                   {opcion.seleccionadaPorCliente ? (
-                    <span className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border border-geek-lime/30 bg-geek-lime/10 px-3 text-sm font-semibold text-geek-lime">
+                    <span className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-3 text-sm font-semibold text-[#D7FF4F]">
                       Seleccionada
                     </span>
                   ) : (
@@ -1211,7 +1211,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                       type="button"
                       disabled={selectingId === opcion.id}
                       onClick={() => seleccionar(opcion)}
-                      className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border border-geek-lime/40 px-3 text-sm font-semibold text-geek-lime transition hover:bg-geek-lime/10 disabled:cursor-wait disabled:opacity-50"
+                      className="inline-flex h-10 items-center justify-center whitespace-nowrap rounded-lg border border-[#D7FF4F]/40 px-3 text-sm font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F]/10 disabled:cursor-wait disabled:opacity-50"
                     >
                       {selectingId === opcion.id ? "Marcando..." : "Seleccionar"}
                     </button>
@@ -1221,19 +1221,19 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               );
             })}
             {opciones.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-white/15 px-4 py-8 text-center text-sm text-zinc-400">
+              <p className="rounded-lg border border-dashed border-[#3A3A36] px-4 py-8 text-center text-sm text-[#A7A7A7]">
                 Todavía no hay opciones para esta cotización.
               </p>
             ) : null}
           </div>
         </section>
 
-        <form onSubmit={addOption} className="rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/25">
+        <form onSubmit={addOption} className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/25">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-semibold text-white">Agregar opción</h2>
           </div>
           {optionSuccess ? (
-            <p className="mt-3 rounded-xl border border-geek-lime/25 bg-geek-lime/10 px-3 py-2 text-sm text-geek-lime">
+            <p className="mt-3 rounded-lg border border-[#D7FF4F]/25 bg-[#D7FF4F]/10 px-3 py-2 text-sm text-[#D7FF4F]">
               {optionSuccess}
             </p>
           ) : null}
@@ -1272,7 +1272,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
             <button
               type="submit"
               disabled={optionSaving}
-              className="rounded-xl border border-geek-lime bg-geek-lime px-5 py-3 text-sm font-extrabold text-black shadow-glow transition hover:brightness-95 disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex h-9 items-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-bold text-[#10110E] transition hover:brightness-105 disabled:cursor-wait disabled:opacity-60"
             >
               {optionSaving && !editingOptionId ? "Guardando..." : "+ Agregar opción"}
             </button>
@@ -1282,31 +1282,31 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
 
       <aside className="space-y-4">
         {showAbonos ? (
-          <section className="rounded-2xl border border-white/10 bg-white/[0.045] p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-normal text-zinc-400">Pedido</h2>
+          <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5">
+            <h2 className="text-sm font-semibold uppercase tracking-normal text-[#A7A7A7]">Pedido</h2>
             {cotizacion.itemPedidoId ? (
-              <div className="mt-3 rounded-xl border border-geek-lime/25 bg-geek-lime/10 p-3 text-sm">
-                <p className="font-semibold text-geek-lime">Pedido creado</p>
-                <p className="mt-1 text-zinc-200">Pedido generado: {cotizacion.itemPedidoId}</p>
+              <div className="mt-3 rounded-lg border border-[#D7FF4F]/25 bg-[#D7FF4F]/10 p-3 text-sm">
+                <p className="font-semibold text-[#D7FF4F]">Pedido creado</p>
+                <p className="mt-1 text-[#CFCFCB]">Pedido generado: {cotizacion.itemPedidoId}</p>
                 <Link
                   href={`/pedidos/${cotizacion.itemPedidoId}`}
-                  className="mt-3 inline-flex w-full justify-center rounded-xl border border-geek-lime bg-geek-lime px-4 py-2.5 text-sm font-extrabold text-black transition hover:brightness-95"
+                  className="mt-3 inline-flex w-full justify-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#10110E] transition hover:brightness-105"
                 >
                   Ver pedido
                 </Link>
               </div>
             ) : (
-              <p className="mt-3 text-sm leading-6 text-zinc-300">
+              <p className="mt-3 text-sm leading-6 text-[#CFCFCB]">
                 Convierte esta cotización en un Item cuando el cliente haya elegido una opción y exista al menos un abono registrado.
               </p>
             )}
             {pedidoMessage ? (
-              <p className="mt-3 rounded-xl border border-geek-lime/25 bg-geek-lime/10 px-3 py-2 text-sm text-geek-lime">
+              <p className="mt-3 rounded-lg border border-[#D7FF4F]/25 bg-[#D7FF4F]/10 px-3 py-2 text-sm text-[#D7FF4F]">
                 {pedidoMessage}
               </p>
             ) : null}
             {!canConvertPedido ? (
-              <p className="mt-3 rounded-xl border border-white/10 bg-[#111] px-3 py-2 text-sm text-zinc-300">
+              <p className="mt-3 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#CFCFCB]">
                 {convertBlockReason}
               </p>
             ) : null}
@@ -1314,10 +1314,10 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               type="button"
               disabled={!canConvertPedido || convertingPedido}
               onClick={openSkuModal}
-              className={`mt-4 w-full rounded-xl border px-4 py-3 text-sm font-extrabold transition ${
+              className={`mt-4 w-full rounded-full border px-4 py-2.5 text-sm font-bold transition ${
                 canConvertPedido
-                  ? "border-geek-lime bg-geek-lime text-black shadow-glow hover:brightness-95"
-                  : "cursor-not-allowed border-white/10 bg-[#111] text-zinc-500"
+                  ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E] hover:brightness-105"
+                  : "cursor-not-allowed border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7]"
               } disabled:opacity-70`}
             >
               {convertingPedido ? "Convirtiendo..." : "Convertir en pedido"}
@@ -1325,30 +1325,30 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
           </section>
         ) : null}
 
-        <section className="rounded-2xl border border-white/10 bg-white/[0.045] p-5">
-          <h2 className="text-sm font-semibold uppercase tracking-normal text-zinc-400">Cliente</h2>
+        <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-normal text-[#A7A7A7]">Cliente</h2>
           <div className="mt-4 space-y-2 text-sm">
             <p className="text-lg font-semibold text-white">{cotizacion.clienteNombre}</p>
-            <p className="text-zinc-300">{cotizacion.clienteTelefono || "Sin teléfono"}</p>
-            <p className="text-zinc-300">{cotizacion.clienteEmail || "Sin email"}</p>
-            <p className="text-zinc-300">{cotizacion.clienteCedula || "Sin cédula"}</p>
+            <p className="text-[#CFCFCB]">{cotizacion.clienteTelefono || "Sin teléfono"}</p>
+            <p className="text-[#CFCFCB]">{cotizacion.clienteEmail || "Sin email"}</p>
+            <p className="text-[#CFCFCB]">{cotizacion.clienteCedula || "Sin cédula"}</p>
           </div>
           <a
             href={whatsappUrl ?? undefined}
             target="_blank"
             rel="noreferrer"
-            className={`mt-5 inline-flex w-full items-center justify-center rounded-xl border px-4 py-3 text-sm font-bold transition ${
+            className={`mt-4 inline-flex w-full items-center justify-center rounded-full border px-4 py-2.5 text-sm font-bold transition ${
               whatsappUrl
-                ? "border-geek-lime bg-geek-lime text-black hover:brightness-95"
-                : "pointer-events-none border-zinc-800 bg-zinc-900 text-zinc-500"
+                ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E] hover:brightness-105"
+                : "pointer-events-none border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7]"
             }`}
           >
             WhatsApp
           </a>
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-white/[0.045] p-5 text-sm">
-          <h2 className="text-sm font-semibold uppercase tracking-normal text-zinc-400">Datos internos</h2>
+        <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 text-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-normal text-[#A7A7A7]">Datos internos</h2>
           <dl className="mt-4 space-y-3">
             <Row label="Categoría" value={cotizacion.categoria} />
             <Row label="Requiere instalación" value={cotizacion.requiereInstalacion ? "Sí" : "No"} />
@@ -1360,25 +1360,25 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
     </div>
     {editingOption ? (
       <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-6 backdrop-blur-sm">
-        <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/40">
+        <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/40">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-xl font-semibold text-white">Editar opción</h2>
-              <p className="mt-2 text-sm leading-6 text-zinc-400">
+              <p className="mt-2 text-sm leading-6 text-[#A7A7A7]">
                 Los cambios se aplican solo a esta opción de cotización.
               </p>
             </div>
             <button
               type="button"
               onClick={cancelEditingOption}
-              className="rounded-xl border border-white/10 px-3 py-2 text-sm font-semibold text-zinc-300 transition hover:border-geek-lime/40 hover:text-geek-lime"
+              className="rounded-lg border border-[#3A3A36] px-3 py-2 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
             >
               Cerrar
             </button>
           </div>
 
-          <div className="mt-5 rounded-xl border border-white/10 bg-[#111] p-4">
-            <p className="text-xs font-semibold uppercase tracking-normal text-zinc-500">Fotos actuales</p>
+          <div className="mt-5 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-4">
+            <p className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Fotos actuales</p>
             <input
               ref={editFotosInputRef}
               type="file"
@@ -1394,7 +1394,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               {editingFotosExistentes.map((foto) => (
                 <div
                   key={foto.id || foto.url}
-                  className="overflow-hidden rounded-xl border border-white/10 bg-black"
+                  className="overflow-hidden rounded-lg border border-[#3A3A36] bg-[#1E1F1C]"
                 >
                   <a
                     href={foto.url}
@@ -1408,7 +1408,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                       className="aspect-square w-full object-cover"
                     />
                   </a>
-                  <div className="grid grid-cols-2 gap-px border-t border-white/10 bg-white/10">
+                  <div className="grid grid-cols-2 gap-px border-t border-[#3A3A36] bg-[#3A3A36]">
                     <button
                       type="button"
                       onClick={() =>
@@ -1416,7 +1416,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                           current.filter((item) => (item.id || item.url) !== (foto.id || foto.url))
                         )
                       }
-                      className="bg-[#111] px-2 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-500/10"
+                      className="bg-[#1E1F1C] px-2 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-500/10"
                     >
                       Eliminar
                     </button>
@@ -1424,7 +1424,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                       href={foto.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="bg-[#111] px-2 py-2 text-center text-xs font-semibold text-zinc-200 transition hover:text-geek-lime"
+                      className="bg-[#1E1F1C] px-2 py-2 text-center text-xs font-semibold text-[#CFCFCB] transition hover:text-[#D7FF4F]"
                     >
                       Abrir
                     </a>
@@ -1434,7 +1434,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               {optionFotoPreviews.map((preview, index) => (
                 <div
                   key={`${preview.file.name}-${index}`}
-                  className="overflow-hidden rounded-xl border border-geek-lime/30 bg-black"
+                  className="overflow-hidden rounded-lg border border-[#D7FF4F]/30 bg-[#1E1F1C]"
                 >
                   <img
                     src={preview.url}
@@ -1444,7 +1444,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                   <button
                     type="button"
                     onClick={() => removeNewOptionFoto(index)}
-                    className="w-full border-t border-geek-lime/20 bg-[#111] px-2 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-500/10"
+                    className="w-full border-t border-[#D7FF4F]/20 bg-[#1E1F1C] px-2 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-500/10"
                   >
                     Quitar
                   </button>
@@ -1453,14 +1453,14 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               <button
                 type="button"
                 onClick={() => editFotosInputRef.current?.click()}
-                className="flex aspect-square flex-col items-center justify-center rounded-xl border border-dashed border-geek-lime/50 bg-geek-lime/5 text-geek-lime transition hover:border-geek-lime hover:bg-geek-lime/10"
+                className="flex aspect-square flex-col items-center justify-center rounded-lg border border-dashed border-[#D7FF4F]/50 bg-[#D7FF4F]/5 text-[#D7FF4F] transition hover:border-[#D7FF4F] hover:bg-[#D7FF4F]/10"
               >
                 <span className="text-4xl font-light leading-none">+</span>
                 <span className="mt-2 text-xs font-bold uppercase tracking-normal">Agregar fotos</span>
               </button>
             </div>
             {editingFotosExistentes.length === 0 && optionFotoPreviews.length === 0 ? (
-              <p className="mt-2 text-sm text-zinc-400">No quedarán fotos al guardar.</p>
+              <p className="mt-2 text-sm text-[#A7A7A7]">No quedarán fotos al guardar.</p>
             ) : null}
           </div>
 
@@ -1499,14 +1499,14 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               <button
                 type="button"
                 onClick={cancelEditingOption}
-                className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime"
+                className="rounded-lg border border-[#3A3A36] px-4 py-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
                 disabled={optionSaving}
-                className="rounded-xl border border-geek-lime bg-geek-lime px-5 py-3 text-sm font-extrabold text-black shadow-glow transition hover:brightness-95 disabled:cursor-wait disabled:opacity-60"
+                className="inline-flex h-9 items-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-bold text-[#10110E] transition hover:brightness-105 disabled:cursor-wait disabled:opacity-60"
               >
                 {optionSaving ? "Guardando..." : "Guardar cambios"}
               </button>
@@ -1517,16 +1517,16 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
     ) : null}
     {confirmAbono ? (
       <div className="fixed inset-0 z-50 grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true">
-        <section className="w-full max-w-md rounded-2xl border border-red-400/25 bg-[#181818] p-5 shadow-2xl shadow-black/40">
+        <section className="w-full max-w-md rounded-[1rem] border border-red-400/25 bg-[#252622] p-5 shadow-2xl shadow-black/40">
           <h2 className="text-xl font-semibold text-white">Anular abono</h2>
-          <p className="mt-3 text-sm leading-6 text-zinc-300">
+          <p className="mt-3 text-sm leading-6 text-[#CFCFCB]">
             ¿Seguro que deseas anular este abono de{" "}
             <span className="font-bold text-white">{money(confirmAbono.monto)}</span>? Esta acción no debe usarse si el pago ya fue confirmado contablemente.
           </p>
-          <p className="mt-2 text-xs leading-5 text-zinc-500">
+          <p className="mt-2 text-xs leading-5 text-[#A7A7A7]">
             Si Airtable todavía no tiene el campo Estado del Abono, el sistema lo eliminará como fallback temporal.
           </p>
-          <div className="mt-4 rounded-xl border border-white/10 bg-[#111] p-3 text-sm text-zinc-300">
+          <div className="mt-4 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-3 text-sm text-[#CFCFCB]">
             <p>Cliente: <span className="text-white">{cotizacion.clienteNombre || confirmAbono.clienteNombre}</span></p>
             <p className="mt-1">Fecha: <span className="text-white">{formatStableDateTime(confirmAbono.fechaAbono)}</span></p>
           </div>
@@ -1535,7 +1535,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               type="button"
               disabled={abonoDeletingId === confirmAbono.id}
               onClick={() => setConfirmAbono(null)}
-              className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime disabled:opacity-60"
+              className="rounded-lg border border-[#3A3A36] px-4 py-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F] disabled:opacity-60"
             >
               Cancelar
             </button>
@@ -1543,7 +1543,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               type="button"
               disabled={abonoDeletingId === confirmAbono.id}
               onClick={() => deleteAbono(confirmAbono)}
-              className="rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-60"
+              className="rounded-lg border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-60"
             >
               {abonoDeletingId === confirmAbono.id ? "Procesando..." : "Confirmar anulación"}
             </button>
@@ -1553,24 +1553,24 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
     ) : null}
     {showSkuModal ? (
       <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-6 backdrop-blur-sm">
-        <section className="w-full max-w-2xl rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/40">
+        <section className="w-full max-w-2xl rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/40">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-xl font-semibold text-white">Asignar SKU al pedido</h2>
-              <p className="mt-2 text-sm leading-6 text-zinc-400">
+              <p className="mt-2 text-sm leading-6 text-[#A7A7A7]">
                 Este pedido necesita un SKU interno único para control de inventario.
               </p>
             </div>
             <button
               type="button"
               onClick={() => setShowSkuModal(false)}
-              className="rounded-xl border border-white/10 px-3 py-2 text-sm font-semibold text-zinc-300 transition hover:border-geek-lime/40 hover:text-geek-lime"
+              className="rounded-lg border border-[#3A3A36] px-3 py-2 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
             >
               Cerrar
             </button>
           </div>
 
-          <div className="mt-5 grid gap-3 rounded-xl border border-white/10 bg-[#111] p-4 text-sm sm:grid-cols-2">
+          <div className="mt-5 grid gap-3 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-4 text-sm sm:grid-cols-2">
             <Row label="Producto / artículo" value={selectedOption?.nombre || cotizacion.productoSolicitado} />
             <Row label="Categoría" value={cotizacion.categoria || "-"} />
             <Row
@@ -1600,7 +1600,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
           </div>
 
           {skuMessage ? (
-            <p className={`mt-4 rounded-xl border px-4 py-3 text-sm ${skuAvailable ? "border-geek-lime/30 bg-geek-lime/10 text-geek-lime" : "border-red-500/30 bg-red-500/10 text-red-200"}`}>
+            <p className={`mt-4 rounded-lg border px-4 py-3 text-sm ${skuAvailable ? "border-[#D7FF4F]/30 bg-[#D7FF4F]/10 text-[#D7FF4F]" : "border-red-500/30 bg-red-500/10 text-red-200"}`}>
               {skuMessage}
             </p>
           ) : null}
@@ -1610,7 +1610,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               type="button"
               disabled={skuChecking || !skuInterno.trim()}
               onClick={validarSku}
-              className="rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg border border-[#3A3A36] px-4 py-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {skuChecking ? "Validando..." : "Validar SKU"}
             </button>
@@ -1618,7 +1618,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               type="button"
               disabled={skuGenerating}
               onClick={generarSku}
-              className="rounded-xl border border-geek-lime/40 px-4 py-3 text-sm font-semibold text-geek-lime transition hover:bg-geek-lime/10 disabled:cursor-wait disabled:opacity-60"
+              className="rounded-lg border border-[#D7FF4F]/40 px-4 py-3 text-sm font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F]/10 disabled:cursor-wait disabled:opacity-60"
             >
               {skuGenerating ? "Generando..." : "Generar SKU"}
             </button>
@@ -1626,7 +1626,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               type="button"
               disabled={convertingPedido || !skuInterno.trim()}
               onClick={convertirPedido}
-              className="rounded-xl border border-geek-lime bg-geek-lime px-4 py-3 text-sm font-extrabold text-black transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-3 text-sm font-bold text-[#10110E] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {convertingPedido ? "Convirtiendo..." : "Convertir en pedido"}
             </button>
@@ -1640,27 +1640,27 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
 
 function Metric({ label, value, compact = false }: { label: string; value: string; compact?: boolean }) {
   return (
-    <div className={compact ? "" : "rounded-xl border border-white/10 bg-[#111] p-4"}>
-      <p className="text-xs uppercase tracking-normal text-zinc-500">{label}</p>
-      <p className={`${compact ? "text-sm" : "text-xl"} mt-1 font-bold text-white`}>{value}</p>
+    <div className={compact ? "" : "rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-3"}>
+      <p className="text-xs uppercase tracking-normal text-[#A7A7A7]">{label}</p>
+      <p className={`${compact ? "text-sm" : "text-xl"} mt-1 font-bold text-[#F5F5F5]`}>{value}</p>
     </div>
   );
 }
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-4 border-b border-white/10 pb-2">
-      <dt className="text-zinc-500">{label}</dt>
-      <dd className="text-right text-zinc-200">{value || "-"}</dd>
+    <div className="flex justify-between gap-4 border-b border-[#3A3A36] pb-2">
+      <dt className="text-[#A7A7A7]">{label}</dt>
+      <dd className="text-right text-[#F5F5F5]">{value || "-"}</dd>
     </div>
   );
 }
 
 function NoteBox({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
-      <p className="text-xs font-semibold uppercase tracking-normal text-zinc-500">{label}</p>
-      <p className="mt-1 whitespace-pre-wrap text-zinc-300">{value}</p>
+    <div className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-3">
+      <p className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</p>
+      <p className="mt-1 whitespace-pre-wrap text-[#CFCFCB]">{value}</p>
     </div>
   );
 }
@@ -1670,10 +1670,10 @@ function DisabledNextButton({ label }: { label: string }) {
     <button
       type="button"
       disabled
-      className="min-w-40 rounded-xl border border-white/10 bg-[#111] px-4 py-3 text-left text-sm font-semibold text-zinc-500 disabled:cursor-not-allowed"
+      className="min-w-40 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3 text-left text-sm font-semibold text-[#A7A7A7] disabled:cursor-not-allowed"
     >
-      <span className="block text-zinc-300">{label}</span>
-      <span className="mt-1 block text-[11px] font-bold uppercase tracking-normal text-geek-lime/70">
+      <span className="block text-[#CFCFCB]">{label}</span>
+      <span className="mt-1 block text-[11px] font-bold uppercase tracking-normal text-[#D7FF4F]/70">
         Próxima fase
       </span>
     </button>
@@ -1683,16 +1683,16 @@ function DisabledNextButton({ label }: { label: string }) {
 function FileField({ files, onChange }: { files: File[]; onChange: (files: File[]) => void }) {
   return (
     <label className="block sm:col-span-2">
-      <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">Fotos</span>
+      <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Fotos</span>
       <input
         type="file"
         accept="image/*"
         multiple
         onChange={(event) => onChange(Array.from(event.target.files ?? []))}
-        className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 py-3 text-sm text-white file:mr-4 file:rounded-lg file:border-0 file:bg-geek-lime file:px-3 file:py-2 file:text-sm file:font-bold file:text-black"
+        className="mt-1.5 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] file:mr-3 file:rounded-lg file:border-0 file:bg-[#D7FF4F] file:px-3 file:py-1.5 file:text-sm file:font-bold file:text-[#10110E]"
       />
       {files.length > 0 ? (
-        <p className="mt-2 text-xs text-zinc-400">
+        <p className="mt-1.5 text-xs text-[#A7A7A7]">
           {files.length === 1 ? files[0].name : `${files.length} imágenes seleccionadas`}
         </p>
       ) : null}
@@ -1713,13 +1713,13 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">{label}</span>
+      <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
       <input
         type={type}
         step={type === "number" ? "0.01" : undefined}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime"
+        className="mt-1.5 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
       />
     </label>
   );
@@ -1738,11 +1738,11 @@ function SelectField({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">{label}</span>
+      <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime"
+        className="mt-1.5 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
       >
         {children}
       </select>
@@ -1753,12 +1753,12 @@ function SelectField({
 function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block sm:col-span-2">
-      <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">{label}</span>
+      <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         rows={3}
-        className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 py-3 text-sm text-white outline-none focus:border-geek-lime"
+        className="mt-1.5 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
       />
     </label>
   );
