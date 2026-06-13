@@ -3326,11 +3326,11 @@ export function OrdenDetalleClient() {
             )}
 
             {viewerAttachment && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm px-4">
-                <div className="relative w-full max-w-[1800px] rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl">
-                  <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+                <div className="relative w-full max-w-[1800px] rounded-xl border border-[#3A3A36] bg-[#1E1F1C] shadow-2xl">
+                  <div className="flex items-center justify-between gap-3 border-b border-[#3A3A36] px-4 py-3">
                     <div className="min-w-0">
-                      <p className="text-xs uppercase tracking-wide text-zinc-400">Comprobante</p>
+                      <p className="text-xs uppercase tracking-wide text-[#A7A7A7]">Comprobante</p>
                       <p className="truncate text-sm font-semibold text-white" title={viewerAttachmentName}>
                         {viewerAttachmentName}
                       </p>
@@ -3341,7 +3341,7 @@ export function OrdenDetalleClient() {
                         onClick={() => {
                           void downloadAttachment(viewerAttachment);
                         }}
-                        className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:text-white hover:border-zinc-600"
+                        className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
                       >
                         Descargar
                       </button>
@@ -3356,7 +3356,7 @@ export function OrdenDetalleClient() {
                             );
                           }}
                           disabled={isViewerAttachmentDeleting}
-                          className="rounded-md border border-red-500/70 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 hover:text-red-100 disabled:opacity-60"
+                          className="rounded-full border border-red-500/70 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 hover:text-red-100 disabled:opacity-60"
                         >
                           {isViewerAttachmentDeleting ? "Eliminando..." : "Eliminar"}
                         </button>
@@ -3364,7 +3364,7 @@ export function OrdenDetalleClient() {
                       <button
                         type="button"
                         onClick={closeComprobanteViewer}
-                        className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white hover:border-zinc-600"
+                        className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#F5F5F5]"
                       >
                         Cerrar
                       </button>
@@ -3372,8 +3372,8 @@ export function OrdenDetalleClient() {
                   </div>
                   <div className="relative px-4 py-4">
                     {comprobanteViewerLoading && (
-                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-950/80">
-                        <span className="h-6 w-6 animate-spin rounded-full border border-[#e3fc02]/70 border-t-transparent" />
+                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#1E1F1C]/80">
+                        <span className="h-6 w-6 animate-spin rounded-full border border-[#D7FF4F]/70 border-t-transparent" />
                       </div>
                     )}
                     {comprobanteViewerError && (
@@ -3382,7 +3382,7 @@ export function OrdenDetalleClient() {
                       </p>
                     )}
                     {viewerAttachmentIsImage && (
-                      <div className="max-h-[78vh] overflow-auto rounded-md border border-zinc-800 bg-black/30">
+                      <div className="max-h-[78vh] overflow-auto rounded-md border border-[#3A3A36] bg-black/30">
                         <Image
                           src={comprobanteViewerResolvedUrl || viewerAttachment.url}
                           alt={viewerAttachmentName}
@@ -3401,7 +3401,7 @@ export function OrdenDetalleClient() {
                       </div>
                     )}
                     {viewerAttachmentIsPdf && (
-                      <div className="h-[78vh] overflow-hidden rounded-md border border-zinc-800 bg-zinc-900">
+                      <div className="h-[78vh] overflow-hidden rounded-md border border-[#3A3A36] bg-[#252622]">
                         <object
                           data={comprobanteViewerResolvedUrl || viewerAttachment.url}
                           type="application/pdf"
@@ -3418,7 +3418,7 @@ export function OrdenDetalleClient() {
                       </div>
                     )}
                     {!viewerAttachmentIsImage && !viewerAttachmentIsPdf && (
-                      <div className="rounded-md border border-zinc-800 bg-zinc-900/70 px-3 py-4 text-sm text-zinc-300">
+                      <div className="rounded-md border border-[#3A3A36] bg-[#252622]/70 px-3 py-4 text-sm text-[#CFCFCB]">
                         Este archivo no tiene vista previa embebida.
                       </div>
                     )}
