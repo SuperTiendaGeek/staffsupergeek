@@ -147,7 +147,7 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
                         </DataGridLinkCell>
                       </td>
                       <td>
-                        <DataGridLinkCell href={href} title={item.estado} className="text-geek-lime">
+                        <DataGridLinkCell href={href} title={item.estado} className="text-[#D7FF4F]">
                           <span className={`${dataGridBadgeClass} border-[#D7FF4F]/25 bg-[#D7FF4F]/10 text-[#D7FF4F]`}>
                             <span className="min-w-0 truncate">{item.estado || "-"}</span>
                           </span>

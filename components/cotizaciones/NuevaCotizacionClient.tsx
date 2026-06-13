@@ -232,7 +232,7 @@ export function NuevaCotizacionClient() {
                 type="checkbox"
                 checked={requiereInstalacion}
                 onChange={(event) => setRequiereInstalacion(event.target.checked)}
-                className="h-4 w-4 accent-geek-lime"
+                className="h-4 w-4 accent-[#D7FF4F]"
               />
               Requiere instalación
             </label>
@@ -255,7 +255,7 @@ export function NuevaCotizacionClient() {
               type="checkbox"
               checked={equipoYaEstaEnTienda}
               onChange={(event) => setEquipoYaEstaEnTienda(event.target.checked)}
-              className="h-4 w-4 accent-geek-lime"
+              className="h-4 w-4 accent-[#D7FF4F]"
             />
             Equipo ya está en tienda
           </label>
