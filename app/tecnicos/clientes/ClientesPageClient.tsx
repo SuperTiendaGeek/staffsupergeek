@@ -211,17 +211,17 @@ export function ClientesPageClient() {
   return (
     <div className={`${styles.theme} grid gap-6 xl:grid-cols-[minmax(0,4fr)_minmax(300px,1.1fr)]`}>
       <div className="w-full space-y-4">
-        <section className="w-full space-y-4 rounded-2xl border border-zinc-900/70 bg-[#181818] p-6 shadow-[0_18px_40px_rgba(0,0,0,0.45)]">
+        <section className="w-full space-y-4 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
           <div className="grid w-full items-end gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-4">
             <label className="w-full">
-              <span className="text-xs font-semibold uppercase tracking-wide text-[#e3fc02]">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[#D7FF4F]">
                 Buscar en todos los clientes
               </span>
-              <div className="mt-2 flex items-center gap-3 rounded-lg border border-[#e3fc02] bg-[#121212] px-4 py-3 text-sm text-zinc-200 shadow-[0_6px_18px_rgba(0,0,0,0.35)]">
+              <div className="mt-2 flex h-9 items-center gap-3 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] transition focus-within:border-[#D7FF4F]/70">
                 <svg
                   aria-hidden="true"
                   viewBox="0 0 20 20"
-                  className="h-4 w-4 text-zinc-500"
+                  className="h-4 w-4 shrink-0 text-[#A7A7A7]"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
@@ -233,7 +233,7 @@ export function ClientesPageClient() {
                   placeholder="Cliente, cédula, teléfono o correo"
                   value={searchTerm}
                   onChange={(event) => handleSearchChange(event.target.value)}
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-zinc-500"
+                  className="h-full w-full bg-transparent text-sm outline-none placeholder:text-[#A7A7A7]/50"
                 />
               </div>
             </label>
@@ -241,13 +241,13 @@ export function ClientesPageClient() {
             <button
               type="button"
               onClick={() => setOpenNuevoClienteModal(true)}
-              className="inline-flex h-[54px] items-center justify-center whitespace-nowrap rounded-lg bg-[#e3fc02] px-5 text-sm font-semibold text-black shadow-[0_10px_20px_rgba(227,252,2,0.25)] transition hover:brightness-95"
+              className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-5 text-sm font-bold text-[#10110E] transition hover:brightness-105"
             >
               + Nuevo cliente
             </button>
           </div>
 
-          {loading && <div className="text-sm text-zinc-300">Cargando clientes...</div>}
+          {loading && <div className="text-sm text-[#CFCFCB]">Cargando clientes...</div>}
           {error && (
             <div className="text-sm text-red-400">
               Ocurrió un problema al cargar los clientes: {error}
@@ -257,12 +257,12 @@ export function ClientesPageClient() {
           {!loading && !error && (
             <>
               {clientes.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-[var(--sg-border)] bg-[#151515] px-4 py-6 text-sm text-zinc-300">
+                <div className="rounded-lg border border-dashed border-[#3A3A36] bg-[#1E1F1C] px-4 py-6 text-sm text-[#A7A7A7]">
                   No se encontraron clientes con esa búsqueda.
                 </div>
               ) : (
-                <div className="w-full overflow-x-auto rounded-xl border border-zinc-900/80 bg-[#151515]">
-                  <div className="grid min-w-[980px] grid-cols-[minmax(0,1.4fr)_minmax(120px,0.9fr)_minmax(120px,0.9fr)_minmax(0,1.4fr)_110px_minmax(120px,0.9fr)_90px] border-b border-zinc-900/80 bg-[#0f0f0f]/70 px-6 py-3 text-[12px] uppercase tracking-wide text-zinc-500">
+                <div className="w-full overflow-x-auto rounded-lg border border-[#3A3A36] bg-[#252622]">
+                  <div className="grid min-w-[980px] grid-cols-[minmax(0,1.4fr)_minmax(120px,0.9fr)_minmax(120px,0.9fr)_minmax(0,1.4fr)_110px_minmax(120px,0.9fr)_90px] border-b border-[#3A3A36] bg-[#30312D] px-6 py-3 text-[12px] uppercase tracking-wide text-[#A7A7A7]">
                     <span>Nombre</span>
                     <span>Teléfono</span>
                     <span>Cédula</span>
@@ -271,32 +271,30 @@ export function ClientesPageClient() {
                     <span>Última orden</span>
                     <span className="text-right">Acción</span>
                   </div>
-                  <div className="divide-y divide-zinc-900/80">
-                    {clientes.map((cliente, idx) => (
+                  <div className="divide-y divide-[#3A3A36]">
+                    {clientes.map((cliente) => (
                       <div
                         key={cliente.id}
-                        className={`grid min-w-[980px] grid-cols-[minmax(0,1.4fr)_minmax(120px,0.9fr)_minmax(120px,0.9fr)_minmax(0,1.4fr)_110px_minmax(120px,0.9fr)_90px] items-center px-6 py-3 text-sm text-zinc-200 transition ${
-                          idx % 2 === 0 ? "bg-[#161616]" : "bg-[#1a1a1a]"
-                        } hover:bg-[#1d1d1d]`}
+                        className="grid min-w-[980px] grid-cols-[minmax(0,1.4fr)_minmax(120px,0.9fr)_minmax(120px,0.9fr)_minmax(0,1.4fr)_110px_minmax(120px,0.9fr)_90px] items-center bg-[#252622] px-6 py-3 text-sm text-[#CFCFCB] transition hover:bg-[#2D2E2A]"
                       >
-                        <span className="truncate font-semibold text-zinc-100">
+                        <span className="truncate font-semibold text-white">
                           {cliente.nombre || "Cliente sin nombre"}
                         </span>
-                        <span className="truncate text-zinc-300">{cliente.telefono || "-"}</span>
-                        <span className="truncate text-zinc-300">{cliente.cedula || "-"}</span>
-                        <span className="truncate text-zinc-300" title={cliente.correo || "-"}>
+                        <span className="truncate text-[#CFCFCB]">{cliente.telefono || "-"}</span>
+                        <span className="truncate text-[#CFCFCB]">{cliente.cedula || "-"}</span>
+                        <span className="truncate text-[#CFCFCB]" title={cliente.correo || "-"}>
                           {cliente.correo || "-"}
                         </span>
-                        <span className="font-semibold text-[#e3fc02]">
+                        <span className="font-semibold text-[#D7FF4F]">
                           {cliente.numeroOrdenes ?? 0}
                         </span>
-                        <span className="text-zinc-400">
+                        <span className="text-[#A7A7A7]">
                           {formatDate(cliente.ultimaFechaIngreso)}
                         </span>
                         <span className="flex justify-end">
                           <Link
                             href={`/tecnicos/clientes/${encodeURIComponent(cliente.id)}`}
-                            className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs font-semibold text-white transition hover:border-[#e3fc02] hover:text-[#e3fc02]"
+                            className="rounded-full border border-[#3A3A36] bg-[#30312D] px-3 py-1 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
                           >
                             Ver
                           </Link>
@@ -307,8 +305,8 @@ export function ClientesPageClient() {
                 </div>
               )}
 
-              <div className="flex flex-col gap-3 border-t border-zinc-900/80 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-zinc-500">
+              <div className="flex flex-col gap-3 border-t border-[#3A3A36] pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-[#A7A7A7]">
                   Página {pageNumber} | {clientes.length} registros cargados
                 </p>
                 <div className="flex items-center gap-3">
@@ -316,7 +314,7 @@ export function ClientesPageClient() {
                     type="button"
                     onClick={handlePreviousPage}
                     disabled={loading || offsetHistory.length === 0}
-                    className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-800 bg-[#151515] px-4 text-sm font-semibold text-zinc-200 transition hover:border-[#e3fc02] hover:text-[#e3fc02] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-zinc-800 disabled:hover:text-zinc-200"
+                    className="inline-flex h-9 items-center justify-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-4 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-[#3A3A36] disabled:hover:text-[#CFCFCB]"
                   >
                     Anterior
                   </button>
@@ -324,7 +322,7 @@ export function ClientesPageClient() {
                     type="button"
                     onClick={handleNextPage}
                     disabled={loading || !nextOffset}
-                    className="inline-flex h-10 items-center justify-center rounded-lg border border-[#e3fc02] bg-[#e3fc02] px-4 text-sm font-semibold text-black transition hover:brightness-95 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-[#151515] disabled:text-zinc-500 disabled:hover:brightness-100"
+                    className="inline-flex h-9 items-center justify-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-semibold text-[#10110E] transition hover:brightness-105 disabled:cursor-not-allowed disabled:border-[#3A3A36] disabled:bg-[#1E1F1C] disabled:text-[#A7A7A7] disabled:hover:brightness-100"
                   >
                     Siguiente
                   </button>
@@ -336,15 +334,15 @@ export function ClientesPageClient() {
       </div>
 
       <aside className="space-y-4">
-        <div className="rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_14px_32px_rgba(0,0,0,0.4)]">
+        <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
           <p className="text-sm font-semibold text-white">Clientes en esta página</p>
-          <p className="mt-2 text-3xl font-bold text-[#e3fc02]">{clientes.length}</p>
-          <p className="mt-1 text-xs text-zinc-500">Registros visibles</p>
+          <p className="mt-2 text-3xl font-bold text-[#D7FF4F]">{clientes.length}</p>
+          <p className="mt-1 text-xs text-[#A7A7A7]">Registros visibles</p>
         </div>
       </aside>
 
       {openNuevoClienteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6 backdrop-blur-sm">
           <div className="flex max-h-[92vh] w-full max-w-[760px] flex-col overflow-hidden rounded-[var(--sg-radius-lg)] border border-[var(--sg-border)] bg-[var(--sg-card)] shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] px-5 py-4">
               <div>
