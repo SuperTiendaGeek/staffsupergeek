@@ -81,26 +81,26 @@ export function AppIconCard({ app }: AppIconCardProps) {
     <Link
       href={app.route}
       aria-label={`Abrir ${app.name}`}
-      className="group flex min-h-72 flex-col rounded-lg border border-white/10 bg-white/[0.045] p-5 shadow-2xl shadow-black/20 outline-none backdrop-blur transition hover:-translate-y-1 hover:border-geek-lime/45 hover:bg-white/[0.07] hover:shadow-glow focus-visible:border-geek-lime focus-visible:ring-2 focus-visible:ring-geek-lime/40"
+      className="group flex flex-col rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20 outline-none transition hover:-translate-y-0.5 hover:border-[#D7FF4F]/40 hover:bg-[#2D2E2A] focus-visible:border-[#D7FF4F] focus-visible:ring-2 focus-visible:ring-[#D7FF4F]/30"
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="grid h-16 w-16 place-items-center rounded-lg border border-geek-lime/25 bg-geek-lime/10 text-geek-lime transition group-hover:bg-geek-lime group-hover:text-geek-black">
+      <div className="flex items-start justify-between gap-3">
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-[#D7FF4F]/25 bg-[#D7FF4F]/10 text-[#D7FF4F] transition group-hover:bg-[#D7FF4F] group-hover:text-[#10110E]">
           <AppSymbol icon={app.icon} />
         </div>
-        <span className={`rounded-md border px-2.5 py-1 text-xs font-medium ${statusStyles[app.status]}`}>
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-normal ${statusStyles[app.status]}`}>
           {app.status}
         </span>
       </div>
 
-      <div className="mt-8 flex flex-1 flex-col">
-        <h2 className="text-xl font-semibold tracking-normal text-white">{app.name}</h2>
-        <p className="mt-3 flex-1 text-sm leading-6 text-zinc-300">{app.description}</p>
-        <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4 text-sm">
-          <span className={isAvailable ? "font-medium text-geek-lime" : "text-zinc-400"}>
+      <div className="mt-4 flex flex-1 flex-col">
+        <h2 className="text-base font-semibold text-[#F5F5F5]">{app.name}</h2>
+        <p className="mt-1.5 flex-1 line-clamp-2 text-sm leading-5 text-[#A7A7A7]">{app.description}</p>
+        <div className="mt-3 flex items-center justify-between border-t border-[#3A3A36] pt-3 text-sm">
+          <span className={isAvailable ? "font-semibold text-[#D7FF4F]" : "text-[#A7A7A7]"}>
             {isAvailable ? "Entrar" : "Ver módulo"}
           </span>
-          <span className="text-lg text-zinc-500 transition group-hover:translate-x-1 group-hover:text-geek-lime" aria-hidden="true">
-            -&gt;
+          <span className="text-[#A7A7A7] transition group-hover:translate-x-0.5 group-hover:text-[#D7FF4F]" aria-hidden="true">
+            →
           </span>
         </div>
       </div>
