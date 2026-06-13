@@ -150,7 +150,7 @@ export function NuevaCotizacionClient() {
   return (
     <>
       <form onSubmit={handleSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <section className="space-y-5 rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/25">
+        <section className="space-y-4 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
           {error ? (
             <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
               {error}
@@ -159,7 +159,7 @@ export function NuevaCotizacionClient() {
 
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
           <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">Cliente</span>
+            <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Cliente</span>
             <input
               value={query}
               onChange={(event) => {
@@ -167,30 +167,30 @@ export function NuevaCotizacionClient() {
                 setCliente(null);
               }}
               placeholder="Buscar cliente por nombre, cédula o teléfono"
-              className="mt-2 h-12 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime"
+              className="mt-1.5 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
             />
           </label>
           <button
             type="button"
             onClick={() => setOpenNuevoClienteModal(true)}
-            className="inline-flex h-12 items-center justify-center whitespace-nowrap rounded-xl border border-geek-lime bg-geek-lime px-4 text-sm font-extrabold text-black shadow-glow transition hover:brightness-95"
+            className="inline-flex h-9 items-center justify-center whitespace-nowrap rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#10110E] transition hover:brightness-105"
           >
             + Nuevo cliente
           </button>
         </div>
 
-        {buscando ? <p className="text-sm text-zinc-400">Buscando clientes...</p> : null}
+        {buscando ? <p className="text-sm text-[#A7A7A7]">Buscando clientes...</p> : null}
         {clientes.length > 0 ? (
-          <div className="rounded-xl border border-white/10 bg-[#111] p-2">
+          <div className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-1.5">
             {clientes.map((item) => (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => selectCliente(item)}
-                className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-white/[0.06]"
+                className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-[#2D2E2A]"
               >
-                <span className="block text-sm font-semibold text-white">{item.nombre}</span>
-                <span className="text-xs text-zinc-400">
+                <span className="block text-sm font-semibold text-[#F5F5F5]">{item.nombre}</span>
+                <span className="text-xs text-[#A7A7A7]">
                   {item.telefono || "Sin teléfono"} · {item.cedula || "Sin cédula"}
                 </span>
               </button>
@@ -200,22 +200,22 @@ export function NuevaCotizacionClient() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block sm:col-span-2">
-            <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">
+            <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">
               Producto Solicitado
             </span>
             <input
               value={productoSolicitado}
               onChange={(event) => setProductoSolicitado(event.target.value)}
-              className="mt-2 h-12 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime"
+              className="mt-1.5 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
             />
           </label>
 
           <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">Categoría</span>
+            <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Categoría</span>
             <select
               value={categoria}
               onChange={(event) => setCategoria(event.target.value)}
-              className="mt-2 h-12 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime"
+              className="mt-1.5 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
             >
               <option value="">Seleccionar categoría</option>
               {CATEGORIAS_COTIZACION.map((item) => (
@@ -227,7 +227,7 @@ export function NuevaCotizacionClient() {
           </label>
 
           <div className="flex items-end gap-3">
-            <label className="flex h-12 flex-1 items-center gap-3 rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-zinc-200">
+            <label className="flex h-9 flex-1 items-center gap-3 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#CFCFCB]">
               <input
                 type="checkbox"
                 checked={requiereInstalacion}
@@ -239,18 +239,18 @@ export function NuevaCotizacionClient() {
           </div>
 
           <label className="block sm:col-span-2">
-            <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">
+            <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">
               Descripción del Requerimiento
             </span>
             <textarea
               value={descripcionRequerimiento}
               onChange={(event) => setDescripcionRequerimiento(event.target.value)}
               rows={5}
-              className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 py-3 text-sm text-white outline-none focus:border-geek-lime"
+              className="mt-1.5 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
             />
           </label>
 
-          <label className="flex h-12 items-center gap-3 rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-zinc-200">
+          <label className="flex h-9 items-center gap-3 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#CFCFCB]">
             <input
               type="checkbox"
               checked={equipoYaEstaEnTienda}
@@ -261,14 +261,14 @@ export function NuevaCotizacionClient() {
           </label>
 
           <label className="block sm:col-span-2">
-            <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">
+            <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">
               Observación Interna
             </span>
             <textarea
               value={observacionInterna}
               onChange={(event) => setObservacionInterna(event.target.value)}
               rows={4}
-              className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 py-3 text-sm text-white outline-none focus:border-geek-lime"
+              className="mt-1.5 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
             />
           </label>
         </div>
@@ -277,24 +277,24 @@ export function NuevaCotizacionClient() {
           <button
             type="submit"
             disabled={saving}
-            className="rounded-xl border border-geek-lime bg-geek-lime px-5 py-3 text-sm font-extrabold text-black shadow-glow transition hover:brightness-95 disabled:cursor-wait disabled:opacity-60"
+            className="inline-flex h-9 items-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-bold text-[#10110E] transition hover:brightness-105 disabled:cursor-wait disabled:opacity-60"
           >
             {saving ? "Guardando..." : "Crear cotización"}
           </button>
         </div>
       </section>
 
-      <aside className="h-fit rounded-2xl border border-white/10 bg-white/[0.045] p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-normal text-zinc-400">Cliente seleccionado</h2>
+      <aside className="h-fit rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4">
+        <h2 className="text-sm font-semibold uppercase tracking-normal text-[#A7A7A7]">Cliente seleccionado</h2>
         {cliente ? (
           <div className="mt-4 space-y-2 text-sm">
             <p className="font-semibold text-white">{cliente.nombre}</p>
-            <p className="text-zinc-300">{cliente.telefono || "Sin teléfono"}</p>
-            <p className="text-zinc-300">{cliente.email || "Sin email"}</p>
-            <p className="text-zinc-300">{cliente.cedula || "Sin cédula"}</p>
+            <p className="text-[#CFCFCB]">{cliente.telefono || "Sin teléfono"}</p>
+            <p className="text-[#CFCFCB]">{cliente.email || "Sin email"}</p>
+            <p className="text-[#CFCFCB]">{cliente.cedula || "Sin cédula"}</p>
           </div>
         ) : (
-          <p className="mt-4 text-sm text-zinc-400">Busca y selecciona un cliente registrado.</p>
+          <p className="mt-4 text-sm text-[#A7A7A7]">Busca y selecciona un cliente registrado.</p>
         )}
       </aside>
       </form>
