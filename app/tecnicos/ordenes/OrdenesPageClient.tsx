@@ -412,7 +412,7 @@ export function OrdenesPageClient() {
     <div className={styles.theme}>
       <div className="grid gap-2.5 xl:grid-cols-[minmax(0,4fr)_minmax(280px,0.9fr)]">
         <div className="w-full space-y-2.5">
-          <section className="w-full space-y-2.5 rounded-xl border border-[#30312D] bg-[#171814] p-2 shadow-2xl shadow-black/25">
+          <section className="w-full space-y-2.5 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-3 shadow-xl shadow-black/20">
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3 px-1">
                 <h2 className="text-sm font-extrabold uppercase tracking-[0.14em] text-white">
@@ -423,11 +423,11 @@ export function OrdenesPageClient() {
               <div className="grid w-full gap-2 md:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] xl:grid-cols-[minmax(0,1fr)_minmax(230px,290px)_auto]">
                 <label className="w-full">
                   <span className="sr-only">Buscar ordenes</span>
-                  <div className="flex h-10 items-center gap-2 rounded-lg border border-zinc-800 bg-[#121310] px-3 text-sm text-zinc-200 shadow-[0_8px_20px_rgba(0,0,0,0.18)] transition focus-within:border-[#e3fc02] focus-within:ring-2 focus-within:ring-[#e3fc02]/20">
+                  <div className="flex h-9 items-center gap-2 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] transition focus-within:border-[#D7FF4F]/70">
                     <svg
                       aria-hidden="true"
                       viewBox="0 0 20 20"
-                      className="h-4 w-4 text-zinc-500"
+                      className="h-4 w-4 shrink-0 text-[#A7A7A7]"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="2"
@@ -439,7 +439,7 @@ export function OrdenesPageClient() {
                       placeholder="Buscar por cliente, ID o equipo"
                       value={searchTerm}
                       onChange={(e) => handleSearchChange(e.target.value)}
-                      className="h-full w-full bg-transparent text-sm font-medium outline-none placeholder:text-zinc-500"
+                      className="h-full w-full bg-transparent text-sm font-medium outline-none placeholder:text-[#A7A7A7]/50"
                     />
                   </div>
                 </label>
@@ -453,7 +453,7 @@ export function OrdenesPageClient() {
                       ...ESTADOS_ORDEN.map((estado) => ({ value: estado, label: estado })),
                     ]}
                     label=""
-                    buttonClassName="!h-10 !rounded-lg !border-zinc-800 !bg-[#121310] !px-3 !py-0 !font-semibold !shadow-[0_8px_20px_rgba(0,0,0,0.18)] hover:!border-[#e3fc02] focus:!ring-2 focus:!ring-[#e3fc02]/20"
+                    buttonClassName="!h-9 !rounded-lg !border-[#3A3A36] !bg-[#1E1F1C] !px-3 !py-0 !font-semibold hover:!border-[#D7FF4F]/50 focus:!ring-2 focus:!ring-[#D7FF4F]/30"
                     dropdownClassName="!max-w-none"
                   />
                 </div>
@@ -461,14 +461,14 @@ export function OrdenesPageClient() {
                 <button
                   type="button"
                   onClick={() => setOpenNuevaOrdenModal(true)}
-                  className="inline-flex h-10 w-full items-center justify-center whitespace-nowrap rounded-lg border border-[#e3fc02] bg-[#e3fc02] px-4 text-sm font-extrabold text-black shadow-[0_10px_22px_rgba(227,252,2,0.18)] transition hover:brightness-95 md:col-span-2 xl:col-span-1 xl:w-auto"
+                  className="inline-flex h-9 w-full items-center justify-center whitespace-nowrap rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-bold text-[#10110E] transition hover:brightness-105 md:col-span-2 xl:col-span-1 xl:w-auto"
                 >
                   + Nueva orden
                 </button>
               </div>
             </div>
 
-            {loading && <div className="text-sm text-zinc-300">Cargando ordenes...</div>}
+            {loading && <div className="text-sm text-[#CFCFCB]">Cargando ordenes...</div>}
             {error && (
               <div className="text-sm text-red-400">
                 Ocurrio un problema al cargar las ordenes: {error}
@@ -476,8 +476,8 @@ export function OrdenesPageClient() {
             )}
 
             {riskFilter && (
-              <div className="flex flex-col gap-2 rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[#151515] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm font-semibold text-zinc-200">
+              <div className="flex flex-col gap-2 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm font-semibold text-[#CFCFCB]">
                   Filtro activo:{" "}
                   <span
                     className={
@@ -495,7 +495,7 @@ export function OrdenesPageClient() {
                     setRiskFilter(null);
                     resetPagination();
                   }}
-                  className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-800 bg-[#151515] px-3 text-xs font-semibold text-zinc-200 transition hover:border-[#e3fc02] hover:text-[#e3fc02]"
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-3 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
                 >
                   Limpiar filtro
                 </button>
@@ -505,20 +505,20 @@ export function OrdenesPageClient() {
             {!loading && !error && (
               <>
                 {ordenes.length === 0 ? (
-                  <div className="text-sm text-zinc-300">
+                  <div className="text-sm text-[#A7A7A7]">
                     No se encontraron ordenes con esos filtros.
                   </div>
                 ) : (
-                  <div className="w-full overflow-x-auto rounded-xl border border-[#30312D] bg-[#151515]">
-                    <div className="grid min-w-[870px] grid-cols-[90px_minmax(140px,1.15fr)_minmax(300px,2.7fr)_minmax(120px,0.9fr)_minmax(190px,1fr)] border-b border-[#30312D] bg-[#20211D] px-3 py-2 text-[12px] uppercase tracking-wide text-zinc-500">
+                  <div className="w-full overflow-x-auto rounded-lg border border-[#3A3A36] bg-[#252622]">
+                    <div className="grid min-w-[870px] grid-cols-[90px_minmax(140px,1.15fr)_minmax(300px,2.7fr)_minmax(120px,0.9fr)_minmax(190px,1fr)] border-b border-[#3A3A36] bg-[#30312D] px-3 py-2 text-[12px] uppercase tracking-wide text-[#A7A7A7]">
                       <span>ID</span>
                       <span>Cliente</span>
                       <span>Equipo</span>
                       <span>Fecha</span>
                       <span>Estado</span>
                     </div>
-                    <div className="divide-y divide-zinc-900/80">
-                      {ordenes.map((orden, idx) => {
+                    <div className="divide-y divide-[#3A3A36]">
+                      {ordenes.map((orden) => {
                         const abandonmentStatus = getAbandonmentStatus(orden);
                         const statusTone = getStatusTone(orden.estadoActual);
                         const riskRowClass =
@@ -526,19 +526,17 @@ export function OrdenesPageClient() {
                             ? "border-l-4 border-l-[var(--sg-danger)] bg-[var(--sg-danger-soft)] hover:brightness-105"
                             : abandonmentStatus.level === "warning"
                             ? "border-l-4 border-l-[var(--sg-warning)] bg-[var(--sg-warning-soft)] hover:brightness-105"
-                            : `border-l-4 border-l-transparent ${
-                                idx % 2 === 0 ? "bg-[#161616]" : "bg-[#1a1a1a]"
-                              } hover:bg-[#222]`;
+                            : "border-l-4 border-l-transparent bg-[#252622] hover:bg-[#2D2E2A]";
                         return (
                           <Link
                             key={orden.recordId}
                             href={`/tecnicos/ordenes/${encodeURIComponent(orden.recordId)}`}
-                            className={`grid min-w-[870px] grid-cols-[90px_minmax(140px,1.15fr)_minmax(300px,2.7fr)_minmax(120px,0.9fr)_minmax(190px,1fr)] cursor-pointer items-center px-3 py-2.5 text-sm text-zinc-200 transition ${riskRowClass}`}
+                            className={`grid min-w-[870px] grid-cols-[90px_minmax(140px,1.15fr)_minmax(300px,2.7fr)_minmax(120px,0.9fr)_minmax(190px,1fr)] cursor-pointer items-center px-3 py-2.5 text-sm text-[#CFCFCB] transition ${riskRowClass}`}
                           >
-                            <span className="truncate font-semibold text-zinc-100">{orden.idVisible}</span>
+                            <span className="truncate font-semibold text-white">{orden.idVisible}</span>
                             <span className="truncate">{orden.clienteNombre || "Cliente no disponible"}</span>
                             <span className="min-w-0 pr-5">
-                              <span className="block truncate font-semibold text-zinc-200">
+                              <span className="block truncate font-semibold text-[#F5F5F5]">
                                 {orden.equipo || "Equipo no especificado"}
                               </span>
                               <span
@@ -548,7 +546,7 @@ export function OrdenesPageClient() {
                                 Ingreso: {orden.ingresaPor || "No disponible"}
                               </span>
                             </span>
-                            <span className="text-zinc-400">{formatDate(orden.fechaIngreso)}</span>
+                            <span className="text-[#A7A7A7]">{formatDate(orden.fechaIngreso)}</span>
                             <span>
                               <span
                                 className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-[12px] font-semibold ${statusTone.badgeClass}`}
@@ -563,8 +561,8 @@ export function OrdenesPageClient() {
                   </div>
                 )}
 
-                <div className="flex flex-col gap-2 border-t border-zinc-900/80 pt-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-zinc-500">
+                <div className="flex flex-col gap-2 border-t border-[#3A3A36] pt-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-[#A7A7A7]">
                     Pagina {pageNumber} | {ordenes.length} registros cargados
                   </p>
                   <div className="flex items-center gap-3">
@@ -572,7 +570,7 @@ export function OrdenesPageClient() {
                       type="button"
                       onClick={handlePreviousPage}
                       disabled={loading || offsetHistory.length === 0}
-                      className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-800 bg-[#151515] px-4 text-sm font-semibold text-zinc-200 transition hover:border-[#e3fc02] hover:text-[#e3fc02] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-zinc-800 disabled:hover:text-zinc-200"
+                      className="inline-flex h-9 items-center justify-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-4 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-[#3A3A36] disabled:hover:text-[#CFCFCB]"
                     >
                       Anterior
                     </button>
@@ -580,7 +578,7 @@ export function OrdenesPageClient() {
                       type="button"
                       onClick={handleNextPage}
                       disabled={loading || !nextOffset}
-                      className="inline-flex h-10 items-center justify-center rounded-lg border border-[#e3fc02] bg-[#e3fc02] px-4 text-sm font-semibold text-black transition hover:brightness-95 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-[#151515] disabled:text-zinc-500 disabled:hover:brightness-100"
+                      className="inline-flex h-9 items-center justify-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-semibold text-[#10110E] transition hover:brightness-105 disabled:cursor-not-allowed disabled:border-[#3A3A36] disabled:bg-[#1E1F1C] disabled:text-[#A7A7A7] disabled:hover:brightness-100"
                     >
                       Siguiente
                     </button>
@@ -592,10 +590,10 @@ export function OrdenesPageClient() {
         </div>
 
         <aside className="space-y-2.5">
-          <div className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2 shadow-xl shadow-black/20">
+          <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] px-3 py-2 shadow-xl shadow-black/20">
             <p className="text-sm font-semibold text-white">Ordenes en esta pagina</p>
-            <p className="mt-0.5 text-xl font-bold text-[#e3fc02]">{openOrders}</p>
-            <p className="text-xs text-zinc-500">Registros visibles</p>
+            <p className="mt-0.5 text-xl font-bold text-[#D7FF4F]">{openOrders}</p>
+            <p className="text-xs text-[#A7A7A7]">Registros visibles</p>
           </div>
 
           <div className="space-y-2 rounded-xl border border-[var(--sg-border)] bg-[var(--sg-panel)] p-3 shadow-[var(--sg-shadow-card)]">
@@ -644,10 +642,10 @@ export function OrdenesPageClient() {
             )}
           </div>
 
-          <div className="space-y-2 rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-xl shadow-black/20">
+          <div className="space-y-2 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-3 shadow-xl shadow-black/20">
             <div>
               <p className="text-sm font-semibold text-white">Alertas de abandono</p>
-              <p className="mt-1 text-xs text-zinc-500">Conteo global con los filtros activos</p>
+              <p className="mt-1 text-xs text-[#A7A7A7]">Conteo global con los filtros activos</p>
             </div>
             <button
               type="button"
@@ -655,7 +653,7 @@ export function OrdenesPageClient() {
               className={`w-full rounded-lg border px-3 py-2 text-left transition ${
                 riskFilter === "warning"
                   ? "border-[var(--sg-warning)] bg-[var(--sg-warning-soft)]"
-                  : "border-[var(--sg-border)] bg-[#151515] hover:border-[var(--sg-warning)] hover:bg-[var(--sg-warning-soft)]"
+                  : "border-[var(--sg-border)] bg-[var(--sg-card)] hover:border-[var(--sg-warning)] hover:bg-[var(--sg-warning-soft)]"
               }`}
             >
               <span className="flex items-center justify-between gap-3">
@@ -664,7 +662,7 @@ export function OrdenesPageClient() {
                   {riskSummary.warningCount}
                 </span>
               </span>
-              <span className="mt-1 block text-xs text-zinc-400">
+              <span className="mt-1 block text-xs text-[#A7A7A7]">
                 Entre 60 y 89 días sin respuesta
               </span>
             </button>
@@ -674,7 +672,7 @@ export function OrdenesPageClient() {
               className={`w-full rounded-lg border px-3 py-2 text-left transition ${
                 riskFilter === "critical"
                   ? "border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]"
-                  : "border-[var(--sg-border)] bg-[#151515] hover:border-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
+                  : "border-[var(--sg-border)] bg-[var(--sg-card)] hover:border-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
               }`}
             >
               <span className="flex items-center justify-between gap-3">
@@ -683,7 +681,7 @@ export function OrdenesPageClient() {
                   {riskSummary.criticalCount}
                 </span>
               </span>
-              <span className="mt-1 block text-xs text-zinc-400">
+              <span className="mt-1 block text-xs text-[#A7A7A7]">
                 90 días o más sin respuesta
               </span>
             </button>
@@ -694,7 +692,7 @@ export function OrdenesPageClient() {
                   setRiskFilter(null);
                   resetPagination();
                 }}
-                className="inline-flex h-9 w-full items-center justify-center rounded-lg border border-zinc-800 bg-[#151515] px-3 text-xs font-semibold text-zinc-200 transition hover:border-[#e3fc02] hover:text-[#e3fc02]"
+                className="inline-flex h-9 w-full items-center justify-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-3 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
               >
                 Limpiar filtro
               </button>
@@ -704,7 +702,7 @@ export function OrdenesPageClient() {
       </div>
 
       {openNuevaOrdenModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6 backdrop-blur-sm">
           <div className="flex max-h-[92vh] w-full max-w-[820px] flex-col overflow-hidden rounded-[var(--sg-radius-lg)] border border-[var(--sg-border)] bg-[var(--sg-card)] shadow-2xl">
             <div className="flex items-start justify-between gap-3 border-b border-[var(--sg-divider)] px-4 py-3">
               <div>
