@@ -3538,15 +3538,15 @@ export function OrdenDetalleClient() {
             )}
 
             {openCreateRepuestoModal && (
-              <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 backdrop-blur-sm px-4">
-                <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-950 p-4 shadow-2xl space-y-3">
+              <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+                <div className="w-full max-w-md rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-2xl space-y-3">
                   <h4 className="text-sm font-semibold text-white">Crear repuesto nuevo</h4>
                   <input
                     type="text"
                     value={nuevoRepuestoNombre}
                     onChange={(e) => setNuevoRepuestoNombre(e.target.value)}
                     placeholder="Nombre del repuesto"
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-[#e3fc02] focus:outline-none"
+                    className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
                   />
                   <div className="grid grid-cols-2 gap-2">
                     <input
@@ -3556,7 +3556,7 @@ export function OrdenDetalleClient() {
                       value={nuevoRepuestoCostoBase}
                       onChange={(e) => setNuevoRepuestoCostoBase(e.target.value)}
                       placeholder="Costo base"
-                      className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-[#e3fc02] focus:outline-none"
+                      className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
                     />
                     <input
                       type="number"
@@ -3565,7 +3565,7 @@ export function OrdenDetalleClient() {
                       value={nuevoRepuestoPrecioSugerido}
                       onChange={(e) => setNuevoRepuestoPrecioSugerido(e.target.value)}
                       placeholder="Precio sugerido"
-                      className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-[#e3fc02] focus:outline-none"
+                      className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
                     />
                   </div>
                   <input
@@ -3573,7 +3573,7 @@ export function OrdenDetalleClient() {
                     value={nuevoRepuestoProveedorHabitual}
                     onChange={(e) => setNuevoRepuestoProveedorHabitual(e.target.value)}
                     placeholder="Proveedor habitual"
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-[#e3fc02] focus:outline-none"
+                    className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
                   />
                   {nuevoRepuestoError && <p className="text-xs text-red-400">{nuevoRepuestoError}</p>}
                   <div className="flex items-center justify-end gap-2">
@@ -3583,7 +3583,7 @@ export function OrdenDetalleClient() {
                         setOpenCreateRepuestoModal(false);
                         resetCrearRepuestoForm();
                       }}
-                      className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white"
+                      className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
                     >
                       Cancelar
                     </button>
@@ -3591,7 +3591,7 @@ export function OrdenDetalleClient() {
                       type="button"
                       onClick={handleCrearRepuestoCatalogo}
                       disabled={nuevoRepuestoSaving}
-                      className="rounded-md border border-[#e3fc02]/70 bg-[#e3fc02]/10 px-3 py-1.5 text-xs font-semibold text-[#e3fc02] hover:bg-[#e3fc02]/20 disabled:opacity-60"
+                      className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60"
                     >
                       {nuevoRepuestoSaving ? "Guardando..." : "Crear repuesto"}
                     </button>
@@ -3601,15 +3601,15 @@ export function OrdenDetalleClient() {
             )}
 
             {openCreateServicioModal && (
-              <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 backdrop-blur-sm px-4">
-                <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-950 p-4 shadow-2xl space-y-3">
+              <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+                <div className="w-full max-w-md rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-2xl space-y-3">
                   <h4 className="text-sm font-semibold text-white">Crear servicio nuevo</h4>
                   <input
                     type="text"
                     value={nuevoServicioNombre}
                     onChange={(e) => setNuevoServicioNombre(e.target.value)}
                     placeholder="Nombre del servicio"
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-[#e3fc02] focus:outline-none"
+                    className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
                   />
                   <input
                     type="number"
@@ -3618,7 +3618,7 @@ export function OrdenDetalleClient() {
                     value={nuevoServicioCostoSugerido}
                     onChange={(e) => setNuevoServicioCostoSugerido(e.target.value)}
                     placeholder="Costo sugerido"
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-[#e3fc02] focus:outline-none"
+                    className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
                   />
                   {nuevoServicioError && <p className="text-xs text-red-400">{nuevoServicioError}</p>}
                   <div className="flex items-center justify-end gap-2">
@@ -3628,7 +3628,7 @@ export function OrdenDetalleClient() {
                         setOpenCreateServicioModal(false);
                         resetCrearServicioForm();
                       }}
-                      className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white"
+                      className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
                     >
                       Cancelar
                     </button>
@@ -3636,7 +3636,7 @@ export function OrdenDetalleClient() {
                       type="button"
                       onClick={handleCrearServicioCatalogo}
                       disabled={nuevoServicioSaving}
-                      className="rounded-md border border-[#e3fc02]/70 bg-[#e3fc02]/10 px-3 py-1.5 text-xs font-semibold text-[#e3fc02] hover:bg-[#e3fc02]/20 disabled:opacity-60"
+                      className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60"
                     >
                       {nuevoServicioSaving ? "Guardando..." : "Crear servicio"}
                     </button>
