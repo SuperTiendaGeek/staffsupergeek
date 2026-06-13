@@ -608,7 +608,7 @@ function InlineEditField({
     if (e.key === "Escape") cancel();
   };
 
-  const inputClass = "w-full rounded border border-[#e3fc02]/60 bg-[var(--sg-panel)] px-2 py-1 text-sm text-[var(--sg-text-primary)] outline-none ring-1 ring-[#e3fc02]/15 disabled:opacity-50";
+  const inputClass = "w-full rounded border border-[#D7FF4F]/60 bg-[var(--sg-panel)] px-2 py-1 text-sm text-[var(--sg-text-primary)] outline-none ring-1 ring-[#D7FF4F]/15 disabled:opacity-50";
 
   if (editing) {
     return (
@@ -618,10 +618,11 @@ function InlineEditField({
         ) : (
           <input ref={inputRef} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={() => void commit()} onKeyDown={handleKeyDown} disabled={saving} className={inputClass} />
         )}
-        <p className="mt-0.5 text-[10px] text-[var(--sg-text-muted)]">
-          {saving ? "Guardando..." : fieldError ?? "Enter · Esc para cancelar"}
-        </p>
-        {fieldError && <p className="text-[10px] text-[var(--sg-danger)]">{fieldError}</p>}
+        {fieldError ? (
+          <p className="mt-0.5 text-[10px] text-[var(--sg-danger)]">{fieldError}</p>
+        ) : (
+          <p className="mt-0.5 text-[10px] text-[var(--sg-text-muted)]">{saving ? "Guardando..." : "Enter · Esc para cancelar"}</p>
+        )}
       </div>
     );
   }
@@ -631,7 +632,7 @@ function InlineEditField({
       type="button"
       onClick={() => { setDraft(value); setFieldError(null); setSavedOk(false); setEditing(true); }}
       title="Clic para editar"
-      className="group/ef flex w-full items-start gap-1.5 rounded px-1 py-0.5 text-left transition hover:bg-white/5"
+      className="group/ef flex w-full items-start gap-1.5 rounded px-1 py-0.5 text-left transition hover:bg-[#2D2E2A]/60"
     >
       <span className="flex-1 text-sm font-semibold leading-snug text-[var(--sg-text-primary)]">
         {value || <span className="font-normal text-[var(--sg-text-muted)]">{placeholder}</span>}
@@ -663,9 +664,6 @@ export function OrdenDetalleClient() {
   const [estadoSaving, setEstadoSaving] = useState(false);
   const [estadoMessage, setEstadoMessage] = useState<string | null>(null);
   const [estadoError, setEstadoError] = useState<string | null>(null);
-  const [notaTexto, setNotaTexto] = useState("");
-  const [notaSaving, setNotaSaving] = useState(false);
-  const [notaError, setNotaError] = useState<string | null>(null);
   const [nuevoEstadoError, setNuevoEstadoError] = useState<string | null>(null);
   const [mensajeLoading, setMensajeLoading] = useState<Record<string, boolean>>({});
   const [mensajeError, setMensajeError] = useState<Record<string, string | null>>({});
@@ -790,7 +788,6 @@ export function OrdenDetalleClient() {
       setOrden(json.data);
       setEstadoSeleccionado(json.data?.estadoActual ?? ESTADOS_ORDEN[0]);
       const notaValue = json.data?.notaInterna;
-      setNotaTexto(notaValue && notaValue !== "No disponible" ? notaValue : "");
       return true;
     } catch (err) {
       if (!preserveError) {
@@ -1811,35 +1808,16 @@ export function OrdenDetalleClient() {
     setOrden((prev) => (prev ? { ...prev, clienteNombre: newNombre } : prev));
   };
 
-  const handleNotaBlur = async () => {
-    if (!orden || notaSaving) return;
-    const trimmed = notaTexto.trim();
-    if (trimmed === "") {
-      setNotaError("La nota interna no puede estar vacÃ­a");
-      return;
-    }
-    if (trimmed === orden.notaInterna) {
-      setNotaError(null);
-      return;
-    }
-    setNotaSaving(true);
-    setNotaError(null);
-    try {
-      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/nota`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notaInterna: trimmed }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo actualizar la nota interna");
-      }
-      setOrden((prev) => (prev ? { ...prev, notaInterna: trimmed } : prev));
-    } catch (err) {
-      setNotaError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setNotaSaving(false);
-    }
+  const saveNotaInterna = async (value: string) => {
+    const trimmed = value.trim();
+    const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/nota`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notaInterna: trimmed }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || "No se pudo actualizar la nota interna");
+    setOrden((prev) => (prev ? { ...prev, notaInterna: trimmed } : prev));
   };
 
   useEffect(() => {
@@ -1981,7 +1959,7 @@ export function OrdenDetalleClient() {
 
         {!loading && !error && orden && (
           <div className="space-y-2.5">
-            <section className="flex flex-col gap-3 rounded-xl border border-[var(--sg-border)] bg-[#151613] px-3 py-2 shadow-[var(--sg-shadow-card)] md:flex-row md:items-center md:justify-between">
+            <section className="flex flex-col gap-3 rounded-xl border border-[var(--sg-border)] bg-[#252622] px-3 py-2 shadow-[var(--sg-shadow-card)] md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-normal text-[var(--sg-text-muted)]">
                   Gestión de reparación
@@ -2100,90 +2078,74 @@ export function OrdenDetalleClient() {
                     Información general
                   </p>
 
-                  <div className="grid gap-4 pt-3 lg:grid-cols-[1fr_1.05fr_1fr] lg:gap-0">
-                    <div className="min-w-0 lg:pr-7">
-                      <span className="inline-flex rounded-[6px] border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-                        Cliente
-                      </span>
-                      <div className="mt-2">
+                  <div className="grid gap-3 pt-3 lg:grid-cols-3 lg:gap-0">
+                    {/* CLIENTE */}
+                    <div className="min-w-0 lg:pr-5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Cliente</p>
+                      <div className="mt-1.5 space-y-1">
                         <InlineEditField
                           value={orden.clienteNombre}
                           onSave={saveClienteNombre}
                           required
                           placeholder="Sin nombre"
                         />
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[var(--sg-text-secondary)]">
-                        <PhoneIcon className="h-4 w-4 shrink-0 text-[var(--sg-text-muted)]" />
-                        <InlineEditField
-                          value={orden.telefono}
-                          onSave={(v) => saveOrdenField("telefono", v)}
-                          placeholder="Sin teléfono"
-                        />
-                        {buildWhatsAppLink(orden.telefono) ? (
-                          <a
-                            href={buildWhatsAppLink(orden.telefono) ?? undefined}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-2 font-semibold text-[var(--sg-text-primary)] transition hover:text-[var(--sg-lime)] focus:outline-none focus:ring-2 focus:ring-[var(--sg-lime)] focus:ring-offset-2 focus:ring-offset-[var(--sg-card)]"
-                          >
-                            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--sg-lime)] text-[var(--sg-text-on-accent)] shadow-[0_0_18px_rgba(227,252,2,0.38)]">
-                              <WhatsappIcon className="h-4 w-4" />
+                        <div className="flex items-center gap-1.5">
+                          <PhoneIcon className="h-3.5 w-3.5 shrink-0 text-[var(--sg-text-muted)]" />
+                          <div className="min-w-0 flex-1">
+                            <InlineEditField
+                              value={orden.telefono}
+                              onSave={(v) => saveOrdenField("telefono", v)}
+                              placeholder="Sin teléfono"
+                            />
+                          </div>
+                          {buildWhatsAppLink(orden.telefono) ? (
+                            <a
+                              href={buildWhatsAppLink(orden.telefono) ?? undefined}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Abrir WhatsApp"
+                              className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--sg-lime)] text-[var(--sg-text-on-accent)] shadow-[0_0_12px_rgba(227,252,2,0.35)] transition hover:brightness-110"
+                            >
+                              <WhatsappIcon className="h-3.5 w-3.5" />
+                            </a>
+                          ) : (
+                            <span className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full border border-[var(--sg-border)] bg-[var(--sg-panel)] text-[var(--sg-text-muted)]">
+                              <WhatsappIcon className="h-3.5 w-3.5" />
                             </span>
-                            <span>WhatsApp</span>
-                          </a>
-                        ) : (
-                          <span className="inline-flex items-center gap-2 text-[var(--sg-text-muted)]">
-                            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--sg-border)] bg-[var(--sg-panel)]">
-                              <WhatsappIcon className="h-4 w-4" />
-                            </span>
-                            <span>WhatsApp</span>
-                          </span>
-                        )}
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="min-w-0 border-t border-[var(--sg-divider)] pt-4 lg:border-l lg:border-t-0 lg:px-5 lg:pt-0">
-                      <span className="inline-flex rounded-[6px] border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-                        Datos de la orden
-                      </span>
-                      <div className="mt-3 space-y-3">
-                        <div className="flex items-start gap-3">
-                          <CalendarIcon className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-text-muted)]" />
+                    {/* DATOS DE LA ORDEN */}
+                    <div className="min-w-0 border-t border-[var(--sg-divider)] pt-3 lg:border-l lg:border-t-0 lg:px-5 lg:pt-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Datos de la orden</p>
+                      <div className="mt-1.5 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <CalendarIcon className="h-4 w-4 shrink-0 text-[var(--sg-text-muted)]" />
                           <div className="min-w-0">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
-                              Fecha de ingreso:
-                            </p>
-                            <p className="mt-1 text-sm font-semibold leading-snug text-[var(--sg-text-primary)]">
-                              {formatDate(orden.fechaIngreso)}
-                            </p>
+                            <p className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">Fecha de ingreso</p>
+                            <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{formatDate(orden.fechaIngreso)}</p>
                           </div>
                         </div>
-                        <div className="flex items-start gap-3">
-                          <ToolsIcon className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-text-muted)]" />
+                        <div className="flex items-center gap-2">
+                          <ToolsIcon className="h-4 w-4 shrink-0 text-[var(--sg-text-muted)]" />
                           <div className="min-w-0">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
-                              Tipo de servicio:
-                            </p>
-                            <p className="mt-1 text-sm font-semibold leading-snug text-[var(--sg-text-primary)]">
-                              {orden.tipoOrden || "No disponible"}
-                            </p>
+                            <p className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">Tipo de servicio</p>
+                            <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{orden.tipoOrden || "No disponible"}</p>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="min-w-0 border-t border-[var(--sg-divider)] pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
-                      <span className="inline-flex rounded-[6px] border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-                        Dispositivo
-                      </span>
-                      <div className="mt-3 space-y-3">
-                        <div className="flex items-start gap-3">
-                          <DesktopIcon className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-text-muted)]" />
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
-                              Equipo:
-                            </p>
+                    {/* DISPOSITIVO */}
+                    <div className="min-w-0 border-t border-[var(--sg-divider)] pt-3 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Dispositivo</p>
+                      <div className="mt-1.5 space-y-2">
+                        <div className="flex items-start gap-2">
+                          <DesktopIcon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--sg-text-muted)]" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">Equipo</p>
                             <InlineEditField
                               value={orden.equipo}
                               onSave={(v) => saveOrdenField("equipo", v)}
@@ -2192,12 +2154,10 @@ export function OrdenDetalleClient() {
                             />
                           </div>
                         </div>
-                        <div className="flex items-start gap-3">
-                          <UsbIcon className="mt-0.5 h-5 w-5 shrink-0 text-[var(--sg-text-muted)]" />
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
-                              Accesorios:
-                            </p>
+                        <div className="flex items-start gap-2">
+                          <UsbIcon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--sg-text-muted)]" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">Accesorios</p>
                             <InlineEditField
                               value={orden.accesorios}
                               onSave={(v) => saveOrdenField("accesorios", v)}
@@ -2210,35 +2170,32 @@ export function OrdenDetalleClient() {
                   </div>
                 </section>
 
-            <section className="grid gap-2.5 md:grid-cols-2">
-              <div className="relative overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
-                <div className="absolute inset-y-4 left-0 w-1 rounded-r-full bg-[var(--sg-lime)]" />
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--sg-lime)]">Ingresa por</h3>
-                <InlineEditField
-                  value={orden.ingresaPor === "No disponible" ? "" : orden.ingresaPor}
-                  onSave={(v) => saveOrdenField("ingresaPor", v)}
-                  placeholder="No disponible"
-                />
+            <section className="grid gap-2 md:grid-cols-2">
+              <div className="relative overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2.5 shadow-[var(--sg-shadow-card)]">
+                <div className="absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-[var(--sg-lime)]" />
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]">Ingresa por</p>
+                <div className="mt-1">
+                  <InlineEditField
+                    value={orden.ingresaPor === "No disponible" ? "" : orden.ingresaPor}
+                    onSave={(v) => saveOrdenField("ingresaPor", v)}
+                    placeholder="No disponible"
+                  />
+                </div>
               </div>
 
-              <div className="relative space-y-2 overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
-                <div className="absolute inset-y-4 left-0 w-1 rounded-r-full bg-[var(--sg-lime)]" />
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--sg-lime)]">Nota interna</h3>
-                  {notaSaving && <span className="text-[11px] text-[var(--sg-lime)]">Guardando...</span>}
+              <div className="relative overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2.5 shadow-[var(--sg-shadow-card)]">
+                <div className="absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-[var(--sg-lime)]" />
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]">Nota interna</p>
+                <div className="mt-1">
+                  <InlineEditField
+                    value={orden.notaInterna === "No disponible" ? "" : orden.notaInterna}
+                    onSave={saveNotaInterna}
+                    multiline
+                    placeholder="Sin nota interna"
+                  />
                 </div>
-                <textarea
-                  value={notaTexto}
-                  onChange={(e) => setNotaTexto(e.target.value)}
-                  onBlur={handleNotaBlur}
-                  rows={4}
-                  className="w-full resize-none rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                  placeholder="Escribe la nota interna"
-                  disabled={notaSaving}
-                />
-                {notaError && <p className="text-xs text-red-400">{notaError}</p>}
-                {!notaError && orden.recomendaciones && (
-                  <p className="text-sm text-[var(--sg-text-muted)]">Recomendaciones: {orden.recomendaciones}</p>
+                {orden.recomendaciones && (
+                  <p className="mt-1.5 text-xs text-[var(--sg-text-muted)]">Recomendaciones: {orden.recomendaciones}</p>
                 )}
               </div>
             </section>
@@ -2276,7 +2233,7 @@ export function OrdenDetalleClient() {
                     return (
                       <div
                         key={item.id}
-                        className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3 text-sm text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)]/50 hover:bg-[#181818]"
+                        className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3 text-sm text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)]/50 hover:bg-[#2D2E2A]"
                       >
                         <div className="flex flex-col gap-2 border-b border-[var(--sg-divider)] pb-2 sm:flex-row sm:items-start sm:justify-between">
                           <span className="inline-flex w-fit whitespace-nowrap rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-1.5 text-xs leading-5 text-[var(--sg-text-muted)]">
@@ -3009,7 +2966,7 @@ export function OrdenDetalleClient() {
                   href={`/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/imprimir/ticket`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 text-sm font-extrabold text-[var(--sg-text-on-accent)] shadow-[0_10px_22px_rgba(227,252,2,0.18)] transition hover:brightness-95"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 text-sm font-bold text-[var(--sg-text-on-accent)] transition hover:brightness-105"
                 >
                   <PrintIcon className="h-4 w-4" />
                   Imprimir constancia
@@ -3018,7 +2975,7 @@ export function OrdenDetalleClient() {
                   href={`/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/imprimir/etiqueta`}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-3 text-sm font-semibold text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-lime)]"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-3 text-sm font-semibold text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-lime)]"
                 >
                   <PrintIcon className="h-4 w-4" />
                   Imprimir etiqueta
@@ -3311,7 +3268,7 @@ export function OrdenDetalleClient() {
                     setAbonoMessage(null);
                     setOpenAbonoModal(true);
                   }}
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-4 text-sm font-extrabold uppercase tracking-wide text-[var(--sg-text-on-accent)] shadow-[0_12px_24px_rgba(227,252,2,0.23)] transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-[var(--sg-lime)] focus:ring-offset-2 focus:ring-offset-[var(--sg-bg)]"
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-4 text-sm font-bold text-[var(--sg-text-on-accent)] transition hover:brightness-105 focus:outline-none focus:ring-2 focus:ring-[var(--sg-lime)] focus:ring-offset-2 focus:ring-offset-[var(--sg-bg)]"
                 >
                   Registrar abono
                 </button>
