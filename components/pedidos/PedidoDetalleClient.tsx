@@ -606,7 +606,7 @@ function PedidoAccionesCard({ pedido, cotizacionOrigen, saving, onSave }: { pedi
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border border-white/10 bg-[#181818] p-5 shadow-2xl shadow-black/25">
+    <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-xl shadow-black/20">
       <h2 className="text-lg font-semibold text-white">{title}</h2>
       <div className="mt-4">{children}</div>
     </section>
@@ -614,21 +614,21 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 }
 
 function Badge({ children }: { children: React.ReactNode }) {
-  return <span className="rounded-full border border-white/10 bg-white/[0.055] px-3 py-1 text-zinc-200">{children}</span>;
+  return <span className="rounded-full border border-[#3A3A36] bg-[#30312D] px-3 py-1 text-[#CFCFCB]">{children}</span>;
 }
 
 function ActionLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return <Link href={href} className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime">{children}</Link>;
+  return <Link href={href} className="inline-flex h-9 items-center rounded-full border border-[#3A3A36] px-4 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">{children}</Link>;
 }
 
 function ExternalActionLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return <a href={href} target="_blank" rel="noreferrer" className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime">{children}</a>;
+  return <a href={href} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center rounded-full border border-[#3A3A36] px-4 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">{children}</a>;
 }
 
 function ReadOnly({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-[#111] px-4 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-normal text-zinc-500">{label}</p>
+    <div className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</p>
       <p className="mt-1 break-words text-sm font-semibold text-white">{value || "-"}</p>
     </div>
   );
@@ -637,7 +637,7 @@ function ReadOnly({ label, value }: { label: string; value: string }) {
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] uppercase tracking-normal text-zinc-500">{label}</p>
+      <p className="text-[11px] uppercase tracking-normal text-[#A7A7A7]">{label}</p>
       <p className="mt-1 font-semibold text-white">{value}</p>
     </div>
   );
@@ -645,9 +645,9 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
 
 function MoneyRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-2">
-      <span className="text-sm text-zinc-400">{label}</span>
-      <span className={`text-right ${strong ? "text-base font-extrabold text-geek-lime" : "text-sm font-semibold text-white"}`}>{value}</span>
+    <div className="flex items-center justify-between gap-4 border-b border-[#3A3A36] pb-2">
+      <span className="text-sm text-[#A7A7A7]">{label}</span>
+      <span className={`text-right ${strong ? "text-base font-bold text-[#D7FF4F]" : "text-sm font-semibold text-white"}`}>{value}</span>
     </div>
   );
 }
@@ -655,7 +655,7 @@ function MoneyRow({ label, value, strong = false }: { label: string; value: stri
 function SaveRow({ saving, label }: { saving: boolean; label: string }) {
   return (
     <div className="flex justify-end">
-      <button type="submit" disabled={saving} className="rounded-xl border border-geek-lime bg-geek-lime px-5 py-3 text-sm font-extrabold text-black transition hover:brightness-95 disabled:cursor-wait disabled:opacity-60">
+      <button type="submit" disabled={saving} className="inline-flex h-9 items-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-bold text-[#10110E] transition hover:brightness-105 disabled:cursor-wait disabled:opacity-60">
         {saving ? "Guardando..." : label}
       </button>
     </div>
@@ -677,9 +677,9 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">{label}</span>
-      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime" />
-      {help ? <span className="mt-2 block text-xs leading-5 text-zinc-500">{help}</span> : null}
+      <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1.5 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70" />
+      {help ? <span className="mt-1.5 block text-xs leading-5 text-[#A7A7A7]">{help}</span> : null}
     </label>
   );
 }
@@ -696,16 +696,16 @@ function InlineMoneyField({
   const hasValue = value.trim() !== "";
 
   return (
-    <label className="flex items-center justify-between gap-4 border-b border-white/10 pb-2">
-      <span className="text-sm text-zinc-400">{label}</span>
-      <span className="flex min-w-32 items-center justify-end text-sm font-semibold text-white focus-within:text-geek-lime">
+    <label className="flex items-center justify-between gap-4 border-b border-[#3A3A36] pb-2">
+      <span className="text-sm text-[#A7A7A7]">{label}</span>
+      <span className="flex min-w-32 items-center justify-end text-sm font-semibold text-white focus-within:text-[#D7FF4F]">
         {hasValue ? <span>$</span> : null}
         <input
           inputMode="decimal"
           value={value}
           placeholder="-"
           onChange={(event) => onChange(event.target.value)}
-          className="w-16 bg-transparent text-right font-semibold text-inherit outline-none placeholder:text-zinc-500"
+          className="w-16 bg-transparent text-right font-semibold text-inherit outline-none placeholder:text-[#A7A7A7]"
         />
       </span>
     </label>
@@ -715,8 +715,8 @@ function InlineMoneyField({
 function SelectField({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 text-sm text-white outline-none focus:border-geek-lime">
+      <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-1.5 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70">
         {children}
       </select>
     </label>
@@ -725,9 +725,9 @@ function SelectField({ label, value, onChange, children }: { label: string; valu
 
 function CheckField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <label className="rounded-xl border border-zinc-800 bg-[#111] px-4 py-3 text-sm text-zinc-200">
+    <label className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3 text-sm text-[#CFCFCB]">
       <span className="flex items-center gap-3 font-semibold text-white">
-        <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 accent-geek-lime" />
+        <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 accent-[#D7FF4F]" />
         {label}
       </span>
     </label>
@@ -737,8 +737,8 @@ function CheckField({ label, checked, onChange }: { label: string; checked: bool
 function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold uppercase tracking-normal text-zinc-400">{label}</span>
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={5} className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#111] px-4 py-3 text-sm text-white outline-none focus:border-geek-lime" />
+      <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={5} className="mt-1.5 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70" />
     </label>
   );
 }
