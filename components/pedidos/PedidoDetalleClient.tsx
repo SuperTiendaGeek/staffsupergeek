@@ -409,7 +409,7 @@ function PedidoSeguimientoCard({
         </div>
 
         {form.encargo ? (
-          <p className="rounded-xl border border-geek-lime/25 bg-geek-lime/10 px-4 py-3 text-sm leading-6 text-zinc-200">
+          <p className="rounded-lg border border-[#D7FF4F]/25 bg-[#D7FF4F]/10 px-4 py-3 text-sm leading-6 text-[#CFCFCB]">
             Encargo con Roberto: este pedido será recibido primero por Roberto o un intermediario.
           </p>
         ) : null}
@@ -595,8 +595,8 @@ function PedidoAccionesCard({ pedido, cotizacionOrigen, saving, onSave }: { pedi
       <div className="grid gap-2">
         <ActionLink href="/pedidos">Volver</ActionLink>
         {cotizacionOrigen ? <ActionLink href={`/cotizaciones/${cotizacionOrigen.id}`}>Abrir cotización</ActionLink> : null}
-        <a href={whatsappUrl(pedido)} target="_blank" rel="noreferrer" className={`inline-flex justify-center rounded-xl border px-4 py-2.5 text-sm font-bold transition ${pedido.clienteTelefonoSnapshot ? "border-geek-lime bg-geek-lime text-black hover:brightness-95" : "pointer-events-none border-zinc-800 bg-zinc-900 text-zinc-500"}`}>WhatsApp</a>
-        <button type="button" disabled={saving} onClick={onSave} className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime disabled:cursor-wait disabled:opacity-60">
+        <a href={whatsappUrl(pedido)} target="_blank" rel="noreferrer" className={`inline-flex h-9 w-full items-center justify-center rounded-full border text-sm font-bold transition ${pedido.clienteTelefonoSnapshot ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E] hover:brightness-105" : "pointer-events-none border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7]"}`}>WhatsApp</a>
+        <button type="button" disabled={saving} onClick={onSave} className="inline-flex h-9 w-full items-center justify-center rounded-full border border-[#3A3A36] text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F] disabled:cursor-wait disabled:opacity-60">
           {saving ? "Guardando..." : "Guardar cambios"}
         </button>
       </div>
