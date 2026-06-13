@@ -223,13 +223,13 @@ function PedidoHeader({
   const tipoPedido = pedido.esProveedorLocal ? "Local" : pedido.esProveedorExterior ? "Exterior" : "";
 
   return (
-    <section className="rounded-2xl border border-white/10 bg-[#181818] p-4 shadow-2xl shadow-black/25 sm:p-5">
+    <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-2xl shadow-black/25 sm:p-5">
       <div className="grid gap-5 lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(280px,320px)] lg:items-stretch">
         <PedidoFotos fotos={pedido.fotos} title={title} />
-        <div className="min-w-0 rounded-xl border border-white/10 bg-white/[0.025] p-4">
-          <p className="text-xs font-bold uppercase tracking-normal text-geek-lime">PEDIDO</p>
+        <div className="min-w-0 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-4">
+          <p className="text-xs font-bold uppercase tracking-normal text-[#D7FF4F]">PEDIDO</p>
           <h2 className="mt-2 text-xl font-semibold leading-snug text-white sm:text-2xl">{title}</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-400">
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#A7A7A7]">
             Pedido vinculado a la cotización y listo para seguimiento operativo.
           </p>
           <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold">
@@ -238,13 +238,13 @@ function PedidoHeader({
             {tipoPedido ? <Badge>Tipo: {tipoPedido}</Badge> : null}
           </div>
         </div>
-        <div className="flex flex-col rounded-xl border border-white/10 bg-[#111] p-4">
+        <div className="flex flex-col rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-4">
           <div className="grid gap-2">
             <a
               href={whatsappUrl(pedido)}
               target="_blank"
               rel="noreferrer"
-              className={`inline-flex min-h-11 items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-extrabold transition ${pedido.clienteTelefonoSnapshot ? "border-geek-lime bg-geek-lime text-black hover:brightness-95" : "pointer-events-none border-zinc-800 bg-zinc-900 text-zinc-500"}`}
+              className={`inline-flex h-9 items-center justify-center rounded-full border px-4 text-sm font-bold transition ${pedido.clienteTelefonoSnapshot ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E] hover:brightness-105" : "pointer-events-none border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7]"}`}
             >
               WhatsApp
             </a>
@@ -256,8 +256,8 @@ function PedidoHeader({
               Descargar constancia
             </ExternalActionLink>
           </div>
-          <div className="mt-4 border-t border-white/10 pt-4">
-            <label className="text-xs font-bold uppercase tracking-normal text-zinc-400" htmlFor="estado-pedido">
+          <div className="mt-4 border-t border-[#3A3A36] pt-4">
+            <label className="text-xs font-bold uppercase tracking-normal text-[#A7A7A7]" htmlFor="estado-pedido">
               Estado del pedido
             </label>
             <select
@@ -266,7 +266,7 @@ function PedidoHeader({
               value={estadoPedido}
               disabled={savingEstado}
               onChange={(event) => onEstadoChange(event.target.value)}
-              className="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#181818] px-4 text-sm font-semibold text-white outline-none focus:border-geek-lime disabled:cursor-wait disabled:opacity-70"
+              className="mt-1.5 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm font-semibold text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:cursor-wait disabled:opacity-70"
             >
               <option value="">Sin estado</option>
               {hasCurrentEstado ? <option value={estadoPedido}>{estadoPedido}</option> : null}
@@ -274,7 +274,7 @@ function PedidoHeader({
                 <option key={option.id || option.name} value={option.name}>{option.name}</option>
               ))}
             </select>
-            {savingEstado ? <p className="mt-2 text-xs font-semibold text-geek-lime">Guardando...</p> : null}
+            {savingEstado ? <p className="mt-2 text-xs font-semibold text-[#D7FF4F]">Guardando...</p> : null}
           </div>
         </div>
       </div>
@@ -288,7 +288,7 @@ function PedidoFotos({ fotos, title }: { fotos: PedidoAttachment[]; title: strin
 
   if (fotos.length === 0) {
     return (
-      <div className="flex aspect-[4/3] items-center justify-center rounded-xl border border-dashed border-white/10 bg-[#111] px-4 text-center text-sm font-semibold text-zinc-500">
+      <div className="flex aspect-[4/3] items-center justify-center rounded-xl border border-dashed border-[#3A3A36] bg-[#1E1F1C] px-4 text-center text-sm font-semibold text-[#A7A7A7]">
         Sin fotos del producto
       </div>
     );
@@ -304,7 +304,7 @@ function PedidoFotos({ fotos, title }: { fotos: PedidoAttachment[]; title: strin
       <button
         type="button"
         onClick={() => openAt(0)}
-        className="block aspect-[4/3] w-full overflow-hidden rounded-xl border border-white/10 bg-[#111] transition hover:border-geek-lime/40 focus:outline-none focus:ring-2 focus:ring-geek-lime/70"
+        className="block aspect-[4/3] w-full overflow-hidden rounded-xl border border-[#3A3A36] bg-[#1E1F1C] transition hover:border-[#D7FF4F]/40 focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/70"
         aria-label="Abrir foto principal del pedido"
       >
         <img
@@ -320,7 +320,7 @@ function PedidoFotos({ fotos, title }: { fotos: PedidoAttachment[]; title: strin
               key={foto.id || foto.url}
               type="button"
               onClick={() => openAt(index)}
-              className="aspect-square overflow-hidden rounded-lg border border-white/10 bg-[#111] transition hover:border-geek-lime/40 focus:outline-none focus:ring-2 focus:ring-geek-lime/70"
+              className="aspect-square overflow-hidden rounded-lg border border-[#3A3A36] bg-[#1E1F1C] transition hover:border-[#D7FF4F]/40 focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/70"
               aria-label={`Abrir foto ${index + 1} del pedido`}
             >
               <img src={thumbnailUrl(foto, "small")} alt={foto.filename || `${title} ${index + 1}`} className="h-full w-full object-cover" />
@@ -332,19 +332,19 @@ function PedidoFotos({ fotos, title }: { fotos: PedidoAttachment[]; title: strin
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
           <div className="relative flex max-h-full w-full max-w-[1800px] flex-col gap-3">
             <div className="flex items-center justify-between gap-3">
-              <p className="truncate text-sm font-semibold text-zinc-200">{selected.filename || title}</p>
-              <button type="button" onClick={close} className="rounded-xl border border-white/10 bg-[#181818] px-4 py-2 text-sm font-bold text-white transition hover:border-geek-lime/40">
+              <p className="truncate text-sm font-semibold text-[#CFCFCB]">{selected.filename || title}</p>
+              <button type="button" onClick={close} className="rounded-lg border border-[#3A3A36] bg-[#252622] px-4 py-2 text-sm font-bold text-white transition hover:border-[#D7FF4F]/40">
                 Cerrar
               </button>
             </div>
-            <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#111]">
+            <div className="relative overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#1E1F1C]">
               <img src={selected.url} alt={selected.filename || title} className="max-h-[78vh] w-full object-contain" />
               {fotos.length > 1 ? (
                 <>
-                  <button type="button" onClick={previous} className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-black/70 px-4 py-3 text-lg font-bold text-white transition hover:border-geek-lime/40" aria-label="Foto anterior">
+                  <button type="button" onClick={previous} className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full border border-[#3A3A36] bg-black/70 px-4 py-3 text-lg font-bold text-white transition hover:border-[#D7FF4F]/40" aria-label="Foto anterior">
                     {"<"}
                   </button>
-                  <button type="button" onClick={next} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-black/70 px-4 py-3 text-lg font-bold text-white transition hover:border-geek-lime/40" aria-label="Foto siguiente">
+                  <button type="button" onClick={next} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-[#3A3A36] bg-black/70 px-4 py-3 text-lg font-bold text-white transition hover:border-[#D7FF4F]/40" aria-label="Foto siguiente">
                     {">"}
                   </button>
                 </>
@@ -488,17 +488,17 @@ function PedidoNotasCard({
       <form onSubmit={onSubmit} className="space-y-5">
         <TextArea label="Nota Interna" value={notaInterna} onChange={onChange} />
         <div>
-          <p className="text-xs font-semibold uppercase tracking-normal text-zinc-400">Evidencias / adjuntos</p>
+          <p className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Evidencias / adjuntos</p>
           {pedido.evidencias.length > 0 ? (
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {pedido.evidencias.map((evidencia) => (
-                <a key={evidencia.id || evidencia.url} href={evidencia.url} target="_blank" rel="noreferrer" className="rounded-xl border border-white/10 bg-[#111] px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime">
+                <a key={evidencia.id || evidencia.url} href={evidencia.url} target="_blank" rel="noreferrer" className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]">
                   {evidencia.filename || "Evidencia"}
                 </a>
               ))}
             </div>
           ) : (
-            <p className="mt-2 text-sm text-zinc-500">No hay evidencias registradas.</p>
+            <p className="mt-2 text-sm text-[#A7A7A7]">No hay evidencias registradas.</p>
           )}
         </div>
         <SaveRow saving={saving} label="Guardar nota" />
@@ -513,9 +513,9 @@ function PedidoClienteCard({ pedido }: { pedido: PedidoItem }) {
       <div className="space-y-4">
         <div>
           <p className="text-lg font-semibold text-white">{pedido.clienteNombreSnapshot}</p>
-          <p className="mt-1 text-sm text-zinc-300">{pedido.clienteTelefonoSnapshot || "Sin teléfono"}</p>
+          <p className="mt-1 text-sm text-[#CFCFCB]">{pedido.clienteTelefonoSnapshot || "Sin teléfono"}</p>
         </div>
-        <a href={whatsappUrl(pedido)} target="_blank" rel="noreferrer" className={`inline-flex w-full items-center justify-center rounded-xl border px-4 py-3 text-sm font-bold transition ${pedido.clienteTelefonoSnapshot ? "border-geek-lime bg-geek-lime text-black hover:brightness-95" : "pointer-events-none border-zinc-800 bg-zinc-900 text-zinc-500"}`}>WhatsApp</a>
+        <a href={whatsappUrl(pedido)} target="_blank" rel="noreferrer" className={`inline-flex h-9 w-full items-center justify-center rounded-full border text-sm font-bold transition ${pedido.clienteTelefonoSnapshot ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E] hover:brightness-105" : "pointer-events-none border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7]"}`}>WhatsApp</a>
       </div>
     </Card>
   );
@@ -535,7 +535,7 @@ function PedidoReferenciaCotizacionCard({
   if (!cotizacionOrigen) {
     return (
       <Card title="Referencia de cotización">
-        <p className="text-sm text-zinc-400">Este pedido no tiene cotización vinculada.</p>
+        <p className="text-sm text-[#A7A7A7]">Este pedido no tiene cotización vinculada.</p>
       </Card>
     );
   }
@@ -550,16 +550,16 @@ function PedidoReferenciaCotizacionCard({
           <ReadOnly label="Producto solicitado" value={cotizacionOrigen.productoSolicitado || "-"} />
           <ReadOnly label="Descripción" value={cotizacionOrigen.descripcionRequerimiento || "-"} />
         </div>
-        <Link href={`/cotizaciones/${cotizacionOrigen.id}`} className="inline-flex w-full justify-center rounded-xl border border-geek-lime/40 px-4 py-3 text-sm font-semibold text-geek-lime transition hover:bg-geek-lime/10">
+        <Link href={`/cotizaciones/${cotizacionOrigen.id}`} className="inline-flex w-full justify-center rounded-full border border-[#D7FF4F]/40 px-4 py-3 text-sm font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F]/10">
           Abrir cotización completa
         </Link>
-        <button type="button" onClick={onToggle} className="w-full rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime">
+        <button type="button" onClick={onToggle} className="w-full rounded-full border border-[#3A3A36] px-4 py-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]">
           {showCotizacion ? "Ocultar detalle" : "Ver detalle"}
         </button>
         {showCotizacion ? (
-          <div className="space-y-4 border-t border-white/10 pt-4">
+          <div className="space-y-4 border-t border-[#3A3A36] pt-4">
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-normal text-zinc-400">Opciones ofrecidas</p>
+              <p className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Opciones ofrecidas</p>
               {cotizacionOrigen.opciones.map((opcion) => (
                 <OpcionCompacta key={opcion.id} opcion={opcion} selected={opcion.id === pedido.opcionCotizacionId || opcion.seleccionadaPorCliente} />
               ))}
@@ -573,13 +573,13 @@ function PedidoReferenciaCotizacionCard({
 
 function OpcionCompacta({ opcion, selected }: { opcion: OpcionCotizacion; selected: boolean }) {
   return (
-    <article className={`rounded-xl border px-3 py-3 text-sm ${selected ? "border-geek-lime/45 bg-geek-lime/10" : "border-white/10 bg-[#111]"}`}>
+    <article className={`rounded-lg border px-3 py-3 text-sm ${selected ? "border-[#D7FF4F]/40 bg-[#D7FF4F]/10" : "border-[#3A3A36] bg-[#1E1F1C]"}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-semibold text-white">{opcion.nombre}</p>
-          <p className="mt-1 text-xs text-zinc-400">{opcion.descripcion || "Sin descripción"}</p>
+          <p className="mt-1 text-xs text-[#A7A7A7]">{opcion.descripcion || "Sin descripción"}</p>
         </div>
-        {selected ? <span className="rounded-full bg-geek-lime px-2 py-0.5 text-[11px] font-bold text-black">Seleccionada</span> : null}
+        {selected ? <span className="rounded-full bg-[#D7FF4F] px-2 py-0.5 text-[11px] font-bold text-[#10110E]">Seleccionada</span> : null}
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
         <MiniMetric label="Estado" value={opcion.estado || "-"} />
