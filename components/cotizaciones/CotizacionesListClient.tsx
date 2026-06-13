@@ -51,31 +51,31 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
               onClick={() => setEstado(active ? "Todos" : item)}
               className={`rounded-lg border px-3 py-2 text-left transition ${
                 active
-                  ? "border-geek-lime bg-geek-lime/12 shadow-glow"
-                  : "border-white/10 bg-white/[0.045] hover:border-geek-lime/40 hover:bg-white/[0.07]"
+                  ? "border-[#D7FF4F] bg-[#D7FF4F]/12 shadow-glow"
+                  : "border-[#3A3A36] bg-[#252622] hover:border-[#D7FF4F]/40 hover:bg-[#2D2E2A]"
               }`}
             >
               <p className="text-lg font-bold text-white">{initialSummary[item] ?? 0}</p>
-              <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-normal text-zinc-300">{item}</p>
+              <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{item}</p>
             </button>
           );
         })}
       </section>
 
-      <section className="rounded-xl border border-white/10 bg-[#181818] p-3 shadow-2xl shadow-black/25">
+      <section className="rounded-xl border border-[#3A3A36] bg-[#252622] p-3 shadow-xl shadow-black/20">
         <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="flex h-9 items-center rounded-lg border border-zinc-800 bg-[#111] px-3 focus-within:border-geek-lime">
+          <div className="flex h-9 items-center rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 focus-within:border-[#D7FF4F]/70">
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar por código, cliente o producto"
-              className="h-full w-full bg-transparent text-sm text-white outline-none placeholder:text-zinc-500"
+              className="h-full w-full bg-transparent text-sm text-[#F5F5F5] outline-none placeholder:text-[#A7A7A7]/50"
             />
           </div>
           <select
             value={estado}
             onChange={(event) => setEstado(event.target.value as EstadoCotizacion | "Todos")}
-            className="h-9 rounded-lg border border-zinc-800 bg-[#111] px-3 text-sm font-semibold text-white outline-none focus:border-geek-lime"
+            className="h-9 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm font-semibold text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70"
           >
             <option value="Todos">Todos los estados</option>
             {ESTADOS_COTIZACION.map((item) => (
@@ -86,9 +86,9 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
           </select>
         </div>
 
-        <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
+        <div className="mt-3 overflow-hidden rounded-xl border border-[#3A3A36]">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1440px] table-fixed divide-y divide-white/10 text-sm">
+            <table className="w-full min-w-[1440px] table-fixed divide-y divide-[#3A3A36] text-sm">
               <colgroup>
                 <col className="w-[105px]" />
                 <col className="w-[190px]" />
@@ -101,7 +101,7 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
                 <col className="w-[145px]" />
                 <col className="w-[110px]" />
               </colgroup>
-              <thead className="bg-white/[0.035] text-left text-xs uppercase tracking-normal text-zinc-400">
+              <thead className="bg-[#30312D] text-left text-xs uppercase tracking-normal text-[#A7A7A7]">
                 <tr>
                   <th className={`${dataGridCellClass} text-left`}>Código</th>
                   <th className={`${dataGridCellClass} text-left`}>Cliente</th>
@@ -115,7 +115,7 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
                   <th className={`${dataGridCellClass} text-right`}>Acción</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/10">
+              <tbody className="divide-y divide-[#3A3A36]">
                 {filtered.map((item) => {
                   const href = `/cotizaciones/${item.id}`;
                   const totalCotizado = money(item.totalCotizado);
@@ -125,9 +125,9 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
                   const codigoCorto = formatDataGridCode(item.codigo);
 
                   return (
-                    <tr key={item.id} className="group h-[52px] transition hover:bg-white/[0.035]">
-                      <td className="font-semibold text-geek-lime">
-                        <DataGridLinkCell href={href} title={item.codigo} className="text-geek-lime">
+                    <tr key={item.id} className="group h-[52px] transition hover:bg-[#2D2E2A]">
+                      <td className="font-semibold text-[#D7FF4F]">
+                        <DataGridLinkCell href={href} title={item.codigo} className="text-[#D7FF4F]">
                           {codigoCorto}
                         </DataGridLinkCell>
                       </td>
@@ -137,29 +137,29 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
                         </DataGridLinkCell>
                       </td>
                       <td>
-                        <DataGridLinkCell href={href} title={item.productoSolicitado} className="text-zinc-200">
+                        <DataGridLinkCell href={href} title={item.productoSolicitado} className="text-[#CFCFCB]">
                           {item.productoSolicitado || "-"}
                         </DataGridLinkCell>
                       </td>
                       <td>
-                        <DataGridLinkCell href={href} title={item.categoria} className="text-zinc-300">
+                        <DataGridLinkCell href={href} title={item.categoria} className="text-[#CFCFCB]">
                           {item.categoria || "-"}
                         </DataGridLinkCell>
                       </td>
                       <td>
                         <DataGridLinkCell href={href} title={item.estado} className="text-geek-lime">
-                          <span className={`${dataGridBadgeClass} border-geek-lime/25 bg-geek-lime/10 text-geek-lime`}>
+                          <span className={`${dataGridBadgeClass} border-[#D7FF4F]/25 bg-[#D7FF4F]/10 text-[#D7FF4F]`}>
                             <span className="min-w-0 truncate">{item.estado || "-"}</span>
                           </span>
                         </DataGridLinkCell>
                       </td>
                       <td>
-                        <DataGridLinkCell href={href} title={totalCotizado} className="text-right text-zinc-200">
+                        <DataGridLinkCell href={href} title={totalCotizado} className="text-right text-[#CFCFCB]">
                           {totalCotizado}
                         </DataGridLinkCell>
                       </td>
                       <td>
-                        <DataGridLinkCell href={href} title={totalAbonado} className="text-right text-zinc-200">
+                        <DataGridLinkCell href={href} title={totalAbonado} className="text-right text-[#CFCFCB]">
                           {totalAbonado}
                         </DataGridLinkCell>
                       </td>
@@ -169,7 +169,7 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
                         </DataGridLinkCell>
                       </td>
                       <td>
-                        <DataGridLinkCell href={href} title={fechaCreacion} className="text-zinc-300">
+                        <DataGridLinkCell href={href} title={fechaCreacion} className="text-[#CFCFCB]">
                           {fechaCreacion}
                         </DataGridLinkCell>
                       </td>
@@ -178,12 +178,12 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
                           <Link
                             href={`/pedidos/${item.itemPedidoId}`}
                             onClick={(event) => event.stopPropagation()}
-                            className="inline-flex whitespace-nowrap rounded-lg border border-geek-lime/40 px-3 py-2 text-xs font-bold text-geek-lime transition hover:bg-geek-lime/10"
+                            className="inline-flex whitespace-nowrap rounded-lg border border-[#D7FF4F]/40 px-3 py-2 text-xs font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F]/10"
                           >
                             Ver pedido
                           </Link>
                         ) : (
-                          <span className="text-xs text-zinc-500">-</span>
+                          <span className="text-xs text-[#A7A7A7]">-</span>
                         )}
                       </td>
                     </tr>
@@ -191,7 +191,7 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
                 })}
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-10 text-center text-zinc-400">
+                    <td colSpan={10} className="px-4 py-10 text-center text-[#A7A7A7]">
                       No hay cotizaciones para los filtros seleccionados.
                     </td>
                   </tr>

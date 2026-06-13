@@ -28,7 +28,7 @@ export default async function CotizacionesPage() {
       actions={
         <Link
           href="/cotizaciones/nueva"
-          className="rounded-xl border border-geek-lime bg-geek-lime px-4 py-2.5 text-sm font-extrabold text-black shadow-glow transition hover:brightness-95"
+          className="inline-flex h-8 items-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#10110E] transition hover:brightness-105"
         >
           + Nueva cotización
         </Link>
