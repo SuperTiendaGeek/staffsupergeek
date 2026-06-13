@@ -127,7 +127,7 @@ export function OrdenDocumentosCard({ ordenId, documentos, onOrdenUpdated }: Pro
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 text-[11px] font-extrabold text-[var(--sg-text-on-accent)] shadow-[0_8px_18px_rgba(227,252,2,0.14)] transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 text-[11px] font-bold text-[var(--sg-text-on-accent)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <span aria-hidden="true">+</span>
           {uploading ? "Subiendo" : "Subir archivo"}
