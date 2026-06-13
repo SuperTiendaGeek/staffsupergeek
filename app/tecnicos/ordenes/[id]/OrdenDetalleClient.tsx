@@ -3428,24 +3428,24 @@ export function OrdenDetalleClient() {
             )}
 
             {openAbonoModal && (
-              <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 backdrop-blur-sm px-4">
-                <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-950 p-4 shadow-2xl space-y-3">
+              <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+                <div className="w-full max-w-md rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-2xl space-y-3">
                   <h4 className="text-sm font-semibold text-white">Registrar abono</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-zinc-400">Fecha</label>
+                      <label className="text-xs font-medium text-[#A7A7A7]">Fecha</label>
                       <input
                         type="date"
                         value={abonoFecha}
                         onChange={(e) => setAbonoFecha(e.target.value)}
-                        className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-[#e3fc02] focus:outline-none"
+                        className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none"
                         disabled={abonoSaving}
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-zinc-400">Monto</label>
-                      <div className="flex overflow-hidden rounded-md border border-zinc-700 bg-zinc-900 focus-within:border-[#e3fc02]">
-                        <span className="inline-flex items-center border-r border-zinc-700 px-3 text-sm font-semibold text-zinc-300">
+                      <label className="text-xs font-medium text-[#A7A7A7]">Monto</label>
+                      <div className="flex overflow-hidden rounded-lg border border-[#3A3A36] bg-[#1E1F1C] focus-within:border-[#D7FF4F]/70">
+                        <span className="inline-flex items-center border-r border-[#3A3A36] px-3 text-sm font-semibold text-[#CFCFCB]">
                           $
                         </span>
                         <input
@@ -3454,18 +3454,18 @@ export function OrdenDetalleClient() {
                           value={abonoMonto}
                           onChange={(e) => setAbonoMonto(e.target.value)}
                           placeholder="0.00"
-                          className="w-full bg-transparent px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:outline-none"
+                          className="w-full bg-transparent px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:outline-none"
                           disabled={abonoSaving}
                         />
                       </div>
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-zinc-400">Método de pago</label>
+                    <label className="text-xs font-medium text-[#A7A7A7]">Método de pago</label>
                     <select
                       value={abonoMetodoPago}
                       onChange={(e) => setAbonoMetodoPago(e.target.value)}
-                      className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-[#e3fc02] focus:outline-none"
+                      className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none"
                       disabled={abonoSaving}
                     >
                       <option value="">Seleccionar método de pago</option>
@@ -3477,29 +3477,29 @@ export function OrdenDetalleClient() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-zinc-400">Registrado por</label>
-                    <div className="w-full rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-zinc-400">
+                    <label className="text-xs font-medium text-[#A7A7A7]">Registrado por</label>
+                    <div className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C]/60 px-3 py-2 text-sm text-[#A7A7A7]">
                       {ABONO_REGISTRADO_POR_TEMP}
                     </div>
-                    <p className="text-[11px] text-zinc-500">
+                    <p className="text-[11px] text-[#A7A7A7]/70">
                       Este valor se completará automáticamente cuando el login esté activo.
                     </p>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-zinc-400">Comprobante</label>
+                    <label className="text-xs font-medium text-[#A7A7A7]">Comprobante</label>
                     <input
                       type="file"
                       accept="image/*,.pdf"
                       onChange={(e) => setAbonoComprobanteFile(e.target.files?.[0] ?? null)}
-                      className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 file:mr-3 file:rounded-md file:border file:border-zinc-700 file:bg-zinc-900 file:px-2 file:py-1 file:text-xs file:font-semibold file:text-zinc-300 hover:file:text-white focus:border-[#e3fc02] focus:outline-none"
+                      className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#CFCFCB] file:mr-3 file:rounded-md file:border file:border-[#3A3A36] file:bg-[#30312D] file:px-2 file:py-1 file:text-xs file:font-semibold file:text-[#CFCFCB] hover:file:text-[#D7FF4F] focus:border-[#D7FF4F]/70 focus:outline-none"
                       disabled={abonoSaving}
                     />
                     {abonoComprobanteFile && (
-                      <p className="text-xs text-zinc-400">
+                      <p className="text-xs text-[#A7A7A7]">
                         Archivo seleccionado: {abonoComprobanteFile.name}
                       </p>
                     )}
-                    <p className="text-[11px] text-zinc-500">
+                    <p className="text-[11px] text-[#A7A7A7]/70">
                       Se sube al guardar (máx. 5MB, imagen o PDF).
                     </p>
                   </div>
@@ -3508,7 +3508,7 @@ export function OrdenDetalleClient() {
                     onChange={(e) => setAbonoObservacion(e.target.value)}
                     placeholder="Observacion"
                     rows={3}
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-[#e3fc02] focus:outline-none resize-none"
+                    className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none resize-none"
                     disabled={abonoSaving}
                   />
                   {abonoError && <p className="text-xs text-red-400">{abonoError}</p>}
@@ -3519,7 +3519,7 @@ export function OrdenDetalleClient() {
                         setOpenAbonoModal(false);
                         setAbonoError(null);
                       }}
-                      className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-300 hover:text-white"
+                      className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
                       disabled={abonoSaving}
                     >
                       Cancelar
@@ -3528,7 +3528,7 @@ export function OrdenDetalleClient() {
                       type="button"
                       onClick={handleGuardarAbono}
                       disabled={abonoSaving}
-                      className="rounded-md border border-[#e3fc02]/70 bg-[#e3fc02]/10 px-3 py-1.5 text-xs font-semibold text-[#e3fc02] hover:bg-[#e3fc02]/20 disabled:opacity-60"
+                      className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60"
                     >
                       {abonoSaving ? "Guardando..." : "Guardar abono"}
                     </button>
