@@ -46,7 +46,7 @@ export default async function PedidoDetallePage({ params }: Props) {
       pageTitle={pageTitle}
       subtitle={subtitle}
       actions={
-        <Link href="/pedidos" className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition hover:border-geek-lime/40 hover:text-geek-lime">
+        <Link href="/pedidos" className="inline-flex h-8 items-center rounded-full border border-[#3A3A36] px-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">
           Volver
         </Link>
       }
