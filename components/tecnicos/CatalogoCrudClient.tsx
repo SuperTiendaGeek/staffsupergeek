@@ -243,7 +243,7 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
 
   return (
     <>
-      <section className="space-y-4 rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_18px_40px_rgba(0,0,0,0.45)] sm:p-5">
+      <section className="space-y-4 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20 sm:p-5">
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_190px_auto]">
           <label>
             <span className="sr-only">Buscar</span>
@@ -251,13 +251,13 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={isRepuestosMode ? "Buscar por nombre, SKU o proveedor" : "Buscar por nombre o descripción"}
-              className="h-12 w-full rounded-xl border border-zinc-800 bg-[#121212] px-4 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-[#e3fc02] focus:ring-2 focus:ring-[#e3fc02]/20"
+              className="h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-4 text-sm text-[#F5F5F5] outline-none transition placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70"
             />
           </label>
           <select
             value={status}
             onChange={(event) => setStatus(event.target.value as StatusFilter)}
-            className="h-12 rounded-xl border border-zinc-800 bg-[#121212] px-4 text-sm font-semibold text-white outline-none transition focus:border-[#e3fc02] focus:ring-2 focus:ring-[#e3fc02]/20"
+            className="h-9 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-4 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
           >
             <option value="todos">Todos</option>
             <option value="activos">Activos</option>
@@ -266,7 +266,7 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
           <button
             type="button"
             onClick={openCreateModal}
-            className="inline-flex h-12 items-center justify-center rounded-xl border border-[#e3fc02] bg-[#e3fc02] px-5 text-sm font-extrabold text-black shadow-[0_10px_22px_rgba(227,252,2,0.18)] transition hover:brightness-95"
+            className="inline-flex h-9 items-center justify-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-5 text-sm font-bold text-[#10110E] transition hover:brightness-105"
           >
             + Nuevo {singular}
           </button>
@@ -276,10 +276,10 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
           <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</p>
         ) : null}
 
-        <div className="overflow-hidden rounded-xl border border-zinc-900/80">
+        <div className="overflow-hidden rounded-lg border border-[#3A3A36]">
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
-              <thead className="bg-[#121212] text-xs uppercase tracking-wide text-zinc-500">
+              <thead className="bg-[#30312D] text-xs uppercase tracking-wide text-[#A7A7A7]">
                 {isRepuestosMode ? (
                   <tr>
                     <th className="px-4 py-3">Repuesto</th>
@@ -300,20 +300,20 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
                   </tr>
                 )}
               </thead>
-              <tbody className="divide-y divide-zinc-900/80 bg-[#161616]">
+              <tbody className="divide-y divide-[#3A3A36] bg-[#252622]">
                 {loading ? (
                   <tr>
-                    <td colSpan={isRepuestosMode ? 7 : 5} className="px-4 py-8 text-center text-zinc-400">
+                    <td colSpan={isRepuestosMode ? 7 : 5} className="px-4 py-8 text-center text-[#A7A7A7]">
                       Cargando catálogo...
                     </td>
                   </tr>
                 ) : filteredItems.length ? (
                   filteredItems.map((item) =>
                     isRepuestosMode && isRepuesto(item) ? (
-                      <tr key={item.id} className="text-zinc-200">
+                      <tr key={item.id} className="text-[#CFCFCB]">
                         <td className="px-4 py-4">
                           <p className="font-semibold text-white">{item.nombre}</p>
-                          {item.descripcionCorta ? <p className="mt-1 max-w-md truncate text-xs text-zinc-500">{item.descripcionCorta}</p> : null}
+                          {item.descripcionCorta ? <p className="mt-1 max-w-md truncate text-xs text-[#A7A7A7]">{item.descripcionCorta}</p> : null}
                         </td>
                         <td className="px-4 py-4">{item.skuCodigoInterno || "-"}</td>
                         <td className="px-4 py-4">{item.proveedorHabitual || "-"}</td>
@@ -327,7 +327,7 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
                         </td>
                       </tr>
                     ) : !isRepuesto(item) ? (
-                      <tr key={item.id} className="text-zinc-200">
+                      <tr key={item.id} className="text-[#CFCFCB]">
                         <td className="px-4 py-4 font-semibold text-white">{item.nombre}</td>
                         <td className="px-4 py-4">
                           <p className="max-w-xl truncate">{item.descripcion || "-"}</p>
@@ -344,7 +344,7 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
                   )
                 ) : (
                   <tr>
-                    <td colSpan={isRepuestosMode ? 7 : 5} className="px-4 py-8 text-center text-zinc-400">
+                    <td colSpan={isRepuestosMode ? 7 : 5} className="px-4 py-8 text-center text-[#A7A7A7]">
                       No hay registros para mostrar.
                     </td>
                   </tr>
@@ -356,16 +356,16 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
       </section>
 
       {modalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6 backdrop-blur-sm">
-          <form onSubmit={handleSubmit} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-zinc-800 bg-[#181818] p-5 shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-zinc-900 pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6 backdrop-blur-sm">
+          <form onSubmit={handleSubmit} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-[#3A3A36] pb-4">
               <div>
-                <h3 className="text-xl font-extrabold text-white">
+                <h3 className="text-xl font-bold text-white">
                   {editingItem ? `Editar ${singular}` : `Nuevo ${singular}`}
                 </h3>
-                <p className="mt-1 text-sm text-zinc-500">Completa los datos del catálogo.</p>
+                <p className="mt-1 text-sm text-[#A7A7A7]">Completa los datos del catálogo.</p>
               </div>
-              <button type="button" onClick={() => setModalOpen(false)} className="rounded-lg border border-zinc-800 px-3 py-1.5 text-sm text-zinc-300 hover:text-white">
+              <button type="button" onClick={() => setModalOpen(false)} className="rounded-lg border border-[#3A3A36] px-3 py-1.5 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-white">
                 Cerrar
               </button>
             </div>
@@ -386,12 +386,12 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
                   <TextAreaField label="Descripción" value={form.descripcion} onChange={(value) => setForm((current) => ({ ...current, descripcion: value }))} />
                 </>
               )}
-              <label className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-[#121212] px-4 py-3 text-sm font-semibold text-white sm:col-span-2">
+              <label className="flex items-center gap-3 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3 text-sm font-semibold text-[#CFCFCB] sm:col-span-2">
                 <input
                   type="checkbox"
                   checked={form.activo}
                   onChange={(event) => setForm((current) => ({ ...current, activo: event.target.checked }))}
-                  className="h-4 w-4 accent-[#e3fc02]"
+                  className="h-4 w-4 accent-[#D7FF4F]"
                 />
                 Activo
               </label>
@@ -400,10 +400,10 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
             {formError ? <p className="mt-4 text-sm text-red-300">{formError}</p> : null}
 
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setModalOpen(false)} className="h-10 rounded-lg border border-zinc-800 px-4 text-sm font-semibold text-zinc-300 hover:text-white">
+              <button type="button" onClick={() => setModalOpen(false)} className="inline-flex h-9 items-center rounded-full border border-[#3A3A36] px-4 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-white">
                 Cancelar
               </button>
-              <button type="submit" disabled={saving} className="h-10 rounded-lg bg-[#e3fc02] px-4 text-sm font-extrabold text-black hover:brightness-95 disabled:opacity-60">
+              <button type="submit" disabled={saving} className="inline-flex h-9 items-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-bold text-[#10110E] transition hover:brightness-105 disabled:opacity-60">
                 {saving ? "Guardando..." : "Guardar"}
               </button>
             </div>
@@ -416,7 +416,7 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
 
 function StatusBadge({ activo }: { activo: boolean }) {
   return (
-    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${activo ? "border-[#e3fc02]/40 bg-[#e3fc02]/10 text-[#e3fc02]" : "border-zinc-700 bg-zinc-900 text-zinc-400"}`}>
+    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${activo ? "border-[#D7FF4F]/40 bg-[#D7FF4F]/10 text-[#D7FF4F]" : "border-[#3A3A36] bg-[#30312D] text-[#A7A7A7]"}`}>
       {activo ? "Activo" : "Inactivo"}
     </span>
   );
@@ -435,10 +435,10 @@ function Actions({
 }) {
   return (
     <div className="flex justify-end gap-2">
-      <button type="button" onClick={() => onEdit(item)} className="rounded-lg border border-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:border-[#e3fc02] hover:text-[#e3fc02]">
+      <button type="button" onClick={() => onEdit(item)} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">
         Editar
       </button>
-      <button type="button" onClick={() => void onToggle(item)} disabled={togglingId === item.id} className="rounded-lg border border-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:border-[#e3fc02] hover:text-[#e3fc02] disabled:opacity-50">
+      <button type="button" onClick={() => void onToggle(item)} disabled={togglingId === item.id} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F] disabled:opacity-50">
         {togglingId === item.id ? "Guardando..." : item.activo ? "Desactivar" : "Activar"}
       </button>
     </div>
@@ -460,14 +460,14 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">{label}</span>
+      <span className="text-xs font-semibold uppercase tracking-wide text-[#A7A7A7]">{label}</span>
       <input
         type={type}
         step={type === "number" ? "0.01" : undefined}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         required={required}
-        className="mt-2 h-11 w-full rounded-xl border border-zinc-800 bg-[#121212] px-3 text-sm text-white outline-none focus:border-[#e3fc02] focus:ring-2 focus:ring-[#e3fc02]/20"
+        className="mt-1.5 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
       />
     </label>
   );
@@ -476,12 +476,12 @@ function Field({
 function TextAreaField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <label className="block sm:col-span-2">
-      <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">{label}</span>
+      <span className="text-xs font-semibold uppercase tracking-wide text-[#A7A7A7]">{label}</span>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         rows={3}
-        className="mt-2 w-full rounded-xl border border-zinc-800 bg-[#121212] px-3 py-2 text-sm text-white outline-none focus:border-[#e3fc02] focus:ring-2 focus:ring-[#e3fc02]/20"
+        className="mt-1.5 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
       />
     </label>
   );
