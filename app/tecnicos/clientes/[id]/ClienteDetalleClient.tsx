@@ -154,12 +154,12 @@ function InlineEditField({
     setEditing(true);
   };
 
-  const sharedInputClass = `w-full rounded-md border border-[#e3fc02]/60 bg-[#0d0d0d] px-2.5 py-1.5 text-sm text-zinc-100 outline-none ring-1 ring-[#e3fc02]/15 placeholder:text-zinc-600 disabled:opacity-50`;
+  const sharedInputClass = `w-full rounded-md border border-[#D7FF4F]/60 bg-[#1E1F1C] px-2.5 py-1.5 text-sm text-[#F5F5F5] outline-none ring-1 ring-[#D7FF4F]/15 placeholder:text-[#A7A7A7]/50 disabled:opacity-50`;
 
   return (
     <div>
       {label && (
-        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
+        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#A7A7A7]">{label}</p>
       )}
 
       {editing ? (
@@ -187,10 +187,10 @@ function InlineEditField({
             />
           )}
           <div className="mt-1 flex items-center gap-2">
-            {saving && <span className="text-[10px] text-zinc-500">Guardando...</span>}
+            {saving && <span className="text-[10px] text-[#A7A7A7]">Guardando...</span>}
             {fieldError && <span className="text-[10px] text-[var(--sg-danger)]">{fieldError}</span>}
             {!saving && !fieldError && (
-              <span className="text-[10px] text-zinc-600">Enter · Esc para cancelar</span>
+              <span className="text-[10px] text-[#A7A7A7]/60">Enter · Esc para cancelar</span>
             )}
           </div>
         </div>
@@ -199,17 +199,17 @@ function InlineEditField({
           type="button"
           onClick={startEdit}
           title="Clic para editar"
-          className="group/btn flex w-full items-start gap-1.5 rounded-md border border-transparent px-1.5 py-1 text-left transition hover:border-zinc-800 hover:bg-zinc-900/60"
+          className="group/btn flex w-full items-start gap-1.5 rounded-md border border-transparent px-1.5 py-1 text-left transition hover:border-[#3A3A36] hover:bg-[#2D2E2A]/60"
         >
-          <span className={`flex-1 overflow-hidden text-sm ${large ? "font-bold text-white" : "font-medium text-zinc-100"}`}>
-            {value || <span className="font-normal text-zinc-600">{placeholder}</span>}
+          <span className={`flex-1 overflow-hidden text-sm ${large ? "font-bold text-white" : "font-medium text-[#F5F5F5]"}`}>
+            {value || <span className="font-normal text-[#A7A7A7]/50">{placeholder}</span>}
           </span>
           {savedOk ? (
             <span className="flex shrink-0 items-center gap-0.5 text-[10px] text-[var(--sg-success)]">
               <CheckIcon className="h-2.5 w-2.5" /> OK
             </span>
           ) : (
-            <PencilIcon className="mt-0.5 h-3 w-3 shrink-0 text-zinc-700 opacity-0 transition group-hover/btn:opacity-100" />
+            <PencilIcon className="mt-0.5 h-3 w-3 shrink-0 text-[#A7A7A7] opacity-0 transition group-hover/btn:opacity-100" />
           )}
         </button>
       )}
@@ -363,7 +363,7 @@ export function ClienteDetalleClient() {
   if (loading) {
     return (
       <div className={styles.theme}>
-        <div className="rounded-2xl border border-zinc-900/70 bg-[#181818] p-6 text-sm text-zinc-400">
+        <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-6 text-sm text-[#A7A7A7]">
           Cargando cliente...
         </div>
       </div>
@@ -373,9 +373,9 @@ export function ClienteDetalleClient() {
   if (error || !cliente) {
     return (
       <div className={styles.theme}>
-        <div className="space-y-4 rounded-2xl border border-zinc-900/70 bg-[#181818] p-6">
+        <div className="space-y-4 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-6">
           <p className="text-sm text-[var(--sg-danger)]">{error || "Cliente no encontrado"}</p>
-          <Link href="/tecnicos/clientes" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-800 bg-[#151515] px-4 text-sm font-semibold text-zinc-200 transition hover:border-[#e3fc02] hover:text-[#e3fc02]">
+          <Link href="/tecnicos/clientes" className="inline-flex h-9 items-center justify-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-4 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">
             Volver a clientes
           </Link>
         </div>
@@ -392,12 +392,12 @@ export function ClienteDetalleClient() {
       <div className="space-y-3">
 
         {/* Client card */}
-        <section className="rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_18px_40px_rgba(0,0,0,0.45)]">
+        <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
 
           {/* Name + actions */}
           <div className="mb-3 flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[#e3fc02]">Cliente</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#D7FF4F]">Cliente</p>
               <InlineEditField
                 value={cliente.nombre ?? ""}
                 onSave={(v) => saveField("nombre", v)}
@@ -412,7 +412,7 @@ export function ClienteDetalleClient() {
                   href={whatsappLink}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-700 bg-[#1a1a1a] px-3 text-sm font-semibold text-zinc-200 transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-lime)]"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#3A3A36] bg-[#30312D] px-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
                 >
                   <WhatsappIcon className="h-3.5 w-3.5 text-[var(--sg-lime)]" />
                   WhatsApp
@@ -421,7 +421,7 @@ export function ClienteDetalleClient() {
               <button
                 type="button"
                 onClick={() => setNewOrderOpen(true)}
-                className="inline-flex h-8 items-center gap-1 rounded-lg border border-[#e3fc02] bg-[#e3fc02] px-3 text-sm font-extrabold text-black transition hover:brightness-95"
+                className="inline-flex h-8 items-center gap-1 rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#10110E] transition hover:brightness-105"
               >
                 + Nueva orden
               </button>
@@ -429,7 +429,7 @@ export function ClienteDetalleClient() {
           </div>
 
           {/* Fields grid */}
-          <div className="grid gap-x-4 gap-y-2 rounded-lg border border-zinc-900/60 bg-[#141414] p-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-x-4 gap-y-2 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-3 sm:grid-cols-2 xl:grid-cols-4">
             <InlineEditField label="Teléfono" value={cliente.telefono ?? ""} onSave={(v) => saveField("telefono", v)} placeholder="Sin teléfono" />
             <InlineEditField label="Cédula" value={cliente.cedula ?? ""} onSave={(v) => saveField("cedula", v)} placeholder="Sin cédula" />
             <InlineEditField label="Correo" value={cliente.correo ?? ""} onSave={(v) => saveField("correo", v)} placeholder="Sin correo" />
@@ -437,7 +437,7 @@ export function ClienteDetalleClient() {
           </div>
 
           {/* Notes */}
-          <div className="mt-2 rounded-lg border border-zinc-900/60 bg-[#141414] p-3">
+          <div className="mt-2 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-3">
             <InlineEditField
               label="Notas"
               value={cliente.notas ?? ""}
@@ -449,69 +449,69 @@ export function ClienteDetalleClient() {
         </section>
 
         {/* Stats strip */}
-        <section className="overflow-hidden rounded-2xl border border-zinc-900/70 bg-[#181818] shadow-[0_14px_32px_rgba(0,0,0,0.4)]">
-          <div className="grid divide-y divide-zinc-900/80 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
-            <div className="p-3 xl:border-r xl:border-zinc-900/80">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Total de órdenes</p>
-              <p className="mt-1 text-2xl font-extrabold text-[#e3fc02]">{totalOrders}</p>
+        <section className="overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#252622] shadow-xl shadow-black/20">
+          <div className="grid divide-y divide-[#3A3A36] sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+            <div className="p-3 xl:border-r xl:border-[#3A3A36]">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-[#A7A7A7]">Total de órdenes</p>
+              <p className="mt-1 text-2xl font-extrabold text-[#D7FF4F]">{totalOrders}</p>
             </div>
-            <div className="p-3 xl:border-r xl:border-zinc-900/80">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Órdenes activas</p>
+            <div className="p-3 xl:border-r xl:border-[#3A3A36]">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-[#A7A7A7]">Órdenes activas</p>
               <p className="mt-1 text-2xl font-extrabold text-white">{activeOrders}</p>
             </div>
-            <div className="p-3 xl:border-r xl:border-zinc-900/80">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Finalizadas</p>
+            <div className="p-3 xl:border-r xl:border-[#3A3A36]">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-[#A7A7A7]">Finalizadas</p>
               <p className="mt-1 text-2xl font-extrabold text-[var(--sg-success)]">{finishedOrders}</p>
             </div>
             <div className="p-3">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">Última orden</p>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-[#A7A7A7]">Última orden</p>
               <p className="mt-1 text-base font-extrabold text-white">
                 {formatDate(latestOrder?.fechaIngreso || cliente.ultimaFechaIngreso)}
               </p>
-              {latestOrder && <p className="text-[10px] text-zinc-500">{latestOrder.idVisible}</p>}
+              {latestOrder && <p className="text-[10px] text-[#A7A7A7]">{latestOrder.idVisible}</p>}
             </div>
           </div>
         </section>
 
         {/* Orders table */}
-        <section className="space-y-3 rounded-2xl border border-zinc-900/70 bg-[#181818] p-4 shadow-[0_18px_40px_rgba(0,0,0,0.45)]">
+        <section className="space-y-3 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">Historial</p>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-[#A7A7A7]">Historial</p>
               <h3 className="text-lg font-extrabold text-white">Órdenes vinculadas</h3>
             </div>
-            <p className="text-xs text-zinc-500">{ordenes.length} registros</p>
+            <p className="text-xs text-[#A7A7A7]">{ordenes.length} registros</p>
           </div>
 
-          {ordersLoading && <p className="text-sm text-zinc-400">Cargando órdenes...</p>}
+          {ordersLoading && <p className="text-sm text-[#A7A7A7]">Cargando órdenes...</p>}
           {ordersError && <p className="text-sm text-[var(--sg-danger)]">{ordersError}</p>}
 
           {!ordersLoading && !ordersError && (
             ordenes.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-zinc-800 bg-[#141414] px-4 py-6 text-sm text-zinc-500">
+              <div className="rounded-lg border border-dashed border-[#3A3A36] bg-[#1E1F1C] px-4 py-6 text-sm text-[#A7A7A7]">
                 Este cliente aún no tiene órdenes registradas.
               </div>
             ) : (
-              <div className="w-full overflow-x-auto rounded-xl border border-zinc-900/80 bg-[#151515]">
-                <div className="grid min-w-[700px] grid-cols-[100px_minmax(0,2fr)_130px_160px_100px] border-b border-zinc-900/80 bg-[#0f0f0f]/70 px-5 py-2.5 text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+              <div className="w-full overflow-x-auto rounded-lg border border-[#3A3A36] bg-[#252622]">
+                <div className="grid min-w-[700px] grid-cols-[100px_minmax(0,2fr)_130px_160px_100px] border-b border-[#3A3A36] bg-[#30312D] px-5 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[#A7A7A7]">
                   <span>ID</span><span>Equipo</span><span>Ingreso</span><span>Estado</span><span className="text-right">Acción</span>
                 </div>
-                <div className="divide-y divide-zinc-900/80">
-                  {ordenes.map((orden, idx) => (
+                <div className="divide-y divide-[#3A3A36]">
+                  {ordenes.map((orden) => (
                     <div
                       key={orden.recordId}
-                      className={`grid min-w-[700px] grid-cols-[100px_minmax(0,2fr)_130px_160px_100px] items-center px-5 py-3 text-sm transition ${idx % 2 === 0 ? "bg-[#161616]" : "bg-[#1a1a1a]"} hover:bg-[#1d1d1d]`}
+                      className="grid min-w-[700px] grid-cols-[100px_minmax(0,2fr)_130px_160px_100px] items-center bg-[#252622] px-5 py-3 text-sm transition hover:bg-[#2D2E2A]"
                     >
-                      <span className="truncate font-semibold text-zinc-100">{orden.idVisible}</span>
-                      <span className="truncate text-zinc-300">{orden.equipo || "Sin equipo"}</span>
-                      <span className="text-zinc-400">{formatDate(orden.fechaIngreso)}</span>
+                      <span className="truncate font-semibold text-white">{orden.idVisible}</span>
+                      <span className="truncate text-[#CFCFCB]">{orden.equipo || "Sin equipo"}</span>
+                      <span className="text-[#A7A7A7]">{formatDate(orden.fechaIngreso)}</span>
                       <span>
-                        <span className="inline-flex rounded-full border border-[#e3fc02]/30 bg-[#e3fc02]/8 px-3 py-0.5 text-[11px] font-semibold text-[#e3fc02]">
+                        <span className="inline-flex rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-3 py-0.5 text-[11px] font-semibold text-[#D7FF4F]">
                           {orden.estadoActual || "Sin estado"}
                         </span>
                       </span>
                       <span className="flex justify-end">
-                        <Link href={`/tecnicos/ordenes/${encodeURIComponent(orden.recordId)}`} className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs font-semibold text-white transition hover:border-[#e3fc02] hover:text-[#e3fc02]">
+                        <Link href={`/tecnicos/ordenes/${encodeURIComponent(orden.recordId)}`} className="rounded-full border border-[#3A3A36] bg-[#30312D] px-3 py-1 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">
                           Ver orden
                         </Link>
                       </span>
@@ -526,12 +526,12 @@ export function ClienteDetalleClient() {
 
       {/* ── Sidebar ──────────────────────────────────────────────────────────── */}
       <aside className="space-y-3">
-        <div className="space-y-2 rounded-2xl border border-zinc-900/70 bg-[#181818] p-3 shadow-[0_14px_32px_rgba(0,0,0,0.4)]">
+        <div className="space-y-2 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-3 shadow-xl shadow-black/20">
           <p className="mb-2 text-sm font-semibold text-white">Acciones rápidas</p>
           <button
             type="button"
             onClick={() => setNewOrderOpen(true)}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#e3fc02] bg-[#e3fc02] px-4 py-2.5 text-sm font-extrabold text-black transition hover:brightness-95"
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#10110E] transition hover:brightness-105"
           >
             + Nueva orden
           </button>
@@ -544,16 +544,16 @@ export function ClienteDetalleClient() {
           </button>
         </div>
 
-        <div className="rounded-2xl border border-zinc-900/70 bg-[#181818] p-3 shadow-[0_14px_32px_rgba(0,0,0,0.4)]">
+        <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-3 shadow-xl shadow-black/20">
           <p className="text-sm font-semibold text-white">Conservación de historial</p>
-          <p className="mt-1.5 text-sm leading-5 text-zinc-400">
+          <p className="mt-1.5 text-sm leading-5 text-[#A7A7A7]">
             Los clientes con órdenes no pueden eliminarse para mantener trazabilidad.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-zinc-900/70 bg-[#181818] p-3 shadow-[0_14px_32px_rgba(0,0,0,0.4)]">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Edición inline</p>
-          <p className="text-sm leading-5 text-zinc-400">
+        <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-3 shadow-xl shadow-black/20">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[#A7A7A7]">Edición inline</p>
+          <p className="text-sm leading-5 text-[#A7A7A7]">
             Clic en cualquier campo para editarlo. Guarda con Enter o al salir del campo.
           </p>
         </div>
@@ -561,14 +561,14 @@ export function ClienteDetalleClient() {
 
       {/* ── Modal: Nueva orden ───────────────────────────────────────────────── */}
       {newOrderOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6 backdrop-blur-sm">
           <div className="flex max-h-[92vh] w-full max-w-[640px] flex-col overflow-hidden rounded-[var(--sg-radius-lg)] border border-[var(--sg-border)] bg-[var(--sg-card)] shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] px-5 py-4">
               <div>
                 <h3 className="text-lg font-extrabold text-[var(--sg-text-primary)]">Nueva orden</h3>
                 <p className="mt-0.5 text-sm text-[var(--sg-text-secondary)]">La orden quedará vinculada a {cliente.nombre}.</p>
               </div>
-              <button type="button" onClick={() => { if (!newOrderSaving) { setNewOrderOpen(false); setNewOrderError(null); setNewOrderForm({ equipo: "", accesorios: "", ingresaPor: "" }); } }} aria-label="Cerrar" className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-200">✕</button>
+              <button type="button" onClick={() => { if (!newOrderSaving) { setNewOrderOpen(false); setNewOrderError(null); setNewOrderForm({ equipo: "", accesorios: "", ingresaPor: "" }); } }} aria-label="Cerrar" className="rounded-lg p-1.5 text-[#A7A7A7] transition hover:bg-[#2D2E2A] hover:text-[#F5F5F5]">✕</button>
             </div>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-5">
               <div className="grid gap-3 sm:grid-cols-2">
@@ -594,7 +594,7 @@ export function ClienteDetalleClient() {
 
       {/* ── Modal: Eliminar cliente ──────────────────────────────────────────── */}
       {deleteOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6 backdrop-blur-sm">
           <div className="w-full max-w-[520px] overflow-hidden rounded-[var(--sg-radius-lg)] border border-[var(--sg-border)] bg-[var(--sg-card)] shadow-2xl">
             <div className="border-b border-[var(--sg-divider)] px-5 py-4">
               <h3 className="text-lg font-extrabold text-[var(--sg-text-primary)]">Eliminar cliente</h3>
@@ -606,7 +606,7 @@ export function ClienteDetalleClient() {
                   Este cliente tiene órdenes registradas. No se puede eliminar para conservar el historial.
                 </div>
               ) : (
-                <p className="text-sm leading-6 text-zinc-300">
+                <p className="text-sm leading-6 text-[#CFCFCB]">
                   ¿Confirmas eliminar a <strong className="text-white">{cliente.nombre}</strong>? Esta operación no se puede deshacer.
                 </p>
               )}
