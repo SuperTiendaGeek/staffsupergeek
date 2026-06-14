@@ -714,6 +714,8 @@ export function OrdenDetalleClient() {
   const [selectedServicio, setSelectedServicio] = useState<CatalogoServicioItem | null>(null);
   const [showRepuestoResults, setShowRepuestoResults] = useState(false);
   const [showServicioResults, setShowServicioResults] = useState(false);
+  const [repuestoPlacement, setRepuestoPlacement] = useState<"top" | "bottom">("bottom");
+  const [servicioPlacement, setServicioPlacement] = useState<"top" | "bottom">("bottom");
   const [repuestoCantidad, setRepuestoCantidad] = useState("1");
   const [repuestoPrecioCliente, setRepuestoPrecioCliente] = useState("");
   const [repuestoCostoProveedor, setRepuestoCostoProveedor] = useState("");
@@ -2499,12 +2501,20 @@ export function OrdenDetalleClient() {
                     value={repuestoSearch}
                     onChange={(e) => {
                       setRepuestoSearch(e.target.value);
+                      if (repuestoComposerRef.current) {
+                        const rect = repuestoComposerRef.current.getBoundingClientRect();
+                        setRepuestoPlacement(window.innerHeight - rect.bottom < 280 && rect.top > 280 ? "top" : "bottom");
+                      }
                       setShowRepuestoResults(true);
                       if (catalogoRepuestos.length === 0 && !catalogoRepuestosLoading) {
                         loadCatalogoRepuestos();
                       }
                     }}
                     onFocus={() => {
+                      if (repuestoComposerRef.current) {
+                        const rect = repuestoComposerRef.current.getBoundingClientRect();
+                        setRepuestoPlacement(window.innerHeight - rect.bottom < 280 && rect.top > 280 ? "top" : "bottom");
+                      }
                       setShowRepuestoResults(true);
                       if (catalogoRepuestos.length === 0) {
                         loadCatalogoRepuestos();
@@ -2521,7 +2531,7 @@ export function OrdenDetalleClient() {
                     className="w-full rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
                   />
                   {showRepuestoResults && (
-                    <div className="absolute left-0 right-0 top-full z-[120] mt-2 max-h-64 overflow-auto overscroll-contain rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-bg)] shadow-2xl ring-1 ring-black/40">
+                    <div className={`absolute left-0 right-0 z-[120] flex rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-bg)] shadow-2xl ring-1 ring-black/40 ${repuestoPlacement === "top" ? "bottom-full mb-2 flex-col-reverse" : "top-full mt-2 flex-col"}`}>
                       {catalogoRepuestosLoading ? (
                         <p className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Cargando repuestos...</p>
                       ) : catalogoRepuestosError ? (
@@ -2534,26 +2544,28 @@ export function OrdenDetalleClient() {
                               setOpenCreateRepuestoModal(true);
                               setShowRepuestoResults(false);
                             }}
-                            className="flex w-full items-center gap-1.5 border-b border-[var(--sg-border)] px-3 py-2 text-left text-sm font-semibold text-[var(--sg-lime)] transition hover:bg-[var(--sg-card)]"
+                            className={`flex w-full flex-none items-center gap-1.5 px-3 py-2 text-left text-sm font-semibold text-[var(--sg-lime)] transition hover:bg-[var(--sg-card)] border-[var(--sg-border)] ${repuestoPlacement === "top" ? "border-t" : "border-b"}`}
                           >
                             + Crear repuesto nuevo
                           </button>
-                          {filteredCatalogoRepuestos.length === 0 && (
-                            <p className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Sin coincidencias.</p>
-                          )}
-                          {filteredCatalogoRepuestos.map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => selectRepuesto(item)}
-                              className="flex w-full flex-col items-start gap-1 border-b border-[var(--sg-border)] px-3 py-2 text-left transition hover:bg-[var(--sg-card)]"
-                            >
-                              <span className="text-sm font-semibold text-[var(--sg-text-primary)]">{item.nombre}</span>
-                              <span className="text-[11px] text-[var(--sg-text-muted)]">
-                                {item.proveedorHabitual ?? "Proveedor no definido"} · {formatCurrency(item.precioSugeridoCliente)}
-                              </span>
-                            </button>
-                          ))}
+                          <div className="max-h-52 overflow-auto overscroll-contain">
+                            {filteredCatalogoRepuestos.length === 0 && (
+                              <p className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Sin coincidencias.</p>
+                            )}
+                            {filteredCatalogoRepuestos.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => selectRepuesto(item)}
+                                className="flex w-full flex-col items-start gap-1 border-b border-[var(--sg-border)] px-3 py-2 text-left transition hover:bg-[var(--sg-card)]"
+                              >
+                                <span className="text-sm font-semibold text-[var(--sg-text-primary)]">{item.nombre}</span>
+                                <span className="text-[11px] text-[var(--sg-text-muted)]">
+                                  {item.proveedorHabitual ?? "Proveedor no definido"} · {formatCurrency(item.precioSugeridoCliente)}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
                         </>
                       )}
                     </div>
@@ -2760,12 +2772,20 @@ export function OrdenDetalleClient() {
                     value={servicioSearch}
                     onChange={(e) => {
                       setServicioSearch(e.target.value);
+                      if (servicioComposerRef.current) {
+                        const rect = servicioComposerRef.current.getBoundingClientRect();
+                        setServicioPlacement(window.innerHeight - rect.bottom < 280 && rect.top > 280 ? "top" : "bottom");
+                      }
                       setShowServicioResults(true);
                       if (catalogoServicios.length === 0 && !catalogoServiciosLoading) {
                         loadCatalogoServicios();
                       }
                     }}
                     onFocus={() => {
+                      if (servicioComposerRef.current) {
+                        const rect = servicioComposerRef.current.getBoundingClientRect();
+                        setServicioPlacement(window.innerHeight - rect.bottom < 280 && rect.top > 280 ? "top" : "bottom");
+                      }
                       setShowServicioResults(true);
                       if (catalogoServicios.length === 0) {
                         loadCatalogoServicios();
@@ -2782,7 +2802,7 @@ export function OrdenDetalleClient() {
                     className="w-full rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
                   />
                   {showServicioResults && (
-                    <div className="absolute left-0 right-0 top-full z-[120] mt-2 max-h-64 overflow-auto overscroll-contain rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-bg)] shadow-2xl ring-1 ring-black/40">
+                    <div className={`absolute left-0 right-0 z-[120] flex rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-bg)] shadow-2xl ring-1 ring-black/40 ${servicioPlacement === "top" ? "bottom-full mb-2 flex-col-reverse" : "top-full mt-2 flex-col"}`}>
                       {catalogoServiciosLoading ? (
                         <p className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Cargando servicios...</p>
                       ) : catalogoServiciosError ? (
@@ -2795,24 +2815,26 @@ export function OrdenDetalleClient() {
                               setOpenCreateServicioModal(true);
                               setShowServicioResults(false);
                             }}
-                            className="flex w-full items-center gap-1.5 border-b border-[var(--sg-border)] px-3 py-2 text-left text-sm font-semibold text-[var(--sg-lime)] transition hover:bg-[var(--sg-card)]"
+                            className={`flex w-full flex-none items-center gap-1.5 px-3 py-2 text-left text-sm font-semibold text-[var(--sg-lime)] transition hover:bg-[var(--sg-card)] border-[var(--sg-border)] ${servicioPlacement === "top" ? "border-t" : "border-b"}`}
                           >
                             + Crear servicio nuevo
                           </button>
-                          {filteredCatalogoServicios.length === 0 && (
-                            <p className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Sin coincidencias.</p>
-                          )}
-                          {filteredCatalogoServicios.map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => selectServicio(item)}
-                              className="flex w-full flex-col items-start gap-1 border-b border-[var(--sg-border)] px-3 py-2 text-left transition hover:bg-[var(--sg-card)]"
-                            >
-                              <span className="text-sm font-semibold text-[var(--sg-text-primary)]">{item.nombre}</span>
-                              <span className="text-[11px] text-[var(--sg-text-muted)]">Costo sugerido: {formatCurrency(item.costoSugerido)}</span>
-                            </button>
-                          ))}
+                          <div className="max-h-52 overflow-auto overscroll-contain">
+                            {filteredCatalogoServicios.length === 0 && (
+                              <p className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Sin coincidencias.</p>
+                            )}
+                            {filteredCatalogoServicios.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => selectServicio(item)}
+                                className="flex w-full flex-col items-start gap-1 border-b border-[var(--sg-border)] px-3 py-2 text-left transition hover:bg-[var(--sg-card)]"
+                              >
+                                <span className="text-sm font-semibold text-[var(--sg-text-primary)]">{item.nombre}</span>
+                                <span className="text-[11px] text-[var(--sg-text-muted)]">Costo sugerido: {formatCurrency(item.costoSugerido)}</span>
+                              </button>
+                            ))}
+                          </div>
                         </>
                       )}
                     </div>
