@@ -1992,7 +1992,7 @@ export function OrdenDetalleClient() {
                   </div>
                   <Link
                     href="/tecnicos/ordenes"
-                    className="inline-flex h-[26px] items-center justify-center rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 text-xs font-extrabold uppercase tracking-wide text-[var(--sg-text-on-accent)] transition hover:brightness-95"
+                    className="inline-flex h-[26px] items-center justify-center rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 text-xs font-extrabold uppercase tracking-wide text-[var(--sg-text-on-accent)] transition hover:brightness-105"
                   >
                     Volver a órdenes
                   </Link>
