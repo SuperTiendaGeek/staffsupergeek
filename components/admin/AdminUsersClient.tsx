@@ -385,36 +385,36 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
       </div>
 
       {mode ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-8 backdrop-blur-sm">
-          <form onSubmit={handleSaveUser} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-white/10 bg-[#101318] p-5 text-left shadow-2xl shadow-black">
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 px-4 py-8 backdrop-blur-sm">
+          <form onSubmit={handleSaveUser} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 text-left shadow-2xl shadow-black">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-xl font-semibold text-white">{mode === "create" ? "Crear usuario" : "Editar usuario"}</h2>
-                <p className="mt-1 text-sm text-zinc-400">El hash de contraseña se genera y queda solo en servidor.</p>
+                <h2 className="text-xl font-semibold text-[#F5F5F5]">{mode === "create" ? "Crear usuario" : "Editar usuario"}</h2>
+                <p className="mt-1 text-sm text-[#A7A7A7]">El hash de contraseña se genera y queda solo en servidor.</p>
               </div>
-              <button type="button" onClick={closeModals} className="rounded-md border border-white/10 px-3 py-2 text-sm text-zinc-300">Cerrar</button>
+              <button type="button" onClick={closeModals} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-sm text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Cerrar</button>
             </div>
 
-            {error ? <p className="mt-4 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
+            {error ? <p className="mt-4 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <label className="block text-sm font-medium text-zinc-200">
+              <label className="block text-sm font-medium text-[#CFCFCB]">
                 Nombre
-                <input value={form.nombre} onChange={(event) => setForm({ ...form, nombre: event.target.value })} className="mt-2 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2.5 text-white outline-none focus:border-geek-lime" />
+                <input value={form.nombre} onChange={(event) => setForm({ ...form, nombre: event.target.value })} className="mt-2 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none" />
               </label>
-              <label className="block text-sm font-medium text-zinc-200">
+              <label className="block text-sm font-medium text-[#CFCFCB]">
                 Correo
-                <input type="email" required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} className="mt-2 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2.5 text-white outline-none focus:border-geek-lime" />
+                <input type="email" required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} className="mt-2 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none" />
               </label>
               {mode === "create" ? (
-                <label className="block text-sm font-medium text-zinc-200">
+                <label className="block text-sm font-medium text-[#CFCFCB]">
                   Contraseña temporal
-                  <input type="password" required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} className="mt-2 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2.5 text-white outline-none focus:border-geek-lime" />
+                  <input type="password" required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} className="mt-2 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none" />
                 </label>
               ) : null}
-              <label className="block text-sm font-medium text-zinc-200">
+              <label className="block text-sm font-medium text-[#CFCFCB]">
                 Rol
-                <select value={form.rol} onChange={(event) => setForm({ ...form, rol: event.target.value })} className="mt-2 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2.5 text-white outline-none focus:border-geek-lime">
+                <select value={form.rol} onChange={(event) => setForm({ ...form, rol: event.target.value })} className="mt-2 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none">
                   {roleOptions.map((role) => (
                     <option key={role} value={role}>{role}</option>
                   ))}
@@ -423,11 +423,11 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
             </div>
 
             <div className="mt-5 space-y-3">
-              <p className="text-sm font-medium text-zinc-200">Apps permitidas</p>
+              <p className="text-sm font-medium text-[#CFCFCB]">Apps permitidas</p>
               <div className="grid gap-2 sm:grid-cols-2">
                 {availableApps.map((app) => (
-                  <label key={app} className="flex items-center gap-3 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-200">
-                    <input type="checkbox" checked={form.appsPermitidas.includes(app)} onChange={() => toggleApp(app)} className="h-4 w-4 accent-geek-lime" />
+                  <label key={app} className="flex items-center gap-3 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#CFCFCB]">
+                    <input type="checkbox" checked={form.appsPermitidas.includes(app)} onChange={() => toggleApp(app)} className="h-4 w-4 accent-[#D7FF4F]" />
                     {app}
                   </label>
                 ))}
@@ -440,8 +440,8 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
             </div>
 
             <div className="mt-6 flex justify-end gap-2">
-              <button type="button" onClick={closeModals} className="rounded-md border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-200">Cancelar</button>
-              <button type="submit" disabled={isSubmitting} className="rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white disabled:opacity-60">
+              <button type="button" onClick={closeModals} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Cancelar</button>
+              <button type="submit" disabled={isSubmitting} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60">
                 {isSubmitting ? "Guardando..." : "Guardar"}
               </button>
             </div>
@@ -450,18 +450,18 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
       ) : null}
 
       {passwordUser ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-8 backdrop-blur-sm">
-          <form onSubmit={handlePasswordChange} className="w-full max-w-md rounded-lg border border-white/10 bg-[#101318] p-5 text-left shadow-2xl shadow-black">
-            <h2 className="text-xl font-semibold text-white">Cambiar contraseña</h2>
-            <p className="mt-1 text-sm text-zinc-400">{passwordUser.email}</p>
-            {error ? <p className="mt-4 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
-            <label className="mt-5 block text-sm font-medium text-zinc-200">
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 px-4 py-8 backdrop-blur-sm">
+          <form onSubmit={handlePasswordChange} className="w-full max-w-md rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 text-left shadow-2xl shadow-black">
+            <h2 className="text-xl font-semibold text-[#F5F5F5]">Cambiar contraseña</h2>
+            <p className="mt-1 text-sm text-[#A7A7A7]">{passwordUser.email}</p>
+            {error ? <p className="mt-4 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
+            <label className="mt-5 block text-sm font-medium text-[#CFCFCB]">
               Contraseña temporal
-              <input type="password" required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="mt-2 w-full rounded-md border border-white/10 bg-black/30 px-3 py-2.5 text-white outline-none focus:border-geek-lime" />
+              <input type="password" required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="mt-2 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none" />
             </label>
             <div className="mt-6 flex justify-end gap-2">
-              <button type="button" onClick={closeModals} className="rounded-md border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-200">Cancelar</button>
-              <button type="submit" disabled={isSubmitting} className="rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white disabled:opacity-60">
+              <button type="button" onClick={closeModals} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Cancelar</button>
+              <button type="submit" disabled={isSubmitting} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60">
                 Actualizar
               </button>
             </div>
@@ -470,16 +470,16 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
       ) : null}
 
       {statusUser ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-8 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-lg border border-white/10 bg-[#101318] p-5 text-left shadow-2xl shadow-black">
-            <h2 className="text-xl font-semibold text-white">{statusUser.activo ? "Desactivar usuario" : "Activar usuario"}</h2>
-            <p className="mt-2 text-sm leading-6 text-zinc-300">
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 px-4 py-8 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 text-left shadow-2xl shadow-black">
+            <h2 className="text-xl font-semibold text-[#F5F5F5]">{statusUser.activo ? "Desactivar usuario" : "Activar usuario"}</h2>
+            <p className="mt-2 text-sm leading-6 text-[#CFCFCB]">
               Vas a {statusUser.activo ? "desactivar" : "activar"} el acceso de {statusUser.email}.
             </p>
-            {error ? <p className="mt-4 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
+            {error ? <p className="mt-4 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
             <div className="mt-6 flex justify-end gap-2">
-              <button type="button" onClick={closeModals} className="rounded-md border border-white/10 px-4 py-2.5 text-sm font-medium text-zinc-200">Cancelar</button>
-              <button type="button" disabled={isSubmitting} onClick={handleStatusChange} className="rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white disabled:opacity-60">
+              <button type="button" onClick={closeModals} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Cancelar</button>
+              <button type="button" disabled={isSubmitting} onClick={handleStatusChange} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60">
                 Confirmar
               </button>
             </div>

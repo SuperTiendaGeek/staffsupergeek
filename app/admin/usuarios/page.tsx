@@ -15,9 +15,13 @@ export default async function AdminUsersPage() {
   }
 
   const users = await listPortalUsers();
-  const availableApps = staffApps
-    .filter((app) => app.id !== "usuarios")
-    .map((app) => app.permissionName);
+  const availableApps = [
+    ...new Set(
+      staffApps
+        .filter((app) => app.permissionName !== "Administración")
+        .map((app) => app.permissionName)
+    )
+  ];
 
   return (
     <StaffAppShell activeHref="/admin/usuarios" sectionLabel="Administración">
