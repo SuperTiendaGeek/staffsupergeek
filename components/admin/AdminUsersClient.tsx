@@ -55,8 +55,8 @@ function StatusBadge({ activo }: { activo: boolean }) {
     <span
       className={
         activo
-          ? "inline-flex rounded-md border border-geek-lime/30 bg-geek-lime/10 px-2.5 py-1 text-xs font-semibold text-geek-lime"
-          : "inline-flex rounded-md border border-zinc-500/30 bg-zinc-500/10 px-2.5 py-1 text-xs font-semibold text-zinc-300"
+          ? "inline-flex rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-2.5 py-1 text-xs font-semibold text-[#D7FF4F]"
+          : "inline-flex rounded-full border border-[#3A3A36] bg-[#2D2E2A] px-2.5 py-1 text-xs font-semibold text-[#A7A7A7]"
       }
     >
       {activo ? "Activo" : "Inactivo"}
@@ -78,21 +78,21 @@ function ToggleButton({
       type="button"
       aria-pressed={checked}
       onClick={() => onChange(!checked)}
-      className="flex w-full items-center justify-between gap-4 rounded-md border border-white/10 bg-black/20 px-3 py-2 text-left text-sm text-zinc-200 transition hover:border-geek-lime/40"
+      className="flex w-full items-center justify-between gap-4 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-left text-sm text-[#CFCFCB] transition hover:border-[#D7FF4F]/40"
     >
       <span>{label}</span>
       <span
         className={
           checked
-            ? "h-5 w-9 rounded-full bg-geek-lime p-0.5"
-            : "h-5 w-9 rounded-full bg-zinc-700 p-0.5"
+            ? "h-5 w-9 rounded-full bg-[#D7FF4F] p-0.5"
+            : "h-5 w-9 rounded-full bg-[#3A3A36] p-0.5"
         }
       >
         <span
           className={
             checked
-              ? "block h-4 w-4 translate-x-4 rounded-full bg-geek-black transition"
-              : "block h-4 w-4 rounded-full bg-zinc-300 transition"
+              ? "block h-4 w-4 translate-x-4 rounded-full bg-[#10110E] transition"
+              : "block h-4 w-4 rounded-full bg-[#A7A7A7] transition"
           }
         />
       </span>
@@ -270,22 +270,22 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
 
   return (
     <section className="w-full space-y-5">
-      <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.045] p-4 text-left shadow-2xl shadow-black/20 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 text-left shadow-xl shadow-black/20 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-zinc-300">{users.length} usuarios registrados</p>
-          <p className="mt-1 text-xs text-zinc-500">Los cambios se aplican directamente en Airtable desde el servidor.</p>
+          <p className="text-sm font-medium text-[#CFCFCB]">{users.length} usuarios registrados</p>
+          <p className="mt-1 text-xs text-[#A7A7A7]">Los cambios se aplican directamente en Airtable desde el servidor.</p>
         </div>
         <button
           type="button"
           onClick={openCreate}
-          className="rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white"
+          className="h-9 rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-bold text-[#10110E] transition hover:brightness-105"
         >
           Crear usuario
         </button>
       </div>
 
       {notice ? (
-        <p className="rounded-md border border-geek-lime/30 bg-geek-lime/10 px-4 py-3 text-sm text-geek-lime" role="status">
+        <p className="rounded-lg border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-4 py-3 text-sm text-[#D7FF4F]" role="status">
           {notice}
         </p>
       ) : null}
@@ -295,10 +295,10 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
         </p>
       ) : null}
 
-      <div className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.035] shadow-2xl shadow-black/20 backdrop-blur">
+      <div className="overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#252622] shadow-xl shadow-black/20">
         <div className="hidden min-w-full overflow-x-auto lg:block">
-          <table className="min-w-full divide-y divide-white/10 text-left text-sm">
-            <thead className="bg-white/[0.04] text-xs uppercase text-zinc-400">
+          <table className="min-w-full divide-y divide-[#3A3A36] text-left text-sm">
+            <thead className="bg-[#30312D] text-xs uppercase text-[#A7A7A7]">
               <tr>
                 <th className="px-4 py-3 font-semibold">Nombre</th>
                 <th className="px-4 py-3 font-semibold">Correo</th>
@@ -308,22 +308,22 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
                 <th className="px-4 py-3 text-right font-semibold">Acciones</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/10">
+            <tbody className="divide-y divide-[#3A3A36]">
               {users.map((user) => (
-                <tr key={user.id} className="align-top text-zinc-200">
-                  <td className="px-4 py-4 font-medium text-white">{user.nombre}</td>
-                  <td className="px-4 py-4 text-zinc-300">{user.email}</td>
-                  <td className="px-4 py-4">{user.rol}</td>
+                <tr key={user.id} className="bg-[#252622] align-top transition hover:bg-[#2D2E2A]">
+                  <td className="px-4 py-4 font-medium text-[#F5F5F5]">{user.nombre}</td>
+                  <td className="px-4 py-4 text-[#CFCFCB]">{user.email}</td>
+                  <td className="px-4 py-4 text-[#CFCFCB]">{user.rol}</td>
                   <td className="px-4 py-4">
                     <div className="flex max-w-xs flex-wrap gap-1.5">
                       {user.appsPermitidas.length ? (
                         user.appsPermitidas.map((app) => (
-                          <span key={app} className="rounded-md border border-white/10 bg-black/20 px-2 py-1 text-xs text-zinc-300">
+                          <span key={app} className="rounded-full border border-[#3A3A36] bg-[#2D2E2A] px-2 py-1 text-xs text-[#CFCFCB]">
                             {app}
                           </span>
                         ))
                       ) : (
-                        <span className="text-zinc-500">Sin apps</span>
+                        <span className="text-[#A7A7A7]">Sin apps</span>
                       )}
                     </div>
                   </td>
@@ -332,17 +332,17 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex justify-end gap-2">
-                      <button type="button" onClick={() => openEdit(user)} className="rounded-md border border-white/10 px-3 py-2 text-xs font-medium text-zinc-200 transition hover:border-geek-lime/50 hover:text-geek-lime">
+                      <button type="button" onClick={() => openEdit(user)} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">
                         Editar
                       </button>
-                      <button type="button" onClick={() => setPasswordUser(user)} className="rounded-md border border-white/10 px-3 py-2 text-xs font-medium text-zinc-200 transition hover:border-geek-lime/50 hover:text-geek-lime">
+                      <button type="button" onClick={() => setPasswordUser(user)} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">
                         Contraseña
                       </button>
                       <button
                         type="button"
                         disabled={user.id === currentUserId && user.activo}
                         onClick={() => setStatusUser(user)}
-                        className="rounded-md border border-white/10 px-3 py-2 text-xs font-medium text-zinc-200 transition hover:border-geek-lime/50 hover:text-geek-lime disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {user.activo ? "Desactivar" : "Activar"}
                       </button>
@@ -356,26 +356,26 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
 
         <div className="grid gap-3 p-3 lg:hidden">
           {users.map((user) => (
-            <article key={user.id} className="rounded-lg border border-white/10 bg-black/20 p-4 text-left">
+            <article key={user.id} className="rounded-[0.75rem] border border-[#3A3A36] bg-[#2D2E2A] p-4 text-left">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h2 className="truncate text-base font-semibold text-white">{user.nombre}</h2>
-                  <p className="truncate text-sm text-zinc-400">{user.email}</p>
+                  <h2 className="truncate text-base font-semibold text-[#F5F5F5]">{user.nombre}</h2>
+                  <p className="truncate text-sm text-[#A7A7A7]">{user.email}</p>
                 </div>
                 <StatusBadge activo={user.activo} />
               </div>
-              <p className="mt-3 text-sm text-zinc-300">{user.rol}</p>
+              <p className="mt-3 text-sm text-[#CFCFCB]">{user.rol}</p>
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {user.appsPermitidas.length ? user.appsPermitidas.map((app) => (
-                  <span key={app} className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-xs text-zinc-300">
+                  <span key={app} className="rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-1 text-xs text-[#CFCFCB]">
                     {app}
                   </span>
-                )) : <span className="text-sm text-zinc-500">Sin apps</span>}
+                )) : <span className="text-sm text-[#A7A7A7]">Sin apps</span>}
               </div>
               <div className="mt-4 grid grid-cols-3 gap-2">
-                <button type="button" onClick={() => openEdit(user)} className="rounded-md border border-white/10 px-2 py-2 text-xs font-medium text-zinc-200">Editar</button>
-                <button type="button" onClick={() => setPasswordUser(user)} className="rounded-md border border-white/10 px-2 py-2 text-xs font-medium text-zinc-200">Contraseña</button>
-                <button type="button" disabled={user.id === currentUserId && user.activo} onClick={() => setStatusUser(user)} className="rounded-md border border-white/10 px-2 py-2 text-xs font-medium text-zinc-200 disabled:opacity-50">
+                <button type="button" onClick={() => openEdit(user)} className="rounded-full border border-[#3A3A36] px-2 py-2 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Editar</button>
+                <button type="button" onClick={() => setPasswordUser(user)} className="rounded-full border border-[#3A3A36] px-2 py-2 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Contraseña</button>
+                <button type="button" disabled={user.id === currentUserId && user.activo} onClick={() => setStatusUser(user)} className="rounded-full border border-[#3A3A36] px-2 py-2 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F] disabled:opacity-50">
                   {user.activo ? "Off" : "On"}
                 </button>
               </div>
