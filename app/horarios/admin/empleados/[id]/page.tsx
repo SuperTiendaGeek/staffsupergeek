@@ -46,14 +46,50 @@ function formatTime(value?: string) {
 
 function statusClasses(status: string) {
   if (status === "Pagado" || status === "Finalizado" || status === "Revisado") {
-    return "border-geek-lime/30 bg-geek-lime/10 text-geek-lime";
+    return "border-[#D7FF4F]/30 bg-[#D7FF4F]/10 text-[#D7FF4F]";
   }
 
   if (status === "Parcialmente pagado") {
     return "border-amber-300/30 bg-amber-300/10 text-amber-100";
   }
 
-  return "border-[#30312D] bg-white/[0.05] text-zinc-300";
+  return "border-[#3A3A36] bg-[#2D2E2A] text-[#CFCFCB]";
+}
+
+function EmpleadoMetricCard({
+  label,
+  value,
+  helper,
+  accent = false,
+  warn = false
+}: {
+  label: string;
+  value: string;
+  helper?: string;
+  accent?: boolean;
+  warn?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-xl border px-3 py-2.5 ${
+        accent
+          ? "border-[#D7FF4F]/30 bg-[#D7FF4F]/5"
+          : warn
+            ? "border-amber-400/25 bg-amber-400/5"
+            : "border-[#3A3A36] bg-[#252622]"
+      }`}
+    >
+      <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">{label}</p>
+      <p
+        className={`mt-0.5 text-xl font-semibold tabular-nums ${
+          accent ? "text-[#D7FF4F]" : warn ? "text-amber-200" : "text-[#F5F5F5]"
+        }`}
+      >
+        {value}
+      </p>
+      {helper ? <p className="mt-1 text-[10px] leading-tight text-[#8F908A]">{helper}</p> : null}
+    </div>
+  );
 }
 
 export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
@@ -74,136 +110,159 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
     notFound();
   }
 
-  const metrics = [
-    { label: "Total ganado pendiente", value: formatMoney(detalle.resumen.totalGanadoPendiente), helper: "Periodos abiertos y jornadas sin periodo" },
-    { label: "Total pagado", value: formatMoney(detalle.resumen.totalPagado), helper: `${detalle.resumen.pagosCount} pagos activos` },
-    { label: "Saldo pendiente", value: formatMoney(detalle.resumen.saldoPendiente), helper: "Saldo por gestionar" },
-    { label: "Jornadas pendientes", value: String(detalle.resumen.jornadasPendientesCount), helper: "Finalizadas o revisadas sin periodo" }
-  ];
-
   return (
     <StaffAppShell activeHref="/horarios" sectionLabel="Horarios">
       <section className="w-full space-y-3 text-left">
-        <Link href="/horarios/admin" className="text-sm font-semibold text-geek-lime transition hover:text-white">
-          Volver a horarios y pagos
+        <Link
+          href="/horarios/admin"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#CFCFCB] transition hover:text-[#D7FF4F]"
+        >
+          ← Volver a horarios y pagos
         </Link>
 
-        <section className="rounded-lg border border-[#30312D] bg-[#151613] px-3 py-2.5 shadow-2xl shadow-black/20 backdrop-blur">
+        {/* Header: empleado + CTA */}
+        <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm text-zinc-400">Empleado</p>
-              <h2 className="mt-1 text-xl font-semibold text-white">{detalle.empleado.empleado}</h2>
-              <p className="mt-1 text-sm text-zinc-500">{detalle.empleado.correo || detalle.empleado.usuarioId}</p>
-              <p className="mt-2 text-sm text-zinc-300">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">Detalle de empleado</p>
+              <h2 className="mt-0.5 text-xl font-semibold text-[#F5F5F5]">{detalle.empleado.empleado}</h2>
+              <p className="mt-0.5 text-sm text-[#A7A7A7]">{detalle.empleado.correo || detalle.empleado.usuarioId}</p>
+              <p className="mt-1.5 text-sm text-[#CFCFCB]">
                 {[detalle.empleado.rol, detalle.empleado.cedula].filter(Boolean).join(" · ") || "Datos administrativos no registrados"}
               </p>
             </div>
             {detalle.periodos[0] ? (
               <Link
                 href={`/horarios/admin/periodos/${detalle.periodos[0].id}`}
-                className="rounded-md bg-geek-lime px-4 py-2.5 text-sm font-semibold text-geek-black transition hover:bg-white"
+                className="inline-flex h-fit w-fit rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-semibold text-[#10110E] transition hover:brightness-105"
               >
                 Registrar pago
               </Link>
             ) : (
-              <span className="rounded-md border border-[#30312D] px-4 py-2.5 text-sm font-medium text-zinc-400">
+              <span className="inline-flex h-fit w-fit rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#8F908A]">
                 Sin periodo para pago
               </span>
             )}
           </div>
         </section>
 
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-          {metrics.map((metric) => (
-            <div key={metric.label} className="rounded-lg border border-[#30312D] bg-[#151613] px-3 py-2.5 shadow-2xl shadow-black/20 backdrop-blur">
-              <p className="text-sm text-zinc-400">{metric.label}</p>
-              <p className="mt-2 text-xl font-semibold text-white">{metric.value}</p>
-              <p className="mt-2 text-xs text-zinc-500">{metric.helper}</p>
-            </div>
-          ))}
+        {/* Métricas */}
+        <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
+          <EmpleadoMetricCard
+            label="Total ganado pendiente"
+            value={formatMoney(detalle.resumen.totalGanadoPendiente)}
+            helper="Periodos abiertos y jornadas sin periodo"
+          />
+          <EmpleadoMetricCard
+            label="Total pagado"
+            value={formatMoney(detalle.resumen.totalPagado)}
+            helper={`${detalle.resumen.pagosCount} pago${detalle.resumen.pagosCount !== 1 ? "s" : ""} activo${detalle.resumen.pagosCount !== 1 ? "s" : ""}`}
+          />
+          <EmpleadoMetricCard
+            label="Saldo pendiente"
+            value={formatMoney(detalle.resumen.saldoPendiente)}
+            helper="Saldo por gestionar"
+            accent={detalle.resumen.saldoPendiente > 0}
+          />
+          <EmpleadoMetricCard
+            label="Jornadas pendientes"
+            value={String(detalle.resumen.jornadasPendientesCount)}
+            helper="Finalizadas o revisadas sin periodo"
+            warn={detalle.resumen.jornadasPendientesCount > 0}
+          />
         </div>
 
-        <section className="overflow-hidden rounded-lg border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20 backdrop-blur">
-          <div className="border-b border-[#30312D] px-3 py-2.5">
-            <h2 className="text-lg font-semibold text-white">Jornadas pendientes de pago</h2>
-            <p className="mt-1 text-sm text-zinc-400">Finalizadas o revisadas que todavía no están dentro de un periodo activo.</p>
+        {/* Jornadas pendientes de pago */}
+        <section className="overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#252622]">
+          <div className="border-b border-[#3A3A36] bg-[#30312D] px-4 py-3">
+            <h2 className="text-base font-semibold text-[#F5F5F5]">Jornadas pendientes de pago</h2>
+            <p className="mt-0.5 text-xs text-[#A7A7A7]">Finalizadas o revisadas que todavía no están dentro de un periodo activo.</p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-white/10 text-left text-sm">
-              <thead className="bg-white/[0.04] text-xs uppercase text-zinc-400">
-                <tr>
-                  <th className="px-3 py-2 font-semibold">Fecha</th>
-                  <th className="px-3 py-2 font-semibold">Entrada</th>
-                  <th className="px-3 py-2 font-semibold">Salida final</th>
-                  <th className="px-3 py-2 font-semibold">Horas</th>
-                  <th className="px-3 py-2 font-semibold">Total día</th>
-                  <th className="px-3 py-2 font-semibold">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {detalle.jornadasPendientes.length ? (
-                  detalle.jornadasPendientes.map((registro) => (
-                    <tr key={registro.id} className="text-zinc-200">
-                      <td className="px-3 py-2.5">{registro.fecha}</td>
-                      <td className="px-3 py-2.5">{formatTime(registro.entrada)}</td>
-                      <td className="px-3 py-2.5">{formatTime(registro.salidaFinal)}</td>
-                      <td className="px-3 py-2.5 font-semibold text-white">{formatHours(registro.horasTrabajadas)}</td>
-                      <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(registro.totalEstimadoDia)}</td>
+          {detalle.jornadasPendientes.length ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-[640px] w-full divide-y divide-[#3A3A36] text-left text-sm">
+                <thead className="bg-[#30312D] text-[11px] uppercase tracking-wide text-[#8F908A]">
+                  <tr>
+                    <th className="px-3 py-2.5 font-semibold">Fecha</th>
+                    <th className="px-3 py-2.5 font-semibold">Entrada</th>
+                    <th className="px-3 py-2.5 font-semibold">Salida final</th>
+                    <th className="px-3 py-2.5 font-semibold">Horas</th>
+                    <th className="px-3 py-2.5 font-semibold">Total día</th>
+                    <th className="px-3 py-2.5 font-semibold">Estado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#3A3A36] text-[#CFCFCB]">
+                  {detalle.jornadasPendientes.map((registro) => (
+                    <tr key={registro.id} className="transition hover:bg-[#2D2E2A]">
+                      <td className="px-3 py-2.5 text-[#F5F5F5]">{registro.fecha}</td>
+                      <td className="px-3 py-2.5 tabular-nums">{formatTime(registro.entrada)}</td>
+                      <td className="px-3 py-2.5 tabular-nums">{formatTime(registro.salidaFinal)}</td>
+                      <td className="px-3 py-2.5 font-semibold text-[#F5F5F5] tabular-nums">{formatHours(registro.horasTrabajadas)}</td>
+                      <td className="px-3 py-2.5 font-semibold text-[#D7FF4F] tabular-nums">{formatMoney(registro.totalEstimadoDia)}</td>
                       <td className="px-3 py-2.5">
-                        <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses(registro.estadoDia)}`}>
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses(registro.estadoDia)}`}>
                           {registro.estadoDia}
                         </span>
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={6} className="px-3 py-5 text-center text-zinc-400">
-                      No hay jornadas pendientes fuera de periodos.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="px-4 py-8 text-center">
+              <p className="text-sm font-medium text-[#CFCFCB]">No hay jornadas pendientes fuera de periodos.</p>
+              <p className="mt-1 text-xs text-[#8F908A]">Todas las jornadas están agrupadas en un periodo activo.</p>
+            </div>
+          )}
         </section>
 
-        <section className="overflow-hidden rounded-lg border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20 backdrop-blur">
-          <div className="border-b border-[#30312D] px-3 py-2.5">
-            <h2 className="text-lg font-semibold text-white">Periodos existentes</h2>
+        {/* Periodos de pago */}
+        <section className="overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#252622]">
+          <div className="border-b border-[#3A3A36] bg-[#30312D] px-4 py-3">
+            <h2 className="text-base font-semibold text-[#F5F5F5]">Periodos de pago</h2>
+            <p className="mt-0.5 text-xs text-[#A7A7A7]">Historial de periodos de pago de este empleado.</p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-white/10 text-left text-sm">
-              <thead className="bg-white/[0.04] text-xs uppercase text-zinc-400">
-                <tr>
-                  <th className="px-3 py-2 font-semibold">Periodo</th>
-                  <th className="px-3 py-2 font-semibold">Estado</th>
-                  <th className="px-3 py-2 font-semibold">Horas</th>
-                  <th className="px-3 py-2 font-semibold">Total neto</th>
-                  <th className="px-3 py-2 font-semibold">Pagado</th>
-                  <th className="px-3 py-2 font-semibold">Saldo neto</th>
-                  <th className="px-3 py-2 font-semibold">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {detalle.periodos.length ? (
-                  detalle.periodos.map((periodo) => (
-                    <tr key={periodo.id} className="text-zinc-200">
-                      <td className="px-3 py-2.5">{periodo.fechaInicio} - {periodo.fechaFin}</td>
+          {detalle.periodos.length ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-[900px] w-full divide-y divide-[#3A3A36] text-left text-sm">
+                <thead className="bg-[#30312D] text-[11px] uppercase tracking-wide text-[#8F908A]">
+                  <tr>
+                    <th className="px-3 py-2.5 font-semibold">Periodo</th>
+                    <th className="px-3 py-2.5 font-semibold">Estado</th>
+                    <th className="px-3 py-2.5 font-semibold">Horas</th>
+                    <th className="px-3 py-2.5 font-semibold">Total neto</th>
+                    <th className="px-3 py-2.5 font-semibold">Pagado</th>
+                    <th className="px-3 py-2.5 font-semibold">Saldo neto</th>
+                    <th className="px-3 py-2.5 font-semibold">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#3A3A36] text-[#CFCFCB]">
+                  {detalle.periodos.map((periodo) => (
+                    <tr key={periodo.id} className="transition hover:bg-[#2D2E2A]">
+                      <td className="px-3 py-2.5 text-[#F5F5F5]">
+                        {periodo.fechaInicio}
+                        <span className="mx-1 text-[#8F908A]">→</span>
+                        {periodo.fechaFin}
+                      </td>
                       <td className="px-3 py-2.5">
-                        <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses(periodo.estadoPeriodo)}`}>
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses(periodo.estadoPeriodo)}`}>
                           {periodo.estadoPeriodo}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 font-semibold text-white">{formatHours(periodo.totalHoras)}</td>
-                      <td className="px-3 py-2.5">{formatMoney(periodo.totalNeto)}</td>
-                      <td className="px-3 py-2.5">{formatMoney(periodo.totalPagado)}</td>
-                      <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(periodo.saldoPendienteNeto)}</td>
+                      <td className="px-3 py-2.5 font-semibold text-[#F5F5F5] tabular-nums">{formatHours(periodo.totalHoras)}</td>
+                      <td className="px-3 py-2.5 tabular-nums">{formatMoney(periodo.totalNeto)}</td>
+                      <td className="px-3 py-2.5 tabular-nums">{formatMoney(periodo.totalPagado)}</td>
+                      <td className="px-3 py-2.5 tabular-nums">
+                        <span className={`font-semibold ${periodo.saldoPendienteNeto > 0 ? "text-[#D7FF4F]" : "text-[#CFCFCB]"}`}>
+                          {formatMoney(periodo.saldoPendienteNeto)}
+                        </span>
+                      </td>
                       <td className="px-3 py-2.5">
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <Link
                             href={`/horarios/admin/periodos/${periodo.id}`}
-                            className="inline-flex rounded-md border border-geek-lime/30 px-2.5 py-1.5 text-xs font-semibold text-geek-lime transition hover:border-white/40 hover:text-white"
+                            className="inline-flex rounded-full border border-[#D7FF4F]/30 px-2.5 py-1 text-xs font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#10110E]"
                           >
                             Registrar pago
                           </Link>
@@ -211,7 +270,7 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
                           {periodo.totalPagado > 0 ? (
                             <Link
                               href={`/horarios/admin/periodos/${periodo.id}`}
-                              className="inline-flex rounded-md border border-[#30312D] px-2.5 py-1.5 text-xs font-semibold text-zinc-200 transition hover:border-white/40 hover:text-white"
+                              className="inline-flex rounded-full border border-[#3A3A36] px-2.5 py-1 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
                             >
                               Generar rol
                             </Link>
@@ -219,53 +278,53 @@ export default async function HorarioEmpleadoAdminPage({ params }: PageProps) {
                         </div>
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={7} className="px-3 py-5 text-center text-zinc-400">
-                      No hay periodos registrados para este empleado.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="px-4 py-8 text-center">
+              <p className="text-sm font-medium text-[#CFCFCB]">No hay periodos registrados para este empleado.</p>
+              <p className="mt-1 text-xs text-[#8F908A]">Los periodos de pago aparecerán aquí una vez creados.</p>
+            </div>
+          )}
         </section>
 
-        <section className="overflow-hidden rounded-lg border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20 backdrop-blur">
-          <div className="border-b border-[#30312D] px-3 py-2.5">
-            <h2 className="text-lg font-semibold text-white">Pagos realizados</h2>
+        {/* Pagos realizados */}
+        <section className="overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#252622]">
+          <div className="border-b border-[#3A3A36] bg-[#30312D] px-4 py-3">
+            <h2 className="text-base font-semibold text-[#F5F5F5]">Pagos realizados</h2>
+            <p className="mt-0.5 text-xs text-[#A7A7A7]">Pagos activos registrados en todos los periodos.</p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-white/10 text-left text-sm">
-              <thead className="bg-white/[0.04] text-xs uppercase text-zinc-400">
-                <tr>
-                  <th className="px-3 py-2 font-semibold">Fecha</th>
-                  <th className="px-3 py-2 font-semibold">Monto</th>
-                  <th className="px-3 py-2 font-semibold">Método</th>
-                  <th className="px-3 py-2 font-semibold">Transacción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {detalle.pagos.length ? (
-                  detalle.pagos.map((pago) => (
-                    <tr key={pago.id} className="text-zinc-200">
+          {detalle.pagos.length ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-[480px] w-full divide-y divide-[#3A3A36] text-left text-sm">
+                <thead className="bg-[#30312D] text-[11px] uppercase tracking-wide text-[#8F908A]">
+                  <tr>
+                    <th className="px-3 py-2.5 font-semibold">Fecha</th>
+                    <th className="px-3 py-2.5 font-semibold">Monto</th>
+                    <th className="px-3 py-2.5 font-semibold">Método</th>
+                    <th className="px-3 py-2.5 font-semibold">Transacción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#3A3A36] text-[#CFCFCB]">
+                  {detalle.pagos.map((pago) => (
+                    <tr key={pago.id} className="transition hover:bg-[#2D2E2A]">
                       <td className="px-3 py-2.5">{pago.fechaPago}</td>
-                      <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(pago.montoPagado)}</td>
+                      <td className="px-3 py-2.5 font-semibold text-[#D7FF4F] tabular-nums">{formatMoney(pago.montoPagado)}</td>
                       <td className="px-3 py-2.5">{pago.metodoPago || "--"}</td>
                       <td className="px-3 py-2.5">{pago.numeroTransaccion || "--"}</td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={4} className="px-3 py-5 text-center text-zinc-400">
-                      No hay pagos activos registrados para este empleado.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="px-4 py-8 text-center">
+              <p className="text-sm font-medium text-[#CFCFCB]">No hay pagos activos registrados para este empleado.</p>
+              <p className="mt-1 text-xs text-[#8F908A]">Los pagos aparecerán aquí una vez registrados en los periodos.</p>
+            </div>
+          )}
         </section>
       </section>
     </StaffAppShell>
