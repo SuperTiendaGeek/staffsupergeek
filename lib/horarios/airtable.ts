@@ -493,6 +493,16 @@ function getCurrentMonthRange(date = new Date()) {
   };
 }
 
+function getLast6MonthsRange(date = new Date()) {
+  const current = getCurrentMonthRange(date);
+  const startDate = new Date(`${current.fechaInicio}T12:00:00.000Z`);
+  startDate.setUTCMonth(startDate.getUTCMonth() - 5);
+  return {
+    fechaInicio: startDate.toISOString().slice(0, 10),
+    fechaFin: current.fechaFin
+  };
+}
+
 function toTimestamp(value?: string) {
   if (!value) {
     return null;
@@ -1435,7 +1445,7 @@ function summarizeEmployeeRegistros(registros: HorarioRegistro[], now: Date): Ho
 }
 
 export async function fetchMisJornadas(user: SessionUser) {
-  const { fechaInicio, fechaFin } = getCurrentMonthRange();
+  const { fechaInicio, fechaFin } = getLast6MonthsRange();
 
   return listRegistrosEmpleadoByDateRange(user, fechaInicio, fechaFin);
 }
@@ -1600,13 +1610,14 @@ export async function fetchMiResumenHorarios(user: SessionUser): Promise<Horario
 }
 
 export async function fetchMiVistaHorarios(user: SessionUser): Promise<HorarioEmpleadoVista> {
-  const [resumen, resumenPagos, jornadas, ajustes, pagos, rolesPago] = await Promise.all([
+  const [resumen, resumenPagos, jornadas, ajustes, pagos, rolesPago, periodos] = await Promise.all([
     fetchMiResumenHorarios(user),
     fetchMiResumenPagos(user),
     fetchMisJornadas(user),
     fetchMisAjustes(user),
     fetchMisPagos(user),
-    fetchMisRolesPago(user)
+    fetchMisRolesPago(user),
+    fetchMisPeriodosPago(user)
   ]);
 
   return {
@@ -1615,7 +1626,8 @@ export async function fetchMiVistaHorarios(user: SessionUser): Promise<HorarioEm
     jornadas,
     ajustes,
     pagos,
-    rolesPago
+    rolesPago,
+    periodos
   };
 }
 

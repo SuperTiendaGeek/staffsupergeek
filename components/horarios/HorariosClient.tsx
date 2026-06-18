@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import type { HorarioAjuste, HorarioEmpleadoResumenPagos, HorarioEmpleadoVista, HorarioEstado, HorarioPago, HorarioRegistro, TipoMarcacion } from "@/types/horarios";
+import type { HorarioAjuste, HorarioEmpleadoResumenPagos, HorarioEmpleadoVista, HorarioEstado, HorarioPago, HorarioPeriodoPago, HorarioRegistro, TipoMarcacion } from "@/types/horarios";
 
 type HorariosClientProps = {
   initialEstado: HorarioEstado | null;
@@ -29,16 +29,9 @@ const tipoLabels: Record<TipoMarcacion, string> = {
 const HORARIOS_TIME_ZONE = "America/Guayaquil";
 
 function formatTime(value?: string) {
-  if (!value) {
-    return "--:--";
-  }
-
+  if (!value) return "--:--";
   const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "--:--";
-  }
-
+  if (Number.isNaN(date.getTime())) return "--:--";
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: HORARIOS_TIME_ZONE,
     hour: "2-digit",
@@ -48,22 +41,13 @@ function formatTime(value?: string) {
 }
 
 function formatDate(value?: string) {
-  if (!value) {
-    return "--";
-  }
-
+  if (!value) return "--";
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     const [year, month, day] = value.split("-");
-
     return `${day}/${month}/${year}`;
   }
-
   const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "--";
-  }
-
+  if (Number.isNaN(date.getTime())) return "--";
   return new Intl.DateTimeFormat("es-EC", {
     timeZone: HORARIOS_TIME_ZONE,
     day: "2-digit",
@@ -73,53 +57,81 @@ function formatDate(value?: string) {
 }
 
 function formatMoney(value: number) {
-  return new Intl.NumberFormat("es-EC", {
-    style: "currency",
-    currency: "USD"
-  }).format(value);
+  return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(value);
 }
 
 function formatHours(value: number) {
   return `${value.toFixed(2)} h`;
 }
 
-function statusClasses(status?: string) {
-  if (status === "Finalizado") {
-    return "border-geek-lime/30 bg-geek-lime/10 text-geek-lime";
-  }
+function formatShortDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  return `${match[3]}/${match[2]}`;
+}
 
+function statusClasses(status?: string) {
+  if (status === "Finalizado" || status === "Revisado") {
+    return "border-[#D7FF4F]/30 bg-[#D7FF4F]/10 text-[#D7FF4F]";
+  }
   if (status === "En almuerzo") {
     return "border-amber-300/30 bg-amber-300/10 text-amber-100";
   }
-
   if (status === "Trabajando") {
     return "border-sky-300/30 bg-sky-300/10 text-sky-100";
   }
-
-  return "border-[#30312D] bg-[#1E1F1C] text-zinc-300";
+  if (status === "Incompleto") {
+    return "border-red-400/30 bg-red-400/10 text-red-200";
+  }
+  return "border-[#3A3A36] bg-[#2D2E2A] text-[#A7A7A7]";
 }
 
 function paymentStatusClasses(status: HorarioEmpleadoResumenPagos["estadoGeneral"]) {
   if (status === "Pagado") {
-    return "border-geek-lime/30 bg-geek-lime/10 text-geek-lime";
+    return "border-[#D7FF4F]/30 bg-[#D7FF4F]/10 text-[#D7FF4F]";
   }
-
   if (status === "Parcialmente pagado") {
     return "border-amber-300/30 bg-amber-300/10 text-amber-100";
   }
-
   if (status === "Sin pagos registrados") {
     return "border-sky-300/30 bg-sky-300/10 text-sky-100";
   }
+  return "border-[#3A3A36] bg-[#2D2E2A] text-[#A7A7A7]";
+}
 
-  return "border-[#30312D] bg-[#1E1F1C] text-zinc-300";
+type EstadoPagoJornada = "sin-periodo" | "abierto" | "parcialmente-pagado" | "pagado" | "cerrado";
+
+function getEstadoPagoJornada(registroId: string, registroToPeriodo: Map<string, HorarioPeriodoPago>): EstadoPagoJornada {
+  const periodo = registroToPeriodo.get(registroId);
+  if (!periodo) return "sin-periodo";
+  const estado = periodo.estadoPeriodo;
+  if (estado === "Pagado") return "pagado";
+  if (estado === "Parcialmente pagado") return "parcialmente-pagado";
+  if (estado === "Cerrado") return "cerrado";
+  return "abierto";
+}
+
+function periodoBadgeProps(estadoPago: EstadoPagoJornada): { label: string; classes: string } {
+  if (estadoPago === "sin-periodo") {
+    return { label: "Sin periodo", classes: "border-amber-400/40 bg-amber-400/10 text-amber-200" };
+  }
+  if (estadoPago === "abierto") {
+    return { label: "Pendiente", classes: "border-[#D7FF4F]/30 bg-[#D7FF4F]/10 text-[#D7FF4F]" };
+  }
+  if (estadoPago === "parcialmente-pagado") {
+    return { label: "Parcialmente pagado", classes: "border-[#D7FF4F]/20 bg-[#D7FF4F]/5 text-[#D7FF4F]" };
+  }
+  if (estadoPago === "pagado") {
+    return { label: "Pagado", classes: "border-[#3A3A36] bg-[#2D2E2A] text-[#A7A7A7]" };
+  }
+  return { label: "Cerrado", classes: "border-[#3A3A36] bg-[#2D2E2A] text-[#CFCFCB]" };
 }
 
 function SummaryMetric({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2 shadow-lg shadow-black/10">
-      <p className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</p>
-      <p className={`mt-0.5 text-lg font-semibold leading-none ${accent ? "text-geek-lime" : "text-white"}`}>{value}</p>
+    <div className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">{label}</p>
+      <p className={`mt-0.5 text-lg font-semibold leading-none ${accent ? "text-[#D7FF4F]" : "text-[#F5F5F5]"}`}>{value}</p>
     </div>
   );
 }
@@ -132,45 +144,51 @@ function EstadoPagoSection({ resumenPagos, tieneJornadasMes }: { resumenPagos: H
   const hasPeriodos = resumenPagos.periodosRegistrados > 0;
 
   return (
-    <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="mb-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-white">Estado de pago</h2>
-          <p className="mt-1 text-sm text-zinc-400">Periodos de pago creados por administración.</p>
+          <h3 className="font-semibold text-[#F5F5F5]">Estado de pago</h3>
+          <p className="text-sm text-[#A7A7A7]">Periodos de pago creados por administración.</p>
         </div>
-        <span className={`inline-flex w-fit rounded-md border px-2.5 py-1 text-xs font-semibold ${paymentStatusClasses(resumenPagos.estadoGeneral)}`}>
+        <span className={`inline-flex w-fit shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${paymentStatusClasses(resumenPagos.estadoGeneral)}`}>
           {resumenPagos.estadoGeneral}
         </span>
       </div>
       {!hasPeriodos ? (
-        <p className="mt-3 rounded-md border border-[#30312D] bg-black/20 px-4 py-3 text-sm text-zinc-300">
+        <p className="mb-3 rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3 text-sm text-[#CFCFCB]">
           Aún no hay periodos de pago registrados.
+          {tieneJornadasMes ? " Tus jornadas trabajadas aparecerán aquí cuando administración cree un periodo." : ""}
         </p>
       ) : null}
-      {!hasPeriodos && tieneJornadasMes ? (
-        <p className="mt-3 text-sm text-zinc-400">
-          Tus jornadas trabajadas aparecerán en Estado de pago cuando administración cree un periodo de pago.
-        </p>
-      ) : null}
-      <div className="mt-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryMetric label="Ganado en periodos" value={formatMoney(resumenPagos.totalGanadoPeriodos)} accent />
         <SummaryMetric label="Pagado en periodos" value={formatMoney(resumenPagos.totalPagadoPeriodos)} />
-        <SummaryMetric label="Pendiente por cobrar" value={formatMoney(resumenPagos.saldoPendientePeriodos)} accent={resumenPagos.saldoPendientePeriodos > 0} />
+        <SummaryMetric
+          label="Pendiente por cobrar"
+          value={formatMoney(resumenPagos.saldoPendientePeriodos)}
+          accent={resumenPagos.saldoPendientePeriodos > 0}
+        />
         <SummaryMetric label="Último pago" value={ultimoPago} />
       </div>
-    </section>
+      <p className="mt-2 text-[11px] text-[#8F908A]">
+        Saldo calculado sobre periodos de pago registrados. No incluye jornadas que aún no han sido agrupadas en un periodo.
+      </p>
+    </div>
   );
 }
 
-function JornadasTable({ jornadas }: { jornadas: HorarioRegistro[] }) {
+function JornadasTable({ jornadas, registroToPeriodo }: { jornadas: HorarioRegistro[]; registroToPeriodo: Map<string, HorarioPeriodoPago> }) {
   if (!jornadas.length) {
-    return <p className="py-3 text-sm text-zinc-400">No hay jornadas registradas en el periodo actual.</p>;
+    return (
+      <div className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] py-8 text-center">
+        <p className="text-sm text-[#A7A7A7]">No hay jornadas registradas en los últimos 6 meses.</p>
+      </div>
+    );
   }
-
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-[900px] w-full text-left text-sm">
-        <thead className="border-b border-[#30312D] text-xs uppercase tracking-normal text-zinc-500">
+      <table className="min-w-[1080px] w-full text-left text-sm">
+        <thead className="border-b border-[#3A3A36] text-xs uppercase tracking-normal text-[#8F908A]">
           <tr>
             <th className="px-3 py-2.5 font-medium">Fecha</th>
             <th className="px-3 py-2.5 font-medium">Entrada</th>
@@ -178,27 +196,46 @@ function JornadasTable({ jornadas }: { jornadas: HorarioRegistro[] }) {
             <th className="px-3 py-2.5 font-medium">Regreso almuerzo</th>
             <th className="px-3 py-2.5 font-medium">Salida final</th>
             <th className="px-3 py-2.5 font-medium">Horas</th>
-            <th className="px-3 py-2.5 font-medium">Total día</th>
+            <th className="px-3 py-2.5 font-medium">Generado</th>
             <th className="px-3 py-2.5 font-medium">Estado</th>
+            <th className="px-3 py-2.5 font-medium">Estado de pago</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-white/10 text-zinc-300">
-          {jornadas.map((jornada) => (
-            <tr key={jornada.id}>
-              <td className="px-3 py-2.5 font-medium text-white">{formatDate(jornada.fecha)}</td>
-              <td className="px-3 py-2.5">{formatTime(jornada.entrada)}</td>
-              <td className="px-3 py-2.5">{formatTime(jornada.salidaAlmuerzo)}</td>
-              <td className="px-3 py-2.5">{formatTime(jornada.regresoAlmuerzo)}</td>
-              <td className="px-3 py-2.5">{formatTime(jornada.salidaFinal)}</td>
-              <td className="px-3 py-2.5">{formatHours(jornada.horasTrabajadas)}</td>
-              <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(jornada.totalEstimadoDia)}</td>
-              <td className="px-3 py-2.5">
-                <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses(jornada.estadoDia)}`}>
-                  {jornada.estadoDia}
-                </span>
-              </td>
-            </tr>
-          ))}
+        <tbody className="divide-y divide-[#3A3A36] text-[#CFCFCB]">
+          {jornadas.map((jornada) => {
+            const estadoPago = getEstadoPagoJornada(jornada.id, registroToPeriodo);
+            const { label: badgeLabel, classes: badgeClasses } = periodoBadgeProps(estadoPago);
+            const periodo = registroToPeriodo.get(jornada.id);
+            const isPagado = estadoPago === "pagado";
+            return (
+              <tr key={jornada.id} className={`transition hover:bg-[#2D2E2A] ${isPagado ? "opacity-60" : ""}`}>
+                <td className="px-3 py-2.5 font-medium text-[#F5F5F5]">{formatDate(jornada.fecha)}</td>
+                <td className="px-3 py-2.5">{formatTime(jornada.entrada)}</td>
+                <td className="px-3 py-2.5">{formatTime(jornada.salidaAlmuerzo)}</td>
+                <td className="px-3 py-2.5">{formatTime(jornada.regresoAlmuerzo)}</td>
+                <td className="px-3 py-2.5">{formatTime(jornada.salidaFinal)}</td>
+                <td className="px-3 py-2.5">{formatHours(jornada.horasTrabajadas)}</td>
+                <td className="px-3 py-2.5 font-semibold text-[#D7FF4F]">{formatMoney(jornada.totalEstimadoDia)}</td>
+                <td className="px-3 py-2.5">
+                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses(jornada.estadoDia)}`}>
+                    {jornada.estadoDia}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5">
+                  <div className="flex flex-col gap-1">
+                    {periodo ? (
+                      <span className="text-[11px] text-[#A7A7A7]">
+                        {formatShortDate(periodo.fechaInicio)} – {formatShortDate(periodo.fechaFin)}
+                      </span>
+                    ) : null}
+                    <span className={`inline-flex w-fit rounded-full border px-2 py-0.5 text-[10px] font-semibold ${badgeClasses}`}>
+                      {badgeLabel}
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -207,13 +244,16 @@ function JornadasTable({ jornadas }: { jornadas: HorarioRegistro[] }) {
 
 function PagosTable({ pagos }: { pagos: HorarioPago[] }) {
   if (!pagos.length) {
-    return <p className="py-3 text-sm text-zinc-400">Aún no hay pagos registrados para tu usuario.</p>;
+    return (
+      <div className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] py-8 text-center">
+        <p className="text-sm text-[#A7A7A7]">Aún no hay pagos registrados para tu usuario.</p>
+      </div>
+    );
   }
-
   return (
     <div className="overflow-x-auto">
       <table className="min-w-[1080px] w-full text-left text-sm">
-        <thead className="border-b border-[#30312D] text-xs uppercase tracking-normal text-zinc-500">
+        <thead className="border-b border-[#3A3A36] text-xs uppercase tracking-normal text-[#8F908A]">
           <tr>
             <th className="px-3 py-2.5 font-medium">Fecha de pago</th>
             <th className="px-3 py-2.5 font-medium">Periodo</th>
@@ -226,24 +266,24 @@ function PagosTable({ pagos }: { pagos: HorarioPago[] }) {
             <th className="px-3 py-2.5 font-medium">Rol</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-white/10 text-zinc-300">
+        <tbody className="divide-y divide-[#3A3A36] text-[#CFCFCB]">
           {pagos.map((pago) => {
             const comprobante = pago.comprobantes[0];
-            const periodo = pago.periodoFechaInicio && pago.periodoFechaFin
-              ? `${formatDate(pago.periodoFechaInicio)} - ${formatDate(pago.periodoFechaFin)}`
-              : "--";
+            const periodo =
+              pago.periodoFechaInicio && pago.periodoFechaFin
+                ? `${formatDate(pago.periodoFechaInicio)} - ${formatDate(pago.periodoFechaFin)}`
+                : "--";
             const hasRol = Boolean(pago.periodoPagoId && pago.periodoRolGenerado && pago.periodoRolPagoBlobPathname);
-
             return (
-              <tr key={pago.id}>
-                <td className="px-3 py-2.5 font-medium text-white">{formatDate(pago.fechaPago)}</td>
+              <tr key={pago.id} className="transition hover:bg-[#2D2E2A]">
+                <td className="px-3 py-2.5 font-medium text-[#F5F5F5]">{formatDate(pago.fechaPago)}</td>
                 <td className="px-3 py-2.5">{periodo}</td>
-                <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(pago.montoPagado)}</td>
+                <td className="px-3 py-2.5 font-semibold text-[#D7FF4F]">{formatMoney(pago.montoPagado)}</td>
                 <td className="px-3 py-2.5">{pago.metodoPago || "--"}</td>
                 <td className="px-3 py-2.5">{pago.numeroTransaccion || "--"}</td>
                 <td className="px-3 py-2.5">{pago.bancoCuentaOrigen || "--"}</td>
                 <td className="px-3 py-2.5">
-                  <span className="inline-flex rounded-md border border-geek-lime/30 bg-geek-lime/10 px-2.5 py-1 text-xs font-semibold text-geek-lime">
+                  <span className="inline-flex rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-2.5 py-1 text-xs font-semibold text-[#D7FF4F]">
                     {pago.estadoPago || "Registrado"}
                   </span>
                 </td>
@@ -253,7 +293,7 @@ function PagosTable({ pagos }: { pagos: HorarioPago[] }) {
                       href={comprobante.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="font-medium text-geek-lime transition hover:text-white"
+                      className="font-medium text-[#D7FF4F] transition hover:text-[#F5F5F5]"
                     >
                       Ver archivo
                     </a>
@@ -265,12 +305,12 @@ function PagosTable({ pagos }: { pagos: HorarioPago[] }) {
                   {hasRol ? (
                     <a
                       href={`/api/horarios/roles/${pago.periodoPagoId}`}
-                      className="inline-flex rounded-md border border-geek-lime/40 px-3 py-2 text-sm font-semibold text-geek-lime transition hover:border-geek-lime hover:bg-geek-lime hover:text-geek-black"
+                      className="inline-flex rounded-full border border-[#D7FF4F]/40 px-3 py-1.5 text-xs font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#10110E]"
                     >
                       Descargar rol
                     </a>
                   ) : (
-                    <span className="text-zinc-500">Pendiente</span>
+                    <span className="text-[#A7A7A7]">Pendiente</span>
                   )}
                 </td>
               </tr>
@@ -284,13 +324,16 @@ function PagosTable({ pagos }: { pagos: HorarioPago[] }) {
 
 function AjustesTable({ ajustes }: { ajustes: HorarioAjuste[] }) {
   if (!ajustes.length) {
-    return <p className="py-3 text-sm text-zinc-400">No hay ajustes ni descuentos registrados para tus periodos.</p>;
+    return (
+      <div className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] py-8 text-center">
+        <p className="text-sm text-[#A7A7A7]">No hay ajustes ni descuentos registrados para tus periodos.</p>
+      </div>
+    );
   }
-
   return (
     <div className="overflow-x-auto">
       <table className="min-w-[720px] w-full text-left text-sm">
-        <thead className="border-b border-[#30312D] text-xs uppercase tracking-normal text-zinc-500">
+        <thead className="border-b border-[#3A3A36] text-xs uppercase tracking-normal text-[#8F908A]">
           <tr>
             <th className="px-3 py-2.5 font-medium">Fecha</th>
             <th className="px-3 py-2.5 font-medium">Motivo</th>
@@ -299,15 +342,15 @@ function AjustesTable({ ajustes }: { ajustes: HorarioAjuste[] }) {
             <th className="px-3 py-2.5 font-medium">Estado</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-white/10 text-zinc-300">
+        <tbody className="divide-y divide-[#3A3A36] text-[#CFCFCB]">
           {ajustes.map((ajuste) => (
-            <tr key={ajuste.id}>
-              <td className="px-3 py-2.5 font-medium text-white">{formatDate(ajuste.fechaAjuste)}</td>
+            <tr key={ajuste.id} className="transition hover:bg-[#2D2E2A]">
+              <td className="px-3 py-2.5 font-medium text-[#F5F5F5]">{formatDate(ajuste.fechaAjuste)}</td>
               <td className="px-3 py-2.5">{ajuste.motivo || "--"}</td>
               <td className="px-3 py-2.5">{formatHours(Math.abs(ajuste.horasAjustadas || ajuste.minutosAjustados / 60))}</td>
-              <td className="px-3 py-2.5 font-semibold text-red-100">{formatMoney(ajuste.montoAjustado)}</td>
+              <td className="px-3 py-2.5 font-semibold text-red-200">{formatMoney(ajuste.montoAjustado)}</td>
               <td className="px-3 py-2.5">
-                <span className="inline-flex rounded-md border border-geek-lime/30 bg-geek-lime/10 px-2.5 py-1 text-xs font-semibold text-geek-lime">
+                <span className="inline-flex rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-2.5 py-1 text-xs font-semibold text-[#D7FF4F]">
                   {ajuste.estado || "Aplicado"}
                 </span>
               </td>
@@ -325,6 +368,8 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
   const [error, setError] = useState(initialError || "");
   const [notice, setNotice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState<"jornadas" | "pagos" | "ajustes">("jornadas");
+  const [isHistorialOpen, setIsHistorialOpen] = useState(false);
 
   const registro = estado?.registro;
   const estadoDia = registro?.estadoDia || "Pendiente";
@@ -334,6 +379,17 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
   const misJornadas = initialMiVista?.jornadas || [];
   const misAjustes = initialMiVista?.ajustes || [];
   const misPagos = initialMiVista?.pagos || [];
+  const misPeriodos = initialMiVista?.periodos || [];
+
+  const registroToPeriodo = useMemo(() => {
+    const map = new Map<string, HorarioPeriodoPago>();
+    for (const periodo of misPeriodos) {
+      for (const registroId of periodo.registroIds) {
+        map.set(registroId, periodo);
+      }
+    }
+    return map;
+  }, [misPeriodos]);
 
   const marcas = useMemo(
     () => [
@@ -392,18 +448,25 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
     }
   }
 
+  const tabs: { id: "jornadas" | "pagos" | "ajustes"; label: string }[] = [
+    { id: "jornadas", label: "Jornadas" },
+    { id: "pagos", label: "Pagos" },
+    { id: "ajustes", label: "Ajustes" }
+  ];
+
   return (
-    <section className="w-full space-y-2.5 text-left">
-      <div className="flex flex-col gap-2 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 sm:flex-row sm:items-center sm:justify-between">
+    <section className="w-full space-y-4 text-left">
+      {/* Header bar */}
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-zinc-400">Fecha operativa</p>
-          <p className="text-lg font-semibold text-white">{estado?.fecha || "Hoy"}</p>
+          <p className="text-xs text-[#A7A7A7]">Fecha operativa</p>
+          <p className="text-lg font-semibold text-[#F5F5F5]">{estado?.fecha || "Hoy"}</p>
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex gap-2">
           {isAdmin ? (
             <Link
               href="/horarios/admin"
-              className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-sm font-bold text-zinc-200 transition hover:border-geek-lime/50 hover:text-geek-lime"
+              className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
             >
               Vista admin
             </Link>
@@ -411,146 +474,211 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
           <button
             type="button"
             onClick={refreshEstado}
-            className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-sm font-bold text-zinc-200 transition hover:border-geek-lime/50 hover:text-geek-lime"
+            className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
           >
             Actualizar
           </button>
         </div>
       </div>
 
+      {/* Banners */}
       {notice ? (
-        <p className="rounded-xl border border-geek-lime/30 bg-geek-lime/10 px-3 py-2.5 text-sm text-geek-lime" role="status">
+        <p className="rounded-xl border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-3 py-2.5 text-sm text-[#D7FF4F]" role="status">
           {notice}
         </p>
       ) : null}
       {error ? (
-        <p className="rounded-xl border border-red-400/30 bg-red-400/10 px-3 py-2.5 text-sm text-red-100" role="alert">
+        <p className="rounded-xl border border-red-400/30 bg-red-400/10 px-3 py-2.5 text-sm text-red-200" role="alert">
           {error}
         </p>
       ) : null}
 
-      <div className="grid gap-2.5 lg:grid-cols-[1.15fr_0.85fr]">
-        <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <span className={`inline-flex rounded-md border px-2.5 py-1 text-xs font-semibold ${statusClasses(estadoDia)}`}>
-                {estadoDia}
-              </span>
-              <h2 className="mt-2 text-xl font-semibold text-white">Control de horario</h2>
-              <p className="mt-1 max-w-xl text-sm leading-5 text-zinc-300">
-                La hora registrada se toma desde el servidor para proteger la integridad de cada marcación.
+      {/* Hero card */}
+      <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5">
+        <div className="flex items-start justify-between gap-3">
+          <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses(estadoDia)}`}>
+            {estadoDia}
+          </span>
+          <div className="rounded-xl border border-[#D7FF4F]/20 bg-[#D7FF4F]/5 px-3 py-1.5 text-right">
+            <p className="text-[11px] text-[#A7A7A7]">Valor hora</p>
+            <p className="text-lg font-semibold text-[#D7FF4F]">{formatMoney(estado?.resumen.valorHora ?? 3.0125)}</p>
+          </div>
+        </div>
+
+        <h2 className="mt-3 text-xl font-semibold text-[#F5F5F5]">Control de horario</h2>
+        <p className="mt-1 max-w-xl text-sm leading-5 text-[#CFCFCB]">
+          La hora registrada se toma desde el servidor para proteger la integridad de cada marcación.
+        </p>
+
+        {/* Marks grid */}
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {marcas.map((marca) => (
+            <div key={marca.label} className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">{marca.label}</p>
+              <p className={`mt-0.5 text-lg font-semibold ${marca.value ? "text-[#F5F5F5]" : "text-[#A7A7A7]"}`}>
+                {formatTime(marca.value)}
               </p>
             </div>
-            <div className="rounded-xl border border-geek-lime/20 bg-geek-lime/10 px-3 py-2 text-right">
-              <p className="text-xs text-zinc-300">Valor hora</p>
-              <p className="text-xl font-semibold text-geek-lime">{formatMoney(estado?.resumen.valorHora || 3.0125)}</p>
-            </div>
-          </div>
+          ))}
+        </div>
 
-          <button
-            type="button"
-            disabled={!estado?.puedeMarcar || !siguienteMarcacion || isSubmitting}
-            onClick={handleMarcar}
-            className="mt-3 w-full rounded-lg bg-geek-lime px-4 py-3 text-base font-semibold text-geek-black shadow-glow transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+        {/* Live stats */}
+        {estado?.resumen ? (
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+            <span className="text-[#A7A7A7]">
+              Horas hoy{" "}
+              <span className="font-semibold text-[#F5F5F5]">{formatHours(estado.resumen.horasTrabajadas)}</span>
+            </span>
+            <span className="text-[#A7A7A7]">
+              Total estimado{" "}
+              <span className="font-semibold text-[#D7FF4F]">{formatMoney(estado.resumen.totalEstimadoDia)}</span>
+            </span>
+            <span className="text-[#A7A7A7]">
+              Sueldo base{" "}
+              <span className="font-semibold text-[#CFCFCB]">{formatMoney(estado.resumen.sueldoBase)}</span>
+            </span>
+          </div>
+        ) : null}
+
+        {/* CTA */}
+        <button
+          type="button"
+          disabled={!estado?.puedeMarcar || !siguienteMarcacion || isSubmitting}
+          onClick={handleMarcar}
+          className="mt-4 w-full rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-3 text-base font-semibold text-[#10110E] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isSubmitting ? "Registrando..." : estado?.siguienteEtiqueta || "Sin acciones pendientes"}
+        </button>
+
+        {/* Collapsible historial */}
+        <button
+          type="button"
+          onClick={() => setIsHistorialOpen(!isHistorialOpen)}
+          className="mt-3 flex w-full items-center justify-between gap-2 rounded-xl px-1 py-1 text-sm text-[#CFCFCB] transition hover:text-[#F5F5F5]"
+        >
+          <span>Historial de hoy</span>
+          <svg
+            className={`h-4 w-4 transition-transform duration-200 ${isHistorialOpen ? "rotate-180" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
           >
-            {isSubmitting ? "Registrando..." : estado?.siguienteEtiqueta || "Sin acciones pendientes"}
-          </button>
-
-          <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
-            {marcas.map((marca) => (
-              <div key={marca.label} className="rounded-xl border border-[#30312D] bg-[#11120F] px-3 py-2">
-                <p className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{marca.label}</p>
-                <p className="mt-0.5 text-lg font-semibold text-white">{formatTime(marca.value)}</p>
-              </div>
-            ))}
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        {isHistorialOpen ? (
+          <div className="mt-1 divide-y divide-[#3A3A36]">
+            {estado?.marcaciones.length ? (
+              estado.marcaciones.map((marcacion) => (
+                <div key={marcacion.id} className="flex items-center justify-between gap-4 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-[#F5F5F5]">{tipoLabels[marcacion.tipo]}</p>
+                    <p className="text-xs text-[#A7A7A7]">{marcacion.origen || "portal_staff"}</p>
+                  </div>
+                  <p className="text-sm font-semibold text-[#CFCFCB]">{formatTime(marcacion.fechaHora)}</p>
+                </div>
+              ))
+            ) : (
+              <p className="py-3 text-sm text-[#A7A7A7]">Aún no hay marcaciones registradas hoy.</p>
+            )}
           </div>
-        </section>
-
-        <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
-          <h2 className="text-lg font-semibold text-white">Resumen del día</h2>
-          <div className="mt-3 space-y-2.5">
-            <div className="flex items-center justify-between border-b border-[#30312D] pb-3">
-              <span className="text-sm text-zinc-400">Horas trabajadas</span>
-              <span className="font-semibold text-white">{formatHours(estado?.resumen.horasTrabajadas || 0)}</span>
-            </div>
-            <div className="flex items-center justify-between border-b border-[#30312D] pb-3">
-              <span className="text-sm text-zinc-400">Minutos trabajados</span>
-              <span className="font-semibold text-white">{estado?.resumen.minutosTrabajados || 0}</span>
-            </div>
-            <div className="flex items-center justify-between border-b border-[#30312D] pb-3">
-              <span className="text-sm text-zinc-400">Sueldo base</span>
-              <span className="font-semibold text-white">{formatMoney(estado?.resumen.sueldoBase || 482)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-zinc-400">Total estimado</span>
-              <span className="text-xl font-semibold text-geek-lime">{formatMoney(estado?.resumen.totalEstimadoDia || 0)}</span>
-            </div>
-          </div>
-        </section>
+        ) : null}
       </div>
 
-      {miResumen ? (
-        <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Mi resumen</h2>
-              <p className="mt-1 text-sm text-zinc-400">
-                Resumen del mes actual: {formatDate(miResumen.periodoJornadas.fechaInicio)} - {formatDate(miResumen.periodoJornadas.fechaFin)}
+      {/* Compact metrics */}
+      {miResumen || resumenPagos ? (
+        <div className="grid gap-2 sm:grid-cols-3">
+          {/* Slot 1: Esta semana — productividad, no pendiente */}
+          {miResumen ? (
+            <div className="rounded-xl border border-[#3A3A36] bg-[#252622] px-3 py-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">Esta semana</p>
+              <p className="mt-0.5 text-sm font-semibold text-[#F5F5F5]">
+                {formatHours(miResumen.semana.horasTrabajadas)}
               </p>
+              <p className="text-sm font-semibold text-[#D7FF4F]">{formatMoney(miResumen.semana.totalEstimado)} generado</p>
             </div>
-          </div>
-          <div className="mt-3 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
-            <SummaryMetric label="Horas hoy" value={formatHours(miResumen.hoy.horasTrabajadas)} />
-            <SummaryMetric label="Total hoy" value={formatMoney(miResumen.hoy.totalEstimado)} accent />
-            <SummaryMetric label="Horas semana" value={formatHours(miResumen.semana.horasTrabajadas)} />
-            <SummaryMetric label="Total semana" value={formatMoney(miResumen.semana.totalEstimado)} accent />
-            <SummaryMetric label="Horas mes" value={formatHours(miResumen.mes.horasTrabajadas)} />
-            <SummaryMetric label="Total mes" value={formatMoney(miResumen.mes.totalEstimado)} accent />
-          </div>
-        </section>
+          ) : null}
+          {/* Slot 2: Saldo pendiente — métrica financiera principal */}
+          {resumenPagos ? (
+            <div
+              className={`rounded-xl border px-3 py-2.5 ${
+                resumenPagos.saldoPendientePeriodos > 0
+                  ? "border-[#D7FF4F]/30 bg-[#D7FF4F]/5"
+                  : "border-[#3A3A36] bg-[#252622]"
+              }`}
+            >
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">Saldo pendiente</p>
+              <p
+                className={`mt-0.5 text-lg font-semibold ${
+                  resumenPagos.saldoPendientePeriodos > 0 ? "text-[#D7FF4F]" : "text-[#F5F5F5]"
+                }`}
+              >
+                {formatMoney(resumenPagos.saldoPendientePeriodos)}
+              </p>
+              <p className="mt-1 text-[10px] leading-tight text-[#8F908A]">Saldo calculado sobre periodos de pago registrados.</p>
+            </div>
+          ) : null}
+          {/* Slot 3: Último pago si existe, sino horas del mes (sin dinero) */}
+          {resumenPagos && resumenPagos.ultimoPagoMonto !== null ? (
+            <div className="rounded-xl border border-[#3A3A36] bg-[#252622] px-3 py-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">Último pago</p>
+              <p className="mt-0.5 text-sm font-semibold text-[#F5F5F5]">{formatMoney(resumenPagos.ultimoPagoMonto)}</p>
+              <p className="text-[10px] text-[#8F908A]">{formatDate(resumenPagos.ultimoPagoFecha || undefined)}</p>
+            </div>
+          ) : miResumen ? (
+            <div className="rounded-xl border border-[#3A3A36] bg-[#252622] px-3 py-2.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">Este mes</p>
+              <p className="mt-0.5 text-sm font-semibold text-[#F5F5F5]">
+                {formatHours(miResumen.mes.horasTrabajadas)}
+              </p>
+              <p className="text-[10px] text-[#8F908A]">Solo horas trabajadas</p>
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
-      {resumenPagos ? <EstadoPagoSection resumenPagos={resumenPagos} tieneJornadasMes={(miResumen?.mes.totalEstimado || 0) > 0} /> : null}
-
-      <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
-        <h2 className="text-lg font-semibold text-white">Ajustes y descuentos del periodo</h2>
-        <div className="mt-2">
-          <AjustesTable ajustes={misAjustes} />
+      {/* Tabs card */}
+      <div className="overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#252622]">
+        <div className="flex border-b border-[#3A3A36] bg-[#30312D]">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`border-b-2 px-4 py-3 text-sm font-semibold transition ${
+                activeTab === tab.id
+                  ? "border-[#D7FF4F] text-[#D7FF4F]"
+                  : "border-transparent text-[#A7A7A7] hover:text-[#CFCFCB]"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
-      </section>
-
-      <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
-        <h2 className="text-lg font-semibold text-white">Mis jornadas</h2>
-        <div className="mt-2">
-          <JornadasTable jornadas={misJornadas} />
+        <div className="p-4">
+          {activeTab === "jornadas" ? (
+            <>
+              <p className="mb-3 text-[12px] leading-relaxed text-[#8F908A]">
+                Últimos 6 meses de jornadas. El estado de pago refleja el periodo al que pertenece cada jornada, no el pago individual por día.
+              </p>
+              <JornadasTable jornadas={misJornadas} registroToPeriodo={registroToPeriodo} />
+            </>
+          ) : null}
+          {activeTab === "pagos" ? (
+            <>
+              {resumenPagos ? (
+                <EstadoPagoSection
+                  resumenPagos={resumenPagos}
+                  tieneJornadasMes={(miResumen?.mes.totalEstimado || 0) > 0}
+                />
+              ) : null}
+              <PagosTable pagos={misPagos} />
+            </>
+          ) : null}
+          {activeTab === "ajustes" ? <AjustesTable ajustes={misAjustes} /> : null}
         </div>
-      </section>
-
-      <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
-        <h2 className="text-lg font-semibold text-white">Mis pagos</h2>
-        <div className="mt-2">
-          <PagosTable pagos={misPagos} />
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5 shadow-2xl shadow-black/20">
-        <h2 className="text-lg font-semibold text-white">Historial de marcaciones</h2>
-        <div className="mt-2 divide-y divide-white/10">
-          {estado?.marcaciones.length ? (
-            estado.marcaciones.map((marcacion) => (
-              <div key={marcacion.id} className="flex items-center justify-between gap-4 py-3">
-                <div>
-                  <p className="font-medium text-white">{tipoLabels[marcacion.tipo]}</p>
-                  <p className="text-xs text-zinc-500">{marcacion.origen || "portal_staff"}</p>
-                </div>
-                <p className="text-sm font-semibold text-zinc-200">{formatTime(marcacion.fechaHora)}</p>
-              </div>
-            ))
-          ) : (
-            <p className="py-3 text-sm text-zinc-400">Aún no hay marcaciones registradas hoy.</p>
-          )}
-        </div>
-      </section>
+      </div>
     </section>
   );
 }

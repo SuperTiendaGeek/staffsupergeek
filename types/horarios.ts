@@ -90,6 +90,7 @@ export type HorarioEmpleadoVista = {
   ajustes: HorarioAjuste[];
   pagos: HorarioPago[];
   rolesPago: HorarioEmpleadoRolPago[];
+  periodos: HorarioPeriodoPago[];
 };
 
 export type HorarioAdminEmpleadoResumen = {
