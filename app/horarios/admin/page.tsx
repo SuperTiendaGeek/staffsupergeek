@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { HorariosAdminJornadasClient } from "@/components/horarios/HorariosAdminJornadasClient";
 import { HorariosAdminPeriodosClient } from "@/components/horarios/HorariosAdminPeriodosClient";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
-import { StaffStatCard } from "@/components/staff/StaffDesignSystem";
 import { isAdministratorRole } from "@/lib/apps";
 import { fetchHorariosAdminResumen, fetchHorariosEmpleadosParaPeriodo, fetchJornadasIncompletasAdmin, fetchPeriodosPago } from "@/lib/horarios/airtable";
 import { getSessionFromCookie } from "@/lib/session";
@@ -33,8 +32,7 @@ function formatDateRange(resumen: HorarioAdminResumen | null) {
   if (!resumen) {
     return "Semana actual";
   }
-
-  return `${resumen.periodo.fechaInicio} - ${resumen.periodo.fechaFin}`;
+  return `${resumen.periodo.fechaInicio} — ${resumen.periodo.fechaFin}`;
 }
 
 function getSearchParamValue(value?: string | string[]) {
@@ -43,35 +41,43 @@ function getSearchParamValue(value?: string | string[]) {
 
 function normalizeDateParam(value?: string | string[]) {
   const date = getSearchParamValue(value)?.trim();
-
   return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
 }
 
-function metricCards(resumen: HorarioAdminResumen | null) {
-  const totales = resumen?.totales;
-
-  return [
-    {
-      label: "Generado en el rango",
-      value: formatMoney(totales?.generadoEnRango ?? totales?.totalNeto ?? 0),
-      helper: "Jornadas finalizadas o revisadas"
-    },
-    {
-      label: "Pagado en el rango",
-      value: formatMoney(totales?.pagadoEnRango ?? totales?.totalPagado ?? 0),
-      helper: "Pagos activos registrados en el rango"
-    },
-    {
-      label: "Saldo pendiente real",
-      value: formatMoney(totales?.saldoPendienteReal ?? totales?.saldoPendiente ?? 0),
-      helper: "Saldos de periodos abiertos o parciales"
-    },
-    {
-      label: "Pendiente nuevo sin periodo",
-      value: formatMoney(totales?.pendienteNuevoSinPeriodo ?? 0),
-      helper: "Jornadas del rango aún no agrupadas"
-    }
-  ];
+function AdminMetricCard({
+  label,
+  value,
+  helper,
+  accent = false,
+  warn = false
+}: {
+  label: string;
+  value: string;
+  helper?: string;
+  accent?: boolean;
+  warn?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-xl border px-3 py-2.5 ${
+        accent
+          ? "border-[#D7FF4F]/30 bg-[#D7FF4F]/5"
+          : warn
+            ? "border-amber-400/25 bg-amber-400/5"
+            : "border-[#3A3A36] bg-[#252622]"
+      }`}
+    >
+      <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">{label}</p>
+      <p
+        className={`mt-0.5 text-xl font-semibold ${
+          accent ? "text-[#D7FF4F]" : warn ? "text-amber-200" : "text-[#F5F5F5]"
+        }`}
+      >
+        {value}
+      </p>
+      {helper ? <p className="mt-1 text-[10px] leading-tight text-[#8F908A]">{helper}</p> : null}
+    </div>
+  );
 }
 
 export default async function HorariosAdminPage({ searchParams }: PageProps) {
@@ -126,38 +132,44 @@ export default async function HorariosAdminPage({ searchParams }: PageProps) {
     console.warn("No se pudieron cargar jornadas incompletas:", jornadasResult.reason);
   }
 
+  const totales = resumen?.totales;
+  const empleadosConSaldo =
+    resumen?.empleados.filter((e) => (e.saldoPendienteReal ?? e.saldoPendiente) > 0).length ?? 0;
+
   return (
     <StaffAppShell activeHref="/horarios" sectionLabel="Horarios">
-      <section className="w-full space-y-2.5 text-left">
-        <div className="rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <section className="w-full space-y-3 text-left">
+
+        {/* Filtro de fechas */}
+        <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] px-4 py-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-white">Rango de consulta</h2>
-              <p className="mt-0.5 text-sm text-zinc-400">Rango seleccionado</p>
-              <p className="mt-0.5 text-lg font-semibold text-white">{formatDateRange(resumen)}</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">Rango activo</p>
+              <p className="mt-0.5 text-lg font-semibold text-[#F5F5F5]">{formatDateRange(resumen)}</p>
+              <p className="mt-0.5 text-xs text-[#A7A7A7]">Solo jornadas finalizadas o revisadas en este rango.</p>
             </div>
             <form action="/horarios/admin" className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
               <label className="space-y-1">
-                <span className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">Fecha inicio</span>
+                <span className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">Fecha inicio</span>
                 <input
                   type="date"
                   name="inicio"
                   defaultValue={resumen?.periodo.fechaInicio || fechaInicio || ""}
-                  className="h-9 w-full rounded-lg border border-[#3A3A36] bg-[#121310] px-3 text-sm text-white outline-none transition focus:border-geek-lime/60"
+                  className="h-9 w-full rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/60"
                 />
               </label>
               <label className="space-y-1">
-                <span className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">Fecha fin</span>
+                <span className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">Fecha fin</span>
                 <input
                   type="date"
                   name="fin"
                   defaultValue={resumen?.periodo.fechaFin || fechaFin || ""}
-                  className="h-9 w-full rounded-lg border border-[#3A3A36] bg-[#121310] px-3 text-sm text-white outline-none transition focus:border-geek-lime/60"
+                  className="h-9 w-full rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/60"
                 />
               </label>
               <button
                 type="submit"
-                className="h-9 rounded-lg bg-geek-lime px-3 text-sm font-semibold text-geek-black transition hover:bg-white"
+                className="h-9 rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-semibold text-[#10110E] transition hover:brightness-105"
               >
                 Aplicar
               </button>
@@ -171,69 +183,122 @@ export default async function HorariosAdminPage({ searchParams }: PageProps) {
           </p>
         ) : null}
 
+        {/* Métricas */}
         <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
-          {metricCards(resumen).map((card) => (
-            <StaffStatCard key={card.label} label={card.label} value={card.value} tone="lime" density="compact" />
-          ))}
+          <AdminMetricCard
+            label="Generado en rango"
+            value={formatMoney(totales?.generadoEnRango ?? totales?.totalNeto ?? 0)}
+            helper="Jornadas finalizadas o revisadas"
+          />
+          <AdminMetricCard
+            label="Pagado en rango"
+            value={formatMoney(totales?.pagadoEnRango ?? totales?.totalPagado ?? 0)}
+            helper="Pagos activos registrados en el rango"
+          />
+          <AdminMetricCard
+            label="Saldo pendiente real"
+            value={formatMoney(totales?.saldoPendienteReal ?? totales?.saldoPendiente ?? 0)}
+            helper="Saldos de periodos abiertos o parciales"
+            accent={(totales?.saldoPendienteReal ?? totales?.saldoPendiente ?? 0) > 0}
+          />
+          <AdminMetricCard
+            label="Pendiente sin periodo"
+            value={formatMoney(totales?.pendienteNuevoSinPeriodo ?? 0)}
+            helper="Jornadas del rango aún no agrupadas en un periodo"
+            warn={(totales?.pendienteNuevoSinPeriodo ?? 0) > 0}
+          />
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
-          <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
-            <h2 className="text-base font-semibold text-white">Resumen por empleado</h2>
-            <p className="mt-0.5 text-sm text-zinc-400">Solo incluye jornadas con estado Finalizado o Revisado.</p>
+        {/* Alertas rápidas */}
+        {jornadasIncompletas.length > 0 || empleadosConSaldo > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {jornadasIncompletas.length > 0 ? (
+              <span className="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-xs font-semibold text-amber-200">
+                {jornadasIncompletas.length} jornada{jornadasIncompletas.length !== 1 ? "s" : ""} incompleta{jornadasIncompletas.length !== 1 ? "s" : ""}
+              </span>
+            ) : null}
+            {empleadosConSaldo > 0 ? (
+              <span className="inline-flex items-center rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-3 py-1 text-xs font-semibold text-[#D7FF4F]">
+                {empleadosConSaldo} empleado{empleadosConSaldo !== 1 ? "s" : ""} con saldo pendiente
+              </span>
+            ) : null}
+          </div>
+        ) : resumen ? (
+          <p className="text-xs text-[#8F908A]">Sin alertas para el rango seleccionado.</p>
+        ) : null}
+
+        {/* Resumen por empleado */}
+        <div className="overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#252622]">
+          <div className="border-b border-[#3A3A36] bg-[#30312D] px-4 py-3">
+            <h2 className="text-base font-semibold text-[#F5F5F5]">Resumen por empleado</h2>
+            <p className="mt-0.5 text-xs text-[#A7A7A7]">Solo incluye jornadas con estado Finalizado o Revisado.</p>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-[1120px] w-full divide-y divide-white/10 text-left text-sm">
-              <thead className="bg-[#20211D] text-[12px] uppercase text-zinc-400">
+            <table className="min-w-[1100px] w-full divide-y divide-[#3A3A36] text-left text-sm">
+              <thead className="bg-[#30312D] text-[11px] uppercase tracking-wide text-[#8F908A]">
                 <tr>
-                  <th className="px-3 py-2 font-semibold">Empleado</th>
-                  <th className="px-3 py-2 font-semibold">Días finalizados</th>
-                  <th className="px-3 py-2 font-semibold">Horas trabajadas</th>
-                  <th className="px-3 py-2 font-semibold">Generado en rango</th>
-                  <th className="px-3 py-2 font-semibold">Ajustes rango</th>
-                  <th className="px-3 py-2 font-semibold">Pagado asociado</th>
-                  <th className="px-3 py-2 font-semibold">Saldo pendiente real</th>
-                  <th className="px-3 py-2 font-semibold">Sin periodo</th>
-                  <th className="px-3 py-2 font-semibold">Acción</th>
+                  <th className="px-3 py-2.5 font-semibold">Empleado</th>
+                  <th className="px-3 py-2.5 font-semibold">Días finalizados</th>
+                  <th className="px-3 py-2.5 font-semibold">Horas trabajadas</th>
+                  <th className="px-3 py-2.5 font-semibold">Generado en rango</th>
+                  <th className="px-3 py-2.5 font-semibold">Ajustes</th>
+                  <th className="px-3 py-2.5 font-semibold">Pagado asociado</th>
+                  <th className="px-3 py-2.5 font-semibold">Saldo pendiente</th>
+                  <th className="px-3 py-2.5 font-semibold">Sin periodo</th>
+                  <th className="px-3 py-2.5 font-semibold">Acción</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/10">
+              <tbody className="divide-y divide-[#3A3A36] text-[#CFCFCB]">
                 {resumen?.empleados.length ? (
-                  resumen.empleados.map((empleado) => (
-                    <tr key={empleado.empleadoKey} className="text-zinc-200">
-                      <td className="px-3 py-2.5">
-                        <p className="font-medium text-white">{empleado.empleado}</p>
-                        <p className="text-xs text-zinc-500">{empleado.correo || empleado.usuarioId}</p>
-                      </td>
-                      <td className="px-3 py-2.5">{empleado.registrosCount}</td>
-                      <td className="px-3 py-2.5 font-semibold text-white">{formatHours(empleado.horasTrabajadas)}</td>
-                      <td className="px-3 py-2.5 font-semibold text-white">{formatMoney(empleado.generadoEnRango ?? empleado.totalGanado)}</td>
-                      <td className={`px-3 py-2.5 font-semibold ${empleado.totalAjustes < 0 ? "text-red-100" : "text-zinc-300"}`}>
-                        {formatMoney(empleado.totalAjustes)}
-                      </td>
-                      <td className="px-3 py-2.5 font-semibold text-zinc-100">{formatMoney(empleado.pagadoAsociado ?? empleado.totalPagado)}</td>
-                      <td className="px-3 py-2.5 font-semibold text-geek-lime">{formatMoney(empleado.saldoPendienteReal ?? empleado.saldoPendiente)}</td>
-                      <td className="px-3 py-2.5">
-                        <p className="font-semibold text-white">{formatMoney(empleado.pendienteNuevoSinPeriodo ?? 0)}</p>
-                        <p className="text-xs text-zinc-500">{empleado.jornadasSinPeriodoCount ?? 0} jornadas</p>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        {empleado.empleadoRecordId ? (
-                          <Link
-                            href={`/horarios/admin/empleados/${empleado.empleadoRecordId}`}
-                            className="inline-flex rounded-lg border border-geek-lime/30 px-3 py-1.5 text-xs font-semibold text-geek-lime transition hover:border-white/40 hover:text-white"
-                          >
-                            Gestionar pagos
-                          </Link>
-                        ) : (
-                          <span className="text-xs text-zinc-500">Sin empleado vinculado</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                  resumen.empleados.map((empleado) => {
+                    const saldo = empleado.saldoPendienteReal ?? empleado.saldoPendiente;
+                    const sinPeriodoCount = empleado.jornadasSinPeriodoCount ?? 0;
+                    const needsAction = saldo > 0 || sinPeriodoCount > 0;
+                    return (
+                      <tr
+                        key={empleado.empleadoKey}
+                        className={`transition ${needsAction ? "hover:bg-[#D7FF4F]/[0.04]" : "hover:bg-[#2D2E2A]"}`}
+                      >
+                        <td className="px-3 py-2.5">
+                          <p className="font-semibold text-[#F5F5F5]">{empleado.empleado}</p>
+                          <p className="text-xs text-[#8F908A]">{empleado.correo || empleado.usuarioId}</p>
+                        </td>
+                        <td className="px-3 py-2.5 tabular-nums">{empleado.registrosCount}</td>
+                        <td className="px-3 py-2.5 font-semibold text-[#F5F5F5] tabular-nums">{formatHours(empleado.horasTrabajadas)}</td>
+                        <td className="px-3 py-2.5 font-semibold text-[#F5F5F5] tabular-nums">{formatMoney(empleado.generadoEnRango ?? empleado.totalGanado)}</td>
+                        <td className={`px-3 py-2.5 font-semibold tabular-nums ${empleado.totalAjustes < 0 ? "text-red-300" : "text-[#CFCFCB]"}`}>
+                          {formatMoney(empleado.totalAjustes)}
+                        </td>
+                        <td className="px-3 py-2.5 font-semibold tabular-nums">{formatMoney(empleado.pagadoAsociado ?? empleado.totalPagado)}</td>
+                        <td className="px-3 py-2.5 tabular-nums">
+                          <span className={`font-semibold ${saldo > 0 ? "text-[#D7FF4F]" : "text-[#CFCFCB]"}`}>
+                            {formatMoney(saldo)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 tabular-nums">
+                          <p className={`font-semibold ${sinPeriodoCount > 0 ? "text-amber-200" : "text-[#CFCFCB]"}`}>
+                            {formatMoney(empleado.pendienteNuevoSinPeriodo ?? 0)}
+                          </p>
+                          <p className="text-xs text-[#8F908A]">{sinPeriodoCount} jornadas</p>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {empleado.empleadoRecordId ? (
+                            <Link
+                              href={`/horarios/admin/empleados/${empleado.empleadoRecordId}`}
+                              className="inline-flex rounded-full border border-[#D7FF4F]/30 px-3 py-1.5 text-xs font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#10110E]"
+                            >
+                              Gestionar
+                            </Link>
+                          ) : (
+                            <span className="text-xs text-[#8F908A]">Sin empleado vinculado</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
-                    <td colSpan={9} className="px-3 py-5 text-center text-zinc-400">
+                    <td colSpan={9} className="px-3 py-8 text-center text-[#8F908A]">
                       No hay jornadas finalizadas o revisadas para el rango seleccionado.
                     </td>
                   </tr>
