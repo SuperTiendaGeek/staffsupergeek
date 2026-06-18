@@ -14,6 +14,9 @@ type ApiResponse = {
   warning?: string | null;
 };
 
+const MODAL_INPUT_CLASSES =
+  "mt-1 h-9 w-full rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/60";
+
 function todayDateInputValue() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Guayaquil",
@@ -91,115 +94,127 @@ export function HorarioPeriodoPagoClient({ periodoId }: Props) {
 
   return (
     <>
-      <div className="space-y-3">
+      <div className="flex flex-col gap-2">
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="rounded-md bg-geek-lime px-3 py-2 text-sm font-semibold text-geek-black transition hover:bg-white"
+          className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-semibold text-[#10110E] transition hover:brightness-105"
         >
           Registrar pago
         </button>
         {notice ? (
-          <p className="rounded-md border border-geek-lime/30 bg-geek-lime/10 px-3 py-2 text-sm text-geek-lime">{notice}</p>
+          <p className="rounded-xl border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-3 py-2.5 text-sm font-medium text-[#D7FF4F]">{notice}</p>
         ) : null}
         {error ? (
-          <p className="rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p>
+          <p className="rounded-xl border border-red-400/30 bg-red-400/10 px-3 py-2.5 text-sm text-red-100">{error}</p>
         ) : null}
       </div>
 
       {isOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-5 backdrop-blur-sm">
-          <form onSubmit={handleSubmit} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[#30312D] bg-geek-black px-3 py-2.5 shadow-2xl shadow-black">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-5">
+          <form onSubmit={handleSubmit} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-xl">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <h3 className="text-lg font-semibold text-white">Registrar pago</h3>
-                <p className="mt-1 text-sm text-zinc-400">El estado del periodo se actualizará según el saldo.</p>
+                <h3 className="text-base font-semibold text-[#F5F5F5]">Registrar pago</h3>
+                <p className="mt-0.5 text-sm text-[#A7A7A7]">El estado del periodo se actualizará según el saldo.</p>
               </div>
-              <button type="button" onClick={() => setIsOpen(false)} className="rounded-md border border-[#30312D] px-3 py-1.5 text-sm text-zinc-300 hover:text-white">
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="shrink-0 rounded-full border border-[#3A3A36] px-3 py-1 text-sm text-[#CFCFCB] transition hover:text-[#F5F5F5]"
+              >
                 Cerrar
               </button>
             </div>
 
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="block">
-                <span className="text-sm font-medium text-zinc-300">Fecha de pago</span>
+                <span className="text-sm font-medium text-[#CFCFCB]">Fecha de pago</span>
                 <input
                   type="date"
                   value={fechaPago}
                   onChange={(event) => setFechaPago(event.target.value)}
-                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className={MODAL_INPUT_CLASSES}
                   required
                 />
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-zinc-300">Monto pagado</span>
+                <span className="text-sm font-medium text-[#CFCFCB]">Monto pagado</span>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
                   value={montoPagado}
                   onChange={(event) => setMontoPagado(event.target.value)}
-                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className={MODAL_INPUT_CLASSES}
                   required
                 />
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-zinc-300">Método de pago</span>
+                <span className="text-sm font-medium text-[#CFCFCB]">Método de pago</span>
                 <select
                   value={metodoPago}
                   onChange={(event) => setMetodoPago(event.target.value as HorarioMetodoPago)}
-                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className={MODAL_INPUT_CLASSES}
                   required
                 >
                   {HORARIO_METODOS_PAGO.map((metodo) => (
-                    <option key={metodo} value={metodo} className="bg-geek-black">
+                    <option key={metodo} value={metodo} className="bg-[#1E1F1C]">
                       {metodo}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-zinc-300">Número de transacción</span>
+                <span className="text-sm font-medium text-[#CFCFCB]">Número de transacción</span>
                 <input
                   value={numeroTransaccion}
                   onChange={(event) => setNumeroTransaccion(event.target.value)}
-                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className={MODAL_INPUT_CLASSES}
                 />
               </label>
               <label className="block sm:col-span-2">
-                <span className="text-sm font-medium text-zinc-300">Banco / cuenta origen</span>
+                <span className="text-sm font-medium text-[#CFCFCB]">Banco / cuenta origen</span>
                 <input
                   value={bancoCuentaOrigen}
                   onChange={(event) => setBancoCuentaOrigen(event.target.value)}
-                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className={MODAL_INPUT_CLASSES}
                 />
               </label>
               <label className="block sm:col-span-2">
-                <span className="text-sm font-medium text-zinc-300">Observación</span>
+                <span className="text-sm font-medium text-[#CFCFCB]">Observación</span>
                 <textarea
                   value={observacion}
                   onChange={(event) => setObservacion(event.target.value)}
                   rows={3}
-                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-geek-lime"
+                  className="mt-1 w-full rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2.5 text-sm text-[#F5F5F5] outline-none transition placeholder:text-[#8F908A] focus:border-[#D7FF4F]/60"
                 />
               </label>
               <label className="block sm:col-span-2">
-                <span className="text-sm font-medium text-zinc-300">Comprobante</span>
+                <span className="text-sm font-medium text-[#CFCFCB]">Comprobante</span>
                 <input
                   type="file"
                   accept="image/*,application/pdf"
                   onChange={(event) => setComprobante(event.target.files?.[0] || null)}
-                  className="mt-1 w-full rounded-md border border-[#30312D] bg-black/30 px-3 py-2 text-sm text-zinc-200 file:mr-3 file:rounded-md file:border-0 file:bg-geek-lime file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-geek-black"
+                  className="mt-1 w-full rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-1.5 text-sm text-[#CFCFCB] outline-none transition file:mr-3 file:rounded-full file:border-0 file:bg-[#D7FF4F] file:px-3 file:py-1 file:text-sm file:font-semibold file:text-[#10110E]"
                 />
-                {comprobante ? <p className="mt-2 text-xs text-zinc-500">Archivo seleccionado: {comprobante.name}</p> : null}
+                {comprobante ? <p className="mt-1.5 text-xs text-[#8F908A]">Archivo seleccionado: {comprobante.name}</p> : null}
               </label>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setIsOpen(false)} className="rounded-md border border-[#30312D] px-3 py-2 text-sm font-medium text-zinc-200 hover:text-white">
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:text-[#F5F5F5]"
+              >
                 Cancelar
               </button>
-              <button type="submit" disabled={isSubmitting} className="rounded-md bg-geek-lime px-3 py-2 text-sm font-semibold text-geek-black hover:bg-white disabled:cursor-not-allowed disabled:opacity-50">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-semibold text-[#10110E] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+              >
                 {isSubmitting ? "Guardando..." : "Guardar pago"}
               </button>
             </div>
