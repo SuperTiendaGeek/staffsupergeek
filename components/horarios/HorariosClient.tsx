@@ -393,10 +393,10 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
 
   const marcas = useMemo(
     () => [
-      { label: "Entrada", value: registro?.entrada },
-      { label: "Salida almuerzo", value: registro?.salidaAlmuerzo },
-      { label: "Regreso almuerzo", value: registro?.regresoAlmuerzo },
-      { label: "Salida final", value: registro?.salidaFinal }
+      { label: "Entrada", tipo: "entrada" as TipoMarcacion, value: registro?.entrada },
+      { label: "Salida almuerzo", tipo: "salida_almuerzo" as TipoMarcacion, value: registro?.salidaAlmuerzo },
+      { label: "Regreso almuerzo", tipo: "regreso_almuerzo" as TipoMarcacion, value: registro?.regresoAlmuerzo },
+      { label: "Salida final", tipo: "salida_final" as TipoMarcacion, value: registro?.salidaFinal }
     ],
     [registro]
   );
@@ -495,49 +495,79 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
 
       {/* Hero card */}
       <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5">
+        {/* Estado + próxima acción */}
         <div className="flex items-start justify-between gap-3">
-          <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses(estadoDia)}`}>
-            {estadoDia}
-          </span>
-          <div className="rounded-xl border border-[#D7FF4F]/20 bg-[#D7FF4F]/5 px-3 py-1.5 text-right">
+          <div className="flex flex-col gap-1.5">
+            <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-sm font-semibold ${statusClasses(estadoDia)}`}>
+              {estadoDia}
+            </span>
+            {estado?.puedeMarcar && estado.siguienteEtiqueta ? (
+              <p className="text-sm text-[#CFCFCB]">
+                Próxima marcación:{" "}
+                <span className="font-semibold text-[#D7FF4F]">{estado.siguienteEtiqueta}</span>
+              </p>
+            ) : estadoDia === "Incompleto" ? (
+              <p className="text-sm font-medium text-red-300">Jornada incompleta — contacta a administración.</p>
+            ) : (
+              <p className="text-sm text-[#8F908A]">Sin acciones pendientes para hoy.</p>
+            )}
+          </div>
+          <div className="shrink-0 rounded-xl border border-[#D7FF4F]/20 bg-[#D7FF4F]/5 px-3 py-1.5 text-right">
             <p className="text-[11px] text-[#A7A7A7]">Valor hora</p>
             <p className="text-lg font-semibold text-[#D7FF4F]">{formatMoney(estado?.resumen.valorHora ?? 3.0125)}</p>
           </div>
         </div>
 
-        <h2 className="mt-3 text-xl font-semibold text-[#F5F5F5]">Control de horario</h2>
-        <p className="mt-1 max-w-xl text-sm leading-5 text-[#CFCFCB]">
-          La hora registrada se toma desde el servidor para proteger la integridad de cada marcación.
-        </p>
-
         {/* Marks grid */}
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {marcas.map((marca) => (
-            <div key={marca.label} className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">{marca.label}</p>
-              <p className={`mt-0.5 text-lg font-semibold ${marca.value ? "text-[#F5F5F5]" : "text-[#A7A7A7]"}`}>
-                {formatTime(marca.value)}
-              </p>
-            </div>
-          ))}
+        <p className="mt-4 text-[11px] font-bold uppercase tracking-wider text-[#8F908A]">Marcaciones del día</p>
+        <div className="mt-1.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {marcas.map((marca) => {
+            const isRegistered = Boolean(marca.value);
+            const isNext = marca.tipo === siguienteMarcacion && (estado?.puedeMarcar ?? false);
+            return (
+              <div
+                key={marca.label}
+                className={`rounded-xl border px-3 py-2.5 transition ${
+                  isRegistered
+                    ? "border-[#D7FF4F]/25 bg-[#1E1F1C]"
+                    : isNext
+                      ? "border-[#D7FF4F]/35 bg-[#D7FF4F]/5"
+                      : "border-[#3A3A36] bg-[#1E1F1C]"
+                }`}
+              >
+                <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">{marca.label}</p>
+                <p
+                  className={`mt-0.5 text-lg font-semibold ${
+                    isRegistered ? "text-[#F5F5F5]" : isNext ? "text-[#D7FF4F]" : "text-[#A7A7A7]"
+                  }`}
+                >
+                  {formatTime(marca.value)}
+                </p>
+                {isRegistered ? (
+                  <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#D7FF4F]/70">Registrado</p>
+                ) : isNext ? (
+                  <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#D7FF4F]">Próxima</p>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
 
-        {/* Live stats */}
+        {/* Stats */}
         {estado?.resumen ? (
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
-            <span className="text-[#A7A7A7]">
-              Horas hoy{" "}
-              <span className="font-semibold text-[#F5F5F5]">{formatHours(estado.resumen.horasTrabajadas)}</span>
-            </span>
-            <span className="text-[#A7A7A7]">
-              Total estimado{" "}
-              <span className="font-semibold text-[#D7FF4F]">{formatMoney(estado.resumen.totalEstimadoDia)}</span>
-            </span>
-            <span className="text-[#A7A7A7]">
-              Sueldo base{" "}
-              <span className="font-semibold text-[#CFCFCB]">{formatMoney(estado.resumen.sueldoBase)}</span>
-            </span>
-          </div>
+          <>
+            <p className="mt-3 text-[11px] font-bold uppercase tracking-wider text-[#8F908A]">Resumen de hoy</p>
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              <div className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">Horas</p>
+                <p className="mt-0.5 text-lg font-semibold text-[#F5F5F5]">{formatHours(estado.resumen.horasTrabajadas)}</p>
+              </div>
+              <div className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-[#8F908A]">Total generado</p>
+                <p className="mt-0.5 text-lg font-semibold text-[#D7FF4F]">{formatMoney(estado.resumen.totalEstimadoDia)}</p>
+              </div>
+            </div>
+          </>
         ) : null}
 
         {/* CTA */}
@@ -556,7 +586,14 @@ export function HorariosClient({ initialEstado, initialMiVista, initialError, is
           onClick={() => setIsHistorialOpen(!isHistorialOpen)}
           className="mt-3 flex w-full items-center justify-between gap-2 rounded-xl px-1 py-1 text-sm text-[#CFCFCB] transition hover:text-[#F5F5F5]"
         >
-          <span>Historial de hoy</span>
+          <span className="flex items-center gap-2">
+            Historial de hoy
+            {estado?.marcaciones.length ? (
+              <span className="rounded-full bg-[#3A3A36] px-1.5 py-0.5 text-[10px] font-semibold text-[#CFCFCB]">
+                {estado.marcaciones.length}
+              </span>
+            ) : null}
+          </span>
           <svg
             className={`h-4 w-4 transition-transform duration-200 ${isHistorialOpen ? "rotate-180" : ""}`}
             fill="none"
