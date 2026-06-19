@@ -98,6 +98,7 @@ type ProductoDigitalItem = {
   claveTruncada: string | null;
   usuarioCorreo: string | null;
   duracion: string | null;
+  expira: string | null;
   fechaCompra: string | null;
   fechaUsoVenta: string | null;
   ordenReparacionId: string | null;
@@ -3166,7 +3167,19 @@ export function OrdenDetalleClient() {
                             </p>
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--sg-text-muted)]">
                               {pd.tipo && <span>{pd.tipo}</span>}
-                              {pd.duracion && <span>{pd.duracion}</span>}
+                              {pd.duracion && (
+                                <span>
+                                  {pd.duracion === "Perpetua" ? "Licencia perpetua" : pd.duracion}
+                                </span>
+                              )}
+                              {pd.duracion !== "Perpetua" && pd.expira && (
+                                <span className="text-[var(--sg-warning)]">
+                                  Expira: {formatDate(pd.expira)}
+                                </span>
+                              )}
+                              {pd.duracion === "Perpetua" && (
+                                <span className="text-[var(--sg-success)]">No expira</span>
+                              )}
                               {pd.claveTruncada && (
                                 <span className="font-mono text-[var(--sg-text-secondary)]">
                                   {pd.claveTruncada}

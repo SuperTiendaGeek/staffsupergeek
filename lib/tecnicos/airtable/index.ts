@@ -205,6 +205,7 @@ export interface ProductoDigital {
   claveTruncada: string | null;   // primeros 6 chars + "***", nunca la clave completa
   usuarioCorreo: string | null;
   duracion: string | null;
+  expira: string | null;
   fechaCompra: string | null;
   fechaUsoVenta: string | null;
   ordenReparacionId: string | null;
@@ -2906,6 +2907,7 @@ const mapProductoDigitalRecord = (
     claveTruncada: truncarClave(claveRaw),
     usuarioCorreo: safeString(f["Usuario / Correo"], "") || null,
     duracion: safeString(f["Duración"], "") || null,
+    expira: safeString(f["Expira"], "") || null,
     fechaCompra: safeString(f["Fecha de Compra"], "") || null,
     fechaUsoVenta: safeString(f["Fecha de Uso / Venta"], "") || null,
     ordenReparacionId: ordenIds[0] ?? null,

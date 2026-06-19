@@ -17,6 +17,7 @@ type ProductoDigital = {
   claveTruncada: string | null;
   usuarioCorreo: string | null;
   duracion: string | null;
+  expira: string | null;
   fechaCompra: string | null;
   fechaUsoVenta: string | null;
   ordenReparacionId: string | null;
@@ -68,6 +69,8 @@ const EMPTY_FORM: NuevoProductoForm = {
 // Opciones del Single Select en Airtable
 const TIPOS = ["Clave de activación", "Usuario/Contraseña", "Suscripción", "Otro"] as const;
 type TipoPD = (typeof TIPOS)[number];
+
+const DURACIONES = ["Perpetua", "1 año", "2 años", "3 años", "3 meses", "6 meses", "9 meses"] as const;
 
 const ESTADOS = ["Disponible", "Reservado", "Usado", "Anulado", "Vencido"] as const;
 type EstadoPD = (typeof ESTADOS)[number];
@@ -371,7 +374,19 @@ export function ProductosDigitalesClient() {
                       )}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--sg-text-muted)]">
-                      {pd.duracion && <span>{pd.duracion}</span>}
+                      {pd.duracion && (
+                        <span>
+                          {pd.duracion === "Perpetua" ? "Licencia perpetua" : pd.duracion}
+                        </span>
+                      )}
+                      {pd.duracion !== "Perpetua" && pd.expira && (
+                        <span className="text-[var(--sg-warning)]">
+                          Expira: {formatDate(pd.expira)}
+                        </span>
+                      )}
+                      {pd.duracion === "Perpetua" && (
+                        <span className="text-[var(--sg-success)]">No expira</span>
+                      )}
                       {pd.proveedor && <span>Prov: {pd.proveedor}</span>}
                       {pd.claveTruncada && (
                         <span className="font-mono text-[var(--sg-text-secondary)]">{pd.claveTruncada}</span>
@@ -551,13 +566,16 @@ export function ProductosDigitalesClient() {
                 {/* Duración */}
                 <div>
                   <label className={labelClass}>Duración</label>
-                  <input
-                    type="text"
+                  <select
                     value={form.duracion}
                     onChange={(e) => setForm((f) => ({ ...f, duracion: e.target.value }))}
-                    placeholder="1 año, Perpetua..."
                     className={inputClass}
-                  />
+                  >
+                    <option value="">Sin definir</option>
+                    {DURACIONES.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
