@@ -432,6 +432,23 @@ const PhoneIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
   </svg>
 );
 
+const IdCardIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.7"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <rect x="2" y="5" width="20" height="14" rx="2" />
+    <circle cx="8" cy="12" r="2" />
+    <path d="M13 10h4" />
+    <path d="M13 14h4" />
+  </svg>
+);
+
 const CalendarIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
   <svg
     viewBox="0 0 24 24"
@@ -1810,6 +1827,31 @@ export function OrdenDetalleClient() {
     setOrden((prev) => (prev ? { ...prev, clienteNombre: newNombre } : prev));
   };
 
+  const saveClienteCedula = async (newCedula: string) => {
+    if (!orden?.clienteRecordId) throw new Error("ID del cliente no disponible para esta orden");
+    const clienteRes = await fetch(`/api/tecnicos/clientes/${encodeURIComponent(orden.clienteRecordId)}`);
+    const clienteJson = (await clienteRes.json()) as { success?: boolean; data?: { cedula?: string; telefono?: string; correo?: string; direccion?: string; notas?: string | null }; error?: string };
+    if (!clienteRes.ok || !clienteJson.success || !clienteJson.data) {
+      throw new Error(clienteJson.error || "No se pudo obtener datos del cliente");
+    }
+    const cd = clienteJson.data;
+    const patchRes = await fetch(`/api/tecnicos/clientes/${encodeURIComponent(orden.clienteRecordId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nombre: orden.clienteNombre,
+        cedula: newCedula,
+        telefono: cd.telefono ?? "",
+        correo: cd.correo ?? "",
+        direccion: cd.direccion ?? "",
+        notas: cd.notas ?? "",
+      }),
+    });
+    const patchJson = (await patchRes.json()) as { success?: boolean; error?: string };
+    if (!patchRes.ok || !patchJson.success) throw new Error(patchJson.error || "No se pudo actualizar la cédula");
+    setOrden((prev) => (prev ? { ...prev, cedula: newCedula } : prev));
+  };
+
   const saveNotaInterna = async (value: string) => {
     const trimmed = value.trim();
     const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/nota`, {
@@ -2115,6 +2157,16 @@ export function OrdenDetalleClient() {
                               <WhatsappIcon className="h-3.5 w-3.5" />
                             </span>
                           )}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <IdCardIcon className="h-3.5 w-3.5 shrink-0 text-[var(--sg-text-muted)]" />
+                          <div className="min-w-0 flex-1">
+                            <InlineEditField
+                              value={orden.cedula}
+                              onSave={saveClienteCedula}
+                              placeholder="Sin cédula"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
