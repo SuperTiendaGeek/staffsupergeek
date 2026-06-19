@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   CUENTAS_DESTINO_ABONO_COTIZACION,
@@ -122,6 +123,7 @@ async function parseApi(response: Response): Promise<ApiResponse | null> {
 }
 
 export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSeeInternalCosts }: Props) {
+  const router = useRouter();
   const [cotizacion, setCotizacion] = useState(initialCotizacion);
   const [opciones, setOpciones] = useState(initialCotizacion.opciones);
   const [abonos, setAbonos] = useState(initialCotizacion.abonos);
@@ -153,6 +155,9 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
   const [optionSuccess, setOptionSuccess] = useState<string | null>(null);
   const [copiedMessage, setCopiedMessage] = useState<string | null>(null);
   const [imageCopyMessage, setImageCopyMessage] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const whatsappUrl = useMemo(
     () =>
       buildWhatsAppUrl(
@@ -741,6 +746,30 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
     return opcion.proveedor || "-";
   }
 
+  async function handleDeleteCotizacion() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/cotizaciones/${cotizacion.id}`, { method: "DELETE" });
+      const json = await parseApi(res);
+      if (!res.ok) {
+        setDeleteError(json?.error ?? "Error al procesar la cotización.");
+        return;
+      }
+      const result = json?.data as { action: "deleted" | "cancelled" } | null;
+      if (result?.action === "deleted") {
+        router.push("/cotizaciones");
+      } else {
+        setCotizacion((prev) => ({ ...prev, estado: "No Disponible" }));
+        setDeleteOpen(false);
+      }
+    } catch {
+      setDeleteError("Error de red. Intenta nuevamente.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <>
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -756,20 +785,41 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
             <div>
               <p className={`text-sm font-semibold uppercase tracking-normal ${cotizacionStatusTone(cotizacion.estado).badge}`}>{cotizacion.codigo}</p>
               <h2 className="mt-1 text-2xl font-semibold text-[#F5F5F5]">{cotizacion.productoSolicitado}</h2>
+              {cotizacion.ordenReparacionCodigo && (
+                <div className="mt-2 flex items-center gap-1.5">
+                  <span className="rounded-full border border-[#7C6AF7]/40 bg-[#7C6AF7]/10 px-2.5 py-0.5 text-xs font-semibold text-[#A89CF7]">
+                    Orden de reparación
+                  </span>
+                  <Link
+                    href={`/tecnicos/ordenes/${cotizacion.ordenReparacionId}`}
+                    className="text-xs font-semibold text-[#7C6AF7] underline-offset-2 hover:underline"
+                  >
+                    {cotizacion.ordenReparacionCodigo}
+                  </Link>
+                </div>
+              )}
               <p className="mt-2 text-sm text-[#CFCFCB]">{cotizacion.descripcionRequerimiento || "Sin descripción"}</p>
             </div>
-            <select
-              value={cotizacion.estado}
-              onChange={(event) => updateEstado(event.target.value)}
-              disabled={estadoSaving}
-              className={`h-9 rounded-full border bg-[#1E1F1C] px-3 text-sm font-semibold outline-none transition disabled:opacity-60 ${cotizacionStatusTone(cotizacion.estado).select}`}
-            >
-              {ESTADOS_COTIZACION.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
+            <div className="flex flex-col items-end gap-2">
+              <select
+                value={cotizacion.estado}
+                onChange={(event) => updateEstado(event.target.value)}
+                disabled={estadoSaving}
+                className={`h-9 rounded-full border bg-[#1E1F1C] px-3 text-sm font-semibold outline-none transition disabled:opacity-60 ${cotizacionStatusTone(cotizacion.estado).select}`}
+              >
+                {ESTADOS_COTIZACION.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => { setDeleteOpen(true); setDeleteError(null); }}
+                className="text-xs font-medium text-[#CFCFCB]/50 underline-offset-2 transition hover:text-[#EF4444] hover:underline"
+              >
+                Eliminar cotización
+              </button>
+            </div>
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -1632,6 +1682,42 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
         </section>
       </div>
     ) : null}
+
+    {deleteOpen && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+        onClick={(e) => { if (e.target === e.currentTarget && !deleting) setDeleteOpen(false); }}
+      >
+        <div className="mx-4 w-full max-w-md rounded-2xl border border-[#3A3A36] bg-[#1E1F1C] p-6 shadow-2xl">
+          <h3 className="mb-3 text-base font-bold text-[#F5F5F5]">¿Eliminar cotización?</h3>
+          <p className="mb-2 text-sm text-[#CFCFCB] leading-relaxed">
+            Si esta cotización no tiene opciones ni abonos activos, se eliminará permanentemente.
+          </p>
+          <p className="mb-5 text-sm text-[#CFCFCB] leading-relaxed">
+            Si ya tiene actividad, solo se marcará como <strong className="text-[#F5F5F5]">No Disponible</strong>.
+          </p>
+          {deleteError && (
+            <p className="mb-4 text-sm text-[#EF4444]">{deleteError}</p>
+          )}
+          <div className="flex gap-3">
+            <button
+              onClick={() => setDeleteOpen(false)}
+              disabled={deleting}
+              className="flex-1 rounded-full border border-[#3A3A36] bg-transparent py-2 text-sm font-medium text-[#CFCFCB] transition hover:border-[#5A5A56] disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleDeleteCotizacion}
+              disabled={deleting}
+              className="flex-1 rounded-full bg-[#EF4444] py-2 text-sm font-semibold text-white transition hover:bg-[#DC2626] disabled:opacity-50"
+            >
+              {deleting ? "Procesando..." : "Sí, eliminar"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }

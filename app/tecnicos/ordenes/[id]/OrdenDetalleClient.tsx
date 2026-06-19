@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 
 import styles from "@/components/tecnicos/layout/TecnicosTheme.module.css";
 import { OrdenDocumentosCard } from "@/components/tecnicos/OrdenDocumentosCard";
+import OrdenCotizacionCard from "@/components/tecnicos/OrdenCotizacionCard";
 import { ESTADOS_ORDEN, EstadoOrden } from "@/types/tecnicos";
 import { StatusFilterDropdown } from "@/components/tecnicos/ui/StatusFilterDropdown";
 import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
@@ -110,6 +111,8 @@ type OrdenDetalle = {
   serviciosPorOrden: ServicioItem[];
   abonosPorOrden: AbonoItem[];
   documentos: OrdenDocumentoItem[];
+  cotizacionId: string;
+  cotizacionCodigo: string;
 };
 
 const formatDate = (value?: string | null) => {
@@ -3061,6 +3064,13 @@ export function OrdenDetalleClient() {
               ordenId={orden.recordId}
               documentos={orden.documentos ?? []}
               onOrdenUpdated={(updatedOrden) => setOrden(updatedOrden as OrdenDetalle)}
+            />
+
+            <OrdenCotizacionCard
+              orden={orden}
+              onLinked={(cotizacionId, cotizacionCodigo) =>
+                setOrden((prev) => prev ? { ...prev, cotizacionId, cotizacionCodigo } : prev)
+              }
             />
 
             <section className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
