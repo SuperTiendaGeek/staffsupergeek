@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 type SidebarProps = {
-  active?: "ordenes" | "clientes" | "catalogo-repuestos" | "catalogo-servicios" | "configuracion";
+  active?: "ordenes" | "clientes" | "catalogo-repuestos" | "catalogo-servicios" | "productos-digitales" | "configuracion";
 };
 
 const navItems: { key: SidebarProps["active"]; label: string; href?: string }[] = [
@@ -10,6 +10,7 @@ const navItems: { key: SidebarProps["active"]; label: string; href?: string }[] 
   { key: "clientes", label: "Clientes", href: "/tecnicos/clientes" },
   { key: "catalogo-repuestos", label: "Catálogo Repuestos", href: "/tecnicos/catalogo-repuestos" },
   { key: "catalogo-servicios", label: "Catálogo Servicios", href: "/tecnicos/catalogo-servicios" },
+  { key: "productos-digitales", label: "Productos Digitales", href: "/tecnicos/productos-digitales" },
 ];
 
 export function Sidebar({ active }: SidebarProps) {

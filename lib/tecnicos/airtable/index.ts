@@ -2971,6 +2971,107 @@ export const fetchProductoDigitalById = async (
   return mapProductoDigitalRecord(data);
 };
 
+export const fetchAllProductosDigitales = async ({
+  estado,
+  query,
+  client: clientParam,
+}: {
+  estado?: string;
+  query?: string;
+  client?: AirtableClient;
+} = {}): Promise<ProductoDigital[]> => {
+  const client = clientParam ?? getClient();
+  const url = new URL(
+    `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}`
+  );
+  if (estado) {
+    url.searchParams.set("filterByFormula", `{Estado}="${estado}"`);
+  }
+  url.searchParams.set("maxRecords", "500");
+  url.searchParams.set("sort[0][field]", "Software / Producto");
+  url.searchParams.set("sort[0][direction]", "asc");
+
+  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+  if (!res.ok) throw new Error(`Airtable error ${res.status}`);
+  const data = (await res.json()) as { records: { id: string; fields: Record<string, unknown> }[] };
+
+  let results = data.records.map(mapProductoDigitalRecord);
+
+  if (query && query.trim()) {
+    const q = query.trim().toLowerCase();
+    results = results.filter(
+      (p) =>
+        p.softwareProducto.toLowerCase().includes(q) ||
+        (p.tipo ?? "").toLowerCase().includes(q) ||
+        (p.proveedor ?? "").toLowerCase().includes(q) ||
+        (p.estado ?? "").toLowerCase().includes(q) ||
+        (p.usadoVendidoPor ?? "").toLowerCase().includes(q)
+    );
+  }
+
+  return results;
+};
+
+export const createProductoDigital = async ({
+  softwareProducto,
+  tipo,
+  estado = "Disponible",
+  proveedor,
+  costoProveedor,
+  precioVenta,
+  claveActivacion,
+  usuarioCorreo,
+  contraseña,
+  duracion,
+  fechaCompra,
+  observacionesInternas,
+}: {
+  softwareProducto: string;
+  tipo?: string | null;
+  estado?: string;
+  proveedor?: string | null;
+  costoProveedor?: number | null;
+  precioVenta?: number | null;
+  claveActivacion?: string | null;
+  usuarioCorreo?: string | null;
+  contraseña?: string | null;
+  duracion?: string | null;
+  fechaCompra?: string | null;
+  observacionesInternas?: string | null;
+}): Promise<ProductoDigital> => {
+  const client = getClient();
+  const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}`;
+
+  const fields: Record<string, unknown> = {
+    "Software / Producto": softwareProducto.trim(),
+    "Estado": estado,
+  };
+  if (tipo?.trim()) fields["Tipo"] = tipo.trim();
+  if (proveedor?.trim()) fields["Proveedor"] = proveedor.trim();
+  if (costoProveedor !== undefined && costoProveedor !== null) fields["Costo Proveedor"] = costoProveedor;
+  if (precioVenta !== undefined && precioVenta !== null) fields["Precio Venta"] = precioVenta;
+  if (claveActivacion?.trim()) fields["Clave de Activación"] = claveActivacion.trim();
+  if (usuarioCorreo?.trim()) fields["Usuario / Correo"] = usuarioCorreo.trim();
+  if (contraseña?.trim()) fields["Contraseña"] = contraseña.trim();
+  if (duracion?.trim()) fields["Duración"] = duracion.trim();
+  if (fechaCompra?.trim()) fields["Fecha de Compra"] = fechaCompra.trim();
+  if (observacionesInternas?.trim()) fields["Observaciones Internas"] = observacionesInternas.trim();
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: client.headers,
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Airtable error ${res.status}: ${text}`);
+  }
+
+  const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
+  return mapProductoDigitalRecord(data);
+};
+
 // Retorna las credenciales sensibles. Solo llamar desde endpoints con sesión verificada.
 export const fetchCredencialesProductoDigital = async (
   recordId: string,

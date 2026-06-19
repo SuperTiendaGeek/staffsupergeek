@@ -892,7 +892,9 @@ export function OrdenDetalleClient() {
     setPdSearchLoading(true);
     setPdSearchError(null);
     try {
-      const res = await fetch(`/api/tecnicos/productos-digitales?q=${encodeURIComponent(q)}`);
+      const params = new URLSearchParams({ estado: "Disponible" });
+      if (q.trim()) params.set("q", q.trim());
+      const res = await fetch(`/api/tecnicos/productos-digitales?${params.toString()}`);
       const json = await res.json();
       if (!json.success) throw new Error(json.error ?? "Error al buscar");
       setProductosDisponibles((json.data ?? []) as ProductoDigitalItem[]);
@@ -3893,6 +3895,10 @@ export function OrdenDetalleClient() {
                     </button>
                   </div>
 
+                  <p className="text-[11px] text-[var(--sg-text-muted)]">
+                    Solo se muestran productos con estado <strong>Disponible</strong>.
+                  </p>
+
                   <div className="relative">
                     <input
                       type="text"
@@ -3944,8 +3950,22 @@ export function OrdenDetalleClient() {
                     </div>
                   )}
 
-                  {!selectedPd && !pdSearchLoading && productosDisponibles.length === 0 && pdSearch.length > 0 && (
-                    <p className="text-xs text-[var(--sg-text-muted)]">No hay productos disponibles con ese criterio.</p>
+                  {!selectedPd && !pdSearchLoading && productosDisponibles.length === 0 && (
+                    <div className="rounded-lg border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-4 text-center">
+                      <p className="text-xs text-[var(--sg-text-secondary)]">
+                        {pdSearch.trim()
+                          ? "No encontramos productos digitales disponibles con esa búsqueda."
+                          : "No hay productos digitales disponibles para asignar."}
+                      </p>
+                      <a
+                        href="/tecnicos/productos-digitales"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[var(--sg-lime)] underline underline-offset-2 transition hover:brightness-110"
+                      >
+                        Ir a Productos Digitales para crear uno
+                      </a>
+                    </div>
                   )}
 
                   {selectedPd && (
