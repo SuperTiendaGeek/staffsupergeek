@@ -24,6 +24,7 @@ type ProductoDigital = {
   tipoUso: string | null;
   usadoVendidoPor: string | null;
   observacionesInternas: string | null;
+  link: string | null;
 };
 
 type Credenciales = {
@@ -45,6 +46,7 @@ type NuevoProductoForm = {
   duracion: string;
   fechaCompra: string;
   observacionesInternas: string;
+  link: string;
 };
 
 const EMPTY_FORM: NuevoProductoForm = {
@@ -60,7 +62,12 @@ const EMPTY_FORM: NuevoProductoForm = {
   duracion: "",
   fechaCompra: "",
   observacionesInternas: "",
+  link: "",
 };
+
+// Opciones del Single Select en Airtable
+const TIPOS = ["Clave de activación", "Usuario/Contraseña", "Suscripción", "Otro"] as const;
+type TipoPD = (typeof TIPOS)[number];
 
 const ESTADOS = ["Disponible", "Reservado", "Usado", "Anulado", "Vencido"] as const;
 type EstadoPD = (typeof ESTADOS)[number];
@@ -117,6 +124,13 @@ const parseNum = (v: string): number | null => {
   const n = parseFloat(v.replace(",", "."));
   return Number.isFinite(n) ? n : null;
 };
+
+// Campos de credenciales visibles según tipo
+const showClaveField = (tipo: string) =>
+  !tipo || tipo === "Clave de activación" || tipo === "Otro";
+
+const showUsuarioContraseñaFields = (tipo: string) =>
+  !tipo || tipo === "Usuario/Contraseña" || tipo === "Suscripción" || tipo === "Otro";
 
 // ─── Component ────────────────────────────────────────────────────────────
 
@@ -222,6 +236,7 @@ export function ProductosDigitalesClient() {
           duracion: form.duracion || null,
           fechaCompra: form.fechaCompra || null,
           observacionesInternas: form.observacionesInternas || null,
+          link: form.link || null,
         }),
       });
       const json = await res.json();
@@ -349,15 +364,30 @@ export function ProductosDigitalesClient() {
                       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${estadoBadge(pd.estado)}`}>
                         {pd.estado}
                       </span>
+                      {pd.tipo && (
+                        <span className="inline-flex items-center rounded-full border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-0.5 text-[10px] font-medium text-[var(--sg-text-muted)]">
+                          {pd.tipo}
+                        </span>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--sg-text-muted)]">
-                      {pd.tipo && <span>{pd.tipo}</span>}
                       {pd.duracion && <span>{pd.duracion}</span>}
                       {pd.proveedor && <span>Prov: {pd.proveedor}</span>}
                       {pd.claveTruncada && (
                         <span className="font-mono text-[var(--sg-text-secondary)]">{pd.claveTruncada}</span>
                       )}
                     </div>
+                    {pd.link && (
+                      <a
+                        href={pd.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-[var(--sg-lime)] underline underline-offset-2 transition hover:brightness-110"
+                      >
+                        <ExternalLinkIcon />
+                        {pd.link.replace(/^https?:\/\//i, "").slice(0, 50)}{pd.link.length > 57 ? "…" : ""}
+                      </a>
+                    )}
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--sg-text-muted)]">
                       {pd.precioVenta !== null && (
                         <span>
@@ -477,16 +507,19 @@ export function ProductosDigitalesClient() {
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                {/* Tipo */}
+                {/* Tipo — Single Select */}
                 <div>
                   <label className={labelClass}>Tipo</label>
-                  <input
-                    type="text"
+                  <select
                     value={form.tipo}
                     onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value }))}
-                    placeholder="Licencia, Cuenta, Código..."
                     className={inputClass}
-                  />
+                  >
+                    <option value="">Sin tipo</option>
+                    {TIPOS.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
                 </div>
                 {/* Estado */}
                 <div>
@@ -567,62 +600,100 @@ export function ProductosDigitalesClient() {
                 />
               </div>
 
-              {/* ─── Credenciales (sensibles) ─────────── */}
+              {/* Link */}
+              <div>
+                <label className={labelClass}>Link</label>
+                <input
+                  type="url"
+                  value={form.link}
+                  onChange={(e) => setForm((f) => ({ ...f, link: e.target.value }))}
+                  placeholder="https://..."
+                  className={inputClass}
+                />
+              </div>
+
+              {/* ─── Credenciales — condicionales por tipo ─────────── */}
               <div className="space-y-2 rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
-                  Credenciales
-                </p>
-                {/* Clave de activación */}
-                <div>
-                  <label className={labelClass}>Clave de activación</label>
-                  <div className="relative">
-                    <input
-                      type={showClave ? "text" : "password"}
-                      value={form.claveActivacion}
-                      onChange={(e) => setForm((f) => ({ ...f, claveActivacion: e.target.value }))}
-                      placeholder="Clave, serial o código"
-                      className={`${inputClass} pr-9`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowClave((v) => !v)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]"
-                    >
-                      {showClave ? <EyeOffIcon /> : <EyeIcon />}
-                    </button>
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
+                    Credenciales
+                  </p>
+                  {form.tipo && (
+                    <span className="text-[10px] text-[var(--sg-text-muted)]">
+                      campos para: <strong className="text-[var(--sg-text-secondary)]">{form.tipo}</strong>
+                    </span>
+                  )}
+                </div>
+
+                {/* Clave de activación — visible para Clave, Otro, o sin tipo */}
+                {showClaveField(form.tipo) && (
+                  <div>
+                    <label className={labelClass}>Clave de activación</label>
+                    <div className="relative">
+                      <input
+                        type={showClave ? "text" : "password"}
+                        value={form.claveActivacion}
+                        onChange={(e) => setForm((f) => ({ ...f, claveActivacion: e.target.value }))}
+                        placeholder="Clave, serial o código"
+                        className={`${inputClass} pr-9`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowClave((v) => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]"
+                      >
+                        {showClave ? <EyeOffIcon /> : <EyeIcon />}
+                      </button>
+                    </div>
                   </div>
-                </div>
-                {/* Usuario / Correo */}
-                <div>
-                  <label className={labelClass}>Usuario / Correo</label>
-                  <input
-                    type="text"
-                    value={form.usuarioCorreo}
-                    onChange={(e) => setForm((f) => ({ ...f, usuarioCorreo: e.target.value }))}
-                    placeholder="usuario@ejemplo.com"
-                    className={inputClass}
-                  />
-                </div>
-                {/* Contraseña */}
-                <div>
-                  <label className={labelClass}>Contraseña</label>
-                  <div className="relative">
-                    <input
-                      type={showContraseña ? "text" : "password"}
-                      value={form.contraseña}
-                      onChange={(e) => setForm((f) => ({ ...f, contraseña: e.target.value }))}
-                      placeholder="Contraseña de la cuenta"
-                      className={`${inputClass} pr-9`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowContraseña((v) => !v)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]"
-                    >
-                      {showContraseña ? <EyeOffIcon /> : <EyeIcon />}
-                    </button>
-                  </div>
-                </div>
+                )}
+
+                {/* Usuario y Contraseña — visible para Usuario/Contraseña, Suscripción, Otro, o sin tipo */}
+                {showUsuarioContraseñaFields(form.tipo) && (
+                  <>
+                    <div>
+                      <label className={labelClass}>Usuario / Correo</label>
+                      <input
+                        type="text"
+                        value={form.usuarioCorreo}
+                        onChange={(e) => setForm((f) => ({ ...f, usuarioCorreo: e.target.value }))}
+                        placeholder="usuario@ejemplo.com"
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Contraseña</label>
+                      <div className="relative">
+                        <input
+                          type={showContraseña ? "text" : "password"}
+                          value={form.contraseña}
+                          onChange={(e) => setForm((f) => ({ ...f, contraseña: e.target.value }))}
+                          placeholder="Contraseña de la cuenta"
+                          className={`${inputClass} pr-9`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowContraseña((v) => !v)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]"
+                        >
+                          {showContraseña ? <EyeOffIcon /> : <EyeIcon />}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Mensaje cuando el tipo oculta algún campo */}
+                {form.tipo === "Clave de activación" && (
+                  <p className="text-[10px] text-[var(--sg-text-muted)]">
+                    Para este tipo solo se guarda la clave de activación.
+                  </p>
+                )}
+                {form.tipo === "Suscripción" && (
+                  <p className="text-[10px] text-[var(--sg-text-muted)]">
+                    Para suscripciones se guardan las credenciales de acceso. Usa el campo Link para la URL del servicio.
+                  </p>
+                )}
               </div>
 
               {/* Observaciones */}
@@ -694,6 +765,16 @@ function CloseIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
       <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function ExternalLinkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 shrink-0">
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
     </svg>
   );
 }

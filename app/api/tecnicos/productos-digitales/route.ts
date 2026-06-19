@@ -55,6 +55,7 @@ export async function POST(request: Request) {
     duracion?: string | null;
     fechaCompra?: string | null;
     observacionesInternas?: string | null;
+    link?: string | null;
   };
 
   try {
@@ -85,6 +86,7 @@ export async function POST(request: Request) {
       duracion: body.duracion ?? null,
       fechaCompra: body.fechaCompra ?? null,
       observacionesInternas: body.observacionesInternas ?? null,
+      link: body.link ?? null,
     });
     return NextResponse.json({ success: true, data: producto }, { status: 201 });
   } catch (error) {

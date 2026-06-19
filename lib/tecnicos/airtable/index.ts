@@ -212,6 +212,7 @@ export interface ProductoDigital {
   tipoUso: string | null;
   usadoVendidoPor: string | null;
   observacionesInternas: string | null;
+  link: string | null;
 }
 
 export interface OrdenDetalle {
@@ -2912,6 +2913,7 @@ const mapProductoDigitalRecord = (
     tipoUso: safeString(f["Tipo de Uso"], "") || null,
     usadoVendidoPor: safeString(f["Usado/Vendido por"], "") || null,
     observacionesInternas: safeString(f["Observaciones Internas"], "") || null,
+    link: safeString(f["Link"], "") || null,
   };
 };
 
@@ -3025,6 +3027,7 @@ export const createProductoDigital = async ({
   duracion,
   fechaCompra,
   observacionesInternas,
+  link,
 }: {
   softwareProducto: string;
   tipo?: string | null;
@@ -3038,6 +3041,7 @@ export const createProductoDigital = async ({
   duracion?: string | null;
   fechaCompra?: string | null;
   observacionesInternas?: string | null;
+  link?: string | null;
 }): Promise<ProductoDigital> => {
   const client = getClient();
   const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}`;
@@ -3056,6 +3060,7 @@ export const createProductoDigital = async ({
   if (duracion?.trim()) fields["Duración"] = duracion.trim();
   if (fechaCompra?.trim()) fields["Fecha de Compra"] = fechaCompra.trim();
   if (observacionesInternas?.trim()) fields["Observaciones Internas"] = observacionesInternas.trim();
+  if (link?.trim()) fields["Link"] = link.trim();
 
   const res = await fetch(url, {
     method: "POST",
