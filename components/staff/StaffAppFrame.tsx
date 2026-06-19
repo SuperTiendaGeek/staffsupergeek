@@ -11,6 +11,7 @@ import {
   Cog,
   DollarSign,
   FileText,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Megaphone,
@@ -75,6 +76,7 @@ const tecnicosSubItems: SubNavItem[] = [
   { href: "/tecnicos/clientes", label: "Clientes", icon: UserRound },
   { href: "/tecnicos/catalogo-repuestos", label: "Repuestos", icon: Package },
   { href: "/tecnicos/catalogo-servicios", label: "Servicios", icon: Cog },
+  { href: "/tecnicos/productos-digitales", label: "Productos Digitales", icon: KeyRound },
 ];
 
 function buildNavItems(apps: StaffApp[]): NavItem[] {
