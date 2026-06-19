@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createOrdenReparacion, fetchOrdenesPage } from "@/lib/tecnicos/airtable";
+import { CedulaEnUsoError, createOrdenReparacion, fetchOrdenesPage } from "@/lib/tecnicos/airtable";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +95,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ success: true, ...created }, { status: 201 });
   } catch (error) {
+    if (error instanceof CedulaEnUsoError) {
+      return NextResponse.json({ success: false, error: error.message, data: error.clienteExistente }, { status: 409 });
+    }
     console.error("Error al crear orden en Airtable:", error);
     const message = error instanceof Error ? error.message : "Error inesperado";
     return NextResponse.json({ success: false, error: message }, { status: 500 });

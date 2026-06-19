@@ -174,6 +174,7 @@ export function OrdenesPageClient() {
   const [ordenAccesorios, setOrdenAccesorios] = useState("");
   const [ordenIngresaPor, setOrdenIngresaPor] = useState("");
   const [crearOrdenError, setCrearOrdenError] = useState<string | null>(null);
+  const [crearOrdenDuplicado, setCrearOrdenDuplicado] = useState<ClienteBusqueda | null>(null);
   const [crearOrdenSaving, setCrearOrdenSaving] = useState(false);
 
   const openOrders = ordenes.length;
@@ -332,6 +333,7 @@ export function OrdenesPageClient() {
     setOrdenAccesorios("");
     setOrdenIngresaPor("");
     setCrearOrdenError(null);
+    setCrearOrdenDuplicado(null);
     setCrearOrdenSaving(false);
   };
 
@@ -389,7 +391,15 @@ export function OrdenesPageClient() {
         success?: boolean;
         ok?: boolean;
         error?: string;
+        data?: ClienteBusqueda;
       };
+
+      if (res.status === 409 && json.data) {
+        setCrearOrdenDuplicado(json.data);
+        setCrearOrdenError(json.error || "Ya existe un cliente registrado con esta cédula.");
+        return;
+      }
+
       if (!res.ok || (!json.success && !json.ok)) {
         throw new Error(json.error || "No se pudo crear la orden");
       }
@@ -895,7 +905,26 @@ export function OrdenesPageClient() {
 
               {crearOrdenError && (
                 <div className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-4 py-3 text-sm text-[var(--sg-danger)]">
-                  {crearOrdenError}
+                  <p>{crearOrdenError}</p>
+                  {crearOrdenDuplicado && (
+                    <div className="mt-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-bg)] p-3 text-[var(--sg-text-primary)]">
+                      <p className="font-semibold">{crearOrdenDuplicado.nombre}</p>
+                      {crearOrdenDuplicado.cedula && <p className="mt-0.5 text-[var(--sg-text-secondary)]">CI: {crearOrdenDuplicado.cedula}</p>}
+                      {crearOrdenDuplicado.telefono && <p className="text-[var(--sg-text-secondary)]">{crearOrdenDuplicado.telefono}</p>}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCliente(crearOrdenDuplicado);
+                          setShowNuevoCliente(false);
+                          setCrearOrdenError(null);
+                          setCrearOrdenDuplicado(null);
+                        }}
+                        className="mt-2 inline-flex rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 py-1.5 text-xs font-bold text-[var(--sg-text-on-accent)] transition hover:brightness-105"
+                      >
+                        Usar este cliente
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

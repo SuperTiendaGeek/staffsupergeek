@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createCliente, fetchClientesPage } from "@/lib/tecnicos/airtable";
+import { CedulaEnUsoError, createCliente, fetchClientesPage } from "@/lib/tecnicos/airtable";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +57,9 @@ export async function POST(request: Request) {
     const cliente = await createCliente(input);
     return NextResponse.json({ success: true, record: cliente, data: cliente }, { status: 201 });
   } catch (error) {
+    if (error instanceof CedulaEnUsoError) {
+      return NextResponse.json({ success: false, error: error.message, data: error.clienteExistente }, { status: 409 });
+    }
     console.error("Error al crear cliente en Airtable:", error);
     const message = error instanceof Error ? error.message : "Error inesperado";
     return NextResponse.json({ success: false, error: message }, { status: 500 });

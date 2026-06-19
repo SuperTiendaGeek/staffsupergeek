@@ -70,6 +70,7 @@ export function ClientesPageClient() {
   const [openNuevoClienteModal, setOpenNuevoClienteModal] = useState(false);
   const [nuevoCliente, setNuevoCliente] = useState<NuevoClienteForm>(emptyNuevoCliente);
   const [crearClienteError, setCrearClienteError] = useState<string | null>(null);
+  const [crearClienteDuplicado, setCrearClienteDuplicado] = useState<{ id: string; nombre: string; cedula: string; telefono: string } | null>(null);
   const [crearClienteSaving, setCrearClienteSaving] = useState(false);
 
   const pageNumber = offsetHistory.length + 1;
@@ -151,6 +152,7 @@ export function ClientesPageClient() {
   const resetNuevoClienteForm = () => {
     setNuevoCliente(emptyNuevoCliente);
     setCrearClienteError(null);
+    setCrearClienteDuplicado(null);
     setCrearClienteSaving(false);
   };
 
@@ -192,7 +194,15 @@ export function ClientesPageClient() {
       const json = (await res.json()) as {
         success?: boolean;
         error?: string;
+        data?: { id: string; nombre: string; cedula: string; telefono: string };
       };
+
+      if (res.status === 409 && json.data) {
+        setCrearClienteDuplicado(json.data);
+        setCrearClienteError(json.error || "Ya existe un cliente registrado con esta cédula.");
+        return;
+      }
+
       if (!res.ok || !json.success) {
         throw new Error(json.error || "No se pudo crear el cliente");
       }
@@ -421,7 +431,21 @@ export function ClientesPageClient() {
 
               {crearClienteError && (
                 <div className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-4 py-3 text-sm text-[var(--sg-danger)]">
-                  {crearClienteError}
+                  <p>{crearClienteError}</p>
+                  {crearClienteDuplicado && (
+                    <div className="mt-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-bg)] p-3 text-[var(--sg-text-primary)]">
+                      <p className="font-semibold">{crearClienteDuplicado.nombre}</p>
+                      {crearClienteDuplicado.cedula && <p className="mt-0.5 text-[var(--sg-text-secondary)]">CI: {crearClienteDuplicado.cedula}</p>}
+                      {crearClienteDuplicado.telefono && <p className="text-[var(--sg-text-secondary)]">{crearClienteDuplicado.telefono}</p>}
+                      <Link
+                        href={`/tecnicos/clientes/${crearClienteDuplicado.id}`}
+                        onClick={closeNuevoClienteModal}
+                        className="mt-2 inline-flex rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 py-1.5 text-xs font-bold text-[var(--sg-text-on-accent)] transition hover:brightness-105"
+                      >
+                        Ver cliente registrado
+                      </Link>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -88,6 +88,65 @@ export interface NuevoClienteInput {
   notas?: string | null;
 }
 
+export class CedulaEnUsoError extends Error {
+  clienteExistente: ClienteBusqueda | null;
+  constructor(clienteExistente: ClienteBusqueda | null = null, message = "Ya existe un cliente registrado con esta cédula.") {
+    super(message);
+    this.name = "CedulaEnUsoError";
+    this.clienteExistente = clienteExistente;
+  }
+}
+
+export const normalizeCedula = (cedula: string): string =>
+  cedula.trim().replace(/[\s.\-]/g, "").toLowerCase();
+
+const findClienteByCedulaNormalizada = async (
+  normalizedCedula: string,
+  excludeRecordId?: string
+): Promise<ClienteBusqueda | null> => {
+  if (!normalizedCedula) return null;
+
+  const client = getClient();
+  const fieldVariants = [["Cédula"], ["Cedula"]];
+  let lastError: Error | null = null;
+
+  for (const [cedulaField] of fieldVariants) {
+    const formula = `LOWER(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE({${cedulaField}}, " ", ""), ".", ""), "-", "")) = "${escapeAirtableFormulaString(normalizedCedula)}"`;
+    const url = new URL(`${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.clientes)}`);
+    url.searchParams.set("pageSize", "1");
+    url.searchParams.set("filterByFormula", formula);
+
+    const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+
+    if (res.ok) {
+      const data = (await res.json()) as { records?: AirtableGenericRecord[] };
+      const record = data.records?.[0];
+      if (!record) return null;
+      if (excludeRecordId && record.id === excludeRecordId) return null;
+      return mapClienteRecord(record);
+    }
+
+    const text = await res.text();
+    const error = new Error(`Airtable error ${res.status}: ${text}`);
+    lastError = error;
+    if (!isUnknownAirtableFieldError(error.message)) throw error;
+  }
+
+  throw lastError ?? new Error("No se pudo validar duplicados de cédula");
+};
+
+export const assertCedulaDisponible = async (
+  cedula: string,
+  excludeRecordId?: string
+): Promise<void> => {
+  const normalized = normalizeCedula(cedula);
+  if (!normalized) return;
+  const existente = await findClienteByCedulaNormalizada(normalized, excludeRecordId);
+  if (existente) {
+    throw new CedulaEnUsoError(existente);
+  }
+};
+
 export interface BuscarClienteDuplicadoInput {
   cedula?: string | null;
   telefono?: string | null;
@@ -998,6 +1057,10 @@ export const createCliente = async (input: NuevoClienteInput): Promise<ClienteBu
     throw new Error("El nombre del cliente es obligatorio");
   }
 
+  if (input.cedula?.trim()) {
+    await assertCedulaDisponible(input.cedula);
+  }
+
   const fieldVariants: Record<string, unknown>[] = [
     {
       Nombre: nombre,
@@ -1179,6 +1242,10 @@ export const updateClienteById = async (
   }
   if (!nombre) {
     throw new Error("El nombre del cliente es obligatorio");
+  }
+
+  if (input.cedula?.trim()) {
+    await assertCedulaDisponible(input.cedula, id);
   }
 
   const fieldVariants: Record<string, unknown>[] = [

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteClienteById, fetchClienteById, updateClienteById } from "@/lib/tecnicos/airtable";
+import { CedulaEnUsoError, deleteClienteById, fetchClienteById, updateClienteById } from "@/lib/tecnicos/airtable";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +65,9 @@ export async function PATCH(request: Request, { params }: Params) {
     const cliente = await updateClienteById(id, input);
     return NextResponse.json({ success: true, data: cliente, record: cliente });
   } catch (error) {
+    if (error instanceof CedulaEnUsoError) {
+      return NextResponse.json({ success: false, error: error.message, data: error.clienteExistente }, { status: 409 });
+    }
     console.error("Error al actualizar cliente en Airtable:", error);
     const message = error instanceof Error ? error.message : "Error inesperado";
     return NextResponse.json({ success: false, error: message }, { status: 500 });

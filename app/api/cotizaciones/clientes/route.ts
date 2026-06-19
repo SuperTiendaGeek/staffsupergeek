@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCotizacionesSession } from "@/lib/cotizaciones/auth";
-import { buscarClienteDuplicado, createCliente } from "@/lib/tecnicos/airtable";
+import { CedulaEnUsoError, buscarClienteDuplicado, createCliente } from "@/lib/tecnicos/airtable";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +45,9 @@ export async function POST(request: Request) {
     const cliente = await createCliente(input);
     return NextResponse.json({ success: true, data: cliente }, { status: 201 });
   } catch (error) {
+    if (error instanceof CedulaEnUsoError) {
+      return NextResponse.json({ success: false, error: error.message, data: error.clienteExistente }, { status: 409 });
+    }
     console.error("Error al crear cliente para cotizaciones:", error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Error inesperado" },
