@@ -16,7 +16,7 @@ export async function CotizacionesShell({ title, children, actions }: Props) {
           <div className="flex flex-col gap-3 rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 shadow-xl shadow-black/20 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
             {showHeading ? (
               <div className="min-w-0">
-                <h1 className="text-xl font-semibold tracking-normal text-white sm:text-2xl">{title}</h1>
+                <h1 className="text-xl font-semibold tracking-normal text-[#F5F5F5] sm:text-2xl">{title}</h1>
               </div>
             ) : null}
             {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2 sm:ml-auto">{actions}</div> : null}

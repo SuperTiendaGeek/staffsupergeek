@@ -751,18 +751,18 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
           </p>
         ) : null}
 
-        <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/25">
+        <section className={`rounded-[1rem] border p-5 shadow-2xl shadow-black/25 ${cotizacionStatusTone(cotizacion.estado).header}`}>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-normal text-[#D7FF4F]">{cotizacion.codigo}</p>
-              <h2 className="mt-1 text-2xl font-semibold text-white">{cotizacion.productoSolicitado}</h2>
+              <p className={`text-sm font-semibold uppercase tracking-normal ${cotizacionStatusTone(cotizacion.estado).badge}`}>{cotizacion.codigo}</p>
+              <h2 className="mt-1 text-2xl font-semibold text-[#F5F5F5]">{cotizacion.productoSolicitado}</h2>
               <p className="mt-2 text-sm text-[#CFCFCB]">{cotizacion.descripcionRequerimiento || "Sin descripción"}</p>
             </div>
             <select
               value={cotizacion.estado}
               onChange={(event) => updateEstado(event.target.value)}
               disabled={estadoSaving}
-              className="h-9 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70 disabled:opacity-60"
+              className={`h-9 rounded-full border bg-[#1E1F1C] px-3 text-sm font-semibold outline-none transition disabled:opacity-60 ${cotizacionStatusTone(cotizacion.estado).select}`}
             >
               {ESTADOS_COTIZACION.map((item) => (
                 <option key={item} value={item}>
@@ -774,8 +774,8 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
 
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
             <Metric label="Total cotizado" value={money(cotizacion.totalCotizado)} />
-            <Metric label="Total abonado" value={money(visualTotalAbonado)} />
-            <Metric label="Saldo pendiente" value={money(visualSaldoPendiente)} />
+            <Metric label="Total abonado" value={money(visualTotalAbonado)} tone={visualTotalAbonado > 0 ? "success" : "neutral"} />
+            <Metric label="Saldo pendiente" value={money(visualSaldoPendiente)} tone={visualSaldoPendiente > 0 ? "accent" : "neutral"} />
           </div>
         </section>
 
@@ -783,7 +783,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
           <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/25">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-white">Abonos de cotización</h2>
+                <h2 className="text-lg font-semibold text-[#F5F5F5]">Abonos de cotización</h2>
                 <p className="mt-1 text-sm text-[#A7A7A7]">
                   Registra pagos o anticipos del cliente para esta cotización.
                 </p>
@@ -799,8 +799,8 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
 
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <Metric label="Total cotizado" value={money(cotizacion.totalCotizado)} />
-              <Metric label="Total abonado" value={money(visualTotalAbonado)} />
-              <Metric label="Saldo pendiente" value={money(visualSaldoPendiente)} />
+              <Metric label="Total abonado" value={money(visualTotalAbonado)} tone={visualTotalAbonado > 0 ? "success" : "neutral"} />
+              <Metric label="Saldo pendiente" value={money(visualSaldoPendiente)} tone={visualSaldoPendiente > 0 ? "accent" : "neutral"} />
             </div>
 
             {showAbonoForm ? (
@@ -892,7 +892,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                     return (
                       <tr key={abono.id} className="align-middle text-[#CFCFCB]">
                         <td className="px-4 py-2.5">{formatStableDateTime(abono.fechaAbono)}</td>
-                        <td className="px-4 py-2.5 text-right font-semibold text-white">{money(abono.monto)}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-[#F5F5F5]">{money(abono.monto)}</td>
                         <td className="px-4 py-2.5">{abono.metodoPago || "-"}</td>
                         <td className="px-4 py-2.5">
                           <span className="block truncate" title={abono.numeroTransaccion || "-"}>
@@ -909,14 +909,14 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                             <button
                               type="button"
                               onClick={() => setExpandedAbonoId((current) => (current === abono.id ? null : abono.id))}
-                              className="rounded-md border border-[#3A3A36] px-2 py-1.5 text-[11px] font-semibold leading-none text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
+                              className="rounded-full border border-[#3A3A36] px-2 py-1.5 text-[11px] font-semibold leading-none text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
                             >
                               Ver
                             </button>
                             <button
                               type="button"
                               onClick={() => printAbonoTicket(abono)}
-                              className="rounded-md border border-[#D7FF4F]/40 bg-[#D7FF4F]/10 px-2 py-1.5 text-[11px] font-semibold leading-none text-[#D7FF4F] transition hover:bg-[#D7FF4F]/20"
+                              className="rounded-full border border-[#D7FF4F]/40 bg-[#D7FF4F]/10 px-2 py-1.5 text-[11px] font-semibold leading-none text-[#D7FF4F] transition hover:bg-[#D7FF4F]/20"
                             >
                               Ticket
                             </button>
@@ -924,7 +924,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                               type="button"
                               disabled={deleting}
                               onClick={() => setConfirmAbono(abono)}
-                              className="rounded-md border border-red-400/30 bg-red-500/10 px-2 py-1.5 text-[11px] font-semibold leading-none text-red-200 transition hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-60"
+                              className="rounded-full border border-red-400/30 bg-red-500/10 px-2 py-1.5 text-[11px] font-semibold leading-none text-red-200 transition hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-60"
                             >
                               {deleting ? "Anulando..." : "Anular"}
                             </button>
@@ -961,7 +961,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                         <p className="text-xs uppercase tracking-normal text-[#A7A7A7]">
                           {formatStableDateTime(abono.fechaAbono)}
                         </p>
-                        <p className="mt-1 text-2xl font-bold text-white">{money(abono.monto)}</p>
+                        <p className="mt-1 text-2xl font-bold text-[#F5F5F5]">{money(abono.monto)}</p>
                       </div>
                       <span className="rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-2 py-1 text-xs font-semibold text-[#D7FF4F]">
                         {abono.metodoPago || "Abono"}
@@ -981,14 +981,14 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                       <button
                         type="button"
                         onClick={() => setExpandedAbonoId((current) => (current === abono.id ? null : abono.id))}
-                        className="rounded-lg border border-[#3A3A36] px-3 py-2 text-xs font-semibold text-[#CFCFCB]"
+                        className="rounded-full border border-[#3A3A36] px-3 py-2 text-xs font-semibold text-[#CFCFCB]"
                       >
                         Detalle
                       </button>
                       <button
                         type="button"
                         onClick={() => printAbonoTicket(abono)}
-                        className="rounded-lg border border-[#D7FF4F]/40 bg-[#D7FF4F]/10 px-3 py-2 text-xs font-semibold text-[#D7FF4F]"
+                        className="rounded-full border border-[#D7FF4F]/40 bg-[#D7FF4F]/10 px-3 py-2 text-xs font-semibold text-[#D7FF4F]"
                       >
                         Ticket
                       </button>
@@ -996,7 +996,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                         type="button"
                         disabled={deleting}
                         onClick={() => setConfirmAbono(abono)}
-                        className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-200 disabled:cursor-wait disabled:opacity-60"
+                        className="rounded-full border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-200 disabled:cursor-wait disabled:opacity-60"
                       >
                         {deleting ? "..." : "Anular"}
                       </button>
@@ -1015,7 +1015,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
 
         <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/25">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-lg font-semibold text-white">Opciones de cotización</h2>
+            <h2 className="text-lg font-semibold text-[#F5F5F5]">Opciones de cotización</h2>
             <div className="flex flex-col gap-2 sm:items-end">
               <a
                 href={todasOpcionesWhatsAppUrl ?? undefined}
@@ -1047,17 +1047,15 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               return (
                 <article
                   key={opcion.id}
-                  className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-4"
+                  className={`rounded-lg border p-4 ${opcion.seleccionadaPorCliente ? "border-[#D7FF4F]/40 bg-[#D7FF4F]/[0.04]" : "border-[#3A3A36] bg-[#1E1F1C]"}`}
                 >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-semibold text-white">{opcion.nombre}</h3>
-                      {opcion.seleccionadaPorCliente ? (
-                        <span className="rounded-full bg-[#D7FF4F] px-2 py-0.5 text-xs font-bold text-[#10110E]">
-                          Seleccionada
-                        </span>
-                      ) : null}
+                      <h3 className="font-semibold text-[#F5F5F5]">{opcion.nombre}</h3>
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${opcionStatusBadge(opcion.estado || "", opcion.seleccionadaPorCliente)}`}>
+                        {opcion.seleccionadaPorCliente ? "Seleccionada" : (opcion.estado || "Sin estado")}
+                      </span>
                     </div>
                     {opcion.notaParaCliente ? (
                       <p className="mt-1 text-sm text-[#CFCFCB]">{opcion.notaParaCliente}</p>
@@ -1082,7 +1080,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
                   </div>
                   <div className="text-left sm:text-right">
                     <p className="text-xs uppercase tracking-normal text-[#A7A7A7]">Precio cliente</p>
-                    <p className="text-lg font-bold text-white">{money(opcion.precioVentaCliente)}</p>
+                    <p className="text-lg font-bold text-[#F5F5F5]">{money(opcion.precioVentaCliente)}</p>
                   </div>
                 </div>
 
@@ -1230,7 +1228,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
 
         <form onSubmit={addOption} className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/25">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-lg font-semibold text-white">Agregar opción</h2>
+            <h2 className="text-lg font-semibold text-[#F5F5F5]">Agregar opción</h2>
           </div>
           {optionSuccess ? (
             <p className="mt-3 rounded-lg border border-[#D7FF4F]/25 bg-[#D7FF4F]/10 px-3 py-2 text-sm text-[#D7FF4F]">
@@ -1328,7 +1326,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
         <section className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5">
           <h2 className="text-sm font-semibold uppercase tracking-normal text-[#A7A7A7]">Cliente</h2>
           <div className="mt-4 space-y-2 text-sm">
-            <p className="text-lg font-semibold text-white">{cotizacion.clienteNombre}</p>
+            <p className="text-lg font-semibold text-[#F5F5F5]">{cotizacion.clienteNombre}</p>
             <p className="text-[#CFCFCB]">{cotizacion.clienteTelefono || "Sin teléfono"}</p>
             <p className="text-[#CFCFCB]">{cotizacion.clienteEmail || "Sin email"}</p>
             <p className="text-[#CFCFCB]">{cotizacion.clienteCedula || "Sin cédula"}</p>
@@ -1359,11 +1357,11 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
       </aside>
     </div>
     {editingOption ? (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-6 backdrop-blur-sm">
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-6">
         <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/40">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold text-white">Editar opción</h2>
+              <h2 className="text-xl font-semibold text-[#F5F5F5]">Editar opción</h2>
               <p className="mt-2 text-sm leading-6 text-[#A7A7A7]">
                 Los cambios se aplican solo a esta opción de cotización.
               </p>
@@ -1371,7 +1369,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
             <button
               type="button"
               onClick={cancelEditingOption}
-              className="rounded-lg border border-[#3A3A36] px-3 py-2 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
+              className="rounded-full border border-[#3A3A36] px-3 py-2 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
             >
               Cerrar
             </button>
@@ -1499,7 +1497,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               <button
                 type="button"
                 onClick={cancelEditingOption}
-                className="rounded-lg border border-[#3A3A36] px-4 py-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
+                className="rounded-full border border-[#3A3A36] px-4 py-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
               >
                 Cancelar
               </button>
@@ -1516,26 +1514,26 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
       </div>
     ) : null}
     {confirmAbono ? (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-black/75 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true">
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black/75 px-4 py-6" role="dialog" aria-modal="true">
         <section className="w-full max-w-md rounded-[1rem] border border-red-400/25 bg-[#252622] p-5 shadow-2xl shadow-black/40">
-          <h2 className="text-xl font-semibold text-white">Anular abono</h2>
+          <h2 className="text-xl font-semibold text-[#F5F5F5]">Anular abono</h2>
           <p className="mt-3 text-sm leading-6 text-[#CFCFCB]">
             ¿Seguro que deseas anular este abono de{" "}
-            <span className="font-bold text-white">{money(confirmAbono.monto)}</span>? Esta acción no debe usarse si el pago ya fue confirmado contablemente.
+            <span className="font-bold text-[#F5F5F5]">{money(confirmAbono.monto)}</span>? Esta acción no debe usarse si el pago ya fue confirmado contablemente.
           </p>
           <p className="mt-2 text-xs leading-5 text-[#A7A7A7]">
             Si Airtable todavía no tiene el campo Estado del Abono, el sistema lo eliminará como fallback temporal.
           </p>
           <div className="mt-4 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-3 text-sm text-[#CFCFCB]">
-            <p>Cliente: <span className="text-white">{cotizacion.clienteNombre || confirmAbono.clienteNombre}</span></p>
-            <p className="mt-1">Fecha: <span className="text-white">{formatStableDateTime(confirmAbono.fechaAbono)}</span></p>
+            <p>Cliente: <span className="text-[#F5F5F5]">{cotizacion.clienteNombre || confirmAbono.clienteNombre}</span></p>
+            <p className="mt-1">Fecha: <span className="text-[#F5F5F5]">{formatStableDateTime(confirmAbono.fechaAbono)}</span></p>
           </div>
           <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
               disabled={abonoDeletingId === confirmAbono.id}
               onClick={() => setConfirmAbono(null)}
-              className="rounded-lg border border-[#3A3A36] px-4 py-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F] disabled:opacity-60"
+              className="rounded-full border border-[#3A3A36] px-4 py-3 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F] disabled:opacity-60"
             >
               Cancelar
             </button>
@@ -1543,7 +1541,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
               type="button"
               disabled={abonoDeletingId === confirmAbono.id}
               onClick={() => deleteAbono(confirmAbono)}
-              className="rounded-lg border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-60"
+              className="rounded-full border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-100 transition hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-60"
             >
               {abonoDeletingId === confirmAbono.id ? "Procesando..." : "Confirmar anulación"}
             </button>
@@ -1552,11 +1550,11 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
       </div>
     ) : null}
     {showSkuModal ? (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-6 backdrop-blur-sm">
+      <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4 py-6">
         <section className="w-full max-w-2xl rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl shadow-black/40">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold text-white">Asignar SKU al pedido</h2>
+              <h2 className="text-xl font-semibold text-[#F5F5F5]">Asignar SKU al pedido</h2>
               <p className="mt-2 text-sm leading-6 text-[#A7A7A7]">
                 Este pedido necesita un SKU interno único para control de inventario.
               </p>
@@ -1564,7 +1562,7 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
             <button
               type="button"
               onClick={() => setShowSkuModal(false)}
-              className="rounded-lg border border-[#3A3A36] px-3 py-2 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
+              className="rounded-full border border-[#3A3A36] px-3 py-2 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/40 hover:text-[#D7FF4F]"
             >
               Cerrar
             </button>
@@ -1638,11 +1636,39 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
   );
 }
 
-function Metric({ label, value, compact = false }: { label: string; value: string; compact?: boolean }) {
+function cotizacionStatusTone(estado: string) {
+  switch (estado) {
+    case "Pendiente":
+      return { header: "border-[#D7FF4F]/30 bg-[#D7FF4F]/[0.04]", select: "border-[#D7FF4F]/50 text-[#D7FF4F] focus:border-[#D7FF4F]/80", badge: "text-[#D7FF4F]" };
+    case "Buscando Opciones":
+    case "Cotización Enviada":
+      return { header: "border-[#78B7FF]/30 bg-[#78B7FF]/[0.04]", select: "border-[#78B7FF]/50 text-[#78B7FF] focus:border-[#78B7FF]/80", badge: "text-[#78B7FF]" };
+    case "Esperando Respuesta":
+      return { header: "border-[#F0C75E]/30 bg-[#F0C75E]/[0.04]", select: "border-[#F0C75E]/50 text-[#F0C75E] focus:border-[#F0C75E]/80", badge: "text-[#F0C75E]" };
+    case "Aprobada":
+    case "Convertida en Pedido":
+      return { header: "border-[#56E3A4]/30 bg-[#56E3A4]/[0.04]", select: "border-[#56E3A4]/50 text-[#56E3A4] focus:border-[#56E3A4]/80", badge: "text-[#56E3A4]" };
+    case "No Disponible":
+      return { header: "border-[#FF5A4F]/30 bg-[#FF5A4F]/[0.04]", select: "border-[#FF5A4F]/50 text-[#FF5A4F] focus:border-[#FF5A4F]/80", badge: "text-[#FF5A4F]" };
+    default:
+      return { header: "border-[#3A3A36] bg-[#252622]", select: "border-[#3A3A36] text-[#F5F5F5] focus:border-[#D7FF4F]/70", badge: "text-[#CFCFCB]" };
+  }
+}
+
+function opcionStatusBadge(estado: string, seleccionada: boolean): string {
+  if (seleccionada || estado === "Seleccionada") return "border-[#D7FF4F]/40 bg-[#D7FF4F]/10 text-[#D7FF4F]";
+  if (estado === "Convertida en pedido") return "border-[#56E3A4]/40 bg-[#56E3A4]/10 text-[#56E3A4]";
+  if (estado === "No Disponible" || estado === "Descartada") return "border-[#3A3A36] bg-[#2D2E2A] text-[#8F908A]";
+  if (estado === "Ofrecida al Cliente") return "border-[#F0C75E]/40 bg-[#F0C75E]/[0.08] text-[#F0C75E]";
+  return "border-[#78B7FF]/30 bg-[#78B7FF]/[0.06] text-[#78B7FF]";
+}
+
+function Metric({ label, value, compact = false, tone = "neutral" }: { label: string; value: string; compact?: boolean; tone?: "neutral" | "accent" | "success" }) {
+  const valueClass = tone === "accent" ? "text-[#D7FF4F]" : tone === "success" ? "text-[#56E3A4]" : "text-[#F5F5F5]";
   return (
     <div className={compact ? "" : "rounded-lg border border-[#3A3A36] bg-[#1E1F1C] p-3"}>
       <p className="text-xs uppercase tracking-normal text-[#A7A7A7]">{label}</p>
-      <p className={`${compact ? "text-sm" : "text-xl"} mt-1 font-bold text-[#F5F5F5]`}>{value}</p>
+      <p className={`${compact ? "text-sm" : "text-xl"} mt-1 font-bold ${valueClass}`}>{value}</p>
     </div>
   );
 }

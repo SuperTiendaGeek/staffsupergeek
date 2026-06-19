@@ -21,6 +21,18 @@ function money(value: number | null) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
 
+const statusTone: Record<EstadoCotizacion, { badge: string; count: string; active: string; hover: string }> = {
+  "Pendiente":             { badge: "border-[#D7FF4F]/30 bg-[#D7FF4F]/10 text-[#D7FF4F]",   count: "text-[#D7FF4F]",   active: "border-[#D7FF4F] bg-[#D7FF4F]/12",   hover: "hover:border-[#D7FF4F]/40 hover:bg-[#D7FF4F]/[0.06]"   },
+  "Buscando Opciones":     { badge: "border-[#78B7FF]/30 bg-[#78B7FF]/10 text-[#78B7FF]",   count: "text-[#78B7FF]",   active: "border-[#78B7FF] bg-[#78B7FF]/12",   hover: "hover:border-[#78B7FF]/40 hover:bg-[#78B7FF]/[0.06]"   },
+  "Cotización Enviada":    { badge: "border-[#78B7FF]/30 bg-[#78B7FF]/10 text-[#78B7FF]",   count: "text-[#78B7FF]",   active: "border-[#78B7FF] bg-[#78B7FF]/12",   hover: "hover:border-[#78B7FF]/40 hover:bg-[#78B7FF]/[0.06]"   },
+  "Esperando Respuesta":   { badge: "border-[#F0C75E]/30 bg-[#F0C75E]/10 text-[#F0C75E]",   count: "text-[#F0C75E]",   active: "border-[#F0C75E] bg-[#F0C75E]/12",   hover: "hover:border-[#F0C75E]/40 hover:bg-[#F0C75E]/[0.06]"   },
+  "Aprobada":              { badge: "border-[#56E3A4]/30 bg-[#56E3A4]/10 text-[#56E3A4]",   count: "text-[#56E3A4]",   active: "border-[#56E3A4] bg-[#56E3A4]/12",   hover: "hover:border-[#56E3A4]/40 hover:bg-[#56E3A4]/[0.06]"   },
+  "No Disponible":         { badge: "border-[#FF5A4F]/30 bg-[#FF5A4F]/10 text-[#FF5A4F]",   count: "text-[#FF5A4F]",   active: "border-[#FF5A4F] bg-[#FF5A4F]/12",   hover: "hover:border-[#FF5A4F]/40 hover:bg-[#FF5A4F]/[0.06]"   },
+  "Convertida en Pedido":  { badge: "border-[#56E3A4]/30 bg-[#56E3A4]/10 text-[#56E3A4]",   count: "text-[#56E3A4]",   active: "border-[#56E3A4] bg-[#56E3A4]/12",   hover: "hover:border-[#56E3A4]/40 hover:bg-[#56E3A4]/[0.06]"   },
+};
+
+const defaultTone = statusTone["Pendiente"];
+
 export function CotizacionesListClient({ initialItems, initialSummary }: Props) {
   const [items] = useState(initialItems);
   const [estado, setEstado] = useState<EstadoCotizacion | "Todos">("Todos");
@@ -44,6 +56,7 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
       <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         {ESTADOS_COTIZACION.map((item) => {
           const active = estado === item;
+          const tone = statusTone[item] ?? defaultTone;
           return (
             <button
               key={item}
@@ -51,11 +64,11 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
               onClick={() => setEstado(active ? "Todos" : item)}
               className={`rounded-lg border px-3 py-2 text-left transition ${
                 active
-                  ? "border-[#D7FF4F] bg-[#D7FF4F]/12 shadow-glow"
-                  : "border-[#3A3A36] bg-[#252622] hover:border-[#D7FF4F]/40 hover:bg-[#2D2E2A]"
+                  ? `${tone.active} shadow-glow`
+                  : `border-[#3A3A36] bg-[#252622] ${tone.hover}`
               }`}
             >
-              <p className="text-lg font-bold text-white">{initialSummary[item] ?? 0}</p>
+              <p className={`text-lg font-bold ${tone.count}`}>{initialSummary[item] ?? 0}</p>
               <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{item}</p>
             </button>
           );
@@ -147,11 +160,16 @@ export function CotizacionesListClient({ initialItems, initialSummary }: Props) 
                         </DataGridLinkCell>
                       </td>
                       <td>
-                        <DataGridLinkCell href={href} title={item.estado} className="text-[#D7FF4F]">
-                          <span className={`${dataGridBadgeClass} border-[#D7FF4F]/25 bg-[#D7FF4F]/10 text-[#D7FF4F]`}>
-                            <span className="min-w-0 truncate">{item.estado || "-"}</span>
-                          </span>
-                        </DataGridLinkCell>
+                        {(() => {
+                          const tone = statusTone[item.estado as EstadoCotizacion] ?? defaultTone;
+                          return (
+                            <DataGridLinkCell href={href} title={item.estado} className={tone.count}>
+                              <span className={`${dataGridBadgeClass} ${tone.badge}`}>
+                                <span className="min-w-0 truncate">{item.estado || "-"}</span>
+                              </span>
+                            </DataGridLinkCell>
+                          );
+                        })()}
                       </td>
                       <td>
                         <DataGridLinkCell href={href} title={totalCotizado} className="text-right text-[#CFCFCB]">

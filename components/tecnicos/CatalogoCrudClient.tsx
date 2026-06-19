@@ -312,13 +312,13 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
                     isRepuestosMode && isRepuesto(item) ? (
                       <tr key={item.id} className="text-[#CFCFCB]">
                         <td className="px-4 py-4">
-                          <p className="font-semibold text-white">{item.nombre}</p>
+                          <p className="font-semibold text-[#F5F5F5]">{item.nombre}</p>
                           {item.descripcionCorta ? <p className="mt-1 max-w-md truncate text-xs text-[#A7A7A7]">{item.descripcionCorta}</p> : null}
                         </td>
                         <td className="px-4 py-4">{item.skuCodigoInterno || "-"}</td>
                         <td className="px-4 py-4">{item.proveedorHabitual || "-"}</td>
                         <td className="px-4 py-4">{formatMoney(item.costoBase)}</td>
-                        <td className="px-4 py-4 font-semibold text-white">{formatMoney(item.precioSugeridoCliente)}</td>
+                        <td className="px-4 py-4 font-semibold text-[#F5F5F5]">{formatMoney(item.precioSugeridoCliente)}</td>
                         <td className="px-4 py-4">
                           <StatusBadge activo={item.activo} />
                         </td>
@@ -328,11 +328,11 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
                       </tr>
                     ) : !isRepuesto(item) ? (
                       <tr key={item.id} className="text-[#CFCFCB]">
-                        <td className="px-4 py-4 font-semibold text-white">{item.nombre}</td>
+                        <td className="px-4 py-4 font-semibold text-[#F5F5F5]">{item.nombre}</td>
                         <td className="px-4 py-4">
                           <p className="max-w-xl truncate">{item.descripcion || "-"}</p>
                         </td>
-                        <td className="px-4 py-4 font-semibold text-white">{formatMoney(item.costoSugerido)}</td>
+                        <td className="px-4 py-4 font-semibold text-[#F5F5F5]">{formatMoney(item.costoSugerido)}</td>
                         <td className="px-4 py-4">
                           <StatusBadge activo={item.activo} />
                         </td>
@@ -356,16 +356,16 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
       </section>
 
       {modalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6">
           <form onSubmit={handleSubmit} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-[#3A3A36] pb-4">
               <div>
-                <h3 className="text-xl font-bold text-white">
+                <h3 className="text-xl font-bold text-[#F5F5F5]">
                   {editingItem ? `Editar ${singular}` : `Nuevo ${singular}`}
                 </h3>
                 <p className="mt-1 text-sm text-[#A7A7A7]">Completa los datos del catálogo.</p>
               </div>
-              <button type="button" onClick={() => setModalOpen(false)} className="rounded-lg border border-[#3A3A36] px-3 py-1.5 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-white">
+              <button type="button" onClick={() => setModalOpen(false)} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#F5F5F5]">
                 Cerrar
               </button>
             </div>
@@ -400,7 +400,7 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
             {formError ? <p className="mt-4 text-sm text-red-300">{formError}</p> : null}
 
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setModalOpen(false)} className="inline-flex h-9 items-center rounded-full border border-[#3A3A36] px-4 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-white">
+              <button type="button" onClick={() => setModalOpen(false)} className="inline-flex h-9 items-center rounded-full border border-[#3A3A36] px-4 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#F5F5F5]">
                 Cancelar
               </button>
               <button type="submit" disabled={saving} className="inline-flex h-9 items-center rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 text-sm font-bold text-[#10110E] transition hover:brightness-105 disabled:opacity-60">
