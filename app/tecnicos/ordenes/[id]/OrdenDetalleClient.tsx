@@ -87,6 +87,24 @@ type CatalogoServicioItem = {
   activo: boolean;
 };
 
+type ProductoDigitalItem = {
+  id: string;
+  softwareProducto: string;
+  tipo: string | null;
+  estado: string;
+  proveedor: string | null;
+  costoProveedor: number | null;
+  precioVenta: number | null;
+  claveTruncada: string | null;
+  usuarioCorreo: string | null;
+  duracion: string | null;
+  fechaCompra: string | null;
+  fechaUsoVenta: string | null;
+  ordenReparacionId: string | null;
+  tipoUso: string | null;
+  usadoVendidoPor: string | null;
+};
+
 type OrdenDetalle = {
   recordId: string;
   idVisible: string;
@@ -106,6 +124,7 @@ type OrdenDetalle = {
   recomendaciones: string;
   costoTotalServiciosNV: number | null;
   costoTotalRepuestosNV: number | null;
+  totalProductosDigitalesNV: number | null;
   totalAPagarNV: number | null;
   totalAbonadoNV: number | null;
   saldoNV: number | null;
@@ -113,6 +132,7 @@ type OrdenDetalle = {
   repuestosPorOrden: RepuestoItem[];
   serviciosPorOrden: ServicioItem[];
   abonosPorOrden: AbonoItem[];
+  productosDigitales: ProductoDigitalItem[];
   documentos: OrdenDocumentoItem[];
   cotizacionId: string;
   cotizacionCodigo: string;
@@ -743,6 +763,22 @@ export function OrdenDetalleClient() {
   const [bajaModalOpen, setBajaModalOpen] = useState(false);
   const [bajaSaving, setBajaSaving] = useState(false);
   const [bajaError, setBajaError] = useState<string | null>(null);
+  const [showProductoDigitalModal, setShowProductoDigitalModal] = useState(false);
+  const [pdSearch, setPdSearch] = useState("");
+  const [productosDisponibles, setProductosDisponibles] = useState<ProductoDigitalItem[]>([]);
+  const [pdSearchLoading, setPdSearchLoading] = useState(false);
+  const [pdSearchError, setPdSearchError] = useState<string | null>(null);
+  const [selectedPd, setSelectedPd] = useState<ProductoDigitalItem | null>(null);
+  const [pdPrecioVenta, setPdPrecioVenta] = useState("");
+  const [pdSaving, setPdSaving] = useState(false);
+  const [pdError, setPdError] = useState<string | null>(null);
+  const [pdDeleteConfirmId, setPdDeleteConfirmId] = useState<string | null>(null);
+  const [pdDeletingId, setPdDeletingId] = useState<string | null>(null);
+  const [pdDeleteError, setPdDeleteError] = useState<string | null>(null);
+  const [pdCredencialesVisible, setPdCredencialesVisible] = useState<Record<string, boolean>>({});
+  const [pdCredencialesData, setPdCredencialesData] = useState<Record<string, { claveActivacion?: string | null; usuarioCorreo?: string | null; contraseña?: string | null }>>({});
+  const [pdCredencialesLoading, setPdCredencialesLoading] = useState<Record<string, boolean>>({});
+  const [pdCredencialesError, setPdCredencialesError] = useState<Record<string, string | null>>({});
   const lineDeleteActionButtonClass =
     "inline-flex h-8 w-8 items-center justify-center rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] hover:text-[var(--sg-danger)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)] disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -841,6 +877,100 @@ export function OrdenDetalleClient() {
     setAbonoObservacion("");
     setAbonoComprobanteFile(null);
     setAbonoError(null);
+  };
+
+  const resetProductoDigitalModal = () => {
+    setPdSearch("");
+    setProductosDisponibles([]);
+    setSelectedPd(null);
+    setPdPrecioVenta("");
+    setPdError(null);
+    setPdSearchError(null);
+  };
+
+  const handleBuscarProductosDigitales = async (q: string) => {
+    setPdSearchLoading(true);
+    setPdSearchError(null);
+    try {
+      const res = await fetch(`/api/tecnicos/productos-digitales?q=${encodeURIComponent(q)}`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "Error al buscar");
+      setProductosDisponibles((json.data ?? []) as ProductoDigitalItem[]);
+    } catch (err) {
+      setPdSearchError(err instanceof Error ? err.message : "Error al buscar");
+    } finally {
+      setPdSearchLoading(false);
+    }
+  };
+
+  const handleAsignarProductoDigital = async () => {
+    if (!selectedPd || !orden) return;
+    setPdSaving(true);
+    setPdError(null);
+    try {
+      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(orden.recordId)}/productos-digitales`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productoId: selectedPd.id,
+          precioVenta: parseNumberInput(pdPrecioVenta),
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "Error al asignar");
+      setShowProductoDigitalModal(false);
+      resetProductoDigitalModal();
+      await refreshOrdenDetalleFinanzas();
+    } catch (err) {
+      setPdError(err instanceof Error ? err.message : "Error al asignar");
+    } finally {
+      setPdSaving(false);
+    }
+  };
+
+  const handleDesasignarProductoDigital = async (productoId: string) => {
+    if (!orden) return;
+    setPdDeletingId(productoId);
+    setPdDeleteError(null);
+    try {
+      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(orden.recordId)}/productos-digitales`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productoId }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "Error al desasignar");
+      setPdDeleteConfirmId(null);
+      await refreshOrdenDetalleFinanzas();
+    } catch (err) {
+      setPdDeleteError(err instanceof Error ? err.message : "Error al desasignar");
+    } finally {
+      setPdDeletingId(null);
+    }
+  };
+
+  const handleVerCredenciales = async (productoId: string) => {
+    if (pdCredencialesVisible[productoId]) {
+      setPdCredencialesVisible((prev) => ({ ...prev, [productoId]: false }));
+      return;
+    }
+    if (pdCredencialesData[productoId]) {
+      setPdCredencialesVisible((prev) => ({ ...prev, [productoId]: true }));
+      return;
+    }
+    setPdCredencialesLoading((prev) => ({ ...prev, [productoId]: true }));
+    setPdCredencialesError((prev) => ({ ...prev, [productoId]: null }));
+    try {
+      const res = await fetch(`/api/tecnicos/productos-digitales/${encodeURIComponent(productoId)}/credenciales`);
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "Error al obtener credenciales");
+      setPdCredencialesData((prev) => ({ ...prev, [productoId]: json.data }));
+      setPdCredencialesVisible((prev) => ({ ...prev, [productoId]: true }));
+    } catch (err) {
+      setPdCredencialesError((prev) => ({ ...prev, [productoId]: err instanceof Error ? err.message : "Error" }));
+    } finally {
+      setPdCredencialesLoading((prev) => ({ ...prev, [productoId]: false }));
+    }
   };
 
   const selectRepuesto = (item: CatalogoRepuestoItem) => {
@@ -2982,6 +3112,156 @@ export function OrdenDetalleClient() {
                 </section>
               </div>
             </div>
+
+            {/* ─── Productos Digitales ──────────────────────────────────────── */}
+            <section className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
+              <div className="mb-3 flex items-center justify-between border-b border-[var(--sg-divider)] pb-3">
+                <div className="flex items-center gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
+                    Productos Digitales
+                  </p>
+                  <span className="rounded-full bg-[var(--sg-panel)] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--sg-text-secondary)]">
+                    {(orden.productosDigitales ?? []).length}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetProductoDigitalModal();
+                    void handleBuscarProductosDigitales("");
+                    setShowProductoDigitalModal(true);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-full border border-[var(--sg-lime)]/40 px-2.5 py-0.5 text-[11px] font-semibold text-[var(--sg-lime)] transition hover:border-[var(--sg-lime)] hover:bg-[var(--sg-lime-soft)]"
+                >
+                  <span aria-hidden>+</span> Añadir
+                </button>
+              </div>
+
+              {(orden.productosDigitales ?? []).length === 0 ? (
+                <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3 text-sm text-[var(--sg-text-secondary)]">
+                  Sin productos digitales asignados.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {(orden.productosDigitales ?? []).map((pd) => {
+                    const isConfirming = pdDeleteConfirmId === pd.id;
+                    const isDeleting = pdDeletingId === pd.id;
+                    const credVisible = pdCredencialesVisible[pd.id] ?? false;
+                    const credData = pdCredencialesData[pd.id];
+                    const credLoading = pdCredencialesLoading[pd.id] ?? false;
+                    const credError = pdCredencialesError[pd.id];
+                    return (
+                      <div
+                        key={pd.id}
+                        className="relative rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3"
+                      >
+                        <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-[var(--sg-lime)]" />
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 space-y-1">
+                            <p className="font-semibold leading-5 text-[var(--sg-text-primary)]">
+                              {pd.softwareProducto}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--sg-text-muted)]">
+                              {pd.tipo && <span>{pd.tipo}</span>}
+                              {pd.duracion && <span>{pd.duracion}</span>}
+                              {pd.claveTruncada && (
+                                <span className="font-mono text-[var(--sg-text-secondary)]">
+                                  {pd.claveTruncada}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {pd.precioVenta !== null && (
+                              <span className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-2.5 py-1 text-xs font-semibold tabular-nums text-[var(--sg-text-primary)]">
+                                {formatCurrency(pd.precioVenta)}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => void handleVerCredenciales(pd.id)}
+                              disabled={credLoading}
+                              title={credVisible ? "Ocultar credenciales" : "Ver credenciales"}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)]/50 hover:text-[var(--sg-lime)] focus:outline-none disabled:opacity-50"
+                            >
+                              {credLoading ? (
+                                <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                              ) : (
+                                <EyeIcon className="h-4 w-4" off={credVisible} />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPdDeleteError(null);
+                                setPdDeleteConfirmId((prev) => (prev === pd.id ? null : pd.id));
+                              }}
+                              className={lineDeleteActionButtonClass}
+                              title="Desasignar producto"
+                              disabled={isDeleting}
+                            >
+                              {isDeleting ? (
+                                <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
+                              ) : (
+                                <TrashIcon className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        {credVisible && credData && (
+                          <div className="mt-2 space-y-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)]/20 bg-[var(--sg-lime)]/5 px-3 py-2 text-xs">
+                            {credData.claveActivacion && (
+                              <div className="flex items-center gap-2">
+                                <span className="w-24 shrink-0 text-[var(--sg-text-muted)]">Clave:</span>
+                                <span className="font-mono font-semibold text-[var(--sg-lime)] break-all">{credData.claveActivacion}</span>
+                              </div>
+                            )}
+                            {credData.usuarioCorreo && (
+                              <div className="flex items-center gap-2">
+                                <span className="w-24 shrink-0 text-[var(--sg-text-muted)]">Usuario:</span>
+                                <span className="font-mono text-[var(--sg-text-primary)]">{credData.usuarioCorreo}</span>
+                              </div>
+                            )}
+                            {credData.contraseña && (
+                              <div className="flex items-center gap-2">
+                                <span className="w-24 shrink-0 text-[var(--sg-text-muted)]">Contraseña:</span>
+                                <span className="font-mono text-[var(--sg-text-primary)]">{credData.contraseña}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {credError && (
+                          <p className="mt-1 text-xs text-[var(--sg-danger)]">{credError}</p>
+                        )}
+
+                        {isConfirming && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/30 bg-[var(--sg-danger-soft)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
+                            <span>¿Desasignar este producto de la orden?</span>
+                            <button
+                              type="button"
+                              onClick={() => void handleDesasignarProductoDigital(pd.id)}
+                              disabled={isDeleting}
+                              className="rounded-full border border-[var(--sg-danger)] px-3 py-0.5 text-[11px] font-semibold text-[var(--sg-danger)] transition hover:bg-[var(--sg-danger)] hover:text-white disabled:opacity-60"
+                            >
+                              Desasignar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPdDeleteConfirmId(null)}
+                              className="rounded-full border border-[var(--sg-border)] px-3 py-0.5 text-[11px] text-[var(--sg-text-muted)] transition hover:border-[var(--sg-text-muted)]"
+                            >
+                              Cancelar
+                            </button>
+                            {pdDeleteError && <span className="text-[var(--sg-danger)]">{pdDeleteError}</span>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </div>
 
           <aside className="min-w-0 flex flex-col gap-2.5 xl:sticky xl:top-20">
@@ -3052,6 +3332,14 @@ export function OrdenDetalleClient() {
                     {formatCurrency(orden.costoTotalServiciosNV)}
                   </p>
                 </div>
+                {(orden.totalProductosDigitalesNV ?? 0) > 0 && (
+                  <div className="col-span-2 bg-[var(--sg-panel)] px-3 py-2">
+                    <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Productos Digitales</p>
+                    <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
+                      {formatCurrency(orden.totalProductosDigitalesNV)}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 space-y-2">
@@ -3582,6 +3870,136 @@ export function OrdenDetalleClient() {
                       className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60"
                     >
                       {nuevoRepuestoSaving ? "Guardando..." : "Crear repuesto"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {showProductoDigitalModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+                <div className="w-full max-w-lg rounded-[1rem] border border-[var(--sg-border)] bg-[var(--sg-card)] p-5 shadow-2xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-[var(--sg-text-primary)]">Asignar producto digital</h4>
+                    <button
+                      type="button"
+                      onClick={() => { setShowProductoDigitalModal(false); resetProductoDigitalModal(); }}
+                      className="text-[var(--sg-text-muted)] transition hover:text-[var(--sg-text-primary)]"
+                      aria-label="Cerrar"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                        <path d="M18 6 6 18M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={pdSearch}
+                      onChange={(e) => {
+                        setPdSearch(e.target.value);
+                        setSelectedPd(null);
+                        void handleBuscarProductosDigitales(e.target.value);
+                      }}
+                      placeholder="Buscar por nombre, tipo o proveedor..."
+                      className="w-full rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)]/60 focus:border-[var(--sg-lime)]/70 focus:outline-none"
+                    />
+                    {pdSearchLoading && (
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <span className="h-3 w-3 animate-spin rounded-full border border-[var(--sg-lime)] border-t-transparent block" />
+                      </span>
+                    )}
+                  </div>
+
+                  {pdSearchError && <p className="text-xs text-[var(--sg-danger)]">{pdSearchError}</p>}
+
+                  {!selectedPd && productosDisponibles.length > 0 && (
+                    <div className="max-h-60 overflow-y-auto rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)]">
+                      {productosDisponibles.map((pd) => (
+                        <button
+                          key={pd.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedPd(pd);
+                            setPdPrecioVenta(pd.precioVenta !== null ? String(pd.precioVenta) : "");
+                          }}
+                          className="flex w-full items-start gap-3 border-b border-[var(--sg-border)] px-3 py-2.5 text-left last:border-0 transition hover:bg-[var(--sg-card)]"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{pd.softwareProducto}</p>
+                            <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-[var(--sg-text-muted)]">
+                              {pd.tipo && <span>{pd.tipo}</span>}
+                              {pd.duracion && <span>{pd.duracion}</span>}
+                              {pd.claveTruncada && <span className="font-mono">{pd.claveTruncada}</span>}
+                            </div>
+                          </div>
+                          {pd.precioVenta !== null && (
+                            <span className="shrink-0 text-xs font-semibold tabular-nums text-[var(--sg-lime)]">
+                              {formatCurrency(pd.precioVenta)}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {!selectedPd && !pdSearchLoading && productosDisponibles.length === 0 && pdSearch.length > 0 && (
+                    <p className="text-xs text-[var(--sg-text-muted)]">No hay productos disponibles con ese criterio.</p>
+                  )}
+
+                  {selectedPd && (
+                    <div className="space-y-3 rounded-lg border border-[var(--sg-lime)]/20 bg-[var(--sg-lime)]/5 px-3 py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{selectedPd.softwareProducto}</p>
+                          <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-[var(--sg-text-muted)]">
+                            {selectedPd.tipo && <span>{selectedPd.tipo}</span>}
+                            {selectedPd.duracion && <span>{selectedPd.duracion}</span>}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPd(null)}
+                          className="shrink-0 text-[10px] font-semibold text-[var(--sg-text-muted)] underline underline-offset-2 transition hover:text-[var(--sg-text-primary)]"
+                        >
+                          Cambiar
+                        </button>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
+                          Precio de venta (opcional)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={pdPrecioVenta}
+                          onChange={(e) => setPdPrecioVenta(e.target.value)}
+                          placeholder="Dejar vacío para usar precio del catálogo"
+                          className="w-full rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)]/50 focus:border-[var(--sg-lime)]/70 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {pdError && <p className="text-xs text-[var(--sg-danger)]">{pdError}</p>}
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setShowProductoDigitalModal(false); resetProductoDigitalModal(); }}
+                      className="rounded-full border border-[var(--sg-border)] px-3 py-1.5 text-xs font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)]/50 hover:text-[var(--sg-lime)]"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleAsignarProductoDigital()}
+                      disabled={!selectedPd || pdSaving}
+                      className="rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-50"
+                    >
+                      {pdSaving ? "Asignando..." : "Asignar producto"}
                     </button>
                   </div>
                 </div>

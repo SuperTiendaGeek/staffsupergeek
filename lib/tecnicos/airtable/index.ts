@@ -192,6 +192,28 @@ export interface FetchClientesPageOptions {
 }
 
 // Detalle
+// Producto digital del inventario. Las credenciales sensibles (clave, contraseña)
+// nunca se incluyen aquí; se obtienen por un endpoint separado con sesión activa.
+export interface ProductoDigital {
+  id: string;
+  softwareProducto: string;
+  tipo: string | null;
+  estado: string;
+  proveedor: string | null;
+  costoProveedor: number | null;
+  precioVenta: number | null;
+  claveTruncada: string | null;   // primeros 6 chars + "***", nunca la clave completa
+  usuarioCorreo: string | null;
+  duracion: string | null;
+  fechaCompra: string | null;
+  fechaUsoVenta: string | null;
+  ordenReparacionId: string | null;
+  clienteId: string | null;
+  tipoUso: string | null;
+  usadoVendidoPor: string | null;
+  observacionesInternas: string | null;
+}
+
 export interface OrdenDetalle {
   recordId: string;
   idVisible: string;
@@ -211,6 +233,7 @@ export interface OrdenDetalle {
   recomendaciones: string;
   costoTotalServiciosNV: number | null;
   costoTotalRepuestosNV: number | null;
+  totalProductosDigitalesNV: number | null;
   totalAPagarNV: number | null;
   totalAbonadoNV: number | null;
   saldoNV: number | null;
@@ -220,6 +243,7 @@ export interface OrdenDetalle {
   repuestosPorOrden: RepuestoPorOrden[];
   serviciosPorOrden: ServicioPorOrden[];
   abonosPorOrden: AbonoPorOrden[];
+  productosDigitales: ProductoDigital[];
   documentos: AirtableAttachment[];
   cotizacionId: string;
   cotizacionCodigo: string;
@@ -1439,6 +1463,7 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     recomendaciones: safeString(f["Recomendaciones"], "No disponible"),
     costoTotalServiciosNV: pickNumberField(f, ["Costo Total Servicios NV"]),
     costoTotalRepuestosNV: pickNumberField(f, ["Costo Total Repuestos NV"]),
+    totalProductosDigitalesNV: pickNumberField(f, ["Total Productos Digitales"]),
     totalAPagarNV: pickNumberField(f, ["Total a Pagar NV"]),
     totalAbonadoNV: pickNumberField(f, ["Total Abonado NV"]),
     saldoNV: pickNumberField(f, ["Saldo NV"]),
@@ -1454,13 +1479,14 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
       ? (historialIdsRaw as string[])
       : [];
 
-  const [historial, repuestosPorOrden, serviciosPorOrden, abonosPorOrden] = await Promise.all([
+  const [historial, repuestosPorOrden, serviciosPorOrden, abonosPorOrden, productosDigitales] = await Promise.all([
     historialIds.length > 0
       ? fetchHistorialByIds(historialIds, client)
       : fetchHistorialByOrden(ordenRecordId, client),
     fetchRepuestosPorOrden(ordenRecordId, client),
     fetchServiciosPorOrden(ordenRecordId, client),
     fetchAbonosPorOrden(ordenRecordId, client),
+    fetchProductosDigitalesPorOrden(ordenRecordId, client),
   ]);
 
   return {
@@ -1471,6 +1497,7 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     repuestosPorOrden,
     serviciosPorOrden,
     abonosPorOrden,
+    productosDigitales,
   };
 };
 
@@ -2848,6 +2875,211 @@ export const createHistorialEntrada = async ({
   }
 
   return mapHistorialRecord(data, ordenRecordId);
+};
+
+// ─── Productos Digitales ───────────────────────────────────────────────────
+
+const truncarClave = (clave: string | null | undefined): string | null => {
+  if (!clave || clave.trim() === "") return null;
+  const clean = clave.trim();
+  if (clean.length <= 6) return "••••••";
+  return clean.slice(0, 6) + "•••";
+};
+
+const mapProductoDigitalRecord = (
+  record: { id: string; fields: Record<string, unknown> }
+): ProductoDigital => {
+  const f = record.fields ?? {};
+  const ordenIds = toLinkedRecordIds(f["Orden de Reparación"]);
+  const clienteIds = toLinkedRecordIds(f["Cliente"]);
+  const claveRaw = typeof f["Clave de Activación"] === "string" ? f["Clave de Activación"] : null;
+
+  return {
+    id: record.id,
+    softwareProducto: safeString(f["Software / Producto"], "Sin nombre"),
+    tipo: safeString(f["Tipo"], "") || null,
+    estado: safeString(f["Estado"], "Disponible"),
+    proveedor: safeString(f["Proveedor"], "") || null,
+    costoProveedor: typeof f["Costo Proveedor"] === "number" ? f["Costo Proveedor"] : null,
+    precioVenta: typeof f["Precio Venta"] === "number" ? f["Precio Venta"] : null,
+    claveTruncada: truncarClave(claveRaw),
+    usuarioCorreo: safeString(f["Usuario / Correo"], "") || null,
+    duracion: safeString(f["Duración"], "") || null,
+    fechaCompra: safeString(f["Fecha de Compra"], "") || null,
+    fechaUsoVenta: safeString(f["Fecha de Uso / Venta"], "") || null,
+    ordenReparacionId: ordenIds[0] ?? null,
+    clienteId: clienteIds[0] ?? null,
+    tipoUso: safeString(f["Tipo de Uso"], "") || null,
+    usadoVendidoPor: safeString(f["Usado/Vendido por"], "") || null,
+    observacionesInternas: safeString(f["Observaciones Internas"], "") || null,
+  };
+};
+
+export const fetchProductosDigitalesPorOrden = async (
+  ordenRecordId: string,
+  client = getClient()
+): Promise<ProductoDigital[]> => {
+  const records = await fetchAllTableRecords({
+    tableName: AIRTABLE_TABLES.productosDigitales,
+    client,
+  });
+  return records
+    .filter((r) => toLinkedRecordIds(r.fields?.["Orden de Reparación"]).includes(ordenRecordId))
+    .map(mapProductoDigitalRecord);
+};
+
+export const fetchProductosDigitalesDisponibles = async (
+  query?: string,
+  client = getClient()
+): Promise<ProductoDigital[]> => {
+  const url = new URL(
+    `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}`
+  );
+  url.searchParams.set("filterByFormula", `{Estado}="Disponible"`);
+  url.searchParams.set("maxRecords", "100");
+  url.searchParams.set("sort[0][field]", "Software / Producto");
+  url.searchParams.set("sort[0][direction]", "asc");
+
+  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+  if (!res.ok) throw new Error(`Airtable error ${res.status}`);
+  const data = (await res.json()) as { records: { id: string; fields: Record<string, unknown> }[] };
+
+  let results = data.records.map(mapProductoDigitalRecord);
+
+  if (query && query.trim()) {
+    const q = query.trim().toLowerCase();
+    results = results.filter(
+      (p) =>
+        p.softwareProducto.toLowerCase().includes(q) ||
+        (p.tipo ?? "").toLowerCase().includes(q) ||
+        (p.proveedor ?? "").toLowerCase().includes(q)
+    );
+  }
+
+  return results;
+};
+
+export const fetchProductoDigitalById = async (
+  recordId: string,
+  client = getClient()
+): Promise<ProductoDigital | null> => {
+  const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}/${encodeURIComponent(recordId)}`;
+  const res = await fetch(url, { headers: client.headers, cache: "no-store" });
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
+  return mapProductoDigitalRecord(data);
+};
+
+// Retorna las credenciales sensibles. Solo llamar desde endpoints con sesión verificada.
+export const fetchCredencialesProductoDigital = async (
+  recordId: string,
+  client = getClient()
+): Promise<{ claveActivacion: string | null; usuarioCorreo: string | null; contraseña: string | null } | null> => {
+  const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}/${encodeURIComponent(recordId)}`;
+  const res = await fetch(url, { headers: client.headers, cache: "no-store" });
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
+  const f = data.fields ?? {};
+  return {
+    claveActivacion: typeof f["Clave de Activación"] === "string" ? f["Clave de Activación"] : null,
+    usuarioCorreo: typeof f["Usuario / Correo"] === "string" ? f["Usuario / Correo"] : null,
+    contraseña: typeof f["Contraseña"] === "string" ? f["Contraseña"] : null,
+  };
+};
+
+export const asignarProductoDigitalAOrden = async ({
+  productoId,
+  ordenRecordId,
+  precioVenta,
+  usadoPorNombre,
+  usadoPorId,
+}: {
+  productoId: string;
+  ordenRecordId: string;
+  precioVenta?: number | null;
+  usadoPorNombre?: string | null;
+  usadoPorId?: string | null;
+}): Promise<ProductoDigital> => {
+  const client = getClient();
+
+  // Verificar que el producto existe y está disponible
+  const productoActual = await fetchProductoDigitalById(productoId, client);
+  if (!productoActual) throw new Error("Producto digital no encontrado.");
+  if (["Usado", "Anulado", "Vencido"].includes(productoActual.estado)) {
+    throw new Error(`No se puede asignar un producto con estado "${productoActual.estado}".`);
+  }
+  if (productoActual.ordenReparacionId && productoActual.ordenReparacionId !== ordenRecordId) {
+    throw new Error("Este producto digital ya está vinculado a otra orden.");
+  }
+
+  const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}/${encodeURIComponent(productoId)}`;
+
+  const fields: Record<string, unknown> = {
+    "Estado": "Usado",
+    "Orden de Reparación": [ordenRecordId],
+    "Tipo de Uso": "Orden de reparación",
+    "Fecha de Uso / Venta": formatAirtableDateOnly(),
+  };
+  if (precioVenta !== undefined && precioVenta !== null) fields["Precio Venta"] = precioVenta;
+  if (usadoPorNombre) fields["Usado/Vendido por"] = usadoPorNombre;
+  if (usadoPorId) fields["Usuario ID Portal"] = usadoPorId;
+
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: client.headers,
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Airtable error ${res.status}: ${text}`);
+  }
+
+  const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
+  return mapProductoDigitalRecord(data);
+};
+
+export const desasignarProductoDigitalDeOrden = async ({
+  productoId,
+  ordenRecordId,
+}: {
+  productoId: string;
+  ordenRecordId: string;
+}): Promise<ProductoDigital> => {
+  const client = getClient();
+
+  const productoActual = await fetchProductoDigitalById(productoId, client);
+  if (!productoActual) throw new Error("Producto digital no encontrado.");
+  if (productoActual.ordenReparacionId !== ordenRecordId) {
+    throw new Error("El producto no está vinculado a esta orden.");
+  }
+
+  const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}/${encodeURIComponent(productoId)}`;
+
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: client.headers,
+    body: JSON.stringify({
+      fields: {
+        "Estado": "Disponible",
+        "Orden de Reparación": [],
+        "Tipo de Uso": null,
+        "Fecha de Uso / Venta": null,
+        "Usado/Vendido por": null,
+        "Usuario ID Portal": null,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Airtable error ${res.status}: ${text}`);
+  }
+
+  const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
+  return mapProductoDigitalRecord(data);
 };
 
 export { AIRTABLE_TABLES };
