@@ -221,6 +221,8 @@ export interface OrdenDetalle {
   serviciosPorOrden: ServicioPorOrden[];
   abonosPorOrden: AbonoPorOrden[];
   documentos: AirtableAttachment[];
+  cotizacionId: string;
+  cotizacionCodigo: string;
 }
 
 // Helpers
@@ -1441,6 +1443,8 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     totalAbonadoNV: pickNumberField(f, ["Total Abonado NV"]),
     saldoNV: pickNumberField(f, ["Saldo NV"]),
     documentos: parseAttachments(f["Documentos"]),
+    cotizacionId: pickStringField(f, ["Cotización ID", "Cotizacion ID"], ""),
+    cotizacionCodigo: pickStringField(f, ["Cotización Código", "Cotizacion Codigo"], ""),
   };
 
   // Historial: preferir IDs vinculados desde la orden
@@ -2508,7 +2512,7 @@ export const updateOrdenCampos = async ({
   campos,
 }: {
   ordenRecordId: string;
-  campos: Partial<{ equipo: string; accesorios: string; telefono: string; ingresaPor: string }>;
+  campos: Partial<{ equipo: string; accesorios: string; telefono: string; ingresaPor: string; cotizacionId: string; cotizacionCodigo: string }>;
 }): Promise<void> => {
   const client = getClient();
   const url = `${client.baseUrl}/${encodeURIComponent(
@@ -2519,6 +2523,8 @@ export const updateOrdenCampos = async ({
   if (campos.equipo !== undefined) fields["Equipo"] = campos.equipo;
   if (campos.accesorios !== undefined) fields["Accesorios"] = campos.accesorios;
   if (campos.ingresaPor !== undefined) fields["Ingresa Por"] = campos.ingresaPor;
+  if (campos.cotizacionId !== undefined) fields["Cotización ID"] = campos.cotizacionId;
+  if (campos.cotizacionCodigo !== undefined) fields["Cotización Código"] = campos.cotizacionCodigo;
 
   const doUpdate = async (f: Record<string, string>) => {
     const res = await fetch(url, {

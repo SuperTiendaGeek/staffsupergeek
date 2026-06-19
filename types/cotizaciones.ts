@@ -184,6 +184,8 @@ export type CrearCotizacionInput = {
   equipoYaEstaEnTienda?: boolean;
   observacionInterna?: string | null;
   registradoPor: string;
+  ordenReparacionId?: string | null;
+  ordenReparacionCodigo?: string | null;
 };
 
 export type CrearOpcionCotizacionInput = {

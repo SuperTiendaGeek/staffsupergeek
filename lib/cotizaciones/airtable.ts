@@ -667,6 +667,25 @@ export function summarizeCotizaciones(items: CotizacionListado[]): CotizacionRes
   }, {} as CotizacionResumenEstado);
 }
 
+export async function fetchCotizacionPorOrdenId(ordenRecordId: string): Promise<CotizacionDetalle | null> {
+  const { client, url } = airtableUrl(COTIZACIONES_TABLES.cotizaciones);
+  const pageUrl = new URL(url);
+  pageUrl.searchParams.set("pageSize", "1");
+  pageUrl.searchParams.set(
+    "filterByFormula",
+    `{Orden Reparación ID} = '${escapeFormulaString(ordenRecordId)}'`
+  );
+  const data = await airtableRequest<AirtableListResponse>(pageUrl.toString(), { headers: client.headers });
+  const record = data.records?.[0];
+  if (!record) return null;
+  const codigo = firstString(record.fields["Código Cotización"], record.id);
+  const [opciones, abonos] = await Promise.all([
+    fetchOpcionesCotizacion(record.id, codigo),
+    fetchAbonosCotizacion(record.id, codigo),
+  ]);
+  return mapCotizacionDetalle(record, opciones, abonos);
+}
+
 export async function fetchCotizacionById(id: string): Promise<CotizacionDetalle | null> {
   const record = await fetchCotizacionRecord(id);
   if (!record) return null;
@@ -711,6 +730,8 @@ export async function createCotizacion(input: CrearCotizacionInput) {
     fields["Descripción del Requerimiento"] = input.descripcionRequerimiento;
   }
   if (input.observacionInterna) fields["Observación Interna"] = input.observacionInterna;
+  if (input.ordenReparacionId) fields["Orden Reparación ID"] = input.ordenReparacionId;
+  if (input.ordenReparacionCodigo) fields["Orden Reparación Código"] = input.ordenReparacionCodigo;
 
   const data = await airtableRequest<AirtableRecord>(url, {
     method: "POST",
@@ -1619,4 +1640,33 @@ export async function convertirCotizacionEnPedido(
     itemId: item.id,
     cotizacion: updatedCotizacion,
   };
+}
+
+export async function deleteCotizacion(id: string): Promise<void> {
+  const { client, url } = airtableUrl(COTIZACIONES_TABLES.cotizaciones, id);
+  await airtableRequest<unknown>(url, {
+    method: "DELETE",
+    headers: client.headers,
+  });
+}
+
+export type CotizacionDeleteResult =
+  | { action: "deleted" }
+  | { action: "cancelled"; cotizacion: CotizacionDetalle };
+
+export async function deleteCotizacionIfSafe(id: string): Promise<CotizacionDeleteResult> {
+  const cotizacion = await fetchCotizacionById(id);
+  if (!cotizacion) throw new Error("Cotización no encontrada.");
+
+  const hasActivity =
+    cotizacion.opciones.length > 0 ||
+    cotizacion.abonos.filter((a) => a.estado !== "Anulado").length > 0;
+
+  if (!hasActivity) {
+    await deleteCotizacion(id);
+    return { action: "deleted" };
+  }
+
+  const updated = await updateCotizacionEstado(id, "No Disponible");
+  return { action: "cancelled", cotizacion: updated };
 }
