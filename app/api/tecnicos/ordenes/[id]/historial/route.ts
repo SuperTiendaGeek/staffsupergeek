@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createHistorialEntrada } from "@/lib/tecnicos/airtable";
+import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +8,9 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, { params }: Params) {
   const { id: ordenRecordId } = await params;
+
+  const { response, session } = await requireTecnicosSession();
+  if (response) return response;
 
   if (!ordenRecordId) {
     return NextResponse.json(
@@ -38,6 +42,9 @@ export async function POST(request: Request, { params }: Params) {
     const created = await createHistorialEntrada({
       ordenRecordId,
       avanceTexto,
+      creadoPorNombre: session.user.nombre ?? null,
+      creadoPorEmail: session.user.email ?? null,
+      creadoPorUsuarioId: session.user.userId ?? null,
     });
 
     return NextResponse.json({ success: true, data: created }, { status: 201 });

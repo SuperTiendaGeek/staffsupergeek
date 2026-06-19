@@ -22,6 +22,9 @@ type HistorialItem = {
   nota: string | null;
   estadoGeneradoIA?: string | null;
   solicitarMensajeCliente?: boolean;
+  creadoPorNombre?: string | null;
+  creadoPorEmail?: string | null;
+  creadoPorUsuarioId?: string | null;
 };
 
 type RepuestoItem = {
@@ -452,37 +455,6 @@ const IdCardIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
   </svg>
 );
 
-const CalendarIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.7"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    <rect x="3" y="4" width="18" height="18" rx="2" />
-    <path d="M16 2v4" />
-    <path d="M8 2v4" />
-    <path d="M3 10h18" />
-  </svg>
-);
-
-const ToolsIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.7"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    <path d="m14.7 6.3 3-3a3.4 3.4 0 0 1 1.5 5.7l-2.1 2.1 3.8 3.8-3 3-3.8-3.8-6.2 6.2a2.1 2.1 0 0 1-3-3l6.2-6.2-4-4H5V5h2.1l4 4 2.1-2.1a3.4 3.4 0 0 1 1.5-.6Z" />
-    <path d="m5 5 4 4" />
-  </svg>
-);
 
 const DesktopIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
   <svg
@@ -2006,49 +1978,80 @@ export function OrdenDetalleClient() {
 
         {!loading && !error && orden && (
           <div className="space-y-2.5">
-            <section className="flex flex-col gap-3 rounded-xl border border-[var(--sg-border)] bg-[#252622] px-3 py-2 shadow-[var(--sg-shadow-card)] md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-normal text-[var(--sg-text-muted)]">
-                  Gestión de reparación
-                </p>
-                <h2 className="mt-0.5 flex flex-wrap items-center gap-2 text-xl font-extrabold uppercase tracking-tight text-[var(--sg-text-primary)]">
-                  <span>{orden.idVisible} - {orden.clienteNombre || "Cliente no disponible"}</span>
-                </h2>
-              </div>
-              <div className="flex flex-col items-start gap-1 md:items-end">
-                <div className="flex flex-wrap items-center gap-3">
-                  <div
-                    className={`relative w-56 ${
-                      estadoSaving || loading ? "pointer-events-none opacity-70" : ""
-                    }`}
-                  >
-                    <StatusFilterDropdown
-                      value={estadoSeleccionado}
-                      onChange={(value) => handleEstadoChange(value as EstadoOrden)}
-                      options={ESTADOS_ORDEN.map((estado) => ({
-                        value: estado,
-                        label: estado,
-                      }))}
-                      label=""
-                      className="text-left"
-                      dropdownClassName="max-w-[280px]"
-                      buttonClassName="!h-[26px] !rounded-[var(--sg-radius-sm)] !px-3 !py-0 !text-xs !font-extrabold !uppercase !tracking-wide !text-[var(--sg-lime)] !shadow-none"
-                    />
+            <section className="overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[#1E1F1C] shadow-[var(--sg-shadow-card)]">
+              <div className={`h-[3px] w-full ${
+                estadoSeleccionado === "En Proceso" ? "bg-[var(--sg-lime)]" :
+                estadoSeleccionado === "Completado" || estadoSeleccionado === "Finalizado Entregado" ? "bg-[var(--sg-success)]" :
+                estadoSeleccionado === "Esperando Respuesta" ? "bg-[var(--sg-warning)]" :
+                estadoSeleccionado === "Enviado a Reciclaje" ? "bg-[var(--sg-danger)]" :
+                "bg-[var(--sg-border)]"
+              }`} />
+              <div className="px-5 py-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <Link
+                      href="/tecnicos/ordenes"
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                      Volver a órdenes
+                    </Link>
+                    <p className="mt-2 font-mono text-[2.4rem] font-black leading-none tracking-tight text-[var(--sg-lime)]">
+                      {orden.idVisible}
+                    </p>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                      <span className="text-sm text-[var(--sg-text-muted)]">
+                        {[orden.tipoOrden, formatDate(orden.fechaIngreso)].filter(Boolean).join(" · ")}
+                      </span>
+                      <span className="select-none text-[var(--sg-border)]">|</span>
+                      <a
+                        href={`/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/imprimir/ticket`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]"
+                      >
+                        <PrintIcon className="h-3.5 w-3.5" />
+                        Constancia
+                      </a>
+                      <a
+                        href={`/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/imprimir/etiqueta`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]"
+                      >
+                        <PrintIcon className="h-3.5 w-3.5" />
+                        Etiqueta
+                      </a>
+                    </div>
                   </div>
-                  <Link
-                    href="/tecnicos/ordenes"
-                    className="inline-flex h-[26px] items-center justify-center rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 text-xs font-extrabold uppercase tracking-wide text-[var(--sg-text-on-accent)] transition hover:brightness-105"
-                  >
-                    Volver a órdenes
-                  </Link>
+                  <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
+                    <div
+                      className={`relative w-52 ${
+                        estadoSaving || loading ? "pointer-events-none opacity-70" : ""
+                      }`}
+                    >
+                      <StatusFilterDropdown
+                        value={estadoSeleccionado}
+                        onChange={(value) => handleEstadoChange(value as EstadoOrden)}
+                        options={ESTADOS_ORDEN.map((estado) => ({
+                          value: estado,
+                          label: estado,
+                        }))}
+                        label=""
+                        className="text-left"
+                        dropdownClassName="max-w-[280px]"
+                        buttonClassName="!h-[28px] !rounded-full !px-3.5 !py-0 !text-xs !font-bold !uppercase !tracking-wide !text-[var(--sg-lime)] !shadow-none !border !border-[var(--sg-lime)]/30"
+                      />
+                    </div>
+                    {(estadoSaving || estadoMessage || estadoError) && (
+                      <div className="min-h-4 text-[11px] text-[var(--sg-text-muted)]">
+                        {estadoSaving && <span className="text-[var(--sg-lime)]">Guardando...</span>}
+                        {!estadoSaving && estadoMessage && <span>{estadoMessage}</span>}
+                        {estadoError && <span className="text-red-400">{estadoError}</span>}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                {(estadoSaving || estadoMessage || estadoError) && (
-                  <div className="min-h-4 text-[11px] text-[var(--sg-text-muted)]">
-                    {estadoSaving && <span className="text-[var(--sg-lime)]">Guardando...</span>}
-                    {!estadoSaving && estadoMessage && <span>{estadoMessage}</span>}
-                    {estadoError && <span className="text-red-400">{estadoError}</span>}
-                  </div>
-                )}
               </div>
             </section>
 
@@ -2118,17 +2121,14 @@ export function OrdenDetalleClient() {
               </section>
             )}
 
-            <div className="grid items-start gap-2.5 xl:grid-cols-[minmax(0,1.6fr)_minmax(310px,0.75fr)]">
+            <div className="grid items-start gap-2.5 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.75fr)]">
               <div className="min-w-0 space-y-2.5">
                 <section className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
-                  <p className="border-b border-[var(--sg-divider)] pb-2 text-[11px] font-semibold uppercase tracking-normal text-[var(--sg-text-muted)]">
-                    Información general
-                  </p>
-
-                  <div className="grid gap-3 pt-3 lg:grid-cols-3 lg:gap-0">
+                  <div className="grid gap-4 lg:grid-cols-2 lg:gap-0">
                     {/* CLIENTE */}
-                    <div className="min-w-0 lg:pr-5">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Cliente</p>
+                    <div className="relative min-w-0 lg:pl-3 lg:pr-6">
+                      <div className="absolute inset-y-0 left-0 hidden w-px bg-[var(--sg-lime)]/30 lg:block" />
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]/70">Cliente</p>
                       <div className="mt-1.5 space-y-1">
                         <InlineEditField
                           value={orden.clienteNombre}
@@ -2138,7 +2138,7 @@ export function OrdenDetalleClient() {
                         />
                         <div className="flex items-center gap-1.5">
                           <PhoneIcon className="h-3.5 w-3.5 shrink-0 text-[var(--sg-text-muted)]" />
-                          <div className="min-w-0 flex-1">
+                          <div className="min-w-0">
                             <InlineEditField
                               value={orden.telefono}
                               onSave={(v) => saveOrdenField("telefono", v)}
@@ -2174,29 +2174,8 @@ export function OrdenDetalleClient() {
                       </div>
                     </div>
 
-                    {/* DATOS DE LA ORDEN */}
-                    <div className="min-w-0 border-t border-[var(--sg-divider)] pt-3 lg:border-l lg:border-t-0 lg:px-5 lg:pt-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Datos de la orden</p>
-                      <div className="mt-1.5 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <CalendarIcon className="h-4 w-4 shrink-0 text-[var(--sg-text-muted)]" />
-                          <div className="min-w-0">
-                            <p className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">Fecha de ingreso</p>
-                            <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{formatDate(orden.fechaIngreso)}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <ToolsIcon className="h-4 w-4 shrink-0 text-[var(--sg-text-muted)]" />
-                          <div className="min-w-0">
-                            <p className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">Tipo de servicio</p>
-                            <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{orden.tipoOrden || "No disponible"}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
                     {/* DISPOSITIVO */}
-                    <div className="min-w-0 border-t border-[var(--sg-divider)] pt-3 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+                    <div className="min-w-0 border-t border-[var(--sg-divider)] pt-3 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Dispositivo</p>
                       <div className="mt-1.5 space-y-2">
                         <div className="flex items-start gap-2">
@@ -2230,7 +2209,7 @@ export function OrdenDetalleClient() {
             <section className="grid gap-2 md:grid-cols-2">
               <div className="relative overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2.5 shadow-[var(--sg-shadow-card)]">
                 <div className="absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-[var(--sg-lime)]" />
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]">Ingresa por</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]">Motivo de ingreso</p>
                 <div className="mt-1">
                   <InlineEditField
                     value={orden.ingresaPor === "No disponible" ? "" : orden.ingresaPor}
@@ -2257,225 +2236,33 @@ export function OrdenDetalleClient() {
               </div>
             </section>
 
-            <section className="space-y-3 rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
+            <section className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
               <div className="flex items-center justify-between border-b border-[var(--sg-divider)] pb-2">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">
-                    Actividad
+                <div className="flex items-center gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
+                    Historial
                   </p>
-                  <h3 className="mt-1 text-lg font-extrabold tracking-wide text-[var(--sg-text-primary)]">
-                    Historial de estados
-                  </h3>
+                  <span className="rounded-full bg-[var(--sg-panel)] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--sg-text-secondary)]">
+                    {orden.historial.length}
+                  </span>
                 </div>
-                <span className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-1 text-xs font-semibold text-[var(--sg-text-secondary)]">
-                  {orden.historial.length} movimientos
-                </span>
+                {!inlineEditing && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInlineEditing(true);
+                      setTimeout(() => inlineInputRef.current?.focus(), 10);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border border-[var(--sg-lime)]/40 px-2.5 py-0.5 text-[11px] font-semibold text-[var(--sg-lime)] transition hover:border-[var(--sg-lime)] hover:bg-[var(--sg-lime-soft)]"
+                  >
+                    <span aria-hidden>+</span> Agregar
+                  </button>
+                )}
               </div>
-              {orden.historial.length === 0 ? (
-                <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-sm text-[var(--sg-text-secondary)]">
-                  Sin historial registrado.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {orden.historial.map((item) => {
-                    const title = buildTimelineTitle(item.estadoNuevo);
-                    const notaLimpia = (item.nota ?? "").trim();
-                    const showNota =
-                      notaLimpia &&
-                      notaLimpia.toLowerCase() !== title.toLowerCase();
-                    const isEditing = editingId === item.id;
-                    const isMensajeLoading = mensajeLoading[item.id];
-                    const actionButtonClass =
-                      "inline-flex h-8 w-8 items-center justify-center rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)] disabled:cursor-not-allowed disabled:opacity-50";
-                    return (
-                      <div
-                        key={item.id}
-                        className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3 text-sm text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)]/50 hover:bg-[#2D2E2A]"
-                      >
-                        <div className="flex flex-col gap-2 border-b border-[var(--sg-divider)] pb-2 sm:flex-row sm:items-start sm:justify-between">
-                          <span className="inline-flex w-fit whitespace-nowrap rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-1.5 text-xs leading-5 text-[var(--sg-text-muted)]">
-                            {formatTimelineDate(item.fecha)}
-                          </span>
 
-                          <div className="flex shrink-0 flex-wrap items-center gap-2 text-[12px] text-[var(--sg-text-muted)] sm:justify-end">
-                            <button
-                              type="button"
-                              onClick={() => handleStartEdit(item)}
-                              className={actionButtonClass}
-                              title="Editar estado"
-                              aria-label="Editar estado"
-                              disabled={editingSaving && isEditing}
-                            >
-                              <EditIcon className="h-4 w-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleGenerarMensaje(item.id)}
-                              className={actionButtonClass}
-                              title={item.estadoGeneradoIA ? "Regenerar mensaje IA" : "Generar mensaje IA"}
-                              aria-label={item.estadoGeneradoIA ? "Regenerar mensaje IA" : "Generar mensaje IA"}
-                              disabled={isMensajeLoading || editingId === item.id}
-                            >
-                              {isMensajeLoading ? (
-                                <span className="h-3 w-3 animate-spin rounded-full border border-[var(--sg-lime)] border-t-transparent" />
-                              ) : (
-                                <RefreshIcon className="h-4 w-4" />
-                              )}
-                            </button>
-                            {item.estadoGeneradoIA && (
-                              <button
-                                type="button"
-                                onClick={() => toggleMensajeVisible(item.id)}
-                                className="inline-flex items-center gap-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 py-1 text-[12px] font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)]"
-                                title={mensajeVisible[item.id] ? "Ocultar mensaje" : "Ver mensaje"}
-                                aria-label={mensajeVisible[item.id] ? "Ocultar mensaje" : "Ver mensaje"}
-                              >
-                                <EyeIcon className="h-3.5 w-3.5" off={mensajeVisible[item.id]} />
-                                {mensajeVisible[item.id] ? "Ocultar" : "Ver"}
-                              </button>
-                            )}
-                            {item.estadoGeneradoIA && (
-                              <button
-                                type="button"
-                                onClick={() => handleWhatsappSend(item.id, item.estadoGeneradoIA)}
-                                className={actionButtonClass}
-                                title="Enviar por WhatsApp"
-                                aria-label="Enviar por WhatsApp"
-                              >
-                                <WhatsappIcon className="h-4 w-4 text-[var(--sg-lime)]" />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setDeleteConfirmId((prev) => (prev === item.id ? null : item.id))
-                              }
-                              className={actionButtonClass}
-                              title="Eliminar estado"
-                              aria-label="Eliminar estado"
-                              disabled={deletingId === item.id}
-                            >
-                              {deletingId === item.id ? (
-                                <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
-                              ) : (
-                                <TrashIcon className="h-4 w-4" />
-                              )}
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="min-w-0 max-w-none space-y-2 pt-2">
-                          {isEditing ? (
-                            <div className="space-y-1">
-                              <textarea
-                                ref={editInlineRef}
-                                value={editingValue}
-                                onChange={(e) => setEditingValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleSaveEdicion();
-                                  }
-                                  if (e.key === "Escape") {
-                                    e.preventDefault();
-                                    resetEditing();
-                                  }
-                                }}
-                                onBlur={handleBlurEdicion}
-                                rows={3}
-                                className="w-full resize-none rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-sm leading-relaxed text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                                placeholder="Ajusta el estado"
-                                disabled={editingSaving}
-                              />
-                              <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--sg-text-muted)]">
-                                <span>Enter guarda · Esc cancela</span>
-                                {editingSaving && <span className="text-[var(--sg-lime)]">Guardando...</span>}
-                                {editingError && <span className="text-red-400">{editingError}</span>}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              <p className="w-full min-w-0 whitespace-pre-wrap text-base font-semibold leading-relaxed text-[var(--sg-text-primary)]">
-                                {title}
-                              </p>
-                              {item.tecnicoNombre && (
-                                <div className="text-xs leading-4 text-[var(--sg-text-muted)]">
-                                  {item.tecnicoNombre}
-                                </div>
-                              )}
-                              {showNota && (
-                                <div className="w-full max-w-none whitespace-pre-wrap text-sm leading-relaxed text-[var(--sg-text-secondary)]">
-                                  {notaLimpia}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          <div className="flex flex-wrap items-center gap-3 border-t border-[var(--sg-divider)] pt-3 text-[12px] text-[var(--sg-text-muted)]">
-                            {isMensajeLoading && <span className="text-[var(--sg-lime)]">Generando mensaje...</span>}
-                            {mensajeError[item.id] && (
-                              <span className="text-red-400">{mensajeError[item.id]}</span>
-                            )}
-                            {whatsappError[item.id] && (
-                              <span className="text-red-400">{whatsappError[item.id]}</span>
-                            )}
-                            {!item.estadoGeneradoIA && !isMensajeLoading && (
-                              <span>Aún sin mensaje IA</span>
-                            )}
-                          </div>
-                          {item.estadoGeneradoIA && mensajeVisible[item.id] && (
-                            <div className="mt-2 w-full max-w-none whitespace-pre-wrap rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 text-sm leading-relaxed text-[var(--sg-text-secondary)]">
-                              {item.estadoGeneradoIA}
-                            </div>
-                          )}
-                          {deleteConfirmId === item.id && (
-                            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
-                              <span className="text-[var(--sg-text-muted)]">¿Eliminar este estado del historial?</span>
-                              <button
-                                type="button"
-                                onClick={() => setDeleteConfirmId(null)}
-                                className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] px-2 py-1 text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
-                                disabled={deletingId === item.id}
-                              >
-                                Cancelar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteConfirm(item.id)}
-                                className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2 py-1 text-[var(--sg-danger)] transition hover:brightness-110 disabled:opacity-60"
-                                disabled={deletingId === item.id}
-                              >
-                                Eliminar
-                              </button>
-                              {deleteError && <span className="text-red-400">{deleteError}</span>}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {!inlineEditing ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInlineEditing(true);
-                    setTimeout(() => inlineInputRef.current?.focus(), 10);
-                  }}
-                  className="mt-2 w-full rounded-[var(--sg-radius-sm)] border border-dashed border-[var(--sg-lime)] bg-transparent px-3 py-2 text-left text-sm font-semibold text-[var(--sg-lime)] transition hover:bg-[var(--sg-lime-soft)] hover:text-[var(--sg-text-primary)]"
-                >
-                  + Agregar estado
-                </button>
-              ) : (
-                <div className="mt-3 rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-4 text-sm text-[var(--sg-text-primary)]">
-                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--sg-divider)] pb-3">
-                    <span className="inline-flex w-fit whitespace-nowrap rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-1.5 text-xs leading-5 text-[var(--sg-text-muted)]">
-                      Ahora
-                    </span>
-                  </div>
-                  <div className="space-y-1">
+              {inlineEditing && (
+                <div className="mt-2.5 rounded-[var(--sg-radius-md)] border border-[var(--sg-lime)]/30 bg-[var(--sg-panel)] px-3 py-3">
+                  <div className="space-y-1.5">
                     <textarea
                       ref={inlineInputRef}
                       value={avanceTexto}
@@ -2497,17 +2284,191 @@ export function OrdenDetalleClient() {
                       }}
                       rows={2}
                       className="w-full resize-none rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-sm leading-relaxed text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                      placeholder="Escribe una actualización rápida"
+                      placeholder="Escribe una actualización rápida…"
                       disabled={saving}
                     />
                     {nuevoEstadoError && (
                       <p className="text-xs text-red-400">{nuevoEstadoError}</p>
                     )}
                     <div className="flex items-center gap-3 text-[11px] text-[var(--sg-text-muted)]">
-                      <span>Enter para guardar · Esc para cancelar</span>
-                      {saving && <span className="text-[var(--sg-lime)]">Guardando...</span>}
+                      <span>Enter guarda · Esc cancela</span>
+                      {saving && <span className="text-[var(--sg-lime)]">Guardando…</span>}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {orden.historial.length === 0 && !inlineEditing ? (
+                <p className="mt-2.5 rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-sm text-[var(--sg-text-secondary)]">
+                  Sin historial registrado.
+                </p>
+              ) : (
+                <div className="mt-1 divide-y divide-[var(--sg-divider)]">
+                  {orden.historial.map((item) => {
+                    const title = buildTimelineTitle(item.estadoNuevo);
+                    const notaLimpia = (item.nota ?? "").trim();
+                    const showNota =
+                      notaLimpia &&
+                      notaLimpia.toLowerCase() !== title.toLowerCase();
+                    const isEditing = editingId === item.id;
+                    const isMensajeLoading = mensajeLoading[item.id];
+                    const actionButtonClass =
+                      "inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--sg-text-muted)] transition hover:bg-[var(--sg-panel)] hover:text-[var(--sg-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)] disabled:cursor-not-allowed disabled:opacity-40";
+                    return (
+                      <div
+                        key={item.id}
+                        className="group py-2.5 text-sm text-[var(--sg-text-primary)]"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            {isEditing ? (
+                              <div className="space-y-1">
+                                <textarea
+                                  ref={editInlineRef}
+                                  value={editingValue}
+                                  onChange={(e) => setEditingValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && !e.shiftKey) {
+                                      e.preventDefault();
+                                      handleSaveEdicion();
+                                    }
+                                    if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      resetEditing();
+                                    }
+                                  }}
+                                  onBlur={handleBlurEdicion}
+                                  rows={3}
+                                  className="w-full resize-none rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm leading-relaxed text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
+                                  placeholder="Ajusta el estado"
+                                  disabled={editingSaving}
+                                />
+                                <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--sg-text-muted)]">
+                                  <span>Enter guarda · Esc cancela</span>
+                                  {editingSaving && <span className="text-[var(--sg-lime)]">Guardando…</span>}
+                                  {editingError && <span className="text-red-400">{editingError}</span>}
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <p className="font-semibold leading-snug text-[var(--sg-text-primary)]">{title}</p>
+                                {showNota && (
+                                  <p className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--sg-text-secondary)]">
+                                    {notaLimpia}
+                                  </p>
+                                )}
+                                <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[11px] text-[var(--sg-text-muted)]">
+                                  <span>{formatTimelineDate(item.fecha)}</span>
+                                  {item.creadoPorNombre ? (
+                                    <>
+                                      <span className="select-none">·</span>
+                                      <span>{item.creadoPorNombre}</span>
+                                    </>
+                                  ) : item.tecnicoNombre ? (
+                                    <>
+                                      <span className="select-none">·</span>
+                                      <span>{item.tecnicoNombre}</span>
+                                    </>
+                                  ) : null}
+                                  {isMensajeLoading && <span className="text-[var(--sg-lime)]">Generando…</span>}
+                                  {mensajeError[item.id] && <span className="text-red-400">{mensajeError[item.id]}</span>}
+                                  {whatsappError[item.id] && <span className="text-red-400">{whatsappError[item.id]}</span>}
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEdit(item)}
+                              className={actionButtonClass}
+                              title="Editar"
+                              disabled={editingSaving && isEditing}
+                            >
+                              <EditIcon className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleGenerarMensaje(item.id)}
+                              className={actionButtonClass}
+                              title={item.estadoGeneradoIA ? "Regenerar mensaje IA" : "Generar mensaje IA"}
+                              disabled={isMensajeLoading || editingId === item.id}
+                            >
+                              {isMensajeLoading ? (
+                                <span className="h-3 w-3 animate-spin rounded-full border border-[var(--sg-lime)] border-t-transparent" />
+                              ) : (
+                                <RefreshIcon className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                            {item.estadoGeneradoIA && (
+                              <button
+                                type="button"
+                                onClick={() => toggleMensajeVisible(item.id)}
+                                className={actionButtonClass}
+                                title={mensajeVisible[item.id] ? "Ocultar mensaje IA" : "Ver mensaje IA"}
+                              >
+                                <EyeIcon className="h-3.5 w-3.5" off={mensajeVisible[item.id]} />
+                              </button>
+                            )}
+                            {item.estadoGeneradoIA && (
+                              <button
+                                type="button"
+                                onClick={() => handleWhatsappSend(item.id, item.estadoGeneradoIA)}
+                                className={actionButtonClass}
+                                title="Enviar por WhatsApp"
+                              >
+                                <WhatsappIcon className="h-3.5 w-3.5 text-[var(--sg-lime)]" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDeleteConfirmId((prev) => (prev === item.id ? null : item.id))
+                              }
+                              className={`${actionButtonClass} hover:text-[var(--sg-danger)]`}
+                              title="Eliminar"
+                              disabled={deletingId === item.id}
+                            >
+                              {deletingId === item.id ? (
+                                <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
+                              ) : (
+                                <TrashIcon className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        {item.estadoGeneradoIA && mensajeVisible[item.id] && (
+                          <div className="mt-2 whitespace-pre-wrap rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2.5 text-[0.8125rem] leading-relaxed text-[var(--sg-text-secondary)]">
+                            {item.estadoGeneradoIA}
+                          </div>
+                        )}
+                        {deleteConfirmId === item.id && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
+                            <span className="flex-1 text-[var(--sg-text-muted)]">¿Eliminar este estado?</span>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirmId(null)}
+                              className="rounded border border-[var(--sg-border)] px-2 py-0.5 text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
+                              disabled={deletingId === item.id}
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteConfirm(item.id)}
+                              className="rounded border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2 py-0.5 text-[var(--sg-danger)] transition hover:brightness-110 disabled:opacity-60"
+                              disabled={deletingId === item.id}
+                            >
+                              Eliminar
+                            </button>
+                            {deleteError && <span className="text-red-400">{deleteError}</span>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -2519,13 +2480,12 @@ export function OrdenDetalleClient() {
                 }`}
               >
                 <section className="relative isolate h-full space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
-              <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] pb-4">
+              <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] pb-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">
-                    Inventario aplicado
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
+                    Repuestos usados
                   </p>
-                  <h3 className="mt-1 text-lg font-extrabold text-[var(--sg-text-primary)]">Repuestos usados</h3>
-                  <p className="mt-1 text-xs text-[var(--sg-text-muted)]">
+                  <p className="mt-0.5 text-xs text-[var(--sg-text-muted)]">
                     {orden.repuestosPorOrden?.length ?? 0} líneas registradas
                   </p>
                 </div>
@@ -2797,13 +2757,12 @@ export function OrdenDetalleClient() {
                 }`}
               >
                 <section className="relative isolate h-full space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
-              <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] pb-4">
+              <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] pb-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--sg-text-muted)]">
-                    Mano de obra
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
+                    Servicios
                   </p>
-                  <h3 className="mt-1 text-lg font-extrabold text-[var(--sg-text-primary)]">Servicios</h3>
-                  <p className="mt-1 text-xs text-[var(--sg-text-muted)]">
+                  <p className="mt-0.5 text-xs text-[var(--sg-text-muted)]">
                     {orden.serviciosPorOrden?.length ?? 0} líneas registradas
                   </p>
                 </div>
@@ -3025,71 +2984,33 @@ export function OrdenDetalleClient() {
             </div>
           </div>
 
-          <aside className="min-w-0 space-y-2.5 xl:sticky xl:top-20">
-            <section className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
-              <div className="space-y-1">
-                <p className="text-[11px] font-semibold uppercase tracking-normal text-[var(--sg-text-muted)]">
-                  Documentos de taller
-                </p>
-                <h3 className="text-base font-extrabold uppercase leading-tight tracking-wide text-[var(--sg-text-primary)]">
-                  Impresión
-                </h3>
-                <p className="max-w-[36ch] text-sm leading-5 text-[var(--sg-text-secondary)]">
-                  Tickets y etiqueta operativa para recepción e identificación del equipo.
-                </p>
-              </div>
-              <div className="mt-3 grid gap-1.5">
-                <a
-                  href={`/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/imprimir/ticket`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 text-sm font-bold text-[var(--sg-text-on-accent)] transition hover:brightness-105"
-                >
-                  <PrintIcon className="h-4 w-4" />
-                  Imprimir constancia
-                </a>
-                <a
-                  href={`/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/imprimir/etiqueta`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] px-3 text-sm font-semibold text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-lime)]"
-                >
-                  <PrintIcon className="h-4 w-4" />
-                  Imprimir etiqueta
-                </a>
-              </div>
-            </section>
+          <aside className="min-w-0 flex flex-col gap-2.5 xl:sticky xl:top-20">
+            <div className="order-3">
+              <OrdenDocumentosCard
+                ordenId={orden.recordId}
+                documentos={orden.documentos ?? []}
+                onOrdenUpdated={(updatedOrden) => setOrden(updatedOrden as OrdenDetalle)}
+              />
+            </div>
 
-            <OrdenDocumentosCard
-              ordenId={orden.recordId}
-              documentos={orden.documentos ?? []}
-              onOrdenUpdated={(updatedOrden) => setOrden(updatedOrden as OrdenDetalle)}
-            />
+            <div className="order-2">
+              <OrdenCotizacionCard
+                orden={orden}
+                onLinked={(cotizacionId, cotizacionCodigo) =>
+                  setOrden((prev) => prev ? { ...prev, cotizacionId, cotizacionCodigo } : prev)
+                }
+              />
+            </div>
 
-            <OrdenCotizacionCard
-              orden={orden}
-              onLinked={(cotizacionId, cotizacionCodigo) =>
-                setOrden((prev) => prev ? { ...prev, cotizacionId, cotizacionCodigo } : prev)
-              }
-            />
-
-            <section className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
-              <div className="space-y-1">
-                <p className="text-[11px] font-semibold uppercase tracking-normal text-[var(--sg-text-muted)]">
-                  Resumen financiero
-                </p>
-                <h3 className="text-base font-extrabold uppercase leading-tight tracking-wide text-[var(--sg-text-primary)]">
-                  Presupuesto y Abonos
-                </h3>
-                <p className="max-w-[36ch] text-sm leading-5 text-[var(--sg-text-secondary)]">
-                  Resumen financiero con campos NV y movimientos de abonos de esta orden.
-                </p>
-              </div>
+            <section className="order-1 rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
+                Resumen financiero
+              </p>
 
               {abonoMessage && (
-                <div className="mt-6 flex items-center gap-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-success)] bg-[var(--sg-success-soft)] px-4 py-2.5 text-sm text-[var(--sg-text-primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-                  <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--sg-success)] text-[var(--sg-text-on-accent)]">
-                    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5 fill-current">
+                <div className="mb-3 flex items-center gap-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-success)] bg-[var(--sg-success-soft)] px-3 py-2 text-sm text-[var(--sg-text-primary)]">
+                  <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--sg-success)] text-[var(--sg-text-on-accent)]">
+                    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3 w-3 fill-current">
                       <path d="M8.35 13.2 4.9 9.75l1.06-1.06 2.39 2.39 5.69-5.69 1.06 1.06-6.75 6.75Z" />
                     </svg>
                   </span>
@@ -3097,71 +3018,67 @@ export function OrdenDetalleClient() {
                 </div>
               )}
 
-              <div className="mt-3 grid grid-cols-1 overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-divider)] sm:grid-cols-3 sm:grid-rows-2">
-                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-card)] px-3 py-2.5 sm:border-r">
-                  <p className="text-[0.72rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-secondary)]">
-                    Repuestos (NV)
-                  </p>
-                  <p className="mt-1 text-base font-extrabold leading-none text-[var(--sg-text-primary)]">
-                    {formatCurrency(orden.costoTotalRepuestosNV)}
-                  </p>
-                </div>
-                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-card)] px-3 py-2.5 sm:border-r">
-                  <p className="text-[0.72rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-secondary)]">
-                    Servicios (NV)
-                  </p>
-                  <p className="mt-1 text-base font-extrabold leading-none text-[var(--sg-text-muted)]">
-                    {formatCurrency(orden.costoTotalServiciosNV)}
-                  </p>
-                </div>
-                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-warning-soft)] px-3 py-2.5 sm:border-b-0">
-                  <p className="text-[0.72rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-secondary)]">
-                    Saldo (NV)
-                  </p>
-                  <p className="mt-1 text-base font-extrabold leading-none text-[var(--sg-warning)]">
-                    {formatCurrency(orden.saldoNV)}
-                  </p>
-                </div>
-                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-lime-soft)] px-3 py-2.5 sm:border-b-0 sm:border-r">
-                  <p className="text-[0.72rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-secondary)]">
-                    Total a pagar (NV)
-                  </p>
-                  <p className="mt-1 text-base font-extrabold leading-none text-[var(--sg-lime)]">
+              {/* Saldo hero */}
+              <div className="mb-3 rounded-xl border border-[var(--sg-lime)]/20 bg-[var(--sg-lime)]/5 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]/60">Saldo pendiente</p>
+                <p className="mt-1 text-[1.75rem] font-black leading-none tabular-nums text-[var(--sg-lime)]">
+                  {formatCurrency(orden.saldoNV)}
+                </p>
+              </div>
+
+              {/* Breakdown grid */}
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-divider)]">
+                <div className="bg-[var(--sg-card)] px-3 py-2.5">
+                  <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Total a pagar</p>
+                  <p className="mt-0.5 text-sm font-extrabold leading-none tabular-nums text-[var(--sg-lime)]">
                     {formatCurrency(orden.totalAPagarNV)}
                   </p>
                 </div>
-                <div className="border-b border-[var(--sg-divider)] bg-[var(--sg-card)] px-3 py-2.5 sm:border-b-0 sm:border-r">
-                  <p className="text-[0.72rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-secondary)]">
-                    Total abonado (NV)
-                  </p>
-                  <p className="mt-1 text-base font-extrabold leading-none text-[var(--sg-text-muted)]">
+                <div className="bg-[var(--sg-card)] px-3 py-2.5">
+                  <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Total abonado</p>
+                  <p className="mt-0.5 text-sm font-extrabold leading-none tabular-nums text-[var(--sg-lime)]">
                     {formatCurrency(orden.totalAbonadoNV)}
                   </p>
                 </div>
-                <div className="hidden bg-[var(--sg-card)] sm:block" aria-hidden="true" />
+                <div className="bg-[var(--sg-panel)] px-3 py-2">
+                  <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Repuestos</p>
+                  <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
+                    {formatCurrency(orden.costoTotalRepuestosNV)}
+                  </p>
+                </div>
+                <div className="bg-[var(--sg-panel)] px-3 py-2">
+                  <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Servicios</p>
+                  <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
+                    {formatCurrency(orden.costoTotalServiciosNV)}
+                  </p>
+                </div>
               </div>
 
               <div className="mt-4 space-y-2">
-                <h4 className="text-sm font-extrabold uppercase leading-tight tracking-wide text-[var(--sg-text-primary)]">
-                  ABONOS REGISTRADOS ({(orden.abonosPorOrden ?? []).length} MOVIMIENTOS)
-                </h4>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Abonos</p>
+                    <span className="rounded-full bg-[var(--sg-panel)] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--sg-text-secondary)]">
+                      {(orden.abonosPorOrden ?? []).length}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAbonoError(null);
+                      setAbonoMessage(null);
+                      setOpenAbonoModal(true);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border border-[var(--sg-lime)]/40 px-2.5 py-0.5 text-[11px] font-semibold text-[var(--sg-lime)] transition hover:border-[var(--sg-lime)] hover:bg-[var(--sg-lime-soft)]"
+                  >
+                    <span aria-hidden>+</span> Registrar
+                  </button>
+                </div>
 
                 {(orden.abonosPorOrden ?? []).length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-center">
-                    <div className="mx-auto mb-5 inline-flex h-11 w-11 items-center justify-center rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] text-[var(--sg-text-muted)]">
-                      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-6 w-6" fill="none">
-                        <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="1.8" />
-                        <path d="M12 8v4l2 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                        <path d="M6 6l12 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                      </svg>
-                    </div>
-                    <p className="text-[0.95rem] font-semibold leading-6 text-[var(--sg-text-primary)]">
-                      Aún no hay abonos registrados para esta orden.
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-[var(--sg-text-secondary)]">
-                      Registra un abono para empezar a controlar el saldo.
-                    </p>
-                  </div>
+                  <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3 text-sm text-[var(--sg-text-secondary)]">
+                    Sin abonos registrados.
+                  </p>
                 ) : (
                   <div className="space-y-2">
                     {(orden.abonosPorOrden ?? []).map((abono) => {
@@ -3344,19 +3261,6 @@ export function OrdenDetalleClient() {
                 )}
               </div>
 
-              <div className="flex justify-center border-t border-[var(--sg-divider)] pt-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAbonoError(null);
-                    setAbonoMessage(null);
-                    setOpenAbonoModal(true);
-                  }}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-4 text-sm font-bold text-[var(--sg-text-on-accent)] transition hover:brightness-105 focus:outline-none focus:ring-2 focus:ring-[var(--sg-lime)] focus:ring-offset-2 focus:ring-offset-[var(--sg-bg)]"
-                >
-                  Registrar abono
-                </button>
-              </div>
             </section>
           </aside>
         </div>

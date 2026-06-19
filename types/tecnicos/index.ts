@@ -60,6 +60,9 @@ export interface HistorialEstado {
   creadoDesdeAppTecnico: boolean;
   estadoGeneradoIA?: string | null;
   solicitarMensajeCliente?: boolean;
+  creadoPorNombre?: string | null;
+  creadoPorEmail?: string | null;
+  creadoPorUsuarioId?: string | null;
 }
 
 // Repuesto cargado a una orden con costos separados.

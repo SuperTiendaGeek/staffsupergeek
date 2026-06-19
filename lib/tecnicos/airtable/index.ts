@@ -2370,6 +2370,9 @@ const mapHistorialRecord = (
     creadoDesdeAppTecnico: Boolean(f["Creado desde App TÃ©cnico"]),
     estadoGeneradoIA: safeString(f["Estado Generado IA"], "") || null,
     solicitarMensajeCliente: Boolean(f["Solicitar Mensaje Cliente"]),
+    creadoPorNombre: safeString(f["Creado por Nombre"], "") || null,
+    creadoPorEmail: safeString(f["Creado por Email"], "") || null,
+    creadoPorUsuarioId: safeString(f["Creado por Usuario ID"], "") || null,
   };
 };
 
@@ -2399,11 +2402,17 @@ export const updateOrdenEstado = async ({
   nuevoEstado,
   tecnicoId,
   tecnicoNombre,
+  creadoPorNombre,
+  creadoPorEmail,
+  creadoPorUsuarioId,
 }: {
   ordenRecordId: string;
   nuevoEstado: EstadoOrden;
   tecnicoId?: string | null;
   tecnicoNombre?: string | null;
+  creadoPorNombre?: string | null;
+  creadoPorEmail?: string | null;
+  creadoPorUsuarioId?: string | null;
 }): Promise<{ estadoActual: EstadoOrden; historial: HistorialEstado }> => {
   if (!ESTADOS_ORDEN.includes(nuevoEstado)) {
     throw new Error("Estado no permitido");
@@ -2430,6 +2439,9 @@ export const updateOrdenEstado = async ({
     estadoNuevo: nuevoEstado,
     tecnicoId,
     tecnicoNombre,
+    creadoPorNombre,
+    creadoPorEmail,
+    creadoPorUsuarioId,
   });
 
   return { estadoActual: nuevoEstado, historial };
@@ -2438,9 +2450,15 @@ export const updateOrdenEstado = async ({
 export const markOrdenBajaInterna = async ({
   ordenRecordId,
   daysWaiting,
+  creadoPorNombre,
+  creadoPorEmail,
+  creadoPorUsuarioId,
 }: {
   ordenRecordId: string;
   daysWaiting: number;
+  creadoPorNombre?: string | null;
+  creadoPorEmail?: string | null;
+  creadoPorUsuarioId?: string | null;
 }): Promise<{ estadoActual: EstadoOrden; historial: HistorialEstado }> => {
   const estado: EstadoOrden = "Enviado a Reciclaje";
   const client = getClient();
@@ -2462,6 +2480,9 @@ export const markOrdenBajaInterna = async ({
   const historial = await createHistorialEntrada({
     ordenRecordId,
     estadoNuevo: `Orden marcada como baja interna por política de abandono. Cliente sin respuesta durante ${daysWaiting} días.`,
+    creadoPorNombre,
+    creadoPorEmail,
+    creadoPorUsuarioId,
   });
 
   return { estadoActual: estado, historial };
@@ -2731,12 +2752,18 @@ export const createHistorialEntrada = async ({
   estadoNuevo,
   tecnicoId,
   tecnicoNombre,
+  creadoPorNombre,
+  creadoPorEmail,
+  creadoPorUsuarioId,
 }: {
   ordenRecordId: string;
   avanceTexto?: string;
   estadoNuevo?: string;
   tecnicoId?: string | null;
   tecnicoNombre?: string | null;
+  creadoPorNombre?: string | null;
+  creadoPorEmail?: string | null;
+  creadoPorUsuarioId?: string | null;
 }): Promise<HistorialEstado> => {
   const client = getClient();
   const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.historial)}`;
@@ -2756,6 +2783,10 @@ export const createHistorialEntrada = async ({
     "Creado desde App Tecnico",
   ];
 
+  // Intentamos primero con los campos de autor\u00eda; si Airtable no los tiene a\u00fan,
+  // el loop de fallback los omite en la \u00faltima pasada.
+  const useMetaFields = [true, false];
+
   let data:
     | {
         id: string;
@@ -2765,47 +2796,51 @@ export const createHistorialEntrada = async ({
     | null = null;
   let lastError: Error | null = null;
 
-  for (const ordenField of ordenFieldCandidates) {
-    for (const creadoDesdeAppField of creadoDesdeAppFieldCandidates) {
-      const fields: Record<string, unknown> = {
-        [ordenField]: [ordenRecordId],
-        "Estado Nuevo": texto,
-        [creadoDesdeAppField]: true,
-      };
-
-      if (tecnicoNombre) {
-        fields["Tecnico Nombre"] = tecnicoNombre;
-      }
-      if (tecnicoId) {
-        fields["Tecnico"] = [tecnicoId];
-      }
-
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          ...client.headers,
-        },
-        body: JSON.stringify({ fields }),
-      });
-
-      if (res.ok) {
-        data = (await res.json()) as {
-          id: string;
-          fields: Record<string, unknown>;
-          createdTime?: string;
+  outer: for (const withMeta of useMetaFields) {
+    for (const ordenField of ordenFieldCandidates) {
+      for (const creadoDesdeAppField of creadoDesdeAppFieldCandidates) {
+        const fields: Record<string, unknown> = {
+          [ordenField]: [ordenRecordId],
+          "Estado Nuevo": texto,
+          [creadoDesdeAppField]: true,
         };
-        break;
-      }
 
-      const text = await res.text();
-      const error = new Error(`Airtable error ${res.status}: ${text}`);
-      lastError = error;
-      if (!isUnknownAirtableFieldError(error.message)) {
-        throw error;
+        if (tecnicoNombre) {
+          fields["Tecnico Nombre"] = tecnicoNombre;
+        }
+        if (tecnicoId) {
+          fields["Tecnico"] = [tecnicoId];
+        }
+
+        if (withMeta) {
+          if (creadoPorNombre) fields["Creado por Nombre"] = creadoPorNombre;
+          if (creadoPorEmail) fields["Creado por Email"] = creadoPorEmail;
+          if (creadoPorUsuarioId) fields["Creado por Usuario ID"] = creadoPorUsuarioId;
+        }
+
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { ...client.headers },
+          body: JSON.stringify({ fields }),
+        });
+
+        if (res.ok) {
+          data = (await res.json()) as {
+            id: string;
+            fields: Record<string, unknown>;
+            createdTime?: string;
+          };
+          break outer;
+        }
+
+        const text = await res.text();
+        const error = new Error(`Airtable error ${res.status}: ${text}`);
+        lastError = error;
+        if (!isUnknownAirtableFieldError(error.message)) {
+          throw error;
+        }
       }
     }
-
-    if (data) break;
   }
 
   if (!data) {
