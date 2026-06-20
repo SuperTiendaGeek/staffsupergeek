@@ -29,7 +29,6 @@ type NuevoForm = {
   notasParaCliente: string;
   precioVentaCatalogo: string;
   colorPrincipal: string;
-  logoUrl: string;
   activo: boolean;
 };
 
@@ -42,7 +41,6 @@ const EMPTY_FORM: NuevoForm = {
   notasParaCliente: "",
   precioVentaCatalogo: "",
   colorPrincipal: "",
-  logoUrl: "",
   activo: true,
 };
 
@@ -236,6 +234,100 @@ function DetailModal({ item, onClose }: { item: CatalogoItem; onClose: () => voi
 
 // ─── Create modal ─────────────────────────────────────────────────────────────
 
+function LogoUploadZone({
+  preview,
+  uploading,
+  uploadError,
+  onFile,
+  onRemove,
+}: {
+  preview: string | null;
+  uploading: boolean;
+  uploadError: string | null;
+  onFile: (file: File) => void;
+  onRemove: () => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const handleFiles = (files: FileList | null) => {
+    const file = files?.[0];
+    if (file) onFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    handleFiles(e.dataTransfer.files);
+  };
+
+  if (preview) {
+    return (
+      <div className="relative flex items-center gap-3 rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] p-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={preview} alt="Logo" className="h-14 w-14 shrink-0 rounded-lg object-contain" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-[var(--sg-lime)]">
+            {uploading ? "Subiendo imagen..." : "Logo listo"}
+          </p>
+          {uploading && (
+            <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[var(--sg-border)]">
+              <div className="h-full w-1/2 animate-pulse rounded-full bg-[var(--sg-lime)]" />
+            </div>
+          )}
+          {uploadError && (
+            <p className="mt-0.5 text-[10px] text-[var(--sg-danger)]">{uploadError}</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--sg-border)] text-[var(--sg-text-muted)] transition hover:border-[var(--sg-danger)]/60 hover:text-[var(--sg-danger)]"
+          aria-label="Quitar logo"
+        >
+          <CloseIcon />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        onDragEnter={e => { e.preventDefault(); setDragging(true); }}
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        className={`flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-6 text-center transition ${
+          dragging
+            ? "border-[var(--sg-lime)] bg-[var(--sg-lime)]/5"
+            : "border-[var(--sg-border)] bg-[var(--sg-panel)] hover:border-[var(--sg-lime)]/50"
+        }`}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-8 w-8 text-[var(--sg-text-muted)]">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+        </svg>
+        <span className="text-xs text-[var(--sg-text-secondary)]">
+          <span className="font-semibold text-[var(--sg-lime)]">Haz clic</span> o arrastra una imagen aquí
+        </span>
+        <span className="text-[10px] text-[var(--sg-text-muted)]">JPG, PNG, WebP, SVG · máx. 5 MB</span>
+      </button>
+      {uploadError && (
+        <p className="mt-1 text-[10px] text-[var(--sg-danger)]">{uploadError}</p>
+      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
+        className="sr-only"
+        onChange={e => handleFiles(e.target.files)}
+      />
+    </div>
+  );
+}
+
 function CreateModal({
   onClose,
   onCreated,
@@ -247,15 +339,56 @@ function CreateModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Logo upload state
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoUploadedUrl, setLogoUploadedUrl] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
+
   const inputClass =
     "w-full rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)]/50 focus:border-[var(--sg-lime)]/70 focus:outline-none";
   const labelClass =
     "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]";
 
+  const handleLogoFile = async (file: File) => {
+    setLogoUploadError(null);
+    setLogoUploadedUrl(null);
+    const objectUrl = URL.createObjectURL(file);
+    setLogoPreview(objectUrl);
+    setLogoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/tecnicos/catalogo-productos-digitales/upload-logo", {
+        method: "POST",
+        body: fd,
+      });
+      const json = await res.json() as { success: boolean; url?: string; error?: string };
+      if (!json.success || !json.url) throw new Error(json.error ?? "Error al subir imagen");
+      setLogoUploadedUrl(json.url);
+    } catch (err) {
+      setLogoUploadError(err instanceof Error ? err.message : "Error al subir imagen");
+      setLogoUploadedUrl(null);
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
+  const handleLogoRemove = () => {
+    setLogoPreview(null);
+    setLogoUploadedUrl(null);
+    setLogoUploadError(null);
+    setLogoUploading(false);
+  };
+
   const handleSubmit = async () => {
     if (saving) return;
     if (!form.productoBase.trim()) {
       setError("El nombre del producto es requerido.");
+      return;
+    }
+    if (logoUploading) {
+      setError("Espera a que termine de subir el logo.");
       return;
     }
     setSaving(true);
@@ -265,16 +398,16 @@ function CreateModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          productoBase:       form.productoBase,
-          marca:              form.marca || null,
-          tipo:               form.tipo || null,
-          portalActivacion:   form.portalActivacion || null,
-          instruccionesPdf:   form.instruccionesPdf || null,
-          notasParaCliente:   form.notasParaCliente || null,
+          productoBase:        form.productoBase,
+          marca:               form.marca || null,
+          tipo:                form.tipo || null,
+          portalActivacion:    form.portalActivacion || null,
+          instruccionesPdf:    form.instruccionesPdf || null,
+          notasParaCliente:    form.notasParaCliente || null,
           precioVentaCatalogo: parseNum(form.precioVentaCatalogo),
-          colorPrincipal:     form.colorPrincipal || null,
-          activo:             form.activo,
-          logoUrl:            form.logoUrl || null,
+          colorPrincipal:      form.colorPrincipal || null,
+          activo:              form.activo,
+          logoUrl:             logoUploadedUrl,
         }),
       });
       const json = await res.json();
@@ -383,25 +516,16 @@ function CreateModal({
             />
           </div>
 
-          {/* Logo URL */}
+          {/* Logo */}
           <div>
-            <label className={labelClass}>URL del logo</label>
-            <input
-              type="url"
-              value={form.logoUrl}
-              onChange={e => setForm(f => ({ ...f, logoUrl: e.target.value }))}
-              placeholder="https://ejemplo.com/logo.png"
-              className={inputClass}
+            <label className={labelClass}>Logo</label>
+            <LogoUploadZone
+              preview={logoPreview}
+              uploading={logoUploading}
+              uploadError={logoUploadError}
+              onFile={file => void handleLogoFile(file)}
+              onRemove={handleLogoRemove}
             />
-            {form.logoUrl && isSafeUrl(form.logoUrl) && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={form.logoUrl}
-                alt="Vista previa"
-                className="mt-2 h-12 w-12 rounded-lg border border-[var(--sg-border)] object-contain p-1"
-                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-              />
-            )}
           </div>
 
           {/* Instructions */}
@@ -456,7 +580,7 @@ function CreateModal({
             <button
               type="button"
               onClick={() => void handleSubmit()}
-              disabled={saving}
+              disabled={saving || logoUploading}
               className="rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-4 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-50"
             >
               {saving ? "Creando..." : "Crear producto"}
@@ -466,13 +590,6 @@ function CreateModal({
       </div>
     </div>
   );
-}
-
-function isSafeUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:";
-  } catch { return false; }
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
