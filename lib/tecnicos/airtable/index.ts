@@ -15,6 +15,13 @@ import {
   AirtableAttachment,
 } from "@/types/tecnicos";
 
+// Attachment mínimo (id + url) usado para adjuntos simples de un campo.
+export interface AirtableSimpleAttachment {
+  id: string | null;
+  url: string;
+  filename: string | null;
+}
+
 // Cliente base para server actions o rutas /api sin exponer credenciales.
 export interface AirtableClient {
   baseUrl: string;
@@ -191,18 +198,44 @@ export interface FetchClientesPageOptions {
   q?: string | null;
 }
 
+// Catálogo maestro de productos digitales.
+export interface CatalogoProductoDigital {
+  id: string;
+  productoBase: string;
+  marca: string | null;
+  tipo: string | null;
+  portalActivacion: string | null;
+  instruccionesPdf: string | null;
+  notasParaCliente: string | null;
+  precioVentaCatalogo: number | null;
+  colorPrincipal: string | null;
+  activo: boolean;
+  logoUrl: string | null;
+  // link (privado) se omite intencionalmente: nunca exponer a cliente ni PDF
+}
+
 // Detalle
 // Producto digital del inventario. Las credenciales sensibles (clave, contraseña)
 // nunca se incluyen aquí; se obtienen por un endpoint separado con sesión activa.
 export interface ProductoDigital {
   id: string;
+  catalogoId: string | null;
   softwareProducto: string;
-  tipo: string | null;
+  // Lookups del catálogo
+  marcaProducto: string | null;
+  tipoProducto: string | null;
+  logoProductoUrl: string | null;
+  portalActivacionCatalogo: string | null;
+  instruccionesPdfCatalogo: string | null;
+  notasParaClienteCatalogo: string | null;
+  precioVentaCatalogo: number | null;
+  colorPrincipalProducto: string | null;
+  // Campos propios
   estado: string;
   proveedor: string | null;
   costoProveedor: number | null;
   precioVenta: number | null;
-  claveTruncada: string | null;   // primeros 6 chars + "***", nunca la clave completa
+  claveTruncada: string | null;
   usuarioCorreo: string | null;
   duracion: string | null;
   expira: string | null;
@@ -213,7 +246,10 @@ export interface ProductoDigital {
   tipoUso: string | null;
   usadoVendidoPor: string | null;
   observacionesInternas: string | null;
-  link: string | null;
+  // PDF audit
+  documentoPdfUrl: string | null;
+  documentoGeneradoPor: string | null;
+  fechaUltimoPdf: string | null;
 }
 
 export interface OrdenDetalle {
@@ -2888,22 +2924,90 @@ const truncarClave = (clave: string | null | undefined): string | null => {
   return clean.slice(0, 6) + "•••";
 };
 
+const firstAttachmentUrl = (value: unknown): string | null => {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const first = value[0] as { url?: unknown };
+  return typeof first.url === "string" && first.url ? first.url : null;
+};
+
+// Lookup fields return arrays. These helpers extract the first value safely.
+const firstLookupStr = (value: unknown): string | null => {
+  if (Array.isArray(value) && value.length > 0) {
+    const first = value[0];
+    if (typeof first === "string") return first || null;
+  }
+  if (typeof value === "string") return value || null;
+  return null;
+};
+
+const firstLookupNum = (value: unknown): number | null => {
+  if (Array.isArray(value) && value.length > 0) {
+    const first = value[0];
+    if (typeof first === "number" && Number.isFinite(first)) return first;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return null;
+};
+
+// Logo lookup comes as an array of attachment arrays: [[{url, ...}]]
+const firstLookupAttachmentUrl = (value: unknown): string | null => {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const first = value[0];
+  if (Array.isArray(first) && first.length > 0) {
+    const att = first[0] as { url?: unknown };
+    return typeof att?.url === "string" ? att.url : null;
+  }
+  if (first && typeof first === "object") {
+    const att = first as { url?: unknown };
+    return typeof att.url === "string" ? att.url : null;
+  }
+  return null;
+};
+
+const mapCatalogoProductoDigitalRecord = (
+  record: { id: string; fields: Record<string, unknown> }
+): CatalogoProductoDigital => {
+  const f = record.fields ?? {};
+  return {
+    id: record.id,
+    productoBase: safeString(f["Producto Base"], "Sin nombre"),
+    marca: firstLookupStr(f["Marca"]),
+    tipo: firstLookupStr(f["Tipo"]),
+    portalActivacion: safeString(f["Portal de Activación"], "") || null,
+    instruccionesPdf: safeString(f["Instrucciones PDF"], "") || null,
+    notasParaCliente: safeString(f["Notas para Cliente"], "") || null,
+    precioVentaCatalogo: firstNumber(f["Precio Venta"]),
+    colorPrincipal: safeString(f["Color Principal"], "") || null,
+    activo: f["Activo"] !== false,
+    logoUrl: firstAttachmentUrl(f["Logo"]),
+  };
+};
+
 const mapProductoDigitalRecord = (
   record: { id: string; fields: Record<string, unknown> }
 ): ProductoDigital => {
   const f = record.fields ?? {};
   const ordenIds = toLinkedRecordIds(f["Orden de Reparación"]);
   const clienteIds = toLinkedRecordIds(f["Cliente"]);
+  const catalogoIds = toLinkedRecordIds(f["Software / Producto"]);
   const claveRaw = typeof f["Clave de Activación"] === "string" ? f["Clave de Activación"] : null;
 
   return {
     id: record.id,
-    softwareProducto: safeString(f["Software / Producto"], "Sin nombre"),
-    tipo: safeString(f["Tipo"], "") || null,
+    catalogoId: catalogoIds[0] ?? null,
+    softwareProducto: safeString(f["Producto Digital"], "") || firstLookupStr(f["Nombre Producto"]) || "Sin nombre",
+    marcaProducto: firstLookupStr(f["Marca Producto"]),
+    tipoProducto: firstLookupStr(f["Tipo Producto"]),
+    logoProductoUrl: firstLookupAttachmentUrl(f["Logo Producto"]),
+    portalActivacionCatalogo: firstLookupStr(f["Portal de Activación Catálogo"]),
+    instruccionesPdfCatalogo: firstLookupStr(f["Instrucciones PDF Catálogo"]),
+    notasParaClienteCatalogo: firstLookupStr(f["Notas para Cliente Catálogo"]),
+    precioVentaCatalogo: firstLookupNum(f["Precio Venta Catálogo"]),
+    colorPrincipalProducto: firstLookupStr(f["Color Principal Producto"]),
     estado: safeString(f["Estado"], "Disponible"),
     proveedor: safeString(f["Proveedor"], "") || null,
-    costoProveedor: typeof f["Costo Proveedor"] === "number" ? f["Costo Proveedor"] : null,
-    precioVenta: typeof f["Precio Venta"] === "number" ? f["Precio Venta"] : null,
+    costoProveedor: firstNumber(f["Costo Proveedor"]),
+    precioVenta: firstNumber(f["Precio Venta"]),
     claveTruncada: truncarClave(claveRaw),
     usuarioCorreo: safeString(f["Usuario / Correo"], "") || null,
     duracion: safeString(f["Duración"], "") || null,
@@ -2915,7 +3019,9 @@ const mapProductoDigitalRecord = (
     tipoUso: safeString(f["Tipo de Uso"], "") || null,
     usadoVendidoPor: safeString(f["Usado/Vendido por"], "") || null,
     observacionesInternas: safeString(f["Observaciones Internas"], "") || null,
-    link: safeString(f["Link"], "") || null,
+    documentoPdfUrl: firstAttachmentUrl(f["Documento PDF"]),
+    documentoGeneradoPor: safeString(f["Documento generado por"], "") || null,
+    fechaUltimoPdf: safeString(f["Fecha último PDF"], "") || null,
   };
 };
 
@@ -2955,7 +3061,8 @@ export const fetchProductosDigitalesDisponibles = async (
     results = results.filter(
       (p) =>
         p.softwareProducto.toLowerCase().includes(q) ||
-        (p.tipo ?? "").toLowerCase().includes(q) ||
+        (p.tipoProducto ?? "").toLowerCase().includes(q) ||
+        (p.marcaProducto ?? "").toLowerCase().includes(q) ||
         (p.proveedor ?? "").toLowerCase().includes(q)
     );
   }
@@ -3006,7 +3113,8 @@ export const fetchAllProductosDigitales = async ({
     results = results.filter(
       (p) =>
         p.softwareProducto.toLowerCase().includes(q) ||
-        (p.tipo ?? "").toLowerCase().includes(q) ||
+        (p.tipoProducto ?? "").toLowerCase().includes(q) ||
+        (p.marcaProducto ?? "").toLowerCase().includes(q) ||
         (p.proveedor ?? "").toLowerCase().includes(q) ||
         (p.estado ?? "").toLowerCase().includes(q) ||
         (p.usadoVendidoPor ?? "").toLowerCase().includes(q)
@@ -3017,8 +3125,7 @@ export const fetchAllProductosDigitales = async ({
 };
 
 export const createProductoDigital = async ({
-  softwareProducto,
-  tipo,
+  catalogoId,
   estado = "Disponible",
   proveedor,
   costoProveedor,
@@ -3029,10 +3136,8 @@ export const createProductoDigital = async ({
   duracion,
   fechaCompra,
   observacionesInternas,
-  link,
 }: {
-  softwareProducto: string;
-  tipo?: string | null;
+  catalogoId: string;
   estado?: string;
   proveedor?: string | null;
   costoProveedor?: number | null;
@@ -3043,16 +3148,14 @@ export const createProductoDigital = async ({
   duracion?: string | null;
   fechaCompra?: string | null;
   observacionesInternas?: string | null;
-  link?: string | null;
 }): Promise<ProductoDigital> => {
   const client = getClient();
   const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}`;
 
   const fields: Record<string, unknown> = {
-    "Software / Producto": softwareProducto.trim(),
+    "Software / Producto": [catalogoId],
     "Estado": estado,
   };
-  if (tipo?.trim()) fields["Tipo"] = tipo.trim();
   if (proveedor?.trim()) fields["Proveedor"] = proveedor.trim();
   if (costoProveedor !== undefined && costoProveedor !== null) fields["Costo Proveedor"] = costoProveedor;
   if (precioVenta !== undefined && precioVenta !== null) fields["Precio Venta"] = precioVenta;
@@ -3062,7 +3165,6 @@ export const createProductoDigital = async ({
   if (duracion?.trim()) fields["Duración"] = duracion.trim();
   if (fechaCompra?.trim()) fields["Fecha de Compra"] = fechaCompra.trim();
   if (observacionesInternas?.trim()) fields["Observaciones Internas"] = observacionesInternas.trim();
-  if (link?.trim()) fields["Link"] = link.trim();
 
   const res = await fetch(url, {
     method: "POST",
@@ -3188,6 +3290,145 @@ export const desasignarProductoDigitalDeOrden = async ({
 
   const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
   return mapProductoDigitalRecord(data);
+};
+
+// ─── PDF: credenciales completas + campos de auditoría ────────────────────
+
+export interface ProductoDigitalConCredenciales extends ProductoDigital {
+  claveActivacion: string | null;
+  contrasena: string | null;
+}
+
+export const fetchProductoDigitalConCredenciales = async (
+  recordId: string,
+  client = getClient()
+): Promise<ProductoDigitalConCredenciales | null> => {
+  const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}/${encodeURIComponent(recordId)}`;
+  const res = await fetch(url, { headers: client.headers, cache: "no-store" });
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
+  const base = mapProductoDigitalRecord(data);
+  const f = data.fields ?? {};
+  return {
+    ...base,
+    claveActivacion: typeof f["Clave de Activación"] === "string" ? f["Clave de Activación"] : null,
+    contrasena: typeof f["Contraseña"] === "string" ? f["Contraseña"] : null,
+  };
+};
+
+export const saveProductoDigitalPdf = async ({
+  recordId,
+  filename,
+  pdfBytes,
+  generadoPor,
+}: {
+  recordId: string;
+  filename: string;
+  pdfBytes: Uint8Array;
+  generadoPor: string;
+}): Promise<void> => {
+  const { token, baseId } = loadAirtableEnv();
+  const client = getClient();
+  const fileBase64 = Buffer.from(pdfBytes).toString("base64");
+
+  try {
+    await uploadAttachmentToRecord({
+      baseId,
+      authToken: token,
+      recordId,
+      attachmentFieldIdOrName: "Documento PDF",
+      filename,
+      contentType: "application/pdf",
+      fileBase64,
+    });
+  } catch (err) {
+    console.error("Error al subir PDF a Airtable:", err);
+  }
+
+  try {
+    await patchRecordFields({
+      tableName: AIRTABLE_TABLES.productosDigitales,
+      recordId,
+      fields: {
+        "Documento generado por": generadoPor,
+        "Fecha último PDF": new Date().toISOString(),
+      },
+      client,
+    });
+  } catch (err) {
+    console.error("Error al actualizar campos de auditoría del PDF:", err);
+  }
+};
+
+export const clearProductoDigitalPdf = async (recordId: string): Promise<void> => {
+  const client = getClient();
+  await patchRecordFields({
+    tableName: AIRTABLE_TABLES.productosDigitales,
+    recordId,
+    fields: {
+      "Documento PDF": [],
+      "Documento generado por": null,
+      "Fecha último PDF": null,
+    },
+    client,
+  });
+};
+
+// ─── Catálogo Productos Digitales ─────────────────────────────────────────
+
+export const fetchCatalogoProductosDigitales = async ({
+  query,
+  activoOnly = true,
+  client: clientParam,
+}: {
+  query?: string;
+  activoOnly?: boolean;
+  client?: AirtableClient;
+} = {}): Promise<CatalogoProductoDigital[]> => {
+  const client = clientParam ?? getClient();
+  const url = new URL(
+    `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.catalogoProductosDigitales)}`
+  );
+  if (activoOnly) {
+    url.searchParams.set("filterByFormula", `{Activo}=1`);
+  }
+  url.searchParams.set("maxRecords", "200");
+  url.searchParams.set("sort[0][field]", "Producto Base");
+  url.searchParams.set("sort[0][direction]", "asc");
+
+  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Airtable error ${res.status}: ${text}`);
+  }
+  const data = (await res.json()) as { records: { id: string; fields: Record<string, unknown> }[] };
+
+  let results = data.records.map(mapCatalogoProductoDigitalRecord);
+
+  if (query && query.trim()) {
+    const q = query.trim().toLowerCase();
+    results = results.filter(
+      (c) =>
+        c.productoBase.toLowerCase().includes(q) ||
+        (c.marca ?? "").toLowerCase().includes(q) ||
+        (c.tipo ?? "").toLowerCase().includes(q)
+    );
+  }
+
+  return results;
+};
+
+export const fetchCatalogoProductoDigitalById = async (
+  recordId: string,
+  client = getClient()
+): Promise<CatalogoProductoDigital | null> => {
+  const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.catalogoProductosDigitales)}/${encodeURIComponent(recordId)}`;
+  const res = await fetch(url, { headers: client.headers, cache: "no-store" });
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
+  return mapCatalogoProductoDigitalRecord(data);
 };
 
 export { AIRTABLE_TABLES };

@@ -89,8 +89,11 @@ type CatalogoServicioItem = {
 
 type ProductoDigitalItem = {
   id: string;
+  catalogoId: string | null;
   softwareProducto: string;
-  tipo: string | null;
+  marcaProducto: string | null;
+  tipoProducto: string | null;
+  portalActivacionCatalogo: string | null;
   estado: string;
   proveedor: string | null;
   costoProveedor: number | null;
@@ -104,7 +107,9 @@ type ProductoDigitalItem = {
   ordenReparacionId: string | null;
   tipoUso: string | null;
   usadoVendidoPor: string | null;
-  link: string | null;
+  documentoPdfUrl: string | null;
+  documentoGeneradoPor: string | null;
+  fechaUltimoPdf: string | null;
 };
 
 type OrdenDetalle = {
@@ -781,6 +786,11 @@ export function OrdenDetalleClient() {
   const [pdCredencialesData, setPdCredencialesData] = useState<Record<string, { claveActivacion?: string | null; usuarioCorreo?: string | null; contraseña?: string | null }>>({});
   const [pdCredencialesLoading, setPdCredencialesLoading] = useState<Record<string, boolean>>({});
   const [pdCredencialesError, setPdCredencialesError] = useState<Record<string, string | null>>({});
+  const [pdPdfLoading, setPdPdfLoading] = useState<Record<string, boolean>>({});
+  const [pdPdfError, setPdPdfError] = useState<Record<string, string | null>>({});
+  const [pdPdfDeleteConfirmId, setPdPdfDeleteConfirmId] = useState<string | null>(null);
+  const [pdPdfDeleteLoading, setPdPdfDeleteLoading] = useState<Record<string, boolean>>({});
+  const [userRol, setUserRol] = useState("");
   const lineDeleteActionButtonClass =
     "inline-flex h-8 w-8 items-center justify-center rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] hover:text-[var(--sg-danger)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)] disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -974,6 +984,51 @@ export function OrdenDetalleClient() {
       setPdCredencialesError((prev) => ({ ...prev, [productoId]: err instanceof Error ? err.message : "Error" }));
     } finally {
       setPdCredencialesLoading((prev) => ({ ...prev, [productoId]: false }));
+    }
+  };
+
+  const handlePdfAction = async (productoId: string, method: "POST" | "GET", nombre: string) => {
+    setPdPdfLoading((prev) => ({ ...prev, [productoId]: true }));
+    setPdPdfError((prev) => ({ ...prev, [productoId]: null }));
+    try {
+      const res = await fetch(`/api/tecnicos/productos-digitales/${encodeURIComponent(productoId)}/pdf`, { method });
+      if (!res.ok) {
+        let msg = "Error al procesar PDF";
+        try { const j = await res.json(); msg = j.error ?? msg; } catch { /* empty */ }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `SUPER-GEEK-${nombre.replace(/[^a-zA-Z0-9]/g, "-")}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      // Refresh order to update documentoPdfUrl
+      if (method === "POST") await fetchData({ showLoading: false, preserveError: true });
+    } catch (err) {
+      setPdPdfError((prev) => ({ ...prev, [productoId]: err instanceof Error ? err.message : "Error" }));
+    } finally {
+      setPdPdfLoading((prev) => ({ ...prev, [productoId]: false }));
+    }
+  };
+
+  const handlePdfDelete = async (productoId: string) => {
+    setPdPdfDeleteLoading((prev) => ({ ...prev, [productoId]: true }));
+    setPdPdfError((prev) => ({ ...prev, [productoId]: null }));
+    try {
+      const res = await fetch(`/api/tecnicos/productos-digitales/${encodeURIComponent(productoId)}/pdf`, { method: "DELETE" });
+      if (!res.ok) {
+        let msg = "Error al eliminar PDF";
+        try { const j = await res.json(); msg = j.error ?? msg; } catch { /* empty */ }
+        throw new Error(msg);
+      }
+      setPdPdfDeleteConfirmId(null);
+      await fetchData({ showLoading: false, preserveError: true });
+    } catch (err) {
+      setPdPdfError((prev) => ({ ...prev, [productoId]: err instanceof Error ? err.message : "Error al eliminar PDF" }));
+    } finally {
+      setPdPdfDeleteLoading((prev) => ({ ...prev, [productoId]: false }));
     }
   };
 
@@ -1979,6 +2034,16 @@ export function OrdenDetalleClient() {
   }, [id]);
 
   useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/tecnicos/session");
+        const json = await res.json();
+        if (json.success) setUserRol(json.user?.rol ?? "");
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  useEffect(() => {
     const handleMouseDown = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
@@ -2112,8 +2177,8 @@ export function OrdenDetalleClient() {
 
         {!loading && !error && orden && (
           <div className="space-y-2.5">
-            <section className="overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[#1E1F1C] shadow-[var(--sg-shadow-card)]">
-              <div className={`h-[3px] w-full ${
+            <section className="rounded-xl border border-[var(--sg-border)] bg-[#1E1F1C] shadow-[var(--sg-shadow-card)]">
+              <div className={`h-[3px] w-full rounded-t-xl ${
                 estadoSeleccionado === "En Proceso" ? "bg-[var(--sg-lime)]" :
                 estadoSeleccionado === "Completado" || estadoSeleccionado === "Finalizado Entregado" ? "bg-[var(--sg-success)]" :
                 estadoSeleccionado === "Esperando Respuesta" ? "bg-[var(--sg-warning)]" :
@@ -3166,7 +3231,8 @@ export function OrdenDetalleClient() {
                               {pd.softwareProducto}
                             </p>
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--sg-text-muted)]">
-                              {pd.tipo && <span>{pd.tipo}</span>}
+                              {pd.marcaProducto && <span>{pd.marcaProducto}</span>}
+                              {pd.tipoProducto && <span>{pd.tipoProducto}</span>}
                               {pd.duracion && (
                                 <span>
                                   {pd.duracion === "Perpetua" ? "Licencia perpetua" : pd.duracion}
@@ -3186,15 +3252,15 @@ export function OrdenDetalleClient() {
                                 </span>
                               )}
                             </div>
-                            {pd.link && (
+                            {pd.portalActivacionCatalogo && (
                               <a
-                                href={pd.link}
+                                href={pd.portalActivacionCatalogo}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1 text-xs text-[var(--sg-lime)] underline underline-offset-2 transition hover:brightness-110"
                               >
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                                {pd.link.replace(/^https?:\/\//i, "").slice(0, 40)}{pd.link.length > 47 ? "…" : ""}
+                                {pd.portalActivacionCatalogo.replace(/^https?:\/\//i, "").slice(0, 40)}{pd.portalActivacionCatalogo.length > 47 ? "…" : ""}
                               </a>
                             )}
                           </div>
@@ -3204,6 +3270,66 @@ export function OrdenDetalleClient() {
                                 {formatCurrency(pd.precioVenta)}
                               </span>
                             )}
+                            {/* PDF buttons */}
+                            {(() => {
+                              const isPdfLoading = pdPdfLoading[pd.id] ?? false;
+                              const isDeleteLoading = pdPdfDeleteLoading[pd.id] ?? false;
+                              const hasPdf = Boolean(pd.documentoPdfUrl);
+                              const isAdmin = userRol === "admin" || userRol === "administrador";
+                              return (
+                                <>
+                                  {!hasPdf ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handlePdfAction(pd.id, "POST", pd.softwareProducto)}
+                                      disabled={isPdfLoading}
+                                      title="Generar PDF del producto"
+                                      className="inline-flex h-8 items-center gap-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 text-[10px] font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)]/60 hover:text-[var(--sg-lime)] focus:outline-none disabled:opacity-50"
+                                    >
+                                      {isPdfLoading ? (
+                                        <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                                      ) : (
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                      )}
+                                      Generar PDF
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handlePdfAction(pd.id, "GET", pd.softwareProducto)}
+                                        disabled={isPdfLoading || isDeleteLoading}
+                                        title={`Descargar PDF${pd.fechaUltimoPdf ? ` (${formatDate(pd.fechaUltimoPdf)})` : ""}`}
+                                        className="inline-flex h-8 items-center gap-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)]/40 bg-[var(--sg-lime)]/8 px-2 text-[10px] font-semibold text-[var(--sg-lime)] transition hover:brightness-110 focus:outline-none disabled:opacity-50"
+                                      >
+                                        {isPdfLoading ? (
+                                          <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                                        ) : (
+                                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                        )}
+                                        Descargar PDF
+                                      </button>
+                                      {isAdmin && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setPdPdfDeleteConfirmId(pdPdfDeleteConfirmId === pd.id ? null : pd.id)}
+                                          disabled={isPdfLoading || isDeleteLoading}
+                                          title="Eliminar PDF generado"
+                                          className="inline-flex h-8 items-center gap-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/40 bg-[var(--sg-danger-soft)] px-2 text-[10px] font-semibold text-[var(--sg-danger)] transition hover:brightness-110 focus:outline-none disabled:opacity-50"
+                                        >
+                                          {isDeleteLoading ? (
+                                            <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                                          ) : (
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                                          )}
+                                          Eliminar PDF
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </>
+                              );
+                            })()}
                             <button
                               type="button"
                               onClick={() => void handleVerCredenciales(pd.id)}
@@ -3260,6 +3386,30 @@ export function OrdenDetalleClient() {
                         )}
                         {credError && (
                           <p className="mt-1 text-xs text-[var(--sg-danger)]">{credError}</p>
+                        )}
+                        {pdPdfError[pd.id] && (
+                          <p className="mt-1 text-xs text-[var(--sg-danger)]">{pdPdfError[pd.id]}</p>
+                        )}
+
+                        {pdPdfDeleteConfirmId === pd.id && (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/30 bg-[var(--sg-danger-soft)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
+                            <span>¿Seguro que deseas eliminar el PDF generado? Podrás generarlo nuevamente después.</span>
+                            <button
+                              type="button"
+                              onClick={() => void handlePdfDelete(pd.id)}
+                              disabled={pdPdfDeleteLoading[pd.id] ?? false}
+                              className="rounded-full border border-[var(--sg-danger)] px-3 py-0.5 text-[11px] font-semibold text-[var(--sg-danger)] transition hover:bg-[var(--sg-danger)] hover:text-white disabled:opacity-60"
+                            >
+                              {pdPdfDeleteLoading[pd.id] ? "Eliminando..." : "Eliminar"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPdPdfDeleteConfirmId(null)}
+                              className="rounded-full border border-[var(--sg-border)] px-3 py-0.5 text-[11px] text-[var(--sg-text-muted)] transition hover:border-[var(--sg-text-muted)]"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
                         )}
 
                         {isConfirming && (
@@ -3960,7 +4110,8 @@ export function OrdenDetalleClient() {
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{pd.softwareProducto}</p>
                             <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-[var(--sg-text-muted)]">
-                              {pd.tipo && <span>{pd.tipo}</span>}
+                              {pd.marcaProducto && <span>{pd.marcaProducto}</span>}
+                              {pd.tipoProducto && <span>{pd.tipoProducto}</span>}
                               {pd.duracion && <span>{pd.duracion}</span>}
                               {pd.claveTruncada && <span className="font-mono">{pd.claveTruncada}</span>}
                             </div>
@@ -3999,7 +4150,8 @@ export function OrdenDetalleClient() {
                         <div>
                           <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{selectedPd.softwareProducto}</p>
                           <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-[var(--sg-text-muted)]">
-                            {selectedPd.tipo && <span>{selectedPd.tipo}</span>}
+                            {selectedPd.marcaProducto && <span>{selectedPd.marcaProducto}</span>}
+                            {selectedPd.tipoProducto && <span>{selectedPd.tipoProducto}</span>}
                             {selectedPd.duracion && <span>{selectedPd.duracion}</span>}
                           </div>
                         </div>

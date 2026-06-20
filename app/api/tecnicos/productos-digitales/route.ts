@@ -9,7 +9,6 @@ import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 export const dynamic = "force-dynamic";
 
 // GET /api/tecnicos/productos-digitales?estado=Disponible&q=texto
-// Sin `estado` devuelve todos. Con `estado=Disponible` solo disponibles (para modal de asignación).
 export async function GET(request: Request) {
   const { response } = await requireTecnicosSession();
   if (response) return response;
@@ -21,7 +20,6 @@ export async function GET(request: Request) {
   try {
     let productos;
     if (estado === "Disponible") {
-      // Ruta rápida para el modal de asignación (usa filterByFormula en Airtable)
       productos = await fetchProductosDigitalesDisponibles(q);
     } else {
       productos = await fetchAllProductosDigitales({ estado, query: q });
@@ -37,14 +35,12 @@ export async function GET(request: Request) {
 }
 
 // POST /api/tecnicos/productos-digitales
-// Body: todos los campos del formulario de creación
 export async function POST(request: Request) {
   const { response } = await requireTecnicosSession();
   if (response) return response;
 
   let body: {
-    softwareProducto?: string;
-    tipo?: string | null;
+    catalogoId?: string;
     estado?: string;
     proveedor?: string | null;
     costoProveedor?: number | null;
@@ -55,7 +51,6 @@ export async function POST(request: Request) {
     duracion?: string | null;
     fechaCompra?: string | null;
     observacionesInternas?: string | null;
-    link?: string | null;
   };
 
   try {
@@ -64,18 +59,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: "JSON inválido" }, { status: 400 });
   }
 
-  const nombre = body.softwareProducto?.trim();
-  if (!nombre) {
+  const catalogoId = body.catalogoId?.trim();
+  if (!catalogoId) {
     return NextResponse.json(
-      { success: false, error: "El campo Software / Producto es obligatorio." },
+      { success: false, error: "El campo Catálogo (catalogoId) es obligatorio." },
       { status: 400 }
     );
   }
 
   try {
     const producto = await createProductoDigital({
-      softwareProducto: nombre,
-      tipo: body.tipo ?? null,
+      catalogoId,
       estado: body.estado ?? "Disponible",
       proveedor: body.proveedor ?? null,
       costoProveedor: body.costoProveedor ?? null,
@@ -86,7 +80,6 @@ export async function POST(request: Request) {
       duracion: body.duracion ?? null,
       fechaCompra: body.fechaCompra ?? null,
       observacionesInternas: body.observacionesInternas ?? null,
-      link: body.link ?? null,
     });
     return NextResponse.json({ success: true, data: producto }, { status: 201 });
   } catch (error) {
