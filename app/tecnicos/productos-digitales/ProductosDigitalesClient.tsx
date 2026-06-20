@@ -41,6 +41,11 @@ type CatalogoItem = {
   precioVentaCatalogo: number | null;
 };
 
+type ProveedorSoftware = {
+  id: string;
+  nombre: string;
+};
+
 type Credenciales = {
   claveActivacion: string | null;
   usuarioCorreo: string | null;
@@ -169,6 +174,16 @@ export function ProductosDigitalesClient() {
   const [showCatalogoDropdown, setShowCatalogoDropdown] = useState(false);
   const catalogoRef = useRef<HTMLDivElement | null>(null);
 
+  // Precio hint
+  const [precioDesdeCatalogo, setPrecioDesdeCatalogo] = useState(false);
+
+  // Proveedor selector state
+  const [proveedores, setProveedores] = useState<ProveedorSoftware[]>([]);
+  const [proveedoresLoading, setProveedoresLoading] = useState(false);
+  const [proveedoresError, setProveedoresError] = useState<string | null>(null);
+  const [proveedorSearch, setProveedorSearch] = useState("");
+  const [showProveedorDropdown, setShowProveedorDropdown] = useState(false);
+
   // Credenciales reveal
   const [credVisible, setCredVisible] = useState<Record<string, boolean>>({});
   const [credData, setCredData] = useState<Record<string, Credenciales>>({});
@@ -193,6 +208,21 @@ export function ProductosDigitalesClient() {
         const json = await res.json();
         if (json.success) setUserRol(json.user?.rol ?? "");
       } catch { /* ignore */ }
+    })();
+
+    void (async () => {
+      setProveedoresLoading(true);
+      setProveedoresError(null);
+      try {
+        const res = await fetch("/api/tecnicos/productos-digitales/proveedores-software");
+        const json = await res.json();
+        if (json.success) setProveedores(json.data ?? []);
+        else setProveedoresError(json.error ?? "Error al cargar proveedores");
+      } catch {
+        setProveedoresError("No se pudieron cargar los proveedores de software");
+      } finally {
+        setProveedoresLoading(false);
+      }
     })();
   }, []);
 
@@ -228,8 +258,9 @@ export function ProductosDigitalesClient() {
       catalogoId: item.id,
       catalogoNombre: item.productoBase,
       catalogoTipo: item.tipo ?? "",
-      precioVenta: item.precioVentaCatalogo !== null ? String(item.precioVentaCatalogo) : f.precioVenta,
+      precioVenta: item.precioVentaCatalogo !== null ? String(item.precioVentaCatalogo) : "",
     }));
+    setPrecioDesdeCatalogo(item.precioVentaCatalogo !== null);
     setCatalogoSearch(item.productoBase);
     setShowCatalogoDropdown(false);
   };
@@ -359,6 +390,8 @@ export function ProductosDigitalesClient() {
       setCatalogoSearch("");
       setShowClave(false);
       setShowContraseña(false);
+      setPrecioDesdeCatalogo(false);
+      setProveedorSearch("");
       await fetchProductos();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Error al crear");
@@ -383,7 +416,7 @@ export function ProductosDigitalesClient() {
         </div>
         <button
           type="button"
-          onClick={() => { setForm(EMPTY_FORM); setCreateError(null); setShowClave(false); setShowContraseña(false); setShowCreateModal(true); }}
+          onClick={() => { setForm(EMPTY_FORM); setCreateError(null); setShowClave(false); setShowContraseña(false); setPrecioDesdeCatalogo(false); setProveedorSearch(""); setShowCreateModal(true); }}
           className="inline-flex items-center gap-1.5 rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-4 py-1.5 text-sm font-semibold text-[#10110E] transition hover:brightness-105"
         >
           <span aria-hidden>+</span> Nuevo producto
@@ -447,7 +480,7 @@ export function ProductosDigitalesClient() {
           {!debouncedSearch && !estadoFiltro && (
             <button
               type="button"
-              onClick={() => { setForm(EMPTY_FORM); setCreateError(null); setShowCreateModal(true); }}
+              onClick={() => { setForm(EMPTY_FORM); setCreateError(null); setShowClave(false); setShowContraseña(false); setPrecioDesdeCatalogo(false); setProveedorSearch(""); setShowCreateModal(true); }}
               className="inline-flex items-center gap-1 rounded-full border border-[var(--sg-lime)]/50 px-3 py-1 text-xs font-semibold text-[var(--sg-lime)] transition hover:bg-[var(--sg-lime-soft)]"
             >
               + Crear el primero
@@ -553,7 +586,8 @@ export function ProductosDigitalesClient() {
                     const isPdfLoading = pdfLoading[pd.id] ?? false;
                     const isDeleteLoading = pdfDeleteLoading[pd.id] ?? false;
                     const hasPdf = Boolean(pd.documentoPdfUrl);
-                    const isAdmin = userRol === "admin" || userRol === "administrador";
+                    const normalizedRol = userRol.normalize("NFC").trim().toLowerCase();
+                    const isAdmin = normalizedRol === "admin" || normalizedRol === "administrador";
                     const isConfirmingDelete = pdfDeleteConfirmId === pd.id;
                     return (
                       <div className="flex shrink-0 items-center gap-1">
@@ -704,7 +738,7 @@ export function ProductosDigitalesClient() {
               <h2 className="text-sm font-bold text-[var(--sg-text-primary)]">Nuevo producto digital</h2>
               <button
                 type="button"
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => { setShowCreateModal(false); setPrecioDesdeCatalogo(false); setProveedorSearch(""); }}
                 className="text-[var(--sg-text-muted)] transition hover:text-[var(--sg-text-primary)]"
                 aria-label="Cerrar"
               >
@@ -724,7 +758,7 @@ export function ProductosDigitalesClient() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => { setForm((f) => ({ ...f, catalogoId: "", catalogoNombre: "", catalogoTipo: "" })); setCatalogoSearch(""); }}
+                      onClick={() => { setForm((f) => ({ ...f, catalogoId: "", catalogoNombre: "", catalogoTipo: "", precioVenta: "" })); setCatalogoSearch(""); setPrecioDesdeCatalogo(false); }}
                       className="shrink-0 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-danger)]"
                       aria-label="Cambiar producto"
                     >
@@ -791,18 +825,82 @@ export function ProductosDigitalesClient() {
                 </select>
               </div>
 
+              {/* Proveedor */}
+              <div>
+                <label className={labelClass}>Proveedor</label>
+                {proveedoresError ? (
+                  <p className="rounded-lg border border-[var(--sg-warning)]/40 bg-[var(--sg-warning-soft)] px-3 py-2 text-xs text-[var(--sg-warning)]">
+                    {proveedoresError}
+                  </p>
+                ) : proveedoresLoading ? (
+                  <div className="flex h-9 items-center gap-2 rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3">
+                    <span className="h-3 w-3 animate-spin rounded-full border border-[var(--sg-lime)] border-t-transparent" />
+                    <span className="text-xs text-[var(--sg-text-muted)]">Cargando proveedores...</span>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    {form.proveedor ? (
+                      <div className="flex items-center gap-2 rounded-lg border border-[var(--sg-lime)]/50 bg-[var(--sg-lime)]/5 px-3 py-2">
+                        <span className="flex-1 text-sm text-[var(--sg-text-primary)]">{form.proveedor}</span>
+                        <button
+                          type="button"
+                          onClick={() => { setForm((f) => ({ ...f, proveedor: "" })); setProveedorSearch(""); }}
+                          className="shrink-0 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-danger)]"
+                          aria-label="Quitar proveedor"
+                        >
+                          <CloseIcon />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <input
+                          type="text"
+                          value={proveedorSearch}
+                          onChange={(e) => { setProveedorSearch(e.target.value); setShowProveedorDropdown(true); }}
+                          onFocus={() => setShowProveedorDropdown(true)}
+                          placeholder={proveedores.length === 0 ? "No hay proveedores de software registrados" : "Buscar proveedor..."}
+                          disabled={proveedores.length === 0}
+                          className={inputClass}
+                        />
+                        {showProveedorDropdown && proveedores.length > 0 && (
+                          <div className="absolute z-50 mt-1 w-full rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] shadow-2xl">
+                            {(() => {
+                              const filtered = proveedores.filter((p) =>
+                                p.nombre.toLowerCase().includes(proveedorSearch.toLowerCase())
+                              );
+                              return filtered.length === 0 ? (
+                                <p className="px-4 py-3 text-xs text-[var(--sg-text-muted)]">
+                                  {proveedorSearch.trim() ? "Sin resultados" : "No hay proveedores de software registrados."}
+                                </p>
+                              ) : (
+                                <ul className="max-h-48 overflow-y-auto py-1">
+                                  {filtered.map((p) => (
+                                    <li key={p.id}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setForm((f) => ({ ...f, proveedor: p.nombre }));
+                                          setProveedorSearch("");
+                                          setShowProveedorDropdown(false);
+                                        }}
+                                        className="w-full px-4 py-2.5 text-left text-sm text-[var(--sg-text-primary)] transition hover:bg-[var(--sg-panel)]"
+                                      >
+                                        {p.nombre}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
-                {/* Proveedor */}
-                <div>
-                  <label className={labelClass}>Proveedor</label>
-                  <input
-                    type="text"
-                    value={form.proveedor}
-                    onChange={(e) => setForm((f) => ({ ...f, proveedor: e.target.value }))}
-                    placeholder="Nombre del proveedor"
-                    className={inputClass}
-                  />
-                </div>
                 {/* Duración */}
                 <div>
                   <label className={labelClass}>Duración</label>
@@ -817,9 +915,6 @@ export function ProductosDigitalesClient() {
                     ))}
                   </select>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
                 {/* Costo proveedor */}
                 <div>
                   <label className={labelClass}>Costo proveedor</label>
@@ -833,19 +928,27 @@ export function ProductosDigitalesClient() {
                     className={inputClass}
                   />
                 </div>
-                {/* Precio venta */}
-                <div>
-                  <label className={labelClass}>Precio venta</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.precioVenta}
-                    onChange={(e) => setForm((f) => ({ ...f, precioVenta: e.target.value }))}
-                    placeholder="0.00"
-                    className={inputClass}
-                  />
+              </div>
+
+              {/* Precio venta */}
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className={labelClass} style={{ margin: 0 }}>Precio venta</label>
+                  {precioDesdeCatalogo && (
+                    <span className="text-[10px] text-[var(--sg-lime)]">
+                      ✦ Precio sugerido desde catálogo
+                    </span>
+                  )}
                 </div>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.precioVenta}
+                  onChange={(e) => setForm((f) => ({ ...f, precioVenta: e.target.value }))}
+                  placeholder="0.00"
+                  className={inputClass}
+                />
               </div>
 
               <div>
@@ -949,7 +1052,7 @@ export function ProductosDigitalesClient() {
               <div className="flex items-center justify-end gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => setShowCreateModal(false)}
+                  onClick={() => { setShowCreateModal(false); setPrecioDesdeCatalogo(false); setProveedorSearch(""); }}
                   className="rounded-full border border-[var(--sg-border)] px-4 py-1.5 text-xs font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)]/50 hover:text-[var(--sg-lime)]"
                 >
                   Cancelar

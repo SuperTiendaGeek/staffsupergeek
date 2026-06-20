@@ -4,6 +4,7 @@ import { animate, stagger } from "animejs";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
+  BookOpen,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -77,6 +78,7 @@ const tecnicosSubItems: SubNavItem[] = [
   { href: "/tecnicos/catalogo-repuestos", label: "Repuestos", icon: Package },
   { href: "/tecnicos/catalogo-servicios", label: "Servicios", icon: Cog },
   { href: "/tecnicos/productos-digitales", label: "Productos Digitales", icon: KeyRound },
+  { href: "/tecnicos/productos-digitales/catalogo", label: "Catálogo Digital", icon: BookOpen },
 ];
 
 function buildNavItems(apps: StaffApp[]): NavItem[] {

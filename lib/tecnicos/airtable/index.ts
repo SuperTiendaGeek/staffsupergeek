@@ -2976,7 +2976,7 @@ const mapCatalogoProductoDigitalRecord = (
     portalActivacion: safeString(f["Portal de Activación"], "") || null,
     instruccionesPdf: safeString(f["Instrucciones PDF"], "") || null,
     notasParaCliente: safeString(f["Notas para Cliente"], "") || null,
-    precioVentaCatalogo: firstNumber(f["Precio Venta"]),
+    precioVentaCatalogo: firstLookupNum(f["Precio Venta Catálogo"]) ?? firstNumber(f["Precio Venta Catálogo"]),
     colorPrincipal: safeString(f["Color Principal"], "") || null,
     activo: f["Activo"] !== false,
     logoUrl: firstAttachmentUrl(f["Logo"]),
@@ -3427,6 +3427,55 @@ export const fetchCatalogoProductoDigitalById = async (
   const res = await fetch(url, { headers: client.headers, cache: "no-store" });
   if (res.status === 404) return null;
   if (!res.ok) return null;
+  const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
+  return mapCatalogoProductoDigitalRecord(data);
+};
+
+export interface CreateCatalogoProductoDigitalInput {
+  productoBase: string;
+  marca?: string | null;
+  tipo?: string | null;
+  portalActivacion?: string | null;
+  instruccionesPdf?: string | null;
+  notasParaCliente?: string | null;
+  precioVentaCatalogo?: number | null;
+  colorPrincipal?: string | null;
+  activo?: boolean;
+  logoUrl?: string | null;
+}
+
+export const createCatalogoProductoDigital = async (
+  input: CreateCatalogoProductoDigitalInput,
+  client = getClient()
+): Promise<CatalogoProductoDigital> => {
+  const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.catalogoProductosDigitales)}`;
+
+  const fields: Record<string, unknown> = {
+    "Producto Base": input.productoBase.trim(),
+  };
+  if (input.marca?.trim())            fields["Marca"]                = input.marca.trim();
+  if (input.tipo?.trim())             fields["Tipo"]                 = input.tipo.trim();
+  if (input.portalActivacion?.trim()) fields["Portal de Activación"] = input.portalActivacion.trim();
+  if (input.instruccionesPdf?.trim()) fields["Instrucciones PDF"]    = input.instruccionesPdf.trim();
+  if (input.notasParaCliente?.trim()) fields["Notas para Cliente"]   = input.notasParaCliente.trim();
+  if (input.precioVentaCatalogo !== null && input.precioVentaCatalogo !== undefined) {
+    fields["Precio Venta Catálogo"] = input.precioVentaCatalogo;
+  }
+  if (input.colorPrincipal?.trim()) fields["Color Principal"] = input.colorPrincipal.trim();
+  fields["Activo"] = input.activo !== false;
+  if (input.logoUrl?.trim()) fields["Logo"] = [{ url: input.logoUrl.trim() }];
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: client.headers,
+    body: JSON.stringify({ fields }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Airtable error ${res.status}: ${text}`);
+  }
+
   const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
   return mapCatalogoProductoDigitalRecord(data);
 };
