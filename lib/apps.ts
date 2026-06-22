@@ -83,9 +83,9 @@ export const staffApps: StaffApp[] = [
     name: "Facturación",
     permissionName: "Facturación",
     route: "/facturacion",
-    status: "En construcción",
+    status: "Disponible",
     icon: "invoice",
-    description: "Módulo futuro para emisión y control de facturas.",
+    description: "Emisión de facturas electrónicas SRI — ambiente PRUEBAS (celcer).",
     requiredRoles: ["admin", "manager", "finance"]
   },
   {

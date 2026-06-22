@@ -1,0 +1,49 @@
+import { NextResponse } from "next/server";
+import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
+import { buscarClientes, createCliente } from "@/lib/tecnicos/airtable/index";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(request: Request) {
+  const { response } = await requireFacturacionSession();
+  if (response) return response;
+
+  const { searchParams } = new URL(request.url);
+  const q = searchParams.get("q")?.trim() ?? "";
+
+  try {
+    const data = await buscarClientes({ q, pageSize: 8 });
+    return NextResponse.json({ success: true, data });
+  } catch (e) {
+    console.error("[/api/facturacion/clientes GET]", e);
+    return NextResponse.json(
+      { success: false, error: e instanceof Error ? e.message : "Error buscando clientes" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  const { response } = await requireFacturacionSession();
+  if (response) return response;
+
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const nombre   = String(body.nombre   ?? "").trim();
+  const cedula   = String(body.cedula   ?? "").trim();
+  const telefono = String(body.telefono ?? "").trim() || undefined;
+  const correo   = String(body.correo   ?? "").trim() || undefined;
+  const direccion= String(body.direccion ?? "").trim() || undefined;
+
+  if (!nombre) {
+    return NextResponse.json({ success: false, error: "Nombre requerido" }, { status: 400 });
+  }
+
+  try {
+    const data = await createCliente({ nombre, cedula: cedula || null, telefono: telefono ?? null, correo: correo ?? null, direccion: direccion ?? null });
+    return NextResponse.json({ success: true, data });
+  } catch (e) {
+    console.error("[/api/facturacion/clientes POST]", e);
+    const msg = e instanceof Error ? e.message : "Error creando cliente";
+    return NextResponse.json({ success: false, error: msg }, { status: 400 });
+  }
+}

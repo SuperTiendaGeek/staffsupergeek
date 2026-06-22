@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Stub mínimo del W3C XML Signature schema (xmldsig).
+  Solo declara ds:Signature como anyType para que xmllint pueda resolver
+  el import del XSD de factura sin necesidad de red.
+  La firma XAdES-BES real se aplica en Fase 2 con ec-sri-invoice-signer.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+  targetNamespace="http://www.w3.org/2000/09/xmldsig#"
+  version="0.1"
+  elementFormDefault="qualified">
+
+  <xs:element name="Signature" type="ds:SignatureType"/>
+
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:any namespace="##any" processContents="lax" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="Id" type="xs:ID" use="optional"/>
+  </xs:complexType>
+
+</xs:schema>

@@ -17,3 +17,16 @@ Thumbs.db
 *.tsbuildinfo
 .vercel
 .env*.local
+
+# Firmas electrónicas
+*.p12
+
+# Carpeta privada local
+private/
+
+# Facturas emitidas y archivos de diagnóstico (datos privados)
+facturas-autorizadas/
+debug/
+tmp-ride-test.pdf
+horarios-rediseno-propuesta.html
+

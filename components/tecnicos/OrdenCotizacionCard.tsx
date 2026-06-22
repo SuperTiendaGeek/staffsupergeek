@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
+import styles from "@/components/tecnicos/layout/TecnicosTheme.module.css";
 
 type OrdenForCotizacion = {
   recordId: string;
@@ -16,8 +18,11 @@ type Props = {
 };
 
 export default function OrdenCotizacionCard({ orden, onLinked }: Props) {
+  const [isMounted, setIsMounted] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+
+  useEffect(() => { setIsMounted(true); }, []);
   const [productoSolicitado, setProductoSolicitado] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [saving, setSaving] = useState(false);
@@ -152,7 +157,8 @@ export default function OrdenCotizacionCard({ orden, onLinked }: Props) {
       </div>
 
       {/* Modal: Crear cotización */}
-      {createOpen && (
+      {isMounted && createOpen && createPortal(
+        <div className={styles.theme}>
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
           onClick={(e) => { if (e.target === e.currentTarget) setCreateOpen(false); }}
@@ -215,10 +221,12 @@ export default function OrdenCotizacionCard({ orden, onLinked }: Props) {
             </div>
           </div>
         </div>
-      )}
+        </div>
+      , document.body)}
 
       {/* Modal: Confirmar desvincular */}
-      {deleteOpen && (
+      {isMounted && deleteOpen && createPortal(
+        <div className={styles.theme}>
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
           onClick={(e) => { if (e.target === e.currentTarget && !deleting) setDeleteOpen(false); }}
@@ -249,7 +257,8 @@ export default function OrdenCotizacionCard({ orden, onLinked }: Props) {
             </div>
           </div>
         </div>
-      )}
+        </div>
+      , document.body)}
     </>
   );
 }
