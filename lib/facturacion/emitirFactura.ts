@@ -51,6 +51,8 @@ export type DatosVenta = {
   importeTotal:                number;
   pagos:                       Pago[];
   infoAdicional?:              CampoAdicional[];
+  // Inyectado por el servidor desde la sesión autenticada — nunca del cliente
+  vendedor?:                   string;
   // Opcionales del emisor (sobreescriben config si se proporcionan)
   dirEstablecimiento?:         string;
   contribuyenteEspecial?:      string;
@@ -109,6 +111,16 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
     });
 
     // ── 3. Construir XML ────────────────────────────────────────────────────
+    // Vendedor: inyectado como primer campo de infoAdicional.
+    // El valor viene del servidor (sesión autenticada), nunca del body del cliente.
+    // construirFacturaXml pasa los valores de infoAdicional por escFree(), así que
+    // cualquier carácter especial en el nombre del vendedor queda normalizado antes
+    // de entrar al XML que se firma.
+    const infoAdicionalFinal: CampoAdicional[] = [
+      ...(datos.vendedor?.trim() ? [{ nombre: "Vendedor", valor: datos.vendedor.trim() }] : []),
+      ...(datos.infoAdicional ?? []),
+    ];
+
     const facturaInput: FacturaInput = {
       ambiente:        cfg.ambiente,
       razonSocial:     cfg.razonSocial,
@@ -134,7 +146,7 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
       ...(datos.dirEstablecimiento     ? { dirEstablecimiento:       datos.dirEstablecimiento }     : {}),
       ...(datos.contribuyenteEspecial  ? { contribuyenteEspecial:    datos.contribuyenteEspecial }  : {}),
       ...(datos.guiaRemision           ? { guiaRemision:             datos.guiaRemision }           : {}),
-      ...(datos.infoAdicional?.length  ? { infoAdicional:            datos.infoAdicional }          : {}),
+      ...(infoAdicionalFinal.length    ? { infoAdicional:            infoAdicionalFinal }           : {}),
     };
 
     const xmlSinFirmar = construirFacturaXml(facturaInput);
@@ -263,7 +275,7 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
         descuento:      d.descuento,
         total:          d.precioTotalSinImpuesto,
       })),
-      infoAdicional: datos.infoAdicional,
+      infoAdicional: infoAdicionalFinal.length ? infoAdicionalFinal : undefined,
     };
 
     let ridePdf: Uint8Array | undefined;

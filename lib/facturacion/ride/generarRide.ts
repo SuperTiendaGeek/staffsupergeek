@@ -12,10 +12,31 @@ const vfsRaw  = require("pdfmake/build/vfs_fonts") as { pdfMake?: { vfs: Record<
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bwipjs  = require("bwip-js") as { toBuffer: (opts: Record<string, unknown>) => Promise<Buffer> };
 
+import fs   from "fs";
+import path from "path";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DocDef = any;
 
 import type { TotalImpuesto, Pago, CampoAdicional } from "../types/factura";
+
+// ─── Cache del logo (leído una sola vez desde public/logo-factura.png) ────────
+
+// undefined = no intentado aún; null = archivo no encontrado; string = dataURL
+let _logoDataUrl: string | null | undefined = undefined;
+
+function getLogoDataUrl(): string | null {
+  if (_logoDataUrl !== undefined) return _logoDataUrl;
+  try {
+    const imgPath = path.join(process.cwd(), "public", "logo-factura.png");
+    const buf     = fs.readFileSync(imgPath);
+    _logoDataUrl  = `data:image/png;base64,${buf.toString("base64")}`;
+  } catch {
+    _logoDataUrl = null;
+    console.warn("[generarRide] public/logo-factura.png no encontrado — cabecera sin logo");
+  }
+  return _logoDataUrl;
+}
 
 // ─── Inicialización única de pdfmake (fuentes Roboto embebidas) ───────────────
 
@@ -192,7 +213,8 @@ function desglosaRTotales(input: RideInput): FilaTotales[] {
 
 export async function generarRide(input: RideInput): Promise<Uint8Array> {
   initPdfMake();
-  const barcode = await barcodeDataUrl(input.claveAcceso);
+  const barcode  = await barcodeDataUrl(input.claveAcceso);
+  const logoUrl  = getLogoDataUrl();
 
   const ambienteLabel    = input.ambiente === "1" ? "PRUEBAS" : "PRODUCCIÓN";
   const obligadoLabel    = input.obligadoContabilidad ?? "NO";
@@ -205,6 +227,39 @@ export async function generarRide(input: RideInput): Promise<Uint8Array> {
 
   const filasTotales = desglosaRTotales(input);
 
+  // Columna central del encabezado: logo (si existe) + datos del emisor
+  // margin[1]=1 en el stack: pequeño respiro superior para que el primer renglón
+  // no toque el borde del logo y quede visualmente alineado al tope.
+  const emisorStack = {
+    width: "*",
+    margin: [0, 1, 0, 0],
+    stack: [
+      { text: input.razonSocial, style: "h2" },
+      ...(input.nombreComercial
+        ? [{ text: input.nombreComercial, bold: true }]
+        : []),
+      { text: `Dir. Matriz: ${input.dirMatriz}` },
+      ...(input.dirEstablecimiento
+        ? [{ text: `Dir. Estab.: ${input.dirEstablecimiento}` }]
+        : []),
+      { text: `RUC: ${input.ruc}` },
+      { text: `OBLIGADO A LLEVAR CONTABILIDAD: ${obligadoLabel}` },
+    ],
+  };
+
+  // Si hay logo, encabezado izquierdo = [logo 55px | datos emisor]; si no, solo datos.
+  // columnGap: 13 da la separación logo↔texto (~13 pt ≈ 4.6 mm en A4).
+  const leftColumn: DocDef = logoUrl
+    ? {
+        width: "*",
+        columns: [
+          { width: 55, image: logoUrl, height: 55 },
+          emisorStack,
+        ],
+        columnGap: 13,
+      }
+    : emisorStack;
+
   const docDef: DocDef = {
     pageSize:     "A4",
     pageMargins:  [30, 30, 30, 30],
@@ -214,21 +269,7 @@ export async function generarRide(input: RideInput): Promise<Uint8Array> {
       // ── Encabezado ─────────────────────────────────────────────────────────
       {
         columns: [
-          {
-            width: "*",
-            stack: [
-              { text: input.razonSocial,      style: "h2" },
-              ...(input.nombreComercial
-                ? [{ text: input.nombreComercial, bold: true }]
-                : []),
-              { text: `Dir. Matriz: ${input.dirMatriz}` },
-              ...(input.dirEstablecimiento
-                ? [{ text: `Dir. Estab.: ${input.dirEstablecimiento}` }]
-                : []),
-              { text: `RUC: ${input.ruc}` },
-              { text: `OBLIGADO A LLEVAR CONTABILIDAD: ${obligadoLabel}` },
-            ],
-          },
+          leftColumn,
           {
             width: 195,
             table: {

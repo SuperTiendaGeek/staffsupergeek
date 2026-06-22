@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 90;
 
 export async function POST(request: Request) {
-  const { response } = await requireFacturacionSession();
-  if (response) return response;
+  const { response, session } = await requireFacturacionSession();
+  if (response || !session) return response ?? NextResponse.json({ success: false, error: "Sin sesión" }, { status: 401 });
 
   let body: DatosVenta;
   try {
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const resultado = await emitirFactura(body);
+    const resultado = await emitirFactura({ ...body, vendedor: session.user.nombre });
     return NextResponse.json({ success: true, data: resultado });
   } catch (e) {
     console.error("[/api/facturacion/emitir POST]", e);
