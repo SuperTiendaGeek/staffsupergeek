@@ -6,11 +6,17 @@ type EtiquetaOrdenProps = {
 };
 
 export function EtiquetaOrden({ orden }: EtiquetaOrdenProps) {
+  // Mostrar accesorios solo si hay un valor real (no el default "No disponible")
+  const accesorios = orden.accesorios?.trim();
+  const tieneAccesorios =
+    !!accesorios &&
+    accesorios.toLowerCase() !== "no disponible" &&
+    accesorios !== "-";
+
   return (
     <>
       <style>{`
-        html,
-        body {
+        html, body {
           margin: 0;
           padding: 0;
           background: #fff;
@@ -23,70 +29,103 @@ export function EtiquetaOrden({ orden }: EtiquetaOrdenProps) {
           margin: 0;
         }
 
+        /* Contenedor pantalla: centra la etiqueta para previsualización */
         .label-page {
           min-height: 100vh;
           background: #fff;
           color: #000;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
         }
 
+        /* La etiqueta física: 50 × 25 mm exactos */
         .label {
           width: 50mm;
           height: 25mm;
           box-sizing: border-box;
-          padding: 2mm;
+          padding: 1.2mm 1.5mm 1mm 1.5mm;
           overflow: hidden;
-          font-size: 8.5px;
-          line-height: 1.08;
-        }
-
-        .top,
-        .meta {
           display: flex;
-          align-items: baseline;
+          flex-direction: column;
+        }
+
+        /* ── Cabecera: marca izquierda, fecha derecha ── */
+        .label-header {
+          display: flex;
           justify-content: space-between;
-          gap: 2mm;
-          white-space: nowrap;
-        }
-
-        .brand,
-        .order {
-          font-weight: 900;
-          font-size: 10px;
-        }
-
-        .line {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          align-items: baseline;
+          font-size: 5.5pt;
           font-weight: 700;
-          margin-top: 1.2mm;
+          line-height: 1;
+          border-bottom: 0.25mm solid #000;
+          padding-bottom: 0.4mm;
+          margin-bottom: 0.3mm;
+          white-space: nowrap;
+          flex-shrink: 0;
         }
 
-        .equipment {
-          font-size: 8px;
+        .label-brand {
+          letter-spacing: 0.03em;
         }
 
-        .status {
-          max-width: 25mm;
+        .label-date {
+          font-weight: 400;
+        }
+
+        /* ── Número de orden: protagonista ── */
+        .label-order {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 20pt;
+          font-weight: 900;
+          line-height: 1;
+          letter-spacing: -0.01em;
+          text-align: center;
+          overflow: hidden;
+          white-space: nowrap;
+        }
+
+        /* ── Pie: cliente, equipo, accesorios ── */
+        .label-footer {
+          flex-shrink: 0;
+          border-top: 0.25mm solid #000;
+          padding-top: 0.4mm;
+          font-size: 5.5pt;
+          line-height: 1.15;
+        }
+
+        .label-row {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
 
-        .big {
-          margin-top: 1.2mm;
-          font-size: 17px;
-          line-height: 1;
-          font-weight: 900;
-          letter-spacing: 0.02em;
+        .label-row-client {
+          font-weight: 700;
+          font-size: 6pt;
         }
 
+        .label-row-equip {
+          font-weight: 400;
+        }
+
+        .label-row-acc {
+          font-weight: 400;
+          font-size: 5pt;
+        }
+
+        /* ── Botones de acción (solo en pantalla) ── */
         .print-actions {
           display: flex;
           justify-content: center;
           gap: 8px;
           padding: 14px;
           background: #f3f3f3;
+          width: 100%;
+          box-sizing: border-box;
         }
         .print-actions button,
         .print-actions a {
@@ -102,21 +141,39 @@ export function EtiquetaOrden({ orden }: EtiquetaOrdenProps) {
 
         @media print {
           .print-actions { display: none !important; }
+          .label-page { min-height: unset; }
         }
       `}</style>
+
       <main className="label-page">
         <article className="label">
-          <div className="top">
-            <span className="brand">SUPER GEEK</span>
-            <span className="order">{cleanText(orden.idVisible, orden.recordId)}</span>
+
+          {/* Cabecera */}
+          <div className="label-header">
+            <span className="label-brand">SUPER GEEK</span>
+            <span className="label-date">{formatShortDate(orden.fechaIngreso)}</span>
           </div>
-          <div className="line">{cleanText(orden.clienteNombre)}</div>
-          <div className="line equipment">{cleanText(orden.equipo)}</div>
-          <div className="meta line">
-            <span>{formatShortDate(orden.fechaIngreso)}</span>
-            <span className="status">{cleanText(orden.estadoActual)}</span>
+
+          {/* Número de orden — elemento principal */}
+          <div className="label-order">
+            {cleanText(orden.idVisible, orden.recordId)}
           </div>
-          <div className="big">EQUIPO</div>
+
+          {/* Pie con datos secundarios */}
+          <div className="label-footer">
+            <div className="label-row label-row-client">
+              {cleanText(orden.clienteNombre)}
+            </div>
+            <div className="label-row label-row-equip">
+              {cleanText(orden.equipo)}
+            </div>
+            {tieneAccesorios && (
+              <div className="label-row label-row-acc">
+                Acc: {accesorios}
+              </div>
+            )}
+          </div>
+
         </article>
       </main>
     </>
