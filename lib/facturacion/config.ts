@@ -82,7 +82,7 @@ export function getFacturacionConfig(): FacturacionConfig {
     obligadoContabilidad: obligadoRaw as "SI" | "NO" | undefined,
     establecimiento:      getRequired("SRI_ESTABLECIMIENTO"),
     puntoEmision:         getRequired("SRI_PUNTO_EMISION"),
-    secuencial:           getRequired("SRI_SECUENCIAL"),
+    secuencial:           getOptional("SRI_SECUENCIAL", "1"),
     firmaPath:            getRequired("SRI_FIRMA_PATH"),
     firmaPassword:        getRequired("SRI_FIRMA_PASSWORD"),
   };

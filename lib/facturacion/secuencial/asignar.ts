@@ -4,7 +4,7 @@ import "server-only";
 // No puede ser atómica (Airtable no tiene transacciones), pero el lock por proceso
 // impide que dos emisiones concurrentes tomen el mismo número.
 
-import { maxSecuencialAutorizado } from "../airtable/facturas";
+import { maxSecuencialUsado } from "../airtable/facturas";
 import { getFacturacionConfig }    from "../config";
 
 // ─── Lock por proceso (una cola por combinación estab+ptoEmi) ─────────────────
@@ -31,10 +31,15 @@ function padSecuencial(n: number): string {
 }
 
 /**
- * Lee el máximo secuencial AUTORIZADO de Airtable y devuelve el siguiente.
- * Si no hay registros previos usa SRI_SECUENCIAL del entorno como semilla.
+ * Fuente única de secuenciales: MAX(Secuencial) sobre todos los registros
+ * que tuvieron un número real asignado (AUTORIZADO, DEVUELTA, NO AUTORIZADO,
+ * PENDIENTE, RECIBIDA). Excluye BORRADOR y ANULADA.
  *
- * SERIALIZADO: llamas concurrentes esperan su turno antes de leer Airtable,
+ * SRI_SECUENCIAL solo actúa como semilla de arranque cuando Airtable no tiene
+ * ningún registro previo (primer uso o tabla vacía). Una vez que existe aunque
+ * sea un registro, Airtable es la única fuente de verdad.
+ *
+ * SERIALIZADO: llamadas concurrentes esperan su turno antes de leer Airtable,
  * evitando que dos emisiones tomen el mismo número.
  */
 export async function siguienteSecuencial(
@@ -44,7 +49,7 @@ export async function siguienteSecuencial(
   const key = `${estab}-${ptoEmi}`;
 
   return withLock(key, async () => {
-    const maxEnAirtable = await maxSecuencialAutorizado(estab, ptoEmi);
+    const maxEnAirtable = await maxSecuencialUsado(estab, ptoEmi);
 
     let siguiente: number;
     if (maxEnAirtable !== null) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams }             from "next/navigation";
 
 // ─── Tipos locales ─────────────────────────────────────────────────────────────
 
@@ -185,7 +186,19 @@ const LABEL = "block mb-1 text-xs font-semibold text-[#A7A7A7] uppercase trackin
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
+// Tipo del payload guardado en Líneas JSON para borradores
+type BorradorPayload = {
+  version:     1;
+  modoCliente: ModoCliente;
+  cliente:     ClienteFactura;
+  queryCliente:string;
+  lineas:      LineaDetalle[];
+  formaPago:   string;
+};
+
 export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFinalLimite?: number }) {
+  const searchParams = useSearchParams();
+
   // ── Estado del formulario ─────────────────────────────────────────────────
   const [cliente, setCliente]   = useState<ClienteFactura>(CONSUMIDOR_FINAL);
   const [modoCliente, setModoCliente] = useState<ModoCliente>("consumidor");
@@ -194,6 +207,11 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   const [emitiendo, setEmitiendo] = useState(false);
   const [resultado, setResultado] = useState<ResultadoEmision | null>(null);
   const [errGlobal, setErrGlobal] = useState<string | null>(null);
+
+  // ── Borrador ──────────────────────────────────────────────────────────────
+  const [borradorId, setBorradorId]           = useState<string | null>(null);
+  const [guardandoBorrador, setGuardando]     = useState(false);
+  const [msgBorrador, setMsgBorrador]         = useState<string | null>(null);
 
   // ── Búsqueda de clientes ──────────────────────────────────────────────────
   const [queryCliente, setQueryCliente] = useState("");
@@ -370,6 +388,79 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   // Regla SRI: Consumidor Final solo permitido hasta el límite configurado
   const excedeLimiteConsumidor =
     modoCliente === "consumidor" && totales.importeTotal >= consumidorFinalLimite;
+
+  // ── Cargar borrador desde URL (?borrador=recordId) ───────────────────────
+  useEffect(() => {
+    const id = searchParams.get("borrador");
+    if (!id) return;
+    setBorradorId(id);
+    fetch(`/api/facturacion/historial/${id}`)
+      .then(r => r.json())
+      .then(d => {
+        if (!d.success || !d.data?.lineasJson) return;
+        try {
+          const p = JSON.parse(d.data.lineasJson) as BorradorPayload;
+          if (p.version !== 1) return;
+          setModoCliente(p.modoCliente);
+          setCliente(p.cliente);
+          setQueryCliente(p.queryCliente ?? "");
+          setLineas(p.lineas);
+          setFormaPago(p.formaPago);
+          setMsgBorrador("Borrador cargado");
+          setTimeout(() => setMsgBorrador(null), 3000);
+        } catch { /* payload inválido, ignorar */ }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // solo al montar
+
+  // ── Guardar borrador ─────────────────────────────────────────────────────
+  async function handleGuardarBorrador() {
+    if (lineas.length === 0) { setErrGlobal("Agrega al menos una línea antes de guardar el borrador"); return; }
+    setGuardando(true); setMsgBorrador(null); setErrGlobal(null);
+    try {
+      const payload: BorradorPayload = {
+        version: 1,
+        modoCliente,
+        cliente,
+        queryCliente,
+        lineas,
+        formaPago,
+      };
+      const lineasJson = JSON.stringify(payload);
+      const body = {
+        clienteNombre:         cliente.razonSocial || "Sin nombre",
+        clienteIdentificacion: cliente.identificacion || "9999999999999",
+        clienteCorreo:         cliente.correo || undefined,
+        subtotal:              totales.totalSinImpuestos,
+        iva:                   totales.iva15,
+        total:                 totales.importeTotal,
+        lineasJson,
+      };
+
+      let url = "/api/facturacion/borrador";
+      let method = "POST";
+      if (borradorId) { url = `/api/facturacion/borrador/${borradorId}`; method = "PATCH"; }
+
+      const r = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!j.success) {
+        setErrGlobal(j.error ?? "Error al guardar borrador");
+      } else {
+        if (!borradorId && j.data?.recordId) setBorradorId(j.data.recordId);
+        setMsgBorrador("Borrador guardado");
+        setTimeout(() => setMsgBorrador(null), 3000);
+      }
+    } catch {
+      setErrGlobal("Error de red al guardar borrador");
+    } finally {
+      setGuardando(false);
+    }
+  }
 
   // ── Emitir ────────────────────────────────────────────────────────────────
   async function handleEmitir() {
@@ -729,28 +820,47 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             </div>
           )}
 
+          {/* Feedback borrador */}
+          {msgBorrador && (
+            <p className="w-full rounded-md bg-emerald-900/30 border border-emerald-700/40 px-4 py-2 text-sm text-emerald-300">
+              {msgBorrador}
+            </p>
+          )}
           {errGlobal && (
             <p className="w-full rounded-md bg-red-900/30 border border-red-500/40 px-4 py-3 text-sm text-red-300">
               {errGlobal}
             </p>
           )}
-          <button
-            onClick={handleEmitir}
-            disabled={emitiendo || !clienteOk || lineas.length === 0 || !!resultado || excedeLimiteConsumidor}
-            className={[
-              "rounded-full border px-6 py-2.5 text-sm font-bold transition",
-              "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] hover:brightness-105",
-              "disabled:opacity-40 disabled:cursor-not-allowed",
-            ].join(" ")}
-          >
-            {emitiendo ? (
-              <span className="flex items-center gap-2">
-                <SpinnerIcon /> Enviando al SRI…
-              </span>
-            ) : (
-              "Emitir Factura →"
-            )}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={handleEmitir}
+              disabled={emitiendo || guardandoBorrador || !clienteOk || lineas.length === 0 || !!resultado || excedeLimiteConsumidor}
+              className={[
+                "rounded-full border px-6 py-2.5 text-sm font-bold transition",
+                "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] hover:brightness-105",
+                "disabled:opacity-40 disabled:cursor-not-allowed",
+              ].join(" ")}
+            >
+              {emitiendo ? (
+                <span className="flex items-center gap-2">
+                  <SpinnerIcon /> Enviando al SRI…
+                </span>
+              ) : (
+                "Emitir Factura →"
+              )}
+            </button>
+            <button
+              onClick={handleGuardarBorrador}
+              disabled={emitiendo || guardandoBorrador || lineas.length === 0}
+              className="rounded-full border border-[#3A3A36] px-4 py-2.5 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5] disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              {guardandoBorrador ? (
+                <span className="flex items-center gap-2"><SpinnerIcon /> Guardando…</span>
+              ) : (
+                borradorId ? "Actualizar borrador" : "Guardar borrador"
+              )}
+            </button>
+          </div>
           {emitiendo && (
             <p className="text-xs text-[#666]">
               Firmando y enviando al SRI — puede tardar hasta 30 segundos…

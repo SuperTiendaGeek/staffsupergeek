@@ -1,6 +1,7 @@
 "use client";
 
 import { animate, stagger } from "animejs";
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -110,8 +111,15 @@ function StaffLogo({ showText = true }: { showText?: boolean }) {
       aria-label="Ir al dashboard"
       title="Portal Staff"
     >
-      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F] text-sm font-black text-[#10110E] shadow-glow">
-        SG
+      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-[#D7FF4F]/60 bg-[#D7FF4F] p-1 shadow-glow">
+        <Image
+          src="/logo-brand.png"
+          alt="SUPER GEEK"
+          width={36}
+          height={36}
+          priority
+          className="h-full w-full object-contain"
+        />
       </div>
       <div
         className={cn(

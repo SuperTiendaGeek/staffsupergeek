@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
@@ -56,8 +57,15 @@ export default function LoginPage() {
     <main className="grid min-h-screen place-items-center px-4 py-10">
       <section className="w-full max-w-sm rounded-[1.25rem] border border-[#3A3A36] bg-[#1E1F1C] p-6 shadow-2xl shadow-black/40">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-xl bg-[#D7FF4F] text-sm font-black text-[#10110E] shadow-glow">
-            SG
+          <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-xl border border-[#D7FF4F]/60 bg-[#D7FF4F] p-1.5 shadow-glow">
+            <Image
+              src="/logo-brand.png"
+              alt="SUPER GEEK"
+              width={52}
+              height={52}
+              priority
+              className="h-full w-full object-contain"
+            />
           </div>
           <h1 className="text-xl font-semibold text-[#F5F5F5]">Portal Staff</h1>
           <p className="mt-1.5 text-sm text-[#A7A7A7]">Acceso interno para el equipo SUPER GEEK.</p>

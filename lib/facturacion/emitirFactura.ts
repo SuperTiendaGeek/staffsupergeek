@@ -27,6 +27,7 @@ import { esperarAutorizacion }    from "./sri/cola";
 import { siguienteSecuencial }    from "./secuencial/asignar";
 import { persistirAutorizado,
          registrarIntento }       from "./almacenamiento/repositorio";
+import { actualizarEstadoCorreo } from "./airtable/facturas";
 import { generarRide }            from "./ride/generarRide";
 import { enviarRide }             from "./correo/enviarRide";
 
@@ -286,6 +287,13 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
     }
 
     // ── 8. Persistir (Airtable + disco) ────────────────────────────────────
+    const lineasJson = JSON.stringify({
+      version:       2,
+      detalles:      datos.detalles,
+      formaPago:     datos.pagos[0]?.formaPago,
+      infoAdicional: infoAdicionalFinal.length ? infoAdicionalFinal : undefined,
+    });
+
     const recordId = await persistirAutorizado({
       claveAcceso,
       numeroFactura,
@@ -304,9 +312,10 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
       total:      datos.importeTotal,
       xmlAutorizado: autorizacion.xmlAutorizado,
       ridePdf,
+      lineasJson,
     });
 
-    // ── 9. Enviar correo (best-effort) ──────────────────────────────────────
+    // ── 9. Enviar correo (best-effort) + persistir Estado Correo ───────────
     if (datos.correoComprador) {
       try {
         await enviarRide({
@@ -319,9 +328,13 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
           pdfBuffer:       ridePdf ? Buffer.from(ridePdf) : Buffer.alloc(0),
           claveAcceso,
         });
+        await actualizarEstadoCorreo(recordId, "ENVIADO").catch(() => {});
       } catch (e) {
         console.error("[emitirFactura] Error enviando correo:", e);
+        await actualizarEstadoCorreo(recordId, "ERROR").catch(() => {});
       }
+    } else {
+      await actualizarEstadoCorreo(recordId, "NO_ENVIADO").catch(() => {});
     }
 
     return {

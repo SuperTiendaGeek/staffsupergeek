@@ -11,7 +11,7 @@ import "server-only";
 import fs   from "fs";
 import path from "path";
 
-import { crearRegistroFactura, subirAdjunto, eliminarRegistroFactura } from "../airtable/facturas";
+import { crearRegistroFactura, subirAdjunto, marcarAdjuntosPendientes } from "../airtable/facturas";
 import type { MensajeSRI }                    from "../sri/recepcion";
 import type { AmbienteSRI }                   from "../config";
 
@@ -37,6 +37,7 @@ export type DatosComprobanteOk = {
   total:                 number;
   xmlAutorizado:         string;   // XML completo devuelto por el SRI
   ridePdf?:              Uint8Array;
+  lineasJson?:           string;   // JSON serializado de los detalles de la factura
 };
 
 export type DatosComprobanteError = {
@@ -77,7 +78,12 @@ function guardarEnDisco(
 // ─── Persistir comprobante AUTORIZADO ────────────────────────────────────────
 
 export async function persistirAutorizado(datos: DatosComprobanteOk): Promise<string> {
-  // 1. Crear registro en Airtable
+  // 1. Disco primero — invariante de integridad: el comprobante autorizado
+  //    debe existir en disco antes de cualquier operación de red.
+  //    Si Airtable falla después, el respaldo legal ya está garantizado.
+  guardarEnDisco(datos.claveAcceso, datos.fechaEmision, datos.xmlAutorizado, datos.ridePdf);
+
+  // 2. Crear registro en Airtable
   const recordId = await crearRegistroFactura({
     claveAcceso:           datos.claveAcceso,
     numeroFactura:         datos.numeroFactura,
@@ -93,9 +99,11 @@ export async function persistirAutorizado(datos: DatosComprobanteOk): Promise<st
     subtotal:              datos.subtotal,
     iva:                   datos.iva,
     total:                 datos.total,
+    lineasJson:            datos.lineasJson,
   });
 
-  // 2. Subir adjuntos; si falla, eliminar el registro para no dejar filas a medias
+  // 3. Subir adjuntos; si falla, NO eliminar la fila — el comprobante ya está
+  //    en disco y la fila queda marcada para re-sincronizar después.
   try {
     const xmlB64 = Buffer.from(datos.xmlAutorizado, "utf8").toString("base64");
     await subirAdjunto(recordId, "XML Autorizado", `${datos.claveAcceso}.xml`, "text/xml", xmlB64);
@@ -105,14 +113,12 @@ export async function persistirAutorizado(datos: DatosComprobanteOk): Promise<st
       await subirAdjunto(recordId, "RIDE PDF", `${datos.claveAcceso}.pdf`, "application/pdf", pdfB64);
     }
   } catch (err) {
-    await eliminarRegistroFactura(recordId).catch((delErr) => {
-      console.error("[repositorio] No se pudo revertir el registro:", delErr);
+    console.error("[repositorio] Adjuntos no subidos a Airtable:", err);
+    await marcarAdjuntosPendientes(recordId).catch((e) => {
+      console.error("[repositorio] No se pudo marcar adjunto pendiente:", e);
     });
-    throw err;
+    // No re-lanzamos: la factura está autorizada y en disco; Airtable es recuperable.
   }
-
-  // 3. Guardar copia en disco (respaldo legal 7 años)
-  guardarEnDisco(datos.claveAcceso, datos.fechaEmision, datos.xmlAutorizado, datos.ridePdf);
 
   return recordId;
 }

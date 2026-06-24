@@ -24,7 +24,7 @@ function loadEnvLocal() {
 
 loadEnvLocal();
 
-import { maxSecuencialAutorizado } from "../airtable/facturas";
+import { maxSecuencialUsado } from "../airtable/facturas";
 import { siguienteSecuencial }     from "../secuencial/asignar";
 import { getFacturacionConfig }    from "../config";
 
@@ -35,8 +35,8 @@ import { getFacturacionConfig }    from "../config";
   console.log(`  Tabla : Facturas Electrónicas (base: ${process.env.AIRTABLE_BASE_ID})`);
   console.log(`  Serie : ${cfg.establecimiento}-${cfg.puntoEmision}`);
 
-  const maxActual = await maxSecuencialAutorizado(cfg.establecimiento, cfg.puntoEmision);
-  console.log(`  Máx. secuencial AUTORIZADO en Airtable: ${maxActual ?? "(ninguno)"}`);
+  const maxActual = await maxSecuencialUsado(cfg.establecimiento, cfg.puntoEmision);
+  console.log(`  Máx. secuencial usado en Airtable: ${maxActual ?? "(ninguno)"}`);
 
   const { secuencial, numeroFactura } = await siguienteSecuencial(
     cfg.establecimiento,
