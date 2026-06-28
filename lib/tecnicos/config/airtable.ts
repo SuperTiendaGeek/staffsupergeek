@@ -22,19 +22,21 @@ export interface AirtableEnv {
 }
 
 // Obtiene y valida las variables de entorno necesarias.
+// Tras la migración a SUPER GEEK ADM, el módulo de técnicos lee/escribe en
+// AIRTABLE_BASE_ID (ADM) usando AIRTABLE_API_KEY.
 export const loadAirtableEnv = (): AirtableEnv => {
-  const token = process.env.AIRTABLE_TECNICOS_TOKEN;
-  const baseId = process.env.AIRTABLE_TECNICOS_BASE_ID;
+  const token = process.env.AIRTABLE_API_KEY;
+  const baseId = process.env.AIRTABLE_BASE_ID;
 
   if (!token) {
     throw new Error(
-      "Falta AIRTABLE_TECNICOS_TOKEN. Definir en .env.local (no subir al repo)."
+      "Falta AIRTABLE_API_KEY. Definir en .env.local (no subir al repo)."
     );
   }
 
   if (!baseId) {
     throw new Error(
-      "Falta AIRTABLE_TECNICOS_BASE_ID. Definir en .env.local (no subir al repo)."
+      "Falta AIRTABLE_BASE_ID. Definir en .env.local (no subir al repo)."
     );
   }
 

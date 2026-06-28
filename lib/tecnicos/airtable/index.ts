@@ -400,6 +400,31 @@ const pickNumberField = (
 const formatAirtableDateOnly = (date = new Date()): string =>
   date.toISOString().slice(0, 10);
 
+const formatAirtableDateTimeISO = (date = new Date()): string =>
+  date.toISOString();
+
+// Lee el valor máximo del campo numérico en la tabla y devuelve max + 1.
+// Se llama justo antes de insertar para minimizar la ventana de colisión.
+const getNextConsecutivo = async (
+  tableName: string,
+  fieldName: string,
+  client = getClient()
+): Promise<number> => {
+  const url = new URL(`${client.baseUrl}/${encodeURIComponent(tableName)}`);
+  url.searchParams.set("pageSize", "1");
+  url.searchParams.append("sort[0][field]", fieldName);
+  url.searchParams.append("sort[0][direction]", "desc");
+  url.searchParams.append("fields[]", fieldName);
+  const res = await fetch(url.toString(), {
+    headers: client.headers,
+    cache: "no-store",
+  });
+  if (!res.ok) return 1;
+  const data = (await res.json()) as { records?: AirtableGenericRecord[] };
+  const max = data.records?.[0]?.fields?.[fieldName];
+  return typeof max === "number" ? max + 1 : 1;
+};
+
 type AirtableGenericRecord = {
   id: string;
   fields: Record<string, unknown>;
@@ -560,11 +585,10 @@ const buildOrdenesFilterFormula = ({
 const buildOrdenesRiskFormula = (risk?: OrdenesRiskFilter | null): string | null => {
   if (!risk) return null;
 
-  const referenceDate = `IF({Ultima Modificacion}, {Ultima Modificacion}, {Fecha de Ingreso})`;
-  const daysWaiting = `IF(OR({Ultima Modificacion}, {Fecha de Ingreso}), DATETIME_DIFF(TODAY(), ${referenceDate}, 'days'), -1)`;
+  const daysWaiting = `IF({Fecha de Ingreso}, DATETIME_DIFF(TODAY(), {Fecha de Ingreso}, 'days'), -1)`;
   const base = [
     `LOWER({Estado Actual} & "") = "esperando respuesta"`,
-    `OR({Ultima Modificacion}, {Fecha de Ingreso})`,
+    `NOT({Fecha de Ingreso} = "")`,
   ];
 
   if (risk === "warning") {
@@ -903,7 +927,6 @@ export const fetchOrdenesPage = async ({
     "Cliente",
     "Telefono",
     "Fecha de Ingreso",
-    "Ultima Modificacion",
     "Equipo",
     "Ingresa Por",
     "Estado Actual",
@@ -1125,6 +1148,7 @@ export const createCliente = async (input: NuevoClienteInput): Promise<ClienteBu
     await assertCedulaDisponible(input.cedula);
   }
 
+  const fechaRegistro = formatAirtableDateOnly();
   const fieldVariants: Record<string, unknown>[] = [
     {
       Nombre: nombre,
@@ -1133,6 +1157,7 @@ export const createCliente = async (input: NuevoClienteInput): Promise<ClienteBu
       Correo: input.correo?.trim() || undefined,
       "Direcci\u00f3n": input.direccion?.trim() || undefined,
       Notas: input.notas?.trim() || undefined,
+      "Fecha de registro": fechaRegistro,
     },
     {
       Nombre: nombre,
@@ -1141,6 +1166,7 @@ export const createCliente = async (input: NuevoClienteInput): Promise<ClienteBu
       Correo: input.correo?.trim() || undefined,
       Direccion: input.direccion?.trim() || undefined,
       Notas: input.notas?.trim() || undefined,
+      "Fecha de registro": fechaRegistro,
     },
   ].map((fields) =>
     Object.fromEntries(
@@ -1410,12 +1436,21 @@ export const createOrdenReparacion = async ({
     clienteRecordId = createdCliente.id;
   }
 
+  const client = getClient();
+  const nextAutonumber = await getNextConsecutivo(
+    AIRTABLE_TABLES.ordenes,
+    "Autonumber",
+    client
+  );
+
   const fields: Record<string, unknown> = {
     Cliente: [clienteRecordId],
     Equipo: equipo,
     "Ingresa Por": ingresaPor,
     "Estado Actual": "Pendiente",
     "Tipo Orden": "Servicio de Reparaci\u00f3n",
+    Autonumber: nextAutonumber,
+    "Fecha de Ingreso": formatAirtableDateTimeISO(),
   };
 
   const accesorios = orden.accesorios?.trim();
@@ -1423,7 +1458,7 @@ export const createOrdenReparacion = async ({
     fields.Accesorios = accesorios;
   }
 
-  const createdOrden = await createRecord(AIRTABLE_TABLES.ordenes, fields);
+  const createdOrden = await createRecord(AIRTABLE_TABLES.ordenes, fields, client);
   return {
     ok: true,
     ordenId: safeString(createdOrden.fields?.["ID"], createdOrden.id),
@@ -2172,11 +2207,17 @@ export const createAbonoPorOrden = async ({
 }): Promise<{ abono: AbonoPorOrden; warning?: string | null }> => {
   const { token, baseId } = loadAirtableEnv();
   const client = getClient();
+  const nextIdAbono = await getNextConsecutivo(
+    AIRTABLE_TABLES.abonosPorOrden,
+    "ID Abono",
+    client
+  );
   const fechaRegistro = (fecha ?? "").trim() || formatAirtableDateOnly();
   const fields: Record<string, unknown> = {
     "Orden de Reparaci\u00f3n": [ordenRecordId],
     Fecha: fechaRegistro,
     Monto: monto,
+    "ID Abono": nextIdAbono,
   };
 
   if (metodoPago && metodoPago.trim()) {
@@ -2868,6 +2909,7 @@ export const createHistorialEntrada = async ({
           [ordenField]: [ordenRecordId],
           "Estado Nuevo": texto,
           [creadoDesdeAppField]: true,
+          Fecha: formatAirtableDateTimeISO(),
         };
 
         if (tecnicoNombre) {
