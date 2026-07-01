@@ -1,0 +1,4300 @@
+{
+  "schema": {
+    "tables": [
+      {
+        "id": "tblitqF6cCopZ9Dge",
+        "name": "Órdenes de Reparación",
+        "primaryFieldId": "fldcpSxutLqAgzRbg",
+        "fields": [
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "\"OR\" & RIGHT(\"000000\" & {flda87Wri2B4Cn3vH}, 6)\r\n",
+              "referencedFieldIds": [
+                "flda87Wri2B4Cn3vH"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldcpSxutLqAgzRbg",
+            "name": "ID"
+          },
+          {
+            "type": "autoNumber",
+            "id": "flda87Wri2B4Cn3vH",
+            "name": "Autonumber"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblilTXFzDvSsvqbX",
+              "isReversed": false,
+              "prefersSingleRecordLink": true,
+              "inverseLinkFieldId": "fldu2fM6yGmhsU1gH"
+            },
+            "id": "fldxQn30MFbB1xNZP",
+            "name": "Cliente"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldxQn30MFbB1xNZP",
+              "fieldIdInLinkedTable": "fld4qIiRrqxPebUy9",
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fld3YoJcpZYTN4n4V",
+            "name": "ClienteTXT"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldxQn30MFbB1xNZP",
+              "fieldIdInLinkedTable": "fld1DPZFLeFVoM0tB",
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldQquKcNlnp0jUFz",
+            "name": "Telefono"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldxQn30MFbB1xNZP",
+              "fieldIdInLinkedTable": "fldy9BViJ0lxp8Atv",
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fld3LMQDqvFEoDWV3",
+            "name": "Cedula"
+          },
+          {
+            "type": "createdTime",
+            "options": {
+              "result": {
+                "type": "dateTime",
+                "options": {
+                  "dateFormat": {
+                    "name": "local",
+                    "format": "l"
+                  },
+                  "timeFormat": {
+                    "name": "12hour",
+                    "format": "h:mma"
+                  },
+                  "timeZone": "client"
+                }
+              }
+            },
+            "id": "fld7OJi398X5ppbE6",
+            "name": "Fecha de Ingreso"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldq2RvxKUuVjmqMM",
+            "name": "Equipo"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldjojmf10Q4QKTnn",
+            "name": "Ingresa Por"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldHa6VFXZyZNh4tB",
+            "name": "Accesorios"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldW0U4BEMOwC6bt4",
+            "name": "Diagnostico Inicial"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldv2nmWSYXlfmmpf",
+            "name": "Técnico Asignado"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{fldNUgqH8YFi4Lo9P} + {fldAWsQMpxYCJCxHe}",
+              "referencedFieldIds": [
+                "fldNUgqH8YFi4Lo9P",
+                "fldAWsQMpxYCJCxHe"
+              ],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fldN6jWGmype85DDT",
+            "name": "Presupuesto"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fldqXTNX0bIyzkDA2",
+            "name": "Abono"
+          },
+          {
+            "type": "checkbox",
+            "options": {
+              "icon": "thumbsUp",
+              "color": "greenBright"
+            },
+            "id": "fldCzoNZ1Q9Q40zZt",
+            "name": "Confirmación del Cliente"
+          },
+          {
+            "type": "singleSelect",
+            "options": {
+              "choices": [
+                {
+                  "id": "seliAKaZ1oEmQdl2c",
+                  "name": "Pendiente",
+                  "color": "blueLight2"
+                },
+                {
+                  "id": "selnBxiO5xQ48xqre",
+                  "name": "En Proceso",
+                  "color": "cyanLight2"
+                },
+                {
+                  "id": "selYIF7z0K4ulJnT7",
+                  "name": "Esperando Respuesta",
+                  "color": "yellowLight2"
+                },
+                {
+                  "id": "selyWU02UjTsCUq2o",
+                  "name": "Completado",
+                  "color": "tealLight2"
+                },
+                {
+                  "id": "sel7SnkLVbVdXe6z6",
+                  "name": "Finalizado Entregado",
+                  "color": "greenLight2"
+                },
+                {
+                  "id": "selg5cl48fIY3aGYd",
+                  "name": "Enviado a Reciclaje",
+                  "color": "orangeLight2"
+                }
+              ]
+            },
+            "id": "fld6hwpeDC6qkEVTE",
+            "name": "Estado Actual"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{fld6hwpeDC6qkEVTE}",
+              "referencedFieldIds": [
+                "fld6hwpeDC6qkEVTE"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldYVS76oZCA2eXVc",
+            "name": "Estado Actual Text"
+          },
+          {
+            "type": "checkbox",
+            "options": {
+              "icon": "thumbsUp",
+              "color": "greenBright"
+            },
+            "id": "fldvXWy4hLC8A8wdZ",
+            "name": "Cliente Notificado"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblwe4Lg2PvdAUtRD",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldOgToiO67J3spxX"
+            },
+            "id": "fldV2feoVbOeInX0m",
+            "name": "Historial de Estados"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": false,
+              "recordLinkFieldId": "fldV2feoVbOeInX0m",
+              "fieldIdInLinkedTable": "flddy2VugzwC8jAAJ",
+              "referencedFieldIds": [],
+              "result": null
+            },
+            "id": "flddiLeIyrISfFF6v",
+            "name": "Detalle Rollup"
+          },
+          {
+            "type": "multipleAttachments",
+            "options": {
+              "isReversed": true
+            },
+            "id": "fldDXvJqJKwwYwkVm",
+            "name": "Fotos del Equipo"
+          },
+          {
+            "type": "date",
+            "options": {
+              "dateFormat": {
+                "name": "local",
+                "format": "l"
+              }
+            },
+            "id": "fldrjbVqORs5i3ihy",
+            "name": "Fecha de Entrega"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fld45uUhOYI0lx7SW",
+            "name": "Link de Seguimiento"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "\"https://airtable.com/appk7jO3ayjihXEbW/shrCmpe3LGs1agejy?filterByFormula=\" & \nENCODE_URL_COMPONENT(\"{ID de Orden}='\" & {fldcpSxutLqAgzRbg} & \"'\")\n",
+              "referencedFieldIds": [
+                "fldcpSxutLqAgzRbg"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fld8TO9V9Wp3Zn5jl",
+            "name": "URL Seguimiento"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tbl4F5QIHPAMwfTNy",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldHWTrQhoLjyPJ20"
+            },
+            "id": "fldnYKHXQtQRoa8iN",
+            "name": "Servicios"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldnYKHXQtQRoa8iN",
+              "fieldIdInLinkedTable": "fldLlHGIK9fqKJKvk",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldrMTaOs1hGzOz88",
+            "name": "Resumen Servicios"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldnYKHXQtQRoa8iN",
+              "fieldIdInLinkedTable": "fldh3ZaeK5ONZ2yyv",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fldAWsQMpxYCJCxHe",
+            "name": "Costo Total Servicios"
+          },
+          {
+            "type": "count",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldNpMZOF7YO9NHa3"
+            },
+            "id": "fldbx82qIHmq32KXx",
+            "name": "Número de Repuestos Usados"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblmiFGDWTnlcQKn5",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldkQav1xRgCjm5sq"
+            },
+            "id": "fldNpMZOF7YO9NHa3",
+            "name": "Repuestos Usados"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldNpMZOF7YO9NHa3",
+              "fieldIdInLinkedTable": "fldv4VjvJoOVYlOrg",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldMkSQMiijbpAGYs",
+            "name": "Resumen Repuestos"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldNpMZOF7YO9NHa3",
+              "fieldIdInLinkedTable": "fldzGz09Z9BmFDp82",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fldNUgqH8YFi4Lo9P",
+            "name": "Costo Total de Repuestos"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "({fldNUgqH8YFi4Lo9P} + {fldAWsQMpxYCJCxHe})-{fldqXTNX0bIyzkDA2}",
+              "referencedFieldIds": [
+                "fldNUgqH8YFi4Lo9P",
+                "fldAWsQMpxYCJCxHe",
+                "fldqXTNX0bIyzkDA2"
+              ],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fldYjGk3IDHgmLXtV",
+            "name": "Total a pagar"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldawVT0l14WeHJ90",
+              "fieldIdInLinkedTable": "fldVDc4kxLYokiGTI",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "flda05QusAO8IapQy",
+            "name": "Costo Total Servicios NV"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOEJtazRcjOhaKr",
+              "fieldIdInLinkedTable": "fldSnVG8R66yDOatz",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fldEIpjhzKyP96XOu",
+            "name": "Costo Total Repuestos NV"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldtqloWdhppncHcH",
+              "fieldIdInLinkedTable": "fld8RUEAApf9rGDpM",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fldc0YtcuC8SLxlhM",
+            "name": "Total Productos Digitales"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{flda05QusAO8IapQy} + {fldEIpjhzKyP96XOu} + {fldc0YtcuC8SLxlhM}",
+              "referencedFieldIds": [
+                "flda05QusAO8IapQy",
+                "fldEIpjhzKyP96XOu",
+                "fldc0YtcuC8SLxlhM"
+              ],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fldXws8mKCY0DBmHP",
+            "name": "Total a Pagar NV"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "MAX(0, {fldXws8mKCY0DBmHP} - {fldryKatp0tN4ZFri})",
+              "referencedFieldIds": [
+                "fldXws8mKCY0DBmHP",
+                "fldryKatp0tN4ZFri"
+              ],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fld7OkffGBtqZf2pH",
+            "name": "Saldo NV"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldHiJvas6Kr491R8",
+              "fieldIdInLinkedTable": "fldQmVjxuPNspufQB",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fldryKatp0tN4ZFri",
+            "name": "Total Abonado NV"
+          },
+          {
+            "type": "aiText",
+            "options": {
+              "referencedFieldIds": [
+                "fldxQn30MFbB1xNZP",
+                "fldYVS76oZCA2eXVc",
+                "fldqXTNX0bIyzkDA2",
+                "fldN6jWGmype85DDT",
+                "fldV2feoVbOeInX0m",
+                "fldAj9mPZcTYFF6IV"
+              ],
+              "prompt": [
+                "Redacta un mensaje cordial y profesional para el cliente utilizando los siguientes datos:\n\n- Nombre del cliente: ",
+                {
+                  "field": {
+                    "fieldId": "fldxQn30MFbB1xNZP"
+                  }
+                },
+                "\n- Estado del equipo:",
+                {
+                  "field": {
+                    "fieldId": "fldYVS76oZCA2eXVc"
+                  }
+                },
+                " \n- Abono realizado: ",
+                {
+                  "field": {
+                    "fieldId": "fldqXTNX0bIyzkDA2"
+                  }
+                },
+                "\n- Presupuesto total: ",
+                {
+                  "field": {
+                    "fieldId": "fldN6jWGmype85DDT"
+                  }
+                },
+                "\n- Información técnica: ",
+                {
+                  "field": {
+                    "fieldId": "fldV2feoVbOeInX0m"
+                  }
+                },
+                {
+                  "field": {
+                    "fieldId": "fldAj9mPZcTYFF6IV"
+                  }
+                },
+                "\nPrimero, saluda cordialmente al cliente usando su nombre.\n\nLuego:\n\n1. Si el estado del equipo es \"En proceso\", redacta de forma clara y amable lo que está ocurriendo con el equipo, usando el contenido de ",
+                {
+                  "field": {
+                    "fieldId": "fldAj9mPZcTYFF6IV"
+                  }
+                },
+                " como base, pero mejorado y más comprensible para alguien no técnico. **No menciones el texto \"En proceso\".**\n\n2. Si el estado es \"Completado\", informa que el equipo está listo para ser retirado, sin mencionar el estado como tal.\n\nDespués, realiza el siguiente cálculo:\n\n- Convierte el abono y el presupuesto en números (por ejemplo, si el abono es \"$25\" y el presupuesto es \"$45\").\n- Resta el abono al presupuesto (Presupuesto - Abono).\n- Si el resultado es mayor que 0, menciona que el cliente tiene un saldo pendiente por pagar de esa cantidad.\n- Si el resultado es 0 o menor, indica que no tiene saldo pendiente.\n\nEscribe todo el mensaje como si fuera a enviarse directamente por WhatsApp o correo, con un tono profesional y claro. Trata al cliente por usted. Finaliza con una despedida amable y por ultimo coloca: \"Atentamente, Equipo de SUPER GEEK\"\n\nUsa como maximo 2 saltos de linea en todo el mensaje generado.\n"
+              ]
+            },
+            "id": "fldh0LuuZMXLW7yjS",
+            "name": "Mensaje Base Input"
+          },
+          {
+            "type": "button",
+            "id": "fldo6UEEQmi2WzLDH",
+            "name": "Generar PDF"
+          },
+          {
+            "type": "multipleAttachments",
+            "options": {
+              "isReversed": false
+            },
+            "id": "fldJErJKRS1lX7kN4",
+            "name": "PDF"
+          },
+          {
+            "type": "button",
+            "id": "fld01ySRJu6cDE359",
+            "name": "Enviar PDF"
+          },
+          {
+            "type": "multipleAttachments",
+            "options": {
+              "isReversed": false
+            },
+            "id": "fldNFfRaNd345mHTF",
+            "name": "Reporte"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldpkPXYLxbWN0taq",
+            "name": "miniExtensions - DO NOT EDIT"
+          },
+          {
+            "type": "button",
+            "id": "fld3Cb0fL5cCqm9Jj",
+            "name": "Imprimir Ticket"
+          },
+          {
+            "type": "multilineText",
+            "id": "fld2XUZtuFbeEJFNd",
+            "name": "Nota interna"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldV2feoVbOeInX0m",
+              "fieldIdInLinkedTable": "flddy2VugzwC8jAAJ",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fld8yyUXFtJZaki4x",
+            "name": "Todos Estados"
+          },
+          {
+            "type": "richText",
+            "id": "fld5pzdfXSeAOEg5V",
+            "name": "Recomendaciones"
+          },
+          {
+            "type": "aiText",
+            "options": {
+              "referencedFieldIds": [
+                "fld8yyUXFtJZaki4x",
+                "fldxQn30MFbB1xNZP",
+                "fldcpSxutLqAgzRbg",
+                "fldjojmf10Q4QKTnn",
+                "fld6hwpeDC6qkEVTE",
+                "fldrMTaOs1hGzOz88",
+                "fldMkSQMiijbpAGYs",
+                "fldYjGk3IDHgmLXtV",
+                "fld5pzdfXSeAOEg5V"
+              ],
+              "prompt": [
+                "Genera un reporte claro, detallado y concluyente segun estos estados:  ",
+                {
+                  "field": {
+                    "fieldId": "fld8yyUXFtJZaki4x"
+                  }
+                },
+                ". El reporte informara al cliente ",
+                {
+                  "field": {
+                    "fieldId": "fldxQn30MFbB1xNZP"
+                  }
+                },
+                " el estado de su computador agregando además la siguiente información\nNúmero de Orden: ",
+                {
+                  "field": {
+                    "fieldId": "fldcpSxutLqAgzRbg"
+                  }
+                },
+                "\nIngresado por: ",
+                {
+                  "field": {
+                    "fieldId": "fldjojmf10Q4QKTnn"
+                  }
+                },
+                "\nEstado: ",
+                {
+                  "field": {
+                    "fieldId": "fld6hwpeDC6qkEVTE"
+                  }
+                },
+                "\nEnlista los servicios realizados: ",
+                {
+                  "field": {
+                    "fieldId": "fldrMTaOs1hGzOz88"
+                  }
+                },
+                "\nEnlista los repuestos usados: ",
+                {
+                  "field": {
+                    "fieldId": "fldMkSQMiijbpAGYs"
+                  }
+                },
+                "\nTotal a pagar: ",
+                {
+                  "field": {
+                    "fieldId": "fldYjGk3IDHgmLXtV"
+                  }
+                },
+                "\nRecomendaciones: ",
+                {
+                  "field": {
+                    "fieldId": "fld5pzdfXSeAOEg5V"
+                  }
+                },
+                " Si el valor de Recomendaciones es \"-\" entonces no las menciones ni incluyas. \n\nAtentamente,\nEquipo de SUPER GEEK.\n\n*Usa un lenguaje profesional \n*No coloques nada en negrita.\n"
+              ]
+            },
+            "id": "fldZgHNkTvqRW0v8c",
+            "name": "Reporte Orden IA"
+          },
+          {
+            "type": "button",
+            "id": "fldQYehnMC8HQzx9Q",
+            "name": "Enviar Reporte Whatsapp"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tbl4F5QIHPAMwfTNy",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fld2dAF6iNt3DLeST"
+            },
+            "id": "fldvMc9Tq3bftcQAw",
+            "name": "Repuestos Usados copy"
+          },
+          {
+            "type": "multipleAttachments",
+            "options": {
+              "isReversed": false
+            },
+            "id": "fldMEC04beASmF0UQ",
+            "name": "Documentos"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "IF(\r\n  {fldrjbVqORs5i3ihy},\r\n  RIGHT(\"0\"&DAY(DATEADD({fldrjbVqORs5i3ihy}, 6, 'months')), 2)\r\n  & \"/\"\r\n  & SWITCH(\r\n      MONTH(DATEADD({fldrjbVqORs5i3ihy}, 6, 'months')),\r\n      1,\"ENE\", 2,\"FEB\", 3,\"MAR\", 4,\"ABR\", 5,\"MAY\", 6,\"JUN\",\r\n      7,\"JUL\", 8,\"AGO\", 9,\"SEP\", 10,\"OCT\", 11,\"NOV\", 12,\"DIC\"\r\n    )\r\n  & \"/\"\r\n  & RIGHT(\"0\"&MOD(YEAR(DATEADD({fldrjbVqORs5i3ihy}, 6, 'months')), 100), 2)\r\n)\r\n",
+              "referencedFieldIds": [
+                "fldrjbVqORs5i3ihy"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldaL8gX5POuj75pn",
+            "name": "Proximo mantenimiento"
+          },
+          {
+            "type": "lastModifiedTime",
+            "options": {
+              "isValid": true,
+              "referencedFieldIds": [],
+              "result": {
+                "type": "dateTime",
+                "options": {
+                  "dateFormat": {
+                    "name": "local",
+                    "format": "l"
+                  },
+                  "timeFormat": {
+                    "name": "12hour",
+                    "format": "h:mma"
+                  },
+                  "timeZone": "client"
+                }
+              }
+            },
+            "id": "fldyPGMwQxUKWjt3w",
+            "name": "Ultima Modificacion"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "\"https://hook.us2.make.com/yre29fyk5alcd1kj47tlb8e1ac6jx12y?recordID=\" & RECORD_ID()",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldrLeOHZMHyN0xmz",
+            "name": "URL de impresión"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "\"https://hook.us2.make.com/wmdayn966snxq3fppdn9cswhcn9oews4?recordID=\" & RECORD_ID()",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fld2cULL664TWkcIP",
+            "name": "URL Etiqueta Zebra"
+          },
+          {
+            "type": "checkbox",
+            "options": {
+              "icon": "flag",
+              "color": "yellowBright"
+            },
+            "id": "fldZo2BkDsKV9iIth",
+            "name": "Cotizacion"
+          },
+          {
+            "type": "singleSelect",
+            "options": {
+              "choices": [
+                {
+                  "id": "selMPIjiWTorwmYVh",
+                  "name": "Servicio de Reparación",
+                  "color": "blueLight2"
+                },
+                {
+                  "id": "selKc1dvfgQTfMYbw",
+                  "name": "Pedido de Repuesto (Cotización)",
+                  "color": "cyanLight2"
+                }
+              ]
+            },
+            "id": "fldNCZoa48IZQz90e",
+            "name": "Tipo Orden"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tbl5N8VcE2ATm1aWe",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fld3eSckKI1DfpbeT"
+            },
+            "id": "fldOEJtazRcjOhaKr",
+            "name": "Repuestos por Orden"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblJn0nc9yxZdD1l7",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldahPWzqV5JIMOyW"
+            },
+            "id": "fldawVT0l14WeHJ90",
+            "name": "Servicios por Orden"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblLji4M4LcCEJHNd",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldnBvEnhciitPkmP"
+            },
+            "id": "fldHiJvas6Kr491R8",
+            "name": "Abonos"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOEJtazRcjOhaKr",
+              "fieldIdInLinkedTable": "fld3ZWMiYwHSdYalA",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldAAokXOHvM1jPbc",
+            "name": "Resumen Repuestos por Orden"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldawVT0l14WeHJ90",
+              "fieldIdInLinkedTable": "fld5r5oRIlgx0GnTm",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldkvfGxqI4GNtZo5",
+            "name": "Resumen Servicios por Orden"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "\"Total a Pagar:\" & {fldXws8mKCY0DBmHP} & \", \" &\r\n\"Total de Servicios:\" & {flda05QusAO8IapQy} & \", \" &\r\n\"Total de Repuestos:\" & {fldEIpjhzKyP96XOu} & \", \" &\r\n\"Saldo:\" & {fld7OkffGBtqZf2pH} & \", \" &\r\n\"Abono Total:\" & {fldryKatp0tN4ZFri} & \", \" &\r\n\"Resumen Repuestos:\" & {fldAAokXOHvM1jPbc} & \", \" &\r\n\"Resumen Servicios:\" & {fldkvfGxqI4GNtZo5}",
+              "referencedFieldIds": [
+                "fldXws8mKCY0DBmHP",
+                "flda05QusAO8IapQy",
+                "fldEIpjhzKyP96XOu",
+                "fld7OkffGBtqZf2pH",
+                "fldryKatp0tN4ZFri",
+                "fldAAokXOHvM1jPbc",
+                "fldkvfGxqI4GNtZo5"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldntAtjWFCBWGUeq",
+            "name": "Resumen General Presupuesto "
+          },
+          {
+            "type": "singleSelect",
+            "options": {
+              "choices": [
+                {
+                  "id": "selLsshIfZAemU7SW",
+                  "name": "Reparación directa",
+                  "color": "blueLight2"
+                },
+                {
+                  "id": "selHtcDwMLQwxrFUw",
+                  "name": "Cotización de repuesto",
+                  "color": "cyanLight2"
+                },
+                {
+                  "id": "sel2174NpQkgE43f9",
+                  "name": "Pedido especial",
+                  "color": "tealLight2"
+                },
+                {
+                  "id": "selyFuUjBh3OtEmas",
+                  "name": "Garantía",
+                  "color": "greenLight2"
+                }
+              ]
+            },
+            "id": "fld0uGyXygGcX7JrT",
+            "name": "Origen de Orden"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldTHoX6apfcBWKu1",
+            "name": "Cotización ID"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldIUaC2uKi3z9GdY",
+            "name": "Cotización Código"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldwZXMhHU9iisM2m",
+            "name": "Item Pedido ID"
+          },
+          {
+            "type": "singleLineText",
+            "id": "flda6oZs3aEVafTrV",
+            "name": "Repuesto / Producto Solicitado"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldUc1zjrRSn7Yity",
+            "name": "Estado del Pedido Asociado"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblYSH9sk8gUiNNDF",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldgmB4Jmt25imuqZ"
+            },
+            "id": "fldtqloWdhppncHcH",
+            "name": "Productos Digitales"
+          }
+        ],
+        "views": [
+          {
+            "id": "viwYiZGJwcFcLYYyE",
+            "name": "Grid view",
+            "type": "grid"
+          },
+          {
+            "id": "viwkzn9CXa71qsdge",
+            "name": "Vista Seguimiento",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tblilTXFzDvSsvqbX",
+        "name": "Clientes",
+        "primaryFieldId": "fld4qIiRrqxPebUy9",
+        "fields": [
+          {
+            "type": "singleLineText",
+            "id": "fld4qIiRrqxPebUy9",
+            "name": "Nombre"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldy9BViJ0lxp8Atv",
+            "name": "Cédula"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fld1DPZFLeFVoM0tB",
+            "name": "Teléfono"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldgXbTGXNber96y8",
+            "name": "Correo"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fld72hshfbCzTAjZQ",
+            "name": "Dirección"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblitqF6cCopZ9Dge",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldxQn30MFbB1xNZP"
+            },
+            "id": "fldu2fM6yGmhsU1gH",
+            "name": "Órdenes Relacionadas"
+          },
+          {
+            "type": "count",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldu2fM6yGmhsU1gH"
+            },
+            "id": "fldbDHKxPmRqDITJh",
+            "name": "Número de Órdenes"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldu2fM6yGmhsU1gH",
+              "fieldIdInLinkedTable": "fld7OJi398X5ppbE6",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "date",
+                "options": {
+                  "dateFormat": {
+                    "name": "us",
+                    "format": "M/D/YYYY"
+                  }
+                }
+              }
+            },
+            "id": "fldcmNWvn1c7JICVy",
+            "name": "Última Fecha de Ingreso"
+          },
+          {
+            "type": "aiText",
+            "options": {
+              "referencedFieldIds": [
+                "fld4qIiRrqxPebUy9",
+                "fldu2fM6yGmhsU1gH"
+              ],
+              "prompt": [
+                "You are an expert in summarizing customer repair order histories for a technology store.\n\nTask description:\nReview the customer's past and current repair orders and generate a concise summary of the repair history. Focus on key details such as order dates, equipment descriptions, diagnostics, and current statuses.\n\nOutput format:\nProvide a plain text summary without headings or extra formatting. If no orders are found, output \"No repair orders available.\" Do not include any additional text in the output. Example: \"Order 1: Laptop repair diagnosed with screen issue, completed. Order 2: Phone repair ongoing, pending parts.\" (Real examples may vary in length and detail.)\n\nContext and Data:\nCustomer Name: ",
+                {
+                  "field": {
+                    "fieldId": "fld4qIiRrqxPebUy9"
+                  }
+                },
+                "\nRelated Orders: ",
+                {
+                  "field": {
+                    "fieldId": "fldu2fM6yGmhsU1gH"
+                  }
+                },
+                "\n\nOutput:\n"
+              ]
+            },
+            "id": "fld49uLABm71ONhOJ",
+            "name": "Resumen de Órdenes"
+          },
+          {
+            "type": "aiText",
+            "options": {
+              "referencedFieldIds": [
+                "fld4qIiRrqxPebUy9",
+                "fldu2fM6yGmhsU1gH"
+              ],
+              "prompt": [
+                "You are a customer service specialist providing follow-up suggestions for clients based on their repair order history.\n\nTask description:\nAnalyze the customer's repair order history to generate personalized follow-up suggestions. Consider factors such as the number of past orders, types of repairs, and any patterns in service needs. Provide actionable suggestions for maintaining customer satisfaction and loyalty.\n\nOutput format:\nOutput a list of follow-up suggestions in plain text, each on a new line. If no suggestions can be generated, output \"No follow-up suggestions available.\" Do not include any additional text in the output. Example: \"1. Offer a discount on future repairs.\\n2. Send a thank you email for their loyalty.\" (Real examples may vary in length and detail.)\n\nContext and Data:\nCustomer Name: ",
+                {
+                  "field": {
+                    "fieldId": "fld4qIiRrqxPebUy9"
+                  }
+                },
+                "\nRelated Orders: ",
+                {
+                  "field": {
+                    "fieldId": "fldu2fM6yGmhsU1gH"
+                  }
+                },
+                "\n\nOutput:\n"
+              ]
+            },
+            "id": "fldD98dAHv5gzHff7",
+            "name": "Sugerencias de Seguimiento"
+          },
+          {
+            "type": "multilineText",
+            "id": "fld6dPolp1iMCqrDv",
+            "name": "Notas"
+          },
+          {
+            "type": "createdTime",
+            "options": {
+              "result": {
+                "type": "dateTime",
+                "options": {
+                  "dateFormat": {
+                    "name": "local",
+                    "format": "l"
+                  },
+                  "timeFormat": {
+                    "name": "12hour",
+                    "format": "h:mma"
+                  },
+                  "timeZone": "client"
+                }
+              }
+            },
+            "id": "fldR1d1Qp61oVIvyb",
+            "name": "Fecha de registro"
+          },
+          {
+            "type": "button",
+            "id": "fldr54RKP29mFMScn",
+            "name": "ChatWhatsApp",
+            "description": "Abre el chat de WhatsApp con el número de teléfono del campo Teléfono."
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldZ69bCAh2wQ6nYh",
+            "name": "Cotizaciones"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblYSH9sk8gUiNNDF",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldujZsWM9q0JeXHU"
+            },
+            "id": "fldvSVWsULLVdoRNE",
+            "name": "Productos Digitales"
+          }
+        ],
+        "views": [
+          {
+            "id": "viw8OwLwfzP5PEPYQ",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tblwe4Lg2PvdAUtRD",
+        "name": "Historial de Estados",
+        "primaryFieldId": "flddy2VugzwC8jAAJ",
+        "fields": [
+          {
+            "type": "multilineText",
+            "id": "flddy2VugzwC8jAAJ",
+            "name": "Estado Nuevo"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOgToiO67J3spxX",
+              "fieldIdInLinkedTable": "fldq2RvxKUuVjmqMM",
+              "result": {
+                "type": "multilineText"
+              }
+            },
+            "id": "fldwULIMluSGKFgbD",
+            "name": "Equipo"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOgToiO67J3spxX",
+              "fieldIdInLinkedTable": "fldjojmf10Q4QKTnn",
+              "result": {
+                "type": "multilineText"
+              }
+            },
+            "id": "fldrh2nQFBUt7jswk",
+            "name": "Ingresa Por"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblitqF6cCopZ9Dge",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldV2feoVbOeInX0m"
+            },
+            "id": "fldOgToiO67J3spxX",
+            "name": "Órdenes de Reparación"
+          },
+          {
+            "type": "createdTime",
+            "options": {
+              "result": {
+                "type": "dateTime",
+                "options": {
+                  "dateFormat": {
+                    "name": "local",
+                    "format": "l"
+                  },
+                  "timeFormat": {
+                    "name": "12hour",
+                    "format": "h:mma"
+                  },
+                  "timeZone": "client"
+                }
+              }
+            },
+            "id": "fldczJZKLclyVLELc",
+            "name": "Fecha"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOgToiO67J3spxX",
+              "fieldIdInLinkedTable": "fldQquKcNlnp0jUFz",
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldHp2HKvXmIpHreY",
+            "name": "Teléfono"
+          },
+          {
+            "type": "aiText",
+            "options": {
+              "referencedFieldIds": [
+                "fldFenO5ibq6G1J0X"
+              ],
+              "prompt": [
+                "You are a professional summarizer specializing in extracting key information from technical notes. Your role is to condense detailed notes into a concise summary that highlights the main points, while maintaining clarity and relevance.\n\nTask description:\nReview the provided notes carefully, identifying the most important information and any recurring themes. Summarize these points in a clear and concise manner, ensuring that the summary is easy to understand and captures the essence of the notes.\n\nOutput format:\nProvide a plain text summary that is concise and to the point. The summary should not include any additional text or commentary. If you cannot generate a summary, output \"Unable to summarize the notes.\". Example: \"The device requires a new battery and screen repair. Follow-up needed with the supplier.\" (Real summaries should be longer if needed to capture all key points.)\n\nContext and Data:\nNotes: ",
+                {
+                  "field": {
+                    "fieldId": "fldFenO5ibq6G1J0X"
+                  }
+                },
+                "\n\nOutput:\n"
+              ]
+            },
+            "id": "fldRanqYjWgsgYMIw",
+            "name": "Resumen de Notas"
+          },
+          {
+            "type": "aiText",
+            "options": {
+              "referencedFieldIds": [
+                "flddy2VugzwC8jAAJ",
+                "fldFenO5ibq6G1J0X"
+              ],
+              "prompt": [
+                "You are a decision-making assistant with expertise in analyzing technical states and notes to suggest the next best action. Your goal is to provide actionable recommendations based on the current state and detailed notes.\n\nTask description:\nExamine the current state and associated notes to determine the most appropriate next step. Consider any patterns, issues, or priorities highlighted in the notes and state, and suggest a logical action to take that aligns with these insights.\n\nOutput format:\nPresent your suggestion as a plain text recommendation without any additional text or explanations. If you cannot provide a suggestion, output \"No actionable suggestion available.\". Example: \"Contact the supplier for replacement parts.\" (Real suggestions should be more specific based on the provided data.)\n\nContext and Data:\nCurrent State: ",
+                {
+                  "field": {
+                    "fieldId": "flddy2VugzwC8jAAJ"
+                  }
+                },
+                "\nNotes: ",
+                {
+                  "field": {
+                    "fieldId": "fldFenO5ibq6G1J0X"
+                  }
+                },
+                "\n\nOutput:\n"
+              ]
+            },
+            "id": "fldKMX6TI8yPGEAI5",
+            "name": "Sugerencia de Acción Siguiente"
+          },
+          {
+            "type": "multipleAttachments",
+            "options": {
+              "isReversed": false
+            },
+            "id": "fld1OthBuRHnsVrqw",
+            "name": "Fotos/Videos"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOgToiO67J3spxX",
+              "fieldIdInLinkedTable": "fldxQn30MFbB1xNZP",
+              "result": {
+                "type": "multipleRecordLinks",
+                "options": {
+                  "isReversed": false,
+                  "prefersSingleRecordLink": false
+                }
+              }
+            },
+            "id": "fldl3x8pbGtAyp3cO",
+            "name": "Cliente"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOgToiO67J3spxX",
+              "fieldIdInLinkedTable": "fldYVS76oZCA2eXVc",
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldY8QPc4uv6xuHAu",
+            "name": "Estado Actual Text"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOgToiO67J3spxX",
+              "fieldIdInLinkedTable": "fldN6jWGmype85DDT",
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fldZU24m0qpwwc3rS",
+            "name": "Presupuesto"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOgToiO67J3spxX",
+              "fieldIdInLinkedTable": "fldqXTNX0bIyzkDA2",
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fld6smhlgAUvdv23n",
+            "name": "Abono"
+          },
+          {
+            "type": "aiText",
+            "options": {
+              "referencedFieldIds": [
+                "fldl3x8pbGtAyp3cO",
+                "fldwULIMluSGKFgbD",
+                "fldY8QPc4uv6xuHAu",
+                "fld6smhlgAUvdv23n",
+                "fldZU24m0qpwwc3rS",
+                "flddy2VugzwC8jAAJ",
+                "fldrh2nQFBUt7jswk",
+                "fldOgToiO67J3spxX",
+                "fld8IBFZ6MwrD2kEw",
+                "fldlF6cQznEcOVc2o"
+              ],
+              "prompt": [
+                "Redacta un mensaje cordial y profesional para el cliente utilizando los siguientes datos:\n\n- Nombre del cliente: ",
+                {
+                  "field": {
+                    "fieldId": "fldl3x8pbGtAyp3cO"
+                  }
+                },
+                "\n- Equipo marca y modelo: ",
+                {
+                  "field": {
+                    "fieldId": "fldwULIMluSGKFgbD"
+                  }
+                },
+                "\n- Estado del equipo: ",
+                {
+                  "field": {
+                    "fieldId": "fldY8QPc4uv6xuHAu"
+                  }
+                },
+                "\n- Abono realizado: ",
+                {
+                  "field": {
+                    "fieldId": "fld6smhlgAUvdv23n"
+                  }
+                },
+                "\n- Presupuesto total: ",
+                {
+                  "field": {
+                    "fieldId": "fldZU24m0qpwwc3rS"
+                  }
+                },
+                "\n- Información técnica: ",
+                {
+                  "field": {
+                    "fieldId": "flddy2VugzwC8jAAJ"
+                  }
+                },
+                "\n-Motivo de ingreso: ",
+                {
+                  "field": {
+                    "fieldId": "fldrh2nQFBUt7jswk"
+                  }
+                },
+                "\n-Número de orden: ",
+                {
+                  "field": {
+                    "fieldId": "fldOgToiO67J3spxX"
+                  }
+                },
+                "\nPrimero, saluda cordialmente al cliente usando su nombre, mencionale que le escribes por su equipo con el número de órden de ordenes de reparacion.\n\nEn base al motivo del ingreso del equipo a reparacion haz lo siguiente:\n\n1. Si el estado del equipo en ",
+                {
+                  "field": {
+                    "fieldId": "fldY8QPc4uv6xuHAu"
+                  }
+                },
+                " es \"En proceso\", redacta de forma clara y amable lo que está ocurriendo con el equipo, usando el contenido de ",
+                {
+                  "field": {
+                    "fieldId": "flddy2VugzwC8jAAJ"
+                  }
+                },
+                "como base, pero mejorado y más comprensible para alguien no técnico. **No menciones el texto \"En proceso\".** \n\n2. Si el estado es \"Completado\", informa que el equipo está listo para ser retirado, detalla los servicios realizados y repuestos usados a manera de listado, siempre y cuando hayan servicios y repuestos.\n",
+                {
+                  "field": {
+                    "fieldId": "fld8IBFZ6MwrD2kEw"
+                  }
+                },
+                "\n",
+                {
+                  "field": {
+                    "fieldId": "fldlF6cQznEcOVc2o"
+                  }
+                },
+                "\n\n\n\nEscribe todo el mensaje como si fuera a enviarse directamente por WhatsApp o correo, con un tono profesional y claro. Trata al cliente por usted. Finaliza con una despedida amable y por ultimo coloca: \"Atentamente, Equipo de SUPER GEEK\"\n"
+              ]
+            },
+            "id": "fldRLMpk5FFhB8m3x",
+            "name": "Generar Whatsapp"
+          },
+          {
+            "type": "aiText",
+            "options": {
+              "referencedFieldIds": [
+                "fldl3x8pbGtAyp3cO",
+                "fldwULIMluSGKFgbD",
+                "fldY8QPc4uv6xuHAu",
+                "fld6smhlgAUvdv23n",
+                "fldZU24m0qpwwc3rS",
+                "flddy2VugzwC8jAAJ",
+                "fldrh2nQFBUt7jswk",
+                "fldOgToiO67J3spxX"
+              ],
+              "prompt": [
+                "Redacta un mensaje cordial y profesional para el cliente utilizando los siguientes datos:\n\n- Nombre del cliente: ",
+                {
+                  "field": {
+                    "fieldId": "fldl3x8pbGtAyp3cO"
+                  }
+                },
+                "\n- Equipo marca y modelo: ",
+                {
+                  "field": {
+                    "fieldId": "fldwULIMluSGKFgbD"
+                  }
+                },
+                "\n- Estado del equipo: ",
+                {
+                  "field": {
+                    "fieldId": "fldY8QPc4uv6xuHAu"
+                  }
+                },
+                "\n- Abono realizado: ",
+                {
+                  "field": {
+                    "fieldId": "fld6smhlgAUvdv23n"
+                  }
+                },
+                "\n- Presupuesto total: ",
+                {
+                  "field": {
+                    "fieldId": "fldZU24m0qpwwc3rS"
+                  }
+                },
+                "\n- Información técnica: ",
+                {
+                  "field": {
+                    "fieldId": "flddy2VugzwC8jAAJ"
+                  }
+                },
+                "\n-Motivo de ingreso: ",
+                {
+                  "field": {
+                    "fieldId": "fldrh2nQFBUt7jswk"
+                  }
+                },
+                "\n-Número de orden: ",
+                {
+                  "field": {
+                    "fieldId": "fldOgToiO67J3spxX"
+                  }
+                },
+                "\nPrimero, saluda cordialmente al cliente usando su nombre, mencionale que le escribes por su equipo con el número de órden de ordenes de reparacion.\n\nEn base al motivo del ingreso del equipo a reparacion haz lo siguiente:\n\n1. Si el estado del equipo en ",
+                {
+                  "field": {
+                    "fieldId": "fldY8QPc4uv6xuHAu"
+                  }
+                },
+                " es \"En proceso\", redacta de forma clara y amable lo que está ocurriendo con el equipo, usando el contenido de ",
+                {
+                  "field": {
+                    "fieldId": "flddy2VugzwC8jAAJ"
+                  }
+                },
+                "como base, pero mejorado y más comprensible para alguien no técnico. **No menciones el texto \"En proceso\".** \n\n2. Si el estado es \"Completado\", informa que el equipo está listo para ser retirado, sin mencionar el estado como tal.\n\nDespués, realiza el siguiente cálculo:\n\n- Convierte el abono y el presupuesto en números (por ejemplo, si el abono es \"$25\" y el presupuesto es \"$45\").\n- Resta el abono al presupuesto (Presupuesto - Abono).\n- Si el resultado es mayor que 0, menciona que el cliente tiene un saldo pendiente por pagar de esa cantidad.\n- Si el resultado es 0 o menor, indica que no tiene saldo pendiente.\nMUY IMPORTANTE: Comprobar el contexto del mensaje:\n-Si esperamos por una respuesta o decision del cliente, detallar que esperamos por la respuesta. Esto aplica para cotizaciones, reparaciones o situaciones similares en las que tenemos que preguntarle al cliente si desea proseguir o no.\n-Si el tono del mensaje es solo comunicar solo parafrasea Estado Nuevo/Informacion Tecnica por algo mejor redactado. Aqui el objetivo solo es informar, no esperamos ninguna respuesta, a menos que el cliente tenga una duda.\n\n\nEscribe todo el mensaje como si fuera a enviarse directamente por WhatsApp o correo, con un tono profesional y claro. Trata al cliente por usted. Finaliza con una despedida amable y por ultimo coloca: \"Atentamente, Equipo de SUPER GEEK\"\n"
+              ]
+            },
+            "id": "fldsq0EJbVzLItdOJ",
+            "name": "Generar Whatsapp copy"
+          },
+          {
+            "type": "checkbox",
+            "options": {
+              "icon": "check",
+              "color": "greenBright"
+            },
+            "id": "fldOi4ZaxDqXjZl07",
+            "name": "Solicitar Mensaje Cliente"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldHes8ZqaNNzHBCo",
+            "name": "Estado Generado IA"
+          },
+          {
+            "type": "button",
+            "id": "fldeCqH147d80o6Lm",
+            "name": "Enviar Whatsapp"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOgToiO67J3spxX",
+              "fieldIdInLinkedTable": "fld8yyUXFtJZaki4x",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldxMWSRjMhig6QW2",
+            "name": "Todos Estados Rollup (from Órdenes de Reparación)"
+          },
+          {
+            "type": "checkbox",
+            "options": {
+              "icon": "check",
+              "color": "greenBright"
+            },
+            "id": "fld7HdhijVddJVwpE",
+            "name": "⭐"
+          },
+          {
+            "type": "checkbox",
+            "options": {
+              "icon": "thumbsUp",
+              "color": "greenBright"
+            },
+            "id": "fldnA4PPGoaPfgyZE",
+            "name": "Creado desde App Técnico"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fld1co3B0WHQ6KvEJ",
+            "name": "Técnico"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOgToiO67J3spxX",
+              "fieldIdInLinkedTable": "fldMkSQMiijbpAGYs",
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fld8IBFZ6MwrD2kEw",
+            "name": "Resumen Repuestos"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOgToiO67J3spxX",
+              "fieldIdInLinkedTable": "fldrMTaOs1hGzOz88",
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldlF6cQznEcOVc2o",
+            "name": "Repuestos Servicios"
+          },
+          {
+            "type": "rollup",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldOgToiO67J3spxX",
+              "fieldIdInLinkedTable": "fldntAtjWFCBWGUeq",
+              "referencedFieldIds": [],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldHCMNb8a4CaA6hv",
+            "name": "Resumen General Presupuestos"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fld2kOIjxUJA4iR28",
+            "name": "Creado por Nombre"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldtcG6MccGyJENJm",
+            "name": "Creado por Email"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldCZxkPpARkEiRLX",
+            "name": "Creado por Usuario ID"
+          }
+        ],
+        "views": [
+          {
+            "id": "viwV1T16zBNhs1Oho",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tblmiFGDWTnlcQKn5",
+        "name": "Repuestos Usados",
+        "primaryFieldId": "fldqY9rGHqWV2fFcN",
+        "fields": [
+          {
+            "type": "singleLineText",
+            "id": "fldqY9rGHqWV2fFcN",
+            "name": "Repuesto"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblitqF6cCopZ9Dge",
+              "isReversed": false,
+              "prefersSingleRecordLink": true,
+              "inverseLinkFieldId": "fldNpMZOF7YO9NHa3"
+            },
+            "id": "fldkQav1xRgCjm5sq",
+            "name": "Orden Relacionada"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fldzGz09Z9BmFDp82",
+            "name": "Precio Cliente"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fldt9VtPAjZo1eQuO",
+            "name": "Costo Prov"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fld5Mflah59RJskvU",
+            "name": "Proveedor"
+          },
+          {
+            "type": "date",
+            "options": {
+              "dateFormat": {
+                "name": "local",
+                "format": "l"
+              }
+            },
+            "id": "fldtVgAgq1pkz4YN0",
+            "name": "Fecha de Uso"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{fldqY9rGHqWV2fFcN} & \" $\" & {fldzGz09Z9BmFDp82}\r\n",
+              "referencedFieldIds": [
+                "fldqY9rGHqWV2fFcN",
+                "fldzGz09Z9BmFDp82"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldv4VjvJoOVYlOrg",
+            "name": "Resumen de Uso de Repuesto"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldinkRijaA0sNt4v",
+            "name": "Tracking"
+          }
+        ],
+        "views": [
+          {
+            "id": "viwgCYeGCeiPnTNNz",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tbl4F5QIHPAMwfTNy",
+        "name": "Servicios",
+        "primaryFieldId": "fld8lzBLsm9mmEOCg",
+        "fields": [
+          {
+            "type": "singleLineText",
+            "id": "fld8lzBLsm9mmEOCg",
+            "name": "Servicio"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblitqF6cCopZ9Dge",
+              "isReversed": false,
+              "prefersSingleRecordLink": true,
+              "inverseLinkFieldId": "fldvMc9Tq3bftcQAw"
+            },
+            "id": "fld2dAF6iNt3DLeST",
+            "name": "Orden Relacionada"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fldh3ZaeK5ONZ2yyv",
+            "name": "Costo"
+          },
+          {
+            "type": "aiText",
+            "options": {
+              "referencedFieldIds": [
+                "fld8lzBLsm9mmEOCg",
+                "fld2dAF6iNt3DLeST",
+                "fldbiGKlbXCLTt7dt",
+                "fld8lzBLsm9mmEOCg",
+                "fld2dAF6iNt3DLeST",
+                "fldbiGKlbXCLTt7dt"
+              ],
+              "prompt": [
+                "You are a technical writer tasked with summarizing the usage of spare parts in repair orders for a technology repair shop.\n\nTask description:\nReview the details of the spare part usage, including the specific part used, the related repair orders, and the dates of usage. Create a concise summary that captures the essential information about how and when the spare part has been utilized in repair orders.\n\nOutput format:\nWrite a brief summary in plain text, focusing on the key details of the spare part's usage. Do not include any additional text or headings. If no usage information is available, output \"No usage details available.\" Example: \"The part ",
+                {
+                  "field": {
+                    "fieldId": "fld8lzBLsm9mmEOCg"
+                  }
+                },
+                " was used in orders ",
+                {
+                  "field": {
+                    "fieldId": "fld2dAF6iNt3DLeST"
+                  }
+                },
+                " on ",
+                {
+                  "field": {
+                    "fieldId": "fldbiGKlbXCLTt7dt"
+                  }
+                },
+                ".\" (Real examples should be more detailed and specific.)\n\nContext and Data:\nSpare Part: ",
+                {
+                  "field": {
+                    "fieldId": "fld8lzBLsm9mmEOCg"
+                  }
+                },
+                "\nRelated Order: ",
+                {
+                  "field": {
+                    "fieldId": "fld2dAF6iNt3DLeST"
+                  }
+                },
+                "\nUsage Date: ",
+                {
+                  "field": {
+                    "fieldId": "fldbiGKlbXCLTt7dt"
+                  }
+                },
+                "\nOutput:\n"
+              ]
+            },
+            "id": "flddrltAuk1miKXRJ",
+            "name": "Resumen de Uso de Repuesto"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblitqF6cCopZ9Dge",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldnYKHXQtQRoa8iN"
+            },
+            "id": "fldHWTrQhoLjyPJ20",
+            "name": "Órdenes de Reparación"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{fld8lzBLsm9mmEOCg} & \" $\" & {fldh3ZaeK5ONZ2yyv}\r\n",
+              "referencedFieldIds": [
+                "fld8lzBLsm9mmEOCg",
+                "fldh3ZaeK5ONZ2yyv"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldLlHGIK9fqKJKvk",
+            "name": "Resumen "
+          }
+        ],
+        "views": [
+          {
+            "id": "viwYZooLnavgHiWd2",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tblsKsZN1yAqbqXgt",
+        "name": "Manual Técnico",
+        "primaryFieldId": "fldxRGu8Rnwuz8yPh",
+        "fields": [
+          {
+            "type": "autoNumber",
+            "id": "fldxRGu8Rnwuz8yPh",
+            "name": "Cod."
+          },
+          {
+            "type": "multilineText",
+            "id": "fldjJ2jXm49pNGLHn",
+            "name": "Notas"
+          }
+        ],
+        "views": [
+          {
+            "id": "viwFc3SfxwPvpcn3X",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tblVA1jer1fd9wn4L",
+        "name": "Catálogo Repuestos",
+        "description": "Lista maestra para gestión y control de repuestos reutilizables.",
+        "primaryFieldId": "fldyr1IqERnPcZTOW",
+        "fields": [
+          {
+            "type": "singleLineText",
+            "id": "fldyr1IqERnPcZTOW",
+            "name": "Nombre del repuesto"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldghha7sQE8Pp9UV",
+            "name": "Descripción corta"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fld3UMm8AxKapbYbl",
+            "name": "SKU o código interno"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldPQVC2xA78qbnRX",
+            "name": "Proveedor habitual"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fld3FoywL59d5Gqfm",
+            "name": "Costo base"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fld8sDcr53ymgLLDg",
+            "name": "Precio sugerido al cliente"
+          },
+          {
+            "type": "checkbox",
+            "options": {
+              "icon": "thumbsUp",
+              "color": "greenBright"
+            },
+            "id": "fldOl4KnFAHj8j10q",
+            "name": "Activo"
+          },
+          {
+            "type": "date",
+            "options": {
+              "dateFormat": {
+                "name": "local",
+                "format": "l"
+              }
+            },
+            "id": "fldd0klNz9VbTgVsC",
+            "name": "Fecha de creación"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tbl5N8VcE2ATm1aWe",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldred9O4CA4A7p3H"
+            },
+            "id": "fldefzbXWqbNWvOnq",
+            "name": "Repuestos por Orden"
+          }
+        ],
+        "views": [
+          {
+            "id": "viw56B2rBkKCznddr",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tbl5N8VcE2ATm1aWe",
+        "name": "Repuestos por Orden",
+        "description": "Facilita el monitoreo detallado de repuestos usados por cada orden de reparación.",
+        "primaryFieldId": "fldZB187zrLqvSVtk",
+        "fields": [
+          {
+            "type": "singleLineText",
+            "id": "fldZB187zrLqvSVtk",
+            "name": "Nombre del repuesto snapshot o copiado"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblitqF6cCopZ9Dge",
+              "isReversed": false,
+              "prefersSingleRecordLink": true,
+              "inverseLinkFieldId": "fldOEJtazRcjOhaKr"
+            },
+            "id": "fld3eSckKI1DfpbeT",
+            "name": "Orden de Reparación"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblVA1jer1fd9wn4L",
+              "isReversed": false,
+              "prefersSingleRecordLink": true,
+              "inverseLinkFieldId": "fldefzbXWqbNWvOnq"
+            },
+            "id": "fldred9O4CA4A7p3H",
+            "name": "Repuesto del Catálogo"
+          },
+          {
+            "type": "number",
+            "options": {
+              "precision": 0
+            },
+            "id": "fldXOEp01dQjWOIlH",
+            "name": "Cantidad"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fldFLEm8IrJOicFeA",
+            "name": "Costo proveedor real"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fldP2ULf6cfhBOtfq",
+            "name": "Precio cliente real"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{fldXOEp01dQjWOIlH} * {fldP2ULf6cfhBOtfq}",
+              "referencedFieldIds": [
+                "fldXOEp01dQjWOIlH",
+                "fldP2ULf6cfhBOtfq"
+              ],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fldSnVG8R66yDOatz",
+            "name": "Subtotal cliente"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{fldXOEp01dQjWOIlH} * {fldFLEm8IrJOicFeA}",
+              "referencedFieldIds": [
+                "fldXOEp01dQjWOIlH",
+                "fldFLEm8IrJOicFeA"
+              ],
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fldiD3SAdCpjVa3Gq",
+            "name": "Subtotal costo"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldzFA9nhX0SKNEYO",
+            "name": "Proveedor real"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldGT4XVJaBhNV3nB",
+            "name": "Observación"
+          },
+          {
+            "type": "date",
+            "options": {
+              "dateFormat": {
+                "name": "local",
+                "format": "l"
+              }
+            },
+            "id": "fldEXfOvflkoB8ejC",
+            "name": "Fecha de registro"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{fldZB187zrLqvSVtk} & \" \" & \"$\" & {fldFLEm8IrJOicFeA}",
+              "referencedFieldIds": [
+                "fldZB187zrLqvSVtk",
+                "fldFLEm8IrJOicFeA"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fld3ZWMiYwHSdYalA",
+            "name": "Resumen Repuesto Precio"
+          }
+        ],
+        "views": [
+          {
+            "id": "viwwWMhWN9MP9GnL0",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tbl7QKK6dgA4T4Cnn",
+        "name": "Catálogo Servicios",
+        "description": "Lista maestra de servicios ofrecidos con precios sugeridos y detalles clave.",
+        "primaryFieldId": "fldGHgr8vMerkbupI",
+        "fields": [
+          {
+            "type": "singleLineText",
+            "id": "fldGHgr8vMerkbupI",
+            "name": "Nombre del servicio"
+          },
+          {
+            "type": "multilineText",
+            "id": "fld98FEEcBYsvYgWo",
+            "name": "Descripción"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fldbdbHpa0Lml6vdP",
+            "name": "Costo sugerido"
+          },
+          {
+            "type": "checkbox",
+            "options": {
+              "icon": "thumbsUp",
+              "color": "greenBright"
+            },
+            "id": "fldD5m9BT8lmmLcyO",
+            "name": "Activo"
+          },
+          {
+            "type": "date",
+            "options": {
+              "dateFormat": {
+                "name": "local",
+                "format": "l"
+              }
+            },
+            "id": "fldyeOFu03zLYfOjK",
+            "name": "Fecha de creación"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblJn0nc9yxZdD1l7",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldOdTJ3s5f6s5Dbv"
+            },
+            "id": "flduCdsKHfptsru80",
+            "name": "Servicios por Orden"
+          }
+        ],
+        "views": [
+          {
+            "id": "viwJgxpdPsNbH30eU",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tblJn0nc9yxZdD1l7",
+        "name": "Servicios por Orden",
+        "description": "Gestiona y detalla los servicios aplicados en cada orden de reparación.",
+        "primaryFieldId": "fld6xUkI5WgSgVNjQ",
+        "fields": [
+          {
+            "type": "singleLineText",
+            "id": "fld6xUkI5WgSgVNjQ",
+            "name": "Nombre del servicio snapshot o copiado"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblitqF6cCopZ9Dge",
+              "isReversed": false,
+              "prefersSingleRecordLink": true,
+              "inverseLinkFieldId": "fldawVT0l14WeHJ90"
+            },
+            "id": "fldahPWzqV5JIMOyW",
+            "name": "Orden de Reparación"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tbl7QKK6dgA4T4Cnn",
+              "isReversed": false,
+              "prefersSingleRecordLink": true,
+              "inverseLinkFieldId": "flduCdsKHfptsru80"
+            },
+            "id": "fldOdTJ3s5f6s5Dbv",
+            "name": "Servicio del Catálogo"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fldVDc4kxLYokiGTI",
+            "name": "Costo real"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldC94SF650YbUIG5",
+            "name": "Observación"
+          },
+          {
+            "type": "dateTime",
+            "options": {
+              "dateFormat": {
+                "name": "local",
+                "format": "l"
+              },
+              "timeFormat": {
+                "name": "12hour",
+                "format": "h:mma"
+              },
+              "timeZone": "client"
+            },
+            "id": "fldNcJgdJcTXRItMp",
+            "name": "Fecha de registro"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{fld6xUkI5WgSgVNjQ} & \" \" & \"$\" & {fldVDc4kxLYokiGTI}",
+              "referencedFieldIds": [
+                "fld6xUkI5WgSgVNjQ",
+                "fldVDc4kxLYokiGTI"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fld5r5oRIlgx0GnTm",
+            "name": "Resumen Servicios Precio"
+          }
+        ],
+        "views": [
+          {
+            "id": "viwbg8Fk4DlQWfGhe",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tblLji4M4LcCEJHNd",
+        "name": "Abonos por Orden",
+        "description": "Registra y gestiona los pagos parciales asociados a cada orden de reparación.",
+        "primaryFieldId": "fldKLnZwvze4KrQWR",
+        "fields": [
+          {
+            "type": "autoNumber",
+            "id": "fldKLnZwvze4KrQWR",
+            "name": "ID Abono"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblitqF6cCopZ9Dge",
+              "isReversed": false,
+              "prefersSingleRecordLink": true,
+              "inverseLinkFieldId": "fldHiJvas6Kr491R8"
+            },
+            "id": "fldnBvEnhciitPkmP",
+            "name": "Orden de Reparación"
+          },
+          {
+            "type": "date",
+            "options": {
+              "dateFormat": {
+                "name": "iso",
+                "format": "YYYY-MM-DD"
+              }
+            },
+            "id": "fldmztLu9O6fSOwaZ",
+            "name": "Fecha"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fldQmVjxuPNspufQB",
+            "name": "Monto"
+          },
+          {
+            "type": "singleSelect",
+            "options": {
+              "choices": [
+                {
+                  "id": "selsFviyomVQHHAMi",
+                  "name": "Efectivo",
+                  "color": "blueLight2"
+                },
+                {
+                  "id": "selSCNfX5zgUkM2dg",
+                  "name": "Transferencia",
+                  "color": "cyanLight2"
+                },
+                {
+                  "id": "seluPboFjxZLr8JL1",
+                  "name": "Tarjeta",
+                  "color": "tealLight2"
+                },
+                {
+                  "id": "selphESG8LDkiZlTX",
+                  "name": "PayPal",
+                  "color": "greenLight2"
+                }
+              ]
+            },
+            "id": "fldufOuhmgDUBmg5s",
+            "name": "Método de pago"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldSrYbpnRHUHyqhS",
+            "name": "Observación"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldBA3GzTmhDgE8rg",
+            "name": "Registrado por"
+          },
+          {
+            "type": "multipleAttachments",
+            "options": {
+              "isReversed": true
+            },
+            "id": "fldPGzJhnfXz7qhU8",
+            "name": "Comprobante"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldShInW1xtFwH6ty",
+            "name": "Movimiento Financiero ID"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldN1Uhc3sCPi1sVs",
+            "name": "Cuenta Destino"
+          },
+          {
+            "type": "singleSelect",
+            "options": {
+              "choices": [
+                {
+                  "id": "selvYZkH5DkaDNX8d",
+                  "name": "Pendiente de registrar",
+                  "color": "blueLight2"
+                },
+                {
+                  "id": "selxUhbfEVbguThO8",
+                  "name": "Registrado en Finanzas",
+                  "color": "cyanLight2"
+                },
+                {
+                  "id": "selkCYh7sGgmRGqa5",
+                  "name": "Error de sincronización",
+                  "color": "tealLight2"
+                },
+                {
+                  "id": "selTNLtgyBz62hKDl",
+                  "name": "Anulado",
+                  "color": "greenLight2"
+                }
+              ]
+            },
+            "id": "fld48jfbL6pwWhypM",
+            "name": "Estado Financiero"
+          },
+          {
+            "type": "date",
+            "options": {
+              "dateFormat": {
+                "name": "local",
+                "format": "l"
+              }
+            },
+            "id": "fld6jSUi7gRv1ZkDi",
+            "name": "Fecha Sincronización Finanzas"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldM52sJXg11ibXSw",
+            "name": "Error Sincronización Finanzas"
+          }
+        ],
+        "views": [
+          {
+            "id": "viw5ex4cYW9DlN57z",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tblYSH9sk8gUiNNDF",
+        "name": "Productos Digitales",
+        "description": "Gestiona productos digitales, licencias y sus ventas a clientes o proyectos.",
+        "primaryFieldId": "fldCLWeE40cltxoP1",
+        "fields": [
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{fldjmS5gMb9k2Gvvy} & \" · \" & {fldyirN1bHDTZiXR0} & \" · \" & DATETIME_FORMAT({fldAJWrIyegGByJtu}, 'DD/MM/YYYY')",
+              "referencedFieldIds": [
+                "fldjmS5gMb9k2Gvvy",
+                "fldyirN1bHDTZiXR0",
+                "fldAJWrIyegGByJtu"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldCLWeE40cltxoP1",
+            "name": "Producto Digital"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tbliX19myJzRpx6e2",
+              "isReversed": false,
+              "prefersSingleRecordLink": true,
+              "inverseLinkFieldId": "fldX7p3bCyHucjlWQ"
+            },
+            "id": "fldjmS5gMb9k2Gvvy",
+            "name": "Software / Producto"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldjmS5gMb9k2Gvvy",
+              "fieldIdInLinkedTable": "fldzFUekojKI8OX4V",
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fld6I6bQrBfZeuVxE",
+            "name": "Marca Producto"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldjmS5gMb9k2Gvvy",
+              "fieldIdInLinkedTable": "fldiQISEPAsUmVU94",
+              "result": {
+                "type": "singleSelect",
+                "options": {
+                  "choices": [
+                    {
+                      "id": "sel3zyMmuDBp9ZYAC",
+                      "name": "Clave de activación",
+                      "color": "blueLight2"
+                    },
+                    {
+                      "id": "sel4QAeb1AjIHTmM5",
+                      "name": "Usuario/Contraseña",
+                      "color": "cyanLight2"
+                    },
+                    {
+                      "id": "sel3OeWDCEs9dnwiQ",
+                      "name": "Suscripción",
+                      "color": "tealLight2"
+                    },
+                    {
+                      "id": "selOPHaBF9wB77KAU",
+                      "name": "Otro",
+                      "color": "greenLight2"
+                    }
+                  ]
+                }
+              }
+            },
+            "id": "fldnNibRekfsRkASO",
+            "name": "Tipo Producto"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldjmS5gMb9k2Gvvy",
+              "fieldIdInLinkedTable": "fld9J60pHNP55ufRK",
+              "result": {
+                "type": "multipleAttachments",
+                "options": {
+                  "isReversed": true
+                }
+              }
+            },
+            "id": "fldZSMhcYlXBZZGU4",
+            "name": "Logo Producto"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldjmS5gMb9k2Gvvy",
+              "fieldIdInLinkedTable": "fldhyyJgkXfKkEt5B",
+              "result": {
+                "type": "url"
+              }
+            },
+            "id": "fld8SCgPLQy2UedpQ",
+            "name": "Portal de Activación Catálogo"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldjmS5gMb9k2Gvvy",
+              "fieldIdInLinkedTable": "fldGW7QSXEWfbHJgd",
+              "result": {
+                "type": "multilineText"
+              }
+            },
+            "id": "fldBLDV39y5awZEua",
+            "name": "Instrucciones PDF Catálogo"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldjmS5gMb9k2Gvvy",
+              "fieldIdInLinkedTable": "fldUQLf4IATkwxwqE",
+              "result": {
+                "type": "multilineText"
+              }
+            },
+            "id": "fldTVBu603YeeRnws",
+            "name": "Notas para Cliente Catálogo"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldjmS5gMb9k2Gvvy",
+              "fieldIdInLinkedTable": "fld7QrNmtkP3gSjXX",
+              "result": {
+                "type": "currency",
+                "options": {
+                  "precision": 2,
+                  "symbol": "$"
+                }
+              }
+            },
+            "id": "fld3DqlB6sNRN2nop",
+            "name": "Precio Venta Catálogo"
+          },
+          {
+            "type": "multipleLookupValues",
+            "options": {
+              "isValid": true,
+              "recordLinkFieldId": "fldjmS5gMb9k2Gvvy",
+              "fieldIdInLinkedTable": "fldCtBK0RrNgAn71G",
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldZEpR5ABHgNvYt2",
+            "name": "Color Principal Producto"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fld73IrSxaBI5J2Km",
+            "name": "Proveedor"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fldSCBJmR7gOgj1rN",
+            "name": "Costo Proveedor"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fld8RUEAApf9rGDpM",
+            "name": "Precio Venta"
+          },
+          {
+            "type": "singleSelect",
+            "options": {
+              "choices": [
+                {
+                  "id": "selOEehXwPP5yODYo",
+                  "name": "Disponible",
+                  "color": "blueLight2"
+                },
+                {
+                  "id": "sel5xa7Z6rDIEJRzF",
+                  "name": "Reservado",
+                  "color": "cyanLight2"
+                },
+                {
+                  "id": "selsviviwTMrnowlp",
+                  "name": "Usado",
+                  "color": "tealLight2"
+                },
+                {
+                  "id": "selYMiR53YHjCnolY",
+                  "name": "Anulado",
+                  "color": "greenLight2"
+                },
+                {
+                  "id": "selXqvFdbmupbzlxb",
+                  "name": "Vencido",
+                  "color": "yellowLight2"
+                }
+              ]
+            },
+            "id": "fldyirN1bHDTZiXR0",
+            "name": "Estado"
+          },
+          {
+            "type": "multilineText",
+            "id": "fld3aNaglLCDszHbn",
+            "name": "Clave de Activación"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldXq1NOlunLwNygD",
+            "name": "Usuario / Correo"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldsKvVeaoRd9mkQo",
+            "name": "Contraseña"
+          },
+          {
+            "type": "singleSelect",
+            "options": {
+              "choices": [
+                {
+                  "id": "selKU7BKGS6LVy8GJ",
+                  "name": "Perpetua",
+                  "color": "blueLight2"
+                },
+                {
+                  "id": "selInbMTS2V5GxaKL",
+                  "name": "1 año",
+                  "color": "cyanLight2"
+                },
+                {
+                  "id": "selB8CY1yBRrVmJBD",
+                  "name": "3 meses",
+                  "color": "tealLight2"
+                },
+                {
+                  "id": "sel9fd8eIbNNV09i7",
+                  "name": "6 meses",
+                  "color": "greenLight2"
+                },
+                {
+                  "id": "selRQbC1HPLoV8apX",
+                  "name": "9 meses",
+                  "color": "yellowLight2"
+                },
+                {
+                  "id": "seldbwRQksnN3KVuW",
+                  "name": "2 años",
+                  "color": "orangeLight2"
+                },
+                {
+                  "id": "sell7vz4uZwBvJQAB",
+                  "name": "3 años",
+                  "color": "redLight2"
+                }
+              ]
+            },
+            "id": "fldmubZA7NriScx4a",
+            "name": "Duración"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "SWITCH(\n  {fldmubZA7NriScx4a},\n  \"1 año\", DATEADD({fldAPUIazGR3gohY5}, 1, 'years'),\n  \"2 años\", DATEADD({fldAPUIazGR3gohY5}, 2, 'years'),\n  \"3 años\", DATEADD({fldAPUIazGR3gohY5}, 3, 'years'),\n  \"3 meses\", DATEADD({fldAPUIazGR3gohY5}, 3, 'months'),\n  \"6 meses\", DATEADD({fldAPUIazGR3gohY5}, 6, 'months'),\n  \"9 meses\", DATEADD({fldAPUIazGR3gohY5}, 9, 'months'),\n  \"Perpetua\", BLANK(),\n  BLANK()\n)",
+              "referencedFieldIds": [
+                "fldmubZA7NriScx4a",
+                "fldAPUIazGR3gohY5"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fldvE66sCIOKsZQlf",
+            "name": "Expira",
+            "description": "Calcula la fecha de expiración sumando la duración seleccionada a la fecha de uso/venta."
+          },
+          {
+            "type": "date",
+            "options": {
+              "dateFormat": {
+                "name": "local",
+                "format": "l"
+              }
+            },
+            "id": "fldAJWrIyegGByJtu",
+            "name": "Fecha de Compra"
+          },
+          {
+            "type": "date",
+            "options": {
+              "dateFormat": {
+                "name": "local",
+                "format": "l"
+              }
+            },
+            "id": "fldAPUIazGR3gohY5",
+            "name": "Fecha de Uso / Venta"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblitqF6cCopZ9Dge",
+              "isReversed": false,
+              "prefersSingleRecordLink": true,
+              "inverseLinkFieldId": "fldtqloWdhppncHcH"
+            },
+            "id": "fldgmB4Jmt25imuqZ",
+            "name": "Orden de Reparación"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblilTXFzDvSsvqbX",
+              "isReversed": false,
+              "prefersSingleRecordLink": true,
+              "inverseLinkFieldId": "fldvSVWsULLVdoRNE"
+            },
+            "id": "fldujZsWM9q0JeXHU",
+            "name": "Cliente"
+          },
+          {
+            "type": "singleSelect",
+            "options": {
+              "choices": [
+                {
+                  "id": "sel9G4nuoVBOp1lQC",
+                  "name": "Orden de reparación",
+                  "color": "blueLight2"
+                },
+                {
+                  "id": "selpR9d7Z0C1wqXWk",
+                  "name": "Venta directa",
+                  "color": "cyanLight2"
+                },
+                {
+                  "id": "selMu3pexM7knn9Hr",
+                  "name": "Uso interno",
+                  "color": "tealLight2"
+                }
+              ]
+            },
+            "id": "fld52IceDuhsav3o2",
+            "name": "Tipo de Uso"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldN0IurXvC3ckHbK",
+            "name": "Usado/Vendido por"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldGohKw58wKxm9hF",
+            "name": "Usuario ID Portal"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldPzefKgUQqLnWwo",
+            "name": "Observaciones Internas"
+          },
+          {
+            "type": "multipleAttachments",
+            "options": {
+              "isReversed": true
+            },
+            "id": "fld9wIZLFZrfIeaVm",
+            "name": "Comprobante / Evidencia"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{fld8RUEAApf9rGDpM} - {fldSCBJmR7gOgj1rN}",
+              "referencedFieldIds": [
+                "fld8RUEAApf9rGDpM",
+                "fldSCBJmR7gOgj1rN"
+              ],
+              "result": {
+                "type": "number",
+                "options": {
+                  "precision": 0
+                }
+              }
+            },
+            "id": "fldD1m5U54ZWZI0ae",
+            "name": "Ganancia"
+          },
+          {
+            "type": "formula",
+            "options": {
+              "isValid": true,
+              "formula": "{fldjmS5gMb9k2Gvvy} & \" - \" & {fldyirN1bHDTZiXR0}",
+              "referencedFieldIds": [
+                "fldjmS5gMb9k2Gvvy",
+                "fldyirN1bHDTZiXR0"
+              ],
+              "result": {
+                "type": "singleLineText"
+              }
+            },
+            "id": "fld0XULx9GdHR4KEl",
+            "name": "Producto Seguro"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldDwJhClfgKYsKNQ",
+            "name": "Documento generado por"
+          },
+          {
+            "type": "dateTime",
+            "options": {
+              "dateFormat": {
+                "name": "local",
+                "format": "l"
+              },
+              "timeFormat": {
+                "name": "12hour",
+                "format": "h:mma"
+              },
+              "timeZone": "client"
+            },
+            "id": "fldMoPW1RPXcF7yvV",
+            "name": "Fecha último PDF"
+          },
+          {
+            "type": "multipleAttachments",
+            "options": {
+              "isReversed": false
+            },
+            "id": "fldgVoSFT801Y6P3d",
+            "name": "Documento PDF"
+          }
+        ],
+        "views": [
+          {
+            "id": "viwW0GZ5w9yZfNpq2",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      },
+      {
+        "id": "tbliX19myJzRpx6e2",
+        "name": "Catálogo Productos Digitales",
+        "description": "Central catalog for digital product details, branding, pricing, and documentation.",
+        "primaryFieldId": "fldXD4qLlrmc7BZpT",
+        "fields": [
+          {
+            "type": "singleLineText",
+            "id": "fldXD4qLlrmc7BZpT",
+            "name": "Producto Base"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldzFUekojKI8OX4V",
+            "name": "Marca"
+          },
+          {
+            "type": "singleSelect",
+            "options": {
+              "choices": [
+                {
+                  "id": "sel3zyMmuDBp9ZYAC",
+                  "name": "Clave de activación",
+                  "color": "blueLight2"
+                },
+                {
+                  "id": "sel4QAeb1AjIHTmM5",
+                  "name": "Usuario/Contraseña",
+                  "color": "cyanLight2"
+                },
+                {
+                  "id": "sel3OeWDCEs9dnwiQ",
+                  "name": "Suscripción",
+                  "color": "tealLight2"
+                },
+                {
+                  "id": "selOPHaBF9wB77KAU",
+                  "name": "Otro",
+                  "color": "greenLight2"
+                }
+              ]
+            },
+            "id": "fldiQISEPAsUmVU94",
+            "name": "Tipo"
+          },
+          {
+            "type": "multipleAttachments",
+            "options": {
+              "isReversed": true
+            },
+            "id": "fld9J60pHNP55ufRK",
+            "name": "Logo"
+          },
+          {
+            "type": "url",
+            "id": "fldhyyJgkXfKkEt5B",
+            "name": "Portal de Activación"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldGW7QSXEWfbHJgd",
+            "name": "Instrucciones PDF"
+          },
+          {
+            "type": "multilineText",
+            "id": "fldUQLf4IATkwxwqE",
+            "name": "Notas para Cliente"
+          },
+          {
+            "type": "currency",
+            "options": {
+              "precision": 2,
+              "symbol": "$"
+            },
+            "id": "fld7QrNmtkP3gSjXX",
+            "name": "Precio Venta Catálogo"
+          },
+          {
+            "type": "singleLineText",
+            "id": "fldCtBK0RrNgAn71G",
+            "name": "Color Principal"
+          },
+          {
+            "type": "checkbox",
+            "options": {
+              "icon": "thumbsUp",
+              "color": "greenBright"
+            },
+            "id": "fldpE2mGxjial5ICy",
+            "name": "Activo"
+          },
+          {
+            "type": "multipleRecordLinks",
+            "options": {
+              "linkedTableId": "tblYSH9sk8gUiNNDF",
+              "isReversed": false,
+              "prefersSingleRecordLink": false,
+              "inverseLinkFieldId": "fldjmS5gMb9k2Gvvy"
+            },
+            "id": "fldX7p3bCyHucjlWQ",
+            "name": "Productos Digitales"
+          },
+          {
+            "type": "url",
+            "id": "fldrgtNiAURnWAh0Y",
+            "name": "Link"
+          }
+        ],
+        "views": [
+          {
+            "id": "viwzqJ8ajfZ9nO0jR",
+            "name": "Grid view",
+            "type": "grid"
+          }
+        ]
+      }
+    ]
+  },
+  "counts": {
+    "tblitqF6cCopZ9Dge": "353",
+    "tblilTXFzDvSsvqbX": "353",
+    "tblwe4Lg2PvdAUtRD": "≥1000",
+    "tblmiFGDWTnlcQKn5": "36",
+    "tbl4F5QIHPAMwfTNy": "50",
+    "tblsKsZN1yAqbqXgt": "6",
+    "tblVA1jer1fd9wn4L": "14",
+    "tbl5N8VcE2ATm1aWe": "19",
+    "tbl7QKK6dgA4T4Cnn": "43",
+    "tblJn0nc9yxZdD1l7": "61",
+    "tblLji4M4LcCEJHNd": "42",
+    "tblYSH9sk8gUiNNDF": "7",
+    "tbliX19myJzRpx6e2": "6"
+  },
+  "samples": {
+    "tblitqF6cCopZ9Dge": [
+      {
+        "id": "rec0Ily3XEUH9cabO",
+        "createdTime": "2026-03-02T17:21:26.000Z",
+        "fields": {
+          "Enviar PDF": {
+            "label": "Enviar PDF",
+            "url": "https://airtable.com/tblitqF6cCopZ9Dge/rec0Ily3XEUH9cabO?blocks=bli1z2T7MUIVKVLx0"
+          },
+          "Nota interna": "Teclado para Hp Elitebook 840 G2",
+          "URL Etiqueta Zebra": "https://hook.us2.make.com/wmdayn966snxq3fppdn9cswhcn9oews4?recordID=rec0Ily3XEUH9cabO",
+          "Imprimir Ticket": {
+            "label": "Imprimir",
+            "url": "https://hook.us2.make.com/lr5tivj3i5q9nkpo9ynigsvo2aebnlex?id=rec0Ily3XEUH9cabO"
+          },
+          "Cedula": [
+            "1003873088"
+          ],
+          "ClienteTXT": [
+            "David Teran"
+          ],
+          "Estado Actual": "Finalizado Entregado",
+          "Fecha de Ingreso": "2026-03-02T17:21:26.000Z",
+          "Saldo NV": 0,
+          "URL Seguimiento": "https://airtable.com/appk7jO3ayjihXEbW/shrCmpe3LGs1agejy?filterByFormula=%7BID%20de%20Orden%7D%3D%27OR000210%27",
+          "Todos Estados": "• ",
+          "Resumen Repuestos por Orden": [],
+          "Costo Total Servicios": 0,
+          "Costo Total Repuestos NV": 0,
+          "Resumen Repuestos": "• ",
+          "Presupuesto": 0,
+          "Tipo Orden": "Pedido de Repuesto (Cotización)",
+          "Costo Total de Repuestos": 0,
+          "Enviar Reporte Whatsapp": {
+            "label": "Enviar",
+            "url": "https://api.whatsapp.com/send?phone=5930981974837&text="
+          },
+          "Telefono": [
+            "0981974837"
+          ],
+          "Historial de Estados": [
+            "recofHGrpfgozAw08"
+          ],
+          "Total a Pagar NV": 0,
+          "Estado Actual Text": "Finalizado Entregado",
+          "Total a pagar": 0,
+          "Reporte Orden IA": {
+            "state": "error",
+            "errorType": "emptyDependency",
+            "value": null,
+            "isStale": false
+          },
+          "Costo Total Servicios NV": 0,
+          "Autonumber": 210,
+          "Número de Repuestos Usados": 0,
+          "Total Productos Digitales": 0,
+          "ID": "OR000210",
+          "Mensaje Base Input": {
+            "state": "error",
+            "errorType": "emptyDependency",
+            "value": null,
+            "isStale": false
+          },
+          "Resumen Servicios por Orden": [],
+          "Resumen General Presupuesto ": "Total a Pagar:0, Total de Servicios:0, Total de Repuestos:0, Saldo:0, Abono Total:0, Resumen Repuestos:, Resumen Servicios:",
+          "Generar PDF": {
+            "label": "Button",
+            "url": "https://hook.us2.make.com/if3cu8y1vhbqlas5cjdw3gjwcxokep24?recordID=rec0Ily3XEUH9cabO"
+          },
+          "Equipo": "Hp Elitebook 840 G2",
+          "Abono": 0,
+          "URL de impresión": "https://hook.us2.make.com/yre29fyk5alcd1kj47tlb8e1ac6jx12y?recordID=rec0Ily3XEUH9cabO",
+          "Resumen Servicios": "• ",
+          "Total Abonado NV": 0,
+          "Cliente": [
+            "recWSwMr5yGawuq4a"
+          ],
+          "Ultima Modificacion": "2026-05-08T16:02:48.000Z"
+        }
+      },
+      {
+        "id": "rec0JnffhQVe09FbB",
+        "createdTime": "2026-01-14T15:36:48.000Z",
+        "fields": {
+          "Enviar PDF": {
+            "label": "Enviar PDF",
+            "url": "https://airtable.com/tblitqF6cCopZ9Dge/rec0JnffhQVe09FbB?blocks=bli1z2T7MUIVKVLx0"
+          },
+          "URL Etiqueta Zebra": "https://hook.us2.make.com/wmdayn966snxq3fppdn9cswhcn9oews4?recordID=rec0JnffhQVe09FbB",
+          "Imprimir Ticket": {
+            "label": "Imprimir",
+            "url": "https://hook.us2.make.com/lr5tivj3i5q9nkpo9ynigsvo2aebnlex?id=rec0JnffhQVe09FbB"
+          },
+          "Cedula": [
+            "1002898615"
+          ],
+          "ClienteTXT": [
+            "David Escobar"
+          ],
+          "Recomendaciones": "\\-\n",
+          "Estado Actual": "Finalizado Entregado",
+          "Fecha de Ingreso": "2026-01-14T15:36:48.000Z",
+          "Saldo NV": 0,
+          "URL Seguimiento": "https://airtable.com/appk7jO3ayjihXEbW/shrCmpe3LGs1agejy?filterByFormula=%7BID%20de%20Orden%7D%3D%27OR000178%27",
+          "Todos Estados": "• ",
+          "Resumen Repuestos por Orden": [],
+          "Costo Total Servicios": 0,
+          "Costo Total Repuestos NV": 0,
+          "Accesorios": "Ninguno",
+          "Resumen Repuestos": "• ",
+          "Presupuesto": 0,
+          "Tipo Orden": "Servicio de Reparación",
+          "Costo Total de Repuestos": 0,
+          "Enviar Reporte Whatsapp": {
+            "label": "Enviar",
+            "url": "https://api.whatsapp.com/send?phone=5930988690542&text="
+          },
+          "Telefono": [
+            "0988690542"
+          ],
+          "Historial de Estados": [
+            "recaCdoJqMz3lYveZ",
+            "recTCdmGOQuTAGx1r"
+          ],
+          "Total a Pagar NV": 0,
+          "Estado Actual Text": "Finalizado Entregado",
+          "Total a pagar": 0,
+          "Reporte Orden IA": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Costo Total Servicios NV": 0,
+          "Autonumber": 178,
+          "Número de Repuestos Usados": 0,
+          "Total Productos Digitales": 0,
+          "ID": "OR000178",
+          "Mensaje Base Input": {
+            "state": "error",
+            "errorType": "emptyDependency",
+            "value": null,
+            "isStale": false
+          },
+          "Ingresa Por": "Mantenimiento y cambio de pasta térmica",
+          "Resumen Servicios por Orden": [],
+          "Resumen General Presupuesto ": "Total a Pagar:0, Total de Servicios:0, Total de Repuestos:0, Saldo:0, Abono Total:0, Resumen Repuestos:, Resumen Servicios:",
+          "Generar PDF": {
+            "label": "Button",
+            "url": "https://hook.us2.make.com/if3cu8y1vhbqlas5cjdw3gjwcxokep24?recordID=rec0JnffhQVe09FbB"
+          },
+          "Equipo": "MacBook Pro A1990",
+          "Abono": 0,
+          "URL de impresión": "https://hook.us2.make.com/yre29fyk5alcd1kj47tlb8e1ac6jx12y?recordID=rec0JnffhQVe09FbB",
+          "Resumen Servicios": "• ",
+          "Total Abonado NV": 0,
+          "Cliente": [
+            "reciBSJ1gk4O16IMP"
+          ],
+          "Ultima Modificacion": "2026-05-08T16:14:06.000Z"
+        }
+      },
+      {
+        "id": "rec0RyjcDCtWyAy1E",
+        "createdTime": "2026-05-04T20:40:37.000Z",
+        "fields": {
+          "Enviar PDF": {
+            "label": "Enviar PDF",
+            "url": "https://airtable.com/tblitqF6cCopZ9Dge/rec0RyjcDCtWyAy1E?blocks=bli1z2T7MUIVKVLx0"
+          },
+          "URL Etiqueta Zebra": "https://hook.us2.make.com/wmdayn966snxq3fppdn9cswhcn9oews4?recordID=rec0RyjcDCtWyAy1E",
+          "Imprimir Ticket": {
+            "label": "Imprimir",
+            "url": "https://hook.us2.make.com/lr5tivj3i5q9nkpo9ynigsvo2aebnlex?id=rec0RyjcDCtWyAy1E"
+          },
+          "Cedula": [
+            "1003710272"
+          ],
+          "ClienteTXT": [
+            "Alex Bolaños"
+          ],
+          "Estado Actual": "Finalizado Entregado",
+          "Fecha de Ingreso": "2026-05-04T20:40:37.000Z",
+          "Saldo NV": 0,
+          "URL Seguimiento": "https://airtable.com/appk7jO3ayjihXEbW/shrCmpe3LGs1agejy?filterByFormula=%7BID%20de%20Orden%7D%3D%27OR000057%27",
+          "Todos Estados": "• ",
+          "Resumen Repuestos por Orden": [],
+          "Costo Total Servicios": 0,
+          "Costo Total Repuestos NV": 0,
+          "Resumen Repuestos": "• ",
+          "Presupuesto": 0,
+          "Costo Total de Repuestos": 0,
+          "Enviar Reporte Whatsapp": {
+            "label": "Enviar",
+            "url": "https://api.whatsapp.com/send?phone=5930980649346&text="
+          },
+          "Telefono": [
+            "0980649346"
+          ],
+          "Total a Pagar NV": 0,
+          "Estado Actual Text": "Finalizado Entregado",
+          "Total a pagar": 0,
+          "Reporte Orden IA": {
+            "state": "error",
+            "errorType": "emptyDependency",
+            "value": null,
+            "isStale": false
+          },
+          "Costo Total Servicios NV": 0,
+          "Autonumber": 57,
+          "Número de Repuestos Usados": 0,
+          "Total Productos Digitales": 0,
+          "ID": "OR000057",
+          "Mensaje Base Input": {
+            "state": "error",
+            "errorType": "emptyDependency",
+            "value": null,
+            "isStale": false
+          },
+          "Resumen Servicios por Orden": [],
+          "Resumen General Presupuesto ": "Total a Pagar:0, Total de Servicios:0, Total de Repuestos:0, Saldo:0, Abono Total:0, Resumen Repuestos:, Resumen Servicios:",
+          "Generar PDF": {
+            "label": "Button",
+            "url": "https://hook.us2.make.com/if3cu8y1vhbqlas5cjdw3gjwcxokep24?recordID=rec0RyjcDCtWyAy1E"
+          },
+          "Equipo": "PRUEBA DE CORRECCION NO MOVER",
+          "Abono": 0,
+          "URL de impresión": "https://hook.us2.make.com/yre29fyk5alcd1kj47tlb8e1ac6jx12y?recordID=rec0RyjcDCtWyAy1E",
+          "Resumen Servicios": "• ",
+          "Total Abonado NV": 0,
+          "Cliente": [
+            "recVvcnFfWE5EDIjD"
+          ],
+          "Ultima Modificacion": "2026-05-04T21:09:16.000Z"
+        }
+      }
+    ],
+    "tblilTXFzDvSsvqbX": [
+      {
+        "id": "rec018jcmJAR9ij0U",
+        "createdTime": "2026-04-01T22:27:51.000Z",
+        "fields": {
+          "Teléfono": "0984723309",
+          "Resumen de Órdenes": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Nombre": "Luis Lema",
+          "Sugerencias de Seguimiento": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Fecha de registro": "2026-04-01T22:27:51.000Z",
+          "Número de Órdenes": 1,
+          "Última Fecha de Ingreso": "2026-04-01",
+          "ChatWhatsApp": {
+            "label": "WhatsApp",
+            "url": "https://wa.me/593984723309"
+          },
+          "Órdenes Relacionadas": [
+            "recirlKQRS1O96iSg"
+          ]
+        }
+      },
+      {
+        "id": "rec0UT8T7WEPowZEk",
+        "createdTime": "2025-09-16T16:57:39.000Z",
+        "fields": {
+          "Teléfono": "0963225204",
+          "Resumen de Órdenes": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Nombre": "Cristina Davila",
+          "Sugerencias de Seguimiento": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Fecha de registro": "2025-09-16T16:57:39.000Z",
+          "Número de Órdenes": 1,
+          "Última Fecha de Ingreso": "2025-09-16",
+          "ChatWhatsApp": {
+            "label": "WhatsApp",
+            "url": "https://wa.me/593963225204"
+          },
+          "Órdenes Relacionadas": [
+            "recupFHps9mah3ZcI"
+          ]
+        }
+      },
+      {
+        "id": "rec0ypUbq67zj2q9A",
+        "createdTime": "2026-04-08T16:05:10.000Z",
+        "fields": {
+          "Teléfono": "0985885745",
+          "Resumen de Órdenes": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Nombre": "Keily Duque",
+          "Sugerencias de Seguimiento": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Fecha de registro": "2026-04-08T16:05:10.000Z",
+          "Número de Órdenes": 1,
+          "Última Fecha de Ingreso": "2026-04-08",
+          "ChatWhatsApp": {
+            "label": "WhatsApp",
+            "url": "https://wa.me/593985885745"
+          },
+          "Órdenes Relacionadas": [
+            "rec3nB9lRKjaQdK2B"
+          ],
+          "Cédula": "1050477569"
+        }
+      }
+    ],
+    "tblwe4Lg2PvdAUtRD": [
+      {
+        "id": "rec01jEuKWfF1xHsT",
+        "createdTime": "2026-05-08T20:12:36.000Z",
+        "fields": {
+          "Abono": [
+            25
+          ],
+          "Resumen Repuestos": [
+            "• "
+          ],
+          "Resumen General Presupuestos": [
+            "Total a Pagar:62, Total de Servicios:62, Total de Repuestos:0, Saldo:0, Abono Total:62, Resumen Repuestos:, Resumen Servicios:Reballing SMC Externo Macbook $62"
+          ],
+          "Estado Generado IA": "Estimado Marlon Toapanta, reciba un cordial saludo de parte de SUPER GEEK. Nos comunicamos con usted respecto a su equipo MacBook Air 13\", asociado a la orden de reparación OR000203.\n\nActualmente, su orden se encuentra en estado \"Esperando Respuesta\". Le recordamos que su equipo presenta el siguiente inconveniente: se apaga minutos después de encenderla, incluso con el cargador conectado.\n\nEstimado cliente, su equipo está próximo a entrar a nuestro programa de reciclaje por falta de respuesta. Si no es retirado hasta el 13 de mayo de 2026, el equipo será dado de baja sin opción de reclamo.\n\nResumen de su presupuesto:\n- Total a pagar: $62\n- Total de servicios: $62 (Reballing SMC Externo Macbook $62)\n- Total de repuestos: $0\n- Abono total: $0\n- Saldo pendiente: $62\n\nPor favor, contáctenos a la brevedad para coordinar el retiro o la continuación del proceso de reparación.\n\nQuedamos atentos a su respuesta.  \nAtentamente,  \nEquipo de SUPER GEEK",
+          "Teléfono": [
+            "0968274211"
+          ],
+          "Sugerencia de Acción Siguiente": {
+            "state": "error",
+            "errorType": "emptyDependency",
+            "value": null,
+            "isStale": false
+          },
+          "Órdenes de Reparación": [
+            "recZfRjapH2sbYCZf"
+          ],
+          "Generar Whatsapp": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Estado Actual Text": [
+            "Finalizado Entregado"
+          ],
+          "Presupuesto": [
+            0
+          ],
+          "Fecha": "2026-05-08T20:12:36.000Z",
+          "Estado Nuevo": "Estimado cliente, su equipo esta proximo a entrar a nuestro programa de reciclaje por falta de respuesta. Si no es retirado hasta el 13 de mayo de 2026 el equipo sera dado de baja sin opcion de reclamo",
+          "Enviar Whatsapp": {
+            "label": "Enviar",
+            "url": "https://api.whatsapp.com/send?phone=5930968274211&text="
+          },
+          "Cliente": [
+            "recEY3j6rBjwJGkx6"
+          ],
+          "Repuestos Servicios": [
+            "• "
+          ],
+          "Creado desde App Técnico": true,
+          "Ingresa Por": [
+            "Se apaga minutos después de encenderla aún con el cargador conectado"
+          ],
+          "Generar Whatsapp copy": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Equipo": [
+            "MacBook Air 13\""
+          ],
+          "Todos Estados Rollup (from Órdenes de Reparación)": [
+            "• Estamos revisando el equipo, necesitamos el password para iniciar la sesion de su cuenta en macOS\n• le comento lo que hemos realizado hasta ahora con su MacBook Air 2015:\n\nVerificamos que el problema no parece ser por temperatura.\n\nRealizamos los resets de energía y configuración (SMC y NVRAM/PRAM), pero el equipo continúa apagándose.\n\nEn este momento el equipo incluso presenta dificultad para encender (a veces no responde al botón de encendido).\n\nAdemás, se detectó un sonido interno tipo “chispazos”, lo cual es compatible con una falla eléctrica o posible corto.\n\nPor seguridad hemos detenido las pruebas y no recomendamos seguir intentando encenderlo, ya que eso podría empeorar el daño.\n\nSugerencia: enviar el equipo a un taller de microelectrónica para diagnóstico (el solo diagnóstico tieneun costo de $25) y reparación a nivel de placa. Antes de enviarlo, si usted lo autoriza, podemos abrirlo únicamente para una inspección visual y desconectar la batería, con el fin de evitar riesgos y verificar si hay señales visibles de humedad, corrosión o componente quemado.\n\nQuedo atento para que me confirme cómo desea proceder.\n• se envio a taller microelectrónica, cliente abono $25 para costos de envío y revisión por el taller\n• Taller realizo reballing a SMC, equipo se mantiene en pruebas, no se han reportado apagones o reinicios. Informaremos pronto los costos del servicio\n• Se completo la reparación, se realizaron pruebas en el taller durante 3 días sin evindeciar nuevamente los apagones o reseteos. Total a pagar por el servicio de reballing a SMC $62 incluido envío. Necesitamos el pago para que el taller envíe el computador y podamos entregarlo."
+          ]
+        }
+      },
+      {
+        "id": "rec02dTVKOJ9Ic58H",
+        "createdTime": "2025-12-19T23:01:38.000Z",
+        "fields": {
+          "Abono": [
+            0
+          ],
+          "Resumen Repuestos": [
+            "• "
+          ],
+          "Resumen General Presupuestos": [
+            "Total a Pagar:0, Total de Servicios:0, Total de Repuestos:0, Saldo:0, Abono Total:0, Resumen Repuestos:, Resumen Servicios:"
+          ],
+          "Teléfono": [
+            "0997032607"
+          ],
+          "Sugerencia de Acción Siguiente": {
+            "state": "error",
+            "errorType": "emptyDependency",
+            "value": null,
+            "isStale": false
+          },
+          "Órdenes de Reparación": [
+            "recwrP8RiZfMhuGUY"
+          ],
+          "Generar Whatsapp": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Estado Actual Text": [
+            "Finalizado Entregado"
+          ],
+          "Presupuesto": [
+            0
+          ],
+          "Fecha": "2025-12-19T23:01:38.000Z",
+          "Estado Nuevo": "Cliente confirma formateo sin respaldo",
+          "Enviar Whatsapp": {
+            "label": "Enviar",
+            "url": "https://api.whatsapp.com/send?phone=5930997032607&text="
+          },
+          "Cliente": [
+            "rec3Hp5JpHFoZVEZt"
+          ],
+          "Repuestos Servicios": [
+            "• "
+          ],
+          "Ingresa Por": [
+            "Se cuelga después de haber encendido"
+          ],
+          "Generar Whatsapp copy": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Equipo": [
+            "HP 470 G7"
+          ],
+          "Todos Estados Rollup (from Órdenes de Reparación)": [
+            "• "
+          ]
+        }
+      },
+      {
+        "id": "rec08hSyvOWL6VQj7",
+        "createdTime": "2025-12-31T15:58:03.000Z",
+        "fields": {
+          "Abono": [
+            0
+          ],
+          "Resumen Repuestos": [
+            "• "
+          ],
+          "Resumen General Presupuestos": [
+            "Total a Pagar:0, Total de Servicios:0, Total de Repuestos:0, Saldo:0, Abono Total:0, Resumen Repuestos:, Resumen Servicios:"
+          ],
+          "Teléfono": [
+            "0993980441"
+          ],
+          "Sugerencia de Acción Siguiente": {
+            "state": "error",
+            "errorType": "emptyDependency",
+            "value": null,
+            "isStale": false
+          },
+          "Órdenes de Reparación": [
+            "recoKpLjTZUzUtIlR"
+          ],
+          "Generar Whatsapp": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Estado Actual Text": [
+            "Finalizado Entregado"
+          ],
+          "Presupuesto": [
+            0
+          ],
+          "Fecha": "2025-12-31T15:58:03.000Z",
+          "Estado Nuevo": "Cliente cancela en efectivo y retira",
+          "Enviar Whatsapp": {
+            "label": "Enviar",
+            "url": "https://api.whatsapp.com/send?phone=5930993980441&text="
+          },
+          "Cliente": [
+            "recnlN9yPHn20Ugiz"
+          ],
+          "Repuestos Servicios": [
+            "• "
+          ],
+          "Ingresa Por": [
+            "Problema controladores luego de una reinstalación sistema operativo. Probar red"
+          ],
+          "Generar Whatsapp copy": {
+            "state": "empty",
+            "value": null,
+            "isStale": true
+          },
+          "Equipo": [
+            "HP 24-CR0xxx"
+          ],
+          "Todos Estados Rollup (from Órdenes de Reparación)": [
+            "• "
+          ]
+        }
+      }
+    ],
+    "tblmiFGDWTnlcQKn5": [
+      {
+        "id": "rec05qQr6RlXRrbiE",
+        "createdTime": "2026-01-31T18:12:51.000Z",
+        "fields": {
+          "Orden Relacionada": [
+            "rec8iiSyRAhyKCVQN",
+            "recJcAfAnxS1umwEb"
+          ],
+          "Repuesto": "Disco SSD M.2 128GB ",
+          "Resumen de Uso de Repuesto": "Disco SSD M.2 128GB  $40",
+          "Precio Cliente": 40
+        }
+      },
+      {
+        "id": "rec1r2eOtpMW86VXK",
+        "createdTime": "2025-07-14T22:31:01.000Z",
+        "fields": {
+          "Orden Relacionada": [
+            "recMsyvsIxU9TpLEf"
+          ],
+          "Repuesto": "Pantalla 15.6\" 30 Pines ",
+          "Resumen de Uso de Repuesto": "Pantalla 15.6\" 30 Pines  $65",
+          "Precio Cliente": 65
+        }
+      },
+      {
+        "id": "rec575fJ1hBmxLfXq",
+        "createdTime": "2025-06-24T22:34:33.000Z",
+        "fields": {
+          "Orden Relacionada": [
+            "rec4Un555FxfIAHYI",
+            "recfV6NgBQJpiKw4C"
+          ],
+          "Repuesto": "Disco Duro Interno SSD Sata 512GB ",
+          "Resumen de Uso de Repuesto": "Disco Duro Interno SSD Sata 512GB  $55",
+          "Precio Cliente": 55
+        }
+      }
+    ],
+    "tbl4F5QIHPAMwfTNy": [
+      {
+        "id": "rec0QP2LLko5gjkma",
+        "createdTime": "2026-03-24T15:58:16.000Z",
+        "fields": {
+          "Servicio": "Cambio de pasta térmica (desktop GPU) + limpieza ",
+          "Resumen ": "Cambio de pasta térmica (desktop GPU) + limpieza  $45",
+          "Resumen de Uso de Repuesto": {
+            "state": "error",
+            "errorType": "emptyDependency",
+            "value": null,
+            "isStale": false
+          },
+          "Costo": 45
+        }
+      },
+      {
+        "id": "rec1pQucfC9T1WBSW",
+        "createdTime": "2025-05-31T18:02:56.000Z",
+        "fields": {
+          "Servicio": "Formateo + Instalación SO PC",
+          "Órdenes de Reparación": [
+            "rec4Un555FxfIAHYI",
+            "recbU6kcNna2XQ6gZ",
+            "rec3eQRAbJT7lU9Zu",
+            "recwL0Ndz323FL72Z",
+            "recWYcuas7PGKbsoA",
+            "recIQwl4NcvUTNaiO",
+            "reclRhs49RoyV3qeV",
+            "reckfb9geMAQQ3auH",
+            "recxDazenTBUrKF8O",
+            "recAlVGTffeWkQXgl",
+            "rec2Txpx2SQ8zjJFy",
+            "recFnQnxj2F6sMoR5",
+            "recSVWQ1uU4Rzb9kF",
+            "recxbaqWi8WJP9jPL",
+            "recTX6r0rdyMCNpw2",
+            "recJumLLrf97IlgAh",
+            "recI2MCQ8AgkMJ0wS",
+            "recWqgpnOauAHczrt",
+            "rec3Xtb0LPdiMzF2o",
+            "rechdabvdOHTGdrXz",
+            "recLt6hXFoPNL9uRP",
+            "rec6FTZm9eezZ572P",
+            "recsLfrDmgKLAO2xm",
+            "recXlpUX3pgYJv02Z",
+            "recie7dWpXZoUjOb0",
+            "reclTqxh2GNyImHUS",
+            "recV83zkfiM5uqd3p",
+            "rec2s6xIIgNyL2q4t",
+            "reclyGHxLnaQz82nu",
+            "recMaY8ytADWOYkKd",
+            "recu87IUmExtoGKZ7",
+            "recZwNPGuwz6HcfoQ",
+            "recsiczwDaRK4AmJO",
+            "rec2GJ8WRkmFiwkoq",
+            "recmXpIYNUHi5xkRW",
+            "recVkD5c3AAM0vHVB",
+            "recbCsqMPYH72q5hQ",
+            "recflXZaT99Wp8VuJ"
+          ],
+          "Resumen ": "Formateo + Instalación SO PC $10",
+          "Resumen de Uso de Repuesto": {
+            "state": "error",
+            "errorType": "emptyDependency",
+            "value": null,
+            "isStale": false
+          },
+          "Costo": 10
+        }
+      },
+      {
+        "id": "rec3140AoUQmKgqdq",
+        "createdTime": "2025-07-14T22:31:33.000Z",
+        "fields": {
+          "Servicio": "Servicio Técnico",
+          "Órdenes de Reparación": [
+            "recMsyvsIxU9TpLEf",
+            "recw3Pn3bELf1Xhnh"
+          ],
+          "Resumen ": "Servicio Técnico $20",
+          "Resumen de Uso de Repuesto": {
+            "state": "error",
+            "errorType": "emptyDependency",
+            "value": null,
+            "isStale": false
+          },
+          "Costo": 20
+        }
+      }
+    ],
+    "tblsKsZN1yAqbqXgt": [
+      {
+        "id": "rec8nfRsicuYsSn3b",
+        "createdTime": "2026-04-10T15:50:54.000Z",
+        "fields": {
+          "Notas": "Tecla de Booteo laptops Dell con F2 para entrar a BIOS.\n",
+          "Cod.": 2
+        }
+      },
+      {
+        "id": "recG4e34JKP2GEqSH",
+        "createdTime": "2026-04-10T15:50:54.000Z",
+        "fields": {
+          "Notas": "Tecla para opciones de Booteo laptops Dell con F12.",
+          "Cod.": 1
+        }
+      },
+      {
+        "id": "recJLdzZakxW6AUE6",
+        "createdTime": "2026-04-24T21:20:25.000Z",
+        "fields": {
+          "Cod.": 5
+        }
+      }
+    ],
+    "tblVA1jer1fd9wn4L": [
+      {
+        "id": "rec0fa5mx9MCFX01A",
+        "createdTime": "2026-06-05T16:44:29.000Z",
+        "fields": {
+          "Costo base": 85,
+          "Precio sugerido al cliente": 85,
+          "Activo": true,
+          "Proveedor habitual": "SG",
+          "Nombre del repuesto": "Memoria RAM 8GB DDR4 2400T"
+        }
+      },
+      {
+        "id": "rec8i7sD9gKkJ5t3A",
+        "createdTime": "2026-04-15T14:46:15.000Z",
+        "fields": {
+          "Costo base": 25,
+          "Precio sugerido al cliente": 68,
+          "Activo": true,
+          "Proveedor habitual": "Miker",
+          "Repuestos por Orden": [
+            "receCfcKC9M5nmRK4",
+            "recKEDHcim8esrOSc",
+            "recCfcFGWKanrF7Kt",
+            "recA8BBdBOzPOTCxw",
+            "rec3z6hM25CH6m0Pi"
+          ],
+          "Nombre del repuesto": "8GB Ram DDR4 3200 MHz Laptop"
+        }
+      },
+      {
+        "id": "recDjdM2YlxaVCkvw",
+        "createdTime": "2026-05-26T16:15:59.000Z",
+        "fields": {
+          "Costo base": 0,
+          "Precio sugerido al cliente": 30,
+          "Activo": true,
+          "Proveedor habitual": "SUPER GEEK",
+          "Repuestos por Orden": [
+            "rec7QAz86qo1orJ4v"
+          ],
+          "Descripción corta": "Memoria RAM de 4GB DDR3 para laptop",
+          "Nombre del repuesto": "Memoria RAM 4GB DDR3 Laptop"
+        }
+      }
+    ],
+    "tbl5N8VcE2ATm1aWe": [
+      {
+        "id": "rec3z6hM25CH6m0Pi",
+        "createdTime": "2026-05-01T17:41:41.000Z",
+        "fields": {
+          "Resumen Repuesto Precio": "8GB Ram DDR4 3200 MHz Laptop $25",
+          "Orden de Reparación": [
+            "recJcAfAnxS1umwEb"
+          ],
+          "Fecha de registro": "2026-05-01",
+          "Costo proveedor real": 25,
+          "Precio cliente real": 68,
+          "Subtotal cliente": 68,
+          "Cantidad": 1,
+          "Nombre del repuesto snapshot o copiado": "8GB Ram DDR4 3200 MHz Laptop",
+          "Subtotal costo": 25,
+          "Repuesto del Catálogo": [
+            "rec8i7sD9gKkJ5t3A"
+          ],
+          "Proveedor real": "Miker"
+        }
+      },
+      {
+        "id": "rec7Gy4WsgceSSUF6",
+        "createdTime": "2026-06-17T17:56:11.000Z",
+        "fields": {
+          "Resumen Repuesto Precio": "Motherboard Apple iMac Mid 2017 21.5\" A1418 i5-7400 + Fuente de energía $205",
+          "Orden de Reparación": [
+            "recbOgihN8Q0fUR12"
+          ],
+          "Fecha de registro": "2026-06-17",
+          "Costo proveedor real": 205,
+          "Precio cliente real": 205,
+          "Subtotal cliente": 205,
+          "Cantidad": 1,
+          "Nombre del repuesto snapshot o copiado": "Motherboard Apple iMac Mid 2017 21.5\" A1418 i5-7400 + Fuente de energía",
+          "Subtotal costo": 205,
+          "Repuesto del Catálogo": [
+            "recSLCgXr24bYHUpm"
+          ],
+          "Proveedor real": "eBay"
+        }
+      },
+      {
+        "id": "rec7QAz86qo1orJ4v",
+        "createdTime": "2026-05-26T16:16:47.000Z",
+        "fields": {
+          "Resumen Repuesto Precio": "Memoria RAM 4GB DDR3 Laptop $0",
+          "Orden de Reparación": [
+            "recQNvG4t792oJtac"
+          ],
+          "Fecha de registro": "2026-05-26",
+          "Costo proveedor real": 0,
+          "Precio cliente real": 30,
+          "Subtotal cliente": 30,
+          "Cantidad": 1,
+          "Nombre del repuesto snapshot o copiado": "Memoria RAM 4GB DDR3 Laptop",
+          "Subtotal costo": 0,
+          "Repuesto del Catálogo": [
+            "recDjdM2YlxaVCkvw"
+          ],
+          "Proveedor real": "SUPER GEEK"
+        }
+      }
+    ],
+    "tbl7QKK6dgA4T4Cnn": [
+      {
+        "id": "rec0YJ3AVnA90Ey4F",
+        "createdTime": "2026-05-09T16:50:58.000Z",
+        "fields": {
+          "Descripción": "Servicio de Desbloqueo de Password ✅ y Programacion",
+          "Activo": true,
+          "Nombre del servicio": "Programacion y desbloqueo de Password ✅ de BIOS  de Portatiles",
+          "Costo sugerido": 125
+        }
+      },
+      {
+        "id": "rec2BCHRS5bEdzbUI",
+        "createdTime": "2026-05-09T16:45:15.000Z",
+        "fields": {
+          "Descripción": "Programacion de Bios dañada  y corrupta",
+          "Activo": true,
+          "Nombre del servicio": "Programacion de BIOS en Portatiles-Gamer",
+          "Costo sugerido": 125
+        }
+      },
+      {
+        "id": "rec2VvmQkyBNQDtXA",
+        "createdTime": "2026-05-11T15:41:18.000Z",
+        "fields": {
+          "Activo": true,
+          "Nombre del servicio": "Mantenimiento de impresora",
+          "Costo sugerido": 25
+        }
+      }
+    ],
+    "tblJn0nc9yxZdD1l7": [
+      {
+        "id": "rec1uZ0qBBxsRVdk7",
+        "createdTime": "2026-06-04T19:59:06.000Z",
+        "fields": {
+          "Resumen Servicios Precio": "Respaldo de información macOS $15",
+          "Nombre del servicio snapshot o copiado": "Respaldo de información macOS",
+          "Fecha de registro": "2026-06-04T00:00:00.000Z",
+          "Servicio del Catálogo": [
+            "recGAvQC3u5qeEAFJ"
+          ],
+          "Costo real": 15,
+          "Orden de Reparación": [
+            "rec68uVVf7Xw2MaSv"
+          ]
+        }
+      },
+      {
+        "id": "rec20pFPHtqA3bRwE",
+        "createdTime": "2026-06-19T17:51:09.000Z",
+        "fields": {
+          "Resumen Servicios Precio": "Reparación y pegado de una bisagra $25",
+          "Nombre del servicio snapshot o copiado": "Reparación y pegado de una bisagra",
+          "Fecha de registro": "2026-06-19T00:00:00.000Z",
+          "Servicio del Catálogo": [
+            "recckU6U4NHWstHAi"
+          ],
+          "Costo real": 25,
+          "Orden de Reparación": [
+            "recblG8Nzk8HMJDst"
+          ]
+        }
+      },
+      {
+        "id": "rec3SYLVoM2fFjgfW",
+        "createdTime": "2026-05-28T18:07:17.000Z",
+        "fields": {
+          "Resumen Servicios Precio": "Clave de activación Windows 11 Pro $20",
+          "Nombre del servicio snapshot o copiado": "Clave de activación Windows 11 Pro",
+          "Fecha de registro": "2026-05-28T00:00:00.000Z",
+          "Servicio del Catálogo": [
+            "recZbrUvHW9shaazz"
+          ],
+          "Costo real": 20,
+          "Orden de Reparación": [
+            "recSlaEfxPFXhEpje"
+          ]
+        }
+      }
+    ],
+    "tblLji4M4LcCEJHNd": [
+      {
+        "id": "rec0SMrfITfRyJ821",
+        "createdTime": "2026-06-06T19:07:57.000Z",
+        "fields": {
+          "ID Abono": 33,
+          "Monto": 50,
+          "Observación": "CLIENTE PAGO COMPLETO",
+          "Fecha": "2026-06-06",
+          "Orden de Reparación": [
+            "reclOuv6g8H5clanZ"
+          ],
+          "Método de pago": "Efectivo"
+        }
+      },
+      {
+        "id": "rec15CCrFxudghdTG",
+        "createdTime": "2026-05-28T18:05:37.000Z",
+        "fields": {
+          "ID Abono": 27,
+          "Comprobante": [
+            {
+              "id": "attVuT20sDlHYzB6s",
+              "width": 960,
+              "height": 1280,
+              "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/H-pIxCUbJIZSbKc13JQ7Ig/daauWA3Om2L-RNNKvUQhWE9oF2YfrUc1VCNsdXWQH-2SuDM2F3sXLzw0VHHQm_9GuAFNOFg8hZlmnKyHt1oYkV1R3lFswzakcadi9u4SU3ahRRFdXmntLlRen1J1baEwCmmwZ8UWYQthjyQRzt2DHb4jr5jqPar1pm0iPZYGGZp4CxyaUzppdbNIl2GBQ4kd/VLGQA_ApRTfbT15HQRSPF5tBGgC5twpJBgVlg-rdI8c",
+              "filename": "WhatsApp Image 2026-05-28 at 12.58.18 PM.jpeg",
+              "size": 123599,
+              "type": "image/jpeg",
+              "thumbnails": {
+                "small": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/qEJA_WXz5WrVLAg9T4arCQ/4BZh5GgDP-70nYUzp7xPvAKJzeZzuItYP-OLPkHR_iuAke7O5K6fPxpj7_aJ_pelIJzTivmcEOyNZI_1GUmgG3AB_K1M8TZy5t3fhXtenWVczM1DnM9fbKvTkApF-zexfZnU8E2SkCyyOuFQ6MZamQ/XmrSRQJ5dcO4XeQH1VDWQDhyTXPwWJnnrCFqTwYrKsY",
+                  "width": 27,
+                  "height": 36
+                },
+                "large": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/s8Gqcw6ML1zbaT9z0gHnQQ/eVK2L3jIIv21jGVyPfglCwDaGyC51HScQaJ_0_D6S25ygfkLfUbcqgfUwYrT5Jps6IkHrBxeMjF2veKaVYJpO8FyZSe5XgY1J8YGDSbuMjbrvDRuehGWqu46Yr0dUlbz13-JUVpW6lmgXjS5X8jXCQ/-dcDFy3xzZaa8COqMSKp9-kayt7XZpgGFodeXpWR-oY",
+                  "width": 512,
+                  "height": 683
+                },
+                "full": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/Txx5GxNn33GyQ9j3gy6N5w/u3fJPa5WEbSN2dWcNH7QbikNkwjaFRPnHD_xs6qOHfYh6WkDctPT0CFkIRgmGzisrLzNZtdX1we-C8KqWYfj7vYGBCGQ2RPvkgDznfFPHq6jIiqIoGELaVZvE8LxzzCrqyhAP5F5CHOEkwB3pLT9tQ/agMuTc5L05CdUKA4eSW8U7yrA6fya_AcGKzC-3wdDN0",
+                  "width": 960,
+                  "height": 1280
+                }
+              }
+            }
+          ],
+          "Monto": 50,
+          "Fecha": "2026-05-28",
+          "Orden de Reparación": [
+            "recSlaEfxPFXhEpje"
+          ],
+          "Método de pago": "Transferencia"
+        }
+      },
+      {
+        "id": "rec1uUKiptDPHOCIV",
+        "createdTime": "2026-06-06T18:28:20.000Z",
+        "fields": {
+          "ID Abono": 32,
+          "Monto": 60,
+          "Fecha": "2026-06-06",
+          "Orden de Reparación": [
+            "recBsSYUkSPzNLnAe"
+          ],
+          "Método de pago": "Efectivo"
+        }
+      }
+    ],
+    "tblYSH9sk8gUiNNDF": [
+      {
+        "id": "recINlh91EM4H8Lms",
+        "createdTime": "2026-06-23T22:55:34.000Z",
+        "fields": {
+          "Producto Seguro": "McAfee AntiVirus 1 Year - Usado",
+          "Precio Venta Catálogo": [
+            20
+          ],
+          "Clave de Activación": "3V36M-56S2L-RLC93-V49GM-A2J4D",
+          "Tipo de Uso": "Orden de reparación",
+          "Proveedor": "Electronicfirst",
+          "Precio Venta": 20,
+          "Fecha de Compra": "2026-06-23",
+          "Fecha de Uso / Venta": "2026-06-23",
+          "Producto Digital": "McAfee AntiVirus 1 Year · Usado · 23/06/2026",
+          "Ganancia": 17.31,
+          "Documento generado por": "Joseph Bolaños (joseph@supertiendageek.com)",
+          "Usuario ID Portal": "recO2t2irrvQQGaFd",
+          "Fecha último PDF": "2026-06-23T22:55:57.280Z",
+          "Usado/Vendido por": "Joseph Bolaños",
+          "Costo Proveedor": 2.69,
+          "Logo Producto": [
+            {
+              "id": "attBGbW52Yv6l4Udn",
+              "width": 447,
+              "height": 447,
+              "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/itAh2UcmnylWLkJvstUqZQ/HvqmUkfEZbfhlXBPbOTATsYd-qX7IBaCLHEBOI5nvkS5uUheHME8AVG3rHT3XE1NTXWq6HcA5ySYpSSsZnq-Vfm0rQjcNR_YTCPCJoGiYdN7ZOyY3tzPXoA48_5PxN0yi7luBl_DpBwzkCA1A5JcLntUEHOeufmfg71mila1CguUbjiZvVKBX5S7vXvjr046/DjkmHqNPpr6X4-wsYE2qxjfFWVc4LCMzA0CEucoT3xQ",
+              "filename": "WhatsApp Image 2026-06-24 at 11.16.24 AM.jpeg",
+              "size": 19110,
+              "type": "image/jpeg",
+              "thumbnails": {
+                "small": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/0b_sGzLefYrkJB2-3kU6nQ/93qg3tMlSuA4bbOS-UN0XZ2935tisO-cfMAXJ7vZim8jF4unFBpwb5iNVt2yKFMO8JHyGRqvB-v492lPHsBAVohArA7kQvgm-62dMVldA4A9BMrZmLHhyjYitZPgGK733s7DKWYIUzi6QZH9roB6ow/FJF89zy0f6Kaiz29arNPElFgwpsoSpychJwVTUl636g",
+                  "width": 36,
+                  "height": 36
+                },
+                "large": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/2bpHQX8q7GJFxK2X0DUVBQ/mZ41SUwt2xv2eveNkPJitD2XMIv0YtUHPW7s2YMhzh9QtKwW4GKJE_D-yzfDXAAiQgOZbIOzln8MGt2tQeFc7f5-kK7XGlCK5jqOjO6M1hmUlboJ0IlLcQAP24_lTfADpDkmwNqlob3HlWSfz9yWcw/Azf4G56wA6bocQx8TqP8C20MEWjp-1JxRhSzqtnSw9Q",
+                  "width": 447,
+                  "height": 447
+                },
+                "full": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/TwPPQm_vIecC5qWmlbYgWA/wdPCrvXmTkwuunRbjQA9eP2DRWp5C6_Sii9rsTohFDiwf-dSe8C3DbDoQ3wMUrX_BS0GUaim_JiMEDnlWIkU-8CzuHWNQSLcR5QhNsDs-Ld19mLWjFwUsxnyx26wDiydZ_ZNL3xcnERSHLR2S5AMQQ/oUKXj5-ObfmF3JbSCXBMKl7tLo1buLGDKTy0iMFfgrc",
+                  "width": 447,
+                  "height": 447
+                }
+              }
+            }
+          ],
+          "Documento PDF": [
+            {
+              "id": "attXlrNgghnUzETxB",
+              "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/OGUO1LsR5aFb6F4R1mrvaw/POiO3T1-MXiuJcQbypbmNSWpg72SowZrNsNsXk842I2AMT1dq5396zCJqei2op6ENZf58q1ECGgkxOF-1DT3CXFfXvfQFoh2DYu7I3uoyycaOU70diZHjd3i3JYxkxo8cstuYMfiUi6SXrTKC2Q5XR2XDhboYc-93Ddh35vIHDO4Yrhb08A6cosJh1xeiyhFY1wLzJdrK4WkGdcrqV-p8Uu2uQtSMEB6H4rwnrURxVc/Vm9SKErpomP-fm_Pg1XwIDl2WShta51ZSDDfSLUEUo4",
+              "filename": "SUPER-GEEK-McAfee-AntiVirus-1-Year-Disponible-23062-2026-06-23.pdf",
+              "size": 18916,
+              "type": "application/pdf",
+              "thumbnails": {
+                "small": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/xs0vLolIrF6oRAEgF708-Q/QQUsM9HluHiv5cvcw5-U8vNF63sJgCvydi_pij-POoPxVoJyDnV3shDILn0HulTeJ0c9EPYjzn4ww4Uwr1s71ujTKaI7RQpWf7Swnye7zIrOT_JEh969EQsft0Q1CP57Gzr8FR5EF3kfLsGvF3d6Nw/KZDrApdsgNYBciITTjVR-ilFtLxw_fdSThYbmsUz7bM",
+                  "width": 25,
+                  "height": 35
+                },
+                "large": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/IE0jRAPIgsRR19eWGi91MA/kxbhNO0VWj9hGn7w8uDjoOs8vTsvdCktaB5E8y-JYCPPRio95TNCSVKIamxoosfakitfhcg66IHmvNUMTNrkLuFCWY_Hug6O7EGEpqNZvoBhoYEwsbZcMqqZjMPkw0A6WZeMgJf_v8venWiTKJZtGA/M4c0c7z4-ai6PO43KeBc2G2y1mf8WTGCj3G0Wk0nB40",
+                  "width": 512,
+                  "height": 724
+                }
+              }
+            }
+          ],
+          "Orden de Reparación": [
+            "recBekzDSpVifo81H"
+          ],
+          "Software / Producto": [
+            "recgW200uLS6U0RSY"
+          ],
+          "Duración": "1 año",
+          "Tipo Producto": [
+            "Clave de activación"
+          ],
+          "Expira": "2027-06-23T00:00:00.000Z",
+          "Estado": "Usado"
+        }
+      },
+      {
+        "id": "recMBosUEwYd0R85h",
+        "createdTime": "2026-06-20T14:04:03.000Z",
+        "fields": {
+          "Producto Seguro": "Windows 11 Pro - Disponible",
+          "Precio Venta Catálogo": [
+            25
+          ],
+          "Clave de Activación": "DMJNW-QX4BP-PFM4F-J633M-7MH26",
+          "Marca Producto": [
+            "Microsoft"
+          ],
+          "Proveedor": "Electronicfirst",
+          "Precio Venta": 25,
+          "Portal de Activación Catálogo": [
+            "Configuración de Windows > Sistema > Activación"
+          ],
+          "Fecha de Compra": "2026-06-15",
+          "Instrucciones PDF Catálogo": [
+            "1. Abra el menú Inicio de Windows. \\n2. Ingrese a Configuración. \\n3. Seleccione Sistema. \\n4. Entre en Activación. \\n5. Busque la opción Cambiar clave de producto. \\n6. Ingrese la clave de 25 caracteres entregada por SUPER GEEK. \\n7. Pulse Siguiente y espere la validación de Microsoft. \\n8. Si Windows solicita reiniciar el equipo, guarde sus archivos y reinicie. \\n9. Después del reinicio, vuelva a Configuración > Sistema > Activación y confirme que Windows aparece como activado. \\n\\nNota: si el equipo tiene Windows 11 Home, el proceso puede actualizarlo a Windows 11 Pro. Es necesario tener conexión a internet durante la activación."
+          ],
+          "Producto Digital": "Windows 11 Pro · Disponible · 15/06/2026",
+          "Ganancia": 12,
+          "Observaciones Internas": "reposición de clave 3",
+          "Costo Proveedor": 13,
+          "Notas para Cliente Catálogo": [
+            "Licencia digital de Windows 11 Pro para activar un computador compatible. La clave debe ingresarse directamente desde la configuración de activación de Windows. Esta licencia es para un solo equipo y puede quedar asociada al dispositivo donde se active. Si el computador tiene Windows 11 Home, al ingresar una clave válida de Windows 11 Pro, el sistema puede actualizar la edición a Pro."
+          ],
+          "Color Principal Producto": [
+            "#0078D4"
+          ],
+          "Logo Producto": [
+            {
+              "id": "att2qsSEVPHevGimP",
+              "width": 1000,
+              "height": 1000,
+              "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/QnyXXMpZ4A2Avbdy-x_7_Q/VOxrzrf2gwY4y7FIqnclXCNG9bPpwCpYo8tnBMb6qU70uVlol_0TEzCIT5tiTJVvuKHwQ4V3opECbQOe-_Is2pyEzklqNimLSOH7iO_1zcd0NHirwJ_cWnPRjU2IiUBWcuAYrIM_kIuGDsxjjsS2bumXje348hx0ScsWtK18fNE/M9F6RTihgXJJgIbH62MZfxEgfr9jRHnXVM2tAOdSc-Q",
+              "filename": "Windows-11-Pro.svg",
+              "size": 7379,
+              "type": "image/svg+xml",
+              "thumbnails": {
+                "small": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/hlmVq3cqY6GY2i-gmI36vQ/yBKC8imXUbobeFvgcawGOCExk97AHED66jz5-JfminruN-f-PMrWqwmlScR1nma8CXsIg6ENu1XnnOlal0zj4uenICT48BFcWRnkDDx5Z_5aA0kvxdyfpRA3Yl4oKXWYYPjKa5L-C_jYmlUhdz_O-g/0G7OgHiSqLDRfRejEZxBmcp9whAdZRTcNjxgbDtMr1E",
+                  "width": 36,
+                  "height": 36
+                },
+                "large": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/cZgdYYs6YB04KaHyc_1LaA/ZMrJn26xwn7o6-Phvuhk17uRz75kbnoTPXQLBSVAVKF-wHQScKPWdNP4jY4ceyjVXxGhea3xgsCcD6zoL9epH8AGQzdoTn8mmnCua4MSLAvn2X3nEP4HpbNkApjfbefQrti2ntL05VG886xCpFBsLA/KOTCa3aqb__MEtVf2RxUUu5Mt3G-4vbwQHdAekoLFO4",
+                  "width": 512,
+                  "height": 512
+                },
+                "full": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/7bKTN6D8be8o_btEHS3KiA/SOhFYX3BKGUSU4w-1UH_VRQJb165uz5cR5BqM3-kQiJCjXk1IcD2rEVXf-nJ0XPjgsq_TJvIzne6wnebZdjLwCq5WM88x-D6fIag2DDM2TR7OOlvcguawpdTezLMvAfa0igFVdNYxWSB4lQhqUWhKw/hfAd6yoOsqNm65dgPQDWCBk9Eo-WTtnjDBS4LuqePfU",
+                  "width": 1000,
+                  "height": 1000
+                }
+              }
+            }
+          ],
+          "Software / Producto": [
+            "recLaWzVSyyDLFCVj"
+          ],
+          "Tipo Producto": [
+            "Clave de activación"
+          ],
+          "Estado": "Disponible"
+        }
+      },
+      {
+        "id": "recP9u7rBtoUON8rn",
+        "createdTime": "2026-06-24T16:18:58.000Z",
+        "fields": {
+          "Producto Seguro": "Microsoft Office 2021 Home and Business para Mac - Usado",
+          "Precio Venta Catálogo": [
+            50
+          ],
+          "Clave de Activación": "B7G48-KNHPP-4XDYB-WTJMM-YWTJ8",
+          "Tipo de Uso": "Orden de reparación",
+          "Marca Producto": [
+            "Microsoft"
+          ],
+          "Proveedor": "Electronicfirst",
+          "Precio Venta": 50,
+          "Portal de Activación Catálogo": [
+            "Office.com"
+          ],
+          "Fecha de Compra": "2026-06-24",
+          "Fecha de Uso / Venta": "2026-06-24",
+          "Producto Digital": "Microsoft Office 2021 Home and Business para Mac · Usado · 24/06/2026",
+          "Ganancia": 21.35,
+          "Usuario ID Portal": "recZuapFdOtGo9bgR",
+          "Usado/Vendido por": "Enrique Martinez",
+          "Costo Proveedor": 28.65,
+          "Color Principal Producto": [
+            "#BFC6BF"
+          ],
+          "Logo Producto": [
+            {
+              "id": "attQEeLYXZzJiN55I",
+              "width": 800,
+              "height": 800,
+              "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/xKn9FdNr9DB-xiWCMfJcVw/Zms0zCVcBGq8Ej9jUKVtZ6MfAmDB7dGH_i6_6uJNWhSxRHiODBUALAG3lhfEtwma6sFXc41tBcjdv_MhOqXuY1X18ZdMdxWygNnlGpqyqCs9HBjeBgTKGQiFmY1LQiKvx1l6ESE641b3KL8sic2cF1HZTzGYmpTxTjek3tHWyLPev6jHKbSsQ-UkfRM_UTFW/GuDFmo42Q6kpDFFBieUGKfNnfBgPVpPwqd1uS8GMSE4",
+              "filename": "WhatsApp Image 2026-06-24 at 11.15.44 AM.jpeg",
+              "size": 60267,
+              "type": "image/jpeg",
+              "thumbnails": {
+                "small": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/Y7VbYwawMvBrjwq9eOhGdA/GhtlQL50YX2SzWX59iM5YR-ypwn4L4BZmTugC_8e1wreXq1G8IRcIWwRJxdTtO2eAjp-3Ip1GKcRXHHfYjnMTgIJT1RB6xM1kn3Xc1Jej6TifK3nE7pEviCzAj4UgFNxw2-dOTH5ifookaiZHKHZdg/0Z-N82gKyfL_cDvbAq4ebo4NU5X-GjXKqDx3w8Rs4AU",
+                  "width": 36,
+                  "height": 36
+                },
+                "large": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/b-7roFEwl9Fe3BzfvhQD-w/nsSgQ9Ut2lC5ASJX-PThW4UDG5l0g-LsuYhkkII_cEs7oVM2EQIV0Rp2SZ5MITn3ekdukYL4RYDSOYwRztXSp7dy69XYg2ZWBOcmA6pY3PRZJwqU-T3jvRTUuVgPsRPnoaz2iClwyFwLAsgv13so6w/f_p5SuEI0WrC-kLSKzLmkM6MnM9tiF9BQpquHkKAjkw",
+                  "width": 512,
+                  "height": 512
+                },
+                "full": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/bEgjUFZWhq9L27oBv404XQ/1yEsJFF7PPRg19PhhHSJ5z5plVRtGmrvWObF_9KEsL1hVCcD7iWY3Ti-NYpH2fVVOfCPmiRN_2uw3GRgbPQV-n-UMLNEX4mclz0RCnFwBCKtgl-n8dJU7v_IV5zQGDZ1Gly-_1a8pp56XckAjr67EA/K-k_cvcZVAuKVZNQSGQ_4uO_Y6RVAgLEJYEFrgDOS9s",
+                  "width": 800,
+                  "height": 800
+                }
+              }
+            }
+          ],
+          "Orden de Reparación": [
+            "recKOZ2Z3gJWEQQVe"
+          ],
+          "Software / Producto": [
+            "recIuonl2ybgSBTq0"
+          ],
+          "Duración": "1 año",
+          "Tipo Producto": [
+            "Clave de activación"
+          ],
+          "Expira": "2027-06-24T00:00:00.000Z",
+          "Estado": "Usado"
+        }
+      }
+    ],
+    "tbliX19myJzRpx6e2": [
+      {
+        "id": "rec5IdIYuH11B6G0j",
+        "createdTime": "2026-06-20T00:59:49.000Z",
+        "fields": {
+          "Precio Venta Catálogo": 30,
+          "Logo": [
+            {
+              "id": "attLaO3hErOlgQ4oN",
+              "width": 1080,
+              "height": 1080,
+              "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/n9zxqnB2WRXrMsv_PwcvPw/4g-NWExV-Ad_Mn-AdmjKNfHLycXsTnCLh9T6OyxJeUlj-XaSZuL-61z34Ew03KcwOPC8_iOWoBEbGLtjUNpzyaGpZaDIsDzBbIFRI8c29aSdxQDiPIsvwbMIcD1iT2-nwZEHv7RsAZm9PbB3xF7jWHcTtDfqjmNDtB60vJOMoJ-OR5LJ9TTkY05hW541y3cGypbm2u01xpGjyMNXJrBkOC4s0HQGwKZ7NfxSGGjW78vgQGZlNnB-tmPpONvkyln7/grGsTD_aLqpRDo3lIadLXW33sTxB0c3NIT32wDpoxS0",
+              "filename": "microsoft-office-professional-plus-2021-lifetime-for-1-dig-office-2021-key-ny-hb.png",
+              "size": 148878,
+              "type": "image/png",
+              "thumbnails": {
+                "small": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/2crUgyhQF9tKzo4WGa_isw/DFIZRkx3ul0xSpAIyOyHTQ4Hox0VsnGF2jXpgedAfUbrGQXN1d5PBoZEvbSLdXRjvmbLsjhks-tKq5ejrWa_LFJeS0QBjtbs9Riz_Vh3Psv5HUTEpCGq7SYygis9Y05XIQteOBBldyt7FUiVL8izNw/J7hjF3fgU8fhJFKbonOcIXF3qBCh35PgZrtNfwgqZiI",
+                  "width": 36,
+                  "height": 36
+                },
+                "large": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/yGbLX94Z5z-ovCzvprSD0A/hKLgQ_pCdloH8GDJqkdqlcjUHAGBzSAxrMzpNGe3ch3C3SvRtmoXXsN1uMV6bUlIVeOyDkWrsDc0cfor-zFvgt_y6uq-PJhCTzX__Y4Yh7SNpuP6xvs6h9Z-Q6nIafxcBu2sUgm6JWlCnJS-uxoG5A/Zd-8LrfCuzhkurvSVGzHFqlbN57g_klKcQN_98DoKuw",
+                  "width": 512,
+                  "height": 512
+                },
+                "full": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/U6w0pIP9ctHgsD7pfySVYw/vuw7oGUpn2zx5aL8Olo5O0LDurbdCwBNfT59dxNewPmUc0CxGdaPV_gIvFDoOjcQdy5aw_BvLjYfFIEzlRAUcDfsANg2z6HQ5txkT0xEs5tsTpB5ocWQAiwIW6Ac8T-hAh1QUJeeTiVu6sswCOjkVg/Mb4_oe9xKJXuy_j30UaeG7u_cIGPguMALEuIu4AMCoE",
+                  "width": 1080,
+                  "height": 1080
+                }
+              }
+            }
+          ],
+          "Color Principal": "#D83B01",
+          "Instrucciones PDF": "1. Ingrese al portal de activación indicado en este documento.\n\n2. Inicie sesión con una cuenta Microsoft o cree una cuenta nueva si todavía no tiene una.\n\n3. Ingrese la clave de activación entregada por SUPER GEEK.\n\n4. Siga los pasos del portal para asociar, descargar o activar el producto.\n\n5. Cuando finalice la instalación, abra Word, Excel o PowerPoint y verifique que Office aparezca activado.\n\n6. Guarde este documento en un lugar seguro. La clave es personal y debe conservarse para respaldo.",
+          "Notas para Cliente": "Esta licencia se entrega como producto digital. Conserve este documento en un lugar seguro.\n\nLa clave debe usarse únicamente en el equipo o cuenta indicada durante la activación. SUPER GEEK no recomienda compartir la clave, publicarla ni enviarla por medios inseguros.\n\nSi necesita ayuda con la instalación o activación, puede acercarse a SUPER GEEK para recibir soporte técnico.",
+          "Productos Digitales": [
+            "rechkY7u9g2R2EsTz",
+            "recZ0H322a51HyU54",
+            "recWywPL6H1H0oewt"
+          ],
+          "Producto Base": "Microsoft Office Professional Plus 2021 Non-binding",
+          "Portal de Activación": "https://office.com",
+          "Tipo": "Clave de activación",
+          "Activo": true,
+          "Link": "http://officecdn.microsoft.com/pr/492350f6-3a01-4f97-b9c0-c7c6ddf67d60/media/en-us/ProPlus2021Retail.img",
+          "Marca": "Microsoft"
+        }
+      },
+      {
+        "id": "recFVRcX2Rs4zfYuV",
+        "createdTime": "2026-06-20T15:27:18.000Z",
+        "fields": {
+          "Precio Venta Catálogo": 25,
+          "Logo": [
+            {
+              "id": "att78InUJQbuxy0yz",
+              "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/BbFrZHqrd2SkESouvEi3uQ/UDkHuR4uV62laC2irhgZRMSE72DR0kgExDMxnz2iNojsz16GbqL2CQqoh72s64dTWmayT4A3yMqqLWFfGsS6Um2f7HB4BwW3Fwk9zuh_tHuAJ40hHCnaJCPgyJlmuOeybCEDQwRJsfl2HkhoEDM9dZoC_UYXfxqCllY_jv7ACKa4RuNgLEokBpHQb4LmkmXU/2x6T1j1cG78m5Bp9ME-0wKjIv2xAEjOfJxo6O8sYLfU",
+              "filename": "PT_RGB_Windows11_Home_EN_1555x1555-1.avif",
+              "size": 7077,
+              "type": "image/avif"
+            }
+          ],
+          "Producto Base": "Windows 11 Home-Licencia",
+          "Tipo": "Clave de activación",
+          "Activo": true,
+          "Marca": "Microsoft"
+        }
+      },
+      {
+        "id": "recIuonl2ybgSBTq0",
+        "createdTime": "2026-06-24T16:17:29.000Z",
+        "fields": {
+          "Precio Venta Catálogo": 50,
+          "Logo": [
+            {
+              "id": "attQEeLYXZzJiN55I",
+              "width": 800,
+              "height": 800,
+              "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/xKn9FdNr9DB-xiWCMfJcVw/Zms0zCVcBGq8Ej9jUKVtZ6MfAmDB7dGH_i6_6uJNWhSxRHiODBUALAG3lhfEtwma6sFXc41tBcjdv_MhOqXuY1X18ZdMdxWygNnlGpqyqCs9HBjeBgTKGQiFmY1LQiKvx1l6ESE641b3KL8sic2cF1HZTzGYmpTxTjek3tHWyLPev6jHKbSsQ-UkfRM_UTFW/GuDFmo42Q6kpDFFBieUGKfNnfBgPVpPwqd1uS8GMSE4",
+              "filename": "WhatsApp Image 2026-06-24 at 11.15.44 AM.jpeg",
+              "size": 60267,
+              "type": "image/jpeg",
+              "thumbnails": {
+                "small": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/Y7VbYwawMvBrjwq9eOhGdA/GhtlQL50YX2SzWX59iM5YR-ypwn4L4BZmTugC_8e1wreXq1G8IRcIWwRJxdTtO2eAjp-3Ip1GKcRXHHfYjnMTgIJT1RB6xM1kn3Xc1Jej6TifK3nE7pEviCzAj4UgFNxw2-dOTH5ifookaiZHKHZdg/0Z-N82gKyfL_cDvbAq4ebo4NU5X-GjXKqDx3w8Rs4AU",
+                  "width": 36,
+                  "height": 36
+                },
+                "large": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/b-7roFEwl9Fe3BzfvhQD-w/nsSgQ9Ut2lC5ASJX-PThW4UDG5l0g-LsuYhkkII_cEs7oVM2EQIV0Rp2SZ5MITn3ekdukYL4RYDSOYwRztXSp7dy69XYg2ZWBOcmA6pY3PRZJwqU-T3jvRTUuVgPsRPnoaz2iClwyFwLAsgv13so6w/f_p5SuEI0WrC-kLSKzLmkM6MnM9tiF9BQpquHkKAjkw",
+                  "width": 512,
+                  "height": 512
+                },
+                "full": {
+                  "url": "https://v5.airtableusercontent.com/v3/u/54/54/1782338400000/bEgjUFZWhq9L27oBv404XQ/1yEsJFF7PPRg19PhhHSJ5z5plVRtGmrvWObF_9KEsL1hVCcD7iWY3Ti-NYpH2fVVOfCPmiRN_2uw3GRgbPQV-n-UMLNEX4mclz0RCnFwBCKtgl-n8dJU7v_IV5zQGDZ1Gly-_1a8pp56XckAjr67EA/K-k_cvcZVAuKVZNQSGQ_4uO_Y6RVAgLEJYEFrgDOS9s",
+                  "width": 800,
+                  "height": 800
+                }
+              }
+            }
+          ],
+          "Color Principal": "#BFC6BF",
+          "Productos Digitales": [
+            "recP9u7rBtoUON8rn"
+          ],
+          "Producto Base": "Microsoft Office 2021 Home and Business para Mac",
+          "Portal de Activación": "Office.com",
+          "Tipo": "Clave de activación",
+          "Activo": true,
+          "Marca": "Microsoft"
+        }
+      }
+    ]
+  }
+}

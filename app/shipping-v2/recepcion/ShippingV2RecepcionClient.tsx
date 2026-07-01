@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import type { ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Proveedor, ShippingV2RecepcionChecklistAction } from "@/types/shipping-v2";
@@ -269,8 +270,14 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
                   {photo ? <img src={photo} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-[#6E6F68]">Sin foto</div>}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs font-bold text-[#D7FF4F]">{display(item.sku)}</p>
-                  <h3 className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-[#F5F5F5]">{display(item.nombre)}</h3>
+                  <Link href={`/shipping-v2/items/${item.id}`} className="text-xs font-bold text-[#D7FF4F] transition hover:text-[#E6FF83] hover:underline">
+                    {display(item.sku)}
+                  </Link>
+                  <h3 className="mt-1 line-clamp-2 text-sm font-semibold leading-5">
+                    <Link href={`/shipping-v2/items/${item.id}`} className="text-[#F5F5F5] transition hover:text-[#D7FF4F] hover:underline">
+                      {display(item.nombre)}
+                    </Link>
+                  </h3>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${stateTone(item.estado)}`}>{display(item.estado)}</span>
                     {item.estadoRevision ? <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${stateTone(item.estadoRevision)}`}>{item.estadoRevision}</span> : null}

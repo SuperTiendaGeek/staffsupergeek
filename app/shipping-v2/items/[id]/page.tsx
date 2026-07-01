@@ -5,9 +5,9 @@ import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSyste
 import { Button } from "@/components/ui/button";
 import { canAccessApp } from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
-import { getShippingV2AccessContextForSession, getShippingV2ItemById, getShippingV2PackingById, getShippingV2PagoById, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
+import { getShippingV2AccessContextForSession, getShippingV2ItemById, getShippingV2NovedadesForItem, getShippingV2PackingById, getShippingV2PagoById, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
-import type { ShippingV2Item, ShippingV2Packing, ShippingV2Pago, ShippingV2Proveedor } from "@/types/shipping-v2";
+import type { ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Pago, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2ItemDetailView, type ResolvedItem } from "../ShippingV2ItemsClient";
 
 export const dynamic = "force-dynamic";
@@ -68,15 +68,18 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
   let pago: ShippingV2Pago | null = null;
   let packing: ShippingV2Packing | null = null;
   let proveedores: ShippingV2Proveedor[] = [];
+  let novedades: ShippingV2Novedad[] = [];
   let error = "";
   let notFound = false;
 
   try {
-    const [loadedItem, loadedProveedores] = await Promise.all([
+    const [loadedItem, loadedProveedores, loadedNovedades] = await Promise.all([
       getShippingV2ItemById(id),
       getShippingV2Proveedores(),
+      getShippingV2NovedadesForItem(id),
     ]);
     proveedores = loadedProveedores;
+    novedades = loadedNovedades;
     item = resolveItem(loadedItem, proveedores);
     const access = await getShippingV2AccessContextForSession(session);
     const [loadedPago, loadedPacking] = await Promise.all([
@@ -115,7 +118,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
               </Button>
             }
           />
-          <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} />
+          <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} />
         </div>
       )}
     </StaffAppShell>

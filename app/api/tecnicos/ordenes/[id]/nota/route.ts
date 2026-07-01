@@ -26,12 +26,6 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 
   const notaInterna = (body.notaInterna ?? "").trim();
-  if (notaInterna === "") {
-    return NextResponse.json(
-      { success: false, error: "La nota interna no puede estar vacía" },
-      { status: 400 }
-    );
-  }
 
   try {
     const result = await updateOrdenNotaInterna({ ordenRecordId, notaInterna });
