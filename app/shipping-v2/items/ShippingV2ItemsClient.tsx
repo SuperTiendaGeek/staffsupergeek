@@ -15,6 +15,7 @@ import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shippin
 import {
   type ShippingV2Attachment,
   type ShippingV2Item,
+  type ShippingV2Novedad,
   type ShippingV2Packing,
   type ShippingV2Pago,
   type ShippingV2Proveedor,
@@ -267,6 +268,18 @@ function displayBoolean(value: boolean | null) {
 function formatCurrency(value: number | null) {
   if (value === null || value === undefined) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+}
+
+function calculateItemProfit(item: ShippingV2Item) {
+  if (typeof item.precioVenta !== "number" || !Number.isFinite(item.precioVenta)) return null;
+
+  const costBasis = typeof item.costoTotalUnidad === "number" && Number.isFinite(item.costoTotalUnidad)
+    ? item.costoTotalUnidad
+    : typeof item.costoProveedor === "number" && Number.isFinite(item.costoProveedor)
+      ? item.costoProveedor + (typeof item.costoLogisticoAsignado === "number" && Number.isFinite(item.costoLogisticoAsignado) ? item.costoLogisticoAsignado : 0)
+      : null;
+
+  return costBasis === null ? null : item.precioVenta - costBasis;
 }
 
 function formatDate(value?: string) {
@@ -534,6 +547,38 @@ function operationTone(value: string) {
   return "border-[#3A3A36] bg-[#1E1E1E] text-[#A7A7A7]";
 }
 
+function novedadTone(value: string) {
+  const normalized = normalizeText(value);
+
+  if (normalized.includes("cerrada") || normalized.includes("resuelta") || normalized.includes("rechazada")) {
+    return "border-[#3A3A36] bg-[#1E1E1E] text-[#A7A7A7]";
+  }
+  if (normalized.includes("proveedor") || normalized.includes("respuesta") || normalized.includes("solucion") || normalized.includes("escalada")) {
+    return "border-[#FF914D]/35 bg-[#FF914D]/12 text-[#FFB07A]";
+  }
+  if (normalized.includes("revision") || normalized.includes("abierta") || normalized.includes("esperando")) {
+    return "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]";
+  }
+  return "border-[#4FC3FF]/35 bg-[#4FC3FF]/10 text-[#BDEAFF]";
+}
+
+function novedadTypeTone(value: string) {
+  const normalized = normalizeText(value);
+
+  if (normalized.includes("danado") || normalized.includes("faltante") || normalized.includes("incompleto") || normalized.includes("garantia")) {
+    return "border-orange-300/25 bg-orange-300/10 text-orange-100";
+  }
+  if (normalized.includes("tracking") || normalized.includes("demora") || normalized.includes("aduana")) {
+    return "border-violet-300/25 bg-violet-300/10 text-violet-200";
+  }
+  return "border-[#3A3A36] bg-[#151515] text-[#F5F5F5]";
+}
+
+function isOpenNovedadStatus(value: string) {
+  const normalized = normalizeText(value);
+  return !normalized.includes("cerrada") && !normalized.includes("resuelta") && !normalized.includes("rechazada") && !normalized.includes("cancelada");
+}
+
 function EstadoBadge({ estado }: { estado: string }) {
   return (
     <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${estadoTone(estado)}`}>
@@ -747,6 +792,76 @@ function DetailSection({
   );
 }
 
+function NovedadesVinculadasCard({
+  novedades,
+  providerLabelsById,
+}: {
+  novedades: ShippingV2Novedad[];
+  providerLabelsById: Map<string, string>;
+}) {
+  const openCount = novedades.filter((novedad) => isOpenNovedadStatus(novedad.estado)).length;
+
+  return (
+    <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-lg shadow-black/10">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-[#D7FF4F]" />
+          <h3 className="text-sm font-semibold text-[#F5F5F5]">Novedades vinculadas</h3>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <span className="rounded-full border border-[#3A3A36] bg-[#11120F] px-2.5 py-0.5 text-[12px] font-semibold text-[#A7A7A7]">{novedades.length} total</span>
+          {openCount ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-2.5 py-0.5 text-[12px] font-semibold text-[#FFB07A]">{openCount} abierta</span> : null}
+        </div>
+      </div>
+
+      {!novedades.length ? (
+        <div className="mt-3 rounded-lg border border-[#30312D] bg-[#11120F] px-3 py-4 text-sm text-[#A7A7A7]">
+          Sin novedades registradas para este item.
+        </div>
+      ) : (
+        <div className="mt-3 grid gap-2">
+          {novedades.map((novedad) => {
+            const isOpen = isOpenNovedadStatus(novedad.estado);
+            const providerLabel = novedad.proveedorResponsableId ? providerLabelsById.get(novedad.proveedorResponsableId) : "";
+            const description = displayValue(novedad.descripcion, "Sin descripción registrada.");
+
+            return (
+              <article key={novedad.id} className={`rounded-lg border p-3 ${isOpen ? "border-[#FF914D]/35 bg-[#FF914D]/10" : "border-[#30312D] bg-[#11120F]"}`}>
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${novedadTypeTone(novedad.tipo || novedad.titulo)}`}>{displayValue(novedad.tipo || novedad.titulo)}</span>
+                      <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${novedadTone(novedad.estado)}`}>{displayValue(novedad.estado)}</span>
+                      {novedad.novedadId ? <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-2 py-0.5 text-[11px] font-semibold text-[#8F908A]">{novedad.novedadId}</span> : null}
+                    </div>
+                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#F5F5F5]">{description}</p>
+                  </div>
+                  <div className="grid shrink-0 gap-1 text-[12px] text-[#A7A7A7] lg:min-w-64">
+                    <span>Fecha: <strong className="font-semibold text-[#F5F5F5]">{formatDate(novedad.fechaRegistro || novedad.createdTime)}</strong></span>
+                    <span>Proveedor: <strong className="font-semibold text-[#F5F5F5]">{displayValue(providerLabel)}</strong></span>
+                    <span>Registrado por: <strong className="font-semibold text-[#F5F5F5]">{displayValue(novedad.registradoPor)}</strong></span>
+                  </div>
+                </div>
+
+                {(novedad.respuestaProveedor || novedad.solucion || novedad.fechaCierre || novedad.observacionFinal || novedad.evidencias.length) ? (
+                  <div className="mt-3 grid gap-2 border-t border-[#30312D]/80 pt-3 text-[12px] text-[#A7A7A7] lg:grid-cols-2">
+                    {novedad.respuestaProveedor ? <p>Respuesta proveedor: <span className="text-[#F5F5F5]">{novedad.respuestaProveedor}</span></p> : null}
+                    {novedad.solucion ? <p>Solución: <span className="text-[#F5F5F5]">{novedad.solucion}</span></p> : null}
+                    {novedad.fechaCierre ? <p>Fecha cierre: <span className="text-[#F5F5F5]">{formatDate(novedad.fechaCierre)}</span></p> : null}
+                    {novedad.cerradoPor ? <p>Cerrado por: <span className="text-[#F5F5F5]">{novedad.cerradoPor}</span></p> : null}
+                    {novedad.observacionFinal ? <p className="lg:col-span-2">Observación final: <span className="text-[#F5F5F5]">{novedad.observacionFinal}</span></p> : null}
+                    {novedad.evidencias.length ? <div className="lg:col-span-2">{attachmentList(novedad.evidencias)}</div> : null}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function attachmentList(attachments: ShippingV2Attachment[]) {
   if (!attachments.length) return "—";
   return (
@@ -815,12 +930,14 @@ export function ShippingV2ItemDetailView({
   proveedores,
   pago,
   packing,
+  novedades,
   onSaved,
 }: {
   item: ResolvedItem;
   proveedores: ShippingV2Proveedor[];
   pago?: ShippingV2Pago | null;
   packing?: ShippingV2Packing | null;
+  novedades?: ShippingV2Novedad[];
   onSaved?: (item: ShippingV2Item) => void;
 }) {
   const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
@@ -911,7 +1028,7 @@ export function ShippingV2ItemDetailView({
   }, [item.id]);
 
   const C = SHIPPING_V2_ITEM_EDIT_FIELDS;
-  const ganancia = item.precioVenta !== null && item.costoProveedor !== null ? item.precioVenta - item.costoProveedor : null;
+  const ganancia = calculateItemProfit(item);
   const aiNameSuggestion = item.aiNombre?.trim();
   const hasAiNameSuggestion = Boolean(aiNameSuggestion && normalizeText(aiNameSuggestion) !== normalizeText(item.nombre) && aiNameSuggestion !== ignoredAiName);
   const tabs: Array<{ key: ItemDetailTabKey; label: string; title: string; accent: "lime" | "purple" | "orange" | "yellow"; rows: DetailRow[] }> = [
@@ -1169,6 +1286,8 @@ export function ShippingV2ItemDetailView({
               <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} />
             </div>
           </section>
+
+          <NovedadesVinculadasCard novedades={novedades ?? []} providerLabelsById={providerLabelsById} />
         </main>
       </section>
     </div>

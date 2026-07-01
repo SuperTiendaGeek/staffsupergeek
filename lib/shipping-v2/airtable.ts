@@ -1363,15 +1363,35 @@ function mapRecepcion(record: AirtableRecord): ShippingV2Recepcion {
 
 function mapNovedad(record: AirtableRecord): ShippingV2Novedad {
   const f = record.fields;
+  const tipo = firstString(f["Tipo de novedad"] ?? f.Tipo);
+  const itemIds = linkedRecordIds(f["Item relacionado"] ?? f.Item);
+  const packingIds = linkedRecordIds(f["Packing relacionado"] ?? f.Packing);
+  const proveedorResponsableIds = linkedRecordIds(f["Proveedor responsable"] ?? f.Proveedor);
+
   return {
     id: record.id,
     createdTime: record.createdTime,
-    titulo: firstString(f.Titulo ?? f["Título"] ?? f.Novedad ?? f["Novedad ID"] ?? f["Tipo de novedad"], "Sin titulo"),
+    novedadId: firstString(f["Novedad ID"] ?? f.Novedad, record.id),
+    titulo: firstString(f.Titulo ?? f["Título"] ?? f.Novedad ?? f["Novedad ID"] ?? tipo, "Sin titulo"),
+    tipo,
     estado: firstString(f["Estado Novedad"] ?? f.Estado, "Abierta"),
-    severidad: firstString(f.Severidad ?? f["Tipo de novedad"]),
-    itemId: firstString(f["Item relacionado"] ?? f.Item),
-    packingId: firstString(f["Packing relacionado"] ?? f.Packing),
+    severidad: firstString(f.Prioridad ?? f.Severidad ?? f["Tipo de novedad"]),
+    itemId: itemIds[0],
+    itemIds,
+    packingId: packingIds[0],
+    packingIds,
+    proveedorResponsableId: proveedorResponsableIds[0],
+    proveedorResponsableIds,
     descripcion: firstString(f.Descripcion ?? f["Descripción"]),
+    evidencias: mapAttachments(f.Evidencias),
+    fechaRegistro: firstString(f["Fecha de registro"] ?? f["Fecha registro"], record.createdTime),
+    registradoPor: firstString(f["Registrado por"]),
+    respuestaProveedor: firstString(f["Respuesta del proveedor"]),
+    solucion: firstString(f["Solución"]),
+    descripcionSolucion: firstString(f["Descripción de solución"]),
+    fechaCierre: firstString(f["Fecha de cierre"]),
+    cerradoPor: firstString(f["Cerrado por"]),
+    observacionFinal: firstString(f["Observación final"]),
   };
 }
 
@@ -3710,6 +3730,21 @@ export async function getShippingV2Recepciones() {
 export async function getShippingV2Novedades() {
   const records = await listRecords(SHIPPING_V2_TABLES.novedades, { maxRecords: 200 });
   return records.map(mapNovedad);
+}
+
+export async function getShippingV2NovedadesForItem(itemRecordId: string) {
+  const itemId = cleanString(itemRecordId);
+  if (!itemId) return [];
+
+  const records = await listRecords(SHIPPING_V2_TABLES.novedades, { maxRecords: 500 });
+  return records
+    .map(mapNovedad)
+    .filter((novedad) => novedad.itemIds.includes(itemId))
+    .sort((a, b) => {
+      const bTime = Date.parse(b.fechaRegistro || b.createdTime || "");
+      const aTime = Date.parse(a.fechaRegistro || a.createdTime || "");
+      return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+    });
 }
 
 export async function getShippingV2DashboardSummary(): Promise<ShippingV2DashboardSummary> {

@@ -621,12 +621,27 @@ export type ShippingV2Recepcion = ShippingV2RecordBase & {
 };
 
 export type ShippingV2Novedad = ShippingV2RecordBase & {
+  novedadId: string;
   titulo: string;
+  tipo: string;
   estado: ShippingV2NovedadEstado | string;
   severidad?: "Baja" | "Media" | "Alta" | "Critica" | string;
   itemId?: string;
+  itemIds: string[];
   packingId?: string;
+  packingIds: string[];
+  proveedorResponsableId?: string;
+  proveedorResponsableIds: string[];
   descripcion?: string;
+  evidencias: ShippingV2Attachment[];
+  fechaRegistro?: string;
+  registradoPor?: string;
+  respuestaProveedor?: string;
+  solucion?: string;
+  descripcionSolucion?: string;
+  fechaCierre?: string;
+  cerradoPor?: string;
+  observacionFinal?: string;
 };
 
 export type ShippingV2Migracion = ShippingV2RecordBase & {

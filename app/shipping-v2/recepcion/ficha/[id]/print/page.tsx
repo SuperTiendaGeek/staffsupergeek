@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import type { ReactNode } from "react";
 import { getShippingV2ItemById, getShippingV2TechnicalOptionSets } from "@/lib/shipping-v2/airtable";
 import type { ShippingV2Item, ShippingV2TechnicalOption } from "@/types/shipping-v2";
 import { ShippingV2PrintControls } from "./ShippingV2PrintControls";
@@ -10,42 +9,78 @@ type Props = {
   params: Promise<{ id: string }>;
 };
 
-function display(value?: string | number | string[] | null) {
-  if (Array.isArray(value)) return value.length ? value.join(", ") : "-";
-  const text = String(value ?? "").trim();
-  return text || "-";
+function clean(value?: string | number | null) {
+  return String(value ?? "").trim();
+}
+
+function hasValue(value?: string | number | null) {
+  const text = clean(value);
+  return Boolean(text && text !== "-" && text.toLowerCase() !== "no aplica");
 }
 
 function formatCurrency(value: number | null | undefined) {
-  if (value === null || value === undefined) return "-";
-  return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(value);
-}
-
-function Row({ label, value }: { label: string; value?: string | number | string[] | null }) {
-  return (
-    <div className="grid grid-cols-[155px_1fr] border-b border-neutral-200 py-2 text-sm">
-      <dt className="font-semibold text-neutral-600">{label}</dt>
-      <dd className="text-neutral-950">{display(value)}</dd>
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="break-inside-avoid">
-      <h2 className="mb-1 border-b-2 border-neutral-950 pb-1 text-sm font-bold uppercase tracking-normal text-neutral-950">{title}</h2>
-      <dl>{children}</dl>
-    </section>
-  );
-}
-
-function itemTitle(item: ShippingV2Item) {
-  const title = [item.technicalSheet.marcaFicha, item.technicalSheet.modeloFicha].filter(Boolean).join(" ");
-  return title || item.nombre;
+  if (value === null || value === undefined || !Number.isFinite(value)) return "";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
 }
 
 function namesFromIds(ids: string[], options: ShippingV2TechnicalOption[]) {
   return ids.map((id) => options.find((option) => option.id === id)?.name).filter((name): name is string => Boolean(name));
+}
+
+function joinParts(parts: Array<string | number | null | undefined>) {
+  return parts.map(clean).filter(hasValue).join(" ");
+}
+
+function itemBrand(item: ShippingV2Item) {
+  const sheet = item.technicalSheet;
+  return clean(sheet.marcaFicha) || clean(item.marca) || "Laptop";
+}
+
+function itemModel(item: ShippingV2Item) {
+  const sheet = item.technicalSheet;
+  return clean(sheet.modeloFicha) || clean(item.modelo) || clean(item.nombre);
+}
+
+function cpuText(item: ShippingV2Item) {
+  const sheet = item.technicalSheet;
+  const frequency = [sheet.cpuFrecuenciaBase, sheet.cpuFrecuenciaTurbo].map(clean).filter(hasValue).join(" - ");
+  return joinParts([sheet.cpuMarca, sheet.cpuModelo, frequency]);
+}
+
+function ramText(item: ShippingV2Item) {
+  const sheet = item.technicalSheet;
+  return joinParts([sheet.ramCapacidad, sheet.ramTipo]);
+}
+
+function storageText(item: ShippingV2Item) {
+  const sheet = item.technicalSheet;
+  return joinParts([sheet.almacenamientoPrincipal, sheet.almacenamientoTipo]);
+}
+
+function screenText(item: ShippingV2Item) {
+  const sheet = item.technicalSheet;
+  const size = clean(sheet.pantallaTamano);
+  const resolution = clean(sheet.pantallaResolucion);
+  if (hasValue(size) && hasValue(resolution)) return `${size} / ${resolution}`;
+  return joinParts([size, resolution]);
+}
+
+function batteryText(item: ShippingV2Item) {
+  const sheet = item.technicalSheet;
+  if (typeof sheet.bateriaSalud === "number" && Number.isFinite(sheet.bateriaSalud)) {
+    return `Bateria ${sheet.bateriaSalud}% de salud`;
+  }
+  return clean(sheet.bateriaEstado);
+}
+
+function featureText(labels: string[]) {
+  return labels.filter(hasValue).slice(0, 7).join(" / ");
+}
+
+function Line({ value, tone = "black", className = "" }: { value: string; tone?: "black" | "blue" | "red"; className?: string }) {
+  if (!hasValue(value)) return null;
+  const density = value.length > 76 ? "line--xs" : value.length > 48 ? "line--sm" : "";
+  return <div className={`line ${tone} ${density} ${className}`}>{value}</div>;
 }
 
 export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props) {
@@ -55,81 +90,299 @@ export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props)
     getShippingV2TechnicalOptionSets(),
   ]);
   const sheet = item.technicalSheet;
+  const brand = itemBrand(item);
+  const model = itemModel(item);
+  const price = formatCurrency(item.precioVenta ?? item.precioVentaSugerido);
   const connectivity = namesFromIds(sheet.connectivityV2Ids, technicalOptions.connectivity);
   const ports = namesFromIds(sheet.portV2Ids, technicalOptions.ports);
   const extraFeatures = namesFromIds(sheet.extraFeatureV2Ids, technicalOptions.extraFeatures);
+  const commercialNote = clean(item.observacionVenta) || clean(sheet.observacionFichaTecnica);
+  const footerNote = batteryText(item) || commercialNote;
+  const secondaryNote = footerNote === commercialNote ? "" : commercialNote;
+  const specLines = [
+    sheet.sistemaOperativo,
+    screenText(item),
+    cpuText(item),
+    clean(sheet.gpu),
+    storageText(item),
+    ramText(item),
+    featureText([...connectivity, ...ports, ...extraFeatures]),
+    footerNote,
+    secondaryNote,
+  ].filter(hasValue);
+  const densityClass = specLines.length <= 5 ? "sale-card--sparse" : specLines.length >= 8 ? "sale-card--dense" : "";
 
   return (
-    <main className="min-h-screen bg-white px-6 py-5 text-black print:p-0">
+    <main className="print-page">
       <style>{`
-        @page { size: A4; margin: 14mm; }
+        @page {
+          size: A4 landscape;
+          margin: 0;
+        }
+
+        * {
+          box-sizing: border-box;
+        }
+
+        html,
+        body {
+          margin: 0;
+          background: #f2f2f2;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .print-page {
+          min-height: 100vh;
+          background: #f2f2f2;
+          color: #050505;
+          font-family: Impact, "Arial Black", system-ui, sans-serif;
+          padding: 18px;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .print-sheet {
+          width: 297mm;
+          height: 210mm;
+          margin: 0 auto;
+          display: grid;
+          grid-template-columns: 148.5mm 148.5mm;
+          background: white;
+          box-shadow: 0 24px 70px rgba(0, 0, 0, 0.18);
+        }
+
+        .half-page {
+          width: 148.5mm;
+          height: 210mm;
+          padding: 5mm;
+        }
+
+        .half-page--empty {
+          border-left: 1px dashed #d0d0d0;
+          background:
+            linear-gradient(90deg, transparent calc(50% - 0.5px), #f2f2f2 calc(50% - 0.5px), #f2f2f2 calc(50% + 0.5px), transparent calc(50% + 0.5px));
+        }
+
+        .sale-card {
+          width: 100%;
+          height: 100%;
+          overflow: hidden;
+          border: 2.2mm solid #050505;
+          background: #ffffff;
+          padding: 5mm;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          color: #000;
+          font-family: Impact, "Arial Black", system-ui, sans-serif;
+          text-transform: uppercase;
+          page-break-inside: avoid;
+        }
+
+        .top {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 4mm;
+          align-items: start;
+        }
+
+        .brand {
+          color: #000;
+          font-size: 15mm;
+          line-height: 0.86;
+          letter-spacing: -0.5mm;
+          word-break: break-word;
+        }
+
+        .model {
+          color: #000;
+          font-size: 13mm;
+          line-height: 0.86;
+          letter-spacing: -0.4mm;
+          word-break: break-word;
+        }
+
+        .priceBox {
+          min-width: 42mm;
+          border: 1.4mm solid #0057ff;
+          background: #ffffff;
+          padding: 2mm 3mm;
+          color: #0057ff;
+          text-align: center;
+        }
+
+        .priceLabel {
+          color: #050505;
+          font-size: 4mm;
+          line-height: 1;
+        }
+
+        .price {
+          color: #0057ff;
+          font-size: 15mm;
+          line-height: 1;
+        }
+
+        .specs {
+          display: flex;
+          flex: 1;
+          flex-direction: column;
+          justify-content: center;
+          gap: 1.8mm;
+          min-height: 0;
+        }
+
+        .line {
+          font-size: 9.5mm;
+          line-height: 0.92;
+          letter-spacing: -0.25mm;
+          word-break: break-word;
+        }
+
+        .line--sm {
+          font-size: 8mm;
+          line-height: 0.94;
+        }
+
+        .line--xs {
+          font-size: 6.7mm;
+          line-height: 0.95;
+        }
+
+        .line.black {
+          color: #000;
+        }
+
+        .line.blue {
+          color: #0057ff;
+        }
+
+        .line.red {
+          color: #e00000;
+        }
+
+        .ports {
+          font-size: 6.7mm;
+          line-height: 0.95;
+          letter-spacing: -0.18mm;
+          color: #000;
+        }
+
+        .battery {
+          font-size: 7.5mm;
+          line-height: 0.95;
+          letter-spacing: -0.18mm;
+          color: #0057ff;
+        }
+
+        .sale-card--sparse .line {
+          font-size: 10.8mm;
+        }
+
+        .sale-card--sparse .ports {
+          font-size: 7.6mm;
+        }
+
+        .sale-card--dense .line {
+          font-size: 8.4mm;
+        }
+
+        .sale-card--dense .ports {
+          font-size: 6.1mm;
+        }
+
+        .footer {
+          display: flex;
+          justify-content: flex-end;
+          align-items: flex-end;
+          font-family: Arial, Helvetica, sans-serif;
+          font-size: 3mm;
+          font-weight: 800;
+          color: #000;
+        }
+
         @media print {
-          body { background: white !important; }
-          main { min-height: auto !important; }
+          html,
+          body {
+            width: 297mm;
+            height: 210mm;
+            margin: 0 !important;
+            background: white !important;
+            padding: 0 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          .print-page {
+            width: 297mm;
+            min-height: 210mm;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+          }
+
+          .print-sheet {
+            width: 297mm;
+            height: 210mm;
+            margin: 0 !important;
+            display: grid;
+            grid-template-columns: 148.5mm 148.5mm;
+            box-shadow: none !important;
+          }
+
+          .half-page {
+            width: 148.5mm;
+            height: 210mm;
+            padding: 5mm;
+          }
+
+          .sale-card {
+            width: 100%;
+            height: 100%;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
         }
       `}</style>
+
       <Suspense fallback={null}>
         <ShippingV2PrintControls />
       </Suspense>
 
-      <article className="mx-auto max-w-[794px] bg-white print:max-w-none">
-        <header className="mb-5 border-b-4 border-neutral-950 pb-4">
-          <div className="flex items-start justify-between gap-6">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-normal text-neutral-500">Ficha técnica</p>
-              <h1 className="mt-1 text-3xl font-bold leading-tight text-neutral-950">{display(itemTitle(item))}</h1>
-              <p className="mt-2 max-w-2xl text-sm text-neutral-700">{display(item.nombre)}</p>
+      <section className="print-sheet" aria-label="Hoja A4 horizontal para fichas de venta">
+        <section className="half-page">
+          <article className={`sale-card ${densityClass}`}>
+            <div className="top">
+              <div>
+                <div className="brand">{brand}</div>
+                {model ? <div className="model">{model}</div> : null}
+              </div>
+              {price ? (
+                <div className="priceBox">
+                  <div className="priceLabel">Precio</div>
+                  <div className="price">{price}</div>
+                </div>
+              ) : null}
             </div>
-            <div className="text-right">
-              <p className="text-xs font-semibold uppercase text-neutral-500">Precio</p>
-              <p className="text-2xl font-bold text-neutral-950">{formatCurrency(item.precioVenta || item.precioVentaSugerido)}</p>
-              <p className="mt-2 text-xs font-semibold text-neutral-600">SKU {display(item.sku)}</p>
+
+            <div className="specs">
+              <Line value={clean(sheet.sistemaOperativo)} />
+              <Line value={screenText(item)} />
+              <Line value={cpuText(item)} tone="blue" />
+              <Line value={clean(sheet.gpu)} tone="blue" />
+              <Line value={storageText(item)} tone="red" />
+              <Line value={ramText(item)} tone="red" />
+              <Line value={featureText([...connectivity, ...ports, ...extraFeatures])} className="ports" />
+              <Line value={footerNote} tone="blue" className="battery" />
+              <Line value={secondaryNote} className="ports" />
             </div>
-          </div>
-        </header>
 
-        <div className="grid gap-6 md:grid-cols-2">
-          <Section title="Equipo">
-            <Row label="Marca" value={sheet.marcaFicha} />
-            <Row label="Modelo" value={sheet.modeloFicha} />
-            <Row label="Sistema operativo" value={sheet.sistemaOperativo} />
-            <Row label="Categoría" value={item.categoria} />
-            <Row label="SKU" value={item.sku} />
-          </Section>
-
-          <Section title="Pantalla">
-            <Row label="Tamaño" value={sheet.pantallaTamano} />
-            <Row label="Resolución" value={sheet.pantallaResolucion} />
-          </Section>
-
-          <Section title="Procesador y gráficos">
-            <Row label="CPU marca" value={sheet.cpuMarca} />
-            <Row label="CPU modelo" value={sheet.cpuModelo} />
-            <Row label="Frecuencia base" value={sheet.cpuFrecuenciaBase} />
-            <Row label="Frecuencia turbo" value={sheet.cpuFrecuenciaTurbo} />
-            <Row label="GPU" value={sheet.gpu} />
-          </Section>
-
-          <Section title="Memoria y almacenamiento">
-            <Row label="RAM capacidad" value={sheet.ramCapacidad} />
-            <Row label="RAM tipo" value={sheet.ramTipo} />
-            <Row label="Almacenamiento" value={sheet.almacenamientoPrincipal} />
-            <Row label="Tipo" value={sheet.almacenamientoTipo} />
-          </Section>
-
-          <Section title="Conectividad">
-            <Row label="Conectividad" value={connectivity} />
-            <Row label="Puertos" value={ports} />
-            <Row label="Extras" value={extraFeatures} />
-          </Section>
-
-          <Section title="Batería y observaciones">
-            <Row label="Salud batería" value={sheet.bateriaSalud === null ? "" : `${sheet.bateriaSalud}%`} />
-            <Row label="Estado batería" value={sheet.bateriaEstado} />
-            <Row label="Observación" value={sheet.observacionFichaTecnica} />
-          </Section>
-        </div>
-      </article>
+            <div className="footer">SKU {clean(item.sku)}</div>
+          </article>
+        </section>
+        <section className="half-page half-page--empty" aria-hidden="true" />
+      </section>
     </main>
   );
 }
