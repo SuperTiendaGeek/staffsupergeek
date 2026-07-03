@@ -9,6 +9,7 @@ export type AppIcon = "tools" | "finance" | "schedule" | "invoice" | "shipping" 
 export type AppPermissionName =
   | "Técnicos"
   | "Cotizaciones"
+  | "Operaciones"
   | "Pedidos"
   | "Finanzas"
   | "Horarios"
@@ -47,6 +48,16 @@ export const staffApps: StaffApp[] = [
     icon: "invoice",
     description: "Gestión inicial de cotizaciones, opciones para clientes y seguimiento de estados.",
     requiredRoles: ["admin", "manager", "staff", "technical"]
+  },
+  {
+    id: "operaciones",
+    name: "Operaciones Comerciales",
+    permissionName: "Operaciones",
+    route: "/operaciones",
+    status: "Disponible",
+    icon: "invoice",
+    description: "Tablero de operaciones comerciales: requerimientos, cotizaciones, pedidos y entregas.",
+    requiredRoles: ["admin", "manager", "staff"]
   },
   {
     id: "pedidos",
@@ -123,6 +134,7 @@ export const staffApps: StaffApp[] = [
 export const routePermissions: Record<string, AppPermissionName> = {
   "/tecnicos": "Técnicos",
   "/cotizaciones": "Cotizaciones",
+  "/operaciones": "Operaciones",
   "/pedidos": "Pedidos",
   "/finanzas": "Finanzas",
   "/horarios": "Horarios",
@@ -192,6 +204,10 @@ export function getRoutePermission(pathname: string) {
 
   if (pathname === "/api/cotizaciones" || pathname.startsWith("/api/cotizaciones/")) {
     return routePermissions["/cotizaciones"];
+  }
+
+  if (pathname === "/api/operaciones" || pathname.startsWith("/api/operaciones/")) {
+    return routePermissions["/operaciones"];
   }
 
   if (pathname === "/api/pedidos" || pathname.startsWith("/api/pedidos/")) {
