@@ -13,6 +13,7 @@ import type {
   CrearOpcionInput,
   ShippingItemResumen,
 } from "@/types/operaciones";
+import { generateUniqueShippingV2SkuForCategory } from "@/lib/shipping-v2/airtable";
 
 type AirtableRecord = {
   id: string;
@@ -851,9 +852,14 @@ export async function crearShippingItemDesdeOpcion(
 
   const now = new Date().toISOString();
 
+  // Generate SKU using the same logic as /shipping-v2/items/nuevo (max existing REP-N + 1)
+  const sku = await generateUniqueShippingV2SkuForCategory("Repuesto");
+
   const fields: Record<string, unknown> = {
     "Nombre del item": nombre,
     "Descripción": nombre,
+    "SKU": sku,
+    "Método de asignación SKU": "Generado automáticamente",
     "Categoría": "Repuesto",
     "Tipo de item": "Repuesto",
     "Es repuesto": true,

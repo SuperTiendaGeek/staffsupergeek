@@ -17,7 +17,13 @@ type Props = {
   onLinked: (cotizacionId: string, cotizacionCodigo: string) => void;
 };
 
-export default function OrdenCotizacionCard({ orden, onLinked }: Props) {
+// Oculto temporalmente: el vínculo Orden↔Cotizaciones se reemplazará por
+// Orden↔Operación Comercial en la fase de integración técnicos-operaciones.
+export default function OrdenCotizacionCard(_props: Props) {
+  return null;
+}
+
+function OrdenCotizacionCardImpl({ orden, onLinked }: Props) {
   const [isMounted, setIsMounted] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);

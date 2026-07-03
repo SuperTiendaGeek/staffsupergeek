@@ -26,6 +26,7 @@ export type StaffApp = {
   icon: AppIcon;
   route: string;
   requiredRoles: StaffRole[];
+  hidden?: boolean;
 };
 
 export const staffApps: StaffApp[] = [
@@ -47,7 +48,8 @@ export const staffApps: StaffApp[] = [
     status: "Disponible",
     icon: "invoice",
     description: "Gestión inicial de cotizaciones, opciones para clientes y seguimiento de estados.",
-    requiredRoles: ["admin", "manager", "staff", "technical"]
+    requiredRoles: ["admin", "manager", "staff", "technical"],
+    hidden: true,
   },
   {
     id: "operaciones",
@@ -57,7 +59,7 @@ export const staffApps: StaffApp[] = [
     status: "Disponible",
     icon: "invoice",
     description: "Tablero de operaciones comerciales: requerimientos, cotizaciones, pedidos y entregas.",
-    requiredRoles: ["admin", "manager", "staff"]
+    requiredRoles: ["admin", "manager", "staff", "technical"],
   },
   {
     id: "pedidos",
@@ -67,7 +69,8 @@ export const staffApps: StaffApp[] = [
     status: "Disponible",
     icon: "shipping",
     description: "Seguimiento de pedidos creados desde cotizaciones, tracking e instalación.",
-    requiredRoles: ["admin", "manager", "staff", "technical"]
+    requiredRoles: ["admin", "manager", "staff", "technical"],
+    hidden: true,
   },
   {
     id: "finanzas",
@@ -145,6 +148,11 @@ export const routePermissions: Record<string, AppPermissionName> = {
 
 type PermissionSubject = StaffSession | SessionUser | null | undefined;
 
+// Users who had Cotizaciones/Pedidos access can also access Operaciones.
+const PERMISSION_ALIASES: Partial<Record<string, string[]>> = {
+  operaciones: ["cotizaciones", "pedidos"],
+};
+
 function getPermissionUser(subject: PermissionSubject) {
   if (!subject) {
     return null;
@@ -183,12 +191,18 @@ export function canAccessApp(subject: PermissionSubject, appName: AppPermissionN
   }
 
   const requestedPermission = normalizePermissionValue(appName);
+  const aliases = PERMISSION_ALIASES[requestedPermission] ?? [];
 
-  return user.appsPermitidas.some((allowedApp) => normalizePermissionValue(allowedApp) === requestedPermission);
+  return user.appsPermitidas.some((allowedApp) => {
+    const normalized = normalizePermissionValue(allowedApp);
+    return normalized === requestedPermission || aliases.includes(normalized);
+  });
 }
 
 export function getVisibleStaffApps(subject: PermissionSubject) {
   return staffApps.filter((app) => {
+    if (app.hidden) return false;
+
     if (app.permissionName === "Administración") {
       return isAdministratorRole(getPermissionUser(subject)?.rol);
     }

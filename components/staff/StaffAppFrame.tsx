@@ -54,6 +54,7 @@ type StaffAppFrameProps = {
 const SIDEBAR_PINNED_STORAGE_KEY = "supergeek.staff.sidebar.pinned";
 
 const appIconById: Partial<Record<string, LucideIcon>> = {
+  operaciones: ClipboardList,
   cotizaciones: FileText,
   pedidos: ReceiptText,
   shipping: PackageCheck,
