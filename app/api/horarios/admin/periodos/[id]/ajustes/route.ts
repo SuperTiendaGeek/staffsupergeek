@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/admin-auth";
-import { fetchAjustesByPeriodo, registrarAmonestacionHorario } from "@/lib/horarios/airtable";
+import { fetchPeriodoPagoById, registrarAjusteHorario } from "@/lib/horarios/airtable";
+import type { HorarioImpactoAjuste, HorarioTipoAjuste, HorarioTipoCalculoAjuste } from "@/types/horarios";
+import { HORARIO_TIPOS_AJUSTE } from "@/types/horarios";
 
 export const dynamic = "force-dynamic";
 
@@ -33,8 +35,18 @@ export async function GET(_: Request, { params }: Params) {
   const { id } = await params;
 
   try {
-    const ajustes = await fetchAjustesByPeriodo(id);
-    return NextResponse.json({ success: true, ajustes });
+    const periodo = await fetchPeriodoPagoById(id);
+
+    if (!periodo) {
+      return NextResponse.json({ success: false, error: "No se encontró el periodo de pago" }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      ajustes: periodo.ajustes,
+      ajustesPeriodo: periodo.ajustes,
+      ajustesEmpleado: periodo.ajustesEmpleado
+    });
   } catch (error) {
     console.error("Error al listar ajustes de periodo:", error);
     return NextResponse.json({ success: false, error: "No se pudieron cargar los ajustes del periodo" }, { status: 500 });
@@ -50,18 +62,51 @@ export async function POST(request: Request, { params }: Params) {
 
   const { id } = await params;
   const payload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-  const horasDescontadas = toNumber(payload?.horasDescontadas);
+  const legacyHoras = toNumber(payload?.horasDescontadas);
+  const tipoAjuste = normalizeString(payload?.tipoAjuste) || (legacyHoras !== null ? "Descuento" : "");
+  const tipoCalculo = normalizeString(payload?.tipoCalculo) || (legacyHoras !== null ? "horas" : "");
+  const horas = toNumber(payload?.horas) ?? legacyHoras;
+  const monto = toNumber(payload?.monto);
+  const impacto = normalizeString(payload?.impacto);
   const motivo = normalizeString(payload?.motivo);
   const registroId = normalizeString(payload?.registroId);
 
-  if (horasDescontadas === null || horasDescontadas <= 0 || !motivo) {
-    return NextResponse.json({ success: false, error: "Horas a descontar y motivo son obligatorios" }, { status: 400 });
+  if (!motivo) {
+    return NextResponse.json({ success: false, error: "El motivo es obligatorio" }, { status: 400 });
+  }
+
+  if (!tipoAjuste || !(HORARIO_TIPOS_AJUSTE as readonly string[]).includes(tipoAjuste)) {
+    return NextResponse.json({ success: false, error: "Tipo de ajuste obligatorio o no válido" }, { status: 400 });
+  }
+
+  if (tipoCalculo !== "horas" && tipoCalculo !== "monto") {
+    return NextResponse.json({ success: false, error: "Tipo de cálculo obligatorio o no válido" }, { status: 400 });
+  }
+
+  if (horas !== null && horas > 0 && monto !== null && monto > 0) {
+    return NextResponse.json({ success: false, error: "Registra el ajuste por horas o por monto, no ambos a la vez" }, { status: 400 });
+  }
+
+  if (tipoCalculo === "horas" && (horas === null || horas <= 0)) {
+    return NextResponse.json({ success: false, error: "Las horas a ajustar deben ser mayores a 0" }, { status: 400 });
+  }
+
+  if (tipoCalculo === "monto" && (monto === null || monto <= 0)) {
+    return NextResponse.json({ success: false, error: "El monto a ajustar debe ser mayor a 0" }, { status: 400 });
+  }
+
+  if (impacto && impacto !== "suma" && impacto !== "resta") {
+    return NextResponse.json({ success: false, error: "Impacto no válido" }, { status: 400 });
   }
 
   try {
-    const result = await registrarAmonestacionHorario({
+    const result = await registrarAjusteHorario({
       periodoId: id,
-      horasDescontadas,
+      tipoAjuste: tipoAjuste as HorarioTipoAjuste,
+      tipoCalculo: tipoCalculo as HorarioTipoCalculoAjuste,
+      horas,
+      monto,
+      impacto: impacto ? (impacto as HorarioImpactoAjuste) : null,
       motivo,
       registroId: registroId || null,
       adminUser: session.user
@@ -69,7 +114,7 @@ export async function POST(request: Request, { params }: Params) {
 
     return NextResponse.json({ success: true, ...result }, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "No se pudo registrar la amonestación";
+    const message = error instanceof Error ? error.message : "No se pudo registrar el ajuste";
     return NextResponse.json({ success: false, error: message }, { status: 400 });
   }
 }

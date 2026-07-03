@@ -27,10 +27,13 @@ import type {
   HorarioPeriodoPago,
   HorarioPeriodoPagoDetalle,
   HorarioAdminEmpleadoDetalle,
+  HorarioImpactoAjuste,
   HorarioRegistro,
+  HorarioTipoAjuste,
+  HorarioTipoCalculoAjuste,
   TipoMarcacion
 } from "@/types/horarios";
-import { HORARIO_METODOS_PAGO } from "@/types/horarios";
+import { HORARIO_METODOS_PAGO, HORARIO_TIPOS_AJUSTE } from "@/types/horarios";
 
 const SUELDO_BASE = 482;
 const HORAS_BASE_MES = 160;
@@ -237,7 +240,7 @@ type HorarioAjusteFields = {
   "Fecha de Ajuste"?: string;
   Estado?: string;
   "Horas Ajustadas"?: number;
-  "Es Descuento"?: boolean;
+  "Es Descuento"?: boolean | string;
 };
 
 type EstadoResultanteMarcacion = Exclude<EstadoDia, "Pendiente">;
@@ -279,6 +282,18 @@ type AnularPagoHorarioInput = {
 type RegistrarAmonestacionHorarioInput = {
   periodoId: string;
   horasDescontadas: number;
+  motivo: string;
+  registroId?: string | null;
+  adminUser: SessionUser;
+};
+
+type RegistrarAjusteHorarioInput = {
+  periodoId: string;
+  tipoAjuste: HorarioTipoAjuste | string;
+  tipoCalculo: HorarioTipoCalculoAjuste;
+  horas?: number | null;
+  monto?: number | null;
+  impacto?: HorarioImpactoAjuste | null;
   motivo: string;
   registroId?: string | null;
   adminUser: SessionUser;
@@ -716,6 +731,44 @@ export function normalizeHorarioMetodoPago(value?: string | null): HorarioMetodo
   return "Transferencia bancaria";
 }
 
+function normalizeTipoAjuste(value: string): HorarioTipoAjuste {
+  const textValue = value.trim();
+
+  if ((HORARIO_TIPOS_AJUSTE as readonly string[]).includes(textValue)) {
+    return textValue as HorarioTipoAjuste;
+  }
+
+  throw new Error("Tipo de ajuste no válido.");
+}
+
+function getMontoAjusteSign(tipoAjuste: HorarioTipoAjuste, impacto?: HorarioImpactoAjuste | null) {
+  if (tipoAjuste === "Compra empleado" || tipoAjuste === "Descuento") {
+    return -1;
+  }
+
+  if (tipoAjuste === "Bono") {
+    return 1;
+  }
+
+  if (impacto === "suma") {
+    return 1;
+  }
+
+  if (impacto === "resta") {
+    return -1;
+  }
+
+  throw new Error("Selecciona si el ajuste por monto suma o resta al rol.");
+}
+
+function requiresMontoImpacto(tipoAjuste: HorarioTipoAjuste) {
+  return tipoAjuste === "Corrección de hora" || tipoAjuste === "Regularización" || tipoAjuste === "Otro";
+}
+
+function supportsHorasAjuste(tipoAjuste: HorarioTipoAjuste) {
+  return tipoAjuste === "Descuento" || tipoAjuste === "Corrección de hora" || tipoAjuste === "Regularización" || tipoAjuste === "Otro";
+}
+
 function normalizeTextForComparison(value: string) {
   return value
     .normalize("NFD")
@@ -846,6 +899,7 @@ function mapAjuste(record: AirtableRecord<HorarioAjusteFields>): HorarioAjuste {
   const fields = record.fields;
   const minutosAjustados = fields[HORARIOS_AJUSTES_FIELDS.minutosAjustados] || 0;
   const horasAjustadas = fields[HORARIOS_AJUSTES_FIELDS.horasAjustadas] ?? roundHours(minutosAjustados);
+  const montoAjustado = fields[HORARIOS_AJUSTES_FIELDS.montoAjustado] || 0;
 
   return {
     id: record.id,
@@ -855,12 +909,12 @@ function mapAjuste(record: AirtableRecord<HorarioAjusteFields>): HorarioAjuste {
     tipoAjuste: fields[HORARIOS_AJUSTES_FIELDS.tipoAjuste] || "Descuento",
     minutosAjustados,
     horasAjustadas,
-    montoAjustado: fields[HORARIOS_AJUSTES_FIELDS.montoAjustado] || 0,
+    montoAjustado,
     motivo: fields[HORARIOS_AJUSTES_FIELDS.motivo] || "",
     aprobadoPor: fields[HORARIOS_AJUSTES_FIELDS.aprobadoPor],
     fechaAjuste: fields[HORARIOS_AJUSTES_FIELDS.fechaAjuste] || "",
     estado: fields[HORARIOS_AJUSTES_FIELDS.estado] || "Aplicado",
-    esDescuento: Boolean(fields[HORARIOS_AJUSTES_FIELDS.esDescuento]) || fields[HORARIOS_AJUSTES_FIELDS.tipoAjuste] === "Descuento"
+    esDescuento: montoAjustado < 0 || minutosAjustados < 0
   };
 }
 
@@ -901,6 +955,24 @@ function mapPeriodo(record: AirtableRecord<HorarioPeriodoPagoFields>): HorarioPe
     observacionRol: fields[HORARIOS_PERIODOS_FIELDS.observacionRol],
     estadoRol: fields[HORARIOS_PERIODOS_FIELDS.estadoRol] || "Pendiente"
   };
+}
+
+function attachPeriodoInfoToAjustes(ajustes: HorarioAjuste[], periodos: HorarioPeriodoPago[]) {
+  const periodosById = new Map(periodos.map((periodo) => [periodo.id, periodo]));
+
+  return ajustes.map((ajuste) => {
+    const periodo = ajuste.periodoPagoId ? periodosById.get(ajuste.periodoPagoId) : undefined;
+
+    if (!periodo) {
+      return ajuste;
+    }
+
+    return {
+      ...ajuste,
+      periodoFechaInicio: periodo.fechaInicio,
+      periodoFechaFin: periodo.fechaFin
+    };
+  });
 }
 
 function getNextAction(registro: HorarioRegistro | null): Pick<HorarioEstado, "siguienteMarcacion" | "siguienteEtiqueta" | "puedeMarcar"> {
@@ -1505,7 +1577,7 @@ async function fetchMisAjustes(user: SessionUser) {
   const ajustes = await fetchAjustesByPeriodos(periodos.map((periodo) => periodo.id));
 
   return ajustes
-    .filter((ajuste) => ajuste.esDescuento && ajuste.estado !== "Anulado")
+    .filter((ajuste) => ajuste.estado === "Aplicado")
     .sort((first, second) => second.fechaAjuste.localeCompare(first.fechaAjuste));
 }
 
@@ -1694,10 +1766,6 @@ export async function fetchHorariosAdminResumen(input?: { fechaInicio?: string; 
       return;
     }
 
-    if (!(ajuste.tipoAjuste === "Descuento" || ajuste.montoAjustado < 0) || ajuste.montoAjustado >= 0) {
-      return;
-    }
-
     const empleadoUser = userMaps.byId.get(ajuste.empleadoRecordId);
     const empleadoResumen =
       empleadosMap.get(ajuste.empleadoRecordId) ||
@@ -1825,7 +1893,7 @@ function calculatePeriodoTotals(registros: HorarioRegistro[], pagos: HorarioPago
     return total + pago.montoPagado;
   }, 0);
   const totalAjustes = ajustes.reduce((total, ajuste) => {
-    if (ajuste.estado === "Anulado") {
+    if (ajuste.estado !== "Aplicado") {
       return total;
     }
 
@@ -2022,15 +2090,22 @@ async function hydratePeriodo(
   options?: { syncRegistros?: boolean }
 ): Promise<HorarioPeriodoPagoDetalle> {
   const syncedPeriodo = options?.syncRegistros ? await syncPeriodoRegistros(periodo) : periodo;
-  const [registros, pagos, ajustesResult] = await Promise.all([
+  const [registros, pagos, ajustesResult, ajustesEmpleadoResult] = await Promise.all([
     listRegistrosByIds(syncedPeriodo.registroIds),
     fetchPagosByPeriodo(syncedPeriodo.id),
     fetchAjustesByPeriodo(syncedPeriodo.id).catch((error) => {
       console.warn(`No se pudieron cargar ajustes del periodo ${syncedPeriodo.id}. Se continuará sin ajustes.`, error);
       return [];
-    })
+    }),
+    syncedPeriodo.empleadoRecordId
+      ? fetchAjustesByEmpleado(syncedPeriodo.empleadoRecordId).catch((error) => {
+          console.warn(`No se pudo cargar el historial de ajustes del empleado ${syncedPeriodo.empleadoRecordId}.`, error);
+          return [];
+        })
+      : Promise.resolve([])
   ]);
   const ajustes = ajustesResult;
+  const ajustesEmpleado = ajustesEmpleadoResult;
   const maps = userMaps || buildPortalUserMaps(await listPortalUsers());
   const periodoUser = findPortalUserForEmpleado(maps, syncedPeriodo.empleadoRecordId, syncedPeriodo.correo);
   const enrichedPeriodo = applyPortalUserToPeriodo(syncedPeriodo, periodoUser);
@@ -2060,7 +2135,8 @@ async function hydratePeriodo(
     saldoPendienteNeto: totals.saldoPendienteNeto,
     registros: enrichedRegistros,
     pagos,
-    ajustes
+    ajustes,
+    ajustesEmpleado
   };
 }
 
@@ -2084,7 +2160,8 @@ export async function fetchPeriodosPago() {
       estadoPeriodo: getEffectiveEstadoPeriodo(enrichedPeriodo),
       registros: [],
       pagos: [],
-      ajustes: []
+      ajustes: [],
+      ajustesEmpleado: []
     };
   });
 }
@@ -2437,6 +2514,29 @@ export async function fetchAjustesByPeriodo(periodoId: string) {
     .filter((ajuste) => ajuste.periodoPagoId === periodoId);
 }
 
+export async function fetchAjustesByEmpleado(empleadoId: string) {
+  if (!isAirtableRecordId(empleadoId)) {
+    return [];
+  }
+
+  const [ajusteRecords, periodoRecords] = await Promise.all([
+    listAllAirtableRecords<HorarioAjusteFields>(AJUSTES_TABLE, new URLSearchParams({
+      "sort[0][field]": HORARIOS_AJUSTES_FIELDS.fechaAjuste,
+      "sort[0][direction]": "desc"
+    })),
+    listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, new URLSearchParams())
+  ]);
+  const periodos = periodoRecords.map(mapPeriodo);
+  const periodosEmpleadoIds = new Set(periodos.filter((periodo) => periodo.empleadoRecordId === empleadoId).map((periodo) => periodo.id));
+
+  const ajustes = ajusteRecords
+    .map(mapAjuste)
+    .filter((ajuste) => ajuste.empleadoRecordId === empleadoId || Boolean(ajuste.periodoPagoId && periodosEmpleadoIds.has(ajuste.periodoPagoId)))
+    .sort((first, second) => second.fechaAjuste.localeCompare(first.fechaAjuste));
+
+  return attachPeriodoInfoToAjustes(ajustes, periodos);
+}
+
 async function fetchAjustesByPeriodos(periodoIds: string[]) {
   const ids = new Set(periodoIds.filter(isAirtableRecordId));
 
@@ -2523,24 +2623,21 @@ export async function anularPagoHorario(input: AnularPagoHorarioInput): Promise<
   };
 }
 
-export async function registrarAmonestacionHorario(input: RegistrarAmonestacionHorarioInput): Promise<{ ajuste: HorarioAjuste; periodo: HorarioPeriodoPagoDetalle }> {
+export async function registrarAjusteHorario(input: RegistrarAjusteHorarioInput): Promise<{ ajuste: HorarioAjuste; periodo: HorarioPeriodoPagoDetalle }> {
   const periodo = await fetchPeriodoPagoById(input.periodoId);
   const motivo = input.motivo.trim();
+  const tipoAjuste = normalizeTipoAjuste(input.tipoAjuste);
 
   if (!periodo) {
     throw new Error("No se encontró el periodo de pago.");
   }
 
   if (periodo.estadoPeriodo === "Anulado") {
-    throw new Error("No se puede registrar una amonestación en un periodo anulado.");
+    throw new Error("No se puede registrar un ajuste en un periodo anulado.");
   }
 
   if (!motivo) {
-    throw new Error("El motivo de la amonestación es obligatorio.");
-  }
-
-  if (!Number.isFinite(input.horasDescontadas) || input.horasDescontadas <= 0) {
-    throw new Error("Las horas a descontar deben ser mayores a 0.");
+    throw new Error("El motivo del ajuste es obligatorio.");
   }
 
   const registroRelacionado = input.registroId
@@ -2552,14 +2649,46 @@ export async function registrarAmonestacionHorario(input: RegistrarAmonestacionH
   }
 
   const valorHora = registroRelacionado?.valorHora || periodo.registros.find((registro) => registro.valorHora > 0)?.valorHora || VALOR_HORA;
-  const horasDescontadas = Math.round(input.horasDescontadas * 100) / 100;
-  const minutosAjustados = -Math.round(horasDescontadas * 60);
-  const montoAjustado = -roundMoney(horasDescontadas * valorHora);
+  let minutosAjustados = 0;
+  let montoAjustado = 0;
+  let detalleNotificacion = "";
+
+  if (input.tipoCalculo === "horas") {
+    if (!supportsHorasAjuste(tipoAjuste)) {
+      throw new Error("Este tipo de ajuste debe registrarse por monto.");
+    }
+
+    const horasInput = input.horas;
+
+    if (typeof horasInput !== "number" || !Number.isFinite(horasInput) || horasInput <= 0) {
+      throw new Error("Las horas a ajustar deben ser mayores a 0.");
+    }
+
+    const horasAjustadas = Math.round(horasInput * 100) / 100;
+    minutosAjustados = -Math.round(horasAjustadas * 60);
+    montoAjustado = -roundMoney(horasAjustadas * valorHora);
+    detalleNotificacion = `${horasAjustadas.toFixed(2)} h (${new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(montoAjustado)})`;
+  } else if (input.tipoCalculo === "monto") {
+    const montoInput = input.monto;
+
+    if (typeof montoInput !== "number" || !Number.isFinite(montoInput) || montoInput <= 0) {
+      throw new Error("El monto a ajustar debe ser mayor a 0.");
+    }
+
+    const impacto = requiresMontoImpacto(tipoAjuste) ? input.impacto : null;
+    const sign = getMontoAjusteSign(tipoAjuste, impacto);
+    montoAjustado = sign * roundMoney(montoInput);
+    minutosAjustados = 0;
+    detalleNotificacion = new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(montoAjustado);
+  } else {
+    throw new Error("Tipo de cálculo no válido.");
+  }
+
   const aprobadoPor = input.adminUser.email || input.adminUser.nombre || "Administrador";
   const fields: HorarioAjusteFields = {
     [HORARIOS_AJUSTES_FIELDS.empleado]: periodo.empleadoRecordId ? [periodo.empleadoRecordId] : undefined,
     [HORARIOS_AJUSTES_FIELDS.periodoPago]: [periodo.id],
-    [HORARIOS_AJUSTES_FIELDS.tipoAjuste]: "Descuento",
+    [HORARIOS_AJUSTES_FIELDS.tipoAjuste]: tipoAjuste,
     [HORARIOS_AJUSTES_FIELDS.minutosAjustados]: minutosAjustados,
     [HORARIOS_AJUSTES_FIELDS.montoAjustado]: montoAjustado,
     [HORARIOS_AJUSTES_FIELDS.motivo]: motivo,
@@ -2592,30 +2721,46 @@ export async function registrarAmonestacionHorario(input: RegistrarAmonestacionH
       await crearNotificacion({
         destinatarioId: periodo.empleadoRecordId,
         tipo: "Amonestación",
-        titulo: "Amonestación registrada",
-        mensaje: `Se registró un descuento de ${horasDescontadas.toFixed(2)} h en tu periodo de pago. Motivo: ${motivo}`,
+        titulo: "Ajuste registrado",
+        mensaje: `Se registró ${tipoAjuste.toLowerCase()} por ${detalleNotificacion} en tu periodo de pago. Motivo: ${motivo}`,
         urlAccion: "/horarios",
         prioridad: "Alta",
         enviarEmail: false,
-        entidadTipo: "Amonestación",
+        entidadTipo: "Ajuste de horario",
         entidadId: created.id,
         creadoPorId: input.adminUser.userId
       });
     } catch (error) {
-      console.error("No se pudo crear la notificación de amonestación:", error);
+      console.error("No se pudo crear la notificación de ajuste:", error);
     }
   }
 
   const updatedPeriodo = await fetchPeriodoPagoById(periodo.id);
 
   if (!updatedPeriodo) {
-    throw new Error("La amonestación se guardó, pero no se pudo refrescar el periodo.");
+    throw new Error("El ajuste se guardó, pero no se pudo refrescar el periodo.");
   }
 
   return {
-    ajuste: mapAjuste(created),
+    ajuste: {
+      ...mapAjuste(created),
+      periodoFechaInicio: periodo.fechaInicio,
+      periodoFechaFin: periodo.fechaFin
+    },
     periodo: updatedPeriodo
   };
+}
+
+export async function registrarAmonestacionHorario(input: RegistrarAmonestacionHorarioInput): Promise<{ ajuste: HorarioAjuste; periodo: HorarioPeriodoPagoDetalle }> {
+  return registrarAjusteHorario({
+    periodoId: input.periodoId,
+    tipoAjuste: "Descuento",
+    tipoCalculo: "horas",
+    horas: input.horasDescontadas,
+    motivo: input.motivo,
+    registroId: input.registroId,
+    adminUser: input.adminUser
+  });
 }
 
 export async function registrarPagoHorario(input: RegistrarPagoHorarioInput): Promise<{ pago: HorarioPago; periodo: HorarioPeriodoPagoDetalle; warning?: string | null }> {
