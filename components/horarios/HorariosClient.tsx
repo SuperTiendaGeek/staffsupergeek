@@ -64,6 +64,26 @@ function formatHours(value: number) {
   return `${value.toFixed(2)} h`;
 }
 
+function formatSignedHours(value: number) {
+  if (value === 0) return "--";
+  const sign = value > 0 ? "+" : "-";
+  return `${sign}${Math.abs(value).toFixed(2)} h`;
+}
+
+function ajusteTipoLabel(ajuste: HorarioAjuste) {
+  if (ajuste.tipoAjuste === "Compra empleado") {
+    return "Descuento por compra empleado";
+  }
+
+  return ajuste.tipoAjuste || "Descuento";
+}
+
+function ajusteMontoClasses(monto: number) {
+  if (monto < 0) return "text-red-200";
+  if (monto > 0) return "text-[#D7FF4F]";
+  return "text-[#CFCFCB]";
+}
+
 function formatShortDate(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return value;
@@ -332,13 +352,14 @@ function AjustesTable({ ajustes }: { ajustes: HorarioAjuste[] }) {
   }
   return (
     <div className="overflow-x-auto">
-      <table className="min-w-[720px] w-full text-left text-sm">
+      <table className="min-w-[820px] w-full text-left text-sm">
         <thead className="border-b border-[#3A3A36] text-xs uppercase tracking-normal text-[#8F908A]">
           <tr>
             <th className="px-3 py-2.5 font-medium">Fecha</th>
+            <th className="px-3 py-2.5 font-medium">Tipo</th>
             <th className="px-3 py-2.5 font-medium">Motivo</th>
-            <th className="px-3 py-2.5 font-medium">Horas descontadas</th>
-            <th className="px-3 py-2.5 font-medium">Monto descontado</th>
+            <th className="px-3 py-2.5 font-medium">Horas</th>
+            <th className="px-3 py-2.5 font-medium">Monto</th>
             <th className="px-3 py-2.5 font-medium">Estado</th>
           </tr>
         </thead>
@@ -346,9 +367,10 @@ function AjustesTable({ ajustes }: { ajustes: HorarioAjuste[] }) {
           {ajustes.map((ajuste) => (
             <tr key={ajuste.id} className="transition hover:bg-[#2D2E2A]">
               <td className="px-3 py-2.5 font-medium text-[#F5F5F5]">{formatDate(ajuste.fechaAjuste)}</td>
+              <td className="px-3 py-2.5">{ajusteTipoLabel(ajuste)}</td>
               <td className="px-3 py-2.5">{ajuste.motivo || "--"}</td>
-              <td className="px-3 py-2.5">{formatHours(Math.abs(ajuste.horasAjustadas || ajuste.minutosAjustados / 60))}</td>
-              <td className="px-3 py-2.5 font-semibold text-red-200">{formatMoney(ajuste.montoAjustado)}</td>
+              <td className="px-3 py-2.5">{formatSignedHours(ajuste.horasAjustadas || ajuste.minutosAjustados / 60)}</td>
+              <td className={`px-3 py-2.5 font-semibold ${ajusteMontoClasses(ajuste.montoAjustado)}`}>{formatMoney(ajuste.montoAjustado)}</td>
               <td className="px-3 py-2.5">
                 <span className="inline-flex rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-2.5 py-1 text-xs font-semibold text-[#D7FF4F]">
                   {ajuste.estado || "Aplicado"}

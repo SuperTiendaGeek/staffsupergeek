@@ -143,6 +143,21 @@ export type EstadoPagoHorario = "Registrado" | "Anulado";
 
 export type EstadoRolPago = "Pendiente" | "Generado" | "Regenerado" | "Anulado";
 
+export const HORARIO_TIPOS_AJUSTE = [
+  "Descuento",
+  "Compra empleado",
+  "Bono",
+  "Corrección de hora",
+  "Regularización",
+  "Otro"
+] as const;
+
+export type HorarioTipoAjuste = (typeof HORARIO_TIPOS_AJUSTE)[number];
+
+export type HorarioTipoCalculoAjuste = "horas" | "monto";
+
+export type HorarioImpactoAjuste = "suma" | "resta";
+
 export type HorarioEstadoGeneralPago =
   | "Sin jornadas pagables"
   | "Sin pagos registrados"
@@ -185,7 +200,9 @@ export type HorarioAjuste = {
   empleadoRecordId?: string;
   registroDelDiaId?: string;
   periodoPagoId?: string;
-  tipoAjuste: string;
+  periodoFechaInicio?: string;
+  periodoFechaFin?: string;
+  tipoAjuste: HorarioTipoAjuste | string;
   minutosAjustados: number;
   horasAjustadas: number;
   montoAjustado: number;
@@ -232,6 +249,7 @@ export type HorarioPeriodoPagoDetalle = HorarioPeriodoPago & {
   registros: HorarioRegistro[];
   pagos: HorarioPago[];
   ajustes: HorarioAjuste[];
+  ajustesEmpleado: HorarioAjuste[];
 };
 
 export type HorarioEmpleadoResumenPagos = {
