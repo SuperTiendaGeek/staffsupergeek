@@ -1,7 +1,7 @@
 import "server-only";
 
 import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from "pdf-lib";
-import type { HorarioPago, HorarioPeriodoPagoDetalle, HorarioRegistro } from "@/types/horarios";
+import type { HorarioAjuste, HorarioPago, HorarioPeriodoPagoDetalle, HorarioRegistro } from "@/types/horarios";
 
 type GenerateRolPagoPdfInput = {
   periodo: HorarioPeriodoPagoDetalle;
@@ -80,6 +80,23 @@ function formatTime(value?: string) {
     minute: "2-digit",
     hour12: false
   }).format(date);
+}
+
+function formatSignedHours(value: number) {
+  if (value === 0) {
+    return "--";
+  }
+
+  const sign = value > 0 ? "+" : "-";
+  return `${sign}${Math.abs(value).toFixed(2)} h`;
+}
+
+function formatAjusteTipo(ajuste: HorarioAjuste) {
+  if (ajuste.tipoAjuste === "Compra empleado") {
+    return "Compra empleado";
+  }
+
+  return ajuste.tipoAjuste || "Descuento";
 }
 
 function truncateText(text: string, maxLength: number) {
@@ -180,6 +197,43 @@ function drawPagosTable(pdf: PDFDocument, page: PDFPage, y: number, pagos: Horar
   return { page, y: y - 8 };
 }
 
+function drawAjustesTable(pdf: PDFDocument, page: PDFPage, y: number, ajustes: HorarioAjuste[], fonts: { regular: PDFFont; bold: PDFFont }) {
+  let state = ensureSpace(pdf, page, y, 70);
+  page = state.page;
+  y = state.y;
+  drawSectionTitle(page, "Ajustes aplicados", y, fonts.bold);
+  y -= 28;
+
+  if (!ajustes.length) {
+    drawText(page, "Sin ajustes aplicados.", MARGIN, y, fonts.regular, 8, GRAY);
+    return { page, y: y - 22 };
+  }
+
+  const headers = ["Fecha", "Tipo", "Motivo", "Horas", "Monto", "Estado"];
+  const xs = [MARGIN, 94, 190, 350, 405, 475];
+  headers.forEach((header, index) => drawText(page, header, xs[index], y, fonts.bold, 8, GRAY));
+  y -= 12;
+
+  ajustes.forEach((ajuste) => {
+    state = ensureSpace(pdf, page, y, 18);
+    page = state.page;
+    y = state.y;
+    const horasAjustadas = ajuste.horasAjustadas || ajuste.minutosAjustados / 60;
+    const values = [
+      formatDate(ajuste.fechaAjuste),
+      formatAjusteTipo(ajuste),
+      ajuste.motivo || "--",
+      formatSignedHours(horasAjustadas),
+      formatMoney(ajuste.montoAjustado),
+      ajuste.estado || "Aplicado"
+    ];
+    values.forEach((value, index) => drawText(page, truncateText(value, index === 2 ? 26 : 14), xs[index], y, fonts.regular, 8, DARK));
+    y -= 14;
+  });
+
+  return { page, y: y - 8 };
+}
+
 export async function generateRolPagoPdf(input: GenerateRolPagoPdfInput) {
   const pdf = await PDFDocument.create();
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
@@ -188,6 +242,7 @@ export async function generateRolPagoPdf(input: GenerateRolPagoPdfInput) {
   let page = addPage(pdf);
   let y = PAGE_HEIGHT - MARGIN;
   const pagosActivos = input.periodo.pagos.filter((pago) => pago.estadoPago === "Registrado");
+  const ajustesAplicados = input.periodo.ajustes.filter((ajuste) => ajuste.estado === "Aplicado");
   const empleadoNombre = input.periodo.empleado || input.periodo.correo || "Empleado";
   const empleadoCedula = input.periodo.empleadoCedula || "No registrada";
   const empleadoRol = input.periodo.empleadoRol || "No registrado";
@@ -228,6 +283,9 @@ export async function generateRolPagoPdf(input: GenerateRolPagoPdfInput) {
   const jornadas = drawJornadasTable(pdf, page, y, input.periodo.registros, fonts);
   page = jornadas.page;
   y = jornadas.y;
+  const ajustes = drawAjustesTable(pdf, page, y, ajustesAplicados, fonts);
+  page = ajustes.page;
+  y = ajustes.y;
   const pagos = drawPagosTable(pdf, page, y, pagosActivos, fonts);
   page = pagos.page;
   y = pagos.y;

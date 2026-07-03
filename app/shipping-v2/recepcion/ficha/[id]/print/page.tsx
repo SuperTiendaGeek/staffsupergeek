@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import type { CSSProperties } from "react";
 import { getShippingV2ItemById, getShippingV2TechnicalOptionSets } from "@/lib/shipping-v2/airtable";
 import type { ShippingV2Item, ShippingV2TechnicalOption } from "@/types/shipping-v2";
 import { ShippingV2PrintControls } from "./ShippingV2PrintControls";
@@ -7,6 +8,24 @@ export const dynamic = "force-dynamic";
 
 type Props = {
   params: Promise<{ id: string }>;
+};
+
+type PosterLine = {
+  key: string;
+  value: string;
+  tone?: "black" | "blue" | "red";
+  role?: "main" | "ports" | "battery";
+};
+
+type SaleCardStyle = CSSProperties & {
+  "--brand-size": string;
+  "--model-size": string;
+  "--price-size": string;
+  "--line-size": string;
+  "--ports-size": string;
+  "--battery-size": string;
+  "--spec-gap": string;
+  "--card-gap": string;
 };
 
 function clean(value?: string | number | null) {
@@ -66,21 +85,66 @@ function screenText(item: ShippingV2Item) {
 }
 
 function batteryText(item: ShippingV2Item) {
-  const sheet = item.technicalSheet;
-  if (typeof sheet.bateriaSalud === "number" && Number.isFinite(sheet.bateriaSalud)) {
-    return `Bateria ${sheet.bateriaSalud}% de salud`;
-  }
-  return clean(sheet.bateriaEstado);
+  const state = clean(item.technicalSheet.bateriaEstado);
+  if (!hasValue(state)) return "";
+  if (state === "Excelente") return "Bateria en excelente estado";
+  if (state === "Muy buena") return "Bateria en muy buen estado";
+  if (state === "Buena / Aceptable") return "Bateria en buen estado";
+  if (state === "Regular / Requiere Servicio") return "Bateria regular";
+  if (state === "Mala / Agotada") return "Bateria agotada";
+  return state;
 }
 
 function featureText(labels: string[]) {
   return labels.filter(hasValue).slice(0, 7).join(" / ");
 }
 
-function Line({ value, tone = "black", className = "" }: { value: string; tone?: "black" | "blue" | "red"; className?: string }) {
+function makeLine(key: string, value: string, tone: PosterLine["tone"] = "black", role: PosterLine["role"] = "main"): PosterLine | null {
   if (!hasValue(value)) return null;
-  const density = value.length > 76 ? "line--xs" : value.length > 48 ? "line--sm" : "";
-  return <div className={`line ${tone} ${density} ${className}`}>{value}</div>;
+  return { key, value, tone, role };
+}
+
+function compact<T>(items: Array<T | null>) {
+  return items.filter((item): item is T => item !== null);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function layoutForPoster(input: { brand: string; model: string; price: string; lines: PosterLine[] }) {
+  const lineLoad = input.lines.reduce((total, line) => {
+    const divisor = line.role === "ports" ? 32 : line.role === "battery" ? 34 : 22;
+    return total + Math.max(1, Math.ceil(line.value.length / divisor));
+  }, 0);
+  const titleLoad = Math.ceil(input.brand.length / 14) + Math.ceil(input.model.length / 22);
+  const load = lineLoad + titleLoad + input.lines.length;
+  const density = load <= 18 ? "poster-xl" : load >= 22 ? "poster-compact" : "poster-standard";
+
+  const lineSize = density === "poster-xl" ? 15.4 : density === "poster-compact" ? 11.4 : 13.8;
+  const brandBase = density === "poster-compact" ? 17.5 : density === "poster-xl" ? 24 : 21;
+  const modelBase = density === "poster-compact" ? 13.8 : density === "poster-xl" ? 18.6 : 16.2;
+  const brandSize = clamp(brandBase - Math.max(0, input.brand.length - 10) * 0.32, 12.5, 24);
+  const modelSize = clamp(modelBase - Math.max(0, input.model.length - 18) * 0.22, 9.4, 18.6);
+  const priceSize = input.price.length > 5 ? 16.2 : 19.4;
+
+  const style: SaleCardStyle = {
+    "--brand-size": `${brandSize.toFixed(1)}mm`,
+    "--model-size": `${modelSize.toFixed(1)}mm`,
+    "--price-size": `${priceSize.toFixed(1)}mm`,
+    "--line-size": `${lineSize.toFixed(1)}mm`,
+    "--ports-size": `${(lineSize * (density === "poster-xl" ? 0.82 : 0.8)).toFixed(1)}mm`,
+    "--battery-size": `${(lineSize * (density === "poster-compact" ? 0.94 : 0.96)).toFixed(1)}mm`,
+    "--spec-gap": density === "poster-xl" ? "1.5mm" : density === "poster-compact" ? "0.35mm" : "0.7mm",
+    "--card-gap": density === "poster-xl" ? "1.6mm" : density === "poster-compact" ? "0.5mm" : "0.8mm",
+  };
+
+  return { className: density, style };
+}
+
+function Line({ line }: { line: PosterLine }) {
+  const density = line.value.length > 92 ? "line--xs" : line.value.length > 62 ? "line--sm" : "";
+  return <div className={`line ${line.tone ?? "black"} ${line.role ?? "main"} ${density}`}>{line.value}</div>;
 }
 
 export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props) {
@@ -99,18 +163,18 @@ export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props)
   const commercialNote = clean(item.observacionVenta) || clean(sheet.observacionFichaTecnica);
   const footerNote = batteryText(item) || commercialNote;
   const secondaryNote = footerNote === commercialNote ? "" : commercialNote;
-  const specLines = [
-    sheet.sistemaOperativo,
-    screenText(item),
-    cpuText(item),
-    clean(sheet.gpu),
-    storageText(item),
-    ramText(item),
-    featureText([...connectivity, ...ports, ...extraFeatures]),
-    footerNote,
-    secondaryNote,
-  ].filter(hasValue);
-  const densityClass = specLines.length <= 5 ? "sale-card--sparse" : specLines.length >= 8 ? "sale-card--dense" : "";
+  const posterLines = compact([
+    makeLine("os", clean(sheet.sistemaOperativo)),
+    makeLine("screen", screenText(item)),
+    makeLine("cpu", cpuText(item), "blue"),
+    makeLine("gpu", clean(sheet.gpu), "blue"),
+    makeLine("storage", storageText(item), "red"),
+    makeLine("ram", ramText(item), "red"),
+    makeLine("features", featureText([...connectivity, ...ports, ...extraFeatures]), "black", "ports"),
+    makeLine("battery", footerNote, "blue", "battery"),
+    makeLine("note", secondaryNote, "black", "ports"),
+  ]);
+  const layout = layoutForPoster({ brand, model, price, lines: posterLines });
 
   return (
     <main className="print-page">
@@ -155,7 +219,7 @@ export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props)
         .half-page {
           width: 148.5mm;
           height: 210mm;
-          padding: 5mm;
+          padding: 2mm;
         }
 
         .half-page--empty {
@@ -168,9 +232,9 @@ export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props)
           width: 100%;
           height: 100%;
           overflow: hidden;
-          border: 2.2mm solid #050505;
+          border: 3.2mm solid #050505;
           background: #ffffff;
-          padding: 5mm;
+          padding: 2.2mm;
           display: flex;
           flex-direction: column;
           justify-content: space-between;
@@ -178,36 +242,39 @@ export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props)
           font-family: Impact, "Arial Black", system-ui, sans-serif;
           text-transform: uppercase;
           page-break-inside: avoid;
+          gap: var(--card-gap);
         }
 
         .top {
           display: grid;
           grid-template-columns: 1fr auto;
-          gap: 4mm;
+          gap: 3mm;
           align-items: start;
         }
 
         .brand {
           color: #000;
-          font-size: 15mm;
+          font-size: var(--brand-size);
           line-height: 0.86;
-          letter-spacing: -0.5mm;
+          letter-spacing: -0.8mm;
           word-break: break-word;
+          font-style: italic;
         }
 
         .model {
           color: #000;
-          font-size: 13mm;
+          font-size: var(--model-size);
           line-height: 0.86;
-          letter-spacing: -0.4mm;
+          letter-spacing: -0.65mm;
           word-break: break-word;
+          font-style: italic;
         }
 
         .priceBox {
-          min-width: 42mm;
+          min-width: 46mm;
           border: 1.4mm solid #0057ff;
           background: #ffffff;
-          padding: 2mm 3mm;
+          padding: 1.7mm 2.4mm;
           color: #0057ff;
           text-align: center;
         }
@@ -220,33 +287,35 @@ export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props)
 
         .price {
           color: #0057ff;
-          font-size: 15mm;
+          font-size: var(--price-size);
           line-height: 1;
+          font-style: italic;
         }
 
         .specs {
           display: flex;
           flex: 1;
           flex-direction: column;
-          justify-content: center;
-          gap: 1.8mm;
+          justify-content: space-between;
+          gap: var(--spec-gap);
           min-height: 0;
         }
 
         .line {
-          font-size: 9.5mm;
+          font-size: var(--line-size);
           line-height: 0.92;
-          letter-spacing: -0.25mm;
+          letter-spacing: -0.06mm;
           word-break: break-word;
+          font-style: italic;
         }
 
         .line--sm {
-          font-size: 8mm;
+          font-size: calc(var(--line-size) * 0.94);
           line-height: 0.94;
         }
 
         .line--xs {
-          font-size: 6.7mm;
+          font-size: calc(var(--line-size) * 0.82);
           line-height: 0.95;
         }
 
@@ -262,34 +331,22 @@ export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props)
           color: #e00000;
         }
 
-        .ports {
-          font-size: 6.7mm;
+        .line.ports {
+          font-size: var(--ports-size);
           line-height: 0.95;
           letter-spacing: -0.18mm;
           color: #000;
         }
 
-        .battery {
-          font-size: 7.5mm;
+        .line.battery {
+          font-size: var(--battery-size);
           line-height: 0.95;
           letter-spacing: -0.18mm;
           color: #0057ff;
         }
 
-        .sale-card--sparse .line {
-          font-size: 10.8mm;
-        }
-
-        .sale-card--sparse .ports {
-          font-size: 7.6mm;
-        }
-
-        .sale-card--dense .line {
-          font-size: 8.4mm;
-        }
-
-        .sale-card--dense .ports {
-          font-size: 6.1mm;
+        .poster-xl .specs {
+          justify-content: space-around;
         }
 
         .footer {
@@ -334,7 +391,7 @@ export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props)
           .half-page {
             width: 148.5mm;
             height: 210mm;
-            padding: 5mm;
+            padding: 2mm;
           }
 
           .sale-card {
@@ -352,7 +409,7 @@ export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props)
 
       <section className="print-sheet" aria-label="Hoja A4 horizontal para fichas de venta">
         <section className="half-page">
-          <article className={`sale-card ${densityClass}`}>
+          <article className={`sale-card ${layout.className}`} style={layout.style}>
             <div className="top">
               <div>
                 <div className="brand">{brand}</div>
@@ -367,15 +424,7 @@ export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props)
             </div>
 
             <div className="specs">
-              <Line value={clean(sheet.sistemaOperativo)} />
-              <Line value={screenText(item)} />
-              <Line value={cpuText(item)} tone="blue" />
-              <Line value={clean(sheet.gpu)} tone="blue" />
-              <Line value={storageText(item)} tone="red" />
-              <Line value={ramText(item)} tone="red" />
-              <Line value={featureText([...connectivity, ...ports, ...extraFeatures])} className="ports" />
-              <Line value={footerNote} tone="blue" className="battery" />
-              <Line value={secondaryNote} className="ports" />
+              {posterLines.map((line) => <Line key={line.key} line={line} />)}
             </div>
 
             <div className="footer">SKU {clean(item.sku)}</div>
