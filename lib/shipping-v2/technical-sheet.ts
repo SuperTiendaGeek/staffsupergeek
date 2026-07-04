@@ -87,6 +87,10 @@ function inferModel(name: string, brand: string) {
   return model.length >= 2 ? model : "";
 }
 
+export function isFichaGenerada(item: Pick<ShippingV2Item, "technicalSheet">) {
+  return item.technicalSheet.fichaTecnicaGenerada === true;
+}
+
 export function shippingV2CategoryHasBattery(category?: string) {
   return SCREEN_BATTERY_CATEGORIES.has(normalize(category));
 }

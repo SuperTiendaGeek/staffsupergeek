@@ -1,0 +1,97 @@
+@page {
+  size: A4 landscape;
+  margin: 0;
+}
+
+:global(html),
+:global(body) {
+  margin: 0;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.printPage {
+  min-height: 100vh;
+  padding: 6mm;
+  background: #f2f2f2;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  text-align: center;
+  font-family: system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: #6b6b6b;
+}
+
+.sheet {
+  position: relative;
+  width: 297mm;
+  height: 210mm;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.18);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.half {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 4mm;
+}
+
+.cutLine {
+  position: absolute;
+  top: 4mm;
+  bottom: 4mm;
+  left: 50%;
+  width: 0;
+  border-left: 1px dashed #9a9a9a;
+  transform: translateX(-50%);
+}
+
+@media print {
+  :global(html),
+  :global(body) {
+    width: 297mm;
+    height: 210mm;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .printPage {
+    width: 297mm;
+    min-height: 210mm;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .sheet {
+    box-shadow: none !important;
+  }
+
+  .half {
+    padding: 4mm;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .cutLine {
+    top: 4mm;
+    bottom: 4mm;
+  }
+}

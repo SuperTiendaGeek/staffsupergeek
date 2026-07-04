@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
+import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
 import type { ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Proveedor, ShippingV2RecepcionChecklistAction } from "@/types/shipping-v2";
 
 type Props = {
@@ -70,10 +71,11 @@ function openTechnicalSheetEditor(itemId: string) {
 }
 
 function openTechnicalSheet(item: ShippingV2Item) {
-  const path = item.technicalSheet.fichaTecnicaGenerada
+  const generada = isFichaGenerada(item);
+  const path = generada
     ? `/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}/print?print=1`
     : `/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}`;
-  window.open(path, item.technicalSheet.fichaTecnicaGenerada ? "_blank" : "_self", "noopener,noreferrer");
+  window.open(path, generada ? "_blank" : "_self", "noopener,noreferrer");
 }
 
 function stateTone(state: string) {

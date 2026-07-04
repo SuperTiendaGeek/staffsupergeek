@@ -267,7 +267,6 @@ export function ShippingV2FichaTecnicaClient({ item: initialItem, technicalOptio
   const [item, setItem] = useState(initialItem);
   const [form, setForm] = useState<ShippingV2TechnicalSheetInput>(() => normalizeForm(initialItem));
   const [fieldSources, setFieldSources] = useState<FieldSources>({});
-  const [generatedUsed, setGeneratedUsed] = useState(false);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [cpuCatalogStatus, setCpuCatalogStatus] = useState("");
@@ -501,7 +500,6 @@ export function ShippingV2FichaTecnicaClient({ item: initialItem, technicalOptio
     }
     setForm(nextForm);
     setFieldSources((current) => ({ ...current, ...inferredSources }));
-    setGeneratedUsed(true);
     setMessage("");
     setBusy("complete-catalogs");
     if (nextForm.marcaFicha || nextForm.modeloFicha) {
@@ -611,14 +609,13 @@ export function ShippingV2FichaTecnicaClient({ item: initialItem, technicalOptio
       const response = await fetch(`/api/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, generated: generatedUsed, reviewed: options.reviewed === true }),
+        body: JSON.stringify({ ...form, reviewed: options.reviewed === true }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo guardar la ficha técnica."));
       const updated = payload.data as ShippingV2Item;
       setItem(updated);
       setForm(normalizeForm(updated));
-      setGeneratedUsed(false);
       setMessage(options.reviewed ? "Ficha guardada y marcada como revisada." : "Ficha técnica guardada.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Error inesperado.");

@@ -2221,13 +2221,20 @@ export async function updateShippingV2ItemTechnicalSheet(
     [F.actualizadoPor]: options.actualizadoPor,
   };
 
-  if (input.generated) {
+  // La ficha se considera generada apenas tiene los campos mínimos (marca + modelo),
+  // sin depender de que el cliente haya usado "Completar desde catálogos": ese flag
+  // se perdía en guardados manuales y la ficha nunca quedaba marcada como generada.
+  const meetsMinimumFicha = Boolean(brandFicha && modelFicha);
+  const shouldMarkGenerated = meetsMinimumFicha || input.reviewed === true || input.generated === true;
+
+  if (shouldMarkGenerated && existing.technicalSheet.fichaTecnicaGenerada !== true) {
     fields[F.fichaTecnicaGenerada] = true;
     fields[F.fichaTecnicaGeneradaPor] = options.actualizadoPor;
     fields[F.fechaFichaTecnicaGenerada] = now;
   }
 
   if (input.reviewed) {
+    fields[F.fichaTecnicaGenerada] = true;
     fields[F.fichaTecnicaRevisada] = true;
     fields[F.fichaTecnicaRevisadaPor] = options.actualizadoPor;
     fields[F.fechaFichaTecnicaRevisada] = now;

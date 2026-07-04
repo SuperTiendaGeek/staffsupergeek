@@ -1,0 +1,149 @@
+.card {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid #000000;
+  padding: 5mm;
+  color: #111111;
+  font-weight: 400;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.skewContent {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 3mm;
+}
+
+/* Lilita One no tiene itálica nativa: cada línea se inclina individualmente
+   (no el bloque completo) para que el corte no se acumule línea a línea. La
+   conectividad (.connectivity) queda fuera a propósito: es un bloque
+   multilínea y el skew hacía que desbordara el ancho por los costados. */
+.brand,
+.model,
+.price,
+.line {
+  transform: skewX(-6deg);
+}
+
+.topRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 4mm;
+}
+
+.brand {
+  margin: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  color: #111111;
+  line-height: 0.85;
+  overflow-wrap: break-word;
+}
+
+.model {
+  margin: 0;
+  color: #111111;
+  line-height: 0.85;
+  overflow-wrap: break-word;
+}
+
+.price {
+  margin: 0;
+  flex: 0 0 auto;
+  color: #1e56c8;
+  line-height: 0.85;
+  white-space: nowrap;
+}
+
+/* Une marca/precio, modelo, specs y conectividad en una sola columna con el
+   MISMO gap fijo entre todas: es la única fuente de separación vertical
+   (las líneas van a line-height: 0.85 -mínimo sin recortar ascendentes/
+   descendentes- y margin: 0, sin espacio propio). */
+.linesGroup {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 1mm;
+}
+
+.line {
+  margin: 0;
+  font-size: 24px;
+  line-height: 0.85;
+  overflow-wrap: break-word;
+}
+
+.os {
+  color: #3a18c8;
+  text-transform: uppercase;
+}
+
+.screen {
+  color: #111111;
+}
+
+.cpuLine1 {
+  color: #1e56c8;
+}
+
+.cpuLine2 {
+  color: #1e56c8;
+}
+
+.storage {
+  color: #c6281e;
+}
+
+.ram {
+  color: #c6281e;
+}
+
+/* Contenedor flexible: absorbe el alto restante entre RAM y batería, así la
+   conectividad se ajusta al espacio real disponible (búsqueda binaria en JS). */
+.connectivityWrap {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Texto multilínea normal: sin fit-to-width horizontal, sin skew (ver nota
+   arriba) y alineado a la izquierda con wrap natural, no justificado. */
+.connectivity {
+  margin: 0;
+  color: #111111;
+  line-height: 1.12;
+  text-align: left;
+  overflow-wrap: break-word;
+}
+
+/* Fila inferior: batería a la izquierda, código SKU pegado a la derecha
+   (margin-left: auto), sin gutter dedicado — así el padding de la tarjeta
+   queda simétrico en ambos costados. */
+.footerRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 2mm;
+}
+
+.battery {
+  margin: 0;
+  color: #1e56c8;
+}
+
+.sku {
+  margin-left: auto;
+  flex: none;
+  white-space: nowrap;
+  color: #555555;
+  font-size: 3.5mm;
+  letter-spacing: 0.2mm;
+}
