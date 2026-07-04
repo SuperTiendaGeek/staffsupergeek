@@ -1732,7 +1732,7 @@ async function getExistingShippingV2Skus() {
   return records.map((record) => firstString(record.fields[getOfficialSkuField()])).filter(Boolean);
 }
 
-async function generateUniqueShippingV2SkuForCategory(category?: string) {
+export async function generateUniqueShippingV2SkuForCategory(category?: string) {
   return generateUniqueSkuFromExistingSkus(category, await getExistingShippingV2Skus());
 }
 
