@@ -1454,6 +1454,8 @@ export const createOrdenReparacion = async ({
     "Tipo Orden": "Servicio de Reparaci\u00f3n",
     Autonumber: nextAutonumber,
     "Fecha de Ingreso": formatAirtableDateTimeISO(),
+    // Fase 11: toda orden nueva nace en V2 (repuestos desde Shipping Items).
+    "Modo repuestos": "V2",
   };
 
   const accesorios = orden.accesorios?.trim();
