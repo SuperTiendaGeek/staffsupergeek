@@ -70,15 +70,40 @@ type AbonoAdjuntoItem = AbonoItem["comprobantes"][number];
 
 type OrdenDocumentoItem = AbonoAdjuntoItem;
 
-type CatalogoRepuestoItem = {
+// Cuenta unificada de repuestos (Fase 11, ver types/cuenta-unificada.ts).
+type CuentaUnificadaItemOrigen = "pedido" | "stock";
+
+type CuentaUnificadaItem = {
   id: string;
   nombre: string;
-  descripcionCorta: string | null;
-  skuCodigoInterno: string | null;
-  proveedorHabitual: string | null;
-  costoBase: number | null;
-  precioSugeridoCliente: number | null;
-  activo: boolean;
+  origen: CuentaUnificadaItemOrigen;
+  precio: number;
+  cubierto: number;
+  saldo: number;
+};
+
+type CuentaUnificadaRepuestoHistorico = {
+  id: string;
+  nombre: string;
+  cantidad: number | null;
+  precioCliente: number | null;
+  subtotal: number;
+};
+
+type CuentaUnificadaRepuestos = {
+  ordenId: string | null;
+  operacionCodigo: string | null;
+  modoRepuestos: "legacy" | "v2" | null;
+  items: CuentaUnificadaItem[];
+  repuestosHistoricos: CuentaUnificadaRepuestoHistorico[];
+  repuestosHistoricosCuentanParaTotal: boolean;
+};
+
+type RepuestoStockResumen = {
+  id: string;
+  sku: string;
+  nombre: string;
+  precioVentaFinal: number | null;
 };
 
 type CatalogoServicioItem = {
@@ -699,7 +724,6 @@ export function OrdenDetalleClient() {
   const pollingRefs = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const inlineInputRef = useRef<HTMLTextAreaElement | null>(null);
   const editInlineRef = useRef<HTMLTextAreaElement | null>(null);
-  const repuestoComposerRef = useRef<HTMLDivElement | null>(null);
   const servicioComposerRef = useRef<HTMLDivElement | null>(null);
   const submitLocked = useRef(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -713,6 +737,19 @@ export function OrdenDetalleClient() {
   const [repuestoDeleteConfirmId, setRepuestoDeleteConfirmId] = useState<string | null>(null);
   const [repuestoDeletingId, setRepuestoDeletingId] = useState<string | null>(null);
   const [repuestoDeleteError, setRepuestoDeleteError] = useState<string | null>(null);
+  // Cuenta unificada de repuestos (Fase 11 — Etapa 2).
+  const [cuentaRepuestos, setCuentaRepuestos] = useState<CuentaUnificadaRepuestos | null>(null);
+  const [cuentaRepuestosLoading, setCuentaRepuestosLoading] = useState(false);
+  const [cuentaRepuestosError, setCuentaRepuestosError] = useState<string | null>(null);
+  const [showRepuestosHistoricos, setShowRepuestosHistoricos] = useState(false);
+  const [showRepuestoV2Modal, setShowRepuestoV2Modal] = useState(false);
+  const [repuestoV2Search, setRepuestoV2Search] = useState("");
+  const [repuestoV2Resultados, setRepuestoV2Resultados] = useState<RepuestoStockResumen[]>([]);
+  const [repuestoV2SearchLoading, setRepuestoV2SearchLoading] = useState(false);
+  const [repuestoV2SearchError, setRepuestoV2SearchError] = useState<string | null>(null);
+  const [selectedRepuestoV2, setSelectedRepuestoV2] = useState<RepuestoStockResumen | null>(null);
+  const [repuestoV2Saving, setRepuestoV2Saving] = useState(false);
+  const [repuestoV2Error, setRepuestoV2Error] = useState<string | null>(null);
   const [servicioDeleteConfirmId, setServicioDeleteConfirmId] = useState<string | null>(null);
   const [servicioDeletingId, setServicioDeletingId] = useState<string | null>(null);
   const [servicioDeleteError, setServicioDeleteError] = useState<string | null>(null);
@@ -730,39 +767,18 @@ export function OrdenDetalleClient() {
   const [comprobanteViewerError, setComprobanteViewerError] = useState<string | null>(null);
   const [comprobanteViewerResolvedUrl, setComprobanteViewerResolvedUrl] = useState<string | null>(null);
   const [whatsappError, setWhatsappError] = useState<Record<string, string | null>>({});
-  const [catalogoRepuestos, setCatalogoRepuestos] = useState<CatalogoRepuestoItem[]>([]);
   const [catalogoServicios, setCatalogoServicios] = useState<CatalogoServicioItem[]>([]);
-  const [catalogoRepuestosLoading, setCatalogoRepuestosLoading] = useState(false);
   const [catalogoServiciosLoading, setCatalogoServiciosLoading] = useState(false);
-  const [catalogoRepuestosError, setCatalogoRepuestosError] = useState<string | null>(null);
   const [catalogoServiciosError, setCatalogoServiciosError] = useState<string | null>(null);
-  const [repuestoSearch, setRepuestoSearch] = useState("");
   const [servicioSearch, setServicioSearch] = useState("");
-  const [selectedRepuesto, setSelectedRepuesto] = useState<CatalogoRepuestoItem | null>(null);
   const [selectedServicio, setSelectedServicio] = useState<CatalogoServicioItem | null>(null);
-  const [showRepuestoResults, setShowRepuestoResults] = useState(false);
   const [showServicioResults, setShowServicioResults] = useState(false);
-  const [repuestoPlacement, setRepuestoPlacement] = useState<"top" | "bottom">("bottom");
   const [servicioPlacement, setServicioPlacement] = useState<"top" | "bottom">("bottom");
-  const [repuestoCantidad, setRepuestoCantidad] = useState("1");
-  const [repuestoPrecioCliente, setRepuestoPrecioCliente] = useState("");
-  const [repuestoCostoProveedor, setRepuestoCostoProveedor] = useState("");
-  const [repuestoProveedor, setRepuestoProveedor] = useState("");
-  const [repuestoObservacion, setRepuestoObservacion] = useState("");
-  const [repuestoSaving, setRepuestoSaving] = useState(false);
-  const [repuestoError, setRepuestoError] = useState<string | null>(null);
   const [servicioCosto, setServicioCosto] = useState("");
   const [servicioObservacion, setServicioObservacion] = useState("");
   const [servicioSaving, setServicioSaving] = useState(false);
   const [servicioError, setServicioError] = useState<string | null>(null);
-  const [openCreateRepuestoModal, setOpenCreateRepuestoModal] = useState(false);
   const [openCreateServicioModal, setOpenCreateServicioModal] = useState(false);
-  const [nuevoRepuestoNombre, setNuevoRepuestoNombre] = useState("");
-  const [nuevoRepuestoCostoBase, setNuevoRepuestoCostoBase] = useState("");
-  const [nuevoRepuestoPrecioSugerido, setNuevoRepuestoPrecioSugerido] = useState("");
-  const [nuevoRepuestoProveedorHabitual, setNuevoRepuestoProveedorHabitual] = useState("");
-  const [nuevoRepuestoSaving, setNuevoRepuestoSaving] = useState(false);
-  const [nuevoRepuestoError, setNuevoRepuestoError] = useState<string | null>(null);
   const [nuevoServicioNombre, setNuevoServicioNombre] = useState("");
   const [nuevoServicioCostoSugerido, setNuevoServicioCostoSugerido] = useState("");
   const [nuevoServicioSaving, setNuevoServicioSaving] = useState(false);
@@ -858,16 +874,12 @@ export function OrdenDetalleClient() {
     await fetchData({ showLoading: false, preserveError: true });
   };
 
-  const resetRepuestoComposer = () => {
-    setRepuestoSearch("");
-    setSelectedRepuesto(null);
-    setRepuestoCantidad("1");
-    setRepuestoPrecioCliente("");
-    setRepuestoCostoProveedor("");
-    setRepuestoProveedor("");
-    setRepuestoObservacion("");
-    setRepuestoError(null);
-    setShowRepuestoResults(false);
+  const resetRepuestoV2Modal = () => {
+    setRepuestoV2Search("");
+    setRepuestoV2Resultados([]);
+    setRepuestoV2SearchError(null);
+    setSelectedRepuestoV2(null);
+    setRepuestoV2Error(null);
   };
 
   const resetServicioComposer = () => {
@@ -877,14 +889,6 @@ export function OrdenDetalleClient() {
     setServicioObservacion("");
     setServicioError(null);
     setShowServicioResults(false);
-  };
-
-  const resetCrearRepuestoForm = () => {
-    setNuevoRepuestoNombre("");
-    setNuevoRepuestoCostoBase("");
-    setNuevoRepuestoPrecioSugerido("");
-    setNuevoRepuestoProveedorHabitual("");
-    setNuevoRepuestoError(null);
   };
 
   const resetCrearServicioForm = () => {
@@ -1044,21 +1048,6 @@ export function OrdenDetalleClient() {
     }
   };
 
-  const selectRepuesto = (item: CatalogoRepuestoItem) => {
-    setSelectedRepuesto(item);
-    setRepuestoSearch("");
-    setShowRepuestoResults(false);
-    setRepuestoPrecioCliente(
-      item.precioSugeridoCliente !== null && item.precioSugeridoCliente !== undefined
-        ? String(item.precioSugeridoCliente)
-        : ""
-    );
-    setRepuestoCostoProveedor(
-      item.costoBase !== null && item.costoBase !== undefined ? String(item.costoBase) : ""
-    );
-    setRepuestoProveedor(item.proveedorHabitual ?? "");
-  };
-
   const selectServicio = (item: CatalogoServicioItem) => {
     setSelectedServicio(item);
     setServicioSearch("");
@@ -1070,24 +1059,84 @@ export function OrdenDetalleClient() {
     );
   };
 
-  const loadCatalogoRepuestos = async () => {
-    if (catalogoRepuestosLoading) return;
-    setCatalogoRepuestosLoading(true);
-    setCatalogoRepuestosError(null);
-
+  const loadCuentaRepuestos = async () => {
+    if (!id) return;
+    setCuentaRepuestosLoading(true);
+    setCuentaRepuestosError(null);
     try {
-      const res = await fetch("/api/tecnicos/catalogo/repuestos");
+      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id)}/cuenta-unificada`);
       const json = await res.json();
       if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo cargar el catÃ¡logo de repuestos");
+        throw new Error(json.error || "No se pudo cargar la cuenta de repuestos");
       }
-
-      const data = (json.data ?? []) as CatalogoRepuestoItem[];
-      setCatalogoRepuestos(data);
+      setCuentaRepuestos(json.data as CuentaUnificadaRepuestos);
     } catch (err) {
-      setCatalogoRepuestosError(err instanceof Error ? err.message : "Error desconocido");
+      setCuentaRepuestosError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
-      setCatalogoRepuestosLoading(false);
+      setCuentaRepuestosLoading(false);
+    }
+  };
+
+  const handleBuscarRepuestosV2 = async (q: string) => {
+    if (!id) return;
+    setRepuestoV2SearchLoading(true);
+    setRepuestoV2SearchError(null);
+    try {
+      const params = new URLSearchParams();
+      if (q.trim()) params.set("q", q.trim());
+      const res = await fetch(
+        `/api/tecnicos/ordenes/${encodeURIComponent(id)}/repuestos-v2/buscar?${params.toString()}`
+      );
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "Error al buscar");
+      setRepuestoV2Resultados((json.data ?? []) as RepuestoStockResumen[]);
+    } catch (err) {
+      setRepuestoV2SearchError(err instanceof Error ? err.message : "Error al buscar");
+    } finally {
+      setRepuestoV2SearchLoading(false);
+    }
+  };
+
+  const handleAgregarRepuestoV2 = async () => {
+    if (!id || !selectedRepuestoV2) return;
+    setRepuestoV2Saving(true);
+    setRepuestoV2Error(null);
+    try {
+      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id)}/repuestos-v2`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId: selectedRepuestoV2.id }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "Error al agregar el repuesto");
+      setShowRepuestoV2Modal(false);
+      resetRepuestoV2Modal();
+      await loadCuentaRepuestos();
+    } catch (err) {
+      setRepuestoV2Error(err instanceof Error ? err.message : "Error al agregar el repuesto");
+    } finally {
+      setRepuestoV2Saving(false);
+    }
+  };
+
+  const handleQuitarRepuestoV2 = async (itemId: string) => {
+    if (!id) return;
+    setRepuestoDeletingId(itemId);
+    setRepuestoDeleteError(null);
+    try {
+      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id)}/repuestos-v2`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "No se pudo quitar el repuesto");
+      setRepuestoDeleteConfirmId(null);
+      await loadCuentaRepuestos();
+    } catch (err) {
+      setRepuestoDeleteError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setRepuestoDeletingId(null);
     }
   };
 
@@ -1112,20 +1161,6 @@ export function OrdenDetalleClient() {
     }
   };
 
-  const filteredCatalogoRepuestos = useMemo(() => {
-    const query = repuestoSearch.trim().toLowerCase();
-    if (!query) return catalogoRepuestos.slice(0, INITIAL_SEARCH_SUGGESTIONS);
-
-    return catalogoRepuestos
-      .filter((item) => {
-        const byName = item.nombre.toLowerCase().includes(query);
-        const bySku = item.skuCodigoInterno?.toLowerCase().includes(query);
-        const byProveedor = item.proveedorHabitual?.toLowerCase().includes(query);
-        return byName || bySku || byProveedor;
-      })
-      .slice(0, MAX_SEARCH_RESULTS);
-  }, [catalogoRepuestos, repuestoSearch]);
-
   const filteredCatalogoServicios = useMemo(() => {
     const query = servicioSearch.trim().toLowerCase();
     if (!query) return catalogoServicios.slice(0, INITIAL_SEARCH_SUGGESTIONS);
@@ -1138,51 +1173,6 @@ export function OrdenDetalleClient() {
       })
       .slice(0, MAX_SEARCH_RESULTS);
   }, [catalogoServicios, servicioSearch]);
-
-  const handleCrearRepuestoCatalogo = async () => {
-    if (nuevoRepuestoSaving) return;
-    const nombre = nuevoRepuestoNombre.trim();
-    const costoBase = parseNumberInput(nuevoRepuestoCostoBase);
-    const precioSugeridoCliente = parseNumberInput(nuevoRepuestoPrecioSugerido);
-
-    if (!nombre) {
-      setNuevoRepuestoError("El nombre del repuesto es obligatorio.");
-      return;
-    }
-
-    setNuevoRepuestoSaving(true);
-    setNuevoRepuestoError(null);
-    try {
-      const res = await fetch("/api/tecnicos/catalogo/repuestos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nombre,
-          costoBase,
-          precioSugeridoCliente,
-          proveedorHabitual: nuevoRepuestoProveedorHabitual.trim() || null,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo crear el repuesto");
-      }
-
-      const created = json.data as CatalogoRepuestoItem;
-      setCatalogoRepuestos((prev) =>
-        [...prev, created].sort((a, b) =>
-          a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" })
-        )
-      );
-      selectRepuesto(created);
-      setOpenCreateRepuestoModal(false);
-      resetCrearRepuestoForm();
-    } catch (err) {
-      setNuevoRepuestoError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setNuevoRepuestoSaving(false);
-    }
-  };
 
   const handleCrearServicioCatalogo = async () => {
     if (nuevoServicioSaving) return;
@@ -1220,65 +1210,6 @@ export function OrdenDetalleClient() {
       setNuevoServicioError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
       setNuevoServicioSaving(false);
-    }
-  };
-
-  const handleGuardarRepuesto = async () => {
-    if (!id || repuestoSaving) return;
-    setRepuestoError(null);
-
-    const cantidad = parseNumberInput(repuestoCantidad);
-    const precioCliente = parseNumberInput(repuestoPrecioCliente);
-    const costoProveedor = parseNumberInput(repuestoCostoProveedor);
-
-    if (!selectedRepuesto) {
-      setRepuestoError("Selecciona un repuesto del catÃ¡logo.");
-      return;
-    }
-    if (cantidad === null || cantidad <= 0) {
-      setRepuestoError("La cantidad debe ser mayor a 0.");
-      return;
-    }
-    if (precioCliente === null || precioCliente < 0) {
-      setRepuestoError("Ingresa el precio cliente real.");
-      return;
-    }
-
-    setRepuestoSaving(true);
-    try {
-      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id)}/repuestos`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          catalogoRepuestoId: selectedRepuesto.id,
-          nombreSnapshot: selectedRepuesto.nombre,
-          cantidad,
-          precioCliente,
-          costoProveedor,
-          proveedor: repuestoProveedor.trim() || null,
-          observacion: repuestoObservacion.trim() || null,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo agregar el repuesto");
-      }
-
-      const nuevo = json.data as RepuestoItem;
-      setOrden((prev) =>
-        prev
-          ? {
-              ...prev,
-              repuestosPorOrden: [...(prev.repuestosPorOrden ?? []), nuevo],
-            }
-          : prev
-      );
-      resetRepuestoComposer();
-      await refreshOrdenDetalleFinanzas();
-    } catch (err) {
-      setRepuestoError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setRepuestoSaving(false);
     }
   };
 
@@ -1392,40 +1323,6 @@ export function OrdenDetalleClient() {
       setAbonoError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
       setAbonoSaving(false);
-    }
-  };
-
-  const handleDeleteRepuestoConfirm = async (repuestoPorOrdenId: string) => {
-    setRepuestoDeleteError(null);
-    setRepuestoDeletingId(repuestoPorOrdenId);
-    try {
-      const res = await fetch(
-        `/api/tecnicos/repuestos-por-orden/${encodeURIComponent(repuestoPorOrdenId)}`,
-        {
-          method: "DELETE",
-        }
-      );
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo eliminar el repuesto");
-      }
-
-      setOrden((prev) =>
-        prev
-          ? {
-              ...prev,
-              repuestosPorOrden: (prev.repuestosPorOrden ?? []).filter(
-                (item) => item.id !== repuestoPorOrdenId
-              ),
-            }
-          : prev
-      );
-      setRepuestoDeleteConfirmId(null);
-      await refreshOrdenDetalleFinanzas();
-    } catch (err) {
-      setRepuestoDeleteError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setRepuestoDeletingId(null);
     }
   };
 
@@ -2038,6 +1935,11 @@ export function OrdenDetalleClient() {
   }, [id]);
 
   useEffect(() => {
+    loadCuentaRepuestos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  useEffect(() => {
     void (async () => {
       try {
         const res = await fetch("/api/tecnicos/session");
@@ -2055,9 +1957,6 @@ export function OrdenDetalleClient() {
       const target = event.target as Node | null;
       if (!target) return;
 
-      if (repuestoComposerRef.current && !repuestoComposerRef.current.contains(target)) {
-        setShowRepuestoResults(false);
-      }
       if (servicioComposerRef.current && !servicioComposerRef.current.contains(target)) {
         setShowServicioResults(false);
       }
@@ -2065,9 +1964,7 @@ export function OrdenDetalleClient() {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      setShowRepuestoResults(false);
       setShowServicioResults(false);
-      setRepuestoSearch("");
       setServicioSearch("");
     };
 
@@ -2680,280 +2577,197 @@ export function OrdenDetalleClient() {
             </section>
 
             <div className="grid items-start gap-4 overflow-visible xl:grid-cols-2">
-              <div
-                className={`relative min-w-0 ${
-                  showRepuestoResults ? "z-[80]" : "z-10"
-                }`}
-              >
+              <div className="relative z-10 min-w-0">
                 <section className="relative isolate h-full space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
-              <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] pb-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
-                    Repuestos usados
-                  </p>
-                  <p className="mt-0.5 text-xs text-[var(--sg-text-muted)]">
-                    {orden.repuestosPorOrden?.length ?? 0} líneas registradas
-                  </p>
-                </div>
-                <div className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-right">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">Total cliente</p>
-                  <p className="mt-1 text-base font-extrabold text-[var(--sg-lime)]">
-                    {formatCurrency(
-                      (orden.repuestosPorOrden ?? []).reduce((acc, item) => {
-                        if (item.subtotalCliente !== null && item.subtotalCliente !== undefined) {
-                          return acc + item.subtotalCliente;
-                        }
-                        const qty = item.cantidad ?? 1;
-                        const price = item.precioCliente ?? 0;
-                        return acc + qty * price;
-                      }, 0)
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              <div
-                ref={repuestoComposerRef}
-                className="relative z-30 isolate space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-              >
-                <div className="relative z-30">
-                  <input
-                    type="text"
-                    value={repuestoSearch}
-                    onChange={(e) => {
-                      setRepuestoSearch(e.target.value);
-                      if (repuestoComposerRef.current) {
-                        const rect = repuestoComposerRef.current.getBoundingClientRect();
-                        setRepuestoPlacement(window.innerHeight - rect.bottom < 280 && rect.top > 280 ? "top" : "bottom");
-                      }
-                      setShowRepuestoResults(true);
-                      if (catalogoRepuestos.length === 0 && !catalogoRepuestosLoading) {
-                        loadCatalogoRepuestos();
-                      }
-                    }}
-                    onFocus={() => {
-                      if (repuestoComposerRef.current) {
-                        const rect = repuestoComposerRef.current.getBoundingClientRect();
-                        setRepuestoPlacement(window.innerHeight - rect.bottom < 280 && rect.top > 280 ? "top" : "bottom");
-                      }
-                      setShowRepuestoResults(true);
-                      if (catalogoRepuestos.length === 0) {
-                        loadCatalogoRepuestos();
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        setShowRepuestoResults(false);
-                        setRepuestoSearch("");
-                      }
-                    }}
-                    placeholder="Buscar repuesto..."
-                    className="w-full rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                  />
-                  {showRepuestoResults && (
-                    <div className={`absolute left-0 right-0 z-[120] flex rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-bg)] shadow-2xl ring-1 ring-black/40 ${repuestoPlacement === "top" ? "bottom-full mb-2 flex-col-reverse" : "top-full mt-2 flex-col"}`}>
-                      {catalogoRepuestosLoading ? (
-                        <p className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Cargando repuestos...</p>
-                      ) : catalogoRepuestosError ? (
-                        <p className="px-3 py-2 text-xs text-red-400">{catalogoRepuestosError}</p>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOpenCreateRepuestoModal(true);
-                              setShowRepuestoResults(false);
-                            }}
-                            className={`flex w-full flex-none items-center gap-1.5 px-3 py-2 text-left text-sm font-semibold text-[var(--sg-lime)] transition hover:bg-[var(--sg-card)] border-[var(--sg-border)] ${repuestoPlacement === "top" ? "border-t" : "border-b"}`}
-                          >
-                            + Crear repuesto nuevo
-                          </button>
-                          <div className="max-h-52 overflow-auto overscroll-contain">
-                            {filteredCatalogoRepuestos.length === 0 && (
-                              <p className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Sin coincidencias.</p>
-                            )}
-                            {filteredCatalogoRepuestos.map((item) => (
-                              <button
-                                key={item.id}
-                                type="button"
-                                onClick={() => selectRepuesto(item)}
-                                className="flex w-full flex-col items-start gap-1 border-b border-[var(--sg-border)] px-3 py-2 text-left transition hover:bg-[var(--sg-card)]"
-                              >
-                                <span className="text-sm font-semibold text-[var(--sg-text-primary)]">{item.nombre}</span>
-                                <span className="text-[11px] text-[var(--sg-text-muted)]">
-                                  {item.proveedorHabitual ?? "Proveedor no definido"} · {formatCurrency(item.precioSugeridoCliente)}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
+                  <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] pb-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
+                        Repuestos
+                      </p>
+                      <p className="mt-0.5 text-xs text-[var(--sg-text-muted)]">
+                        {cuentaRepuestos?.items.length ?? 0} línea(s) · fuente: Shipping Items
+                      </p>
                     </div>
-                  )}
-                </div>
-
-                {selectedRepuesto && (
-                  <div className="space-y-3 rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{selectedRepuesto.nombre}</p>
-                        <p className="text-[11px] text-[var(--sg-text-muted)]">
-                          {selectedRepuesto.proveedorHabitual ?? "Proveedor no definido"} · Precio sugerido {formatCurrency(selectedRepuesto.precioSugeridoCliente)}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRepuesto(null)}
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] px-2 py-1 text-[11px] text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
-                      >
-                        Cambiar
-                      </button>
+                    <div className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-right">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
+                        Cobra la orden
+                      </p>
+                      <p className="mt-1 text-base font-extrabold text-[var(--sg-lime)]">
+                        {formatCurrency(
+                          (cuentaRepuestos?.items ?? []).reduce((acc, item) => acc + item.saldo, 0) +
+                            (cuentaRepuestos?.repuestosHistoricosCuentanParaTotal
+                              ? (cuentaRepuestos?.repuestosHistoricos ?? []).reduce((acc, r) => acc + r.subtotal, 0)
+                              : 0)
+                        )}
+                      </p>
                     </div>
+                  </div>
 
-                    <div className="grid gap-2 md:grid-cols-5">
-                      <input
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={repuestoCantidad}
-                        onChange={(e) => setRepuestoCantidad(e.target.value)}
-                        placeholder="Cantidad"
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={repuestoPrecioCliente}
-                        onChange={(e) => setRepuestoPrecioCliente(e.target.value)}
-                        placeholder="Precio cliente real"
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={repuestoCostoProveedor}
-                        onChange={(e) => setRepuestoCostoProveedor(e.target.value)}
-                        placeholder="Costo proveedor real"
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                      />
-                      <input
-                        type="text"
-                        value={repuestoProveedor}
-                        onChange={(e) => setRepuestoProveedor(e.target.value)}
-                        placeholder="Proveedor real"
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                      />
-                      <input
-                        type="text"
-                        value={repuestoObservacion}
-                        onChange={(e) => setRepuestoObservacion(e.target.value)}
-                        placeholder="Observación"
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                      />
-                    </div>
-
-                    {repuestoError && <p className="text-xs text-red-400">{repuestoError}</p>}
-
+                  {cuentaRepuestos?.modoRepuestos === "v2" && (
                     <div className="flex items-center justify-end">
                       <button
                         type="button"
-                        onClick={handleGuardarRepuesto}
-                        disabled={repuestoSaving}
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)] bg-[var(--sg-lime-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--sg-lime)] transition hover:brightness-110 disabled:opacity-60"
+                        onClick={() => {
+                          resetRepuestoV2Modal();
+                          setShowRepuestoV2Modal(true);
+                          void handleBuscarRepuestosV2("");
+                        }}
+                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)] bg-[var(--sg-lime-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--sg-lime)] transition hover:brightness-110"
                       >
-                        {repuestoSaving ? "Guardando..." : "Guardar repuesto"}
+                        + Agregar repuesto de stock
                       </button>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
 
-              {(orden.repuestosPorOrden ?? []).length === 0 ? (
-                <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-sm text-[var(--sg-text-secondary)]">
-                  Aun no se han registrado repuestos en esta orden.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {(orden.repuestosPorOrden ?? []).map((item) => {
-                    const qty = item.cantidad ?? 1;
-                    const price = item.precioCliente ?? 0;
-                    const isDeleting = repuestoDeletingId === item.id;
-                    const isConfirming = repuestoDeleteConfirmId === item.id;
-                    const subtotal =
-                      item.subtotalCliente !== null && item.subtotalCliente !== undefined
-                        ? item.subtotalCliente
-                        : qty * price;
+                  {cuentaRepuestosLoading ? (
+                    <p className="text-xs text-[var(--sg-text-muted)]">Cargando repuestos...</p>
+                  ) : cuentaRepuestosError ? (
+                    <p className="text-xs text-red-400">{cuentaRepuestosError}</p>
+                  ) : (cuentaRepuestos?.items.length ?? 0) === 0 ? (
+                    <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-sm text-[var(--sg-text-secondary)]">
+                      Aún no se han registrado repuestos en esta orden.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(cuentaRepuestos?.items ?? []).map((item) => {
+                        const isDeleting = repuestoDeletingId === item.id;
+                        const isConfirming = repuestoDeleteConfirmId === item.id;
+                        const saldado = item.saldo <= 0;
 
-                    return (
-                      <div
-                        key={item.id}
-                        className="relative flex flex-col gap-2 overflow-hidden rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-3 text-sm"
-                      >
-                        <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-[var(--sg-lime)]" />
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <p className="font-semibold leading-5 text-[var(--sg-text-primary)]">{item.repuestoNombre}</p>
-                            <p className="text-xs text-[var(--sg-text-secondary)]">
-                              Cantidad: {qty} · Precio cliente: {formatCurrency(item.precioCliente)}
-                            </p>
-                            {(item.costoProveedor !== null || item.proveedor || item.observacion) && (
-                              <p className="text-xs text-[var(--sg-text-muted)]">
-                                Costo proveedor: {formatCurrency(item.costoProveedor)} · Proveedor: {item.proveedor ?? "-"}
-                              </p>
+                        return (
+                          <div
+                            key={item.id}
+                            className="relative flex flex-col gap-2 overflow-hidden rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-3 text-sm"
+                          >
+                            <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-[var(--sg-lime)]" />
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="space-y-1.5">
+                                <p className="font-semibold leading-5 text-[var(--sg-text-primary)]">{item.nombre}</p>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--sg-text-secondary)]">
+                                    {item.origen === "pedido"
+                                      ? `Pedido${cuentaRepuestos?.operacionCodigo ? ` · ${cuentaRepuestos.operacionCodigo}` : ""}`
+                                      : "Stock"}
+                                  </span>
+                                  <span className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--sg-text-secondary)]">
+                                    Reservado
+                                  </span>
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                      saldado
+                                        ? "bg-[var(--sg-lime-soft)] text-[var(--sg-lime)]"
+                                        : "bg-amber-500/15 text-amber-400"
+                                    }`}
+                                  >
+                                    {saldado ? "Saldado" : `Pendiente ${formatCurrency(item.saldo)}`}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-[var(--sg-text-muted)]">
+                                  Precio {formatCurrency(item.precio)} · Cubierto {formatCurrency(item.cubierto)}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 flex-col items-end gap-2">
+                                {item.origen === "stock" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setRepuestoDeleteError(null);
+                                      setRepuestoDeleteConfirmId((prev) => (prev === item.id ? null : item.id));
+                                    }}
+                                    className={lineDeleteActionButtonClass}
+                                    title="Quitar repuesto"
+                                    aria-label="Quitar repuesto"
+                                    disabled={isDeleting}
+                                  >
+                                    {isDeleting ? (
+                                      <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
+                                    ) : (
+                                      <TrashIcon className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                )}
+                                <div className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-1 text-right text-sm font-semibold text-[var(--sg-text-primary)]">
+                                  {formatCurrency(item.saldo)}
+                                </div>
+                              </div>
+                            </div>
+                            {isConfirming && (
+                              <div className="mt-1 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
+                                <span className="text-[var(--sg-text-muted)]">¿Quitar este repuesto de la orden?</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setRepuestoDeleteConfirmId(null)}
+                                  className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] px-2 py-1 text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
+                                  disabled={isDeleting}
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuitarRepuestoV2(item.id)}
+                                  className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2 py-1 text-[var(--sg-danger)] transition hover:brightness-110 disabled:opacity-60"
+                                  disabled={isDeleting}
+                                >
+                                  Quitar
+                                </button>
+                                {repuestoDeleteError && <span className="text-red-400">{repuestoDeleteError}</span>}
+                              </div>
                             )}
-                            {item.observacion && <p className="text-xs text-[var(--sg-text-muted)]">Obs: {item.observacion}</p>}
                           </div>
-                          <div className="flex shrink-0 flex-col items-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setRepuestoDeleteError(null);
-                                setRepuestoDeleteConfirmId((prev) => (prev === item.id ? null : item.id));
-                              }}
-                              className={lineDeleteActionButtonClass}
-                              title="Eliminar repuesto"
-                              aria-label="Eliminar repuesto"
-                              disabled={isDeleting}
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {(cuentaRepuestos?.repuestosHistoricos.length ?? 0) > 0 && (
+                    <div className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)]">
+                      <button
+                        type="button"
+                        onClick={() => setShowRepuestosHistoricos((prev) => !prev)}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-[var(--sg-text-secondary)]"
+                      >
+                        <span>Repuestos históricos (sistema anterior)</span>
+                        <span className="text-[var(--sg-text-muted)]">{showRepuestosHistoricos ? "▲" : "▼"}</span>
+                      </button>
+                      {showRepuestosHistoricos && (
+                        <div className="space-y-2 border-t border-dashed border-[var(--sg-border)] px-3 py-3">
+                          <p
+                            className={`text-[11px] font-semibold uppercase tracking-wide ${
+                              cuentaRepuestos?.repuestosHistoricosCuentanParaTotal
+                                ? "text-[var(--sg-lime)]"
+                                : "text-[var(--sg-text-muted)]"
+                            }`}
+                          >
+                            {cuentaRepuestos?.repuestosHistoricosCuentanParaTotal
+                              ? "Incluidos en el total de la orden"
+                              : "Solo referencia histórica — no suman"}
+                          </p>
+                          {(cuentaRepuestos?.repuestosHistoricos ?? []).map((r) => (
+                            <div
+                              key={r.id}
+                              className="flex items-center justify-between gap-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-xs"
                             >
-                              {isDeleting ? (
-                                <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
-                              ) : (
-                                <TrashIcon className="h-4 w-4" />
+                              <div>
+                                <p className="font-medium text-[var(--sg-text-primary)]">{r.nombre}</p>
+                                <p className="text-[var(--sg-text-muted)]">
+                                  Cantidad {r.cantidad ?? 1} · Precio cliente {formatCurrency(r.precioCliente)}
+                                </p>
+                              </div>
+                              <p className="font-semibold text-[var(--sg-text-primary)]">{formatCurrency(r.subtotal)}</p>
+                            </div>
+                          ))}
+                          <div className="flex items-center justify-between border-t border-dashed border-[var(--sg-border)] pt-2 text-xs font-semibold text-[var(--sg-text-primary)]">
+                            <span>Subtotal histórico</span>
+                            <span>
+                              {formatCurrency(
+                                (cuentaRepuestos?.repuestosHistoricos ?? []).reduce((acc, r) => acc + r.subtotal, 0)
                               )}
-                            </button>
-                            <div className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-1 text-right text-sm font-semibold text-[var(--sg-text-primary)]">{formatCurrency(subtotal)}</div>
+                            </span>
                           </div>
                         </div>
-                        {isConfirming && (
-                          <div className="mt-1 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
-                            <span className="text-[var(--sg-text-muted)]">¿Eliminar este repuesto de la orden?</span>
-                            <button
-                              type="button"
-                              onClick={() => setRepuestoDeleteConfirmId(null)}
-                              className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] px-2 py-1 text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
-                              disabled={isDeleting}
-                            >
-                              Cancelar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteRepuestoConfirm(item.id)}
-                              className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2 py-1 text-[var(--sg-danger)] transition hover:brightness-110 disabled:opacity-60"
-                              disabled={isDeleting}
-                            >
-                              Eliminar
-                            </button>
-                            {repuestoDeleteError && <span className="text-red-400">{repuestoDeleteError}</span>}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      )}
+                    </div>
+                  )}
                 </section>
               </div>
 
@@ -4020,63 +3834,113 @@ export function OrdenDetalleClient() {
               </div>
             )}
 
-            {openCreateRepuestoModal && (
-              <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
-                <div className="w-full max-w-md rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-2xl space-y-3">
-                  <h4 className="text-sm font-semibold text-white">Crear repuesto nuevo</h4>
-                  <input
-                    type="text"
-                    value={nuevoRepuestoNombre}
-                    onChange={(e) => setNuevoRepuestoNombre(e.target.value)}
-                    placeholder="Nombre del repuesto"
-                    className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={nuevoRepuestoCostoBase}
-                      onChange={(e) => setNuevoRepuestoCostoBase(e.target.value)}
-                      placeholder="Costo base"
-                      className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
-                    />
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={nuevoRepuestoPrecioSugerido}
-                      onChange={(e) => setNuevoRepuestoPrecioSugerido(e.target.value)}
-                      placeholder="Precio sugerido"
-                      className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
-                    />
+            {showRepuestoV2Modal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+                <div className="w-full max-w-lg rounded-[1rem] border border-[var(--sg-border)] bg-[var(--sg-card)] p-5 shadow-2xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-[var(--sg-text-primary)]">Agregar repuesto de stock</h4>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowRepuestoV2Modal(false);
+                        resetRepuestoV2Modal();
+                      }}
+                      className="text-[var(--sg-text-muted)] transition hover:text-[var(--sg-text-primary)]"
+                      aria-label="Cerrar"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                        <path d="M18 6 6 18M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
-                  <input
-                    type="text"
-                    value={nuevoRepuestoProveedorHabitual}
-                    onChange={(e) => setNuevoRepuestoProveedorHabitual(e.target.value)}
-                    placeholder="Proveedor habitual"
-                    className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
-                  />
-                  {nuevoRepuestoError && <p className="text-xs text-red-400">{nuevoRepuestoError}</p>}
+
+                  <p className="text-[11px] text-[var(--sg-text-muted)]">
+                    Solo se muestran items categoría Repuesto, disponibles y sin reservar.
+                  </p>
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={repuestoV2Search}
+                      onChange={(e) => {
+                        setRepuestoV2Search(e.target.value);
+                        setSelectedRepuestoV2(null);
+                        void handleBuscarRepuestosV2(e.target.value);
+                      }}
+                      placeholder="Buscar por nombre o SKU..."
+                      className="w-full rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)]/60 focus:border-[var(--sg-lime)]/70 focus:outline-none"
+                    />
+                    {repuestoV2SearchLoading && (
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <span className="h-3 w-3 animate-spin rounded-full border border-[var(--sg-lime)] border-t-transparent block" />
+                      </span>
+                    )}
+                  </div>
+
+                  {repuestoV2SearchError && <p className="text-xs text-red-400">{repuestoV2SearchError}</p>}
+
+                  {!selectedRepuestoV2 && !repuestoV2SearchLoading && repuestoV2Resultados.length === 0 && (
+                    <p className="rounded-lg border border-dashed border-[var(--sg-border)] px-3 py-3 text-xs text-[var(--sg-text-muted)]">
+                      {repuestoV2Search.trim() ? "Sin coincidencias." : "Sin items disponibles."}
+                    </p>
+                  )}
+
+                  {!selectedRepuestoV2 && repuestoV2Resultados.length > 0 && (
+                    <div className="max-h-52 overflow-auto overscroll-contain rounded-lg border border-[var(--sg-border)]">
+                      {repuestoV2Resultados.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setSelectedRepuestoV2(item)}
+                          className="flex w-full flex-col items-start gap-1 border-b border-[var(--sg-border)] px-3 py-2 text-left transition last:border-b-0 hover:bg-[var(--sg-panel)]"
+                        >
+                          <span className="text-sm font-semibold text-[var(--sg-text-primary)]">{item.nombre}</span>
+                          <span className="text-[11px] text-[var(--sg-text-muted)]">
+                            {item.sku} · {formatCurrency(item.precioVentaFinal)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {selectedRepuestoV2 && (
+                    <div className="flex items-center justify-between gap-2 rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2">
+                      <div>
+                        <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{selectedRepuestoV2.nombre}</p>
+                        <p className="text-[11px] text-[var(--sg-text-muted)]">
+                          {selectedRepuestoV2.sku} · {formatCurrency(selectedRepuestoV2.precioVentaFinal)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRepuestoV2(null)}
+                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] px-2 py-1 text-[11px] text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
+                      >
+                        Cambiar
+                      </button>
+                    </div>
+                  )}
+
+                  {repuestoV2Error && <p className="text-xs text-red-400">{repuestoV2Error}</p>}
+
                   <div className="flex items-center justify-end gap-2">
                     <button
                       type="button"
                       onClick={() => {
-                        setOpenCreateRepuestoModal(false);
-                        resetCrearRepuestoForm();
+                        setShowRepuestoV2Modal(false);
+                        resetRepuestoV2Modal();
                       }}
-                      className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
+                      className="rounded-full border border-[var(--sg-border)] px-3 py-1.5 text-xs font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
                     >
                       Cancelar
                     </button>
                     <button
                       type="button"
-                      onClick={handleCrearRepuestoCatalogo}
-                      disabled={nuevoRepuestoSaving}
-                      className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60"
+                      onClick={handleAgregarRepuestoV2}
+                      disabled={!selectedRepuestoV2 || repuestoV2Saving}
+                      className="rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60"
                     >
-                      {nuevoRepuestoSaving ? "Guardando..." : "Crear repuesto"}
+                      {repuestoV2Saving ? "Agregando..." : "Agregar"}
                     </button>
                   </div>
                 </div>
