@@ -14,6 +14,7 @@ import type {
   ShippingItemResumen,
 } from "@/types/operaciones";
 import { generateUniqueShippingV2SkuForCategory } from "@/lib/shipping-v2/airtable";
+import { normalizeCedula } from "@/lib/clientes/normalizeCedula";
 
 type AirtableRecord = {
   id: string;
@@ -369,7 +370,9 @@ export async function fetchOperacionDetalle(id: string): Promise<OperacionDetall
 
 // ── Write operations ─────────────────────────────────────────────────────────
 
-async function getMaxIdAbono(): Promise<number> {
+// Exported so other modules that write to the same "Abonos" table (e.g. técnicos)
+// can share this single generator and avoid ID collisions between modules.
+export async function getMaxIdAbono(): Promise<number> {
   const client = getClient();
   const url = new URL(`${client.baseUrl}/${encodeURIComponent(ABONOS_TABLE)}`);
   url.searchParams.set("pageSize", "1");
@@ -479,6 +482,50 @@ export async function buscarClientesOp(q: string): Promise<ClienteBusquedaOp[]> 
   }));
 }
 
+export class CedulaEnUsoError extends Error {
+  clienteExistente: ClienteBusquedaOp | null;
+  constructor(
+    clienteExistente: ClienteBusquedaOp | null = null,
+    message = "Ya existe un cliente registrado con esta cédula."
+  ) {
+    super(message);
+    this.name = "CedulaEnUsoError";
+    this.clienteExistente = clienteExistente;
+  }
+}
+
+// Fail-closed: si la consulta de verificación falla, lanza en vez de asumir
+// que no hay duplicado (mejor bloquear la creación que arriesgar un cliente
+// duplicado con historial partido entre Órdenes y Operaciones).
+async function buscarClientePorCedulaNormalizada(
+  normalizedCedula: string
+): Promise<ClienteBusquedaOp | null> {
+  const client = getClient();
+  const url = new URL(`${client.baseUrl}/${encodeURIComponent(CLIENTES_TABLE)}`);
+  // "Cédula" es un campo de texto — seguro de filtrar directamente (no es un link).
+  url.searchParams.set(
+    "filterByFormula",
+    `LOWER(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE({Cédula}&""," ",""),"-",""),".","")) = "${normalizedCedula}"`
+  );
+  url.searchParams.set("pageSize", "1");
+  ["Nombre", "Cédula", "Teléfono", "Correo"].forEach((f) => url.searchParams.append("fields[]", f));
+
+  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`No se pudo verificar cédulas duplicadas (Airtable error ${res.status}).`);
+  }
+  const data = (await res.json()) as AirtableListResponse;
+  const rec = data.records?.[0];
+  if (!rec) return null;
+  return {
+    id: rec.id,
+    nombre: firstString(rec.fields["Nombre"], "Sin nombre"),
+    cedula: firstString(rec.fields["Cédula"]),
+    telefono: firstString(rec.fields["Teléfono"]),
+    correo: firstString(rec.fields["Correo"]),
+  };
+}
+
 export async function crearClienteOp(input: {
   nombre: string;
   cedula?: string;
@@ -488,6 +535,14 @@ export async function crearClienteOp(input: {
   const client = getClient();
   const nombre = input.nombre.trim();
   if (!nombre) throw new Error("El nombre del cliente es obligatorio.");
+
+  const normalizedCedula = input.cedula?.trim() ? normalizeCedula(input.cedula) : "";
+  if (normalizedCedula) {
+    const existente = await buscarClientePorCedulaNormalizada(normalizedCedula);
+    if (existente) {
+      throw new CedulaEnUsoError(existente);
+    }
+  }
 
   const fields: Record<string, unknown> = { Nombre: nombre };
   if (input.cedula?.trim()) fields["Cédula"] = input.cedula.trim();
@@ -625,34 +680,6 @@ export async function updateOperacionOrden(
 }
 
 // ── Cédula duplicate check ────────────────────────────────────────────────────
-
-export async function verificarCedulaExistente(cedula: string): Promise<ClienteBusquedaOp | null> {
-  const normalized = cedula.trim().replace(/[\s.\-]/g, "").toLowerCase();
-  if (!normalized) return null;
-
-  const client = getClient();
-  const url = new URL(`${client.baseUrl}/${encodeURIComponent(CLIENTES_TABLE)}`);
-  // "Cédula" is a text field — safe to filter directly (not a link field)
-  url.searchParams.set(
-    "filterByFormula",
-    `LOWER(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE({Cédula}&""," ",""),"-",""),".","")) = "${normalized}"`
-  );
-  url.searchParams.set("pageSize", "1");
-  ["Nombre", "Cédula", "Teléfono", "Correo"].forEach((f) => url.searchParams.append("fields[]", f));
-
-  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
-  if (!res.ok) return null;
-  const data = (await res.json()) as AirtableListResponse;
-  const rec = data.records?.[0];
-  if (!rec) return null;
-  return {
-    id: rec.id,
-    nombre: firstString(rec.fields["Nombre"], "Sin nombre"),
-    cedula: firstString(rec.fields["Cédula"]),
-    telefono: firstString(rec.fields["Teléfono"]),
-    correo: firstString(rec.fields["Correo"]),
-  };
-}
 
 // ── Proveedores search ────────────────────────────────────────────────────────
 
