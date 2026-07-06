@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Wrench, DollarSign, Phone, Mail, Package, CheckCircle, Circle, XCircle, ExternalLink, Plus, Pencil, Star, StarOff, Trash2, AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Box } from "lucide-react";
 import type { OperacionDetalle, OpcionDetalle, AbonoDetalle, AirtableAttachment } from "@/types/operaciones";
 import { ESTADOS_TABLERO, ESTADOS_OPERACION } from "@/types/operaciones";
+import type { CuentaUnificada } from "@/types/cuenta-unificada";
+import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnificadaPanel";
 import { RegistrarAbonoModal } from "./RegistrarAbonoModal";
 import { VincularOrdenModal } from "./VincularOrdenModal";
 import { OpcionModal } from "./OpcionModal";
@@ -30,13 +32,6 @@ const ESTADO_OPCION_COLOR: Record<string, string> = {
 function fmt(n: number | null): string {
   if (n === null) return "—";
   return n.toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function fmtDate(iso: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric", timeZone: "America/Guayaquil" });
 }
 
 function thumbnailUrl(att: AirtableAttachment): string {
@@ -409,60 +404,14 @@ function OpcionCard({ opcion, opcionElegidaId, onEditar, onElegir, onQuitarElegi
   );
 }
 
-// ── Abono Row ────────────────────────────────────────────────────────────────
-
-function AbonoRow({ abono }: { abono: AbonoDetalle }) {
-  const isAnulado = abono.estadoAbono === "Anulado";
-  const estadoColor = isAnulado ? "#FF5A4F" : "#56E3A4";
-
-  return (
-    <div
-      className={`flex items-center gap-3 rounded-lg border border-[#3A3A36] px-3 py-2.5 ${isAnulado ? "opacity-50" : ""}`}
-    >
-      <div
-        className="flex h-7 w-7 flex-none items-center justify-center rounded-full"
-        style={{ background: abono.aplicadoA === "orden" ? "#78B7FF18" : "#D7FF4F18" }}
-        title={abono.aplicadoA === "orden" ? "Abono por orden de reparación" : "Abono por operación comercial"}
-      >
-        {abono.aplicadoA === "orden" ? (
-          <Wrench size={13} style={{ color: "#78B7FF" }} />
-        ) : (
-          <DollarSign size={13} style={{ color: "#D7FF4F" }} />
-        )}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-[#F0F0EC]">{abono.metodoPago}</span>
-          {abono.idAbono && (
-            <span className="text-[10px] text-[#4A4A46]">#{abono.idAbono}</span>
-          )}
-        </div>
-        <p className="text-[11px] text-[#6B6B66]">{fmtDate(abono.fecha)}</p>
-      </div>
-
-      <div className="text-right">
-        <p className={`text-sm font-semibold tabular-nums ${isAnulado ? "line-through text-[#6B6B66]" : "text-[#F0F0EC]"}`}>
-          ${fmt(abono.monto)}
-        </p>
-        <span
-          className="text-[10px] font-medium"
-          style={{ color: estadoColor }}
-        >
-          {abono.estadoAbono}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 type Props = {
   operacion: OperacionDetalle;
+  cuentaUnificada: CuentaUnificada | null;
 };
 
-export function OperacionDetalleClient({ operacion }: Props) {
+export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
   const router = useRouter();
   const [abonoModalOpen, setAbonoModalOpen] = useState(false);
   const [vincularModalOpen, setVincularModalOpen] = useState(false);
@@ -475,10 +424,6 @@ export function OperacionDetalleClient({ operacion }: Props) {
   const [accionError, setAccionError] = useState("");
 
   const estadoColor = ESTADO_COLOR[operacion.estado] ?? "#8A8A80";
-  const abonosActivos = operacion.abonos.filter((a) => a.estadoAbono !== "Anulado");
-  const totalAbonadoReal = abonosActivos.reduce((s, a) => s + (a.monto ?? 0), 0);
-  const saldoReal = (operacion.totalCotizado ?? 0) - totalAbonadoReal;
-  const isFullyPaid = operacion.totalCotizado !== null && saldoReal <= 0 && totalAbonadoReal > 0;
 
   function handleAbonoSuccess() {
     setAbonoModalOpen(false);
@@ -766,51 +711,20 @@ export function OperacionDetalleClient({ operacion }: Props) {
         </section>
       )}
 
-      {/* Cuenta del cliente */}
+      {/* Cuenta del cliente — cuenta unificada (Fase 11 etapa 3): una sola
+          fuente para el total/abonado/saldo, en vez del rollup de la
+          Operación (que no sabe de la Orden vinculada) ni del recálculo en
+          JS que excluía anulados por su cuenta. */}
       <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4 sm:p-5">
         <h3 className="mb-4 text-sm font-semibold text-[#F0F0EC]">Cuenta del cliente</h3>
 
-        {/* Totals strip */}
-        <div className="mb-4 grid grid-cols-3 divide-x divide-[#3A3A36] rounded-xl border border-[#3A3A36] bg-[#252622]">
-          <div className="flex flex-col items-center gap-0.5 px-3 py-3">
-            <span className="text-[10px] uppercase tracking-wide text-[#4A4A46]">Total</span>
-            <span className="text-base font-bold tabular-nums text-[#F0F0EC]">
-              ${fmt(operacion.totalCotizado)}
-            </span>
-          </div>
-          <div className="flex flex-col items-center gap-0.5 px-3 py-3">
-            <span className="text-[10px] uppercase tracking-wide text-[#4A4A46]">Abonado</span>
-            <span className="text-base font-bold tabular-nums text-[#56E3A4]">
-              ${fmt(operacion.totalAbonado)}
-            </span>
-          </div>
-          <div className="flex flex-col items-center gap-0.5 px-3 py-3">
-            <span className="text-[10px] uppercase tracking-wide text-[#4A4A46]">Saldo</span>
-            <span
-              className="text-base font-bold tabular-nums"
-              style={{ color: isFullyPaid ? "#56E3A4" : "#F0C75E" }}
-            >
-              {isFullyPaid ? (
-                <span className="flex items-center gap-1">
-                  <CheckCircle size={14} /> Pagado
-                </span>
-              ) : (
-                `$${fmt(operacion.saldoPendiente)}`
-              )}
-            </span>
-          </div>
-        </div>
-
-        {/* Abonos list */}
-        {operacion.abonos.length > 0 ? (
-          <div className="mb-4 flex flex-col gap-2">
-            {operacion.abonos.map((abono) => (
-              <AbonoRow key={abono.id} abono={abono} />
-            ))}
+        {cuentaUnificada ? (
+          <div className="mb-4">
+            <CuentaUnificadaPanel cuenta={cuentaUnificada} />
           </div>
         ) : (
           <p className="mb-4 rounded-lg border border-dashed border-[#3A3A36]/50 px-4 py-4 text-center text-sm text-[#4A4A46]">
-            Sin abonos registrados
+            No se pudo cargar la cuenta unificada.
           </p>
         )}
 
