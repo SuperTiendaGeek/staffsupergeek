@@ -59,6 +59,8 @@ type AbonoItem = {
   fecha: string | null;
   monto: number | null;
   metodoPago: string | null;
+  estado: string;
+  numeroTransaccion: string | null;
   observacion: string | null;
   registradoPor: string | null;
   comprobante: string | null;
@@ -197,8 +199,15 @@ const parseApiResponseSafely = async (res: Response): Promise<ApiResponsePayload
 
 const INITIAL_SEARCH_SUGGESTIONS = 5;
 const MAX_SEARCH_RESULTS = 12;
-const ABONO_METODOS_PAGO = ["Efectivo", "Transferencia", "Tarjeta", "PayPal"] as const;
-const ABONO_REGISTRADO_POR_TEMP = "Pendiente de login (mock)";
+const ABONO_METODOS_PAGO = [
+  "Efectivo",
+  "Transferencia",
+  "Tarjeta",
+  "Depósito",
+  "PayPal",
+  "PayPhone",
+  "Otro",
+] as const;
 
 const formatTimelineDate = (value?: string | null) => {
   if (!value) return "â€“";
@@ -762,6 +771,7 @@ export function OrdenDetalleClient() {
   const [abonoFecha, setAbonoFecha] = useState(todayDateInputValue);
   const [abonoMonto, setAbonoMonto] = useState("");
   const [abonoMetodoPago, setAbonoMetodoPago] = useState("");
+  const [abonoNumeroTransaccion, setAbonoNumeroTransaccion] = useState("");
   const [abonoObservacion, setAbonoObservacion] = useState("");
   const [abonoComprobanteFile, setAbonoComprobanteFile] = useState<File | null>(null);
   const [abonoSaving, setAbonoSaving] = useState(false);
@@ -791,6 +801,7 @@ export function OrdenDetalleClient() {
   const [pdPdfDeleteConfirmId, setPdPdfDeleteConfirmId] = useState<string | null>(null);
   const [pdPdfDeleteLoading, setPdPdfDeleteLoading] = useState<Record<string, boolean>>({});
   const [userRol, setUserRol] = useState("");
+  const [userNombre, setUserNombre] = useState("");
   const lineDeleteActionButtonClass =
     "inline-flex h-8 w-8 items-center justify-center rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] hover:text-[var(--sg-danger)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)] disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -886,6 +897,7 @@ export function OrdenDetalleClient() {
     setAbonoFecha(todayDateInputValue());
     setAbonoMonto("");
     setAbonoMetodoPago("");
+    setAbonoNumeroTransaccion("");
     setAbonoObservacion("");
     setAbonoComprobanteFile(null);
     setAbonoError(null);
@@ -1352,8 +1364,8 @@ export function OrdenDetalleClient() {
       formData.set("fecha", fecha);
       formData.set("monto", String(monto));
       formData.set("metodoPago", metodoPago);
+      formData.set("numeroTransaccion", abonoNumeroTransaccion.trim());
       formData.set("observacion", abonoObservacion.trim());
-      formData.set("registradoPor", "");
       formData.set("comprobante", "");
       if (abonoComprobanteFile) {
         formData.set("comprobanteArchivo", abonoComprobanteFile);
@@ -1451,32 +1463,24 @@ export function OrdenDetalleClient() {
     }
   };
 
-  const handleDeleteAbonoConfirm = async (abonoPorOrdenId: string) => {
+  const handleAnularAbonoConfirm = async (abonoId: string) => {
     setAbonoDeleteError(null);
-    setAbonoDeletingId(abonoPorOrdenId);
+    setAbonoDeletingId(abonoId);
     try {
-      const res = await fetch(`/api/tecnicos/abonos-por-orden/${encodeURIComponent(abonoPorOrdenId)}`, {
+      const res = await fetch(`/api/tecnicos/abonos-por-orden/${encodeURIComponent(abonoId)}`, {
         method: "DELETE",
       });
       const json = await res.json();
       if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo eliminar el abono");
+        throw new Error(json.error || "No se pudo anular el abono");
       }
 
-      setOrden((prev) =>
-        prev
-          ? {
-              ...prev,
-              abonosPorOrden: (prev.abonosPorOrden ?? []).filter((item) => item.id !== abonoPorOrdenId),
-            }
-          : prev
-      );
       setAbonoDeleteConfirmId(null);
-      if (comprobanteViewer?.abonoId === abonoPorOrdenId) {
+      if (comprobanteViewer?.abonoId === abonoId) {
         closeComprobanteViewer();
       }
       await refreshOrdenDetalleFinanzas();
-      setAbonoMessage("Abono eliminado correctamente.");
+      setAbonoMessage("Abono anulado correctamente.");
     } catch (err) {
       setAbonoDeleteError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
@@ -2038,7 +2042,10 @@ export function OrdenDetalleClient() {
       try {
         const res = await fetch("/api/tecnicos/session");
         const json = await res.json();
-        if (json.success) setUserRol(json.user?.rol ?? "");
+        if (json.success) {
+          setUserRol(json.user?.rol ?? "");
+          setUserNombre(json.user?.nombre || json.user?.email || "");
+        }
       } catch { /* ignore */ }
     })();
   }, []);
@@ -3567,20 +3574,33 @@ export function OrdenDetalleClient() {
                       const hasAttachments = attachments.length > 0;
                       const isAdjuntoUploading = abonoAdjuntoUploadingId === abono.id;
                       const attachmentError = abonoAdjuntoError[abono.id];
+                      const isAnulado = abono.estado === "Anulado";
                       return (
                         <div
                           key={abono.id}
-                          className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3"
+                          className={`rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3 ${
+                            isAnulado ? "opacity-60" : ""
+                          }`}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 space-y-1.5">
-                              <p className="text-sm font-semibold text-[var(--sg-text-primary)]">
+                              <p className="flex items-center gap-2 text-sm font-semibold text-[var(--sg-text-primary)]">
                                 {abono.idAbono ? `Abono ${abono.idAbono}` : "Abono registrado"}
+                                {isAnulado && (
+                                  <span className="rounded-full border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--sg-danger)]">
+                                    Anulado
+                                  </span>
+                                )}
                               </p>
                               <p className="text-xs text-[var(--sg-text-secondary)]">Fecha: {formatDate(abono.fecha)}</p>
                               <p className="text-xs text-[var(--sg-text-secondary)]">
                                 Metodo de pago: {abono.metodoPago || "No disponible"}
                               </p>
+                              {abono.numeroTransaccion && (
+                                <p className="text-xs text-[var(--sg-text-secondary)]">
+                                  N° transacción: {abono.numeroTransaccion}
+                                </p>
+                              )}
                               {abono.registradoPor && (
                                 <p className="text-xs text-[var(--sg-text-muted)]">
                                   Registrado por: {abono.registradoPor}
@@ -3675,31 +3695,33 @@ export function OrdenDetalleClient() {
                                 }}
                               />
                             </label>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAbonoDeleteError(null);
-                                setAbonoDeleteConfirmId((prev) => (prev === abono.id ? null : abono.id));
-                              }}
-                              className={lineDeleteActionButtonClass}
-                              title="Eliminar abono"
-                              aria-label="Eliminar abono"
-                              disabled={isDeleting}
-                            >
-                              {isDeleting ? (
-                                <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
-                              ) : (
-                                <TrashIcon className="h-4 w-4" />
-                              )}
-                            </button>
+                            {!isAnulado && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAbonoDeleteError(null);
+                                  setAbonoDeleteConfirmId((prev) => (prev === abono.id ? null : abono.id));
+                                }}
+                                className={lineDeleteActionButtonClass}
+                                title="Anular abono"
+                                aria-label="Anular abono"
+                                disabled={isDeleting}
+                              >
+                                {isDeleting ? (
+                                  <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
+                                ) : (
+                                  <TrashIcon className="h-4 w-4" />
+                                )}
+                              </button>
+                            )}
                           </div>
 
                           {attachmentError && (
                             <p className="mt-2 text-xs text-red-400">{attachmentError}</p>
                           )}
-                          {isConfirming && (
+                          {isConfirming && !isAnulado && (
                             <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
-                              <span className="text-[var(--sg-text-muted)]">¿Eliminar este abono de la orden?</span>
+                              <span className="text-[var(--sg-text-muted)]">¿Anular este abono de la orden?</span>
                               <button
                                 type="button"
                                 onClick={() => setAbonoDeleteConfirmId(null)}
@@ -3710,11 +3732,11 @@ export function OrdenDetalleClient() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleDeleteAbonoConfirm(abono.id)}
+                                onClick={() => handleAnularAbonoConfirm(abono.id)}
                                 className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2 py-1 text-[var(--sg-danger)] transition hover:brightness-110 disabled:opacity-60"
                                 disabled={isDeleting}
                               >
-                                Eliminar
+                                Anular
                               </button>
                               {abonoDeleteError && <span className="text-red-400">{abonoDeleteError}</span>}
                             </div>
@@ -3930,13 +3952,21 @@ export function OrdenDetalleClient() {
                     </select>
                   </div>
                   <div className="space-y-1">
+                    <label className="text-xs font-medium text-[#A7A7A7]">N° de transacción (opcional)</label>
+                    <input
+                      type="text"
+                      value={abonoNumeroTransaccion}
+                      onChange={(e) => setAbonoNumeroTransaccion(e.target.value)}
+                      placeholder="Ej. referencia de la transferencia"
+                      className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none"
+                      disabled={abonoSaving}
+                    />
+                  </div>
+                  <div className="space-y-1">
                     <label className="text-xs font-medium text-[#A7A7A7]">Registrado por</label>
                     <div className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C]/60 px-3 py-2 text-sm text-[#A7A7A7]">
-                      {ABONO_REGISTRADO_POR_TEMP}
+                      {userNombre || "Cargando..."}
                     </div>
-                    <p className="text-[11px] text-[#A7A7A7]/70">
-                      Este valor se completará automáticamente cuando el login esté activo.
-                    </p>
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-[#A7A7A7]">Comprobante</label>

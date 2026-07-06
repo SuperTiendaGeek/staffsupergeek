@@ -1,4 +1,6 @@
 import { AIRTABLE_TABLES, loadAirtableEnv } from "../config/airtable";
+import { getMaxIdAbono } from "@/lib/operaciones/airtable";
+import { normalizeCedula } from "@/lib/clientes/normalizeCedula";
 import {
   ESTADOS_ORDEN,
   EstadoOrden,
@@ -103,9 +105,6 @@ export class CedulaEnUsoError extends Error {
     this.clienteExistente = clienteExistente;
   }
 }
-
-export const normalizeCedula = (cedula: string): string =>
-  cedula.trim().replace(/[\s.\-]/g, "").toLowerCase();
 
 const findClienteByCedulaNormalizada = async (
   normalizedCedula: string,
@@ -478,21 +477,25 @@ const mapServicioPorOrdenRecord = (
   };
 };
 
-const mapAbonoPorOrdenRecord = (
+// Lee un registro de la tabla nueva "Abonos" (compartida con operaciones).
+const mapAbonoRecord = (
   record: AirtableGenericRecord,
   ordenId: string
 ): AbonoPorOrden => {
   const f = record.fields ?? {};
   const comprobantes = parseAttachments(f["Comprobante"]);
+  const idAbono = pickNumberField(f, ["ID Abono"]);
   return {
     id: record.id,
-    idAbono: pickOptionalStringField(f, ["ID Abono"]),
+    idAbono: idAbono !== null ? String(idAbono) : null,
     ordenId,
-    fecha: pickOptionalStringField(f, ["Fecha"]),
+    fecha: pickOptionalStringField(f, ["Fecha de Abono"]),
     monto: pickNumberField(f, ["Monto"]),
-    metodoPago: pickOptionalStringField(f, ["M\u00e9todo de pago", "Metodo de pago"]),
-    observacion: pickOptionalStringField(f, ["Observaci\u00f3n", "Observacion"]),
-    registradoPor: pickOptionalStringField(f, ["Registrado por"]),
+    metodoPago: pickOptionalStringField(f, ["M\u00e9todo de Pago"]),
+    estado: pickStringField(f, ["Estado del Abono"], "Registrado"),
+    numeroTransaccion: pickOptionalStringField(f, ["N\u00famero de Transacci\u00f3n"]),
+    observacion: pickOptionalStringField(f, ["Observaci\u00f3n"]),
+    registradoPor: pickOptionalStringField(f, ["Registrado Por"]),
     comprobante: comprobantes[0]?.url ?? pickOptionalStringField(f, ["Comprobante"]),
     comprobantes,
   };
@@ -1785,21 +1788,47 @@ export const fetchServiciosPorOrden = async (
   return filtrados.map((record) => mapServicioPorOrdenRecord(record, recordId));
 };
 
-// --- Tabla: Abonos por Orden ---
+// Trae registros por RECORD_ID() \u2014 nunca filtrar por campo de link directamente
+// (Airtable no soporta {multipleRecordLinks field} = 'recXXX' de forma confiable).
+const fetchRecordsByIds = async (
+  tableName: string,
+  ids: string[],
+  client = getClient()
+): Promise<AirtableGenericRecord[]> => {
+  if (ids.length === 0) return [];
+  const url = new URL(`${client.baseUrl}/${encodeURIComponent(tableName)}`);
+  const formula =
+    ids.length === 1
+      ? `RECORD_ID()='${ids[0]}'`
+      : `OR(${ids.map((rid) => `RECORD_ID()='${rid}'`).join(",")})`;
+  url.searchParams.set("filterByFormula", formula);
+  url.searchParams.set("pageSize", "100");
+  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+  if (!res.ok) return [];
+  const data = (await res.json()) as { records?: AirtableGenericRecord[] };
+  return data.records ?? [];
+};
+
+const compareByFechaAbonoDesc = (a: AirtableGenericRecord, b: AirtableGenericRecord): number => {
+  const fechaA = pickOptionalStringField(a.fields ?? {}, ["Fecha de Abono"]) ?? a.createdTime ?? "";
+  const fechaB = pickOptionalStringField(b.fields ?? {}, ["Fecha de Abono"]) ?? b.createdTime ?? "";
+  return fechaB.localeCompare(fechaA);
+};
+
+// --- Tabla: Abonos (nueva, compartida con operaciones) ---
 export const fetchAbonosPorOrden = async (
   recordId: string,
   client = getClient()
 ): Promise<AbonoPorOrden[]> => {
-  const records = await fetchAllTableRecords({
-    tableName: AIRTABLE_TABLES.abonosPorOrden,
-    client,
-  });
+  const ordenRecord = await fetchRecordById(AIRTABLE_TABLES.ordenes, recordId, client);
+  // "Abonos (Operaci\u00f3n)" es el inverso de Abonos."Aplicado a: Orden"
+  const abonoIds = toLinkedRecordIds(ordenRecord.fields?.["Abonos (Operaci\u00f3n)"]);
+  if (abonoIds.length === 0) return [];
 
-  const filtrados = records
-    .filter((record) => toLinkedRecordIds(record.fields?.["Orden de Reparaci\u00f3n"]).includes(recordId))
-    .sort(compareByFechaDesc);
-
-  return filtrados.map((record) => mapAbonoPorOrdenRecord(record, recordId));
+  const records = await fetchRecordsByIds(AIRTABLE_TABLES.abonos, abonoIds, client);
+  return records
+    .sort(compareByFechaAbonoDesc)
+    .map((record) => mapAbonoRecord(record, recordId));
 };
 
 export const fetchCatalogoRepuestos = async (
@@ -2182,12 +2211,21 @@ export const createServicioPorOrden = async ({
   return mapServicioPorOrdenRecord(created, ordenRecordId);
 };
 
+// Combina una fecha (YYYY-MM-DD, capturada en el modal) con la hora actual en
+// Ecuador (UTC-5), igual que hace el modal de abonos de operaciones.
+const combineFechaConHoraActualEcuador = (fechaSoloFecha: string): string => {
+  const ahoraEcuador = new Date(Date.now() - 5 * 60 * 60 * 1000);
+  const horaMinuto = ahoraEcuador.toISOString().slice(11, 16);
+  return `${fechaSoloFecha}T${horaMinuto}:00.000-05:00`;
+};
+
 export const createAbonoPorOrden = async ({
   ordenRecordId,
   fecha,
   monto,
   metodoPago,
   observacion,
+  numeroTransaccion,
   registradoPor,
   comprobante,
   comprobanteArchivo,
@@ -2197,6 +2235,7 @@ export const createAbonoPorOrden = async ({
   monto: number;
   metodoPago?: string | null;
   observacion?: string | null;
+  numeroTransaccion?: string | null;
   registradoPor?: string | null;
   comprobante?: string | null;
   comprobanteArchivo?: {
@@ -2207,32 +2246,42 @@ export const createAbonoPorOrden = async ({
 }): Promise<{ abono: AbonoPorOrden; warning?: string | null }> => {
   const { token, baseId } = loadAirtableEnv();
   const client = getClient();
-  const nextIdAbono = await getNextConsecutivo(
-    AIRTABLE_TABLES.abonosPorOrden,
-    "ID Abono",
-    client
-  );
-  const fechaRegistro = (fecha ?? "").trim() || formatAirtableDateOnly();
+
+  // Detecta si la orden tiene una Operación Comercial vinculada leyendo el
+  // campo inverso "Operaciones Comerciales" (nunca filtrar por link).
+  const ordenRecord = await fetchRecordById(AIRTABLE_TABLES.ordenes, ordenRecordId, client);
+  const operacionId = toLinkedRecordIds(ordenRecord.fields?.["Operaciones Comerciales"])[0] ?? null;
+
+  // Un solo generador de "ID Abono" para toda la tabla, compartido con
+  // operaciones, releído justo antes de insertar para minimizar colisiones.
+  const maxIdAbono = await getMaxIdAbono();
+  const nextIdAbono = maxIdAbono + 1;
+
+  const fechaSoloFecha = (fecha ?? "").trim() || formatAirtableDateOnly();
+  const fechaAbono = combineFechaConHoraActualEcuador(fechaSoloFecha);
+
   const fields: Record<string, unknown> = {
-    "Orden de Reparaci\u00f3n": [ordenRecordId],
-    Fecha: fechaRegistro,
-    Monto: monto,
     "ID Abono": nextIdAbono,
+    Monto: monto,
+    "Fecha de Abono": fechaAbono,
+    "Estado del Abono": "Registrado",
+    "Aplicado a: Orden": [ordenRecordId],
   };
 
+  if (operacionId) {
+    fields["Aplicado a: Operación"] = [operacionId];
+  }
   if (metodoPago && metodoPago.trim()) {
-    fields["M\u00e9todo de pago"] = metodoPago.trim();
+    fields["Método de Pago"] = metodoPago.trim();
+  }
+  if (numeroTransaccion && numeroTransaccion.trim()) {
+    fields["Número de Transacción"] = numeroTransaccion.trim();
   }
   if (observacion && observacion.trim()) {
-    fields["Observaci\u00f3n"] = observacion.trim();
+    fields["Observación"] = observacion.trim();
   }
   if (registradoPor && registradoPor.trim()) {
-    const registradoPorValue = registradoPor.trim();
-    // Este campo suele ser "linked record"; en ese caso Airtable espera IDs (rec...).
-    // Si no hay un ID real del usuario autenticado, omitimos el valor para evitar 422.
-    if (/^rec[a-zA-Z0-9]+$/.test(registradoPorValue)) {
-      fields["Registrado por"] = [registradoPorValue];
-    }
+    fields["Registrado Por"] = registradoPor.trim();
   }
 
   // Si Comprobante es attachment, Airtable acepta un arreglo con URLs.
@@ -2240,7 +2289,7 @@ export const createAbonoPorOrden = async ({
     fields.Comprobante = [{ url: comprobante.trim() }];
   }
 
-  const created = await createRecord(AIRTABLE_TABLES.abonosPorOrden, fields, client);
+  const created = await createRecord(AIRTABLE_TABLES.abonos, fields, client);
   let warning: string | null = null;
 
   if (comprobanteArchivo?.fileBase64) {
@@ -2260,9 +2309,9 @@ export const createAbonoPorOrden = async ({
     }
   }
 
-  const fresh = await fetchRecordById(AIRTABLE_TABLES.abonosPorOrden, created.id, client);
+  const fresh = await fetchRecordById(AIRTABLE_TABLES.abonos, created.id, client);
   return {
-    abono: mapAbonoPorOrdenRecord(fresh, ordenRecordId),
+    abono: mapAbonoRecord(fresh, ordenRecordId),
     warning,
   };
 };
@@ -2302,10 +2351,10 @@ export const addComprobanteToAbonoPorOrdenById = async ({
     warning = "No se pudo subir el comprobante.";
   }
 
-  const fresh = await fetchRecordById(AIRTABLE_TABLES.abonosPorOrden, recordId, client);
-  const ordenId = firstLinkedRecordId(fresh.fields?.["Orden de Reparación"]) ?? "";
+  const fresh = await fetchRecordById(AIRTABLE_TABLES.abonos, recordId, client);
+  const ordenId = firstLinkedRecordId(fresh.fields?.["Aplicado a: Orden"]) ?? "";
   return {
-    abono: mapAbonoPorOrdenRecord(fresh, ordenId),
+    abono: mapAbonoRecord(fresh, ordenId),
     warning,
   };
 };
@@ -2327,7 +2376,7 @@ export const deleteComprobanteFromAbonoPorOrdenById = async ({
   }
 
   const client = getClient();
-  const current = await fetchRecordById(AIRTABLE_TABLES.abonosPorOrden, recordId, client);
+  const current = await fetchRecordById(AIRTABLE_TABLES.abonos, recordId, client);
   const allAttachments = parseAttachments(current.fields?.["Comprobante"]);
   const filtered = allAttachments.filter((attachment) => attachment.id !== removeId);
 
@@ -2336,7 +2385,7 @@ export const deleteComprobanteFromAbonoPorOrdenById = async ({
   }
 
   await patchRecordFields({
-    tableName: AIRTABLE_TABLES.abonosPorOrden,
+    tableName: AIRTABLE_TABLES.abonos,
     recordId,
     fields: {
       Comprobante: filtered.map((attachment) =>
@@ -2346,10 +2395,10 @@ export const deleteComprobanteFromAbonoPorOrdenById = async ({
     client,
   });
 
-  const fresh = await fetchRecordById(AIRTABLE_TABLES.abonosPorOrden, recordId, client);
-  const ordenId = firstLinkedRecordId(fresh.fields?.["Orden de Reparación"]) ?? "";
+  const fresh = await fetchRecordById(AIRTABLE_TABLES.abonos, recordId, client);
+  const ordenId = firstLinkedRecordId(fresh.fields?.["Aplicado a: Orden"]) ?? "";
   return {
-    abono: mapAbonoPorOrdenRecord(fresh, ordenId),
+    abono: mapAbonoRecord(fresh, ordenId),
   };
 };
 
@@ -2833,22 +2882,37 @@ export const deleteServicioPorOrdenById = async ({
   return { deleted: true };
 };
 
-export const deleteAbonoPorOrdenById = async ({
-  abonoPorOrdenRecordId,
+// Reemplaza el borrado físico: en la tabla nueva "Abonos" un abono se anula
+// (Estado del Abono = "Anulado") para conservar constancia, nunca se elimina.
+export const anularAbonoPorOrden = async ({
+  abonoRecordId,
 }: {
-  abonoPorOrdenRecordId: string;
-}): Promise<{ deleted: boolean }> => {
-  const recordId = abonoPorOrdenRecordId.trim();
+  abonoRecordId: string;
+}): Promise<{ abono: AbonoPorOrden }> => {
+  const recordId = abonoRecordId.trim();
   if (!recordId) {
-    throw new Error("Falta id de abono por orden");
+    throw new Error("Falta id del abono");
   }
 
-  await deleteRecordById({
-    tableName: AIRTABLE_TABLES.abonosPorOrden,
+  const client = getClient();
+  const current = await fetchRecordById(AIRTABLE_TABLES.abonos, recordId, client);
+  const estadoActual = pickStringField(current.fields ?? {}, ["Estado del Abono"], "Registrado");
+  if (estadoActual === "Anulado") {
+    throw new Error("Este abono ya está anulado.");
+  }
+
+  await patchRecordFields({
+    tableName: AIRTABLE_TABLES.abonos,
     recordId,
+    fields: { "Estado del Abono": "Anulado" },
+    client,
   });
 
-  return { deleted: true };
+  const fresh = await fetchRecordById(AIRTABLE_TABLES.abonos, recordId, client);
+  const ordenId = firstLinkedRecordId(fresh.fields?.["Aplicado a: Orden"]) ?? "";
+  return {
+    abono: mapAbonoRecord(fresh, ordenId),
+  };
 };
 
 // --- Escritura: agregar avance (historial) ---
