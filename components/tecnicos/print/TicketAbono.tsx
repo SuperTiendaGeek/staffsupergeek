@@ -1,13 +1,18 @@
 import type { AbonoPorOrden } from "@/types/tecnicos";
 import type { OrdenDetalle } from "@/lib/tecnicos/airtable";
+import type { CuentaUnificada } from "@/types/cuenta-unificada";
 import { cleanText, formatMoney, formatPrintDate } from "./printUtils";
 
 type TicketAbonoProps = {
   orden: OrdenDetalle;
   abono: AbonoPorOrden;
+  cuentaUnificada: CuentaUnificada | null;
 };
 
-export function TicketAbono({ orden, abono }: TicketAbonoProps) {
+export function TicketAbono({ orden, abono, cuentaUnificada }: TicketAbonoProps) {
+  const totalAPagar = cuentaUnificada?.totalCuenta ?? orden.totalAPagarNV;
+  const totalAbonado = cuentaUnificada?.totalAbonado ?? orden.totalAbonadoNV;
+  const saldoPendiente = cuentaUnificada ? Math.max(0, cuentaUnificada.saldo) : orden.saldoNV;
   return (
     <>
       <style>{`
@@ -104,16 +109,22 @@ export function TicketAbono({ orden, abono }: TicketAbonoProps) {
           </div>
           <div className="row">
             <span className="label">Total a pagar:</span>
-            <span className="value">{formatMoney(orden.totalAPagarNV)}</span>
+            <span className="value">{formatMoney(totalAPagar)}</span>
           </div>
           <div className="row">
             <span className="label">Total abonado:</span>
-            <span className="value">{formatMoney(orden.totalAbonadoNV)}</span>
+            <span className="value">{formatMoney(totalAbonado)}</span>
           </div>
           <div className="row">
             <span className="label">Saldo pendiente:</span>
-            <span className="value">{formatMoney(orden.saldoNV)}</span>
+            <span className="value">{formatMoney(saldoPendiente)}</span>
           </div>
+          {cuentaUnificada && cuentaUnificada.saldo < 0 && (
+            <div className="row">
+              <span className="label">Saldo a favor:</span>
+              <span className="value">{formatMoney(Math.abs(cuentaUnificada.saldo))}</span>
+            </div>
+          )}
           {abono.observacion && (
             <>
               <div className="sep" />
