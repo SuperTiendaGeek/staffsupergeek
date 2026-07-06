@@ -65,6 +65,14 @@ export interface CuentaUnificada {
   // Incluye abonos anulados (con su estado) para que la UI los pueda mostrar tachados;
   // los totales de abajo ya los excluyen.
   abonos: CuentaUnificadaAbono[];
+  // Componentes de totalCuenta, expuestos para que las pantallas los pinten
+  // sin recalcular nada (p.ej. el bloque "Repuestos"/"Servicios" del resumen
+  // financiero de la orden). Se leen de rollups de Airtable donde ya existen
+  // (Costo Total Servicios NV, Total Productos Digitales) en vez de sumar en
+  // JS — el código lee, Airtable calcula donde ya hay rollup.
+  totalRepuestos: number;
+  totalServicios: number;
+  totalProductosDigitales: number;
   totalCuenta: number;
   totalAbonado: number;
   // Positivo = saldo pendiente. Negativo = saldo a favor del cliente.

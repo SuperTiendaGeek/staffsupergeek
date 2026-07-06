@@ -276,13 +276,27 @@ export async function getCuentaUnificada(
     ...abonosOperacion,
   ].sort((a, b) => (a.fecha ?? "").localeCompare(b.fecha ?? ""));
 
-  const totalCuenta =
+  // Servicios y Productos Digitales son siempre solo de la orden (nunca hay
+  // ambigüedad de doble conteo con la operación), y ya existen como rollup en
+  // Airtable — se leen directo en vez de sumar en JS.
+  const totalServicios = ordenRecord ? firstNumber(ordenRecord.fields["Costo Total Servicios NV"]) : 0;
+  const totalProductosDigitales = ordenRecord
+    ? firstNumber(ordenRecord.fields["Total Productos Digitales"])
+    : 0;
+  // No existe (ni puede existir) un rollup de Airtable que abarque a la vez
+  // Shipping Items (pedido + stock) y el histórico legacy condicional — esta
+  // es justamente la cuenta que Fase 11 introduce, así que se suma en código.
+  const totalRepuestos =
     items.reduce((sum, item) => sum + item.precio, 0) +
-    serviciosMapped.reduce((sum, s) => sum + s.costo, 0) +
     (repuestosLegacyCuentanParaTotal ? totalRepuestosHistoricos : 0);
-  const totalAbonado = abonos
-    .filter((a) => a.estado !== "Anulado")
-    .reduce((sum, a) => sum + a.monto, 0);
+  const totalCuenta = totalRepuestos + totalServicios + totalProductosDigitales;
+
+  // Los abonos son conjuntos disjuntos por lado y cada rollup (Total Abonado
+  // NV en la Orden, Total Abonado en la Operación) ya excluye anulados — se
+  // suman directo en vez de refiltrar/resumir la lista completa en JS.
+  const totalAbonado =
+    (ordenRecord ? firstNumber(ordenRecord.fields["Total Abonado NV"]) : 0) +
+    (operacionRecord ? firstNumber(operacionRecord.fields["Total Abonado"]) : 0);
   const saldo = totalCuenta - totalAbonado;
 
   return {
@@ -298,6 +312,9 @@ export async function getCuentaUnificada(
     repuestosHistoricos,
     repuestosHistoricosCuentanParaTotal: repuestosLegacyCuentanParaTotal,
     abonos,
+    totalRepuestos,
+    totalServicios,
+    totalProductosDigitales,
     totalCuenta,
     totalAbonado,
     saldo,
