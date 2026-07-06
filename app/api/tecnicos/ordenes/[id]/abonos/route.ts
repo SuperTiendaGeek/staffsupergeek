@@ -1,10 +1,19 @@
 import { NextResponse } from "next/server";
 import { createAbonoPorOrden } from "@/lib/tecnicos/airtable";
+import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
-const METODOS_PAGO_VALIDOS = ["Efectivo", "Transferencia", "Tarjeta", "PayPal"] as const;
+const METODOS_PAGO_VALIDOS = [
+  "Efectivo",
+  "Transferencia",
+  "Tarjeta",
+  "Depósito",
+  "PayPal",
+  "PayPhone",
+  "Otro",
+] as const;
 
 const toNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -23,6 +32,9 @@ const normalizeString = (value: FormDataEntryValue | null): string =>
   typeof value === "string" ? value.trim() : "";
 
 export async function POST(request: Request, { params }: Params) {
+  const { response, session } = await requireTecnicosSession();
+  if (response) return response;
+
   const { id: ordenRecordId } = await params;
 
   if (!ordenRecordId) {
@@ -37,7 +49,7 @@ export async function POST(request: Request, { params }: Params) {
   let monto: number | null = null;
   let metodoPago = "";
   let observacion: string | null = null;
-  let registradoPor: string | null = null;
+  let numeroTransaccion: string | null = null;
   let comprobante: string | null = null;
   let comprobanteArchivo:
     | {
@@ -47,13 +59,16 @@ export async function POST(request: Request, { params }: Params) {
       }
     | null = null;
 
+  // "Registrado Por" siempre se toma de la sesión autenticada, nunca del cliente.
+  const registradoPor = session!.user.nombre?.trim() || session!.user.email?.trim() || null;
+
   if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
     fecha = normalizeString(form.get("fecha"));
     monto = toNumber(normalizeString(form.get("monto")));
     metodoPago = normalizeString(form.get("metodoPago"));
     observacion = normalizeString(form.get("observacion")) || null;
-    registradoPor = normalizeString(form.get("registradoPor")) || null;
+    numeroTransaccion = normalizeString(form.get("numeroTransaccion")) || null;
     comprobante = normalizeString(form.get("comprobante")) || null;
 
     const maybeFile = form.get("comprobanteArchivo");
@@ -95,8 +110,8 @@ export async function POST(request: Request, { params }: Params) {
     monto = toNumber(body?.monto);
     metodoPago = typeof body?.metodoPago === "string" ? body.metodoPago.trim() : "";
     observacion = typeof body?.observacion === "string" ? body.observacion.trim() : null;
-    registradoPor =
-      typeof body?.registradoPor === "string" ? body.registradoPor.trim() : null;
+    numeroTransaccion =
+      typeof body?.numeroTransaccion === "string" ? body.numeroTransaccion.trim() : null;
     comprobante = typeof body?.comprobante === "string" ? body.comprobante.trim() : null;
   }
 
@@ -135,6 +150,7 @@ export async function POST(request: Request, { params }: Params) {
       monto,
       metodoPago,
       observacion,
+      numeroTransaccion,
       registradoPor,
       comprobante,
       comprobanteArchivo,

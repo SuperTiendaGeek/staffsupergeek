@@ -10,7 +10,8 @@ export const AIRTABLE_TABLES = {
   repuestosPorOrden: "Repuestos por Orden",
   catalogoServicios: "Catálogo Servicios",
   serviciosPorOrden: "Servicios por Orden",
-  abonosPorOrden: "Abonos por Orden",
+  abonosPorOrden: "Abonos por Orden", // legacy, no se escribe más desde técnicos
+  abonos: "Abonos",
   productosDigitales: "Productos Digitales",
   catalogoProductosDigitales: "Catálogo Productos Digitales",
 } as const;

@@ -108,7 +108,7 @@ export interface ServicioPorOrden {
   fechaRegistro?: string | null;
 }
 
-// Abono registrado para una orden (tabla Abonos por Orden).
+// Abono registrado para una orden (tabla Abonos, compartida con el módulo operaciones).
 export interface AirtableAttachment {
   id: string | null;
   url: string;
@@ -127,6 +127,8 @@ export interface AbonoPorOrden {
   fecha: string | null;
   monto: number | null;
   metodoPago: string | null;
+  estado: string;
+  numeroTransaccion: string | null;
   observacion: string | null;
   registradoPor: string | null;
   comprobante: string | null;

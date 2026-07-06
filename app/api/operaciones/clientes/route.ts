@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireOperacionesSession } from "@/lib/operaciones/auth";
-import { crearClienteOp, verificarCedulaExistente } from "@/lib/operaciones/airtable";
+import { CedulaEnUsoError, crearClienteOp } from "@/lib/operaciones/airtable";
 
 export const dynamic = "force-dynamic";
 
@@ -24,17 +24,6 @@ export async function POST(request: Request) {
   const telefono = typeof body.telefono === "string" ? body.telefono.trim() : "";
   const correo = typeof body.correo === "string" ? body.correo.trim() : "";
 
-  // Check for duplicate cédula before creating
-  if (cedula) {
-    const existing = await verificarCedulaExistente(cedula).catch(() => null);
-    if (existing) {
-      return NextResponse.json(
-        { success: false, error: "Ya existe un cliente con esta cédula.", data: existing },
-        { status: 409 }
-      );
-    }
-  }
-
   try {
     const cliente = await crearClienteOp({
       nombre,
@@ -44,6 +33,12 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ success: true, data: cliente }, { status: 201 });
   } catch (err) {
+    if (err instanceof CedulaEnUsoError) {
+      return NextResponse.json(
+        { success: false, error: err.message, data: err.clienteExistente },
+        { status: 409 }
+      );
+    }
     console.error("[api/operaciones/clientes] POST error:", err);
     return NextResponse.json(
       { success: false, error: err instanceof Error ? err.message : "Error al crear el cliente." },
