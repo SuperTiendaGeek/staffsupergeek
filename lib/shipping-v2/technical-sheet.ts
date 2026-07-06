@@ -106,7 +106,7 @@ export function calculateShippingV2BatteryState(category: string | undefined, ba
   if (batteryHealth >= 95) return "Excelente";
   if (batteryHealth >= 85) return "Muy buena";
   if (batteryHealth >= 80) return "Buena / Aceptable";
-  if (batteryHealth >= 70) return "Regular / Requiere Servicio";
+  if (batteryHealth >= 70) return "Regular / Mantiene carga";
   return "Mala / Agotada";
 }
 
