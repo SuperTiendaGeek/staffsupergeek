@@ -13,6 +13,8 @@ import { StatusFilterDropdown } from "@/components/tecnicos/ui/StatusFilterDropd
 import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
 import { buildAbandonmentWhatsAppMessage } from "@/lib/tecnicos/orders/abandonmentWhatsApp";
 import { buildWhatsAppUrl } from "@/lib/tecnicos/whatsapp";
+import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnificadaPanel";
+import type { CuentaUnificada } from "@/types/cuenta-unificada";
 
 type HistorialItem = {
   id: string;
@@ -69,35 +71,6 @@ type AbonoItem = {
 type AbonoAdjuntoItem = AbonoItem["comprobantes"][number];
 
 type OrdenDocumentoItem = AbonoAdjuntoItem;
-
-// Cuenta unificada de repuestos (Fase 11, ver types/cuenta-unificada.ts).
-type CuentaUnificadaItemOrigen = "pedido" | "stock";
-
-type CuentaUnificadaItem = {
-  id: string;
-  nombre: string;
-  origen: CuentaUnificadaItemOrigen;
-  precio: number;
-  cubierto: number;
-  saldo: number;
-};
-
-type CuentaUnificadaRepuestoHistorico = {
-  id: string;
-  nombre: string;
-  cantidad: number | null;
-  precioCliente: number | null;
-  subtotal: number;
-};
-
-type CuentaUnificadaRepuestos = {
-  ordenId: string | null;
-  operacionCodigo: string | null;
-  modoRepuestos: "legacy" | "v2" | null;
-  items: CuentaUnificadaItem[];
-  repuestosHistoricos: CuentaUnificadaRepuestoHistorico[];
-  repuestosHistoricosCuentanParaTotal: boolean;
-};
 
 type RepuestoStockResumen = {
   id: string;
@@ -738,9 +711,9 @@ export function OrdenDetalleClient() {
   const [repuestoDeletingId, setRepuestoDeletingId] = useState<string | null>(null);
   const [repuestoDeleteError, setRepuestoDeleteError] = useState<string | null>(null);
   // Cuenta unificada de repuestos (Fase 11 — Etapa 2).
-  const [cuentaRepuestos, setCuentaRepuestos] = useState<CuentaUnificadaRepuestos | null>(null);
-  const [cuentaRepuestosLoading, setCuentaRepuestosLoading] = useState(false);
-  const [cuentaRepuestosError, setCuentaRepuestosError] = useState<string | null>(null);
+  const [cuentaUnificada, setCuentaUnificada] = useState<CuentaUnificada | null>(null);
+  const [cuentaUnificadaLoading, setCuentaUnificadaLoading] = useState(false);
+  const [cuentaUnificadaError, setCuentaUnificadaError] = useState<string | null>(null);
   const [showRepuestosHistoricos, setShowRepuestosHistoricos] = useState(false);
   const [showRepuestoV2Modal, setShowRepuestoV2Modal] = useState(false);
   const [repuestoV2Search, setRepuestoV2Search] = useState("");
@@ -870,8 +843,10 @@ export function OrdenDetalleClient() {
 
   const refreshOrdenDetalleFinanzas = async () => {
     await fetchData({ showLoading: false, preserveError: true });
+    await loadCuentaUnificada();
     await wait(450);
     await fetchData({ showLoading: false, preserveError: true });
+    await loadCuentaUnificada();
   };
 
   const resetRepuestoV2Modal = () => {
@@ -1059,21 +1034,21 @@ export function OrdenDetalleClient() {
     );
   };
 
-  const loadCuentaRepuestos = async () => {
+  const loadCuentaUnificada = async () => {
     if (!id) return;
-    setCuentaRepuestosLoading(true);
-    setCuentaRepuestosError(null);
+    setCuentaUnificadaLoading(true);
+    setCuentaUnificadaError(null);
     try {
       const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id)}/cuenta-unificada`);
       const json = await res.json();
       if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo cargar la cuenta de repuestos");
+        throw new Error(json.error || "No se pudo cargar la cuenta unificada");
       }
-      setCuentaRepuestos(json.data as CuentaUnificadaRepuestos);
+      setCuentaUnificada(json.data as CuentaUnificada);
     } catch (err) {
-      setCuentaRepuestosError(err instanceof Error ? err.message : "Error desconocido");
+      setCuentaUnificadaError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
-      setCuentaRepuestosLoading(false);
+      setCuentaUnificadaLoading(false);
     }
   };
 
@@ -1111,7 +1086,7 @@ export function OrdenDetalleClient() {
       if (!json.success) throw new Error(json.error ?? "Error al agregar el repuesto");
       setShowRepuestoV2Modal(false);
       resetRepuestoV2Modal();
-      await loadCuentaRepuestos();
+      await loadCuentaUnificada();
     } catch (err) {
       setRepuestoV2Error(err instanceof Error ? err.message : "Error al agregar el repuesto");
     } finally {
@@ -1132,7 +1107,7 @@ export function OrdenDetalleClient() {
       const json = await res.json();
       if (!json.success) throw new Error(json.error ?? "No se pudo quitar el repuesto");
       setRepuestoDeleteConfirmId(null);
-      await loadCuentaRepuestos();
+      await loadCuentaUnificada();
     } catch (err) {
       setRepuestoDeleteError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
@@ -1935,7 +1910,7 @@ export function OrdenDetalleClient() {
   }, [id]);
 
   useEffect(() => {
-    loadCuentaRepuestos();
+    loadCuentaUnificada();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -2585,7 +2560,7 @@ export function OrdenDetalleClient() {
                         Repuestos
                       </p>
                       <p className="mt-0.5 text-xs text-[var(--sg-text-muted)]">
-                        {cuentaRepuestos?.items.length ?? 0} línea(s) · fuente: Shipping Items
+                        {cuentaUnificada?.items.length ?? 0} línea(s) · fuente: Shipping Items
                       </p>
                     </div>
                     <div className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-right">
@@ -2594,16 +2569,16 @@ export function OrdenDetalleClient() {
                       </p>
                       <p className="mt-1 text-base font-extrabold text-[var(--sg-lime)]">
                         {formatCurrency(
-                          (cuentaRepuestos?.items ?? []).reduce((acc, item) => acc + item.saldo, 0) +
-                            (cuentaRepuestos?.repuestosHistoricosCuentanParaTotal
-                              ? (cuentaRepuestos?.repuestosHistoricos ?? []).reduce((acc, r) => acc + r.subtotal, 0)
+                          (cuentaUnificada?.items ?? []).reduce((acc, item) => acc + item.saldo, 0) +
+                            (cuentaUnificada?.repuestosHistoricosCuentanParaTotal
+                              ? (cuentaUnificada?.repuestosHistoricos ?? []).reduce((acc, r) => acc + r.subtotal, 0)
                               : 0)
                         )}
                       </p>
                     </div>
                   </div>
 
-                  {cuentaRepuestos?.modoRepuestos === "v2" && (
+                  {cuentaUnificada?.modoRepuestos === "v2" && (
                     <div className="flex items-center justify-end">
                       <button
                         type="button"
@@ -2619,17 +2594,17 @@ export function OrdenDetalleClient() {
                     </div>
                   )}
 
-                  {cuentaRepuestosLoading ? (
+                  {cuentaUnificadaLoading ? (
                     <p className="text-xs text-[var(--sg-text-muted)]">Cargando repuestos...</p>
-                  ) : cuentaRepuestosError ? (
-                    <p className="text-xs text-red-400">{cuentaRepuestosError}</p>
-                  ) : (cuentaRepuestos?.items.length ?? 0) === 0 ? (
+                  ) : cuentaUnificadaError ? (
+                    <p className="text-xs text-red-400">{cuentaUnificadaError}</p>
+                  ) : (cuentaUnificada?.items.length ?? 0) === 0 ? (
                     <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-sm text-[var(--sg-text-secondary)]">
                       Aún no se han registrado repuestos en esta orden.
                     </p>
                   ) : (
                     <div className="space-y-2">
-                      {(cuentaRepuestos?.items ?? []).map((item) => {
+                      {(cuentaUnificada?.items ?? []).map((item) => {
                         const isDeleting = repuestoDeletingId === item.id;
                         const isConfirming = repuestoDeleteConfirmId === item.id;
                         const saldado = item.saldo <= 0;
@@ -2646,7 +2621,7 @@ export function OrdenDetalleClient() {
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <span className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--sg-text-secondary)]">
                                     {item.origen === "pedido"
-                                      ? `Pedido${cuentaRepuestos?.operacionCodigo ? ` · ${cuentaRepuestos.operacionCodigo}` : ""}`
+                                      ? `Pedido${cuentaUnificada?.operacionCodigo ? ` · ${cuentaUnificada.operacionCodigo}` : ""}`
                                       : "Stock"}
                                   </span>
                                   <span className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--sg-text-secondary)]">
@@ -2719,7 +2694,7 @@ export function OrdenDetalleClient() {
                     </div>
                   )}
 
-                  {(cuentaRepuestos?.repuestosHistoricos.length ?? 0) > 0 && (
+                  {(cuentaUnificada?.repuestosHistoricos.length ?? 0) > 0 && (
                     <div className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)]">
                       <button
                         type="button"
@@ -2733,16 +2708,16 @@ export function OrdenDetalleClient() {
                         <div className="space-y-2 border-t border-dashed border-[var(--sg-border)] px-3 py-3">
                           <p
                             className={`text-[11px] font-semibold uppercase tracking-wide ${
-                              cuentaRepuestos?.repuestosHistoricosCuentanParaTotal
+                              cuentaUnificada?.repuestosHistoricosCuentanParaTotal
                                 ? "text-[var(--sg-lime)]"
                                 : "text-[var(--sg-text-muted)]"
                             }`}
                           >
-                            {cuentaRepuestos?.repuestosHistoricosCuentanParaTotal
+                            {cuentaUnificada?.repuestosHistoricosCuentanParaTotal
                               ? "Incluidos en el total de la orden"
                               : "Solo referencia histórica — no suman"}
                           </p>
-                          {(cuentaRepuestos?.repuestosHistoricos ?? []).map((r) => (
+                          {(cuentaUnificada?.repuestosHistoricos ?? []).map((r) => (
                             <div
                               key={r.id}
                               className="flex items-center justify-between gap-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-xs"
@@ -2760,7 +2735,7 @@ export function OrdenDetalleClient() {
                             <span>Subtotal histórico</span>
                             <span>
                               {formatCurrency(
-                                (cuentaRepuestos?.repuestosHistoricos ?? []).reduce((acc, r) => acc + r.subtotal, 0)
+                                (cuentaUnificada?.repuestosHistoricos ?? []).reduce((acc, r) => acc + r.subtotal, 0)
                               )}
                             </span>
                           </div>
@@ -3296,11 +3271,15 @@ export function OrdenDetalleClient() {
                 </div>
               )}
 
-              {/* Saldo hero */}
+              {/* Saldo hero — sale de la cuenta unificada (una sola fuente,
+                  Fase 11 etapa 3). Mientras carga, usa el rollup NV de la
+                  orden como fallback visual para no mostrar un hueco. */}
               <div className="mb-3 rounded-xl border border-[var(--sg-lime)]/20 bg-[var(--sg-lime)]/5 px-3 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]/60">Saldo pendiente</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]/60">
+                  {(cuentaUnificada?.saldo ?? 0) < 0 ? "Saldo a favor del cliente" : "Saldo pendiente"}
+                </p>
                 <p className="mt-1 text-[1.75rem] font-black leading-none tabular-nums text-[var(--sg-lime)]">
-                  {formatCurrency(orden.saldoNV)}
+                  {formatCurrency(Math.abs(cuentaUnificada?.saldo ?? orden.saldoNV ?? 0))}
                 </p>
               </div>
 
@@ -3309,35 +3288,60 @@ export function OrdenDetalleClient() {
                 <div className="bg-[var(--sg-card)] px-3 py-2.5">
                   <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Total a pagar</p>
                   <p className="mt-0.5 text-sm font-extrabold leading-none tabular-nums text-[var(--sg-lime)]">
-                    {formatCurrency(orden.totalAPagarNV)}
+                    {formatCurrency(cuentaUnificada?.totalCuenta ?? orden.totalAPagarNV)}
                   </p>
                 </div>
                 <div className="bg-[var(--sg-card)] px-3 py-2.5">
                   <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Total abonado</p>
                   <p className="mt-0.5 text-sm font-extrabold leading-none tabular-nums text-[var(--sg-lime)]">
-                    {formatCurrency(orden.totalAbonadoNV)}
+                    {formatCurrency(cuentaUnificada?.totalAbonado ?? orden.totalAbonadoNV)}
                   </p>
                 </div>
                 <div className="bg-[var(--sg-panel)] px-3 py-2">
                   <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Repuestos</p>
                   <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
-                    {formatCurrency(orden.costoTotalRepuestosNV)}
+                    {formatCurrency(cuentaUnificada?.totalRepuestos ?? orden.costoTotalRepuestosNV)}
                   </p>
                 </div>
                 <div className="bg-[var(--sg-panel)] px-3 py-2">
                   <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Servicios</p>
                   <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
-                    {formatCurrency(orden.costoTotalServiciosNV)}
+                    {formatCurrency(cuentaUnificada?.totalServicios ?? orden.costoTotalServiciosNV)}
                   </p>
                 </div>
-                {(orden.totalProductosDigitalesNV ?? 0) > 0 && (
+                {(cuentaUnificada?.totalProductosDigitales ?? orden.totalProductosDigitalesNV ?? 0) > 0 && (
                   <div className="col-span-2 bg-[var(--sg-panel)] px-3 py-2">
                     <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Productos Digitales</p>
                     <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
-                      {formatCurrency(orden.totalProductosDigitalesNV)}
+                      {formatCurrency(cuentaUnificada?.totalProductosDigitales ?? orden.totalProductosDigitalesNV)}
                     </p>
                   </div>
                 )}
+              </div>
+
+              <div className="mt-4">
+                <CuentaUnificadaPanel
+                  cuenta={
+                    cuentaUnificada ?? {
+                      ordenId: orden.recordId,
+                      ordenIdVisible: orden.idVisible,
+                      operacionId: null,
+                      operacionCodigo: null,
+                      modoRepuestos: null,
+                      items: [],
+                      servicios: [],
+                      repuestosHistoricos: [],
+                      repuestosHistoricosCuentanParaTotal: false,
+                      abonos: [],
+                      totalRepuestos: 0,
+                      totalServicios: 0,
+                      totalProductosDigitales: 0,
+                      totalCuenta: 0,
+                      totalAbonado: 0,
+                      saldo: 0,
+                    }
+                  }
+                />
               </div>
 
               <div className="mt-4 space-y-2">
