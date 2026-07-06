@@ -3773,3 +3773,176 @@ export async function getShippingV2DashboardSummary(): Promise<ShippingV2Dashboa
     novedadesAbiertas: novedades.filter((novedad) => ["abierta", "en revision"].includes(normalizeStatus(novedad.estado))).length,
   };
 }
+
+// ─── Repuestos de stock para la cuenta unificada de órdenes (Fase 11) ──────
+// El link "Orden de Reparación (Stock)" (Shipping Items → Órdenes de
+// Reparación) es distinto del link "Operación Comercial": ese último es para
+// items "de pedido" (comprados a través de una operación); este es para
+// items "de stock" agregados directamente a una orden en modo V2.
+
+export type ShippingV2RepuestoStockResumen = {
+  id: string;
+  sku: string;
+  nombre: string;
+  precioVentaFinal: number | null;
+};
+
+const ORDEN_STOCK_LINK_FIELD = "Orden de Reparación (Stock)";
+
+function mapRepuestoStockResumen(record: AirtableRecord): ShippingV2RepuestoStockResumen {
+  const f = record.fields;
+  return {
+    id: record.id,
+    sku: firstString(f[SHIPPING_V2_ITEM_FIELDS.sku], record.id),
+    nombre: firstString(f[SHIPPING_V2_ITEM_FIELDS.nombre], "Artículo sin nombre"),
+    precioVentaFinal: firstNumber(f[SHIPPING_V2_ITEM_FIELDS.precioVentaFinal]),
+  };
+}
+
+// Items categoría Repuesto, disponibles para venta y sin reservar — candidatos
+// a agregarse como repuesto de stock a una orden en modo V2.
+export async function buscarShippingItemsRepuestoStockDisponibles(
+  query?: string
+): Promise<ShippingV2RepuestoStockResumen[]> {
+  assertShippingV2GeneratedSchema();
+  const records = await listRecords(SHIPPING_V2_TABLES.items, {
+    maxRecords: 200,
+    filterByFormula: `AND({${SHIPPING_V2_ITEM_FIELDS.categoria}}="Repuesto", {${SHIPPING_V2_ITEM_FIELDS.disponibleVenta}}=1, {${SHIPPING_V2_ITEM_FIELDS.reservado}}=0)`,
+  });
+
+  let results = records.map(mapRepuestoStockResumen);
+
+  const q = cleanString(query).toLowerCase();
+  if (q) {
+    results = results.filter(
+      (item) => item.nombre.toLowerCase().includes(q) || item.sku.toLowerCase().includes(q)
+    );
+  }
+
+  return results.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+}
+
+// Reserva un item de stock para una orden: Reservado=true, Disponible para
+// venta=false, y lo enlaza a la orden vía "Orden de Reparación (Stock)".
+// Valida categoría/disponibilidad para evitar reservar dos veces por una
+// condición de carrera (dos técnicos agregando el mismo item a la vez).
+export async function reservarShippingItemComoRepuestoDeOrdenStock({
+  itemId,
+  ordenRecordId,
+  ordenIdVisible,
+  registradoPor,
+}: {
+  itemId: string;
+  ordenRecordId: string;
+  ordenIdVisible: string;
+  registradoPor: string;
+}): Promise<ShippingV2RepuestoStockResumen> {
+  assertShippingV2GeneratedSchema();
+  const id = cleanString(itemId);
+  if (!id) throw new Error("Record ID de item inválido.");
+
+  const existing = await airtableRequest<AirtableRecordResponse>(
+    `${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`
+  );
+  const f = existing.fields;
+
+  if (firstString(f[SHIPPING_V2_ITEM_FIELDS.categoria]) !== "Repuesto") {
+    throw new Error("Este item no es de categoría Repuesto.");
+  }
+  if (firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.reservado]) || firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.disponibleVenta]) === false) {
+    throw new Error("Este item ya está reservado o no está disponible para venta.");
+  }
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [
+        {
+          id,
+          fields: {
+            [SHIPPING_V2_ITEM_FIELDS.reservado]: true,
+            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: false,
+            [ORDEN_STOCK_LINK_FIELD]: [ordenRecordId],
+          },
+        },
+      ],
+    }),
+  });
+
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
+  const resumen = mapRepuestoStockResumen(updated);
+
+  await createShippingV2Event({
+    action: "Cambio de estado",
+    entity: "Shipping Item",
+    itemRecordId: id,
+    itemName: resumen.nombre,
+    registradoPor,
+    descripcion: `Reservado como repuesto de stock para la orden ${ordenIdVisible}.`,
+    estadoAnterior: "Disponible para venta",
+    estadoNuevo: "Reservado (stock de orden)",
+  });
+
+  return resumen;
+}
+
+// Libera un item previamente reservado como stock de una orden: revierte
+// Reservado/Disponible para venta y quita el link a la orden.
+export async function liberarShippingItemDeOrdenStock({
+  itemId,
+  ordenRecordId,
+  ordenIdVisible,
+  registradoPor,
+}: {
+  itemId: string;
+  ordenRecordId: string;
+  ordenIdVisible: string;
+  registradoPor: string;
+}): Promise<ShippingV2RepuestoStockResumen> {
+  assertShippingV2GeneratedSchema();
+  const id = cleanString(itemId);
+  if (!id) throw new Error("Record ID de item inválido.");
+
+  const existing = await airtableRequest<AirtableRecordResponse>(
+    `${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`
+  );
+  const f = existing.fields;
+  const linkedOrdenIds = linkedRecordIds(f[ORDEN_STOCK_LINK_FIELD]);
+  if (!linkedOrdenIds.includes(ordenRecordId)) {
+    throw new Error("Este item no está reservado como stock de esta orden.");
+  }
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [
+        {
+          id,
+          fields: {
+            [SHIPPING_V2_ITEM_FIELDS.reservado]: false,
+            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: true,
+            [ORDEN_STOCK_LINK_FIELD]: [],
+          },
+        },
+      ],
+    }),
+  });
+
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
+  const resumen = mapRepuestoStockResumen(updated);
+
+  await createShippingV2Event({
+    action: "Cambio de estado",
+    entity: "Shipping Item",
+    itemRecordId: id,
+    itemName: resumen.nombre,
+    registradoPor,
+    descripcion: `Liberado de la orden ${ordenIdVisible} (quitado como repuesto de stock).`,
+    estadoAnterior: "Reservado (stock de orden)",
+    estadoNuevo: "Disponible para venta",
+  });
+
+  return resumen;
+}
