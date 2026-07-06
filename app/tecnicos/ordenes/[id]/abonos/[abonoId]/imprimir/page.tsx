@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AutoPrint } from "@/components/tecnicos/print/AutoPrint";
 import { TicketAbono } from "@/components/tecnicos/print/TicketAbono";
 import { fetchOrdenById } from "@/lib/tecnicos/airtable";
+import { getCuentaUnificada } from "@/lib/cuenta-unificada";
 
 export const dynamic = "force-dynamic";
 
@@ -26,10 +27,15 @@ export default async function ImprimirTicketAbonoPage({ params }: PageProps) {
     );
   }
 
+  // Fase 11 — el comprobante imprime el total/saldo de la cuenta unificada
+  // (incluye el repuesto real de la operación vinculada, si existe), no el
+  // rollup NV de la orden por su cuenta.
+  const cuentaUnificada = await getCuentaUnificada({ ordenId: id }).catch(() => null);
+
   return (
     <>
       <AutoPrint backHref={`/tecnicos/ordenes/${encodeURIComponent(id)}`} />
-      <TicketAbono orden={orden} abono={abono} />
+      <TicketAbono orden={orden} abono={abono} cuentaUnificada={cuentaUnificada} />
     </>
   );
 }
