@@ -8,9 +8,16 @@ import type {
   CuentaUnificada,
   CuentaUnificadaAbono,
   CuentaUnificadaItem,
+  CuentaUnificadaRepuestoHistorico,
   CuentaUnificadaServicio,
   GetCuentaUnificadaInput,
 } from "@/types/cuenta-unificada";
+
+// Link "Shipping Items" → "Órdenes de Reparación" exclusivo para repuestos de
+// stock en modo V2 (distinto de "Operación Comercial", que es para pedido).
+const ORDEN_STOCK_LINK_FIELD = "Orden de Reparación (Stock)";
+// Inverso en Órdenes de Reparación del campo anterior.
+const REPUESTOS_STOCK_FIELD = "Repuestos de Stock (V2)";
 
 const ORDENES_TABLE = "Órdenes de Reparación";
 const OPERACIONES_TABLE = "Operación Comercial";
@@ -123,13 +130,34 @@ function mapAbonoRecordToCuentaAbono(
   };
 }
 
-// Repuestos "de stock" en modo V2: hoy no existe ningún link directo entre
-// Shipping Items y Órdenes de Reparación (confirmado en la auditoría Fase 11),
-// así que no hay nada que leer todavía. La Etapa 2 crea ese campo/UI; cuando
-// exista, este stub se reemplaza por el fetch real (mismo patrón que
-// fetchItemPedido: leer el campo inverso de IDs + fetchRecordsByIds).
-async function fetchRepuestosStockV2(): Promise<CuentaUnificadaItem[]> {
-  return [];
+// Repuestos "de stock" en modo V2: leídos vía el link "Repuestos de Stock (V2)"
+// en la orden (inverso de Shipping Items."Orden de Reparación (Stock)").
+async function fetchRepuestosStockV2(
+  ordenRecord: AirtableRecord,
+  client: AirtableClient
+): Promise<CuentaUnificadaItem[]> {
+  const itemIds = linkedIds(ordenRecord.fields[REPUESTOS_STOCK_FIELD]);
+  const records = await fetchRecordsByIds(client, SHIPPING_ITEMS_TABLE, itemIds);
+  return records.map((r) => mapShippingItemToCuentaItem(r, "stock"));
+}
+
+function mapRepuestoHistorico(r: {
+  id: string;
+  repuestoNombre: string;
+  cantidad: number | null;
+  precioCliente: number | null;
+  subtotalCliente: number | null;
+}): CuentaUnificadaRepuestoHistorico {
+  const subtotal =
+    r.subtotalCliente ??
+    (r.cantidad != null && r.precioCliente != null ? r.cantidad * r.precioCliente : r.precioCliente ?? 0);
+  return {
+    id: r.id,
+    nombre: r.repuestoNombre,
+    cantidad: r.cantidad,
+    precioCliente: r.precioCliente,
+    subtotal,
+  };
 }
 
 async function fetchItemsPedido(
@@ -186,7 +214,7 @@ export async function getCuentaUnificada(
 
   const ordenId = ordenRecord?.id ?? null;
   const operacionId = operacionRecord?.id ?? null;
-  const modoRepuestos = ordenRecord ? resolveModoRepuestos(ordenRecord.createdTime ?? "") : null;
+  const modoRepuestos = ordenRecord ? resolveModoRepuestos(ordenRecord.fields["Modo repuestos"]) : null;
 
   // Si hay operación vinculada, el repuesto entra a la cuenta por su lado
   // (Σ Precio venta final de items de la operación) y la orden NO aporta
@@ -196,39 +224,35 @@ export async function getCuentaUnificada(
   // dónde salen los repuestos de STOCK de la orden, y eso solo aplica cuando
   // la orden no tiene operación vinculada.
   const ordenAportaRepuestosPropios = ordenId != null && operacionId == null;
+  // Los renglones legacy cuentan para el total solo en este caso exacto; en
+  // cualquier otro (V2, o superados por una operación vinculada) son
+  // referencia histórica pura — ver "repuestosHistoricos" más abajo.
+  const repuestosLegacyCuentanParaTotal = ordenAportaRepuestosPropios && modoRepuestos === "legacy";
 
-  const [servicios, repuestosLegacy, repuestosStockV2, abonosOrden, itemsPedido, abonosOperacion] =
+  const [servicios, repuestosLegacyRaw, repuestosStockV2, abonosOrden, itemsPedido, abonosOperacion] =
     await Promise.all([
       ordenId ? fetchServiciosPorOrden(ordenId) : Promise.resolve([]),
-      ordenAportaRepuestosPropios && modoRepuestos === "legacy"
-        ? fetchRepuestosPorOrden(ordenId!)
-        : Promise.resolve([]),
-      ordenAportaRepuestosPropios && modoRepuestos === "v2"
-        ? fetchRepuestosStockV2()
+      // Siempre se trae (si hay orden) para la pestaña de históricos, sin
+      // importar si cuenta o no para el total.
+      ordenId ? fetchRepuestosPorOrden(ordenId) : Promise.resolve([]),
+      ordenAportaRepuestosPropios && modoRepuestos === "v2" && ordenRecord
+        ? fetchRepuestosStockV2(ordenRecord, client)
         : Promise.resolve([]),
       ordenId ? fetchAbonosPorOrden(ordenId) : Promise.resolve([]),
       operacionRecord ? fetchItemsPedido(operacionRecord, client) : Promise.resolve([]),
       operacionRecord ? fetchAbonosOperacion(operacionRecord, client) : Promise.resolve([]),
     ]);
 
-  const items: CuentaUnificadaItem[] = [
-    ...itemsPedido,
-    ...repuestosStockV2,
-    ...repuestosLegacy.map((r): CuentaUnificadaItem => {
-      const precio =
-        r.subtotalCliente ?? (r.cantidad != null && r.precioCliente != null ? r.cantidad * r.precioCliente : r.precioCliente ?? 0);
-      return {
-        id: r.id,
-        nombre: r.repuestoNombre,
-        origen: "legacy",
-        precio,
-        // El modelo legacy no tiene concepto de "cubierto": la orden siempre
-        // cobra el repuesto completo, igual que hoy.
-        cubierto: 0,
-        saldo: precio,
-      };
-    }),
-  ];
+  const repuestosHistoricos = repuestosLegacyRaw.map(mapRepuestoHistorico);
+
+  // La lista principal de "items" es exclusivamente Shipping Items (pedido/
+  // stock), tal como pide el modelo cerrado — los renglones legacy NUNCA se
+  // muestran ahí (solo en la pestaña "Repuestos históricos", más abajo) para
+  // evitar mostrar el mismo repuesto dos veces. Cuando sí cuentan para el
+  // total (orden Legacy sin operación vinculada), su subtotal se suma
+  // directamente a totalCuenta, sin fabricar un "item" falso.
+  const items: CuentaUnificadaItem[] = [...itemsPedido, ...repuestosStockV2];
+  const totalRepuestosHistoricos = repuestosHistoricos.reduce((sum, r) => sum + r.subtotal, 0);
 
   const serviciosMapped: CuentaUnificadaServicio[] = servicios.map((s) => ({
     id: s.id,
@@ -254,7 +278,8 @@ export async function getCuentaUnificada(
 
   const totalCuenta =
     items.reduce((sum, item) => sum + item.precio, 0) +
-    serviciosMapped.reduce((sum, s) => sum + s.costo, 0);
+    serviciosMapped.reduce((sum, s) => sum + s.costo, 0) +
+    (repuestosLegacyCuentanParaTotal ? totalRepuestosHistoricos : 0);
   const totalAbonado = abonos
     .filter((a) => a.estado !== "Anulado")
     .reduce((sum, a) => sum + a.monto, 0);
@@ -270,6 +295,8 @@ export async function getCuentaUnificada(
     modoRepuestos,
     items,
     servicios: serviciosMapped,
+    repuestosHistoricos,
+    repuestosHistoricosCuentanParaTotal: repuestosLegacyCuentanParaTotal,
     abonos,
     totalCuenta,
     totalAbonado,
