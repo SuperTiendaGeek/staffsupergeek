@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-10T21:50:43.393Z",
+  "generatedAt": "2026-07-06T15:27:32.786Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -32,7 +32,8 @@
             "Marketplace",
             "Interno",
             "Logístico",
-            "Otro"
+            "Otro",
+            "Software"
           ]
         },
         "Requiere pago antes de envío": {
@@ -279,6 +280,17 @@
           "id": "fldVsI2W2DsjD3Hac",
           "type": "email",
           "kind": "email"
+        },
+        "Pie factura": {
+          "id": "fldhQ60q3FDEwnhad",
+          "type": "richText",
+          "kind": "richText"
+        },
+        "Opciones": {
+          "id": "fldnkTS9z1TaYzITa",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblYRUY3ZaBKAMaG8",
+          "linkedTableName": "Opciones"
         }
       }
     },
@@ -450,9 +462,8 @@
         },
         "Pago relacionado": {
           "id": "fldXjUM6Nc89PoLzA",
-          "type": "multipleRecordLinks",
-          "linkedTableId": "tblU6Nz8eAaAlq5Ll",
-          "linkedTableName": "Pago"
+          "type": "singleLineText",
+          "kind": "singleLineText"
         },
         "Requiere packing": {
           "id": "fldNrY0s3QJ1wAwiu",
@@ -461,9 +472,8 @@
         },
         "Packing relacionado": {
           "id": "fldWzTgaOEB452A0o",
-          "type": "multipleRecordLinks",
-          "linkedTableId": "tbl7VuutaZVLqMvxa",
-          "linkedTableName": "Packing"
+          "type": "singleLineText",
+          "kind": "singleLineText"
         },
         "Afecta inventario": {
           "id": "fldVF8A93oH3XIbVA",
@@ -1101,7 +1111,7 @@
             "Excelente",
             "Muy buena",
             "Buena / Aceptable",
-            "Regular / Requiere Servicio",
+            "Regular / Mantiene carga",
             "Mala / Agotada"
           ]
         },
@@ -1214,6 +1224,32 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblfPAF3lsZkOO7me",
           "linkedTableName": "Shipping Destinatarios"
+        },
+        "Operación Comercial": {
+          "id": "fldnKX50kzjZRghxl",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblBSGQhdCsDsdCrh",
+          "linkedTableName": "Operación Comercial"
+        },
+        "Opción origen": {
+          "id": "fldg48EHyUaFbFutj",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblYRUY3ZaBKAMaG8",
+          "linkedTableName": "Opciones"
+        },
+        "Total Cubierto": {
+          "id": "fldV961WDB0tCtpKK",
+          "type": "rollup"
+        },
+        "Saldo Item": {
+          "id": "fldtE3aMDsLdQrT5v",
+          "type": "formula"
+        },
+        "Orden de Reparación (Stock)": {
+          "id": "fldnSAsUGWzMWQQOu",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblm4bd1eUUqDEHmz",
+          "linkedTableName": "Órdenes de Reparación"
         }
       }
     },
@@ -1953,7 +1989,8 @@
             "Otro",
             "Tracking sin movimiento",
             "Demora en aduana",
-            "Diferencia de peso"
+            "Diferencia de peso",
+            "Observación menor"
           ]
         },
         "Estado Novedad": {
