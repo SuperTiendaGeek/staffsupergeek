@@ -3,8 +3,10 @@ import "server-only";
 // API pública del módulo Facturación.
 // Punto de entrada para los route handlers en app/api/facturacion/.
 
-export { getFacturacionConfig } from "./config";
+export { getFacturacionConfig, getConsumidorFinalLimite } from "./config";
 export type { FacturacionConfig, AmbienteSRI } from "./config";
+
+export { FacturacionRechazoError } from "./errores";
 
 export { generateAccessKey, modulo11 } from "./claveAcceso";
 export type { AccessKeyInput } from "./claveAcceso";
@@ -38,3 +40,7 @@ export { esperarAutorizacion } from "./sri/cola";
 // Fase 4: orquestación completa, persistencia, RIDE, correo
 export { emitirFactura } from "./emitirFactura";
 export type { DatosVenta, ResultadoEmision } from "./emitirFactura";
+
+// Fase 16 PR1: endurecimiento (validación XSD real + regla consumidor final server-side)
+export { assertConsumidorFinalPermitido } from "./reglas/consumidorFinal";
+export { assertXmlValidoSri } from "./reglas/validacionXsd";
