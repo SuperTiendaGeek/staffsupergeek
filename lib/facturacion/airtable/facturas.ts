@@ -487,6 +487,44 @@ export async function buscarFacturaPorClave(claveAcceso: string): Promise<Factur
   return mapHistorialRecord(data.records[0]);
 }
 
+// ─── Obtener adjunto (XML/RIDE) por clave de acceso ──────────────────────────
+// Fallback para cuando el archivo no está en disco (p.ej. Vercel: la
+// invocación que emitió y la que sirve la descarga pueden no compartir
+// /tmp). "Clave de Acceso" es un campo de texto, no un link — filtrar por
+// él con filterByFormula es seguro (regla de la casa: nunca filtrar por
+// campo link; aquí no aplica, no es un link).
+
+export type AdjuntoFactura = { url: string; filename: string };
+
+export async function obtenerAdjuntoPorClave(
+  claveAcceso: string,
+  campo: "XML Autorizado" | "RIDE PDF"
+): Promise<AdjuntoFactura | null> {
+  const client = getClient();
+  const esc = claveAcceso.replace(/"/g, '\\"');
+  const params = new URLSearchParams({
+    filterByFormula: `{Clave de Acceso}="${esc}"`,
+    maxRecords:      "1",
+  });
+  params.append("fields[]", campo);
+  const url  = `${client.baseUrl}/${encodeURIComponent(TABLE)}?${params}`;
+  const data = await airtableRequest<{
+    records: Array<{ id: string; fields: Record<string, unknown> }>;
+  }>(url);
+  if (!data.records.length) return null;
+
+  const adjuntos = data.records[0].fields[campo];
+  if (!Array.isArray(adjuntos) || adjuntos.length === 0) return null;
+
+  const primero = adjuntos[0] as { url?: unknown; filename?: unknown };
+  if (typeof primero.url !== "string" || !primero.url) return null;
+
+  return {
+    url:      primero.url,
+    filename: typeof primero.filename === "string" ? primero.filename : claveAcceso,
+  };
+}
+
 // ─── Eliminar registro (solo BORRADOR) ───────────────────────────────────────
 
 export async function eliminarRegistroFactura(recordId: string): Promise<void> {

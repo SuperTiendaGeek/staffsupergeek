@@ -18,6 +18,7 @@ import { consultarAutorizacion }                              from "../sri/autor
 import { getFacturacionConfig }                               from "../config";
 import { buscarFacturaPorClave, crearRegistroFactura,
          subirAdjunto, marcarAdjuntosPendientes }             from "../airtable/facturas";
+import { directorioBaseFacturas }                             from "./directorioFacturas";
 import { generarRide }                                        from "../ride/generarRide";
 import type { DetalleRide }                                   from "../ride/generarRide";
 import type { TotalImpuesto, Pago, CampoAdicional }          from "../types/factura";
@@ -202,10 +203,9 @@ function parsearComprobanteXml(xml: string): DatosComprobante {
 // ─── Guardar en disco ─────────────────────────────────────────────────────────
 
 function guardarEnDisco(clave: string, fecha: Date, xml: string, pdf?: Uint8Array): void {
-  const base = process.env.FACTURAS_DIR?.trim() || "facturas-autorizadas";
   const año  = fecha.getFullYear();
   const mes  = String(fecha.getMonth() + 1).padStart(2, "0");
-  const dir  = path.join(process.cwd(), base, String(año), mes);
+  const dir  = path.join(directorioBaseFacturas(), String(año), mes);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `${clave}.xml`), xml, "utf8");
   if (pdf) fs.writeFileSync(path.join(dir, `${clave}.pdf`), pdf);
@@ -242,10 +242,9 @@ export async function recuperarFacturaAutorizadaPorClave(
   const datos         = parsearComprobanteXml(xmlDecoded);
 
   // 2. Guardar XML en disco (invariante de integridad primero)
-  const base    = process.env.FACTURAS_DIR?.trim() || "facturas-autorizadas";
   const año     = datos.fechaEmision.getFullYear();
   const mes     = String(datos.fechaEmision.getMonth() + 1).padStart(2, "0");
-  const xmlPath = path.join(process.cwd(), base, String(año), mes, `${claveAcceso}.xml`);
+  const xmlPath = path.join(directorioBaseFacturas(), String(año), mes, `${claveAcceso}.xml`);
   const yaEnDisco = fs.existsSync(xmlPath);
   if (!yaEnDisco) {
     guardarEnDisco(claveAcceso, datos.fechaEmision, xmlAutorizado);
@@ -291,7 +290,7 @@ export async function recuperarFacturaAutorizadaPorClave(
     });
 
     // Guardar RIDE en disco también
-    const dir = path.join(process.cwd(), base, String(año), mes);
+    const dir = path.join(directorioBaseFacturas(), String(año), mes);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, `${claveAcceso}.pdf`), ridePdf);
   } catch (rideErr) {

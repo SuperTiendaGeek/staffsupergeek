@@ -1,12 +1,13 @@
 import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
-import fs                            from "fs";
-import path                          from "path";
+import { resolverArchivoFactura }    from "@/lib/facturacion/almacenamiento/resolverArchivo";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ claveAcceso: string }> };
 
+// Sirve el XML autorizado: primero desde disco, con fallback al adjunto en
+// Airtable si no está ahí (ver resolverArchivoFactura).
 export async function GET(_req: Request, { params }: Params) {
   const { response } = await requireFacturacionSession();
   if (response) return response;
@@ -22,15 +23,20 @@ export async function GET(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Clave de acceso inválida" }, { status: 400 });
   }
 
-  const baseDir = process.env.FACTURAS_DIR?.trim() || "facturas-autorizadas";
-  const xmlPath = path.join(process.cwd(), baseDir, anio, mes, `${claveAcceso}.xml`);
+  const archivo = await resolverArchivoFactura(claveAcceso, "xml");
 
-  if (!fs.existsSync(xmlPath)) {
-    return NextResponse.json({ error: "XML no encontrado en disco" }, { status: 404 });
+  if (!archivo) {
+    return NextResponse.json(
+      {
+        error:
+          "XML no encontrado en disco ni en Airtable para esta clave de acceso. " +
+          "Si el cliente tiene correo registrado, es posible que la factura ya se le haya enviado por email.",
+      },
+      { status: 404 }
+    );
   }
 
-  const xml = fs.readFileSync(xmlPath, "utf8");
-  return new Response(xml, {
+  return new Response(new Uint8Array(archivo.buffer), {
     headers: {
       "Content-Type":        "text/xml; charset=utf-8",
       "Content-Disposition": `attachment; filename="${claveAcceso}.xml"`,

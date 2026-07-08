@@ -2,6 +2,7 @@ import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { obtenerFactura, actualizarEstadoCorreo } from "@/lib/facturacion/airtable/facturas";
 import { enviarRide }                from "@/lib/facturacion/correo/enviarRide";
+import { directorioBaseFacturas }    from "@/lib/facturacion/almacenamiento/directorioFacturas";
 import fs                            from "fs";
 import path                          from "path";
 
@@ -36,10 +37,9 @@ export async function POST(_req: Request, { params }: Params) {
   // Leer archivos desde disco
   const ambiente = factura.ambiente === "PRODUCCIÓN" ? "2" : "1";
   const añoMes   = factura.fechaEmision.slice(0, 7).replace("-", "/");
-  const baseDir  = process.env.FACTURAS_DIR?.trim() || "facturas-autorizadas";
-  const dir      = path.join(process.cwd(), baseDir, añoMes.replace("/", "/"));
+  const dir      = path.join(directorioBaseFacturas(), añoMes.replace("/", "/"));
 
-  const xmlPath = path.join(process.cwd(), baseDir,
+  const xmlPath = path.join(directorioBaseFacturas(),
     factura.fechaEmision.slice(0, 4),
     factura.fechaEmision.slice(5, 7),
     `${factura.claveAcceso}.xml`
