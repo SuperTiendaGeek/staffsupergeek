@@ -75,13 +75,49 @@ function guardarEnDisco(
   if (pdf) fs.writeFileSync(path.join(dir, `${clave}.pdf`), pdf);
 }
 
+/**
+ * Intenta el respaldo en disco sin dejar que su fallo tumbe la emisión: la
+ * factura ya está AUTORIZADA por el SRI en este punto (persistirAutorizado()
+ * corre después de esperarAutorizacion()) — un entorno sin filesystem
+ * persistente (Vercel: solo lectura fuera de /tmp) no debe perder ese
+ * comprobante fiscal real por no poder escribir la copia de respaldo.
+ *
+ * Devuelve `undefined` si el respaldo se guardó bien, o un MensajeSRI[] con
+ * la advertencia (para dejar constancia visible en "Mensajes SRI", igual
+ * que hace marcarAdjuntosPendientes() para adjuntos) si falló.
+ */
+export function intentarGuardarEnDisco(
+  clave: string,
+  fecha: Date,
+  xml:   string,
+  pdf?:  Uint8Array
+): MensajeSRI[] | undefined {
+  try {
+    guardarEnDisco(clave, fecha, xml, pdf);
+    return undefined;
+  } catch (err) {
+    console.error(
+      `[repositorio] Respaldo en disco falló para ${clave} (factura ya AUTORIZADA por el SRI):`,
+      err
+    );
+    return [{
+      identificador:        "RESPALDO_DISCO",
+      tipo:                 "ADVERTENCIA",
+      mensaje:              "No se pudo guardar el respaldo legal en disco",
+      informacionAdicional: err instanceof Error ? err.message : String(err),
+    }];
+  }
+}
+
 // ─── Persistir comprobante AUTORIZADO ────────────────────────────────────────
 
 export async function persistirAutorizado(datos: DatosComprobanteOk): Promise<string> {
-  // 1. Disco primero — invariante de integridad: el comprobante autorizado
-  //    debe existir en disco antes de cualquier operación de red.
-  //    Si Airtable falla después, el respaldo legal ya está garantizado.
-  guardarEnDisco(datos.claveAcceso, datos.fechaEmision, datos.xmlAutorizado, datos.ridePdf);
+  // 1. Disco — best-effort (ver intentarGuardarEnDisco). Antes era un paso
+  //    fatal síncrono que abortaba toda la persistencia si fallaba, dejando
+  //    una factura ya AUTORIZADA sin ningún rastro ni en disco ni en Airtable.
+  const mensajesRespaldo = intentarGuardarEnDisco(
+    datos.claveAcceso, datos.fechaEmision, datos.xmlAutorizado, datos.ridePdf
+  );
 
   // 2. Crear registro en Airtable
   const recordId = await crearRegistroFactura({
@@ -100,6 +136,7 @@ export async function persistirAutorizado(datos: DatosComprobanteOk): Promise<st
     iva:                   datos.iva,
     total:                 datos.total,
     lineasJson:            datos.lineasJson,
+    mensajesSri:           mensajesRespaldo,
   });
 
   // 3. Subir adjuntos; si falla, NO eliminar la fila — el comprobante ya está
