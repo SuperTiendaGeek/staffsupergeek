@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
-import { emitirFactura } from "@/lib/facturacion/emitirFactura";
+import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitirFactura";
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +34,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, data: resultado });
   } catch (e) {
     console.error("[/api/facturacion/emitir POST]", e);
+    if (e instanceof FacturacionRechazoError) {
+      return NextResponse.json({ success: false, error: e.message }, { status: 400 });
+    }
     return NextResponse.json(
       { success: false, error: e instanceof Error ? e.message : "Error interno al emitir" },
       { status: 500 }

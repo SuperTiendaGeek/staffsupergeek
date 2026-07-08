@@ -18,7 +18,8 @@ import "server-only";
 import fs   from "fs";
 import path from "path";
 
-import { getFacturacionConfig }   from "./config";
+import { getFacturacionConfig,
+         getConsumidorFinalLimite } from "./config";
 import { generateAccessKey }      from "./claveAcceso";
 import { construirFacturaXml }    from "./xml/construirFacturaXml";
 import { firmarXml }              from "./firma/firmar";
@@ -30,6 +31,8 @@ import { persistirAutorizado,
 import { actualizarEstadoCorreo } from "./airtable/facturas";
 import { generarRide }            from "./ride/generarRide";
 import { enviarRide }             from "./correo/enviarRide";
+import { assertConsumidorFinalPermitido } from "./reglas/consumidorFinal";
+import { assertXmlValidoSri }     from "./reglas/validacionXsd";
 
 import type { FacturaInput,
               DetalleFactura,
@@ -37,6 +40,8 @@ import type { FacturaInput,
               Pago,
               CampoAdicional }    from "./types/factura";
 import type { RideInput }         from "./ride/generarRide";
+
+export { FacturacionRechazoError } from "./errores";
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -88,6 +93,18 @@ function calcularIva(totales: TotalImpuesto[]): number {
 // ─── Función principal ────────────────────────────────────────────────────────
 
 export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision> {
+  // ── 0. Regla Consumidor Final ≥ límite ──────────────────────────────────
+  // Se valida antes de tocar Airtable o el SRI: emitirFactura() es el único
+  // punto de entrada compartido por /api/facturacion/emitir, /reintentar y
+  // el futuro gancho de Fase 16 — un guard puesto solo en un endpoint no
+  // cubre a los demás llamadores. La UI (FacturacionForm.tsx) sigue teniendo
+  // su propio bloqueo como primera línea; este es el que no se puede saltar.
+  assertConsumidorFinalPermitido(
+    datos.tipoIdentificacionComprador,
+    datos.importeTotal,
+    getConsumidorFinalLimite()
+  );
+
   const cfg         = getFacturacionConfig();
   const fechaEmision = new Date();
 
@@ -151,6 +168,18 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
     };
 
     const xmlSinFirmar = construirFacturaXml(facturaInput);
+
+    // ── 3.5 Validar contra el XSD oficial del SRI ───────────────────────────
+    // Aborta antes de firmar y antes de contactar al SRI si el XML no es
+    // conforme. siguienteSecuencial() (arriba) es una lectura pura de
+    // MAX(Secuencial) — no reserva ni escribe nada — así que abortar aquí no
+    // "quema" el número: el próximo intento (incluso en un request nuevo)
+    // vuelve a calcular el mismo MAX+1. A diferencia de DEVUELTA/NO AUTORIZADO
+    // (resultados de negocio esperables que sí se registran en Airtable vía
+    // registrarIntento), un XML inválido indica un bug en la construcción —
+    // no se persiste como intento; se relanza para que quede visible en los
+    // logs y se corrija el código, no el dato.
+    assertXmlValidoSri(xmlSinFirmar);
 
     // ── 4. Firmar ───────────────────────────────────────────────────────────
     const xmlFirmado = await firmarXml({

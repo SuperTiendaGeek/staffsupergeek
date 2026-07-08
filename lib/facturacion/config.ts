@@ -55,6 +55,18 @@ export type FacturacionConfig = {
   firmaPassword: string;     // SRI_FIRMA_PASSWORD — contraseña del .p12 — NUNCA al repo
 };
 
+// ─── Límite Consumidor Final ─────────────────────────────────────────────────
+// Regla general del SRI: sobre este monto hay que identificar al cliente
+// (cédula o RUC), no se puede facturar a Consumidor Final. Única fuente de
+// verdad — la usan tanto la UI (app/facturacion/page.tsx) como el guard
+// server-side en emitirFactura().
+
+export function getConsumidorFinalLimite(): number {
+  const raw = process.env.CONSUMIDOR_FINAL_LIMITE;
+  const n = parseInt(raw ?? "", 10);
+  return Number.isFinite(n) && n > 0 ? n : 50;
+}
+
 export function getFacturacionConfig(): FacturacionConfig {
   const ambiente = getOptional("SRI_AMBIENTE", "1") as AmbienteSRI;
   if (ambiente !== "1" && ambiente !== "2") {
