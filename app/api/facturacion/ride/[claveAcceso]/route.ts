@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
-import fs   from "fs";
-import path from "path";
+import { resolverArchivoFactura } from "@/lib/facturacion/almacenamiento/resolverArchivo";
 
 export const dynamic = "force-dynamic";
 
-// Sirve el RIDE PDF desde disco.
-// La clave de acceso de 49 dígitos tiene la fecha de emisión en los primeros 8 dígitos (DDMMAAAA).
+// Sirve el RIDE PDF: primero desde disco, con fallback al adjunto en
+// Airtable si no está ahí (ver resolverArchivoFactura).
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ claveAcceso: string }> }
@@ -21,39 +20,20 @@ export async function GET(
     return NextResponse.json({ error: "Clave de acceso inválida" }, { status: 400 });
   }
 
-  // Extraer fecha del comprobante: posiciones 0-7 → DDMMAAAA
-  const dd   = claveAcceso.slice(0, 2);
-  const mm   = claveAcceso.slice(2, 4);
-  const aaaa = claveAcceso.slice(4, 8);
+  const archivo = await resolverArchivoFactura(claveAcceso, "ride", { escanearAnio: true });
 
-  const base   = process.env.FACTURAS_DIR?.trim() || "facturas-autorizadas";
-  const pdfPath = path.join(process.cwd(), base, aaaa, mm, `${claveAcceso}.pdf`);
-
-  if (!fs.existsSync(pdfPath)) {
-    // Fallback: buscar en todos los meses del año (por si hay diferencia de timezone)
-    const yearDir = path.join(process.cwd(), base, aaaa);
-    let found: string | null = null;
-    if (fs.existsSync(yearDir)) {
-      for (const monthDir of fs.readdirSync(yearDir)) {
-        const candidate = path.join(yearDir, monthDir, `${claveAcceso}.pdf`);
-        if (fs.existsSync(candidate)) { found = candidate; break; }
-      }
-    }
-    if (!found) {
-      void dd; // suppress unused warning
-      return NextResponse.json({ error: "RIDE no encontrado en disco" }, { status: 404 });
-    }
-    const buf = fs.readFileSync(found);
-    return new NextResponse(buf, {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${claveAcceso}.pdf"`,
+  if (!archivo) {
+    return NextResponse.json(
+      {
+        error:
+          "RIDE no encontrado en disco ni en Airtable para esta clave de acceso. " +
+          "Si el cliente tiene correo registrado, es posible que la factura ya se le haya enviado por email.",
       },
-    });
+      { status: 404 }
+    );
   }
 
-  const buf = fs.readFileSync(pdfPath);
-  return new NextResponse(buf, {
+  return new NextResponse(new Uint8Array(archivo.buffer), {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="${claveAcceso}.pdf"`,
