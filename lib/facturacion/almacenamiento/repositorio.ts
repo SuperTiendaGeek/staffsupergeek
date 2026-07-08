@@ -12,6 +12,7 @@ import fs   from "fs";
 import path from "path";
 
 import { crearRegistroFactura, subirAdjunto, marcarAdjuntosPendientes } from "../airtable/facturas";
+import { directorioBaseFacturas }             from "./directorioFacturas";
 import type { MensajeSRI }                    from "../sri/recepcion";
 import type { AmbienteSRI }                   from "../config";
 
@@ -57,10 +58,9 @@ export type DatosComprobanteError = {
 // ─── Directorio de respaldo en disco ─────────────────────────────────────────
 
 function directorioRespaldo(fecha: Date): string {
-  const base = process.env.FACTURAS_DIR?.trim() || "facturas-autorizadas";
   const año  = fecha.getFullYear();
   const mes  = String(fecha.getMonth() + 1).padStart(2, "0");
-  return path.join(process.cwd(), base, String(año), mes);
+  return path.join(directorioBaseFacturas(), String(año), mes);
 }
 
 function guardarEnDisco(
