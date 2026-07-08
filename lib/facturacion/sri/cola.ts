@@ -7,6 +7,26 @@ import { consultarAutorizacion, type ResultadoAutorizacion } from "./autorizacio
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+// ─── ¿Es un resultado definitivo? ─────────────────────────────────────────────
+
+/**
+ * Un AUTORIZADO sin numeroAutorizacion o sin fechaAutorizacion no es todavía
+ * un resultado definitivo: se observó en producción (facturas 001-002-666 y
+ * 001-002-667, ambiente PRUEBAS) que el SRI puede reflejar el cambio de
+ * estado a AUTORIZADO un instante antes de terminar de poblar esos dos
+ * campos — consultada la misma clave de acceso momentos después, ya vienen
+ * completos. Sin esta espera, emitirFactura() arma el RIDE con "NÚMERO DE
+ * AUTORIZACIÓN" en blanco y "FECHA Y HORA DE AUTORIZACIÓN" en
+ * NaN/NaN/NaN NaN:NaN:NaN — el generador del RIDE solo imprime lo que recibe.
+ */
+export function esResultadoDefinitivo(resultado: ResultadoAutorizacion): boolean {
+  if (resultado.estado === "EN PROCESAMIENTO") return false;
+  if (resultado.estado === "AUTORIZADO") {
+    return Boolean(resultado.numeroAutorizacion) && Boolean(resultado.fechaAutorizacion);
+  }
+  return true; // NO AUTORIZADO es definitivo tal cual
+}
+
 /**
  * Consulta la autorización con reintentos exponenciales mientras el estado
  * sea EN_PROCESAMIENTO.
@@ -31,7 +51,7 @@ export async function esperarAutorizacion(
   while (true) {
     const resultado = await consultarAutorizacion(claveAcceso, config);
 
-    if (resultado.estado !== "EN PROCESAMIENTO") {
+    if (esResultadoDefinitivo(resultado)) {
       return resultado;
     }
 
