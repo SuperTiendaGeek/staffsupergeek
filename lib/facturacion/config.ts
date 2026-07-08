@@ -1,5 +1,7 @@
 import "server-only";
 
+import { resolverRutaP12 } from "./firma/resolverP12";
+
 // ─── Ambiente ─────────────────────────────────────────────────────────────────
 // "1" = pruebas (celcer)   "2" = producción (cel)
 // Resolución NAC-DGERCGC25-00000017: transmisión en tiempo real desde 01-ene-2026.
@@ -51,7 +53,7 @@ export type FacturacionConfig = {
   puntoEmision: string;      // SRI_PUNTO_EMISION   — 3 dígitos
   secuencial: string;        // SRI_SECUENCIAL      — hasta 9 dígitos
   // Firma digital
-  firmaPath: string;         // SRI_FIRMA_PATH     — ruta absoluta al .p12
+  firmaPath: string;         // SRI_FIRMA_PATH (local) o materializada en /tmp desde SRI_FIRMA_P12_BASE64
   firmaPassword: string;     // SRI_FIRMA_PASSWORD — contraseña del .p12 — NUNCA al repo
 };
 
@@ -80,6 +82,8 @@ export function getFacturacionConfig(): FacturacionConfig {
     throw new Error(`SRI_OBLIGADO_CONTABILIDAD debe ser "SI" o "NO". Valor: "${obligadoRaw}"`);
   }
 
+  const firmaPassword = getRequired("SRI_FIRMA_PASSWORD");
+
   return {
     ambiente,
     // SRI_RECEPTION_URL / SRI_AUTHORIZATION_URL son overrides opcionales;
@@ -95,7 +99,11 @@ export function getFacturacionConfig(): FacturacionConfig {
     establecimiento:      getRequired("SRI_ESTABLECIMIENTO"),
     puntoEmision:         getRequired("SRI_PUNTO_EMISION"),
     secuencial:           getOptional("SRI_SECUENCIAL", "1"),
-    firmaPath:            getRequired("SRI_FIRMA_PATH"),
-    firmaPassword:        getRequired("SRI_FIRMA_PASSWORD"),
+    firmaPath:            resolverRutaP12({
+                            firmaPathLocal: getOptionalMaybe("SRI_FIRMA_PATH"),
+                            p12Base64:      getOptionalMaybe("SRI_FIRMA_P12_BASE64"),
+                            password:       firmaPassword,
+                          }),
+    firmaPassword,
   };
 }
