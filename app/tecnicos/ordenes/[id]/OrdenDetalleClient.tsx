@@ -3341,6 +3341,7 @@ export function OrdenDetalleClient() {
                       saldo: 0,
                     }
                   }
+                  origenTipo="orden"
                 />
               </div>
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
 
 // Componente compartido (Fase 11 — Etapa 3): se monta igual en la pantalla de
@@ -24,7 +25,22 @@ function formatFecha(fecha: string | null) {
   return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-export function CuentaUnificadaPanel({ cuenta }: { cuenta: CuentaUnificada }) {
+// origenTipo: qué pantalla monta el panel (orden u operación) — determina
+// a qué record id apunta el botón "Emitir factura" cuando ambos existen
+// (par vinculado). Fase 16 PR2 (gancho cuenta unificada → facturación).
+export function CuentaUnificadaPanel({
+  cuenta,
+  origenTipo,
+}: {
+  cuenta: CuentaUnificada;
+  origenTipo?: "orden" | "operacion";
+}) {
+  const origenRecordId = origenTipo === "operacion" ? cuenta.operacionId : cuenta.ordenId;
+  const hrefEmitirFactura =
+    origenTipo && origenRecordId
+      ? `/facturacion?origen=${origenTipo}&recordId=${encodeURIComponent(origenRecordId)}`
+      : null;
+
   const vinculoLabel =
     cuenta.ordenId && cuenta.operacionId
       ? `${cuenta.ordenIdVisible} ↔ ${cuenta.operacionCodigo}`
@@ -195,6 +211,27 @@ export function CuentaUnificadaPanel({ cuenta }: { cuenta: CuentaUnificada }) {
           {formatCurrency(Math.abs(cuenta.saldo))}
         </span>
       </div>
+
+      {hrefEmitirFactura && (
+        <div style={{ margin: "0 14px 14px" }}>
+          <Link
+            href={hrefEmitirFactura}
+            style={{
+              display: "block",
+              textAlign: "center",
+              borderRadius: "0.5rem",
+              padding: "10px 14px",
+              fontSize: "13px",
+              fontWeight: 700,
+              color: "#10110E",
+              background: "#D7FF4F",
+              textDecoration: "none",
+            }}
+          >
+            Emitir factura →
+          </Link>
+        </div>
+      )}
     </section>
   );
 }

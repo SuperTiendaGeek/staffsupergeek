@@ -720,7 +720,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
 
         {cuentaUnificada ? (
           <div className="mb-4">
-            <CuentaUnificadaPanel cuenta={cuentaUnificada} />
+            <CuentaUnificadaPanel cuenta={cuentaUnificada} origenTipo="operacion" />
           </div>
         ) : (
           <p className="mb-4 rounded-lg border border-dashed border-[#3A3A36]/50 px-4 py-4 text-center text-sm text-[#4A4A46]">
