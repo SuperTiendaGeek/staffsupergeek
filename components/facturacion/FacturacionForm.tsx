@@ -188,14 +188,23 @@ const LABEL = "block mb-1 text-xs font-semibold text-[#A7A7A7] uppercase trackin
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-// Tipo del payload guardado en Líneas JSON para borradores
+// Tipo del payload guardado en Líneas JSON para borradores.
+// version 2 (gancho Fase 16 PR2): agrega pagosPrecargados/origen/bannerOrigen
+// — antes solo se guardaba `formaPago` (el estado del mostrador), así que un
+// borrador guardado desde una pre-factura precargada perdía las formas de
+// pago reales (volvía a una sola "Efectivo" por el total al recuperarlo) y
+// el origen por completo. Un borrador version:1 sigue cargando igual que
+// siempre — los campos nuevos son opcionales.
 type BorradorPayload = {
-  version:     1;
+  version:     1 | 2;
   modoCliente: ModoCliente;
   cliente:     ClienteFactura;
   queryCliente:string;
   lineas:      LineaDetalle[];
   formaPago:   string;
+  pagosPrecargados?: Array<{ formaPago: string; total: number }> | null;
+  origen?:           OrigenGancho | null;
+  bannerOrigen?:     { ordenIdVisible: string | null; operacionCodigo: string | null } | null;
 };
 
 export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFinalLimite?: number }) {
@@ -413,12 +422,17 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         if (!d.success || !d.data?.lineasJson) return;
         try {
           const p = JSON.parse(d.data.lineasJson) as BorradorPayload;
-          if (p.version !== 1) return;
+          if (p.version !== 1 && p.version !== 2) return;
           setModoCliente(p.modoCliente);
           setCliente(p.cliente);
           setQueryCliente(p.queryCliente ?? "");
           setLineas(p.lineas);
           setFormaPago(p.formaPago);
+          if (p.version === 2) {
+            setPagosPrecargados(p.pagosPrecargados ?? null);
+            setOrigen(p.origen ?? null);
+            setBannerOrigen(p.bannerOrigen ?? null);
+          }
           setMsgBorrador("Borrador cargado");
           setTimeout(() => setMsgBorrador(null), 3000);
         } catch { /* payload inválido, ignorar */ }
@@ -499,12 +513,15 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
     setGuardando(true); setMsgBorrador(null); setErrGlobal(null);
     try {
       const payload: BorradorPayload = {
-        version: 1,
+        version: 2,
         modoCliente,
         cliente,
         queryCliente,
         lineas,
         formaPago,
+        pagosPrecargados,
+        origen,
+        bannerOrigen,
       };
       const lineasJson = JSON.stringify(payload);
       const body = {
