@@ -18,6 +18,7 @@ import {
   agruparTotalConImpuestos,
   evaluarItemNoListo,
   calcularFormasPago,
+  desglosarPrecioConIvaIncluido,
 } from "../gancho/construccion";
 
 let fallos = 0;
@@ -38,9 +39,30 @@ assert(derivarTipoIdentificacion("1792146739999") === "07", "13 dígitos NO term
 assert(derivarTipoIdentificacion("") === "07", "cédula vacía → consumidor final (07)");
 assert(derivarTipoIdentificacion("123") === "07", "longitud rara → consumidor final (07)");
 
+// ─── desglosarPrecioConIvaIncluido — cuadre al centavo ───────────────────────
+// Decisión de negocio: los precios de la cuenta unificada son finales CON
+// IVA incluido — el desglose debe reconstruir el precio final EXACTO
+// (base + valorIva === precioFinal), sin importar la acumulación de
+// redondeos de dividir por 1.15. Se prueba con precios "feos" a propósito.
+
+for (const precioFinal of [100, 50, 80, 35, 20, 46, 33.33, 10, 1, 0.01, 115, 19.99, 7.77]) {
+  const { base, valorIva } = desglosarPrecioConIvaIncluido(precioFinal, 15);
+  const reconstruido = Math.round((base + valorIva) * 100) / 100;
+  assert(
+    reconstruido === Math.round(precioFinal * 100) / 100,
+    `Cuadre al centavo (15%, precio $${precioFinal}): base ($${base}) + IVA ($${valorIva}) = $${reconstruido}, debe ser $${precioFinal}`
+  );
+}
+// tarifa 0: el precio final YA es la base, nada que desglosar
+{
+  const { base, valorIva } = desglosarPrecioConIvaIncluido(46, 0);
+  assert(base === 46, "Tarifa 0%: base = precio final tal cual");
+  assert(valorIva === 0, "Tarifa 0%: IVA = 0");
+}
+
 // ─── construirLineaProducto ───────────────────────────────────────────────────
 
-// Tarifa IVA explícita (0%)
+// Tarifa IVA explícita (0%) — precio final = base, sin nada que desglosar
 {
   const linea = construirLineaProducto(
     { id: "recITEM1", nombre: "Laptop reparada", precio: 100 },
@@ -51,17 +73,25 @@ assert(derivarTipoIdentificacion("123") === "07", "longitud rara → consumidor 
   assert(linea.codigoPrincipal === "REP-001", "Línea de producto: codigoPrincipal = SKU");
   assert(linea.impuestos[0].codigoPorcentaje === "2", "Tarifa IVA '0%' explícita → codigoPorcentaje '2'");
   assert(linea.impuestos[0].valor === 0, "Tarifa IVA '0%' explícita → IVA en $0");
-  assert(linea.precioTotalSinImpuesto === 100, "precioTotalSinImpuesto = precio (cantidad siempre 1)");
+  assert(linea.precioTotalSinImpuesto === 100, "0%: precioTotalSinImpuesto = precio final tal cual (nada que desglosar)");
+  assert(linea.precioUnitario === 100, "0%: precioUnitario = precio final tal cual");
 }
 
-// Sin Tarifa IVA (vacía) → default 15%
+// Sin Tarifa IVA (vacía) → default 15% — precio $80 CON IVA incluido, se
+// desglosa hacia adentro (no se suma IVA encima de 80)
 {
   const linea = construirLineaProducto(
     { id: "recITEM2", nombre: "Pantalla", precio: 80 },
     { sku: "REP-002", tarifaIva: "" }
   );
   assert(linea.impuestos[0].codigoPorcentaje === "4", "Sin Tarifa IVA → default 15% (codigoPorcentaje '4')");
-  assert(linea.impuestos[0].valor === 12, "Sin Tarifa IVA → IVA calculado sobre 15% (80 * 0.15 = 12)");
+  assert(linea.precioTotalSinImpuesto === 69.57, "IVA incluido: base = 80/1.15 = 69.57 (no 80)");
+  assert(linea.precioUnitario === 69.57, "IVA incluido: precioUnitario también en base, no en precio final");
+  assert(linea.impuestos[0].valor === 10.43, "IVA incluido: IVA = 80 - 69.57 = 10.43 (no 80*0.15=12)");
+  assert(
+    linea.precioTotalSinImpuesto + linea.impuestos[0].valor === 80,
+    "Cuadre exacto: base + IVA debe reconstruir el precio final ($80) al centavo"
+  );
 }
 
 // Sin detalle en absoluto (undefined) → también default 15%
@@ -69,16 +99,23 @@ assert(derivarTipoIdentificacion("123") === "07", "longitud rara → consumidor 
   const linea = construirLineaProducto({ id: "recITEM3", nombre: "Repuesto genérico", precio: 50 }, undefined);
   assert(linea.impuestos[0].codigoPorcentaje === "4", "Sin detalle (undefined) → default 15%");
   assert(linea.codigoPrincipal === undefined, "Sin detalle → sin codigoPrincipal (SKU desconocido)");
+  assert(linea.precioTotalSinImpuesto === 43.48, "IVA incluido: base = 50/1.15 = 43.48");
 }
 
 // ─── construirLineaServicio ───────────────────────────────────────────────────
+// costo también es precio final CON IVA incluido — mismo desglose.
 
 {
   const linea = construirLineaServicio({ nombre: "Diagnóstico", costo: 35 }, 1);
   assert(linea.tipo === "servicio", "Línea de servicio: tipo marcado como 'servicio'");
   assert(linea.codigoPrincipal === "SRV-1", "Línea de servicio: codigoPrincipal = SRV-<n>");
   assert(linea.impuestos[0].codigoPorcentaje === "4", "Servicio siempre a 15% (SERVICIO_IVA_DEFAULT)");
-  assert(linea.impuestos[0].valor === 5.25, "IVA de servicio calculado correctamente (35 * 0.15 = 5.25)");
+  assert(linea.precioTotalSinImpuesto === 30.43, "IVA incluido: base = 35/1.15 = 30.43 (no 35)");
+  assert(linea.impuestos[0].valor === 4.57, "IVA incluido: IVA = 35 - 30.43 = 4.57 (no 35*0.15=5.25)");
+  assert(
+    linea.precioTotalSinImpuesto + linea.impuestos[0].valor === 35,
+    "Cuadre exacto: base + IVA debe reconstruir el costo final del servicio ($35) al centavo"
+  );
   assert(!("shippingItemId" in linea) || linea.shippingItemId === undefined, "Línea de servicio no debe traer shippingItemId");
 }
 {
@@ -87,6 +124,7 @@ assert(derivarTipoIdentificacion("123") === "07", "longitud rara → consumidor 
 }
 
 // ─── agruparTotalConImpuestos ─────────────────────────────────────────────────
+// Mismos precios de antes, ahora interpretados como finales CON IVA incluido.
 
 {
   const detalles = [
@@ -99,11 +137,19 @@ assert(derivarTipoIdentificacion("123") === "07", "longitud rara → consumidor 
   const grupo15 = agrupado.find((t) => t.codigoPorcentaje === "4");
   const grupo0  = agrupado.find((t) => t.codigoPorcentaje === "2");
   assert(!!grupo15, "Debe existir un grupo para 15%");
-  assert(grupo15?.baseImponible === 170, "Grupo 15%: base = 100+50+20 = 170");
-  assert(Math.abs((grupo15?.valor ?? 0) - 25.5) < 0.001, "Grupo 15%: IVA = 170*0.15 = 25.5");
+  assert(grupo15?.baseImponible === 147.83, "Grupo 15%: base desglosada = 86.96+43.48+17.39 = 147.83 (no 170)");
+  assert(grupo15?.valor === 22.17, "Grupo 15%: IVA desglosado = 13.04+6.52+2.61 = 22.17 (no 170*0.15=25.5)");
   assert(!!grupo0, "Debe existir un grupo para 0%");
-  assert(grupo0?.baseImponible === 30, "Grupo 0%: base = 30");
+  assert(grupo0?.baseImponible === 30, "Grupo 0%: base = 30 (nada que desglosar)");
   assert(grupo0?.valor === 0, "Grupo 0%: IVA = 0");
+
+  const totalSinImpuestos = Math.round(detalles.reduce((s, d) => s + d.precioTotalSinImpuesto, 0) * 100) / 100;
+  const totalIva = Math.round(agrupado.reduce((s, t) => s + t.valor, 0) * 100) / 100;
+  const importeTotal = Math.round((totalSinImpuestos + totalIva) * 100) / 100;
+  assert(
+    importeTotal === 200,
+    `VALOR TOTAL debe reconstruir exacto la suma de precios finales (100+50+20+30=200) — vino $${importeTotal}`
+  );
 }
 
 // ─── evaluarItemNoListo ────────────────────────────────────────────────────────

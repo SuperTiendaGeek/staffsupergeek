@@ -17,6 +17,37 @@ export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// ─── Desglosar un precio con IVA incluido ────────────────────────────────────
+// Decisión de negocio confirmada: TODOS los precios de la cuenta unificada
+// (repuestos y servicios — "Precio venta final" / costo de servicio) son
+// precios finales CON IVA incluido, no bases. El SRI espera la base (sin
+// impuestos) en precioUnitario/precioTotalSinImpuesto y el IVA aparte en
+// <impuestos> — hay que desglosar hacia adentro, no sumar IVA encima.
+//
+// El IVA se calcula como el COMPLEMENTO de la base ya redondeada (precioFinal
+// - base), no como base*tarifa/100 de forma independiente — así
+// `base + valorIva` reconstruye EXACTO el precio final al centavo, sin
+// importar la acumulación de redondeos de dividir por 1.15. Con tarifa 0
+// (0%/Exento/No objeto) no hay nada que desglosar: el precio final YA es la
+// base.
+//
+// Nota: esto es específico del gancho (precios de Shipping Items/Servicios,
+// que sí son finales). El formulario manual de mostrador NO cambia — sigue
+// tratando precioUnitario como base y sumando IVA encima, en
+// FacturacionForm.tsx (calcularTotales/handleEmitir), código que esta
+// función no toca.
+export function desglosarPrecioConIvaIncluido(
+  precioFinal: number,
+  tarifa: number
+): { base: number; valorIva: number } {
+  if (tarifa === 0) {
+    return { base: round2(precioFinal), valorIva: 0 };
+  }
+  const base = round2(precioFinal / (1 + tarifa / 100));
+  const valorIva = round2(precioFinal - base);
+  return { base, valorIva };
+}
+
 // ─── Derivar tipo de identificación (Decisión, ver diseño §4.1) ──────────────
 // 10 dígitos → cédula (05); 13 dígitos terminados en 001 → RUC (04);
 // cualquier otra cosa (o sin cliente vinculado) → consumidor final (07).
@@ -28,19 +59,21 @@ export function derivarTipoIdentificacion(cedula: string): "04" | "05" | "07" {
 }
 
 // ─── Línea de producto (Shipping Item) ───────────────────────────────────────
+// item.precio es el precio final CON IVA incluido (Decisión de negocio) —
+// se desglosa hacia adentro, precioUnitario/precioTotalSinImpuesto quedan
+// en base (sin impuestos), igual que en cualquier otra línea de factura.
 export function construirLineaProducto(
   item: Pick<CuentaUnificadaItem, "id" | "nombre" | "precio">,
   detalle: Pick<ItemDetalleGancho, "sku" | "tarifaIva"> | undefined
 ): DetalleFactura {
   const tarifaKey = detalle?.tarifaIva || "15%";
   const { codigoPorcentaje, tarifa } = TARIFA_IVA_SRI[tarifaKey] ?? TARIFA_IVA_ITEM_DEFAULT;
-  const base = round2(item.precio);
-  const valorIva = round2(base * (tarifa / 100));
+  const { base, valorIva } = desglosarPrecioConIvaIncluido(item.precio, tarifa);
   return {
     codigoPrincipal: detalle?.sku || undefined,
     descripcion:     item.nombre,
     cantidad:        1,
-    precioUnitario:  item.precio,
+    precioUnitario:  base,
     descuento:       0,
     precioTotalSinImpuesto: base,
     impuestos: [{ codigo: "2", codigoPorcentaje, tarifa, baseImponible: base, valor: valorIva }],
@@ -50,18 +83,18 @@ export function construirLineaProducto(
 }
 
 // ─── Línea de servicio ────────────────────────────────────────────────────────
+// servicio.costo también es precio final CON IVA incluido (misma decisión).
 export function construirLineaServicio(
   servicio: Pick<CuentaUnificadaServicio, "nombre" | "costo">,
   indiceUnoBasado: number
 ): DetalleFactura {
   const { codigoPorcentaje, tarifa } = SERVICIO_IVA_DEFAULT;
-  const base = round2(servicio.costo);
-  const valorIva = round2(base * (tarifa / 100));
+  const { base, valorIva } = desglosarPrecioConIvaIncluido(servicio.costo, tarifa);
   return {
     codigoPrincipal: `SRV-${indiceUnoBasado}`,
     descripcion:     servicio.nombre,
     cantidad:        1,
-    precioUnitario:  servicio.costo,
+    precioUnitario:  base,
     descuento:       0,
     precioTotalSinImpuesto: base,
     impuestos: [{ codigo: "2", codigoPorcentaje, tarifa, baseImponible: base, valor: valorIva }],
