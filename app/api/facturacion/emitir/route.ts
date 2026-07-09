@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitirFactura";
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
+import { buscarFacturaBloqueante } from "@/lib/facturacion/gancho/idempotencia";
 
 export const dynamic = "force-dynamic";
 // La autorización puede tardar hasta 60 s; extendemos el timeout del route.
@@ -27,6 +28,27 @@ export async function POST(request: Request) {
   }
   if (!Array.isArray(body.pagos) || body.pagos.length === 0) {
     return NextResponse.json({ success: false, error: "Al menos una forma de pago requerida" }, { status: 400 });
+  }
+
+  // Fase 16 PR2: si viene de una orden/operación, re-verificar idempotencia
+  // server-side justo antes de emitir — la UI ya lo habrá bloqueado antes
+  // (en /api/facturacion/prefactura), pero la regla no puede ser saltable
+  // con un request directo al API.
+  if (body.origen) {
+    const bloqueante = await buscarFacturaBloqueante(body.origen).catch((e) => {
+      console.error("[/api/facturacion/emitir POST] error verificando idempotencia:", e);
+      return null;
+    });
+    if (bloqueante) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Esta ${body.origen.tipo === "orden" ? "orden" : "operación"} ya tiene una factura ` +
+                 `${bloqueante.estado} (${bloqueante.numeroFactura || bloqueante.claveAcceso}).`,
+        },
+        { status: 409 }
+      );
+    }
   }
 
   try {
