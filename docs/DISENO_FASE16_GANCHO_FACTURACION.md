@@ -91,19 +91,25 @@ Módulo nuevo `lib/facturacion/gancho/` (nombre sugerido), sin tocar los módulo
 
 ### 4.2 Líneas de producto (descuentan inventario)
 - Origen: `items` de `getCuentaUnificada()` (Shipping Items de la cuenta).
-- Mapeo: `codigoPrincipal` = SKU · `descripcion` = nombre del item · `cantidad` = cantidad · `precioUnitario` = precio de la cuenta unificada · IVA = `Tarifa IVA` del item (default 15% si vacío).
+- **Precios con IVA incluido (decisión confirmada, PR2):** `precio` (Shipping Items."Precio venta final") es el precio final que paga el cliente, CON IVA ya incluido — no una base. El traductor lo **desglosa hacia adentro** según la tarifa de la línea, en vez de sumar IVA encima:
+  - Tarifa `15%`: `base = precioFinal / 1.15` redondeado a centavos; el IVA se calcula como el **complemento** (`precioFinal - base`), no como `base * 0.15` de forma independiente — así `base + IVA` reconstruye el precio final **exacto al centavo**, sin importar la acumulación de redondeos de la división.
+  - Tarifa `0%` / `Exento` / `No objeto`: no hay nada que desglosar — el precio final ya es la base, IVA = 0.
+  - Consecuencia directa: el **VALOR TOTAL de la factura del gancho es igual al `totalCuenta` de la cuenta unificada** (suma de precios finales), no un total con IVA añadido encima.
+- Mapeo: `codigoPrincipal` = SKU · `descripcion` = nombre del item · `cantidad` = 1 (los items de Shipping Items no traen cantidad propia) · `precioUnitario`/`precioTotalSinImpuesto` = la **base** ya desglosada (no el precio final) · IVA = `Tarifa IVA` del item (default 15% si vacío).
 - **Precondición dura:** cada item debe estar `Reservado` y sin link `Factura` previo. Si no, la pre-factura lo reporta y bloquea (no se factura inventario en estado inconsistente).
 - Estas líneas llevan marca interna `tipo: "producto"` — es lo que el post-emisión usa para saber qué items marcar como Vendido. La marca viaja dentro de `Líneas JSON` (campo nuevo del JSON, versionado), no cambia el XML SRI.
+- Esta decisión es **específica del gancho** — el formulario manual de mostrador (`FacturacionForm.tsx`) sigue tratando `precioUnitario` como base y sumando IVA encima (código y cálculo completamente separados, sin tocar).
 
 ### 4.3 Líneas de servicio (no tocan inventario)
 - Origen: `servicios` de `getCuentaUnificada()`.
-- Mapeo: `codigoPrincipal` = `SRV-<consecutivo>` · `descripcion` = nombre del servicio · `cantidad` = 1 · `precioUnitario` = costo · IVA = 15% (constante, editable).
+- **Mismo criterio de IVA incluido que 4.2:** `costo` es el precio final con IVA incluido — se desglosa igual (base = costo/1.15, IVA = complemento) en vez de sumarse encima.
+- Mapeo: `codigoPrincipal` = `SRV-<consecutivo>` · `descripcion` = nombre del servicio · `cantidad` = 1 · `precioUnitario`/`precioTotalSinImpuesto` = la base desglosada · IVA = 15% (constante, editable).
 - Marca interna `tipo: "servicio"` — el post-emisión las ignora.
 
 ### 4.4 Formas de pago
-- Cada abono registrado de la cuenta se traduce a su código SRI según método de pago (mapa método→código en config; efectivo `01`, tarjetas `19`/`16`, transferencia `20`, etc. — Claude Code debe proponer el mapa completo leyendo los métodos reales de la tabla Abonos y dejarlo en config revisable).
+- Cada abono registrado de la cuenta se traduce a su código SRI según método de pago. Mapa confirmado (PR2, `lib/facturacion/gancho/config.ts`) contra el select real de Abonos."Método de Pago" (7 valores exactos, vía Airtable Metadata API): `Efectivo→01`, `Transferencia→20`, `Tarjeta→19` (crédito — Abonos no distingue débito/crédito, no hay campo para eso hoy), `Depósito→20`, `PayPal→20`, `PayPhone→20`, `Otro→20`.
 - Si hay **saldo pendiente** al facturar el total, se agrega una forma de pago adicional por el saldo (default `01`, editable en el formulario, con plazo si aplica).
-- La suma de formas de pago debe cuadrar con el total — validación en el traductor y de nuevo server-side.
+- La suma de formas de pago debe cuadrar con el total — validación en el traductor y de nuevo server-side (`assertPagosCuadranConTotal`, dentro de `emitirFactura()`).
 
 ### 4.5 Origen e idempotencia
 - El request de emisión lleva `origen: { tipo: "orden"|"operacion", recordId }` cuando viene del gancho (ausente en mostrador).
