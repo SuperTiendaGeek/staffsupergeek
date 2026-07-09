@@ -829,9 +829,8 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       <Card titulo="2. Productos / Servicios">
         {/* Aviso IVA */}
         <p className="mb-3 text-xs text-[#FFB07A] bg-[#FF914D]/10 border border-[#FF914D]/30 rounded px-3 py-2">
-          <strong>NOTA:</strong> Los productos de Shipping Items no tienen campo de IVA registrado.
-          Se asigna IVA 15% por defecto; puedes ajustarlo por línea. Agrega el campo "Tarifa IVA"
-          a la tabla Shipping Items para automatizarlo.
+          <strong>NOTA:</strong> Los productos de este buscador no traen una tarifa de IVA asignada
+          — se asigna 15% por defecto; ajústalo por línea si corresponde.
         </p>
 
         {/* Buscador de productos */}
