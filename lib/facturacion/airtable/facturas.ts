@@ -58,6 +58,12 @@ export type FacturaAirtableInput = {
   mensajesSri?:         MensajeSRI[];
   lineasJson?:          string;   // JSON serializado del array de detalles / payload borrador
   estadoCorreo?:        EstadoCorreo;
+  // Fase 16 PR2 (gancho): links de vuelta a la orden/operación/cliente de
+  // origen — base de la idempotencia (campo inverso "Facturas Electrónicas"
+  // en Órdenes/Operación). Ausentes en facturas de mostrador.
+  ordenId?:             string;
+  operacionId?:         string;
+  clienteId?:           string;
 };
 
 export type FacturaAirtableRecord = FacturaAirtableInput & {
@@ -243,6 +249,10 @@ export async function crearRegistroFactura(
     "Subtotal":                input.subtotal,
     "IVA":                     input.iva,
     "Total":                   input.total,
+    // Fase 16 PR2: siempre "N/A" al crear — el estado real (PENDIENTE/OK/
+    // ERROR) lo asigna postEmision() en Fase 16 PR3. Se setea para todas
+    // las facturas (mostrador incluido), no solo las del gancho.
+    "Sincronización Inventario": "N/A",
   };
 
   if (input.numeroAutorizacion)   fields["Número de Autorización"] = input.numeroAutorizacion;
@@ -251,6 +261,11 @@ export async function crearRegistroFactura(
   if (mensajesTexto)              fields["Mensajes SRI"]           = mensajesTexto;
   if (input.lineasJson)           fields["Líneas JSON"]            = input.lineasJson;
   if (input.estadoCorreo)         fields["Estado Correo"]          = input.estadoCorreo;
+  // Fase 16 PR2: links al origen — base de la idempotencia (campo inverso
+  // "Facturas Electrónicas" en Órdenes de Reparación / Operación Comercial).
+  if (input.ordenId)              fields["Orden"]                  = [input.ordenId];
+  if (input.operacionId)          fields["Operación"]               = [input.operacionId];
+  if (input.clienteId)            fields["Cliente"]                 = [input.clienteId];
 
   const body = await airtableRequest<{ id: string }>(tableUrl(), {
     method: "POST",
