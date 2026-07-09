@@ -33,6 +33,7 @@ import { generarRide }            from "./ride/generarRide";
 import { enviarRide }             from "./correo/enviarRide";
 import { assertConsumidorFinalPermitido } from "./reglas/consumidorFinal";
 import { assertXmlValidoSri }     from "./reglas/validacionXsd";
+import { assertPagosCuadranConTotal } from "./reglas/pagos";
 
 import type { FacturaInput,
               DetalleFactura,
@@ -44,6 +45,11 @@ import type { RideInput }         from "./ride/generarRide";
 export { FacturacionRechazoError } from "./errores";
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
+
+// Fase 16 PR2: origen desde el gancho Cuenta Unificada (orden/operación).
+// Ausente en el flujo de mostrador. Se usa para idempotencia (releer antes
+// de emitir) y para vincular la factura de vuelta al persistir.
+export type OrigenGancho = { tipo: "orden" | "operacion"; recordId: string };
 
 export type DatosVenta = {
   tipoIdentificacionComprador: string;
@@ -63,6 +69,11 @@ export type DatosVenta = {
   dirEstablecimiento?:         string;
   contribuyenteEspecial?:      string;
   guiaRemision?:               string;
+  // Fase 16 PR2 (gancho): presentes solo cuando la emisión viene de una
+  // orden/operación vía cuentaUnificadaToDatosVenta(). record id real de
+  // Clientes, si el origen tiene cliente vinculado.
+  origen?:                     OrigenGancho;
+  clienteRecordId?:            string;
 };
 
 export type ResultadoEmision = {
@@ -104,6 +115,11 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
     datos.importeTotal,
     getConsumidorFinalLimite()
   );
+
+  // El formulario manual siempre manda una sola forma de pago igual al
+  // total (nunca dispara esto); el gancho de Fase 16 arma varias líneas
+  // (abonos + saldo) y necesita esta red de seguridad server-side.
+  assertPagosCuadranConTotal(datos.pagos, datos.importeTotal);
 
   const cfg         = getFacturacionConfig();
   const fechaEmision = new Date();
@@ -316,11 +332,16 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
     }
 
     // ── 8. Persistir (Airtable + disco) ────────────────────────────────────
+    // version 3 (Fase 16 PR2): agrega "origen" y el "tipo" por línea (ya
+    // dentro de cada objeto de "detalles", ver types/factura.ts). version 2
+    // (sin estos dos) sigue siendo válida de leer — los campos nuevos son
+    // opcionales. El XML del SRI no cambia con ninguna de las dos versiones.
     const lineasJson = JSON.stringify({
-      version:       2,
+      version:       3,
       detalles:      datos.detalles,
       formaPago:     datos.pagos[0]?.formaPago,
       infoAdicional: infoAdicionalFinal.length ? infoAdicionalFinal : undefined,
+      origen:        datos.origen,
     });
 
     const recordId = await persistirAutorizado({
@@ -342,6 +363,9 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
       xmlAutorizado: autorizacion.xmlAutorizado,
       ridePdf,
       lineasJson,
+      ordenId:     datos.origen?.tipo === "orden" ? datos.origen.recordId : undefined,
+      operacionId: datos.origen?.tipo === "operacion" ? datos.origen.recordId : undefined,
+      clienteId:   datos.clienteRecordId,
     });
 
     // ── 9. Enviar correo (best-effort) + persistir Estado Correo ───────────

@@ -35,6 +35,13 @@ export type DetalleFactura = {
   precioTotalSinImpuesto: number;
   detallesAdicionales?: DetalleAdicional[];  // máx 3
   impuestos: ImpuestoDetalle[];
+  // Fase 16 PR2 (gancho cuenta unificada): marca de origen de la línea —
+  // nunca se serializa al XML del SRI (construirFacturaXml no la lee), solo
+  // viaja en "Líneas JSON" para que un futuro postEmision() (Fase 16 PR3)
+  // sepa qué líneas corresponden a Shipping Items a marcar como Vendido.
+  tipo?: "producto" | "servicio";
+  // record id del Shipping Item de origen, solo si tipo === "producto".
+  shippingItemId?: string;
 };
 
 // ─── Totales de impuesto ─────────────────────────────────────────────────────
