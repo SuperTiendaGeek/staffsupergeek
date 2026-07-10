@@ -180,3 +180,13 @@ Respaldo de la base antes del cutover de cada PR que escriba en tablas de produc
 - Notas de crédito / anulación (Fase 18). El estado `ANULADA` sigue sin asignarse.
 - Escritura en Shipping Finanzas Movimientos / libro central (Fase 20).
 - Lock distribuido del secuencial y persistencia durable en disco (riesgos documentados; se resuelven en Fase 17).
+- Marcar inventario elegido a mano en el buscador de productos del formulario de mostrador (`agregarProducto()` en `FacturacionForm.tsx`) — aunque ese buscador sí resuelve contra un Shipping Item real, esas líneas nunca llevan la marca `tipo:"producto"`/`shippingItemId` que usa `postEmision()`, a propósito: "marcar inventario de mostrador" es un hueco conocido, ver PR 4 más abajo.
+
+## 9. PR 4 — pulido post-facturación (pendiente)
+
+Acordado durante PR 3, no construido todavía:
+
+1. **Congelar la orden facturada:** al facturar (vía el gancho), congelar en la orden las tarjetas que alteran la cuenta unificada — repuestos, servicios, productos digitales — para que no se puedan seguir editando/agregando/quitando después de facturada (la factura ya es un documento fiscal fijo; la cuenta que la originó no debería poder seguir moviéndose por debajo). Mantener vivos: abonos, historial de mensajes, archivos adjuntos y el estado general de la orden — esas partes siguen siendo operativas después de facturar.
+2. **Mostrar la factura en la orden:** una vez emitida, mostrar la factura vinculada (con descarga directa del RIDE) en el detalle de la orden (`/tecnicos/ordenes/[id]`) y agregar una columna clicable en el listado `/tecnicos/ordenes` para saltar directo a ella — hoy la única forma de verla es buscarla en el historial de facturación.
+
+Ninguno de los dos bloquea PR 3: la reserva/venta de inventario y la sincronización ya quedan completas sin esto — son mejoras de UX/integridad de datos para una fase posterior.
