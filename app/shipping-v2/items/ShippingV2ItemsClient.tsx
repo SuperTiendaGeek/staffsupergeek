@@ -3,15 +3,18 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import { Printer, Tag } from "lucide-react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHIPPING_V2_ITEM_EDIT_FIELDS, type ShippingV2ItemEditFieldConfig } from "@/lib/shipping-v2/item-edit-config";
 import { createShippingV2ProveedorLabelMap, getShippingV2ProveedorLabel, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
+import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
 import {
   type ShippingV2Attachment,
   type ShippingV2Item,
@@ -925,6 +928,16 @@ function SmallDataRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+function shippingV2SkuLabelHref(itemId: string) {
+  return `/shipping-v2/recepcion/etiqueta/${encodeURIComponent(itemId)}`;
+}
+
+function shippingV2TechnicalSheetHref(item: Pick<ShippingV2Item, "id" | "technicalSheet">) {
+  return isFichaGenerada(item)
+    ? `/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}/print?print=1`
+    : `/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}`;
+}
+
 export function ShippingV2ItemDetailView({
   item: initialItem,
   proveedores,
@@ -1145,6 +1158,9 @@ export function ShippingV2ItemDetailView({
     },
   ];
   const activeSection = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
+  const fichaGenerada = isFichaGenerada(item);
+  const fichaHref = shippingV2TechnicalSheetHref(item);
+  const skuLabelHref = shippingV2SkuLabelHref(item.id);
 
   return (
     <div className="w-full max-w-none space-y-3">
@@ -1207,32 +1223,60 @@ export function ShippingV2ItemDetailView({
 
         <main className="space-y-3 xl:col-span-8 2xl:col-span-9">
           <article className="rounded-xl border border-[#30312D] bg-[#171814] p-4 shadow-xl shadow-black/15">
-            <div className="flex flex-wrap gap-2">
-              <EstadoBadge estado={item.estado} />
-              <OperationBadge value={item.tipoOperacion} />
-              <AvailabilityBadge item={item} />
-              {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-2.5 py-0.5 text-[12px] font-semibold text-[#FFB07A]">Con novedad</span> : null}
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap gap-2">
+                  <EstadoBadge estado={item.estado} />
+                  <OperationBadge value={item.tipoOperacion} />
+                  <AvailabilityBadge item={item} />
+                  {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-2.5 py-0.5 text-[12px] font-semibold text-[#FFB07A]">Con novedad</span> : null}
+                </div>
+                <InlineEditableField
+                  label={C.nombre.label}
+                  value={item.nombre}
+                  type={C.nombre.type}
+                  displayValue={displayName(item.nombre)}
+                  hideLabel
+                  className="mt-3 rounded-lg transition"
+                  valueClassName="min-h-8 break-words text-2xl font-semibold leading-tight text-[#F5F5F5] lg:text-3xl"
+                  onSave={(value) => saveField(C.nombre.field, value)}
+                />
+                <InlineEditableField
+                  label={C.descripcion.label}
+                  value={item.descripcion}
+                  type={C.descripcion.type}
+                  displayValue={displayValue(item.descripcion, "Sin descripción registrada.")}
+                  hideLabel
+                  className="mt-2 rounded-lg transition"
+                  valueClassName="min-h-5 break-words text-sm leading-6 text-[#A7A7A7]"
+                  onSave={(value) => saveField(C.descripcion.field, value)}
+                />
+              </div>
+              <TooltipProvider delayDuration={200}>
+                <div className="flex shrink-0 items-center gap-1.5 lg:self-center">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link href={fichaHref} target={fichaGenerada ? "_blank" : undefined} rel={fichaGenerada ? "noreferrer" : undefined} aria-label={fichaGenerada ? "Imprimir ficha" : "Preparar ficha"} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] text-[#F5F5F5] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35">
+                        <Printer className="h-4 w-4" aria-hidden="true" />
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="bg-[#252622] text-[#F5F5F5]">
+                      {fichaGenerada ? "Imprimir ficha" : "Preparar ficha"}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link href={skuLabelHref} target="_blank" rel="noreferrer" aria-label="Imprimir etiqueta SKU" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] text-[#F5F5F5] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35">
+                        <Tag className="h-4 w-4" aria-hidden="true" />
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="bg-[#252622] text-[#F5F5F5]">
+                      Imprimir etiqueta SKU
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              </TooltipProvider>
             </div>
-            <InlineEditableField
-              label={C.nombre.label}
-              value={item.nombre}
-              type={C.nombre.type}
-              displayValue={displayName(item.nombre)}
-              hideLabel
-              className="mt-3 rounded-lg transition"
-              valueClassName="min-h-8 break-words text-2xl font-semibold leading-tight text-[#F5F5F5] lg:text-3xl"
-              onSave={(value) => saveField(C.nombre.field, value)}
-            />
-            <InlineEditableField
-              label={C.descripcion.label}
-              value={item.descripcion}
-              type={C.descripcion.type}
-              displayValue={displayValue(item.descripcion, "Sin descripción registrada.")}
-              hideLabel
-              className="mt-2 rounded-lg transition"
-              valueClassName="min-h-5 break-words text-sm leading-6 text-[#A7A7A7]"
-              onSave={(value) => saveField(C.descripcion.field, value)}
-            />
           </article>
 
           {hasAiNameSuggestion ? (
