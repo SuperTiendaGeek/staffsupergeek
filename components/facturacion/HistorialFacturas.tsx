@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, Fragment } from "react";
 import Link from "next/link";
-import type { FacturaHistorial, EstadoFactura, EstadoCorreo } from "@/lib/facturacion/airtable/facturas";
+import type { FacturaHistorial, EstadoFactura, EstadoCorreo, EstadoSincronizacionInventario } from "@/lib/facturacion/airtable/facturas";
 
 // ─── Etiquetas visuales (solo UI, no tocan valores internos) ─────────────────
 
@@ -40,6 +40,22 @@ const CORREO_COLOR: Record<EstadoCorreo, string> = {
 const AMBIENTE_COLOR: Record<string, string> = {
   PRUEBAS:    "bg-yellow-900/30 text-yellow-400 border-yellow-700/40",
   PRODUCCIÓN: "bg-blue-900/30 text-blue-300 border-blue-700/40",
+};
+
+// Sincronización de inventario (Fase 16 PR3) — N/A es el caso normal de
+// mostrador, no se muestra nada especial. PENDIENTE/ERROR sí necesitan
+// llamar la atención (proceso interrumpido o fallido).
+const SYNC_LABEL: Record<EstadoSincronizacionInventario, string> = {
+  "N/A":       "",
+  PENDIENTE:   "Sincronización de inventario interrumpida",
+  OK:          "Inventario sincronizado",
+  ERROR:       "Error al sincronizar inventario",
+};
+const SYNC_COLOR: Record<EstadoSincronizacionInventario, string> = {
+  "N/A":       "",
+  PENDIENTE:   "text-yellow-300",
+  OK:          "text-emerald-400",
+  ERROR:       "text-red-400",
 };
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -289,6 +305,34 @@ function DetallePanel({
               <p className="text-xs text-yellow-200/70 mt-0.5">
                 XML y/o RIDE no subidos a Airtable. El comprobante autorizado está respaldado en disco.
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Sincronización de inventario (Fase 16 PR3) — solo facturas del
+            gancho con PENDIENTE (proceso interrumpido) o ERROR muestran
+            aviso; N/A (mostrador) y OK no necesitan nada aquí. */}
+        {(factura.sincronizacionInventario === "PENDIENTE" || factura.sincronizacionInventario === "ERROR") && (
+          <div className={`rounded-xl border px-3 py-2.5 flex items-start gap-2 ${
+            factura.sincronizacionInventario === "ERROR"
+              ? "border-red-700/50 bg-red-900/20"
+              : "border-yellow-700/50 bg-yellow-900/20"
+          }`}>
+            <span className={`text-base leading-none mt-0.5 ${factura.sincronizacionInventario === "ERROR" ? "text-red-400" : "text-yellow-400"}`}>⚠</span>
+            <div className="flex-1">
+              <p className={`text-sm font-semibold ${SYNC_COLOR[factura.sincronizacionInventario]}`}>
+                {SYNC_LABEL[factura.sincronizacionInventario]}
+              </p>
+              {factura.errorSincronizacion && (
+                <p className="text-xs text-red-200/70 mt-0.5 break-words">{factura.errorSincronizacion}</p>
+              )}
+              <button
+                disabled={!!accion}
+                onClick={() => doAccion(`/api/facturacion/historial/${factura.recordId}/sincronizar`, "Sincronizar inventario")}
+                className="mt-2 rounded-full border border-yellow-700/50 px-3 py-1.5 text-xs text-yellow-300 hover:border-yellow-400 disabled:opacity-40 flex items-center gap-1"
+              >
+                {accion === "Sincronizar inventario" ? <><SpinnerIcon /> Sincronizando…</> : "↺ Reintentar sincronización"}
+              </button>
             </div>
           </div>
         )}
@@ -716,7 +760,12 @@ export function HistorialFacturas() {
               {/* Mobile layout */}
               <div className="md:hidden flex justify-between items-start mb-1">
                 <span className="text-sm font-mono text-[#A7A7A7]">{f.numeroFactura || "BORRADOR"}</span>
-                <Badge cls={ESTADO_COLOR[f.estado]} text={ESTADO_LABEL[f.estado]} />
+                <span className="flex items-center gap-1">
+                  {(f.sincronizacionInventario === "PENDIENTE" || f.sincronizacionInventario === "ERROR") && (
+                    <span title={SYNC_LABEL[f.sincronizacionInventario]} className={SYNC_COLOR[f.sincronizacionInventario]}>⚠</span>
+                  )}
+                  <Badge cls={ESTADO_COLOR[f.estado]} text={ESTADO_LABEL[f.estado]} />
+                </span>
               </div>
               <div className="md:hidden flex justify-between items-center">
                 <span className="text-xs text-[#666]">{f.clienteNombre} · {fmt(f.fechaEmision)}</span>
@@ -728,8 +777,11 @@ export function HistorialFacturas() {
               <span className="hidden md:block text-sm font-mono text-[#F5F5F5] group-hover:text-[#D7FF4F]">{f.numeroFactura || <em className="text-[#555] not-italic">borrador</em>}</span>
               <span className="hidden md:block text-sm text-[#A7A7A7] truncate">{f.clienteNombre}</span>
               <span className="hidden md:block text-sm font-bold text-[#D7FF4F] text-right">{mon(f.total)}</span>
-              <span className="hidden md:flex items-center">
+              <span className="hidden md:flex items-center gap-1.5">
                 <Badge cls={ESTADO_COLOR[f.estado]} text={ESTADO_LABEL[f.estado]} />
+                {(f.sincronizacionInventario === "PENDIENTE" || f.sincronizacionInventario === "ERROR") && (
+                  <span title={SYNC_LABEL[f.sincronizacionInventario]} className={SYNC_COLOR[f.sincronizacionInventario]}>⚠</span>
+                )}
               </span>
               <span className={`hidden md:block text-xs ${CORREO_COLOR[f.estadoCorreo]}`}>
                 {CORREO_LABEL[f.estadoCorreo]}
