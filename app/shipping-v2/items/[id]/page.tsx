@@ -5,9 +5,19 @@ import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSyste
 import { Button } from "@/components/ui/button";
 import { canAccessApp } from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
-import { getShippingV2AccessContextForSession, getShippingV2ItemById, getShippingV2NovedadesForItem, getShippingV2PackingById, getShippingV2PagoById, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
+import {
+  getShippingV2AccessContextForSession,
+  getShippingV2ItemById,
+  getShippingV2ItemNavigation,
+  getShippingV2NovedadesForItem,
+  getShippingV2PackingById,
+  getShippingV2PagoById,
+  getShippingV2Proveedores,
+  type ShippingV2ItemNavigation,
+} from "@/lib/shipping-v2/airtable";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import type { ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Pago, ShippingV2Proveedor } from "@/types/shipping-v2";
+import { ShippingV2ItemHeaderNavigation } from "./ShippingV2ItemHeaderNavigation";
 import { ShippingV2ItemDetailView, type ResolvedItem } from "../ShippingV2ItemsClient";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +30,14 @@ function displayValue(value?: string | null, fallback = "-") {
   const stringValue = String(value ?? "").trim();
   return stringValue || fallback;
 }
+
+const emptyItemNavigation: ShippingV2ItemNavigation = {
+  previous: null,
+  next: null,
+  index: null,
+  total: 0,
+  items: [],
+};
 
 function isNotFoundError(error: unknown) {
   return error instanceof Error && error.message.includes("Airtable Shipping V2 error 404");
@@ -69,17 +87,23 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
   let packing: ShippingV2Packing | null = null;
   let proveedores: ShippingV2Proveedor[] = [];
   let novedades: ShippingV2Novedad[] = [];
+  let navigation = emptyItemNavigation;
   let error = "";
   let notFound = false;
 
   try {
-    const [loadedItem, loadedProveedores, loadedNovedades] = await Promise.all([
+    const [loadedItem, loadedProveedores, loadedNovedades, loadedNavigation] = await Promise.all([
       getShippingV2ItemById(id),
       getShippingV2Proveedores(),
       getShippingV2NovedadesForItem(id),
+      getShippingV2ItemNavigation(id).catch((navigationError) => {
+        console.warn("No se pudo cargar navegación de item Shipping V2:", navigationError);
+        return emptyItemNavigation;
+      }),
     ]);
     proveedores = loadedProveedores;
     novedades = loadedNovedades;
+    navigation = loadedNavigation;
     item = resolveItem(loadedItem, proveedores);
     const access = await getShippingV2AccessContextForSession(session);
     const [loadedPago, loadedPacking] = await Promise.all([
@@ -113,9 +137,12 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
             title={displayValue(item.nombre, "Item sin nombre")}
             description={`${displayValue(item.sku)} / ${displayValue(item.estado)} / ${displayValue(item.tipoOperacion)}`}
             actions={
-              <Button asChild className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
-                <Link href="/shipping-v2/items">Volver a Items</Link>
-              </Button>
+              <>
+                <ShippingV2ItemHeaderNavigation currentItemId={item.id} navigation={navigation} />
+                <Button asChild className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
+                  <Link href="/shipping-v2/items">Volver a Items</Link>
+                </Button>
+              </>
             }
           />
           <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} />

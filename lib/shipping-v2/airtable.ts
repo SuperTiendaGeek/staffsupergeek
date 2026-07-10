@@ -832,7 +832,7 @@ async function getRecordById(tableName: string, recordId: string) {
   return (await response.json()) as AirtableRecordResponse;
 }
 
-async function listRecords(tableName: string, options: { maxRecords?: number; pageSize?: number; sortField?: string; sortDirection?: "asc" | "desc"; filterByFormula?: string } = {}) {
+async function listRecords(tableName: string, options: { maxRecords?: number; pageSize?: number; sortField?: string; sortDirection?: "asc" | "desc"; filterByFormula?: string; fields?: string[] } = {}) {
   const records: AirtableRecord[] = [];
   let offset: string | null = null;
 
@@ -841,6 +841,7 @@ async function listRecords(tableName: string, options: { maxRecords?: number; pa
     url.searchParams.set("pageSize", String(options.pageSize ?? 100));
     if (options.maxRecords) url.searchParams.set("maxRecords", String(options.maxRecords));
     if (options.filterByFormula) url.searchParams.set("filterByFormula", options.filterByFormula);
+    options.fields?.forEach((field) => url.searchParams.append("fields[]", field));
     if (options.sortField) {
       url.searchParams.append("sort[0][field]", options.sortField);
       url.searchParams.append("sort[0][direction]", options.sortDirection ?? "desc");
@@ -987,6 +988,21 @@ function rankComputerCatalogEntry(entry: ShippingV2ComputerCatalogEntry, brand: 
 
 type MapItemOptions = { includeAiName?: boolean };
 type MapPackingOptions = { includeItems?: boolean; includeAiName?: boolean };
+
+export type ShippingV2ItemNavigationEntry = Pick<ShippingV2Item, "id" | "sku" | "nombre">;
+
+export type ShippingV2ItemNavigation = {
+  previous: ShippingV2ItemNavigationEntry | null;
+  next: ShippingV2ItemNavigationEntry | null;
+  index: number | null;
+  total: number;
+  items: ShippingV2ItemNavigationEntry[];
+};
+
+type ShippingV2ItemListOrderEntry = ShippingV2ItemNavigationEntry & {
+  createdTime?: string;
+  fechaRegistro?: string;
+};
 
 function mapItem(record: AirtableRecord, options: MapItemOptions = {}): ShippingV2Item {
   assertShippingV2GeneratedSchema();
@@ -1431,13 +1447,79 @@ export async function getShippingV2Items(options: MapItemOptions = {}) {
   });
   return records
     .map((record) => mapItem(record, options))
-    .sort((a, b) => {
-      const aTime = Date.parse(a.fechaRegistro || a.createdTime || "");
-      const bTime = Date.parse(b.fechaRegistro || b.createdTime || "");
-      const safeATime = Number.isNaN(aTime) ? -Infinity : aTime;
-      const safeBTime = Number.isNaN(bTime) ? -Infinity : bTime;
-      return safeBTime - safeATime;
-    });
+    .sort(compareShippingV2ItemListOrder);
+}
+
+function shippingV2ListTime(value?: string) {
+  const parsed = Date.parse(value || "");
+  return Number.isNaN(parsed) ? -Infinity : parsed;
+}
+
+function compareShippingV2ItemListOrder(a: ShippingV2ItemListOrderEntry, b: ShippingV2ItemListOrderEntry) {
+  const registeredDiff = shippingV2ListTime(b.fechaRegistro) - shippingV2ListTime(a.fechaRegistro);
+  if (registeredDiff !== 0) return registeredDiff;
+
+  const createdDiff = shippingV2ListTime(b.createdTime) - shippingV2ListTime(a.createdTime);
+  if (createdDiff !== 0) return createdDiff;
+
+  return a.id.localeCompare(b.id);
+}
+
+function toItemNavigationEntry(item: ShippingV2ItemListOrderEntry): ShippingV2ItemNavigationEntry {
+  return {
+    id: item.id,
+    sku: item.sku,
+    nombre: item.nombre,
+  };
+}
+
+async function getShippingV2ItemNavigationEntries() {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const fields = Array.from(new Set([getOfficialSkuField(), F.nombre, F.fechaRegistro]));
+  const records = await listRecords(SHIPPING_V2_TABLES.items, {
+    maxRecords: 200,
+    sortField: F.fechaRegistro,
+    sortDirection: "desc",
+    fields,
+  });
+
+  return records
+    .map((record): ShippingV2ItemListOrderEntry => {
+      const f = record.fields;
+      return {
+        id: record.id,
+        createdTime: record.createdTime,
+        sku: firstString(f[getOfficialSkuField()], record.id),
+        nombre: firstString(f[F.nombre]),
+        fechaRegistro: firstString(f[F.fechaRegistro], record.createdTime),
+      };
+    })
+    .sort(compareShippingV2ItemListOrder)
+    .map(toItemNavigationEntry);
+}
+
+export async function getShippingV2ItemNavigation(recordId: string): Promise<ShippingV2ItemNavigation> {
+  const id = cleanString(recordId);
+  const items = await getShippingV2ItemNavigationEntries();
+  const currentIndex = id ? items.findIndex((item) => item.id === id) : -1;
+
+  if (currentIndex < 0) {
+    return {
+      previous: null,
+      next: null,
+      index: null,
+      total: items.length,
+      items,
+    };
+  }
+
+  return {
+    previous: currentIndex > 0 ? items[currentIndex - 1] : null,
+    next: currentIndex < items.length - 1 ? items[currentIndex + 1] : null,
+    index: currentIndex + 1,
+    total: items.length,
+    items,
+  };
 }
 
 export async function getShippingV2ItemById(recordId: string, options: MapItemOptions = {}) {
