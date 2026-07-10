@@ -67,6 +67,14 @@ type LineaDetalle = {
   precioUnitario: number;
   descuento:      number;
   tarifaIva:      TarifaCodigo;
+  // Fase 16 PR3 (post-emisión): marca de origen, SOLO presente en líneas que
+  // llegaron precargadas desde el gancho (cuentaUnificadaToDatosVenta). Se
+  // propaga sin tocar al emitir para que postEmision() sepa qué Shipping
+  // Item marcar como Vendido — nunca se setea en líneas agregadas a mano
+  // (buscador de productos o "+ Agregar línea manual"), ni en mostrador:
+  // "marcar inventario de mostrador" queda fuera de esta fase.
+  tipo?:           "producto" | "servicio";
+  shippingItemId?: string;
 };
 
 type ProductoCatalogo = {
@@ -560,6 +568,12 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         // sumando el IVA de vuelta. Al volver a desglosarlo con la misma
         // fórmula de complemento, se reproduce exactamente la misma base/IVA
         // que ya calculó el backend (idempotente, sin doble redondeo).
+        // tipo/shippingItemId viajan tal cual desde el backend (Fase 16 PR3)
+        // — es la marca que postEmision() usa para saber qué Shipping Item
+        // vender al autorizarse la factura. Se conservan a través de
+        // ediciones de otros campos (actualizarLinea solo toca el campo
+        // editado) y del guardado/carga de borradores (LineaDetalle completa
+        // viaja tal cual en el payload).
         setLineas(
           datosVenta.detalles.map((d) => ({
             _id:             crypto.randomUUID(),
@@ -570,6 +584,8 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             precioUnitario:  round2(d.precioUnitario + (d.impuestos[0]?.valor ?? 0)),
             descuento:       d.descuento,
             tarifaIva:       (d.impuestos[0]?.codigoPorcentaje ?? "4") as TarifaCodigo,
+            tipo:            d.tipo,
+            shippingItemId:  d.shippingItemId,
           }))
         );
 
@@ -696,6 +712,10 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
                 valor:            valorIva,
               },
             ],
+            // Fase 16 PR3: se propaga tal cual venía en la línea — solo las
+            // líneas que llegaron precargadas del gancho lo traen.
+            tipo:           l.tipo,
+            shippingItemId: l.shippingItemId,
           };
         })
       : lineas.map((l) => {
@@ -720,6 +740,8 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
                 valor:            ivaVal,
               },
             ],
+            tipo:           l.tipo,
+            shippingItemId: l.shippingItemId,
           };
         });
 
