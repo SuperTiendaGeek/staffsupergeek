@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams }             from "next/navigation";
 import type { ResultadoPreFactura }    from "@/lib/facturacion/gancho/traductor";
 import type { OrigenGancho }           from "@/lib/facturacion/emitirFactura";
+import { round2, desglosarPrecioConIvaIncluido } from "@/lib/facturacion/ivaIncluido";
 
 // ─── Tipos locales ─────────────────────────────────────────────────────────────
 
@@ -126,8 +127,6 @@ function validarIdentificacion(tipo: TipoIdentificacion, id: string): string | n
 
 // ─── Helpers numéricos ─────────────────────────────────────────────────────────
 
-function round2(n: number): number { return Math.round(n * 100) / 100; }
-
 function calcularLinea(l: LineaDetalle): number {
   return round2(l.cantidad * l.precioUnitario - l.descuento);
 }
@@ -143,7 +142,11 @@ type TotalesFact = {
   importeTotal:      number;
 };
 
-function calcularTotales(lineas: LineaDetalle[]): TotalesFact {
+// Cálculo histórico de mostrador — SIN CAMBIOS. precioUnitario es la base
+// (sin IVA); el IVA se calcula sobre el subtotal AGREGADO del grupo 15%,
+// no por línea. Solo corre cuando el toggle "Precios incluyen IVA" está
+// desactivado — preserva exactamente el comportamiento previo a esta PR.
+function calcularTotalesBaseMasIva(lineas: LineaDetalle[]): TotalesFact {
   let subtotal15 = 0, subtotal0 = 0, subtotalExento = 0, subtotalNoObjeto = 0;
   let totalDescuento = 0;
 
@@ -174,6 +177,53 @@ function calcularTotales(lineas: LineaDetalle[]): TotalesFact {
   };
 }
 
+// IVA incluido (default, corrección post-prueba en vivo) — precioUnitario es
+// el precio FINAL de la línea (con IVA ya incluido). Cada línea se desglosa
+// por separado vía complemento (mismo método que el gancho, ver
+// lib/facturacion/ivaIncluido.ts) y los resultados se SUMAN — nunca se
+// aplica la tarifa sobre un subtotal ya agregado/redondeado, que es
+// justamente lo que causaba hasta $0.01 de diferencia contra el total real.
+function calcularTotalesIvaIncluido(lineas: LineaDetalle[]): TotalesFact {
+  let subtotal15 = 0, subtotal0 = 0, subtotalExento = 0, subtotalNoObjeto = 0;
+  let iva15 = 0, totalDescuento = 0;
+
+  for (const l of lineas) {
+    const bruto = round2(l.cantidad * l.precioUnitario);
+    const desc  = round2(l.descuento);
+    const montoLinea = round2(bruto - desc);
+    totalDescuento += desc;
+    const tarifaInfo = TARIFAS_IVA.find((t) => t.codigo === l.tarifaIva)!;
+    const { base, valorIva } = desglosarPrecioConIvaIncluido(montoLinea, tarifaInfo.tarifa);
+    if (l.tarifaIva === "4")      { subtotal15      += base; iva15 += valorIva; }
+    else if (l.tarifaIva === "2") subtotal0        += base;
+    else if (l.tarifaIva === "1") subtotalExento   += base;
+    else                          subtotalNoObjeto += base;
+  }
+
+  subtotal15       = round2(subtotal15);
+  subtotal0        = round2(subtotal0);
+  subtotalExento   = round2(subtotalExento);
+  subtotalNoObjeto = round2(subtotalNoObjeto);
+  iva15            = round2(iva15);
+  const totalSinImpuestos = round2(subtotal15 + subtotal0 + subtotalExento + subtotalNoObjeto);
+  const importeTotal      = round2(totalSinImpuestos + iva15);
+
+  return {
+    totalSinImpuestos,
+    totalDescuento: round2(totalDescuento),
+    subtotal15,
+    subtotal0,
+    subtotalExento,
+    subtotalNoObjeto,
+    iva15,
+    importeTotal,
+  };
+}
+
+function calcularTotales(lineas: LineaDetalle[], ivaIncluido: boolean): TotalesFact {
+  return ivaIncluido ? calcularTotalesIvaIncluido(lineas) : calcularTotalesBaseMasIva(lineas);
+}
+
 // ─── Clases de input reutilizables ─────────────────────────────────────────────
 
 const INPUT =
@@ -188,6 +238,8 @@ const LABEL = "block mb-1 text-xs font-semibold text-[#A7A7A7] uppercase trackin
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
+type PagoForm = { formaPago: string; total: number; origenPago?: "abono" | "saldo"; fechaAbono?: string };
+
 // Tipo del payload guardado en Líneas JSON para borradores.
 // version 2 (gancho Fase 16 PR2): agrega pagosPrecargados/origen/bannerOrigen
 // — antes solo se guardaba `formaPago` (el estado del mostrador), así que un
@@ -195,16 +247,22 @@ const LABEL = "block mb-1 text-xs font-semibold text-[#A7A7A7] uppercase trackin
 // pago reales (volvía a una sola "Efectivo" por el total al recuperarlo) y
 // el origen por completo. Un borrador version:1 sigue cargando igual que
 // siempre — los campos nuevos son opcionales.
+// version 3 (corrección post-prueba en vivo): agrega `ivaIncluido`, el
+// estado del toggle "Precios incluyen IVA". Los borradores version 1 o 2
+// son de ANTES de que este concepto existiera — en ese entonces
+// precioUnitario siempre era la base (sin IVA), así que se restauran con
+// el toggle DESACTIVADO para preservar su semántica original exacta.
 type BorradorPayload = {
-  version:     1 | 2;
+  version:     1 | 2 | 3;
   modoCliente: ModoCliente;
   cliente:     ClienteFactura;
   queryCliente:string;
   lineas:      LineaDetalle[];
   formaPago:   string;
-  pagosPrecargados?: Array<{ formaPago: string; total: number }> | null;
+  pagosPrecargados?: Array<PagoForm> | null;
   origen?:           OrigenGancho | null;
   bannerOrigen?:     { ordenIdVisible: string | null; operacionCodigo: string | null } | null;
+  ivaIncluido?:       boolean;
 };
 
 export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFinalLimite?: number }) {
@@ -215,6 +273,11 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   const [modoCliente, setModoCliente] = useState<ModoCliente>("consumidor");
   const [lineas, setLineas]     = useState<LineaDetalle[]>([]);
   const [formaPago, setFormaPago] = useState("01");
+  // Toggle "Precios incluyen IVA" — default activado (decisión de negocio:
+  // los precios que maneja el negocio ya incluyen IVA). Al desactivarlo,
+  // el formulario vuelve al cálculo histórico (precio = base, IVA sumado
+  // encima). Aplica a mostrador y gancho por igual — ver §4.6 del diseño.
+  const [ivaIncluido, setIvaIncluido] = useState(true);
   const [emitiendo, setEmitiendo] = useState(false);
   const [resultado, setResultado] = useState<ResultadoEmision | null>(null);
   const [errGlobal, setErrGlobal] = useState<string | null>(null);
@@ -251,7 +314,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   // en handleEmitir() exactamente igual que antes). Se puebla solo cuando
   // llega una pre-factura del gancho, con una o más líneas editables.
   const [origen, setOrigen]                 = useState<OrigenGancho | null>(null);
-  const [pagosPrecargados, setPagosPrecargados] = useState<Array<{ formaPago: string; total: number }> | null>(null);
+  const [pagosPrecargados, setPagosPrecargados] = useState<Array<PagoForm> | null>(null);
   const [bannerOrigen, setBannerOrigen]     = useState<{ ordenIdVisible: string | null; operacionCodigo: string | null } | null>(null);
   const [cargandoPrefactura, setCargandoPrefactura] = useState(false);
   const [prefacturaBloqueada, setPrefacturaBloqueada] = useState<Extract<ResultadoPreFactura, { bloqueado: true }> | null>(null);
@@ -405,7 +468,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   }
 
   // ── Totales ───────────────────────────────────────────────────────────────
-  const totales = calcularTotales(lineas);
+  const totales = calcularTotales(lineas, ivaIncluido);
 
   // Regla SRI: Consumidor Final solo permitido hasta el límite configurado
   const excedeLimiteConsumidor =
@@ -422,17 +485,22 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         if (!d.success || !d.data?.lineasJson) return;
         try {
           const p = JSON.parse(d.data.lineasJson) as BorradorPayload;
-          if (p.version !== 1 && p.version !== 2) return;
+          if (p.version !== 1 && p.version !== 2 && p.version !== 3) return;
           setModoCliente(p.modoCliente);
           setCliente(p.cliente);
           setQueryCliente(p.queryCliente ?? "");
           setLineas(p.lineas);
           setFormaPago(p.formaPago);
-          if (p.version === 2) {
+          if (p.version === 2 || p.version === 3) {
             setPagosPrecargados(p.pagosPrecargados ?? null);
             setOrigen(p.origen ?? null);
             setBannerOrigen(p.bannerOrigen ?? null);
           }
+          // Borradores version 1/2 son de antes del toggle "Precios incluyen
+          // IVA" — en ese entonces precioUnitario siempre era la base, así
+          // que se restauran con el toggle desactivado para no reinterpretar
+          // esos números como precios finales.
+          setIvaIncluido(p.version === 3 ? (p.ivaIncluido ?? true) : false);
           setMsgBorrador("Borrador cargado");
           setTimeout(() => setMsgBorrador(null), 3000);
         } catch { /* payload inválido, ignorar */ }
@@ -485,6 +553,13 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
           setQueryCliente(datosVenta.razonSocialComprador);
         }
 
+        // El backend manda precioUnitario ya desglosado (la BASE, sin IVA —
+        // ver lib/facturacion/gancho/construccion.ts). El formulario, con el
+        // toggle "Precios incluyen IVA" activado (default, y forzado abajo),
+        // trata precioUnitario como el precio FINAL — así que se reconstruye
+        // sumando el IVA de vuelta. Al volver a desglosarlo con la misma
+        // fórmula de complemento, se reproduce exactamente la misma base/IVA
+        // que ya calculó el backend (idempotente, sin doble redondeo).
         setLineas(
           datosVenta.detalles.map((d) => ({
             _id:             crypto.randomUUID(),
@@ -492,13 +567,19 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             descripcion:     d.descripcion,
             unidadMedida:    d.unidadMedida ?? "UNIDAD",
             cantidad:        d.cantidad,
-            precioUnitario:  d.precioUnitario,
+            precioUnitario:  round2(d.precioUnitario + (d.impuestos[0]?.valor ?? 0)),
             descuento:       d.descuento,
             tarifaIva:       (d.impuestos[0]?.codigoPorcentaje ?? "4") as TarifaCodigo,
           }))
         );
 
-        setPagosPrecargados(datosVenta.pagos.map((p) => ({ formaPago: p.formaPago, total: p.total })));
+        setIvaIncluido(true);
+        setPagosPrecargados(
+          datosVenta.pagos.map((p) => ({
+            formaPago: p.formaPago, total: p.total,
+            origenPago: p.origenPago, fechaAbono: p.fechaAbono,
+          }))
+        );
         setOrigen(datosVenta.origen ?? { tipo: origenTipo, recordId });
         setBannerOrigen({ ordenIdVisible: j.data.ordenIdVisible, operacionCodigo: j.data.operacionCodigo });
       })
@@ -513,7 +594,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
     setGuardando(true); setMsgBorrador(null); setErrGlobal(null);
     try {
       const payload: BorradorPayload = {
-        version: 2,
+        version: 3,
         modoCliente,
         cliente,
         queryCliente,
@@ -522,6 +603,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         pagosPrecargados,
         origen,
         bannerOrigen,
+        ivaIncluido,
       };
       const lineasJson = JSON.stringify(payload);
       const body = {
@@ -585,31 +667,61 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       }
     }
 
-    // Construir DatosVenta
-    const detalles = lineas.map((l) => {
-      const base   = round2(l.cantidad * l.precioUnitario);
-      const neto   = round2(base - l.descuento);
-      const tarifa = TARIFAS_IVA.find((t) => t.codigo === l.tarifaIva)!;
-      const ivaVal = round2(neto * (tarifa.tarifa / 100));
-      return {
-        codigoPrincipal:        l.codigoPrincipal || undefined,
-        descripcion:            l.descripcion.trim(),
-        unidadMedida:           l.unidadMedida || undefined,
-        cantidad:               l.cantidad,
-        precioUnitario:         l.precioUnitario,
-        descuento:              l.descuento,
-        precioTotalSinImpuesto: neto,
-        impuestos: [
-          {
-            codigo:           "2",
-            codigoPorcentaje: l.tarifaIva,
-            tarifa:           tarifa.tarifa,
-            baseImponible:    neto,
-            valor:            ivaVal,
-          },
-        ],
-      };
-    });
+    // Construir DatosVenta.
+    // ivaIncluido=false: cálculo histórico SIN CAMBIOS — precioUnitario ya es
+    // la base, el IVA de cada línea se calcula sobre esa base directamente.
+    // ivaIncluido=true (default): precioUnitario es el precio FINAL — se
+    // desglosa por línea vía complemento (mismo método que calcularTotales
+    // y que el gancho), nunca sumando IVA encima de la base.
+    const detalles = ivaIncluido
+      ? lineas.map((l) => {
+          const bruto = round2(l.cantidad * l.precioUnitario);
+          const neto  = round2(bruto - l.descuento);
+          const tarifa = TARIFAS_IVA.find((t) => t.codigo === l.tarifaIva)!;
+          const { base, valorIva } = desglosarPrecioConIvaIncluido(neto, tarifa.tarifa);
+          return {
+            codigoPrincipal:        l.codigoPrincipal || undefined,
+            descripcion:            l.descripcion.trim(),
+            unidadMedida:           l.unidadMedida || undefined,
+            cantidad:               l.cantidad,
+            precioUnitario:         base,
+            descuento:              l.descuento,
+            precioTotalSinImpuesto: base,
+            impuestos: [
+              {
+                codigo:           "2",
+                codigoPorcentaje: l.tarifaIva,
+                tarifa:           tarifa.tarifa,
+                baseImponible:    base,
+                valor:            valorIva,
+              },
+            ],
+          };
+        })
+      : lineas.map((l) => {
+          const base   = round2(l.cantidad * l.precioUnitario);
+          const neto   = round2(base - l.descuento);
+          const tarifa = TARIFAS_IVA.find((t) => t.codigo === l.tarifaIva)!;
+          const ivaVal = round2(neto * (tarifa.tarifa / 100));
+          return {
+            codigoPrincipal:        l.codigoPrincipal || undefined,
+            descripcion:            l.descripcion.trim(),
+            unidadMedida:           l.unidadMedida || undefined,
+            cantidad:               l.cantidad,
+            precioUnitario:         l.precioUnitario,
+            descuento:              l.descuento,
+            precioTotalSinImpuesto: neto,
+            impuestos: [
+              {
+                codigo:           "2",
+                codigoPorcentaje: l.tarifaIva,
+                tarifa:           tarifa.tarifa,
+                baseImponible:    neto,
+                valor:            ivaVal,
+              },
+            ],
+          };
+        });
 
     // Agrupar totalConImpuestos por codigoPorcentaje
     const ivaMap = new Map<string, { base: number; valor: number; tarifa: number }>();
@@ -844,6 +956,23 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
 
       {/* ── 2. DETALLES ────────────────────────────────────────────────── */}
       <Card titulo="2. Productos / Servicios">
+        {/* Toggle "Precios incluyen IVA" — default activado, aplica a todo
+            el formulario (mostrador y gancho por igual). Ver §4.6 del diseño. */}
+        <label className="mb-3 flex items-center gap-2 text-xs text-[#A7A7A7] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={ivaIncluido}
+            onChange={(e) => setIvaIncluido(e.target.checked)}
+            className="h-3.5 w-3.5 accent-[#D7FF4F]"
+          />
+          <span className="font-semibold text-[#F5F5F5]">Precios incluyen IVA</span>
+          <span className="text-[#666]">
+            {ivaIncluido
+              ? "— el precio unitario ya incluye IVA; se desglosa por línea."
+              : "— el precio unitario es la base; el IVA se suma encima (cálculo clásico)."}
+          </span>
+        </label>
+
         {/* Aviso IVA */}
         <p className="mb-3 text-xs text-[#FFB07A] bg-[#FF914D]/10 border border-[#FF914D]/30 rounded px-3 py-2">
           <strong>NOTA:</strong> Los productos de este buscador no traen una tarifa de IVA asignada
@@ -889,7 +1018,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
                   <th className="py-2 pr-2 text-left font-semibold">Descripción</th>
                   <th className="py-2 pr-2 text-center font-semibold">Unid.</th>
                   <th className="py-2 pr-2 text-right font-semibold w-16">Cant.</th>
-                  <th className="py-2 pr-2 text-right font-semibold w-24">P.Unit.</th>
+                  <th className="py-2 pr-2 text-right font-semibold w-24">{ivaIncluido ? "P.Unit. (IVA inc.)" : "P.Unit. (base)"}</th>
                   <th className="py-2 pr-2 text-right font-semibold w-20">Desc.</th>
                   <th className="py-2 pr-2 text-center font-semibold w-20">IVA</th>
                   <th className="py-2 pr-2 text-right font-semibold w-20">Total</th>
@@ -1159,13 +1288,25 @@ function TotalesPanel({ totales }: { totales: TotalesFact }) {
 // (gancho Fase 16 PR2: abonos reales + saldo pendiente, cada línea editable).
 // El modo mostrador sigue usando el <select> único de siempre, sin pasar
 // por este componente.
+function formatearFechaAbono(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// pagos con origenPago: "abono" vienen de la tabla Abonos (Airtable) — se
+// muestran con etiqueta y el monto queda bloqueado por defecto (evita
+// editar por accidente un cobro que ya ocurrió); "saldo" es el pendiente
+// calculado, siempre editable. Solo presentación — el XML/RIDE no cambian.
 function FormasPagoEditor({
   pagos,
   onChange,
 }: {
-  pagos:    Array<{ formaPago: string; total: number }>;
-  onChange: (pagos: Array<{ formaPago: string; total: number }>) => void;
+  pagos:    Array<PagoForm>;
+  onChange: (pagos: Array<PagoForm>) => void;
 }) {
+  const [desbloqueados, setDesbloqueados] = useState<Set<number>>(new Set());
+
   function actualizar(i: number, campo: "formaPago" | "total", valor: string | number) {
     onChange(pagos.map((p, idx) => (idx === i ? { ...p, [campo]: valor } : p)));
   }
@@ -1173,42 +1314,67 @@ function FormasPagoEditor({
     onChange(pagos.filter((_, idx) => idx !== i));
   }
   function agregar() {
-    onChange([...pagos, { formaPago: "01", total: 0 }]);
+    onChange([...pagos, { formaPago: "01", total: 0, origenPago: "saldo" }]);
   }
 
   const suma = round2(pagos.reduce((s, p) => s + p.total, 0));
 
   return (
     <div className="flex flex-col gap-2">
-      {pagos.map((p, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <select
-            value={p.formaPago}
-            onChange={(e) => actualizar(i, "formaPago", e.target.value)}
-            className={SELECT}
-          >
-            {FORMAS_PAGO.map((fp) => (
-              <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>
-            ))}
-          </select>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={p.total}
-            onChange={(e) => actualizar(i, "total", parseFloat(e.target.value) || 0)}
-            className={`${INPUT} w-24 text-right`}
-          />
-          <button
-            onClick={() => eliminar(i)}
-            disabled={pagos.length <= 1}
-            className="text-[#666] hover:text-[#FF5A4F] disabled:opacity-30 disabled:cursor-not-allowed text-sm px-1"
-            title="Quitar"
-          >
-            ✕
-          </button>
-        </div>
-      ))}
+      {pagos.map((p, i) => {
+        const esAbono   = p.origenPago === "abono";
+        const bloqueado = esAbono && !desbloqueados.has(i);
+        return (
+          <div key={i} className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              <select
+                value={p.formaPago}
+                onChange={(e) => actualizar(i, "formaPago", e.target.value)}
+                className={SELECT}
+              >
+                {FORMAS_PAGO.map((fp) => (
+                  <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={p.total}
+                disabled={bloqueado}
+                onChange={(e) => actualizar(i, "total", parseFloat(e.target.value) || 0)}
+                className={`${INPUT} w-24 text-right`}
+              />
+              <button
+                onClick={() => eliminar(i)}
+                disabled={pagos.length <= 1}
+                className="text-[#666] hover:text-[#FF5A4F] disabled:opacity-30 disabled:cursor-not-allowed text-sm px-1"
+                title="Quitar"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="pl-1 text-[10px]">
+              {esAbono ? (
+                <span className="text-emerald-400/80">
+                  ● Abono registrado{p.fechaAbono ? ` · ${formatearFechaAbono(p.fechaAbono)}` : ""}
+                  {bloqueado && (
+                    <button
+                      type="button"
+                      onClick={() => setDesbloqueados((s) => new Set(s).add(i))}
+                      className="ml-2 underline text-[#666] hover:text-[#D7FF4F]"
+                    >
+                      editar monto
+                    </button>
+                  )}
+                </span>
+              ) : (
+                <span className="text-[#F0C75E]/80">● Saldo por cobrar</span>
+              )}
+            </p>
+          </div>
+        );
+      })}
       <button
         onClick={agregar}
         className="self-start text-xs text-[#A7A7A7] hover:text-[#D7FF4F] underline"
