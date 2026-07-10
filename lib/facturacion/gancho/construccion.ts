@@ -12,41 +12,12 @@ import {
   SERVICIO_IVA_DEFAULT, TARIFA_IVA_SRI, TARIFA_IVA_ITEM_DEFAULT,
   MAPA_METODO_PAGO_SRI, FORMA_PAGO_SALDO_DEFAULT, FORMA_PAGO_FALLBACK,
 } from "./config";
-
-export function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-// ─── Desglosar un precio con IVA incluido ────────────────────────────────────
-// Decisión de negocio confirmada: TODOS los precios de la cuenta unificada
-// (repuestos y servicios — "Precio venta final" / costo de servicio) son
-// precios finales CON IVA incluido, no bases. El SRI espera la base (sin
-// impuestos) en precioUnitario/precioTotalSinImpuesto y el IVA aparte en
-// <impuestos> — hay que desglosar hacia adentro, no sumar IVA encima.
-//
-// El IVA se calcula como el COMPLEMENTO de la base ya redondeada (precioFinal
-// - base), no como base*tarifa/100 de forma independiente — así
-// `base + valorIva` reconstruye EXACTO el precio final al centavo, sin
-// importar la acumulación de redondeos de dividir por 1.15. Con tarifa 0
-// (0%/Exento/No objeto) no hay nada que desglosar: el precio final YA es la
-// base.
-//
-// Nota: esto es específico del gancho (precios de Shipping Items/Servicios,
-// que sí son finales). El formulario manual de mostrador NO cambia — sigue
-// tratando precioUnitario como base y sumando IVA encima, en
-// FacturacionForm.tsx (calcularTotales/handleEmitir), código que esta
-// función no toca.
-export function desglosarPrecioConIvaIncluido(
-  precioFinal: number,
-  tarifa: number
-): { base: number; valorIva: number } {
-  if (tarifa === 0) {
-    return { base: round2(precioFinal), valorIva: 0 };
-  }
-  const base = round2(precioFinal / (1 + tarifa / 100));
-  const valorIva = round2(precioFinal - base);
-  return { base, valorIva };
-}
+// round2/desglosarPrecioConIvaIncluido viven en ivaIncluido.ts (sin
+// "server-only") porque FacturacionForm.tsx (client, toggle "Precios
+// incluyen IVA") también los necesita. Re-exportadas aquí para no romper
+// los imports existentes de este módulo (traductor.ts, tests).
+import { round2, desglosarPrecioConIvaIncluido } from "../ivaIncluido";
+export { round2, desglosarPrecioConIvaIncluido };
 
 // ─── Derivar tipo de identificación (Decisión, ver diseño §4.1) ──────────────
 // 10 dígitos → cédula (05); 13 dígitos terminados en 001 → RUC (04);
@@ -134,20 +105,26 @@ export function evaluarItemNoListo(
 }
 
 // ─── Formas de pago: abonos vigentes + saldo pendiente ───────────────────────
+// Cada Pago sale marcado con origenPago ("abono" vs "saldo") y, para los que
+// vienen de un abono, su fecha — puramente informativo para que
+// FacturacionForm distinga visualmente "Abono registrado · <fecha>" de
+// "Saldo por cobrar" (editable). No afecta el XML/RIDE.
 export function calcularFormasPago(
-  abonosVigentes: Pick<CuentaUnificadaAbono, "metodoPago" | "monto">[],
+  abonosVigentes: (Pick<CuentaUnificadaAbono, "metodoPago" | "monto"> & { fecha?: string | null })[],
   importeTotal: number
 ): Pago[] {
   const pagos: Pago[] = abonosVigentes.map((a) => ({
     formaPago: (a.metodoPago && MAPA_METODO_PAGO_SRI[a.metodoPago]) || FORMA_PAGO_FALLBACK,
     total:     round2(a.monto),
+    origenPago: "abono",
+    fechaAbono: a.fecha ?? undefined,
   }));
 
   const sumaAbonos     = round2(pagos.reduce((s, p) => s + p.total, 0));
   const saldoPendiente = round2(importeTotal - sumaAbonos);
 
   if (saldoPendiente > 0.01) {
-    pagos.push({ formaPago: FORMA_PAGO_SALDO_DEFAULT, total: saldoPendiente });
+    pagos.push({ formaPago: FORMA_PAGO_SALDO_DEFAULT, total: saldoPendiente, origenPago: "saldo" });
   } else if (saldoPendiente < -0.01) {
     // No debería pasar por construcción — ver comentario en traductor.ts.
     console.warn(
@@ -155,7 +132,7 @@ export function calcularFormasPago(
     );
   }
   if (pagos.length === 0) {
-    pagos.push({ formaPago: FORMA_PAGO_SALDO_DEFAULT, total: importeTotal });
+    pagos.push({ formaPago: FORMA_PAGO_SALDO_DEFAULT, total: importeTotal, origenPago: "saldo" });
   }
   return pagos;
 }

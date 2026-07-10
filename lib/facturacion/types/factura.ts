@@ -63,6 +63,12 @@ export type Pago = {
   total: number;
   plazo?: number;
   unidadTiempo?: string;  // "dias", "meses", "anios"
+  // Fase 16 PR2 (gancho cuenta unificada): de dónde salió esta línea de pago
+  // — solo para presentación en FacturacionForm (etiqueta "Abono registrado"
+  // vs "Saldo por cobrar"), nunca se serializa al XML del SRI
+  // (construirFacturaXml no la lee).
+  origenPago?: "abono" | "saldo";
+  fechaAbono?: string; // fecha del abono en Airtable, solo si origenPago === "abono"
 };
 
 // ─── Compensaciones ──────────────────────────────────────────────────────────
