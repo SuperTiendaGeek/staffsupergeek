@@ -26,6 +26,9 @@ const privateRoutes = [
   "/api/admin",
   "/horarios",
   "/facturacion",
+  "/api/facturacion",
+  "/api/items",
+  "/api/notificaciones",
   "/shipping",
   "/shipping-v2",
   "/api/shipping-v2"
@@ -148,6 +151,12 @@ export const config = {
     "/tecnicos/:path*",
     "/horarios/:path*",
     "/facturacion/:path*",
+    "/api/facturacion",
+    "/api/facturacion/:path*",
+    "/api/items",
+    "/api/items/:path*",
+    "/api/notificaciones",
+    "/api/notificaciones/:path*",
     "/shipping",
     "/shipping-v2/:path*"
   ]
