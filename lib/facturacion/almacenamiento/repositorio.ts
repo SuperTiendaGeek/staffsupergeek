@@ -39,6 +39,10 @@ export type DatosComprobanteOk = {
   xmlAutorizado:         string;   // XML completo devuelto por el SRI
   ridePdf?:              Uint8Array;
   lineasJson?:           string;   // JSON serializado de los detalles de la factura
+  // Fase 16 PR2 (gancho): links de origen, ausentes en facturas de mostrador.
+  ordenId?:              string;
+  operacionId?:          string;
+  clienteId?:            string;
 };
 
 export type DatosComprobanteError = {
@@ -137,6 +141,9 @@ export async function persistirAutorizado(datos: DatosComprobanteOk): Promise<st
     total:                 datos.total,
     lineasJson:            datos.lineasJson,
     mensajesSri:           mensajesRespaldo,
+    ordenId:               datos.ordenId,
+    operacionId:           datos.operacionId,
+    clienteId:             datos.clienteId,
   });
 
   // 3. Subir adjuntos; si falla, NO eliminar la fila — el comprobante ya está

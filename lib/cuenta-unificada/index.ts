@@ -11,7 +11,37 @@ import type {
   CuentaUnificadaRepuestoHistorico,
   CuentaUnificadaServicio,
   GetCuentaUnificadaInput,
+  ModoRepuestos,
 } from "@/types/cuenta-unificada";
+
+// ─── Gates de repuestos (extraído para poder testearlo sin mockear todo el
+// árbol de fetches de getCuentaUnificada) ────────────────────────────────────
+//
+// Dos gates distintos, con motivos distintos:
+//   - legacyCuentanParaTotal: evita doble conteo entre la tabla legacy
+//     "Repuestos por Orden" y los items reales de la operación
+//     ("Artículo físico") cuando describen el mismo repuesto físico —
+//     por eso SÍ depende de si hay operación vinculada.
+//   - incluyeStockV2: los repuestos de stock V2 (link "Orden de Reparación
+//     (Stock)", propio de repuestos-v2.ts) son una fuente independiente de
+//     "Artículo físico" — no hay overlap posible entre los dos, así que NO
+//     debe depender de si hay operación vinculada. Antes de este fix
+//     compartía el mismo gate que legacyCuentanParaTotal, y un repuesto de
+//     stock agregado a una orden CON operación vinculada quedaba invisible
+//     (ni en la cuenta unificada ni en la tarjeta de Repuestos) aunque el
+//     link en Airtable fuera real — bug de Fase 11, destapado al construir
+//     el gancho de Fase 16 (issue reportado sobre una orden con operación).
+export function resolverGatesRepuestos(input: {
+  ordenId: string | null;
+  operacionId: string | null;
+  modoRepuestos: ModoRepuestos | null;
+}): { legacyCuentanParaTotal: boolean; incluyeStockV2: boolean } {
+  const ordenAportaRepuestosPropios = input.ordenId != null && input.operacionId == null;
+  return {
+    legacyCuentanParaTotal: ordenAportaRepuestosPropios && input.modoRepuestos === "legacy",
+    incluyeStockV2: input.ordenId != null && input.modoRepuestos === "v2",
+  };
+}
 
 // Link "Shipping Items" → "Órdenes de Reparación" exclusivo para repuestos de
 // stock en modo V2 (distinto de "Operación Comercial", que es para pedido).
@@ -216,18 +246,8 @@ export async function getCuentaUnificada(
   const operacionId = operacionRecord?.id ?? null;
   const modoRepuestos = ordenRecord ? resolveModoRepuestos(ordenRecord.fields["Modo repuestos"]) : null;
 
-  // Si hay operación vinculada, el repuesto entra a la cuenta por su lado
-  // (Σ Precio venta final de items de la operación) y la orden NO aporta
-  // repuestos propios — evita el doble conteo detectado en la auditoría
-  // (renglón legacy en "Repuestos por Orden" + item real de la operación
-  // describiendo el mismo repuesto físico). El modo Legacy/V2 solo decide de
-  // dónde salen los repuestos de STOCK de la orden, y eso solo aplica cuando
-  // la orden no tiene operación vinculada.
-  const ordenAportaRepuestosPropios = ordenId != null && operacionId == null;
-  // Los renglones legacy cuentan para el total solo en este caso exacto; en
-  // cualquier otro (V2, o superados por una operación vinculada) son
-  // referencia histórica pura — ver "repuestosHistoricos" más abajo.
-  const repuestosLegacyCuentanParaTotal = ordenAportaRepuestosPropios && modoRepuestos === "legacy";
+  const { legacyCuentanParaTotal: repuestosLegacyCuentanParaTotal, incluyeStockV2: ordenTieneRepuestosStockV2 } =
+    resolverGatesRepuestos({ ordenId, operacionId, modoRepuestos });
 
   const [servicios, repuestosLegacyRaw, repuestosStockV2, abonosOrden, itemsPedido, abonosOperacion] =
     await Promise.all([
@@ -235,7 +255,7 @@ export async function getCuentaUnificada(
       // Siempre se trae (si hay orden) para la pestaña de históricos, sin
       // importar si cuenta o no para el total.
       ordenId ? fetchRepuestosPorOrden(ordenId) : Promise.resolve([]),
-      ordenAportaRepuestosPropios && modoRepuestos === "v2" && ordenRecord
+      ordenTieneRepuestosStockV2 && ordenRecord
         ? fetchRepuestosStockV2(ordenRecord, client)
         : Promise.resolve([]),
       ordenId ? fetchAbonosPorOrden(ordenId) : Promise.resolve([]),

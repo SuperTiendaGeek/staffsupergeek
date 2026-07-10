@@ -11,7 +11,7 @@
 | # | Pregunta (auditoría) | Decisión |
 |---|---|---|
 | 1 | ¿Total o abonado en pagos parciales? | **Total de la cuenta** (`totalCuenta`). La factura documenta la venta, no el cobro. Los abonos viajan como formas de pago; el saldo pendiente viaja como forma de pago adicional (ver §4.4). *Pendiente suave: validación final del contador antes del cutover de Fase 17 — no bloquea construir.* |
-| 2 | ¿Marca de facturado en Shipping Items? | Campo **link `Factura`** (→ Facturas Electrónicas) + reutilizar **`Estado Item = "Vendido"`**. El link es la evidencia; el estado es el flag operativo. |
+| 2 | ¿Marca de facturado en Shipping Items? | **Modelo real confirmado (prueba en vivo, post-PR2):** la reserva de un repuesto para una orden ya funciona con dos casillas al vincularlo — `Reservado` (queda marcado) y `Disponible para venta` (queda desmarcado); `Estado Item` es un campo de estado **logístico**, independiente de la reserva. La precondición dura de la pre-factura (§4.2) es **`Reservado` marcado + sin link `Factura`** — nunca depende de `Estado Item`. La transición de facturación (PR 3, aún no construida) es: al facturar → `Estado Item = "Vendido"` + link **`Factura`**; `Reservado` y `Disponible para venta` **quedan tal cual estaban** (mismo patrón ya observado en items ya vendidos, p.ej. REP-000008). El link es la evidencia dura (bloquea reintentos de facturar el mismo item); el estado es el flag operativo/logístico, no la precondición. |
 | 3 | ¿IVA por línea de producto? | Campo nuevo **`Tarifa IVA`** en Shipping Items (select: `15%`, `0%`, `Exento`, `No objeto`; default `15%`). Editable en la pre-factura. |
 | 4 | ¿IVA de servicios? | Constante **15%** en config de facturación (`SERVICIO_IVA_DEFAULT`). Editable en la pre-factura. Sin campo por servicio (YAGNI). |
 | 5 | ¿Vincular factura → orden/operación? | Sí, **campos link** `Orden` y `Operación` en Facturas Electrónicas, más link `Cliente` (cierra la deuda del cliente como texto copiado — el texto se mantiene además, porque es el snapshot fiscal). |
@@ -91,19 +91,35 @@ Módulo nuevo `lib/facturacion/gancho/` (nombre sugerido), sin tocar los módulo
 
 ### 4.2 Líneas de producto (descuentan inventario)
 - Origen: `items` de `getCuentaUnificada()` (Shipping Items de la cuenta).
-- Mapeo: `codigoPrincipal` = SKU · `descripcion` = nombre del item · `cantidad` = cantidad · `precioUnitario` = precio de la cuenta unificada · IVA = `Tarifa IVA` del item (default 15% si vacío).
-- **Precondición dura:** cada item debe estar `Reservado` y sin link `Factura` previo. Si no, la pre-factura lo reporta y bloquea (no se factura inventario en estado inconsistente).
+- **Precios con IVA incluido (decisión confirmada, PR2):** `precio` (Shipping Items."Precio venta final") es el precio final que paga el cliente, CON IVA ya incluido — no una base. El traductor lo **desglosa hacia adentro** según la tarifa de la línea, en vez de sumar IVA encima:
+  - Tarifa `15%`: `base = precioFinal / 1.15` redondeado a centavos; el IVA se calcula como el **complemento** (`precioFinal - base`), no como `base * 0.15` de forma independiente — así `base + IVA` reconstruye el precio final **exacto al centavo**, sin importar la acumulación de redondeos de la división.
+  - Tarifa `0%` / `Exento` / `No objeto`: no hay nada que desglosar — el precio final ya es la base, IVA = 0.
+  - Consecuencia directa: el **VALOR TOTAL de la factura del gancho es igual al `totalCuenta` de la cuenta unificada** (suma de precios finales), no un total con IVA añadido encima.
+- Mapeo: `codigoPrincipal` = SKU · `descripcion` = nombre del item · `cantidad` = 1 (los items de Shipping Items no traen cantidad propia) · `precioUnitario`/`precioTotalSinImpuesto` = la **base** ya desglosada (no el precio final) · IVA = `Tarifa IVA` del item (default 15% si vacío).
+- **Precondición dura:** cada item debe estar `Reservado` (casilla) y sin link `Factura` previo — ver §1 decisión #2 para el modelo completo de las dos casillas. Si no, la pre-factura lo reporta y bloquea (no se factura inventario en estado inconsistente).
 - Estas líneas llevan marca interna `tipo: "producto"` — es lo que el post-emisión usa para saber qué items marcar como Vendido. La marca viaja dentro de `Líneas JSON` (campo nuevo del JSON, versionado), no cambia el XML SRI.
+- El desglose vive en `lib/facturacion/ivaIncluido.ts` (`desglosarPrecioConIvaIncluido`) — módulo compartido, sin `"server-only"`, porque desde PR2-corrección también lo usa el formulario manual de mostrador vía el toggle "Precios incluyen IVA" (ver §4.6). Ya no es exclusivo del gancho.
 
 ### 4.3 Líneas de servicio (no tocan inventario)
 - Origen: `servicios` de `getCuentaUnificada()`.
-- Mapeo: `codigoPrincipal` = `SRV-<consecutivo>` · `descripcion` = nombre del servicio · `cantidad` = 1 · `precioUnitario` = costo · IVA = 15% (constante, editable).
+- **Mismo criterio de IVA incluido que 4.2:** `costo` es el precio final con IVA incluido — se desglosa igual (base = costo/1.15, IVA = complemento) en vez de sumarse encima.
+- Mapeo: `codigoPrincipal` = `SRV-<consecutivo>` · `descripcion` = nombre del servicio · `cantidad` = 1 · `precioUnitario`/`precioTotalSinImpuesto` = la base desglosada · IVA = 15% (constante, editable).
 - Marca interna `tipo: "servicio"` — el post-emisión las ignora.
 
 ### 4.4 Formas de pago
-- Cada abono registrado de la cuenta se traduce a su código SRI según método de pago (mapa método→código en config; efectivo `01`, tarjetas `19`/`16`, transferencia `20`, etc. — Claude Code debe proponer el mapa completo leyendo los métodos reales de la tabla Abonos y dejarlo en config revisable).
+- Cada abono registrado de la cuenta se traduce a su código SRI según método de pago. Mapa confirmado (PR2, `lib/facturacion/gancho/config.ts`) contra el select real de Abonos."Método de Pago" (7 valores exactos, vía Airtable Metadata API): `Efectivo→01`, `Transferencia→20`, `Tarjeta→19` (crédito — Abonos no distingue débito/crédito, no hay campo para eso hoy), `Depósito→20`, `PayPal→20`, `PayPhone→20`, `Otro→20`.
 - Si hay **saldo pendiente** al facturar el total, se agrega una forma de pago adicional por el saldo (default `01`, editable en el formulario, con plazo si aplica).
-- La suma de formas de pago debe cuadrar con el total — validación en el traductor y de nuevo server-side.
+- La suma de formas de pago debe cuadrar con el total — validación en el traductor y de nuevo server-side (`assertPagosCuadranConTotal`, dentro de `emitirFactura()`).
+- **UX (post-prueba en vivo):** cada `Pago` sale marcado con `origenPago: "abono" | "saldo"` (y `fechaAbono` cuando aplica) — puramente informativo, nunca se serializa al XML. `FacturacionForm` lo usa para mostrar "Abono registrado · <fecha>" (monto no editable por defecto) vs "Saldo por cobrar" (editable), para que el humano vea de un vistazo qué líneas son abonos reales de Airtable y cuál es el saldo calculado.
+
+### 4.6 Toggle "Precios incluyen IVA" (mostrador + gancho unificados)
+**Corrección post-prueba en vivo:** una orden con total real $88.00 (repuesto $78 + servicio $10, ambos 15%) generaba una factura por $88.01 y bloqueaba la emisión. Causa raíz: `FacturacionForm.tsx` desglosaba el IVA sobre el **subtotal agregado** de bases ya redondeadas (`round2(subtotal15 * 0.15)`) en vez de por línea — `round2(76.53 * 0.15) = 11.48` en vez de `10.17 + 1.30 = 11.47` (suma de los complementos por línea). El backend del gancho (`construccion.ts`) ya calculaba bien por línea desde PR2; el bug estaba solo en el formulario.
+
+Con esta corrección, **todo el formulario** (no solo el gancho) trabaja con IVA incluido por línea:
+- Toggle **"Precios incluyen IVA"** en `FacturacionForm.tsx`, default **activado**. Al desactivarlo, el formulario vuelve exactamente al cálculo histórico de mostrador (precio = base, IVA sumado encima, agregado por grupo de tarifa) — código sin cambios, solo condicionado por el toggle.
+- Con el toggle activado: cada línea se desglosa por complemento (`desglosarPrecioConIvaIncluido`, mismo módulo que usa el gancho) — nunca se agrega el IVA sobre un subtotal ya redondeado.
+- El toggle aplica a **todo** el formulario (mostrador y gancho por igual), se persiste en los borradores (`BorradorPayload.version: 3`; borradores anteriores —versión 1 o 2— no tenían este concepto y se restauran con el toggle **desactivado**, preservando su semántica original de "precio = base").
+- El gancho siempre llega con el toggle activado (el valor por defecto ya lo es; las líneas precargadas llegan con el precio final reconstruido — base + IVA — para que el desglose en el formulario sea idempotente y reproduzca exactamente los mismos números que ya calculó el backend).
 
 ### 4.5 Origen e idempotencia
 - El request de emisión lleva `origen: { tipo: "orden"|"operacion", recordId }` cuando viene del gancho (ausente en mostrador).
