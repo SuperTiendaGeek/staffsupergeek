@@ -70,6 +70,11 @@ export type FacturaAirtableRecord = FacturaAirtableInput & {
   recordId: string;
 };
 
+// Estado de la sincronización de inventario post-emisión (Fase 16 PR3).
+// "N/A" = factura de mostrador (nunca dispara postEmision). Las facturas
+// del gancho pasan N/A → PENDIENTE → OK|ERROR.
+export type EstadoSincronizacionInventario = "N/A" | "PENDIENTE" | "OK" | "ERROR";
+
 // Registro completo leído del historial
 export type FacturaHistorial = {
   recordId:             string;
@@ -91,6 +96,8 @@ export type FacturaHistorial = {
   lineasJson:           string;
   tieneXml:             boolean;
   tieneRide:            boolean;
+  sincronizacionInventario: EstadoSincronizacionInventario;
+  errorSincronizacion:      string;
 };
 
 // Filtros para el listado
@@ -164,6 +171,7 @@ function mapHistorialRecord(r: { id: string; fields: Record<string, unknown> }):
   const estadoRaw   = safeStr(f["Estado"]);
   const correoRaw   = safeStr(f["Estado Correo"]);
   const ambienteRaw = safeStr(f["Ambiente"]);
+  const syncRaw     = safeStr(f["Sincronización Inventario"]);
 
   return {
     recordId:              r.id,
@@ -185,6 +193,8 @@ function mapHistorialRecord(r: { id: string; fields: Record<string, unknown> }):
     lineasJson:            safeStr(f["Líneas JSON"]),
     tieneXml:              hasAttachment(f["XML Autorizado"]),
     tieneRide:             hasAttachment(f["RIDE PDF"]),
+    sincronizacionInventario: (syncRaw as EstadoSincronizacionInventario) || "N/A",
+    errorSincronizacion:      safeStr(f["Error Sincronización"]),
   };
 }
 
@@ -379,6 +389,7 @@ export async function listarFacturas(filtros: FiltrosHistorial = {}): Promise<Li
     "Cliente - Nombre", "Cliente - Identificación", "Cliente - Correo",
     "Subtotal", "IVA", "Total", "Mensajes SRI", "Líneas JSON",
     "XML Autorizado", "RIDE PDF",
+    "Sincronización Inventario", "Error Sincronización",
   ];
   for (const f of FIELDS) params.append("fields[]", f);
 
@@ -463,6 +474,24 @@ export async function actualizarEstadoCorreo(
   });
 }
 
+// ─── Actualizar sincronización de inventario (Fase 16 PR3) ──────────────────
+// Estado del post-emisión: PENDIENTE mientras corre, OK/ERROR al terminar.
+// "Error Sincronización" se limpia en OK (por si es un reintento que corrige
+// un ERROR previo) y se completa con detalle legible en ERROR.
+
+export async function actualizarSincronizacionInventario(
+  recordId: string,
+  estado:   Exclude<EstadoSincronizacionInventario, "N/A">,
+  errorDetalle?: string
+): Promise<void> {
+  const fields: Record<string, unknown> = { "Sincronización Inventario": estado };
+  fields["Error Sincronización"] = estado === "ERROR" ? (errorDetalle ?? "") : "";
+  await airtableRequest(tableUrl(recordId), {
+    method: "PATCH",
+    body:   JSON.stringify({ fields }),
+  });
+}
+
 // ─── Marcar adjuntos pendientes ───────────────────────────────────────────────
 // Usado cuando el comprobante quedó AUTORIZADO en disco pero sin adjuntos en Airtable.
 
@@ -492,6 +521,7 @@ export async function buscarFacturaPorClave(claveAcceso: string): Promise<Factur
     "Cliente - Nombre", "Cliente - Identificación", "Cliente - Correo",
     "Subtotal", "IVA", "Total", "Mensajes SRI", "Líneas JSON",
     "XML Autorizado", "RIDE PDF",
+    "Sincronización Inventario", "Error Sincronización",
   ];
   for (const f of FIELDS) params.append("fields[]", f);
   const url  = `${client.baseUrl}/${encodeURIComponent(TABLE)}?${params}`;

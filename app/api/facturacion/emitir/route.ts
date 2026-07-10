@@ -3,6 +3,7 @@ import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitirFactura";
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { buscarFacturaBloqueante } from "@/lib/facturacion/gancho/idempotencia";
+import { postEmision } from "@/lib/facturacion/gancho/postEmision";
 
 export const dynamic = "force-dynamic";
 // La autorización puede tardar hasta 60 s; extendemos el timeout del route.
@@ -53,6 +54,20 @@ export async function POST(request: Request) {
 
   try {
     const resultado = await emitirFactura({ ...body, vendedor: session.user.nombre });
+
+    // Fase 16 PR3: post-emisión — SIEMPRE fuera de emitirFactura() (que se
+    // mantiene puro) y SIEMPRE detrás de su propio try/catch: si esto falla,
+    // la respuesta de la emisión no cambia — la factura ya es AUTORIZADA
+    // ante el SRI. Se espera (no fire-and-forget) porque el runtime
+    // serverless puede congelar la función apenas se envía la respuesta.
+    if (resultado.estado === "AUTORIZADO" && body.origen && resultado.recordId) {
+      try {
+        await postEmision({ facturaRecordId: resultado.recordId, detalles: body.detalles });
+      } catch (e) {
+        console.error("[/api/facturacion/emitir POST] postEmision falló:", e);
+      }
+    }
+
     return NextResponse.json({ success: true, data: resultado });
   } catch (e) {
     console.error("[/api/facturacion/emitir POST]", e);
