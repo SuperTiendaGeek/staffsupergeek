@@ -236,6 +236,10 @@ export function getRoutePermission(pathname: string) {
     return routePermissions["/horarios"];
   }
 
+  if (pathname === "/api/facturacion" || pathname.startsWith("/api/facturacion/")) {
+    return routePermissions["/facturacion"];
+  }
+
   const matchingRoute = Object.keys(routePermissions).find(
     (route) => pathname === route || pathname.startsWith(`${route}/`)
   );
