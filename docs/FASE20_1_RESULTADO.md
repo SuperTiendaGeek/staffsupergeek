@@ -1,7 +1,7 @@
 # Resultado — Fase 20.1: Fundación del Sistema Contable SG (Etapa B)
 
-> Rama: `fase-20-1-fundacion`. Diseño aprobado en `docs/DISENO_FASE20_1_FUNDACION.md` (v2, con las 4 correcciones integradas). Este documento cierra la Etapa B: qué se construyó, cómo verificarlo, y los pasos exactos que faltan — todos manuales, todos a ejecutar con el dueño.
-> **Sin merge a `main`. Sin deploy. El checklist de Airtable no se ejecutó.**
+> Rama: `fase-20-1-fundacion`. Diseño aprobado en `docs/DISENO_FASE20_1_FUNDACION.md` (v2, con las 4 correcciones integradas). Este documento cierra la Etapa B: qué se construyó, cómo verificarlo, y los pasos exactos que faltan.
+> **Actualización:** el checklist de la sección 2 **ya se ejecutó** contra la base de producción, vía API (cambio de plan aprobado por el dueño, con respaldo previo confirmado). Ver "§2-bis — Ejecución real" para el detalle exacto de lo que se hizo, los 2 hallazgos que obligaron a desviarse del plan original, y lo que queda pendiente (Paso 4, manual). **Sin merge a `main`. Sin deploy.**
 
 ---
 
@@ -170,11 +170,59 @@ El código (`lib/finanzas/cuentas.ts`, `CUENTAS_FIELDS.movimientosOrigen`/`movim
 
 ---
 
+## 2-bis. Ejecución real del checklist (vía API, contra producción)
+
+Ejecutado el 2026-07-11 vía Metadata API + REST API de Airtable, con el respaldo del dueño ya confirmado antes de empezar. Verificado paso a paso, sin improvisar sobre datos reales cuando algo no salió como esperaba — dos veces hubo que desviarse del plan escrito, documentado abajo.
+
+**Pasos 1-3 y 5 (crear tabla, 7 cuentas, 18 campos nuevos, migrar los 11 registros): completados exactamente como estaban planeados**, con dos hallazgos:
+
+### Hallazgo 1 — Colisión de nombre: `Cuenta Origen` vs `Cuenta origen`
+
+Airtable trata los nombres de campo como **case-insensitive** para unicidad dentro de una tabla. El campo nuevo `Cuenta Origen` (como estaba escrito en el diseño original) chocó con el viejo `Cuenta origen` (select legacy, que Corrección 3 exige dejar intacto) — error `DUPLICATE_OR_EMPTY_FIELD_NAME`. No se podía resolver renombrando el campo viejo primero, porque el código de producción actual (sin el deploy de esta fase) todavía lo escribe en cada pago a proveedor.
+
+**Resuelto, con aprobación del dueño en el momento:** los campos se llamaron **`Cuenta Origen (Finanzas)`** y **`Cuenta Destino (Finanzas)`** (simétrico, aunque solo `Cuenta Origen` tenía colisión). Actualizado en el código real: `lib/finanzas/movimientos-fields.ts` (`MOVIMIENTOS_FIELDS.cuentaOrigen`/`cuentaDestino`) — el resto del módulo (`crearMovimiento`, `saldos.ts`, los 9 tests automatizados) no necesitó ningún otro cambio porque todo lee el nombre real a través de esa constante, nunca hardcodeado. `npm run typecheck` y la suite completa se corrieron de nuevo después del cambio — sin regresiones.
+
+### Hallazgo 2 — La API de Airtable no permite ampliar opciones de un select existente
+
+`PATCH /meta/bases/{baseId}/tables/{tableId}/fields/{fieldId}` acepta cambios de `name`/`description` (verificado, funciona), pero **rechaza cualquier cambio a `options.choices`** con `422 INVALID_REQUEST_UNKNOWN` — probado con la lista completa (existentes + nuevas), y también reenviando el único choice existente sin ningún cambio. No es un problema de formato del payload: es una limitación real de la API para el endpoint de actualización de campo. (Los campos **nuevos** sí llevan todas sus opciones completas porque esas se definen en la creación, que sí funciona — el problema es únicamente *ampliar* un select preexistente.)
+
+**Paso 4 (ampliar opciones de `Origen`, `Tipo de movimiento`, `Método`) queda pendiente — es la única parte de todo el checklist que sí requiere una acción manual del dueño en la UI de Airtable.** Lista exacta a agregar (sin tocar ninguna opción existente):
+
+| Campo | Opciones nuevas a agregar |
+|---|---|
+| `Origen` | `Abonos`, `Facturación`, `Nómina`, `Manual`, `Sistema` |
+| `Tipo de movimiento` | `Movimiento Interno` |
+| `Método` | `Tarjeta débito`, `Tarjeta crédito`, `DataFast`, `PayPhone`, `Dinero electrónico` |
+
+Ningún código de esta fase depende todavía de que estas opciones existan (el puente Shipping solo escribe `Origen: "Shipping"` y `Tipo de movimiento: "Egreso"`, que ya existían) — no bloquea nada más del checklist ni de los tests.
+
+### Efecto secundario menor — campos inversos "From field: ..." sin usar
+
+Los self-links de `Cuentas Financieras` (`Permite Recibir De`/`Permite Transferir A`) generaron, cada uno, su propio campo inverso automático dentro de la misma tabla (`From field: Permite Recibir De`, `From field: Permite Transferir A`) — comportamiento normal de Airtable para links de una tabla a sí misma que el diseño original no había anticipado. Quedaron con su nombre por defecto; ningún código los lee. Se dejaron tal cual (no estaba autorizado tocar más campos de los previstos) — el dueño puede renombrarlos, ocultarlos de las vistas, o dejarlos así; es cosmético, no hay ningún dato en riesgo.
+
+### Resultado de la migración de los 11 registros (Paso 5)
+
+Verificado con el test #9 en vivo (`npx tsx lib/finanzas/__tests__/9.migracion-legacy.live.test.ts`) contra la base real:
+
+```
+✓ Hay exactamente 11 movimientos con Categoría "Compra Proveedor Shipping" (obtenido: 11)
+✓ Los 11 tienen Estado del Movimiento = Confirmado
+✓ Los 11 tienen Cuenta Origen resuelta (no vacía)
+✓ La suma de Monto de los 11 sigue siendo $6,382.04 (obtenido: $6382.04)
+```
+
+9 con `Cuenta Origen (Finanzas)` = Caja Registradora, 2 con PayPal — coincide exactamente con `docs/AUDITORIA-FASE-20.md` §A.3. `Cuenta origen`/`Estado de integración` (viejos) no se tocaron en ninguno de los 11 — verificado en cada respuesta de la API, que devuelve el registro completo tras cada `PATCH`.
+
+Los 9 tests automatizados de la suite en memoria y `npm run typecheck` se corrieron de nuevo después de todos los cambios anteriores — todo pasa limpio.
+
+---
+
 ## 3. Lo que falta y quién lo hace
 
-- **Ejecutar el checklist de arriba** — el dueño, a mano en Airtable, en el orden dado.
-- **Merge de esta rama a `main` y deploy** — con el dueño, después de revisar el código (paso 6 del checklist va después del merge).
-- **Correr el test #9** contra la base real tras el paso 5 del checklist, antes de dar por buena la migración.
+- **Paso 4 (agregar las opciones de select de arriba)** — el dueño, a mano en Airtable. Es lo único que quedó pendiente de todo el checklist.
+- **Merge de esta rama a `main` y deploy** — con el dueño, después de revisar el código y este documento.
+- **Renombrar la tabla** (`Shipping Finanzas Movimientos` → `Movimientos Financieros`, Paso 8) y **el día de go-live real** (Paso 9: contar el dinero físico/bancario de las 7 cuentas y llenar `Saldo Inicial`/`Fecha de Corte`) — ambos son del dueño, en el momento que decida, sin coordinación de tiempos con el deploy (el fallback de nombre de tabla ya lo permite).
+- **Limpieza final** (Pasos 11-15: eliminar los 3 placeholders muertos, `Estado de integración`, `Cuenta origen`, y el fallback de nombre en el código) — después de unos días con el código nuevo estable en producción.
 - **Fases siguientes** (fuera de alcance de 20.1, esquema ya las deja previstas): puentes de Abonos y Facturación (20.2) — hoy `crearMovimiento` está listo para que esos módulos lo llamen igual que el puente Shipping; captura de costo/rubro por línea (20.3); UI de movimientos internos y acreditación de pendientes (20.4) — `Monto Bruto`/`Monto Neto`/`Comisión` ya existen en el esquema, sin código que los use; cuadre de caja (20.5); egresos vinculados de Nómina/Repuestos/Licencias (20.6).
 
 **Detenido aquí, tal como se pidió — sin merge, sin deploy, sin tocar Airtable.**

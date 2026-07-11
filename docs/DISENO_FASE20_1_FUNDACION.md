@@ -4,6 +4,8 @@
 > Alcance: solo la fundación (tablas + módulo base `lib/finanzas/` + puente Shipping adaptado + pantalla de verificación). Fuera de alcance explícito: puentes de Abonos/Facturación (20.2), captura de costo por línea (20.3), UI de movimientos internos y acreditación (20.4), cuadre de caja (20.5), egresos vinculados (20.6) — el esquema deja campos y estados listos para esas fases, pero ningún código de esta fase los usa todavía.
 >
 > **v2 — 4 correcciones aplicadas tras revisión del dueño** (ver "Registro de correcciones" al final del documento para el detalle de qué cambió y por qué). Estructura general aprobada; el documento completo ya refleja las correcciones integradas en cada sección, no como apéndice.
+>
+> **Nota post-ejecución:** al ejecutar el checklist real contra Airtable (ver `docs/FASE20_1_RESULTADO.md` §2-bis), los campos que este documento llama `Cuenta Origen`/`Cuenta Destino` se crearon como **`Cuenta Origen (Finanzas)`**/**`Cuenta Destino (Finanzas)`** — Airtable trata los nombres de campo como case-insensitive, y `Cuenta Origen` chocaba con el `Cuenta origen` (select) legacy que la Corrección 3 exige dejar intacto. El código real (`lib/finanzas/movimientos-fields.ts`) ya usa el nombre correcto. Este documento no se reescribió campo por campo — donde diga `Cuenta Origen`/`Cuenta Destino` a secas, lee `Cuenta Origen (Finanzas)`/`Cuenta Destino (Finanzas)`.
 
 ---
 

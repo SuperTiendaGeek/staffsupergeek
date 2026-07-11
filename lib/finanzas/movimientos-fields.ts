@@ -14,8 +14,12 @@ export const MOVIMIENTOS_FIELDS = {
   tipo: "Tipo de movimiento",
   categoria: "Categoría",
   estado: "Estado del Movimiento",
-  cuentaOrigen: "Cuenta Origen",
-  cuentaDestino: "Cuenta Destino",
+  // Airtable trata los nombres de campo como case-insensitive para unicidad
+  // — "Cuenta Origen" chocaba con el "Cuenta origen" (select) legacy que
+  // Corrección 3 deja intacto. Se resolvió con el sufijo " (Finanzas)" en
+  // ambos, por simetría (decisión tomada al ejecutar el checklist real).
+  cuentaOrigen: "Cuenta Origen (Finanzas)",
+  cuentaDestino: "Cuenta Destino (Finanzas)",
   rubroCapital: "Rubro Capital",
   rubroUtilidad: "Rubro Utilidad",
   rubroIva: "Rubro IVA",
