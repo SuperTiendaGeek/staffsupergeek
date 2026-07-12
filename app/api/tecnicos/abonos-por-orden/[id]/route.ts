@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { anularAbonoPorOrden } from "@/lib/tecnicos/airtable";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
+import { anularMovimientoDeAbono } from "@/lib/finanzas/puentes/abonos";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,11 @@ export async function DELETE(_: Request, { params }: Params) {
 
   try {
     const result = await anularAbonoPorOrden({ abonoRecordId: id });
-    return NextResponse.json({ success: true, data: result.abono });
+    // Puente 20.2 (§1.5, Corrección 1) — anula también el movimiento
+    // vinculado; si ya estaba facturado, la anulación procede igual pero
+    // vuelve con un warning explícito en vez de bloquear.
+    const { warning } = await anularMovimientoDeAbono(id);
+    return NextResponse.json({ success: true, data: result.abono, warning });
   } catch (error) {
     console.error("Error al anular abono", error);
     const message = error instanceof Error ? error.message : "Error inesperado";

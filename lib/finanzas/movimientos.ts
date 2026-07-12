@@ -151,6 +151,57 @@ export async function anularMovimiento(id: string, motivo: string): Promise<Movi
   return mapMovimiento(updated);
 }
 
+/**
+ * Fase 20.2 §3 — actualización de alcance angosto: nunca toca hechos
+ * económicos (Monto, cuentas, Tipo, Categoría), solo el link a la Factura
+ * Electrónica que formaliza el anticipo y la transición de clasificación
+ * que eso implica. Usada por el Puente 2(b) para marcar como facturados los
+ * movimientos de abonos ya existentes, sin duplicar el ingreso.
+ */
+export async function actualizarMovimiento(
+  id: string,
+  cambios: { facturaElectronicaId?: string; estadoDistribucion?: "Pendiente de clasificar" }
+): Promise<Movimiento> {
+  const recordId = cleanString(id);
+  if (!recordId) throw new Error("Record ID de movimiento inválido.");
+
+  const actual = await fetchMovimientoById(recordId);
+  if (!actual) throw new Error(`Movimiento ${recordId} no encontrado.`);
+  if (actual.estado === "Anulado") throw new Error("No se puede actualizar un movimiento anulado.");
+
+  if (cambios.facturaElectronicaId) {
+    const yaTieneOtra = actual.facturaElectronicaIds.some((fid) => fid !== cambios.facturaElectronicaId);
+    if (yaTieneOtra) {
+      throw new Error(
+        `El movimiento ${recordId} ya está vinculado a otra Factura Electrónica (${actual.facturaElectronicaIds.join(", ")}) — no se puede reasignar.`
+      );
+    }
+  }
+
+  if (cambios.estadoDistribucion && actual.estadoDistribucion !== "Sin distribuir") {
+    throw new Error(
+      `Solo se permite la transición "Sin distribuir" → "Pendiente de clasificar" (estado actual: "${actual.estadoDistribucion}").`
+    );
+  }
+
+  const F = MOVIMIENTOS_FIELDS;
+  const fields = compactFields({
+    [F.facturaElectronica]: cambios.facturaElectronicaId ? [cambios.facturaElectronicaId] : undefined,
+    [F.estadoDistribucion]: cambios.estadoDistribucion,
+  });
+  if (Object.keys(fields).length === 0) return actual;
+
+  const response = await conResolucionDeTablaMovimientos(getClient(), (nombreTabla) =>
+    airtableMutation<AirtableMutationResponse>(tableUrl(nombreTabla), {
+      method: "PATCH",
+      body: JSON.stringify({ records: [{ id: recordId, fields }] }),
+    })
+  );
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el movimiento actualizado.");
+  return mapMovimiento(updated);
+}
+
 export async function fetchMovimientoById(id: string): Promise<Movimiento | null> {
   const recordId = cleanString(id);
   if (!recordId) return null;

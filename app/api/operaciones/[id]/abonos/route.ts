@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { requireOperacionesSession } from "@/lib/operaciones/auth";
 import { crearAbono, uploadComprobanteAbono } from "@/lib/operaciones/airtable";
+import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -63,7 +64,21 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       await uploadComprobanteAbono(newId, comprobanteFile.name, comprobanteFile.type || "application/octet-stream", base64);
     }
 
-    return NextResponse.json({ success: true, id: newId });
+    // Puente 20.2 — nunca bloquea el registro del abono si falla (política
+    // "el registro primario nunca se bloquea", ver docs/DISENO_FASE20_2_INGRESOS.md §4).
+    let warning: string | null = null;
+    const puente = await crearMovimientoParaAbono({
+      abonoId: newId,
+      monto,
+      metodoPago,
+      fecha: fechaAbono,
+      registradoPor,
+      numeroTransaccion,
+      observacion,
+    });
+    if (!puente.ok) warning = "No se pudo registrar el movimiento financiero de este abono.";
+
+    return NextResponse.json({ success: true, id: newId, warning });
   } catch (err) {
     console.error("[api/operaciones/[id]/abonos] POST error:", err);
     return NextResponse.json(

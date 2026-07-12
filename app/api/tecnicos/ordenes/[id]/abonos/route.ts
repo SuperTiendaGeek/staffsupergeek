@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAbonoPorOrden } from "@/lib/tecnicos/airtable";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
+import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
 
 export const dynamic = "force-dynamic";
 
@@ -156,8 +157,21 @@ export async function POST(request: Request, { params }: Params) {
       comprobanteArchivo,
     });
 
+    // Puente 20.2 — nunca bloquea el registro del abono si falla.
+    let warning = result.warning ?? null;
+    const puente = await crearMovimientoParaAbono({
+      abonoId: result.abono.id,
+      monto,
+      metodoPago,
+      fecha,
+      registradoPor: registradoPor || "Portal",
+      numeroTransaccion: numeroTransaccion ?? undefined,
+      observacion: observacion ?? undefined,
+    });
+    if (!puente.ok) warning = warning ?? "No se pudo registrar el movimiento financiero de este abono.";
+
     return NextResponse.json(
-      { success: true, data: result.abono, warning: result.warning ?? null },
+      { success: true, data: result.abono, warning },
       { status: 201 }
     );
   } catch (error) {
