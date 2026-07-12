@@ -4,6 +4,7 @@ import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitir
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { buscarFacturaBloqueante } from "@/lib/facturacion/gancho/idempotencia";
 import { postEmision } from "@/lib/facturacion/gancho/postEmision";
+import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
 
 export const dynamic = "force-dynamic";
 // La autorización puede tardar hasta 60 s; extendemos el timeout del route.
@@ -67,6 +68,11 @@ export async function POST(request: Request) {
         console.error("[/api/facturacion/emitir POST] postEmision falló:", e);
       }
     }
+
+    // Fase 20.2 — puente de ingresos, en paralelo/independiente de
+    // postEmision (un fallo de inventario no debe bloquear el de finanzas
+    // ni viceversa). Nunca lanza — ver lib/finanzas/puentes/facturacion.ts.
+    await procesarPuenteFacturacion(resultado, body, session.user.nombre || session.user.email || "Portal");
 
     return NextResponse.json({ success: true, data: resultado });
   } catch (e) {

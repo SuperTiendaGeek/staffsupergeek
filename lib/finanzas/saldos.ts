@@ -6,11 +6,11 @@ import { conResolucionDeTablaMovimientos } from "./table-names";
 import { round2 } from "./validaciones";
 
 /**
- * §2.3b — todos los movimientos (Confirmado/Acreditado, con fecha ≥ Fecha de
- * Corte de la cuenta) donde la cuenta participa, ya sea como origen o como
- * destino. Se leen por RECORD_ID() a partir de los ids que ya trae la propia
- * Cuenta en sus campos inversos — nunca se filtra Movimientos por campo de
- * link.
+ * §2.3b — todos los movimientos (en alguno de `estados`, con fecha ≥ Fecha
+ * de Corte de la cuenta) donde la cuenta participa, ya sea como origen o
+ * como destino. Se leen por RECORD_ID() a partir de los ids que ya trae la
+ * propia Cuenta en sus campos inversos — nunca se filtra Movimientos por
+ * campo de link.
  *
  * Sin `Fecha de Corte` todavía (cuenta no ha pasado por el go-live del
  * checklist, §6 paso 9), la cuenta no está "viva" para el sistema — ningún
@@ -18,8 +18,15 @@ import { round2 } from "./validaciones";
  * `fechaCorte` vacío hacía que el filtro de fecha nunca excluyera nada (el
  * `&&` cortocircuitaba a `false`), así que una cuenta sin corte mostraba la
  * suma de TODO su histórico en vez de $0.
+ *
+ * Generalizada en la Fase 20.2 (antes solo aceptaba
+ * `ESTADOS_QUE_CUENTAN_PARA_SALDO`) para que `calcularPorAcreditarCuenta`
+ * pueda reusarla con `["Pendiente"]` sin duplicar el fetch — mismo
+ * comportamiento exacto para los llamadores existentes (`calcularSaldoCuenta`/
+ * `calcularSaldoRubroCuenta` siguen pasando `ESTADOS_QUE_CUENTAN_PARA_SALDO`,
+ * sin cambio de resultado; cubierto por el test de no-regresión §7 #11).
  */
-async function fetchMovimientosConfirmadosDeCuenta(cuentaId: string, fechaCorte: string | null) {
+async function fetchMovimientosDeCuentaPorEstado(cuentaId: string, fechaCorte: string | null, estados: readonly string[]) {
   if (!fechaCorte) return [];
 
   const cuenta = await fetchCuentaById(cuentaId);
@@ -34,7 +41,7 @@ async function fetchMovimientosConfirmadosDeCuenta(cuentaId: string, fechaCorte:
 
   const movimientos = registros.map(mapMovimiento);
   return movimientos.filter((mov) => {
-    if (!ESTADOS_QUE_CUENTAN_PARA_SALDO.includes(mov.estado as (typeof ESTADOS_QUE_CUENTAN_PARA_SALDO)[number])) return false;
+    if (!estados.includes(mov.estado)) return false;
     if (mov.fecha && mov.fecha < fechaCorte) return false;
     return true;
   });
@@ -54,7 +61,7 @@ export async function calcularSaldoCuenta(cuentaId: string, options?: { hasta?: 
   if (!cuenta) throw new Error(`Cuenta financiera ${cuentaId} no encontrada.`);
   if (!cuenta.fechaCorte) return 0;
 
-  const movimientos = await fetchMovimientosConfirmadosDeCuenta(cuentaId, cuenta.fechaCorte);
+  const movimientos = await fetchMovimientosDeCuentaPorEstado(cuentaId, cuenta.fechaCorte, ESTADOS_QUE_CUENTAN_PARA_SALDO);
   let saldo = cuenta.saldoInicial;
   for (const mov of movimientos) {
     if (options?.hasta && mov.fecha && new Date(mov.fecha) > options.hasta) continue;
@@ -69,7 +76,7 @@ export async function calcularSaldoRubroCuenta(cuentaId: string, rubro: Rubro): 
   const cuenta = await fetchCuentaById(cuentaId);
   if (!cuenta) throw new Error(`Cuenta financiera ${cuentaId} no encontrada.`);
 
-  const movimientos = await fetchMovimientosConfirmadosDeCuenta(cuentaId, cuenta.fechaCorte);
+  const movimientos = await fetchMovimientosDeCuentaPorEstado(cuentaId, cuenta.fechaCorte, ESTADOS_QUE_CUENTAN_PARA_SALDO);
   let saldo = 0;
   for (const mov of movimientos) {
     const valor = mov.rubros[rubro];
@@ -77,6 +84,27 @@ export async function calcularSaldoRubroCuenta(cuentaId: string, rubro: Rubro): 
     if (mov.cuentaOrigenId === cuentaId) saldo -= valor;
   }
   return round2(saldo);
+}
+
+/**
+ * Fase 20.2 §4.3 (Corrección 2) — dinero "en camino" de una cuenta de
+ * tránsito: movimientos `Pendiente` que la tienen como destino/origen, sin
+ * sumar `Saldo Inicial` (un saldo inicial nunca es "pendiente", es un hecho
+ * ya contado a mano el día del corte). No cuenta para ningún saldo
+ * disponible — es puramente informativo para que el dueño sepa cuánto
+ * dinero real está en camino de acreditarse (Fase 20.4).
+ */
+export async function calcularPorAcreditarCuenta(cuentaId: string): Promise<number> {
+  const cuenta = await fetchCuentaById(cuentaId);
+  if (!cuenta) throw new Error(`Cuenta financiera ${cuentaId} no encontrada.`);
+
+  const movimientos = await fetchMovimientosDeCuentaPorEstado(cuentaId, cuenta.fechaCorte, ["Pendiente"]);
+  let total = 0;
+  for (const mov of movimientos) {
+    if (mov.cuentaDestinoId === cuentaId) total += mov.monto;
+    if (mov.cuentaOrigenId === cuentaId) total -= mov.monto;
+  }
+  return round2(total);
 }
 
 /** Dinero de la cuenta que hoy no está clasificado en ningún rubro (anticipos + pendientes de clasificar + el propio saldo inicial). */

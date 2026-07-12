@@ -1072,10 +1072,27 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       {/* ── 3. PAGO Y TOTALES ───────────────────────────────────────────── */}
       <Card titulo="3. Pago y Totales">
         <div className="flex flex-col md:flex-row gap-6">
-          {/* Forma de pago — mostrador: un solo selector (igual que siempre).
-              Gancho: varias líneas editables (abonos reales + saldo). */}
+          {/* Forma de pago — mostrador: un solo selector por defecto, con
+              opción de pasar a pago mixto (Fase 20.2 — antes solo el gancho
+              podía usar FormasPagoEditor). Gancho: siempre varias líneas
+              editables (abonos reales + saldo), sin este toggle. */}
           <div className="md:w-80">
-            <label className={LABEL}>Forma{pagosPrecargados ? "s" : ""} de pago</label>
+            <div className="flex items-center justify-between">
+              <label className={LABEL}>Forma{pagosPrecargados ? "s" : ""} de pago</label>
+              {!origen ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPagosPrecargados((actual) =>
+                      actual ? null : [{ formaPago, total: totales.importeTotal }]
+                    )
+                  }
+                  className="text-xs text-lime-400 hover:text-lime-300 underline"
+                >
+                  {pagosPrecargados ? "Un solo pago" : "Pago mixto"}
+                </button>
+              ) : null}
+            </div>
             {pagosPrecargados ? (
               <FormasPagoEditor pagos={pagosPrecargados} onChange={setPagosPrecargados} />
             ) : (

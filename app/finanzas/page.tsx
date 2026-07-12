@@ -2,12 +2,12 @@ import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffDataTable, StaffPageHeader, StaffStatCard } from "@/components/staff/StaffDesignSystem";
 import { fetchCuentasFinancieras } from "@/lib/finanzas/cuentas";
 import { listarMovimientos } from "@/lib/finanzas/movimientos";
-import { calcularAnticiposSinFacturar, calcularSaldoCuenta } from "@/lib/finanzas/saldos";
+import { calcularAnticiposSinFacturar, calcularPorAcreditarCuenta, calcularSaldoCuenta } from "@/lib/finanzas/saldos";
 import type { CuentaFinanciera, Movimiento } from "@/types/finanzas";
 
 export const dynamic = "force-dynamic";
 
-type CuentaConSaldo = CuentaFinanciera & { saldo: number };
+type CuentaConSaldo = CuentaFinanciera & { saldo: number; porAcreditar: number | null };
 
 function formatMonto(valor: number) {
   return valor.toLocaleString("es-EC", { style: "currency", currency: "USD" });
@@ -35,12 +35,15 @@ export default async function FinanzasPage() {
 
   try {
     const cuentasBase = await fetchCuentasFinancieras();
-    const [saldos, movs, anticipos] = await Promise.all([
+    const [saldos, porAcreditar, movs, anticipos] = await Promise.all([
       Promise.all(cuentasBase.map((cuenta) => calcularSaldoCuenta(cuenta.id))),
+      // Fase 20.2 §4.3 (Corrección 2) — solo tiene sentido para cuentas de
+      // tránsito; el resto queda en `null` y no muestra la línea extra.
+      Promise.all(cuentasBase.map((cuenta) => (cuenta.tipo === "Tránsito" ? calcularPorAcreditarCuenta(cuenta.id) : Promise.resolve(null)))),
       listarMovimientos({ maxRecords: 100 }),
       calcularAnticiposSinFacturar(),
     ]);
-    cuentas = cuentasBase.map((cuenta, index) => ({ ...cuenta, saldo: saldos[index] }));
+    cuentas = cuentasBase.map((cuenta, index) => ({ ...cuenta, saldo: saldos[index], porAcreditar: porAcreditar[index] }));
     movimientos = movs;
     anticiposSinFacturar = anticipos;
   } catch (loadError) {
@@ -69,13 +72,17 @@ export default async function FinanzasPage() {
 
         <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
           {cuentas.map((cuenta) => (
-            <StaffStatCard
-              key={cuenta.id}
-              label={`${cuenta.nombre}${cuenta.activa ? "" : " (inactiva)"}`}
-              value={formatMonto(cuenta.saldo)}
-              tone={cuenta.saldo < 0 ? "orange" : "lime"}
-              density="compact"
-            />
+            <div key={cuenta.id}>
+              <StaffStatCard
+                label={`${cuenta.nombre}${cuenta.activa ? "" : " (inactiva)"}`}
+                value={formatMonto(cuenta.saldo)}
+                tone={cuenta.saldo < 0 ? "orange" : "lime"}
+                density="compact"
+              />
+              {cuenta.porAcreditar !== null && cuenta.porAcreditar > 0 ? (
+                <p className="mt-0.5 px-1 text-[12px] text-yellow-200/80">{formatMonto(cuenta.porAcreditar)} por acreditar</p>
+              ) : null}
+            </div>
           ))}
           <StaffStatCard label="Anticipos sin facturar" value={formatMonto(anticiposSinFacturar)} tone="yellow" density="compact" featured />
         </section>

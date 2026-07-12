@@ -2,8 +2,9 @@ import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { obtenerFactura }            from "@/lib/facturacion/airtable/facturas";
 import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitirFactura";
-import type { DatosVenta }           from "@/lib/facturacion/emitirFactura";
-import type { DetalleFactura }       from "@/lib/facturacion/types/factura";
+import type { DatosVenta, OrigenGancho } from "@/lib/facturacion/emitirFactura";
+import type { DetalleFactura, Pago } from "@/lib/facturacion/types/factura";
+import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
 
 export const dynamic    = "force-dynamic";
 export const maxDuration = 90;
@@ -37,15 +38,30 @@ export async function POST(req: Request, { params }: Params) {
     );
   }
 
-  let detalles: DetalleFactura[];
+  // Fase 20.2 — fix del bug preexistente: "Líneas JSON" es el objeto
+  // envoltorio { version, detalles, formaPago, pagos, infoAdicional, origen }
+  // (ver emitirFactura.ts), nunca un array de DetalleFactura directo. Leerlo
+  // como si fuera el array (el comportamiento viejo) rompía en tiempo de
+  // ejecución en cuanto alguien reintentaba de verdad. De paso, se recupera
+  // `pagos` (el array completo, si la factura se emitió después de este fix)
+  // y `origen` (para que un reintento exitoso de una factura del gancho
+  // todavía dispare el Puente 2 de Fase 20.2).
+  let payload: { detalles: DetalleFactura[]; pagos?: Pago[]; origen?: OrigenGancho };
   try {
-    detalles = JSON.parse(factura.lineasJson) as DetalleFactura[];
+    const parsed = JSON.parse(factura.lineasJson) as {
+      detalles?: DetalleFactura[];
+      pagos?: Pago[];
+      origen?: OrigenGancho;
+    };
+    if (!Array.isArray(parsed.detalles)) throw new Error("sin detalles");
+    payload = { detalles: parsed.detalles, pagos: parsed.pagos, origen: parsed.origen };
   } catch {
     return NextResponse.json(
       { success: false, error: "Líneas JSON inválidas en el registro" },
       { status: 400 }
     );
   }
+  const { detalles, origen } = payload;
 
   // Reconstituir totales desde las líneas almacenadas
   const totalSinImpuestos = detalles.reduce((s, d) => s + d.precioTotalSinImpuesto, 0);
@@ -83,12 +99,21 @@ export async function POST(req: Request, { params }: Params) {
       valor:            parseFloat(v.valor.toFixed(2)),
     })),
     importeTotal,
-    pagos: [{ formaPago: "01", total: importeTotal }],
+    // `pagos` completo si la factura ya se emitió con el fix de 20.2; fallback
+    // al hardcode legacy solo para facturas emitidas antes de este fix, que
+    // nunca guardaron el array completo (perdían la forma de pago real de
+    // todas formas — este fallback no empeora nada, documenta el límite).
+    pagos: payload.pagos && payload.pagos.length > 0 ? payload.pagos : [{ formaPago: "01", total: importeTotal }],
     vendedor: session.user.nombre,
+    origen,
   };
 
   try {
     const resultado = await emitirFactura(datosVenta);
+    // Fase 20.2 — mismo puente que /api/facturacion/emitir; sin esto, un
+    // reintento exitoso de una factura con abonos nunca los marcaría como
+    // facturados (el `origen` reconstruido arriba es justamente para esto).
+    await procesarPuenteFacturacion(resultado, datosVenta, session.user.nombre || session.user.email || "Portal");
     return NextResponse.json({ success: true, data: resultado });
   } catch (e) {
     console.error("[reintentar POST]", e);
