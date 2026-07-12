@@ -84,6 +84,10 @@ export type ResultadoEmision = {
   fechaAutorizacion?:  string;
   mensajes?:           Array<{ identificador: string; tipo: string; mensaje: string }>;
   recordId?:           string;   // ID del registro en Airtable
+  // Fase 20.2 — el puente Facturación→Movimientos necesita saber el
+  // ambiente real (nunca crear movimientos sobre Ambiente=PRUEBAS) sin
+  // tener que releer el registro recién persistido.
+  ambiente?:           string;
 };
 
 // ─── Constante: código de error "clave ya registrada" ───────────────────────
@@ -336,10 +340,17 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
     // dentro de cada objeto de "detalles", ver types/factura.ts). version 2
     // (sin estos dos) sigue siendo válida de leer — los campos nuevos son
     // opcionales. El XML del SRI no cambia con ninguna de las dos versiones.
+    // Fase 20.2 — fix del bug de reintento: antes solo se guardaba
+    // `formaPago` (string suelto, primer pago) y el array completo se
+    // perdía. Se agrega `pagos` (el array `Pago[]` completo, con
+    // `origenPago` intacto) sin quitar `formaPago` — compatibilidad con
+    // lectores viejos que ya lo esperan. `reintentar/route.ts` lee `pagos`
+    // primero y solo cae al hardcode legacy si una factura vieja no lo tiene.
     const lineasJson = JSON.stringify({
       version:       3,
       detalles:      datos.detalles,
       formaPago:     datos.pagos[0]?.formaPago,
+      pagos:         datos.pagos,
       infoAdicional: infoAdicionalFinal.length ? infoAdicionalFinal : undefined,
       origen:        datos.origen,
     });
@@ -398,6 +409,7 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
       fechaAutorizacion:  autorizacion.fechaAutorizacion,
       mensajes:           autorizacion.mensajes,
       recordId,
+      ambiente:           cfg.ambiente,
     };
   }
 
