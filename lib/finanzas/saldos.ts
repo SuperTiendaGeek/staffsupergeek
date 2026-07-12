@@ -11,8 +11,17 @@ import { round2 } from "./validaciones";
  * destino. Se leen por RECORD_ID() a partir de los ids que ya trae la propia
  * Cuenta en sus campos inversos — nunca se filtra Movimientos por campo de
  * link.
+ *
+ * Sin `Fecha de Corte` todavía (cuenta no ha pasado por el go-live del
+ * checklist, §6 paso 9), la cuenta no está "viva" para el sistema — ningún
+ * movimiento cuenta, ni siquiera los legacy ya Confirmado. Antes de este fix,
+ * `fechaCorte` vacío hacía que el filtro de fecha nunca excluyera nada (el
+ * `&&` cortocircuitaba a `false`), así que una cuenta sin corte mostraba la
+ * suma de TODO su histórico en vez de $0.
  */
 async function fetchMovimientosConfirmadosDeCuenta(cuentaId: string, fechaCorte: string | null) {
+  if (!fechaCorte) return [];
+
   const cuenta = await fetchCuentaById(cuentaId);
   if (!cuenta) throw new Error(`Cuenta financiera ${cuentaId} no encontrada.`);
 
@@ -26,15 +35,24 @@ async function fetchMovimientosConfirmadosDeCuenta(cuentaId: string, fechaCorte:
   const movimientos = registros.map(mapMovimiento);
   return movimientos.filter((mov) => {
     if (!ESTADOS_QUE_CUENTAN_PARA_SALDO.includes(mov.estado as (typeof ESTADOS_QUE_CUENTAN_PARA_SALDO)[number])) return false;
-    if (fechaCorte && mov.fecha && mov.fecha < fechaCorte) return false;
+    if (mov.fecha && mov.fecha < fechaCorte) return false;
     return true;
   });
 }
 
-/** §2.3b — saldo(cuenta) = SaldoInicial + Σ Monto[destino] − Σ Monto[origen], solo movimientos ≥ Fecha de Corte. */
+/**
+ * §2.3b — saldo(cuenta) = SaldoInicial + Σ Monto[destino] − Σ Monto[origen],
+ * solo movimientos ≥ Fecha de Corte.
+ *
+ * Sin `Fecha de Corte` (cuenta que todavía no pasó por el go-live, §6 paso
+ * 9), el saldo es $0 explícitamente — no se suma ni siquiera `Saldo
+ * Inicial`, para no dar un número engañoso si alguien lo llena antes que la
+ * fecha de corte (ambos se cargan juntos, en el mismo paso).
+ */
 export async function calcularSaldoCuenta(cuentaId: string, options?: { hasta?: Date }): Promise<number> {
   const cuenta = await fetchCuentaById(cuentaId);
   if (!cuenta) throw new Error(`Cuenta financiera ${cuentaId} no encontrada.`);
+  if (!cuenta.fechaCorte) return 0;
 
   const movimientos = await fetchMovimientosConfirmadosDeCuenta(cuentaId, cuenta.fechaCorte);
   let saldo = cuenta.saldoInicial;

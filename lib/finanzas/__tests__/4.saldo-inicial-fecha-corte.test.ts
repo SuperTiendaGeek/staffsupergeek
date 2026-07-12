@@ -3,7 +3,11 @@
  * con fecha anterior a la Fecha de Corte de la cuenta no debe alterar
  * calcularSaldoCuenta; uno con fecha posterior sí. Los 11 movimientos legacy
  * (fecha muy anterior a cualquier corte real) no deben aportar al saldo aun
- * teniendo Cuenta Origen ya resuelta.
+ * teniendo Cuenta Origen ya resuelta. Además: una cuenta SIN Fecha de Corte
+ * (todavía no pasó por el go-live) debe dar saldo $0, no la suma de su
+ * histórico Confirmado — bug real encontrado en la verificación de /finanzas
+ * tras el deploy (`fechaCorte` vacío hacía que el filtro de fecha nunca
+ * excluyera nada).
  * Ejecutar: npx tsx lib/finanzas/__tests__/4.saldo-inicial-fecha-corte.test.ts
  *
  * global.fetch reemplazado por el doble de _airtableDouble.ts.
@@ -92,6 +96,20 @@ async function main() {
 
   const saldo = await calcularSaldoCuenta(cajaId);
   assert(saldo === 95.2, `Saldo = SaldoInicial($50) + $45.20 posterior al corte = $95.20 (obtenido: $${saldo})`);
+
+  // Cuenta SIN Fecha de Corte (todavía no pasó por el go-live, §6 paso 9):
+  // el saldo debe ser $0 — ni siquiera Saldo Inicial cuenta, y mucho menos el
+  // histórico legacy — aunque la cuenta tenga movimientos Confirmado reales.
+  const paypalId = crearCuentaDouble(state, { nombre: "PayPal", saldoInicial: 250, fechaCorte: null });
+  insertarMovimiento(state, {
+    [MOVIMIENTOS_FIELDS.tipo]: "Egreso",
+    [MOVIMIENTOS_FIELDS.estado]: "Confirmado",
+    [MOVIMIENTOS_FIELDS.monto]: 5810,
+    [MOVIMIENTOS_FIELDS.fecha]: "2026-06-10T20:31:00.000Z",
+    [MOVIMIENTOS_FIELDS.cuentaOrigen]: [paypalId],
+  });
+  const saldoSinCorte = await calcularSaldoCuenta(paypalId);
+  assert(saldoSinCorte === 0, `Saldo de una cuenta sin Fecha de Corte es $0, no el histórico ni el Saldo Inicial (obtenido: $${saldoSinCorte})`);
 
   global.fetch = fetchOriginal;
   limpiarEnvFalso();
