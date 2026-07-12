@@ -1,16 +1,20 @@
 /**
- * Doble en memoria de la API REST de Airtable para las tablas "Cuentas
- * Financieras" y "Movimientos Financieros" (con o sin su nombre viejo
- * "Shipping Finanzas Movimientos", según el escenario del test).
+ * Doble en memoria de la API REST de Airtable para "Cuentas Financieras",
+ * "Movimientos Financieros" (con o sin su nombre viejo "Shipping Finanzas
+ * Movimientos"), y — desde la Fase 20.2 — cualquier "otra tabla" genérica
+ * (Abonos, Facturas Electrónicas, Operación Comercial, Órdenes de
+ * Reparación) que un test necesite para simular los puentes de ingresos.
  *
  * No es un archivo de test — no tiene assert() ni se ejecuta solo. Lo
  * importan los tests de lib/finanzas/__tests__ que necesitan simular
  * Airtable sin tocar la red real.
  *
- * Simula, entre otras cosas, el mantenimiento automático que Airtable hace
- * de los campos inversos (Cuenta Origen/Destino → Movimientos (Origen)/
- * (Destino)) — así el código bajo prueba puede leer esos inversos igual que
- * en producción.
+ * Simula el mantenimiento automático que Airtable hace de los campos
+ * inversos: Cuenta Origen/Destino → Movimientos (Origen)/(Destino) en
+ * Cuentas Financieras (Fase 20.1), y Abono/Factura Electrónica →
+ * "Movimiento Financiero"/"Movimientos Financieros (Facturación)" en
+ * Abonos/Facturas Electrónicas (Fase 20.2) — tanto al crear (POST) como al
+ * actualizar (PATCH, para actualizarMovimiento) un Movimiento.
  */
 
 import { CUENTAS_FIELDS } from "../cuentas";
@@ -21,16 +25,33 @@ export type DoubleRecord = { id: string; createdTime: string; fields: Record<str
 export type AirtableDoubleState = {
   cuentas: Map<string, DoubleRecord>;
   movimientos: Map<string, DoubleRecord>;
+  otras: Map<string, Map<string, DoubleRecord>>;
   tablaMovimientosActiva: string;
   nextId: number;
 };
 
 export function crearEstadoDouble(tablaMovimientosActiva = "Movimientos Financieros"): AirtableDoubleState {
-  return { cuentas: new Map(), movimientos: new Map(), tablaMovimientosActiva, nextId: 1 };
+  return { cuentas: new Map(), movimientos: new Map(), otras: new Map(), tablaMovimientosActiva, nextId: 1 };
 }
 
 function generarId(state: AirtableDoubleState) {
   return `rec${String(state.nextId++).padStart(14, "0")}`;
+}
+
+function storeDeOtraTabla(state: AirtableDoubleState, tabla: string): Map<string, DoubleRecord> {
+  let store = state.otras.get(tabla);
+  if (!store) {
+    store = new Map();
+    state.otras.set(tabla, store);
+  }
+  return store;
+}
+
+/** Crea un registro en cualquier tabla que no sea Cuentas/Movimientos (Abonos, Facturas Electrónicas, Operación Comercial, Órdenes de Reparación...). */
+export function crearRegistroDouble(state: AirtableDoubleState, tabla: string, fields: Record<string, unknown>): string {
+  const id = generarId(state);
+  storeDeOtraTabla(state, tabla).set(id, { id, createdTime: new Date().toISOString(), fields });
+  return id;
 }
 
 export function crearCuentaDouble(
@@ -71,20 +92,28 @@ export function permitirTransferencia(state: AirtableDoubleState, origenId: stri
   origen.fields[CUENTAS_FIELDS.permiteTransferirA] = [...actuales, destinoId];
 }
 
+function agregarAInverso(store: Map<string, DoubleRecord>, id: string, campo: string, valor: string) {
+  const registro = store.get(id);
+  if (!registro) return;
+  const actuales = (registro.fields[campo] as string[] | undefined) ?? [];
+  registro.fields[campo] = [...actuales, valor];
+}
+
 function sincronizarInversos(state: AirtableDoubleState, movimiento: DoubleRecord) {
   const origenIds = (movimiento.fields[MOVIMIENTOS_FIELDS.cuentaOrigen] as string[] | undefined) ?? [];
   const destinoIds = (movimiento.fields[MOVIMIENTOS_FIELDS.cuentaDestino] as string[] | undefined) ?? [];
-  for (const cuentaId of origenIds) {
-    const cuenta = state.cuentas.get(cuentaId);
-    if (!cuenta) continue;
-    const actuales = (cuenta.fields[CUENTAS_FIELDS.movimientosOrigen] as string[] | undefined) ?? [];
-    cuenta.fields[CUENTAS_FIELDS.movimientosOrigen] = [...actuales, movimiento.id];
-  }
-  for (const cuentaId of destinoIds) {
-    const cuenta = state.cuentas.get(cuentaId);
-    if (!cuenta) continue;
-    const actuales = (cuenta.fields[CUENTAS_FIELDS.movimientosDestino] as string[] | undefined) ?? [];
-    cuenta.fields[CUENTAS_FIELDS.movimientosDestino] = [...actuales, movimiento.id];
+  for (const cuentaId of origenIds) agregarAInverso(state.cuentas, cuentaId, CUENTAS_FIELDS.movimientosOrigen, movimiento.id);
+  for (const cuentaId of destinoIds) agregarAInverso(state.cuentas, cuentaId, CUENTAS_FIELDS.movimientosDestino, movimiento.id);
+
+  // Fase 20.2 — inversos en "otras tablas" (Abonos/Facturas Electrónicas).
+  const abonoIds = (movimiento.fields[MOVIMIENTOS_FIELDS.abono] as string[] | undefined) ?? [];
+  const abonosStore = state.otras.get("Abonos");
+  if (abonosStore) for (const abonoId of abonoIds) agregarAInverso(abonosStore, abonoId, "Movimiento Financiero", movimiento.id);
+
+  const facturaIds = (movimiento.fields[MOVIMIENTOS_FIELDS.facturaElectronica] as string[] | undefined) ?? [];
+  const facturasStore = state.otras.get("Facturas Electrónicas");
+  if (facturasStore) {
+    for (const facturaId of facturaIds) agregarAInverso(facturasStore, facturaId, "Movimientos Financieros (Facturación)", movimiento.id);
   }
 }
 
@@ -143,11 +172,12 @@ export function construirFetchDouble(state: AirtableDoubleState) {
     const nombresMovimientosConocidos = ["Movimientos Financieros", "Shipping Finanzas Movimientos"];
     const esMovimientosActiva = tableName === state.tablaMovimientosActiva;
     const esMovimientosOtroNombre = nombresMovimientosConocidos.includes(tableName) && !esMovimientosActiva;
+    const esOtraTabla = !esCuentas && !esMovimientosActiva && state.otras.has(tableName);
 
     if (esMovimientosOtroNombre) return jsonResponse(false, 404, "TABLE_NOT_FOUND");
-    if (!esCuentas && !esMovimientosActiva) return jsonResponse(false, 404, "TABLE_NOT_FOUND");
+    if (!esCuentas && !esMovimientosActiva && !esOtraTabla) return jsonResponse(false, 404, "TABLE_NOT_FOUND");
 
-    const store = esCuentas ? state.cuentas : state.movimientos;
+    const store = esCuentas ? state.cuentas : esMovimientosActiva ? state.movimientos : storeDeOtraTabla(state, tableName);
 
     if (method === "GET" && recordId) {
       const record = store.get(recordId);
@@ -180,6 +210,7 @@ export function construirFetchDouble(state: AirtableDoubleState) {
         if (!existente) throw new Error(`Doble de Airtable: PATCH sobre record inexistente ${r.id}`);
         const actualizado: DoubleRecord = { ...existente, fields: { ...existente.fields, ...r.fields } };
         store.set(r.id, actualizado);
+        if (store === state.movimientos) sincronizarInversos(state, actualizado);
         return actualizado;
       });
       return jsonResponse(true, 200, { records: actualizados });
