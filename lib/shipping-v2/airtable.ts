@@ -41,6 +41,8 @@ import { canBeUsaTransportProvider, isCompatibleEcuadorTransportProvider } from 
 import { generateUniqueSkuFromExistingSkus, normalizeSku } from "@/lib/sku/sku-service";
 import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
 import { calculateShippingV2BatteryState, shippingV2CategoryDoesNotUseScreenOrBattery, shippingV2CategoryHasBattery } from "@/lib/shipping-v2/technical-sheet";
+import { fetchCuentaPorNombre } from "@/lib/finanzas/cuentas";
+import { crearMovimiento } from "@/lib/finanzas/movimientos";
 
 type AirtableRecord = {
   id: string;
@@ -2565,11 +2567,6 @@ function generatePaymentId() {
   return `PAY-${now.toISOString().slice(0, 10).replace(/-/g, "")}-${String(now.getTime()).slice(-5)}`;
 }
 
-function generateFinanceMovementId() {
-  const now = new Date();
-  return `SFM-${now.toISOString().slice(0, 10).replace(/-/g, "")}-${String(now.getTime()).slice(-5)}`;
-}
-
 function attachmentFromUrl(urlValue?: string) {
   const url = cleanString(urlValue);
   return url ? [{ url }] : undefined;
@@ -2649,34 +2646,58 @@ export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, opti
   return pago;
 }
 
+// Fase 20.1 — mapeo del valor legacy de "Cuenta origen" (texto libre de
+// Shipping Pagos) a la cuenta real de Cuentas Financieras. "Tarjeta"/"Otra"
+// no tienen mapeo conocido a propósito: se deja sin resolver y se loguea una
+// advertencia en vez de bloquear el pago (ver docs/DISENO_FASE20_1_FUNDACION.md §4).
+const CUENTA_ORIGEN_LEGACY_A_CUENTA_FINANCIERA: Record<string, string> = {
+  caja: "Caja Registradora",
+  paypal: "PayPal",
+  "banco pichincha": "SGINGRESOS", // confirmado §1.5 — se revisará en 20.6
+};
+
+async function resolveCuentaFinancieraLegacy(cuentaOrigenTexto: string): Promise<string | null> {
+  const clave = normalizeStatus(cuentaOrigenTexto);
+  const nombreCuenta = CUENTA_ORIGEN_LEGACY_A_CUENTA_FINANCIERA[clave];
+  if (!nombreCuenta) {
+    console.warn(`[Finanzas] Cuenta origen legacy "${cuentaOrigenTexto}" sin mapeo a Cuentas Financieras — el movimiento se crea sin Cuenta Origen.`);
+    return null;
+  }
+  const cuenta = await fetchCuentaPorNombre(nombreCuenta);
+  if (!cuenta) {
+    console.warn(`[Finanzas] Cuenta financiera "${nombreCuenta}" no encontrada en Airtable — el movimiento se crea sin Cuenta Origen.`);
+    return null;
+  }
+  return cuenta.id;
+}
+
 async function createFinanceMovementForPago(pago: ShippingV2Pago, input: ShippingV2PagoMarkPaidInput, registradoPor: string) {
   if (pago.movimientoFinanzasIds.length) return pago.movimientoFinanzasIds[0];
   const supportInput = normalizeAndValidatePaymentSupportInput(input);
-  const F = SHIPPING_V2_FINANCE_FIELDS;
-  const fields = compactFields({
-    [F.movimientoShippingId]: generateFinanceMovementId(),
-    [F.origen]: "Shipping",
-    [F.tipoMovimiento]: "Egreso",
-    [F.estadoIntegracion]: "Pendiente de sincronizar",
-    [F.pagoShippingRelacionado]: [pago.id],
-    [F.proveedor]: pago.proveedorId ? [pago.proveedorId] : undefined,
-    [F.monto]: pago.totalAPagar ?? 0,
-    [F.fechaMovimiento]: cleanString(supportInput.fechaPagoReal) || new Date().toISOString(),
-    [F.metodo]: supportInput.metodoPago,
-    [F.cuentaOrigen]: supportInput.cuentaOrigen,
-    [F.transaccionId]: cleanString(input.transaccionId),
-    [F.comprobante]: attachmentFromUrl(input.comprobanteUrl),
-    [F.observacion]: cleanString(input.observacion),
-    [F.registradoPor]: registradoPor,
-    [F.fechaCreacion]: new Date().toISOString(),
-  });
-  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.finanzasMovimientos), {
-    method: "POST",
-    body: JSON.stringify({ records: [{ fields }] }),
-  });
-  const created = response.records?.[0];
-  if (!created) throw new Error("Airtable no devolvió el movimiento financiero.");
-  return created.id;
+  const cuentaOrigenId = await resolveCuentaFinancieraLegacy(supportInput.cuentaOrigen);
+  const movimiento = await crearMovimiento(
+    {
+      tipo: "Egreso",
+      origen: "Shipping",
+      categoria: "Compra Proveedor Shipping",
+      monto: pago.totalAPagar ?? 0,
+      cuentaOrigenId,
+      estado: "Confirmado",
+      estadoDistribucion: "No aplica",
+      metodo: supportInput.metodoPago,
+      fecha: cleanString(supportInput.fechaPagoReal) || new Date().toISOString(),
+      transaccionId: cleanString(input.transaccionId),
+      comprobanteUrl: cleanString(input.comprobanteUrl),
+      observacion: cleanString(input.observacion),
+      registradoPor,
+      proveedorId: pago.proveedorId,
+      pagoShippingId: pago.id,
+    },
+    // Único llamador autorizado a crear un Egreso sin Cuenta Origen resuelta
+    // — ver comentario de CrearMovimientoOptions.permitirCuentaFaltante.
+    { permitirCuentaFaltante: true }
+  );
+  return movimiento.id;
 }
 
 function canMoveItemToPaidAfterPayment(item: ShippingV2Item) {
