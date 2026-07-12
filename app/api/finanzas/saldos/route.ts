@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchCuentasFinancieras } from "@/lib/finanzas/cuentas";
 import { requireFinanzasSession } from "@/lib/finanzas/auth";
-import { calcularAnticiposSinFacturar, calcularSaldoCuenta, calcularSaldoRubroCuenta } from "@/lib/finanzas/saldos";
+import { calcularAnticiposSinFacturar, calcularPorAcreditarCuenta, calcularSaldoCuenta, calcularSaldoRubroCuenta } from "@/lib/finanzas/saldos";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +14,14 @@ export async function GET() {
     const [saldosPorCuenta, anticiposSinFacturar] = await Promise.all([
       Promise.all(
         cuentas.map(async (cuenta) => {
-          const [saldo, capital, utilidad, iva, repuestoExterno] = await Promise.all([
+          const [saldo, capital, utilidad, iva, repuestoExterno, porAcreditar] = await Promise.all([
             calcularSaldoCuenta(cuenta.id),
             calcularSaldoRubroCuenta(cuenta.id, "capital"),
             calcularSaldoRubroCuenta(cuenta.id, "utilidad"),
             calcularSaldoRubroCuenta(cuenta.id, "iva"),
             calcularSaldoRubroCuenta(cuenta.id, "repuestoExterno"),
+            // Fase 20.2 §4.3 — solo informativo para cuentas de tránsito.
+            cuenta.tipo === "Tránsito" ? calcularPorAcreditarCuenta(cuenta.id) : Promise.resolve(null),
           ]);
           return {
             cuentaId: cuenta.id,
@@ -28,6 +30,7 @@ export async function GET() {
             activa: cuenta.activa,
             saldo,
             rubros: { capital, utilidad, iva, repuestoExterno },
+            porAcreditar,
           };
         })
       ),
