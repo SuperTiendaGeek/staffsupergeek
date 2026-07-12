@@ -1,6 +1,8 @@
 # Diseño — Fase 20.2: Ingresos (puentes Abonos→Movimientos y Facturación→Movimientos)
 
 > Rama: `fase-20-2-ingresos`. Etapa A — **sin código de implementación**. Construido sobre `docs/DISENO_FASE20_1_FUNDACION.md`, `docs/FASE20_1_RESULTADO.md`, `docs/AUDITORIA-FASE-20.md`, `docs/AUDITORIA-FASE-20-0-MOSTRADOR.md`, y una investigación de código fresca (2026-07-12) que corrige una asunción del propio diseño 20.1.
+>
+> **Aprobado con 3 correcciones** (integradas abajo, no como apéndice): (1) anulación de un abono ya facturado — §1.5; (2) `/finanzas` muestra "por acreditar" en cuentas de tránsito — §4.3 (nueva); (3) `Observación` del movimiento con la referencia legible a Orden/Operación — §1.2. Decisiones confirmadas sin cambio: reutilizar `Alerta Descuadre` con semántica ampliada (§1.4), tratamiento de "Compensación de deudas" tal como propuesto (§2.4). Etapa B ya construida en la misma rama — ver `docs/FASE20_2_RESULTADO.md`.
 
 ---
 
@@ -46,10 +48,14 @@ export async function crearMovimientoParaAbono(input: {
 
 Pasos internos:
 1. **Guard de idempotencia** (mismo patrón que el puente Shipping, §1.3 abajo): `fetchRecordById("Abonos", input.abonoId)`, leer su campo inverso `Movimiento Financiero` (renombrado, ver §1.6) — si ya tiene algo, devolver `{ ok: true, movimientoId: <el que ya existe> }` sin crear nada nuevo.
-2. **Resolver Cliente**: si `operacionId` → `fetchRecordById("Operación Comercial", operacionId)`, leer su campo `Cliente` (link real, ya usado en `lib/operaciones/airtable.ts:349`); si no, y hay `ordenId` → mismo patrón sobre `Órdenes de Reparación`. Ninguno de los dos es filtrar-por-link (es leer un campo ya presente en un registro ya obtenido por id) — respeta el patrón seguro.
+2. **Resolver Cliente y referencia legible** (Corrección 3): si `operacionId` → `fetchRecordById("Operación Comercial", operacionId)`, leer `Cliente` (link real, ya usado en `lib/operaciones/airtable.ts:349`) y `Código Operación`; si hay `ordenId` → mismo patrón sobre `Órdenes de Reparación`, leyendo `Cliente` e `ID` (el código visible, ej. `OR000342`). Ninguno de los dos es filtrar-por-link — respeta el patrón seguro. Con esos códigos se arma `referenciaOrigen`:
+   - solo `ordenId` → `"Abono sobre Orden #OR000342"`
+   - solo `operacionId` → `"Abono sobre Operación #OP-2026-000123"`
+   - ambos (abono de una orden con operación vinculada) → `"Abono sobre Orden #OR000342 (Operación #OP-2026-000123)"`
+   - `Observación` final del movimiento = `referenciaOrigen` + (` — ${input.observacion}` si el abono trae su propia observación) — nunca se pierde la nota original, solo se antepone el contexto.
 3. **Mapear** `metodoPago` → `{ cuentaDestinoNombre, estadoMovimiento, metodoMovimiento }` vía la tabla de §1.4.
 4. `cuentaDestinoNombre ? await fetchCuentaPorNombre(cuentaDestinoNombre) : null`.
-5. `crearMovimiento({ tipo: "Ingreso", origen: "Abonos", categoria: "Anticipo Cliente", monto, cuentaDestinoId: cuenta?.id ?? null, estado: estadoMovimiento, estadoDistribucion: "Sin distribuir", metodo: metodoMovimiento, fecha, transaccionId: input.numeroTransaccion, comprobanteUrl: input.comprobanteUrl, observacion: input.observacion, registradoPor: input.registradoPor, abonoId: input.abonoId, clienteId }, { permitirCuentaFaltante: cuenta === null })`.
+5. `crearMovimiento({ tipo: "Ingreso", origen: "Abonos", categoria: "Anticipo Cliente", monto, cuentaDestinoId: cuenta?.id ?? null, estado: estadoMovimiento, estadoDistribucion: "Sin distribuir", metodo: metodoMovimiento, fecha, transaccionId: input.numeroTransaccion, comprobanteUrl: input.comprobanteUrl, observacion: observacionFinal, registradoPor: input.registradoPor, abonoId: input.abonoId, clienteId }, { permitirCuentaFaltante: cuenta === null })`.
 6. **Nunca lanza.** Todo el cuerpo en `try/catch`; cualquier error se loguea (`console.error`, con `abonoId` y el error) y se devuelve `{ ok: false, error }`. El llamador nunca deja que esto tumbe el response del abono — es exactamente el mismo principio que ya usa `createAbonoPorOrden()` con la subida de comprobante (línea 2299-2307: falla → `warning`, el abono igual se guarda).
 
 ### 1.3 Idempotencia
@@ -80,6 +86,15 @@ Consultado en vivo hoy (2026-07-12), tabla `Abonos`, 138 registros:
 ### 1.5 Anulación de abono → anular su movimiento
 
 En `anularAbonoPorOrden()` (`lib/tecnicos/airtable/index.ts:2887-2918`), después del `PATCH` que marca `Estado del Abono: "Anulado"` (línea ~2909) y antes del `return`: leer el campo inverso `Movimiento Financiero` del abono ya actualizado (`fresh.fields`, ya se relee en la línea siguiente para construir la respuesta) y, si tiene un id, `await anularMovimiento(movimientoId, "Abono anulado en el portal.")`. **Best-effort** — en un `try/catch` separado; si falla, se loguea pero la anulación del abono (que ya ocurrió) no se revierte ni se bloquea la respuesta.
+
+**Corrección 1 — anulación de un abono ya facturado.** La anulación **siempre procede** (nunca se bloquea, ni el abono ni su movimiento) — pero si el movimiento que se está anulando ya tiene `Factura Electrónica` vinculada (Puente 2(b) ya lo marcó como facturado, §2.3), es una señal real de inconsistencia de negocio: se cobró, se facturó, y ahora alguien dice que el cobro nunca existió. El sistema no puede decidir solo qué hacer con eso (¿nota de crédito? ¿el abono se anuló por error?) — se lo señala explícitamente a quien anuló:
+
+1. `anularMovimiento()` ya devuelve el `Movimiento` actualizado con `facturaElectronicaIds` — no hace falta una lectura extra para saber si aplica.
+2. Si `facturaElectronicaIds.length > 0`: `fetchRecordById("Facturas Electrónicas", facturaElectronicaIds[0])`, leer `Número de Factura` (o `Clave de Acceso` si el número aún no está asignado), y construir `warning = "Este abono ya estaba vinculado a la factura ${numeroFactura} — el movimiento financiero se anuló igual, pero revisa si corresponde una nota de crédito o corregir la factura."`.
+3. `console.warn("[Finanzas] Abono anulado con factura vinculada", { abonoId, movimientoId, facturaId, numeroFactura })` — quede en los logs para auditoría, independiente de si alguien lee el `warning` en la UI.
+4. El `warning` se agrega al retorno de `anularAbonoPorOrden()` (nuevo campo opcional `warning?: string | null` junto a `abono`) y de ahí al JSON de `DELETE /api/tecnicos/abonos-por-orden/[id]` — mismo patrón exacto que ya usa `createAbonoPorOrden()` para el warning de comprobante.
+
+Si el movimiento **no** tiene factura vinculada (caso normal — anular un anticipo que nunca se facturó), no hay warning nuevo: el comportamiento es el ya descrito arriba.
 
 ### 1.6 Cambios de esquema necesarios
 
@@ -206,6 +221,20 @@ El indicador **"Anticipos sin facturar"** (`calcularAnticiposSinFacturar()`, `li
 
 `/finanzas` (la pantalla) tampoco necesita cambios de código para reflejar esto — ya muestra `estadoDistribucion` por movimiento y el total de anticipos sin facturar; simplemente, después de esta fase, empezará a mostrar movimientos reales con `Origen: Abonos` y `Origen: Facturación` en vez de estar vacía salvo por los 11 legacy de Shipping.
 
+### 4.3 `/finanzas` — "por acreditar" en cuentas de tránsito (Corrección 2, único cambio de pantalla de esta fase)
+
+Con el Puente 2(a)/§1.4 en producción, `Tarjetas en Tránsito` empieza a recibir movimientos reales en estado `Pendiente` (tarjeta/DataFast/PayPhone) que **no suman a su saldo** (regla ya construida en 20.1: `calcularSaldoCuenta` solo cuenta `Confirmado`/`Acreditado`). Sin ningún indicador adicional, esa cuenta se vería siempre en $0 aun con dinero real en camino — confuso para el dueño.
+
+**Cambio mínimo, nueva función en `lib/finanzas/saldos.ts`:**
+
+```ts
+export async function calcularPorAcreditarCuenta(cuentaId: string): Promise<number>
+```
+
+Reutiliza el mismo mecanismo interno que `calcularSaldoCuenta` (leer los movimientos de la cuenta vía sus campos inversos, filtrar por `Fecha de Corte`), pero con `estado = "Pendiente"` en vez de `Confirmado`/`Acreditado`, y sin sumar `Saldo Inicial` (un saldo inicial nunca es "pendiente", es un hecho ya contado a mano). Para evitar duplicar la función privada `fetchMovimientosConfirmadosDeCuenta`, se generaliza a `fetchMovimientosDeCuentaPorEstado(cuentaId, fechaCorte, estados: readonly string[])`, y `calcularSaldoCuenta`/`calcularSaldoRubroCuenta` pasan a llamarla con `ESTADOS_QUE_CUENTAN_PARA_SALDO`, sin cambiar su comportamiento actual (mismo resultado, mismos tests de 20.1 siguen pasando).
+
+**En `app/finanzas/page.tsx`:** para la cuenta con `Tipo de Cuenta = "Tránsito"` (hoy solo `Tarjetas en Tránsito`, pero se resuelve por tipo, no por nombre — más robusto si el catálogo crece), la `StaffStatCard` de esa cuenta agrega una segunda línea pequeña: `"$Y por acreditar"`, sin tocar el resto de cuentas ni ningún otro elemento de la pantalla. `GET /api/finanzas/saldos` también expone `porAcreditar` en el objeto de cada cuenta (mismo criterio: solo se agrega el campo, no se quita nada del contrato existente).
+
 ---
 
 ## 5. Sin retroactivo (confirmado, decisión cerrada)
@@ -280,13 +309,38 @@ MOV-...-00001 — Estado del Movimiento: Anulado (Fecha/Motivo de anulación lle
 - **Saldo Caja Registradora**: vuelve a $45 (el `Anulado` deja de contar en la suma — misma mecánica exacta que el test #1 de la Fase 20.1).
 - **Anticipos sin facturar**: si esto hubiera ocurrido *antes* del Evento 2 (abono anulado, nunca facturado), el indicador ya no lo contaría — `Anulado` está fuera de `ESTADOS_QUE_CUENTAN_PARA_SALDO`, y `calcularAnticiposSinFacturar()` también filtra por esos mismos estados.
 
+### Evento 5 — Corrección 1: se anula `recABONO001` en la línea de tiempo REAL (ya facturado desde el Evento 2)
+
+Retomando la secuencia real (Evento 1 → 2 → 3, sin el "deshacer" hipotético del Evento 4): alguien anula por error el abono `recABONO001`, que ya está vinculado a `FAC-...-0001` desde el Evento 2.
+
+`anularAbonoPorOrden()` marca el abono `Anulado` → Puente 1 llama `anularMovimiento("MOV-...-00001", "Abono anulado en el portal.")`, que devuelve el movimiento con `facturaElectronicaIds: ["recFAC0001"]` ya poblado (seguía ahí desde el Evento 2 — anular el movimiento nunca borra sus links, Corrección 1 de la Fase 20.1). Como ese arreglo no está vacío:
+
+```
+MOV-...-00001 — Estado del Movimiento: Anulado (igual que el Evento 4 — se anula sin excepción)
+
+Respuesta de DELETE /api/tecnicos/abonos-por-orden/[id]:
+  { success: true, data: { ...abono, estado: "Anulado" },
+    warning: "Este abono ya estaba vinculado a la factura FAC-...-0001 — el movimiento
+              financiero se anuló igual, pero revisa si corresponde una nota de crédito
+              o corregir la factura." }
+
+Log: [Finanzas] Abono anulado con factura vinculada
+     { abonoId: "recABONO001", movimientoId: "MOV-...-00001",
+       facturaId: "recFAC0001", numeroFactura: "FAC-...-0001" }
+```
+
+- La anulación **procede igual** — el sistema nunca decide por su cuenta qué hacer con una factura ya autorizada por el SRI (no puede: modificarla es cosa de Fase 18, notas de crédito).
+- **Anticipos sin facturar**: sin cambio — este movimiento ya estaba en `Pendiente de clasificar` desde el Evento 2, no en `Sin distribuir`, así que nunca estuvo en ese indicador ni antes ni después de anularse.
+- **Saldo Caja Registradora**: baja en $80 (el `Anulado` deja de contar) — aunque la factura siga viva y autorizada ante el SRI. Es exactamente la inconsistencia real que el `warning` señala: los libros dicen que ese dinero nunca entró, pero el SRI dice que sí se vendió. Corregirlo (nota de crédito, o revertir la anulación) queda en manos del dueño, no del sistema.
+
 ### Resumen de lo que la prueba de fuego demuestra
 
 - El anti-doble-conteo funciona: el abono del Evento 1 nunca se contó dos veces al facturarse en el Evento 2 (no se creó un segundo movimiento por los mismos $80).
 - El caso borde de saldo adicional (componente `"saldo"`) queda cubierto por diseño aunque no apareció en este ejemplo — si el Evento 2 hubiera sido una factura de $100 con solo $80 de abono, el componente `origenPago: "saldo"` de $20 habría generado un movimiento de ingreso nuevo, separado del abono ya marcado.
 - Pago mixto reparte correctamente entre cuentas y respeta el estado `Pendiente` de la tarjeta (no infla el saldo disponible).
 - La anulación no duplica ni dejar residuos — mismo patrón ya probado en 20.1.
-- Ningún paso requirió tocar `calcularAnticiposSinFacturar()` ni `calcularSaldoCuenta()` — toda la Fase 20.2 se apoya en primitivas de 20.1 sin modificarlas, salvo la función nueva `actualizarMovimiento()`.
+- Anular un abono ya facturado no se bloquea, pero deja rastro explícito (`warning` + log) — el sistema señala la inconsistencia en vez de esconderla o intentar resolverla solo.
+- Ningún paso requirió tocar `calcularAnticiposSinFacturar()` — toda la Fase 20.2 se apoya en primitivas de 20.1 sin modificarlas, salvo la función nueva `actualizarMovimiento()` y la generalización de `calcularSaldoCuenta` para soportar `calcularPorAcreditarCuenta` (Corrección 2).
 
 ---
 
@@ -301,6 +355,9 @@ MOV-...-00001 — Estado del Movimiento: Anulado (Fecha/Motivo de anulación lle
 7. **Reintento conserva forma de pago real**: factura `DEVUELTA` con `pagos` de dos componentes en `Líneas JSON` → reintentar → el `DatosVenta` reconstruido tiene los 2 componentes originales, no `[{formaPago:"01"}]` fijo. Caso de compatibilidad: factura vieja sin `pagos` en `Líneas JSON` → cae al fallback hardcodeado sin lanzar.
 8. **Caso borde "saldo" en factura con origen**: cuenta unificada con abonos que cubren solo una parte del total → el componente `origenPago: "saldo"` genera exactamente un movimiento de ingreso nuevo, con el monto correcto (`total − Σabonos`), mientras los abonos existentes solo se actualizan (no se duplican).
 9. **`actualizarMovimiento()` — límites de la función**: intentar cambiar `estadoDistribucion` a un valor que no sea la transición permitida → rechazado. Intentar poner `facturaElectronicaId` sobre un movimiento que ya tiene una factura vinculada distinta → rechazado (protección anti doble-facturación).
+10. **Anulación de abono ya facturado (Corrección 1)**: abono con movimiento vinculado a una factura → anular → la anulación procede (movimiento queda `Anulado`), la respuesta incluye `warning` con el número de factura, y se verifica el `console.warn` (espía/mock) con `abonoId`/`movimientoId`/`facturaId`. Control negativo: abono sin factura vinculada → anula igual, sin `warning` nuevo.
+11. **`calcularPorAcreditarCuenta()` (Corrección 2)**: cuenta con movimientos `Pendiente` y `Confirmado` mezclados → el resultado solo suma los `Pendiente`, no toca `Saldo Inicial`, y `calcularSaldoCuenta` de la misma cuenta sigue dando el mismo resultado que antes de la generalización (test de no-regresión sobre el test #4 de 20.1).
+12. **Observación con referencia legible (Corrección 3)**: abono sobre una Orden sin Operación → `Observación` = `"Abono sobre Orden #<código>"`; sobre una Operación sin Orden → `"...Operación #<código>"`; con ambos → combina los dos; con observación propia del abono → se antepone la referencia, no se pierde el texto original.
 
 Suite completa (Etapa B + toda la de 20.1) + `npm run typecheck` deben pasar antes de reportar. **Sin merge ni deploy** — reporte final y detenerse, igual que 20.1.
 
