@@ -1,8 +1,11 @@
+import Link from "next/link";
+import { isAdministratorRole } from "@/lib/apps";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffDataTable, StaffPageHeader, StaffStatCard } from "@/components/staff/StaffDesignSystem";
 import { fetchCuentasFinancieras } from "@/lib/finanzas/cuentas";
 import { listarMovimientos } from "@/lib/finanzas/movimientos";
 import { calcularAnticiposSinFacturar, calcularPorAcreditarCuenta, calcularSaldoCuenta } from "@/lib/finanzas/saldos";
+import { getSessionFromCookie } from "@/lib/session";
 import type { CuentaFinanciera, Movimiento } from "@/types/finanzas";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +36,9 @@ export default async function FinanzasPage() {
   let anticiposSinFacturar = 0;
   let error = "";
 
+  const session = await getSessionFromCookie();
+  const esAdmin = isAdministratorRole(session?.user.rol);
+
   try {
     const cuentasBase = await fetchCuentasFinancieras();
     const [saldos, porAcreditar, movs, anticipos] = await Promise.all([
@@ -59,9 +65,32 @@ export default async function FinanzasPage() {
       <div className="w-full space-y-3">
         <StaffPageHeader
           title="Movimientos financieros"
-          description="Fundación del sistema contable SG — pantalla de solo lectura (Fase 20.1). Saldos calculados en código, nunca deducidos."
+          description="Fundación del sistema contable SG. Saldos calculados en código, nunca deducidos."
           density="compact"
         />
+
+        <div className="flex flex-wrap gap-2">
+          <Link href="/finanzas/depositos" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:text-[#F5F5F5]">
+            Registrar depósito
+          </Link>
+          <Link href="/finanzas/acreditar" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:text-[#F5F5F5]">
+            Acreditar pendientes
+          </Link>
+          {esAdmin ? (
+            <Link href="/finanzas/movimiento-manual" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:text-[#F5F5F5]">
+              Movimiento manual
+            </Link>
+          ) : null}
+        </div>
+
+        {!error && cuentas.some((c) => c.activa && !c.fechaCorte) ? (
+          <section className="rounded-xl border border-sky-300/25 bg-sky-300/10 px-3 py-2.5 text-sky-100">
+            <p className="text-sm leading-5">
+              El sistema contable todavía no está en vivo: faltan Saldo Inicial y Fecha de Corte en una o más cuentas antes de poder
+              registrar depósitos o acreditaciones reales (Fase 20.1 §6, paso 9).
+            </p>
+          </section>
+        ) : null}
 
         {error ? (
           <section className="rounded-xl border border-orange-300/25 bg-orange-300/10 px-3 py-2.5 text-orange-100">
@@ -103,8 +132,12 @@ export default async function FinanzasPage() {
               </thead>
               <tbody>
                 {movimientos.map((mov) => (
-                  <tr key={mov.id} className="border-b border-[#2A2B27] text-[#F5F5F5]">
-                    <td className="px-3 py-2 whitespace-nowrap">{formatFecha(mov.fecha)}</td>
+                  <tr key={mov.id} className="border-b border-[#2A2B27] text-[#F5F5F5] transition hover:bg-white/5">
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <a href={`/finanzas/${mov.id}`} className="block">
+                        {formatFecha(mov.fecha)}
+                      </a>
+                    </td>
                     <td className="px-3 py-2 whitespace-nowrap">{mov.tipo}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{mov.categoria}</td>
                     <td className="px-3 py-2 whitespace-nowrap tabular-nums">
