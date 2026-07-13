@@ -288,6 +288,9 @@ export type HorarioEmpleadoPeriodoOption = {
   empleado: string;
   cedula?: string;
   rol?: string;
+  activo?: boolean;
+  activoDesde?: string;
+  ultimoLogin?: string;
   usuarioId: string;
   correo: string;
 };
@@ -299,12 +302,22 @@ export type HorarioAdminEmpleadoDetalle = {
     totalPagado: number;
     saldoPendiente: number;
     jornadasPendientesCount: number;
+    jornadasCount: number;
+    totalHorasRegistradas: number;
+    totalGeneradoRegistrado: number;
+    totalAjustes: number;
+    totalDescuentos: number;
+    totalBonos: number;
+    rolesPagoCount: number;
     periodosCount: number;
     pagosCount: number;
   };
+  jornadas: HorarioRegistro[];
   jornadasPendientes: HorarioRegistro[];
   periodos: HorarioPeriodoPagoDetalle[];
   pagos: HorarioPago[];
+  ajustes: HorarioAjuste[];
+  rolesPago: HorarioEmpleadoRolPago[];
 };
 
 export type CorregirJornadaAdminInput = {

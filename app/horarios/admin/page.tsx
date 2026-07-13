@@ -287,7 +287,7 @@ export default async function HorariosAdminPage({ searchParams }: PageProps) {
                               href={`/horarios/admin/empleados/${empleado.empleadoRecordId}`}
                               className="inline-flex rounded-full border border-[#D7FF4F]/30 px-3 py-1.5 text-xs font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#10110E]"
                             >
-                              Gestionar
+                              Ver empleado
                             </Link>
                           ) : (
                             <span className="text-xs text-[#8F908A]">Sin empleado vinculado</span>

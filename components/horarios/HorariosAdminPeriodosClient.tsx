@@ -210,7 +210,16 @@ export function HorariosAdminPeriodosClient({ periodos, empleados }: Props) {
                       className={`transition ${hasSaldo ? "hover:bg-[#D7FF4F]/[0.04]" : "hover:bg-[#2D2E2A]"}`}
                     >
                       <td className="px-3 py-2.5">
-                        <p className="font-semibold text-[#F5F5F5]">{periodo.empleado}</p>
+                        {periodo.empleadoRecordId ? (
+                          <Link
+                            href={`/horarios/admin/empleados/${periodo.empleadoRecordId}`}
+                            className="font-semibold text-[#F5F5F5] transition hover:text-[#D7FF4F]"
+                          >
+                            {periodo.empleado}
+                          </Link>
+                        ) : (
+                          <p className="font-semibold text-[#F5F5F5]">{periodo.empleado}</p>
+                        )}
                         <p className="text-xs text-[#8F908A]">{periodo.correo || periodo.usuarioId}</p>
                       </td>
                       <td className="px-3 py-2.5 tabular-nums">

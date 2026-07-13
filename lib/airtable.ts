@@ -10,12 +10,15 @@ export type AirtableUser = {
   passwordHash: string;
   rol: string;
   activo: boolean;
+  activoDesde?: string;
+  ultimoLogin?: string;
   appsPermitidas: string[];
   requiere2FA: boolean;
 };
 
 type AirtableRecord<TFields> = {
   id: string;
+  createdTime?: string;
   fields: TFields;
 };
 
@@ -33,6 +36,9 @@ type AirtableUserFields = {
   Activo?: boolean;
   "Apps Permitidas"?: string[] | string;
   "Requiere 2FA"?: boolean;
+  "Activo desde"?: string;
+  "Fecha de ingreso"?: string;
+  "Fecha Ingreso"?: string;
   "Último Login"?: string;
 };
 
@@ -129,6 +135,8 @@ function mapAirtableUser(record: AirtableRecord<AirtableUserFields>): AirtableUs
     passwordHash: fields["Password Hash"],
     rol: fields.Rol || "staff",
     activo: fields.Activo === true,
+    activoDesde: fields["Activo desde"] || fields["Fecha de ingreso"] || fields["Fecha Ingreso"] || record.createdTime,
+    ultimoLogin: fields["Último Login"],
     appsPermitidas: normalizeAppsPermitidas(fields["Apps Permitidas"]),
     requiere2FA: fields["Requiere 2FA"] === true
   };
@@ -148,6 +156,8 @@ function mapPortalUser(record: AirtableRecord<AirtableUserFields>): PortalUser |
     email: fields.Email,
     rol: fields.Rol || "staff",
     activo: fields.Activo === true,
+    activoDesde: fields["Activo desde"] || fields["Fecha de ingreso"] || fields["Fecha Ingreso"] || record.createdTime,
+    ultimoLogin: fields["Último Login"],
     appsPermitidas: normalizeAppsPermitidas(fields["Apps Permitidas"]),
     requiere2FA: fields["Requiere 2FA"] === true
   };

@@ -2,20 +2,20 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AnularPagoHorarioButton } from "@/components/horarios/AnularPagoHorarioButton";
 import { HorarioAjustesPeriodoClient } from "@/components/horarios/HorarioAjustesPeriodoClient";
+import { HorarioPeriodoRegistrosClient, type HorarioPeriodoRegistroItem } from "@/components/horarios/HorarioPeriodoRegistrosClient";
 import { HorarioPeriodoPagoClient } from "@/components/horarios/HorarioPeriodoPagoClient";
 import { RolPagoPeriodoClient } from "@/components/horarios/RolPagoPeriodoClient";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { isAdministratorRole } from "@/lib/apps";
-import { fetchPeriodoPagoById } from "@/lib/horarios/airtable";
+import { fetchPeriodoPagoById, fetchRegistrosAdminByEmpleadoAndRango } from "@/lib/horarios/airtable";
 import { getSessionFromCookie } from "@/lib/session";
+import type { HorarioPeriodoPagoDetalle, HorarioRegistro } from "@/types/horarios";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ id: string }>;
 };
-
-const HORARIOS_TIME_ZONE = "America/Guayaquil";
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("es-EC", {
@@ -26,25 +26,6 @@ function formatMoney(value: number) {
 
 function formatHours(value: number) {
   return `${value.toFixed(2)} h`;
-}
-
-function formatTime(value?: string) {
-  if (!value) {
-    return "--:--";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "--:--";
-  }
-
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: HORARIOS_TIME_ZONE,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).format(date);
 }
 
 function statusClasses(status: string) {
@@ -62,6 +43,40 @@ function statusClasses(status: string) {
 function pagoStatusClasses(estado: string) {
   if (estado === "Anulado") return "border-red-400/30 bg-red-400/10 text-red-200";
   return "border-[#D7FF4F]/30 bg-[#D7FF4F]/10 text-[#D7FF4F]";
+}
+
+function sortRegistrosByDate(first: HorarioRegistro, second: HorarioRegistro) {
+  const dateCompare = first.fecha.localeCompare(second.fecha);
+
+  if (dateCompare !== 0) {
+    return dateCompare;
+  }
+
+  const timeCompare = (first.entrada || "").localeCompare(second.entrada || "");
+
+  if (timeCompare !== 0) {
+    return timeCompare;
+  }
+
+  return first.id.localeCompare(second.id);
+}
+
+function buildPeriodoRegistrosVista(
+  periodo: HorarioPeriodoPagoDetalle,
+  registrosRango: HorarioRegistro[]
+): HorarioPeriodoRegistroItem[] {
+  const linkedIds = new Set(periodo.registroIds);
+  const registrosById = new Map<string, HorarioRegistro>();
+
+  periodo.registros.forEach((registro) => registrosById.set(registro.id, registro));
+  registrosRango.forEach((registro) => registrosById.set(registro.id, registro));
+
+  return Array.from(registrosById.values())
+    .sort(sortRegistrosByDate)
+    .map((registro) => ({
+      ...registro,
+      incluidoEnPeriodo: linkedIds.has(registro.id)
+    }));
 }
 
 function PeriodoMetricCard({
@@ -117,6 +132,17 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
   if (!periodo) {
     notFound();
   }
+
+  const registrosRango = await fetchRegistrosAdminByEmpleadoAndRango(
+    periodo.fechaInicio,
+    periodo.fechaFin,
+    periodo.empleadoRecordId
+  ).catch((error) => {
+    console.warn(`No se pudieron cargar las jornadas del rango del periodo ${periodo.id}:`, error);
+    return [];
+  });
+  const registrosVista = buildPeriodoRegistrosVista(periodo, registrosRango);
+  const returnTo = `/horarios/admin/periodos/${periodo.id}`;
 
   return (
     <StaffAppShell activeHref="/horarios" sectionLabel="Horarios">
@@ -192,50 +218,7 @@ export default async function HorarioPeriodoPagoPage({ params }: PageProps) {
 
         <HorarioAjustesPeriodoClient periodo={periodo} />
 
-        {/* Registros diarios */}
-        <section className="overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#252622]">
-          <div className="border-b border-[#3A3A36] bg-[#30312D] px-4 py-3">
-            <h2 className="text-base font-semibold text-[#F5F5F5]">Registros diarios</h2>
-            <p className="mt-0.5 text-xs text-[#A7A7A7]">Jornadas incluidas en este periodo de pago.</p>
-          </div>
-          {periodo.registros.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-[640px] w-full divide-y divide-[#3A3A36] text-left text-sm">
-                <thead className="bg-[#30312D] text-[11px] uppercase tracking-wide text-[#8F908A]">
-                  <tr>
-                    <th className="px-3 py-2.5 font-semibold">Fecha</th>
-                    <th className="px-3 py-2.5 font-semibold">Entrada</th>
-                    <th className="px-3 py-2.5 font-semibold">Salida final</th>
-                    <th className="px-3 py-2.5 font-semibold">Horas</th>
-                    <th className="px-3 py-2.5 font-semibold">Total día</th>
-                    <th className="px-3 py-2.5 font-semibold">Estado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#3A3A36] text-[#CFCFCB]">
-                  {periodo.registros.map((registro) => (
-                    <tr key={registro.id} className="transition hover:bg-[#2D2E2A]">
-                      <td className="px-3 py-2.5 text-[#F5F5F5]">{registro.fecha}</td>
-                      <td className="px-3 py-2.5 tabular-nums">{formatTime(registro.entrada)}</td>
-                      <td className="px-3 py-2.5 tabular-nums">{formatTime(registro.salidaFinal)}</td>
-                      <td className="px-3 py-2.5 font-semibold text-[#F5F5F5] tabular-nums">{formatHours(registro.horasTrabajadas)}</td>
-                      <td className="px-3 py-2.5 font-semibold text-[#D7FF4F] tabular-nums">{formatMoney(registro.totalEstimadoDia)}</td>
-                      <td className="px-3 py-2.5">
-                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses(registro.estadoDia)}`}>
-                          {registro.estadoDia}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="px-4 py-8 text-center">
-              <p className="text-sm font-medium text-[#CFCFCB]">No hay registros vinculados al periodo.</p>
-              <p className="mt-1 text-xs text-[#8F908A]">Los registros diarios aparecerán aquí una vez vinculados.</p>
-            </div>
-          )}
-        </section>
+        <HorarioPeriodoRegistrosClient registros={registrosVista} returnTo={returnTo} />
 
         {/* Pagos registrados */}
         <section className="overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#252622]">

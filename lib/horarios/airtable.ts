@@ -1974,6 +1974,31 @@ async function listRegistrosPeriodoCandidate(fechaInicio: string, fechaFin: stri
   return records.map(mapRegistro).filter((registro) => registro.empleadoRecordId === empleadoId);
 }
 
+function buildRegistrosRangoTodosEstadosFormula(fechaInicio: string, fechaFin: string) {
+  const fechaField = HORARIOS_REGISTROS_FIELDS.fecha;
+
+  return `AND(DATETIME_FORMAT({${fechaField}}, 'YYYY-MM-DD') >= '${escapeFormulaString(fechaInicio)}', DATETIME_FORMAT({${fechaField}}, 'YYYY-MM-DD') <= '${escapeFormulaString(fechaFin)}')`;
+}
+
+export async function fetchRegistrosAdminByEmpleadoAndRango(fechaInicio: string, fechaFin: string, empleadoId?: string) {
+  if (!empleadoId) {
+    return [];
+  }
+
+  const query = new URLSearchParams({
+    filterByFormula: buildRegistrosRangoTodosEstadosFormula(fechaInicio, fechaFin),
+    "sort[0][field]": HORARIOS_REGISTROS_FIELDS.fecha,
+    "sort[0][direction]": "asc"
+  });
+  const records = await listAllAirtableRecords<HorarioRegistroFields>(REGISTROS_TABLE, query);
+  const maps = buildPortalUserMaps(await listPortalUsers());
+
+  return records
+    .map(mapRegistro)
+    .filter((registro) => registro.empleadoRecordId === empleadoId)
+    .map((registro) => applyPortalUserToRegistro(registro, findPortalUserForEmpleado(maps, registro.empleadoRecordId, registro.correo)));
+}
+
 async function listRegistroIdsVinculadosAotrosPeriodos(excludedPeriodoId?: string) {
   const records = await listAllAirtableRecords<HorarioPeriodoPagoFields>(PERIODOS_TABLE, new URLSearchParams());
   const linkedIds = new Set<string>();
@@ -2000,6 +2025,16 @@ async function listRegistrosPeriodoDisponibles(fechaInicio: string, fechaFin: st
 async function listRegistrosPagablesByEmpleado(empleadoId: string) {
   const query = new URLSearchParams({
     filterByFormula: `OR({${HORARIOS_REGISTROS_FIELDS.estadoDia}} = 'Finalizado', {${HORARIOS_REGISTROS_FIELDS.estadoDia}} = 'Revisado')`,
+    "sort[0][field]": HORARIOS_REGISTROS_FIELDS.fecha,
+    "sort[0][direction]": "desc"
+  });
+  const records = await listAllAirtableRecords<HorarioRegistroFields>(REGISTROS_TABLE, query);
+
+  return records.map(mapRegistro).filter((registro) => registro.empleadoRecordId === empleadoId);
+}
+
+async function listRegistrosAdminByEmpleado(empleadoId: string) {
+  const query = new URLSearchParams({
     "sort[0][field]": HORARIOS_REGISTROS_FIELDS.fecha,
     "sort[0][direction]": "desc"
   });
@@ -2389,8 +2424,8 @@ export async function cerrarPeriodoHastaFecha(input: CerrarPeriodoHastaFechaInpu
     throw new Error("No se encontró el periodo de pago.");
   }
 
-  if (periodo.estadoPeriodo === "Anulado") {
-    throw new Error("No se puede cerrar un periodo anulado.");
+  if (periodo.estadoPeriodo === "Anulado" || periodo.estadoPeriodo === "Pagado" || periodo.estadoPeriodo === "Cerrado" || periodo.totalPagado > 0) {
+    throw new Error("Solo se puede cerrar hasta fecha un periodo abierto y sin pagos registrados.");
   }
 
   if (!periodo.empleadoRecordId) {
@@ -2437,11 +2472,13 @@ export async function fetchHorarioEmpleadoAdminDetalle(empleadoId: string): Prom
     return null;
   }
 
-  const [users, periodos, pagosRecords, registros] = await Promise.all([
+  const [users, periodos, pagosRecords, registros, jornadas, ajustes] = await Promise.all([
     listPortalUsers(),
     fetchPeriodosPago(),
     listPagosActivos(),
-    listRegistrosPagablesByEmpleado(empleadoId)
+    listRegistrosPagablesByEmpleado(empleadoId),
+    listRegistrosAdminByEmpleado(empleadoId),
+    fetchAjustesByEmpleado(empleadoId)
   ]);
   const maps = buildPortalUserMaps(users);
   const empleadoUser = maps.byId.get(empleadoId);
@@ -2449,38 +2486,95 @@ export async function fetchHorarioEmpleadoAdminDetalle(empleadoId: string): Prom
   const periodosEmpleado = (
     await Promise.all(periodosEmpleadoBase.map((periodo) => fetchPeriodoPagoById(periodo.id)))
   ).filter((periodo): periodo is HorarioPeriodoPagoDetalle => Boolean(periodo));
+  const periodosById = new Map(periodosEmpleado.map((periodo) => [periodo.id, periodo]));
   const pagos = pagosRecords
     .map(mapPago)
     .filter((pago) => pago.empleadoRecordId === empleadoId && pago.estadoPago !== "Anulado")
+    .map((pago) => {
+      const periodo = pago.periodoPagoId ? periodosById.get(pago.periodoPagoId) : undefined;
+
+      return {
+        ...pago,
+        periodoFechaInicio: periodo?.fechaInicio,
+        periodoFechaFin: periodo?.fechaFin,
+        periodoRolGenerado: periodo?.rolGenerado,
+        periodoRolPagoBlobPathname: periodo?.rolPagoBlobPathname
+      };
+    })
     .sort((first, second) => second.fechaPago.localeCompare(first.fechaPago));
   const periodosRegistrosIds = new Set(periodosEmpleado.flatMap((periodo) => periodo.registroIds));
   const jornadasPendientes = registros
     .filter((registro) => !periodosRegistrosIds.has(registro.id))
     .map((registro) => applyPortalUserToRegistro(registro, findPortalUserForEmpleado(maps, registro.empleadoRecordId, registro.correo)));
+  const jornadasEnriquecidas = jornadas.map((registro) =>
+    applyPortalUserToRegistro(registro, findPortalUserForEmpleado(maps, registro.empleadoRecordId, registro.correo))
+  );
+  const ajustesAplicados = ajustes.filter((ajuste) => ajuste.estado === "Aplicado");
+  const rolesPago = periodosEmpleado
+    .filter((periodo) => periodo.rolGenerado && Boolean(periodo.rolPagoBlobPathname))
+    .map((periodo) => ({
+      periodoId: periodo.id,
+      empleado: periodo.empleado,
+      correo: periodo.correo,
+      fechaInicio: periodo.fechaInicio,
+      fechaFin: periodo.fechaFin,
+      estadoPeriodo: periodo.estadoPeriodo,
+      totalGanado: periodo.totalGanado,
+      totalAjustes: periodo.totalAjustes,
+      totalNeto: periodo.totalNeto,
+      totalPagado: periodo.totalPagado,
+      saldoPendiente: periodo.saldoPendiente,
+      saldoPendienteNeto: periodo.saldoPendienteNeto,
+      rolPagoPdf: periodo.rolPagoPdf,
+      rolPagoBlobUrl: periodo.rolPagoBlobUrl,
+      rolPagoBlobPathname: periodo.rolPagoBlobPathname,
+      fechaGeneracionRol: periodo.fechaGeneracionRol,
+      estadoRol: periodo.estadoRol
+    }));
   const totalPagado = roundMoney(pagos.reduce((total, pago) => total + pago.montoPagado, 0));
   const totalPendienteJornadas = roundMoney(jornadasPendientes.reduce((total, registro) => total + registro.totalEstimadoDia, 0));
   const saldoPendiente = roundMoney(periodosEmpleado.reduce((total, periodo) => total + periodo.saldoPendiente, 0) + totalPendienteJornadas);
+  const totalAjustes = roundMoney(ajustesAplicados.reduce((total, ajuste) => total + ajuste.montoAjustado, 0));
+  const totalDescuentos = roundMoney(
+    ajustesAplicados.reduce((total, ajuste) => total + (ajuste.montoAjustado < 0 ? Math.abs(ajuste.montoAjustado) : 0), 0)
+  );
+  const totalBonos = roundMoney(
+    ajustesAplicados.reduce((total, ajuste) => total + (ajuste.montoAjustado > 0 ? ajuste.montoAjustado : 0), 0)
+  );
 
   return {
     empleado: {
       empleadoRecordId: empleadoId,
-      empleado: empleadoUser?.nombre || empleadoUser?.email || periodosEmpleado[0]?.empleado || registros[0]?.empleado || "Empleado",
-      cedula: empleadoUser?.cedula || periodosEmpleado[0]?.empleadoCedula || registros[0]?.empleadoCedula,
-      rol: empleadoUser?.rol || periodosEmpleado[0]?.empleadoRol || registros[0]?.empleadoRol,
-      usuarioId: empleadoUser?.id || periodosEmpleado[0]?.usuarioId || registros[0]?.usuarioId || empleadoId,
-      correo: empleadoUser?.email || periodosEmpleado[0]?.correo || registros[0]?.correo || ""
+      empleado: empleadoUser?.nombre || empleadoUser?.email || periodosEmpleado[0]?.empleado || jornadasEnriquecidas[0]?.empleado || registros[0]?.empleado || "Empleado",
+      cedula: empleadoUser?.cedula || periodosEmpleado[0]?.empleadoCedula || jornadasEnriquecidas[0]?.empleadoCedula || registros[0]?.empleadoCedula,
+      rol: empleadoUser?.rol || periodosEmpleado[0]?.empleadoRol || jornadasEnriquecidas[0]?.empleadoRol || registros[0]?.empleadoRol,
+      activo: empleadoUser?.activo,
+      activoDesde: empleadoUser?.activoDesde,
+      ultimoLogin: empleadoUser?.ultimoLogin,
+      usuarioId: empleadoUser?.id || periodosEmpleado[0]?.usuarioId || jornadasEnriquecidas[0]?.usuarioId || registros[0]?.usuarioId || empleadoId,
+      correo: empleadoUser?.email || periodosEmpleado[0]?.correo || jornadasEnriquecidas[0]?.correo || registros[0]?.correo || ""
     },
     resumen: {
       totalGanadoPendiente: roundMoney(periodosEmpleado.reduce((total, periodo) => total + periodo.saldoPendiente, 0) + totalPendienteJornadas),
       totalPagado,
       saldoPendiente,
       jornadasPendientesCount: jornadasPendientes.length,
+      jornadasCount: jornadasEnriquecidas.length,
+      totalHorasRegistradas: roundHours(jornadasEnriquecidas.reduce((total, registro) => total + registro.minutosTrabajados, 0)),
+      totalGeneradoRegistrado: roundMoney(jornadasEnriquecidas.reduce((total, registro) => total + registro.totalEstimadoDia, 0)),
+      totalAjustes,
+      totalDescuentos,
+      totalBonos,
+      rolesPagoCount: rolesPago.length,
       periodosCount: periodosEmpleado.length,
       pagosCount: pagos.length
     },
+    jornadas: jornadasEnriquecidas,
     jornadasPendientes,
     periodos: periodosEmpleado,
-    pagos
+    pagos,
+    ajustes,
+    rolesPago
   };
 }
 

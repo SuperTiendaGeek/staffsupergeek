@@ -6,6 +6,8 @@ export type PortalUser = {
   rol: string;
   appsPermitidas: string[];
   activo: boolean;
+  activoDesde?: string;
+  ultimoLogin?: string;
   requiere2FA: boolean;
 };
 

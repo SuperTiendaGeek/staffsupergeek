@@ -10,6 +10,9 @@ export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{
+    returnTo?: string | string[];
+  }>;
 };
 
 const HORARIOS_TIME_ZONE = "America/Guayaquil";
@@ -46,7 +49,33 @@ function statusBadgeClasses(estadoDia: string) {
   return "border-sky-300/30 bg-sky-300/10 text-sky-100";
 }
 
-export default async function HorarioJornadaRevisionPage({ params }: PageProps) {
+function getSearchParamValue(value?: string | string[]) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function getSafeReturnTo(value?: string | string[]) {
+  const returnTo = getSearchParamValue(value)?.trim();
+
+  if (returnTo?.startsWith("/horarios/")) {
+    return returnTo;
+  }
+
+  return "/horarios/admin";
+}
+
+function getRevisionCopy(estadoDia: string) {
+  if (estadoDia === "Incompleto") {
+    return "Esta jornada esta marcada como incompleta. Revisa las marcaciones faltantes y usa el formulario de correccion a continuacion.";
+  }
+
+  if (estadoDia === "Finalizado" || estadoDia === "Revisado") {
+    return "Esta jornada ya fue cerrada. Como administrador puedes ajustar sus marcaciones y recalcular horas si el registro quedo mal.";
+  }
+
+  return "Esta jornada sigue abierta o en pausa. Revisa el estado actual y usa el formulario si es necesario regularizarla.";
+}
+
+export default async function HorarioJornadaRevisionPage({ params, searchParams }: PageProps) {
   const session = await getSessionFromCookie();
 
   if (!session) {
@@ -58,6 +87,8 @@ export default async function HorarioJornadaRevisionPage({ params }: PageProps) 
   }
 
   const { id } = await params;
+  const paramsValue = await searchParams;
+  const returnTo = getSafeReturnTo(paramsValue?.returnTo);
   const jornada = await fetchHorarioRegistroById(id);
 
   if (!jornada) {
@@ -75,7 +106,7 @@ export default async function HorarioJornadaRevisionPage({ params }: PageProps) 
     <StaffAppShell activeHref="/horarios" sectionLabel="Horarios">
       <section className="w-full space-y-3 text-left">
         <Link
-          href="/horarios/admin"
+          href={returnTo}
           className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#CFCFCB] transition hover:text-[#D7FF4F]"
         >
           ← Volver a horarios y pagos
@@ -100,9 +131,7 @@ export default async function HorarioJornadaRevisionPage({ params }: PageProps) 
 
           {/* Nota contextual */}
           <p className="mt-3 text-xs text-[#8F908A]">
-            {jornada.estadoDia === "Incompleto"
-              ? "Esta jornada está marcada como incompleta. Revisa las marcaciones faltantes y usa el formulario de corrección a continuación."
-              : "Esta jornada aún no ha finalizado. Revisa el estado actual y usa el formulario si es necesario corregirla."}
+            {getRevisionCopy(jornada.estadoDia)}
           </p>
 
           {/* Marcaciones del día */}
@@ -148,7 +177,7 @@ export default async function HorarioJornadaRevisionPage({ params }: PageProps) 
           </div>
         </section>
 
-        <HorarioJornadaRevisionClient jornada={jornada} />
+        <HorarioJornadaRevisionClient jornada={jornada} returnTo={returnTo} />
       </section>
     </StaffAppShell>
   );

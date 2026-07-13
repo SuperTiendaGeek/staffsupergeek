@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import type { CorregirJornadaAdminInput, HorarioRegistro } from "@/types/horarios";
 
 type Props = {
   jornada: HorarioRegistro;
+  returnTo?: string;
 };
 
 type ApiResponse = {
@@ -60,7 +62,7 @@ function FieldBadge({ value, isRequired }: { value: string; isRequired: boolean 
   return <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8F908A]">Opcional</span>;
 }
 
-export function HorarioJornadaRevisionClient({ jornada }: Props) {
+export function HorarioJornadaRevisionClient({ jornada, returnTo }: Props) {
   const router = useRouter();
   const [entrada, setEntrada] = useState(toDateTimeLocalValue(jornada.entrada));
   const [salidaAlmuerzo, setSalidaAlmuerzo] = useState(toDateTimeLocalValue(jornada.salidaAlmuerzo));
@@ -96,6 +98,11 @@ export function HorarioJornadaRevisionClient({ jornada }: Props) {
 
       if (!response.ok || !payload.success) {
         setError(payload.error || "No se pudo corregir la jornada");
+        return;
+      }
+
+      if (returnTo) {
+        router.push(returnTo);
         return;
       }
 
@@ -214,7 +221,15 @@ export function HorarioJornadaRevisionClient({ jornada }: Props) {
       ) : null}
 
       {/* Acción */}
-      <div className="mt-5 flex justify-end">
+      <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+        {returnTo ? (
+          <Link
+            href={returnTo}
+            className="inline-flex items-center justify-center rounded-full border border-[#3A3A36] px-5 py-2 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
+          >
+            Cancelar
+          </Link>
+        ) : null}
         <button
           type="submit"
           disabled={isSubmitting}
