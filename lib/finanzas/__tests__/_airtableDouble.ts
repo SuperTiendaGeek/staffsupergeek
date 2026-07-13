@@ -115,6 +115,13 @@ function sincronizarInversos(state: AirtableDoubleState, movimiento: DoubleRecor
   if (facturasStore) {
     for (const facturaId of facturaIds) agregarAInverso(facturasStore, facturaId, "Movimientos Financieros (Facturación)", movimiento.id);
   }
+
+  // Fase 20.3 — self-link "Reversa a" → inverso "Compensado Por", DENTRO de
+  // la misma tabla de movimientos (no una "otra tabla" — Airtable mantiene
+  // este inverso igual que cualquier otro link, solo que apunta a un
+  // registro de la propia tabla).
+  const reversaAIds = (movimiento.fields[MOVIMIENTOS_FIELDS.reversaA] as string[] | undefined) ?? [];
+  for (const originalId of reversaAIds) agregarAInverso(state.movimientos, originalId, MOVIMIENTOS_FIELDS.compensadoPor, movimiento.id);
 }
 
 function splitTopLevel(input: string): string[] {
