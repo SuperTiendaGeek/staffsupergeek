@@ -46,6 +46,10 @@ export const MOVIMIENTOS_FIELDS = {
   proveedor: "Proveedor",
   pagoShippingRelacionado: "Pago Shipping relacionado",
   reversaA: "Reversa a",
+  // Inverso automático de "Reversa a" (self-link) — existe en Airtable desde
+  // 20.1, sin ningún escritor real hasta la Fase 20.3 (acreditación, §3.3/§3.4
+  // de docs/DISENO_FASE20_3_OPERACION.md).
+  compensadoPor: "Compensado Por",
 } as const;
 
 export function mapMovimiento(record: AirtableRecord): Movimiento {
@@ -88,6 +92,7 @@ export function mapMovimiento(record: AirtableRecord): Movimiento {
     proveedorIds: linkedIds(f[F.proveedor]),
     pagoShippingIds: linkedIds(f[F.pagoShippingRelacionado]),
     reversaAId: firstLinkedId(f[F.reversaA]),
+    compensadoPorIds: linkedIds(f[F.compensadoPor]),
   };
 }
 

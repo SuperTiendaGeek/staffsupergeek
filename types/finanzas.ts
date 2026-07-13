@@ -99,6 +99,9 @@ export type Movimiento = {
   proveedorIds: string[];
   pagoShippingIds: string[];
   reversaAId: string | null;
+  // Inverso de reversaAId — Fase 20.3: los movimientos que compensan a este
+  // (Interno-hijo/Ajuste-hijo de una acreditación, ver §3.3 del diseño).
+  compensadoPorIds: string[];
 };
 
 export type CrearMovimientoInput = {
@@ -130,6 +133,10 @@ export type CrearMovimientoInput = {
   clienteId?: string;
   proveedorId?: string;
   pagoShippingId?: string;
+  // Fase 20.3 — self-link "Reversa a": usado exclusivamente por
+  // procesarAcreditacion() para enlazar el Interno-hijo/Ajuste-hijo al
+  // movimiento Acreditado que compensan (ver lib/finanzas/acreditacion.ts).
+  reversaAId?: string;
 };
 
 export type CrearMovimientoOptions = {

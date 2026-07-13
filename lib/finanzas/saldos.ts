@@ -25,8 +25,12 @@ import { round2 } from "./validaciones";
  * comportamiento exacto para los llamadores existentes (`calcularSaldoCuenta`/
  * `calcularSaldoRubroCuenta` siguen pasando `ESTADOS_QUE_CUENTAN_PARA_SALDO`,
  * sin cambio de resultado; cubierto por el test de no-regresión §7 #11).
+ *
+ * Exportada en la Fase 20.3 (§3.6 del diseño) para que
+ * `GET /api/finanzas/movimientos/pendientes-acreditar` liste los `Ingreso ·
+ * Pendiente` de cuentas `Tipo = "Tránsito"` sin duplicar el patrón seguro.
  */
-async function fetchMovimientosDeCuentaPorEstado(cuentaId: string, fechaCorte: string | null, estados: readonly string[]) {
+export async function fetchMovimientosDeCuentaPorEstado(cuentaId: string, fechaCorte: string | null, estados: readonly string[]) {
   if (!fechaCorte) return [];
 
   const cuenta = await fetchCuentaById(cuentaId);
