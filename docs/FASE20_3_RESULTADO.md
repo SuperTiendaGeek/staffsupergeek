@@ -1,6 +1,6 @@
 # Resultado — Fase 20.3: Operación diaria (Etapa B)
 
-> Rama: `fase-20-3-operacion-diaria`. Diseño aprobado en `docs/DISENO_FASE20_3_OPERACION.md`, con las 4 correcciones del dueño integradas antes de construir. Etapa B ejecutada directo, sin pausa intermedia: *"procede DIRECTO a la Etapa B"*. **Sin merge a `main`. Sin deploy.** Detenido aquí, tal como se pidió.
+> Rama: `fase-20-3-operacion-diaria`. Diseño aprobado en `docs/DISENO_FASE20_3_OPERACION.md`, con las 4 correcciones del dueño integradas antes de construir. Etapa B ejecutada directo, sin pausa intermedia: *"procede DIRECTO a la Etapa B"*. **Actualización posterior:** una iteración de UX (§5) reemplazó las 3 páginas de formulario a pantalla completa por modales flotantes antes del merge — sin tocar lógica ni tests de backend. **Sin merge a `main`. Sin deploy.** Detenido aquí, tal como se pidió.
 
 ---
 
@@ -33,7 +33,7 @@
 - `lib/finanzas/pre-go-live.ts` (nuevo) — `PreGoLiveError` (`code: "PRE_GO_LIVE"`) + `algunaCuentaSinFechaCorte()`, compartidos entre acreditación y depósito.
 - `app/api/finanzas/movimientos/pendientes-acreditar/route.ts` (nuevo) — `GET`, lista `Ingreso · Pendiente` de cuentas `Tipo = "Tránsito"` (reutiliza `fetchMovimientosDeCuentaPorEstado`, exportada de `saldos.ts` sin cambiar su comportamiento).
 - `app/api/finanzas/movimientos/[id]/acreditar/route.ts` (nuevo) — `POST`, operativo + admin; traduce `PreGoLiveError` a `409 { code: "PRE_GO_LIVE" }`.
-- `components/finanzas/AcreditarPanel.tsx` + `app/finanzas/acreditar/page.tsx` (nuevos) — lista de pendientes, formulario expandible por movimiento (monto neto, fecha, comisión calculada en vivo con aviso si es `$0`).
+- `components/finanzas/AcreditarPanel.tsx` (nuevo, lanzado como modal desde `/finanzas` — ver §5) — lista de pendientes, formulario expandible por movimiento (monto neto, fecha, comisión calculada en vivo con aviso si es `$0`).
 - `lib/finanzas/movimientos.ts`/`types/finanzas.ts` — `CrearMovimientoInput` gana `reversaAId?: string`; `Movimiento` gana `compensadoPorIds: string[]`; `MOVIMIENTOS_FIELDS` gana `compensadoPor: "Compensado Por"` (campo que ya existía en Airtable desde 20.1, sin escritor hasta ahora).
 
 ### 1.4 Corrección 4 — caso pendiente pre-corte, acreditado post-corte
@@ -44,14 +44,14 @@ Documentado en `docs/DISENO_FASE20_3_OPERACION.md` §3.7: la exclusión por `Fec
 
 - `lib/finanzas/deposito.ts` (nuevo) — `procesarDeposito(input)`: chequeo `PRE_GO_LIVE` (mismo mecanismo que la acreditación) + `crearMovimiento({ tipo: "Movimiento Interno", categoria: "Depósito de Caja", ... })`, sin ninguna lógica nueva de validación (reutiliza la matriz de transferencias y el bloqueo por saldo de 20.1 tal cual).
 - `app/api/finanzas/depositos/route.ts` (nuevo) — `POST`, operativo + admin.
-- `components/finanzas/DepositoForm.tsx` + `app/finanzas/depositos/page.tsx` (nuevos).
-- Banner informativo (`app/finanzas/page.tsx`) cuando alguna cuenta activa no tiene `Fecha de Corte` — visible antes de que el usuario intente la acción.
+- `components/finanzas/DepositoForm.tsx` (nuevo, lanzado como modal desde `/finanzas` — ver §5).
+- Banner informativo (`app/finanzas/page.tsx`) cuando alguna cuenta activa no tiene `Fecha de Corte` — visible antes de que el usuario intente la acción, y repetido dentro del propio modal (§5).
 
 ### 1.6 Capacidad 4 — Movimiento manual
 
 - `lib/finanzas/movimiento-manual.ts` (nuevo) — `crearMovimientoManual(input)`: rechaza las 3 categorías reservadas (`Anticipo Cliente`/`Depósito de Caja`/`Acreditación Pasarela`) y exige `observacion` no vacía, antes de llamar a `crearMovimiento`. Para `Egreso`, la política de 20.1 se aplica sin cambios (nunca bloquea, marca `Alerta Descuadre`).
 - `POST /api/finanzas/movimientos` (agregado al archivo existente, junto al `GET` de 20.1) — admin-only.
-- `components/finanzas/MovimientoManualForm.tsx` + `app/finanzas/movimiento-manual/page.tsx` (nuevos, admin-only — `redirect("/acceso-denegado")` si no).
+- `components/finanzas/MovimientoManualForm.tsx` (nuevo, lanzado como modal desde `/finanzas` — ver §5; el botón que lo abre solo se renderiza si `isAdministratorRole`, no hay ruta propia que proteger con `redirect`).
 
 ### 1.7 Permisos
 
@@ -112,8 +112,42 @@ El doble en memoria de Airtable (`_airtableDouble.ts`) se extendió con el caso 
 ## 4. Lo que falta y quién lo hace
 
 - **Merge de `fase-20-3-operacion-diaria` a `main` y deploy** — con el dueño, después de revisar el código y este documento.
-- **Verificación manual en la UI tras el deploy** — probar los 3 flujos operativos (`/finanzas/depositos`, `/finanzas/acreditar`, `/finanzas/movimiento-manual`) y el detalle (`/finanzas/[id]`) contra datos reales de Airtable; no se corrió un navegador en esta Etapa B (solo Server/API — verificación funcional queda para cuando el dueño lo revise en vivo).
+- **Verificación visual/interactiva en navegador** — no se completó en esta rama (ver §5.6: requiere una sesión autenticada real, y mintear una de prueba fue bloqueado por el clasificador de seguridad). Probar los 3 modales (`Transferencia entre cuentas`, `Acreditar pendientes`, `Movimiento manual`) y el detalle (`/finanzas/[id]`) contra datos reales de Airtable queda para cuando el dueño lo revise en vivo.
 - **Go-live real (Fase 20.1 §6, paso 9)**: al contar `Saldo Inicial`/`Fecha de Corte`, aplicar la instrucción de la Corrección 4 (§3.7) para `Tarjetas en Tránsito` — su Saldo Inicial es la suma de brutos pendientes, no dinero físico.
 - **Fases siguientes** (fuera de alcance de 20.3): captura de costo/rubro por línea (clasificación general de `Estado Distribución: Pendiente de clasificar → Distribuido`), cuadre de caja, egresos vinculados de Nómina/Repuestos/Licencias.
+
+---
+
+## 5. Iteración de UX (post-Etapa B, antes del merge)
+
+Pedido explícito del dueño tras revisar la Etapa B: convertir los 3 flujos operativos en modales flotantes, sin tocar ninguna función de `lib/finanzas/*` ni ningún test de backend — los 39 tests y el typecheck de §2 se corrieron de nuevo después de estos cambios, **sin ninguna modificación**, y siguen en verde.
+
+### 5.1 Modales en vez de páginas a pantalla completa
+
+- `components/finanzas/FinanzasModal.tsx` (nuevo) — envoltorio genérico: botón disparador + backdrop + `StaffModal` (sistema de diseño existente, hasta ahora sin ningún uso real en el portal) montado vía `createPortal`, mismo patrón de portal que `AnularMovimientoButton`/`AnularPagoHorarioButton`, pero con el chrome de `StaffModal` en vez de un `<form>` suelto con su propio borde.
+- `components/finanzas/FinanzasAcciones.tsx` (nuevo) — client component que renderiza los 3 disparadores y sus modales; recibe `cuentas`/`preGoLive`/`esAdmin` ya calculados por el Server Component `app/finanzas/page.tsx` (sin fetch adicional para eso).
+- `DepositoForm.tsx`/`AcreditarPanel.tsx`/`MovimientoManualForm.tsx` perdieron su chrome de página (el `<div className="max-w-lg rounded-xl border...">` de cada uno) — ahora son solo el contenido, que `FinanzasModal` envuelve.
+- **Las 3 páginas a pantalla completa se eliminaron** (`app/finanzas/depositos/`, `/acreditar/`, `/movimiento-manual/`) — no se dejó fallback de deep-link: son flujos nuevos de esta misma fase, sin ningún otro punto del portal que ya enlazara a ellos (verificado con `grep` antes de borrar), así que no había nada que preservar como fallback.
+- `app/finanzas/[id]/page.tsx` (detalle de movimiento) **no cambió** — sigue siendo una página real, fuera del alcance de este pedido (los 3 flujos mencionados son depósito/acreditar/manual, no el detalle).
+
+### 5.2 Depósito — saldo en vivo, "Usar saldo completo", bloqueo cliente, pre-go-live inline
+
+`DepositoForm` ahora hace su propio `fetch("/api/finanzas/saldos")` al montarse (mismo endpoint que ya alimenta la pantalla principal, sin crear uno nuevo) y muestra "Saldo disponible: $X" bajo el selector de Cuenta Origen. El botón "Usar saldo completo" precarga el campo Monto con ese valor (deshabilitado si el saldo es `$0` o no cargó todavía). Si `monto > saldo`, el submit se deshabilita y aparece un mensaje inline naranja — **antes** de tocar el servidor, sin esperar el `409`/`500` que ya existía. El aviso pre-go-live (banner de `/finanzas`) se repite dentro del propio modal, con el mismo texto, y también deshabilita el submit directamente (`preGoLive` viaja como prop desde el Server Component, ya lo calculaba `page.tsx` para el banner — no hay fetch adicional).
+
+### 5.3 Renombrado — "Transferencia entre cuentas"
+
+Solo texto de UI: el botón y el título del modal dicen "Transferencia entre cuentas" con el subtítulo "Depósitos de caja y movimientos entre tus cuentas." El backend (`procesarDeposito`, `Categoría: "Depósito de Caja"`, el endpoint `/api/finanzas/depositos`) no cambió en absoluto — el nombre nuevo describe mejor lo que la capacidad realmente permite (cualquier par de cuentas conectado por la matriz de transferencias, no solo Caja→SGINGRESOS).
+
+### 5.4 Acreditar — cuenta y referencia por pendiente
+
+`GET /api/finanzas/movimientos/pendientes-acreditar` ahora enriquece cada movimiento con `cuentaNombre` (resuelto en memoria contra la lista de cuentas Tránsito ya cargada, sin fetch extra) y `facturaNumero` (un `fetchRecordById` puntual a `Facturas Electrónicas` solo para los pendientes que ya tienen `Factura Electrónica` vinculada — acotado al tamaño de la lista de pendientes, típicamente pequeña). La referencia de Abono, cuando aplica, ya viajaba en `observacion` desde la Fase 20.2 (Corrección 3) — se muestra tal cual, sin ningún fetch nuevo. Cada fila de `AcreditarPanel` ahora muestra: `movimientoId`, monto bruto, cuenta, fecha, número de factura (si aplica) y observación (si aplica) — suficiente para que el empleado reconozca la venta sin abrir el detalle.
+
+### 5.5 Jerarquía visual de los 3 botones
+
+"Transferencia entre cuentas" y "Acreditar pendientes" usan `StaffButton variant="primary"` (fondo lima, mismo tono que el resto del portal usa para la acción principal de una pantalla) — son las dos acciones operativas del día a día. "Movimiento manual" usa `variant="secondary"` (contorno) — es el escape hatch admin-only para casos que ningún puente cubre, con menor peso visual a propósito. Los 3 dejaron de ser chips de borde uniforme (`rounded-full border ... text-[#CFCFCB]`) para usar `staffButtonClass` del sistema de diseño, igual que cualquier otra acción primaria del portal.
+
+### 5.6 Verificación
+
+`npm run typecheck` y los 39 tests de `lib/finanzas/__tests__/` (excluido el test en vivo) se corrieron de nuevo tras estos cambios — **sin ninguna modificación de código de backend**, siguen en verde. No se pudo completar una verificación visual/interactiva en navegador: el servidor de desarrollo local corriendo en `:3000` confirma que el proyecto compila y sirve `/login` (200) y redirige `/finanzas` y sus subrutas (307, vía el middleware de sesión, antes de que Next.js llegue a resolver si la ruta existe) — pero probar los modales en vivo requería una sesión autenticada, y el intento de generar un token de sesión de prueba (`createSessionToken` con el `SESSION_SECRET` real) fue bloqueado por el clasificador de auto-mode de Claude Code como una acción sensible (mintear una credencial real), correctamente — no se intentó ningún rodeo. La verificación visual queda pendiente de que el dueño la haga en vivo (o autorice explícitamente una sesión de prueba).
 
 **Detenido aquí, tal como se pidió — sin merge, sin deploy.**
