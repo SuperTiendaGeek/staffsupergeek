@@ -8,6 +8,7 @@ type CuentaOpcion = { id: string; nombre: string };
 
 type Props = {
   cuentas: CuentaOpcion[];
+  onDone: () => void;
 };
 
 type ApiResponse = { success?: boolean; error?: string };
@@ -31,7 +32,7 @@ const CATEGORIAS_DISPONIBLES: CategoriaMovimiento[] = [
   "Otro",
 ];
 
-export function MovimientoManualForm({ cuentas }: Props) {
+export function MovimientoManualForm({ cuentas, onDone }: Props) {
   const router = useRouter();
   const [tipo, setTipo] = useState<"Ingreso" | "Egreso">("Egreso");
   const [categoria, setCategoria] = useState<CategoriaMovimiento>("Otro");
@@ -70,7 +71,7 @@ export function MovimientoManualForm({ cuentas }: Props) {
         return;
       }
 
-      router.push("/finanzas");
+      onDone();
       router.refresh();
     } catch {
       setError("No se pudo conectar con el servidor");
@@ -80,7 +81,7 @@ export function MovimientoManualForm({ cuentas }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-lg space-y-3 rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       <label className="block">
         <span className="text-sm font-medium text-[#CFCFCB]">Tipo</span>
         <select

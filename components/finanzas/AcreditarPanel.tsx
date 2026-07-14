@@ -3,14 +3,29 @@
 import { useEffect, useState } from "react";
 import type { Movimiento } from "@/types/finanzas";
 
-type ApiListResponse = { success?: boolean; data?: Movimiento[]; error?: string };
+// Fase 20.3 (iteración de UX) — el endpoint devuelve el Movimiento tal cual,
+// enriquecido con dos campos de solo lectura para que el empleado reconozca
+// la venta sin tener que abrir el detalle: la cuenta de tránsito exacta
+// (útil si en el futuro hay más de una) y el número de factura, si la venta
+// ya está facturada. La referencia de Abono (cuando aplica) ya viaja en
+// `observacion` — Fase 20.2 §1.2 la escribe ahí, sin necesidad de un campo
+// nuevo aquí.
+type PendienteAcreditar = Movimiento & { cuentaNombre: string | null; facturaNumero: string | null };
+
+type ApiListResponse = { success?: boolean; data?: PendienteAcreditar[]; error?: string };
 type ApiAcreditarResponse = { success?: boolean; error?: string; code?: string };
 
 function formatMonto(valor: number) {
   return valor.toLocaleString("es-EC", { style: "currency", currency: "USD" });
 }
 
-function FilaPendiente({ movimiento, onAcreditado }: { movimiento: Movimiento; onAcreditado: () => void }) {
+function formatFecha(iso: string) {
+  const fecha = new Date(iso);
+  if (Number.isNaN(fecha.getTime())) return iso;
+  return fecha.toLocaleDateString("es-EC", { year: "numeric", month: "short", day: "2-digit" });
+}
+
+function FilaPendiente({ movimiento, onAcreditado }: { movimiento: PendienteAcreditar; onAcreditado: () => void }) {
   const [expandido, setExpandido] = useState(false);
   const [montoNeto, setMontoNeto] = useState(String(movimiento.monto));
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
@@ -48,11 +63,18 @@ function FilaPendiente({ movimiento, onAcreditado }: { movimiento: Movimiento; o
 
   return (
     <li className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-3">
-      <button type="button" onClick={() => setExpandido((v) => !v)} className="flex w-full items-center justify-between text-left">
-        <span className="text-sm text-[#F5F5F5]">
-          {movimiento.movimientoId} — {formatMonto(movimiento.monto)} bruto
-        </span>
-        <span className="text-xs text-[#8F908A]">{expandido ? "Cerrar" : "Acreditar"}</span>
+      <button type="button" onClick={() => setExpandido((v) => !v)} className="flex w-full items-start justify-between gap-2 text-left">
+        <div className="min-w-0">
+          <p className="text-sm text-[#F5F5F5]">
+            {movimiento.movimientoId} — {formatMonto(movimiento.monto)} bruto
+          </p>
+          <p className="mt-0.5 truncate text-[13px] text-[#A7A7A7]">
+            {movimiento.cuentaNombre ?? "Cuenta de tránsito"} · {formatFecha(movimiento.fecha)}
+            {movimiento.facturaNumero ? ` · Factura ${movimiento.facturaNumero}` : ""}
+          </p>
+          {movimiento.observacion ? <p className="mt-0.5 truncate text-[13px] text-[#8F908A]">{movimiento.observacion}</p> : null}
+        </div>
+        <span className="shrink-0 text-xs text-[#8F908A]">{expandido ? "Cerrar" : "Acreditar"}</span>
       </button>
 
       {expandido ? (
@@ -98,8 +120,8 @@ function FilaPendiente({ movimiento, onAcreditado }: { movimiento: Movimiento; o
   );
 }
 
-export function AcreditarPanel() {
-  const [pendientes, setPendientes] = useState<Movimiento[] | null>(null);
+export function AcreditarPanel({ onAcreditado }: { onAcreditado?: () => void }) {
+  const [pendientes, setPendientes] = useState<PendienteAcreditar[] | null>(null);
   const [error, setError] = useState("");
 
   async function cargar() {
@@ -127,7 +149,14 @@ export function AcreditarPanel() {
   return (
     <ul className="space-y-2">
       {pendientes.map((mov) => (
-        <FilaPendiente key={mov.id} movimiento={mov} onAcreditado={() => void cargar()} />
+        <FilaPendiente
+          key={mov.id}
+          movimiento={mov}
+          onAcreditado={() => {
+            void cargar();
+            onAcreditado?.();
+          }}
+        />
       ))}
     </ul>
   );

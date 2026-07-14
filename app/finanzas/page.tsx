@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { isAdministratorRole } from "@/lib/apps";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffDataTable, StaffPageHeader, StaffStatCard } from "@/components/staff/StaffDesignSystem";
+import { FinanzasAcciones } from "@/components/finanzas/FinanzasAcciones";
 import { fetchCuentasFinancieras } from "@/lib/finanzas/cuentas";
 import { listarMovimientos } from "@/lib/finanzas/movimientos";
 import { calcularAnticiposSinFacturar, calcularPorAcreditarCuenta, calcularSaldoCuenta } from "@/lib/finanzas/saldos";
@@ -34,6 +34,7 @@ export default async function FinanzasPage() {
   let cuentas: CuentaConSaldo[] = [];
   let movimientos: Movimiento[] = [];
   let anticiposSinFacturar = 0;
+  let preGoLive = false;
   let error = "";
 
   const session = await getSessionFromCookie();
@@ -52,6 +53,7 @@ export default async function FinanzasPage() {
     cuentas = cuentasBase.map((cuenta, index) => ({ ...cuenta, saldo: saldos[index], porAcreditar: porAcreditar[index] }));
     movimientos = movs;
     anticiposSinFacturar = anticipos;
+    preGoLive = cuentasBase.some((c) => c.activa && !c.fechaCorte);
   } catch (loadError) {
     console.error("Error al cargar Finanzas:", loadError);
     error =
@@ -69,25 +71,19 @@ export default async function FinanzasPage() {
           density="compact"
         />
 
-        <div className="flex flex-wrap gap-2">
-          <Link href="/finanzas/depositos" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:text-[#F5F5F5]">
-            Registrar depósito
-          </Link>
-          <Link href="/finanzas/acreditar" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:text-[#F5F5F5]">
-            Acreditar pendientes
-          </Link>
-          {esAdmin ? (
-            <Link href="/finanzas/movimiento-manual" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:text-[#F5F5F5]">
-              Movimiento manual
-            </Link>
-          ) : null}
-        </div>
+        {!error ? (
+          <FinanzasAcciones
+            cuentas={cuentas.filter((c) => c.activa).map((c) => ({ id: c.id, nombre: c.nombre, permiteTransferirAIds: c.permiteTransferirAIds }))}
+            preGoLive={preGoLive}
+            esAdmin={esAdmin}
+          />
+        ) : null}
 
-        {!error && cuentas.some((c) => c.activa && !c.fechaCorte) ? (
+        {!error && preGoLive ? (
           <section className="rounded-xl border border-sky-300/25 bg-sky-300/10 px-3 py-2.5 text-sky-100">
             <p className="text-sm leading-5">
               El sistema contable todavía no está en vivo: faltan Saldo Inicial y Fecha de Corte en una o más cuentas antes de poder
-              registrar depósitos o acreditaciones reales (Fase 20.1 §6, paso 9).
+              registrar transferencias o acreditaciones reales (Fase 20.1 §6, paso 9).
             </p>
           </section>
         ) : null}
