@@ -10,6 +10,8 @@ import type { CuentaFinanciera, Movimiento } from "@/types/finanzas";
 
 export const dynamic = "force-dynamic";
 
+const ALERTA_DESCUADRE_TOOLTIP = "Alerta de descuadre: el saldo de la cuenta quedó negativo al registrar este movimiento — esperado antes del go-live.";
+
 type CuentaConSaldo = CuentaFinanciera & { saldo: number; porAcreditar: number | null };
 
 function formatMonto(valor: number) {
@@ -138,7 +140,11 @@ export default async function FinanzasPage() {
                     <td className="px-3 py-2 whitespace-nowrap">{mov.categoria}</td>
                     <td className="px-3 py-2 whitespace-nowrap tabular-nums">
                       {formatMonto(mov.monto)}
-                      {mov.alertaDescuadre ? <span className="ml-1.5 text-orange-300" title="Alerta de descuadre">⚠</span> : null}
+                      {mov.alertaDescuadre ? (
+                        <span className="ml-1.5 text-orange-300" title={ALERTA_DESCUADRE_TOOLTIP}>
+                          ⚠
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       <span

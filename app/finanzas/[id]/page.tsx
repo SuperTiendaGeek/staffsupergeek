@@ -9,6 +9,9 @@ import { getSessionFromCookie } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
+const ALERTA_DESCUADRE_TEXTO = "El saldo de la cuenta quedó negativo al registrar este movimiento — esperado antes del go-live.";
+const ALERTA_DESCUADRE_TOOLTIP = "Alerta de descuadre: el saldo de la cuenta quedó negativo al registrar este movimiento — esperado antes del go-live.";
+
 function formatMonto(valor: number | null) {
   if (valor === null) return "—";
   return valor.toLocaleString("es-EC", { style: "currency", currency: "USD" });
@@ -60,6 +63,13 @@ export default async function MovimientoDetallePage({ params }: { params: Promis
           </section>
         ) : null}
 
+        {movimiento.alertaDescuadre ? (
+          <section className="rounded-xl border border-orange-300/25 bg-orange-300/10 px-3 py-2.5 text-orange-100">
+            <p className="text-sm font-semibold uppercase tracking-normal">⚠ Alerta de descuadre</p>
+            <p className="mt-1 text-sm leading-5 text-orange-100/85">{ALERTA_DESCUADRE_TEXTO}</p>
+          </section>
+        ) : null}
+
         <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <Campo label="Tipo" value={movimiento.tipo} />
           <Campo label="Categoría" value={movimiento.categoria} />
@@ -69,7 +79,11 @@ export default async function MovimientoDetallePage({ params }: { params: Promis
             value={
               <>
                 {formatMonto(movimiento.monto)}
-                {movimiento.alertaDescuadre ? <span className="ml-1.5 text-orange-300" title="Alerta de descuadre">⚠</span> : null}
+                {movimiento.alertaDescuadre ? (
+                  <span className="ml-1.5 text-orange-300" title={ALERTA_DESCUADRE_TOOLTIP}>
+                    ⚠
+                  </span>
+                ) : null}
               </>
             }
           />
