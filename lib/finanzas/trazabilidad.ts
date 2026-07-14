@@ -30,6 +30,9 @@ export type TrazabilidadMovimiento = {
   cuentaDestinoNombre: string | null;
   movimientosCompensadores: Array<{ id: string; movimientoId: string; tipo: string; categoria: string; monto: number }>;
   compensaA: { id: string; movimientoId: string } | null;
+  // Fase 20.4 — si este movimiento es el ajuste de un cuadre de caja.
+  cuadreOrigenId: string | null;
+  cuadreOrigenCodigo: string | null;
 };
 
 /**
@@ -55,7 +58,7 @@ export async function fetchMovimientoConTrazabilidad(
   let operacionId: string | null = null;
   let operacionCodigo: string | null = null;
 
-  const [abono, factura, pagoShipping, cuentaOrigen, cuentaDestino, original, hijos] = await Promise.all([
+  const [abono, factura, pagoShipping, cuentaOrigen, cuentaDestino, original, hijos, cuadreOrigen] = await Promise.all([
     abonoId ? fetchRecordById(ABONOS_TABLE, abonoId) : Promise.resolve(null),
     facturaId ? fetchRecordById("Facturas Electrónicas", facturaId) : Promise.resolve(null),
     pagoShippingId ? fetchRecordById("Shipping Pagos", pagoShippingId) : Promise.resolve(null),
@@ -63,6 +66,7 @@ export async function fetchMovimientoConTrazabilidad(
     movimiento.cuentaDestinoId ? fetchCuentaById(movimiento.cuentaDestinoId) : Promise.resolve(null),
     movimiento.reversaAId ? fetchMovimientoById(movimiento.reversaAId) : Promise.resolve(null),
     Promise.all(movimiento.compensadoPorIds.map((cid) => fetchMovimientoById(cid))),
+    movimiento.cuadreDeCajaId ? fetchRecordById("Finanzas Cuadres", movimiento.cuadreDeCajaId) : Promise.resolve(null),
   ]);
 
   if (abono) {
@@ -103,6 +107,8 @@ export async function fetchMovimientoConTrazabilidad(
       .filter((h): h is Movimiento => !!h)
       .map((h) => ({ id: h.id, movimientoId: h.movimientoId, tipo: h.tipo, categoria: h.categoria, monto: h.monto })),
     compensaA: original ? { id: original.id, movimientoId: original.movimientoId } : null,
+    cuadreOrigenId: movimiento.cuadreDeCajaId,
+    cuadreOrigenCodigo: cuadreOrigen ? cleanString(cuadreOrigen.fields["Cuadre ID"]) || null : null,
   };
 
   return { movimiento, trazabilidad };

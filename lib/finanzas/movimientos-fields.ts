@@ -50,6 +50,9 @@ export const MOVIMIENTOS_FIELDS = {
   // 20.1, sin ningún escritor real hasta la Fase 20.3 (acreditación, §3.3/§3.4
   // de docs/DISENO_FASE20_3_OPERACION.md).
   compensadoPor: "Compensado Por",
+  // Fase 20.4 — inverso automático de "Movimiento de Ajuste" en Finanzas
+  // Cuadres, poblado cuando este movimiento es el ajuste de un cuadre.
+  cuadreDeCaja: "Cuadre de Caja",
 } as const;
 
 export function mapMovimiento(record: AirtableRecord): Movimiento {
@@ -93,6 +96,7 @@ export function mapMovimiento(record: AirtableRecord): Movimiento {
     pagoShippingIds: linkedIds(f[F.pagoShippingRelacionado]),
     reversaAId: firstLinkedId(f[F.reversaA]),
     compensadoPorIds: linkedIds(f[F.compensadoPor]),
+    cuadreDeCajaId: firstLinkedId(f[F.cuadreDeCaja]),
   };
 }
 

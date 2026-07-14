@@ -26,6 +26,8 @@ export const CUENTAS_FIELDS = {
   fechaCorte: "Fecha de Corte",
   movimientosOrigen: "Movimientos (Origen)",
   movimientosDestino: "Movimientos (Destino)",
+  // Fase 20.4 — inverso automático del link "Cuenta" en Finanzas Cuadres.
+  cuadres: "Cuadres",
 } as const;
 
 export const NOMBRES_CUENTAS_INICIALES = [
@@ -51,6 +53,7 @@ function mapCuenta(record: AirtableRecord): CuentaFinanciera {
     fechaCorte: cleanString(f[CUENTAS_FIELDS.fechaCorte]) || null,
     movimientosOrigenIds: linkedIds(f[CUENTAS_FIELDS.movimientosOrigen]),
     movimientosDestinoIds: linkedIds(f[CUENTAS_FIELDS.movimientosDestino]),
+    cuadresIds: linkedIds(f[CUENTAS_FIELDS.cuadres]),
   };
 }
 
