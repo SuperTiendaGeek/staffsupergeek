@@ -178,8 +178,12 @@ export async function anularMovimientoDeAbono(abonoId: string): Promise<{ warnin
     const movimientoId = abono ? firstLinkedId(abono.fields[ABONOS_FIELDS.movimientoFinanciero]) : null;
     if (!movimientoId) return { warning: null };
 
-    const movimiento = await anularMovimiento(movimientoId, "Abono anulado en el portal.");
-    if (movimiento.facturaElectronicaIds.length === 0) return { warning: null };
+    // Fase 20.3 §2.4 — anularMovimiento ahora también puede devolver una
+    // advertencia de cadena (si este movimiento fuera un hijo de una
+    // acreditación); en la práctica un movimiento de origen Abonos nunca
+    // tiene `Reversa a` poblado, pero se combina de forma genérica.
+    const { movimiento, warning: warningCadena } = await anularMovimiento(movimientoId, "Abono anulado en el portal.");
+    if (movimiento.facturaElectronicaIds.length === 0) return { warning: warningCadena };
 
     const facturaId = movimiento.facturaElectronicaIds[0];
     const factura = await fetchRecordById("Facturas Electrónicas", facturaId);
@@ -193,9 +197,9 @@ export async function anularMovimientoDeAbono(abonoId: string): Promise<{ warnin
       numeroFactura,
     });
 
-    return {
-      warning: `Este abono ya estaba vinculado a la factura ${numeroFactura} — el movimiento financiero se anuló igual, pero revisa si corresponde una nota de crédito o corregir la factura.`,
-    };
+    const warningFactura = `Este abono ya estaba vinculado a la factura ${numeroFactura} — el movimiento financiero se anuló igual, pero revisa si corresponde una nota de crédito o corregir la factura.`;
+
+    return { warning: [warningFactura, warningCadena].filter(Boolean).join(" ") };
   } catch (error) {
     console.error("[Finanzas] No se pudo anular el movimiento financiero del abono", {
       abonoId,

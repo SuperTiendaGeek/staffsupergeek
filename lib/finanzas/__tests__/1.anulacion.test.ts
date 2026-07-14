@@ -46,7 +46,8 @@ async function main() {
   assert(saldoConMovimiento === 70, `Saldo tras el ingreso = $70 (obtenido: $${saldoConMovimiento})`);
   assert(state.movimientos.size === 1, "Hay exactamente 1 movimiento en el store tras crearlo");
 
-  const anulado = await anularMovimiento(movimiento.id, "Error de captura, monto duplicado.");
+  const { movimiento: anulado, warning } = await anularMovimiento(movimiento.id, "Error de captura, monto duplicado.");
+  assert(warning === null, "Sin cadena de compensación involucrada, no hay advertencia (obtenido: " + warning + ")");
 
   assert(state.movimientos.size === 1, "Anular NO crea ningún movimiento nuevo — sigue habiendo exactamente 1 en el store");
   assert(anulado.estado === "Anulado", "El movimiento original queda con estado Anulado");

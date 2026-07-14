@@ -1,11 +1,16 @@
+import { isAdministratorRole } from "@/lib/apps";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffDataTable, StaffPageHeader, StaffStatCard } from "@/components/staff/StaffDesignSystem";
+import { FinanzasAcciones } from "@/components/finanzas/FinanzasAcciones";
 import { fetchCuentasFinancieras } from "@/lib/finanzas/cuentas";
 import { listarMovimientos } from "@/lib/finanzas/movimientos";
 import { calcularAnticiposSinFacturar, calcularPorAcreditarCuenta, calcularSaldoCuenta } from "@/lib/finanzas/saldos";
+import { getSessionFromCookie } from "@/lib/session";
 import type { CuentaFinanciera, Movimiento } from "@/types/finanzas";
 
 export const dynamic = "force-dynamic";
+
+const ALERTA_DESCUADRE_TOOLTIP = "Alerta de descuadre: el saldo de la cuenta quedó negativo al registrar este movimiento — esperado antes del go-live.";
 
 type CuentaConSaldo = CuentaFinanciera & { saldo: number; porAcreditar: number | null };
 
@@ -31,7 +36,11 @@ export default async function FinanzasPage() {
   let cuentas: CuentaConSaldo[] = [];
   let movimientos: Movimiento[] = [];
   let anticiposSinFacturar = 0;
+  let preGoLive = false;
   let error = "";
+
+  const session = await getSessionFromCookie();
+  const esAdmin = isAdministratorRole(session?.user.rol);
 
   try {
     const cuentasBase = await fetchCuentasFinancieras();
@@ -46,6 +55,7 @@ export default async function FinanzasPage() {
     cuentas = cuentasBase.map((cuenta, index) => ({ ...cuenta, saldo: saldos[index], porAcreditar: porAcreditar[index] }));
     movimientos = movs;
     anticiposSinFacturar = anticipos;
+    preGoLive = cuentasBase.some((c) => c.activa && !c.fechaCorte);
   } catch (loadError) {
     console.error("Error al cargar Finanzas:", loadError);
     error =
@@ -59,9 +69,26 @@ export default async function FinanzasPage() {
       <div className="w-full space-y-3">
         <StaffPageHeader
           title="Movimientos financieros"
-          description="Fundación del sistema contable SG — pantalla de solo lectura (Fase 20.1). Saldos calculados en código, nunca deducidos."
+          description="Fundación del sistema contable SG. Saldos calculados en código, nunca deducidos."
           density="compact"
         />
+
+        {!error ? (
+          <FinanzasAcciones
+            cuentas={cuentas.filter((c) => c.activa).map((c) => ({ id: c.id, nombre: c.nombre, permiteTransferirAIds: c.permiteTransferirAIds }))}
+            preGoLive={preGoLive}
+            esAdmin={esAdmin}
+          />
+        ) : null}
+
+        {!error && preGoLive ? (
+          <section className="rounded-xl border border-sky-300/25 bg-sky-300/10 px-3 py-2.5 text-sky-100">
+            <p className="text-sm leading-5">
+              El sistema contable todavía no está en vivo: faltan Saldo Inicial y Fecha de Corte en una o más cuentas antes de poder
+              registrar transferencias o acreditaciones reales (Fase 20.1 §6, paso 9).
+            </p>
+          </section>
+        ) : null}
 
         {error ? (
           <section className="rounded-xl border border-orange-300/25 bg-orange-300/10 px-3 py-2.5 text-orange-100">
@@ -103,13 +130,21 @@ export default async function FinanzasPage() {
               </thead>
               <tbody>
                 {movimientos.map((mov) => (
-                  <tr key={mov.id} className="border-b border-[#2A2B27] text-[#F5F5F5]">
-                    <td className="px-3 py-2 whitespace-nowrap">{formatFecha(mov.fecha)}</td>
+                  <tr key={mov.id} className="border-b border-[#2A2B27] text-[#F5F5F5] transition hover:bg-white/5">
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <a href={`/finanzas/${mov.id}`} className="block">
+                        {formatFecha(mov.fecha)}
+                      </a>
+                    </td>
                     <td className="px-3 py-2 whitespace-nowrap">{mov.tipo}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{mov.categoria}</td>
                     <td className="px-3 py-2 whitespace-nowrap tabular-nums">
                       {formatMonto(mov.monto)}
-                      {mov.alertaDescuadre ? <span className="ml-1.5 text-orange-300" title="Alerta de descuadre">⚠</span> : null}
+                      {mov.alertaDescuadre ? (
+                        <span className="ml-1.5 text-orange-300" title={ALERTA_DESCUADRE_TOOLTIP}>
+                          ⚠
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       <span
