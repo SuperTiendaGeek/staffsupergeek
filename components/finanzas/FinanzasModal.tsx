@@ -9,20 +9,32 @@ type Props = {
   title: string;
   description?: string;
   children: (close: () => void) => ReactNode;
+  // Fase 20.4 — control externo opcional, para el atajo "Registrar
+  // transferencia de este efectivo" del cuadre de caja: abre este modal
+  // programáticamente desde otro modal ya abierto. Sin estos dos props, el
+  // modal se comporta exactamente igual que antes (estado interno).
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 // Envoltorio genérico para los flujos operativos de /finanzas (depósito,
-// acreditar, movimiento manual): botón disparador + StaffModal flotante
-// sobre un backdrop, mismo patrón de portal ya usado en
+// acreditar, movimiento manual, cuadre): botón disparador + StaffModal
+// flotante sobre un backdrop, mismo patrón de portal ya usado en
 // AnularMovimientoButton/AnularPagoHorarioButton, pero reutilizando
 // StaffModal del sistema de diseño en vez de un `<form>` suelto.
-export function FinanzasModal({ trigger, title, description, children }: Props) {
-  const [isOpen, setIsOpen] = useState(false);
+export function FinanzasModal({ trigger, title, description, children, isOpen: isOpenControlado, onOpenChange }: Props) {
+  const [isOpenInterno, setIsOpenInterno] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
+  const isOpen = isOpenControlado ?? isOpenInterno;
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  function setIsOpen(value: boolean) {
+    onOpenChange?.(value);
+    if (isOpenControlado === undefined) setIsOpenInterno(value);
+  }
 
   const close = () => setIsOpen(false);
 
