@@ -17,6 +17,7 @@
  * actualizar (PATCH, para actualizarMovimiento) un Movimiento.
  */
 
+import { CUADRES_FIELDS, TABLA_CUADRES } from "../cuadres";
 import { CUENTAS_FIELDS } from "../cuentas";
 import { MOVIMIENTOS_FIELDS } from "../movimientos-fields";
 
@@ -52,6 +53,17 @@ export function crearRegistroDouble(state: AirtableDoubleState, tabla: string, f
   const id = generarId(state);
   storeDeOtraTabla(state, tabla).set(id, { id, createdTime: new Date().toISOString(), fields });
   return id;
+}
+
+/**
+ * Registra una "otra tabla" en el doble sin crear ningún registro — necesario
+ * para que el dispatcher de `construirFetchDouble` acepte un POST inicial a
+ * una tabla que todavía no tiene ningún registro (si no, respondería
+ * `TABLE_NOT_FOUND`, igual que le pasaría a una tabla que de verdad no
+ * existe). Fase 20.4 — usado para "Finanzas Cuadres".
+ */
+export function registrarTablaDouble(state: AirtableDoubleState, tabla: string): void {
+  storeDeOtraTabla(state, tabla);
 }
 
 export function crearCuentaDouble(
@@ -124,6 +136,20 @@ function sincronizarInversos(state: AirtableDoubleState, movimiento: DoubleRecor
   for (const originalId of reversaAIds) agregarAInverso(state.movimientos, originalId, MOVIMIENTOS_FIELDS.compensadoPor, movimiento.id);
 }
 
+/**
+ * Fase 20.4 — inversos de "Finanzas Cuadres": Cuenta → Cuadres (en Cuentas
+ * Financieras) y Movimiento de Ajuste → Cuadre de Caja (en Movimientos
+ * Financieros). A diferencia de `sincronizarInversos` (Movimiento-céntrica),
+ * esta propaga desde un registro de Cuadre hacia las otras dos tablas.
+ */
+function sincronizarInversosCuadre(state: AirtableDoubleState, cuadre: DoubleRecord) {
+  const cuentaIds = (cuadre.fields[CUADRES_FIELDS.cuenta] as string[] | undefined) ?? [];
+  for (const cuentaId of cuentaIds) agregarAInverso(state.cuentas, cuentaId, CUENTAS_FIELDS.cuadres, cuadre.id);
+
+  const movimientoIds = (cuadre.fields[CUADRES_FIELDS.movimientoAjuste] as string[] | undefined) ?? [];
+  for (const movId of movimientoIds) agregarAInverso(state.movimientos, movId, MOVIMIENTOS_FIELDS.cuadreDeCaja, cuadre.id);
+}
+
 function splitTopLevel(input: string): string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -157,6 +183,25 @@ function evaluarFormula(formula: string, record: DoubleRecord): boolean {
   if (fieldMatch) {
     const [, field, value] = fieldMatch;
     return String(record.fields[field] ?? "") === value;
+  }
+
+  // Fase 20.4 — listarMovimientos({desde, hasta}) usa IS_AFTER/IS_BEFORE
+  // para el reporte diario. Comparación de fechas ISO como Date, no como
+  // texto (evita sorpresas con zonas horarias distintas entre el valor
+  // guardado y el límite de la consulta).
+  const isAfterMatch = formula.match(/^IS_AFTER\(\{([^}]+)\},\s*'([^']*)'\)$/);
+  if (isAfterMatch) {
+    const [, field, value] = isAfterMatch;
+    const fieldValue = record.fields[field];
+    if (typeof fieldValue !== "string" || !fieldValue) return false;
+    return new Date(fieldValue).getTime() > new Date(value).getTime();
+  }
+  const isBeforeMatch = formula.match(/^IS_BEFORE\(\{([^}]+)\},\s*'([^']*)'\)$/);
+  if (isBeforeMatch) {
+    const [, field, value] = isBeforeMatch;
+    const fieldValue = record.fields[field];
+    if (typeof fieldValue !== "string" || !fieldValue) return false;
+    return new Date(fieldValue).getTime() < new Date(value).getTime();
   }
 
   throw new Error(`Doble de Airtable: fórmula no soportada — ${formula}`);
@@ -205,6 +250,7 @@ export function construirFetchDouble(state: AirtableDoubleState) {
         const record: DoubleRecord = { id, createdTime: new Date().toISOString(), fields: r.fields };
         store.set(id, record);
         if (store === state.movimientos) sincronizarInversos(state, record);
+        if (tableName === TABLA_CUADRES) sincronizarInversosCuadre(state, record);
         return record;
       });
       return jsonResponse(true, 200, { records: creados });
@@ -218,6 +264,7 @@ export function construirFetchDouble(state: AirtableDoubleState) {
         const actualizado: DoubleRecord = { ...existente, fields: { ...existente.fields, ...r.fields } };
         store.set(r.id, actualizado);
         if (store === state.movimientos) sincronizarInversos(state, actualizado);
+        if (tableName === TABLA_CUADRES) sincronizarInversosCuadre(state, actualizado);
         return actualizado;
       });
       return jsonResponse(true, 200, { records: actualizados });

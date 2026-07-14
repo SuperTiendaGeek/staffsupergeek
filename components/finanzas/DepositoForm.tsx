@@ -9,6 +9,9 @@ type Props = {
   cuentas: CuentaOpcion[];
   preGoLive: boolean;
   onDone: () => void;
+  // Fase 20.4 — precarga sin lógica nueva desde el atajo "Registrar
+  // transferencia de este efectivo" del cuadre de caja (§2.6 del diseño).
+  valoresIniciales?: { cuentaOrigenId?: string; monto?: string };
 };
 
 type ApiResponse = { success?: boolean; error?: string; code?: string };
@@ -18,14 +21,14 @@ function formatMonto(valor: number) {
   return valor.toLocaleString("es-EC", { style: "currency", currency: "USD" });
 }
 
-export function DepositoForm({ cuentas, preGoLive, onDone }: Props) {
+export function DepositoForm({ cuentas, preGoLive, onDone, valoresIniciales }: Props) {
   const router = useRouter();
   const cajaDefault = cuentas.find((c) => c.nombre === "Caja Registradora")?.id ?? cuentas[0]?.id ?? "";
   const sgIngresosDefault = cuentas.find((c) => c.nombre === "SGINGRESOS")?.id ?? "";
 
-  const [cuentaOrigenId, setCuentaOrigenId] = useState(cajaDefault);
+  const [cuentaOrigenId, setCuentaOrigenId] = useState(valoresIniciales?.cuentaOrigenId ?? cajaDefault);
   const [cuentaDestinoId, setCuentaDestinoId] = useState(sgIngresosDefault);
-  const [monto, setMonto] = useState("");
+  const [monto, setMonto] = useState(valoresIniciales?.monto ?? "");
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [observacion, setObservacion] = useState("");
   const [error, setError] = useState("");

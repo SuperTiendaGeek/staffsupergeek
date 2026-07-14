@@ -26,6 +26,7 @@ export type CategoriaMovimiento =
   | "Acreditación Pasarela"
   | "Pago SRI"
   | "Devolución"
+  | "Ajuste de Caja"
   | "Otro";
 
 export type TipoCuenta = "Temporal" | "Principal" | "Final" | "Tránsito";
@@ -66,6 +67,8 @@ export type CuentaFinanciera = {
   fechaCorte: string | null;
   movimientosOrigenIds: string[];
   movimientosDestinoIds: string[];
+  // Fase 20.4 — inverso del link "Cuenta" en Finanzas Cuadres.
+  cuadresIds: string[];
 };
 
 export type Movimiento = {
@@ -102,6 +105,9 @@ export type Movimiento = {
   // Inverso de reversaAId — Fase 20.3: los movimientos que compensan a este
   // (Interno-hijo/Ajuste-hijo de una acreditación, ver §3.3 del diseño).
   compensadoPorIds: string[];
+  // Fase 20.4 — inverso de "Movimiento de Ajuste" en Finanzas Cuadres, si
+  // este movimiento se originó como el ajuste de un cuadre de caja.
+  cuadreDeCajaId: string | null;
 };
 
 export type CrearMovimientoInput = {
@@ -157,4 +163,35 @@ export type ListarMovimientosFiltros = {
   desde?: string;
   hasta?: string;
   maxRecords?: number;
+};
+
+// Fase 20.4 — Cuadre de caja (arqueo). Ver docs/DISENO_FASE20_4_CUADRE_REPORTE.md.
+
+export type EstadoCuadre = "Cuadrado" | "Sobrante" | "Faltante";
+
+export type EstadoAjusteCuadre = "Sin diferencia" | "Pendiente de revisión" | "Ajustado";
+
+export type Cuadre = {
+  id: string;
+  cuadreId: string;
+  cuentaId: string | null;
+  saldoEsperado: number;
+  montoContado: number;
+  diferencia: number;
+  estado: EstadoCuadre | string;
+  estadoAjuste: EstadoAjusteCuadre | string;
+  movimientoAjusteId: string | null;
+  observacion?: string;
+  realizadoPor?: string;
+  fecha: string;
+  fechaCreacion?: string;
+};
+
+export type CrearCuadreInput = {
+  cuentaId: string;
+  montoContado: number;
+  // ISO 8601. Default: ahora.
+  fecha?: string;
+  observacion?: string;
+  realizadoPor: string;
 };

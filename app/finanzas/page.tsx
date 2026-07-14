@@ -1,12 +1,14 @@
+import Link from "next/link";
 import { isAdministratorRole } from "@/lib/apps";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffDataTable, StaffPageHeader, StaffStatCard } from "@/components/staff/StaffDesignSystem";
 import { FinanzasAcciones } from "@/components/finanzas/FinanzasAcciones";
+import { fetchUltimoCuadre } from "@/lib/finanzas/cuadres";
 import { fetchCuentasFinancieras } from "@/lib/finanzas/cuentas";
 import { listarMovimientos } from "@/lib/finanzas/movimientos";
 import { calcularAnticiposSinFacturar, calcularPorAcreditarCuenta, calcularSaldoCuenta } from "@/lib/finanzas/saldos";
 import { getSessionFromCookie } from "@/lib/session";
-import type { CuentaFinanciera, Movimiento } from "@/types/finanzas";
+import type { Cuadre, CuentaFinanciera, Movimiento } from "@/types/finanzas";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,19 @@ function formatFecha(iso: string) {
   return fecha.toLocaleDateString("es-EC", { year: "numeric", month: "short", day: "2-digit" });
 }
 
+function formatFechaHora(iso: string) {
+  if (!iso) return "—";
+  const fecha = new Date(iso);
+  if (Number.isNaN(fecha.getTime())) return iso;
+  return fecha.toLocaleString("es-EC", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+const CUADRE_TONE: Record<string, string> = {
+  Cuadrado: "text-[#D7FF4F]",
+  Sobrante: "text-orange-300",
+  Faltante: "text-orange-300",
+};
+
 const ESTADO_TONE: Record<string, "lime" | "yellow" | "orange" | "neutral"> = {
   Confirmado: "lime",
   Acreditado: "lime",
@@ -37,6 +52,7 @@ export default async function FinanzasPage() {
   let movimientos: Movimiento[] = [];
   let anticiposSinFacturar = 0;
   let preGoLive = false;
+  let ultimoCuadre: Cuadre | null = null;
   let error = "";
 
   const session = await getSessionFromCookie();
@@ -44,18 +60,21 @@ export default async function FinanzasPage() {
 
   try {
     const cuentasBase = await fetchCuentasFinancieras();
-    const [saldos, porAcreditar, movs, anticipos] = await Promise.all([
+    const cajaId = cuentasBase.find((c) => c.nombre === "Caja Registradora")?.id ?? null;
+    const [saldos, porAcreditar, movs, anticipos, cuadre] = await Promise.all([
       Promise.all(cuentasBase.map((cuenta) => calcularSaldoCuenta(cuenta.id))),
       // Fase 20.2 §4.3 (Corrección 2) — solo tiene sentido para cuentas de
       // tránsito; el resto queda en `null` y no muestra la línea extra.
       Promise.all(cuentasBase.map((cuenta) => (cuenta.tipo === "Tránsito" ? calcularPorAcreditarCuenta(cuenta.id) : Promise.resolve(null)))),
       listarMovimientos({ maxRecords: 100 }),
       calcularAnticiposSinFacturar(),
+      cajaId ? fetchUltimoCuadre(cajaId) : Promise.resolve(null),
     ]);
     cuentas = cuentasBase.map((cuenta, index) => ({ ...cuenta, saldo: saldos[index], porAcreditar: porAcreditar[index] }));
     movimientos = movs;
     anticiposSinFacturar = anticipos;
     preGoLive = cuentasBase.some((c) => c.activa && !c.fechaCorte);
+    ultimoCuadre = cuadre;
   } catch (loadError) {
     console.error("Error al cargar Finanzas:", loadError);
     error =
@@ -71,6 +90,11 @@ export default async function FinanzasPage() {
           title="Movimientos financieros"
           description="Fundación del sistema contable SG. Saldos calculados en código, nunca deducidos."
           density="compact"
+          actions={
+            <Link href="/finanzas/reporte" className="text-sm font-medium text-[#D7FF4F] transition hover:underline">
+              Ver reporte diario →
+            </Link>
+          }
         />
 
         {!error ? (
@@ -108,6 +132,15 @@ export default async function FinanzasPage() {
               />
               {cuenta.porAcreditar !== null && cuenta.porAcreditar > 0 ? (
                 <p className="mt-0.5 px-1 text-[12px] text-yellow-200/80">{formatMonto(cuenta.porAcreditar)} por acreditar</p>
+              ) : null}
+              {cuenta.nombre === "Caja Registradora" && ultimoCuadre ? (
+                <p className="mt-0.5 px-1 text-[12px] text-[#A7A7A7]">
+                  Último cuadre: {formatFechaHora(ultimoCuadre.fecha)} —{" "}
+                  <span className={CUADRE_TONE[ultimoCuadre.estado] ?? "text-[#A7A7A7]"}>{ultimoCuadre.estado}</span>{" "}
+                  <Link href="/finanzas/reporte" className="underline hover:text-[#F5F5F5]">
+                    Ver historial
+                  </Link>
+                </p>
               ) : null}
             </div>
           ))}
