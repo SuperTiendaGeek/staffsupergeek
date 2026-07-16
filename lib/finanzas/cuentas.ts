@@ -28,6 +28,14 @@ export const CUENTAS_FIELDS = {
   movimientosDestino: "Movimientos (Destino)",
   // Fase 20.4 — inverso automático del link "Cuenta" en Finanzas Cuadres.
   cuadres: "Cuadres",
+  // Fase 20.5 — solo tienen dato en cuentas Tipo de Cuenta = "Tarjeta de
+  // Crédito". No confundir "TC Día de Corte" (día del mes, recurrente, del
+  // corte del estado de cuenta bancario) con "Fecha de Corte" (arriba —
+  // fecha única de go-live contable de la cuenta): son campos distintos,
+  // sin relación entre sí. Ver docs/DISENO_FASE20_5_TARJETAS.md §2.1.
+  tcDiaCorte: "TC Día de Corte",
+  tcDiaPago: "TC Día de Pago",
+  tcCupo: "TC Cupo",
 } as const;
 
 export const NOMBRES_CUENTAS_INICIALES = [
@@ -54,6 +62,9 @@ function mapCuenta(record: AirtableRecord): CuentaFinanciera {
     movimientosOrigenIds: linkedIds(f[CUENTAS_FIELDS.movimientosOrigen]),
     movimientosDestinoIds: linkedIds(f[CUENTAS_FIELDS.movimientosDestino]),
     cuadresIds: linkedIds(f[CUENTAS_FIELDS.cuadres]),
+    tcDiaCorte: firstNumber(f[CUENTAS_FIELDS.tcDiaCorte]),
+    tcDiaPago: firstNumber(f[CUENTAS_FIELDS.tcDiaPago]),
+    tcCupo: firstNumber(f[CUENTAS_FIELDS.tcCupo]),
   };
 }
 
@@ -90,4 +101,23 @@ export async function fetchCuentaPorNombre(nombre: string): Promise<CuentaFinanc
   const data = await airtableRequest<AirtableListResponse>(url.toString());
   const record = data.records?.[0];
   return record ? mapCuenta(record) : null;
+}
+
+function normalizarNombreCuenta(texto: string): string {
+  return texto.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Fase 20.5 §4.3 (Corrección 1) — resolución tolerante a espacios/mayúsculas,
+ * para textos que vienen de selects legacy fuera de este módulo (el select
+ * de "Cuenta origen" de Shipping Pagos) y no se pueden garantizar
+ * carácter-por-carácter iguales al Nombre real de la Cuenta Financiera.
+ * Solo considera cuentas activas — una tarjeta desactivada nunca resuelve,
+ * mismo criterio que "no encontrada".
+ */
+export async function fetchCuentaPorNombreNormalizado(texto: string): Promise<CuentaFinanciera | null> {
+  const objetivo = normalizarNombreCuenta(texto);
+  if (!objetivo) return null;
+  const cuentas = await fetchCuentasFinancieras();
+  return cuentas.find((c) => c.activa && normalizarNombreCuenta(c.nombre) === objetivo) ?? null;
 }

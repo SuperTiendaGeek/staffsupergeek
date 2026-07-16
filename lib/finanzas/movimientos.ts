@@ -71,7 +71,7 @@ export async function crearMovimiento(input: CrearMovimientoInput, options: Crea
   let alertaDescuadre = false;
   if (cuentaOrigen && (input.tipo === "Movimiento Interno" || input.tipo === "Egreso" || input.tipo === "Ajuste")) {
     const saldoActual = await calcularSaldoCuenta(cuentaOrigen.id);
-    alertaDescuadre = evaluarSaldoParaEgresoOMovimientoInterno(input.tipo, saldoActual, input.monto).alertaDescuadre;
+    alertaDescuadre = evaluarSaldoParaEgresoOMovimientoInterno(input.tipo, saldoActual, input.monto, cuentaOrigen).alertaDescuadre;
   }
 
   const F = MOVIMIENTOS_FIELDS;

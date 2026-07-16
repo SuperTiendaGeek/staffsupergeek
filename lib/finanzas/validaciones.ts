@@ -95,12 +95,27 @@ export function validarCuentaActiva(cuenta: CuentaFinanciera): void {
  * - Egreso/Ajuste con origen: nunca rechaza — devuelve si debe marcarse
  *   Alerta Descuadre, porque un Egreso siempre es un hecho ya ocurrido y el
  *   sistema es un espejo, no un guardián que pueda negarse a reflejarlo.
+ *
+ * Fase 20.5 §4.2 — una cuenta Tipo de Cuenta = "Tarjeta de Crédito" vive con
+ * saldo negativo por diseño (es deuda, no dinero disponible): la deuda
+ * normal de un Egreso/Ajuste NUNCA dispara Alerta Descuadre en una tarjeta
+ * (con la lógica genérica de abajo, dispararía siempre — una alerta que
+ * nunca se apaga no es una alerta). Lo único que se marca es superar
+ * `TC Cupo`, si el dueño lo definió — mismo criterio "nunca bloquea,
+ * alerta" que el resto de Egresos, solo que el umbral es el cupo, no $0.
  */
 export function evaluarSaldoParaEgresoOMovimientoInterno(
   tipo: TipoMovimiento,
   saldoActualCuentaOrigen: number,
-  monto: number
+  monto: number,
+  cuentaOrigen?: Pick<CuentaFinanciera, "tipo" | "tcCupo">
 ): { alertaDescuadre: boolean } {
+  if ((tipo === "Egreso" || tipo === "Ajuste") && cuentaOrigen?.tipo === "Tarjeta de Crédito") {
+    if (cuentaOrigen.tcCupo == null) return { alertaDescuadre: false };
+    const deudaTrasElMovimiento = round2(-saldoActualCuentaOrigen + monto);
+    return { alertaDescuadre: deudaTrasElMovimiento > cuentaOrigen.tcCupo };
+  }
+
   const saldoInsuficiente = round2(saldoActualCuentaOrigen - monto) < 0;
   if (tipo === "Movimiento Interno") {
     if (saldoInsuficiente) {

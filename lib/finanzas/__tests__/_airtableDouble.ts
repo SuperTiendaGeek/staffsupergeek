@@ -76,6 +76,10 @@ export function crearCuentaDouble(
     activa: boolean;
     saldoInicial: number;
     fechaCorte: string | null;
+    // Fase 20.5 — solo tienen sentido en cuentas Tipo de Cuenta = "Tarjeta de Crédito".
+    tcDiaCorte: number | null;
+    tcDiaPago: number | null;
+    tcCupo: number | null;
   }>
 ): string {
   const id = generarId(state);
@@ -92,6 +96,9 @@ export function crearCuentaDouble(
       [CUENTAS_FIELDS.fechaCorte]: overrides.fechaCorte ?? null,
       [CUENTAS_FIELDS.movimientosOrigen]: [],
       [CUENTAS_FIELDS.movimientosDestino]: [],
+      [CUENTAS_FIELDS.tcDiaCorte]: overrides.tcDiaCorte ?? null,
+      [CUENTAS_FIELDS.tcDiaPago]: overrides.tcDiaPago ?? null,
+      [CUENTAS_FIELDS.tcCupo]: overrides.tcCupo ?? null,
     },
   });
   return id;
