@@ -7,8 +7,9 @@ import { fetchUltimoCuadre } from "@/lib/finanzas/cuadres";
 import { fetchCuentasFinancieras } from "@/lib/finanzas/cuentas";
 import { listarMovimientos } from "@/lib/finanzas/movimientos";
 import { calcularAnticiposSinFacturar, calcularPorAcreditarCuenta, calcularSaldoCuenta } from "@/lib/finanzas/saldos";
+import { DIAS_ALERTA_PAGO_TARJETA, estaEnVentanaDeAlerta, listarEstadosTarjetas, presentarPendienteDelCorte } from "@/lib/finanzas/tarjetas";
 import { getSessionFromCookie } from "@/lib/session";
-import type { Cuadre, CuentaFinanciera, Movimiento } from "@/types/finanzas";
+import type { Cuadre, CuentaFinanciera, Movimiento, ResultadoEstadoTarjeta } from "@/types/finanzas";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,13 @@ function formatFecha(iso: string) {
   const fecha = new Date(iso);
   if (Number.isNaN(fecha.getTime())) return iso;
   return fecha.toLocaleDateString("es-EC", { year: "numeric", month: "short", day: "2-digit" });
+}
+
+function formatFechaCorta(iso: string) {
+  if (!iso) return "—";
+  const fecha = new Date(iso);
+  if (Number.isNaN(fecha.getTime())) return iso;
+  return fecha.toLocaleDateString("es-EC", { day: "2-digit", month: "short", timeZone: "UTC" });
 }
 
 function formatFechaHora(iso: string) {
@@ -53,6 +61,12 @@ export default async function FinanzasPage() {
   let anticiposSinFacturar = 0;
   let preGoLive = false;
   let ultimoCuadre: Cuadre | null = null;
+  let estadosTarjetas: ResultadoEstadoTarjeta[] = [];
+  // Incluye tarjetas de crédito (a diferencia de `cuentas`, filtrada para la
+  // grilla de dinero) — es lo que necesitan los selectores de cuenta de
+  // movimiento manual/transferencia, donde una tarjeta sí es una cuenta
+  // origen/destino válida.
+  let todasLasCuentasActivas: CuentaFinanciera[] = [];
   let error = "";
 
   const session = await getSessionFromCookie();
@@ -61,7 +75,7 @@ export default async function FinanzasPage() {
   try {
     const cuentasBase = await fetchCuentasFinancieras();
     const cajaId = cuentasBase.find((c) => c.nombre === "Caja Registradora")?.id ?? null;
-    const [saldos, porAcreditar, movs, anticipos, cuadre] = await Promise.all([
+    const [saldos, porAcreditar, movs, anticipos, cuadre, tarjetas] = await Promise.all([
       Promise.all(cuentasBase.map((cuenta) => calcularSaldoCuenta(cuenta.id))),
       // Fase 20.2 §4.3 (Corrección 2) — solo tiene sentido para cuentas de
       // tránsito; el resto queda en `null` y no muestra la línea extra.
@@ -69,12 +83,25 @@ export default async function FinanzasPage() {
       listarMovimientos({ maxRecords: 100 }),
       calcularAnticiposSinFacturar(),
       cajaId ? fetchUltimoCuadre(cajaId) : Promise.resolve(null),
+      // Fase 20.5 — captura PreGoLiveError por tarjeta individual, no rompe la sección.
+      listarEstadosTarjetas(),
     ]);
-    cuentas = cuentasBase.map((cuenta, index) => ({ ...cuenta, saldo: saldos[index], porAcreditar: porAcreditar[index] }));
+    // Las tarjetas de crédito no se muestran en la grilla de cuentas de
+    // dinero (su saldo vive en negativo por diseño) — tienen su propia
+    // sección abajo, presentado siempre como deuda positiva. Se resuelve
+    // saldo/porAcreditar por id (no por índice posicional) para que el
+    // filtro de abajo no desalinee los arreglos calculados arriba.
+    const saldoPorCuentaId = new Map(cuentasBase.map((cuenta, index) => [cuenta.id, saldos[index]]));
+    const porAcreditarPorCuentaId = new Map(cuentasBase.map((cuenta, index) => [cuenta.id, porAcreditar[index]]));
+    cuentas = cuentasBase
+      .filter((cuenta) => cuenta.tipo !== "Tarjeta de Crédito")
+      .map((cuenta) => ({ ...cuenta, saldo: saldoPorCuentaId.get(cuenta.id) ?? 0, porAcreditar: porAcreditarPorCuentaId.get(cuenta.id) ?? null }));
     movimientos = movs;
     anticiposSinFacturar = anticipos;
-    preGoLive = cuentasBase.some((c) => c.activa && !c.fechaCorte);
+    preGoLive = cuentasBase.some((c) => c.activa && c.tipo !== "Tarjeta de Crédito" && !c.fechaCorte);
     ultimoCuadre = cuadre;
+    estadosTarjetas = tarjetas;
+    todasLasCuentasActivas = cuentasBase.filter((c) => c.activa);
   } catch (loadError) {
     console.error("Error al cargar Finanzas:", loadError);
     error =
@@ -82,6 +109,8 @@ export default async function FinanzasPage() {
         ? loadError.message
         : "No se pudo cargar Finanzas. Si el checklist de Airtable de la Fase 20.1 todavía no se ejecutó, esto es esperado.";
   }
+
+  const tarjetasEnAlerta = estadosTarjetas.filter((t) => estaEnVentanaDeAlerta(t));
 
   return (
     <StaffAppShell activeHref="/finanzas" sectionLabel="Finanzas">
@@ -99,7 +128,7 @@ export default async function FinanzasPage() {
 
         {!error ? (
           <FinanzasAcciones
-            cuentas={cuentas.filter((c) => c.activa).map((c) => ({ id: c.id, nombre: c.nombre, permiteTransferirAIds: c.permiteTransferirAIds }))}
+            cuentas={todasLasCuentasActivas.map((c) => ({ id: c.id, nombre: c.nombre, permiteTransferirAIds: c.permiteTransferirAIds }))}
             preGoLive={preGoLive}
             esAdmin={esAdmin}
           />
@@ -121,6 +150,7 @@ export default async function FinanzasPage() {
           </section>
         ) : null}
 
+        <p className="px-1 text-[12px] uppercase tracking-normal text-[#8F908A]">Cuentas y tránsito de pasarelas (dinero por recibir)</p>
         <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
           {cuentas.map((cuenta) => (
             <div key={cuenta.id}>
@@ -146,6 +176,63 @@ export default async function FinanzasPage() {
           ))}
           <StaffStatCard label="Anticipos sin facturar" value={formatMonto(anticiposSinFacturar)} tone="yellow" density="compact" featured />
         </section>
+
+        {!error && tarjetasEnAlerta.length > 0 ? (
+          <section className="rounded-xl border border-orange-300/25 bg-orange-300/10 px-3 py-2.5 text-orange-100">
+            <p className="text-sm font-semibold uppercase tracking-normal">Pagos de tarjeta en los próximos {DIAS_ALERTA_PAGO_TARJETA} días</p>
+            <ul className="mt-1 space-y-0.5 text-sm leading-5 text-orange-100/90">
+              {tarjetasEnAlerta.map((t) =>
+                t.disponible ? (
+                  <li key={t.cuentaId}>
+                    Pagar {t.nombre}: {formatMonto(presentarPendienteDelCorte(t.estado.saldoUltimoCorte).pendiente)}
+                    {t.estado.proximaFechaDePago ? ` antes del ${formatFechaCorta(t.estado.proximaFechaDePago)}` : ""}.
+                  </li>
+                ) : null
+              )}
+            </ul>
+          </section>
+        ) : null}
+
+        {!error && estadosTarjetas.length > 0 ? (
+          <section className="space-y-1.5">
+            <p className="px-1 text-[12px] uppercase tracking-normal text-[#8F908A]">Tarjetas de crédito</p>
+            <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+              {estadosTarjetas.map((t) => {
+                if (!t.disponible) {
+                  return <StaffStatCard key={t.cuentaId} label={t.nombre} value="Pendiente de activar" tone="neutral" density="compact" />;
+                }
+                const { pendiente, saldoAFavor } = presentarPendienteDelCorte(t.estado.saldoUltimoCorte);
+                const deudaPositiva = t.estado.deudaActual >= 0;
+                return (
+                  <div key={t.cuentaId}>
+                    <StaffStatCard
+                      label={t.nombre}
+                      value={deudaPositiva ? `Deuda: ${formatMonto(t.estado.deudaActual)}` : `Saldo a favor: ${formatMonto(-t.estado.deudaActual)}`}
+                      tone={deudaPositiva && t.estado.deudaActual > 0 ? "orange" : "lime"}
+                      density="compact"
+                    />
+                    {t.estado.cupoExcedido ? (
+                      <p className="mt-0.5 px-1 text-[12px] text-orange-300" title="Cupo excedido">
+                        ⚠ Cupo excedido
+                      </p>
+                    ) : null}
+                    <p className="mt-0.5 px-1 text-[12px] text-[#A7A7A7]">
+                      {t.estado.fechaUltimoCorte ? (
+                        <>
+                          Saldo del último corte: {formatMonto(pendiente)}
+                          {saldoAFavor > 0 ? ` (saldo a favor: ${formatMonto(saldoAFavor)})` : ""}
+                          {t.estado.proximaFechaDePago ? ` · próximo pago ${formatFechaCorta(t.estado.proximaFechaDePago)}` : ""}
+                        </>
+                      ) : (
+                        "Sin TC Día de Corte configurado"
+                      )}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
 
         <StaffDataTable title="Movimientos recientes" meta={`${movimientos.length} de los últimos registrados`} density="compact">
           <div className="overflow-x-auto">

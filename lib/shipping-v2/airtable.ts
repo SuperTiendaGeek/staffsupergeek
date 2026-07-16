@@ -41,7 +41,7 @@ import { canBeUsaTransportProvider, isCompatibleEcuadorTransportProvider } from 
 import { generateUniqueSkuFromExistingSkus, normalizeSku } from "@/lib/sku/sku-service";
 import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
 import { calculateShippingV2BatteryState, shippingV2CategoryDoesNotUseScreenOrBattery, shippingV2CategoryHasBattery } from "@/lib/shipping-v2/technical-sheet";
-import { fetchCuentaPorNombre } from "@/lib/finanzas/cuentas";
+import { fetchCuentaPorNombre, fetchCuentaPorNombreNormalizado } from "@/lib/finanzas/cuentas";
 import { crearMovimiento } from "@/lib/finanzas/movimientos";
 
 type AirtableRecord = {
@@ -459,7 +459,16 @@ function normalizeAndValidatePaymentSupportInput(input: ShippingV2PagoMarkPaidIn
     throw new Error("Método de pago no válido. Selecciona una opción existente.");
   }
   if (!cuentaOrigen || cuenta === "no aplica") throw new Error("Selecciona una cuenta origen válida.");
-  if (!isAllowedInBothSelects(cuentaOrigen, SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen, SHIPPING_V2_FINANCE_SELECT_OPTIONS.cuentaOrigen)) {
+  // Fase 20.5 §4.3 — deja de exigir presencia en SHIPPING_V2_FINANCE_SELECT_OPTIONS.cuentaOrigen,
+  // el select legacy y congelado desde 20.1 de "Movimientos Financieros" (nunca tuvo los nombres
+  // de tarjeta). Se valida contra su propio select, que el dueño ya cura correctamente. Se compara
+  // recortando cada opción (una de las opciones reales en Airtable, "Tarjeta D. Supe Geek ", trae un
+  // espacio final) contra `cuentaOrigen`, que ya llegó recortado por normalizeSingleSelectValue — pero
+  // se conserva el texto EXACTO de la opción (con su espacio, si lo tiene) para lo que se escribe de
+  // vuelta a Airtable: un singleSelect rechaza cualquier valor que no coincida carácter por carácter
+  // con una opción ya configurada (sin typecast en este PATCH).
+  const cuentaOrigenCanonica = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.find((opcion) => opcion.trim() === cuentaOrigen);
+  if (!cuentaOrigenCanonica) {
     throw new Error("Cuenta origen no válida. Selecciona una opción existente.");
   }
   if (!cleanString(input.transaccionId) && !cleanString(input.comprobanteUrl)) throw new Error("Ingresa comprobante o transacción ID para completar soporte.");
@@ -467,7 +476,7 @@ function normalizeAndValidatePaymentSupportInput(input: ShippingV2PagoMarkPaidIn
   return {
     ...input,
     metodoPago,
-    cuentaOrigen,
+    cuentaOrigen: cuentaOrigenCanonica,
   };
 }
 
@@ -2656,16 +2665,23 @@ const CUENTA_ORIGEN_LEGACY_A_CUENTA_FINANCIERA: Record<string, string> = {
   "banco pichincha": "SGINGRESOS", // confirmado §1.5 — se revisará en 20.6
 };
 
+/**
+ * Fase 20.5 §4.3 (Corrección 1) — los 3 nombres mapeados arriba se resuelven
+ * por igualdad exacta (ya probado desde 20.1, sin riesgo de typo porque el
+ * texto lo escribimos nosotros en el diccionario). Cualquier otro texto
+ * (las tarjetas de crédito, cuyo nombre en Cuentas Financieras lo escribe el
+ * dueño a mano en Airtable, potencialmente con un espacio de más o distinta
+ * capitalización respecto al select legacy de Shipping Pagos) se resuelve
+ * por comparación normalizada vía fetchCuentaPorNombreNormalizado — nunca
+ * bloquea un pago a proveedor ya hecho: sin coincidencia, se loguea una
+ * advertencia y el movimiento se crea sin Cuenta Origen (permitirCuentaFaltante).
+ */
 async function resolveCuentaFinancieraLegacy(cuentaOrigenTexto: string): Promise<string | null> {
   const clave = normalizeStatus(cuentaOrigenTexto);
-  const nombreCuenta = CUENTA_ORIGEN_LEGACY_A_CUENTA_FINANCIERA[clave];
-  if (!nombreCuenta) {
-    console.warn(`[Finanzas] Cuenta origen legacy "${cuentaOrigenTexto}" sin mapeo a Cuentas Financieras — el movimiento se crea sin Cuenta Origen.`);
-    return null;
-  }
-  const cuenta = await fetchCuentaPorNombre(nombreCuenta);
+  const nombreMapeado = CUENTA_ORIGEN_LEGACY_A_CUENTA_FINANCIERA[clave];
+  const cuenta = nombreMapeado ? await fetchCuentaPorNombre(nombreMapeado) : await fetchCuentaPorNombreNormalizado(cuentaOrigenTexto);
   if (!cuenta) {
-    console.warn(`[Finanzas] Cuenta financiera "${nombreCuenta}" no encontrada en Airtable — el movimiento se crea sin Cuenta Origen.`);
+    console.warn(`[Finanzas] Cuenta origen legacy "${cuentaOrigenTexto}" sin Cuenta Financiera resoluble — el movimiento se crea sin Cuenta Origen.`);
     return null;
   }
   return cuenta.id;

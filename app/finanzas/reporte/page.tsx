@@ -4,6 +4,7 @@ import { StaffDataTable, StaffPageHeader, StaffStatCard } from "@/components/sta
 import { fetchCuentaPorNombre } from "@/lib/finanzas/cuentas";
 import { listarCuadresDeCuenta } from "@/lib/finanzas/cuadres";
 import { calcularReporteDiario } from "@/lib/finanzas/reporte";
+import { DIAS_ALERTA_PAGO_TARJETA, estaEnVentanaDeAlerta, listarEstadosTarjetas, presentarPendienteDelCorte } from "@/lib/finanzas/tarjetas";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,13 @@ function formatFechaHora(iso: string) {
   const fecha = new Date(iso);
   if (Number.isNaN(fecha.getTime())) return iso;
   return fecha.toLocaleString("es-EC", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatFechaCorta(iso: string) {
+  if (!iso) return "—";
+  const fecha = new Date(iso);
+  if (Number.isNaN(fecha.getTime())) return iso;
+  return fecha.toLocaleDateString("es-EC", { day: "2-digit", month: "short", timeZone: "UTC" });
 }
 
 const ORIGEN_LABEL: Record<string, string> = {
@@ -76,6 +84,16 @@ export default async function ReporteDiarioPage({ searchParams }: { searchParams
     error = loadError instanceof Error ? loadError.message : "No se pudo cargar el reporte diario.";
   }
 
+  // Independiente del reporte del día seleccionado — "próximos N días desde
+  // hoy" es siempre relativo a ahora, no a la fecha elegida en el selector.
+  let estadosTarjetas: Awaited<ReturnType<typeof listarEstadosTarjetas>> = [];
+  try {
+    estadosTarjetas = await listarEstadosTarjetas();
+  } catch (loadError) {
+    console.error("Error al cargar el estado de las tarjetas de crédito:", loadError);
+  }
+  const tarjetasEnAlerta = estadosTarjetas.filter((t) => estaEnVentanaDeAlerta(t));
+
   return (
     <StaffAppShell activeHref="/finanzas" sectionLabel="Finanzas">
       <div className="w-full space-y-3">
@@ -104,6 +122,22 @@ export default async function ReporteDiarioPage({ searchParams }: { searchParams
           <section className="rounded-xl border border-orange-300/25 bg-orange-300/10 px-3 py-2.5 text-orange-100">
             <p className="text-sm font-semibold uppercase tracking-normal">Reporte no disponible</p>
             <p className="mt-1 text-sm leading-5 text-orange-100/85">{error}</p>
+          </section>
+        ) : null}
+
+        {tarjetasEnAlerta.length > 0 ? (
+          <section className="rounded-xl border border-orange-300/25 bg-orange-300/10 px-3 py-2.5 text-orange-100">
+            <p className="text-sm font-semibold uppercase tracking-normal">Pagos de tarjeta en los próximos {DIAS_ALERTA_PAGO_TARJETA} días</p>
+            <ul className="mt-1 space-y-0.5 text-sm leading-5 text-orange-100/90">
+              {tarjetasEnAlerta.map((t) =>
+                t.disponible ? (
+                  <li key={t.cuentaId}>
+                    Pagar {t.nombre}: {formatMonto(presentarPendienteDelCorte(t.estado.saldoUltimoCorte).pendiente)}
+                    {t.estado.proximaFechaDePago ? ` antes del ${formatFechaCorta(t.estado.proximaFechaDePago)}` : ""}.
+                  </li>
+                ) : null
+              )}
+            </ul>
           </section>
         ) : null}
 

@@ -27,9 +27,10 @@ export type CategoriaMovimiento =
   | "Pago SRI"
   | "Devolución"
   | "Ajuste de Caja"
+  | "Pago Tarjeta de Crédito"
   | "Otro";
 
-export type TipoCuenta = "Temporal" | "Principal" | "Final" | "Tránsito";
+export type TipoCuenta = "Temporal" | "Principal" | "Final" | "Tránsito" | "Tarjeta de Crédito";
 
 // "Tarjeta" genérica se conserva solo por compatibilidad con selects legacy
 // (§1.2 del diseño) — el código nuevo siempre escribe una opción específica.
@@ -69,6 +70,11 @@ export type CuentaFinanciera = {
   movimientosDestinoIds: string[];
   // Fase 20.4 — inverso del link "Cuenta" en Finanzas Cuadres.
   cuadresIds: string[];
+  // Fase 20.5 — solo tienen sentido en cuentas Tipo de Cuenta = "Tarjeta de
+  // Crédito"; null en cualquier otra cuenta o si no se configuraron todavía.
+  tcDiaCorte: number | null;
+  tcDiaPago: number | null;
+  tcCupo: number | null;
 };
 
 export type Movimiento = {
@@ -195,3 +201,27 @@ export type CrearCuadreInput = {
   observacion?: string;
   realizadoPor: string;
 };
+
+// Fase 20.5 — Tarjetas de crédito. Ver docs/DISENO_FASE20_5_TARJETAS.md.
+
+export type EstadoTarjeta = {
+  cuentaId: string;
+  // Negativo si hay saldo a favor (caso borde, sobrepago) — la UI nunca
+  // presenta este número crudo, ver presentarPendienteDelCorte en
+  // lib/finanzas/tarjetas.ts.
+  deudaActual: number;
+  // ISO 8601 (UTC). Null si TC Día de Corte no está configurado.
+  fechaUltimoCorte: string | null;
+  consumosPeriodoEnCurso: number;
+  // Puede dar negativo (sobrepago post-corte) — ver nota de deudaActual.
+  saldoUltimoCorte: number;
+  // ISO 8601 (UTC). Null si TC Día de Pago no está configurado.
+  proximaFechaDePago: string | null;
+  diasHastaPago: number | null;
+  cupo: number | null;
+  cupoExcedido: boolean;
+};
+
+export type ResultadoEstadoTarjeta =
+  | { cuentaId: string; nombre: string; disponible: true; estado: EstadoTarjeta }
+  | { cuentaId: string; nombre: string; disponible: false };

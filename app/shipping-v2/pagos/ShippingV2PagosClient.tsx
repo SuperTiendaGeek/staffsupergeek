@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import type { ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagoSupportCard, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 
 type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string };
@@ -11,8 +11,11 @@ type TabKey = "pendientes" | "sin-soporte" | "registrados";
 const ALL = "Todos";
 const paymentMethods = [ALL, ...SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago];
 const supportPaymentMethods = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((method) => method !== "No aplica");
-const financeAccountOptions = new Set<string>(SHIPPING_V2_FINANCE_SELECT_OPTIONS.cuentaOrigen);
-const paymentAccounts = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((account) => account !== "No aplica" && financeAccountOptions.has(account));
+// Fase 20.5 §4.3 — ya no se intersecta contra SHIPPING_V2_FINANCE_SELECT_OPTIONS.cuentaOrigen
+// (el select legacy y congelado desde 20.1 de "Movimientos Financieros", que nunca tuvo los
+// nombres de tarjeta) — se usa directo el select propio de Shipping Pagos, que el dueño ya
+// cura correctamente (incluye sus tarjetas de crédito reales).
+const paymentAccounts = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((account) => account !== "No aplica");
 const paymentStates = [ALL, ...SHIPPING_V2_PAYMENT_SELECT_OPTIONS.estadoPago];
 const financeStates = [ALL, ...SHIPPING_V2_PAYMENT_SELECT_OPTIONS.estadoIntegracionFinanzas];
 
@@ -29,15 +32,26 @@ function safePaymentMethod(value?: string | null) {
   return SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.includes(normalized as never) && normalized !== "No aplica" ? normalized : "Transferencia bancaria";
 }
 
+// Fase 20.5 §4.3 — se compara recortando cada opción (una de las reales,
+// "Tarjeta D. Supe Geek ", trae un espacio final) contra el valor ya
+// recortado por normalizeSingleSelectValue, para no bloquear una selección
+// válida por esa diferencia. Cuando hay match, se conserva el texto EXACTO
+// de la opción (con su espacio, si lo tiene) — mismo criterio que el
+// servidor, que es quien finalmente escribe el valor a Airtable.
+function cuentaOrigenCanonica(normalized: string): string | undefined {
+  return paymentAccounts.find((opcion) => opcion.trim() === normalized);
+}
+
 function safePaymentAccount(value?: string | null) {
   const normalized = normalizeSingleSelectValue(value);
-  return paymentAccounts.includes(normalized as never) && normalized !== "No aplica" ? normalized : "";
+  if (normalized === "No aplica") return "";
+  return cuentaOrigenCanonica(normalized) ?? "";
 }
 
 function validatePaymentSupportForm(input: { cuentaOrigen: string }) {
   const cuentaOrigen = normalizeSingleSelectValue(input.cuentaOrigen);
   if (!cuentaOrigen || cuentaOrigen === "No aplica") return "Selecciona una cuenta origen válida antes de marcar el pago como pagado.";
-  if (!paymentAccounts.includes(cuentaOrigen as never)) return "Cuenta origen no válida. Selecciona una opción existente.";
+  if (!cuentaOrigenCanonica(cuentaOrigen)) return "Cuenta origen no válida. Selecciona una opción existente.";
   return "";
 }
 

@@ -32,10 +32,17 @@ export async function procesarDeposito(input: DepositoInput): Promise<Movimiento
     throw new PreGoLiveError();
   }
 
+  // Fase 20.5 §5 (Corrección 4) — un pago hacia una tarjeta de crédito usa
+  // su propia categoría en vez de "Depósito de Caja", para que el reporte
+  // no lo confunda con una reubicación de efectivo entre cuentas de dinero.
+  // Sin ningún otro cambio: misma función, misma validación, mismo
+  // crearMovimiento.
+  const categoria = cuentaDestino?.tipo === "Tarjeta de Crédito" ? "Pago Tarjeta de Crédito" : "Depósito de Caja";
+
   return crearMovimiento({
     tipo: "Movimiento Interno",
     origen: "Manual",
-    categoria: "Depósito de Caja",
+    categoria,
     monto: input.monto,
     cuentaOrigenId: input.cuentaOrigenId,
     cuentaDestinoId: input.cuentaDestinoId,
