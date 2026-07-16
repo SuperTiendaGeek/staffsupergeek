@@ -3,18 +3,18 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
-import { Printer, Tag } from "lucide-react";
+import { ArrowDownAZ, ArrowLeft, Check, ChevronLeft, ChevronRight, ChevronsLeft, ListFilter, Printer, Rows3, Tag, X } from "lucide-react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHIPPING_V2_ITEM_EDIT_FIELDS, type ShippingV2ItemEditFieldConfig } from "@/lib/shipping-v2/item-edit-config";
 import { createShippingV2ProveedorLabelMap, getShippingV2ProveedorLabel, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
+import { ShippingV2ItemsPredictiveSearch } from "./ShippingV2ItemsPredictiveSearch";
 import {
   type ShippingV2Attachment,
   type ShippingV2Item,
@@ -28,6 +28,16 @@ type Props = {
   items: ShippingV2Item[];
   proveedores: ShippingV2Proveedor[];
   error: string;
+  initialSortBy: SortKey;
+  pagination: {
+    pageIndex: number;
+    pageSize: number;
+    firstHref: string;
+    previousHref?: string;
+    nextHref?: string;
+    hasPreviousPage: boolean;
+    hasNextPage: boolean;
+  };
 };
 
 type ItemFilterKey = "estado" | "tipoOperacion" | "proveedorCompra" | "tipoItem";
@@ -50,6 +60,7 @@ type GroupKey =
   | "packing"
   | "tipo-operacion"
   | "categoria";
+type ToolbarMenuKey = "filters" | "sort" | "group";
 
 export type ResolvedItem = ShippingV2Item & {
   proveedorCompraDisplay: string;
@@ -182,6 +193,7 @@ function normalizeText(value: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -640,7 +652,7 @@ function FilterGroup({
   return (
     <div className={`min-w-0 space-y-1 ${className}`}>
       <p className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</p>
-      <div className="flex max-h-16 flex-wrap gap-1 overflow-y-auto pr-1">
+      <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto pr-1">
         {options.map((value) => {
           const active = selected === value;
           return (
@@ -659,32 +671,115 @@ function FilterGroup({
   );
 }
 
-function ControlSelect<T extends string>({
+function ToolbarIconButton({
   label,
-  value,
-  options,
-  onChange,
+  open,
+  active,
+  badge,
+  onClick,
+  children,
 }: {
   label: string;
-  value: T;
-  options: Array<{ value: T; label: string }>;
-  onChange: (value: T) => void;
+  open: boolean;
+  active: boolean;
+  badge?: number;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const highlighted = open || active;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={onClick}
+          className={`relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35 ${
+            highlighted
+              ? "border-[#D7FF4F]/55 bg-[#D7FF4F]/10 text-[#D7FF4F] shadow-lg shadow-[#D7FF4F]/10"
+              : "border-[#3A3A36] bg-[#10110F] text-[#A7A7A7] hover:border-[#D7FF4F]/45 hover:bg-[#1D1E1A] hover:text-[#D7FF4F]"
+          }`}
+        >
+          {children}
+          {badge ? (
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#D7FF4F] px-1 text-[10px] font-black leading-none text-[#151515] shadow-md shadow-black/30">
+              {badge}
+            </span>
+          ) : null}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="border border-[#30312D] bg-[#252622] text-[#F5F5F5]">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ToolbarMenuOption<T extends string>({
+  option,
+  active,
+  onSelect,
+}: {
+  option: { value: T; label: string };
+  active: boolean;
+  onSelect: (value: T) => void;
 }) {
   return (
-    <label className="min-w-0">
-      <span className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value as T)}
-        className="mt-1 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#121310] px-3 text-[13px] font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={active}
+      onClick={() => onSelect(option.value)}
+      className={`flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-sm transition ${
+        active
+          ? "border-[#D7FF4F]/45 bg-[#D7FF4F]/10 text-[#F5F5F5]"
+          : "border-transparent bg-transparent text-[#A7A7A7] hover:border-[#3A3A36] hover:bg-[#171814] hover:text-[#F5F5F5]"
+      }`}
+    >
+      <span
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+          active ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] text-transparent"
+        }`}
       >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        <Check className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
+      <span className="min-w-0 truncate font-semibold">{option.label}</span>
+    </button>
+  );
+}
+
+function PaginationLinkButton({
+  href,
+  disabled,
+  ariaLabel,
+  children,
+}: {
+  href?: string;
+  disabled: boolean;
+  ariaLabel: string;
+  children: ReactNode;
+}) {
+  const className = `inline-flex h-8 min-w-8 items-center justify-center gap-1 rounded-lg border px-2 text-[12px] font-semibold transition ${
+    disabled
+      ? "cursor-not-allowed border-[#30312D] bg-[#11120F] text-[#5E5F59]"
+      : "border-[#3A3A36] bg-[#151613] text-[#D8D8D3] hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35"
+  }`;
+
+  if (disabled || !href) {
+    return (
+      <span aria-label={ariaLabel} aria-disabled="true" className={className}>
+        {children}
+      </span>
+    );
+  }
+
+  return (
+    <Link href={href} aria-label={ariaLabel} className={className}>
+      {children}
+    </Link>
   );
 }
 
@@ -1338,20 +1433,22 @@ export function ShippingV2ItemDetailView({
   );
 }
 
-export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
+export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy, pagination }: Props) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [estado, setEstado] = useState(ALL);
   const [tipoOperacion, setTipoOperacion] = useState(ALL);
   const [proveedorCompra, setProveedorCompra] = useState(ALL);
   const [tipoItem, setTipoItem] = useState(ALL);
-  const [sortBy, setSortBy] = useState<SortKey>("newest");
+  const [sortBy, setSortBy] = useState<SortKey>(initialSortBy);
   const [groupBy, setGroupBy] = useState<GroupKey>("none");
   const [notice, setNotice] = useState("");
   const [columnWidths, setColumnWidths] = useState<ShippingV2ItemsColumnWidths>(() => createDefaultColumnWidths());
   const [tableView, setTableView] = useState<ShippingV2ItemsTableViewConfig>(() => createDefaultTableViewConfig());
   const [fieldsPanelOpen, setFieldsPanelOpen] = useState(false);
+  const [toolbarMenuOpen, setToolbarMenuOpen] = useState<ToolbarMenuKey | null>(null);
   const [draggedColumnKey, setDraggedColumnKey] = useState<ShippingV2ItemsColumnKey | null>(null);
+  const toolbarMenuRef = useRef<HTMLDivElement>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -1399,6 +1496,35 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
       resizeCleanupRef.current?.();
     };
   }, []);
+
+  useEffect(() => {
+    setSortBy(initialSortBy);
+  }, [initialSortBy]);
+
+  useEffect(() => {
+    if (!toolbarMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (toolbarMenuRef.current?.contains(target)) return;
+      setToolbarMenuOpen(null);
+    };
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setToolbarMenuOpen(null);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [toolbarMenuOpen]);
 
   const persistColumnWidths = useCallback((widths: ShippingV2ItemsColumnWidths) => {
     window.localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(widths));
@@ -1523,6 +1649,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
 
   const filteredItems = useMemo(() => {
     const query = normalizeText(search);
+    const tokens = query.split(" ").filter(Boolean);
 
     // Si Shipping Items crece a miles de registros, conviene mover esta busqueda a paginacion o filtros server-side.
     return resolvedItems.filter((item) => {
@@ -1533,10 +1660,20 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
         item.modelo,
         item.marca,
         item.numeroSerie,
+        item.proveedorCompraDisplay,
+        item.proveedorLogisticoDisplay,
+        packingLabel(item),
+        item.trackingDirecto,
+        item.trackingHaciaIntermediario,
+        item.trackingDesdeIntermediario,
+        item.trackingUsa,
+        item.trackingEc,
+        item.estado,
+        item.tipoOperacion,
       ].map((value) => normalizeText(value ?? "")).join(" ");
 
       return (
-        (!query || searchText.includes(query)) &&
+        (!query || tokens.every((token) => searchText.includes(token))) &&
         (estado === ALL || item.estado === estado) &&
         (tipoOperacion === ALL || item.tipoOperacion === tipoOperacion) &&
         (proveedorCompra === ALL || item.proveedorCompraDisplay === proveedorCompra) &&
@@ -1564,6 +1701,38 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
     conNovedad: resolvedItems.filter((item) => item.conNovedad === true || normalizeText(item.estado).includes("novedad")).length,
   }), [resolvedItems]);
 
+  const activeFilterCount = [estado, tipoOperacion, proveedorCompra, tipoItem].filter((value) => value !== ALL).length;
+  const activeFilterLabel = activeFilterCount === 1 ? "1 filtro activo" : `${activeFilterCount} filtros activos`;
+  const sortLabel = sortOptions.find((option) => option.value === sortBy)?.label ?? "Más nuevos primero";
+  const groupLabel = groupOptions.find((option) => option.value === groupBy)?.label ?? "Sin agrupar";
+
+  const resetFilters = useCallback(() => {
+    setEstado(ALL);
+    setTipoOperacion(ALL);
+    setProveedorCompra(ALL);
+    setTipoItem(ALL);
+  }, []);
+
+  const buildSortHref = useCallback((nextSortBy: SortKey) => {
+    const params = new URLSearchParams();
+    if (nextSortBy !== "newest") {
+      params.set("sort", nextSortBy);
+    }
+    const query = params.toString();
+    return `/shipping-v2/items${query ? `?${query}` : ""}`;
+  }, []);
+
+  const selectSortBy = useCallback((nextSortBy: SortKey) => {
+    setSortBy(nextSortBy);
+    setToolbarMenuOpen(null);
+    router.push(buildSortHref(nextSortBy));
+  }, [buildSortHref, router]);
+
+  const toggleToolbarMenu = useCallback((menu: ToolbarMenuKey) => {
+    setFieldsPanelOpen(false);
+    setToolbarMenuOpen((current) => (current === menu ? null : menu));
+  }, []);
+
   function openItemFromRow(event: MouseEvent<HTMLElement>, item: ResolvedItem) {
     const target = event.target as HTMLElement;
     if (target.closest("a,button,input,select,textarea")) return;
@@ -1572,63 +1741,140 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
 
   return (
     <div className="w-full space-y-2.5">
-      <section className="flex flex-col gap-2 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 lg:flex-row lg:items-center lg:justify-between 2xl:px-4 2xl:py-3">
-        <div className="min-w-0">
-          <div className="mb-1 flex flex-wrap items-center gap-1.5">
-            <Badge className="h-6 rounded-full border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2.5 text-[12px] font-bold uppercase text-[#D7FF4F] hover:bg-[#D7FF4F]/10">
-              Read-only
-            </Badge>
-            <Badge className="h-6 rounded-full border-[#8B73FF]/35 bg-[#8B73FF]/10 px-2.5 text-[12px] font-bold uppercase text-[#B7A8FF] hover:bg-[#8B73FF]/10">
-              Shipping Items
-            </Badge>
-          </div>
-          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h1 className="text-xl font-semibold leading-tight text-[#F5F5F5] 2xl:text-2xl">Items</h1>
-            <p className="text-sm text-[#A7A7A7]">Inventario principal de Shipping V2</p>
-          </div>
+      <section className="grid gap-3 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 sm:grid-cols-[auto_minmax(0,740px)_auto] sm:items-center 2xl:px-4 2xl:py-3">
+        <div className="flex justify-start">
+          <Link
+            href="/shipping-v2"
+            aria-label="Volver al dashboard de Shipping V2"
+            title="Volver al dashboard"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[#A7A7A7] transition hover:bg-[#20211D] hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35"
+          >
+            <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+          </Link>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-          <Button asChild variant="outline" size="sm" className="h-9 rounded-lg border-[#3A3A36] bg-[#1E1F1C] px-4 text-sm text-[#F5F5F5] hover:border-[#D7FF4F]/60 hover:bg-[#252622] hover:text-[#D7FF4F]">
-            <Link href="/shipping-v2">Dashboard</Link>
+        <div className="w-full">
+          <ShippingV2ItemsPredictiveSearch search={search} setSearch={setSearch} fallbackItems={resolvedItems} />
+        </div>
+        <div ref={toolbarMenuRef} className="relative flex shrink-0 items-center gap-1.5 justify-self-start">
+          <TooltipProvider delayDuration={180}>
+            <ToolbarIconButton
+              label="Filtrar"
+              open={toolbarMenuOpen === "filters"}
+              active={activeFilterCount > 0}
+              badge={activeFilterCount || undefined}
+              onClick={() => toggleToolbarMenu("filters")}
+            >
+              <ListFilter className="h-[18px] w-[18px]" aria-hidden="true" />
+            </ToolbarIconButton>
+            <ToolbarIconButton
+              label={`Ordenar: ${sortLabel}`}
+              open={toolbarMenuOpen === "sort"}
+              active={sortBy !== "newest"}
+              onClick={() => toggleToolbarMenu("sort")}
+            >
+              <ArrowDownAZ className="h-[18px] w-[18px]" aria-hidden="true" />
+            </ToolbarIconButton>
+            <ToolbarIconButton
+              label={`Agrupar: ${groupLabel}`}
+              open={toolbarMenuOpen === "group"}
+              active={groupBy !== "none"}
+              onClick={() => toggleToolbarMenu("group")}
+            >
+              <Rows3 className="h-[18px] w-[18px]" aria-hidden="true" />
+            </ToolbarIconButton>
+          </TooltipProvider>
+
+          <Button asChild size="sm" className="h-10 w-10 rounded-lg bg-[#D7FF4F] p-0 text-lg font-black text-[#151515] hover:bg-[#D7FF4F]/90">
+            <Link href="/shipping-v2/items/nuevo" aria-label="Nuevo Item">+</Link>
           </Button>
-          <Button asChild size="sm" className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
-            <Link href="/shipping-v2/items/nuevo">Nuevo Item</Link>
-          </Button>
+
+          {toolbarMenuOpen ? (
+            <div
+              role="menu"
+              className={`absolute right-0 top-full z-50 mt-2 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-[#30312D] bg-[#11120F] shadow-2xl shadow-black/45 animate-in fade-in-0 zoom-in-95 duration-150 ${
+                toolbarMenuOpen === "filters" ? "w-[min(92vw,680px)]" : "w-[min(92vw,320px)]"
+              }`}
+            >
+              {toolbarMenuOpen === "filters" ? (
+                <>
+                  <div className="flex items-center justify-between gap-3 border-b border-[#30312D] px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-[#F5F5F5]">Filtros</p>
+                      <p className="mt-0.5 text-[12px] text-[#8F908A]">{activeFilterCount ? activeFilterLabel : "Sin filtros activos"}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={resetFilters}
+                      disabled={!activeFilterCount}
+                      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[#3A3A36] bg-[#151613] px-2.5 text-[12px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-[#3A3A36] disabled:hover:text-[#A7A7A7]"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      Limpiar
+                    </button>
+                  </div>
+                  <div className="grid gap-2 p-2 sm:grid-cols-2">
+                    <FilterGroup className="rounded-lg border border-[#30312D] bg-[#171814] p-2" label="Estado Item" values={filterOptions.estados} selected={estado} onChange={setEstado} />
+                    <FilterGroup className="rounded-lg border border-[#30312D] bg-[#171814] p-2" label="Tipo de operación" values={filterOptions.operaciones} selected={tipoOperacion} onChange={setTipoOperacion} />
+                    <FilterGroup className="rounded-lg border border-[#30312D] bg-[#171814] p-2" label="Proveedor compra" values={filterOptions.proveedores} selected={proveedorCompra} onChange={setProveedorCompra} />
+                    <FilterGroup className="rounded-lg border border-[#30312D] bg-[#171814] p-2" label="Rol general del item" values={filterOptions.tipos} selected={tipoItem} onChange={setTipoItem} />
+                  </div>
+                </>
+              ) : null}
+
+              {toolbarMenuOpen === "sort" ? (
+                <>
+                  <div className="border-b border-[#30312D] px-3 py-2">
+                    <p className="text-sm font-semibold text-[#F5F5F5]">Ordenar por</p>
+                    <p className="mt-0.5 truncate text-[12px] text-[#8F908A]">{sortLabel}</p>
+                  </div>
+                  <div className="grid max-h-[420px] gap-1 overflow-y-auto p-2">
+                    {sortOptions.map((option) => (
+                      <ToolbarMenuOption
+                        key={option.value}
+                        option={option}
+                        active={sortBy === option.value}
+                        onSelect={(value) => {
+                          selectSortBy(value);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : null}
+
+              {toolbarMenuOpen === "group" ? (
+                <>
+                  <div className="border-b border-[#30312D] px-3 py-2">
+                    <p className="text-sm font-semibold text-[#F5F5F5]">Agrupar por</p>
+                    <p className="mt-0.5 truncate text-[12px] text-[#8F908A]">{groupLabel}</p>
+                  </div>
+                  <div className="grid max-h-[420px] gap-1 overflow-y-auto p-2">
+                    {groupOptions.map((option) => (
+                      <ToolbarMenuOption
+                        key={option.value}
+                        option={option}
+                        active={groupBy === option.value}
+                        onSelect={(value) => {
+                          setGroupBy(value);
+                          setToolbarMenuOpen(null);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </section>
 
       <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
-        <MiniMetric label="Total Items" value={summary.total} tone="lime" />
-        <MiniMetric label="Disponibles" value={summary.disponibles} tone="lime" />
-        <MiniMetric label="Pendientes de pago" value={summary.pendientesPago} tone="yellow" />
-        <MiniMetric label="En transito" value={summary.enTransito} tone="purple" />
-        <MiniMetric label="Con novedad" value={summary.conNovedad} tone="orange" />
+        <MiniMetric label="Items página" value={summary.total} tone="lime" />
+        <MiniMetric label="Disponibles pág." value={summary.disponibles} tone="lime" />
+        <MiniMetric label="Pendientes pág." value={summary.pendientesPago} tone="yellow" />
+        <MiniMetric label="En transito pág." value={summary.enTransito} tone="purple" />
+        <MiniMetric label="Con novedad pág." value={summary.conNovedad} tone="orange" />
       </section>
-
-      <Card className="rounded-xl border-[#30312D] bg-[#11120F] p-2 shadow-xl shadow-black/15 2xl:p-3">
-        <div className="grid gap-2">
-          <div className="grid gap-2 lg:grid-cols-[minmax(320px,1fr)_minmax(180px,220px)_minmax(180px,220px)] lg:items-end">
-            <label className="block">
-              <span className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">Buscar</span>
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="SKU, proveedor, nombre, modelo, marca o serie"
-                className="mt-1 h-9 rounded-lg border-[#3A3A36] bg-[#151613] px-3 text-sm text-[#F5F5F5] shadow-inner shadow-black/20 placeholder:text-[#696A64] focus-visible:ring-[#D7FF4F]/35"
-              />
-            </label>
-            <ControlSelect label="Ordenar por" value={sortBy} options={sortOptions} onChange={setSortBy} />
-            <ControlSelect label="Agrupar por" value={groupBy} options={groupOptions} onChange={setGroupBy} />
-          </div>
-
-          <div className="grid gap-2 xl:grid-cols-4">
-            <FilterGroup label="Estado Item" values={filterOptions.estados} selected={estado} onChange={setEstado} />
-            <FilterGroup label="Tipo de operación" values={filterOptions.operaciones} selected={tipoOperacion} onChange={setTipoOperacion} />
-            <FilterGroup label="Proveedor compra" values={filterOptions.proveedores} selected={proveedorCompra} onChange={setProveedorCompra} />
-            <FilterGroup label="Rol general del item" values={filterOptions.tipos} selected={tipoItem} onChange={setTipoItem} />
-          </div>
-        </div>
-      </Card>
 
       {error ? (
         <section className="rounded-[1rem] border border-orange-300/25 bg-orange-300/10 p-3 text-orange-100">
@@ -1648,11 +1894,27 @@ export function ShippingV2ItemsClient({ items, proveedores, error }: Props) {
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-[#F5F5F5]">Listado</h2>
             <p className="text-[13px] text-[#A7A7A7]">
-              Total leido: {resolvedItems.length} · Mostrando: {sortedItems.length}
+              Página {pagination.pageIndex} · Leídos: {resolvedItems.length} de {pagination.pageSize} · Mostrando: {sortedItems.length}
               {visibleGroupCount ? ` · Grupos: ${visibleGroupCount}` : ""}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 rounded-lg border border-[#30312D] bg-[#11120F] p-1">
+              <PaginationLinkButton href={pagination.firstHref} disabled={!pagination.hasPreviousPage} ariaLabel="Ir a la primera página">
+                <ChevronsLeft className="h-4 w-4" aria-hidden="true" />
+              </PaginationLinkButton>
+              <PaginationLinkButton href={pagination.previousHref} disabled={!pagination.hasPreviousPage} ariaLabel="Ir a la página anterior">
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Anterior</span>
+              </PaginationLinkButton>
+              <span className="inline-flex h-8 items-center rounded-lg border border-[#30312D] bg-[#171814] px-2.5 text-[12px] font-bold text-[#F5F5F5]">
+                Pág. {pagination.pageIndex}
+              </span>
+              <PaginationLinkButton href={pagination.nextHref} disabled={!pagination.hasNextPage} ariaLabel="Ir a la página siguiente">
+                <span className="hidden sm:inline">Siguiente</span>
+                <ChevronRight className="h-4 w-4" aria-hidden="true" />
+              </PaginationLinkButton>
+            </div>
             <div className="relative">
               <button
                 type="button"

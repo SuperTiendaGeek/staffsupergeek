@@ -134,26 +134,40 @@ export async function POST(request: Request) {
       registradoPor: getShippingV2SessionName(session),
     });
 
+    let responseItem = item;
+    let photoUploadStatus: "none" | "complete" | "partial" | "failed" = fotos.length > 0 ? "complete" : "none";
+    let photoWarning = "";
+    let uploadedFotos = 0;
+    let failedFotos: string[] = [];
+
     if (fotos.length > 0) {
-      const result = await addFotosToShippingV2Item(item.id, fotos, {
-        registradoPor: getShippingV2SessionName(session),
-      });
-      return NextResponse.json({
-        success: true,
-        data: result.item,
-        recordId: result.item.id,
-        aiNameSuggestionReviewAvailable: true,
-        warning: result.warning,
-        uploadedFotos: result.uploadedCount,
-      }, { status: 201 });
+      try {
+        const result = await addFotosToShippingV2Item(item.id, fotos, {
+          registradoPor: getShippingV2SessionName(session),
+        });
+        responseItem = result.item;
+        uploadedFotos = result.uploadedCount;
+        photoWarning = result.warning || "";
+        photoUploadStatus = result.warning ? "partial" : "complete";
+      } catch (photoError) {
+        photoUploadStatus = "failed";
+        photoWarning = photoError instanceof Error
+          ? photoError.message
+          : "El Item se creó, pero no se pudieron subir las fotos.";
+        failedFotos = fotos.map((foto) => foto.filename);
+      }
     }
 
     return NextResponse.json({
       success: true,
-      data: item,
-      recordId: item.id,
+      data: responseItem,
+      recordId: responseItem.id,
       aiNameSuggestionReviewAvailable: true,
-      uploadedFotos: 0,
+      uploadedFotos,
+      failedFotos,
+      photoUploadStatus,
+      photoWarning,
+      warning: photoWarning || undefined,
     }, { status: 201 });
   } catch (error) {
     console.error("Error al crear item Shipping V2:", error);

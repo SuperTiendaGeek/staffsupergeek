@@ -303,6 +303,31 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   evidencias: ShippingV2Attachment[];
 };
 
+export type ShippingV2ItemSearchEntry = ShippingV2RecordBase & {
+  sku: string;
+  skuProveedor?: string;
+  nombre: string;
+  marca?: string;
+  modelo?: string;
+  numeroSerie?: string;
+  estado?: string;
+  tipoOperacion?: string;
+  proveedorCompra?: string;
+  proveedorLogistico?: string;
+  packingId?: string;
+  legacyPackingId?: string;
+  trackingDirecto?: string;
+  trackingHaciaIntermediario?: string;
+  trackingDesdeIntermediario?: string;
+  trackingUsa?: string;
+  trackingEc?: string;
+  precioVenta: number | null;
+  disponibilidad?: string;
+  ubicacionActual?: string;
+  fechaRegistro?: string;
+  thumbnailUrl?: string;
+};
+
 export const SHIPPING_V2_ITEM_ESTADOS = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoItem;
 export const SHIPPING_V2_TIPOS_OPERACION = SHIPPING_V2_ITEM_SELECT_OPTIONS.tipoOperacion;
 export const SHIPPING_V2_TIPOS_ITEM = SHIPPING_V2_ITEM_SELECT_OPTIONS.tipoItem;
@@ -351,6 +376,9 @@ export type ShippingV2ItemWriteInput = {
   estadoDespiece?: string;
   modoLogistico?: ShippingV2ModoLogistico | string;
   trackingDirecto?: string;
+  operacionComercialId?: string;
+  opcionOrigenId?: string;
+  fotos?: ShippingV2Attachment[];
 };
 
 export type ShippingV2Pago = ShippingV2RecordBase & {

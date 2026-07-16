@@ -13,7 +13,7 @@ import type {
   CrearOpcionInput,
   ShippingItemResumen,
 } from "@/types/operaciones";
-import { generateUniqueShippingV2SkuForCategory } from "@/lib/shipping-v2/airtable";
+import { createShippingV2ItemFromOperacion } from "@/lib/shipping-v2/airtable";
 import { normalizeCedula } from "@/lib/clientes/normalizeCedula";
 
 type AirtableRecord = {
@@ -874,55 +874,27 @@ export async function crearShippingItemDesdeOpcion(
   const costoProveedor = firstNumber(of["Costo Proveedor"]);
   const precioVenta = firstNumber(of["Precio Venta Cliente"]);
   const proveedorIds = linkedIds(of["Proveedor"]);
-  const fotosRaw = attachmentList(of["Fotos"]);
-  const fotos = fotosRaw.map((f) => ({ url: f.url, filename: f.filename ?? "foto.jpg" }));
+  const fotos = attachmentList(of["Fotos"]).map((foto) => ({
+    url: foto.url,
+    filename: foto.filename ?? undefined,
+    type: foto.type ?? undefined,
+  }));
 
-  const now = new Date().toISOString();
-
-  // Generate SKU using the same logic as /shipping-v2/items/nuevo (max existing REP-N + 1)
-  const sku = await generateUniqueShippingV2SkuForCategory("Repuesto");
-
-  const fields: Record<string, unknown> = {
-    "Nombre del item": nombre,
-    "Descripción": nombre,
-    "SKU": sku,
-    "Método de asignación SKU": "Generado automáticamente",
-    "Categoría": "Repuesto",
-    "Tipo de item": "Repuesto",
-    "Es repuesto": true,
-    "Estado Item": "Pagado",
-    "Reservado": true,
-    "Disponible para venta": false,
-    "Cantidad": 1,
-    "Operación Comercial": [operacionId],
-    "Opción origen": [opcionId],
-    "Fecha de registro": now,
-    "Registrado por": registradoPor,
-  };
-
-  if (costoProveedor !== null) fields["Costo proveedor"] = costoProveedor;
-  if (precioVenta !== null) {
-    fields["Precio venta sugerido"] = precioVenta;
-    fields["Precio venta final"] = precioVenta;
-  }
-  if (proveedorIds.length > 0) fields["Proveedor de compra"] = proveedorIds;
-  if (fotos.length > 0) fields["Fotos"] = fotos;
-
-  const createRes = await fetch(
-    `${client.baseUrl}/${encodeURIComponent(SHIPPING_ITEMS_TABLE)}`,
+  const item = await createShippingV2ItemFromOperacion(
     {
-      method: "POST",
-      headers: client.headers,
-      body: JSON.stringify({ fields }),
-      cache: "no-store",
-    }
+      operacionId,
+      opcionId,
+      nombre,
+      descripcion: nombre,
+      proveedorId: proveedorIds[0] ?? null,
+      costoProveedor,
+      precioVenta,
+      fotos,
+    },
+    { registradoPor }
   );
-  if (!createRes.ok) {
-    const body = (await createRes.json().catch(() => ({}))) as { error?: { message?: string } };
-    throw new Error(body.error?.message ?? `Airtable error creando Shipping Item ${createRes.status}`);
-  }
-  const created = (await createRes.json()) as AirtableRecord;
-  return { created: true, id: created.id, nombre };
+
+  return { created: true, id: item.id, nombre: item.nombre || nombre };
 }
 
 export async function actualizarEstadoOperacion(

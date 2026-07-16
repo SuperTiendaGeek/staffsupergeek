@@ -322,13 +322,16 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
       return;
     }
 
-    if (payload.warning) {
-      setError(String(payload.warning));
-      setSaving(false);
-      return;
-    }
+    const photoUploadStatus = String(payload.photoUploadStatus || "");
+    const uploadedFotos = Number(payload.uploadedFotos || 0);
+    const photoWarning = String(payload.photoWarning || payload.warning || "").trim();
+    const notice = photoUploadStatus === "failed" || photoUploadStatus === "partial" || photoWarning
+      ? `Item registrado correctamente, con fotos fallidas o pendientes.${photoWarning ? ` ${photoWarning}` : ""}`
+      : uploadedFotos > 0 || photoUploadStatus === "complete"
+        ? "Item creado correctamente con fotos. La sugerencia IA se generará en segundo plano."
+        : "Item creado correctamente. La sugerencia IA se generará en segundo plano.";
 
-    window.sessionStorage.setItem("shipping-v2:notice", "Item creado correctamente. La sugerencia IA se generará en segundo plano.");
+    window.sessionStorage.setItem("shipping-v2:notice", notice);
     router.push("/shipping-v2/items");
     router.refresh();
   }

@@ -10,6 +10,7 @@ import type {
   ShippingV2Destinatario,
   ShippingV2FinanzasMovimiento,
   ShippingV2Item,
+  ShippingV2ItemSearchEntry,
   ShippingV2ItemWriteInput,
   ShippingV2TechnicalSheetInput,
   ShippingV2Novedad,
@@ -62,6 +63,17 @@ type AirtableMutationResponse = {
 };
 
 export type ShippingV2TechnicalOptionType = "connectivity" | "port" | "extraFeature";
+export type ShippingV2ItemsListSortKey =
+  | "newest"
+  | "oldest"
+  | "sku-asc"
+  | "sku-desc"
+  | "name-asc"
+  | "name-desc"
+  | "estado"
+  | "proveedor-compra"
+  | "costo-desc"
+  | "precio-desc";
 
 export type ShippingV2AttachmentUpload = {
   filename: string;
@@ -78,6 +90,23 @@ const SHIPPING_V2_DESTINATARIOS_TABLE = "Shipping Destinatarios";
 const SHIPPING_V2_DESTINATARIO_PACKING_FIELD = "Packing vinculado";
 const SHIPPING_V2_PACKING_ORDER_REFERENCE_FIELD = "Orden referencia";
 const SHIPPING_V2_PACKING_INVOICE_FIELD = "Factura";
+const SHIPPING_V2_ITEM_SOURCE_FIELDS = {
+  operacionComercial: "Operación Comercial",
+  opcionOrigen: "Opción origen",
+} as const;
+const SHIPPING_V2_ITEM_SEARCH_INDEX_CACHE_MS = 90 * 1000;
+
+type ShippingV2ItemSearchIndexCache = {
+  items: ShippingV2ItemSearchEntry[];
+  generatedAt: string;
+  expiresAt: number;
+};
+
+let shippingV2ItemSearchIndexCache: ShippingV2ItemSearchIndexCache | null = null;
+
+function invalidateShippingV2ItemSearchIndexCache() {
+  shippingV2ItemSearchIndexCache = null;
+}
 
 export type ShippingV2AccessContext = {
   isAdmin: boolean;
@@ -648,7 +677,7 @@ function applyCalculatedItemFlow(input: ShippingV2ItemWriteInput): ShippingV2Ite
     requierePago: flow.requierePago,
     requierePacking: modeUsesDirectTracking ? false : modeUsesPacking ? true : flow.requierePacking,
     afectaInventario: flow.afectaInventario,
-    disponibleVenta: flow.disponibleParaVenta,
+    disponibleVenta: input.reservado === true ? false : flow.disponibleParaVenta,
     modoLogistico: requestedMode,
     estado: flow.estadoItemSugerido,
     estadoRevision: cleanString(input.estadoRevision) || flow.estadoRevisionSugerido,
@@ -723,6 +752,7 @@ function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, un
     [F.precioVentaFinal]: input.precioVenta ?? undefined,
     [F.ubicacionActual]: cleanString(input.ubicacionActual),
     [F.trackingDirecto]: cleanString(input.trackingDirecto),
+    [F.fotos]: input.fotos?.map(keptAttachmentPayload),
     [F.observacionesInternas]: cleanString(input.observacionesInternas),
     [F.observacionVenta]: cleanString(input.observacionVenta),
     [F.estadoRevision]: cleanString(input.estadoRevision),
@@ -731,6 +761,8 @@ function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, un
     [F.esRepuesto]: Boolean(input.esRepuesto),
     [F.esUsoLocal]: Boolean(input.usoLocal),
     [F.esRegalo]: tipoOperacion === "Regalo de proveedor",
+    [SHIPPING_V2_ITEM_SOURCE_FIELDS.operacionComercial]: cleanString(input.operacionComercialId) ? [cleanString(input.operacionComercialId)] : undefined,
+    [SHIPPING_V2_ITEM_SOURCE_FIELDS.opcionOrigen]: cleanString(input.opcionOrigenId) ? [cleanString(input.opcionOrigenId)] : undefined,
     ...extra,
   });
 }
@@ -843,7 +875,20 @@ async function getRecordById(tableName: string, recordId: string) {
   return (await response.json()) as AirtableRecordResponse;
 }
 
-async function listRecords(tableName: string, options: { maxRecords?: number; pageSize?: number; sortField?: string; sortDirection?: "asc" | "desc"; filterByFormula?: string; fields?: string[] } = {}) {
+type ListRecordsOptions = {
+  maxRecords?: number;
+  pageSize?: number;
+  sortField?: string;
+  sortDirection?: "asc" | "desc";
+  filterByFormula?: string;
+  fields?: string[];
+};
+
+type ListRecordsPageOptions = Omit<ListRecordsOptions, "maxRecords"> & {
+  offset?: string | null;
+};
+
+async function listRecords(tableName: string, options: ListRecordsOptions = {}) {
   const records: AirtableRecord[] = [];
   let offset: string | null = null;
 
@@ -865,6 +910,24 @@ async function listRecords(tableName: string, options: { maxRecords?: number; pa
   } while (offset && (!options.maxRecords || records.length < options.maxRecords));
 
   return options.maxRecords ? records.slice(0, options.maxRecords) : records;
+}
+
+async function listRecordsPage(tableName: string, options: ListRecordsPageOptions = {}) {
+  const url = new URL(tableUrl(tableName));
+  url.searchParams.set("pageSize", String(options.pageSize ?? 100));
+  if (options.filterByFormula) url.searchParams.set("filterByFormula", options.filterByFormula);
+  options.fields?.forEach((field) => url.searchParams.append("fields[]", field));
+  if (options.sortField) {
+    url.searchParams.append("sort[0][field]", options.sortField);
+    url.searchParams.append("sort[0][direction]", options.sortDirection ?? "desc");
+  }
+  if (options.offset) url.searchParams.set("offset", options.offset);
+
+  const data = await airtableRequest<AirtableListResponse>(url.toString());
+  return {
+    records: data.records ?? [],
+    nextOffset: data.offset,
+  };
 }
 
 function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
@@ -1450,6 +1513,34 @@ async function getShippingV2ProveedorById(recordId: string) {
   return record ? mapProveedor(record) : null;
 }
 
+function getShippingV2ItemsListSort(sortBy: ShippingV2ItemsListSortKey = "newest") {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+
+  switch (sortBy) {
+    case "oldest":
+      return { sortField: F.fechaRegistro, sortDirection: "asc" as const };
+    case "sku-asc":
+      return { sortField: getOfficialSkuField(), sortDirection: "asc" as const };
+    case "sku-desc":
+      return { sortField: getOfficialSkuField(), sortDirection: "desc" as const };
+    case "name-asc":
+      return { sortField: F.nombre, sortDirection: "asc" as const };
+    case "name-desc":
+      return { sortField: F.nombre, sortDirection: "desc" as const };
+    case "estado":
+      return { sortField: F.estadoItem, sortDirection: "asc" as const };
+    case "proveedor-compra":
+      return { sortField: F.proveedorCompra, sortDirection: "asc" as const };
+    case "costo-desc":
+      return { sortField: F.costoProveedor, sortDirection: "desc" as const };
+    case "precio-desc":
+      return { sortField: F.precioVentaFinal, sortDirection: "desc" as const };
+    case "newest":
+    default:
+      return { sortField: F.fechaRegistro, sortDirection: "desc" as const };
+  }
+}
+
 export async function getShippingV2Items(options: MapItemOptions = {}) {
   const records = await listRecords(SHIPPING_V2_TABLES.items, {
     maxRecords: 200,
@@ -1459,6 +1550,174 @@ export async function getShippingV2Items(options: MapItemOptions = {}) {
   return records
     .map((record) => mapItem(record, options))
     .sort(compareShippingV2ItemListOrder);
+}
+
+export async function getShippingV2ItemsPage(options: MapItemOptions & {
+  pageSize?: number;
+  offset?: string | null;
+  sortBy?: ShippingV2ItemsListSortKey;
+} = {}) {
+  const pageSize = Math.min(Math.max(Math.trunc(options.pageSize ?? 100), 1), 100);
+  const sort = getShippingV2ItemsListSort(options.sortBy);
+  const page = await listRecordsPage(SHIPPING_V2_TABLES.items, {
+    pageSize,
+    offset: options.offset,
+    sortField: sort.sortField,
+    sortDirection: sort.sortDirection,
+  });
+
+  return {
+    items: page.records.map((record) => mapItem(record, options)),
+    nextOffset: page.nextOffset,
+    pageSize,
+  };
+}
+
+type ShippingV2PackingSearchInfo = {
+  packingId: string;
+  trackingUsa?: string;
+  trackingEc?: string;
+};
+
+async function getShippingV2ProviderSearchLabels() {
+  const F = SHIPPING_V2_PROVIDER_FIELDS;
+  const records = await listRecords(SHIPPING_V2_TABLES.proveedores, {
+    fields: [F.proveedorId, F.nombre],
+    sortField: F.nombre,
+    sortDirection: "asc",
+  });
+  return createShippingV2ProveedorLabelMap(records.map(mapProveedor));
+}
+
+async function getShippingV2PackingSearchInfoById() {
+  const F = SHIPPING_V2_PACKING_FIELDS;
+  const records = await listRecords(SHIPPING_V2_TABLES.packings, {
+    fields: [getOfficialPackingIdField(), F.trackingUsa, F.trackingEc],
+    sortField: getOfficialPackingIdField(),
+    sortDirection: "desc",
+  });
+
+  return new Map(records.map((record) => [record.id, {
+    packingId: firstString(record.fields[getOfficialPackingIdField()], record.id),
+    trackingUsa: firstString(record.fields[F.trackingUsa]),
+    trackingEc: firstString(record.fields[F.trackingEc]),
+  } satisfies ShippingV2PackingSearchInfo]));
+}
+
+function searchEntryAvailability(input: { disponibleVenta: boolean | null; reservado: boolean | null }) {
+  if (input.reservado) return "Reservado";
+  if (input.disponibleVenta) return "Disponible para venta";
+  return "No disponible";
+}
+
+function mapItemSearchEntry(
+  record: AirtableRecord,
+  context: {
+    providerLabelsById: Map<string, string>;
+    packingInfoById: Map<string, ShippingV2PackingSearchInfo>;
+  }
+): ShippingV2ItemSearchEntry {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const f = record.fields;
+  const sku = firstString(f[getOfficialSkuField()], record.id);
+  const proveedorCompraId = firstString(f[F.proveedorCompra]);
+  const proveedorLogisticoId = firstString(f[F.proveedorLogistico]);
+  const packingRecordId = firstString(f[F.packingRelacionado]);
+  const packingInfo = packingRecordId ? context.packingInfoById.get(packingRecordId) : undefined;
+  const fotos = mapAttachments(f[F.fotos]);
+  const disponibleVenta = firstBoolean(f[F.disponibleVenta]);
+  const reservado = firstBoolean(f[F.reservado]);
+  const fechaRegistro = firstString(f[F.fechaRegistro], record.createdTime);
+
+  return {
+    id: record.id,
+    createdTime: record.createdTime,
+    sku,
+    skuProveedor: firstString(f[F.skuProveedor]) || undefined,
+    nombre: firstString(f[F.nombre], "Artículo sin nombre"),
+    marca: firstString(f[F.marca]) || undefined,
+    modelo: firstString(f[F.modelo]) || undefined,
+    numeroSerie: firstString(f[F.numeroSerie]) || undefined,
+    estado: firstString(f[F.estadoItem], "Registrado"),
+    tipoOperacion: firstString(f[F.tipoOperacion]) || undefined,
+    proveedorCompra: resolveShippingV2ProveedorLabel(proveedorCompraId, context.providerLabelsById) || undefined,
+    proveedorLogistico: resolveShippingV2ProveedorLabel(proveedorLogisticoId, context.providerLabelsById) || undefined,
+    packingId: packingInfo?.packingId || packingRecordId || undefined,
+    legacyPackingId: firstString(f["Legacy Packing ID"]) || undefined,
+    trackingDirecto: firstString(f[F.trackingDirecto]) || undefined,
+    trackingHaciaIntermediario: firstString(f[F.trackingHaciaIntermediario]) || undefined,
+    trackingDesdeIntermediario: firstString(f[F.trackingDesdeIntermediario]) || undefined,
+    trackingUsa: packingInfo?.trackingUsa || undefined,
+    trackingEc: packingInfo?.trackingEc || undefined,
+    precioVenta: firstNumber(f[F.precioVentaFinal]),
+    disponibilidad: searchEntryAvailability({ disponibleVenta, reservado }),
+    ubicacionActual: firstString(f[F.ubicacionActual]) || undefined,
+    fechaRegistro,
+    thumbnailUrl: fotos[0]?.thumbnailUrl || fotos[0]?.url,
+  };
+}
+
+export async function getShippingV2ItemSearchIndex() {
+  const now = Date.now();
+  if (shippingV2ItemSearchIndexCache && shippingV2ItemSearchIndexCache.expiresAt > now) {
+    return {
+      items: shippingV2ItemSearchIndexCache.items,
+      generatedAt: shippingV2ItemSearchIndexCache.generatedAt,
+    };
+  }
+
+  try {
+    const F = SHIPPING_V2_ITEM_FIELDS;
+    const fields = Array.from(new Set([
+      getOfficialSkuField(),
+      F.skuProveedor,
+      F.nombre,
+      F.marca,
+      F.modelo,
+      F.numeroSerie,
+      F.estadoItem,
+      F.tipoOperacion,
+      F.proveedorCompra,
+      F.proveedorLogistico,
+      F.packingRelacionado,
+      "Legacy Packing ID",
+      F.trackingDirecto,
+      F.trackingHaciaIntermediario,
+      F.trackingDesdeIntermediario,
+      F.precioVentaFinal,
+      F.disponibleVenta,
+      F.reservado,
+      F.ubicacionActual,
+      F.fechaRegistro,
+      F.fotos,
+    ]));
+
+    const [records, providerLabelsById, packingInfoById] = await Promise.all([
+      listRecords(SHIPPING_V2_TABLES.items, {
+        pageSize: 100,
+        sortField: F.fechaRegistro,
+        sortDirection: "desc",
+        fields,
+      }),
+      getShippingV2ProviderSearchLabels(),
+      getShippingV2PackingSearchInfoById(),
+    ]);
+
+    const items = records.map((record) => mapItemSearchEntry(record, { providerLabelsById, packingInfoById }));
+    const generatedAt = new Date().toISOString();
+
+    // Cache corto en memoria: evita releer todo Airtable en cada montaje y se invalida en mutaciones principales de Items.
+    shippingV2ItemSearchIndexCache = {
+      items,
+      generatedAt,
+      expiresAt: now + SHIPPING_V2_ITEM_SEARCH_INDEX_CACHE_MS,
+    };
+
+    return { items, generatedAt };
+  } catch (error) {
+    console.error("Error al cargar índice global de Shipping Items:", error);
+    throw new Error("No se pudo cargar la búsqueda global de Shipping Items.");
+  }
 }
 
 function shippingV2ListTime(value?: string) {
@@ -2009,22 +2268,27 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
     });
   }
 
+  invalidateShippingV2ItemSearchIndexCache();
   return item;
 }
 
-export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string }) {
-  const calculatedInput = applyCalculatedItemFlow(input);
-  validateItemInput(calculatedInput);
-  await validateItemProviderRules(calculatedInput);
-
-  const sku = await resolveOfficialSkuForCreate(calculatedInput);
-  const fields = getItemFields(calculatedInput, {
+async function createShippingV2ItemRecord(
+  input: ShippingV2ItemWriteInput,
+  options: {
+    registradoPor: string;
+    eventDescription?: string;
+    extraFields?: Record<string, unknown>;
+  }
+) {
+  const sku = await resolveOfficialSkuForCreate(input);
+  const fields = getItemFields(input, {
     [getOfficialSkuField()]: sku,
     [SHIPPING_V2_ITEM_FIELDS.skuInterno]: undefined,
     [SHIPPING_V2_ITEM_FIELDS.metodoAsignacionSku]: undefined,
     [SHIPPING_V2_ITEM_FIELDS.skuProveedorUsadoComoInterno]: undefined,
     [SHIPPING_V2_ITEM_FIELDS.skuDuplicadoDetectado]: undefined,
     [SHIPPING_V2_ITEM_FIELDS.skuOriginalSugerido]: undefined,
+    ...options.extraFields,
     [SHIPPING_V2_ITEM_FIELDS.fechaRegistro]: new Date().toISOString(),
     [SHIPPING_V2_ITEM_FIELDS.registradoPor]: options.registradoPor,
   });
@@ -2043,10 +2307,76 @@ export async function createShippingV2Item(input: ShippingV2ItemWriteInput, opti
     itemRecordId: item.id,
     itemName: item.nombre,
     registradoPor: options.registradoPor,
-    descripcion: `Item ${item.sku} creado desde Portal Staff.`,
+    descripcion: options.eventDescription || `Item ${item.sku} creado desde Portal Staff.`,
   });
 
+  invalidateShippingV2ItemSearchIndexCache();
   return item;
+}
+
+export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string }) {
+  const calculatedInput = applyCalculatedItemFlow(input);
+  validateItemInput(calculatedInput);
+  await validateItemProviderRules(calculatedInput);
+
+  return createShippingV2ItemRecord(calculatedInput, options);
+}
+
+export async function createShippingV2ItemFromOperacion(
+  input: {
+    operacionId: string;
+    opcionId: string;
+    nombre: string;
+    descripcion?: string;
+    proveedorId?: string | null;
+    costoProveedor?: number | null;
+    precioVenta?: number | null;
+    fotos?: ShippingV2Attachment[];
+  },
+  options: { registradoPor: string }
+) {
+  const operacionId = cleanString(input.operacionId);
+  const opcionId = cleanString(input.opcionId);
+  if (!operacionId) throw new Error("Operación Comercial inválida para crear Shipping Item.");
+  if (!opcionId) throw new Error("Opción origen inválida para crear Shipping Item.");
+
+  const proveedorId = cleanString(input.proveedorId);
+  if (proveedorId) await validateItemProviderRules({ proveedorId });
+
+  const nombre = cleanString(input.nombre) || "Artículo sin nombre";
+  const precioVenta = input.precioVenta ?? null;
+  const itemInput: ShippingV2ItemWriteInput = {
+    nombre,
+    descripcion: cleanString(input.descripcion) || nombre,
+    tipoOperacion: "Compra ya pagada",
+    tipoItem: "Repuesto",
+    categoria: "Repuesto",
+    estado: "Pagado",
+    proveedorId,
+    requierePago: false,
+    requierePacking: false,
+    afectaInventario: true,
+    disponibleVenta: false,
+    reservado: true,
+    modoLogistico: "Tracking directo",
+    cantidad: 1,
+    unidad: "Unidad",
+    costoProveedor: input.costoProveedor ?? null,
+    precioVentaSugerido: precioVenta,
+    precioVenta,
+    esRepuesto: true,
+    operacionComercialId: operacionId,
+    opcionOrigenId: opcionId,
+    fotos: input.fotos,
+  };
+
+  return createShippingV2ItemRecord(itemInput, {
+    registradoPor: options.registradoPor,
+    eventDescription: `Item creado desde Operaciones Comerciales para opción ${opcionId}.`,
+    extraFields: {
+      [SHIPPING_V2_ITEM_FIELDS.metodoAsignacionSku]: "Generado automáticamente",
+    },
+  });
 }
 
 export async function addFotosToShippingV2Item(
@@ -2088,6 +2418,7 @@ export async function addFotosToShippingV2Item(
     descripcion: fotos.length - failedFiles.length === 1 ? "Foto agregada al Item." : "Fotos agregadas al Item.",
   });
 
+  invalidateShippingV2ItemSearchIndexCache();
   return {
     item,
     warning: failedFiles.length > 0 ? `El Item se creó, pero no se pudieron subir: ${failedFiles.join(", ")}.` : null,
@@ -2153,6 +2484,7 @@ export async function removeFotoFromShippingV2Item(
     descripcion: "Foto eliminada del Item.",
   });
 
+  invalidateShippingV2ItemSearchIndexCache();
   return item;
 }
 
@@ -2199,6 +2531,7 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
     descripcion: `Item ${item.sku} actualizado desde Portal Staff.`,
   });
 
+  invalidateShippingV2ItemSearchIndexCache();
   return item;
 }
 
