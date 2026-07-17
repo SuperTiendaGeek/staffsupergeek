@@ -30,3 +30,6 @@ debug/
 tmp-ride-test.pdf
 horarios-rediseno-propuesta.html
 
+# Carpetas temporales que dejan los tests de facturación al correr localmente
+.tmp-test-*/
+

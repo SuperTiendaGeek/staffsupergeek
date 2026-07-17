@@ -13,6 +13,7 @@ import path from "path";
 
 import { crearRegistroFactura, subirAdjunto, marcarAdjuntosPendientes } from "../airtable/facturas";
 import { directorioBaseFacturas }             from "./directorioFacturas";
+import { intentarGuardarEnBlob }              from "./blob";
 import type { MensajeSRI }                    from "../sri/recepcion";
 import type { AmbienteSRI }                   from "../config";
 
@@ -116,12 +117,24 @@ export function intentarGuardarEnDisco(
 // ─── Persistir comprobante AUTORIZADO ────────────────────────────────────────
 
 export async function persistirAutorizado(datos: DatosComprobanteOk): Promise<string> {
-  // 1. Disco — best-effort (ver intentarGuardarEnDisco). Antes era un paso
-  //    fatal síncrono que abortaba toda la persistencia si fallaba, dejando
-  //    una factura ya AUTORIZADA sin ningún rastro ni en disco ni en Airtable.
-  const mensajesRespaldo = intentarGuardarEnDisco(
+  // 1a. Disco — best-effort (ver intentarGuardarEnDisco). Antes era un paso
+  //     fatal síncrono que abortaba toda la persistencia si fallaba, dejando
+  //     una factura ya AUTORIZADA sin ningún rastro ni en disco ni en Airtable.
+  //     Sigue existiendo como copia rápida local, pero YA NO es la única
+  //     copia "propia" (fuera de Airtable) — ver 1b.
+  const mensajesDisco = intentarGuardarEnDisco(
     datos.claveAcceso, datos.fechaEmision, datos.xmlAutorizado, datos.ridePdf
   );
+
+  // 1b. Vercel Blob — best-effort, EN PARALELO al disco (Fase 17). A
+  //     diferencia del disco, esta copia sí sobrevive a un despliegue nuevo
+  //     — es el respaldo que de verdad cumple la retención legal de 7 años
+  //     sin depender de que el adjunto de Airtable se haya subido bien.
+  const mensajesBlob = await intentarGuardarEnBlob(
+    datos.claveAcceso, datos.fechaEmision, datos.xmlAutorizado, datos.ridePdf
+  );
+
+  const mensajesRespaldo = [...(mensajesDisco ?? []), ...(mensajesBlob ?? [])];
 
   // 2. Crear registro en Airtable
   const recordId = await crearRegistroFactura({
