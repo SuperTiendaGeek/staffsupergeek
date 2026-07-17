@@ -4,8 +4,15 @@ import "server-only";
 // Variables requeridas en .env.local:
 //   SMTP_HOST, SMTP_PORT, SMTP_SECURE (true|false), SMTP_USER, SMTP_PASS, SMTP_FROM
 // Variable de modo prueba:
-//   SMTP_TEST_TO — si está definida, fuerza el destinatario a esta dirección
-//   (quitar cuando se pase a producción — ver TODO abajo)
+//   SMTP_TEST_TO — si está definida, fuerza el destinatario a esta dirección.
+//   Fase 17: esto YA NO depende de acordarse de borrar la variable al pasar a
+//   producción (era severidad Alta en docs/CIERRE_FASE16.md ítem 9 — si se
+//   olvidaba, ningún cliente real recibía su factura, sin error visible).
+//   Ahora es una regla de código: en ambiente PRODUCCIÓN (input.ambiente ===
+//   "2") SMTP_TEST_TO se ignora siempre, sin importar si quedó seteada. Sigue
+//   siendo buena práctica borrarla del entorno cuando ya no se necesite, pero
+//   dejarla puesta por descuido ya no puede hacer que una factura real se
+//   quede sin llegarle al cliente.
 
 import nodemailer from "nodemailer";
 
@@ -45,9 +52,13 @@ function getSmtpConfig() {
 export async function enviarRide(input: CorreoRideInput): Promise<void> {
   const cfg = getSmtpConfig();
 
-  // TODO (producción): eliminar este bloque cuando se quite SMTP_TEST_TO
-  const destFinal = process.env.SMTP_TEST_TO?.trim() ?? input.destinatario;
-  const modoTest  = !!process.env.SMTP_TEST_TO?.trim();
+  // Guard de producción — ver nota de arriba. SMTP_TEST_TO solo puede actuar
+  // fuera de ambiente "2"; en producción real, input.destinatario siempre
+  // gana, sin excepción.
+  const smtpTestTo = process.env.SMTP_TEST_TO?.trim();
+  const testToActivo = input.ambiente !== "2" && !!smtpTestTo;
+  const destFinal = testToActivo ? smtpTestTo! : input.destinatario;
+  const modoTest  = testToActivo;
 
   const transporter = nodemailer.createTransport({
     host:   cfg.host,
