@@ -24,6 +24,9 @@ Thumbs.db
 # Carpeta privada local
 private/
 
+# Config local de Claude Code (no compartir en el repo)
+.claude/settings.local.json
+
 # Facturas emitidas y archivos de diagnóstico (datos privados)
 facturas-autorizadas/
 debug/
