@@ -70,7 +70,11 @@ export async function POST(_req: Request, { params }: Params) {
   }
 
   try {
-    const resultado = await postEmision({ facturaRecordId: recordId, detalles: payload.detalles });
+    const resultado = await postEmision({
+      facturaRecordId: recordId,
+      detalles:        payload.detalles,
+      ambiente:        factura.ambiente === "PRODUCCIÓN" ? "2" : "1",
+    });
     return NextResponse.json({ success: true, data: resultado });
   } catch (e) {
     console.error("[/sincronizar POST]", e);

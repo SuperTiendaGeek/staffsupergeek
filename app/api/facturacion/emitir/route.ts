@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     // serverless puede congelar la función apenas se envía la respuesta.
     if (resultado.estado === "AUTORIZADO" && body.origen && resultado.recordId) {
       try {
-        await postEmision({ facturaRecordId: resultado.recordId, detalles: body.detalles });
+        await postEmision({ facturaRecordId: resultado.recordId, detalles: body.detalles, ambiente: resultado.ambiente });
       } catch (e) {
         console.error("[/api/facturacion/emitir POST] postEmision falló:", e);
       }

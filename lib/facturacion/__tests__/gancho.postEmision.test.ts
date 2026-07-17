@@ -136,6 +136,7 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
     const resultado = await postEmision({
       facturaRecordId: FACTURA_ID,
       detalles: [lineaProducto("recITEM1"), lineaProducto("recITEM2"), lineaServicio()],
+      ambiente: "2",
     });
 
     assert(resultado.estado === "OK", "Feliz: estado final OK");
@@ -154,6 +155,7 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
     const resultado = await postEmision({
       facturaRecordId: FACTURA_ID,
       detalles: [lineaServicio("Diagnóstico"), lineaServicio("Mano de obra")],
+      ambiente: "2",
     });
 
     assert(resultado.estado === "OK", "Solo-servicios: estado OK");
@@ -173,6 +175,7 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
     const resultado = await postEmision({
       facturaRecordId: FACTURA_ID,
       detalles: [lineaManual(), lineaManual("Otro producto de mostrador")],
+      ambiente: "2",
     });
 
     assert(resultado.estado === "OK", "Mostrador: si por error se invocara, resuelve OK sin tocar nada");
@@ -191,6 +194,7 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
     const resultado = await postEmision({
       facturaRecordId: FACTURA_ID,
       detalles: [lineaProducto("recITEM1"), lineaProducto("recITEM2", "Repuesto que falla")],
+      ambiente: "2",
     });
 
     assert(resultado.estado === "ERROR", "Fallo parcial: estado final ERROR (no lanza excepción)");
@@ -219,6 +223,7 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
     const resultado = await postEmision({
       facturaRecordId: FACTURA_ID,
       detalles: [lineaProducto("recITEM1"), lineaProducto("recITEM2")],
+      ambiente: "2",
     });
 
     assert(resultado.estado === "OK", "Reintento: estado final OK tras reparar lo que faltaba");
@@ -238,10 +243,48 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
     const resultado = await postEmision({
       facturaRecordId: FACTURA_ID,
       detalles: [lineaProducto("recITEM1")],
+      ambiente: "2",
     });
 
     assert(resultado.estado === "OK", "Reintento (todo hecho): estado OK");
     assert(patchesRecibidos.length === 0, "Reintento (todo hecho): cero PATCH — no duplica trabajo ya hecho");
+  }
+
+  // ─── (f) Fase 17 — guard de ambiente: pruebas NUNCA debe tocar Shipping Items ──
+  {
+    const items = new Map<string, ItemSimulado>([
+      ["recITEM1", { id: "recITEM1", estadoItem: "Disponible", facturaIds: [] }],
+    ]);
+    const { fetchDoble, patchesRecibidos } = crearDoble(items, new Set());
+    global.fetch = fetchDoble as unknown as typeof fetch;
+
+    const resultado = await postEmision({
+      facturaRecordId: FACTURA_ID,
+      detalles: [lineaProducto("recITEM1")],
+      ambiente: "1", // PRUEBAS
+    });
+
+    assert(resultado.estado === "OK", "Guard ambiente pruebas: responde OK (nada que reportar como error)");
+    assert(patchesRecibidos.length === 0, "Guard ambiente pruebas: CERO llamadas a Shipping Items, ni de lectura ni de escritura");
+    assert(items.get("recITEM1")!.estadoItem === "Disponible", "Guard ambiente pruebas: el item real queda intacto");
+  }
+
+  // ─── (g) Fase 17 — guard de ambiente: sin ambiente definido también debe fallar cerrado ──
+  {
+    const items = new Map<string, ItemSimulado>([
+      ["recITEM1", { id: "recITEM1", estadoItem: "Disponible", facturaIds: [] }],
+    ]);
+    const { fetchDoble, patchesRecibidos } = crearDoble(items, new Set());
+    global.fetch = fetchDoble as unknown as typeof fetch;
+
+    const resultado = await postEmision({
+      facturaRecordId: FACTURA_ID,
+      detalles: [lineaProducto("recITEM1")],
+      // sin `ambiente` — no debe asumir producción por omisión
+    });
+
+    assert(resultado.estado === "OK", "Guard ambiente indefinido: responde OK");
+    assert(patchesRecibidos.length === 0, "Guard ambiente indefinido: fail-closed — cero llamadas a Shipping Items");
   }
 
   global.fetch = fetchOriginal;
