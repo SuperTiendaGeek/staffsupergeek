@@ -83,9 +83,31 @@ export type ResultadoPostEmision = {
 export type PostEmisionInput = {
   facturaRecordId: string;
   detalles:        DetalleFactura[];
+  // Fase 17 — ver guard debajo. Opcional solo por compatibilidad de tipos con
+  // ResultadoEmision.ambiente (string | undefined); en la práctica todo
+  // llamador real debe mandarlo.
+  ambiente?:       string;
 };
 
+// Guard de ambiente (Fase 17 — hardening pre-producción). Shipping Items es
+// UN SOLO inventario real, sin distinción de pruebas/producción — a
+// diferencia del SRI (celcer vs cel) o del puente contable (que sí tiene su
+// propio guard en lib/finanzas/puentes/facturacion.ts). Antes de este guard,
+// probar el botón "Emitir factura" del gancho en ambiente pruebas con una
+// orden/operación real ya marcaba un repuesto real como "Vendido" — pasó de
+// verdad (ver docs/AUDITORIA_FASE17_18_FACTURACION_PRODUCCION_NOTAS_CREDITO.md
+// sección 1.1; los registros afectados, REP-000010/REP-000011, se corrigieron
+// a mano en Airtable el 2026-07-16, pero el hueco de código seguía abierto).
+// "Fail closed": cualquier valor que no sea exactamente "2" (incluido
+// undefined) NO toca inventario — mismo criterio que ya usa el puente
+// contable para "2" === producción.
+const AMBIENTE_PRODUCCION = "2";
+
 export async function postEmision(input: PostEmisionInput): Promise<ResultadoPostEmision> {
+  if (input.ambiente !== AMBIENTE_PRODUCCION) {
+    return { estado: "OK" };
+  }
+
   // Solo líneas tipo:"producto" con shippingItemId cuentan — servicios y
   // líneas manuales agregadas a mano en el formulario (buscador o "+
   // Agregar línea manual") nunca llevan esta marca, se ignoran aquí tal
