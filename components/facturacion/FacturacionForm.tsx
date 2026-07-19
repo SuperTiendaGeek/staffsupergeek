@@ -719,13 +719,26 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
           const neto  = round2(bruto - l.descuento);
           const tarifa = TARIFAS_IVA.find((t) => t.codigo === l.tarifaIva)!;
           const { base, valorIva } = desglosarPrecioConIvaIncluido(neto, tarifa.tarifa);
+          // Fix [52] ERROR EN DIFERENCIAS (2026-07-19, facturas 677/678):
+          // antes se mandaba precioUnitario = base de la LÍNEA COMPLETA, y el
+          // SRI valida cantidad × precioUnitario − descuento ==
+          // precioTotalSinImpuesto — con cantidad ≥ 2 nunca cuadraba (2 ×
+          // 591.30 ≠ 591.30). Ahora: precioUnitario POR UNIDAD en base (sin
+          // IVA), 2 decimales (tope del XSD v2.1.0). El redondeo por unidad
+          // puede desviar centavos contra la base centavo-exacta de la línea;
+          // esa diferencia — junto con el descuento del usuario ya desglosado
+          // a términos base — se absorbe en `descuento`, dejando la ecuación
+          // del SRI exacta: cantidad×unitario − descuento = base.
+          let unitario = round2(l.precioUnitario / (1 + tarifa.tarifa / 100));
+          while (round2(l.cantidad * unitario) < base) unitario = round2(unitario + 0.01);
+          const descuentoBase = round2(round2(l.cantidad * unitario) - base);
           return {
             codigoPrincipal:        l.codigoPrincipal || undefined,
             descripcion:            l.descripcion.trim(),
             unidadMedida:           l.unidadMedida || undefined,
             cantidad:               l.cantidad,
-            precioUnitario:         base,
-            descuento:              l.descuento,
+            precioUnitario:         unitario,
+            descuento:              descuentoBase,
             precioTotalSinImpuesto: base,
             impuestos: [
               {
@@ -797,7 +810,11 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       correoComprador:             cliente.correo.trim() || undefined,
       detalles,
       totalSinImpuestos: totales.totalSinImpuestos,
-      totalDescuento:    totales.totalDescuento,
+      // totalDescuento debe cuadrar contra la SUMA de los descuentos de los
+      // detalles construidos (el SRI los cruza) — en modo IVA incluido esos
+      // descuentos ya están en términos base + ajuste de redondeo, no son
+      // los que tecleó el usuario (ver fix [52] arriba).
+      totalDescuento:    round2(detalles.reduce((s, d) => s + d.descuento, 0)),
       totalConImpuestos,
       importeTotal:      totales.importeTotal,
       pagos: pagosPrecargados ?? [{ formaPago, total: totales.importeTotal }],
@@ -886,6 +903,12 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             setPagosPrecargados(null);
             setBannerOrigen(null);
           }}
+          // UX fix 2026-07-19 (pedido del dueño): tras un rechazo del SRI,
+          // "Corregir y reintentar" antes vaciaba TODO el formulario y había
+          // que reingresar cliente y líneas desde cero. Ahora solo cierra el
+          // banner de error — cliente, líneas y pagos quedan tal cual para
+          // corregir lo puntual y reintentar.
+          onCorregir={() => setResultado(null)}
         />
       )}
 
@@ -1497,9 +1520,11 @@ function PreFacturaBloqueadaBanner({ resultado }: { resultado: Extract<Resultado
 function ResultadoBanner({
   resultado,
   onNueva,
+  onCorregir,
 }: {
-  resultado: ResultadoEmision;
-  onNueva:   () => void;
+  resultado:   ResultadoEmision;
+  onNueva:     () => void;
+  onCorregir?: () => void;
 }) {
   if (resultado.estado === "AUTORIZADO") {
     return (
@@ -1548,7 +1573,7 @@ function ResultadoBanner({
       ) : (
         <p className="text-sm text-red-300">El SRI rechazó el comprobante sin un mensaje detallado.</p>
       )}
-      <button onClick={onNueva} className="mt-3 text-xs text-[#666] underline hover:text-[#A7A7A7]">
+      <button onClick={onCorregir ?? onNueva} className="mt-3 text-xs text-[#666] underline hover:text-[#A7A7A7]">
         Corregir y reintentar
       </button>
     </div>
