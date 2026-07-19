@@ -34,7 +34,8 @@ const FACTURA_ID = "recFACT0001";
 
 // Estado simulado de Shipping Items en la "base" — mutable entre llamadas
 // para poder verificar qué PATCH realmente se disparó.
-type ItemSimulado = { id: string; estadoItem: string; facturaIds: string[] };
+// Fase 17.b: cantidad simula el campo "Cantidad" (inventario real).
+type ItemSimulado = { id: string; estadoItem: string; facturaIds: string[]; cantidad: number; disponibleVenta?: boolean };
 
 function crearDoble(items: Map<string, ItemSimulado>, idsQueFallan: Set<string>) {
   const patchesRecibidos: Array<{ id: string; fields: Record<string, unknown> }> = [];
@@ -48,7 +49,7 @@ function crearDoble(items: Map<string, ItemSimulado>, idsQueFallan: Set<string>)
     if (method === "GET" && urlStr.includes("Shipping%20Items")) {
       const records = [...items.values()].map((it) => ({
         id: it.id,
-        fields: { "Estado Item": it.estadoItem, "Factura": it.facturaIds },
+        fields: { "Estado Item": it.estadoItem, "Factura": it.facturaIds, "Cantidad": it.cantidad },
       }));
       return { ok: true, json: async () => ({ records }) } as Response;
     }
@@ -66,6 +67,11 @@ function crearDoble(items: Map<string, ItemSimulado>, idsQueFallan: Set<string>)
         ...actual,
         estadoItem: (body.fields["Estado Item"] as string) ?? actual.estadoItem,
         facturaIds: (body.fields["Factura"] as string[]) ?? actual.facturaIds,
+        cantidad:   typeof body.fields["Cantidad"] === "number" ? (body.fields["Cantidad"] as number) : actual.cantidad,
+        disponibleVenta:
+          typeof body.fields["Disponible para venta"] === "boolean"
+            ? (body.fields["Disponible para venta"] as boolean)
+            : actual.disponibleVenta,
       });
       return { ok: true, json: async () => ({ id, fields: body.fields }) } as Response;
     }
@@ -124,11 +130,11 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
   process.env.AIRTABLE_API_KEY = "fake-token-para-test";
   process.env.AIRTABLE_BASE_ID = "appFAKEBASE0001";
 
-  // ─── (a) post-emisión feliz ────────────────────────────────────────────────
+  // ─── (a) post-emisión feliz — items de 1 unidad se agotan y quedan Vendido ──
   {
     const items = new Map<string, ItemSimulado>([
-      ["recITEM1", { id: "recITEM1", estadoItem: "Disponible", facturaIds: [] }],
-      ["recITEM2", { id: "recITEM2", estadoItem: "Disponible", facturaIds: [] }],
+      ["recITEM1", { id: "recITEM1", estadoItem: "Disponible", facturaIds: [], cantidad: 1 }],
+      ["recITEM2", { id: "recITEM2", estadoItem: "Disponible", facturaIds: [], cantidad: 1 }],
     ]);
     const { fetchDoble, patchesRecibidos } = crearDoble(items, new Set());
     global.fetch = fetchDoble as unknown as typeof fetch;
@@ -141,9 +147,79 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
 
     assert(resultado.estado === "OK", "Feliz: estado final OK");
     assert(patchesRecibidos.length === 2, "Feliz: solo 2 PATCH (uno por cada item producto, el servicio se ignora)");
-    assert(items.get("recITEM1")!.estadoItem === "Vendido", "Feliz: recITEM1 queda Vendido");
+    assert(items.get("recITEM1")!.estadoItem === "Vendido", "Feliz: recITEM1 (1 unidad, agotado) queda Vendido");
+    assert(items.get("recITEM1")!.cantidad === 0, "Feliz: recITEM1 queda con Cantidad 0");
+    assert(items.get("recITEM1")!.disponibleVenta === false, "Feliz: recITEM1 agotado deja de estar Disponible para venta");
     assert(items.get("recITEM1")!.facturaIds.includes(FACTURA_ID), "Feliz: recITEM1 queda linkeado a la factura");
     assert(items.get("recITEM2")!.estadoItem === "Vendido", "Feliz: recITEM2 queda Vendido");
+  }
+
+  // ─── (a bis) Fase 17.b — venta PARCIAL: descuenta sin agotar ────────────────
+  {
+    const items = new Map<string, ItemSimulado>([
+      ["recITEM5", { id: "recITEM5", estadoItem: "Repuesto", facturaIds: [], cantidad: 5 }],
+    ]);
+    const { fetchDoble, patchesRecibidos } = crearDoble(items, new Set());
+    global.fetch = fetchDoble as unknown as typeof fetch;
+
+    const linea = { ...lineaProducto("recITEM5", "RAM Hynix 1GB (vende 2 de 5)"), cantidad: 2 };
+    const resultado = await postEmision({
+      facturaRecordId: FACTURA_ID,
+      detalles: [linea],
+      ambiente: "2",
+    });
+
+    assert(resultado.estado === "OK", "Parcial: estado OK");
+    assert(patchesRecibidos.length === 1, "Parcial: un solo PATCH");
+    assert(items.get("recITEM5")!.cantidad === 3, "Parcial: Cantidad 5 - 2 = 3");
+    assert(items.get("recITEM5")!.estadoItem === "Repuesto", "Parcial: con stock restante NO se marca Vendido (estado logístico intacto)");
+    assert(items.get("recITEM5")!.disponibleVenta === undefined, "Parcial: Disponible para venta no se toca con stock restante");
+    assert(items.get("recITEM5")!.facturaIds.includes(FACTURA_ID), "Parcial: el link a la factura sí se registra (marca de idempotencia)");
+  }
+
+  // ─── (a ter) Fase 17.b — links se ACUMULAN, no se reemplazan ────────────────
+  {
+    const items = new Map<string, ItemSimulado>([
+      ["recITEM6", { id: "recITEM6", estadoItem: "Repuesto", facturaIds: ["recFACTVIEJA"], cantidad: 2 }],
+    ]);
+    const { fetchDoble } = crearDoble(items, new Set());
+    global.fetch = fetchDoble as unknown as typeof fetch;
+
+    const resultado = await postEmision({
+      facturaRecordId: FACTURA_ID,
+      detalles: [lineaProducto("recITEM6")],
+      ambiente: "2",
+    });
+
+    assert(resultado.estado === "OK", "Append: estado OK");
+    assert(items.get("recITEM6")!.facturaIds.includes("recFACTVIEJA"), "Append: la factura anterior se conserva");
+    assert(items.get("recITEM6")!.facturaIds.includes(FACTURA_ID), "Append: la factura nueva se agrega");
+    assert(items.get("recITEM6")!.cantidad === 1, "Append: Cantidad 2 - 1 = 1");
+  }
+
+  // ─── (a quater) Fase 17.b — stock insuficiente al descontar: clamp a 0 + ERROR ──
+  {
+    const items = new Map<string, ItemSimulado>([
+      ["recITEM7", { id: "recITEM7", estadoItem: "Repuesto", facturaIds: [], cantidad: 1 }],
+    ]);
+    const { fetchDoble, syncWrites } = crearDoble(items, new Set());
+    global.fetch = fetchDoble as unknown as typeof fetch;
+
+    const linea = { ...lineaProducto("recITEM7", "Repuesto sobrevendido"), cantidad: 3 };
+    const resultado = await postEmision({
+      facturaRecordId: FACTURA_ID,
+      detalles: [linea],
+      ambiente: "2",
+    });
+
+    assert(resultado.estado === "ERROR", "Sobreventa: estado ERROR (la factura ya es real, pero queda constancia)");
+    assert(!!resultado.detalle && resultado.detalle.includes("stock insuficiente"), "Sobreventa: el detalle explica el descuadre");
+    assert(items.get("recITEM7")!.cantidad === 0, "Sobreventa: Cantidad queda en 0, nunca negativa");
+    assert(items.get("recITEM7")!.estadoItem === "Vendido", "Sobreventa: stock agotado queda Vendido");
+    assert(
+      syncWrites.some((w) => w.fields["Sincronización Inventario"] === "ERROR"),
+      "Sobreventa: Sincronización Inventario queda ERROR para revisión manual"
+    );
   }
 
   // ─── (e) factura solo-servicios desde el gancho ──────────────────────────────
@@ -185,8 +261,8 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
   // ─── (b) fallo parcial simulado ───────────────────────────────────────────────
   {
     const items = new Map<string, ItemSimulado>([
-      ["recITEM1", { id: "recITEM1", estadoItem: "Disponible", facturaIds: [] }],
-      ["recITEM2", { id: "recITEM2", estadoItem: "Disponible", facturaIds: [] }],
+      ["recITEM1", { id: "recITEM1", estadoItem: "Disponible", facturaIds: [], cantidad: 1 }],
+      ["recITEM2", { id: "recITEM2", estadoItem: "Disponible", facturaIds: [], cantidad: 1 }],
     ]);
     const { fetchDoble, syncWrites } = crearDoble(items, new Set(["recITEM2"]));
     global.fetch = fetchDoble as unknown as typeof fetch;
@@ -214,8 +290,8 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
     // anterior (falló solo recITEM2) — el reintento no debe volver a
     // tocarlo ni contarlo como error.
     const items = new Map<string, ItemSimulado>([
-      ["recITEM1", { id: "recITEM1", estadoItem: "Vendido", facturaIds: [FACTURA_ID] }],
-      ["recITEM2", { id: "recITEM2", estadoItem: "Disponible", facturaIds: [] }],
+      ["recITEM1", { id: "recITEM1", estadoItem: "Vendido", facturaIds: [FACTURA_ID], cantidad: 0 }],
+      ["recITEM2", { id: "recITEM2", estadoItem: "Disponible", facturaIds: [], cantidad: 1 }],
     ]);
     const { fetchDoble, patchesRecibidos } = crearDoble(items, new Set());
     global.fetch = fetchDoble as unknown as typeof fetch;
@@ -235,7 +311,7 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
   // ─── (c bis) reintento cuando TODO ya estaba hecho — no debe tocar nada ──────
   {
     const items = new Map<string, ItemSimulado>([
-      ["recITEM1", { id: "recITEM1", estadoItem: "Vendido", facturaIds: [FACTURA_ID] }],
+      ["recITEM1", { id: "recITEM1", estadoItem: "Vendido", facturaIds: [FACTURA_ID], cantidad: 0 }],
     ]);
     const { fetchDoble, patchesRecibidos } = crearDoble(items, new Set());
     global.fetch = fetchDoble as unknown as typeof fetch;
@@ -253,7 +329,7 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
   // ─── (f) Fase 17 — guard de ambiente: pruebas NUNCA debe tocar Shipping Items ──
   {
     const items = new Map<string, ItemSimulado>([
-      ["recITEM1", { id: "recITEM1", estadoItem: "Disponible", facturaIds: [] }],
+      ["recITEM1", { id: "recITEM1", estadoItem: "Disponible", facturaIds: [], cantidad: 1 }],
     ]);
     const { fetchDoble, patchesRecibidos } = crearDoble(items, new Set());
     global.fetch = fetchDoble as unknown as typeof fetch;
@@ -272,7 +348,7 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
   // ─── (g) Fase 17 — guard de ambiente: sin ambiente definido también debe fallar cerrado ──
   {
     const items = new Map<string, ItemSimulado>([
-      ["recITEM1", { id: "recITEM1", estadoItem: "Disponible", facturaIds: [] }],
+      ["recITEM1", { id: "recITEM1", estadoItem: "Disponible", facturaIds: [], cantidad: 1 }],
     ]);
     const { fetchDoble, patchesRecibidos } = crearDoble(items, new Set());
     global.fetch = fetchDoble as unknown as typeof fetch;

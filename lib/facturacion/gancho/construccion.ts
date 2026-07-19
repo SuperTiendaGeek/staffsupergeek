@@ -92,14 +92,25 @@ export function agruparTotalConImpuestos(detalles: DetalleFactura[]): TotalImpue
 }
 
 // ─── Precondición dura de items ──────────────────────────────────────────────
-export type ItemNoListo = { id: string; nombre: string; motivo: "NO_RESERVADO" | "YA_FACTURADO" };
+// Fase 17.b (inventario por cantidad): la puerta real ahora es el stock
+// (`cantidad`), no la existencia de una factura previa. Con el modelo de
+// cantidad, un registro puede representar varias unidades y venderse en
+// partes: un item con factura previa PERO stock restante (cantidad >= 1)
+// sigue siendo vendible. "YA_FACTURADO" se conserva como el motivo más
+// informativo para el caso clásico (registro de 1 unidad ya vendido:
+// factura previa + cantidad 0); sin factura previa, cantidad 0 reporta
+// "SIN_STOCK".
+export type ItemNoListo = { id: string; nombre: string; motivo: "NO_RESERVADO" | "YA_FACTURADO" | "SIN_STOCK" };
 
 export function evaluarItemNoListo(
   item: Pick<CuentaUnificadaItem, "id" | "nombre">,
-  detalle: Pick<ItemDetalleGancho, "reservado" | "tieneFacturaPrevia"> | undefined
+  detalle: Pick<ItemDetalleGancho, "reservado" | "tieneFacturaPrevia" | "cantidad"> | undefined
 ): ItemNoListo | null {
   if (!detalle) return null; // fetch inconsistente — se ignora en vez de bloquear (ver traductor.ts)
-  if (detalle.tieneFacturaPrevia) return { id: item.id, nombre: item.nombre, motivo: "YA_FACTURADO" };
+  if (detalle.cantidad < 1) {
+    if (detalle.tieneFacturaPrevia) return { id: item.id, nombre: item.nombre, motivo: "YA_FACTURADO" };
+    return { id: item.id, nombre: item.nombre, motivo: "SIN_STOCK" };
+  }
   if (!detalle.reservado) return { id: item.id, nombre: item.nombre, motivo: "NO_RESERVADO" };
   return null;
 }

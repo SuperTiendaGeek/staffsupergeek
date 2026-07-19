@@ -154,34 +154,53 @@ for (const precioFinal of [100, 50, 80, 35, 20, 46, 33.33, 10, 1, 0.01, 115, 19.
 
 // ─── evaluarItemNoListo ────────────────────────────────────────────────────────
 
+// Fase 17.b: la puerta principal ahora es el stock (cantidad). Un registro
+// puede representar varias unidades y venderse en partes.
 {
   const bloqueo = evaluarItemNoListo(
     { id: "recX", nombre: "Item sin reservar" },
-    { reservado: false, tieneFacturaPrevia: false }
+    { reservado: false, tieneFacturaPrevia: false, cantidad: 1 }
   );
   assert(bloqueo?.motivo === "NO_RESERVADO", "Item con Reservado=false debe bloquear con NO_RESERVADO");
 }
 {
+  // El caso clásico del registro-por-unidad: ya vendido = factura previa + cantidad 0
   const bloqueo = evaluarItemNoListo(
     { id: "recY", nombre: "Item ya facturado" },
-    { reservado: true, tieneFacturaPrevia: true }
+    { reservado: true, tieneFacturaPrevia: true, cantidad: 0 }
   );
-  assert(bloqueo?.motivo === "YA_FACTURADO", "Item con link Factura previo debe bloquear con YA_FACTURADO");
+  assert(bloqueo?.motivo === "YA_FACTURADO", "Item agotado con link Factura previo debe bloquear con YA_FACTURADO");
 }
 {
   const bloqueo = evaluarItemNoListo(
     { id: "recZ", nombre: "Item listo" },
-    { reservado: true, tieneFacturaPrevia: false }
+    { reservado: true, tieneFacturaPrevia: false, cantidad: 1 }
   );
-  assert(bloqueo === null, "Item Reservado y sin Factura previa no debe bloquear");
+  assert(bloqueo === null, "Item Reservado, con stock y sin Factura previa no debe bloquear");
 }
 {
-  // Prioridad: si tiene AMBOS problemas, reporta YA_FACTURADO (más específico/grave)
+  // Prioridad: agotado con AMBOS problemas reporta YA_FACTURADO (más específico/grave)
   const bloqueo = evaluarItemNoListo(
     { id: "recW", nombre: "Item con los dos problemas" },
-    { reservado: false, tieneFacturaPrevia: true }
+    { reservado: false, tieneFacturaPrevia: true, cantidad: 0 }
   );
   assert(bloqueo?.motivo === "YA_FACTURADO", "Con ambos problemas, prioriza YA_FACTURADO sobre NO_RESERVADO");
+}
+{
+  // Fase 17.b — sin stock y sin factura previa: SIN_STOCK
+  const bloqueo = evaluarItemNoListo(
+    { id: "recS", nombre: "Item agotado" },
+    { reservado: true, tieneFacturaPrevia: false, cantidad: 0 }
+  );
+  assert(bloqueo?.motivo === "SIN_STOCK", "Item con Cantidad 0 sin factura previa debe bloquear con SIN_STOCK");
+}
+{
+  // Fase 17.b — factura previa PERO stock restante: vendible (venta parcial previa)
+  const bloqueo = evaluarItemNoListo(
+    { id: "recP", nombre: "Item parcialmente vendido" },
+    { reservado: true, tieneFacturaPrevia: true, cantidad: 3 }
+  );
+  assert(bloqueo === null, "Item con factura previa pero stock restante NO debe bloquear (venta parcial)");
 }
 
 // ─── calcularFormasPago ────────────────────────────────────────────────────────

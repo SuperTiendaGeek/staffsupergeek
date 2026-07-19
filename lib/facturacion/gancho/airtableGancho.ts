@@ -91,7 +91,17 @@ export type ItemDetalleGancho = {
   reservado: boolean;
   tieneFacturaPrevia: boolean;
   tarifaIva: string; // "15%" | "0%" | "Exento" | "No objeto" | "" (vacío)
+  // Fase 17.b (inventario por cantidad): unidades en stock según el campo
+  // "Cantidad" de Shipping Items. Campo vacío/ausente → 0, fail-closed:
+  // un item sin cantidad definida se trata como sin stock, nunca al revés.
+  cantidad: number;
 };
+
+export function numberOrZero(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const n = parseFloat(String(value));
+  return Number.isFinite(n) ? n : 0;
+}
 
 export async function fetchDetalleItems(itemIds: string[]): Promise<Map<string, ItemDetalleGancho>> {
   const records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, itemIds);
@@ -103,6 +113,7 @@ export async function fetchDetalleItems(itemIds: string[]): Promise<Map<string, 
       reservado: r.fields["Reservado"] === true,
       tieneFacturaPrevia: linkedIds(r.fields["Factura"]).length > 0,
       tarifaIva: firstString(r.fields["Tarifa IVA"]),
+      cantidad: numberOrZero(r.fields["Cantidad"]),
     });
   }
   return map;
