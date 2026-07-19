@@ -31,6 +31,11 @@ export type ProductoCatalogo = {
   descripcion: string;
   precioVenta: number;
   unidad:      string;
+  // Fase 17.b (inventario por cantidad): unidades en stock según el campo
+  // "Cantidad". El buscador ya filtra Cantidad >= 1, así que aquí siempre
+  // llega >= 1; el formulario lo usa para (a) mostrar el stock en la
+  // sugerencia y (b) validar que la cantidad pedida no lo supere.
+  cantidadDisponible: number;
 };
 
 function firstStr(v: unknown): string {
@@ -53,6 +58,7 @@ function mapProductoRecord(r: { id: string; fields?: Record<string, unknown> }):
     descripcion: firstStr(f["Descripción"] ?? f["Descripcion"]),
     precioVenta: firstNum(f["Precio venta final"] ?? f["Precio venta sugerido"] ?? 0),
     unidad:      firstStr(f["Unidad"]) || "UNIDAD",
+    cantidadDisponible: firstNum(f["Cantidad"] ?? 0),
   };
 }
 
@@ -70,9 +76,12 @@ export async function buscarProductos(q: string, pageSize = 8): Promise<Producto
 
   // Campos buscados: "Nombre del item" y "SKU".
   // {Disponible para venta} es checkbox → truthy cuando está marcado; no necesita =TRUE().
+  // {Cantidad}>=1 (Fase 17.b): un item sin stock no aparece en el buscador —
+  // regla del dueño: Cantidad 0 = no se puede cargar ni facturar.
   // AND necesita coma entre argumentos — no .join("") sobre múltiples piezas.
   const formula =
     `AND({Disponible para venta},` +
+    `{Cantidad}>=1,` +
     `OR(` +
       `SEARCH("${escaped}",LOWER({Nombre del item})),` +
       `SEARCH("${escaped}",LOWER({SKU}))` +
@@ -89,6 +98,7 @@ export async function buscarProductos(q: string, pageSize = 8): Promise<Producto
   params.append("fields[]", "Precio venta sugerido");
   params.append("fields[]", "Unidad");
   params.append("fields[]", "Disponible para venta");
+  params.append("fields[]", "Cantidad");
 
   const url = `${client.baseUrl}/${encodeURIComponent(TABLE)}?${params}`;
   const res = await fetch(url, { headers: client.headers, cache: "no-store" });

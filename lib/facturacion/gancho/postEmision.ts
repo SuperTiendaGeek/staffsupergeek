@@ -14,7 +14,7 @@ import "server-only";
 // línea) y se escribe directamente por RECORD_ID (PATCH por id, no por
 // filterByFormula).
 
-import { fetchRecordsByIds, linkedIds, firstString } from "./airtableGancho";
+import { fetchRecordsByIds, linkedIds, firstString, numberOrZero } from "./airtableGancho";
 import { actualizarSincronizacionInventario } from "../airtable/facturas";
 import type { DetalleFactura } from "../types/factura";
 
@@ -22,7 +22,7 @@ const SHIPPING_ITEMS_TABLE = "Shipping Items";
 
 // ─── Estado actual del item (para decidir si ya está hecho) ─────────────────
 
-type EstadoItemActual = { estadoItem: string; facturaIds: string[] };
+type EstadoItemActual = { estadoItem: string; facturaIds: string[]; cantidad: number };
 
 async function fetchEstadoActualItems(itemIds: string[]): Promise<Map<string, EstadoItemActual>> {
   const records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, itemIds);
@@ -31,6 +31,7 @@ async function fetchEstadoActualItems(itemIds: string[]): Promise<Map<string, Es
     map.set(r.id, {
       estadoItem: firstString(r.fields["Estado Item"]),
       facturaIds: linkedIds(r.fields["Factura"]),
+      cantidad:   numberOrZero(r.fields["Cantidad"]),
     });
   }
   return map;
@@ -131,46 +132,96 @@ export async function postEmision(input: PostEmisionInput): Promise<ResultadoPos
     console.error("[postEmision] no se pudo marcar PENDIENTE:", e);
   });
 
-  const itemIds       = itemsProducto.map((d) => d.shippingItemId);
+  // Fase 17.b — inventario por cantidad. Varias líneas de la misma factura
+  // pueden apuntar al mismo Shipping Item; se agrupan y se descuenta la SUMA
+  // una sola vez por item (un solo PATCH), no línea por línea.
+  const vendidaPorItem = new Map<string, { cantidad: number; descripcion: string }>();
+  for (const linea of itemsProducto) {
+    const prev = vendidaPorItem.get(linea.shippingItemId);
+    vendidaPorItem.set(linea.shippingItemId, {
+      cantidad:    (prev?.cantidad ?? 0) + (Number.isFinite(linea.cantidad) && linea.cantidad > 0 ? linea.cantidad : 0),
+      descripcion: prev?.descripcion ?? linea.descripcion,
+    });
+  }
+
+  const itemIds       = [...vendidaPorItem.keys()];
+  // Releído AQUÍ, justo antes de escribir — no se confía en la cantidad que
+  // haya visto el formulario/pre-chequeo minutos antes (mitiga la ventana de
+  // carrera entre dos facturas simultáneas sobre el mismo item).
   const estadoActual  = await fetchEstadoActualItems(itemIds);
   const fallidos: Array<{ id: string; descripcion: string; error: string }> = [];
+  const advertencias: string[] = [];
   let yaHechos  = 0;
   let marcados  = 0;
 
-  for (const linea of itemsProducto) {
-    const actual = estadoActual.get(linea.shippingItemId);
-    // Idempotente: un item ya "Vendido" y linkeado a ESTA factura no se
-    // vuelve a tocar ni cuenta como error — es lo que permite reintentar
-    // sin duplicar trabajo ni fallar sobre lo que ya está bien.
-    if (actual && actual.estadoItem === "Vendido" && actual.facturaIds.includes(input.facturaRecordId)) {
+  for (const [itemId, venta] of vendidaPorItem) {
+    const actual = estadoActual.get(itemId);
+
+    // Idempotente: el link a ESTA factura es la marca de "ya descontado".
+    // Se escribe en el mismo PATCH que el descuento, así que su presencia
+    // implica que el descuento de esta factura ya se aplicó — un reintento
+    // (/sincronizar) no debe descontar dos veces.
+    if (actual && actual.facturaIds.includes(input.facturaRecordId)) {
       yaHechos++;
       continue;
     }
+
+    const disponible = actual?.cantidad ?? 0;
+    const nueva      = disponible - venta.cantidad;
+    const nuevaFinal = Math.max(0, nueva);
+
+    if (nueva < 0) {
+      // La factura ya es real ante el SRI — no se puede rechazar la venta.
+      // Se deja el stock en 0 (lo más cercano a la realidad) y constancia
+      // visible del descuadre para corrección manual.
+      advertencias.push(
+        `${venta.descripcion} (${itemId}): stock insuficiente al descontar — había ${disponible}, se facturaron ${venta.cantidad}. Cantidad dejada en 0; revisar inventario físico.`
+      );
+    }
+
+    const fields: Record<string, unknown> = {
+      "Cantidad": nuevaFinal,
+      // APPEND, nunca reemplazo: con ventas parciales un mismo item puede
+      // acumular varias facturas a lo largo de su stock.
+      "Factura":  [...(actual?.facturaIds ?? []), input.facturaRecordId],
+    };
+    // Solo cuando el stock se agota, el registro se cierra como Vendido y
+    // deja de estar disponible para venta. Con stock restante, el registro
+    // sigue vivo tal como está (su Estado Item logístico no cambia).
+    if (nuevaFinal === 0) {
+      fields["Estado Item"]           = "Vendido";
+      fields["Disponible para venta"] = false;
+    }
+
     try {
-      await patchShippingItemConReintento(linea.shippingItemId, {
-        "Estado Item": "Vendido",
-        "Factura":     [input.facturaRecordId],
-      });
+      await patchShippingItemConReintento(itemId, fields);
       marcados++;
     } catch (e) {
       fallidos.push({
-        id:          linea.shippingItemId,
-        descripcion: linea.descripcion,
+        id:          itemId,
+        descripcion: venta.descripcion,
         error:       e instanceof Error ? e.message : String(e),
       });
     }
   }
 
-  if (fallidos.length === 0) {
+  if (fallidos.length === 0 && advertencias.length === 0) {
     await actualizarSincronizacionInventario(input.facturaRecordId, "OK").catch((e) => {
       console.error("[postEmision] no se pudo marcar OK:", e);
     });
     return { estado: "OK" };
   }
 
-  const detalle =
-    `${marcados + yaHechos}/${itemsProducto.length} items sincronizados. Fallaron: ` +
-    fallidos.map((f) => `${f.descripcion} (${f.id}): ${f.error}`).join("; ");
+  const partes: string[] = [
+    `${marcados + yaHechos}/${vendidaPorItem.size} items sincronizados.`,
+  ];
+  if (fallidos.length > 0) {
+    partes.push("Fallaron: " + fallidos.map((f) => `${f.descripcion} (${f.id}): ${f.error}`).join("; "));
+  }
+  if (advertencias.length > 0) {
+    partes.push("Advertencias: " + advertencias.join("; "));
+  }
+  const detalle = partes.join(" ");
 
   await actualizarSincronizacionInventario(input.facturaRecordId, "ERROR", detalle).catch((e) => {
     console.error("[postEmision] no se pudo marcar ERROR en Sincronización Inventario:", e);

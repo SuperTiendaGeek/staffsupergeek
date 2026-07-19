@@ -67,14 +67,17 @@ type LineaDetalle = {
   precioUnitario: number;
   descuento:      number;
   tarifaIva:      TarifaCodigo;
-  // Fase 16 PR3 (post-emisión): marca de origen, SOLO presente en líneas que
-  // llegaron precargadas desde el gancho (cuentaUnificadaToDatosVenta). Se
-  // propaga sin tocar al emitir para que postEmision() sepa qué Shipping
-  // Item marcar como Vendido — nunca se setea en líneas agregadas a mano
-  // (buscador de productos o "+ Agregar línea manual"), ni en mostrador:
-  // "marcar inventario de mostrador" queda fuera de esta fase.
+  // Fase 16 PR3 (post-emisión) + Fase 17.b (inventario por cantidad): marca
+  // de origen presente en líneas precargadas desde el gancho Y TAMBIÉN, desde
+  // Fase 17.b, en líneas agregadas con el buscador de productos de mostrador
+  // (agregarProducto) — ambas descuentan stock al facturar. Solo "+ Agregar
+  // línea manual" sigue sin vínculo a inventario.
   tipo?:           "producto" | "servicio";
   shippingItemId?: string;
+  // Stock visto al momento de agregar la línea (solo buscador de mostrador).
+  // Referencial para validación temprana en el formulario — la verificación
+  // definitiva la hace el servidor releyendo Airtable justo antes de emitir.
+  stockDisponible?: number;
 };
 
 type ProductoCatalogo = {
@@ -84,6 +87,7 @@ type ProductoCatalogo = {
   descripcion: string;
   precioVenta: number;
   unidad:      string;
+  cantidadDisponible: number;
 };
 
 type ClienteBusqueda = {
@@ -442,6 +446,11 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         precioUnitario: p.precioVenta,
         descuento:      0,
         tarifaIva:      "4",  // IVA 15% por defecto (Shipping Items no tiene campo IVA)
+        // Fase 17.b: la línea de mostrador ahora sí queda vinculada a su
+        // Shipping Item — descuenta stock al facturar, igual que el gancho.
+        tipo:            "producto",
+        shippingItemId:  p.id,
+        stockDisponible: p.cantidadDisponible,
       },
     ]);
     setQueryProducto("");
@@ -671,6 +680,21 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
     }
     if (lineas.some((l) => l.cantidad <= 0 || l.precioUnitario < 0)) {
       setErrGlobal("Cantidad debe ser > 0 y precio ≥ 0 en todos los detalles"); return;
+    }
+    // Fase 17.b — validación temprana de stock (solo líneas del buscador de
+    // mostrador, que traen stockDisponible). Referencial: la verificación
+    // definitiva la repite el servidor contra Airtable antes de emitir.
+    {
+      const sinStock = lineas.filter(
+        (l) => l.shippingItemId && l.stockDisponible !== undefined && l.cantidad > l.stockDisponible
+      );
+      if (sinStock.length > 0) {
+        const lista = sinStock
+          .map((l) => `"${l.descripcion}" (solicitado: ${l.cantidad}, disponible: ${l.stockDisponible})`)
+          .join("; ");
+        setErrGlobal(`Sin stock disponible: ${lista}`);
+        return;
+      }
     }
     if (pagosPrecargados) {
       if (pagosPrecargados.length === 0) { setErrGlobal("Agrega al menos una forma de pago"); return; }
@@ -1022,7 +1046,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
                     className="w-full text-left px-4 py-2.5 hover:bg-[#252622] text-sm"
                   >
                     <p className="font-semibold text-[#F5F5F5]">{p.nombre}</p>
-                    <p className="text-[#666] text-xs">{p.sku} · {p.unidad} · ${p.precioVenta.toFixed(2)}</p>
+                    <p className="text-[#666] text-xs">{p.sku} · {p.unidad} · ${p.precioVenta.toFixed(2)} · stock: {p.cantidadDisponible}</p>
                   </button>
                 </li>
               ))}
@@ -1457,7 +1481,11 @@ function PreFacturaBloqueadaBanner({ resultado }: { resultado: Extract<Resultado
           <li key={item.id} className="text-sm text-[#F5F5F5]">
             {item.nombre} —{" "}
             <span className="text-[#F0C75E]">
-              {item.motivo === "NO_RESERVADO" ? "no está Reservado" : "ya tiene una factura vinculada"}
+              {item.motivo === "NO_RESERVADO"
+                ? "no está Reservado"
+                : item.motivo === "SIN_STOCK"
+                ? "no tiene stock disponible"
+                : "ya tiene una factura vinculada"}
             </span>
           </li>
         ))}

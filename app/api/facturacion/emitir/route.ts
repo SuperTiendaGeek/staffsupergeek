@@ -4,6 +4,7 @@ import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitir
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { buscarFacturaBloqueante } from "@/lib/facturacion/gancho/idempotencia";
 import { postEmision } from "@/lib/facturacion/gancho/postEmision";
+import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
 import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +52,24 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
+  }
+
+  // Fase 17.b — verificación de stock ANTES de emitir. Después de la
+  // autorización del SRI la venta ya no se puede rechazar, así que esta es
+  // la única puerta válida. Falla cerrado también ante un error de lectura:
+  // si no se puede confirmar el stock, no se emite (una factura real sobre
+  // stock no verificado es peor que pedir reintentar).
+  try {
+    const faltantes = await verificarStockDisponible(body.detalles);
+    if (faltantes.length > 0) {
+      return NextResponse.json({ success: false, error: mensajeFaltantes(faltantes) }, { status: 400 });
+    }
+  } catch (e) {
+    console.error("[/api/facturacion/emitir POST] error verificando stock:", e);
+    return NextResponse.json(
+      { success: false, error: "No se pudo verificar el stock disponible. Intente de nuevo." },
+      { status: 503 }
+    );
   }
 
   try {
