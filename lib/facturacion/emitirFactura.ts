@@ -32,6 +32,7 @@ import { actualizarEstadoCorreo } from "./airtable/facturas";
 import { generarRide }            from "./ride/generarRide";
 import { enviarRide }             from "./correo/enviarRide";
 import { assertConsumidorFinalPermitido } from "./reglas/consumidorFinal";
+import { ahoraEnEcuador }         from "./fechaEcuador";
 import { assertXmlValidoSri }     from "./reglas/validacionXsd";
 import { assertPagosCuadranConTotal } from "./reglas/pagos";
 
@@ -126,7 +127,11 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
   assertPagosCuadranConTotal(datos.pagos, datos.importeTotal);
 
   const cfg         = getFacturacionConfig();
-  const fechaEmision = new Date();
+  // Fecha civil de Ecuador, NO la del servidor (Vercel = UTC) — ver
+  // lib/facturacion/fechaEcuador.ts. Con new Date() a secas, toda emisión
+  // entre las 19:00 y las 24:00 de Ecuador salía fechada al día siguiente y
+  // el SRI la devolvía con [65] FECHA EMISIÓN EXTEMPORANEA.
+  const fechaEmision = ahoraEnEcuador();
 
   // Leer el secuencial base una sola vez; los reintentos usan offset creciente
   const base = await siguienteSecuencial(cfg.establecimiento, cfg.puntoEmision);

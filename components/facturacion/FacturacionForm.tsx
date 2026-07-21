@@ -681,6 +681,9 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
     if (lineas.some((l) => l.cantidad <= 0 || l.precioUnitario < 0)) {
       setErrGlobal("Cantidad debe ser > 0 y precio ≥ 0 en todos los detalles"); return;
     }
+    if (lineas.some((l) => !Number.isInteger(l.cantidad))) {
+      setErrGlobal("La cantidad debe ser un número entero (se venden unidades completas)"); return;
+    }
     // Fase 17.b — validación temprana de stock (solo líneas del buscador de
     // mostrador, que traen stockDisponible). Referencial: la verificación
     // definitiva la repite el servidor contra Airtable antes de emitir.
@@ -1316,7 +1319,9 @@ function LineaRow({
         <input type="text" value={linea.unidadMedida} onChange={(e) => onChange("unidadMedida", e.target.value)} className="w-16 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-center text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" />
       </td>
       <td className="py-1.5 pr-2">
-        <input type="number" min="0.01" step="0.01" value={linea.cantidad} onChange={(e) => onChange("cantidad", parseFloat(e.target.value) || 0)} className="w-16 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" />
+        {/* Cantidad: solo enteros (pedido del dueño 2026-07-20) — se venden
+            unidades físicas, nunca fracciones. parseInt + step=1. */}
+        <input type="number" min="1" step="1" value={linea.cantidad} onChange={(e) => onChange("cantidad", Math.max(0, parseInt(e.target.value, 10) || 0))} className="w-16 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" />
       </td>
       <td className="py-1.5 pr-2">
         <input type="number" min="0" step="0.01" value={linea.precioUnitario} onChange={(e) => onChange("precioUnitario", parseFloat(e.target.value) || 0)} className="w-24 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" />
