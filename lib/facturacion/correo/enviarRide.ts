@@ -31,6 +31,9 @@ export type CorreoRideInput = {
   xmlBuffer:       Buffer;
   pdfBuffer:       Buffer;
   claveAcceso:     string;
+  /** Fase 18: rótulo del documento. Ausente = "Factura Electrónica"
+   *  (comportamiento idéntico al de siempre para facturas). */
+  tipoDocumento?:  "Factura Electrónica" | "Nota de Crédito";
 };
 
 function getSmtpConfig() {
@@ -69,6 +72,8 @@ export async function enviarRide(input: CorreoRideInput): Promise<void> {
 
   const ambienteLabel = input.ambiente === "1" ? "PRUEBA" : "PRODUCCIÓN";
   const nombreArchivo = input.claveAcceso;
+  const tipoDoc       = input.tipoDocumento ?? "Factura Electrónica";
+  const esNotaCredito = tipoDoc === "Nota de Crédito";
 
   const adjuntos: Adjunto[] = [
     {
@@ -86,15 +91,20 @@ export async function enviarRide(input: CorreoRideInput): Promise<void> {
   await transporter.sendMail({
     from:        `"SUPER TIENDA GEEK" <${cfg.from}>`,
     to:          destFinal,
-    subject:     `Factura Electrónica ${input.numeroFactura} [${ambienteLabel}] - SUPER TIENDA GEEK`,
+    subject:     `${tipoDoc} ${input.numeroFactura} [${ambienteLabel}] - SUPER TIENDA GEEK`,
     text: [
       `Estimado/a ${input.nombreComprador},`,
       "",
-      `Adjunto encontrará su factura electrónica No. ${input.numeroFactura} emitida el ${input.fechaEmision.toLocaleDateString("es-EC")}.`,
+      `Adjunto encontrará su ${tipoDoc.toLowerCase()} No. ${input.numeroFactura} emitida el ${input.fechaEmision.toLocaleDateString("es-EC")}.`,
       "",
       `Archivos adjuntos:`,
       `  • ${nombreArchivo}.xml — Comprobante electrónico autorizado por el SRI`,
       `  • ${nombreArchivo}.pdf — Representación Impresa (RIDE)`,
+      "",
+      // Regla SRI 2026: la NC solo surte efecto si el receptor la acepta.
+      esNotaCredito
+        ? "IMPORTANTE: para que esta nota de crédito surta efecto, debe aceptarla en SRI en línea dentro de los 5 días hábiles siguientes. Si no responde en ese plazo, la solicitud queda sin efecto."
+        : "",
       "",
       modoTest ? `[MODO PRUEBA — destinatario real: ${input.destinatario}]` : "",
       "",
@@ -102,8 +112,9 @@ export async function enviarRide(input: CorreoRideInput): Promise<void> {
     ].join("\n"),
     html: `
       <p>Estimado/a <strong>${input.nombreComprador}</strong>,</p>
-      <p>Adjunto encontrará su factura electrónica <strong>No. ${input.numeroFactura}</strong>
+      <p>Adjunto encontrará su ${tipoDoc.toLowerCase()} <strong>No. ${input.numeroFactura}</strong>
          emitida el <strong>${input.fechaEmision.toLocaleDateString("es-EC")}</strong>.</p>
+      ${esNotaCredito ? `<p style="background:#FFF6E5;border-left:3px solid #F0C75E;padding:8px 10px;"><strong>Importante:</strong> para que esta nota de crédito surta efecto, debe aceptarla en <strong>SRI en línea</strong> dentro de los <strong>5 días hábiles</strong> siguientes. Si no responde en ese plazo, la solicitud queda sin efecto.</p>` : ""}
       <ul>
         <li><strong>${nombreArchivo}.xml</strong> — Comprobante electrónico autorizado por el SRI</li>
         <li><strong>${nombreArchivo}.pdf</strong> — Representación Impresa (RIDE)</li>
