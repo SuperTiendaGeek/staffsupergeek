@@ -120,6 +120,18 @@ export type RideInput = {
   detalles:                 DetalleRide[];
   // Adicional (parametrizable: se muestra solo si el llamador lo provee)
   infoAdicional?:           CampoAdicional[];
+
+  // ── Fase 18: modo NOTA DE CRÉDITO ──────────────────────────────────────────
+  // Los tres campos son OPCIONALES y su ausencia deja el RIDE EXACTAMENTE
+  // como estaba (factura). Cuando `tipoDocumento` es "NOTA DE CRÉDITO":
+  //   · el rótulo del recuadro superior cambia,
+  //   · se añade el bloque "documento que modifica" + motivo,
+  //   · se omite el bloque FORMA DE PAGO (una NC no tiene pagos: acredita).
+  tipoDocumento?:           "FACTURA" | "NOTA DE CRÉDITO";
+  /** Número de la factura modificada, "001-002-000000681". Solo en NC. */
+  documentoModificado?:     { numero: string; fechaEmision: Date };
+  /** Motivo de la nota de crédito. Solo en NC. */
+  motivo?:                  string;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -276,7 +288,7 @@ export async function generarRide(input: RideInput): Promise<Uint8Array> {
               widths: ["*"],
               body: [
                 [{ text: "R.U.C: " + input.ruc, bold: true, alignment: "center" }],
-                [{ text: "FACTURA", bold: true, alignment: "center", fontSize: 11 }],
+                [{ text: input.tipoDocumento ?? "FACTURA", bold: true, alignment: "center", fontSize: 11 }],
                 [{ text: `No. ${estab}-${ptoEmi}-${sec}`, alignment: "center", bold: true }],
                 [{ text: `NÚMERO DE AUTORIZACIÓN\n${input.numeroAutorizacion}`, alignment: "center", fontSize: 7 }],
                 [{ text: `FECHA Y HORA DE AUTORIZACIÓN:\n${isoToDisplay(input.fechaAutorizacion)}`, alignment: "center", fontSize: 7 }],
@@ -317,6 +329,32 @@ export async function generarRide(input: RideInput): Promise<Uint8Array> {
         margin: [0, 0, 0, 8],
       },
 
+      // ── Documento que modifica + motivo (SOLO nota de crédito) ────────────
+      ...(input.documentoModificado
+        ? [
+            {
+              table: {
+                widths: [100, "*", 80, 80],
+                body: [
+                  [
+                    { text: "COMPROBANTE QUE MODIFICA:", bold: true },
+                    { text: `FACTURA No. ${input.documentoModificado.numero}` },
+                    { text: "FECHA EMISIÓN:", bold: true },
+                    { text: fechaDDMMAAAA(input.documentoModificado.fechaEmision) },
+                  ],
+                  [
+                    { text: "RAZÓN DE MODIFICACIÓN:", bold: true },
+                    { text: input.motivo ?? "", colSpan: 3 },
+                    { text: "" }, { text: "" },
+                  ],
+                ],
+              },
+              layout: "lightHorizontalLines",
+              margin: [0, 0, 0, 8],
+            },
+          ]
+        : []),
+
       // ── Tabla de detalles (7 columnas, incluye Descuento) ─────────────────
       {
         table: {
@@ -348,10 +386,14 @@ export async function generarRide(input: RideInput): Promise<Uint8Array> {
       },
 
       // ── Totales + Forma de pago (lado a lado) ─────────────────────────────
+      // En nota de crédito no hay formas de pago (el documento acredita, no
+      // cobra): esa columna queda vacía y los totales conservan su posición.
       {
         columns: [
           // Forma de pago
-          {
+          input.pagos.length === 0
+            ? { width: "*", text: "" }
+            : {
             width: "*",
             stack: [
               { text: "FORMA DE PAGO", bold: true, margin: [0, 0, 0, 2] },
