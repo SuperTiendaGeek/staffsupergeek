@@ -514,6 +514,19 @@ function DetallePanel({
               </button>
             )}
 
+            {/* Nota de crédito (Fase 18) — solo sobre facturas autorizadas
+                con líneas guardadas. Las reglas duras (consumidor final,
+                plazo, tope acreditable) las evalúa la pantalla destino
+                contra el servidor; aquí solo se decide si mostrar el acceso. */}
+            {factura.estado === "AUTORIZADO" && factura.lineasJson && (
+              <Link
+                href={`/facturacion/nota-credito/${factura.recordId}`}
+                className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
+              >
+                ↩ Nota de crédito
+              </Link>
+            )}
+
             {/* Reintentar SRI */}
             {ESTADOS_REINTENTABLES.has(factura.estado) && factura.lineasJson && (
               <button

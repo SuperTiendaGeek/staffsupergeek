@@ -19,6 +19,8 @@ import { ahoraEnEcuador }          from "../fechaEcuador";
 import { firmarXml }               from "../firma/firmar";
 import { enviarComprobante }       from "../sri/recepcion";
 import { esperarAutorizacion }     from "../sri/cola";
+import { generarRide }             from "../ride/generarRide";
+import { enviarRide }              from "../correo/enviarRide";
 import { construirNotaCreditoXml } from "./construirNotaCreditoXml";
 import { calcularTotalesNotaCredito, round2 } from "./calculos";
 import {
@@ -244,6 +246,72 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
       recordId, "XML Autorizado", `${claveAcceso}.xml`, "text/xml",
       Buffer.from(autorizacion.xmlAutorizado, "utf8").toString("base64")
     ).catch((e) => console.error("[emitirNotaCredito] XML no adjuntado a Airtable:", e));
+
+    // ── RIDE + correo — todo best-effort por el mismo motivo ────────────────
+    let ridePdf: Uint8Array | undefined;
+    try {
+      ridePdf = await generarRide({
+        ruc:                  cfg.ruc,
+        razonSocial:          cfg.razonSocial,
+        nombreComercial:      cfg.nombreComercial,
+        dirMatriz:            cfg.dirMatriz,
+        dirEstablecimiento:   cfg.dirEstablecimiento,
+        obligadoContabilidad: cfg.obligadoContabilidad,
+        claveAcceso,
+        ambiente:             cfg.ambiente,
+        numeroFactura:        numeroNotaCredito,
+        fechaEmision,
+        numeroAutorizacion:   autorizacion.numeroAutorizacion,
+        fechaAutorizacion:    autorizacion.fechaAutorizacion,
+        tipoIdentificacion:   datos.tipoIdentificacionComprador,
+        identificacion:       datos.identificacionComprador,
+        razonSocialComprador: datos.razonSocialComprador,
+        totalConImpuestos: totales.totalConImpuestos.map((t) => ({
+          codigo: t.codigo, codigoPorcentaje: t.codigoPorcentaje,
+          baseImponible: t.baseImponible, valor: t.valor,
+        })),
+        totalSinImpuestos: totales.totalSinImpuestos,
+        totalDescuento:    0,
+        total:             totales.valorModificacion,
+        pagos:             [],   // una NC acredita, no cobra
+        detalles: datos.detalles.map((d) => ({
+          codigo:         d.codigoInterno,
+          descripcion:    d.descripcion,
+          cantidad:       d.cantidad,
+          precioUnitario: d.precioUnitario,
+          descuento:      d.descuento,
+          total:          d.precioTotalSinImpuesto,
+        })),
+        tipoDocumento:       "NOTA DE CRÉDITO",
+        documentoModificado: { numero: datos.numeroFacturaModificada, fechaEmision: datos.fechaEmisionFactura },
+        motivo:              datos.motivo,
+      });
+
+      await subirAdjuntoNotaCredito(
+        recordId, "RIDE PDF", `${claveAcceso}.pdf`, "application/pdf",
+        Buffer.from(ridePdf).toString("base64")
+      ).catch((e) => console.error("[emitirNotaCredito] RIDE no adjuntado a Airtable:", e));
+    } catch (e) {
+      console.error("[emitirNotaCredito] RIDE no generado (la NC ya está AUTORIZADA):", e);
+    }
+
+    if (datos.correoComprador && ridePdf) {
+      try {
+        await enviarRide({
+          destinatario:    datos.correoComprador,
+          nombreComprador: datos.razonSocialComprador,
+          numeroFactura:   numeroNotaCredito,
+          fechaEmision,
+          ambiente:        cfg.ambiente,
+          xmlBuffer:       Buffer.from(autorizacion.xmlAutorizado, "utf8"),
+          pdfBuffer:       Buffer.from(ridePdf),
+          claveAcceso,
+          tipoDocumento:   "Nota de Crédito",
+        });
+      } catch (e) {
+        console.error("[emitirNotaCredito] correo no enviado:", e);
+      }
+    }
 
     return {
       estado:             "AUTORIZADO",
