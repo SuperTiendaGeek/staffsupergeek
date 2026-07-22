@@ -650,12 +650,20 @@ export function HistorialFacturas() {
           <h1 className="text-xl font-bold text-[#D7FF4F]">Historial de Facturas</h1>
           <p className="text-sm text-[#666] mt-0.5">Facturas Electrónicas · PRUEBAS</p>
         </div>
-        <Link
-          href="/facturacion"
-          className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] hover:brightness-105"
-        >
-          + Nueva factura
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/facturacion/nota-credito/historial"
+            className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]"
+          >
+            Notas de crédito
+          </Link>
+          <Link
+            href="/facturacion"
+            className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] hover:brightness-105"
+          >
+            + Nueva factura
+          </Link>
+        </div>
       </div>
 
       {/* Filtros */}
