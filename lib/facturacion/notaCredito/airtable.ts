@@ -220,6 +220,25 @@ export async function actualizarEstadoAceptacion(
   );
 }
 
+// ─── Estado del reverso de inventario (Fase 18 PR2a) ─────────────────────────
+// Observabilidad del reverso, espejo de "Sincronización Inventario" en facturas.
+
+export type EstadoReversoInventario = "N/A" | "PENDIENTE" | "OK" | "ERROR";
+
+export async function actualizarReversoInventario(
+  recordId: string,
+  estado:   EstadoReversoInventario,
+  detalle?: string
+): Promise<void> {
+  const client = getClient();
+  const fields: Record<string, unknown> = { "Reverso Inventario": estado };
+  if (detalle !== undefined) fields["Error Reverso"] = detalle;
+  await airtableRequest(
+    `${client.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(recordId)}`,
+    { method: "PATCH", body: JSON.stringify({ fields, typecast: true }) }
+  );
+}
+
 // ─── Listado para el historial de notas de crédito ───────────────────────────
 
 export type NotaCreditoHistorial = {
