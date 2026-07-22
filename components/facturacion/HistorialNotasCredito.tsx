@@ -18,8 +18,6 @@ type NotaCredito = {
   clienteIdentificacion:  string;
   motivo:                 string;
   total:                  number;
-  estadoAceptacion:       string;
-  fechaLimiteAceptacion:  string;
   mensajesSri:            string;
   tieneXml:               boolean;
   tieneRide:              boolean;
@@ -32,12 +30,6 @@ const ESTADO_BADGE: Record<string, string> = {
   ANULADA:         "bg-neutral-800 text-neutral-400 border-neutral-700",
 };
 
-const ACEPT_BADGE: Record<string, string> = {
-  "Pendiente de aceptación": "bg-yellow-900/30 text-yellow-300 border-yellow-700/40",
-  "Aceptada":                "bg-emerald-900/40 text-emerald-300 border-emerald-700/50",
-  "Rechazada":               "bg-red-900/40 text-red-300 border-red-700/50",
-  "Sin efecto":              "bg-neutral-800 text-neutral-400 border-neutral-700",
-};
 
 export function HistorialNotasCredito() {
   const [notas, setNotas]     = useState<NotaCredito[]>([]);
@@ -98,8 +90,8 @@ export function HistorialNotasCredito() {
                 <th className="py-2 px-3 text-left">Modifica factura</th>
                 <th className="py-2 px-3 text-left">Cliente</th>
                 <th className="py-2 px-3 text-right">Total</th>
-                <th className="py-2 px-3 text-center">Estado</th>
-                <th className="py-2 px-3 text-center">Aceptación</th>
+                <th className="py-2 px-3 text-center">Estado SRI</th>
+                <th className="py-2 px-3 text-center">Validez</th>
               </tr>
             </thead>
             <tbody>
@@ -116,9 +108,9 @@ export function HistorialNotasCredito() {
                       <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold ${ESTADO_BADGE[n.estado] ?? "bg-neutral-800 text-neutral-400 border-neutral-700"}`}>{n.estado}</span>
                     </td>
                     <td className="py-2 px-3 text-center">
-                      {n.estado === "AUTORIZADO" && n.estadoAceptacion ? (
-                        <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] ${ACEPT_BADGE[n.estadoAceptacion] ?? ""}`}>{n.estadoAceptacion}</span>
-                      ) : <span className="text-[#666]">—</span>}
+                      {n.estado === "AUTORIZADO"
+                        ? <span className="inline-block rounded-full border px-2 py-0.5 text-[10px] bg-emerald-900/40 text-emerald-300 border-emerald-700/50">Vigente</span>
+                        : <span className="text-[#666]">—</span>}
                     </td>
                   </tr>
                   {expandida === n.recordId && (
@@ -127,9 +119,6 @@ export function HistorialNotasCredito() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                           <div><span className="text-[#666]">Motivo:</span> <span className="text-[#F5F5F5]">{n.motivo || "—"}</span></div>
                           <div><span className="text-[#666]">Clave de acceso:</span> <span className="text-[#A7A7A7] break-all">{n.claveAcceso}</span></div>
-                          {n.estado === "AUTORIZADO" && n.fechaLimiteAceptacion && (
-                            <div><span className="text-[#666]">Límite de aceptación (5 días hábiles):</span> <span className="text-[#F0C75E]">{n.fechaLimiteAceptacion}</span></div>
-                          )}
                           {n.mensajesSri && <div className="md:col-span-2"><span className="text-[#666]">Mensajes SRI:</span> <span className="text-red-300 whitespace-pre-wrap">{n.mensajesSri}</span></div>}
                         </div>
                         <div className="flex gap-2 mt-3">
@@ -142,10 +131,10 @@ export function HistorialNotasCredito() {
                               className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]">↓ XML</a>
                           )}
                         </div>
-                        {n.estado === "AUTORIZADO" && n.estadoAceptacion === "Pendiente de aceptación" && (
-                          <p className="mt-3 text-[10px] text-[#F0C75E]">
-                            El cliente debe aceptarla en SRI en línea antes del {n.fechaLimiteAceptacion}. El estado de
-                            aceptación se actualiza manualmente (el seguimiento automático llega en una fase posterior).
+                        {n.estado === "AUTORIZADO" && (
+                          <p className="mt-3 text-[10px] text-[#666]">
+                            Nota de crédito autorizada y vigente. Si en el futuro se solicita su anulación, el trámite
+                            se hace en el portal del SRI (la anulación sí requiere aceptación del receptor).
                           </p>
                         )}
                       </td>

@@ -153,9 +153,8 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
         <p className="text-sm text-[#F5F5F5] mb-1">No. {resultado.numeroNotaCredito}</p>
         <p className="text-[10px] text-[#A7A7A7] break-all mb-3">Clave de acceso: {resultado.claveAcceso}</p>
         {ok && (
-          <p className="text-xs text-[#F0C75E] bg-[#F0C75E]/10 border-l-2 border-[#F0C75E] px-3 py-2 mb-3">
-            El cliente debe <strong>aceptarla en SRI en línea dentro de 5 días hábiles</strong>. Si no responde,
-            la nota queda sin efecto y el IVA de la factura original sigue vigente.
+          <p className="text-xs text-[#6EE7B7] bg-[#6EE7B7]/10 border-l-2 border-[#6EE7B7] px-3 py-2 mb-3">
+            La nota de crédito está <strong>autorizada y vigente</strong>. El RIDE se envió al cliente por correo.
           </p>
         )}
         {!ok && (resultado.mensajes ?? []).map((m, i) => (
@@ -294,8 +293,8 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
         <Link href="/facturacion/historial" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Cancelar</Link>
       </div>
       <p className="mt-3 text-[10px] text-[#666]">
-        La nota de crédito se envía al SRI en el momento. Recuerda: las facturas a consumidor final no admiten
-        nota de crédito, y el cliente debe aceptarla en SRI en línea dentro de 5 días hábiles.
+        La nota de crédito se envía al SRI en el momento y, una vez autorizada, es válida de inmediato.
+        Recuerda: las facturas a consumidor final no admiten nota de crédito.
       </p>
     </div>
   );

@@ -18,7 +18,7 @@ import {
   validarMotivo,
   round2,
 } from "../notaCredito/calculos";
-import { fechaLimiteAceptacion } from "../notaCredito/emitirNotaCredito";
+import { fechaLimiteAceptacionAnulacion } from "../notaCredito/emitirNotaCredito";
 import type { DetalleFactura } from "../types/factura";
 
 let fallos = 0;
@@ -172,18 +172,19 @@ assert(evaluarNotaCreditoPermitida(facturaOk, 340, ahora) === null, "Regla: fact
   assert(validarMotivo("Devolución de equipo por falla de temperatura") === null, "Regla: motivo específico aceptado");
 }
 
-// ─── D. Fecha límite de aceptación (5 días hábiles, regla SRI 2026) ─────────
+// ─── D. Fecha límite de +5 días hábiles (para el FUTURO flujo de anulación,
+//        NO para la emisión: una NC autorizada es válida de inmediato) ───────
 
 {
   // Lunes 20-jul-2026 → +5 hábiles = lunes 27
-  const limite = fechaLimiteAceptacion(new Date(2026, 6, 20));
-  assert(limite.getDate() === 27 && limite.getMonth() === 6, "Aceptación: lunes + 5 hábiles = lunes siguiente (salta el fin de semana)");
+  const limite = fechaLimiteAceptacionAnulacion(new Date(2026, 6, 20));
+  assert(limite.getDate() === 27 && limite.getMonth() === 6, "5 hábiles: lunes + 5 = lunes siguiente (salta el fin de semana)");
 }
 {
   // Jueves 23-jul-2026 → +5 hábiles = jueves 30
-  const limite = fechaLimiteAceptacion(new Date(2026, 6, 23));
-  assert(limite.getDate() === 30, "Aceptación: jueves + 5 hábiles = jueves siguiente");
-  assert(limite.getDay() !== 0 && limite.getDay() !== 6, "Aceptación: la fecha límite nunca cae en fin de semana");
+  const limite = fechaLimiteAceptacionAnulacion(new Date(2026, 6, 23));
+  assert(limite.getDate() === 30, "5 hábiles: jueves + 5 = jueves siguiente");
+  assert(limite.getDay() !== 0 && limite.getDay() !== 6, "5 hábiles: la fecha límite nunca cae en fin de semana");
 }
 
 if (fallos > 0) {

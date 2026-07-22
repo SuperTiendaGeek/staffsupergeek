@@ -102,8 +102,18 @@ export type ResultadoNotaCredito = {
   valorModificacion?:  number;
 };
 
-/** +5 días hábiles (sin contar sábados ni domingos) desde la emisión. */
-export function fechaLimiteAceptacion(desde: Date): Date {
+/**
+ * +5 días hábiles (sin contar sábados ni domingos) desde una fecha dada.
+ *
+ * IMPORTANTE (corrección 2026-07-22): estos 5 días hábiles NO aplican a la
+ * emisión de la nota de crédito. Una NC autorizada por el SRI es válida de
+ * inmediato y sus efectos se aplican al autorizarse. El plazo de 5 días
+ * hábiles con aceptación del receptor pertenece a la SOLICITUD DE ANULACIÓN
+ * de un comprobante — no a su emisión. Esta función queda disponible para
+ * cuando se construya el flujo de anulación de NC (Fase 18 posterior); hoy
+ * NO se llama en la emisión.
+ */
+export function fechaLimiteAceptacionAnulacion(desde: Date): Date {
   const d = new Date(desde);
   let habiles = 0;
   while (habiles < 5) {
@@ -227,13 +237,15 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
     }
 
     // ── Autorizada: persistir ───────────────────────────────────────────────
+    // Una NC AUTORIZADA es válida de inmediato — no queda "pendiente de
+    // aceptación" (esa idea era un error conceptual: la aceptación de 5 días
+    // hábiles es del flujo de ANULACIÓN, no de la emisión). No se escribe
+    // ningún estado de aceptación ni fecha límite al emitir.
     const recordId = await crearRegistroNotaCredito({
       ...registroBase,
-      estado:                "AUTORIZADO",
-      numeroAutorizacion:    autorizacion.numeroAutorizacion,
-      fechaAutorizacion:     autorizacion.fechaAutorizacion,
-      estadoAceptacion:      "Pendiente de aceptación",
-      fechaLimiteAceptacion: fechaLimiteAceptacion(fechaEmision).toISOString(),
+      estado:             "AUTORIZADO",
+      numeroAutorizacion: autorizacion.numeroAutorizacion,
+      fechaAutorizacion:  autorizacion.fechaAutorizacion,
       lineasJson: JSON.stringify({
         version:  1,
         detalles: datos.detalles,
