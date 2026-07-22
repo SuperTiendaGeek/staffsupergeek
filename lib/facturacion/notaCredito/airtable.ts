@@ -189,8 +189,12 @@ export async function subirAdjuntoNotaCredito(
 
 export async function totalAcreditadoDeFactura(numeroFactura: string): Promise<number> {
   const client = getClient();
+  // Cuenta TODAS las NC AUTORIZADAS de esta factura. Una NC autorizada es
+  // válida y acredita, sin depender de ninguna aceptación (corrección del
+  // 2026-07-22). Cuando exista el flujo de anulación de NC, una NC anulada
+  // pasará a Estado="ANULADA" y dejará de contar aquí automáticamente.
   const params = new URLSearchParams({
-    filterByFormula: `AND({Factura Modificada (Número)}="${numeroFactura}",{Estado}="AUTORIZADO",{Estado Aceptación}!="Sin efecto",{Estado Aceptación}!="Rechazada")`,
+    filterByFormula: `AND({Factura Modificada (Número)}="${numeroFactura}",{Estado}="AUTORIZADO")`,
     "fields[]": "Total",
     pageSize: "100",
   });
@@ -231,8 +235,6 @@ export type NotaCreditoHistorial = {
   clienteCorreo:          string;
   motivo:                 string;
   total:                  number;
-  estadoAceptacion:       string;
-  fechaLimiteAceptacion:  string;
   mensajesSri:            string;
   tieneXml:               boolean;
   tieneRide:              boolean;
@@ -295,8 +297,7 @@ export async function listarNotasCredito(filtros: FiltrosNotaCredito = {}): Prom
     "Clave de Acceso", "Número de Nota de Crédito", "Estado", "Ambiente",
     "Fecha de Emisión", "Factura Modificada (Número)", "Cliente Nombre",
     "Cliente Identificación", "Cliente Correo", "Motivo", "Total",
-    "Estado Aceptación", "Fecha Límite Aceptación", "Mensajes SRI",
-    "XML Autorizado", "RIDE PDF",
+    "Mensajes SRI", "XML Autorizado", "RIDE PDF",
   ];
   for (const f of FIELDS) params.append("fields[]", f);
 
@@ -317,8 +318,6 @@ export async function listarNotasCredito(filtros: FiltrosNotaCredito = {}): Prom
     clienteCorreo:          str(r.fields["Cliente Correo"]),
     motivo:                 str(r.fields["Motivo"]),
     total:                  num(r.fields["Total"]),
-    estadoAceptacion:       str(r.fields["Estado Aceptación"]),
-    fechaLimiteAceptacion:  str(r.fields["Fecha Límite Aceptación"]),
     mensajesSri:            str(r.fields["Mensajes SRI"]),
     tieneXml:               hasAtt(r.fields["XML Autorizado"]),
     tieneRide:              hasAtt(r.fields["RIDE PDF"]),

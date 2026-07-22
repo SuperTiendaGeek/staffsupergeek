@@ -73,7 +73,6 @@ export async function enviarRide(input: CorreoRideInput): Promise<void> {
   const ambienteLabel = input.ambiente === "1" ? "PRUEBA" : "PRODUCCIÓN";
   const nombreArchivo = input.claveAcceso;
   const tipoDoc       = input.tipoDocumento ?? "Factura Electrónica";
-  const esNotaCredito = tipoDoc === "Nota de Crédito";
 
   const adjuntos: Adjunto[] = [
     {
@@ -101,11 +100,9 @@ export async function enviarRide(input: CorreoRideInput): Promise<void> {
       `  • ${nombreArchivo}.xml — Comprobante electrónico autorizado por el SRI`,
       `  • ${nombreArchivo}.pdf — Representación Impresa (RIDE)`,
       "",
-      // Regla SRI 2026: la NC solo surte efecto si el receptor la acepta.
-      esNotaCredito
-        ? "IMPORTANTE: para que esta nota de crédito surta efecto, debe aceptarla en SRI en línea dentro de los 5 días hábiles siguientes. Si no responde en ese plazo, la solicitud queda sin efecto."
-        : "",
-      "",
+      // Una NC autorizada es válida de inmediato — no requiere aceptación del
+      // receptor (esa idea era un error: la aceptación de 5 días hábiles es
+      // del flujo de ANULACIÓN, no de la emisión). No se agrega ningún aviso.
       modoTest ? `[MODO PRUEBA — destinatario real: ${input.destinatario}]` : "",
       "",
       "SUPER TIENDA GEEK",
@@ -114,7 +111,6 @@ export async function enviarRide(input: CorreoRideInput): Promise<void> {
       <p>Estimado/a <strong>${input.nombreComprador}</strong>,</p>
       <p>Adjunto encontrará su ${tipoDoc.toLowerCase()} <strong>No. ${input.numeroFactura}</strong>
          emitida el <strong>${input.fechaEmision.toLocaleDateString("es-EC")}</strong>.</p>
-      ${esNotaCredito ? `<p style="background:#FFF6E5;border-left:3px solid #F0C75E;padding:8px 10px;"><strong>Importante:</strong> para que esta nota de crédito surta efecto, debe aceptarla en <strong>SRI en línea</strong> dentro de los <strong>5 días hábiles</strong> siguientes. Si no responde en ese plazo, la solicitud queda sin efecto.</p>` : ""}
       <ul>
         <li><strong>${nombreArchivo}.xml</strong> — Comprobante electrónico autorizado por el SRI</li>
         <li><strong>${nombreArchivo}.pdf</strong> — Representación Impresa (RIDE)</li>

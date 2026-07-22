@@ -29,7 +29,20 @@ Cliente compró equipo A ($X + IVA), lo devuelve, se lleva equipo B:
 1. **NC total** sobre la factura de A → revierte la base imponible y el IVA de esa factura en la declaración del mes (la NC usa la MISMA tarifa de IVA de la factura original, no la vigente al emitirla). El equipo A vuelve al inventario (+1 Cantidad).
 2. **Factura nueva** por B → genera su propio IVA normal, descuenta B del inventario.
 3. Neto fiscal: solo se tributa el IVA de la venta final. No hay doble IVA.
-4. Condición 2026: la NC solo surte efecto si el receptor la **acepta en SRI en línea dentro de 5 días hábiles** — sin respuesta o con rechazo, queda sin efecto y el IVA original sigue vigente. El sistema trackea ese estado (ver §1.5).
+4. **Una NC autorizada por el SRI es válida de inmediato y sus efectos se aplican** — NO queda "pendiente de aceptación". (Corrección del dueño, 2026-07-22.)
+
+### CORRECCIÓN IMPORTANTE (2026-07-22) — los 5 días hábiles son de la ANULACIÓN, no de la emisión
+
+La versión anterior de este documento (y el código del PR1) tenían un error conceptual: trataban la NC recién emitida como "pendiente de aceptación del receptor por 5 días hábiles". **Eso es incorrecto.** El modelo correcto, confirmado por el dueño con su contadora:
+
+- **NC AUTORIZADA por el SRI → válida de inmediato, se aplican sus efectos.** No hay estado de aceptación en la emisión.
+- **La aceptación del receptor en 5 días hábiles pertenece a la SOLICITUD DE ANULACIÓN de un comprobante**, no a su emisión.
+- Solicitar anular una NC ya emitida → estado `ANULACION_PENDIENTE`, **sin revertir nada todavía**.
+- Anulación **aceptada/confirmada** en el SRI → recién ahí se revierten los efectos de la NC.
+- Anulación **rechazada o vencida** → la NC **mantiene su validez**; no se revierte nada automáticamente. Solo aviso, registro del evento y revisión manual.
+- El texto correcto en todo el sistema es "el receptor rechaza/acepta la **solicitud de anulación** de la NC", nunca "el cliente rechaza la NC".
+
+Corregido en código el 2026-07-22 (quitado el estado de aceptación y la fecha límite de la emisión, del correo, del formulario y del historial). Los campos "Estado Aceptación" y "Fecha Límite Aceptación" de la tabla Airtable quedan reservados para reutilizarse en el futuro flujo de anulación de NC.
 
 ---
 
