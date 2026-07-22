@@ -9,6 +9,7 @@ import {
   validarMotivo,
 } from "@/lib/facturacion/notaCredito/calculos";
 import { emitirNotaCredito }         from "@/lib/facturacion/notaCredito/emitirNotaCredito";
+import { revertirInventarioNotaCredito } from "@/lib/facturacion/notaCredito/revertirInventario";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import type { DetalleFactura }       from "@/lib/facturacion/types/factura";
 import type { SeleccionLinea }       from "@/lib/facturacion/notaCredito/calculos";
@@ -123,6 +124,22 @@ export async function POST(request: Request) {
       motivo:                  body.motivo.trim(),
       detalles:                detallesNC,
     });
+
+    // Fase 18 PR2a — reverso de inventario: SIEMPRE fuera de emitirNotaCredito
+    // (que se mantiene puro) y SIEMPRE detrás de su propio try/catch. Solo tras
+    // AUTORIZADO, y solo mueve inventario real en producción (guard interno).
+    // Un fallo aquí no cambia el resultado ya devuelto de la NC.
+    if (resultado.estado === "AUTORIZADO" && resultado.recordId) {
+      try {
+        await revertirInventarioNotaCredito({
+          notaCreditoRecordId: resultado.recordId,
+          detalles:            detallesNC,
+          ambiente:            resultado.ambiente,
+        });
+      } catch (e) {
+        console.error("[/api/facturacion/nota-credito/emitir] reverso de inventario falló:", e);
+      }
+    }
 
     return NextResponse.json({ success: true, data: resultado });
   } catch (e) {
