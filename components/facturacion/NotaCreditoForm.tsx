@@ -45,6 +45,8 @@ type ResultadoNC = {
   mensajes?:         Array<{ identificador: string; tipo: string; mensaje: string; informacionAdicional?: string }>;
 };
 
+type Destino = "cambio" | "saldo";
+
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 const CARD  = "rounded-xl border border-[#3A3A36] bg-[#1A1B18] p-5 mb-4";
@@ -58,6 +60,7 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
   const [detalles, setDetalles]   = useState<DetalleFactura[]>([]);
   const [sel, setSel]             = useState<Seleccion[]>([]);
   const [motivo, setMotivo]       = useState("");
+  const [destino, setDestino]     = useState<Destino>("cambio");
   const [emitiendo, setEmitiendo] = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [resultado, setResultado] = useState<ResultadoNC | null>(null);
@@ -117,7 +120,7 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
       const r = await fetch("/api/facturacion/nota-credito/emitir", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ facturaRecordId, motivo: motivo.trim(), lineas }),
+        body: JSON.stringify({ facturaRecordId, motivo: motivo.trim(), lineas, destino }),
       });
       const j = await r.json();
       if (!j.success) setError(j.error ?? "Error al emitir la nota de crédito");
@@ -255,9 +258,33 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
         </p>
       </div>
 
+      {/* Destino del crédito */}
+      <div className={CARD}>
+        <h2 className="text-[#D7FF4F] font-bold text-sm mb-3">3. Tipo de nota de crédito</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {([
+            { v: "cambio", t: "Cambio de equipo", d: "Se factura un reemplazo enseguida; el crédito se usa como forma de pago." },
+            { v: "saldo",  t: "Saldo a favor",    d: "El crédito queda para una compra posterior del cliente." },
+          ] as { v: Destino; t: string; d: string }[]).map((op) => (
+            <button
+              key={op.v}
+              onClick={() => setDestino(op.v)}
+              className={`text-left rounded-lg border px-3 py-2 transition ${destino === op.v ? "border-[#D7FF4F] bg-[#D7FF4F]/10" : "border-[#3A3A36] hover:border-[#D7FF4F]/40"}`}
+            >
+              <p className="text-xs font-bold text-[#F5F5F5]">{op.t}</p>
+              <p className="text-[10px] text-[#666] mt-0.5">{op.d}</p>
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-[10px] text-[#666]">
+          Una nota de crédito nunca devuelve efectivo: genera un crédito interno. El efectivo solo se
+          devuelve en una anulación (flujo aparte).
+        </p>
+      </div>
+
       {/* Motivo y totales */}
       <div className={CARD}>
-        <h2 className="text-[#D7FF4F] font-bold text-sm mb-3">3. Motivo y total</h2>
+        <h2 className="text-[#D7FF4F] font-bold text-sm mb-3">4. Motivo y total</h2>
         <label className={LABEL}>Motivo (obligatorio, específico)</label>
         <input
           type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)}

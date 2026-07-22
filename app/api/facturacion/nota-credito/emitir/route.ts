@@ -13,27 +13,34 @@ import { revertirInventarioNotaCredito } from "@/lib/facturacion/notaCredito/rev
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import type { DetalleFactura }       from "@/lib/facturacion/types/factura";
 import type { SeleccionLinea }       from "@/lib/facturacion/notaCredito/calculos";
+import type { DestinoNotaCredito }   from "@/lib/facturacion/notaCredito/types";
 
 export const dynamic     = "force-dynamic";
 export const maxDuration = 90;   // igual que la emisión de factura
 
 // POST /api/facturacion/nota-credito/emitir
 //
-// Body: { facturaRecordId, motivo, lineas: SeleccionLinea[] }
+// Body: { facturaRecordId, motivo, lineas, destino }
 //
 // TODAS las reglas se revalidan aquí, server-side, aunque la UI ya las haya
 // aplicado: la pantalla no es la fuente de verdad y un request directo al
 // API no puede saltarse la regla de consumidor final ni el tope acreditable.
 //
-// Nota: los efectos internos (reverso de inventario, movimiento contable,
-// abono a favor) NO están en este endpoint todavía — son el PR2 de la Fase
-// 18. Hoy la NC se emite, se autoriza y se registra; el inventario y el
-// libro se ajustan a mano hasta que ese PR entre.
+// La NC NO genera egreso de caja (decisión operativa del dueño 2026-07-22):
+// solo revierte inventario si hubo devolución física, y queda como crédito
+// interno que el cliente usará en una factura de reemplazo. El único efecto
+// interno automático hoy es el reverso de inventario (PR2a), guardado a
+// producción por su propio guard de ambiente.
+// PENDIENTE (etapa siguiente): registrar el crédito/saldo y su aplicación en
+// la factura de reemplazo (formas de pago "Nota de crédito / Compensación").
+
+const DESTINOS_VALIDOS: DestinoNotaCredito[] = ["cambio", "saldo"];
 
 type Body = {
   facturaRecordId: string;
   motivo:          string;
   lineas:          SeleccionLinea[];
+  destino:         DestinoNotaCredito;
 };
 
 type LineasJsonEnvoltorio = { version: number; detalles?: DetalleFactura[] };
@@ -58,6 +65,10 @@ export async function POST(request: Request) {
 
   const errMotivo = validarMotivo(body.motivo ?? "");
   if (errMotivo) return NextResponse.json({ success: false, error: errMotivo.motivo }, { status: 400 });
+
+  if (!DESTINOS_VALIDOS.includes(body.destino)) {
+    return NextResponse.json({ success: false, error: "Indica si la nota de crédito es por cambio de equipo o saldo a favor" }, { status: 400 });
+  }
 
   const factura = await obtenerFactura(body.facturaRecordId);
   if (!factura) return NextResponse.json({ success: false, error: "Factura no encontrada" }, { status: 404 });
@@ -123,12 +134,12 @@ export async function POST(request: Request) {
       facturaRecordId:         factura.recordId,
       motivo:                  body.motivo.trim(),
       detalles:                detallesNC,
+      destino:                 body.destino,
     });
 
-    // Fase 18 PR2a — reverso de inventario: SIEMPRE fuera de emitirNotaCredito
-    // (que se mantiene puro) y SIEMPRE detrás de su propio try/catch. Solo tras
-    // AUTORIZADO, y solo mueve inventario real en producción (guard interno).
-    // Un fallo aquí no cambia el resultado ya devuelto de la NC.
+    // Efecto interno tras AUTORIZADO — reverso de inventario (PR2a), best-effort
+    // en su propio try/catch, con efecto real solo en producción (guard de
+    // ambiente interno). La NC NO genera egreso contable (decisión del dueño).
     if (resultado.estado === "AUTORIZADO" && resultado.recordId) {
       try {
         await revertirInventarioNotaCredito({

@@ -18,6 +18,7 @@ type NotaCredito = {
   clienteIdentificacion:  string;
   motivo:                 string;
   total:                  number;
+  destino:                string;
   mensajesSri:            string;
   tieneXml:               boolean;
   tieneRide:              boolean;
@@ -118,6 +119,7 @@ export function HistorialNotasCredito() {
                       <td colSpan={7} className="px-4 py-3">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                           <div><span className="text-[#666]">Motivo:</span> <span className="text-[#F5F5F5]">{n.motivo || "—"}</span></div>
+                          {n.destino && <div><span className="text-[#666]">Destino del dinero:</span> <span className="text-[#F5F5F5]">{n.destino}</span></div>}
                           <div><span className="text-[#666]">Clave de acceso:</span> <span className="text-[#A7A7A7] break-all">{n.claveAcceso}</span></div>
                           {n.mensajesSri && <div className="md:col-span-2"><span className="text-[#666]">Mensajes SRI:</span> <span className="text-red-300 whitespace-pre-wrap">{n.mensajesSri}</span></div>}
                         </div>

@@ -98,3 +98,14 @@ export type NotaCreditoInput = {
 };
 
 export type NotaCreditoXml = string;
+
+// ─── Destino del crédito de la NC (Fase 18 PR2b) ─────────────────────────────
+// Definición operativa de SUPER GEEK (dueño, 2026-07-22): una NC NUNCA devuelve
+// efectivo — solo genera un crédito/saldo interno que el cliente consume en una
+// factura de reemplazo. El efectivo solo se devuelve en una ANULACIÓN (flujo
+// aparte). Por eso la NC NO crea ningún egreso de caja al autorizarse.
+//  - "cambio": cambio de equipo — se emite una factura de reemplazo enseguida
+//              y el crédito de la NC se usa como forma de pago.
+//  - "saldo":  saldo a favor — el crédito queda para una compra posterior.
+// Ambos son contablemente iguales hoy: crédito interno, sin mover caja.
+export type DestinoNotaCredito = "cambio" | "saldo";

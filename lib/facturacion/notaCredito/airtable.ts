@@ -84,6 +84,8 @@ export type NotaCreditoAirtableInput = {
   mensajesSri?:          Array<{ identificador: string; tipo: string; mensaje: string; informacionAdicional?: string }>;
   estadoAceptacion?:     EstadoAceptacion;
   fechaLimiteAceptacion?: string;  // ISO (5 días hábiles desde emisión)
+  /** Fase 18 PR2b — destino del dinero: "Cambio de equipo" / "Devolución de dinero" / "Saldo a favor". */
+  destino?:              string;
 };
 
 // ─── Secuencial ──────────────────────────────────────────────────────────────
@@ -154,6 +156,7 @@ export async function crearRegistroNotaCredito(input: NotaCreditoAirtableInput):
   if (mensajesTexto)              fields["Mensajes SRI"]           = mensajesTexto;
   if (input.estadoAceptacion)     fields["Estado Aceptación"]      = input.estadoAceptacion;
   if (input.fechaLimiteAceptacion) fields["Fecha Límite Aceptación"] = input.fechaLimiteAceptacion.slice(0, 10);
+  if (input.destino)              fields["Destino"]                = input.destino;
   if (input.facturaRecordId)      fields["Factura"]                = [input.facturaRecordId];
   if (input.clienteRecordId)      fields["Cliente"]                = [input.clienteRecordId];
 
@@ -239,6 +242,11 @@ export async function actualizarReversoInventario(
   );
 }
 
+// Nota (2026-07-22): la NC NO genera movimiento contable automático (decisión
+// operativa del dueño). El circuito contable final es factura original + NC +
+// factura de reemplazo pagada con crédito/compensación — no un egreso de la NC.
+// Por eso no hay puente contable aquí.
+
 // ─── Listado para el historial de notas de crédito ───────────────────────────
 
 export type NotaCreditoHistorial = {
@@ -254,6 +262,7 @@ export type NotaCreditoHistorial = {
   clienteCorreo:          string;
   motivo:                 string;
   total:                  number;
+  destino:                string;
   mensajesSri:            string;
   tieneXml:               boolean;
   tieneRide:              boolean;
@@ -315,7 +324,7 @@ export async function listarNotasCredito(filtros: FiltrosNotaCredito = {}): Prom
   const FIELDS = [
     "Clave de Acceso", "Número de Nota de Crédito", "Estado", "Ambiente",
     "Fecha de Emisión", "Factura Modificada (Número)", "Cliente Nombre",
-    "Cliente Identificación", "Cliente Correo", "Motivo", "Total",
+    "Cliente Identificación", "Cliente Correo", "Motivo", "Total", "Destino",
     "Mensajes SRI", "XML Autorizado", "RIDE PDF",
   ];
   for (const f of FIELDS) params.append("fields[]", f);
@@ -337,6 +346,7 @@ export async function listarNotasCredito(filtros: FiltrosNotaCredito = {}): Prom
     clienteCorreo:          str(r.fields["Cliente Correo"]),
     motivo:                 str(r.fields["Motivo"]),
     total:                  num(r.fields["Total"]),
+    destino:                str(r.fields["Destino"]),
     mensajesSri:            str(r.fields["Mensajes SRI"]),
     tieneXml:               hasAtt(r.fields["XML Autorizado"]),
     tieneRide:              hasAtt(r.fields["RIDE PDF"]),
