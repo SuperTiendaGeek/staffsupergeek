@@ -169,6 +169,7 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
       xmlSinFirmar,
       p12Path:  cfg.firmaPath,
       p12Clave: cfg.firmaPassword,
+      tipo:     "notaCredito",   // firma con signCreditNoteXml (inserta antes de </notaCredito>)
     });
 
     const ivaTotal = round2(totales.valorModificacion - totales.totalSinImpuestos);
