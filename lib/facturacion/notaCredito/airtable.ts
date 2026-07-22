@@ -215,3 +215,145 @@ export async function actualizarEstadoAceptacion(
     { method: "PATCH", body: JSON.stringify({ fields: { "Estado Aceptación": estado }, typecast: true }) }
   );
 }
+
+// ─── Listado para el historial de notas de crédito ───────────────────────────
+
+export type NotaCreditoHistorial = {
+  recordId:               string;
+  claveAcceso:            string;
+  numeroNotaCredito:      string;
+  estado:                 string;
+  ambiente:               "PRUEBAS" | "PRODUCCIÓN";
+  fechaEmision:           string;
+  numeroFacturaModificada: string;
+  clienteNombre:          string;
+  clienteIdentificacion:  string;
+  clienteCorreo:          string;
+  motivo:                 string;
+  total:                  number;
+  estadoAceptacion:       string;
+  fechaLimiteAceptacion:  string;
+  mensajesSri:            string;
+  tieneXml:               boolean;
+  tieneRide:              boolean;
+};
+
+export type FiltrosNotaCredito = {
+  cliente?: string;
+  numero?:  string;
+  estado?:  string;
+  pageSize?: number;
+  offset?:  string;
+};
+
+function str(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v) && typeof v[0] === "string") return v[0];
+  if (v && typeof v === "object" && "name" in (v as Record<string, unknown>)) return String((v as { name: unknown }).name);
+  return "";
+}
+function num(v: unknown): number {
+  if (typeof v === "number") return v;
+  const n = parseFloat(String(v));
+  return Number.isFinite(n) ? n : 0;
+}
+function hasAtt(v: unknown): boolean {
+  return Array.isArray(v) && v.length > 0;
+}
+
+export type ListadoNotasCredito = {
+  notas:  NotaCreditoHistorial[];
+  offset?: string;
+  total:  number;
+  suma:   number;
+};
+
+export async function listarNotasCredito(filtros: FiltrosNotaCredito = {}): Promise<ListadoNotasCredito> {
+  const client = getClient();
+
+  const conditions: string[] = [];
+  if (filtros.estado) conditions.push(`{Estado} = "${filtros.estado}"`);
+  if (filtros.numero) {
+    const esc = filtros.numero.replace(/"/g, '\\"');
+    conditions.push(`OR(SEARCH("${esc}",{Número de Nota de Crédito}),SEARCH("${esc}",{Factura Modificada (Número)}))`);
+  }
+  if (filtros.cliente) {
+    const esc = filtros.cliente.replace(/"/g, '\\"').toLowerCase();
+    conditions.push(`OR(SEARCH("${esc}",LOWER({Cliente Nombre})),SEARCH("${esc}",{Cliente Identificación}))`);
+  }
+  const formula = conditions.length === 0 ? "" : conditions.length === 1 ? conditions[0] : `AND(${conditions.join(",")})`;
+
+  const params = new URLSearchParams({
+    "sort[0][field]":     "Secuencial",
+    "sort[0][direction]": "desc",
+    pageSize:             String(filtros.pageSize ?? 50),
+  });
+  if (formula)        params.set("filterByFormula", formula);
+  if (filtros.offset) params.set("offset", filtros.offset);
+
+  const FIELDS = [
+    "Clave de Acceso", "Número de Nota de Crédito", "Estado", "Ambiente",
+    "Fecha de Emisión", "Factura Modificada (Número)", "Cliente Nombre",
+    "Cliente Identificación", "Cliente Correo", "Motivo", "Total",
+    "Estado Aceptación", "Fecha Límite Aceptación", "Mensajes SRI",
+    "XML Autorizado", "RIDE PDF",
+  ];
+  for (const f of FIELDS) params.append("fields[]", f);
+
+  const data = await airtableRequest<{ records: Array<{ id: string; fields: Record<string, unknown> }>; offset?: string }>(
+    `${client.baseUrl}/${encodeURIComponent(TABLE)}?${params}`
+  );
+
+  const notas: NotaCreditoHistorial[] = (data.records ?? []).map((r) => ({
+    recordId:               r.id,
+    claveAcceso:            str(r.fields["Clave de Acceso"]),
+    numeroNotaCredito:      str(r.fields["Número de Nota de Crédito"]),
+    estado:                 str(r.fields["Estado"]),
+    ambiente:               str(r.fields["Ambiente"]) === "PRODUCCIÓN" ? "PRODUCCIÓN" : "PRUEBAS",
+    fechaEmision:           str(r.fields["Fecha de Emisión"]),
+    numeroFacturaModificada: str(r.fields["Factura Modificada (Número)"]),
+    clienteNombre:          str(r.fields["Cliente Nombre"]),
+    clienteIdentificacion:  str(r.fields["Cliente Identificación"]),
+    clienteCorreo:          str(r.fields["Cliente Correo"]),
+    motivo:                 str(r.fields["Motivo"]),
+    total:                  num(r.fields["Total"]),
+    estadoAceptacion:       str(r.fields["Estado Aceptación"]),
+    fechaLimiteAceptacion:  str(r.fields["Fecha Límite Aceptación"]),
+    mensajesSri:            str(r.fields["Mensajes SRI"]),
+    tieneXml:               hasAtt(r.fields["XML Autorizado"]),
+    tieneRide:              hasAtt(r.fields["RIDE PDF"]),
+  }));
+
+  return {
+    notas,
+    offset: data.offset,
+    total:  notas.length,
+    suma:   notas.reduce((s, n) => s + n.total, 0),
+  };
+}
+
+// ─── Adjunto (XML/RIDE) de una NC por clave de acceso ────────────────────────
+
+export type AdjuntoNotaCredito = { url: string; filename: string };
+
+export async function obtenerAdjuntoNotaCreditoPorClave(
+  claveAcceso: string,
+  campo: "XML Autorizado" | "RIDE PDF"
+): Promise<AdjuntoNotaCredito | null> {
+  const client = getClient();
+  const params = new URLSearchParams({
+    filterByFormula: `{Clave de Acceso}="${claveAcceso}"`,
+    maxRecords: "1",
+  });
+  params.append("fields[]", campo);
+
+  const data = await airtableRequest<{ records: Array<{ fields: Record<string, unknown> }> }>(
+    `${client.baseUrl}/${encodeURIComponent(TABLE)}?${params}`
+  );
+  if (!data.records.length) return null;
+  const adj = data.records[0].fields[campo];
+  if (!Array.isArray(adj) || adj.length === 0) return null;
+  const primero = adj[0] as { url?: unknown; filename?: unknown };
+  if (typeof primero.url !== "string") return null;
+  return { url: primero.url, filename: typeof primero.filename === "string" ? primero.filename : `${claveAcceso}.${campo === "RIDE PDF" ? "pdf" : "xml"}` };
+}

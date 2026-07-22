@@ -161,8 +161,18 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
         {!ok && (resultado.mensajes ?? []).map((m, i) => (
           <p key={i} className="text-xs text-red-300 mb-1">[{m.identificador}] {m.mensaje}{m.informacionAdicional ? ` — ${m.informacionAdicional}` : ""}</p>
         ))}
-        <div className="flex gap-3 mt-2">
-          <Link href="/facturacion/historial" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">← Volver al historial</Link>
+        <div className="flex flex-wrap items-center gap-3 mt-3">
+          {ok && (
+            <a
+              href={`/api/facturacion/nota-credito/ride/${resultado.claveAcceso}`}
+              target="_blank" rel="noopener"
+              className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-4 py-2 text-xs font-bold hover:brightness-105"
+            >
+              Ver / Descargar RIDE
+            </a>
+          )}
+          <Link href="/facturacion/nota-credito/historial" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Ver historial de notas de crédito</Link>
+          <Link href="/facturacion/historial" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">← Facturas</Link>
           {!ok && <button onClick={() => setResultado(null)} className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Corregir y reintentar</button>}
         </div>
       </div>
