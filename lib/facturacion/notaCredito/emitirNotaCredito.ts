@@ -28,8 +28,13 @@ import {
   crearRegistroNotaCredito,
   subirAdjuntoNotaCredito,
 } from "./airtable";
-import type { DetalleNotaCredito } from "./types";
+import type { DetalleNotaCredito, DestinoNotaCredito } from "./types";
 import type { MensajeSRI } from "../sri/recepcion";
+
+const DESTINO_LABEL: Record<DestinoNotaCredito, string> = {
+  cambio: "Cambio de equipo",
+  saldo:  "Saldo a favor",
+};
 
 const MAX_REINTENTOS = 3;
 // Mismos códigos que en facturas: "clave de acceso ya registrada".
@@ -85,6 +90,8 @@ export type DatosNotaCredito = {
 
   motivo:   string;
   detalles: DetalleNotaCredito[];
+  /** Fase 18 PR2b — destino del dinero (se guarda en la NC para el puente contable). */
+  destino?: DestinoNotaCredito;
 };
 
 export type ResultadoNotaCredito = {
@@ -246,6 +253,7 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
       estado:             "AUTORIZADO",
       numeroAutorizacion: autorizacion.numeroAutorizacion,
       fechaAutorizacion:  autorizacion.fechaAutorizacion,
+      destino:            datos.destino ? DESTINO_LABEL[datos.destino] : undefined,
       lineasJson: JSON.stringify({
         version:  1,
         detalles: datos.detalles,

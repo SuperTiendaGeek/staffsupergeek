@@ -80,27 +80,34 @@ Corregido en código el 2026-07-22 (quitado el estado de aceptación y la fecha 
 - Botón **"Nota de crédito"** en el historial de facturación sobre facturas `AUTORIZADO` (y visible en el detalle de la factura).
 - Pantalla precargada con las líneas de la factura original — el usuario elige: NC **total** (todas las líneas) o **parcial** (selecciona líneas/cantidades). Por cada línea de producto: checkbox **"¿devolución física del item?"** (default sí para NC total de equipos — es el caso del cambio).
 - Motivo obligatorio. Vista previa de totales (base + IVA revertidos).
-- Al autorizar: RIDE por correo al cliente + aviso en pantalla de que el cliente debe **aceptarla en SRI en línea en 5 días hábiles**.
-- Post-autorización, según lo que el usuario eligió como destino del dinero:
-  - **Cambio de equipo** → botón "Facturar reemplazo" (formulario de factura precargado con el cliente).
-  - **Saldo a favor** → crea el abono disponible en la tabla Abonos (ver §1.6).
-  - **Devolución de dinero** → registra el egreso de caja correspondiente.
+- Al autorizar: RIDE por correo al cliente. La NC autorizada es **válida de inmediato** (los 5 días hábiles de aceptación son del flujo de anulación, no de la emisión — ver corrección 2026-07-22).
+- Al emitir, el usuario elige el tipo (definición operativa del dueño 2026-07-22): **"Cambio de equipo"** (se factura un reemplazo enseguida) o **"Saldo a favor"** (crédito para después). Ambos generan un crédito interno; **ninguno mueve caja ni genera egreso**. La opción "Devolución de dinero" NO existe — el efectivo solo se devuelve en una anulación (flujo aparte).
 
-### 1.5 Aceptación del receptor (5 días hábiles)
+### 1.5 Validez de la NC (corregido 2026-07-22)
 
-El SRI no expone webservice para consultar la aceptación — el seguimiento es manual:
-- Cada NC nace "Pendiente de aceptación" con Fecha Límite = +5 días hábiles.
-- Lista/badge en el módulo: NCs pendientes con días restantes (control fino de fechas, igual que anulaciones).
-- El usuario confirma manualmente en el portal SRI y marca Aceptada / Rechazada / Sin efecto.
-- **Los efectos internos (inventario, contable, abono a favor) se aplican al AUTORIZARSE la NC**, no al aceptarse — pero si el receptor la rechaza o vence sin respuesta, el sistema debe **revertir los efectos** (el usuario marca "Sin efecto" y el sistema deshace: resta el stock devuelto, anula el movimiento contable, anula el abono a favor). Esto queda explícito en la UI al marcar.
+Una NC autorizada por el SRI es **válida de inmediato** y sus efectos se aplican al autorizarse. NO existe estado de "pendiente de aceptación" en la emisión. Los 5 días hábiles con aceptación del receptor pertenecen a la **solicitud de anulación** de un comprobante (flujo aparte, §2), no a la emisión de la NC.
 
-*(Alternativa considerada y descartada: aplicar efectos solo tras aceptación — rechazada porque el caso común (cambio de equipo en mostrador, cliente presente que acepta enseguida) quedaría trabado esperando el trámite en SRI en línea.)*
+### 1.6 Efectos post-autorización — definición final del dueño (2026-07-22)
 
-### 1.6 Efectos post-autorización
+**Una NC NUNCA devuelve efectivo ni genera egreso automático.** Genera un crédito interno que el cliente consume en una factura de reemplazo. Circuito contable final: **factura original + NC + factura de reemplazo pagada con crédito/compensación**.
 
-- **Inventario** (`revertirPostEmision`, espejo de `postEmision`): por cada línea de producto con devolución física marcada → `Cantidad += cantidadAcreditada`; si el item estaba `Vendido`/no disponible y su Cantidad vuelve a ser > 0 → restaurar `Disponible para venta = true` y Estado Item a su valor pre-venta ("Disponible" como default razonable). Link a la NC en el item (trazabilidad, se acumula con el de la factura). Guard de ambiente `"2"`. Idempotente por link (igual que postEmision).
-- **Libro contable** (`procesarPuenteNotaCredito`): movimiento **Egreso**, rubro/categoría **"Ajuste / Devolución por nota de crédito"** (separado de gastos operativos — decisión del dueño), vinculado a la factura original Y a la NC, guard de ambiente. Si el destino es "saldo a favor", el egreso no sale de caja físicamente — se compensa con el abono creado (detalle contable a validar con la contadora en la primera NC real).
-- **Abono a favor** (si aplica): registro en tabla Abonos con el generador de ID único existente (`getMaxIdAbono`), vinculado al cliente, marcado con origen "Nota de crédito NC-XXX" — disponible para aplicarse a una operación/orden futura.
+Reglas del dueño (10 puntos):
+1. NC autorizada NO genera egreso automático en caja ni en el Sistema Contable SG. ✅
+2. La NC genera un crédito/saldo interno aplicable a una factura de reemplazo. ⏳ (etapa siguiente)
+3. La factura original queda marcada como afectada por NC (vía el link NC→Factura). ✅
+4. El item original puede regresar a inventario/revisión si hubo devolución física. ✅
+5. La factura de reemplazo se emite normalmente. ✅ (flujo de factura existente)
+6. La forma de pago de la factura de reemplazo permite "Nota de crédito aplicada / Compensación". ⏳
+7. Si la nueva vale más que la NC, solo la diferencia genera ingreso real de caja. ⏳
+8. Si vale igual, no se genera nuevo ingreso de caja. ⏳
+9. Si vale menos, el saldo restante queda como caso pendiente/manual por ahora. ⏳
+10. Trazabilidad completa (factura original, NC, factura de reemplazo, item devuelto, item entregado, usuario). Parcial ✅ (links), resto ⏳.
+
+**Construido:**
+- **Inventario** (`revertirInventarioNotaCredito`, espejo de `postEmision`): por cada línea de producto con devolución física → `Cantidad += cantidadAcreditada`; un item agotado que vuelve a tener stock se reactiva. Link a la NC en el item. Guard de ambiente `"2"`. Idempotente.
+- **Tipo de NC** ("Cambio de equipo" / "Saldo a favor"): se guarda en la NC (campo "Destino"), se muestra en el historial. **Sin egreso, sin puente contable** — retirado a propósito.
+
+**Etapa siguiente (no construida):** el registro del crédito/saldo (puntos 2, 10) y su aplicación como forma de pago "Nota de crédito / Compensación" en la factura de reemplazo con el manejo de diferencias (puntos 6-9). Esto toca el formulario y el puente de facturación — es la parte donde el circuito de dinero se cierra, y donde conviene la validación con la contadora.
 
 ---
 
