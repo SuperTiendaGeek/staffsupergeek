@@ -149,6 +149,7 @@ export async function listarRecibos(filtros: FiltrosRecibo = {}): Promise<Listad
 export type ReciboCompleto = {
   recordId: string; numero: string; fecha: string; estado: string; total: number;
   formaPago: string; clienteRecordId?: string; lineas: LineaRecibo[]; pdfUrl?: string;
+  clienteNombre: string; clienteIdentificacion: string; nota: string;
 };
 
 export async function obtenerReciboPorId(recordId: string): Promise<ReciboCompleto | null> {
@@ -161,14 +162,25 @@ export async function obtenerReciboPorId(recordId: string): Promise<ReciboComple
   const pdfUrl = Array.isArray(pdf) && pdf[0] && typeof (pdf[0] as { url?: unknown }).url === "string" ? (pdf[0] as { url: string }).url : undefined;
   const cli = data.fields["Cliente"];
   const clienteRecordId = Array.isArray(cli) && typeof cli[0] === "string" ? cli[0] : undefined;
+  // El cliente y la nota viven dentro del "Líneas JSON" que se guardó al crear
+  // el recibo (ver crearRecibo); es la fuente confiable para la impresión.
   let lineas: LineaRecibo[] = [];
+  let clienteNombre = "";
+  let clienteIdentificacion = "";
+  let nota = "";
   try {
     const parsed = JSON.parse(str(data.fields["Líneas JSON"]) || "{}");
     lineas = Array.isArray(parsed?.lineas) ? parsed.lineas : [];
+    if (parsed?.cliente && typeof parsed.cliente === "object") {
+      clienteNombre = typeof parsed.cliente.razonSocial === "string" ? parsed.cliente.razonSocial : "";
+      clienteIdentificacion = typeof parsed.cliente.identificacion === "string" ? parsed.cliente.identificacion : "";
+    }
+    nota = typeof parsed?.nota === "string" ? parsed.nota : "";
   } catch { /* ignore */ }
   return {
     recordId, numero: str(data.fields["Número"]), fecha: str(data.fields["Fecha"]),
     estado: str(data.fields["Estado"]), total: num(data.fields["Total"]),
     formaPago: str(data.fields["Forma de Pago"]) || "01", clienteRecordId, lineas, pdfUrl,
+    clienteNombre, clienteIdentificacion, nota,
   };
 }
