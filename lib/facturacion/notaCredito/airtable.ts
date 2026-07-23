@@ -84,8 +84,10 @@ export type NotaCreditoAirtableInput = {
   mensajesSri?:          Array<{ identificador: string; tipo: string; mensaje: string; informacionAdicional?: string }>;
   estadoAceptacion?:     EstadoAceptacion;
   fechaLimiteAceptacion?: string;  // ISO (5 días hábiles desde emisión)
-  /** Fase 18 PR2b — destino del dinero: "Cambio de equipo" / "Devolución de dinero" / "Saldo a favor". */
+  /** Fase 18 PR2b — tipo de NC: "Cambio de equipo" / "Saldo a favor". */
   destino?:              string;
+  /** Fase 18 PR2c — crédito interno disponible; arranca = total y baja al usarse en facturas de reemplazo. */
+  saldoDisponible?:      number;
 };
 
 // ─── Secuencial ──────────────────────────────────────────────────────────────
@@ -157,6 +159,7 @@ export async function crearRegistroNotaCredito(input: NotaCreditoAirtableInput):
   if (input.estadoAceptacion)     fields["Estado Aceptación"]      = input.estadoAceptacion;
   if (input.fechaLimiteAceptacion) fields["Fecha Límite Aceptación"] = input.fechaLimiteAceptacion.slice(0, 10);
   if (input.destino)              fields["Destino"]                = input.destino;
+  if (input.saldoDisponible !== undefined) fields["Saldo Disponible"] = input.saldoDisponible;
   if (input.facturaRecordId)      fields["Factura"]                = [input.facturaRecordId];
   if (input.clienteRecordId)      fields["Cliente"]                = [input.clienteRecordId];
 
@@ -247,6 +250,67 @@ export async function actualizarReversoInventario(
 // factura de reemplazo pagada con crédito/compensación — no un egreso de la NC.
 // Por eso no hay puente contable aquí.
 
+// ─── Consumir crédito de la NC en una factura de reemplazo (Fase 18 PR2c) ────
+//
+// Descuenta `monto` del "Saldo Disponible" de la NC y enlaza la factura de
+// reemplazo. Relee el saldo justo antes de escribir (mitiga carreras) e es
+// idempotente: si la factura ya está enlazada como reemplazo, no vuelve a
+// descontar. Devuelve el saldo resultante.
+
+export type ResultadoConsumo =
+  | { ok: true; saldoRestante: number; yaAplicada?: boolean }
+  | { ok: false; error: string };
+
+export async function consumirCreditoNotaCredito(
+  notaCreditoRecordId: string,
+  monto: number,
+  facturaReemplazoRecordId: string
+): Promise<ResultadoConsumo> {
+  const client = getClient();
+
+  const data = await airtableRequest<{ fields: Record<string, unknown> }>(
+    `${client.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(notaCreditoRecordId)}`
+  ).catch(() => null);
+  if (!data) return { ok: false, error: "Nota de crédito no encontrada" };
+
+  const saldoActual = num(data.fields["Saldo Disponible"]);
+  const reemplazosActuales = linkedIdsRaw(data.fields["Facturas de Reemplazo"]);
+
+  // Idempotente: esta factura ya consumió esta NC.
+  if (reemplazosActuales.includes(facturaReemplazoRecordId)) {
+    return { ok: true, saldoRestante: saldoActual, yaAplicada: true };
+  }
+
+  const m = Math.round((monto + Number.EPSILON) * 100) / 100;
+  if (!(m > 0)) return { ok: false, error: "El monto a aplicar debe ser mayor a cero" };
+  if (m > saldoActual + 0.01) {
+    return { ok: false, error: `El crédito disponible ($${saldoActual.toFixed(2)}) es menor a lo que se intenta aplicar ($${m.toFixed(2)})` };
+  }
+
+  const saldoRestante = Math.round((saldoActual - m + Number.EPSILON) * 100) / 100;
+
+  await airtableRequest(
+    `${client.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(notaCreditoRecordId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        fields: {
+          "Saldo Disponible": saldoRestante,
+          "Facturas de Reemplazo": [...reemplazosActuales, facturaReemplazoRecordId],
+        },
+        typecast: true,
+      }),
+    }
+  );
+
+  return { ok: true, saldoRestante };
+}
+
+function linkedIdsRaw(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === "string" && v.trim() !== "");
+}
+
 // ─── Listado para el historial de notas de crédito ───────────────────────────
 
 export type NotaCreditoHistorial = {
@@ -263,6 +327,7 @@ export type NotaCreditoHistorial = {
   motivo:                 string;
   total:                  number;
   destino:                string;
+  saldoDisponible:        number;
   mensajesSri:            string;
   tieneXml:               boolean;
   tieneRide:              boolean;
@@ -325,7 +390,7 @@ export async function listarNotasCredito(filtros: FiltrosNotaCredito = {}): Prom
     "Clave de Acceso", "Número de Nota de Crédito", "Estado", "Ambiente",
     "Fecha de Emisión", "Factura Modificada (Número)", "Cliente Nombre",
     "Cliente Identificación", "Cliente Correo", "Motivo", "Total", "Destino",
-    "Mensajes SRI", "XML Autorizado", "RIDE PDF",
+    "Saldo Disponible", "Mensajes SRI", "XML Autorizado", "RIDE PDF",
   ];
   for (const f of FIELDS) params.append("fields[]", f);
 
@@ -347,6 +412,7 @@ export async function listarNotasCredito(filtros: FiltrosNotaCredito = {}): Prom
     motivo:                 str(r.fields["Motivo"]),
     total:                  num(r.fields["Total"]),
     destino:                str(r.fields["Destino"]),
+    saldoDisponible:        num(r.fields["Saldo Disponible"]),
     mensajesSri:            str(r.fields["Mensajes SRI"]),
     tieneXml:               hasAtt(r.fields["XML Autorizado"]),
     tieneRide:              hasAtt(r.fields["RIDE PDF"]),

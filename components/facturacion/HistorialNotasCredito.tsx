@@ -19,6 +19,7 @@ type NotaCredito = {
   motivo:                 string;
   total:                  number;
   destino:                string;
+  saldoDisponible:        number;
   mensajesSri:            string;
   tieneXml:               boolean;
   tieneRide:              boolean;
@@ -123,7 +124,22 @@ export function HistorialNotasCredito() {
                           <div><span className="text-[#666]">Clave de acceso:</span> <span className="text-[#A7A7A7] break-all">{n.claveAcceso}</span></div>
                           {n.mensajesSri && <div className="md:col-span-2"><span className="text-[#666]">Mensajes SRI:</span> <span className="text-red-300 whitespace-pre-wrap">{n.mensajesSri}</span></div>}
                         </div>
-                        <div className="flex gap-2 mt-3">
+                        {n.estado === "AUTORIZADO" && (
+                          <div className="mt-3 text-xs">
+                            <span className="text-[#666]">Crédito disponible:</span>{" "}
+                            <span className={n.saldoDisponible > 0 ? "text-[#D7FF4F] font-semibold" : "text-[#666]"}>
+                              ${n.saldoDisponible.toFixed(2)}
+                            </span>
+                            {n.saldoDisponible > 0 && <span className="text-[#666]"> de ${n.total.toFixed(2)}</span>}
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {n.estado === "AUTORIZADO" && n.saldoDisponible > 0 && (
+                            <Link href={`/facturacion?reemplazoNC=${n.recordId}`}
+                              className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-3 py-1.5 text-xs font-bold hover:brightness-105">
+                              Facturar reemplazo →
+                            </Link>
+                          )}
                           {n.tieneRide && (
                             <a href={`/api/facturacion/nota-credito/ride/${n.claveAcceso}`} target="_blank" rel="noopener"
                               className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]">↓ RIDE PDF</a>

@@ -254,6 +254,9 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
       numeroAutorizacion: autorizacion.numeroAutorizacion,
       fechaAutorizacion:  autorizacion.fechaAutorizacion,
       destino:            datos.destino ? DESTINO_LABEL[datos.destino] : undefined,
+      // El crédito interno arranca igual al total de la NC; baja al usarse
+      // como compensación en facturas de reemplazo (Fase 18 PR2c).
+      saldoDisponible:    totales.valorModificacion,
       lineasJson: JSON.stringify({
         version:  1,
         detalles: datos.detalles,

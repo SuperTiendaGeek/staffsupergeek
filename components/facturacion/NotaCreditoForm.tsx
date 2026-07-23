@@ -42,6 +42,7 @@ type ResultadoNC = {
   estado:            "AUTORIZADO" | "DEVUELTA" | "NO AUTORIZADO";
   numeroNotaCredito: string;
   claveAcceso:       string;
+  recordId?:         string;
   mensajes?:         Array<{ identificador: string; tipo: string; mensaje: string; informacionAdicional?: string }>;
 };
 
@@ -164,11 +165,19 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
           <p key={i} className="text-xs text-red-300 mb-1">[{m.identificador}] {m.mensaje}{m.informacionAdicional ? ` — ${m.informacionAdicional}` : ""}</p>
         ))}
         <div className="flex flex-wrap items-center gap-3 mt-3">
+          {ok && destino === "cambio" && resultado.recordId && (
+            <Link
+              href={`/facturacion?reemplazoNC=${resultado.recordId}`}
+              className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-4 py-2 text-xs font-bold hover:brightness-105"
+            >
+              Facturar equipo de reemplazo →
+            </Link>
+          )}
           {ok && (
             <a
               href={`/api/facturacion/nota-credito/ride/${resultado.claveAcceso}`}
               target="_blank" rel="noopener"
-              className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-4 py-2 text-xs font-bold hover:brightness-105"
+              className="rounded-full border border-[#3A3A36] text-[#A7A7A7] px-4 py-2 text-xs font-bold hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
             >
               Ver / Descargar RIDE
             </a>

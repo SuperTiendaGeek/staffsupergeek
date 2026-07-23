@@ -331,6 +331,13 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   const [cargandoPrefactura, setCargandoPrefactura] = useState(false);
   const [prefacturaBloqueada, setPrefacturaBloqueada] = useState<Extract<ResultadoPreFactura, { bloqueado: true }> | null>(null);
 
+  // ── Modo reemplazo (Fase 18 PR2c: ?reemplazoNC=recordId) ──────────────────
+  // Factura de reemplazo pagada con el crédito de una nota de crédito. El
+  // crédito se aplica como "Compensación de deudas" (código SRI 15) y la
+  // diferencia (si el equipo nuevo vale más) como efectivo. Al autorizar, el
+  // formulario descuenta el crédito vía /nota-credito/consumir.
+  const [reemplazoNC, setReemplazoNC] = useState<{ recordId: string; numero: string; creditoDisponible: number } | null>(null);
+
   // ── Debounce clientes ─────────────────────────────────────────────────────
   useEffect(() => {
     if (modoCliente !== "buscar") return;
@@ -613,6 +620,52 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // solo al montar
 
+  // ── Cargar factura de reemplazo desde URL (?reemplazoNC=recordId) ─────────
+  // Precarga el cliente de la NC; el usuario agrega el equipo nuevo. El pago
+  // (compensación + efectivo) se deriva del crédito y del total al emitir.
+  useEffect(() => {
+    const ncId = searchParams.get("reemplazoNC");
+    if (!ncId) return;
+
+    setCargandoPrefactura(true);
+    fetch(`/api/facturacion/nota-credito/reemplazo?notaCreditoRecordId=${encodeURIComponent(ncId)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j.success || !j.data) { setErrGlobal(j.error ?? "No se pudo cargar el reemplazo"); return; }
+        const d = j.data;
+        if (d.cliente.tipoIdentificacion === "07") {
+          setModoCliente("consumidor");
+          setCliente(CONSUMIDOR_FINAL);
+        } else {
+          setModoCliente("buscar");
+          setCliente({
+            modo:               "buscar",
+            tipoIdentificacion: d.cliente.tipoIdentificacion as TipoIdentificacion,
+            identificacion:     d.cliente.identificacion,
+            razonSocial:        d.cliente.razonSocial,
+            correo:             d.cliente.correo ?? "",
+          });
+          setQueryCliente(d.cliente.razonSocial);
+        }
+        setReemplazoNC({ recordId: d.notaCreditoRecordId, numero: d.numeroNotaCredito, creditoDisponible: d.creditoDisponible });
+        setIvaIncluido(true);
+      })
+      .catch(() => setErrGlobal("Error de red al cargar el reemplazo"))
+      .finally(() => setCargandoPrefactura(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // solo al montar
+
+  // Pago derivado en modo reemplazo: compensación (crédito) + efectivo (diferencia).
+  const pagosReemplazo = reemplazoNC
+    ? (() => {
+        const comp = Math.min(reemplazoNC.creditoDisponible, totales.importeTotal);
+        const efectivo = round2(totales.importeTotal - comp);
+        const pagos: PagoForm[] = [{ formaPago: "15", total: round2(comp) }];
+        if (efectivo > 0.005) pagos.push({ formaPago: "01", total: efectivo });
+        return pagos;
+      })()
+    : null;
+
   // ── Guardar borrador ─────────────────────────────────────────────────────
   async function handleGuardarBorrador() {
     if (lineas.length === 0) { setErrGlobal("Agrega al menos una línea antes de guardar el borrador"); return; }
@@ -708,6 +761,10 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         );
         return;
       }
+    }
+    if (reemplazoNC && totales.importeTotal <= 0) {
+      setErrGlobal("Agrega el equipo de reemplazo antes de emitir");
+      return;
     }
 
     // Construir DatosVenta.
@@ -820,7 +877,8 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       totalDescuento:    round2(detalles.reduce((s, d) => s + d.descuento, 0)),
       totalConImpuestos,
       importeTotal:      totales.importeTotal,
-      pagos: pagosPrecargados ?? [{ formaPago, total: totales.importeTotal }],
+      // En reemplazo: compensación (crédito NC) + efectivo (diferencia).
+      pagos: pagosReemplazo ?? pagosPrecargados ?? [{ formaPago, total: totales.importeTotal }],
       origen:          origen ?? undefined,
       // cliente.airtableId (no el clienteRecordId que trajo la pre-factura):
       // si el humano cambia de cliente en el formulario, el link
@@ -839,6 +897,24 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       if (!j.success) {
         setErrGlobal(j.error ?? "Error al emitir");
       } else {
+        // Reemplazo: al autorizar, descontar el crédito de la NC (best-effort;
+        // si falla, la factura ya es válida — el aviso pide conciliar a mano).
+        if (reemplazoNC && pagosReemplazo && j.data?.estado === "AUTORIZADO" && j.data.recordId) {
+          const comp = pagosReemplazo.find((p) => p.formaPago === "15")?.total ?? 0;
+          if (comp > 0) {
+            try {
+              const cr = await fetch("/api/facturacion/nota-credito/consumir", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ notaCreditoRecordId: reemplazoNC.recordId, monto: comp, facturaReemplazoRecordId: j.data.recordId }),
+              });
+              const cj = await cr.json();
+              if (!cj.success) setErrGlobal(`Factura emitida, pero el crédito de la NC ${reemplazoNC.numero} no se descontó automáticamente: ${cj.error}. Revísalo en el historial de notas de crédito.`);
+            } catch {
+              setErrGlobal(`Factura emitida, pero no se pudo descontar el crédito de la NC ${reemplazoNC.numero}. Revísalo a mano.`);
+            }
+          }
+        }
         setResultado(j.data!);
       }
     } catch {
@@ -871,6 +947,19 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       {cargandoPrefactura && (
         <div className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3 text-sm text-[#A7A7A7]">
           Cargando datos de la {searchParams.get("origen") === "operacion" ? "operación" : "orden"}…
+        </div>
+      )}
+
+      {/* ── Banner de reemplazo (Fase 18 PR2c) ─────────────────────────── */}
+      {reemplazoNC && !resultado && (
+        <div className="rounded-xl border border-[#D7FF4F]/40 bg-[#D7FF4F]/10 px-4 py-3">
+          <p className="text-sm font-semibold text-[#D7FF4F]">
+            Factura de reemplazo — aplicando crédito de la nota de crédito {reemplazoNC.numero}
+          </p>
+          <p className="text-xs text-[#A7A7A7] mt-1">
+            Crédito disponible: <strong>${reemplazoNC.creditoDisponible.toFixed(2)}</strong>. Agrega el equipo nuevo;
+            el crédito se aplica como compensación y solo la diferencia (si el equipo vale más) se cobra en efectivo.
+          </p>
         </div>
       )}
 
@@ -1127,30 +1216,52 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
               podía usar FormasPagoEditor). Gancho: siempre varias líneas
               editables (abonos reales + saldo), sin este toggle. */}
           <div className="md:w-80">
-            <div className="flex items-center justify-between">
-              <label className={LABEL}>Forma{pagosPrecargados ? "s" : ""} de pago</label>
-              {!origen ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPagosPrecargados((actual) =>
-                      actual ? null : [{ formaPago, total: totales.importeTotal }]
-                    )
-                  }
-                  className="text-xs text-lime-400 hover:text-lime-300 underline"
-                >
-                  {pagosPrecargados ? "Un solo pago" : "Pago mixto"}
-                </button>
-              ) : null}
-            </div>
-            {pagosPrecargados ? (
-              <FormasPagoEditor pagos={pagosPrecargados} onChange={setPagosPrecargados} />
+            {reemplazoNC && pagosReemplazo ? (
+              // Modo reemplazo: pago derivado (crédito NC + efectivo), no editable.
+              <div>
+                <label className={LABEL}>Pago con nota de crédito</label>
+                <div className="rounded-lg border border-[#3A3A36] bg-[#252622] p-3 text-sm space-y-1">
+                  {pagosReemplazo.map((p, i) => (
+                    <div key={i} className="flex justify-between">
+                      <span className="text-[#A7A7A7]">{p.formaPago === "15" ? "Compensación (crédito NC)" : "Efectivo (diferencia)"}</span>
+                      <span className="text-[#F5F5F5]">${p.total.toFixed(2)}</span>
+                    </div>
+                  ))}
+                  {round2(reemplazoNC.creditoDisponible - (pagosReemplazo.find((p) => p.formaPago === "15")?.total ?? 0)) > 0.005 && (
+                    <p className="text-[10px] text-[#F0C75E] pt-1 border-t border-[#3A3A36]">
+                      Quedará ${round2(reemplazoNC.creditoDisponible - (pagosReemplazo.find((p) => p.formaPago === "15")?.total ?? 0)).toFixed(2)} de saldo en la NC {reemplazoNC.numero}.
+                    </p>
+                  )}
+                </div>
+              </div>
             ) : (
-              <select value={formaPago} onChange={(e) => setFormaPago(e.target.value)} className={SELECT}>
-                {FORMAS_PAGO.map((fp) => (
-                  <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>
-                ))}
-              </select>
+              <>
+                <div className="flex items-center justify-between">
+                  <label className={LABEL}>Forma{pagosPrecargados ? "s" : ""} de pago</label>
+                  {!origen ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPagosPrecargados((actual) =>
+                          actual ? null : [{ formaPago, total: totales.importeTotal }]
+                        )
+                      }
+                      className="text-xs text-lime-400 hover:text-lime-300 underline"
+                    >
+                      {pagosPrecargados ? "Un solo pago" : "Pago mixto"}
+                    </button>
+                  ) : null}
+                </div>
+                {pagosPrecargados ? (
+                  <FormasPagoEditor pagos={pagosPrecargados} onChange={setPagosPrecargados} />
+                ) : (
+                  <select value={formaPago} onChange={(e) => setFormaPago(e.target.value)} className={SELECT}>
+                    {FORMAS_PAGO.map((fp) => (
+                      <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>
+                    ))}
+                  </select>
+                )}
+              </>
             )}
           </div>
 
