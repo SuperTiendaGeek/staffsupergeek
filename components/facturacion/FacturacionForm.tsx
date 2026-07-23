@@ -644,6 +644,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             identificacion:     d.cliente.identificacion,
             razonSocial:        d.cliente.razonSocial,
             correo:             d.cliente.correo ?? "",
+            airtableId:         d.cliente.airtableId,
           });
           setQueryCliente(d.cliente.razonSocial);
         }

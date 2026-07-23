@@ -250,6 +250,42 @@ export async function actualizarReversoInventario(
 // factura de reemplazo pagada con crédito/compensación — no un egreso de la NC.
 // Por eso no hay puente contable aquí.
 
+// ─── Obtener una NC individual por record id ─────────────────────────────────
+// Para el reemplazo: leer una NC puntual sin listar (evita el tope de 100
+// registros por página de Airtable y es más eficiente).
+
+export type NotaCreditoIndividual = {
+  recordId:              string;
+  numeroNotaCredito:     string;
+  estado:                string;
+  clienteNombre:         string;
+  clienteIdentificacion: string;
+  clienteCorreo:         string;
+  clienteRecordId?:      string;
+  total:                 number;
+  saldoDisponible:       number;
+};
+
+export async function obtenerNotaCreditoPorId(recordId: string): Promise<NotaCreditoIndividual | null> {
+  const client = getClient();
+  const data = await airtableRequest<{ fields: Record<string, unknown> }>(
+    `${client.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(recordId)}`
+  ).catch(() => null);
+  if (!data) return null;
+  const f = data.fields;
+  return {
+    recordId,
+    numeroNotaCredito:     str(f["Número de Nota de Crédito"]),
+    estado:                str(f["Estado"]),
+    clienteNombre:         str(f["Cliente Nombre"]),
+    clienteIdentificacion: str(f["Cliente Identificación"]),
+    clienteCorreo:         str(f["Cliente Correo"]),
+    clienteRecordId:       linkedIdsRaw(f["Cliente"])[0],
+    total:                 num(f["Total"]),
+    saldoDisponible:       num(f["Saldo Disponible"]),
+  };
+}
+
 // ─── Consumir crédito de la NC en una factura de reemplazo (Fase 18 PR2c) ────
 //
 // Descuenta `monto` del "Saldo Disponible" de la NC y enlaza la factura de
