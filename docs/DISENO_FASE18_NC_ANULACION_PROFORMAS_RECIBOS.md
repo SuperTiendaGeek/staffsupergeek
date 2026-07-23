@@ -107,7 +107,15 @@ Reglas del dueño (10 puntos):
 - **Inventario** (`revertirInventarioNotaCredito`, espejo de `postEmision`): por cada línea de producto con devolución física → `Cantidad += cantidadAcreditada`; un item agotado que vuelve a tener stock se reactiva. Link a la NC en el item. Guard de ambiente `"2"`. Idempotente.
 - **Tipo de NC** ("Cambio de equipo" / "Saldo a favor"): se guarda en la NC (campo "Destino"), se muestra en el historial. **Sin egreso, sin puente contable** — retirado a propósito.
 
-**Etapa siguiente (no construida):** el registro del crédito/saldo (puntos 2, 10) y su aplicación como forma de pago "Nota de crédito / Compensación" en la factura de reemplazo con el manejo de diferencias (puntos 6-9). Esto toca el formulario y el puente de facturación — es la parte donde el circuito de dinero se cierra, y donde conviene la validación con la contadora.
+**CONSTRUIDO (PR2c, 2026-07-22) — el circuito de dinero se cierra:**
+- La NC autorizada guarda su crédito en el campo **"Saldo Disponible"** (arranca = total). (Punto 2.)
+- Botón **"Facturar reemplazo"** desde la NC (historial + pantalla de éxito, solo si hay saldo) → abre el formulario de factura precargado con el cliente y un banner del crédito disponible.
+- El empleado agrega el equipo nuevo; el pago se **deriva solo**: compensación (código SRI 15) por el crédito + efectivo por la diferencia. Como el puente contable ya trata el 15 como no-efectivo, **solo la diferencia entra a caja** (puntos 7-8). Si el equipo vale igual, no hay efectivo (punto 8). Si vale menos, el crédito se aplica por el total y **queda saldo en la NC** (se muestra el remanente; punto 9 resuelto como saldo restante disponible, no manual).
+- Al autorizar la factura de reemplazo, el formulario llama a `/nota-credito/consumir`, que **descuenta el saldo** y enlaza la factura (traza; punto 10). Idempotente y con tope por saldo. Best-effort: si falla, la factura ya es válida y avisa para conciliar a mano.
+- **El endpoint de facturas de producción NO se tocó** — el reemplazo usa el flujo normal de emisión (compensación es una forma de pago que ya existía). Verificado: una factura normal (sin `reemplazoNC`) se comporta byte-idéntica.
+- Este flujo **sí se puede probar en pruebas** (el saldo es metadato de la NC, no toca inventario ni libro compartidos).
+
+Airtable (PR2c): en "Notas de Crédito Electrónicas" se agregan **"Saldo Disponible"** (número, 2 dec) y **"Facturas de Reemplazo"** (link → Facturas Electrónicas).
 
 ---
 
