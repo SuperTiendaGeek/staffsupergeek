@@ -135,7 +135,7 @@ export function HistorialNotasCredito() {
                         )}
                         <div className="flex flex-wrap gap-2 mt-3">
                           {n.estado === "AUTORIZADO" && n.saldoDisponible > 0 && (
-                            <Link href={`/facturacion?reemplazoNC=${n.recordId}`}
+                            <Link href={`/facturacion/nueva?reemplazoNC=${n.recordId}`}
                               className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-3 py-1.5 text-xs font-bold hover:brightness-105">
                               Facturar reemplazo →
                             </Link>

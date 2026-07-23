@@ -38,7 +38,7 @@ export function CuentaUnificadaPanel({
   const origenRecordId = origenTipo === "operacion" ? cuenta.operacionId : cuenta.ordenId;
   const hrefEmitirFactura =
     origenTipo && origenRecordId
-      ? `/facturacion?origen=${origenTipo}&recordId=${encodeURIComponent(origenRecordId)}`
+      ? `/facturacion/nueva?origen=${origenTipo}&recordId=${encodeURIComponent(origenRecordId)}`
       : null;
 
   const vinculoLabel =

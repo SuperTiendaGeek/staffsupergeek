@@ -556,7 +556,7 @@ function DetallePanel({
             {/* Abrir borrador */}
             {factura.estado === "BORRADOR" && (
               <Link
-                href={`/facturacion?borrador=${factura.recordId}`}
+                href={`/facturacion/nueva?borrador=${factura.recordId}`}
                 className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-xs font-bold text-[#151515] hover:brightness-105"
               >
                 ✏ Abrir borrador
