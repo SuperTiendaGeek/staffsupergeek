@@ -1,34 +1,22 @@
-import Link              from "next/link";
-import { StaffAppShell } from "@/components/staff/StaffAppShell";
-import { FacturacionForm } from "@/components/facturacion/FacturacionForm";
-import { getConsumidorFinalLimite } from "@/lib/facturacion/config";
+import { redirect }       from "next/navigation";
+import { StaffAppShell }  from "@/components/staff/StaffAppShell";
+import { canAccessApp }   from "@/lib/apps";
+import { getSessionFromCookie } from "@/lib/session";
+import { DocumentosFacturacion } from "@/components/facturacion/DocumentosFacturacion";
 
 export const dynamic = "force-dynamic";
 
-export default function FacturacionPage() {
+// Landing del módulo Facturación: pantalla única de documentos (facturas,
+// recibos, proformas y notas de crédito) con buscador universal y barra de
+// acciones contextual. El formulario de emisión vive en /facturacion/nueva.
+export default async function FacturacionPage() {
+  const session = await getSessionFromCookie();
+  if (!session)                              redirect("/login");
+  if (!canAccessApp(session, "Facturación")) redirect("/");
+
   return (
     <StaffAppShell activeHref="/facturacion" sectionLabel="Facturación">
-      <div className="mb-4 flex justify-end gap-2">
-        <Link
-          href="/facturacion/recibos"
-          className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5] transition"
-        >
-          Recibos
-        </Link>
-        <Link
-          href="/facturacion/proformas"
-          className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5] transition"
-        >
-          Proformas
-        </Link>
-        <Link
-          href="/facturacion/historial"
-          className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5] transition"
-        >
-          Ver historial →
-        </Link>
-      </div>
-      <FacturacionForm consumidorFinalLimite={getConsumidorFinalLimite()} />
+      <DocumentosFacturacion />
     </StaffAppShell>
   );
 }
