@@ -235,10 +235,12 @@ function DetallePanel({
   const ESTADOS_REINTENTABLES = new Set(["PENDIENTE", "RECIBIDA", "DEVUELTA"]);
   const lineasData = parsearLineasJson(factura.lineasJson);
 
-  async function doAccion(url: string, label: string) {
+  async function doAccion(url: string, label: string, body?: Record<string, unknown>) {
     setAccion(label); setMsg(null); setErrMsg(null);
     try {
-      const r = await fetch(url, { method: "POST" });
+      const r = await fetch(url, body
+        ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+        : { method: "POST" });
       const d = await r.json();
       if (d.success) { setMsg(`${label} completado`); onRefresh(); }
       else setErrMsg(d.error ?? "Error desconocido");
@@ -527,6 +529,19 @@ function DetallePanel({
               </Link>
             )}
 
+            {/* Solicitar anulación (Fase 18) — registra la intención de anular
+                en el portal SRI. El servidor bloquea consumidor final y fuera
+                de plazo. */}
+            {factura.estado === "AUTORIZADO" && (
+              <button
+                disabled={!!accion}
+                onClick={() => doAccion(`/api/facturacion/anulaciones/${factura.recordId}`, "Solicitar anulación", { accion: "solicitar" })}
+                className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-red-500/60 hover:text-red-300 disabled:opacity-40"
+              >
+                {accion === "Solicitar anulación" ? "Registrando…" : "⊘ Solicitar anulación"}
+              </button>
+            )}
+
             {/* Reintentar SRI */}
             {ESTADOS_REINTENTABLES.has(factura.estado) && factura.lineasJson && (
               <button
@@ -651,6 +666,12 @@ export function HistorialFacturas() {
           <p className="text-sm text-[#666] mt-0.5">Facturas Electrónicas · PRUEBAS</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/facturacion/anulaciones"
+            className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-red-500/60 hover:text-red-300"
+          >
+            Anulaciones
+          </Link>
           <Link
             href="/facturacion/nota-credito/historial"
             className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]"
