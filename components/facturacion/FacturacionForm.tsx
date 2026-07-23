@@ -337,6 +337,10 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   // diferencia (si el equipo nuevo vale más) como efectivo. Al autorizar, el
   // formulario descuenta el crédito vía /nota-credito/consumir.
   const [reemplazoNC, setReemplazoNC] = useState<{ recordId: string; numero: string; creditoDisponible: number } | null>(null);
+  // Forma de pago de la DIFERENCIA en un reemplazo (la compensación siempre es
+  // el crédito, código 15). El cliente puede pagar la diferencia con lo que
+  // quiera: efectivo, tarjeta, transferencia, etc.
+  const [formaPagoDiferencia, setFormaPagoDiferencia] = useState("01");
 
   // ── Debounce clientes ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -660,9 +664,9 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   const pagosReemplazo = reemplazoNC
     ? (() => {
         const comp = Math.min(reemplazoNC.creditoDisponible, totales.importeTotal);
-        const efectivo = round2(totales.importeTotal - comp);
+        const diferencia = round2(totales.importeTotal - comp);
         const pagos: PagoForm[] = [{ formaPago: "15", total: round2(comp) }];
-        if (efectivo > 0.005) pagos.push({ formaPago: "01", total: efectivo });
+        if (diferencia > 0.005) pagos.push({ formaPago: formaPagoDiferencia, total: diferencia });
         return pagos;
       })()
     : null;
@@ -959,7 +963,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
           </p>
           <p className="text-xs text-[#A7A7A7] mt-1">
             Crédito disponible: <strong>${reemplazoNC.creditoDisponible.toFixed(2)}</strong>. Agrega el equipo nuevo;
-            el crédito se aplica como compensación y solo la diferencia (si el equipo vale más) se cobra en efectivo.
+            el crédito se aplica como compensación y la diferencia (si el equipo vale más) se cobra con la forma de pago que elijas.
           </p>
         </div>
       )}
@@ -1221,15 +1225,33 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
               // Modo reemplazo: pago derivado (crédito NC + efectivo), no editable.
               <div>
                 <label className={LABEL}>Pago con nota de crédito</label>
-                <div className="rounded-lg border border-[#3A3A36] bg-[#252622] p-3 text-sm space-y-1">
-                  {pagosReemplazo.map((p, i) => (
-                    <div key={i} className="flex justify-between">
-                      <span className="text-[#A7A7A7]">{p.formaPago === "15" ? "Compensación (crédito NC)" : "Efectivo (diferencia)"}</span>
-                      <span className="text-[#F5F5F5]">${p.total.toFixed(2)}</span>
-                    </div>
-                  ))}
+                <div className="rounded-lg border border-[#3A3A36] bg-[#252622] p-3 text-sm space-y-2">
+                  {/* Compensación: siempre el crédito de la NC (código 15), fijo. */}
+                  <div className="flex justify-between">
+                    <span className="text-[#A7A7A7]">Compensación (crédito NC)</span>
+                    <span className="text-[#F5F5F5]">${(pagosReemplazo.find((p) => p.formaPago === "15")?.total ?? 0).toFixed(2)}</span>
+                  </div>
+                  {/* Diferencia: el cliente elige con qué la paga. */}
+                  {(() => {
+                    const dif = pagosReemplazo.find((p) => p.formaPago !== "15");
+                    if (!dif) return null;
+                    return (
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#3A3A36]">
+                        <select
+                          value={formaPagoDiferencia}
+                          onChange={(e) => setFormaPagoDiferencia(e.target.value)}
+                          className="flex-1 rounded bg-[#1A1B18] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30"
+                        >
+                          {FORMAS_PAGO.filter((fp) => fp.codigo !== "15").map((fp) => (
+                            <option key={fp.codigo} value={fp.codigo}>{fp.label} (diferencia)</option>
+                          ))}
+                        </select>
+                        <span className="text-[#F5F5F5] whitespace-nowrap">${dif.total.toFixed(2)}</span>
+                      </div>
+                    );
+                  })()}
                   {round2(reemplazoNC.creditoDisponible - (pagosReemplazo.find((p) => p.formaPago === "15")?.total ?? 0)) > 0.005 && (
-                    <p className="text-[10px] text-[#F0C75E] pt-1 border-t border-[#3A3A36]">
+                    <p className="text-[10px] text-[#F0C75E] pt-2 border-t border-[#3A3A36]">
                       Quedará ${round2(reemplazoNC.creditoDisponible - (pagosReemplazo.find((p) => p.formaPago === "15")?.total ?? 0)).toFixed(2)} de saldo en la NC {reemplazoNC.numero}.
                     </p>
                   )}
