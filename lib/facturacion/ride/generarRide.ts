@@ -242,14 +242,16 @@ export async function generarRide(input: RideInput): Promise<Uint8Array> {
   // Columna central del encabezado: logo (si existe) + datos del emisor
   // margin[1]=1 en el stack: pequeño respiro superior para que el primer renglón
   // no toque el borde del logo y quede visualmente alineado al tope.
+  // Nombre comercial como título; razón social debajo SOLO si es distinta
+  // (evita el nombre duplicado cuando ambos coinciden en la config del RUC).
+  const nombrePrincipal = input.nombreComercial?.trim() || input.razonSocial;
+  const mostrarRazonSocial = input.razonSocial.trim() && input.razonSocial.trim() !== nombrePrincipal.trim();
   const emisorStack = {
     width: "*",
     margin: [0, 1, 0, 0],
     stack: [
-      { text: input.razonSocial, style: "h2" },
-      ...(input.nombreComercial
-        ? [{ text: input.nombreComercial, bold: true }]
-        : []),
+      { text: nombrePrincipal, style: "h2" },
+      ...(mostrarRazonSocial ? [{ text: input.razonSocial, bold: true }] : []),
       { text: `Dir. Matriz: ${input.dirMatriz}` },
       ...(input.dirEstablecimiento
         ? [{ text: `Dir. Estab.: ${input.dirEstablecimiento}` }]
