@@ -89,7 +89,7 @@ function BarraAcciones({ doc, accion, onPost }: AccionesProps) {
     const emitida = doc.estado === "AUTORIZADO";
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <button className={btnOff} disabled title="Disponible en la próxima fase">🖨 Imprimir 80 mm · pronto</button>
+        <a href={`/facturacion/imprimir/factura/${doc.recordId}`} target="_blank" rel="noopener" className={btnLink}>🖨 Imprimir 80 mm</a>
         {doc.tieneRide && <a href={`/api/facturacion/ride/${doc.claveAcceso}`} target="_blank" rel="noopener" className={btnLink}>↓ RIDE PDF</a>}
         {doc.tieneXml && <a href={`/api/facturacion/xml/${doc.claveAcceso}`} download={`${doc.claveAcceso}.xml`} className={btnLink}>↓ XML</a>}
         {emitida && doc.clienteCorreo && (
@@ -110,7 +110,7 @@ function BarraAcciones({ doc, accion, onPost }: AccionesProps) {
   if (doc.tipo === "recibo") {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <button className={btnOff} disabled title="Disponible en la próxima fase">🖨 Imprimir 80 mm · pronto</button>
+        <a href={`/facturacion/imprimir/recibo/${doc.recordId}`} target="_blank" rel="noopener" className={btnLink}>🖨 Imprimir 80 mm</a>
         {doc.tienePdf && <a href={`/api/facturacion/recibos/${doc.recordId}/pdf`} target="_blank" rel="noopener" className={btnLink}>↓ PDF</a>}
         {doc.estado === "Vigente" && (
           <button disabled={ocupado} onClick={() => onPost(`/api/facturacion/recibos/${doc.recordId}/anular`, "Anular recibo")} className={btnDanger}>
