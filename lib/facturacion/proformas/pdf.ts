@@ -68,9 +68,13 @@ export async function generarProformaPdf(input: ProformaPdfInput): Promise<Uint8
   const totales = calcularTotalesProforma(input.lineas);
   const logo = getLogo();
 
+  // Nombre comercial como título; razón social debajo SOLO si es distinta
+  // (evita el nombre duplicado cuando ambos coinciden en la config).
+  const comercial = input.nombreComercial?.trim() || input.razonSocial;
+  const mostrarRazon = input.razonSocial.trim() && input.razonSocial.trim() !== comercial.trim();
   const emisor = [
-    ...(input.nombreComercial ? [{ text: input.nombreComercial, bold: true, fontSize: 11 }] : []),
-    { text: input.razonSocial, bold: true },
+    { text: comercial, bold: true, fontSize: 11 },
+    ...(mostrarRazon ? [{ text: input.razonSocial, fontSize: 8 }] : []),
     { text: `R.U.C: ${input.ruc}`, fontSize: 8 },
     { text: input.dirMatriz, fontSize: 8 },
   ];
