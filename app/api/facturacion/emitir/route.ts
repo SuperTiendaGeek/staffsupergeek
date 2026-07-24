@@ -73,7 +73,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const resultado = await emitirFactura({ ...body, vendedor: session.user.nombre });
+    // El vendedor lo elige el formulario; solo si viene vacío se usa el usuario
+    // logueado. Base para comisiones de venta a futuro.
+    const resultado = await emitirFactura({ ...body, vendedor: body.vendedor?.trim() || session.user.nombre });
 
     // Fase 16 PR3: post-emisión — SIEMPRE fuera de emitirFactura() (que se
     // mantiene puro) y SIEMPRE detrás de su propio try/catch: si esto falla,

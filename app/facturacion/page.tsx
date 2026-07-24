@@ -17,7 +17,7 @@ export default async function FacturacionPage() {
 
   return (
     <StaffAppShell activeHref="/facturacion" sectionLabel="Facturación">
-      <DocumentosFacturacion consumidorFinalLimite={getConsumidorFinalLimite()} />
+      <DocumentosFacturacion consumidorFinalLimite={getConsumidorFinalLimite()} vendedorPorDefecto={session.user.nombre} />
     </StaffAppShell>
   );
 }
