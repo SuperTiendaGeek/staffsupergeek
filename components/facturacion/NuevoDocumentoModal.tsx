@@ -46,7 +46,25 @@ export function NuevoDocumentoModal({
   const [tipo, setTipo] = useState<TipoNuevo>("factura");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-3 md:p-6 overflow-y-auto" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-3 md:p-4 overflow-y-auto" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      {/* Compactación del espacio vertical de los formularios embebidos + ocultar
+          los enlaces de navegación ("Ver recibos/proformas/historial") que solo
+          tienen sentido en la página completa, no dentro del modal. Se hace con
+          CSS de mayor especificidad que Tailwind, sin tocar los formularios. */}
+      <style>{`
+        .doc-compact .gap-6{gap:.7rem}
+        .doc-compact .gap-4{gap:.55rem}
+        .doc-compact .p-6{padding:.9rem}
+        .doc-compact .p-5{padding:.8rem}
+        .doc-compact .mb-4{margin-bottom:.55rem}
+        .doc-compact .mb-3{margin-bottom:.4rem}
+        .doc-compact .mt-4{margin-top:.5rem}
+        .doc-compact .pb-20{padding-bottom:.5rem}
+        .doc-compact .max-w-5xl{max-width:none}
+        .doc-compact a[href="/facturacion/recibos"],
+        .doc-compact a[href="/facturacion/proformas"],
+        .doc-compact a[href="/facturacion/historial"]{display:none!important}
+      `}</style>
       <div className="w-full max-w-5xl my-2 rounded-2xl border border-[#2A2A22] bg-[#151510] shadow-2xl">
         {/* Encabezado + selector de tipo (sticky) */}
         <div className="sticky top-0 z-10 bg-[#151510] border-b border-[#2A2A22] rounded-t-2xl px-5 py-4">
@@ -75,7 +93,7 @@ export function NuevoDocumentoModal({
         </div>
 
         {/* Formulario del tipo elegido */}
-        <div className="px-5 py-5">
+        <div className="doc-compact px-4 py-3">
           {tipo === "factura" && (
             <Suspense fallback={<CargandoForm />}>
               <FacturacionForm consumidorFinalLimite={consumidorFinalLimite} />
