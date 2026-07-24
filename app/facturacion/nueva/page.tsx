@@ -1,8 +1,5 @@
 import Link               from "next/link";
-import { redirect }       from "next/navigation";
 import { StaffAppShell }  from "@/components/staff/StaffAppShell";
-import { canAccessApp }   from "@/lib/apps";
-import { getSessionFromCookie } from "@/lib/session";
 import { FacturacionForm } from "@/components/facturacion/FacturacionForm";
 import { getConsumidorFinalLimite } from "@/lib/facturacion/config";
 
@@ -12,11 +9,7 @@ export const dynamic = "force-dynamic";
 // con el rediseño, la landing es la pantalla única de documentos y el
 // formulario se emite desde aquí. Sigue leyendo ?borrador, ?reemplazoNC y
 // ?origen/?recordId (gancho de cuenta unificada) desde la URL.
-export default async function NuevaFacturaPage() {
-  const session = await getSessionFromCookie();
-  if (!session)                              redirect("/login");
-  if (!canAccessApp(session, "Facturación")) redirect("/");
-
+export default function NuevaFacturaPage() {
   return (
     <StaffAppShell activeHref="/facturacion" sectionLabel="Facturación — Nueva factura">
       <div className="mb-4">
@@ -27,7 +20,7 @@ export default async function NuevaFacturaPage() {
           ← Documentos
         </Link>
       </div>
-      <FacturacionForm consumidorFinalLimite={getConsumidorFinalLimite()} vendedorPorDefecto={session.user.nombre} />
+      <FacturacionForm consumidorFinalLimite={getConsumidorFinalLimite()} />
     </StaffAppShell>
   );
 }
