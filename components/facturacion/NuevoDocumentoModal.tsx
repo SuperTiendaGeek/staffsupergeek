@@ -52,14 +52,10 @@ export function NuevoDocumentoModal({
           tienen sentido en la página completa, no dentro del modal. Se hace con
           CSS de mayor especificidad que Tailwind, sin tocar los formularios. */}
       <style>{`
-        .doc-compact .gap-6{gap:.7rem}
-        .doc-compact .gap-4{gap:.55rem}
-        .doc-compact .p-6{padding:.9rem}
-        .doc-compact .p-5{padding:.8rem}
-        .doc-compact .mb-4{margin-bottom:.55rem}
-        .doc-compact .mb-3{margin-bottom:.4rem}
-        .doc-compact .mt-4{margin-top:.5rem}
-        .doc-compact .pb-20{padding-bottom:.5rem}
+        .doc-compact .gap-6{gap:1rem}
+        .doc-compact .p-6{padding:1.1rem}
+        .doc-compact .p-5{padding:1.1rem}
+        .doc-compact .pb-20{padding-bottom:.75rem}
         .doc-compact .max-w-5xl{max-width:none}
         .doc-compact a[href="/facturacion/recibos"],
         .doc-compact a[href="/facturacion/proformas"],
