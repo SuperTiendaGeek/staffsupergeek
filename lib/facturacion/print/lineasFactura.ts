@@ -3,6 +3,7 @@
 // legacy (array de detalles). Devuelve ítems listos para el ticket.
 
 export type ItemTicket = {
+  codigo:         string;   // SKU (codigoPrincipal del SRI)
   descripcion:    string;
   cantidad:       number;
   precioUnitario: number;
@@ -24,6 +25,7 @@ function mapDetalleSri(d: Record<string, unknown>): ItemTicket {
   const impuestos = Array.isArray(d.impuestos) ? (d.impuestos as Array<{ tarifa?: number }>) : [];
   const cant = n(d.cantidad), precio = n(d.precioUnitario), desc = n(d.descuento);
   return {
+    codigo: s(d.codigoPrincipal),
     descripcion: s(d.descripcion),
     cantidad: cant, precioUnitario: precio, descuento: desc,
     ivaPct: impuestos[0]?.tarifa ?? 0,
@@ -34,6 +36,7 @@ function mapDetalleSri(d: Record<string, unknown>): ItemTicket {
 function mapLineaV1(l: Record<string, unknown>): ItemTicket {
   const cant = n(l.cantidad), precio = n(l.precioUnitario), desc = n(l.descuento);
   return {
+    codigo: s(l.codigoPrincipal),
     descripcion: s(l.descripcion),
     cantidad: cant, precioUnitario: precio, descuento: desc,
     ivaPct: TARIFA_PCT[s(l.tarifaIva)] ?? 0,
