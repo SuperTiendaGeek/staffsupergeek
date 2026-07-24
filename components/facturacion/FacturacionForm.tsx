@@ -1011,14 +1011,17 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
 
       {/* ── 1. CLIENTE ──────────────────────────────────────────────────── */}
       <Card titulo="1. Cliente">
-        {/* Tabs de modo */}
-        <div className="flex gap-2 mb-4">
+        {/* Animación sutil de aparición del buscador contextual */}
+        <style>{`@keyframes sgFade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}.sg-fade-in{animation:sgFade .18s ease-out}`}</style>
+
+        {/* Modo de cliente + buscador contextual en la misma fila */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
           {(["consumidor", "buscar", "nuevo"] as ModoCliente[]).map((m) => (
             <button
               key={m}
               onClick={() => switchModo(m)}
               className={[
-                "rounded-full border px-3 py-1 text-xs font-bold transition",
+                "rounded-full border px-3 py-1 text-xs font-bold transition whitespace-nowrap",
                 modoCliente === m
                   ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]"
                   : "border-[#3A3A36] bg-transparent text-[#A7A7A7] hover:text-[#F5F5F5]",
@@ -1027,6 +1030,36 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
               {m === "consumidor" ? "Consumidor Final" : m === "buscar" ? "Buscar existente" : "Cliente nuevo"}
             </button>
           ))}
+
+          {/* Buscador inline: aparece en modo buscar mientras no haya cliente elegido */}
+          {modoCliente === "buscar" && !cliente.airtableId && (
+            <div className="relative flex-1 min-w-[240px] sg-fade-in">
+              <input
+                type="text"
+                autoFocus
+                value={queryCliente}
+                onChange={(e) => { setQueryCliente(e.target.value); setCliente({ ...CONSUMIDOR_FINAL, modo: "buscar" }); }}
+                placeholder="Buscar por nombre, cédula o teléfono…"
+                className={INPUT}
+              />
+              {buscandoCli && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#666]">Buscando…</span>}
+              {clientesSug.length > 0 && (
+                <ul className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded-md border border-[#3A3A36] bg-[#1A1B18] shadow-xl divide-y divide-[#2A2B28]">
+                  {clientesSug.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        onClick={() => seleccionarClienteExistente(c)}
+                        className="w-full text-left px-4 py-2.5 hover:bg-[#252622] text-sm"
+                      >
+                        <p className="font-semibold text-[#F5F5F5]">{c.nombre}</p>
+                        <p className="text-[#666] text-xs">{c.cedula} · {c.telefono} · {c.correo}</p>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Consumidor final */}
@@ -1037,47 +1070,19 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
           </div>
         )}
 
-        {/* Búsqueda existente */}
-        {modoCliente === "buscar" && (
-          <div className="relative">
-            <label className={LABEL}>Buscar por nombre, cédula o teléfono</label>
-            <input
-              type="text"
-              value={queryCliente}
-              onChange={(e) => { setQueryCliente(e.target.value); setCliente({ ...CONSUMIDOR_FINAL, modo: "buscar" }); }}
-              placeholder="Escribe 2+ caracteres…"
-              className={INPUT}
-            />
-            {buscandoCli && <p className="mt-1 text-xs text-[#666]">Buscando…</p>}
-            {clientesSug.length > 0 && (
-              <ul className="absolute z-20 mt-1 w-full rounded-md border border-[#3A3A36] bg-[#1A1B18] shadow-xl divide-y divide-[#2A2B28]">
-                {clientesSug.map((c) => (
-                  <li key={c.id}>
-                    <button
-                      onClick={() => seleccionarClienteExistente(c)}
-                      className="w-full text-left px-4 py-2.5 hover:bg-[#252622] text-sm"
-                    >
-                      <p className="font-semibold text-[#F5F5F5]">{c.nombre}</p>
-                      <p className="text-[#666] text-xs">{c.cedula} · {c.telefono} · {c.correo}</p>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {/* Cliente seleccionado */}
-            {cliente.identificacion && (
-              <ClienteSeleccionado
-                cliente={cliente}
-                onChange={(field, val) => setCliente((p) => ({ ...p, [field]: val }))}
-              />
-            )}
-          </div>
+        {/* Cliente elegido en modo buscar (el buscador se oculta; reaparece al
+            volver a pulsar "Buscar existente") */}
+        {modoCliente === "buscar" && cliente.airtableId && (
+          <ClienteSeleccionado
+            cliente={cliente}
+            onChange={(field, val) => setCliente((p) => ({ ...p, [field]: val }))}
+          />
         )}
 
         {/* Nuevo cliente */}
         {modoCliente === "nuevo" && (
-          <div className="grid grid-cols-2 gap-4">
-            <div>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div className="md:col-span-3">
               <label className={LABEL}>Tipo de identificación</label>
               <select value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value as TipoIdentificacion)} className={SELECT}>
                 <option value="05">{TIPO_LABEL["05"]}</option>
@@ -1086,28 +1091,28 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
                 <option value="08">{TIPO_LABEL["08"]}</option>
               </select>
             </div>
-            <div>
+            <div className="md:col-span-4">
               <label className={LABEL}>Número de identificación</label>
               <input type="text" value={nuevoId} onChange={(e) => { setNuevoId(e.target.value); setErrNuevo(null); }} placeholder="Cédula / RUC / Pasaporte" className={INPUT} />
             </div>
-            <div className="col-span-2">
+            <div className="md:col-span-5">
               <label className={LABEL}>Razón social / Nombres y apellidos</label>
               <input type="text" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} className={INPUT} placeholder="Nombre completo" />
             </div>
-            <div>
+            <div className="md:col-span-6">
               <label className={LABEL}>Email (para RIDE)</label>
               <input type="email" value={nuevoCorreo} onChange={(e) => setNuevoCorreo(e.target.value)} className={INPUT} placeholder="cliente@email.com" />
             </div>
-            <div>
+            <div className="md:col-span-3">
               <label className={LABEL}>Teléfono</label>
               <input type="text" value={nuevoTel} onChange={(e) => setNuevoTel(e.target.value)} className={INPUT} placeholder="09XXXXXXXX" />
             </div>
-            <div className="col-span-2">
+            <div className="md:col-span-3">
               <label className={LABEL}>Dirección</label>
               <input type="text" value={nuevoDir} onChange={(e) => setNuevoDir(e.target.value)} className={INPUT} placeholder="Dirección del cliente" />
             </div>
-            {errNuevo && <p className="col-span-2 text-xs text-red-400">{errNuevo}</p>}
-            <div className="col-span-2">
+            {errNuevo && <p className="md:col-span-12 text-xs text-red-400">{errNuevo}</p>}
+            <div className="md:col-span-12">
               <button
                 onClick={crearNuevoCliente}
                 disabled={savingNuevo}
@@ -1396,9 +1401,9 @@ function ClienteSeleccionado({
 }) {
   const errId = validarIdentificacion(cliente.tipoIdentificacion, cliente.identificacion);
   return (
-    <div className="mt-3 grid grid-cols-2 gap-3">
-      <div>
-        <label className={LABEL}>Tipo identificación</label>
+    <div className="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+      <div className="md:col-span-2">
+        <label className={LABEL}>Tipo ID</label>
         <select
           value={cliente.tipoIdentificacion}
           onChange={(e) => onChange("tipoIdentificacion", e.target.value)}
@@ -1409,7 +1414,7 @@ function ClienteSeleccionado({
           ))}
         </select>
       </div>
-      <div>
+      <div className="md:col-span-3">
         <label className={LABEL}>Identificación</label>
         <input
           type="text"
@@ -1419,11 +1424,11 @@ function ClienteSeleccionado({
         />
         {errId && <p className="mt-0.5 text-xs text-red-400">{errId}</p>}
       </div>
-      <div>
+      <div className="md:col-span-4">
         <label className={LABEL}>Razón social / Nombre</label>
         <input type="text" value={cliente.razonSocial} onChange={(e) => onChange("razonSocial", e.target.value)} className={INPUT} />
       </div>
-      <div>
+      <div className="md:col-span-3">
         <label className={LABEL}>Email (para RIDE)</label>
         <input type="email" value={cliente.correo} onChange={(e) => onChange("correo", e.target.value)} placeholder="Opcional" className={INPUT} />
       </div>
