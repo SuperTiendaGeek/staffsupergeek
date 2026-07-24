@@ -18,13 +18,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import type { DocumentoResumen, GrupoVista, TipoDocumento } from "@/lib/facturacion/documentos/tipos";
+import type { DocumentoResumen, GrupoVista, TipoDocumento, DocumentoCuerpo } from "@/lib/facturacion/documentos/tipos";
 import { TIPO_LABEL } from "@/lib/facturacion/documentos/tipos";
 
 // ─── Presentación ─────────────────────────────────────────────────────────────
 
 const mon = (n: number) => `$${n.toFixed(2)}`;
 const fmt = (iso: string) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—");
+
+const FORMA_PAGO_LABEL: Record<string, string> = {
+  "01": "Efectivo", "15": "Compensación de deudas", "16": "Tarjeta de débito",
+  "17": "Dinero electrónico", "18": "Tarjeta prepago", "19": "Tarjeta de crédito",
+  "20": "Otros (sist. financiero)", "21": "Endoso de títulos",
+};
 
 const TIPO_BADGE: Record<TipoDocumento, string> = {
   factura:     "bg-[#D7FF4F]/15 text-[#D7FF4F] border-[#D7FF4F]/40",
@@ -167,6 +173,127 @@ function NuevoDocumento() {
   );
 }
 
+// ─── Visualizador de documento (ventana flotante) ────────────────────────────
+
+function DocumentoDetalleModal({
+  doc, accion, onPost, onClose,
+}: {
+  doc: DocumentoResumen;
+  accion: string | null;
+  onPost: (url: string, label: string, body?: Record<string, unknown>) => void;
+  onClose: () => void;
+}) {
+  const [cuerpo, setCuerpo]     = useState<DocumentoCuerpo | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [err, setErr]           = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    setCargando(true); setErr(null); setCuerpo(null);
+    fetch(`/api/facturacion/documentos/${doc.tipo}/${doc.recordId}`)
+      .then((r) => r.json())
+      .then((d: { success: boolean; data?: DocumentoCuerpo; error?: string }) => {
+        if (!vivo) return;
+        if (d.success && d.data) setCuerpo(d.data);
+        else setErr(d.error ?? "No se pudo cargar el detalle");
+      })
+      .catch(() => { if (vivo) setErr("Error de red al cargar el detalle"); })
+      .finally(() => { if (vivo) setCargando(false); });
+    return () => { vivo = false; };
+  }, [doc.tipo, doc.recordId]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-2xl border border-[#2A2A22] bg-[#1A1A16] shadow-2xl">
+        {/* Encabezado */}
+        <div className="sticky top-0 z-10 bg-[#1A1A16] border-b border-[#2A2A22] px-5 py-4 flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TIPO_BADGE[doc.tipo]}`}>{TIPO_LABEL[doc.tipo]}</span>
+              <span className={`text-xs ${estadoColor(doc.estado)}`}>{estadoLabel(doc)}</span>
+              {doc.ambiente && <span className="text-[10px] text-[#666]">{doc.ambiente}</span>}
+            </div>
+            <p className="mt-1 text-lg font-bold font-mono text-[#F5F5F5]">{doc.numero || "borrador"}</p>
+            {doc.numeroDocModificado && <p className="text-xs text-[#888]">corrige {doc.numeroDocModificado}</p>}
+          </div>
+          <button onClick={onClose} className="text-[#666] hover:text-[#F5F5F5] text-xl leading-none">✕</button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          {/* Cliente */}
+          <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm space-y-1">
+            <div className="flex justify-between gap-3"><span className="text-[#666]">Cliente</span><span className="text-[#F5F5F5] text-right">{doc.clienteNombre || "—"}</span></div>
+            <div className="flex justify-between gap-3"><span className="text-[#666]">Identificación</span><span className="text-[#F5F5F5] text-right">{doc.clienteIdentificacion || "—"}</span></div>
+            {doc.clienteCorreo && <div className="flex justify-between gap-3"><span className="text-[#666]">Correo</span><span className="text-[#F5F5F5] text-right truncate">{doc.clienteCorreo}</span></div>}
+            <div className="flex justify-between gap-3"><span className="text-[#666]">Fecha</span><span className="text-[#F5F5F5] text-right">{fmt(doc.fecha)}</span></div>
+          </div>
+
+          {/* Cuerpo (ítems + totales) */}
+          {cargando ? (
+            <div className="flex items-center justify-center py-8 text-[#555]"><Spinner /><span className="ml-2 text-sm">Cargando detalle…</span></div>
+          ) : err ? (
+            <p className="rounded-lg bg-red-900/20 border border-red-700/40 px-3 py-2 text-sm text-red-300">{err}</p>
+          ) : cuerpo ? (
+            <>
+              {cuerpo.items.length > 0 ? (
+                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead><tr className="text-[#555] border-b border-[#2A2A22]">
+                      <th className="text-left font-semibold py-1.5 px-2">Descripción</th>
+                      <th className="text-right font-semibold py-1.5 px-2">Cant.</th>
+                      <th className="text-right font-semibold py-1.5 px-2">P.Unit</th>
+                      <th className="text-right font-semibold py-1.5 px-2">Total</th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-[#1E1E1A]">
+                      {cuerpo.items.map((it, i) => (
+                        <tr key={i}>
+                          <td className="py-1.5 px-2 text-[#F5F5F5]">{it.descripcion}</td>
+                          <td className="py-1.5 px-2 text-right text-[#A7A7A7]">{it.cantidad}</td>
+                          <td className="py-1.5 px-2 text-right text-[#A7A7A7]">{mon(it.precioUnitario)}</td>
+                          <td className="py-1.5 px-2 text-right text-[#D7FF4F] font-semibold">{mon(it.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-xs text-[#555] italic px-1">Detalle de ítems no disponible para este documento.</p>
+              )}
+
+              <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm space-y-1">
+                {cuerpo.mostrarIva && cuerpo.subtotal !== null && <div className="flex justify-between"><span className="text-[#666]">Subtotal</span><span className="text-[#F5F5F5]">{mon(cuerpo.subtotal)}</span></div>}
+                {cuerpo.mostrarIva && cuerpo.iva !== null && <div className="flex justify-between"><span className="text-[#666]">IVA</span><span className="text-[#F5F5F5]">{mon(cuerpo.iva)}</span></div>}
+                <div className="flex justify-between text-base font-bold"><span className="text-[#F5F5F5]">TOTAL</span><span className="text-[#D7FF4F]">{mon(cuerpo.total)}</span></div>
+              </div>
+
+              {(cuerpo.formaPago || cuerpo.validezDias !== null || cuerpo.nota) && (
+                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm space-y-1">
+                  {cuerpo.formaPago && <div className="flex justify-between gap-3"><span className="text-[#666]">Forma de pago</span><span className="text-[#F5F5F5] text-right">{FORMA_PAGO_LABEL[cuerpo.formaPago] ?? cuerpo.formaPago}</span></div>}
+                  {cuerpo.validezDias !== null && <div className="flex justify-between gap-3"><span className="text-[#666]">Validez</span><span className="text-[#F5F5F5]">{cuerpo.validezDias} días</span></div>}
+                  {cuerpo.nota && <div className="flex justify-between gap-3"><span className="text-[#666]">Nota</span><span className="text-[#F5F5F5] text-right">{cuerpo.nota}</span></div>}
+                </div>
+              )}
+
+              {doc.claveAcceso && (
+                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-[10px] text-[#888] break-all">
+                  <p className="text-[#666] font-semibold uppercase tracking-wider mb-1">SRI</p>
+                  <p><span className="text-[#666]">Clave de acceso:</span> {doc.claveAcceso}</p>
+                </div>
+              )}
+            </>
+          ) : null}
+
+          {/* Acciones (mismas que la barra superior) */}
+          <div className="border-t border-[#2A2A22] pt-3">
+            <p className="text-[10px] text-[#666] uppercase tracking-wider mb-2">Acciones</p>
+            <BarraAcciones doc={doc} accion={accion} onPost={onPost} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export function DocumentosFacturacion() {
@@ -178,6 +305,7 @@ export function DocumentosFacturacion() {
   const [cargando, setCargando]     = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [selId, setSelId]           = useState<string | null>(null);
+  const [detalleDoc, setDetalleDoc] = useState<DocumentoResumen | null>(null);
   const [pendientes, setPendientes] = useState<number>(0);
   const [accion, setAccion]         = useState<string | null>(null);
   const [msg, setMsg]               = useState<string | null>(null);
@@ -220,7 +348,7 @@ export function DocumentosFacturacion() {
   }, [q]);
 
   // Recargar al cambiar grupo o búsqueda aplicada.
-  useEffect(() => { cargar(grupo, qAplicado); setSelId(null); }, [grupo, qAplicado, cargar]);
+  useEffect(() => { cargar(grupo, qAplicado); setSelId(null); setDetalleDoc(null); }, [grupo, qAplicado, cargar]);
 
   function onPost(url: string, label: string, body?: Record<string, unknown>) {
     setAccion(label); setMsg(null); setErrMsg(null);
@@ -315,8 +443,8 @@ export function DocumentosFacturacion() {
 
       {/* ── Listado ── */}
       <div className="rounded-xl border border-[#2A2A22] bg-[#1A1A16] overflow-hidden">
-        <div className="hidden md:grid grid-cols-[130px_1.4fr_1fr_100px_110px] gap-3 px-4 py-2 border-b border-[#2A2A22] text-xs font-semibold text-[#555] uppercase tracking-wider">
-          <span>Tipo</span><span>Cliente / Número</span><span>Fecha</span><span className="text-right">Total</span><span className="text-right">Estado</span>
+        <div className="hidden md:grid grid-cols-[104px_minmax(0,1.6fr)_minmax(0,1.4fr)_92px_96px_104px] gap-3 px-4 py-2 border-b border-[#2A2A22] text-xs font-semibold text-[#555] uppercase tracking-wider">
+          <span>Tipo</span><span>Cliente</span><span>Número</span><span>Fecha</span><span className="text-right">Total</span><span className="text-right">Estado</span>
         </div>
 
         {cargando && docs.length === 0 ? (
@@ -329,15 +457,24 @@ export function DocumentosFacturacion() {
             return (
               <button
                 key={`${d.tipo}-${d.recordId}`}
-                onClick={() => setSelId(sel ? null : d.recordId)}
-                className={`w-full text-left md:grid grid-cols-[130px_1.4fr_1fr_100px_110px] gap-3 px-4 py-3 border-b border-[#2A2A22] last:border-0 transition-colors ${sel ? "bg-[#D7FF4F]/10" : "hover:bg-[#1F1F1A]"}`}
+                onClick={() => { setSelId(d.recordId); setDetalleDoc(d); }}
+                className={`w-full text-left px-4 py-2 border-b border-[#2A2A22] last:border-0 transition-colors md:grid md:grid-cols-[104px_minmax(0,1.6fr)_minmax(0,1.4fr)_92px_96px_104px] md:gap-3 md:items-center ${sel ? "bg-[#D7FF4F]/10" : "hover:bg-[#1F1F1A]"}`}
               >
-                <span className="flex items-center">
+                {/* Móvil */}
+                <div className="md:hidden flex items-center justify-between gap-2">
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TIPO_BADGE[d.tipo]}`}>{TIPO_LABEL[d.tipo]}</span>
+                  <span className="flex-1 truncate text-sm text-[#F5F5F5]">{d.clienteNombre || "—"}</span>
+                  <span className="text-sm font-bold text-[#D7FF4F]">{mon(d.total)}</span>
+                </div>
+                <div className="md:hidden mt-0.5 text-xs font-mono text-[#777] truncate">{d.numero || "borrador"} · {fmt(d.fecha)} · <span className={estadoColor(d.estado)}>{estadoLabel(d)}</span></div>
+
+                {/* Escritorio */}
+                <span className="hidden md:flex items-center">
                   <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TIPO_BADGE[d.tipo]}`}>{TIPO_LABEL[d.tipo]}</span>
                 </span>
-                <span className="block text-sm text-[#F5F5F5] truncate">
-                  {d.clienteNombre || "—"}
-                  <span className="block text-xs font-mono text-[#777]">{d.numero || "borrador"}{d.numeroDocModificado && <span className="text-[#555]"> · corrige {d.numeroDocModificado}</span>}</span>
+                <span className="hidden md:block text-sm text-[#F5F5F5] truncate">{d.clienteNombre || "—"}</span>
+                <span className="hidden md:block text-xs font-mono text-[#8A8A8A] truncate">
+                  {d.numero || "borrador"}{d.numeroDocModificado && <span className="text-[#555]"> · corrige {d.numeroDocModificado}</span>}
                 </span>
                 <span className="hidden md:block text-sm text-[#A7A7A7]">{fmt(d.fecha)}</span>
                 <span className="hidden md:block text-sm font-bold text-[#D7FF4F] text-right">{mon(d.total)}</span>
@@ -347,6 +484,16 @@ export function DocumentosFacturacion() {
           })
         )}
       </div>
+
+      {/* Visualizador flotante del documento */}
+      {detalleDoc && (
+        <DocumentoDetalleModal
+          doc={detalleDoc}
+          accion={accion}
+          onPost={(url, label, body) => { setDetalleDoc(null); onPost(url, label, body); }}
+          onClose={() => setDetalleDoc(null)}
+        />
+      )}
     </div>
   );
 }

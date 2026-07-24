@@ -47,13 +47,18 @@ export function parsearLineasFactura(raw: string): LineasFacturaParseadas {
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       const obj = parsed as Record<string, unknown>;
-      if (obj.version === 2 && Array.isArray(obj.detalles)) {
+      // Las facturas emitidas guardan `detalles` (SRI) en v2, v3 (actual) y en
+      // adelante. Nos basamos en la forma, no en el número de versión, para no
+      // volver a romper cuando el formato suba de versión.
+      if (Array.isArray(obj.detalles)) {
         return { items: (obj.detalles as Record<string, unknown>[]).map(mapDetalleSri), formaPago: s(obj.formaPago) };
       }
-      if (obj.version === 1 && Array.isArray(obj.lineas)) {
+      // v1: borrador guardado desde el formulario (usa `lineas`).
+      if (Array.isArray(obj.lineas)) {
         return { items: (obj.lineas as Record<string, unknown>[]).map(mapLineaV1), formaPago: s(obj.formaPago) };
       }
     }
+    // legacy: array suelto de detalles (facturas antiguas).
     if (Array.isArray(parsed)) {
       return { items: (parsed as Record<string, unknown>[]).map(mapDetalleSri), formaPago: "" };
     }
