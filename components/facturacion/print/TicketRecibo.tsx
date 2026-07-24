@@ -41,6 +41,7 @@ export function TicketRecibo({ emisor, recibo }: { emisor: EmisorTicket; recibo:
             const total = Math.round((cant * precio - desc) * 100) / 100;
             return (
               <div className="item" key={i}>
+                {l.codigo && <div className="muted">SKU: {l.codigo}</div>}
                 <div className="item-desc">{cleanText(l.descripcion)}</div>
                 <div className="item-calc">
                   <span>{cant} x {mon(precio)}{desc > 0 ? ` (-${mon(desc)})` : ""}</span>

@@ -40,6 +40,7 @@ export function TicketFactura({ emisor, factura }: { emisor: EmisorTicket; factu
           <div className="sep" />
           {factura.items.map((it, i) => (
             <div className="item" key={i}>
+              {it.codigo && <div className="muted">SKU: {it.codigo}</div>}
               <div className="item-desc">{cleanText(it.descripcion)}</div>
               <div className="item-calc">
                 <span>{it.cantidad} x {mon(it.precioUnitario)}{it.descuento > 0 ? ` (-${mon(it.descuento)})` : ""}</span>

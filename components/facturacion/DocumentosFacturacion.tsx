@@ -247,7 +247,10 @@ function DocumentoDetalleModal({
                     <tbody className="divide-y divide-[#1E1E1A]">
                       {cuerpo.items.map((it, i) => (
                         <tr key={i}>
-                          <td className="py-1.5 px-2 text-[#F5F5F5]">{it.descripcion}</td>
+                          <td className="py-1.5 px-2 text-[#F5F5F5]">
+                            {it.codigo && <span className="block font-mono text-[10px] text-[#777]">SKU: {it.codigo}</span>}
+                            {it.descripcion}
+                          </td>
                           <td className="py-1.5 px-2 text-right text-[#A7A7A7]">{it.cantidad}</td>
                           <td className="py-1.5 px-2 text-right text-[#A7A7A7]">{mon(it.precioUnitario)}</td>
                           <td className="py-1.5 px-2 text-right text-[#D7FF4F] font-semibold">{mon(it.total)}</td>

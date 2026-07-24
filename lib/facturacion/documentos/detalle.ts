@@ -29,7 +29,7 @@ export async function obtenerCuerpoDocumento(tipo: TipoDocumento, recordId: stri
     const rec = await obtenerReciboPorId(recordId);
     if (!rec) return null;
     const items: ItemDetalle[] = rec.lineas.map((l) => ({
-      descripcion: l.descripcion, cantidad: l.cantidad ?? 0, precioUnitario: l.precioUnitario ?? 0,
+      codigo: l.codigo ?? "", descripcion: l.descripcion, cantidad: l.cantidad ?? 0, precioUnitario: l.precioUnitario ?? 0,
       descuento: l.descuento ?? 0, ivaPct: 0, total: r2((l.cantidad ?? 0) * (l.precioUnitario ?? 0) - (l.descuento ?? 0)),
     }));
     return { mostrarIva: false, items, subtotal: null, iva: null, total: rec.total, formaPago: rec.formaPago, nota: rec.nota, motivo: "", validezDias: null };
@@ -49,7 +49,7 @@ export async function obtenerCuerpoDocumento(tipo: TipoDocumento, recordId: stri
     } catch { /* ignore */ }
     const tot = calcularTotalesProforma(lineas);
     const items: ItemDetalle[] = lineas.map((l) => ({
-      descripcion: l.descripcion, cantidad: l.cantidad, precioUnitario: l.precioUnitario,
+      codigo: l.codigo ?? "", descripcion: l.descripcion, cantidad: l.cantidad, precioUnitario: l.precioUnitario,
       descuento: l.descuento, ivaPct: TARIFA_PCT[l.tarifaIva] ?? 0, total: r2(l.cantidad * l.precioUnitario - l.descuento),
     }));
     return { mostrarIva: true, items, subtotal: tot.totalSinImpuestos, iva: tot.iva, total: tot.importeTotal, formaPago: "", nota, motivo: "", validezDias };

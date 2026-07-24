@@ -48,6 +48,7 @@ export type ListadoDocumentos = {
 // ─── Detalle (cuerpo) para el visualizador flotante ──────────────────────────
 
 export type ItemDetalle = {
+  codigo:         string;   // SKU
   descripcion:    string;
   cantidad:       number;
   precioUnitario: number;
