@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { DocumentoResumen, GrupoVista, TipoDocumento, DocumentoCuerpo } from "@/lib/facturacion/documentos/tipos";
 import { TIPO_LABEL } from "@/lib/facturacion/documentos/tipos";
+import { NuevoDocumentoModal } from "@/components/facturacion/NuevoDocumentoModal";
 
 // ─── Presentación ─────────────────────────────────────────────────────────────
 
@@ -142,33 +143,6 @@ function BarraAcciones({ doc, accion, onPost }: AccionesProps) {
       {doc.tieneRide && <a href={`/api/facturacion/nota-credito/ride/${doc.claveAcceso}`} target="_blank" rel="noopener" className={btnLink}>↓ RIDE PDF</a>}
       {doc.tieneXml && <a href={`/api/facturacion/nota-credito/xml/${doc.claveAcceso}`} download={`${doc.claveAcceso}.xml`} className={btnLink}>↓ XML</a>}
       <Link href={`/facturacion/nueva?reemplazoNC=${doc.recordId}`} className={btnLink}>→ Facturar reemplazo</Link>
-    </div>
-  );
-}
-
-// ─── Menú "Nuevo documento" ───────────────────────────────────────────────────
-
-function NuevoDocumento() {
-  const [abierto, setAbierto] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    function fuera(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setAbierto(false); }
-    document.addEventListener("mousedown", fuera);
-    return () => document.removeEventListener("mousedown", fuera);
-  }, []);
-  const item = "block px-4 py-2 text-sm text-[#F5F5F5] hover:bg-[#1F1F1A]";
-  return (
-    <div ref={ref} className="relative">
-      <button onClick={() => setAbierto((v) => !v)} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] hover:brightness-105 whitespace-nowrap">
-        + Nuevo documento
-      </button>
-      {abierto && (
-        <div className="absolute right-0 z-30 mt-2 w-52 overflow-hidden rounded-xl border border-[#2A2A22] bg-[#1A1A16] shadow-xl">
-          <Link href="/facturacion/nueva" className={item}>Factura</Link>
-          <Link href="/facturacion/recibos/nuevo" className={item}>Recibo</Link>
-          <Link href="/facturacion/proformas/nueva" className={item}>Proforma</Link>
-        </div>
-      )}
     </div>
   );
 }
@@ -299,8 +273,9 @@ function DocumentoDetalleModal({
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export function DocumentosFacturacion() {
+export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumidorFinalLimite?: number }) {
   const [grupo, setGrupo]           = useState<GrupoVista>("ventas");
+  const [nuevoAbierto, setNuevoAbierto] = useState(false);
   const [q, setQ]                   = useState("");
   const [qAplicado, setQAplicado]   = useState("");
   const [docs, setDocs]             = useState<DocumentoResumen[]>([]);
@@ -384,7 +359,12 @@ export function DocumentosFacturacion() {
               <button onClick={() => setQ("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#555] hover:text-[#F5F5F5]">✕</button>
             )}
           </div>
-          <NuevoDocumento />
+          <button
+            onClick={() => setNuevoAbierto(true)}
+            className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] hover:brightness-105 whitespace-nowrap"
+          >
+            + Nuevo documento
+          </button>
         </div>
 
         {/* Acciones contextuales */}
@@ -495,6 +475,14 @@ export function DocumentosFacturacion() {
           accion={accion}
           onPost={(url, label, body) => { setDetalleDoc(null); onPost(url, label, body); }}
           onClose={() => setDetalleDoc(null)}
+        />
+      )}
+
+      {/* Ventana flotante de creación */}
+      {nuevoAbierto && (
+        <NuevoDocumentoModal
+          consumidorFinalLimite={consumidorFinalLimite}
+          onClose={() => { setNuevoAbierto(false); cargar(grupo, qAplicado); cargarPendientes(); }}
         />
       )}
     </div>

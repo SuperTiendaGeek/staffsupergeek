@@ -3,6 +3,7 @@ import { StaffAppShell }  from "@/components/staff/StaffAppShell";
 import { canAccessApp }   from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
 import { DocumentosFacturacion } from "@/components/facturacion/DocumentosFacturacion";
+import { getConsumidorFinalLimite } from "@/lib/facturacion/config";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default async function FacturacionPage() {
 
   return (
     <StaffAppShell activeHref="/facturacion" sectionLabel="Facturación">
-      <DocumentosFacturacion />
+      <DocumentosFacturacion consumidorFinalLimite={getConsumidorFinalLimite()} />
     </StaffAppShell>
   );
 }
