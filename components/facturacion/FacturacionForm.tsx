@@ -277,7 +277,7 @@ type BorradorPayload = {
   ivaIncluido?:       boolean;
 };
 
-export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFinalLimite?: number }) {
+export function FacturacionForm({ consumidorFinalLimite = 50, vendedorPorDefecto = "" }: { consumidorFinalLimite?: number; vendedorPorDefecto?: string }) {
   const searchParams = useSearchParams();
 
   // ── Estado del formulario ─────────────────────────────────────────────────
@@ -291,6 +291,10 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   // encima). Aplica a mostrador y gancho por igual — ver §4.6 del diseño.
   const [ivaIncluido, setIvaIncluido] = useState(true);
   const [emitiendo, setEmitiendo] = useState(false);
+  // Vendedor que se imprime en la factura. Por defecto el usuario logueado
+  // (vendedorPorDefecto), pero editable: quien factura puede indicar que la
+  // venta fue de otro vendedor (base para comisiones a futuro).
+  const [vendedor, setVendedor] = useState(vendedorPorDefecto);
   const [resultado, setResultado] = useState<ResultadoEmision | null>(null);
   const [errGlobal, setErrGlobal] = useState<string | null>(null);
 
@@ -889,6 +893,9 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       // si el humano cambia de cliente en el formulario, el link
       // post-emisión debe usar el cliente final elegido, no el original.
       clienteRecordId: cliente.airtableId,
+      // Vendedor elegido en el formulario; el endpoint lo respeta y solo cae al
+      // usuario logueado si viene vacío.
+      vendedor: vendedor.trim() || undefined,
     };
 
     setEmitiendo(true);
@@ -1011,36 +1018,32 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
 
       {/* ── 1. CLIENTE ──────────────────────────────────────────────────── */}
       <Card titulo="1. Cliente">
-        {/* Animación sutil de aparición del buscador contextual */}
-        <style>{`@keyframes sgFade{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}.sg-fade-in{animation:sgFade .18s ease-out}`}</style>
+        {/* Animación de crecimiento del buscador (empuja "Cliente nuevo") */}
+        <style>{`@keyframes sgGrow{from{max-width:0;opacity:.2}to{max-width:100%;opacity:1}}.sg-grow{animation:sgGrow .22s ease-out}`}</style>
 
-        {/* Modo de cliente + buscador contextual en la misma fila */}
+        {/* Modo de cliente; el buscador aparece ENTRE "Buscar existente" y
+            "Cliente nuevo", empujando este último hacia la derecha. */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
-          {(["consumidor", "buscar", "nuevo"] as ModoCliente[]).map((m) => (
+          {([["consumidor", "Consumidor Final"], ["buscar", "Buscar existente"]] as [ModoCliente, string][]).map(([m, label]) => (
             <button
               key={m}
               onClick={() => switchModo(m)}
-              className={[
-                "rounded-full border px-3 py-1 text-xs font-bold transition whitespace-nowrap",
-                modoCliente === m
-                  ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]"
-                  : "border-[#3A3A36] bg-transparent text-[#A7A7A7] hover:text-[#F5F5F5]",
-              ].join(" ")}
+              className={`rounded-full border px-3 py-1 text-xs font-bold transition whitespace-nowrap ${modoCliente === m ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] bg-transparent text-[#A7A7A7] hover:text-[#F5F5F5]"}`}
             >
-              {m === "consumidor" ? "Consumidor Final" : m === "buscar" ? "Buscar existente" : "Cliente nuevo"}
+              {label}
             </button>
           ))}
 
-          {/* Buscador inline: aparece en modo buscar mientras no haya cliente elegido */}
+          {/* Buscador contextual entre los dos botones */}
           {modoCliente === "buscar" && !cliente.airtableId && (
-            <div className="relative flex-1 min-w-[240px] sg-fade-in">
+            <div className="relative flex-1 min-w-0 sg-grow">
               <input
                 type="text"
                 autoFocus
                 value={queryCliente}
                 onChange={(e) => { setQueryCliente(e.target.value); setCliente({ ...CONSUMIDOR_FINAL, modo: "buscar" }); }}
-                placeholder="Buscar por nombre, cédula o teléfono…"
-                className={INPUT}
+                placeholder="Buscar por nombre, cédula o teléfono"
+                className={INPUT + " w-full min-w-0"}
               />
               {buscandoCli && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#666]">Buscando…</span>}
               {clientesSug.length > 0 && (
@@ -1060,6 +1063,14 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
               )}
             </div>
           )}
+
+          {/* Cliente nuevo — se desplaza a la derecha cuando el buscador crece */}
+          <button
+            onClick={() => switchModo("nuevo")}
+            className={`rounded-full border px-3 py-1 text-xs font-bold transition whitespace-nowrap ${modoCliente === "nuevo" ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] bg-transparent text-[#A7A7A7] hover:text-[#F5F5F5]"}`}
+          >
+            Cliente nuevo
+          </button>
         </div>
 
         {/* Consumidor final */}
@@ -1291,6 +1302,18 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
                 )}
               </>
             )}
+
+            {/* Vendedor — por defecto el usuario logueado; editable */}
+            <div className="mt-3">
+              <label className={LABEL}>Vendedor (se imprime en la factura)</label>
+              <input
+                type="text"
+                value={vendedor}
+                onChange={(e) => setVendedor(e.target.value)}
+                placeholder="Nombre del vendedor"
+                className={INPUT}
+              />
+            </div>
           </div>
 
           {/* Totales */}
@@ -1449,10 +1472,10 @@ function LineaRow({
   return (
     <tr>
       <td className="py-1.5 pr-2">
-        <input type="text" value={linea.codigoPrincipal} onChange={(e) => onChange("codigoPrincipal", e.target.value)} className="w-20 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" placeholder="SKU" />
+        <input type="text" title={linea.codigoPrincipal} value={linea.codigoPrincipal} onChange={(e) => onChange("codigoPrincipal", e.target.value)} className="w-36 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" placeholder="SKU" />
       </td>
       <td className="py-1.5 pr-2">
-        <input type="text" value={linea.descripcion} onChange={(e) => onChange("descripcion", e.target.value)} className="w-full min-w-[160px] rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" placeholder="Descripción" />
+        <input type="text" title={linea.descripcion} value={linea.descripcion} onChange={(e) => onChange("descripcion", e.target.value)} className="w-full min-w-[360px] rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" placeholder="Descripción" />
       </td>
       <td className="py-1.5 pr-2 text-center">
         <input type="text" value={linea.unidadMedida} onChange={(e) => onChange("unidadMedida", e.target.value)} className="w-16 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-center text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" />

@@ -38,9 +38,11 @@ function CargandoForm() {
 
 export function NuevoDocumentoModal({
   consumidorFinalLimite,
+  vendedorPorDefecto,
   onClose,
 }: {
   consumidorFinalLimite: number;
+  vendedorPorDefecto: string;
   onClose: () => void;
 }) {
   const [tipo, setTipo] = useState<TipoNuevo>("factura");
@@ -92,7 +94,7 @@ export function NuevoDocumentoModal({
         <div className="doc-compact px-4 py-3">
           {tipo === "factura" && (
             <Suspense fallback={<CargandoForm />}>
-              <FacturacionForm consumidorFinalLimite={consumidorFinalLimite} />
+              <FacturacionForm consumidorFinalLimite={consumidorFinalLimite} vendedorPorDefecto={vendedorPorDefecto} />
             </Suspense>
           )}
           {tipo === "recibo"   && <ReciboForm />}

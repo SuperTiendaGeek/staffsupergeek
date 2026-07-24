@@ -273,7 +273,7 @@ function DocumentoDetalleModal({
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumidorFinalLimite?: number }) {
+export function DocumentosFacturacion({ consumidorFinalLimite = 50, vendedorPorDefecto = "" }: { consumidorFinalLimite?: number; vendedorPorDefecto?: string }) {
   const [grupo, setGrupo]           = useState<GrupoVista>("ventas");
   const [nuevoAbierto, setNuevoAbierto] = useState(false);
   const [q, setQ]                   = useState("");
@@ -482,6 +482,7 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
       {nuevoAbierto && (
         <NuevoDocumentoModal
           consumidorFinalLimite={consumidorFinalLimite}
+          vendedorPorDefecto={vendedorPorDefecto}
           onClose={() => { setNuevoAbierto(false); cargar(grupo, qAplicado); cargarPendientes(); }}
         />
       )}
