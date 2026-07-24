@@ -264,6 +264,7 @@ export type NotaCreditoIndividual = {
   clienteRecordId?:      string;
   total:                 number;
   saldoDisponible:       number;
+  lineasJson:            string;
 };
 
 export async function obtenerNotaCreditoPorId(recordId: string): Promise<NotaCreditoIndividual | null> {
@@ -283,6 +284,7 @@ export async function obtenerNotaCreditoPorId(recordId: string): Promise<NotaCre
     clienteRecordId:       linkedIdsRaw(f["Cliente"])[0],
     total:                 num(f["Total"]),
     saldoDisponible:       num(f["Saldo Disponible"]),
+    lineasJson:            str(f["Líneas JSON"]),
   };
 }
 

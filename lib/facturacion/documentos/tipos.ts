@@ -44,3 +44,26 @@ export type ListadoDocumentos = {
   documentos: DocumentoResumen[];
   suma:       number;
 };
+
+// ─── Detalle (cuerpo) para el visualizador flotante ──────────────────────────
+
+export type ItemDetalle = {
+  descripcion:    string;
+  cantidad:       number;
+  precioUnitario: number;
+  descuento:      number;
+  ivaPct:         number;
+  total:          number;
+};
+
+export type DocumentoCuerpo = {
+  mostrarIva:  boolean;
+  items:       ItemDetalle[];
+  subtotal:    number | null;
+  iva:         number | null;
+  total:       number;
+  formaPago:   string;
+  nota:        string;
+  motivo:      string;
+  validezDias: number | null;
+};
