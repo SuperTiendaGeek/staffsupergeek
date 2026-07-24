@@ -277,7 +277,7 @@ type BorradorPayload = {
   ivaIncluido?:       boolean;
 };
 
-export function FacturacionForm({ consumidorFinalLimite = 50, vendedorPorDefecto = "" }: { consumidorFinalLimite?: number; vendedorPorDefecto?: string }) {
+export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFinalLimite?: number }) {
   const searchParams = useSearchParams();
 
   // ── Estado del formulario ─────────────────────────────────────────────────
@@ -291,10 +291,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50, vendedorPorDefecto
   // encima). Aplica a mostrador y gancho por igual — ver §4.6 del diseño.
   const [ivaIncluido, setIvaIncluido] = useState(true);
   const [emitiendo, setEmitiendo] = useState(false);
-  // Vendedor que se imprime en la factura. Por defecto el usuario logueado
-  // (vendedorPorDefecto), pero editable: quien factura puede indicar que la
-  // venta fue de otro vendedor (base para comisiones a futuro).
-  const [vendedor, setVendedor] = useState(vendedorPorDefecto);
   const [resultado, setResultado] = useState<ResultadoEmision | null>(null);
   const [errGlobal, setErrGlobal] = useState<string | null>(null);
 
@@ -893,9 +889,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50, vendedorPorDefecto
       // si el humano cambia de cliente en el formulario, el link
       // post-emisión debe usar el cliente final elegido, no el original.
       clienteRecordId: cliente.airtableId,
-      // Vendedor elegido en el formulario; el endpoint lo respeta y solo cae al
-      // usuario logueado si viene vacío.
-      vendedor: vendedor.trim() || undefined,
     };
 
     setEmitiendo(true);
@@ -1302,18 +1295,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50, vendedorPorDefecto
                 )}
               </>
             )}
-
-            {/* Vendedor — por defecto el usuario logueado; editable */}
-            <div className="mt-3">
-              <label className={LABEL}>Vendedor (se imprime en la factura)</label>
-              <input
-                type="text"
-                value={vendedor}
-                onChange={(e) => setVendedor(e.target.value)}
-                placeholder="Nombre del vendedor"
-                className={INPUT}
-              />
-            </div>
           </div>
 
           {/* Totales */}
@@ -1471,11 +1452,18 @@ function LineaRow({
   const total = calcularLinea(linea);
   return (
     <tr>
+      {/* SKU y Descripción son ajustables: el borde derecho se arrastra para
+          cambiar el ancho (resize-x). El ancho por defecto va por clase, no por
+          style, para que el que fije el usuario no se reinicie al teclear. */}
       <td className="py-1.5 pr-2">
-        <input type="text" title={linea.codigoPrincipal} value={linea.codigoPrincipal} onChange={(e) => onChange("codigoPrincipal", e.target.value)} className="w-36 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" placeholder="SKU" />
+        <div className="resize-x overflow-hidden w-[104px] min-w-[60px]" title="Arrastra el borde derecho para ajustar el ancho">
+          <input type="text" title={linea.codigoPrincipal} value={linea.codigoPrincipal} onChange={(e) => onChange("codigoPrincipal", e.target.value)} className="w-full rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" placeholder="SKU" />
+        </div>
       </td>
       <td className="py-1.5 pr-2">
-        <input type="text" title={linea.descripcion} value={linea.descripcion} onChange={(e) => onChange("descripcion", e.target.value)} className="w-full min-w-[360px] rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" placeholder="Descripción" />
+        <div className="resize-x overflow-hidden w-[300px] min-w-[140px]" title="Arrastra el borde derecho para ajustar el ancho">
+          <input type="text" title={linea.descripcion} value={linea.descripcion} onChange={(e) => onChange("descripcion", e.target.value)} className="w-full rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" placeholder="Descripción" />
+        </div>
       </td>
       <td className="py-1.5 pr-2 text-center">
         <input type="text" value={linea.unidadMedida} onChange={(e) => onChange("unidadMedida", e.target.value)} className="w-16 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-center text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" />
