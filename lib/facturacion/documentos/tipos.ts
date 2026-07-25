@@ -58,13 +58,14 @@ export type ItemDetalle = {
 };
 
 export type DocumentoCuerpo = {
-  mostrarIva:  boolean;
-  items:       ItemDetalle[];
-  subtotal:    number | null;
-  iva:         number | null;
-  total:       number;
-  formaPago:   string;
-  nota:        string;
-  motivo:      string;
-  validezDias: number | null;
+  mostrarIva:      boolean;
+  items:           ItemDetalle[];
+  subtotal:        number | null;
+  iva:             number | null;
+  total:           number;
+  formaPago:       string;
+  nota:            string;
+  motivo:          string;
+  validezDias:     number | null;
+  clienteTelefono: string;   // resuelto desde Clientes por cédula (para WhatsApp)
 };
