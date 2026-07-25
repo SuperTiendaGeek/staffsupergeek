@@ -151,7 +151,9 @@ function BarraAcciones({ doc, accion, onPost }: AccionesProps) {
     return (
       <div className="flex flex-wrap items-center gap-2">
         {doc.tienePdf && <a href={`/api/facturacion/proformas/${doc.recordId}/pdf`} target="_blank" rel="noopener" className={btnLink}>↓ PDF</a>}
-        <button className={btnOff} disabled title="Disponible en la próxima fase">→ Facturar · pronto</button>
+        {doc.estado === "Facturada"
+          ? <span className={btnOff}>✓ Facturada</span>
+          : <Link href={`/facturacion/nueva?proforma=${doc.recordId}`} className={btnLink}>→ Facturar</Link>}
       </div>
     );
   }

@@ -373,6 +373,9 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   // diferencia (si el equipo nuevo vale más) como efectivo. Al autorizar, el
   // formulario descuenta el crédito vía /nota-credito/consumir.
   const [reemplazoNC, setReemplazoNC] = useState<{ recordId: string; numero: string; creditoDisponible: number } | null>(null);
+  // Proforma de origen (?proforma=): al emitir, se marca esa proforma como
+  // "Facturada" para que no se vuelva a facturar.
+  const [proformaOrigenId, setProformaOrigenId] = useState<string | null>(null);
   // Forma de pago de la DIFERENCIA en un reemplazo (la compensación siempre es
   // el crédito, código 15). El cliente puede pagar la diferencia con lo que
   // quiera: efectivo, tarjeta, transferencia, etc.
@@ -701,6 +704,56 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // solo al montar
 
+  // ── Precargar desde una proforma (?proforma=recordId) ────────────────────
+  // Convierte la proforma en una factura: precarga cliente y líneas (precios con
+  // IVA incluido, igual que la proforma). Al emitir, se marca facturada.
+  useEffect(() => {
+    const proformaId = searchParams.get("proforma");
+    if (!proformaId) return;
+
+    setCargandoPrefactura(true);
+    fetch(`/api/facturacion/proformas/${encodeURIComponent(proformaId)}/facturar`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j.success || !j.data) { setErrGlobal(j.error ?? "No se pudo cargar la proforma"); return; }
+        const cli = j.data.cliente as { tipoIdentificacion: string; identificacion: string; razonSocial: string; correo?: string; telefono?: string; airtableId?: string };
+        const lins = (j.data.lineas ?? []) as Array<{ codigo?: string; descripcion: string; unidadMedida?: string; cantidad: number; precioUnitario: number; descuento?: number; tarifaIva?: string }>;
+
+        if (cli.tipoIdentificacion === "07" || cli.identificacion.replace(/\D/g, "") === "9999999999999") {
+          setModoCliente("consumidor");
+          setCliente(CONSUMIDOR_FINAL);
+        } else {
+          setModoCliente("buscar");
+          setCliente({
+            modo:               "buscar",
+            tipoIdentificacion: (cli.tipoIdentificacion || "05") as TipoIdentificacion,
+            identificacion:     cli.identificacion,
+            razonSocial:        cli.razonSocial,
+            correo:             cli.correo ?? "",
+            telefono:           cli.telefono ?? "",
+            airtableId:         cli.airtableId,
+          });
+          setQueryCliente(cli.razonSocial);
+        }
+
+        setLineas(lins.map((l) => ({
+          _id:             crypto.randomUUID(),
+          codigoPrincipal: l.codigo ?? "",
+          descripcion:     l.descripcion,
+          unidadMedida:    l.unidadMedida ?? "UNIDAD",
+          cantidad:        l.cantidad,
+          precioUnitario:  l.precioUnitario,
+          descuento:       l.descuento ?? 0,
+          tarifaIva:       (l.tarifaIva ?? "4") as TarifaCodigo,
+        })));
+        setIvaIncluido(true);
+        setProformaOrigenId(proformaId);
+      })
+      .catch(() => setErrGlobal("Error de red al cargar la proforma"))
+      .finally(() => setCargandoPrefactura(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // solo al montar
+
   // Pago derivado en modo reemplazo: compensación (crédito) + efectivo (diferencia).
   const pagosReemplazo = reemplazoNC
     ? (() => {
@@ -711,6 +764,14 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         return pagos;
       })()
     : null;
+
+  // "Cliente elegido" en modo buscar: hay una identificación real (no la de
+  // consumidor final ni vacía). Se usa airtableId cuando existe, pero también
+  // vale un cliente precargado (proforma) sin vínculo. Mientras se teclea una
+  // búsqueda nueva, onChange deja la identificación de consumidor final, así
+  // que esto vuelve a false y reaparece el buscador.
+  const idCli = (cliente.identificacion ?? "").trim();
+  const clienteElegido = modoCliente === "buscar" && idCli !== "" && idCli !== "9999999999999";
 
   // ── Guardar borrador ─────────────────────────────────────────────────────
   async function handleGuardarBorrador() {
@@ -961,6 +1022,11 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             }
           }
         }
+        // Proforma de origen: marcarla "Facturada" (best-effort; no bloquea ni
+        // altera el resultado de la emisión, que ya es válida ante el SRI).
+        if (proformaOrigenId && j.data?.estado === "AUTORIZADO") {
+          fetch(`/api/facturacion/proformas/${encodeURIComponent(proformaOrigenId)}/facturar`, { method: "POST" }).catch(() => {});
+        }
         setResultado(j.data!);
       }
     } catch {
@@ -1069,7 +1135,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
           ))}
 
           {/* Buscador contextual entre los dos botones */}
-          {modoCliente === "buscar" && !cliente.airtableId && (
+          {modoCliente === "buscar" && !clienteElegido && (
             <div className="relative flex-1 min-w-0 sg-grow">
               <input
                 type="text"
@@ -1117,7 +1183,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
 
         {/* Cliente elegido en modo buscar (el buscador se oculta; reaparece al
             volver a pulsar "Buscar existente") */}
-        {modoCliente === "buscar" && cliente.airtableId && (
+        {clienteElegido && (
           <ClienteSeleccionado
             cliente={cliente}
             onChange={(field, val) => setCliente((p) => ({ ...p, [field]: val }))}
