@@ -341,6 +341,14 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   const [nuevoDir, setNuevoDir]   = useState("");
   const [errNuevo, setErrNuevo]   = useState<string | null>(null);
   const [savingNuevo, setSavingNuevo] = useState(false);
+  // "Cliente nuevo" ahora se crea en un modal flotante, no dentro de la tarjeta.
+  const [nuevoAbierto, setNuevoAbierto] = useState(false);
+
+  function abrirNuevoCliente() {
+    setNuevoTipo("05"); setNuevoId(""); setNuevoNombre(""); setNuevoCorreo("");
+    setNuevoTel(""); setNuevoDir(""); setErrNuevo(null);
+    setNuevoAbierto(true);
+  }
 
   // ── Búsqueda de productos ─────────────────────────────────────────────────
   const [queryProducto, setQueryProducto] = useState("");
@@ -457,17 +465,21 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       });
       const j = (await r.json()) as { success: boolean; data?: ClienteBusqueda; error?: string };
       if (!j.success) { setErrNuevo(j.error ?? "Error creando cliente"); return; }
-      // Seleccionar el cliente recién creado
+      // Seleccionar el cliente recién creado y cerrar el modal. Queda como
+      // cliente elegido (modo buscar + airtableId), mostrando la tarjeta con su
+      // teléfono y botón de WhatsApp.
       setCliente({
-        modo:               "nuevo",
+        modo:               "buscar",
         tipoIdentificacion: nuevoTipo,
         identificacion:     nuevoId.trim(),
         razonSocial:        nuevoNombre.trim(),
         correo:             nuevoCorreo.trim(),
+        telefono:           nuevoTel.trim(),
         airtableId:         j.data?.id,
       });
-      switchModo("buscar");
+      setModoCliente("buscar");
       setQueryCliente(nuevoNombre.trim());
+      setNuevoAbierto(false);
     } finally {
       setSavingNuevo(false);
     }
@@ -1086,12 +1098,12 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             </div>
           )}
 
-          {/* Cliente nuevo — se desplaza a la derecha cuando el buscador crece */}
+          {/* Cliente nuevo — abre un modal flotante (ya no expande la tarjeta) */}
           <button
-            onClick={() => switchModo("nuevo")}
-            className={`rounded-full border px-3 py-1 text-xs font-bold transition whitespace-nowrap ${modoCliente === "nuevo" ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] bg-transparent text-[#A7A7A7] hover:text-[#F5F5F5]"}`}
+            onClick={abrirNuevoCliente}
+            className="rounded-full border border-[#3A3A36] bg-transparent px-3 py-1 text-xs font-bold text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5] transition whitespace-nowrap"
           >
-            Cliente nuevo
+            + Cliente nuevo
           </button>
         </div>
 
@@ -1112,54 +1124,69 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
           />
         )}
 
-        {/* Nuevo cliente */}
-        {modoCliente === "nuevo" && (
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div className="md:col-span-3">
-              <label className={LABEL}>Tipo de identificación</label>
-              <select value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value as TipoIdentificacion)} className={SELECT}>
-                <option value="05">{TIPO_LABEL["05"]}</option>
-                <option value="04">{TIPO_LABEL["04"]}</option>
-                <option value="06">{TIPO_LABEL["06"]}</option>
-                <option value="08">{TIPO_LABEL["08"]}</option>
-              </select>
+      </Card>
+
+      {/* Modal flotante de nuevo cliente. Al guardar, el cliente queda elegido
+          (modo buscar) y el modal se cierra. */}
+      {nuevoAbierto && (
+        <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 overflow-y-auto" onClick={(e) => { if (e.target === e.currentTarget) setNuevoAbierto(false); }}>
+          <div className="w-full max-w-2xl my-6 rounded-2xl border border-[#2A2A22] bg-[#1A1A16] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[#2A2A22] px-5 py-4">
+              <h3 className="text-base font-bold text-[#D7FF4F]">Nuevo cliente</h3>
+              <button onClick={() => setNuevoAbierto(false)} className="text-[#666] hover:text-[#F5F5F5] text-xl leading-none" aria-label="Cerrar">✕</button>
             </div>
-            <div className="md:col-span-4">
-              <label className={LABEL}>Número de identificación</label>
-              <input type="text" value={nuevoId} onChange={(e) => { setNuevoId(e.target.value); setErrNuevo(null); }} placeholder="Cédula / RUC / Pasaporte" className={INPUT} />
-            </div>
-            <div className="md:col-span-5">
-              <label className={LABEL}>Razón social / Nombres y apellidos</label>
-              <input type="text" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} className={INPUT} placeholder="Nombre completo" />
-            </div>
-            <div className="md:col-span-6">
-              <label className={LABEL}>Email (para RIDE)</label>
-              <input type="email" value={nuevoCorreo} onChange={(e) => setNuevoCorreo(e.target.value)} className={INPUT} placeholder="cliente@email.com" />
-            </div>
-            <div className="md:col-span-3">
-              <label className={LABEL}>Teléfono</label>
-              <div className="relative">
-                <input type="text" value={nuevoTel} onChange={(e) => setNuevoTel(e.target.value)} className={INPUT + " pr-11"} placeholder="09XXXXXXXX" />
-                <BotonWhatsApp tel={nuevoTel} />
+            <div className="p-5">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                <div className="md:col-span-4">
+                  <label className={LABEL}>Tipo de identificación</label>
+                  <select value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value as TipoIdentificacion)} className={SELECT}>
+                    <option value="05">{TIPO_LABEL["05"]}</option>
+                    <option value="04">{TIPO_LABEL["04"]}</option>
+                    <option value="06">{TIPO_LABEL["06"]}</option>
+                    <option value="08">{TIPO_LABEL["08"]}</option>
+                  </select>
+                </div>
+                <div className="md:col-span-8">
+                  <label className={LABEL}>Número de identificación</label>
+                  <input type="text" value={nuevoId} onChange={(e) => { setNuevoId(e.target.value); setErrNuevo(null); }} placeholder="Cédula / RUC / Pasaporte" className={INPUT} />
+                </div>
+                <div className="md:col-span-12">
+                  <label className={LABEL}>Razón social / Nombres y apellidos</label>
+                  <input type="text" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} className={INPUT} placeholder="Nombre completo" />
+                </div>
+                <div className="md:col-span-7">
+                  <label className={LABEL}>Email (para RIDE)</label>
+                  <input type="email" value={nuevoCorreo} onChange={(e) => setNuevoCorreo(e.target.value)} className={INPUT} placeholder="cliente@email.com" />
+                </div>
+                <div className="md:col-span-5">
+                  <label className={LABEL}>Teléfono</label>
+                  <div className="relative">
+                    <input type="text" value={nuevoTel} onChange={(e) => setNuevoTel(e.target.value)} className={INPUT + " pr-11"} placeholder="09XXXXXXXX" />
+                    <BotonWhatsApp tel={nuevoTel} />
+                  </div>
+                </div>
+                <div className="md:col-span-12">
+                  <label className={LABEL}>Dirección</label>
+                  <input type="text" value={nuevoDir} onChange={(e) => setNuevoDir(e.target.value)} className={INPUT} placeholder="Dirección del cliente" />
+                </div>
+              </div>
+              {errNuevo && <p className="mt-3 text-xs text-red-400">{errNuevo}</p>}
+              <div className="mt-4 flex items-center gap-2">
+                <button
+                  onClick={crearNuevoCliente}
+                  disabled={savingNuevo}
+                  className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-5 py-2 text-sm font-bold hover:brightness-105 disabled:opacity-50"
+                >
+                  {savingNuevo ? "Guardando…" : "Guardar cliente"}
+                </button>
+                <button onClick={() => setNuevoAbierto(false)} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:text-[#F5F5F5]">
+                  Cancelar
+                </button>
               </div>
             </div>
-            <div className="md:col-span-3">
-              <label className={LABEL}>Dirección</label>
-              <input type="text" value={nuevoDir} onChange={(e) => setNuevoDir(e.target.value)} className={INPUT} placeholder="Dirección del cliente" />
-            </div>
-            {errNuevo && <p className="md:col-span-12 text-xs text-red-400">{errNuevo}</p>}
-            <div className="md:col-span-12">
-              <button
-                onClick={crearNuevoCliente}
-                disabled={savingNuevo}
-                className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-4 py-1.5 text-sm font-bold hover:brightness-105 disabled:opacity-50"
-              >
-                {savingNuevo ? "Guardando…" : "Guardar cliente"}
-              </button>
-            </div>
           </div>
-        )}
-      </Card>
+        </div>
+      )}
 
       {/* ── 2. DETALLES ────────────────────────────────────────────────── */}
       <Card titulo="2. Productos / Servicios">
