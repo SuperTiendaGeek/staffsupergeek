@@ -23,11 +23,21 @@ export const FORMA_PAGO_LABEL: Record<string, string> = {
   "21": "Endoso de títulos",
 };
 
+// ─── Calibración de la impresora térmica ─────────────────────────────────────
+// Ajusta estos dos valores si el ticket no sale bien en tu rollo:
+//   · ANCHO_ROLLO_MM: tamaño físico del papel (rollos comunes: 80 o 58).
+//   · ANCHO_UTIL_MM : área realmente imprimible. Si el contenido se CORTA a la
+//     derecha, BAJA este número (p. ej. 70). Si queda demasiado margen, SÚBELO
+//     (p. ej. 76). En rollos de 80 mm el útil suele ser 72 mm.
+// El resto (fuentes, separadores) rara vez necesita tocarse.
+export const ANCHO_ROLLO_MM = 80;
+export const ANCHO_UTIL_MM  = 72;
+
 export const TICKET_CSS = `
-  html, body { margin: 0; padding: 0; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; }
-  @page { size: 80mm auto; margin: 0; }
-  .ticket-page { min-height: 100vh; background: #fff; color: #000; }
-  .ticket { width: 72mm; margin: 0 auto; padding: 4mm 2mm 6mm; box-sizing: border-box; font-size: 11px; line-height: 1.3; }
+  html, body { margin: 0; padding: 0; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { size: ${ANCHO_ROLLO_MM}mm auto; margin: 0; }
+  .ticket-page { background: #fff; color: #000; }
+  .ticket { width: ${ANCHO_UTIL_MM}mm; margin: 0 auto; padding: 3mm 2mm 5mm; box-sizing: border-box; font-size: 11px; line-height: 1.3; }
   .center { text-align: center; }
   .brand { font-size: 17px; font-weight: 800; letter-spacing: 0.03em; }
   .muted { color: #000; font-size: 10px; }
@@ -46,9 +56,11 @@ export const TICKET_CSS = `
   .sri { font-size: 9px; word-break: break-all; }
   .sri .k { font-weight: 700; }
   .thanks { margin-top: 9px; font-size: 12px; font-weight: 800; text-align: center; }
+  .item, .tot, .sri, .aviso { page-break-inside: avoid; break-inside: avoid; }
   .print-actions { display: flex; justify-content: center; gap: 8px; padding: 14px; background: #f3f3f3; }
   .print-actions button, .print-actions a { border: 1px solid #111; border-radius: 6px; background: #fff; color: #111; padding: 8px 12px; font: 700 13px Arial, Helvetica, sans-serif; text-decoration: none; cursor: pointer; }
-  @media print { .print-actions { display: none !important; } .ticket { margin: 0; } }
+  @media screen { .ticket-page { min-height: 100vh; } }
+  @media print { .print-actions { display: none !important; } .ticket { margin: 0; } html, body { width: ${ANCHO_ROLLO_MM}mm; } }
 `;
 
 /** Encabezado del emisor. Evita duplicar el nombre cuando el nombre comercial
