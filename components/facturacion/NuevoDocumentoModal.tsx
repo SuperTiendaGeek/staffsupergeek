@@ -15,13 +15,15 @@ import { Suspense, useState } from "react";
 import { FacturacionForm } from "@/components/facturacion/FacturacionForm";
 import { ReciboForm }      from "@/components/facturacion/ReciboForm";
 import { ProformaForm }    from "@/components/facturacion/ProformaForm";
+import { ReservaForm }     from "@/components/facturacion/ReservaForm";
 
-type TipoNuevo = "factura" | "recibo" | "proforma";
+type TipoNuevo = "factura" | "recibo" | "proforma" | "reserva";
 
 const TABS: Array<{ id: TipoNuevo; label: string; hint: string }> = [
   { id: "factura",  label: "Factura",  hint: "tributaria · SRI" },
   { id: "recibo",   label: "Recibo",   hint: "interno · sin IVA" },
   { id: "proforma", label: "Proforma", hint: "cotización" },
+  { id: "reserva",  label: "Reserva",  hint: "apartado · abono" },
 ];
 
 function CargandoForm() {
@@ -97,6 +99,7 @@ export function NuevoDocumentoModal({
           )}
           {tipo === "recibo"   && <ReciboForm />}
           {tipo === "proforma" && <ProformaForm />}
+          {tipo === "reserva"  && <ReservaForm />}
         </div>
       </div>
     </div>

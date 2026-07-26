@@ -22,6 +22,7 @@ import type { DocumentoResumen, GrupoVista, TipoDocumento, DocumentoCuerpo } fro
 import { TIPO_LABEL } from "@/lib/facturacion/documentos/tipos";
 import { NuevoDocumentoModal } from "@/components/facturacion/NuevoDocumentoModal";
 import { normalizeEcuadorPhone } from "@/lib/tecnicos/whatsapp";
+import { reservaVencida } from "@/lib/facturacion/reservas/reglas";
 
 const waUrl = (tel?: string | null): string | null => {
   const n = normalizeEcuadorPhone(tel);
@@ -151,9 +152,7 @@ function BarraAcciones({ doc, accion, onPost }: AccionesProps) {
     return (
       <div className="flex flex-wrap items-center gap-2">
         {doc.tienePdf && <a href={`/api/facturacion/proformas/${doc.recordId}/pdf`} target="_blank" rel="noopener" className={btnLink}>↓ PDF</a>}
-        {doc.estado === "Facturada"
-          ? <span className={btnOff}>✓ Facturada</span>
-          : <Link href={`/facturacion/nueva?proforma=${doc.recordId}`} className={btnLink}>→ Facturar</Link>}
+        <button className={btnOff} disabled title="Disponible en la próxima fase">→ Facturar · pronto</button>
       </div>
     );
   }
@@ -312,6 +311,7 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
   const [selId, setSelId]           = useState<string | null>(null);
   const [detalleDoc, setDetalleDoc] = useState<DocumentoResumen | null>(null);
   const [pendientes, setPendientes] = useState<number>(0);
+  const [reservasVencidas, setReservasVencidas] = useState<number>(0);
   const [accion, setAccion]         = useState<string | null>(null);
   const [msg, setMsg]               = useState<string | null>(null);
   const [errMsg, setErrMsg]         = useState<string | null>(null);
@@ -344,6 +344,19 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
   }, []);
 
   useEffect(() => { cargarPendientes(); }, [cargarPendientes]);
+
+  // Contador de reservas vencidas (Activa pero pasada su fecha límite).
+  const cargarReservasVencidas = useCallback(async () => {
+    try {
+      const r = await fetch("/api/facturacion/reservas?estado=Activa");
+      const d = await r.json() as { success: boolean; data?: { reservas: Array<{ fechaLimite: string }> } };
+      if (d.success && d.data) {
+        const ahora = new Date();
+        setReservasVencidas(d.data.reservas.filter((x) => reservaVencida(new Date(`${x.fechaLimite.slice(0, 10)}T00:00:00`), ahora)).length);
+      }
+    } catch { /* silencioso */ }
+  }, []);
+  useEffect(() => { cargarReservasVencidas(); }, [cargarReservasVencidas]);
 
   // Debounce del buscador.
   useEffect(() => {
@@ -422,12 +435,20 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
             </button>
           );
         })}
-        <Link
-          href="/facturacion/anulaciones"
-          className="ml-auto flex items-center gap-2 rounded-full border border-yellow-700/40 px-3 py-1.5 text-sm text-yellow-300 hover:border-yellow-400 transition"
-        >
-          ⏳ Anulaciones pendientes{pendientes > 0 && <span className="rounded-full bg-yellow-500/20 px-2 text-xs font-bold">{pendientes}</span>}
-        </Link>
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
+          <Link
+            href="/facturacion/reservas"
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition ${reservasVencidas > 0 ? "border-red-700/50 text-red-300 hover:border-red-400" : "border-[#3A3A36] text-[#A7A7A7] hover:border-[#D7FF4F]/40 hover:text-[#F5F5F5]"}`}
+          >
+            📦 Reservas{reservasVencidas > 0 && <span className="rounded-full bg-red-500/20 px-2 text-xs font-bold">{reservasVencidas} vencidas</span>}
+          </Link>
+          <Link
+            href="/facturacion/anulaciones"
+            className="flex items-center gap-2 rounded-full border border-yellow-700/40 px-3 py-1.5 text-sm text-yellow-300 hover:border-yellow-400 transition"
+          >
+            ⏳ Anulaciones pendientes{pendientes > 0 && <span className="rounded-full bg-yellow-500/20 px-2 text-xs font-bold">{pendientes}</span>}
+          </Link>
+        </div>
       </div>
 
       {/* Aviso de modo búsqueda */}
