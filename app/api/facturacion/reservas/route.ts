@@ -6,7 +6,7 @@ import { abonoMinimo, fechaLimiteReserva, PLAZOS_VALIDOS, validarAbono } from "@
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import { fetchRecordsByIds }         from "@/lib/facturacion/gancho/airtableGancho";
-import { buscarClienteDuplicado, createCliente } from "@/lib/tecnicos/airtable/index";
+import { resolverClienteDocumento }  from "@/lib/facturacion/clientesResolver";
 import type { PlazoReserva }         from "@/lib/facturacion/reservas/types";
 
 export const dynamic     = "force-dynamic";
@@ -32,6 +32,7 @@ type CrearBody = {
   precioVenta?: number;
   plazoDias?: number;
   abonoInicial?: { monto?: number; formaPago?: string };
+  actualizarFicha?: boolean;
 };
 
 // POST — crear una reserva con su abono inicial.
@@ -70,27 +71,15 @@ export async function POST(request: Request) {
   }
 
   // Resolver el cliente contra la tabla Clientes (la reserva DEBE quedar
-  // vinculada a un cliente real): si vino de la búsqueda ya trae airtableId; si
-  // es manual, se busca por cédula y se vincula al existente (informando), o se
-  // crea. Sin cédula, se crea por nombre (sin deduplicar).
-  const cedula = body.cliente?.identificacion?.trim() || "";
-  const telefono = body.cliente?.telefono?.trim() || undefined;
-  const correo = body.cliente?.correo?.trim() || undefined;
-  let clienteId = body.cliente?.airtableId;
-  let clienteExistente = false;
-  if (!clienteId) {
-    try {
-      if (cedula) {
-        const dup = await buscarClienteDuplicado({ cedula });
-        if (dup) { clienteId = dup.id; clienteExistente = true; }
-      }
-      if (!clienteId) {
-        const creado = await createCliente({ nombre: razonSocial!, cedula: cedula || null, telefono: telefono ?? null, correo: correo ?? null });
-        clienteId = creado.id;
-      }
-    } catch (e) {
-      return NextResponse.json({ success: false, error: `No se pudo registrar/verificar el cliente: ${e instanceof Error ? e.message : "error"}` }, { status: 400 });
-    }
+  // vinculada a un cliente real). Ver lib/facturacion/clientesResolver.
+  let resol;
+  try {
+    resol = await resolverClienteDocumento(
+      { razonSocial: razonSocial!, identificacion: body.cliente?.identificacion?.trim() || undefined, correo: body.cliente?.correo?.trim() || undefined, telefono: body.cliente?.telefono?.trim() || undefined, airtableId: body.cliente?.airtableId },
+      body.actualizarFicha === true,
+    );
+  } catch (e) {
+    return NextResponse.json({ success: false, error: `No se pudo registrar/verificar el cliente: ${e instanceof Error ? e.message : "error"}` }, { status: 400 });
   }
 
   const cfg = getFacturacionConfig();
@@ -101,7 +90,7 @@ export async function POST(request: Request) {
 
   try {
     const creada = await crearReserva({
-      cliente: { identificacion: cedula || undefined, razonSocial: razonSocial!, correo, telefono, airtableId: clienteId },
+      cliente: { identificacion: resol.datos.identificacion, razonSocial: resol.datos.razonSocial, correo: resol.datos.correo, telefono: resol.datos.telefono, airtableId: resol.clienteId },
       shippingItemId: shippingItemId!,
       descripcionItem: body.descripcionItem?.trim() || "Ítem reservado",
       precioVenta, plazoDias, fechaLimite, abonoInicial, registradoPor,
@@ -113,7 +102,7 @@ export async function POST(request: Request) {
     try { await registrarIngresoAbono({ numeroReserva: creada.numero, monto: montoAbono, formaPago: formaPago!, clienteRecordId: body.cliente?.airtableId, registradoPor, ambiente: cfg.ambiente }); }
     catch (e) { console.error("[reservas POST] ingreso abono:", e); }
 
-    return NextResponse.json({ success: true, data: { ...creada, clienteExistente } });
+    return NextResponse.json({ success: true, data: { ...creada, clienteExistente: resol.clienteExistente, fichaActualizada: resol.fichaActualizada } });
   } catch (e) {
     console.error("[reservas POST]", e);
     return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "Error al crear la reserva" }, { status: 500 });
