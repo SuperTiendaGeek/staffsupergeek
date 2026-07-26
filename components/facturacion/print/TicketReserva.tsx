@@ -62,6 +62,7 @@ export function TicketReserva({ emisor, reserva }: { emisor: EmisorTicket; reser
           <div className="sep" />
           <div className="aviso">VÁLIDA HASTA: {fmt(reserva.fechaLimite)} ({reserva.plazoDias} días)</div>
           <p className="muted center">Si no se completa el pago en el plazo, el ítem vuelve a estar disponible y lo abonado queda como saldo a favor.</p>
+          <p className="center" style={{ fontWeight: 800, marginTop: 4 }}>Conserve este ticket: es la constancia de sus abonos.</p>
           <p className="thanks">GRACIAS POR SU COMPRA</p>
           <p className="center muted">supertiendageek.com</p>
         </article>
@@ -73,14 +74,27 @@ export function TicketReserva({ emisor, reserva }: { emisor: EmisorTicket; reser
         <article className="ticket">
           <div className="etq">RESERVADO</div>
           <div className="center doc-num">{cleanText(reserva.numero)}</div>
+          <div className="aviso">GUARDAR HASTA: {fmt(reserva.fechaLimite)}</div>
+
           <div className="sep" />
           <div className="row"><span className="label">Cliente:</span><span className="value">{cleanText(reserva.clienteNombre)}</span></div>
           {reserva.clienteTelefono && <div className="row"><span className="label">Teléfono:</span><span className="value">{reserva.clienteTelefono}</span></div>}
+
           <div className="sep" />
           <div className="item"><div className="item-desc">{cleanText(reserva.descripcionItem)}</div></div>
+          <div className="tot"><span>Precio</span><span>{mon(reserva.precio)}</span></div>
+
           <div className="sep" />
-          <div className="aviso">GUARDAR HASTA: {fmt(reserva.fechaLimite)}</div>
+          {reserva.abonos.map((a, i) => (
+            <div className="item-calc" key={i}>
+              <span>{fmt(a.fecha)} · {FORMA_PAGO_LABEL[a.formaPago] ?? a.formaPago}</span>
+              <span>{mon(a.monto)}</span>
+            </div>
+          ))}
+          <div className="tot"><span>Total abonado</span><span>{mon(reserva.totalAbonado)}</span></div>
           <div className="tot big"><span>SALDO</span><span>{mon(saldo)}</span></div>
+
+          <div className="sep" />
           <p className="muted center">No vender — apartado. Reservado el {fmt(reserva.fecha)}.</p>
         </article>
 
