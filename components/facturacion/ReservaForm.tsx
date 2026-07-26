@@ -39,7 +39,7 @@ export function ReservaForm() {
   const [formaPago, setFormaPago] = useState("01");
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resultado, setResultado] = useState<{ recordId: string; numero: string; fechaLimite: string } | null>(null);
+  const [resultado, setResultado] = useState<{ recordId: string; numero: string; fechaLimite: string; clienteExistente?: boolean } | null>(null);
   const prodRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -94,7 +94,10 @@ export function ReservaForm() {
     return (
       <div className="rounded-xl border border-[#6EE7B7]/40 bg-[#064E3B]/40 p-6 w-full max-w-2xl">
         <p className="text-[#6EE7B7] font-bold text-lg mb-1">✓ Reserva {resultado.numero} creada</p>
-        <p className="text-sm text-[#A7A7A7] mb-4">Válida hasta <b className="text-[#F5F5F5]">{fmt(resultado.fechaLimite)}</b>. El ítem quedó apartado (en producción).</p>
+        <p className="text-sm text-[#A7A7A7] mb-2">Válida hasta <b className="text-[#F5F5F5]">{fmt(resultado.fechaLimite)}</b>. El ítem quedó apartado (en producción).</p>
+        {resultado.clienteExistente
+          ? <p className="text-xs text-yellow-300 mb-4">El cliente ya existía en la base: la reserva se vinculó a su registro.</p>
+          : <p className="text-xs text-[#6EE7B7]/80 mb-4">Cliente nuevo registrado y vinculado a la reserva.</p>}
         <div className="flex flex-wrap gap-3">
           <a href={`/facturacion/imprimir/reserva/${resultado.recordId}`} target="_blank" rel="noopener" className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-4 py-2 text-xs font-bold hover:brightness-105">🖨 Imprimir 2 tickets</a>
           <a href={`/api/facturacion/reservas/${resultado.recordId}/pdf`} target="_blank" rel="noopener" className="rounded-full border border-[#3A3A36] px-4 py-2 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]">↓ PDF (para WhatsApp)</a>
