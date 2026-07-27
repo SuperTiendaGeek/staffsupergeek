@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSystem";
 import { Button } from "@/components/ui/button";
-import { canAccessApp } from "@/lib/apps";
+import { canAccessApp, isAdministratorRole } from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
 import {
   getShippingV2AccessContextForSession,
@@ -145,7 +145,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
               </>
             }
           />
-          <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} />
+          <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} esAdmin={isAdministratorRole(session.user.rol)} />
         </div>
       )}
     </StaffAppShell>

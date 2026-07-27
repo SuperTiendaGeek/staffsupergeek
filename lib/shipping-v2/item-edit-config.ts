@@ -10,6 +10,13 @@ export type ShippingV2ItemEditFieldConfig = {
   category: ShippingV2ItemEditCategory;
   type: ShippingV2InlineFieldType;
   options?: readonly string[];
+  /**
+   * Campo de corrección: se puede editar a mano, pero solo con rol de
+   * administrador, y el cambio queda registrado en el historial del item.
+   * Se usa para las banderas que normalmente mueve el flujo por sí solo y que
+   * de vez en cuando hay que destrabar (ver F-24 / F-40 de la auditoría).
+   */
+  adminOnly?: boolean;
 };
 
 const F = SHIPPING_V2_ITEM_FIELDS;
@@ -35,7 +42,7 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   packingRelacionado: { key: "packingId", field: F.packingRelacionado, label: "Packing relacionado", category: "readOnly", type: "readOnly" },
   modoLogistico: { key: "modoLogistico", field: F.modoLogistico, label: "Modo logístico", category: "special", type: "singleSelect", options: O.modoLogistico },
   afectaInventario: { key: "afectaInventario", field: F.afectaInventario, label: "Afecta inventario", category: "readOnly", type: "readOnly" },
-  disponibleVenta: { key: "disponibleVenta", field: F.disponibleVenta, label: "Disponible para venta/reserva", category: "readOnly", type: "readOnly" },
+  disponibleVenta: { key: "disponibleVenta", field: F.disponibleVenta, label: "Disponible para venta/reserva", category: "special", type: "checkbox", adminOnly: true },
   reservado: { key: "reservado", field: F.reservado, label: "Reservado", category: "normal", type: "checkbox" },
   costoProveedor: { key: "costoProveedor", field: F.costoProveedor, label: "Costo proveedor", category: "special", type: "currency" },
   precioVentaSugerido: { key: "precioVentaSugerido", field: F.precioVentaSugerido, label: "Precio venta sugerido", category: "normal", type: "currency" },

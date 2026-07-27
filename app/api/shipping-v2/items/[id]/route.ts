@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getShippingV2ItemById, updateShippingV2Item, updateShippingV2ItemField } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
+import { isAdministratorRole } from "@/lib/apps";
 import type { ShippingV2ItemWriteInput } from "@/types/shipping-v2";
 
 export const dynamic = "force-dynamic";
@@ -96,7 +97,7 @@ export async function PATCH(request: Request, { params }: Params) {
         field: body.field,
         value: body.value,
         eventDescription: typeof body.eventDescription === "string" ? body.eventDescription : undefined,
-      }, { actualizadoPor: actor })
+      }, { actualizadoPor: actor, esAdmin: isAdministratorRole(session?.user.rol) })
       : await updateShippingV2Item(id, parseInput(body), {
         actualizadoPor: actor,
       });

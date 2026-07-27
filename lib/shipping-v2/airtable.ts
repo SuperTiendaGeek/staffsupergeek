@@ -2165,10 +2165,16 @@ async function validateInlineItemFieldChange(input: {
   field: string;
   rawValue: unknown;
   normalizedValue: unknown;
+  esAdmin: boolean;
 }) {
   const config = getShippingV2ItemEditField(input.field);
   if (!config || (config.category !== "normal" && config.category !== "special")) {
     throw new Error("Este campo no se puede editar inline.");
+  }
+
+  // Campos de corrección: visibles para todos, editables solo por administración.
+  if (config.adminOnly && !input.esAdmin) {
+    throw new Error(`Solo un administrador puede corregir "${config.label}" a mano.`);
   }
 
   if (config.type === "singleSelect") {
@@ -2182,8 +2188,12 @@ async function validateInlineItemFieldChange(input: {
     await validateInlineProviderRule(input.field, input.normalizedValue);
   }
 
-  if (input.field === SHIPPING_V2_ITEM_FIELDS.estadoItem && cleanString(input.normalizedValue) === "Disponible") {
-    throw new Error("Este cambio de estado requiere una acción controlada.");
+  // Pasar un item a "Disponible" es la publicación del artículo: el camino
+  // normal es el botón "Listo para vender" de Recepción, que además valida
+  // revisión y novedades (marcarShippingV2ItemDisponible). Aquí solo se permite
+  // como corrección manual de administración, y queda en el historial del item.
+  if (input.field === SHIPPING_V2_ITEM_FIELDS.estadoItem && cleanString(input.normalizedValue) === "Disponible" && !input.esAdmin) {
+    throw new Error('Para poner un artículo disponible usa "Listo para vender" en Recepción. La corrección manual es solo para administradores.');
   }
 
   if (input.field === SHIPPING_V2_ITEM_FIELDS.tipoOperacion && (input.item.pagoId || input.item.packingId)) {
@@ -2222,7 +2232,7 @@ async function validateInlineItemFieldChange(input: {
   }
 }
 
-export async function updateShippingV2ItemField(recordId: string, input: { field: string; value: unknown; eventDescription?: string }, options: { actualizadoPor: string }) {
+export async function updateShippingV2ItemField(recordId: string, input: { field: string; value: unknown; eventDescription?: string }, options: { actualizadoPor: string; esAdmin?: boolean }) {
   assertShippingV2GeneratedSchema();
   const id = cleanString(recordId);
   const field = cleanString(input.field);
@@ -2234,7 +2244,8 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
 
   const existing = await getShippingV2ItemById(id);
   const normalizedValue = normalizeInlineValue(config.type, input.value);
-  await validateInlineItemFieldChange({ item: existing, recordId: id, field, rawValue: input.value, normalizedValue });
+  const esAdmin = options.esAdmin === true;
+  await validateInlineItemFieldChange({ item: existing, recordId: id, field, rawValue: input.value, normalizedValue, esAdmin });
 
   const mode = field === SHIPPING_V2_ITEM_FIELDS.modoLogistico ? cleanString(normalizedValue) : "";
   const logisticsFlowFields = mode
@@ -2260,12 +2271,23 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
 
   const item = mapItem(updated);
   if (shouldLogShippingV2ItemFieldEvent(config)) {
+    // Las correcciones que solo puede hacer administración se marcan como tales
+    // para poder auditarlas después: son excepciones al flujo, no operación normal.
+    const esCorreccionAdmin =
+      esAdmin &&
+      (config.adminOnly === true ||
+        (field === SHIPPING_V2_ITEM_FIELDS.estadoItem && cleanString(normalizedValue) === "Disponible"));
+
     await createShippingV2Event({
       action: "Actualizado",
       itemRecordId: item.id,
       itemName: item.nombre,
       registradoPor: options.actualizadoPor,
-      descripcion: input.eventDescription || `Campo crítico "${config.label}" actualizado desde Portal Staff.`,
+      descripcion:
+        input.eventDescription ||
+        (esCorreccionAdmin
+          ? `Corrección manual de administración: "${config.label}".`
+          : `Campo crítico "${config.label}" actualizado desde Portal Staff.`),
     });
   }
 

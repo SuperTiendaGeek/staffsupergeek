@@ -853,11 +853,13 @@ function DetailSection({
   accent,
   rows,
   onSave,
+  esAdmin = false,
 }: {
   title: string;
   accent: "lime" | "purple" | "orange" | "yellow";
   rows: DetailRow[];
   onSave: (field: string, value: string | number | boolean | null) => Promise<void>;
+  esAdmin?: boolean;
 }) {
   const accentClass = {
     lime: "bg-[#D7FF4F]",
@@ -873,18 +875,26 @@ function DetailSection({
         <h3 className="text-sm font-semibold text-[#F5F5F5]">{title}</h3>
       </div>
       <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-        {rows.map((row) => (
-          <InlineEditableField
-            key={row.label}
-            label={row.label}
-            value={row.value}
-            type={row.config?.type ?? "readOnly"}
-            readOnly={(row.readOnly ?? !row.config) || row.config?.category === "readOnly"}
-            options={row.options ?? row.config?.options}
-            displayValue={row.displayValue}
-            onSave={row.config && row.config.category !== "readOnly" ? (value) => onSave(row.config!.field, value) : undefined}
-          />
-        ))}
+        {rows.map((row) => {
+          // Los campos marcados adminOnly se ven siempre, pero solo administración
+          // los puede editar (el servidor lo vuelve a validar).
+          const bloqueadoPorRol = row.config?.adminOnly === true && !esAdmin;
+          const soloLectura =
+            (row.readOnly ?? !row.config) || row.config?.category === "readOnly" || bloqueadoPorRol;
+
+          return (
+            <InlineEditableField
+              key={row.label}
+              label={row.label}
+              value={row.value}
+              type={row.config?.type ?? "readOnly"}
+              readOnly={soloLectura}
+              options={row.options ?? row.config?.options}
+              displayValue={row.displayValue}
+              onSave={!soloLectura && row.config ? (value) => onSave(row.config!.field, value) : undefined}
+            />
+          );
+        })}
       </dl>
     </section>
   );
@@ -1040,6 +1050,7 @@ export function ShippingV2ItemDetailView({
   packing,
   novedades,
   onSaved,
+  esAdmin = false,
 }: {
   item: ResolvedItem;
   proveedores: ShippingV2Proveedor[];
@@ -1047,6 +1058,8 @@ export function ShippingV2ItemDetailView({
   packing?: ShippingV2Packing | null;
   novedades?: ShippingV2Novedad[];
   onSaved?: (item: ShippingV2Item) => void;
+  /** Habilita los campos de corrección manual (config.adminOnly). */
+  esAdmin?: boolean;
 }) {
   const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
   const [item, setItem] = useState(initialItem);
@@ -1422,7 +1435,7 @@ export function ShippingV2ItemDetailView({
               })}
             </div>
             <div className="mt-2">
-              <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} />
+              <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} />
             </div>
           </section>
 
