@@ -25,11 +25,12 @@ const ABONOS_FIELDS = {
   observacion: "Observación",
   aplicadoAOperacion: "Aplicado a: Operación",
   aplicadoAOrden: "Aplicado a: Orden",
-  // Tercer origen de abono (Fase reservas): link Abonos → Reservas. El usuario
-  // crea este campo a mano en Airtable (la API no crea links). Si el campo no
-  // existe todavía, el abono de reserva simplemente no lo trae y el puente cae
-  // al comportamiento sin reserva (cliente/ref quedan vacíos) — nunca rompe.
-  aplicadoAReserva: "Aplicado a: Reserva",
+  // Tercer origen de abono (Fase reservas): link Abonos → Reservas. Creado a
+  // mano en Airtable; en esta base quedó nombrado "Reservas" (inverso "Abonos
+  // (Reserva)"). Si el abono no lo trae, el puente cae al comportamiento sin
+  // reserva (cliente/ref quedan vacíos) — nunca rompe. Debe coincidir con el
+  // nombre usado al escribir en lib/facturacion/reservas/efectos.ts.
+  aplicadoAReserva: "Reservas",
   // Campo inverso auto-creado por Airtable al vincular Movimientos.Abono,
   // renombrado en el checklist de esta fase (antes: "Shipping Finanzas
   // Movimientos", heredado del nombre de tabla pre-rename de la Fase 20.1).

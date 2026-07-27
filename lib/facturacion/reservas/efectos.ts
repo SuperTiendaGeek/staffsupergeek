@@ -62,7 +62,13 @@ export async function liberarItem(shippingItemId: string, ambiente?: string): Pr
 // códigos poco usados (17 dinero electrónico, 20 otros sist. financiero, 21
 // endoso) caen a "Otro" a propósito: el puente los deja sin cuenta resuelta
 // (Alerta Descuadre) para que un humano los clasifique, en vez de adivinar la
-// cuenta. Pendiente confirmar con la contadora el método deseado para esos 3.
+// cuenta.
+//
+// TODO(contadora): confirmar a qué "Método de Pago" / cuenta contable deben
+// mapear los códigos 17 (dinero electrónico), 20 (otros con sistema
+// financiero) y 21 (endoso de títulos) cuando lleguen a usarse en una reserva.
+// Hoy → "Otro" (sin cuenta, marca Alerta Descuadre para clasificación manual).
+// Al confirmarse, cambiar los valores de estos 3 códigos en el mapa de abajo.
 const MAPA_FORMA_PAGO_A_METODO: Record<string, string> = {
   "01": "Efectivo",
   "16": "Tarjeta", // débito
@@ -123,7 +129,10 @@ export async function registrarAbonoReserva(input: {
       "Fecha de Abono": fecha,
       "Estado del Abono": "Registrado",
       "Registrado Por": input.registradoPor,
-      "Aplicado a: Reserva": [input.reservaRecordId],
+      // Campo link Abonos → Reservas (inverso "Abonos (Reserva)"). En esta base
+      // quedó nombrado "Reservas"; si algún día se renombra a la convención
+      // "Aplicado a: Reserva", actualizar también ABONOS_FIELDS.aplicadoAReserva.
+      "Reservas": [input.reservaRecordId],
     });
 
     // Movimiento financiero (Anticipo Cliente) — mismo puente que órdenes/operaciones.
