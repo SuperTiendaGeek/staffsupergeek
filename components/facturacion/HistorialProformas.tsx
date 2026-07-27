@@ -34,7 +34,7 @@ export function HistorialProformas() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-lg font-bold text-[#F5F5F5]">Proformas</h1>
         <div className="flex gap-2">
-          <Link href="/facturacion/historial" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]">← Facturas</Link>
+          <Link href="/facturacion" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]">← Facturas</Link>
           <Link href="/facturacion/proformas/nueva" className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] hover:brightness-105">+ Nueva proforma</Link>
         </div>
       </div>

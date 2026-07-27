@@ -51,7 +51,7 @@ export function AnulacionesPendientes() {
           <h1 className="text-lg font-bold text-[#F5F5F5]">Anulaciones pendientes</h1>
           <p className="text-xs text-[#666]">Facturas con anulación solicitada — tramítalas en el portal del SRI antes del día límite.</p>
         </div>
-        <Link href="/facturacion/historial" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]">← Facturas</Link>
+        <Link href="/facturacion" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]">← Facturas</Link>
       </div>
 
       {cargando ? <p className="text-sm text-[#A7A7A7]">Cargando…</p>

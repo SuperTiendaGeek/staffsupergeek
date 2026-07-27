@@ -99,13 +99,14 @@ type AccionesProps = {
   doc: DocumentoResumen | null;
   accion: string | null;
   onPost: (url: string, label: string, body?: Record<string, unknown>) => void;
+  onDelete: (url: string, label: string) => void;
 };
 
 const btnLink  = "rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] transition whitespace-nowrap";
 const btnDanger = "rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-red-500/60 hover:text-red-300 transition whitespace-nowrap disabled:opacity-40";
 const btnOff   = "rounded-full border border-[#2A2A22] px-3 py-1.5 text-xs text-[#555] cursor-not-allowed whitespace-nowrap";
 
-function BarraAcciones({ doc, accion, onPost }: AccionesProps) {
+function BarraAcciones({ doc, accion, onPost, onDelete }: AccionesProps) {
   if (!doc) {
     return <span className="text-xs text-[#555] italic">Selecciona un documento para ver sus acciones</span>;
   }
@@ -114,11 +115,20 @@ function BarraAcciones({ doc, accion, onPost }: AccionesProps) {
 
   if (doc.tipo === "factura") {
     const emitida = doc.estado === "AUTORIZADO";
+    const esBorrador = doc.estado === "BORRADOR";
     return (
       <div className="flex flex-wrap items-center gap-2">
+        {esBorrador && (
+          <Link href={`/facturacion/nueva?borrador=${doc.recordId}`} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-xs font-bold text-[#151515] hover:brightness-105 whitespace-nowrap">✏ Abrir para facturar</Link>
+        )}
         <a href={`/facturacion/imprimir/factura/${doc.recordId}`} target="_blank" rel="noopener" className={btnLink}>🖨 Imprimir 80 mm</a>
         {doc.tieneRide && <a href={`/api/facturacion/ride/${doc.claveAcceso}`} target="_blank" rel="noopener" className={btnLink}>↓ RIDE PDF</a>}
         {doc.tieneXml && <a href={`/api/facturacion/xml/${doc.claveAcceso}`} download={`${doc.claveAcceso}.xml`} className={btnLink}>↓ XML</a>}
+        {esBorrador && (
+          <button disabled={ocupado} onClick={() => onDelete(`/api/facturacion/historial/${doc.recordId}`, "Eliminar borrador")} className={btnDanger}>
+            {accion === "Eliminar borrador" ? "Eliminando…" : "🗑 Eliminar borrador"}
+          </button>
+        )}
         {emitida && doc.clienteCorreo && (
           <button disabled={ocupado} onClick={() => onPost(`/api/facturacion/historial/${doc.recordId}/reenviar`, "Reenviar correo")} className={`${btnLink} disabled:opacity-40 flex items-center gap-1`}>
             {accion === "Reenviar correo" ? <><Spinner /> Enviando…</> : "✉ Reenviar correo"}
@@ -170,11 +180,12 @@ function BarraAcciones({ doc, accion, onPost }: AccionesProps) {
 // ─── Visualizador de documento (ventana flotante) ────────────────────────────
 
 function DocumentoDetalleModal({
-  doc, accion, onPost, onClose,
+  doc, accion, onPost, onDelete, onClose,
 }: {
   doc: DocumentoResumen;
   accion: string | null;
   onPost: (url: string, label: string, body?: Record<string, unknown>) => void;
+  onDelete: (url: string, label: string) => void;
   onClose: () => void;
 }) {
   const [cuerpo, setCuerpo]     = useState<DocumentoCuerpo | null>(null);
@@ -289,7 +300,7 @@ function DocumentoDetalleModal({
           {/* Acciones (mismas que la barra superior) */}
           <div className="border-t border-[#2A2A22] pt-3">
             <p className="text-[10px] text-[#666] uppercase tracking-wider mb-2">Acciones</p>
-            <BarraAcciones doc={doc} accion={accion} onPost={onPost} />
+            <BarraAcciones doc={doc} accion={accion} onPost={onPost} onDelete={onDelete} />
           </div>
         </div>
       </div>
@@ -382,6 +393,19 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
       .finally(() => setAccion(null));
   }
 
+  function onDelete(url: string, label: string) {
+    if (!confirm("¿Eliminar este borrador? Esta acción no se puede deshacer.")) return;
+    setAccion(label); setMsg(null); setErrMsg(null);
+    fetch(url, { method: "DELETE" })
+      .then((r) => r.json())
+      .then((d: { success: boolean; error?: string }) => {
+        if (d.success) { setMsg("Borrador eliminado"); setSelId(null); setDetalleDoc(null); cargar(grupo, qAplicado); }
+        else setErrMsg(d.error ?? "Error al eliminar");
+      })
+      .catch(() => setErrMsg("Error de red"))
+      .finally(() => setAccion(null));
+  }
+
   return (
     <div className="min-h-screen bg-[#151510] text-[#F5F5F5] p-4 md:p-6">
       {/* ── Barra fija superior ── */}
@@ -409,7 +433,7 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
 
         {/* Acciones contextuales */}
         <div className="min-h-[34px] flex items-center">
-          <BarraAcciones doc={seleccionado} accion={accion} onPost={onPost} />
+          <BarraAcciones doc={seleccionado} accion={accion} onPost={onPost} onDelete={onDelete} />
         </div>
       </div>
 
@@ -441,6 +465,13 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
             className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition ${reservasVencidas > 0 ? "border-red-700/50 text-red-300 hover:border-red-400" : "border-[#3A3A36] text-[#A7A7A7] hover:border-[#D7FF4F]/40 hover:text-[#F5F5F5]"}`}
           >
             📦 Reservas{reservasVencidas > 0 && <span className="rounded-full bg-red-500/20 px-2 text-xs font-bold">{reservasVencidas} vencidas</span>}
+          </Link>
+          <Link
+            href="/facturacion/historial"
+            className="flex items-center gap-2 rounded-full border border-[#3A3A36] px-3 py-1.5 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/40 hover:text-[#F5F5F5] transition"
+            title="Reporte por rango de fechas, reintentar facturas atascadas en el SRI y sincronización de inventario"
+          >
+            📊 Historial / reporte
           </Link>
           <Link
             href="/facturacion/anulaciones"
@@ -522,6 +553,7 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
           doc={detalleDoc}
           accion={accion}
           onPost={(url, label, body) => { setDetalleDoc(null); onPost(url, label, body); }}
+          onDelete={onDelete}
           onClose={() => setDetalleDoc(null)}
         />
       )}
