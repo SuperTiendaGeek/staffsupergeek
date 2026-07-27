@@ -15,6 +15,7 @@ import type {
 } from "@/types/operaciones";
 import { createShippingV2ItemFromOperacion } from "@/lib/shipping-v2/airtable";
 import { normalizeCedula } from "@/lib/clientes/normalizeCedula";
+import { calcularTotalCotizado } from "@/lib/operaciones/cobro";
 
 type AirtableRecord = {
   id: string;
@@ -41,14 +42,23 @@ const ORDENES_TABLE = "Órdenes de Reparación";
 const CLIENTES_TABLE = "Clientes";
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 
+// "Total Cotizado" y "Saldo Pendiente" NO se leen de Airtable a propósito.
+//
+// "Total Cotizado" es un campo currency manual cuyo único escritor vivía en el
+// módulo de Cotizaciones, que apunta a tablas que ya no existen en la base —
+// quedó vacío en 41 de 46 operaciones. Como "Saldo Pendiente" es la fórmula
+// {Total Cotizado} - {Total Abonado}, el tablero mostraba "Pagado" a
+// operaciones que debían dinero y "Sin pago" a operaciones con deuda real.
+//
+// El total cotizado se deriva de la(s) opción(es) elegidas, que es de donde
+// siempre debió salir. Se trae "Opción Elegida" para resolver sus precios.
 const LIST_FIELDS = [
   "Código Operación",
   "Producto Solicitado",
   "Estado",
   "Cliente Nombre",
-  "Total Cotizado",
   "Total Abonado",
-  "Saldo Pendiente",
+  "Opción Elegida",
   "Orden de Reparación",
 ];
 
@@ -120,19 +130,57 @@ function escapeFormula(value: string) {
   return value.replace(/'/g, "\\'");
 }
 
-function mapOperacion(record: AirtableRecord): OperacionListado {
+function mapOperacion(
+  record: AirtableRecord,
+  preciosPorOpcionId: Map<string, number>
+): OperacionListado {
   const f = record.fields;
+  const totalCotizado = calcularTotalCotizado(linkedIds(f["Opción Elegida"]), preciosPorOpcionId);
+  const totalAbonado = firstNumber(f["Total Abonado"]) ?? 0;
   return {
     id: record.id,
     codigo: firstString(f["Código Operación"], record.id),
     productoSolicitado: firstString(f["Producto Solicitado"], "Sin producto"),
     estado: firstString(f["Estado"], "Requerimiento"),
     clienteNombre: firstString(f["Cliente Nombre"], "Sin cliente"),
-    totalCotizado: firstNumber(f["Total Cotizado"]),
-    totalAbonado: firstNumber(f["Total Abonado"]),
-    saldoPendiente: firstNumber(f["Saldo Pendiente"]),
+    totalCotizado,
+    totalAbonado,
+    // Derivado, no leído de la fórmula rota de Airtable. Puede ser negativo
+    // (cliente con saldo a favor) — la UI decide cómo presentarlo.
+    saldoPendiente: totalCotizado - totalAbonado,
     tieneOrden: linkedIds(f["Orden de Reparación"]).length > 0,
   };
+}
+
+// Precio Venta Cliente de un conjunto de opciones, en lotes para no exceder el
+// límite de longitud de filterByFormula cuando el tablero crezca.
+async function fetchPreciosOpciones(ids: string[]): Promise<Map<string, number>> {
+  const precios = new Map<string, number>();
+  const unicos = [...new Set(ids)].filter(Boolean);
+  if (unicos.length === 0) return precios;
+
+  const client = getClient();
+  const LOTE = 100;
+
+  for (let i = 0; i < unicos.length; i += LOTE) {
+    const lote = unicos.slice(i, i + LOTE);
+    const url = new URL(tableUrl(OPCIONES_TABLE));
+    url.searchParams.set(
+      "filterByFormula",
+      `OR(${lote.map((id) => `RECORD_ID()='${escapeFormula(id)}'`).join(",")})`
+    );
+    url.searchParams.set("pageSize", "100");
+    url.searchParams.append("fields[]", "Precio Venta Cliente");
+
+    const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+    if (!res.ok) continue; // sin precio, la operación queda en 0 — nunca rompe el tablero
+    const data = (await res.json()) as AirtableListResponse;
+    for (const rec of data.records ?? []) {
+      precios.set(rec.id, firstNumber(rec.fields["Precio Venta Cliente"]) ?? 0);
+    }
+  }
+
+  return precios;
 }
 
 export async function fetchOperaciones(): Promise<OperacionListado[]> {
@@ -157,9 +205,13 @@ export async function fetchOperaciones(): Promise<OperacionListado[]> {
     offset = data.offset ?? null;
   } while (offset);
 
+  const preciosPorOpcionId = await fetchPreciosOpciones(
+    records.flatMap((r) => linkedIds(r.fields["Opción Elegida"]))
+  );
+
   return records
     .sort((a, b) => (b.createdTime ?? "").localeCompare(a.createdTime ?? ""))
-    .map(mapOperacion);
+    .map((r) => mapOperacion(r, preciosPorOpcionId));
 }
 
 async function fetchProveedorNombres(ids: string[]): Promise<Record<string, string>> {

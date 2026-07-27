@@ -5,6 +5,7 @@ import { useState, useMemo } from "react";
 import { Wrench, Plus } from "lucide-react";
 import type { OperacionListado } from "@/types/operaciones";
 import { ESTADOS_TABLERO } from "@/types/operaciones";
+import { resolverEstadoCobro } from "@/lib/operaciones/cobro";
 import { NuevaOperacionModal } from "./NuevaOperacionModal";
 
 const ESTADO_COLOR: Record<string, string> = {
@@ -16,17 +17,36 @@ const ESTADO_COLOR: Record<string, string> = {
   Rechazado: "#FF5A4F",
 };
 
+const money = (n: number) =>
+  n.toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Presentación del estado de cobro. La DECISIÓN vive en lib/operaciones/cobro
+// (pura y testeada); acá solo se traduce a etiqueta y color.
 function moneyBadge(op: OperacionListado): { label: string; color: string } {
-  const { totalAbonado, saldoPendiente } = op;
-  const hasAbono = totalAbonado !== null && totalAbonado > 0;
-  if (saldoPendiente !== null && saldoPendiente <= 0 && hasAbono) {
-    return { label: "Pagado", color: "#56E3A4" };
+  const { estado, monto } = resolverEstadoCobro({
+    estado: op.estado,
+    totalCotizado: op.totalCotizado,
+    totalAbonado: op.totalAbonado,
+  });
+
+  switch (estado) {
+    case "rechazada-con-abono":
+      return { label: `Rechazada · $${money(monto)} por devolver`, color: "#FF5A4F" };
+    case "rechazada":
+      return { label: "Rechazada", color: "#6B7280" };
+    case "sin-cotizar-con-abono":
+      return { label: `Abonado $${money(monto)} · sin cotizar`, color: "#F0C75E" };
+    case "sin-cotizar":
+      return { label: "Sin cotizar", color: "#6B7280" };
+    case "por-cobrar":
+      return { label: `Por cobrar $${money(monto)}`, color: "#FF9F4F" };
+    case "saldo-parcial":
+      return { label: `Saldo $${money(monto)}`, color: "#F0C75E" };
+    case "a-favor":
+      return { label: `A favor $${money(monto)}`, color: "#4FD1C5" };
+    case "pagado":
+      return { label: "Pagado", color: "#56E3A4" };
   }
-  if (saldoPendiente !== null && saldoPendiente > 0) {
-    const fmt = saldoPendiente.toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return { label: `Saldo $${fmt}`, color: "#F0C75E" };
-  }
-  return { label: "Sin pago", color: "#6B7280" };
 }
 
 function OperacionCard({ op }: { op: OperacionListado }) {
