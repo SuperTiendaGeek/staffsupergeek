@@ -49,9 +49,11 @@ export async function agregarRepuestoStockAOrden({
   const client = getClient();
   const orden = await fetchOrdenModoYVisible(ordenRecordId, client);
   if (!orden) throw new Error("Orden no encontrada.");
-  if (orden.modo !== "v2") {
-    throw new Error("Esta orden está en modo Legacy: no se pueden agregar repuestos de stock nuevos.");
-  }
+
+  // Antes aquí se rechazaba toda orden en modo "Legacy". Con el inventario
+  // único, todo repuesto sale de Shipping Items y la vía anterior está
+  // congelada, así que ese bloqueo dejaba 11 órdenes abiertas sin ninguna
+  // forma de agregar un repuesto. El modo ya no decide nada.
 
   return reservarShippingItemComoRepuestoDeOrdenStock({
     itemId,

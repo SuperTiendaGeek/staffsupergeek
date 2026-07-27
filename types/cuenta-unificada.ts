@@ -73,9 +73,8 @@ export interface CuentaUnificada {
   // Siempre poblado si la orden tiene filas en "Repuestos por Orden", sin
   // importar el modo — es de solo lectura, nunca se escribe desde Etapa 2.
   repuestosHistoricos: CuentaUnificadaRepuestoHistorico[];
-  // true solo si esos renglones históricos efectivamente suman en totalCuenta
-  // (orden modo legacy, sin operación vinculada). En cualquier otro caso son
-  // referencia histórica y no suman.
+  // true cuando la cuenta tiene orden: desde la auditoría F-04/F-12 los
+  // históricos suman aunque exista operación vinculada o el viejo modo diga V2.
   repuestosHistoricosCuentanParaTotal: boolean;
   // Incluye abonos anulados (con su estado) para que la UI los pueda mostrar tachados;
   // los totales de abajo ya los excluyen.

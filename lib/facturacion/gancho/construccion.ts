@@ -6,7 +6,7 @@ import "server-only";
 // Airtable ni red.
 
 import type { DetalleFactura, TotalImpuesto, Pago } from "../types/factura";
-import type { CuentaUnificadaItem, CuentaUnificadaServicio, CuentaUnificadaAbono } from "@/types/cuenta-unificada";
+import type { CuentaUnificadaItem, CuentaUnificadaServicio, CuentaUnificadaAbono, CuentaUnificadaRepuestoHistorico } from "@/types/cuenta-unificada";
 import type { ItemDetalleGancho } from "./airtableGancho";
 import {
   SERVICIO_IVA_DEFAULT, TARIFA_IVA_SRI, TARIFA_IVA_ITEM_DEFAULT,
@@ -50,6 +50,37 @@ export function construirLineaProducto(
     impuestos: [{ codigo: "2", codigoPorcentaje, tarifa, baseImponible: base, valor: valorIva }],
     tipo:           "producto",
     shippingItemId: item.id,
+  };
+}
+
+// ─── Línea de repuesto histórico ("Repuestos por Orden") ─────────────────────
+//
+// Renglones de la tabla anterior al inventario único. La tabla está congelada
+// (no se crean más), pero 47 órdenes tienen $3.234 anotados ahí y ese dinero se
+// cobró. Hasta aquí NO generaban línea de factura aunque sí sumaran al total de
+// la cuenta: facturar una de esas órdenes emitía un documento por los servicios
+// solamente (OR000031: $185 de cuenta → factura de $25).
+//
+// Mismo criterio que el resto: el precio guardado es final CON IVA incluido y
+// se desglosa hacia adentro. Se respeta la cantidad del renglón, que a
+// diferencia de un Shipping Item puede ser mayor que 1.
+export function construirLineaRepuestoHistorico(
+  repuesto: Pick<CuentaUnificadaRepuestoHistorico, "nombre" | "cantidad" | "subtotal">,
+  indiceUnoBasado: number
+): DetalleFactura {
+  const { codigoPorcentaje, tarifa } = TARIFA_IVA_ITEM_DEFAULT;
+  const cantidad = repuesto.cantidad && repuesto.cantidad > 0 ? repuesto.cantidad : 1;
+  const { base, valorIva } = desglosarPrecioConIvaIncluido(repuesto.subtotal, tarifa);
+  return {
+    codigoPrincipal: `REP-H${indiceUnoBasado}`,
+    descripcion: repuesto.nombre,
+    cantidad,
+    // base es el total del renglón sin impuestos; el unitario se deriva.
+    precioUnitario: round2(base / cantidad),
+    descuento: 0,
+    precioTotalSinImpuesto: base,
+    impuestos: [{ codigo: "2", codigoPorcentaje, tarifa, baseImponible: base, valor: valorIva }],
+    tipo: "producto",
   };
 }
 

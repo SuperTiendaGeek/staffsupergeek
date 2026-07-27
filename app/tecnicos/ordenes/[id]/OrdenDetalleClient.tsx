@@ -2578,7 +2578,10 @@ export function OrdenDetalleClient() {
                     </div>
                   </div>
 
-                  {cuentaUnificada?.modoRepuestos === "v2" && (
+                  {/* Antes esto solo se mostraba si la orden era "V2". Con el
+                      inventario único todas las órdenes agregan repuestos desde
+                      Shipping Items, así que el botón está siempre. */}
+                  {cuentaUnificada && (
                     <div className="flex items-center justify-end">
                       <button
                         type="button"

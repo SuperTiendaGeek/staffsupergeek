@@ -17,29 +17,19 @@ import type {
 // ─── Gates de repuestos (extraído para poder testearlo sin mockear todo el
 // árbol de fetches de getCuentaUnificada) ────────────────────────────────────
 //
-// Dos gates distintos, con motivos distintos:
-//   - legacyCuentanParaTotal: evita doble conteo entre la tabla legacy
-//     "Repuestos por Orden" y los items reales de la operación
-//     ("Artículo físico") cuando describen el mismo repuesto físico —
-//     por eso SÍ depende de si hay operación vinculada.
-//   - incluyeStockV2: los repuestos de stock V2 (link "Orden de Reparación
-//     (Stock)", propio de repuestos-v2.ts) son una fuente independiente de
-//     "Artículo físico" — no hay overlap posible entre los dos, así que NO
-//     debe depender de si hay operación vinculada. Antes de este fix
-//     compartía el mismo gate que legacyCuentanParaTotal, y un repuesto de
-//     stock agregado a una orden CON operación vinculada quedaba invisible
-//     (ni en la cuenta unificada ni en la tarjeta de Repuestos) aunque el
-//     link en Airtable fuera real — bug de Fase 11, destapado al construir
-//     el gancho de Fase 16 (issue reportado sobre una orden con operación).
+// La fuente única de verdad de una orden suma todas sus piezas reales:
+// repuestos históricos, repuestos de stock V2 y artículos de sus operaciones.
+// El viejo campo "Modo repuestos" fue solo un andamio de migración; usarlo como
+// gate ocultaba dinero real en órdenes mixtas.
 export function resolverGatesRepuestos(input: {
   ordenId: string | null;
   operacionId: string | null;
-  modoRepuestos: ModoRepuestos | null;
+  modoRepuestos?: ModoRepuestos | null;
 }): { legacyCuentanParaTotal: boolean; incluyeStockV2: boolean } {
-  const ordenAportaRepuestosPropios = input.ordenId != null && input.operacionId == null;
+  const hayOrden = input.ordenId != null;
   return {
-    legacyCuentanParaTotal: ordenAportaRepuestosPropios && input.modoRepuestos === "legacy",
-    incluyeStockV2: input.ordenId != null && input.modoRepuestos === "v2",
+    legacyCuentanParaTotal: hayOrden,
+    incluyeStockV2: hayOrden,
   };
 }
 
@@ -226,18 +216,37 @@ export async function getCuentaUnificada(
 
   let ordenRecord: AirtableRecord | null = null;
   let operacionRecord: AirtableRecord | null = null;
+  let operacionRecords: AirtableRecord[] = [];
 
   if ("ordenId" in input) {
     ordenRecord = await fetchRecord(client, ORDENES_TABLE, input.ordenId);
     if (!ordenRecord) throw new Error(`Orden ${input.ordenId} no encontrada.`);
     // "Operaciones Comerciales" es el inverso de Operación Comercial."Orden de Reparación".
-    const operacionId = linkedIds(ordenRecord.fields["Operaciones Comerciales"])[0] ?? null;
-    if (operacionId) operacionRecord = await fetchRecord(client, OPERACIONES_TABLE, operacionId);
+    // Es N:M: la cuenta suma TODAS las operaciones de la orden, aunque para
+    // compatibilidad exponga la primera como operación principal.
+    const operacionIds = linkedIds(ordenRecord.fields["Operaciones Comerciales"]);
+    if (operacionIds.length > 0) {
+      const records = await fetchRecordsByIds(client, OPERACIONES_TABLE, operacionIds);
+      const porId = new Map(records.map((r) => [r.id, r]));
+      operacionRecords = operacionIds.map((id) => porId.get(id)).filter((r): r is AirtableRecord => Boolean(r));
+      operacionRecord = operacionRecords[0] ?? null;
+    }
   } else {
     operacionRecord = await fetchRecord(client, OPERACIONES_TABLE, input.operacionId);
     if (!operacionRecord) throw new Error(`Operación ${input.operacionId} no encontrada.`);
     const ordenId = linkedIds(operacionRecord.fields["Orden de Reparación"])[0] ?? null;
     if (ordenId) ordenRecord = await fetchRecord(client, ORDENES_TABLE, ordenId);
+    if (ordenRecord) {
+      const operacionIds = linkedIds(ordenRecord.fields["Operaciones Comerciales"]);
+      const ids = operacionIds.includes(operacionRecord.id)
+        ? operacionIds
+        : [operacionRecord.id, ...operacionIds];
+      const records = await fetchRecordsByIds(client, OPERACIONES_TABLE, ids);
+      const porId = new Map(records.map((r) => [r.id, r]));
+      operacionRecords = ids.map((id) => porId.get(id)).filter((r): r is AirtableRecord => Boolean(r));
+    } else {
+      operacionRecords = [operacionRecord];
+    }
   }
 
   const ordenId = ordenRecord?.id ?? null;
@@ -247,7 +256,7 @@ export async function getCuentaUnificada(
   const { legacyCuentanParaTotal: repuestosLegacyCuentanParaTotal, incluyeStockV2: ordenTieneRepuestosStockV2 } =
     resolverGatesRepuestos({ ordenId, operacionId, modoRepuestos });
 
-  const [servicios, repuestosLegacyRaw, repuestosStockV2, abonosOrden, itemsPedido, abonosOperacion] =
+  const [servicios, repuestosLegacyRaw, repuestosStockV2, abonosOrden, itemsPedidoPorOperacion, abonosPorOperacion] =
     await Promise.all([
       ordenId ? fetchServiciosPorOrden(ordenId) : Promise.resolve([]),
       // Siempre se trae (si hay orden) para la pestaña de históricos, sin
@@ -257,17 +266,19 @@ export async function getCuentaUnificada(
         ? fetchRepuestosStockV2(ordenRecord, client)
         : Promise.resolve([]),
       ordenId ? fetchAbonosPorOrden(ordenId) : Promise.resolve([]),
-      operacionRecord ? fetchItemsPedido(operacionRecord, client) : Promise.resolve([]),
-      operacionRecord ? fetchAbonosOperacion(operacionRecord, client) : Promise.resolve([]),
+      Promise.all(operacionRecords.map((r) => fetchItemsPedido(r, client))),
+      Promise.all(operacionRecords.map((r) => fetchAbonosOperacion(r, client))),
     ]);
+  const itemsPedido = itemsPedidoPorOperacion.flat();
+  const abonosOperacion = abonosPorOperacion.flat();
 
   const repuestosHistoricos = repuestosLegacyRaw.map(mapRepuestoHistorico);
 
   // La lista principal de "items" es exclusivamente Shipping Items (pedido/
   // stock), tal como pide el modelo cerrado — los renglones legacy NUNCA se
   // muestran ahí (solo en la pestaña "Repuestos históricos", más abajo) para
-  // evitar mostrar el mismo repuesto dos veces. Cuando sí cuentan para el
-  // total (orden Legacy sin operación vinculada), su subtotal se suma
+  // evitar mostrar el mismo repuesto dos veces. Cuando cuentan para el total,
+  // su subtotal se suma
   // directamente a totalCuenta, sin fabricar un "item" falso.
   const items: CuentaUnificadaItem[] = [...itemsPedido, ...repuestosStockV2];
   const totalRepuestosHistoricos = repuestosHistoricos.reduce((sum, r) => sum + r.subtotal, 0);

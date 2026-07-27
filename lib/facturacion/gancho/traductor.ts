@@ -12,7 +12,7 @@ import {
 import { buscarFacturaBloqueante } from "./idempotencia";
 import type { FacturaVinculadaGancho } from "./airtableGancho";
 import {
-  derivarTipoIdentificacion, construirLineaProducto, construirLineaServicio,
+  derivarTipoIdentificacion, construirLineaProducto, construirLineaServicio, construirLineaRepuestoHistorico,
   agruparTotalConImpuestos, evaluarItemNoListo, calcularFormasPago, round2,
 } from "./construccion";
 import type { ItemNoListo } from "./construccion";
@@ -106,7 +106,13 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
   const detallesServicio: DetalleFactura[] = cuenta.servicios.map((servicio, i) =>
     construirLineaServicio(servicio, i + 1)
   );
-  const detalles = [...detallesProducto, ...detallesServicio];
+  // Repuestos de la tabla histórica: entran a la factura solo cuando cuentan
+  // para el total de la cuenta (mismo criterio que usa cuenta.totalCuenta), de
+  // forma que importeTotal y totalCuenta no puedan discrepar.
+  const detallesRepuestoHistorico: DetalleFactura[] = cuenta.repuestosHistoricosCuentanParaTotal
+    ? cuenta.repuestosHistoricos.map((r, i) => construirLineaRepuestoHistorico(r, i + 1))
+    : [];
+  const detalles = [...detallesProducto, ...detallesRepuestoHistorico, ...detallesServicio];
 
   // ── 6. Totales agrupados por tarifa ───────────────────────────────────────────
   const totalConImpuestos = agruparTotalConImpuestos(detalles);

@@ -71,7 +71,14 @@ function fetchDoble(url: string | URL) {
     }
   }
   if (urlStr.includes(encodeURIComponent("Operación Comercial")) && urlStr.includes("recOPE1")) {
-    return Promise.resolve({ ok: true, json: async () => OPERACION } as Response);
+    // Una orden puede tener varias operaciones, así que ahora se piden por
+    // listado filtrado (RECORD_ID()) y no por GET directo. El GET por id sigue
+    // usándose al entrar desde una operación.
+    const esListado = urlStr.includes("filterByFormula");
+    return Promise.resolve({
+      ok: true,
+      json: async () => (esListado ? { records: [OPERACION] } : OPERACION),
+    } as Response);
   }
   if (urlStr.includes(encodeURIComponent("Servicios por Orden"))) {
     return Promise.resolve({ ok: true, json: async () => ({ records: [] }) } as Response);
