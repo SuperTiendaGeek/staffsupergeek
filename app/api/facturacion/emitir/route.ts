@@ -6,6 +6,9 @@ import { buscarFacturaBloqueante } from "@/lib/facturacion/gancho/idempotencia";
 import { postEmision } from "@/lib/facturacion/gancho/postEmision";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
 import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
+import { marcarReservaFacturada } from "@/lib/facturacion/reservas/airtable";
+
+const AMBIENTE_PRODUCCION = "2";
 
 export const dynamic = "force-dynamic";
 // La autorización puede tardar hasta 60 s; extendemos el timeout del route.
@@ -92,6 +95,23 @@ export async function POST(request: Request) {
     // postEmision (un fallo de inventario no debe bloquear el de finanzas
     // ni viceversa). Nunca lanza — ver lib/finanzas/puentes/facturacion.ts.
     await procesarPuenteFacturacion(resultado, body, session.user.nombre || session.user.email || "Portal");
+
+    // Reservas — cerrar la reserva (Estado Facturada + link a la factura) solo
+    // tras una emisión AUTORIZADA real (ambiente producción). En pruebas la
+    // reserva NO se toca: nunca cerrar una reserva real con una factura de
+    // prueba. Best-effort: un fallo aquí no altera la emisión ya autorizada.
+    if (
+      resultado.estado === "AUTORIZADO" &&
+      resultado.recordId &&
+      resultado.ambiente === AMBIENTE_PRODUCCION &&
+      body.origen?.tipo === "reserva"
+    ) {
+      try {
+        await marcarReservaFacturada(body.origen.recordId, resultado.recordId);
+      } catch (e) {
+        console.error("[/api/facturacion/emitir POST] marcar reserva facturada falló:", e);
+      }
+    }
 
     return NextResponse.json({ success: true, data: resultado });
   } catch (e) {

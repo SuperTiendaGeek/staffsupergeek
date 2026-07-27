@@ -11,6 +11,7 @@ import "server-only";
 
 const ORDENES_TABLE   = "Órdenes de Reparación";
 const OPERACIONES_TABLE = "Operación Comercial";
+const RESERVAS_TABLE  = "Reservas";
 const CLIENTES_TABLE  = "Clientes";
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 const FACTURAS_TABLE  = "Facturas Electrónicas";
@@ -79,6 +80,10 @@ export async function fetchOrden(ordenId: string) {
 
 export async function fetchOperacion(operacionId: string) {
   return fetchRecord(OPERACIONES_TABLE, operacionId);
+}
+
+export async function fetchReserva(reservaId: string) {
+  return fetchRecord(RESERVAS_TABLE, reservaId);
 }
 
 export async function fetchCliente(clienteId: string) {

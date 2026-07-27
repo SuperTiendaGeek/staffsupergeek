@@ -50,7 +50,7 @@ export { FacturacionRechazoError } from "./errores";
 // Fase 16 PR2: origen desde el gancho Cuenta Unificada (orden/operación).
 // Ausente en el flujo de mostrador. Se usa para idempotencia (releer antes
 // de emitir) y para vincular la factura de vuelta al persistir.
-export type OrigenGancho = { tipo: "orden" | "operacion"; recordId: string };
+export type OrigenGancho = { tipo: "orden" | "operacion" | "reserva"; recordId: string };
 
 export type DatosVenta = {
   tipoIdentificacionComprador: string;

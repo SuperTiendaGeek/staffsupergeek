@@ -103,21 +103,52 @@ async function procesarMostrador(facturaId: string, body: DatosVenta, registrado
   }
 }
 
-// (b) Factura sobre Orden/Operación — anti doble conteo: marca como
+// Reserva: los abonos vigentes se leen del inverso "Abonos (Reserva)" del
+// registro de Reservas (regla de la casa: nunca filtrar por campo link). Es
+// el mismo mecanismo que órdenes/operaciones, pero sin cuenta unificada (una
+// reserva es un solo ítem + sus abonos, no una cuenta con servicios/repuestos).
+const RESERVA_TABLE_FACT = "Reservas";
+const RESERVA_ABONOS_INVERSO = "Abonos (Reserva)";
+
+function textoDe(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+async function abonoIdsVigentesDeReserva(reservaId: string): Promise<string[]> {
+  const reserva = await fetchRecordById(RESERVA_TABLE_FACT, reservaId);
+  if (!reserva) return [];
+  const raw = reserva.fields[RESERVA_ABONOS_INVERSO];
+  const ids = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
+  const vigentes: string[] = [];
+  for (const id of ids) {
+    const ab = await fetchRecordById("Abonos", id);
+    const estado = ab ? textoDe(ab.fields["Estado del Abono"]) : "";
+    if (estado !== "Anulado") vigentes.push(id);
+  }
+  return vigentes;
+}
+
+// (b) Factura sobre Orden/Operación/Reserva — anti doble conteo: marca como
 // facturados los movimientos de los abonos vigentes (nunca crea un ingreso
 // nuevo por ellos) y solo crea movimiento nuevo por el componente "saldo"
 // (dinero no cubierto por ningún abono previo, cobrado en el instante de
 // facturar).
 async function procesarConOrigen(facturaId: string, body: DatosVenta, origen: OrigenGancho, registradoPor: string) {
-  const cuenta = await getCuentaUnificada(origen.tipo === "orden" ? { ordenId: origen.recordId } : { operacionId: origen.recordId });
-  const abonosVigentes = cuenta.abonos.filter((a) => a.estado !== "Anulado");
+  // Reunir los IDs de abonos vigentes del origen.
+  let abonoIds: string[];
+  if (origen.tipo === "reserva") {
+    abonoIds = await abonoIdsVigentesDeReserva(origen.recordId);
+  } else {
+    const cuenta = await getCuentaUnificada(origen.tipo === "orden" ? { ordenId: origen.recordId } : { operacionId: origen.recordId });
+    abonoIds = cuenta.abonos.filter((a) => a.estado !== "Anulado").map((a) => a.id);
+  }
 
-  for (const abono of abonosVigentes) {
-    const abonoRecord = await fetchRecordById("Abonos", abono.id);
+  for (const abonoId of abonoIds) {
+    const abonoRecord = await fetchRecordById("Abonos", abonoId);
     const movimientoId = abonoRecord ? firstLinkedId(abonoRecord.fields["Movimiento Financiero"]) : null;
     if (!movimientoId) {
       console.warn("[Finanzas] Abono vigente sin Movimiento Financiero al facturar — no se pudo marcar como facturado", {
-        abonoId: abono.id,
+        abonoId,
         facturaId,
       });
       continue;
@@ -126,7 +157,7 @@ async function procesarConOrigen(facturaId: string, body: DatosVenta, origen: Or
       await actualizarMovimiento(movimientoId, { facturaElectronicaId: facturaId, estadoDistribucion: "Pendiente de clasificar" });
     } catch (error) {
       console.error("[Finanzas] No se pudo marcar el movimiento del abono como facturado", {
-        abonoId: abono.id,
+        abonoId,
         movimientoId,
         facturaId,
         error: error instanceof Error ? error.message : String(error),
@@ -134,6 +165,7 @@ async function procesarConOrigen(facturaId: string, body: DatosVenta, origen: Or
     }
   }
 
+  // Orden → servicio; operación y reserva → venta de producto.
   const categoria: CategoriaMovimiento = origen.tipo === "orden" ? "Servicio Reparación" : "Venta Producto";
   const componentesSaldo = body.pagos.filter((p) => p.origenPago === "saldo");
   const fecha = new Date().toISOString();

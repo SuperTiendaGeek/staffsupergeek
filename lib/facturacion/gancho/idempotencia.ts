@@ -1,6 +1,6 @@
 import "server-only";
 
-import { fetchOrden, fetchOperacion, fetchFacturasVinculadas, linkedIds } from "./airtableGancho";
+import { fetchOrden, fetchOperacion, fetchReserva, fetchFacturasVinculadas, linkedIds } from "./airtableGancho";
 import type { FacturaVinculadaGancho } from "./airtableGancho";
 import type { OrigenGancho } from "../emitirFactura";
 
@@ -22,10 +22,18 @@ export async function buscarFacturaBloqueante(
   const registro =
     origen.tipo === "orden"
       ? await fetchOrden(origen.recordId)
-      : await fetchOperacion(origen.recordId);
+      : origen.tipo === "operacion"
+      ? await fetchOperacion(origen.recordId)
+      : await fetchReserva(origen.recordId);
   if (!registro) return null;
 
-  const facturaIds = linkedIds(registro.fields["Facturas Electrónicas"]);
+  // La reserva vincula su factura en el campo "Factura" (no "Facturas
+  // Electrónicas"); órdenes y operaciones usan el inverso "Facturas
+  // Electrónicas". En ambos casos se lee el link ya presente en el registro.
+  const facturaIds =
+    origen.tipo === "reserva"
+      ? linkedIds(registro.fields["Factura"])
+      : linkedIds(registro.fields["Facturas Electrónicas"]);
   if (facturaIds.length === 0) return null;
 
   const facturas = await fetchFacturasVinculadas(facturaIds);

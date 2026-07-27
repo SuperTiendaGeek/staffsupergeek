@@ -137,6 +137,7 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
   const [accion, setAccion] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [facturarOpen, setFacturarOpen] = useState(false);
 
   const saldo = saldoPendiente(reserva.precio, reserva.totalAbonado);
   const completa = pagoCompleto(reserva.precio, reserva.totalAbonado);
@@ -213,17 +214,123 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
             </div>
           </div>
         )}
-        {completa && activa && <p className="rounded-lg bg-emerald-900/20 border border-emerald-700/40 px-3 py-2 text-xs text-emerald-300">Pago completo. La facturación de la reserva llegará en la próxima fase.</p>}
+        {completa && activa && <p className="rounded-lg bg-emerald-900/20 border border-emerald-700/40 px-3 py-2 text-xs text-emerald-300">Pago completo — lista para facturar.</p>}
 
         {msg && <p className="rounded-lg bg-emerald-900/30 border border-emerald-700/40 px-3 py-2 text-sm text-emerald-300">{msg}</p>}
         {err && <p className="rounded-lg bg-red-900/30 border border-red-700/40 px-3 py-2 text-sm text-red-300">{err}</p>}
 
         {/* Acciones */}
         <div className="border-t border-[#2A2A22] pt-3 flex flex-wrap gap-2">
+          {activa && <button onClick={() => { setErr(null); setMsg(null); setFacturarOpen(true); }} className="rounded-full bg-[#D7FF4F] text-[#151515] px-4 py-1.5 text-xs font-bold hover:brightness-105">🧾 Facturar</button>}
           <a href={`/facturacion/imprimir/reserva/${reserva.recordId}`} target="_blank" rel="noopener" className={btn}>🖨 Imprimir 2 tickets</a>
           <a href={`/api/facturacion/reservas/${reserva.recordId}/pdf`} target="_blank" rel="noopener" className={btn}>↓ PDF</a>
           {activa && <button disabled={accion === "liberar"} onClick={liberar} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-red-500/60 hover:text-red-300 disabled:opacity-40">{accion === "liberar" ? "Liberando…" : "⊘ Liberar (saldo a favor)"}</button>}
         </div>
+      </div>
+
+      {facturarOpen && (
+        <FacturarReservaModal
+          reserva={reserva}
+          onClose={() => setFacturarOpen(false)}
+          onFacturada={() => { setFacturarOpen(false); setMsg("Reserva facturada"); onCambio(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Modal: facturar una reserva ──────────────────────────────────────────────
+// Trae la prefactura del servidor (cliente + ítem + pagos = abonos + saldo),
+// deja elegir la forma de pago del SALDO por cobrar, y emite por el endpoint
+// compartido /api/facturacion/emitir con origen {tipo:"reserva"}.
+
+type PreResumen = { numero: string; descripcionItem: string; importeTotal: number; totalAbonado: number; saldo: number };
+
+function FacturarReservaModal({ reserva, onClose, onFacturada }: { reserva: Detalle; onClose: () => void; onFacturada: () => void }) {
+  const [saldoForma, setSaldoForma] = useState("01");
+  const [resumen, setResumen] = useState<PreResumen | null>(null);
+  const [datosVenta, setDatosVenta] = useState<unknown>(null);
+  const [cargando, setCargando] = useState(true);
+  const [emitiendo, setEmitiendo] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+
+  const cargarPre = useCallback(async (forma: string) => {
+    setCargando(true); setErr(null);
+    try {
+      const r = await fetch(`/api/facturacion/reservas/${reserva.recordId}/prefactura?saldoFormaPago=${encodeURIComponent(forma)}`);
+      const d = await r.json();
+      if (!d.success) { setErr(d.error ?? "No se pudo preparar la factura"); setResumen(null); setDatosVenta(null); }
+      else { setResumen(d.data.resumen); setDatosVenta(d.data.datosVenta); }
+    } catch { setErr("Error de red al preparar la factura"); }
+    finally { setCargando(false); }
+  }, [reserva.recordId]);
+
+  useEffect(() => { cargarPre(saldoForma); }, [cargarPre, saldoForma]);
+
+  async function emitir() {
+    if (!datosVenta) return;
+    setEmitiendo(true); setErr(null);
+    try {
+      const r = await fetch("/api/facturacion/emitir", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datosVenta) });
+      const d = await r.json();
+      if (!d.success) { setErr(d.error ?? "Error al emitir"); return; }
+      const res = d.data;
+      if (res.estado === "AUTORIZADO") { setOk(`Factura ${res.numeroFactura} AUTORIZADA`); setTimeout(onFacturada, 1400); }
+      else setErr(`La factura quedó ${res.estado}. ${(res.mensajes ?? []).map((m: { mensaje: string }) => m.mensaje).join(" · ")}`);
+    } catch { setErr("Error de red al emitir"); }
+    finally { setEmitiendo(false); }
+  }
+
+  const tieneSaldo = (resumen?.saldo ?? 0) > 0;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={(e) => { if (e.target === e.currentTarget && !emitiendo) onClose(); }}>
+      <div className="w-full max-w-md rounded-2xl border border-[#2A2A22] bg-[#1A1A16] p-6 flex flex-col gap-4">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs text-[#666]">Facturar reserva</p>
+            <p className="text-lg font-bold font-mono text-[#F5F5F5]">{reserva.numero}</p>
+          </div>
+          {!emitiendo && <button onClick={onClose} className="text-[#666] hover:text-[#F5F5F5] text-xl leading-none">✕</button>}
+        </div>
+
+        {cargando ? (
+          <div className="flex items-center gap-2 text-[#666] py-6"><Spinner /><span className="text-sm">Preparando factura…</span></div>
+        ) : resumen ? (
+          <>
+            <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm space-y-1">
+              <div className="flex justify-between gap-3"><span className="text-[#666]">Ítem</span><span className="text-[#F5F5F5] text-right">{resumen.descripcionItem}</span></div>
+              <div className="flex justify-between"><span className="text-[#666]">Total (IVA incl.)</span><span className="text-[#F5F5F5]">{mon(resumen.importeTotal)}</span></div>
+              <div className="flex justify-between"><span className="text-[#666]">Abonado previo</span><span className="text-[#F5F5F5]">{mon(resumen.totalAbonado)}</span></div>
+              <div className="flex justify-between text-base font-bold border-t border-[#2A2A22] pt-1 mt-1"><span className="text-[#F5F5F5]">Saldo a cobrar hoy</span><span className="text-[#D7FF4F]">{mon(resumen.saldo)}</span></div>
+            </div>
+
+            {tieneSaldo && (
+              <div>
+                <label className="block mb-1 text-[10px] text-[#666] uppercase tracking-wider">Forma de pago del saldo</label>
+                <select value={saldoForma} onChange={(e) => setSaldoForma(e.target.value)} disabled={emitiendo} className="w-full rounded-lg bg-[#252622] border border-[#3A3A36] px-2 py-2 text-sm text-[#F5F5F5]">{FORMAS_PAGO.map((fp) => <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>)}</select>
+              </div>
+            )}
+            {!tieneSaldo && <p className="rounded-lg bg-emerald-900/20 border border-emerald-700/40 px-3 py-2 text-xs text-emerald-300">Reserva pagada por completo con los abonos — no hay saldo por cobrar.</p>}
+
+            <p className="text-[11px] text-[#666]">Los abonos previos ya se registraron como anticipo; al facturar solo se cobra el saldo. El ítem se marca vendido y se descuenta del inventario.</p>
+
+            {ok && <p className="rounded-lg bg-emerald-900/30 border border-emerald-700/40 px-3 py-2 text-sm text-emerald-300">{ok}</p>}
+            {err && <p className="rounded-lg bg-red-900/30 border border-red-700/40 px-3 py-2 text-sm text-red-300">{err}</p>}
+            {emitiendo && <p className="text-[11px] text-yellow-300">Emitiendo y autorizando en el SRI… puede tardar hasta un minuto. No cierres esta ventana.</p>}
+
+            <div className="flex justify-end gap-2 pt-1">
+              {!ok && <button onClick={onClose} disabled={emitiendo} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:text-[#F5F5F5] disabled:opacity-40">Cancelar</button>}
+              {!ok && <button onClick={emitir} disabled={emitiendo || !datosVenta} className="rounded-full bg-[#D7FF4F] text-[#151515] px-5 py-2 text-sm font-bold hover:brightness-105 disabled:opacity-40">{emitiendo ? "Emitiendo…" : "Emitir factura"}</button>}
+            </div>
+          </>
+        ) : (
+          <>
+            {err && <p className="rounded-lg bg-red-900/30 border border-red-700/40 px-3 py-2 text-sm text-red-300">{err}</p>}
+            <div className="flex justify-end"><button onClick={onClose} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:text-[#F5F5F5]">Cerrar</button></div>
+          </>
+        )}
       </div>
     </div>
   );
