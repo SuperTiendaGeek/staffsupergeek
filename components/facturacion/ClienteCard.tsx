@@ -64,7 +64,7 @@ export function ClienteCard({ value, onChange, conConsumidorFinal = false }: {
         {conConsumidorFinal && (
           <button onClick={() => { onChange(CONSUMIDOR_FINAL_DOC); setModoBuscar(false); }} className={chip(value.esConsumidorFinal)}>Consumidor Final</button>
         )}
-        <button onClick={() => setModoBuscar((v) => !v)} className={chip(modoBuscar && !elegido)}>Buscar existente</button>
+        <button onClick={() => { if (value.esConsumidorFinal || value.airtableId) onChange(CLIENTE_VACIO); setModoBuscar(true); }} className={chip(modoBuscar && !elegido && !value.esConsumidorFinal)}>Buscar existente</button>
         <button onClick={() => setModal({ modo: "crear" })} className="rounded-full border border-[#3A3A36] bg-transparent px-3 py-1 text-xs font-bold text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5] transition whitespace-nowrap">+ Cliente nuevo</button>
       </div>
 
