@@ -335,10 +335,25 @@ export async function fetchOperacionDetalle(id: string): Promise<OperacionDetall
   // 5. Map
   const opciones = opcionesRecords.map((r) => mapOpcion(r, proveedorNombres, opcionElegidaId));
 
-  const abonos = [
-    ...abonosOpRecords.map((r) => mapAbono(r, "operacion")),
-    ...abonosOrdenRecords.map((r) => mapAbono(r, "orden")),
-  ].sort((a, b) => (a.fecha ?? "").localeCompare(b.fecha ?? ""));
+  // El total cotizado sale de la(s) opción(es) elegidas, ya mapeadas arriba —
+  // no hace falta ir a Airtable de nuevo.
+  const totalCotizado = opciones
+    .filter((o) => o.esElegida)
+    .reduce((sum, o) => sum + (o.precioVentaCliente ?? 0), 0);
+  const totalAbonado = firstNumber(f["Total Abonado"]) ?? 0;
+
+  // Mismo dedupe que getCuentaUnificada: un abono con ambos links ("Aplicado
+  // a: Orden" + "Aplicado a: Operación") venía por las dos vías y se
+  // renderizaba duplicado en el detalle de la operación. Gana el mapeo
+  // "operacion" porque es la pantalla desde la que se está mirando.
+  const abonosPorId = new Map<string, AbonoDetalle>();
+  for (const r of abonosOpRecords) abonosPorId.set(r.id, mapAbono(r, "operacion"));
+  for (const r of abonosOrdenRecords) {
+    if (!abonosPorId.has(r.id)) abonosPorId.set(r.id, mapAbono(r, "orden"));
+  }
+  const abonos = [...abonosPorId.values()].sort((a, b) =>
+    (a.fecha ?? "").localeCompare(b.fecha ?? "")
+  );
 
   return {
     id: opRecord.id,
@@ -354,9 +369,11 @@ export async function fetchOperacionDetalle(id: string): Promise<OperacionDetall
     categoria: firstString(f["Categoría"]),
     requiereInstalacion: f["Requiere Instalación"] === true,
     equipoEnTienda: f["Equipo ya está en tienda"] === true,
-    totalCotizado: firstNumber(f["Total Cotizado"]),
-    totalAbonado: firstNumber(f["Total Abonado"]),
-    saldoPendiente: firstNumber(f["Saldo Pendiente"]),
+    // Derivados de la opción elegida, no leídos de "Total Cotizado" /
+    // "Saldo Pendiente" de Airtable (ver comentario en LIST_FIELDS).
+    totalCotizado,
+    totalAbonado,
+    saldoPendiente: totalCotizado - totalAbonado,
     codigoPedido: firstString(f["Código Pedido"]),
     estadoInstalacion: firstString(f["Estado Instalación"]),
     observacionInterna: firstString(f["Observación Interna"]),

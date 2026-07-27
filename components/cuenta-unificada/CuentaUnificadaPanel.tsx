@@ -150,7 +150,13 @@ export function CuentaUnificadaPanel({
                       textDecoration: anulado ? "line-through" : "none",
                     }}
                   >
-                    <Badge>{abono.origen === "orden" ? "Orden" : "Operación"}</Badge>
+                    <Badge>
+                      {abono.origen === "orden"
+                        ? "Orden"
+                        : abono.origen === "operacion"
+                          ? "Operación"
+                          : "Orden + Operación"}
+                    </Badge>
                     <span>{abono.metodoPago ?? "Sin método"}</span>
                     {anulado && <Badge tone="danger">Anulado</Badge>}
                   </div>

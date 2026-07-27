@@ -33,7 +33,11 @@ export interface CuentaUnificadaRepuestoHistorico {
   subtotal: number;
 }
 
-export type CuentaUnificadaAbonoOrigen = "orden" | "operacion";
+// "ambos" = el registro de Abonos lleva a la vez "Aplicado a: Orden" y
+// "Aplicado a: Operación" (es lo que escriben createAbonoPorOrden y crearAbono
+// cuando el par orden↔operación existe, y de lo que depende Finanzas para la
+// referencia legible del movimiento). Es UN solo abono, no dos.
+export type CuentaUnificadaAbonoOrigen = "orden" | "operacion" | "ambos";
 
 export interface CuentaUnificadaAbono {
   id: string;

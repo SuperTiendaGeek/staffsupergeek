@@ -280,21 +280,36 @@ export async function getCuentaUnificada(
     costo: s.costo ?? 0,
   }));
 
-  const abonos: CuentaUnificadaAbono[] = [
-    ...abonosOrden.map(
-      (a): CuentaUnificadaAbono => ({
-        id: a.id,
-        idAbono: a.idAbono,
-        fecha: a.fecha,
-        monto: a.monto ?? 0,
-        metodoPago: a.metodoPago,
-        estado: a.estado,
-        origen: "orden",
-        observacion: a.observacion,
-      })
-    ),
-    ...abonosOperacion,
-  ].sort((a, b) => (a.fecha ?? "").localeCompare(b.fecha ?? ""));
+  // Un mismo registro de Abonos puede llevar a la vez "Aplicado a: Orden" y
+  // "Aplicado a: Operación": createAbonoPorOrden y crearAbono escriben ambos
+  // links cuando el par orden↔operación existe, y el puente de Finanzas
+  // depende de eso para la referencia legible del movimiento.
+  //
+  // Antes se concatenaban las dos listas sin deduplicar y el MISMO record
+  // salía dos veces (caso real OR000382 ↔ OP-2026-000050: un abono de $135
+  // mostrado como dos abonos de $135). La identidad de un abono es su
+  // record.id, no el lado por el que se llegó a él.
+  const abonosPorId = new Map<string, CuentaUnificadaAbono>();
+  for (const a of abonosOrden) {
+    abonosPorId.set(a.id, {
+      id: a.id,
+      idAbono: a.idAbono,
+      fecha: a.fecha,
+      monto: a.monto ?? 0,
+      metodoPago: a.metodoPago,
+      estado: a.estado,
+      origen: "orden",
+      observacion: a.observacion,
+    });
+  }
+  for (const a of abonosOperacion) {
+    const yaVisto = abonosPorId.get(a.id);
+    if (yaVisto) yaVisto.origen = "ambos";
+    else abonosPorId.set(a.id, a);
+  }
+  const abonos: CuentaUnificadaAbono[] = [...abonosPorId.values()].sort((a, b) =>
+    (a.fecha ?? "").localeCompare(b.fecha ?? "")
+  );
 
   // Servicios y Productos Digitales son siempre solo de la orden (nunca hay
   // ambigüedad de doble conteo con la operación), y ya existen como rollup en
@@ -311,12 +326,17 @@ export async function getCuentaUnificada(
     (repuestosLegacyCuentanParaTotal ? totalRepuestosHistoricos : 0);
   const totalCuenta = totalRepuestos + totalServicios + totalProductosDigitales;
 
-  // Los abonos son conjuntos disjuntos por lado y cada rollup (Total Abonado
-  // NV en la Orden, Total Abonado en la Operación) ya excluye anulados — se
-  // suman directo en vez de refiltrar/resumir la lista completa en JS.
-  const totalAbonado =
-    (ordenRecord ? firstNumber(ordenRecord.fields["Total Abonado NV"]) : 0) +
-    (operacionRecord ? firstNumber(operacionRecord.fields["Total Abonado"]) : 0);
+  // Los dos rollups ("Total Abonado NV" en la Orden y "Total Abonado" en la
+  // Operación) NO son sumables entre sí: un abono con ambos links está dentro
+  // de los dos y sumarlos lo contaba dos veces. Caso real OR000382 ↔
+  // OP-2026-000050 — un único abono de $135 daba totalAbonado = $270 y un
+  // "saldo a favor del cliente" de $135 que no existía.
+  //
+  // Se suma la lista ya deduplicada. El filtro de anulados replica en JS la
+  // condición que los rollups aplicaban del lado de Airtable.
+  const totalAbonado = abonos
+    .filter((a) => a.estado !== "Anulado")
+    .reduce((sum, a) => sum + a.monto, 0);
   const saldo = totalCuenta - totalAbonado;
 
   return {
