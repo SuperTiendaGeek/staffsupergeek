@@ -5,13 +5,24 @@ export type ModoRepuestos = "legacy" | "v2";
 
 export type CuentaUnificadaItemOrigen = "pedido" | "stock";
 
+// Sin cobertura por renglón a propósito. El cliente le paga a la CUENTA, no a
+// un renglón: el único saldo con sentido es CuentaUnificada.saldo.
+//
+// Hasta aquí se exponían `cubierto` y `saldo` leídos de los campos calculados
+// de Airtable "Total Cubierto" y "Saldo Item". Ese par nunca repartió nada:
+// "Total Cubierto" es un rollup del `Total Abonado` COMPLETO de la operación
+// vinculada, así que (a) cada item de una operación recibía el abono íntegro
+// sin prorratear, (b) los items de stock —que no tienen link a operación—
+// quedaban siempre en cubierto 0, y (c) servicios y productos digitales nunca
+// participaron. Resultado real en OR000382: la batería de $90 decía "Saldado ·
+// Cubierto $135" y el ventilador de $20 decía "Pendiente $20", con el cliente
+// habiendo pagado el total. Los campos siguen existiendo en Airtable; el
+// código ya no los lee.
 export interface CuentaUnificadaItem {
   id: string;
   nombre: string;
   origen: CuentaUnificadaItemOrigen;
   precio: number;
-  cubierto: number;
-  saldo: number;
 }
 
 export interface CuentaUnificadaServicio {

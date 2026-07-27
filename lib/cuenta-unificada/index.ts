@@ -137,8 +137,6 @@ function mapShippingItemToCuentaItem(
     nombre: firstString(f["Nombre del item"], "Artículo sin nombre"),
     origen,
     precio: firstNumber(f["Precio venta final"]),
-    cubierto: firstNumber(f["Total Cubierto"]),
-    saldo: firstNumber(f["Saldo Item"]),
   };
 }
 

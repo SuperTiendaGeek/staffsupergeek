@@ -2569,7 +2569,7 @@ export function OrdenDetalleClient() {
                       </p>
                       <p className="mt-1 text-base font-extrabold text-[var(--sg-lime)]">
                         {formatCurrency(
-                          (cuentaUnificada?.items ?? []).reduce((acc, item) => acc + item.saldo, 0) +
+                          (cuentaUnificada?.items ?? []).reduce((acc, item) => acc + item.precio, 0) +
                             (cuentaUnificada?.repuestosHistoricosCuentanParaTotal
                               ? (cuentaUnificada?.repuestosHistoricos ?? []).reduce((acc, r) => acc + r.subtotal, 0)
                               : 0)
@@ -2607,7 +2607,6 @@ export function OrdenDetalleClient() {
                       {(cuentaUnificada?.items ?? []).map((item) => {
                         const isDeleting = repuestoDeletingId === item.id;
                         const isConfirming = repuestoDeleteConfirmId === item.id;
-                        const saldado = item.saldo <= 0;
 
                         return (
                           <div
@@ -2627,18 +2626,13 @@ export function OrdenDetalleClient() {
                                   <span className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--sg-text-secondary)]">
                                     Reservado
                                   </span>
-                                  <span
-                                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                                      saldado
-                                        ? "bg-[var(--sg-lime-soft)] text-[var(--sg-lime)]"
-                                        : "bg-amber-500/15 text-amber-400"
-                                    }`}
-                                  >
-                                    {saldado ? "Saldado" : `Pendiente ${formatCurrency(item.saldo)}`}
-                                  </span>
+                                  {/* Sin badge Saldado/Pendiente: el pago no se
+                                      imputa por renglón, solo a la cuenta. El
+                                      saldo real vive en el panel de Cuenta
+                                      Unificada. */}
                                 </div>
                                 <p className="text-xs text-[var(--sg-text-muted)]">
-                                  Precio {formatCurrency(item.precio)} · Cubierto {formatCurrency(item.cubierto)}
+                                  Precio {formatCurrency(item.precio)}
                                 </p>
                               </div>
                               <div className="flex shrink-0 flex-col items-end gap-2">
@@ -2662,7 +2656,7 @@ export function OrdenDetalleClient() {
                                   </button>
                                 )}
                                 <div className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-1 text-right text-sm font-semibold text-[var(--sg-text-primary)]">
-                                  {formatCurrency(item.saldo)}
+                                  {formatCurrency(item.precio)}
                                 </div>
                               </div>
                             </div>
