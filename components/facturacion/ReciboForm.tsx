@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { totalRecibo, totalLinea } from "@/lib/facturacion/recibos/calculos";
 import type { LineaRecibo } from "@/lib/facturacion/recibos/types";
+import { ClienteCard, CLIENTE_VACIO, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 
 const FORMAS_PAGO = [
   { codigo: "01", label: "Efectivo" },
@@ -20,8 +21,6 @@ const FORMAS_PAGO = [
   { codigo: "21", label: "Endoso de títulos" },
 ];
 
-type Cliente = { nombre: string; identificacion: string; correo: string; airtableId?: string };
-type ClienteBusqueda = { id: string; nombre: string; cedula: string; telefono: string; correo: string; direccion: string };
 type Producto = { id: string; sku: string; nombre: string; precioVenta: number; unidad: string; cantidadDisponible: number };
 type Linea = LineaRecibo & { _id: string; stockDisponible?: number };
 
@@ -30,9 +29,7 @@ const LABEL = "block mb-1 text-[10px] font-bold uppercase tracking-wider text-[#
 const INPUT = "w-full rounded-lg bg-[#252622] border border-[#3A3A36] px-3 py-2 text-sm text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/40";
 
 export function ReciboForm() {
-  const [cliente, setCliente] = useState<Cliente>({ nombre: "", identificacion: "", correo: "" });
-  const [queryCli, setQueryCli] = useState("");
-  const [cliSug, setCliSug] = useState<ClienteBusqueda[]>([]);
+  const [cliente, setCliente] = useState<ClienteDoc>(CLIENTE_VACIO);
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [queryProd, setQueryProd] = useState("");
   const [prodSug, setProdSug] = useState<Producto[]>([]);
@@ -42,13 +39,6 @@ export function ReciboForm() {
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<{ recordId: string; numero: string } | null>(null);
   const prodRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const q = queryCli.trim(); if (q.length < 2) { setCliSug([]); return; }
-    let cancel = false;
-    const t = setTimeout(async () => { try { const r = await fetch(`/api/facturacion/clientes?q=${encodeURIComponent(q)}`); const j = await r.json(); if (!cancel && j.success) setCliSug(j.data); } catch { /* */ } }, 250);
-    return () => { cancel = true; clearTimeout(t); };
-  }, [queryCli]);
 
   useEffect(() => {
     const q = queryProd.trim(); if (q.length < 2) { setProdSug([]); return; }
@@ -69,7 +59,7 @@ export function ReciboForm() {
 
   async function generar() {
     setError(null);
-    if (!cliente.nombre.trim()) { setError("Ingresa el nombre del cliente"); return; }
+    if (!cliente.esConsumidorFinal && !cliente.airtableId) { setError("Elige un cliente, crea uno nuevo o usa Consumidor Final"); return; }
     if (lineas.length === 0) { setError("Agrega al menos un producto o servicio"); return; }
     if (lineas.some((l) => !l.descripcion.trim())) { setError("Todas las líneas deben tener descripción"); return; }
     if (lineas.some((l) => !(l.cantidad > 0) || !Number.isInteger(l.cantidad))) { setError("La cantidad debe ser un número entero mayor a 0"); return; }
@@ -81,7 +71,7 @@ export function ReciboForm() {
       const r = await fetch("/api/facturacion/recibos", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          cliente: { identificacion: cliente.identificacion.trim() || undefined, razonSocial: cliente.nombre.trim(), correo: cliente.correo.trim() || undefined, airtableId: cliente.airtableId },
+          cliente: { identificacion: cliente.identificacion || undefined, razonSocial: cliente.razonSocial, correo: cliente.correo || undefined, airtableId: cliente.airtableId },
           lineas: lineas.map(({ _id, stockDisponible, ...l }) => { void _id; void stockDisponible; return l; }),
           formaPago, nota: nota.trim() || undefined,
         }),
@@ -101,7 +91,7 @@ export function ReciboForm() {
         <div className="flex flex-wrap gap-3">
           <a href={`/api/facturacion/recibos/${resultado.recordId}/pdf`} target="_blank" rel="noopener" className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-4 py-2 text-xs font-bold hover:brightness-105">Ver / Descargar PDF</a>
           <Link href="/facturacion/recibos" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5] self-center">Ver todos los recibos</Link>
-          <button onClick={() => { setResultado(null); setLineas([]); setCliente({ nombre: "", identificacion: "", correo: "" }); setQueryCli(""); setNota(""); }} className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Nuevo recibo</button>
+          <button onClick={() => { setResultado(null); setLineas([]); setCliente(CLIENTE_VACIO); setNota(""); }} className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Nuevo recibo</button>
         </div>
       </div>
     );
@@ -109,23 +99,7 @@ export function ReciboForm() {
 
   return (
     <div className="w-full max-w-5xl">
-      <div className={CARD}>
-        <h2 className="text-[#D7FF4F] font-bold text-sm mb-3">1. Cliente</h2>
-        <div className="relative mb-3">
-          <label className={LABEL}>Buscar cliente existente (opcional)</label>
-          <input value={queryCli} onChange={(e) => setQueryCli(e.target.value)} placeholder="Nombre o cédula…" className={INPUT} />
-          {cliSug.length > 0 && (
-            <ul className="absolute z-20 mt-1 w-full rounded-md border border-[#3A3A36] bg-[#1A1B18] shadow-xl divide-y divide-[#2A2B28]">
-              {cliSug.map((c) => (<li key={c.id}><button onClick={() => { setCliente({ nombre: c.nombre, identificacion: c.cedula, correo: c.correo, airtableId: c.id }); setQueryCli(""); setCliSug([]); }} className="w-full text-left px-4 py-2 hover:bg-[#252622] text-sm"><p className="font-semibold text-[#F5F5F5]">{c.nombre}</p><p className="text-[10px] text-[#666]">{c.cedula} · {c.correo}</p></button></li>))}
-            </ul>
-          )}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div><label className={LABEL}>Nombre / Razón social</label><input value={cliente.nombre} onChange={(e) => setCliente({ ...cliente, nombre: e.target.value, airtableId: undefined })} className={INPUT} /></div>
-          <div><label className={LABEL}>Identificación (opcional)</label><input value={cliente.identificacion} onChange={(e) => setCliente({ ...cliente, identificacion: e.target.value })} className={INPUT} /></div>
-          <div><label className={LABEL}>Correo (opcional)</label><input value={cliente.correo} onChange={(e) => setCliente({ ...cliente, correo: e.target.value })} className={INPUT} /></div>
-        </div>
-      </div>
+      <ClienteCard value={cliente} onChange={setCliente} conConsumidorFinal />
 
       <div className={CARD}>
         <h2 className="text-[#D7FF4F] font-bold text-sm mb-3">2. Productos / servicios</h2>
