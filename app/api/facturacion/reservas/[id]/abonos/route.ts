@@ -1,7 +1,7 @@
 import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { obtenerReservaPorId, agregarAbonoReserva } from "@/lib/facturacion/reservas/airtable";
-import { registrarIngresoAbono }     from "@/lib/facturacion/reservas/efectos";
+import { registrarAbonoReserva }     from "@/lib/facturacion/reservas/efectos";
 import { validarAbono, pagoCompleto, saldoPendiente } from "@/lib/facturacion/reservas/reglas";
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
@@ -34,9 +34,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     const { totalAbonado } = await agregarAbonoReserva(id, abono, reserva.abonos, reserva.cliente, reserva.totalAbonado);
 
-    // Ingreso del abono (best-effort, guardado a producción).
-    try { await registrarIngresoAbono({ numeroReserva: reserva.numero, monto, formaPago, clienteRecordId: reserva.clienteRecordId, registradoPor, ambiente: getFacturacionConfig().ambiente }); }
-    catch (e) { console.error("[reservas abono] ingreso:", e); }
+    // Abono en la tabla centralizada + su movimiento (best-effort, a producción).
+    try { await registrarAbonoReserva({ reservaRecordId: id, numeroReserva: reserva.numero, monto, formaPago, registradoPor, fecha: abono.fecha, ambiente: getFacturacionConfig().ambiente }); }
+    catch (e) { console.error("[reservas abono] abono:", e); }
 
     return NextResponse.json({ success: true, data: { totalAbonado, saldoPendiente: saldoPendiente(reserva.precio, totalAbonado), pagoCompleto: pagoCompleto(reserva.precio, totalAbonado) } });
   } catch (e) {

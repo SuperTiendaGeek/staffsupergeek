@@ -25,6 +25,11 @@ const ABONOS_FIELDS = {
   observacion: "Observación",
   aplicadoAOperacion: "Aplicado a: Operación",
   aplicadoAOrden: "Aplicado a: Orden",
+  // Tercer origen de abono (Fase reservas): link Abonos → Reservas. El usuario
+  // crea este campo a mano en Airtable (la API no crea links). Si el campo no
+  // existe todavía, el abono de reserva simplemente no lo trae y el puente cae
+  // al comportamiento sin reserva (cliente/ref quedan vacíos) — nunca rompe.
+  aplicadoAReserva: "Aplicado a: Reserva",
   // Campo inverso auto-creado por Airtable al vincular Movimientos.Abono,
   // renombrado en el checklist de esta fase (antes: "Shipping Finanzas
   // Movimientos", heredado del nombre de tabla pre-rename de la Fase 20.1).
@@ -36,6 +41,9 @@ const OPERACION_FIELDS = { cliente: "Cliente", codigo: "Código Operación" } as
 
 const ORDEN_TABLE = "Órdenes de Reparación";
 const ORDEN_FIELDS = { cliente: "Cliente", codigo: "ID" } as const;
+
+const RESERVA_TABLE = "Reservas";
+const RESERVA_FIELDS = { cliente: "Cliente", numero: "Número" } as const;
 
 function firstString(value: unknown): string {
   if (typeof value === "string") return value;
@@ -74,10 +82,11 @@ function resolverMapeoMetodoPago(metodoPago: string | null) {
 
 export type ResultadoPuenteAbono = { ok: true; movimientoId: string } | { ok: false; error: string };
 
-async function resolverClienteYReferencia(operacionId: string | null, ordenId: string | null) {
+async function resolverClienteYReferencia(operacionId: string | null, ordenId: string | null, reservaId: string | null) {
   let clienteId: string | null = null;
   let refOrden: string | null = null;
   let refOperacion: string | null = null;
+  let refReserva: string | null = null;
 
   if (ordenId) {
     const orden = await fetchRecordById(ORDEN_TABLE, ordenId);
@@ -93,11 +102,19 @@ async function resolverClienteYReferencia(operacionId: string | null, ordenId: s
       refOperacion = firstString(operacion.fields[OPERACION_FIELDS.codigo]) || operacionId;
     }
   }
+  if (reservaId) {
+    const reserva = await fetchRecordById(RESERVA_TABLE, reservaId);
+    if (reserva) {
+      if (!clienteId) clienteId = firstLinkedId(reserva.fields[RESERVA_FIELDS.cliente]);
+      refReserva = firstString(reserva.fields[RESERVA_FIELDS.numero]) || reservaId;
+    }
+  }
 
   let referenciaOrigen = "";
   if (refOrden && refOperacion) referenciaOrigen = `Abono sobre Orden #${refOrden} (Operación #${refOperacion})`;
   else if (refOrden) referenciaOrigen = `Abono sobre Orden #${refOrden}`;
   else if (refOperacion) referenciaOrigen = `Abono sobre Operación #${refOperacion}`;
+  else if (refReserva) referenciaOrigen = `Abono sobre Reserva ${refReserva}`;
 
   return { clienteId, referenciaOrigen };
 }
@@ -130,7 +147,8 @@ export async function crearMovimientoParaAbono(input: {
 
     const operacionId = firstLinkedId(abonoActual.fields[ABONOS_FIELDS.aplicadoAOperacion]);
     const ordenId = firstLinkedId(abonoActual.fields[ABONOS_FIELDS.aplicadoAOrden]);
-    const { clienteId, referenciaOrigen } = await resolverClienteYReferencia(operacionId, ordenId);
+    const reservaId = firstLinkedId(abonoActual.fields[ABONOS_FIELDS.aplicadoAReserva]);
+    const { clienteId, referenciaOrigen } = await resolverClienteYReferencia(operacionId, ordenId, reservaId);
     const mapeo = resolverMapeoMetodoPago(input.metodoPago);
     const cuenta = mapeo ? await fetchCuentaPorNombre(mapeo.cuentaDestinoNombre) : null;
 

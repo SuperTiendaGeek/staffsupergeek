@@ -1,7 +1,7 @@
 import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { crearReserva, listarReservas } from "@/lib/facturacion/reservas/airtable";
-import { reservarItem, registrarIngresoAbono } from "@/lib/facturacion/reservas/efectos";
+import { reservarItem, registrarAbonoReserva } from "@/lib/facturacion/reservas/efectos";
 import { abonoMinimo, fechaLimiteReserva, PLAZOS_VALIDOS, validarAbono } from "@/lib/facturacion/reservas/reglas";
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
@@ -99,8 +99,8 @@ export async function POST(request: Request) {
     // Efectos (guardados a producción). Best-effort cada uno.
     try { await reservarItem(shippingItemId!, cfg.ambiente); }
     catch (e) { console.error("[reservas POST] reservarItem:", e); }
-    try { await registrarIngresoAbono({ numeroReserva: creada.numero, monto: montoAbono, formaPago: formaPago!, clienteRecordId: body.cliente?.airtableId, registradoPor, ambiente: cfg.ambiente }); }
-    catch (e) { console.error("[reservas POST] ingreso abono:", e); }
+    try { await registrarAbonoReserva({ reservaRecordId: creada.recordId, numeroReserva: creada.numero, monto: montoAbono, formaPago: formaPago!, registradoPor, fecha: abonoInicial.fecha, ambiente: cfg.ambiente }); }
+    catch (e) { console.error("[reservas POST] abono:", e); }
 
     return NextResponse.json({ success: true, data: { ...creada, clienteExistente: resol.clienteExistente, fichaActualizada: resol.fichaActualizada } });
   } catch (e) {
