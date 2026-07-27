@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
+import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
 import type { ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Proveedor, ShippingV2RecepcionChecklistAction } from "@/types/shipping-v2";
 
 type Props = {
@@ -203,6 +204,30 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
     }
   }
 
+  // Publica el item como listo para vender. Las condiciones se evalúan también
+  // en el servidor (lib/shipping-v2/item-availability.ts); acá se usan solo
+  // para deshabilitar el botón y explicar por qué.
+  async function publicarItem(item: ReceptionItem) {
+    const key = `${item.id}:disponible`;
+    setBusyKey(key);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/shipping-v2/recepcion/items/${item.id}/disponible`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo publicar el artículo."));
+      const updated = payload.data as ShippingV2Item;
+      setItems((current) => current.map((currentItem) => (currentItem.id === updated.id ? updated : currentItem)));
+      setMessage(`${updated.sku || updated.nombre} quedó disponible para la venta.`);
+    } catch (mutationError) {
+      setMessage(mutationError instanceof Error ? mutationError.message : "Error inesperado.");
+    } finally {
+      setBusyKey("");
+    }
+  }
+
   async function saveNovedad() {
     if (!modalItem) return;
     setBusyKey(`${modalItem.id}:novedad`);
@@ -265,6 +290,12 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
           const photo = getItemPhoto(item);
           const providerLabel = resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels) || item.proveedorNombre || "";
           const reviewed = isReviewed(item);
+          const publicacion = evaluarPublicacionItem({
+            estado: item.estado,
+            estadoRevision: item.estadoRevision,
+            revisadoFisicamente: item.revisadoFisicamente,
+            novedadesAbiertas: item.openNovedades.length,
+          });
           return (
             <article key={item.id} className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-xl shadow-black/15">
               <div className="grid gap-3 lg:grid-cols-[72px_minmax(220px,0.75fr)_minmax(420px,1.25fr)]">
@@ -309,11 +340,33 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
                     <ChecklistToggle label="Grupos Facebook" checked={item.gruposFacebookPublicado === true} busy={busyKey === `${item.id}:published-facebook`} onChange={(value) => void updateChecklist(item, "published-facebook", value)} />
                   </div>
                   <div className="flex flex-wrap gap-1.5">
+                    {publicacion.puede ? (
+                      <button
+                        type="button"
+                        onClick={() => void publicarItem(item)}
+                        disabled={busyKey === `${item.id}:disponible`}
+                        className="h-8 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F]/15 px-3 text-xs font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F]/25 disabled:opacity-50"
+                      >
+                        {busyKey === `${item.id}:disponible` ? "Publicando..." : "Listo para vender"}
+                      </button>
+                    ) : publicacion.motivo === "ya-disponible" ? null : (
+                      <button
+                        type="button"
+                        disabled
+                        title={publicacion.detalle}
+                        className="h-8 cursor-not-allowed rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-xs font-bold text-[#6E6F68]"
+                      >
+                        Listo para vender
+                      </button>
+                    )}
                     <button type="button" onClick={() => setModalItem(item)} className="h-8 rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 text-xs font-bold text-[#FFB07A] transition hover:border-[#FF914D]">Registrar novedad</button>
                     <button type="button" onClick={() => openSkuLabel(item.id)} className="h-8 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-xs font-bold text-[#F5F5F5] transition hover:border-[#D7FF4F]/55">Imprimir etiqueta SKU</button>
                     <button type="button" onClick={() => openTechnicalSheetEditor(item.id)} className="h-8 rounded-lg border border-[#4FC3FF]/35 bg-[#4FC3FF]/10 px-3 text-xs font-bold text-[#BDEAFF] transition hover:border-[#4FC3FF]">Preparar ficha</button>
                     <button type="button" onClick={() => openTechnicalSheet(item)} className="h-8 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-xs font-bold text-[#F5F5F5] transition hover:border-[#D7FF4F]/55">Imprimir ficha</button>
                   </div>
+                  {!publicacion.puede && publicacion.motivo !== "ya-disponible" ? (
+                    <p className="text-[11px] leading-4 text-[#8A8B84]">Para publicar: {publicacion.detalle}</p>
+                  ) : null}
                 </div>
               </div>
             </article>

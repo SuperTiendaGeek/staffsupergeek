@@ -35,6 +35,7 @@ import type {
 import type { StaffSession } from "@/lib/session";
 import { canAccessApp, isAdministratorRole } from "@/lib/apps";
 import { getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
+import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
@@ -4204,6 +4205,75 @@ export async function getShippingV2NovedadesForItem(itemRecordId: string) {
       const aTime = Date.parse(a.fechaRegistro || a.createdTime || "");
       return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
     });
+}
+
+/**
+ * Marca un item como listo para vender: Estado Item → "Disponible" y
+ * "Disponible para venta" → true. Es la "acción controlada" que exigía el guard
+ * de validateInlineItemFieldChange y que hasta ahora no existía, por lo que el
+ * ciclo de vida se estancaba en "En revisión" (ver lib/shipping-v2/item-availability.ts).
+ *
+ * Idempotente: si el item ya está Disponible se devuelve tal cual, sin error.
+ */
+export async function marcarShippingV2ItemDisponible(
+  recordId: string,
+  options: { actualizadoPor: string }
+) {
+  assertShippingV2GeneratedSchema();
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+
+  const item = await getShippingV2ItemById(id, { includeAiName: false });
+  const novedades = await getShippingV2NovedadesForItem(id);
+  const novedadesAbiertas = novedades.filter((n) => isOpenNovedadStatus(n.estado)).length;
+
+  const evaluacion = evaluarPublicacionItem({
+    estado: item.estado,
+    estadoRevision: item.estadoRevision,
+    revisadoFisicamente: item.revisadoFisicamente,
+    novedadesAbiertas,
+  });
+
+  if (!evaluacion.puede) {
+    if (evaluacion.motivo === "ya-disponible") return item; // idempotente
+    throw new Error(evaluacion.detalle);
+  }
+
+  const estadoAnterior = item.estado;
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [
+        {
+          id,
+          fields: {
+            [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Disponible",
+            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: true,
+            [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+            [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.actualizadoPor,
+          },
+        },
+      ],
+    }),
+  });
+
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
+  const itemActualizado = mapItem(updated);
+
+  await createShippingV2Event({
+    action: "Cambio de estado",
+    entity: "Shipping Item",
+    itemRecordId: id,
+    itemName: itemActualizado.nombre,
+    registradoPor: options.actualizadoPor,
+    descripcion: "Publicado como listo para vender desde Recepción.",
+    estadoAnterior,
+    estadoNuevo: "Disponible",
+  });
+
+  invalidateShippingV2ItemSearchIndexCache();
+  return itemActualizado;
 }
 
 export async function getShippingV2DashboardSummary(): Promise<ShippingV2DashboardSummary> {
