@@ -76,6 +76,7 @@ type ClienteFactura = {
   razonSocial:       string;
   correo:            string;
   telefono?:         string;
+  direccion?:        string;
   airtableId?:       string;
 };
 
@@ -99,7 +100,7 @@ function facturaToDoc(c: ClienteFactura, modo: ModoCliente): ClienteDoc {
     razonSocial:        c.razonSocial,
     correo:             c.correo,
     telefono:           c.telefono ?? "",
-    direccion:          "",
+    direccion:          esCF ? "" : (c.direccion ?? ""),
     airtableId:         esCF ? undefined : c.airtableId,
   };
 }
@@ -999,7 +1000,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   function onClienteCard(doc: ClienteDoc) {
     if (doc.esConsumidorFinal) { setModoCliente("consumidor"); setCliente(CONSUMIDOR_FINAL); return; }
     setModoCliente("buscar");
-    setCliente({ modo: "buscar", tipoIdentificacion: doc.tipoIdentificacion as TipoIdentificacion, identificacion: doc.identificacion, razonSocial: doc.razonSocial, correo: doc.correo, telefono: doc.telefono, airtableId: doc.airtableId });
+    setCliente({ modo: "buscar", tipoIdentificacion: doc.tipoIdentificacion as TipoIdentificacion, identificacion: doc.identificacion, razonSocial: doc.razonSocial, correo: doc.correo, telefono: doc.telefono, direccion: doc.direccion, airtableId: doc.airtableId });
   }
 
   // ── Gancho Fase 16 PR2: pre-factura bloqueada — no se puede armar nada,
