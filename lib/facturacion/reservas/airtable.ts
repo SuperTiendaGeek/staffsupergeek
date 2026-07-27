@@ -154,6 +154,37 @@ export type ReservaRegistro = {
   precio: number; totalAbonado: number; fechaLimite: string; tienePdf: boolean;
 };
 
+/**
+ * ¿Hay ya una reserva Activa sobre este ítem? Devuelve su número, o null.
+ *
+ * Primera de las dos barreras contra la doble reserva; la segunda —y la que de
+ * verdad manda— es `apartarItemParaReserva`, que falla si el ítem ya está
+ * marcado como reservado. Esta sirve para dar un mensaje útil ("ya está
+ * apartado en RES-000007") antes de intentar nada.
+ *
+ * Regla de la casa: nunca filtrar por campo de link. Se filtra por Estado y se
+ * compara el link en memoria.
+ */
+export async function buscarReservaActivaPorItem(shippingItemId: string): Promise<string | null> {
+  const itemId = (shippingItemId ?? "").trim();
+  if (!itemId) return null;
+
+  const c = getClient();
+  const params = new URLSearchParams({ filterByFormula: `{Estado} = "Activa"`, pageSize: "100" });
+  for (const f of ["Número", "Shipping Item"]) params.append("fields[]", f);
+
+  const data = await req<{ records: Array<{ id: string; fields: Record<string, unknown> }> }>(
+    `${c.baseUrl}/${encodeURIComponent(TABLE)}?${params}`
+  ).catch(() => null);
+  if (!data) return null;
+
+  for (const record of data.records ?? []) {
+    const vinculados = Array.isArray(record.fields["Shipping Item"]) ? (record.fields["Shipping Item"] as unknown[]) : [];
+    if (vinculados.some((v) => v === itemId)) return str(record.fields["Número"]) || record.id;
+  }
+  return null;
+}
+
 export type FiltrosReserva = { cliente?: string; numero?: string; estado?: string; pageSize?: number; offset?: string };
 
 export async function listarReservas(filtros: FiltrosReserva = {}): Promise<{ reservas: ReservaRegistro[]; offset?: string }> {

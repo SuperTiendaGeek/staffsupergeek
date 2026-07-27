@@ -153,7 +153,12 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
       const r = await fetch(`/api/facturacion/reservas/${reserva.recordId}/abonos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ monto, formaPago: forma }) });
       const d = await r.json();
       if (!d.success) setErr(d.error ?? "Error");
-      else { setMsg(`Abono de ${mon(monto)} registrado`); setAbono(""); onCambio(); }
+      else {
+        setMsg(`Abono de ${mon(monto)} registrado`);
+        if (d.data?.advertencia) setErr(d.data.advertencia);
+        setAbono("");
+        onCambio();
+      }
     } catch { setErr("Error de red"); } finally { setAccion(null); }
   }
 

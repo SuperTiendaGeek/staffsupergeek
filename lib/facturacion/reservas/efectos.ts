@@ -1,16 +1,34 @@
 import "server-only";
 
-// Efectos reales de una reserva, guardados por ambiente "2" (en PRUEBAS no se
-// tocan Shipping Items ni /finanzas ni la tabla Abonos). Fase 1:
-//   · reservarItem  → marca el ítem "Reservado" y fuera de venta.
-//   · liberarItem   → lo devuelve a "Disponible" (al vencer y liberar).
-//   · registrarAbonoReserva → crea un registro en la tabla CENTRALIZADA "Abonos"
-//     (ligado a la reserva por "Aplicado a: Reserva") y su movimiento financiero
+// Efectos reales de una reserva:
+//   · apartarItemParaReserva → marca el ítem "Reservado" y fuera de venta.
+//   · liberarItem            → lo devuelve a "Disponible" (al vencer y liberar).
+//   · registrarAbonoReserva  → crea un registro en la tabla CENTRALIZADA "Abonos"
+//     (ligado a la reserva por el link "Reservas") y su movimiento financiero
 //     vía el puente compartido `crearMovimientoParaAbono` — el mismo camino que
 //     usan órdenes y operaciones. Esto centraliza los abonos y los clasifica
 //     como "Anticipo Cliente" (no "Venta Mostrador"): el depósito es un anticipo
 //     hasta que se factura. La venta se registra recién al facturar (Fase 2),
 //     que reconcilia estos abonos y solo cobra el saldo como ingreso nuevo.
+//
+// ─── Por qué esto YA NO depende de SRI_AMBIENTE ──────────────────────────────
+//
+// Hasta aquí los tres efectos estaban detrás de `if (ambiente !== "2") return`,
+// heredando el guard que sí tiene sentido para lo que nace de una factura
+// electrónica (postEmisión, notas de crédito, anulaciones, puente de
+// facturación): en el ambiente de PRUEBAS del SRI esos documentos son ficticios
+// y no deben tocar inventario ni /finanzas.
+//
+// Una reserva NO es un documento del SRI. Es un apartado de mostrador: el
+// cliente deja dinero real y el equipo se retira de la venta. Eso ocurre igual
+// esté el SRI en pruebas o en producción. Con el guard puesto, la reserva se
+// creaba (con su PDF para el cliente) pero el ítem nunca se bloqueaba, el abono
+// nunca llegaba a la tabla Abonos y nunca se generaba el movimiento financiero.
+// Efecto observado en producción: $110 cobrados fuera de /finanzas y una misma
+// unidad (DES-000005) con dos reservas activas de dos clientes distintos.
+//
+// El ambiente sigue mandando en la facturación electrónica; ya no manda en el
+// apartado ni en la caja.
 
 import { fetchRecordsByIds, firstString } from "../gancho/airtableGancho";
 import { getMaxIdAbono } from "@/lib/operaciones/airtable";
@@ -18,7 +36,6 @@ import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 const ABONOS_TABLE = "Abonos";
-const AMBIENTE_PRODUCCION = "2";
 
 async function patchItem(itemId: string, fields: Record<string, unknown>): Promise<void> {
   const token = process.env.AIRTABLE_API_KEY?.trim();
@@ -35,19 +52,50 @@ async function patchItem(itemId: string, fields: Record<string, unknown>): Promi
   if (!res || !res.ok) throw new Error(`PATCH Shipping Items ${itemId} → ${res?.status ?? "?"}: ${res ? await res.text() : "sin respuesta"}`);
 }
 
-/** Marca el ítem como reservado y fuera de venta. Idempotente. */
-export async function reservarItem(shippingItemId: string, ambiente?: string): Promise<void> {
-  if (ambiente !== AMBIENTE_PRODUCCION) return;
+/**
+ * Aparta el ítem: "Reservado", fuera de venta.
+ *
+ * NO es idempotente a propósito. Antes, si el ítem ya estaba reservado esta
+ * función devolvía sin hacer nada y quien llamaba lo interpretaba como éxito —
+ * es decir, una segunda reserva sobre la misma unidad pasaba sin ruido. Ahora
+ * lanza: apartar algo que ya está apartado es un error del negocio, no un
+ * no-op. Es la única barrera dura contra la doble reserva.
+ */
+export async function apartarItemParaReserva(shippingItemId: string): Promise<void> {
   const [rec] = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, [shippingItemId]);
-  if (rec && firstString(rec.fields["Estado Item"]) === "Reservado") return; // ya reservado
+  if (!rec) throw new Error("El ítem a reservar no existe.");
+
+  const estado = firstString(rec.fields["Estado Item"]);
+  const yaReservado = rec.fields["Reservado"] === true || estado === "Reservado";
+  if (yaReservado) throw new Error("Este ítem ya está apartado para otra reserva.");
+  if (rec.fields["Disponible para venta"] !== true) {
+    throw new Error("Este ítem no está disponible para venta.");
+  }
+
   await patchItem(shippingItemId, { "Estado Item": "Reservado", "Disponible para venta": false, "Reservado": true });
 }
 
-/** Devuelve el ítem a disponible (al liberar una reserva vencida). Idempotente. */
-export async function liberarItem(shippingItemId: string, ambiente?: string): Promise<void> {
-  if (ambiente !== AMBIENTE_PRODUCCION) return;
+/**
+ * Devuelve el ítem a la venta al liberar una reserva. Idempotente: si ya está
+ * disponible no hace nada.
+ *
+ * Solo revierte cuando el ítem sigue en "Reservado". Si entre medias pasó a
+ * otro estado (Vendido, Con novedad, Destinado a partes…) NO lo toca: liberar
+ * una reserva no puede resucitar a la venta un equipo que ya siguió otro
+ * camino.
+ */
+export async function liberarItem(shippingItemId: string): Promise<void> {
   const [rec] = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, [shippingItemId]);
-  if (rec && firstString(rec.fields["Estado Item"]) === "Disponible") return; // ya disponible
+  if (!rec) return;
+
+  const estado = firstString(rec.fields["Estado Item"]);
+  if (estado === "Disponible") return; // ya disponible
+  if (estado !== "Reservado") {
+    // El ítem avanzó por otro lado; solo se suelta la marca de reservado.
+    if (rec.fields["Reservado"] === true) await patchItem(shippingItemId, { "Reservado": false });
+    return;
+  }
+
   await patchItem(shippingItemId, { "Estado Item": "Disponible", "Disponible para venta": true, "Reservado": false });
 }
 
@@ -101,9 +149,11 @@ async function postAbono(fields: Record<string, unknown>): Promise<string> {
 
 /**
  * Registra un abono de reserva en la tabla centralizada Abonos y dispara su
- * movimiento financiero (Anticipo Cliente) por el puente compartido. Solo en
- * ambiente "2" (en PRUEBAS no se escribe nada real). Best-effort: nunca lanza
- * hacia el caller, para que el registro de la reserva no se bloquee.
+ * movimiento financiero (Anticipo Cliente) por el puente compartido.
+ *
+ * Best-effort: nunca lanza hacia el caller, para que un fallo de /finanzas no
+ * impida registrar la reserva. Devuelve el estado para que la ruta pueda
+ * avisar al operador si el abono no llegó a la caja.
  */
 export async function registrarAbonoReserva(input: {
   reservaRecordId: string;
@@ -112,9 +162,7 @@ export async function registrarAbonoReserva(input: {
   formaPago: string;
   registradoPor: string;
   fecha?: string; // ISO; por defecto ahora
-  ambiente?: string;
 }): Promise<{ estado: "OK" | "OMITIDO" | "ERROR"; abonoId?: string; detalle?: string }> {
-  if (input.ambiente !== AMBIENTE_PRODUCCION) return { estado: "OMITIDO" };
   if (!(input.monto > 0)) return { estado: "OMITIDO" };
   try {
     const metodoPago = metodoDeAbonoDesdeFormaPago(input.formaPago);

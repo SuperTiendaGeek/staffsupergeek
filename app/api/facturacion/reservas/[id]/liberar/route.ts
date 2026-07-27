@@ -2,7 +2,6 @@ import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { obtenerReservaPorId, marcarReservaLiberada } from "@/lib/facturacion/reservas/airtable";
 import { liberarItem }               from "@/lib/facturacion/reservas/efectos";
-import { getFacturacionConfig }      from "@/lib/facturacion/config";
 
 export const dynamic = "force-dynamic";
 
@@ -24,11 +23,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!reserva) return NextResponse.json({ success: false, error: "Reserva no encontrada" }, { status: 404 });
   if (reserva.estado !== "Activa") return NextResponse.json({ success: false, error: `La reserva ya está ${reserva.estado.toLowerCase()}` }, { status: 400 });
 
-  const cfg = getFacturacionConfig();
   try {
-    // Devolver el ítem a disponible (best-effort; guardado a producción).
+    // Devolver el ítem a la venta (best-effort: si falla, la reserva igual se
+    // libera y el ítem se puede destrabar a mano desde su ficha).
     if (reserva.shippingItemId) {
-      try { await liberarItem(reserva.shippingItemId, cfg.ambiente); }
+      try { await liberarItem(reserva.shippingItemId); }
       catch (e) { console.error("[reservas liberar] inventario:", e); }
     }
     // Marcar liberada y registrar el saldo a favor (= lo abonado).

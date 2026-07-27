@@ -3,7 +3,7 @@ import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { obtenerReservaPorId, agregarAbonoReserva } from "@/lib/facturacion/reservas/airtable";
 import { registrarAbonoReserva }     from "@/lib/facturacion/reservas/efectos";
 import { validarAbono, pagoCompleto, saldoPendiente } from "@/lib/facturacion/reservas/reglas";
-import { getFacturacionConfig }      from "@/lib/facturacion/config";
+
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 
 export const dynamic = "force-dynamic";
@@ -34,11 +34,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     const { totalAbonado } = await agregarAbonoReserva(id, abono, reserva.abonos, reserva.cliente, reserva.totalAbonado);
 
-    // Abono en la tabla centralizada + su movimiento (best-effort, a producción).
-    try { await registrarAbonoReserva({ reservaRecordId: id, numeroReserva: reserva.numero, monto, formaPago, registradoPor, fecha: abono.fecha, ambiente: getFacturacionConfig().ambiente }); }
-    catch (e) { console.error("[reservas abono] abono:", e); }
+    // Abono en la tabla centralizada + su movimiento financiero. Best-effort:
+    // si falla, el abono queda igual en la reserva y se avisa al operador.
+    const puente = await registrarAbonoReserva({ reservaRecordId: id, numeroReserva: reserva.numero, monto, formaPago, registradoPor, fecha: abono.fecha });
 
-    return NextResponse.json({ success: true, data: { totalAbonado, saldoPendiente: saldoPendiente(reserva.precio, totalAbonado), pagoCompleto: pagoCompleto(reserva.precio, totalAbonado) } });
+    return NextResponse.json({
+      success: true,
+      data: {
+        totalAbonado,
+        saldoPendiente: saldoPendiente(reserva.precio, totalAbonado),
+        pagoCompleto: pagoCompleto(reserva.precio, totalAbonado),
+        advertencia: puente.estado === "ERROR"
+          ? `El abono se guardó en la reserva, pero no llegó a Finanzas (${puente.detalle ?? "error desconocido"}). Regístralo a mano.`
+          : null,
+      },
+    });
   } catch (e) {
     console.error("[reservas abono POST]", e);
     return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "Error al registrar el abono" }, { status: 500 });

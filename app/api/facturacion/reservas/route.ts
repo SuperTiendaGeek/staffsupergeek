@@ -1,9 +1,8 @@
 import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
-import { crearReserva, listarReservas } from "@/lib/facturacion/reservas/airtable";
-import { reservarItem, registrarAbonoReserva } from "@/lib/facturacion/reservas/efectos";
+import { buscarReservaActivaPorItem, crearReserva, listarReservas } from "@/lib/facturacion/reservas/airtable";
+import { apartarItemParaReserva, liberarItem, registrarAbonoReserva } from "@/lib/facturacion/reservas/efectos";
 import { abonoMinimo, fechaLimiteReserva, PLAZOS_VALIDOS, validarAbono } from "@/lib/facturacion/reservas/reglas";
-import { getFacturacionConfig }      from "@/lib/facturacion/config";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import { fetchRecordsByIds }         from "@/lib/facturacion/gancho/airtableGancho";
 import { resolverClienteDocumento }  from "@/lib/facturacion/clientesResolver";
@@ -59,12 +58,21 @@ export async function POST(request: Request) {
   const errAbono = validarAbono(montoAbono, precioVenta, 0);
   if (errAbono) return NextResponse.json({ success: false, error: `${errAbono} (mínimo $${abonoMinimo(precioVenta).toFixed(2)})` }, { status: 400 });
 
-  // El ítem debe estar disponible para venta (lectura, segura en cualquier ambiente).
+  // El ítem debe estar disponible para venta y sin otra reserva activa encima.
+  // Esto es solo el aviso temprano con buen mensaje: la barrera dura es
+  // apartarItemParaReserva(), más abajo, que falla si el ítem ya está apartado.
   try {
     const [rec] = await fetchRecordsByIds("Shipping Items", [shippingItemId]);
     if (!rec) return NextResponse.json({ success: false, error: "El ítem no existe" }, { status: 404 });
     if (rec.fields["Disponible para venta"] !== true) {
       return NextResponse.json({ success: false, error: "El ítem ya no está disponible (vendido o reservado)" }, { status: 400 });
+    }
+    const reservaActiva = await buscarReservaActivaPorItem(shippingItemId);
+    if (reservaActiva) {
+      return NextResponse.json(
+        { success: false, error: `Este ítem ya está apartado en la reserva ${reservaActiva}.` },
+        { status: 409 }
+      );
     }
   } catch {
     return NextResponse.json({ success: false, error: "No se pudo verificar el ítem. Intenta de nuevo." }, { status: 503 });
@@ -82,29 +90,59 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: `No se pudo registrar/verificar el cliente: ${e instanceof Error ? e.message : "error"}` }, { status: 400 });
   }
 
-  const cfg = getFacturacionConfig();
   const ahora = ahoraEnEcuador();
   const fechaLimite = fechaLimiteReserva(ahora, plazoDias).toISOString().slice(0, 10);
   const registradoPor = session.user.nombre || "Portal";
   const abonoInicial = { monto: montoAbono, fecha: ahora.toISOString(), formaPago: formaPago!, registradoPor };
 
+  // Se aparta el ítem ANTES de crear la reserva: es la operación que puede
+  // fallar por concurrencia (dos personas reservando la misma unidad a la vez)
+  // y la que no debe quedar a medias. Si falla, no se crea nada.
   try {
-    const creada = await crearReserva({
+    await apartarItemParaReserva(shippingItemId!);
+  } catch (e) {
+    return NextResponse.json(
+      { success: false, error: e instanceof Error ? e.message : "No se pudo apartar el ítem." },
+      { status: 409 }
+    );
+  }
+
+  let creada;
+  try {
+    creada = await crearReserva({
       cliente: { identificacion: resol.datos.identificacion, razonSocial: resol.datos.razonSocial, correo: resol.datos.correo, telefono: resol.datos.telefono, airtableId: resol.clienteId },
       shippingItemId: shippingItemId!,
       descripcionItem: body.descripcionItem?.trim() || "Ítem reservado",
       precioVenta, plazoDias, fechaLimite, abonoInicial, registradoPor,
     });
-
-    // Efectos (guardados a producción). Best-effort cada uno.
-    try { await reservarItem(shippingItemId!, cfg.ambiente); }
-    catch (e) { console.error("[reservas POST] reservarItem:", e); }
-    try { await registrarAbonoReserva({ reservaRecordId: creada.recordId, numeroReserva: creada.numero, monto: montoAbono, formaPago: formaPago!, registradoPor, fecha: abonoInicial.fecha, ambiente: cfg.ambiente }); }
-    catch (e) { console.error("[reservas POST] abono:", e); }
-
-    return NextResponse.json({ success: true, data: { ...creada, clienteExistente: resol.clienteExistente, fichaActualizada: resol.fichaActualizada } });
   } catch (e) {
+    // Compensar: el ítem quedó apartado para una reserva que no existe.
+    try { await liberarItem(shippingItemId!); }
+    catch (revertError) { console.error("[reservas POST] no se pudo revertir el apartado:", revertError); }
     console.error("[reservas POST]", e);
     return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "Error al crear la reserva" }, { status: 500 });
   }
+
+  // El abono a /finanzas es best-effort: si falla, la reserva y el apartado
+  // siguen siendo válidos, pero hay que avisar para que alguien lo registre.
+  const abono = await registrarAbonoReserva({
+    reservaRecordId: creada.recordId,
+    numeroReserva: creada.numero,
+    monto: montoAbono,
+    formaPago: formaPago!,
+    registradoPor,
+    fecha: abonoInicial.fecha,
+  });
+
+  return NextResponse.json({
+    success: true,
+    data: {
+      ...creada,
+      clienteExistente: resol.clienteExistente,
+      fichaActualizada: resol.fichaActualizada,
+      advertencia: abono.estado === "ERROR"
+        ? `La reserva se registró, pero el abono no llegó a Finanzas (${abono.detalle ?? "error desconocido"}). Regístralo a mano.`
+        : null,
+    },
+  });
 }
