@@ -6,6 +6,7 @@ import type { ResultadoPreFactura }    from "@/lib/facturacion/gancho/traductor"
 import type { OrigenGancho }           from "@/lib/facturacion/emitirFactura";
 import { round2, desglosarPrecioConIvaIncluido } from "@/lib/facturacion/ivaIncluido";
 import { normalizeEcuadorPhone } from "@/lib/tecnicos/whatsapp";
+import { ClienteCard, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 
 // URL de WhatsApp del cliente (solo abrir el chat, sin mensaje). null si el
 // teléfono no es válido.
@@ -85,6 +86,23 @@ const CONSUMIDOR_FINAL: ClienteFactura = {
   razonSocial:        "CONSUMIDOR FINAL",
   correo:             "",
 };
+
+// Puente entre el estado interno de la factura (ClienteFactura + modoCliente) y
+// la tarjeta compartida (ClienteDoc). Así reutilizamos la misma UI sin cambiar
+// el modelo de datos del que dependen borrador, gancho, reemplazo y emisión.
+function facturaToDoc(c: ClienteFactura, modo: ModoCliente): ClienteDoc {
+  const esCF = modo === "consumidor";
+  return {
+    esConsumidorFinal:  esCF,
+    tipoIdentificacion: c.tipoIdentificacion,
+    identificacion:     esCF ? "9999999999999" : c.identificacion,
+    razonSocial:        c.razonSocial,
+    correo:             c.correo,
+    telefono:           c.telefono ?? "",
+    direccion:          "",
+    airtableId:         esCF ? undefined : c.airtableId,
+  };
+}
 
 type LineaDetalle = {
   _id:            string;
@@ -373,9 +391,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   // diferencia (si el equipo nuevo vale más) como efectivo. Al autorizar, el
   // formulario descuenta el crédito vía /nota-credito/consumir.
   const [reemplazoNC, setReemplazoNC] = useState<{ recordId: string; numero: string; creditoDisponible: number } | null>(null);
-  // Proforma de origen (?proforma=): al emitir, se marca esa proforma como
-  // "Facturada" para que no se vuelva a facturar.
-  const [proformaOrigenId, setProformaOrigenId] = useState<string | null>(null);
   // Forma de pago de la DIFERENCIA en un reemplazo (la compensación siempre es
   // el crédito, código 15). El cliente puede pagar la diferencia con lo que
   // quiera: efectivo, tarjeta, transferencia, etc.
@@ -704,56 +719,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // solo al montar
 
-  // ── Precargar desde una proforma (?proforma=recordId) ────────────────────
-  // Convierte la proforma en una factura: precarga cliente y líneas (precios con
-  // IVA incluido, igual que la proforma). Al emitir, se marca facturada.
-  useEffect(() => {
-    const proformaId = searchParams.get("proforma");
-    if (!proformaId) return;
-
-    setCargandoPrefactura(true);
-    fetch(`/api/facturacion/proformas/${encodeURIComponent(proformaId)}/facturar`)
-      .then((r) => r.json())
-      .then((j) => {
-        if (!j.success || !j.data) { setErrGlobal(j.error ?? "No se pudo cargar la proforma"); return; }
-        const cli = j.data.cliente as { tipoIdentificacion: string; identificacion: string; razonSocial: string; correo?: string; telefono?: string; airtableId?: string };
-        const lins = (j.data.lineas ?? []) as Array<{ codigo?: string; descripcion: string; unidadMedida?: string; cantidad: number; precioUnitario: number; descuento?: number; tarifaIva?: string }>;
-
-        if (cli.tipoIdentificacion === "07" || cli.identificacion.replace(/\D/g, "") === "9999999999999") {
-          setModoCliente("consumidor");
-          setCliente(CONSUMIDOR_FINAL);
-        } else {
-          setModoCliente("buscar");
-          setCliente({
-            modo:               "buscar",
-            tipoIdentificacion: (cli.tipoIdentificacion || "05") as TipoIdentificacion,
-            identificacion:     cli.identificacion,
-            razonSocial:        cli.razonSocial,
-            correo:             cli.correo ?? "",
-            telefono:           cli.telefono ?? "",
-            airtableId:         cli.airtableId,
-          });
-          setQueryCliente(cli.razonSocial);
-        }
-
-        setLineas(lins.map((l) => ({
-          _id:             crypto.randomUUID(),
-          codigoPrincipal: l.codigo ?? "",
-          descripcion:     l.descripcion,
-          unidadMedida:    l.unidadMedida ?? "UNIDAD",
-          cantidad:        l.cantidad,
-          precioUnitario:  l.precioUnitario,
-          descuento:       l.descuento ?? 0,
-          tarifaIva:       (l.tarifaIva ?? "4") as TarifaCodigo,
-        })));
-        setIvaIncluido(true);
-        setProformaOrigenId(proformaId);
-      })
-      .catch(() => setErrGlobal("Error de red al cargar la proforma"))
-      .finally(() => setCargandoPrefactura(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // solo al montar
-
   // Pago derivado en modo reemplazo: compensación (crédito) + efectivo (diferencia).
   const pagosReemplazo = reemplazoNC
     ? (() => {
@@ -764,14 +729,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         return pagos;
       })()
     : null;
-
-  // "Cliente elegido" en modo buscar: hay una identificación real (no la de
-  // consumidor final ni vacía). Se usa airtableId cuando existe, pero también
-  // vale un cliente precargado (proforma) sin vínculo. Mientras se teclea una
-  // búsqueda nueva, onChange deja la identificación de consumidor final, así
-  // que esto vuelve a false y reaparece el buscador.
-  const idCli = (cliente.identificacion ?? "").trim();
-  const clienteElegido = modoCliente === "buscar" && idCli !== "" && idCli !== "9999999999999";
 
   // ── Guardar borrador ─────────────────────────────────────────────────────
   async function handleGuardarBorrador() {
@@ -1022,11 +979,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             }
           }
         }
-        // Proforma de origen: marcarla "Facturada" (best-effort; no bloquea ni
-        // altera el resultado de la emisión, que ya es válida ante el SRI).
-        if (proformaOrigenId && j.data?.estado === "AUTORIZADO") {
-          fetch(`/api/facturacion/proformas/${encodeURIComponent(proformaOrigenId)}/facturar`, { method: "POST" }).catch(() => {});
-        }
         setResultado(j.data!);
       }
     } catch {
@@ -1041,6 +993,14 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   const clienteOk =
     modoCliente === "consumidor" ||
     (cliente.identificacion && !validarIdentificacion(cliente.tipoIdentificacion, cliente.identificacion));
+
+  // Puente con la tarjeta de cliente compartida (misma UI que el resto).
+  const clienteDoc = facturaToDoc(cliente, modoCliente);
+  function onClienteCard(doc: ClienteDoc) {
+    if (doc.esConsumidorFinal) { setModoCliente("consumidor"); setCliente(CONSUMIDOR_FINAL); return; }
+    setModoCliente("buscar");
+    setCliente({ modo: "buscar", tipoIdentificacion: doc.tipoIdentificacion as TipoIdentificacion, identificacion: doc.identificacion, razonSocial: doc.razonSocial, correo: doc.correo, telefono: doc.telefono, airtableId: doc.airtableId });
+  }
 
   // ── Gancho Fase 16 PR2: pre-factura bloqueada — no se puede armar nada,
   //    se muestra el motivo en vez del formulario. ─────────────────────────
@@ -1116,81 +1076,8 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         />
       )}
 
-      {/* ── 1. CLIENTE ──────────────────────────────────────────────────── */}
-      <Card titulo="1. Cliente">
-        {/* Animación de crecimiento del buscador (empuja "Cliente nuevo") */}
-        <style>{`@keyframes sgGrow{from{max-width:0;opacity:.2}to{max-width:100%;opacity:1}}.sg-grow{animation:sgGrow .22s ease-out}`}</style>
-
-        {/* Modo de cliente; el buscador aparece ENTRE "Buscar existente" y
-            "Cliente nuevo", empujando este último hacia la derecha. */}
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          {([["consumidor", "Consumidor Final"], ["buscar", "Buscar existente"]] as [ModoCliente, string][]).map(([m, label]) => (
-            <button
-              key={m}
-              onClick={() => switchModo(m)}
-              className={`rounded-full border px-3 py-1 text-xs font-bold transition whitespace-nowrap ${modoCliente === m ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] bg-transparent text-[#A7A7A7] hover:text-[#F5F5F5]"}`}
-            >
-              {label}
-            </button>
-          ))}
-
-          {/* Buscador contextual entre los dos botones */}
-          {modoCliente === "buscar" && !clienteElegido && (
-            <div className="relative flex-1 min-w-0 sg-grow">
-              <input
-                type="text"
-                autoFocus
-                value={queryCliente}
-                onChange={(e) => { setQueryCliente(e.target.value); setCliente({ ...CONSUMIDOR_FINAL, modo: "buscar" }); }}
-                placeholder="Buscar por nombre, cédula o teléfono"
-                className={INPUT + " w-full min-w-0"}
-              />
-              {buscandoCli && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#666]">Buscando…</span>}
-              {clientesSug.length > 0 && (
-                <ul className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded-md border border-[#3A3A36] bg-[#1A1B18] shadow-xl divide-y divide-[#2A2B28]">
-                  {clientesSug.map((c) => (
-                    <li key={c.id}>
-                      <button
-                        onClick={() => seleccionarClienteExistente(c)}
-                        className="w-full text-left px-4 py-2.5 hover:bg-[#252622] text-sm"
-                      >
-                        <p className="font-semibold text-[#F5F5F5]">{c.nombre}</p>
-                        <p className="text-[#666] text-xs">{c.cedula} · {c.telefono} · {c.correo}</p>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {/* Cliente nuevo — abre un modal flotante (ya no expande la tarjeta) */}
-          <button
-            onClick={abrirNuevoCliente}
-            className="rounded-full border border-[#3A3A36] bg-transparent px-3 py-1 text-xs font-bold text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5] transition whitespace-nowrap"
-          >
-            + Cliente nuevo
-          </button>
-        </div>
-
-        {/* Consumidor final */}
-        {modoCliente === "consumidor" && (
-          <div className="rounded-md bg-[#252622] border border-[#3A3A36] px-4 py-3 text-sm text-[#A7A7A7]">
-            <span className="text-[#F5F5F5] font-semibold">CONSUMIDOR FINAL</span>
-            <span className="ml-2">— 07 / 9999999999999 — sin email</span>
-          </div>
-        )}
-
-        {/* Cliente elegido en modo buscar (el buscador se oculta; reaparece al
-            volver a pulsar "Buscar existente") */}
-        {clienteElegido && (
-          <ClienteSeleccionado
-            cliente={cliente}
-            onChange={(field, val) => setCliente((p) => ({ ...p, [field]: val }))}
-          />
-        )}
-
-      </Card>
+      {/* ── 1. CLIENTE (tarjeta compartida con el resto de documentos) ────── */}
+      <ClienteCard value={clienteDoc} onChange={onClienteCard} conConsumidorFinal />
 
       {/* Modal flotante de nuevo cliente. Al guardar, el cliente queda elegido
           (modo buscar) y el modal se cierra. */}
