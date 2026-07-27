@@ -86,14 +86,17 @@ export function ClienteCard({ value, onChange, conConsumidorFinal = false }: {
       {value.esConsumidorFinal ? (
         <div className="rounded-md bg-[#252622] border border-[#3A3A36] px-4 py-3 text-sm text-[#A7A7A7]"><span className="text-[#F5F5F5] font-semibold">CONSUMIDOR FINAL</span> <span className="ml-1">— 07 / 9999999999999 — sin email</span></div>
       ) : elegido ? (
-        <div className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm text-[#F5F5F5] truncate">{value.razonSocial}</p>
-            <p className="text-xs text-[#666] truncate">{value.identificacion || "sin identificación"}{value.telefono ? ` · ${value.telefono}` : ""}{value.correo ? ` · ${value.correo}` : ""}</p>
+        <div className="rounded-lg border border-[#3A3A36] bg-[#252622] px-4 py-3 flex items-start justify-between gap-3">
+          <div className="min-w-0 text-sm space-y-0.5">
+            <p className="font-semibold text-[#F5F5F5] truncate">{value.razonSocial}</p>
+            <p className="text-[#C7C7C7] truncate"><span className="text-[#777]">CI/RUC:</span> {value.identificacion || "—"}</p>
+            <p className="text-[#C7C7C7] truncate"><span className="text-[#777]">Teléfono:</span> {value.telefono || "—"}</p>
+            <p className="text-[#C7C7C7] truncate"><span className="text-[#777]">Correo:</span> {value.correo || "—"}</p>
+            <p className="text-[#C7C7C7] truncate"><span className="text-[#777]">Dirección:</span> {value.direccion || "—"}</p>
           </div>
           <div className="flex gap-3 shrink-0">
-            <button onClick={() => setModal({ modo: "editar", id: value.airtableId })} className="text-xs text-[#A7A7A7] underline hover:text-[#D7FF4F]">Editar</button>
-            <button onClick={() => onChange(CLIENTE_VACIO)} className="text-xs text-[#A7A7A7] underline hover:text-red-300">quitar</button>
+            <button onClick={() => setModal({ modo: "editar", id: value.airtableId })} className="text-sm text-[#A7A7A7] underline hover:text-[#D7FF4F]">Editar</button>
+            <button onClick={() => onChange(CLIENTE_VACIO)} className="text-sm text-[#A7A7A7] underline hover:text-red-300">quitar</button>
           </div>
         </div>
       ) : (
