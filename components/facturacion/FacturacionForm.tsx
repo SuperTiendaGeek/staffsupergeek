@@ -5,34 +5,7 @@ import { useSearchParams }             from "next/navigation";
 import type { ResultadoPreFactura }    from "@/lib/facturacion/gancho/traductor";
 import type { OrigenGancho }           from "@/lib/facturacion/emitirFactura";
 import { round2, desglosarPrecioConIvaIncluido } from "@/lib/facturacion/ivaIncluido";
-import { normalizeEcuadorPhone } from "@/lib/tecnicos/whatsapp";
 import { ClienteCard, type ClienteDoc } from "@/components/facturacion/ClienteCard";
-
-// URL de WhatsApp del cliente (solo abrir el chat, sin mensaje). null si el
-// teléfono no es válido.
-const waUrl = (tel?: string | null): string | null => {
-  const n = normalizeEcuadorPhone(tel);
-  return n ? `https://wa.me/${n}` : null;
-};
-
-// Ícono de WhatsApp integrado en el campo de teléfono.
-function BotonWhatsApp({ tel }: { tel?: string | null }) {
-  const url = waUrl(tel);
-  if (!url) return null;
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      title="Abrir WhatsApp del cliente"
-      className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-md bg-[#D7FF4F] hover:brightness-110"
-    >
-      <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#151515]" aria-hidden="true">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-      </svg>
-    </a>
-  );
-}
 
 // ─── Tipos locales ─────────────────────────────────────────────────────────────
 
@@ -315,7 +288,6 @@ type BorradorPayload = {
   version:     1 | 2 | 3;
   modoCliente: ModoCliente;
   cliente:     ClienteFactura;
-  queryCliente:string;
   lineas:      LineaDetalle[];
   formaPago:   string;
   pagosPrecargados?: Array<PagoForm> | null;
@@ -346,29 +318,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   const [guardandoBorrador, setGuardando]     = useState(false);
   const [msgBorrador, setMsgBorrador]         = useState<string | null>(null);
 
-  // ── Búsqueda de clientes ──────────────────────────────────────────────────
-  const [queryCliente, setQueryCliente] = useState("");
-  const [clientesSug, setClientesSug]   = useState<ClienteBusqueda[]>([]);
-  const [buscandoCli, setBuscandoCli]   = useState(false);
-
-  // ── Nuevo cliente ──────────────────────────────────────────────────────────
-  const [nuevoTipo, setNuevoTipo] = useState<TipoIdentificacion>("05");
-  const [nuevoId, setNuevoId]     = useState("");
-  const [nuevoNombre, setNuevoNombre] = useState("");
-  const [nuevoCorreo, setNuevoCorreo] = useState("");
-  const [nuevoTel, setNuevoTel]   = useState("");
-  const [nuevoDir, setNuevoDir]   = useState("");
-  const [errNuevo, setErrNuevo]   = useState<string | null>(null);
-  const [savingNuevo, setSavingNuevo] = useState(false);
-  // "Cliente nuevo" ahora se crea en un modal flotante, no dentro de la tarjeta.
-  const [nuevoAbierto, setNuevoAbierto] = useState(false);
-
-  function abrirNuevoCliente() {
-    setNuevoTipo("05"); setNuevoId(""); setNuevoNombre(""); setNuevoCorreo("");
-    setNuevoTel(""); setNuevoDir(""); setErrNuevo(null);
-    setNuevoAbierto(true);
-  }
-
   // ── Búsqueda de productos ─────────────────────────────────────────────────
   const [queryProducto, setQueryProducto] = useState("");
   const [productosSug, setProductosSug]   = useState<ProductoCatalogo[]>([]);
@@ -397,25 +346,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   // quiera: efectivo, tarjeta, transferencia, etc.
   const [formaPagoDiferencia, setFormaPagoDiferencia] = useState("01");
 
-  // ── Debounce clientes ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (modoCliente !== "buscar") return;
-    const q = queryCliente.trim();
-    if (q.length < 2) { setClientesSug([]); return; }
-    let cancelled = false;
-    const t = window.setTimeout(async () => {
-      setBuscandoCli(true);
-      try {
-        const r = await fetch(`/api/facturacion/clientes?q=${encodeURIComponent(q)}`);
-        const j = (await r.json()) as { success: boolean; data: ClienteBusqueda[] };
-        if (!cancelled && j.success) setClientesSug(j.data);
-      } finally {
-        if (!cancelled) setBuscandoCli(false);
-      }
-    }, 250);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [queryCliente, modoCliente]);
-
   // ── Debounce productos ────────────────────────────────────────────────────
   useEffect(() => {
     const q = queryProducto.trim();
@@ -433,76 +363,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
     }, 300);
     return () => { cancelled = true; clearTimeout(t); };
   }, [queryProducto]);
-
-  // ── Cambio de modo cliente ────────────────────────────────────────────────
-  function switchModo(m: ModoCliente) {
-    setModoCliente(m);
-    setQueryCliente("");
-    setClientesSug([]);
-    setErrGlobal(null);
-    if (m === "consumidor") setCliente(CONSUMIDOR_FINAL);
-    else setCliente({ modo: m, tipoIdentificacion: nuevoTipo, identificacion: "", razonSocial: "", correo: "" });
-  }
-
-  function seleccionarClienteExistente(c: ClienteBusqueda) {
-    // Deducir tipo por longitud de cédula
-    let tipo: TipoIdentificacion = "05";
-    if (c.cedula.length === 13) tipo = "04";
-    else if (c.cedula.length !== 10) tipo = "06";
-
-    setCliente({
-      modo:               "buscar",
-      tipoIdentificacion: tipo,
-      identificacion:     c.cedula,
-      razonSocial:        c.nombre,
-      correo:             c.correo ?? "",
-      telefono:           c.telefono ?? "",
-      airtableId:         c.id,
-    });
-    setQueryCliente(c.nombre);
-    setClientesSug([]);
-  }
-
-  async function crearNuevoCliente() {
-    setErrNuevo(null);
-    const errId = validarIdentificacion(nuevoTipo, nuevoId);
-    if (errId) { setErrNuevo(errId); return; }
-    if (!nuevoNombre.trim()) { setErrNuevo("Nombre requerido"); return; }
-
-    setSavingNuevo(true);
-    try {
-      const r = await fetch("/api/facturacion/clientes", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
-          nombre:    nuevoNombre.trim(),
-          cedula:    nuevoId.trim(),
-          telefono:  nuevoTel.trim() || undefined,
-          correo:    nuevoCorreo.trim() || undefined,
-          direccion: nuevoDir.trim() || undefined,
-        }),
-      });
-      const j = (await r.json()) as { success: boolean; data?: ClienteBusqueda; error?: string };
-      if (!j.success) { setErrNuevo(j.error ?? "Error creando cliente"); return; }
-      // Seleccionar el cliente recién creado y cerrar el modal. Queda como
-      // cliente elegido (modo buscar + airtableId), mostrando la tarjeta con su
-      // teléfono y botón de WhatsApp.
-      setCliente({
-        modo:               "buscar",
-        tipoIdentificacion: nuevoTipo,
-        identificacion:     nuevoId.trim(),
-        razonSocial:        nuevoNombre.trim(),
-        correo:             nuevoCorreo.trim(),
-        telefono:           nuevoTel.trim(),
-        airtableId:         j.data?.id,
-      });
-      setModoCliente("buscar");
-      setQueryCliente(nuevoNombre.trim());
-      setNuevoAbierto(false);
-    } finally {
-      setSavingNuevo(false);
-    }
-  }
 
   // ── Líneas de detalle ─────────────────────────────────────────────────────
   function agregarProducto(p: ProductoCatalogo) {
@@ -576,7 +436,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
           if (p.version !== 1 && p.version !== 2 && p.version !== 3) return;
           setModoCliente(p.modoCliente);
           setCliente(p.cliente);
-          setQueryCliente(p.queryCliente ?? "");
           setLineas(p.lineas);
           setFormaPago(p.formaPago);
           if (p.version === 2 || p.version === 3) {
@@ -638,7 +497,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             correo:             datosVenta.correoComprador ?? "",
             airtableId:         datosVenta.clienteRecordId,
           });
-          setQueryCliente(datosVenta.razonSocialComprador);
         }
 
         // El backend manda precioUnitario ya desglosado (la BASE, sin IVA —
@@ -710,7 +568,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             correo:             d.cliente.correo ?? "",
             airtableId:         d.cliente.airtableId,
           });
-          setQueryCliente(d.cliente.razonSocial);
         }
         setReemplazoNC({ recordId: d.notaCreditoRecordId, numero: d.numeroNotaCredito, creditoDisponible: d.creditoDisponible });
         setIvaIncluido(true);
@@ -740,7 +597,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         version: 3,
         modoCliente,
         cliente,
-        queryCliente,
         lineas,
         formaPago,
         pagosPrecargados,
@@ -1062,7 +918,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             setLineas([]);
             setCliente(CONSUMIDOR_FINAL);
             setModoCliente("consumidor");
-            setQueryCliente("");
             setFormaPago("01");
             setOrigen(null);
             setPagosPrecargados(null);
@@ -1079,68 +934,6 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
 
       {/* ── 1. CLIENTE (tarjeta compartida con el resto de documentos) ────── */}
       <ClienteCard value={clienteDoc} onChange={onClienteCard} conConsumidorFinal />
-
-      {/* Modal flotante de nuevo cliente. Al guardar, el cliente queda elegido
-          (modo buscar) y el modal se cierra. */}
-      {nuevoAbierto && (
-        <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 overflow-y-auto" onClick={(e) => { if (e.target === e.currentTarget) setNuevoAbierto(false); }}>
-          <div className="w-full max-w-2xl my-6 rounded-2xl border border-[#2A2A22] bg-[#1A1A16] shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[#2A2A22] px-5 py-4">
-              <h3 className="text-base font-bold text-[#D7FF4F]">Nuevo cliente</h3>
-              <button onClick={() => setNuevoAbierto(false)} className="text-[#666] hover:text-[#F5F5F5] text-xl leading-none" aria-label="Cerrar">✕</button>
-            </div>
-            <div className="p-5">
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                <div className="md:col-span-4">
-                  <label className={LABEL}>Tipo de identificación</label>
-                  <select value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value as TipoIdentificacion)} className={SELECT}>
-                    <option value="05">{TIPO_LABEL["05"]}</option>
-                    <option value="04">{TIPO_LABEL["04"]}</option>
-                    <option value="06">{TIPO_LABEL["06"]}</option>
-                    <option value="08">{TIPO_LABEL["08"]}</option>
-                  </select>
-                </div>
-                <div className="md:col-span-8">
-                  <label className={LABEL}>Número de identificación</label>
-                  <input type="text" value={nuevoId} onChange={(e) => { setNuevoId(e.target.value); setErrNuevo(null); }} placeholder="Cédula / RUC / Pasaporte" className={INPUT} />
-                </div>
-                <div className="md:col-span-12">
-                  <label className={LABEL}>Razón social / Nombres y apellidos</label>
-                  <input type="text" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} className={INPUT} placeholder="Nombre completo" />
-                </div>
-                <div className="md:col-span-7">
-                  <label className={LABEL}>Email (para RIDE)</label>
-                  <input type="email" value={nuevoCorreo} onChange={(e) => setNuevoCorreo(e.target.value)} className={INPUT} placeholder="cliente@email.com" />
-                </div>
-                <div className="md:col-span-5">
-                  <label className={LABEL}>Teléfono</label>
-                  <div className="relative">
-                    <input type="text" value={nuevoTel} onChange={(e) => setNuevoTel(e.target.value)} className={INPUT + " pr-11"} placeholder="09XXXXXXXX" />
-                    <BotonWhatsApp tel={nuevoTel} />
-                  </div>
-                </div>
-                <div className="md:col-span-12">
-                  <label className={LABEL}>Dirección</label>
-                  <input type="text" value={nuevoDir} onChange={(e) => setNuevoDir(e.target.value)} className={INPUT} placeholder="Dirección del cliente" />
-                </div>
-              </div>
-              {errNuevo && <p className="mt-3 text-xs text-red-400">{errNuevo}</p>}
-              <div className="mt-4 flex items-center gap-2">
-                <button
-                  onClick={crearNuevoCliente}
-                  disabled={savingNuevo}
-                  className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-5 py-2 text-sm font-bold hover:brightness-105 disabled:opacity-50"
-                >
-                  {savingNuevo ? "Guardando…" : "Guardar cliente"}
-                </button>
-                <button onClick={() => setNuevoAbierto(false)} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:text-[#F5F5F5]">
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── 2. DETALLES ────────────────────────────────────────────────── */}
       <Card titulo="2. Productos / Servicios">
@@ -1326,23 +1119,9 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
               <p className="text-sm font-semibold text-[#FFB07A] mb-1">
                 Sobre ${consumidorFinalLimite.toFixed(2)} debes identificar al cliente (cédula o RUC)
               </p>
-              <p className="text-xs text-[#A7A7A7] mb-2">
-                El SRI no permite Consumidor Final para facturas que superen este monto.
+              <p className="text-xs text-[#A7A7A7]">
+                El SRI no permite Consumidor Final para facturas que superen este monto. Elige o crea el cliente en la tarjeta de arriba.
               </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => switchModo("buscar")}
-                  className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-3 py-1 text-xs font-bold hover:brightness-105"
-                >
-                  Buscar cliente existente
-                </button>
-                <button
-                  onClick={() => switchModo("nuevo")}
-                  className="rounded-full border border-[#3A3A36] px-3 py-1 text-xs text-[#A7A7A7] hover:text-[#F5F5F5] hover:border-[#D7FF4F]/60"
-                >
-                  Ingresar cliente nuevo
-                </button>
-              </div>
             </div>
           )}
 
@@ -1405,57 +1184,6 @@ function Card({ titulo, children }: { titulo: string; children: React.ReactNode 
     <div className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-5">
       <h2 className="mb-4 text-xs font-bold uppercase tracking-widest text-[#D7FF4F]">{titulo}</h2>
       {children}
-    </div>
-  );
-}
-
-function ClienteSeleccionado({
-  cliente,
-  onChange,
-}: {
-  cliente: ClienteFactura;
-  onChange: (field: keyof ClienteFactura, val: string) => void;
-}) {
-  const errId = validarIdentificacion(cliente.tipoIdentificacion, cliente.identificacion);
-  return (
-    <div className="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
-      <div className="md:col-span-2">
-        <label className={LABEL}>Tipo ID</label>
-        <select
-          value={cliente.tipoIdentificacion}
-          onChange={(e) => onChange("tipoIdentificacion", e.target.value)}
-          className={SELECT}
-        >
-          {(["04","05","06","07","08"] as TipoIdentificacion[]).map((t) => (
-            <option key={t} value={t}>{TIPO_LABEL[t]}</option>
-          ))}
-        </select>
-      </div>
-      <div className="md:col-span-3">
-        <label className={LABEL}>Identificación</label>
-        <input
-          type="text"
-          value={cliente.identificacion}
-          onChange={(e) => onChange("identificacion", e.target.value)}
-          className={INPUT + (errId ? " border-red-500" : "")}
-        />
-        {errId && <p className="mt-0.5 text-xs text-red-400">{errId}</p>}
-      </div>
-      <div className="md:col-span-4">
-        <label className={LABEL}>Razón social / Nombre</label>
-        <input type="text" value={cliente.razonSocial} onChange={(e) => onChange("razonSocial", e.target.value)} className={INPUT} />
-      </div>
-      <div className="md:col-span-3">
-        <label className={LABEL}>Teléfono</label>
-        <div className="relative">
-          <input type="text" value={cliente.telefono ?? ""} onChange={(e) => onChange("telefono", e.target.value)} placeholder="09XXXXXXXX" className={INPUT + " pr-11"} />
-          <BotonWhatsApp tel={cliente.telefono} />
-        </div>
-      </div>
-      <div className="md:col-span-5">
-        <label className={LABEL}>Email (para RIDE)</label>
-        <input type="email" value={cliente.correo} onChange={(e) => onChange("correo", e.target.value)} placeholder="Opcional" className={INPUT} />
-      </div>
     </div>
   );
 }
