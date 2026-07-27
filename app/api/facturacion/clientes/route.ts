@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
-import { buscarClientes, createCliente } from "@/lib/tecnicos/airtable/index";
+import { buscarClientes, createCliente, CedulaEnUsoError } from "@/lib/tecnicos/airtable/index";
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +42,12 @@ export async function POST(request: Request) {
     const data = await createCliente({ nombre, cedula: cedula || null, telefono: telefono ?? null, correo: correo ?? null, direccion: direccion ?? null });
     return NextResponse.json({ success: true, data });
   } catch (e) {
+    // Cédula ya registrada: devolvemos el cliente existente para que el modal
+    // ofrezca usarlo en vez de crear un duplicado.
+    if (e instanceof CedulaEnUsoError) {
+      return NextResponse.json({ success: false, error: e.message, clienteExistente: e.clienteExistente }, { status: 409 });
+    }
     console.error("[/api/facturacion/clientes POST]", e);
-    const msg = e instanceof Error ? e.message : "Error creando cliente";
-    return NextResponse.json({ success: false, error: msg }, { status: 400 });
+    return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "Error creando cliente" }, { status: 400 });
   }
 }
