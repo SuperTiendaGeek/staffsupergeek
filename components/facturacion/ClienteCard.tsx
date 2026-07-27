@@ -87,12 +87,17 @@ export function ClienteCard({ value, onChange, conConsumidorFinal = false }: {
         <div className="rounded-md bg-[#252622] border border-[#3A3A36] px-4 py-3 text-sm text-[#A7A7A7]"><span className="text-[#F5F5F5] font-semibold">CONSUMIDOR FINAL</span> <span className="ml-1">— 07 / 9999999999999 — sin email</span></div>
       ) : elegido ? (
         <div className="rounded-lg border border-[#3A3A36] bg-[#252622] px-4 py-3 flex items-start justify-between gap-3">
-          <div className="min-w-0 text-sm space-y-0.5">
+          <div className="min-w-0 flex-1 text-sm">
             <p className="font-semibold text-[#F5F5F5] truncate">{value.razonSocial}</p>
-            <p className="text-[#C7C7C7] truncate"><span className="text-[#777]">CI/RUC:</span> {value.identificacion || "—"}</p>
-            <p className="text-[#C7C7C7] truncate"><span className="text-[#777]">Teléfono:</span> {value.telefono || "—"}</p>
-            <p className="text-[#C7C7C7] truncate"><span className="text-[#777]">Correo:</span> {value.correo || "—"}</p>
-            <p className="text-[#C7C7C7] truncate"><span className="text-[#777]">Dirección:</span> {value.direccion || "—"}</p>
+            <p className="text-[#C7C7C7] mt-0.5 break-words">
+              <span className="text-[#777]">CI/RUC:</span> {value.identificacion || "—"}
+              <span className="text-[#555] px-1.5">·</span>
+              <span className="text-[#777]">Tel:</span> {value.telefono || "—"}
+              <span className="text-[#555] px-1.5">·</span>
+              <span className="text-[#777]">Correo:</span> {value.correo || "—"}
+              <span className="text-[#555] px-1.5">·</span>
+              <span className="text-[#777]">Dir:</span> {value.direccion || "—"}
+            </p>
           </div>
           <div className="flex gap-3 shrink-0">
             <button onClick={() => setModal({ modo: "editar", id: value.airtableId })} className="text-sm text-[#A7A7A7] underline hover:text-[#D7FF4F]">Editar</button>
