@@ -66,7 +66,13 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   skuOriginalSugerido: { key: "skuOriginalSugerido", field: F.skuOriginalSugerido, label: "SKU original sugerido", category: "readOnly", type: "readOnly" },
   itemPadre: { key: "itemPadreId", field: "Item padre", label: "Item padre", category: "readOnly", type: "readOnly" },
   itemsHijos: { key: "itemHijoIds", field: "Items hijos", label: "Items hijos", category: "readOnly", type: "readOnly" },
-  esRepuesto: { key: "esRepuesto", field: F.esRepuesto, label: "Es repuesto", category: "normal", type: "checkbox" },
+  // "Es repuesto" era una de las CINCO casillas donde se guardaba lo mismo
+  // (Tipo de operación, Rol general, Categoría, Estado Item y esta). De 86
+  // artículos, 24 decían "repuesto" en alguna y en NINGUNO coincidían las
+  // cinco. Manda Categoría, que es además la única que consulta el buscador de
+  // repuestos de stock. Esta se oculta y ya no se escribe; el dato viejo sigue
+  // en Airtable por si hace falta consultarlo.
+  esRepuesto: { key: "esRepuesto", field: F.esRepuesto, label: "Es repuesto", category: "hidden", type: "readOnly" },
   esUsoLocal: { key: "usoLocal", field: F.esUsoLocal, label: "Es uso local", category: "normal", type: "checkbox" },
   legacyItemId: { key: "legacyItemId", field: "Legacy Item ID", label: "Legacy Item ID", category: "readOnly", type: "readOnly" },
   legacyPagoId: { key: "legacyPagoId", field: "Legacy Pago ID", label: "Legacy Pago ID", category: "readOnly", type: "readOnly" },

@@ -955,6 +955,10 @@ export async function crearShippingItemDesdeOpcion(
       opcionId,
       nombre,
       descripcion: nombre,
+      // La operación ya sabe qué es (Laptop, Batería, SSD…) y Shipping Items
+      // usa exactamente la misma lista. El dato correcto siempre estuvo aquí
+      // al lado; antes se ignoraba y se forzaba "Repuesto" a todo.
+      categoria: firstString(opRec.fields["Categoría"]) || null,
       proveedorId: proveedorIds[0] ?? null,
       costoProveedor,
       precioVenta,

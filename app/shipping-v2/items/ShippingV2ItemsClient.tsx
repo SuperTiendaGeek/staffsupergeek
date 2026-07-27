@@ -368,7 +368,8 @@ function availabilityLabel(item: ResolvedItem) {
   if (item.conNovedad) return "Con novedad";
   if (item.reservado) return "Reservado";
   if (item.usoLocal) return "Uso local";
-  if (item.esRepuesto) return "Repuesto";
+  // Manda Categoría, no la vieja casilla "Es repuesto" (ver item-edit-config).
+  if (item.categoria === "Repuesto") return "Repuesto";
   if (item.disponibleVenta) return "Disponible para venta";
   return "No disponible";
 }
@@ -623,7 +624,7 @@ function AvailabilityBadge({ item }: { item: ResolvedItem }) {
   } else if (item.usoLocal) {
     label = "Uso local";
     tone = "border-[#8B73FF]/35 bg-[#8B73FF]/12 text-[#C9BFFF]";
-  } else if (item.esRepuesto) {
+  } else if (item.categoria === "Repuesto") {
     label = "Repuesto";
     tone = "border-[#8B73FF]/35 bg-[#8B73FF]/12 text-[#C9BFFF]";
   } else if (item.disponibleVenta) {

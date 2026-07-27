@@ -2355,6 +2355,10 @@ export async function createShippingV2ItemFromOperacion(
     costoProveedor?: number | null;
     precioVenta?: number | null;
     fotos?: ShippingV2Attachment[];
+    /** Categoría de la Operación Comercial de origen. Ambas tablas usan la
+     *  misma lista de opciones (Laptop, RAM, SSD, Batería, Pantalla…), así que
+     *  se copia tal cual. */
+    categoria?: string | null;
   },
   options: { registradoPor: string }
 ) {
@@ -2368,12 +2372,30 @@ export async function createShippingV2ItemFromOperacion(
 
   const nombre = cleanString(input.nombre) || "Artículo sin nombre";
   const precioVenta = input.precioVenta ?? null;
+
+  // La categoría sale de la Operación Comercial. Antes se forzaba "Repuesto" a
+  // TODO lo que naciera por aquí, y como el buscador de repuestos de stock
+  // filtra únicamente por Categoría, la lista del técnico se llenó de cosas que
+  // no son repuestos: una impresora Epson, un disco externo Seagate, unos
+  // audífonos Plantronics, una motherboard de iMac. Ambas tablas comparten la
+  // misma lista de opciones, así que basta con copiarla; si la operación no
+  // trae categoría se cae a "Otro", que es honesto — no a "Repuesto", que
+  // afirma algo falso.
+  const categoria = knownOptionOrUndefined(
+    SHIPPING_V2_ITEM_SELECT_OPTIONS.categoria,
+    cleanString(input.categoria)
+  ) ?? "Otro";
+
   const itemInput: ShippingV2ItemWriteInput = {
     nombre,
     descripcion: cleanString(input.descripcion) || nombre,
     tipoOperacion: "Compra ya pagada",
-    tipoItem: "Repuesto",
-    categoria: "Repuesto",
+    // "Rol general" describe qué es la pieza dentro de un equipo, no cómo se
+    // vende. Un pedido especial para un cliente es un artículo por derecho
+    // propio, no una parte: "Equipo completo" es lo correcto salvo que la
+    // categoría diga que es un repuesto.
+    tipoItem: categoria === "Repuesto" ? "Repuesto" : "Equipo completo",
+    categoria,
     estado: "Pagado",
     proveedorId,
     requierePago: false,
@@ -2387,7 +2409,8 @@ export async function createShippingV2ItemFromOperacion(
     costoProveedor: input.costoProveedor ?? null,
     precioVentaSugerido: precioVenta,
     precioVenta,
-    esRepuesto: true,
+    // "Es repuesto" era la quinta casilla que decía lo mismo que Categoría y
+    // nunca coincidía con las otras cuatro. Se deja de escribir: manda Categoría.
     operacionComercialId: operacionId,
     opcionOrigenId: opcionId,
     fotos: input.fotos,
@@ -4343,15 +4366,45 @@ function mapRepuestoStockResumen(record: AirtableRecord): ShippingV2RepuestoStoc
   };
 }
 
-// Items categoría Repuesto, disponibles para venta y sin reservar — candidatos
-// a agregarse como repuesto de stock a una orden en modo V2.
+// Categorías que pueden montarse dentro de un equipo del cliente. Todo lo que
+// no sea un equipo terminado (Laptop, Desktop, All in One, Monitor, Consola)
+// sirve como repuesto.
+//
+// Antes esto era `Categoría = "Repuesto"` a secas, lo que obligaba a etiquetar
+// como "Repuesto" a un SSD, una RAM o una batería para que el técnico pudiera
+// encontrarlos — y esa misma casilla es la que describe QUÉ es el artículo. Al
+// mezclar "qué es" con "para qué sirve", la categoría dejó de ser confiable:
+// terminaron marcados como Repuesto una impresora Epson, un disco externo
+// Seagate y unos audífonos Plantronics. Ahora la categoría dice la verdad y es
+// el buscador el que sabe qué categorías son montables.
+const CATEGORIAS_REPUESTO_STOCK = [
+  "Repuesto",
+  "RAM",
+  "SSD",
+  "HDD",
+  "Pantalla",
+  "Teclado",
+  "Batería",
+  "Cargador",
+  "Mainboard",
+  "Tarjeta gráfica",
+  "Fuente de poder",
+  "Cable",
+  "Accesorio",
+] as const;
+
+// Items montables, disponibles para venta y sin reservar — candidatos a
+// agregarse como repuesto de stock a una orden de reparación.
 export async function buscarShippingItemsRepuestoStockDisponibles(
   query?: string
 ): Promise<ShippingV2RepuestoStockResumen[]> {
   assertShippingV2GeneratedSchema();
+  const categoriasOr = CATEGORIAS_REPUESTO_STOCK.map(
+    (c) => `{${SHIPPING_V2_ITEM_FIELDS.categoria}}="${c}"`
+  ).join(",");
   const records = await listRecords(SHIPPING_V2_TABLES.items, {
     maxRecords: 200,
-    filterByFormula: `AND({${SHIPPING_V2_ITEM_FIELDS.categoria}}="Repuesto", {${SHIPPING_V2_ITEM_FIELDS.disponibleVenta}}=1, {${SHIPPING_V2_ITEM_FIELDS.reservado}}=0)`,
+    filterByFormula: `AND(OR(${categoriasOr}), {${SHIPPING_V2_ITEM_FIELDS.disponibleVenta}}=1, {${SHIPPING_V2_ITEM_FIELDS.reservado}}=0)`,
   });
 
   let results = records.map(mapRepuestoStockResumen);
@@ -4390,13 +4443,24 @@ export async function reservarShippingItemComoRepuestoDeOrdenStock({
   );
   const f = existing.fields;
 
-  if (firstString(f[SHIPPING_V2_ITEM_FIELDS.categoria]) !== "Repuesto") {
-    throw new Error("Este item no es de categoría Repuesto.");
+  const categoriaItem = firstString(f[SHIPPING_V2_ITEM_FIELDS.categoria]);
+  if (!CATEGORIAS_REPUESTO_STOCK.some((c) => c === categoriaItem)) {
+    throw new Error(
+      `Un artículo de categoría "${categoriaItem || "sin categoría"}" no se puede montar como repuesto en una orden.`
+    );
   }
   if (firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.reservado]) || firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.disponibleVenta]) === false) {
     throw new Error("Este item ya está reservado o no está disponible para venta.");
   }
 
+  // El artículo pasa a "Reservado" pero NO se descuenta del inventario: sigue
+  // siendo tuyo y sigue contando en el stock. Solo una factura o un recibo
+  // reducen la cantidad (postEmision / descontarInventarioRecibo).
+  //
+  // Hasta aquí solo se marcaban las banderas y el Estado Item se quedaba como
+  // estuviera ("Repuesto", "En revisión", "Pagado"…), así que el semáforo del
+  // inventario no reflejaba que la pieza estaba comprometida con una orden.
+  const estadoAnterior = firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoItem], "Disponible");
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
     method: "PATCH",
     body: JSON.stringify({
@@ -4404,6 +4468,7 @@ export async function reservarShippingItemComoRepuestoDeOrdenStock({
         {
           id,
           fields: {
+            [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Reservado",
             [SHIPPING_V2_ITEM_FIELDS.reservado]: true,
             [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: false,
             [ORDEN_STOCK_LINK_FIELD]: [ordenRecordId],
@@ -4423,9 +4488,9 @@ export async function reservarShippingItemComoRepuestoDeOrdenStock({
     itemRecordId: id,
     itemName: resumen.nombre,
     registradoPor,
-    descripcion: `Reservado como repuesto de stock para la orden ${ordenIdVisible}.`,
-    estadoAnterior: "Disponible para venta",
-    estadoNuevo: "Reservado (stock de orden)",
+    descripcion: `Reservado como repuesto de stock para la orden ${ordenIdVisible}. Sigue en inventario hasta que se facture.`,
+    estadoAnterior,
+    estadoNuevo: "Reservado",
   });
 
   return resumen;
@@ -4457,6 +4522,13 @@ export async function liberarShippingItemDeOrdenStock({
     throw new Error("Este item no está reservado como stock de esta orden.");
   }
 
+  // Solo se devuelve a "Disponible" si sigue en "Reservado". Si entre medias
+  // pasó a otro estado (Vendido, Con novedad…), quitar el repuesto de la orden
+  // no puede resucitarlo a la venta — mismo criterio que liberarItem() de
+  // reservas.
+  const estadoActual = firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoItem]);
+  const vuelveADisponible = estadoActual === "Reservado";
+
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
     method: "PATCH",
     body: JSON.stringify({
@@ -4464,8 +4536,13 @@ export async function liberarShippingItemDeOrdenStock({
         {
           id,
           fields: {
+            ...(vuelveADisponible
+              ? {
+                [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Disponible",
+                [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: true,
+              }
+              : {}),
             [SHIPPING_V2_ITEM_FIELDS.reservado]: false,
-            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: true,
             [ORDEN_STOCK_LINK_FIELD]: [],
           },
         },
@@ -4484,8 +4561,8 @@ export async function liberarShippingItemDeOrdenStock({
     itemName: resumen.nombre,
     registradoPor,
     descripcion: `Liberado de la orden ${ordenIdVisible} (quitado como repuesto de stock).`,
-    estadoAnterior: "Reservado (stock de orden)",
-    estadoNuevo: "Disponible para venta",
+    estadoAnterior: estadoActual || "Reservado",
+    estadoNuevo: vuelveADisponible ? "Disponible" : estadoActual,
   });
 
   return resumen;
