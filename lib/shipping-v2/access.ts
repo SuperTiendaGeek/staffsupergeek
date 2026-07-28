@@ -1,7 +1,16 @@
 // Control de acceso de Shipping V2 — puro, sin Airtable ni red, testeable.
 //
-// Vive aparte de airtable.ts (4.600 líneas) porque es código de seguridad y
-// merece poder probarse solo.
+// Vive aparte de airtable.ts (4.600 líneas) por dos razones: es código de
+// seguridad y merece poder probarse solo, y porque desde que existe el portal
+// de proveedores hay usuarios EXTERNOS entrando al módulo.
+//
+// ─── Regla de oro: negar por omisión ─────────────────────────────────────────
+//
+// `canShippingV2()` devolvía `true` cuando no le pasaban contexto. Con 25 rutas
+// de API, bastaba con que una nueva olvidara pasar el contexto para quedar
+// abierta al proveedor sin que nada avisara. Ahora sin contexto no hay permiso.
+// Para las lecturas internas del módulo que sí necesitan permiso amplio está
+// `systemShippingV2Access()`, que hay que pedir por su nombre.
 
 import type {
   ShippingV2AccessContext,
@@ -79,7 +88,24 @@ function providerShippingV2Permissions(provider?: ShippingV2Proveedor): Shipping
   };
 }
 
+// ─── Contextos ───────────────────────────────────────────────────────────────
+
 export function staffShippingV2Access(): ShippingV2AccessContext {
+  return { isAdmin: true, mode: "staff", permissions: STAFF_SHIPPING_V2_PERMISSIONS };
+}
+
+/**
+ * Contexto para lecturas INTERNAS del módulo, nunca para usuarios.
+ *
+ * Se usa cuando una función exportada ya validó el permiso del usuario en la
+ * frontera (la ruta de API) y después necesita releer registros para terminar
+ * su trabajo — por ejemplo `addFotosToShippingV2Item` releyendo el item que
+ * acaba de modificar.
+ *
+ * REGLA: no usar esto en una ruta de API. Ahí el contexto correcto es el de la
+ * sesión (`getShippingV2AccessContextForSession`).
+ */
+export function systemShippingV2Access(): ShippingV2AccessContext {
   return { isAdmin: true, mode: "staff", permissions: STAFF_SHIPPING_V2_PERMISSIONS };
 }
 
@@ -102,13 +128,36 @@ export function isShippingV2ProviderAccess(access?: ShippingV2AccessContext) {
   return Boolean(access && access.mode === "provider" && access.providerId);
 }
 
-export function canShippingV2(access: ShippingV2AccessContext | undefined, permission: keyof ShippingV2AccessPermissions) {
-  if (!access) return true;
+// ─── Consultas de permiso ────────────────────────────────────────────────────
+
+/** ¿Tiene este permiso? Sin contexto: NO. */
+export function canShippingV2(
+  access: ShippingV2AccessContext | undefined,
+  permission: keyof ShippingV2AccessPermissions
+) {
+  if (!access) return false;
   return access.permissions[permission] === true;
 }
 
-export function assertShippingV2Permission(access: ShippingV2AccessContext | undefined, permission: keyof ShippingV2AccessPermissions, message: string) {
-  if (!canShippingV2(access, permission)) {
-    throw new Error(message);
-  }
+export function assertShippingV2Permission(
+  access: ShippingV2AccessContext | undefined,
+  permission: keyof ShippingV2AccessPermissions,
+  message: string
+) {
+  if (!canShippingV2(access, permission)) throw new Error(message);
+}
+
+// ─── Alcance: ¿de quién es este registro? ────────────────────────────────────
+//
+// Un proveedor solo ve lo suyo. Staff y operaciones internas ven todo. Sin
+// contexto no se ve nada.
+
+export function puedeAlcanzarProveedor(
+  access: ShippingV2AccessContext | undefined,
+  ...proveedorIds: Array<string | null | undefined>
+): boolean {
+  if (!access) return false;
+  if (access.isAdmin) return true;
+  if (!access.providerId) return false;
+  return proveedorIds.some((id) => Boolean(id) && id === access.providerId);
 }

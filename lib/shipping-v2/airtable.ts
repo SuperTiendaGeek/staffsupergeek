@@ -48,7 +48,9 @@ import {
   assertShippingV2Permission,
   noShippingV2Access,
   providerShippingV2Access,
+  puedeAlcanzarProveedor,
   staffShippingV2Access,
+  systemShippingV2Access,
 } from "@/lib/shipping-v2/access";
 import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
 import { calculateShippingV2BatteryState, shippingV2CategoryDoesNotUseScreenOrBattery, shippingV2CategoryHasBattery } from "@/lib/shipping-v2/technical-sheet";
@@ -575,18 +577,11 @@ function isOpenPackingStatus(status: string) {
 }
 
 function canAccessPacking(packing: Pick<ShippingV2Packing, "proveedorResponsableId" | "proveedorLogisticoEcId" | "transportistaUsa" | "transportistaEc">, access?: ShippingV2AccessContext) {
-  if (!access || access.isAdmin) return true;
-  if (!access.providerId) return false;
-  return packing.proveedorResponsableId === access.providerId ||
-    packing.proveedorLogisticoEcId === access.providerId ||
-    packing.transportistaUsa === access.providerId ||
-    packing.transportistaEc === access.providerId;
+  return puedeAlcanzarProveedor(access, packing.proveedorResponsableId, packing.proveedorLogisticoEcId, packing.transportistaUsa, packing.transportistaEc);
 }
 
 function canAccessItem(item: Pick<ShippingV2Item, "proveedorId" | "proveedorLogisticoId">, access?: ShippingV2AccessContext) {
-  if (!access || access.isAdmin) return true;
-  if (!access.providerId) return false;
-  return item.proveedorId === access.providerId || item.proveedorLogisticoId === access.providerId;
+  return puedeAlcanzarProveedor(access, item.proveedorId, item.proveedorLogisticoId);
 }
 
 function sanitizeShippingV2ItemForAccess(item: ShippingV2Item, access?: ShippingV2AccessContext, options?: { sanitizeForAccess?: boolean }) {
@@ -618,13 +613,12 @@ function sanitizeShippingV2ItemForAccess(item: ShippingV2Item, access?: Shipping
 }
 
 function canAccessPago(pago: Pick<ShippingV2Pago, "proveedorId">, access?: ShippingV2AccessContext) {
-  if (!access || access.isAdmin) return true;
-  if (!access.providerId) return false;
-  return pago.proveedorId === access.providerId;
+  return puedeAlcanzarProveedor(access, pago.proveedorId);
 }
 
 function canAccessNovedad(novedad: ShippingV2Novedad, access?: ShippingV2AccessContext, context?: { itemIds?: Set<string>; packingIds?: Set<string> }) {
-  if (!access || access.isAdmin) return true;
+  if (!access) return false;
+  if (access.isAdmin) return true;
   if (!access.providerId) return false;
   if (novedad.proveedorResponsableIds.includes(access.providerId) || novedad.proveedorResponsableId === access.providerId) return true;
   if (context?.itemIds && novedad.itemIds.some((itemId) => context.itemIds?.has(itemId))) return true;
@@ -1786,12 +1780,8 @@ function mapItemSearchEntry(
 }
 
 function canAccessItemRecord(record: AirtableRecord, access?: ShippingV2AccessContext) {
-  if (!access || access.isAdmin) return true;
-  if (!access.providerId) return false;
   const F = SHIPPING_V2_ITEM_FIELDS;
-  const providerId = firstString(record.fields[F.proveedorCompra]);
-  const logisticsProviderId = firstString(record.fields[F.proveedorLogistico]);
-  return providerId === access.providerId || logisticsProviderId === access.providerId;
+  return puedeAlcanzarProveedor(access, firstString(record.fields[F.proveedorCompra]), firstString(record.fields[F.proveedorLogistico]));
 }
 
 export async function getShippingV2ItemSearchIndex(access?: ShippingV2AccessContext) {
@@ -2583,7 +2573,7 @@ export async function addFotosToShippingV2Item(
 ) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
-  if (!fotos.length) return { item: await getShippingV2ItemById(id), warning: null as string | null, uploadedCount: 0 };
+  if (!fotos.length) return { item: await getShippingV2ItemById(id, { access: systemShippingV2Access() }), warning: null as string | null, uploadedCount: 0 };
 
   const failedFiles: string[] = [];
 
@@ -2606,7 +2596,7 @@ export async function addFotosToShippingV2Item(
     throw new Error("El Item se creó, pero no se pudo subir ninguna foto.");
   }
 
-  const item = await getShippingV2ItemById(id);
+  const item = await getShippingV2ItemById(id, { access: systemShippingV2Access() });
   await createShippingV2Event({
     action: "Actualizado",
     itemRecordId: item.id,
@@ -2646,7 +2636,7 @@ export async function removeFotoFromShippingV2Item(
     throw new Error("Falta identificar la foto a eliminar.");
   }
 
-  const current = await getShippingV2ItemById(id);
+  const current = await getShippingV2ItemById(id, { access: systemShippingV2Access() });
   const nextFotos = current.fotos.filter((foto) => {
     if (attachmentId && foto.id === attachmentId) return false;
     if (url && foto.url === url) return false;
@@ -2692,7 +2682,7 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   validateItemInput(calculatedInput);
   await validateItemProviderRules(calculatedInput);
 
-  const existing = await getShippingV2ItemById(id);
+  const existing = await getShippingV2ItemById(id, { access: systemShippingV2Access() });
   const nextSku = normalizeSku(cleanString(calculatedInput.sku ?? calculatedInput.skuInterno));
   if (existing.packingId && cleanString(calculatedInput.modoLogistico) !== cleanString(existing.modoLogistico)) {
     throw new Error("No se puede cambiar el modo logístico porque el Item ya tiene packing relacionado.");
@@ -2741,7 +2731,7 @@ export async function updateShippingV2ItemTechnicalSheet(
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
 
-  const existing = await getShippingV2ItemById(id, { includeAiName: false });
+  const existing = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
   const F = SHIPPING_V2_ITEM_FIELDS;
   const now = new Date().toISOString();
   const batteryHealth = shippingV2CategoryDoesNotUseScreenOrBattery(existing.categoria) ? null : optionalNumberField(input.bateriaSalud);
@@ -3124,9 +3114,9 @@ function attachmentFromUrl(urlValue?: string) {
 async function assertItemsCanJoinPayment(itemIds: string[], regalosIds: string[]) {
   const uniqueItemIds = Array.from(new Set(itemIds.map(cleanString).filter(Boolean)));
   const uniqueGiftIds = Array.from(new Set(regalosIds.map(cleanString).filter(Boolean)));
-  const items = await Promise.all(uniqueItemIds.map((id) => getShippingV2ItemById(id, { includeAiName: false })));
-  const gifts = await Promise.all(uniqueGiftIds.map((id) => getShippingV2ItemById(id, { includeAiName: false })));
-  const activePayments = (await getShippingV2Pagos()).filter((pago) => isActivePaymentStatus(String(pago.estadoPago)));
+  const items = await Promise.all(uniqueItemIds.map((id) => getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() })));
+  const gifts = await Promise.all(uniqueGiftIds.map((id) => getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() })));
+  const activePayments = (await getShippingV2Pagos(systemShippingV2Access())).filter((pago) => isActivePaymentStatus(String(pago.estadoPago)));
 
   for (const item of items) {
     if (!item.requierePago || item.esRegalo) throw new Error(`El item ${item.sku} no genera pago operativo.`);
@@ -3268,7 +3258,7 @@ async function updateItemsToPaidAfterPayment(pago: Pick<ShippingV2Pago, "itemIds
   const uniqueItemIds = Array.from(new Set(pago.itemIds.map(cleanString).filter(Boolean)));
   if (!uniqueItemIds.length) return;
 
-  const items = await Promise.all(uniqueItemIds.map((id) => getShippingV2ItemById(id, { includeAiName: false })));
+  const items = await Promise.all(uniqueItemIds.map((id) => getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() })));
   const records = items
     .filter(canMoveItemToPaidAfterPayment)
     .map((item) => ({
@@ -4024,7 +4014,7 @@ export async function updateShippingV2ReceptionChecklistItem(
 ) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
-  const item = await getShippingV2ItemById(id, { includeAiName: false });
+  const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
   const now = new Date().toISOString();
   const note = cleanString(input.note);
   const fields: Record<string, unknown> = {
@@ -4083,7 +4073,7 @@ export async function createShippingV2ItemNovedad(
   if (!tipo) throw new Error("Selecciona un tipo de novedad.");
   if (!descripcion) throw new Error("Describe la novedad del item.");
 
-  const item = await getShippingV2ItemById(id, { includeAiName: false });
+  const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
   const critical = isCriticalNovedadType(tipo);
 
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
@@ -4467,7 +4457,7 @@ export async function marcarShippingV2ItemDisponible(
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
 
-  const item = await getShippingV2ItemById(id, { includeAiName: false });
+  const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
   const novedades = await getShippingV2NovedadesForItem(id);
   const novedadesAbiertas = novedades.filter((n) => isOpenNovedadStatus(n.estado)).length;
 
