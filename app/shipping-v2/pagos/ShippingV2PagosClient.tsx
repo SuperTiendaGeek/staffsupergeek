@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
-import type { ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagoSupportCard, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
+import type { ShippingV2AccessPermissions, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagoSupportCard, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 
-type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string };
+type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string; permissions: ShippingV2AccessPermissions | null; providerName?: string };
 type TabKey = "pendientes" | "sin-soporte" | "registrados";
 
 const ALL = "Todos";
@@ -195,7 +195,7 @@ function MissingList({ missing }: { missing: string[] }) {
   );
 }
 
-function DetailModal({ pago, onClose, onUpdated }: { pago: ShippingV2Pago; onClose: () => void; onUpdated: () => Promise<void> }) {
+function DetailModal({ pago, canManage, onClose, onUpdated }: { pago: ShippingV2Pago; canManage: boolean; onClose: () => void; onUpdated: () => Promise<void> }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [paidForm, setPaidForm] = useState({
@@ -248,7 +248,7 @@ function DetailModal({ pago, onClose, onUpdated }: { pago: ShippingV2Pago; onClo
           <button onClick={onClose} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#F5F5F5]">Cerrar</button>
         </div>
         {error ? <p className="mt-4 rounded-[1rem] border border-[#FF914D]/35 bg-[#FF914D]/10 p-3 text-sm text-[#FFB07A]">{error}</p> : null}
-        {locked ? <p className="mt-4 rounded-[1rem] border border-yellow-300/25 bg-yellow-300/10 p-3 text-sm text-yellow-100">Este pago está bloqueado por su estado o por Finanzas.</p> : null}
+        {locked && canManage ? <p className="mt-4 rounded-[1rem] border border-yellow-300/25 bg-yellow-300/10 p-3 text-sm text-yellow-100">Este pago está bloqueado por su estado o por Finanzas.</p> : null}
 
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
           <article className="rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-4">
@@ -259,22 +259,42 @@ function DetailModal({ pago, onClose, onUpdated }: { pago: ShippingV2Pago; onClo
               <p>Fecha real: <span className="text-[#F5F5F5]">{dateText(pago.fechaPagoReal)}</span></p>
               <p>Finanzas: <span className="text-[#F5F5F5]">{pago.estadoIntegracionFinanzas || "-"}</span></p>
               <p>Movimiento: <span className="text-[#F5F5F5]">{pago.movimientoFinanzasId || "-"}</span></p>
+              {pago.comprobante.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {pago.comprobante.map((attachment, index) => (
+                    <a key={attachment.id || attachment.url} href={attachment.url} target="_blank" rel="noreferrer" className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-xs font-semibold text-[#D7FF4F]">
+                      Comprobante {index + 1}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+              {pago.facturaProveedor.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {pago.facturaProveedor.map((attachment, index) => (
+                    <a key={attachment.id || attachment.url} href={attachment.url} target="_blank" rel="noreferrer" className="rounded-full border border-[#3A3A36] bg-[#101010] px-3 py-1 text-xs font-semibold text-[#F5F5F5]">
+                      Factura proveedor {index + 1}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <div className="mt-3"><MissingList missing={missing} /></div>
           </article>
-          <article className="rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-4">
-            <h3 className="font-semibold text-[#F5F5F5]">Registrar soporte</h3>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <input aria-label="Fecha real de pago" type="datetime-local" value={paidForm.fechaPagoReal} onChange={(event) => setPaidForm((current) => ({ ...current, fechaPagoReal: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
-              <select aria-label="Método de pago" value={paidForm.metodoPago} onChange={(event) => setPaidForm((current) => ({ ...current, metodoPago: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">{supportPaymentMethods.map((item) => <option key={item}>{item}</option>)}</select>
-              <select aria-label="Cuenta origen" value={paidForm.cuentaOrigen} onChange={(event) => setPaidForm((current) => ({ ...current, cuentaOrigen: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">
-                <option value="">Selecciona cuenta origen</option>
-                {paymentAccounts.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <input value={paidForm.transaccionId} onChange={(event) => setPaidForm((current) => ({ ...current, transaccionId: event.target.value }))} placeholder="Transacción ID" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
-              <input value={paidForm.comprobanteUrl} onChange={(event) => setPaidForm((current) => ({ ...current, comprobanteUrl: event.target.value }))} placeholder="URL comprobante" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5] sm:col-span-2" />
-            </div>
-          </article>
+          {canManage ? (
+            <article className="rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-4">
+              <h3 className="font-semibold text-[#F5F5F5]">Registrar soporte</h3>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <input aria-label="Fecha real de pago" type="datetime-local" value={paidForm.fechaPagoReal} onChange={(event) => setPaidForm((current) => ({ ...current, fechaPagoReal: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
+                <select aria-label="Método de pago" value={paidForm.metodoPago} onChange={(event) => setPaidForm((current) => ({ ...current, metodoPago: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">{supportPaymentMethods.map((item) => <option key={item}>{item}</option>)}</select>
+                <select aria-label="Cuenta origen" value={paidForm.cuentaOrigen} onChange={(event) => setPaidForm((current) => ({ ...current, cuentaOrigen: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">
+                  <option value="">Selecciona cuenta origen</option>
+                  {paymentAccounts.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+                <input value={paidForm.transaccionId} onChange={(event) => setPaidForm((current) => ({ ...current, transaccionId: event.target.value }))} placeholder="Transacción ID" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
+                <input value={paidForm.comprobanteUrl} onChange={(event) => setPaidForm((current) => ({ ...current, comprobanteUrl: event.target.value }))} placeholder="URL comprobante" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5] sm:col-span-2" />
+              </div>
+            </article>
+          ) : null}
         </div>
         <article className="mt-4 rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-4">
           <h3 className="font-semibold text-[#F5F5F5]">Items relacionados</h3>
@@ -284,12 +304,16 @@ function DetailModal({ pago, onClose, onUpdated }: { pago: ShippingV2Pago; onClo
           </div>
           {pago.regalosResumen.length ? <div className="mt-4"><p className="text-sm font-semibold text-[#F5F5F5]">Regalos incluidos</p>{pago.regalosResumen.map((item) => <p key={item.id} className="mt-2 rounded-lg bg-[#101010] px-3 py-2 text-sm text-[#A7A7A7]">{item.sku} · {item.nombre}</p>)}</div> : null}
         </article>
-        <textarea value={paidForm.observacion} onChange={(event) => setPaidForm((current) => ({ ...current, observacion: event.target.value }))} placeholder="Observación" className="mt-4 min-h-24 w-full rounded-[1rem] border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5]" />
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button disabled={locked || busy === "mark-paid"} onClick={() => void mutate("mark-paid", paidForm)} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] disabled:opacity-50">{busy === "mark-paid" ? "Guardando..." : normalize(pago.estadoPago) === "pagado" ? "Completar soporte" : "Registrar pago"}</button>
-          <button disabled={locked || normalize(pago.estadoPago) === "pagado" || busy === "review"} onClick={() => void mutate("review")} className="rounded-full border border-yellow-300/35 px-4 py-2 text-sm font-semibold text-yellow-100 disabled:opacity-50">Enviar a revisión</button>
-          <button disabled={locked || normalize(pago.estadoPago) === "pagado" || busy === "cancel"} onClick={() => void mutate("cancel", { motivo: paidForm.observacion })} className="rounded-full border border-[#FF914D]/45 px-4 py-2 text-sm font-semibold text-[#FFB07A] disabled:opacity-50">Anular</button>
-        </div>
+        {canManage ? (
+          <>
+            <textarea value={paidForm.observacion} onChange={(event) => setPaidForm((current) => ({ ...current, observacion: event.target.value }))} placeholder="Observación" className="mt-4 min-h-24 w-full rounded-[1rem] border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5]" />
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button disabled={locked || busy === "mark-paid"} onClick={() => void mutate("mark-paid", paidForm)} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] disabled:opacity-50">{busy === "mark-paid" ? "Guardando..." : normalize(pago.estadoPago) === "pagado" ? "Completar soporte" : "Registrar pago"}</button>
+              <button disabled={locked || normalize(pago.estadoPago) === "pagado" || busy === "review"} onClick={() => void mutate("review")} className="rounded-full border border-yellow-300/35 px-4 py-2 text-sm font-semibold text-yellow-100 disabled:opacity-50">Enviar a revisión</button>
+              <button disabled={locked || normalize(pago.estadoPago) === "pagado" || busy === "cancel"} onClick={() => void mutate("cancel", { motivo: paidForm.observacion })} className="rounded-full border border-[#FF914D]/45 px-4 py-2 text-sm font-semibold text-[#FFB07A] disabled:opacity-50">Anular</button>
+            </div>
+          </>
+        ) : null}
       </section>
     </div>
   );
@@ -460,11 +484,11 @@ function SupportItemRow({ card, selected, onToggle }: { card: Extract<ShippingV2
   );
 }
 
-function PagoRow({ pago, expanded, onToggle, onRegister, onComplete, onDetail }: { pago: ShippingV2Pago; expanded: boolean; onToggle: () => void; onRegister: () => void; onComplete: () => void; onDetail: () => void }) {
+function PagoRow({ pago, expanded, canManage, onToggle, onRegister, onComplete, onDetail }: { pago: ShippingV2Pago; expanded: boolean; canManage: boolean; onToggle: () => void; onRegister: () => void; onComplete: () => void; onDetail: () => void }) {
   const missing = paymentSupportMissing(pago);
   const isPaid = normalize(pago.estadoPago) === "pagado";
-  const canComplete = isPaid && missing.length > 0;
-  const canRegister = ["pendiente", "borrador", "parcial"].includes(normalize(pago.estadoPago));
+  const canComplete = canManage && isPaid && missing.length > 0;
+  const canRegister = canManage && ["pendiente", "borrador", "parcial"].includes(normalize(pago.estadoPago));
   return (
     <>
       <tr className="border-t border-[#3A3A36]/70 hover:bg-[#20211F]">
@@ -511,9 +535,9 @@ function PagoRow({ pago, expanded, onToggle, onRegister, onComplete, onDetail }:
   );
 }
 
-export function ShippingV2PagosClient({ initialWorkspace, error }: Props) {
+export function ShippingV2PagosClient({ initialWorkspace, error, permissions, providerName }: Props) {
   const [workspace, setWorkspace] = useState(initialWorkspace);
-  const [activeTab, setActiveTab] = useState<TabKey>("pendientes");
+  const [activeTab, setActiveTab] = useState<TabKey>(permissions?.canManagePayments === false ? "registrados" : "pendientes");
   const [filters, setFilters] = useState<FilterState>({ query: "", proveedor: ALL, estadoPago: ALL, metodoPago: ALL, estadoFinanzas: ALL, tipoOperacion: ALL });
   const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([]);
   const [selectedSupportIds, setSelectedSupportIds] = useState<string[]>([]);
@@ -521,6 +545,8 @@ export function ShippingV2PagosClient({ initialWorkspace, error }: Props) {
   const [createPaid, setCreatePaid] = useState(false);
   const [selectedPago, setSelectedPago] = useState<ShippingV2Pago | null>(null);
   const [expandedPagoIds, setExpandedPagoIds] = useState<string[]>([]);
+  const canManagePayments = permissions?.canManagePayments !== false;
+  const isProviderPortal = Boolean(providerName && permissions?.canManagePayments === false);
 
   const proveedores = useMemo(() => workspace.proveedores.map((item) => ({ value: item.id, label: item.nombre || item.label || item.id })), [workspace.proveedores]);
   const tipoOperacionOptions = useMemo(() => {
@@ -581,18 +607,23 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
     setCreatePaid(paid);
   }
 
-  const tabs: Array<{ key: TabKey; label: string; count: number }> = [
-    { key: "pendientes", label: "Pendientes", count: pendingItems.length + pendingPayments.length },
-    { key: "sin-soporte", label: "Sin soporte", count: supportItems.length + incompletePayments.length },
-    { key: "registrados", label: "Pagos registrados", count: registeredPayments.length },
-  ];
+  const tabs: Array<{ key: TabKey; label: string; count: number }> = canManagePayments
+    ? [
+      { key: "pendientes", label: "Pendientes", count: pendingItems.length + pendingPayments.length },
+      { key: "sin-soporte", label: "Sin soporte", count: supportItems.length + incompletePayments.length },
+      { key: "registrados", label: "Pagos registrados", count: registeredPayments.length },
+    ]
+    : [
+      { key: "registrados", label: "Pagos registrados", count: registeredPayments.length },
+      { key: "pendientes", label: "Pendientes", count: pendingPayments.length },
+    ];
 
   return (
     <div className="w-full space-y-2.5">
       <section className="flex flex-col gap-2 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 lg:flex-row lg:items-center lg:justify-between 2xl:px-4 2xl:py-3">
         <div>
           <h2 className="text-lg font-semibold text-[#F5F5F5]">Pagos</h2>
-          <p className="mt-0.5 text-sm text-[#A7A7A7]">Pagos, soportes y movimientos de Shipping V2</p>
+          <p className="mt-0.5 text-sm text-[#A7A7A7]">{isProviderPortal ? `Pagos registrados para ${providerName}.` : "Pagos, soportes y movimientos de Shipping V2"}</p>
         </div>
         <Link
           href="/shipping-v2"
@@ -635,13 +666,16 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
 
       {activeTab === "pendientes" ? (
         <section className="space-y-2.5">
-          <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
+          {canManagePayments ? (
+            <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
             <div className="flex flex-col gap-2 border-b border-[#30312D] bg-[#20211D] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Items pendientes sin pago V2</h2>
                 <p className="mt-0.5 text-xs text-[#A7A7A7]">{selectedPendingItems.length} seleccionados · {money(selectedPendingItems.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0))}</p>
               </div>
-              <button disabled={!canCreatePending} onClick={() => openCreate(selectedPendingItems, false)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Crear pago pendiente agrupado</button>
+              {canManagePayments ? (
+                <button disabled={!canCreatePending} onClick={() => openCreate(selectedPendingItems, false)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Crear pago pendiente agrupado</button>
+              ) : null}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1120px] text-left text-sm">
@@ -651,6 +685,7 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
               {!pendingItems.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay items pendientes con estos filtros.</p> : null}
             </div>
           </div>
+          ) : null}
           <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
             <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
               <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Pagos reales pendientes</h2>
@@ -658,7 +693,7 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1180px] text-left text-sm">
                 <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "Pago ID", "Proveedor", "Estado", "Items/Regalos", "Total", "Creación", "Fecha real", "Método", "Finanzas", "Acciones"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
-                <tbody>{pendingPayments.map((pago) => <PagoRow key={pago.id} pago={pago} expanded={expandedPagoIds.includes(pago.id)} onToggle={() => toggleId(pago.id, setExpandedPagoIds)} onRegister={() => setSelectedPago(pago)} onComplete={() => setSelectedPago(pago)} onDetail={() => setSelectedPago(pago)} />)}</tbody>
+                <tbody>{pendingPayments.map((pago) => <PagoRow key={pago.id} pago={pago} expanded={expandedPagoIds.includes(pago.id)} canManage={canManagePayments} onToggle={() => toggleId(pago.id, setExpandedPagoIds)} onRegister={() => setSelectedPago(pago)} onComplete={() => setSelectedPago(pago)} onDetail={() => setSelectedPago(pago)} />)}</tbody>
               </table>
               {!pendingPayments.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay pagos pendientes con estos filtros.</p> : null}
             </div>
@@ -674,7 +709,9 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
                 <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Items pagados sin pago V2</h2>
                 <p className="mt-0.5 text-xs text-[#A7A7A7]">{selectedSupportItems.length} seleccionados · {money(selectedSupportItems.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0))}</p>
               </div>
-              <button disabled={!canCreatePaid} onClick={() => openCreate(selectedSupportItems, true)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Registrar pago ya realizado agrupado</button>
+              {canManagePayments ? (
+                <button disabled={!canCreatePaid} onClick={() => openCreate(selectedSupportItems, true)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Registrar pago ya realizado agrupado</button>
+              ) : null}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[980px] text-left text-sm">
@@ -716,15 +753,15 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1180px] text-left text-sm">
               <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "Pago ID", "Proveedor", "Estado", "Items/Regalos", "Total", "Creación", "Fecha real", "Método", "Finanzas", "Acciones"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
-              <tbody>{registeredPayments.map((pago) => <PagoRow key={pago.id} pago={pago} expanded={expandedPagoIds.includes(pago.id)} onToggle={() => toggleId(pago.id, setExpandedPagoIds)} onRegister={() => setSelectedPago(pago)} onComplete={() => setSelectedPago(pago)} onDetail={() => setSelectedPago(pago)} />)}</tbody>
+              <tbody>{registeredPayments.map((pago) => <PagoRow key={pago.id} pago={pago} expanded={expandedPagoIds.includes(pago.id)} canManage={canManagePayments} onToggle={() => toggleId(pago.id, setExpandedPagoIds)} onRegister={() => setSelectedPago(pago)} onComplete={() => setSelectedPago(pago)} onDetail={() => setSelectedPago(pago)} />)}</tbody>
             </table>
             {!registeredPayments.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay pagos registrados con estos filtros.</p> : null}
           </div>
         </section>
       ) : null}
 
-      {selectedPago ? <DetailModal pago={selectedPago} onClose={() => setSelectedPago(null)} onUpdated={refreshWorkspace} /> : null}
-      {createItems.length ? <CreatePaymentModal selectedItems={createItems} registerPaidDefault={createPaid} onClose={() => setCreateItems([])} onCreated={refreshWorkspace} /> : null}
+      {selectedPago ? <DetailModal pago={selectedPago} canManage={canManagePayments} onClose={() => setSelectedPago(null)} onUpdated={refreshWorkspace} /> : null}
+      {createItems.length && canManagePayments ? <CreatePaymentModal selectedItems={createItems} registerPaidDefault={createPaid} onClose={() => setCreateItems([])} onCreated={refreshWorkspace} /> : null}
     </div>
   );
 }

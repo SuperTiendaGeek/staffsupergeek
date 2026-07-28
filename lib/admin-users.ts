@@ -1,6 +1,6 @@
 import "server-only";
 
-import { isAdministratorRole, staffApps } from "@/lib/apps";
+import { isAdministratorRole, isProviderRole, staffApps } from "@/lib/apps";
 import type { PortalUser, PortalUserInput } from "@/types/admin-users";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -48,6 +48,17 @@ export function parsePortalUserInput(payload: Record<string, unknown> | null): {
 
   if (invalidApp) {
     return { error: `La app "${invalidApp}" no es valida` };
+  }
+
+  if (isProviderRole(rol)) {
+    if (!appsPermitidas.includes("Shipping")) {
+      return { error: "Un proveedor debe tener acceso a Shipping." };
+    }
+
+    const invalidProviderApp = appsPermitidas.find((app) => app !== "Shipping");
+    if (invalidProviderApp) {
+      return { error: "Un proveedor solo puede tener acceso a Shipping." };
+    }
   }
 
   return {

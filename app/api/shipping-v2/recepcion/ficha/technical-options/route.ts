@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createShippingV2TechnicalOption, type ShippingV2TechnicalOptionType } from "@/lib/shipping-v2/airtable";
+import { canShippingV2, createShippingV2TechnicalOption, getShippingV2AccessContextForSession, type ShippingV2TechnicalOptionType } from "@/lib/shipping-v2/airtable";
 import { requireShippingV2Session } from "@/lib/shipping-v2/auth";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +17,10 @@ export async function POST(request: Request) {
   if (response) return response;
 
   try {
+    const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canUseRecepcion")) {
+      return NextResponse.json({ ok: false, error: "No tienes permiso para crear opciones técnicas." }, { status: 403 });
+    }
     const body = await request.json().catch(() => ({}));
     const result = await createShippingV2TechnicalOption({
       type: parseType(body.type),

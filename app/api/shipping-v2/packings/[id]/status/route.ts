@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getShippingV2AccessContextForSession, transitionShippingV2PackingStatus } from "@/lib/shipping-v2/airtable";
+import { canShippingV2, getShippingV2AccessContextForSession, transitionShippingV2PackingStatus } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ShippingV2PackingStatusAction } from "@/types/shipping-v2";
 
@@ -34,8 +34,15 @@ export async function POST(request: Request, { params }: Params) {
   try {
     const body = await request.json().catch(() => ({}));
     const access = await getShippingV2AccessContextForSession(session);
+    const action = parseAction(body.action);
+    const allowed = action === "close"
+      ? canShippingV2(access, "canClosePacking")
+      : canShippingV2(access, "canTransitionPackingStatus");
+    if (!allowed) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para cambiar este estado del packing." }, { status: 403 });
+    }
     const packing = await transitionShippingV2PackingStatus(id, {
-      action: parseAction(body.action),
+      action,
       actor: getShippingV2SessionName(session),
       decision: String(body.decision ?? ""),
       access,

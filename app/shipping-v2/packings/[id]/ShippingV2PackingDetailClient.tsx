@@ -4,12 +4,22 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
+import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { buildTrackingUrl } from "@/lib/shipping-v2/tracking";
 import { getEcuadorTransportProvidersForPacking, getUsaTransportProviders, providerTrackingLabel } from "@/lib/shipping-v2/tracking-providers";
-import { SHIPPING_V2_PACKING_TIPOS, SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS, type ShippingV2Destinatario, type ShippingV2Item, type ShippingV2Novedad, type ShippingV2Packing, type ShippingV2PackingStatusAction, type ShippingV2Proveedor } from "@/types/shipping-v2";
+import { SHIPPING_V2_PACKING_TIPOS, SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS, type ShippingV2AccessPermissions, type ShippingV2Destinatario, type ShippingV2Item, type ShippingV2Novedad, type ShippingV2Packing, type ShippingV2PackingStatusAction, type ShippingV2Proveedor } from "@/types/shipping-v2";
 
-type Props = { packing: ShippingV2Packing; candidates: ShippingV2Item[]; proveedores: ShippingV2Proveedor[]; novedades: ShippingV2Novedad[]; destinatarios: ShippingV2Destinatario[]; isAdmin: boolean };
+type Props = {
+  packing: ShippingV2Packing;
+  candidates: ShippingV2Item[];
+  proveedores: ShippingV2Proveedor[];
+  novedades: ShippingV2Novedad[];
+  destinatarios: ShippingV2Destinatario[];
+  isAdmin: boolean;
+  permissions: ShippingV2AccessPermissions | null;
+  providerName?: string;
+};
 type EditablePackingField = "nombre" | "tipo" | "ordenReferencia" | "observaciones" | "proveedorResponsableId" | "trackingUsa" | "transportistaUsa" | "trackingEc" | "transportistaEc" | "peso";
 type SaveState = Record<string, "saving" | "saved" | "error" | undefined>;
 
@@ -51,6 +61,20 @@ function isOpen(status: string) {
 function itemSearchText(item: ShippingV2Item, providerLabel: string, logisticsProviderLabel: string) {
   return [item.sku, item.nombre, item.estado, item.tipoOperacion, item.categoria, providerLabel, logisticsProviderLabel, item.modoLogistico].join(" ").toLowerCase();
 }
+
+function isAirtableRecordId(value?: string) {
+  return Boolean(value?.trim().match(/^rec[A-Za-z0-9]{14,}$/));
+}
+
+function providerDisplayValue(...values: Array<string | undefined>) {
+  for (const value of values) {
+    const text = value?.trim();
+    if (text && !isAirtableRecordId(text)) return text;
+  }
+  return "";
+}
+
+function ignoreItemPhotoUpdate(_item: ShippingV2Item) {}
 
 function destinatarioMatchesPacking(destinatario: ShippingV2Destinatario, packing: ShippingV2Packing) {
   return destinatario.packingIds.includes(packing.id) || destinatario.packingLabels.includes(packing.packingId);
@@ -400,6 +424,10 @@ function StatusActionPanel({
   packing,
   novedades,
   isAdmin,
+  canClose,
+  canTransition,
+  canCreateNovedad,
+  canViewNovedades,
   busy,
   actionBusy,
   onRunAction,
@@ -410,6 +438,10 @@ function StatusActionPanel({
   packing: ShippingV2Packing;
   novedades: ShippingV2Novedad[];
   isAdmin: boolean;
+  canClose: boolean;
+  canTransition: boolean;
+  canCreateNovedad: boolean;
+  canViewNovedades: boolean;
   busy: boolean;
   actionBusy: ShippingV2PackingStatusAction | "";
   onRunAction: (action: ShippingV2PackingStatusAction) => void;
@@ -420,9 +452,10 @@ function StatusActionPanel({
   const openNovedades = novedades.filter((novedad) => isOpenNovedadStatus(novedad.estado));
   const state = normalize(packing.estado);
   const config = getPackingStatusConfig(packing.estado, { hasOpenNovedades: openNovedades.length > 0 });
-  const canCancel = isAdmin && !["cancelado", "cerrado final"].includes(state);
-  const canRegisterNovedad = ["en proceso", "cerrado", "en transito", "recibido", "en revision"].includes(state) || (isAdmin && state === "cerrado final");
-  const canRestoreLegacyNovedad = isAdmin && state === "con novedad";
+  const canCancel = isAdmin && canTransition && !["cancelado", "cerrado final"].includes(state);
+  const canRegisterNovedad = canCreateNovedad && (["en proceso", "cerrado", "en transito", "recibido", "en revision"].includes(state) || (isAdmin && state === "cerrado final"));
+  const canRestoreLegacyNovedad = isAdmin && canTransition && state === "con novedad";
+  const canRunConfiguredAction = config.action === "close" ? canClose : canTransition;
 
   return (
     <div className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-xl shadow-black/20">
@@ -451,7 +484,7 @@ function StatusActionPanel({
             </span>
           ) : null}
 
-          {config.action ? (
+          {config.action && canRunConfiguredAction ? (
             <button
               type="button"
               disabled={busy || config.disabled}
@@ -473,7 +506,7 @@ function StatusActionPanel({
             </button>
           ) : null}
 
-          {novedades.length ? (
+          {novedades.length && canViewNovedades ? (
             <button
               type="button"
               onClick={onOpenNovedades}
@@ -726,6 +759,9 @@ function ItemCard({
   action,
   draggable,
   showCosts = false,
+  canViewCosts = true,
+  canViewProviderCost = true,
+  onItemUpdated = ignoreItemPhotoUpdate,
   onDragStart,
 }: {
   item: ShippingV2Item;
@@ -734,8 +770,16 @@ function ItemCard({
   action: ReactNode;
   draggable?: boolean;
   showCosts?: boolean;
+  canViewCosts?: boolean;
+  canViewProviderCost?: boolean;
+  onItemUpdated?: (item: ShippingV2Item) => void;
   onDragStart?: (event: DragEvent<HTMLElement>) => void;
 }) {
+  const itemHref = `/shipping-v2/items/${encodeURIComponent(item.id)}`;
+  const purchaseProviderLabel = providerDisplayValue(providerLabel, item.proveedorNombre);
+  const logisticsDisplayLabel = providerDisplayValue(logisticsProviderLabel, item.proveedorLogisticoNombre);
+  const supplierSku = item.skuProveedor?.trim();
+  const shouldShowActionProviderPrice = canViewProviderCost && (!showCosts || !canViewCosts);
   const costRows = [
     { label: "Proveedor", value: item.costoProveedor },
     { label: "Flete", value: item.costoFleteAsignado },
@@ -751,23 +795,51 @@ function ItemCard({
       onDragStart={onDragStart}
       className={`rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-4 transition ${draggable ? "cursor-grab hover:border-[#D7FF4F]/45 active:cursor-grabbing" : ""}`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="grid gap-3 md:grid-cols-[7rem_minmax(0,1fr)] md:items-start">
+        <ItemPhotoViewer
+          itemId={item.id}
+          itemName={item.nombre}
+          fotos={item.fotos}
+          onUpdated={onItemUpdated}
+          canEdit={false}
+          density="thumbnail"
+        />
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-[#D7FF4F]">{display(item.sku)}</p>
-          <p className="mt-1 break-words text-sm font-semibold text-[#F5F5F5]">{display(item.nombre)}</p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <Link href={itemHref} className="inline-flex max-w-full cursor-pointer text-xs font-semibold text-[#D7FF4F] underline-offset-4 transition hover:text-[#EEFF9E] hover:underline">
+                <span className="truncate">
+                  <span>{display(item.sku)}</span>
+                  <span className="mx-1">/</span>
+                  <span className={supplierSku ? "text-[#D7FF4F]" : "text-[#A7A7A7]"}>{supplierSku || "SIN SKU DE PROVEEDOR"}</span>
+                </span>
+              </Link>
+              <Link href={itemHref} className="mt-1 block cursor-pointer break-words text-sm font-semibold text-[#F5F5F5] underline-offset-4 transition hover:text-[#D7FF4F] hover:underline">
+                {display(item.nombre)}
+              </Link>
+            </div>
+            {action || shouldShowActionProviderPrice ? (
+              <div className="flex shrink-0 flex-col items-center gap-2">
+                {action}
+                {shouldShowActionProviderPrice ? (
+                  <p className="text-center text-sm font-bold leading-none text-[#D7FF4F]">
+                    <span>{formatCurrency(item.costoProveedor)}</span>
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <div className="mt-3 grid gap-2 text-xs text-[#A7A7A7] sm:grid-cols-2">
+            <p>Estado: <span className="text-[#F5F5F5]">{display(item.estado)}</span></p>
+            <p>Operación: <span className="text-[#F5F5F5]">{display(item.tipoOperacion)}</span></p>
+            <p>Proveedor compra: <span className="text-[#F5F5F5]">{display(purchaseProviderLabel)}</span></p>
+            <p>Proveedor logístico: <span className="text-[#F5F5F5]">{display(logisticsDisplayLabel)}</span></p>
+            <p>Modo: <span className="text-[#F5F5F5]">{display(item.modoLogistico)}</span></p>
+            <p>Categoría: <span className="text-[#F5F5F5]">{display(item.categoria)}</span></p>
+          </div>
         </div>
-        {action}
       </div>
-      <div className="mt-3 grid gap-2 text-xs text-[#A7A7A7] sm:grid-cols-2">
-        <p>Estado: <span className="text-[#F5F5F5]">{display(item.estado)}</span></p>
-        <p>Operación: <span className="text-[#F5F5F5]">{display(item.tipoOperacion)}</span></p>
-        <p>Proveedor compra: <span className="text-[#F5F5F5]">{display(providerLabel || item.proveedorNombre)}</span></p>
-        <p>Proveedor logístico: <span className="text-[#F5F5F5]">{display(logisticsProviderLabel || item.proveedorLogisticoNombre)}</span></p>
-        <p>Modo: <span className="text-[#F5F5F5]">{display(item.modoLogistico)}</span></p>
-        <p>Categoría: <span className="text-[#F5F5F5]">{display(item.categoria)}</span></p>
-        <p>Costo: <span className="text-[#F5F5F5]">{formatCurrency(item.costoProveedor)}</span></p>
-      </div>
-      {showCosts ? <div className="mt-3 border-t border-[#2F302C] pt-3">
+      {showCosts && canViewCosts ? <div className="mt-3 border-t border-[#2F302C] pt-3">
         <div className="flex items-center justify-between gap-3">
           <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Costos</p>
           <p className="text-xs font-semibold text-[#F5F5F5]">{formatCurrencyZero(item.costoTotalUnidad)}</p>
@@ -942,7 +1014,7 @@ function CostSummaryItem({ label, value, strong = false, children }: { label: st
   );
 }
 
-export function ShippingV2PackingDetailClient({ packing: initialPacking, candidates, proveedores, novedades, destinatarios, isAdmin }: Props) {
+export function ShippingV2PackingDetailClient({ packing: initialPacking, candidates, proveedores, novedades, destinatarios, isAdmin, permissions, providerName }: Props) {
   const router = useRouter();
   const [packing, setPacking] = useState(initialPacking);
   const [shippingDestinatarios, setShippingDestinatarios] = useState(destinatarios);
@@ -966,7 +1038,20 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   const [showNovedadModal, setShowNovedadModal] = useState(false);
   const [showNovedadesModal, setShowNovedadesModal] = useState(false);
   const [novedadForm, setNovedadForm] = useState({ tipo: NOVEDAD_TYPES[0], descripcion: "", evidenciaUrl: "" });
-  const canEditItems = isOpen(packing.estado);
+  const canEditPacking = permissions?.canEditPacking !== false;
+  const canEditPackingWeight = permissions?.canEditPackingWeight !== false;
+  const canAddItems = isOpen(packing.estado) && permissions?.canAddItemsToPacking !== false;
+  const canRemoveItems = isOpen(packing.estado) && permissions?.canRemoveItemsFromPacking !== false;
+  const canViewCosts = permissions?.canViewCosts !== false;
+  const canViewProviderCost = canViewCosts || permissions?.canViewProviderCost !== false;
+  const canViewInvoice = permissions?.canViewInvoice !== false;
+  const canGenerateInvoice = permissions?.canGenerateInvoice !== false;
+  const canLinkDestinatario = permissions?.canLinkDestinatario !== false;
+  const canCreateNovedad = permissions?.canCreateNovedades !== false;
+  const canViewNovedades = permissions?.canViewNovedades !== false;
+  const canClosePacking = permissions?.canClosePacking !== false;
+  const canTransitionPackingStatus = permissions?.canTransitionPackingStatus !== false;
+  const isProviderPortal = Boolean(providerName && permissions?.canEditPacking === false);
   const providerLabels = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
   const providerById = useMemo(() => new Map(proveedores.map((provider) => [provider.id, provider])), [proveedores]);
   const responsableLabel = resolveShippingV2ProveedorLabel(packing.proveedorResponsableId, providerLabels);
@@ -1069,8 +1154,10 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   }, [availableItems, providerLabels, query]);
 
   function canEditField(field: EditablePackingField) {
-    if (field === "ordenReferencia") return true;
     const state = normalize(packing.estado);
+    if (field === "peso" && canEditPackingWeight) return ["en proceso", "cerrado", "en transito"].includes(state);
+    if (!canEditPacking) return false;
+    if (field === "ordenReferencia") return true;
     if (state === "en proceso") return true;
     if (state === "cerrado") return ["trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso"].includes(field);
     if (state === "en transito") return ["trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso"].includes(field);
@@ -1078,6 +1165,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   }
 
   function canEditLogisticsCosts() {
+    if (!canEditPacking || !canViewCosts) return false;
     const state = normalize(packing.estado);
     return ["en proceso", "cerrado", "en transito", "recibido"].includes(state);
   }
@@ -1138,7 +1226,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   }
 
   async function addItems(itemIds: string[]) {
-    if (!canEditItems || !itemIds.length || busy) return;
+    if (!canAddItems || !itemIds.length || busy) return;
     const uniqueItemIds = Array.from(new Set(itemIds));
     const itemsToAdd = availableItems.filter((item) => uniqueItemIds.includes(item.id));
     if (!itemsToAdd.length) return;
@@ -1205,7 +1293,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   }
 
   async function removeItem(item: ShippingV2Item) {
-    if (!canEditItems || busy) return;
+    if (!canRemoveItems || busy) return;
     const previousPacking = packing;
     const previousAvailableItems = availableItems;
     const optimisticAvailableItem = {
@@ -1291,6 +1379,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   }
 
   async function saveNovedad() {
+    if (!canCreateNovedad) return;
     if (busy) return;
     setBusy(true);
     setError("");
@@ -1315,6 +1404,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   }
 
   async function linkDestinatario() {
+    if (!canLinkDestinatario) return;
     const destinatarioId = selectedDestinatarioId.trim();
     if (!destinatarioId || destinatarioBusy) return;
     setDestinatarioBusy(true);
@@ -1344,11 +1434,13 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
 
   function handleDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault();
+    if (!canAddItems) return;
     const itemId = event.dataTransfer.getData("text/plain");
     if (itemId) void addItems([itemId]);
   }
 
   async function generateProviderInvoice() {
+    if (!canGenerateInvoice) return;
     if (invoiceBusy) return;
     if (!currentDestinatario) {
       setError("Falta vincular destinatario para generar la factura.");
@@ -1386,7 +1478,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
             Volver a Packings
           </Link>
           <div className="flex flex-wrap items-center gap-2">
-            {packing.factura[0]?.url ? (
+            {packing.factura[0]?.url && canViewInvoice ? (
               <a
                 href={packing.factura[0].url}
                 target="_blank"
@@ -1396,23 +1488,30 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
                 Ver factura
               </a>
             ) : null}
-            <button
-              type="button"
-              disabled={invoiceBusy || !currentDestinatario}
-              title={!currentDestinatario ? "Vincula un destinatario antes de generar la factura." : undefined}
-              onClick={() => void generateProviderInvoice()}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D7FF4F]/70 bg-[#D7FF4F]/10 px-3 text-sm font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {invoiceBusy ? "Generando factura..." : packing.factura.length ? "Regenerar factura proveedor" : "Generar factura proveedor"}
-            </button>
+            {canGenerateInvoice ? (
+              <button
+                type="button"
+                disabled={invoiceBusy || !currentDestinatario}
+                title={!currentDestinatario ? "Vincula un destinatario antes de generar la factura." : undefined}
+                onClick={() => void generateProviderInvoice()}
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D7FF4F]/70 bg-[#D7FF4F]/10 px-3 text-sm font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {invoiceBusy ? "Generando factura..." : packing.factura.length ? "Regenerar factura proveedor" : "Generar factura proveedor"}
+              </button>
+            ) : null}
           </div>
         </div>
-        {!currentDestinatario ? (
+        {isProviderPortal ? (
+          <p className="mt-3 rounded-lg border border-[#D7FF4F]/25 bg-[#D7FF4F]/10 px-3 py-2 text-sm text-[#D7FF4F]">
+            Vista proveedor: puedes agregar items y cerrar el packing cuando la caja física esté completa.
+          </p>
+        ) : null}
+        {!currentDestinatario && canGenerateInvoice ? (
           <p className="mt-3 rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">
             Falta vincular destinatario para generar la factura.
           </p>
         ) : null}
-        {!packing.ordenReferencia ? (
+        {!packing.ordenReferencia && canGenerateInvoice ? (
           <p className="mt-3 rounded-lg border border-yellow-300/25 bg-yellow-300/10 px-3 py-2 text-sm text-yellow-100">
             Recomendado: ingresa Orden referencia antes de generar factura.
           </p>
@@ -1434,6 +1533,10 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
             packing={packing}
             novedades={packingNovedades}
             isAdmin={isAdmin}
+            canClose={canClosePacking}
+            canTransition={canTransitionPackingStatus}
+            canCreateNovedad={canCreateNovedad}
+            canViewNovedades={canViewNovedades}
             busy={busy}
             actionBusy={actionBusy}
             onRunAction={(action) => void runStatusAction(action)}
@@ -1466,26 +1569,28 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
                   <p className="mt-3 text-sm text-[#A7A7A7]">Este packing no tiene destinatario vinculado.</p>
                 )}
               </div>
-              <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <select
-                  value={selectedDestinatarioId}
-                  onChange={(event) => setSelectedDestinatarioId(event.target.value)}
-                  className="h-9 min-w-0 truncate rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-xs font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
-                >
-                  <option value="">Seleccionar destinatario</option>
-                  {shippingDestinatarios.map((destinatario) => (
-                    <option key={destinatario.id} value={destinatario.id}>{destinatarioOptionLabel(destinatario)}</option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  disabled={!selectedDestinatarioId || destinatarioBusy}
-                  onClick={() => void linkDestinatario()}
-                  className="h-9 max-w-full truncate rounded-lg border border-[#D7FF4F]/70 bg-[#D7FF4F]/10 px-3 text-xs font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {destinatarioBusy ? "Vinculando..." : currentDestinatario ? "Cambiar destinatario" : "Vincular destinatario"}
-                </button>
-              </div>
+              {canLinkDestinatario ? (
+                <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <select
+                    value={selectedDestinatarioId}
+                    onChange={(event) => setSelectedDestinatarioId(event.target.value)}
+                    className="h-9 min-w-0 truncate rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-xs font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
+                  >
+                    <option value="">Seleccionar destinatario</option>
+                    {shippingDestinatarios.map((destinatario) => (
+                      <option key={destinatario.id} value={destinatario.id}>{destinatarioOptionLabel(destinatario)}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={!selectedDestinatarioId || destinatarioBusy}
+                    onClick={() => void linkDestinatario()}
+                    className="h-9 max-w-full truncate rounded-lg border border-[#D7FF4F]/70 bg-[#D7FF4F]/10 px-3 text-xs font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {destinatarioBusy ? "Vinculando..." : currentDestinatario ? "Cambiar destinatario" : "Vincular destinatario"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </section>
         </div>
@@ -1567,12 +1672,14 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
                     item={item}
                     providerLabel={providerLabel}
                     logisticsProviderLabel={logisticsProviderLabel}
-                    draggable={canEditItems && !busy}
+                    draggable={canAddItems && !busy}
                     onDragStart={(event) => {
                       event.dataTransfer.setData("text/plain", item.id);
                       event.dataTransfer.effectAllowed = "move";
                     }}
-                    action={<button type="button" disabled={!canEditItems || busy} onClick={() => void addItems([item.id])} className="min-w-[92px] rounded-full border border-[#D7FF4F]/55 px-3 py-1 text-xs font-semibold text-[#D7FF4F] disabled:opacity-50">{busyItemId === item.id ? "Guardando..." : "Agregar"}</button>}
+                    canViewCosts={canViewCosts}
+                    canViewProviderCost={canViewProviderCost}
+                    action={<button type="button" disabled={!canAddItems || busy} onClick={() => void addItems([item.id])} className="min-w-[92px] rounded-full border border-[#D7FF4F]/55 px-3 py-1 text-xs font-semibold text-[#D7FF4F] disabled:opacity-50">{busyItemId === item.id ? "Guardando..." : "Agregar"}</button>}
                   />
                 );
               })}
@@ -1592,7 +1699,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
 
           <section
             onDragOver={(event) => {
-              if (!canEditItems) return;
+              if (!canAddItems) return;
               event.preventDefault();
               setDragOver(true);
             }}
@@ -1610,9 +1717,9 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
                 {packing.trackingUsa ? <p className="mt-1 text-sm text-[#A7A7A7]">Tracking USA: {packing.trackingUsa}</p> : null}
                 {packing.trackingEc ? <p className="mt-1 text-sm text-[#A7A7A7]">Tracking EC: {packing.trackingEc}</p> : null}
               </div>
-              {canEditItems ? <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-xs font-semibold text-[#D7FF4F]">Arrastra aqui</span> : null}
+              {canAddItems ? <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-xs font-semibold text-[#D7FF4F]">Arrastra aqui</span> : null}
             </div>
-            {!canEditItems ? <p className="relative mt-3 rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#A7A7A7]">Este packing ya no permite modificar items desde vista normal.</p> : null}
+            {!canAddItems ? <p className="relative mt-3 rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#A7A7A7]">Este packing ya no permite agregar items desde vista normal.</p> : null}
             <div className="relative mt-3 grid max-h-[640px] gap-2 overflow-y-auto pr-1">
               {packing.items.map((item) => {
                 const providerLabel = resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels) || item.proveedorNombre || "";
@@ -1624,7 +1731,9 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
                     providerLabel={providerLabel}
                     logisticsProviderLabel={logisticsProviderLabel}
                     showCosts
-                    action={canEditItems ? <button type="button" disabled={busy} onClick={() => void removeItem(item)} className="min-w-[92px] rounded-full border border-[#FF914D]/45 px-3 py-1 text-xs font-semibold text-[#FFB07A] disabled:opacity-50">{busyItemId === item.id ? "Guardando..." : "Quitar"}</button> : null}
+                    canViewCosts={canViewCosts}
+                    canViewProviderCost={canViewProviderCost}
+                    action={canRemoveItems ? <button type="button" disabled={busy} onClick={() => void removeItem(item)} className="min-w-[92px] rounded-full border border-[#FF914D]/45 px-3 py-1 text-xs font-semibold text-[#FFB07A] disabled:opacity-50">{busyItemId === item.id ? "Guardando..." : "Quitar"}</button> : null}
                   />
                 );
               })}
@@ -1672,14 +1781,16 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
         </div>
       </section>
 
-      <LogisticsCostsSection
-        packing={packing}
-        canEdit={canEditLogisticsCosts()}
-        onSaved={(updatedPacking) => {
-          setPacking(updatedPacking);
-          router.refresh();
-        }}
-      />
+      {canViewCosts ? (
+        <LogisticsCostsSection
+          packing={packing}
+          canEdit={canEditLogisticsCosts()}
+          onSaved={(updatedPacking) => {
+            setPacking(updatedPacking);
+            router.refresh();
+          }}
+        />
+      ) : null}
 
       <section className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
         <h3 className="mb-3 text-sm font-semibold text-[#F5F5F5]">Notas del packing</h3>

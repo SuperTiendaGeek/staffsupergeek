@@ -1,6 +1,6 @@
 import type { SessionUser, StaffSession } from "@/lib/session";
 
-export type StaffRole = "admin" | "manager" | "staff" | "finance" | "technical";
+export type StaffRole = "admin" | "manager" | "staff" | "finance" | "technical" | "provider";
 
 export type AppStatus = "Disponible" | "Próximamente" | "En construcción";
 
@@ -177,6 +177,19 @@ export function isAdministratorRole(role?: string) {
   const normalizedRole = normalizePermissionValue(role);
 
   return normalizedRole === "administrador" || normalizedRole === "admin";
+}
+
+export function isProviderRole(role?: string) {
+  if (!role) {
+    return false;
+  }
+
+  const normalizedRole = normalizePermissionValue(role);
+
+  return normalizedRole === "proveedor" ||
+    normalizedRole === "provider" ||
+    normalizedRole === "proveedor externo" ||
+    normalizedRole === "external provider";
 }
 
 export function canAccessApp(subject: PermissionSubject, appName: AppPermissionName | string) {

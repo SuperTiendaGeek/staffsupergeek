@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import {
   addFotosToShippingV2Item,
+  canShippingV2,
+  getShippingV2AccessContextForSession,
   getShippingV2ItemById,
   removeFotoFromShippingV2Item,
   type ShippingV2AttachmentUpload,
@@ -57,7 +59,11 @@ export async function POST(request: Request, { params }: Params) {
   const { id } = await params;
 
   try {
-    const current = await getShippingV2ItemById(id);
+    const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canEditItems")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para modificar fotos de items." }, { status: 403 });
+    }
+    const current = await getShippingV2ItemById(id, { access });
     const formData = await request.formData();
     const fotos = await parseFotos(formData);
     if (current.fotos.length + fotos.length > MAX_FOTOS_PER_ITEM) {
@@ -93,6 +99,10 @@ export async function DELETE(request: Request, { params }: Params) {
   const body = await request.json().catch(() => ({}));
 
   try {
+    const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canEditItems")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para modificar fotos de items." }, { status: 403 });
+    }
     const item = await removeFotoFromShippingV2Item(
       id,
       {

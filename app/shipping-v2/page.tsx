@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffStatCard } from "@/components/staff/StaffDesignSystem";
-import { getShippingV2DashboardSummary } from "@/lib/shipping-v2/airtable";
+import { getShippingV2AccessContextForSession, getShippingV2DashboardSummary } from "@/lib/shipping-v2/airtable";
+import { getSessionFromCookie } from "@/lib/session";
 import type { ShippingV2DashboardSummary } from "@/types/shipping-v2";
 
 export const dynamic = "force-dynamic";
@@ -28,13 +29,20 @@ const kpiLabels: Array<{ key: keyof ShippingV2DashboardSummary; label: string; t
   { key: "novedadesAbiertas", label: "Novedades abiertas", tone: "yellow" },
 ];
 
-const quickAccess = [
+const staffQuickAccess = [
   { label: "Items", href: "/shipping-v2/items", active: true },
   { label: "Pagos", href: "/shipping-v2/pagos", active: true },
   { label: "Packings", href: "/shipping-v2/packings", active: true },
   { label: "Recepcion", href: "/shipping-v2/recepcion", active: true },
   { label: "Novedades", href: null, active: false },
   { label: "Proveedores", href: null, active: false },
+];
+
+const providerQuickAccess = [
+  { label: "Items", href: "/shipping-v2/items", active: true },
+  { label: "Packings", href: "/shipping-v2/packings", active: true },
+  { label: "Pagos", href: "/shipping-v2/pagos", active: true },
+  { label: "Novedades / garantías", href: null, active: false },
 ];
 
 const toneStyles = {
@@ -51,9 +59,15 @@ function KpiCard({ label, value, tone }: { label: string; value: number; tone: k
 export default async function ShippingV2Page() {
   let summary = emptySummary;
   let error = "";
+  let isProviderPortal = false;
+  let providerName = "";
 
   try {
-    summary = await getShippingV2DashboardSummary();
+    const session = await getSessionFromCookie();
+    const access = await getShippingV2AccessContextForSession(session);
+    isProviderPortal = access.mode === "provider";
+    providerName = access.providerName || access.providerCode || "";
+    summary = await getShippingV2DashboardSummary(access);
   } catch (loadError) {
     console.error("Error al cargar Shipping V2:", loadError);
     error = loadError instanceof Error ? loadError.message : "No se pudo cargar Shipping V2.";
@@ -79,15 +93,17 @@ export default async function ShippingV2Page() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-base font-semibold text-[#F5F5F5]">Accesos rapidos</h2>
-              <p className="mt-0.5 text-sm text-[#A7A7A7]">Areas preparadas para la siguiente fase de Shipping V2.</p>
+              <p className="mt-0.5 text-sm text-[#A7A7A7]">
+                {isProviderPortal && providerName ? `Portal operativo de ${providerName}.` : "Areas preparadas para la siguiente fase de Shipping V2."}
+              </p>
             </div>
             <span className="w-fit rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-[12px] font-semibold uppercase tracking-normal text-[#D7FF4F]">
-              Read-only
+              {isProviderPortal ? "Proveedor" : "Read-only"}
             </span>
           </div>
 
-          <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
-            {quickAccess.map((item) => (
+          <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
+            {(isProviderPortal ? providerQuickAccess : staffQuickAccess).map((item) => (
               item.href ? (
                 <Link
                   key={item.label}

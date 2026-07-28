@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createShippingV2Packing, getShippingV2AccessContextForSession, getShippingV2Packings } from "@/lib/shipping-v2/airtable";
+import { canShippingV2, createShippingV2Packing, getShippingV2AccessContextForSession, getShippingV2Packings } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ShippingV2PackingWriteInput } from "@/types/shipping-v2";
 
@@ -53,6 +53,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
     const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canCreatePacking")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para crear packings." }, { status: 403 });
+    }
     const packing = await createShippingV2Packing(parseInput(body), {
       creadoPor: getShippingV2SessionName(session),
       access,

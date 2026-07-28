@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { getShippingV2ItemById, getShippingV2TechnicalOptionSets } from "@/lib/shipping-v2/airtable";
+import { getShippingV2AccessContextForSession, getShippingV2ItemById, getShippingV2TechnicalOptionSets } from "@/lib/shipping-v2/airtable";
+import { getSessionFromCookie } from "@/lib/session";
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
 import type { ShippingV2Item, ShippingV2TechnicalOption, ShippingV2TechnicalSheet } from "@/types/shipping-v2";
 import { ShippingV2PrintControls } from "./ShippingV2PrintControls";
@@ -113,8 +114,13 @@ function buildFichaVentaData(item: ShippingV2Item, technicalOptions: ShippingV2T
 
 export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props) {
   const { id } = await params;
+  const session = await getSessionFromCookie();
+  const access = await getShippingV2AccessContextForSession(session);
+  if (!access.permissions.canUseRecepcion) {
+    redirect("/shipping-v2/packings");
+  }
   const [item, technicalOptions] = await Promise.all([
-    getShippingV2ItemById(id, { includeAiName: false }),
+    getShippingV2ItemById(id, { includeAiName: false, access }),
     getShippingV2TechnicalOptionSets(),
   ]);
 

@@ -1,6 +1,7 @@
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
-import { getShippingV2PagosWorkspace } from "@/lib/shipping-v2/airtable";
-import type { ShippingV2PagosWorkspace } from "@/types/shipping-v2";
+import { getShippingV2AccessContextForSession, getShippingV2PagosWorkspace } from "@/lib/shipping-v2/airtable";
+import { getSessionFromCookie } from "@/lib/session";
+import type { ShippingV2AccessPermissions, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 import { ShippingV2PagosClient } from "./ShippingV2PagosClient";
 
 export const dynamic = "force-dynamic";
@@ -35,10 +36,16 @@ export default async function ShippingV2PagosPage() {
       pagosCompletosCount: 0,
     },
   };
+  let permissions: ShippingV2AccessPermissions | null = null;
+  let providerName = "";
   let error = "";
 
   try {
-    workspace = await getShippingV2PagosWorkspace();
+    const session = await getSessionFromCookie();
+    const access = await getShippingV2AccessContextForSession(session);
+    permissions = access.permissions;
+    providerName = access.providerName || access.providerCode || "";
+    workspace = await getShippingV2PagosWorkspace(access);
   } catch (loadError) {
     console.error("Error al cargar pagos Shipping V2:", loadError);
     error = loadError instanceof Error ? loadError.message : "No se pudieron cargar los pagos.";
@@ -46,7 +53,7 @@ export default async function ShippingV2PagosPage() {
 
   return (
     <StaffAppShell activeHref="/shipping-v2/pagos" sectionLabel="Shipping V2">
-      <ShippingV2PagosClient initialWorkspace={workspace} error={error} />
+      <ShippingV2PagosClient initialWorkspace={workspace} error={error} permissions={permissions} providerName={providerName} />
     </StaffAppShell>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { isProviderRole } from "@/lib/apps";
 import type { PortalUser } from "@/types/admin-users";
 
 type AdminUsersClientProps = {
@@ -26,7 +27,7 @@ type ApiResult = {
   users?: PortalUser[];
 };
 
-const roles = ["Administrador", "Manager", "Staff", "Finanzas", "Técnico"];
+const roles = ["Administrador", "Manager", "Staff", "Finanzas", "Técnico", "Proveedor"];
 
 const emptyForm: UserFormState = {
   nombre: "",
@@ -116,6 +117,7 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
     const knownRoles = new Set([...roles, ...users.map((user) => user.rol).filter(Boolean)]);
     return Array.from(knownRoles);
   }, [users]);
+  const providerRoleSelected = isProviderRole(form.rol);
 
   function openCreate() {
     setError("");
@@ -147,11 +149,21 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
   }
 
   function toggleApp(app: string) {
+    if (providerRoleSelected) return;
+
     setForm((current) => ({
       ...current,
       appsPermitidas: current.appsPermitidas.includes(app)
         ? current.appsPermitidas.filter((item) => item !== app)
         : [...current.appsPermitidas, app]
+    }));
+  }
+
+  function updateRole(rol: string) {
+    setForm((current) => ({
+      ...current,
+      rol,
+      appsPermitidas: isProviderRole(rol) ? ["Shipping"] : current.appsPermitidas,
     }));
   }
 
@@ -165,7 +177,7 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
       nombre: form.nombre,
       email: form.email,
       rol: form.rol,
-      appsPermitidas: form.appsPermitidas,
+      appsPermitidas: isProviderRole(form.rol) ? ["Shipping"] : form.appsPermitidas,
       activo: form.activo,
       requiere2FA: form.requiere2FA,
       ...(mode === "create" ? { password: form.password } : {})
@@ -414,7 +426,7 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
               ) : null}
               <label className="block text-sm font-medium text-[#CFCFCB]">
                 Rol
-                <select value={form.rol} onChange={(event) => setForm({ ...form, rol: event.target.value })} className="mt-2 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none">
+                <select value={form.rol} onChange={(event) => updateRole(event.target.value)} className="mt-2 w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none">
                   {roleOptions.map((role) => (
                     <option key={role} value={role}>{role}</option>
                   ))}
@@ -427,7 +439,13 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
               <div className="grid gap-2 sm:grid-cols-2">
                 {availableApps.map((app) => (
                   <label key={app} className="flex items-center gap-3 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#CFCFCB]">
-                    <input type="checkbox" checked={form.appsPermitidas.includes(app)} onChange={() => toggleApp(app)} className="h-4 w-4 accent-[#D7FF4F]" />
+                    <input
+                      type="checkbox"
+                      checked={providerRoleSelected ? app === "Shipping" : form.appsPermitidas.includes(app)}
+                      disabled={providerRoleSelected}
+                      onChange={() => toggleApp(app)}
+                      className="h-4 w-4 accent-[#D7FF4F] disabled:opacity-70"
+                    />
                     {app}
                   </label>
                 ))}

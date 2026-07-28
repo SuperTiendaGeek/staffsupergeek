@@ -18,6 +18,7 @@ import { ShippingV2ItemsPredictiveSearch } from "./ShippingV2ItemsPredictiveSear
 import {
   type ShippingV2Attachment,
   type ShippingV2Item,
+  type ShippingV2AccessPermissions,
   type ShippingV2Novedad,
   type ShippingV2Packing,
   type ShippingV2Pago,
@@ -28,6 +29,8 @@ type Props = {
   items: ShippingV2Item[];
   proveedores: ShippingV2Proveedor[];
   error: string;
+  permissions?: ShippingV2AccessPermissions | null;
+  providerName?: string;
   initialSortBy: SortKey;
   pagination: {
     pageIndex: number;
@@ -229,22 +232,47 @@ function createDefaultTableViewConfig(): ShippingV2ItemsTableViewConfig {
   };
 }
 
-function sanitizeTableViewConfig(input?: Partial<ShippingV2ItemsTableViewConfig> | null): ShippingV2ItemsTableViewConfig {
+const restrictedInternalColumns = new Set<ShippingV2ItemsColumnKey>(["salePrice"]);
+
+function getAvailableColumns(canViewCosts: boolean, canViewProviderCost: boolean) {
+  return AVAILABLE_COLUMNS.filter((column) => {
+    if (column.key === "providerCost") return canViewProviderCost;
+    if (restrictedInternalColumns.has(column.key)) return canViewCosts;
+    return true;
+  });
+}
+
+function getSortOptions(canViewCosts: boolean, canViewProviderCost: boolean) {
+  return sortOptions.filter((option) => {
+    if (option.value === "costo-desc") return canViewProviderCost;
+    if (option.value === "precio-desc") return canViewCosts;
+    return true;
+  });
+}
+
+function sanitizeProviderSort(sortBy: SortKey, canViewCosts: boolean, canViewProviderCost: boolean): SortKey {
+  if (sortBy === "costo-desc" && !canViewProviderCost) return "newest";
+  if (sortBy === "precio-desc" && !canViewCosts) return "newest";
+  return sortBy;
+}
+
+function sanitizeTableViewConfig(input?: Partial<ShippingV2ItemsTableViewConfig> | null, availableColumns = AVAILABLE_COLUMNS): ShippingV2ItemsTableViewConfig {
   const defaults = createDefaultTableViewConfig();
+  const availableColumnKeys = new Set(availableColumns.map((column) => column.key));
   const orderedFromInput = Array.isArray(input?.orderedColumnKeys)
-    ? input.orderedColumnKeys.filter(isColumnKey)
-    : defaults.orderedColumnKeys;
+    ? input.orderedColumnKeys.filter((key) => isColumnKey(key) && availableColumnKeys.has(key))
+    : defaults.orderedColumnKeys.filter((key) => availableColumnKeys.has(key));
   const visibleFromInput = Array.isArray(input?.visibleColumnKeys)
-    ? input.visibleColumnKeys.filter(isColumnKey)
-    : defaults.visibleColumnKeys;
+    ? input.visibleColumnKeys.filter((key) => isColumnKey(key) && availableColumnKeys.has(key))
+    : defaults.visibleColumnKeys.filter((key) => availableColumnKeys.has(key));
 
   const orderedColumnKeys = [
     ...orderedFromInput,
-    ...AVAILABLE_COLUMNS.map((column) => column.key).filter((key) => !orderedFromInput.includes(key)),
+    ...availableColumns.map((column) => column.key).filter((key) => !orderedFromInput.includes(key)),
   ];
   const visibleColumnKeys = new Set<ShippingV2ItemsColumnKey>(visibleFromInput);
 
-  AVAILABLE_COLUMNS.forEach((column) => {
+  availableColumns.forEach((column) => {
     if (column.required || (column.defaultVisible && !Array.isArray(input?.visibleColumnKeys))) {
       visibleColumnKeys.add(column.key);
     }
@@ -813,7 +841,17 @@ function MiniMetric({
   );
 }
 
-function MobileItemCard({ item, onOpen }: { item: ResolvedItem; onOpen: () => void }) {
+function MobileItemCard({
+  item,
+  canViewCosts,
+  canViewProviderCost,
+  onOpen,
+}: {
+  item: ResolvedItem;
+  canViewCosts: boolean;
+  canViewProviderCost: boolean;
+  onOpen: () => void;
+}) {
   return (
     <article
       role="button"
@@ -841,8 +879,12 @@ function MobileItemCard({ item, onOpen }: { item: ResolvedItem; onOpen: () => vo
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Categoría</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.categoria)}</dd></div>
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Proveedor</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.proveedorCompraDisplay)}</dd></div>
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Packing</dt><dd className="text-right text-[#F5F5F5]">{displayValue(packingLabel(item))}</dd></div>
-        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Costo</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.costoProveedor)}</dd></div>
-        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Precio venta</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.precioVenta)}</dd></div>
+        {canViewProviderCost ? (
+          <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Precio proveedor</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.costoProveedor)}</dd></div>
+        ) : null}
+        {canViewCosts ? (
+          <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Precio venta</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.precioVenta)}</dd></div>
+        ) : null}
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Fecha registro</dt><dd className="text-right text-[#F5F5F5]">{formatDate(item.fechaRegistro || item.createdTime)}</dd></div>
       </dl>
     </article>
@@ -855,12 +897,14 @@ function DetailSection({
   rows,
   onSave,
   esAdmin = false,
+  canEdit = true,
 }: {
   title: string;
   accent: "lime" | "purple" | "orange" | "yellow";
   rows: DetailRow[];
   onSave: (field: string, value: string | number | boolean | null) => Promise<void>;
   esAdmin?: boolean;
+  canEdit?: boolean;
 }) {
   const accentClass = {
     lime: "bg-[#D7FF4F]",
@@ -881,7 +925,7 @@ function DetailSection({
           // los puede editar (el servidor lo vuelve a validar).
           const bloqueadoPorRol = row.config?.adminOnly === true && !esAdmin;
           const soloLectura =
-            (row.readOnly ?? !row.config) || row.config?.category === "readOnly" || bloqueadoPorRol;
+            !canEdit || (row.readOnly ?? !row.config) || row.config?.category === "readOnly" || bloqueadoPorRol;
 
           return (
             <InlineEditableField
@@ -1044,6 +1088,109 @@ function shippingV2TechnicalSheetHref(item: Pick<ShippingV2Item, "id" | "technic
     : `/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}`;
 }
 
+function ProviderDatum({
+  label,
+  value,
+  featured,
+}: {
+  label: string;
+  value: ReactNode;
+  featured?: boolean;
+}) {
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${featured ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#30312D] bg-[#171814]"}`}>
+      <p className={`text-[11px] font-bold uppercase tracking-normal ${featured ? "text-[#151515]/70" : "text-[#8F908A]"}`}>{label}</p>
+      <div className={`mt-1 min-h-5 break-words text-sm font-semibold ${featured ? "text-[#151515]" : "text-[#F5F5F5]"}`}>{value}</div>
+    </div>
+  );
+}
+
+function ShippingV2ProviderItemDetailView({
+  item,
+  pago,
+  packing,
+  canEdit,
+  canViewProviderCost,
+  onSaveField,
+  onSaved,
+}: {
+  item: ResolvedItem;
+  pago?: ShippingV2Pago | null;
+  packing?: ShippingV2Packing | null;
+  canEdit: boolean;
+  canViewProviderCost: boolean;
+  onSaveField: (field: string, value: string | number | boolean | null) => Promise<void>;
+  onSaved: (item: ShippingV2Item) => void;
+}) {
+  const C = SHIPPING_V2_ITEM_EDIT_FIELDS;
+  const packingDisplay = packing?.packingId || item.packingId || item.legacyPackingId || "—";
+  const paymentDisplay = pago?.pagoId || item.pagoId || item.legacyPagoId || "—";
+
+  return (
+    <div className="w-full max-w-none space-y-3">
+      <section className="grid gap-3 xl:grid-cols-[minmax(520px,0.95fr)_minmax(0,1.05fr)] 2xl:grid-cols-[minmax(680px,1fr)_minmax(0,1.05fr)]">
+        <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15 xl:sticky xl:top-24 xl:self-start">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-[#F5F5F5]">Fotos del item</h2>
+            <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-2.5 py-0.5 text-[12px] font-semibold text-[#A7A7A7]">{item.fotos.length} fotos</span>
+          </div>
+          <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={onSaved} canEdit={false} density="immersive" />
+        </article>
+
+        <main className="space-y-3">
+          <article className="rounded-xl border border-[#30312D] bg-[#171814] p-4 shadow-xl shadow-black/15">
+            <div className="flex flex-wrap gap-2">
+              <EstadoBadge estado={item.estado} />
+              <OperationBadge value={item.tipoOperacion} />
+              <AvailabilityBadge item={item} />
+            </div>
+
+            <InlineEditableField
+              label={C.nombre.label}
+              value={item.nombre}
+              type={C.nombre.type}
+              displayValue={displayName(item.nombre)}
+              hideLabel
+              className="mt-3 rounded-lg transition"
+              valueClassName="min-h-9 break-words text-2xl font-semibold leading-tight text-[#F5F5F5] lg:text-3xl"
+              readOnly={!canEdit}
+              onSave={(value) => onSaveField(C.nombre.field, value)}
+            />
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {canViewProviderCost ? <ProviderDatum label="Precio proveedor" value={formatCurrency(item.costoProveedor)} featured /> : null}
+              <ProviderDatum label="SKU proveedor" value={displayValue(item.skuProveedor)} />
+              <ProviderDatum label="SKU" value={displayValue(item.sku)} />
+              <ProviderDatum label="Categoría" value={displayValue(item.categoria)} />
+              <ProviderDatum label="Estado item" value={<EstadoBadge estado={item.estado} />} />
+              <ProviderDatum label="Packing" value={packingDisplay} />
+              <ProviderDatum label="Pago" value={paymentDisplay} />
+            </div>
+          </article>
+
+          <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-[#D7FF4F]" />
+              <h2 className="text-sm font-semibold text-[#F5F5F5]">Observaciones internas</h2>
+            </div>
+            <InlineEditableField
+              label={C.observacionesInternas.label}
+              value={item.observacionesInternas}
+              type={C.observacionesInternas.type}
+              displayValue={displayValue(item.observacionesInternas, "Sin observaciones registradas.")}
+              hideLabel
+              className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 transition hover:border-[#D7FF4F]/35"
+              valueClassName="min-h-24 break-words text-sm leading-6 text-[#F5F5F5]"
+              readOnly={!canEdit}
+              onSave={(value) => onSaveField(C.observacionesInternas.field, value)}
+            />
+          </article>
+        </main>
+      </section>
+    </div>
+  );
+}
+
 export function ShippingV2ItemDetailView({
   item: initialItem,
   proveedores,
@@ -1052,6 +1199,7 @@ export function ShippingV2ItemDetailView({
   novedades,
   onSaved,
   esAdmin = false,
+  permissions,
 }: {
   item: ResolvedItem;
   proveedores: ShippingV2Proveedor[];
@@ -1061,6 +1209,7 @@ export function ShippingV2ItemDetailView({
   onSaved?: (item: ShippingV2Item) => void;
   /** Habilita los campos de corrección manual (config.adminOnly). */
   esAdmin?: boolean;
+  permissions?: ShippingV2AccessPermissions | null;
 }) {
   const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
   const [item, setItem] = useState(initialItem);
@@ -1152,7 +1301,28 @@ export function ShippingV2ItemDetailView({
   const C = SHIPPING_V2_ITEM_EDIT_FIELDS;
   const ganancia = calculateItemProfit(item);
   const aiNameSuggestion = item.aiNombre?.trim();
+  const canEditItems = permissions?.canEditItems !== false;
+  const canEditProviderItemFields = permissions?.canEditProviderItemFields === true;
+  const canViewCosts = permissions?.canViewCosts !== false;
+  const canViewProviderCost = canViewCosts || permissions?.canViewProviderCost !== false;
+  const canUseRecepcion = permissions?.canUseRecepcion !== false;
+  const isProviderDetail = !canEditItems && canEditProviderItemFields;
   const hasAiNameSuggestion = Boolean(aiNameSuggestion && normalizeText(aiNameSuggestion) !== normalizeText(item.nombre) && aiNameSuggestion !== ignoredAiName);
+
+  if (isProviderDetail) {
+    return (
+      <ShippingV2ProviderItemDetailView
+        item={item}
+        pago={pago}
+        packing={packing}
+        canEdit={canEditProviderItemFields}
+        canViewProviderCost={canViewProviderCost}
+        onSaveField={saveField}
+        onSaved={handleSaved}
+      />
+    );
+  }
+
   const tabs: Array<{ key: ItemDetailTabKey; label: string; title: string; accent: "lime" | "purple" | "orange" | "yellow"; rows: DetailRow[] }> = [
     {
       key: "general",
@@ -1179,7 +1349,7 @@ export function ShippingV2ItemDetailView({
         { label: "Origen físico actual", value: item.origenFisicoActual, readOnly: true },
       ],
     },
-    {
+    ...(canViewCosts ? [{
       key: "costos",
       label: "Costos",
       title: "Costos y venta",
@@ -1197,7 +1367,7 @@ export function ShippingV2ItemDetailView({
         { label: C.precioVentaFinal.label, value: item.precioVenta, displayValue: formatCurrency(item.precioVenta), config: C.precioVentaFinal },
         { label: "Ganancia", value: ganancia, displayValue: formatCurrency(ganancia), readOnly: true },
       ],
-    },
+    } satisfies { key: ItemDetailTabKey; label: string; title: string; accent: "lime" | "purple" | "orange" | "yellow"; rows: DetailRow[] }] : []),
     {
       key: "logistica",
       label: "Logística",
@@ -1280,10 +1450,10 @@ export function ShippingV2ItemDetailView({
               <h2 className="text-sm font-semibold text-[#F5F5F5]">Fotos</h2>
               <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-2.5 py-0.5 text-[12px] font-semibold text-[#A7A7A7]">{item.fotos.length} fotos</span>
             </div>
-            <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={handleSaved} density="compact" />
+            <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={handleSaved} canEdit={canEditItems} density="compact" />
           </article>
 
-          <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
+          {canViewCosts ? <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
             <h2 className="text-sm font-semibold text-[#F5F5F5]">Resumen rápido</h2>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <InlineEditableField
@@ -1294,6 +1464,7 @@ export function ShippingV2ItemDetailView({
                 className="rounded-xl border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-[#151515] transition"
                 labelClassName="text-[11px] font-bold uppercase tracking-normal text-[#151515]/70"
                 valueClassName="mt-1 min-h-5 break-words text-lg font-semibold tabular-nums text-[#151515]"
+                readOnly={!canEditItems}
                 onSave={(value) => saveField(C.precioVentaFinal.field, value)}
               />
               <DetailMetric label="Costo total unidad" value={formatCurrency(item.costoTotalUnidad)} />
@@ -1305,12 +1476,13 @@ export function ShippingV2ItemDetailView({
                 className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2 transition"
                 labelClassName="text-[11px] font-bold uppercase tracking-normal text-[#8F908A]"
                 valueClassName="mt-1 min-h-5 break-words text-lg font-semibold tabular-nums text-[#F5F5F5]"
+                readOnly={!canEditItems}
                 onSave={(value) => saveField(C.costoProveedor.field, value)}
               />
               <DetailMetric label="Costo logístico" value={formatCurrency(item.costoLogisticoAsignado)} />
               <DetailMetric label="Ganancia" value={formatCurrency(ganancia)} tone={ganancia !== null && ganancia < 0 ? "orange" : "lime"} />
             </div>
-          </article>
+          </article> : null}
 
           <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
             <h2 className="text-sm font-semibold text-[#F5F5F5]">Estado y disponibilidad</h2>
@@ -1348,6 +1520,7 @@ export function ShippingV2ItemDetailView({
                   hideLabel
                   className="mt-3 rounded-lg transition"
                   valueClassName="min-h-8 break-words text-2xl font-semibold leading-tight text-[#F5F5F5] lg:text-3xl"
+                  readOnly={!canEditItems}
                   onSave={(value) => saveField(C.nombre.field, value)}
                 />
                 <InlineEditableField
@@ -1358,12 +1531,13 @@ export function ShippingV2ItemDetailView({
                   hideLabel
                   className="mt-2 rounded-lg transition"
                   valueClassName="min-h-5 break-words text-sm leading-6 text-[#A7A7A7]"
+                  readOnly={!canEditItems}
                   onSave={(value) => saveField(C.descripcion.field, value)}
                 />
               </div>
               <TooltipProvider delayDuration={200}>
                 <div className="flex shrink-0 items-center gap-1.5 lg:self-center">
-                  <Tooltip>
+                  {canUseRecepcion ? <Tooltip>
                     <TooltipTrigger asChild>
                       <Link href={fichaHref} target={fichaGenerada ? "_blank" : undefined} rel={fichaGenerada ? "noreferrer" : undefined} aria-label={fichaGenerada ? "Imprimir ficha" : "Preparar ficha"} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] text-[#F5F5F5] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35">
                         <Printer className="h-4 w-4" aria-hidden="true" />
@@ -1372,8 +1546,8 @@ export function ShippingV2ItemDetailView({
                     <TooltipContent side="top" className="bg-[#252622] text-[#F5F5F5]">
                       {fichaGenerada ? "Imprimir ficha" : "Preparar ficha"}
                     </TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
+                  </Tooltip> : null}
+                  {canUseRecepcion ? <Tooltip>
                     <TooltipTrigger asChild>
                       <Link href={skuLabelHref} target="_blank" rel="noreferrer" aria-label="Imprimir etiqueta SKU" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] text-[#F5F5F5] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35">
                         <Tag className="h-4 w-4" aria-hidden="true" />
@@ -1382,13 +1556,13 @@ export function ShippingV2ItemDetailView({
                     <TooltipContent side="top" className="bg-[#252622] text-[#F5F5F5]">
                       Imprimir etiqueta SKU
                     </TooltipContent>
-                  </Tooltip>
+                  </Tooltip> : null}
                 </div>
               </TooltipProvider>
             </div>
           </article>
 
-          {hasAiNameSuggestion ? (
+          {hasAiNameSuggestion && canEditItems ? (
             <article className="rounded-xl border border-[#D7FF4F]/25 bg-[#151613] p-3 shadow-lg shadow-black/10">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
@@ -1436,7 +1610,7 @@ export function ShippingV2ItemDetailView({
               })}
             </div>
             <div className="mt-2">
-              <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} />
+              <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} />
             </div>
           </section>
 
@@ -1447,14 +1621,20 @@ export function ShippingV2ItemDetailView({
   );
 }
 
-export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy, pagination }: Props) {
+export function ShippingV2ItemsClient({ items, proveedores, error, permissions, providerName, initialSortBy, pagination }: Props) {
   const router = useRouter();
+  const canEditItems = permissions?.canEditItems !== false;
+  const canViewCosts = permissions?.canViewCosts !== false;
+  const canViewProviderCost = canViewCosts || permissions?.canViewProviderCost !== false;
+  const isProviderPortal = Boolean(providerName && permissions?.canEditItems === false);
+  const availableColumns = useMemo(() => getAvailableColumns(canViewCosts, canViewProviderCost), [canViewCosts, canViewProviderCost]);
+  const availableSortOptions = useMemo(() => getSortOptions(canViewCosts, canViewProviderCost), [canViewCosts, canViewProviderCost]);
   const [search, setSearch] = useState("");
   const [estado, setEstado] = useState(ALL);
   const [tipoOperacion, setTipoOperacion] = useState(ALL);
   const [proveedorCompra, setProveedorCompra] = useState(ALL);
   const [tipoItem, setTipoItem] = useState(ALL);
-  const [sortBy, setSortBy] = useState<SortKey>(initialSortBy);
+  const [sortBy, setSortBy] = useState<SortKey>(() => sanitizeProviderSort(initialSortBy, canViewCosts, canViewProviderCost));
   const [groupBy, setGroupBy] = useState<GroupKey>("none");
   const [notice, setNotice] = useState("");
   const [columnWidths, setColumnWidths] = useState<ShippingV2ItemsColumnWidths>(() => createDefaultColumnWidths());
@@ -1480,7 +1660,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
       const parsed = JSON.parse(storedWidths) as Partial<Record<ShippingV2ItemsColumnKey, unknown>>;
       setColumnWidths((current) => {
         const next = { ...current };
-        AVAILABLE_COLUMNS.forEach((column) => {
+        availableColumns.forEach((column) => {
           const savedWidth = parsed[column.key];
           if (typeof savedWidth === "number" && Number.isFinite(savedWidth)) {
             next[column.key] = clampColumnWidth(savedWidth, column);
@@ -1491,7 +1671,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
     } catch {
       window.localStorage.removeItem(COLUMN_WIDTHS_STORAGE_KEY);
     }
-  }, []);
+  }, [availableColumns]);
 
   useEffect(() => {
     const storedView = window.localStorage.getItem(TABLE_VIEW_STORAGE_KEY);
@@ -1499,11 +1679,11 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
 
     try {
       const parsed = JSON.parse(storedView) as Partial<ShippingV2ItemsTableViewConfig>;
-      setTableView(sanitizeTableViewConfig(parsed));
+      setTableView(sanitizeTableViewConfig(parsed, availableColumns));
     } catch {
       window.localStorage.removeItem(TABLE_VIEW_STORAGE_KEY);
     }
-  }, []);
+  }, [availableColumns]);
 
   useEffect(() => {
     return () => {
@@ -1512,8 +1692,8 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
   }, []);
 
   useEffect(() => {
-    setSortBy(initialSortBy);
-  }, [initialSortBy]);
+    setSortBy(sanitizeProviderSort(initialSortBy, canViewCosts, canViewProviderCost));
+  }, [canViewCosts, canViewProviderCost, initialSortBy]);
 
   useEffect(() => {
     if (!toolbarMenuOpen) return;
@@ -1556,11 +1736,11 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
 
   const updateTableView = useCallback((updater: (current: ShippingV2ItemsTableViewConfig) => ShippingV2ItemsTableViewConfig) => {
     setTableView((current) => {
-      const next = sanitizeTableViewConfig(updater(current));
+      const next = sanitizeTableViewConfig(updater(current), availableColumns);
       persistTableView(next);
       return next;
     });
-  }, [persistTableView]);
+  }, [availableColumns, persistTableView]);
 
   const toggleColumnVisibility = useCallback((column: ShippingV2ItemsColumn) => {
     if (column.required) return;
@@ -1702,9 +1882,9 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
   const visibleColumns = useMemo(() => {
     const visibleKeys = new Set(tableView.visibleColumnKeys);
     return tableView.orderedColumnKeys
-      .map((key) => AVAILABLE_COLUMNS.find((column) => column.key === key))
+      .map((key) => availableColumns.find((column) => column.key === key))
       .filter((column): column is ShippingV2ItemsColumn => Boolean(column && visibleKeys.has(column.key)));
-  }, [tableView]);
+  }, [availableColumns, tableView]);
   const tableWidth = useMemo(() => visibleColumns.reduce((total, column) => total + columnWidths[column.key], 0), [columnWidths, visibleColumns]);
 
   const summary = useMemo(() => ({
@@ -1717,7 +1897,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
 
   const activeFilterCount = [estado, tipoOperacion, proveedorCompra, tipoItem].filter((value) => value !== ALL).length;
   const activeFilterLabel = activeFilterCount === 1 ? "1 filtro activo" : `${activeFilterCount} filtros activos`;
-  const sortLabel = sortOptions.find((option) => option.value === sortBy)?.label ?? "Más nuevos primero";
+  const sortLabel = availableSortOptions.find((option) => option.value === sortBy)?.label ?? "Más nuevos primero";
   const groupLabel = groupOptions.find((option) => option.value === groupBy)?.label ?? "Sin agrupar";
 
   const resetFilters = useCallback(() => {
@@ -1737,10 +1917,11 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
   }, []);
 
   const selectSortBy = useCallback((nextSortBy: SortKey) => {
-    setSortBy(nextSortBy);
+    const safeSortBy = sanitizeProviderSort(nextSortBy, canViewCosts, canViewProviderCost);
+    setSortBy(safeSortBy);
     setToolbarMenuOpen(null);
-    router.push(buildSortHref(nextSortBy));
-  }, [buildSortHref, router]);
+    router.push(buildSortHref(safeSortBy));
+  }, [buildSortHref, canViewCosts, canViewProviderCost, router]);
 
   const toggleToolbarMenu = useCallback((menu: ToolbarMenuKey) => {
     setFieldsPanelOpen(false);
@@ -1767,7 +1948,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
           </Link>
         </div>
         <div className="w-full">
-          <ShippingV2ItemsPredictiveSearch search={search} setSearch={setSearch} fallbackItems={resolvedItems} />
+          <ShippingV2ItemsPredictiveSearch search={search} setSearch={setSearch} fallbackItems={resolvedItems} canViewCosts={canViewCosts} />
         </div>
         <div ref={toolbarMenuRef} className="relative flex shrink-0 items-center gap-1.5 justify-self-start">
           <TooltipProvider delayDuration={180}>
@@ -1798,9 +1979,11 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
             </ToolbarIconButton>
           </TooltipProvider>
 
-          <Button asChild size="sm" className="h-10 w-10 rounded-lg bg-[#D7FF4F] p-0 text-lg font-black text-[#151515] hover:bg-[#D7FF4F]/90">
-            <Link href="/shipping-v2/items/nuevo" aria-label="Nuevo Item">+</Link>
-          </Button>
+          {canEditItems ? (
+            <Button asChild size="sm" className="h-10 w-10 rounded-lg bg-[#D7FF4F] p-0 text-lg font-black text-[#151515] hover:bg-[#D7FF4F]/90">
+              <Link href="/shipping-v2/items/nuevo" aria-label="Nuevo Item">+</Link>
+            </Button>
+          ) : null}
 
           {toolbarMenuOpen ? (
             <div
@@ -1842,7 +2025,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
                     <p className="mt-0.5 truncate text-[12px] text-[#8F908A]">{sortLabel}</p>
                   </div>
                   <div className="grid max-h-[420px] gap-1 overflow-y-auto p-2">
-                    {sortOptions.map((option) => (
+                    {availableSortOptions.map((option) => (
                       <ToolbarMenuOption
                         key={option.value}
                         option={option}
@@ -1941,11 +2124,11 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
                 <div className="absolute right-0 z-30 mt-2 w-[320px] overflow-hidden rounded-xl border border-[#30312D] bg-[#11120F] shadow-2xl shadow-black/40">
                   <div className="border-b border-[#30312D] px-3 py-2">
                     <p className="text-sm font-semibold text-[#F5F5F5]">Campos visibles</p>
-                    <p className="mt-0.5 text-[12px] text-[#8F908A]">{visibleColumns.length} de {AVAILABLE_COLUMNS.length} columnas activas</p>
+                    <p className="mt-0.5 text-[12px] text-[#8F908A]">{visibleColumns.length} de {availableColumns.length} columnas activas</p>
                   </div>
                   <div className="max-h-[420px] overflow-y-auto p-2">
                     {COLUMN_CATEGORIES.map((category) => {
-                      const categoryColumns = AVAILABLE_COLUMNS.filter((column) => column.category === category);
+                      const categoryColumns = availableColumns.filter((column) => column.category === category);
                       if (!categoryColumns.length) return null;
                       return (
                         <section key={category} className="mb-2 last:mb-0">
@@ -1988,7 +2171,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
               Reset anchos
             </button>
             <Badge className="h-6 w-fit rounded-full border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2.5 text-[12px] font-bold uppercase text-[#D7FF4F] hover:bg-[#D7FF4F]/10">
-              Solo lectura
+              {isProviderPortal ? "Vista proveedor" : "Solo lectura"}
             </Badge>
           </div>
         </div>
@@ -2108,7 +2291,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error, initialSortBy
                 </div>
               ) : null}
               {group.items.map((item) => (
-                <MobileItemCard key={item.id} item={item} onOpen={() => router.push(`/shipping-v2/items/${item.id}`)} />
+                <MobileItemCard key={item.id} item={item} canViewCosts={canViewCosts} canViewProviderCost={canViewProviderCost} onOpen={() => router.push(`/shipping-v2/items/${item.id}`)} />
               ))}
             </div>
           )) : (

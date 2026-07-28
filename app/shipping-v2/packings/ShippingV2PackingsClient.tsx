@@ -2,10 +2,16 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { SHIPPING_V2_PACKING_ESTADOS, SHIPPING_V2_PACKING_TIPOS, type ShippingV2Packing, type ShippingV2Proveedor } from "@/types/shipping-v2";
+import { SHIPPING_V2_PACKING_ESTADOS, SHIPPING_V2_PACKING_TIPOS, type ShippingV2AccessPermissions, type ShippingV2Packing, type ShippingV2Proveedor } from "@/types/shipping-v2";
 import { getShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 
-type Props = { packings: ShippingV2Packing[]; proveedores: ShippingV2Proveedor[]; error: string };
+type Props = {
+  packings: ShippingV2Packing[];
+  proveedores: ShippingV2Proveedor[];
+  error: string;
+  permissions: ShippingV2AccessPermissions | null;
+  providerName?: string;
+};
 
 const ALL = "Todos";
 
@@ -51,10 +57,12 @@ function Kpi({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function ShippingV2PackingsClient({ packings, proveedores, error }: Props) {
+export function ShippingV2PackingsClient({ packings, proveedores, error, permissions, providerName }: Props) {
   const [estado, setEstado] = useState(ALL);
   const [tipo, setTipo] = useState(ALL);
   const [responsable, setResponsable] = useState(ALL);
+  const canCreatePacking = permissions?.canCreatePacking !== false;
+  const isProviderPortal = Boolean(providerName && permissions?.canCreatePacking === false);
 
   const filtered = useMemo(() => packings.filter((packing) => {
     if (estado !== ALL && packing.estado !== estado) return false;
@@ -77,7 +85,7 @@ export function ShippingV2PackingsClient({ packings, proveedores, error }: Props
       <section className="flex flex-col gap-2 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 lg:flex-row lg:items-center lg:justify-between 2xl:px-4 2xl:py-3">
         <div>
           <h2 className="text-lg font-semibold text-[#F5F5F5]">Packings</h2>
-          <p className="mt-0.5 text-sm text-[#A7A7A7]">Cajas, paquetes y grupos físicos de Shipping V2</p>
+          <p className="mt-0.5 text-sm text-[#A7A7A7]">{isProviderPortal ? `Cajas asignadas a ${providerName}.` : "Cajas, paquetes y grupos físicos de Shipping V2"}</p>
         </div>
         <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
           <Link
@@ -86,7 +94,9 @@ export function ShippingV2PackingsClient({ packings, proveedores, error }: Props
           >
             Volver a Shipping
           </Link>
-          <Link href="/shipping-v2/packings/nuevo" className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-center text-sm font-bold text-[#151515] transition hover:brightness-105">Nuevo Packing</Link>
+          {canCreatePacking ? (
+            <Link href="/shipping-v2/packings/nuevo" className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-center text-sm font-bold text-[#151515] transition hover:brightness-105">Nuevo Packing</Link>
+          ) : null}
         </div>
       </section>
 

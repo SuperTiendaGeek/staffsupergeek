@@ -38,6 +38,7 @@ type Props = {
   search: string;
   setSearch: Dispatch<SetStateAction<string>>;
   fallbackItems: FallbackItem[];
+  canViewCosts?: boolean;
 };
 
 function availabilityLabel(item: FallbackItem) {
@@ -101,7 +102,7 @@ function preferredMatch(result: ShippingV2SearchResult) {
   return result.matchedFields.find((match) => !["sku", "nombre", "estado"].includes(match.key)) || result.matchedFields[0];
 }
 
-export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackItems }: Props) {
+export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackItems, canViewCosts = true }: Props) {
   const router = useRouter();
   const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -334,7 +335,7 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
                         <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] font-semibold text-[#A7A7A7]">
                           <span className="text-[#D7FF4F]">{displayValue(item.sku, "Sin SKU")}</span>
                           {meta ? <span className="truncate">{meta}</span> : null}
-                          <span>{formatCurrency(item.precioVenta)}</span>
+                          {canViewCosts ? <span>{formatCurrency(item.precioVenta)}</span> : null}
                         </span>
                       </span>
                       <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusTone(item.estado)}`}>

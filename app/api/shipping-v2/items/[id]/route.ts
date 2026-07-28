@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getShippingV2ItemById, updateShippingV2Item, updateShippingV2ItemField } from "@/lib/shipping-v2/airtable";
+import { canShippingV2, getShippingV2AccessContextForSession, getShippingV2ItemById, updateShippingV2Item, updateShippingV2ItemField } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
+import { isShippingV2ProviderItemEditableField, SHIPPING_V2_PROVIDER_ITEM_EDITABLE_FIELDS } from "@/lib/shipping-v2/item-edit-config";
 import { isAdministratorRole } from "@/lib/apps";
 import type { ShippingV2ItemWriteInput } from "@/types/shipping-v2";
 
@@ -66,13 +67,14 @@ function parseInput(body: Record<string, unknown>): ShippingV2ItemWriteInput {
 }
 
 export async function GET(_request: Request, { params }: Params) {
-  const { response } = await requireShippingV2Session();
+  const { response, session } = await requireShippingV2Session();
   if (response) return response;
 
   const { id } = await params;
 
   try {
-    const item = await getShippingV2ItemById(id);
+    const access = await getShippingV2AccessContextForSession(session);
+    const item = await getShippingV2ItemById(id, { access });
     return NextResponse.json({ success: true, data: item });
   } catch (error) {
     console.error("Error al obtener item Shipping V2:", error);
@@ -91,16 +93,40 @@ export async function PATCH(request: Request, { params }: Params) {
   const body = await request.json().catch(() => ({}));
 
   try {
+    const access = await getShippingV2AccessContextForSession(session);
     const actor = getShippingV2SessionName(session);
-    const item = typeof body?.field === "string"
-      ? await updateShippingV2ItemField(id, {
+    const isInlineFieldUpdate = typeof body?.field === "string";
+
+    if (isInlineFieldUpdate) {
+      const canEditAnyItemField = canShippingV2(access, "canEditItems");
+      const canEditProviderItemField =
+        canShippingV2(access, "canEditProviderItemFields") && isShippingV2ProviderItemEditableField(body.field);
+
+      if (!canEditAnyItemField && !canEditProviderItemField) {
+        return NextResponse.json({ success: false, error: "No tienes permiso para editar este campo." }, { status: 403 });
+      }
+
+      const item = await updateShippingV2ItemField(id, {
         field: body.field,
         value: body.value,
         eventDescription: typeof body.eventDescription === "string" ? body.eventDescription : undefined,
-      }, { actualizadoPor: actor, esAdmin: isAdministratorRole(session?.user.rol) })
-      : await updateShippingV2Item(id, parseInput(body), {
+      }, {
         actualizadoPor: actor,
+        esAdmin: isAdministratorRole(session?.user.rol),
+        access,
+        allowedFields: canEditAnyItemField ? undefined : SHIPPING_V2_PROVIDER_ITEM_EDITABLE_FIELDS,
       });
+
+      return NextResponse.json({ success: true, data: item });
+    }
+
+    if (!canShippingV2(access, "canEditItems")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para editar items." }, { status: 403 });
+    }
+
+    const item = await updateShippingV2Item(id, parseInput(body), {
+      actualizadoPor: actor,
+    });
 
     return NextResponse.json({ success: true, data: item });
   } catch (error) {

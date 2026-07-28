@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
@@ -9,10 +10,13 @@ export const dynamic = "force-dynamic";
 export default async function ShippingV2NewPackingPage() {
   let proveedores: ShippingV2Proveedor[] = [];
   let error = "";
+  const session = await getSessionFromCookie();
+  const access = await getShippingV2AccessContextForSession(session);
+  if (!access.permissions.canCreatePacking) {
+    redirect("/shipping-v2/packings");
+  }
 
   try {
-    const session = await getSessionFromCookie();
-    const access = await getShippingV2AccessContextForSession(session);
     proveedores = await getShippingV2Proveedores();
     if (!access.isAdmin && access.providerId) proveedores = proveedores.filter((provider) => provider.id === access.providerId);
   } catch (loadError) {

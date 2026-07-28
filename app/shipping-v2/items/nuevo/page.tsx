@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSystem";
 import { Button } from "@/components/ui/button";
-import { getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
+import { getShippingV2AccessContextForSession, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
+import { getSessionFromCookie } from "@/lib/session";
 import type { ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2NewItemForm } from "./ShippingV2NewItemForm";
 
@@ -11,6 +13,11 @@ export const dynamic = "force-dynamic";
 export default async function ShippingV2NewItemPage() {
   let proveedores: ShippingV2Proveedor[] = [];
   let error = "";
+  const session = await getSessionFromCookie();
+  const access = await getShippingV2AccessContextForSession(session);
+  if (!access.permissions.canEditItems) {
+    redirect("/shipping-v2/packings");
+  }
 
   try {
     proveedores = await getShippingV2Proveedores();

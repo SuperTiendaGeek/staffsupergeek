@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { closeShippingV2Packing, getShippingV2AccessContextForSession } from "@/lib/shipping-v2/airtable";
+import { canShippingV2, closeShippingV2Packing, getShippingV2AccessContextForSession } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +13,9 @@ export async function POST(_request: Request, { params }: Params) {
 
   try {
     const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canClosePacking")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para cerrar packings." }, { status: 403 });
+    }
     const packing = await closeShippingV2Packing(id, {
       cerradoPor: getShippingV2SessionName(session),
       access,

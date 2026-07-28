@@ -167,6 +167,8 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   puedeArmarPackings: boolean | null;
   puedeRecibirEncargosTerceros: boolean | null;
   permiteTriangulacion: boolean | null;
+  permiteAccesoPortalProveedor: boolean | null;
+  puedeResponderNovedadesGarantias: boolean | null;
   contacto?: string;
   email?: string;
   telefono?: string;
@@ -179,6 +181,43 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   logoProveedor: ShippingV2Attachment[];
   permiteRastreoWeb: boolean | null;
   notasRastreo?: string;
+};
+
+export type ShippingV2AccessMode = "staff" | "provider" | "none";
+
+export type ShippingV2AccessPermissions = {
+  canViewItems: boolean;
+  canEditItems: boolean;
+  canEditProviderItemFields: boolean;
+  canViewPackings: boolean;
+  canCreatePacking: boolean;
+  canEditPacking: boolean;
+  canEditPackingWeight: boolean;
+  canAddItemsToPacking: boolean;
+  canRemoveItemsFromPacking: boolean;
+  canClosePacking: boolean;
+  canTransitionPackingStatus: boolean;
+  canViewInvoice: boolean;
+  canGenerateInvoice: boolean;
+  canViewPayments: boolean;
+  canManagePayments: boolean;
+  canViewNovedades: boolean;
+  canCreateNovedades: boolean;
+  canRespondNovedades: boolean;
+  canViewPackingLocation: boolean;
+  canLinkDestinatario: boolean;
+  canUseRecepcion: boolean;
+  canViewCosts: boolean;
+  canViewProviderCost: boolean;
+};
+
+export type ShippingV2AccessContext = {
+  isAdmin: boolean;
+  mode: ShippingV2AccessMode;
+  providerId?: string;
+  providerCode?: string;
+  providerName?: string;
+  permissions: ShippingV2AccessPermissions;
 };
 
 export type ShippingV2Attachment = {

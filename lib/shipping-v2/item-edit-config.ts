@@ -97,3 +97,12 @@ export function isShippingV2ItemEditableField(field: string) {
   const config = getShippingV2ItemEditField(field);
   return Boolean(config && (config.category === "normal" || config.category === "special"));
 }
+
+export const SHIPPING_V2_PROVIDER_ITEM_EDITABLE_FIELDS = [
+  F.nombre,
+  F.observacionesInternas,
+] as const;
+
+export function isShippingV2ProviderItemEditableField(field: string) {
+  return SHIPPING_V2_PROVIDER_ITEM_EDITABLE_FIELDS.some((allowedField) => allowedField === field);
+}

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getShippingV2AccessContextForSession, getShippingV2PackingById, updateShippingV2Packing } from "@/lib/shipping-v2/airtable";
+import { canShippingV2, getShippingV2AccessContextForSession, getShippingV2PackingById, updateShippingV2Packing } from "@/lib/shipping-v2/airtable";
 import { SHIPPING_V2_PACKING_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ShippingV2PackingWriteInput } from "@/types/shipping-v2";
@@ -49,6 +49,11 @@ function parseInput(body: Record<string, unknown>): ShippingV2PackingWriteInput 
   return input;
 }
 
+function isWeightOnlyInput(input: ShippingV2PackingWriteInput) {
+  const keys = Object.keys(input).filter((key) => Object.prototype.hasOwnProperty.call(input, key));
+  return keys.length === 1 && keys[0] === "peso";
+}
+
 export async function GET(_request: Request, { params }: Params) {
   const { response, session } = await requireShippingV2Session();
   if (response) return response;
@@ -72,7 +77,11 @@ export async function PATCH(request: Request, { params }: Params) {
   try {
     const body = await request.json().catch(() => ({}));
     const access = await getShippingV2AccessContextForSession(session);
-    const packing = await updateShippingV2Packing(id, parseInput(body), {
+    const input = parseInput(body);
+    if (!canShippingV2(access, "canEditPacking") && !(isWeightOnlyInput(input) && canShippingV2(access, "canEditPackingWeight"))) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para editar packings." }, { status: 403 });
+    }
+    const packing = await updateShippingV2Packing(id, input, {
       actualizadoPor: getShippingV2SessionName(session),
       access,
     });

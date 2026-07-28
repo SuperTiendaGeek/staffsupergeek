@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getShippingV2AccessContextForSession, linkShippingV2DestinatarioToPacking } from "@/lib/shipping-v2/airtable";
+import { canShippingV2, getShippingV2AccessContextForSession, linkShippingV2DestinatarioToPacking } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,9 @@ export async function POST(request: Request, { params }: Params) {
     const destinatarioId = String(body.destinatarioId ?? "").trim();
     if (!destinatarioId) throw new Error("Selecciona un destinatario válido.");
     const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canLinkDestinatario")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para cambiar el destinatario del packing." }, { status: 403 });
+    }
     const result = await linkShippingV2DestinatarioToPacking(id, destinatarioId, {
       access,
       registradoPor: getShippingV2SessionName(session),

@@ -16,7 +16,7 @@ import {
   type ShippingV2ItemNavigation,
 } from "@/lib/shipping-v2/airtable";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
-import type { ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Pago, ShippingV2Proveedor } from "@/types/shipping-v2";
+import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Pago, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2ItemHeaderNavigation } from "./ShippingV2ItemHeaderNavigation";
 import { ShippingV2ItemDetailView, type ResolvedItem } from "../ShippingV2ItemsClient";
 
@@ -87,27 +87,29 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
   let packing: ShippingV2Packing | null = null;
   let proveedores: ShippingV2Proveedor[] = [];
   let novedades: ShippingV2Novedad[] = [];
+  let permissions: ShippingV2AccessPermissions | null = null;
   let navigation = emptyItemNavigation;
   let error = "";
   let notFound = false;
 
   try {
+    const access = await getShippingV2AccessContextForSession(session);
+    permissions = access.permissions;
     const [loadedItem, loadedProveedores, loadedNovedades, loadedNavigation] = await Promise.all([
-      getShippingV2ItemById(id),
+      getShippingV2ItemById(id, { access }),
       getShippingV2Proveedores(),
-      getShippingV2NovedadesForItem(id),
-      getShippingV2ItemNavigation(id).catch((navigationError) => {
+      getShippingV2NovedadesForItem(id, access),
+      getShippingV2ItemNavigation(id, access).catch((navigationError) => {
         console.warn("No se pudo cargar navegación de item Shipping V2:", navigationError);
         return emptyItemNavigation;
       }),
     ]);
-    proveedores = loadedProveedores;
+    proveedores = access.providerId ? loadedProveedores.filter((provider) => provider.id === access.providerId) : loadedProveedores;
     novedades = loadedNovedades;
     navigation = loadedNavigation;
     item = resolveItem(loadedItem, proveedores);
-    const access = await getShippingV2AccessContextForSession(session);
     const [loadedPago, loadedPacking] = await Promise.all([
-      item.pagoId ? getShippingV2PagoById(item.pagoId).catch((relatedError) => {
+      item.pagoId ? getShippingV2PagoById(item.pagoId, access).catch((relatedError) => {
         console.warn("No se pudo cargar pago relacionado del item Shipping V2:", relatedError);
         return null;
       }) : Promise.resolve(null),
@@ -145,7 +147,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
               </>
             }
           />
-          <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} esAdmin={isAdministratorRole(session.user.rol)} />
+          <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} esAdmin={isAdministratorRole(session.user.rol)} permissions={permissions} />
         </div>
       )}
     </StaffAppShell>

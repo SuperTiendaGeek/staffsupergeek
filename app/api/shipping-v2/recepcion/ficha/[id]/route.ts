@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { updateShippingV2ItemTechnicalSheet } from "@/lib/shipping-v2/airtable";
+import { canShippingV2, getShippingV2AccessContextForSession, updateShippingV2ItemTechnicalSheet } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ShippingV2TechnicalSheetInput } from "@/types/shipping-v2";
 
@@ -43,6 +43,10 @@ export async function PATCH(request: Request, { params }: Params) {
 
   try {
     const body = await request.json().catch(() => ({}));
+    const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canUseRecepcion")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para editar fichas técnicas." }, { status: 403 });
+    }
     const item = await updateShippingV2ItemTechnicalSheet(id, parseBody(body), {
       actualizadoPor: getShippingV2SessionName(session),
     });

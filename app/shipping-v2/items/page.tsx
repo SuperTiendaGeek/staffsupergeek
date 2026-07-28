@@ -1,6 +1,7 @@
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
-import { getShippingV2ItemsPage, getShippingV2Proveedores, type ShippingV2ItemsListSortKey } from "@/lib/shipping-v2/airtable";
-import type { ShippingV2Item, ShippingV2Proveedor } from "@/types/shipping-v2";
+import { getShippingV2AccessContextForSession, getShippingV2ItemsPage, getShippingV2Proveedores, type ShippingV2ItemsListSortKey } from "@/lib/shipping-v2/airtable";
+import { getSessionFromCookie } from "@/lib/session";
+import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2ItemsClient } from "./ShippingV2ItemsClient";
 
 export const dynamic = "force-dynamic";
@@ -78,25 +79,38 @@ function buildItemsPageHref(input: {
 export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
   let items: ShippingV2Item[] = [];
   let proveedores: ShippingV2Proveedor[] = [];
+  let permissions: ShippingV2AccessPermissions | null = null;
+  let providerName = "";
   let error = "";
   let nextOffset: string | undefined;
   const params = await searchParams;
   const currentCursor = cleanCursor(params?.cursor);
   const cursorStack = parseCursorStack(params?.prev);
-  const sortBy = parseSortKey(params?.sort);
+  let sortBy = parseSortKey(params?.sort);
 
   try {
+    const session = await getSessionFromCookie();
+    const access = await getShippingV2AccessContextForSession(session);
+    permissions = access.permissions;
+    providerName = access.providerName || access.providerCode || "";
+    if (
+      (!access.permissions.canViewProviderCost && sortBy === "costo-desc") ||
+      (!access.permissions.canViewCosts && sortBy === "precio-desc")
+    ) {
+      sortBy = "newest";
+    }
     const [itemsPage, proveedoresResult] = await Promise.all([
       getShippingV2ItemsPage({
         pageSize: SHIPPING_V2_ITEMS_PAGE_SIZE,
         offset: currentCursor,
         sortBy,
+        access,
       }),
       getShippingV2Proveedores(),
     ]);
     items = itemsPage.items;
     nextOffset = itemsPage.nextOffset;
-    proveedores = proveedoresResult;
+    proveedores = access.providerId ? proveedoresResult.filter((provider) => provider.id === access.providerId) : proveedoresResult;
   } catch (loadError) {
     console.error("Error al cargar items de Shipping V2:", loadError);
     error = loadError instanceof Error ? loadError.message : "No se pudieron cargar los items.";
@@ -120,6 +134,8 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
         items={items}
         proveedores={proveedores}
         error={error}
+        permissions={permissions}
+        providerName={providerName}
         initialSortBy={sortBy}
         pagination={{
           pageIndex,

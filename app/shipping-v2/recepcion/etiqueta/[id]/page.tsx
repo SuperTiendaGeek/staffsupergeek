@@ -1,5 +1,6 @@
-import { notFound } from "next/navigation";
-import { getShippingV2ItemById } from "@/lib/shipping-v2/airtable";
+import { notFound, redirect } from "next/navigation";
+import { getShippingV2AccessContextForSession, getShippingV2ItemById } from "@/lib/shipping-v2/airtable";
+import { getSessionFromCookie } from "@/lib/session";
 import { PrintSkuLabelButton } from "./PrintSkuLabelButton";
 
 type Props = {
@@ -95,9 +96,14 @@ function PrintableSkuLabel({ sku }: { sku: string }) {
 
 export default async function ShippingV2SkuLabelPage({ params }: Props) {
   const { id } = await params;
+  const session = await getSessionFromCookie();
+  const access = await getShippingV2AccessContextForSession(session);
+  if (!access.permissions.canUseRecepcion) {
+    redirect("/shipping-v2/packings");
+  }
 
   try {
-    const item = await getShippingV2ItemById(id, { includeAiName: false });
+    const item = await getShippingV2ItemById(id, { includeAiName: false, access });
     return <PrintableSkuLabel sku={item.sku?.trim() || "SKU no disponible"} />;
   } catch (error) {
     console.error("Error al cargar etiqueta SKU Shipping V2:", error);

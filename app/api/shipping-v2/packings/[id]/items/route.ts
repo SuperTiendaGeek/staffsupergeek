@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addItemsToShippingV2Packing, getShippingV2AccessContextForSession, removeItemFromShippingV2Packing } from "@/lib/shipping-v2/airtable";
+import { addItemsToShippingV2Packing, canShippingV2, getShippingV2AccessContextForSession, removeItemFromShippingV2Packing } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +23,9 @@ export async function POST(request: Request, { params }: Params) {
     const body = await request.json().catch(() => ({}));
     const itemIds = Array.isArray(body.itemIds) ? body.itemIds.map(String) : [];
     const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canAddItemsToPacking")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para agregar items al packing." }, { status: 403 });
+    }
     const result = await addItemsToShippingV2Packing(id, itemIds, {
       registradoPor: getShippingV2SessionName(session),
       access,
@@ -42,6 +45,9 @@ export async function DELETE(request: Request, { params }: Params) {
   try {
     const body = await request.json().catch(() => ({}));
     const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canRemoveItemsFromPacking")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para quitar items del packing." }, { status: 403 });
+    }
     const result = await removeItemFromShippingV2Packing(id, String(body.itemId ?? ""), {
       registradoPor: getShippingV2SessionName(session),
       access,

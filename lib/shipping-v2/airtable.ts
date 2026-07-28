@@ -2,6 +2,8 @@ import "server-only";
 
 import type {
   ShippingV2DashboardSummary,
+  ShippingV2AccessContext,
+  ShippingV2AccessPermissions,
   ShippingV2Attachment,
   ShippingV2ComputerCatalogCreateInput,
   ShippingV2ComputerCatalogEntry,
@@ -33,7 +35,7 @@ import type {
   ShippingV2TechnicalOption,
 } from "@/types/shipping-v2";
 import type { StaffSession } from "@/lib/session";
-import { canAccessApp, isAdministratorRole } from "@/lib/apps";
+import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
 import { getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
 import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
@@ -109,10 +111,109 @@ function invalidateShippingV2ItemSearchIndexCache() {
   shippingV2ItemSearchIndexCache = null;
 }
 
-export type ShippingV2AccessContext = {
-  isAdmin: boolean;
-  providerId?: string;
+const STAFF_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
+  canViewItems: true,
+  canEditItems: true,
+  canEditProviderItemFields: true,
+  canViewPackings: true,
+  canCreatePacking: true,
+  canEditPacking: true,
+  canEditPackingWeight: true,
+  canAddItemsToPacking: true,
+  canRemoveItemsFromPacking: true,
+  canClosePacking: true,
+  canTransitionPackingStatus: true,
+  canViewInvoice: true,
+  canGenerateInvoice: true,
+  canViewPayments: true,
+  canManagePayments: true,
+  canViewNovedades: true,
+  canCreateNovedades: true,
+  canRespondNovedades: true,
+  canViewPackingLocation: true,
+  canLinkDestinatario: true,
+  canUseRecepcion: true,
+  canViewCosts: true,
+  canViewProviderCost: true,
 };
+
+const NO_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
+  canViewItems: false,
+  canEditItems: false,
+  canEditProviderItemFields: false,
+  canViewPackings: false,
+  canCreatePacking: false,
+  canEditPacking: false,
+  canEditPackingWeight: false,
+  canAddItemsToPacking: false,
+  canRemoveItemsFromPacking: false,
+  canClosePacking: false,
+  canTransitionPackingStatus: false,
+  canViewInvoice: false,
+  canGenerateInvoice: false,
+  canViewPayments: false,
+  canManagePayments: false,
+  canViewNovedades: false,
+  canCreateNovedades: false,
+  canRespondNovedades: false,
+  canViewPackingLocation: false,
+  canLinkDestinatario: false,
+  canUseRecepcion: false,
+  canViewCosts: false,
+  canViewProviderCost: false,
+};
+
+function providerShippingV2Permissions(provider?: ShippingV2Proveedor): ShippingV2AccessPermissions {
+  return {
+    ...NO_SHIPPING_V2_PERMISSIONS,
+    canViewItems: true,
+    canEditProviderItemFields: true,
+    canViewPackings: true,
+    canEditPackingWeight: true,
+    canAddItemsToPacking: true,
+    canClosePacking: true,
+    canViewInvoice: true,
+    canViewPayments: true,
+    canViewNovedades: true,
+    canRespondNovedades: provider?.puedeResponderNovedadesGarantias === true,
+    canViewPackingLocation: true,
+    canViewProviderCost: true,
+  };
+}
+
+function staffShippingV2Access(): ShippingV2AccessContext {
+  return { isAdmin: true, mode: "staff", permissions: STAFF_SHIPPING_V2_PERMISSIONS };
+}
+
+function noShippingV2Access(): ShippingV2AccessContext {
+  return { isAdmin: false, mode: "none", permissions: NO_SHIPPING_V2_PERMISSIONS };
+}
+
+function providerShippingV2Access(provider: ShippingV2Proveedor): ShippingV2AccessContext {
+  return {
+    isAdmin: false,
+    mode: "provider",
+    providerId: provider.id,
+    providerCode: provider.proveedorId,
+    providerName: provider.nombre || provider.label,
+    permissions: providerShippingV2Permissions(provider),
+  };
+}
+
+export function isShippingV2ProviderAccess(access?: ShippingV2AccessContext) {
+  return Boolean(access && access.mode === "provider" && access.providerId);
+}
+
+export function canShippingV2(access: ShippingV2AccessContext | undefined, permission: keyof ShippingV2AccessPermissions) {
+  if (!access) return true;
+  return access.permissions[permission] === true;
+}
+
+export function assertShippingV2Permission(access: ShippingV2AccessContext | undefined, permission: keyof ShippingV2AccessPermissions, message: string) {
+  if (!canShippingV2(access, permission)) {
+    throw new Error(message);
+  }
+}
 
 function getRequiredEnv(name: "AIRTABLE_API_KEY" | "AIRTABLE_BASE_ID") {
   const value = process.env[name]?.trim();
@@ -563,7 +664,8 @@ function isOpenPackingStatus(status: string) {
 }
 
 function canAccessPacking(packing: Pick<ShippingV2Packing, "proveedorResponsableId" | "proveedorLogisticoEcId" | "transportistaUsa" | "transportistaEc">, access?: ShippingV2AccessContext) {
-  if (!access || access.isAdmin || !access.providerId) return true;
+  if (!access || access.isAdmin) return true;
+  if (!access.providerId) return false;
   return packing.proveedorResponsableId === access.providerId ||
     packing.proveedorLogisticoEcId === access.providerId ||
     packing.transportistaUsa === access.providerId ||
@@ -571,8 +673,52 @@ function canAccessPacking(packing: Pick<ShippingV2Packing, "proveedorResponsable
 }
 
 function canAccessItem(item: Pick<ShippingV2Item, "proveedorId" | "proveedorLogisticoId">, access?: ShippingV2AccessContext) {
-  if (!access || access.isAdmin || !access.providerId) return true;
+  if (!access || access.isAdmin) return true;
+  if (!access.providerId) return false;
   return item.proveedorId === access.providerId || item.proveedorLogisticoId === access.providerId;
+}
+
+function sanitizeShippingV2ItemForAccess(item: ShippingV2Item, access?: ShippingV2AccessContext, options?: { sanitizeForAccess?: boolean }) {
+  if (options?.sanitizeForAccess === false || canShippingV2(access, "canViewCosts")) return item;
+  const canViewProviderCost = canShippingV2(access, "canViewProviderCost");
+  const canEditProviderItemFields = canShippingV2(access, "canEditProviderItemFields");
+  return {
+    ...item,
+    costoProveedor: canViewProviderCost ? item.costoProveedor : null,
+    fletePacking: null,
+    arancelPacking: null,
+    otrosCostosPacking: null,
+    totalCostoProveedorPacking: null,
+    costoFleteAsignado: null,
+    costoArancelAsignado: null,
+    otrosCostosAsignados: null,
+    costoAsignadoDespiece: null,
+    costoLogisticoAsignado: null,
+    costoTotalUnidad: null,
+    costoTotalEstimado: null,
+    precioVentaSugerido: null,
+    precioVenta: null,
+    observacionesInternas: canEditProviderItemFields ? item.observacionesInternas : "",
+    legacyPagoId: "",
+    legacyPagoRelacionadoIds: [],
+    fuenteMigracion: "",
+    estadoMigracion: "",
+  };
+}
+
+function canAccessPago(pago: Pick<ShippingV2Pago, "proveedorId">, access?: ShippingV2AccessContext) {
+  if (!access || access.isAdmin) return true;
+  if (!access.providerId) return false;
+  return pago.proveedorId === access.providerId;
+}
+
+function canAccessNovedad(novedad: ShippingV2Novedad, access?: ShippingV2AccessContext, context?: { itemIds?: Set<string>; packingIds?: Set<string> }) {
+  if (!access || access.isAdmin) return true;
+  if (!access.providerId) return false;
+  if (novedad.proveedorResponsableIds.includes(access.providerId) || novedad.proveedorResponsableId === access.providerId) return true;
+  if (context?.itemIds && novedad.itemIds.some((itemId) => context.itemIds?.has(itemId))) return true;
+  if (context?.packingIds && novedad.packingIds.some((packingId) => context.packingIds?.has(packingId))) return true;
+  return false;
 }
 
 function generatePackingId() {
@@ -954,8 +1100,10 @@ function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
     puedeArmarPackings: firstBoolean(f[F.puedeArmarPackings] ?? f["Puede armar packings"]),
     puedeRecibirEncargosTerceros: firstBoolean(f[F.puedeRecibirEncargosTerceros] ?? f["Puede recibir encargos de terceros"]),
     permiteTriangulacion: firstBoolean(f[F.permiteTriangulacion] ?? f["Permite triangulación"] ?? f["Permite triangulacion"]),
+    permiteAccesoPortalProveedor: firstBoolean(f["Permite acceso portal proveedor"]),
+    puedeResponderNovedadesGarantias: firstBoolean(f["Puede responder novedades o garantías"] ?? f["Puede responder novedades o garantias"]),
     contacto: firstString(f.Contacto),
-    email: firstString(f.Email ?? f["Email de contacto"]),
+    email: firstString(f["Email proveedor"] ?? f.Email ?? f["Email de contacto"]),
     telefono: firstString(f.Telefono ?? f["Teléfono"] ?? f["Teléfono / WhatsApp"]),
     pais: firstString(f.Pais ?? f["País"] ?? tipoProveedor),
     paisZonaLogistica: firstString(f[F.paisZonaLogistica] ?? f["País / zona logística"]),
@@ -1061,7 +1209,7 @@ function rankComputerCatalogEntry(entry: ShippingV2ComputerCatalogEntry, brand: 
   return 100;
 }
 
-type MapItemOptions = { includeAiName?: boolean };
+type MapItemOptions = { includeAiName?: boolean; access?: ShippingV2AccessContext; sanitizeForAccess?: boolean };
 type MapPackingOptions = { includeItems?: boolean; includeAiName?: boolean };
 
 export type ShippingV2ItemNavigationEntry = Pick<ShippingV2Item, "id" | "sku" | "nombre">;
@@ -1234,6 +1382,21 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     actualizadoPor: firstString(f["Actualizado por"] ?? f["Actualizado Por"]),
     fotos: mapAttachments(f[F.fotos] ?? f.Foto ?? f.Imagenes ?? f["Imágenes"]),
     evidencias: mapAttachments(f[F.evidencias] ?? f.Evidencia),
+  };
+}
+
+function providerLabelFromMap(recordId: string | undefined, labelsById: Map<string, string>) {
+  if (!recordId) return "";
+  return labelsById.get(recordId)?.trim() || "";
+}
+
+function applyItemProviderLabels(item: ShippingV2Item, labelsById: Map<string, string>) {
+  const proveedorNombre = providerLabelFromMap(item.proveedorId, labelsById);
+  const proveedorLogisticoNombre = providerLabelFromMap(item.proveedorLogisticoId, labelsById);
+  return {
+    ...item,
+    proveedorNombre: proveedorNombre || item.proveedorNombre,
+    proveedorLogisticoNombre: proveedorLogisticoNombre || item.proveedorLogisticoNombre,
   };
 }
 
@@ -1429,9 +1592,18 @@ function invoiceDateStamp(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guayaquil", year: "numeric", month: "2-digit", day: "2-digit" }).format(date).replace(/-/g, "");
 }
 
-export async function getShippingV2Destinatarios() {
+export async function getShippingV2Destinatarios(access?: ShippingV2AccessContext) {
   const records = await listRecords(SHIPPING_V2_DESTINATARIOS_TABLE, { maxRecords: 500 });
-  return records.map(mapDestinatario);
+  const destinatarios = records.map(mapDestinatario);
+  if (!access || access.isAdmin) return destinatarios;
+  if (!access.providerId) return [];
+  const packings = await getShippingV2Packings(access);
+  const packingIds = new Set(packings.map((packing) => packing.id));
+  const packingLabels = new Set(packings.map((packing) => packing.packingId).filter(Boolean));
+  return destinatarios.filter((destinatario) =>
+    destinatario.packingIds.some((packingId) => packingIds.has(packingId)) ||
+    destinatario.packingLabels.some((label) => packingLabels.has(label))
+  );
 }
 
 export function findShippingV2PackingDestinatario(destinatarios: ShippingV2Destinatario[], packing: ShippingV2Packing) {
@@ -1494,19 +1666,24 @@ export async function getShippingV2Proveedores() {
 export async function getShippingV2AccessContextForSession(session: StaffSession | null): Promise<ShippingV2AccessContext> {
   const role = session?.user.rol;
   if (!session || isAdministratorRole(role) || ["manager", "gerente"].includes(normalizeStatus(role || ""))) {
-    return { isAdmin: true };
+    return session ? staffShippingV2Access() : noShippingV2Access();
   }
 
   const email = session.user.email.trim().toLowerCase();
-  if (!email) return { isAdmin: true };
+  const roleIsProvider = isProviderRole(role);
+  if (!email) return roleIsProvider ? noShippingV2Access() : staffShippingV2Access();
 
   const proveedores = await getShippingV2Proveedores();
   const provider = proveedores.find((item) => item.email?.trim().toLowerCase() === email);
 
   // Assumption: the current Staff session does not store a provider record id.
-  // Provider-limited access is enabled when the user's email matches a Shipping Proveedor email.
-  // Internal staff users without that match keep broad Shipping access until user-provider mapping exists.
-  return provider ? { isAdmin: false, providerId: provider.id } : { isAdmin: true };
+  // Provider access is derived from a Shipping Proveedor email match plus either
+  // the user role "Proveedor" or the provider portal-access checkbox.
+  if (provider && (roleIsProvider || provider.permiteAccesoPortalProveedor === true)) {
+    return providerShippingV2Access(provider);
+  }
+
+  return roleIsProvider ? noShippingV2Access() : staffShippingV2Access();
 }
 
 async function getShippingV2ProveedorById(recordId: string) {
@@ -1543,13 +1720,20 @@ function getShippingV2ItemsListSort(sortBy: ShippingV2ItemsListSortKey = "newest
 }
 
 export async function getShippingV2Items(options: MapItemOptions = {}) {
-  const records = await listRecords(SHIPPING_V2_TABLES.items, {
-    maxRecords: 200,
-    sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro,
-    sortDirection: "desc",
-  });
+  const [records, proveedores] = await Promise.all([
+    listRecords(SHIPPING_V2_TABLES.items, {
+      maxRecords: 200,
+      sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro,
+      sortDirection: "desc",
+    }),
+    getShippingV2Proveedores(),
+  ]);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
   return records
     .map((record) => mapItem(record, options))
+    .map((item) => applyItemProviderLabels(item, labelsById))
+    .filter((item) => canAccessItem(item, options.access))
+    .map((item) => sanitizeShippingV2ItemForAccess(item, options.access, options))
     .sort(compareShippingV2ItemListOrder);
 }
 
@@ -1560,15 +1744,46 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
 } = {}) {
   const pageSize = Math.min(Math.max(Math.trunc(options.pageSize ?? 100), 1), 100);
   const sort = getShippingV2ItemsListSort(options.sortBy);
-  const page = await listRecordsPage(SHIPPING_V2_TABLES.items, {
-    pageSize,
-    offset: options.offset,
-    sortField: sort.sortField,
-    sortDirection: sort.sortDirection,
-  });
+
+  if (options.access && !options.access.isAdmin) {
+    const [records, proveedores] = await Promise.all([
+      listRecords(SHIPPING_V2_TABLES.items, {
+        maxRecords: 200,
+        sortField: sort.sortField,
+        sortDirection: sort.sortDirection,
+      }),
+      getShippingV2Proveedores(),
+    ]);
+    const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+
+    return {
+      items: records
+        .map((record) => mapItem(record, options))
+        .map((item) => applyItemProviderLabels(item, labelsById))
+        .filter((item) => canAccessItem(item, options.access))
+        .map((item) => sanitizeShippingV2ItemForAccess(item, options.access, options)),
+      nextOffset: undefined,
+      pageSize,
+    };
+  }
+
+  const [page, proveedores] = await Promise.all([
+    listRecordsPage(SHIPPING_V2_TABLES.items, {
+      pageSize,
+      offset: options.offset,
+      sortField: sort.sortField,
+      sortDirection: sort.sortDirection,
+    }),
+    getShippingV2Proveedores(),
+  ]);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
 
   return {
-    items: page.records.map((record) => mapItem(record, options)),
+    items: page.records
+      .map((record) => mapItem(record, options))
+      .map((item) => applyItemProviderLabels(item, labelsById))
+      .filter((item) => canAccessItem(item, options.access))
+      .map((item) => sanitizeShippingV2ItemForAccess(item, options.access, options)),
     nextOffset: page.nextOffset,
     pageSize,
   };
@@ -1616,6 +1831,7 @@ function mapItemSearchEntry(
   context: {
     providerLabelsById: Map<string, string>;
     packingInfoById: Map<string, ShippingV2PackingSearchInfo>;
+    canViewCosts?: boolean;
   }
 ): ShippingV2ItemSearchEntry {
   const F = SHIPPING_V2_ITEM_FIELDS;
@@ -1650,7 +1866,7 @@ function mapItemSearchEntry(
     trackingDesdeIntermediario: firstString(f[F.trackingDesdeIntermediario]) || undefined,
     trackingUsa: packingInfo?.trackingUsa || undefined,
     trackingEc: packingInfo?.trackingEc || undefined,
-    precioVenta: firstNumber(f[F.precioVentaFinal]),
+    precioVenta: context.canViewCosts === false ? null : firstNumber(f[F.precioVentaFinal]),
     disponibilidad: searchEntryAvailability({ disponibleVenta, reservado }),
     ubicacionActual: firstString(f[F.ubicacionActual]) || undefined,
     fechaRegistro,
@@ -1658,9 +1874,19 @@ function mapItemSearchEntry(
   };
 }
 
-export async function getShippingV2ItemSearchIndex() {
+function canAccessItemRecord(record: AirtableRecord, access?: ShippingV2AccessContext) {
+  if (!access || access.isAdmin) return true;
+  if (!access.providerId) return false;
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const providerId = firstString(record.fields[F.proveedorCompra]);
+  const logisticsProviderId = firstString(record.fields[F.proveedorLogistico]);
+  return providerId === access.providerId || logisticsProviderId === access.providerId;
+}
+
+export async function getShippingV2ItemSearchIndex(access?: ShippingV2AccessContext) {
   const now = Date.now();
-  if (shippingV2ItemSearchIndexCache && shippingV2ItemSearchIndexCache.expiresAt > now) {
+  const canUseGlobalCache = !access || access.isAdmin;
+  if (canUseGlobalCache && shippingV2ItemSearchIndexCache && shippingV2ItemSearchIndexCache.expiresAt > now) {
     return {
       items: shippingV2ItemSearchIndexCache.items,
       generatedAt: shippingV2ItemSearchIndexCache.generatedAt,
@@ -1704,15 +1930,19 @@ export async function getShippingV2ItemSearchIndex() {
       getShippingV2PackingSearchInfoById(),
     ]);
 
-    const items = records.map((record) => mapItemSearchEntry(record, { providerLabelsById, packingInfoById }));
+    const items = records
+      .filter((record) => canAccessItemRecord(record, access))
+      .map((record) => mapItemSearchEntry(record, { providerLabelsById, packingInfoById, canViewCosts: canShippingV2(access, "canViewCosts") }));
     const generatedAt = new Date().toISOString();
 
     // Cache corto en memoria: evita releer todo Airtable en cada montaje y se invalida en mutaciones principales de Items.
-    shippingV2ItemSearchIndexCache = {
-      items,
-      generatedAt,
-      expiresAt: now + SHIPPING_V2_ITEM_SEARCH_INDEX_CACHE_MS,
-    };
+    if (canUseGlobalCache) {
+      shippingV2ItemSearchIndexCache = {
+        items,
+        generatedAt,
+        expiresAt: now + SHIPPING_V2_ITEM_SEARCH_INDEX_CACHE_MS,
+      };
+    }
 
     return { items, generatedAt };
   } catch (error) {
@@ -1744,9 +1974,9 @@ function toItemNavigationEntry(item: ShippingV2ItemListOrderEntry): ShippingV2It
   };
 }
 
-async function getShippingV2ItemNavigationEntries() {
+async function getShippingV2ItemNavigationEntries(access?: ShippingV2AccessContext) {
   const F = SHIPPING_V2_ITEM_FIELDS;
-  const fields = Array.from(new Set([getOfficialSkuField(), F.nombre, F.fechaRegistro]));
+  const fields = Array.from(new Set([getOfficialSkuField(), F.nombre, F.fechaRegistro, F.proveedorCompra, F.proveedorLogistico]));
   const records = await listRecords(SHIPPING_V2_TABLES.items, {
     maxRecords: 200,
     sortField: F.fechaRegistro,
@@ -1755,6 +1985,7 @@ async function getShippingV2ItemNavigationEntries() {
   });
 
   return records
+    .filter((record) => canAccessItemRecord(record, access))
     .map((record): ShippingV2ItemListOrderEntry => {
       const f = record.fields;
       return {
@@ -1769,9 +2000,9 @@ async function getShippingV2ItemNavigationEntries() {
     .map(toItemNavigationEntry);
 }
 
-export async function getShippingV2ItemNavigation(recordId: string): Promise<ShippingV2ItemNavigation> {
+export async function getShippingV2ItemNavigation(recordId: string, access?: ShippingV2AccessContext): Promise<ShippingV2ItemNavigation> {
   const id = cleanString(recordId);
-  const items = await getShippingV2ItemNavigationEntries();
+  const items = await getShippingV2ItemNavigationEntries(access);
   const currentIndex = id ? items.findIndex((item) => item.id === id) : -1;
 
   if (currentIndex < 0) {
@@ -1797,8 +2028,13 @@ export async function getShippingV2ItemById(recordId: string, options: MapItemOp
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
 
-  const record = await airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`);
-  const item = mapItem(record, options);
+  const [record, proveedores] = await Promise.all([
+    airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`),
+    getShippingV2Proveedores(),
+  ]);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+  const item = applyItemProviderLabels(mapItem(record, options), labelsById);
+  if (!canAccessItem(item, options.access)) throw new Error("No tienes acceso a este item.");
   if (process.env.NODE_ENV !== "production" && process.env.SHIPPING_V2_DEBUG_AI_NAME === "true" && options.includeAiName !== false) {
     console.info("[Shipping V2 AI Nombre]", {
       recordId: id,
@@ -1806,7 +2042,7 @@ export async function getShippingV2ItemById(recordId: string, options: MapItemOp
       mappedAiNombre: item.aiNombre,
     });
   }
-  return item;
+  return sanitizeShippingV2ItemForAccess(item, options.access, options);
 }
 
 export async function findShippingV2ItemBySku(skuValue: string) {
@@ -2232,17 +2468,20 @@ async function validateInlineItemFieldChange(input: {
   }
 }
 
-export async function updateShippingV2ItemField(recordId: string, input: { field: string; value: unknown; eventDescription?: string }, options: { actualizadoPor: string; esAdmin?: boolean }) {
+export async function updateShippingV2ItemField(recordId: string, input: { field: string; value: unknown; eventDescription?: string }, options: { actualizadoPor: string; esAdmin?: boolean; access?: ShippingV2AccessContext; allowedFields?: readonly string[] }) {
   assertShippingV2GeneratedSchema();
   const id = cleanString(recordId);
   const field = cleanString(input.field);
   if (!id) throw new Error("Record ID de item inválido.");
   if (!field) throw new Error("Campo inválido.");
+  if (options.allowedFields && !options.allowedFields.includes(field)) {
+    throw new Error("No tienes permiso para editar este campo.");
+  }
 
   const config = getShippingV2ItemEditField(field);
   if (!config) throw new Error("Campo no reconocido para Shipping Items.");
 
-  const existing = await getShippingV2ItemById(id);
+  const existing = await getShippingV2ItemById(id, { access: options.access, sanitizeForAccess: false });
   const normalizedValue = normalizeInlineValue(config.type, input.value);
   const esAdmin = options.esAdmin === true;
   await validateInlineItemFieldChange({ item: existing, recordId: id, field, rawValue: input.value, normalizedValue, esAdmin });
@@ -2270,6 +2509,7 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
   if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
 
   const item = mapItem(updated);
+  const visibleItem = sanitizeShippingV2ItemForAccess(item, options.access);
   if (shouldLogShippingV2ItemFieldEvent(config)) {
     // Las correcciones que solo puede hacer administración se marcan como tales
     // para poder auditarlas después: son excepciones al flujo, no operación normal.
@@ -2292,7 +2532,7 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
   }
 
   invalidateShippingV2ItemSearchIndexCache();
-  return item;
+  return visibleItem;
 }
 
 async function createShippingV2ItemRecord(
@@ -2734,29 +2974,35 @@ export async function updateShippingV2ItemTechnicalSheet(
   return item;
 }
 
-export async function getShippingV2Pagos() {
+export async function getShippingV2Pagos(access?: ShippingV2AccessContext) {
+  assertShippingV2Permission(access, "canViewPayments", "No tienes permiso para ver pagos de Shipping.");
   const [records, proveedores, items] = await Promise.all([
     listRecords(SHIPPING_V2_TABLES.pagos, { maxRecords: 200, sortField: SHIPPING_V2_PAYMENT_FIELDS.fechaCreacion, sortDirection: "desc" }),
     getShippingV2Proveedores(),
-    getShippingV2Items({ includeAiName: false }),
+    getShippingV2Items({ includeAiName: false, access, sanitizeForAccess: false }),
   ]);
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
   const itemsById = new Map(items.map((item) => [item.id, item]));
-  return records.map((record) => mapPago(record, { labelsById, itemsById }));
+  return records
+    .map((record) => mapPago(record, { labelsById, itemsById }))
+    .filter((pago) => canAccessPago(pago, access));
 }
 
-export async function getShippingV2PagoById(recordId: string) {
+export async function getShippingV2PagoById(recordId: string, access?: ShippingV2AccessContext) {
+  assertShippingV2Permission(access, "canViewPayments", "No tienes permiso para ver pagos de Shipping.");
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de pago inválido.");
   const [record, proveedores, items] = await Promise.all([
     airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.pagos)}/${encodeURIComponent(id)}`),
     getShippingV2Proveedores(),
-    getShippingV2Items({ includeAiName: false }),
+    getShippingV2Items({ includeAiName: false, access, sanitizeForAccess: false }),
   ]);
-  return mapPago(record, {
+  const pago = mapPago(record, {
     labelsById: createShippingV2ProveedorLabelMap(proveedores),
     itemsById: new Map(items.map((item) => [item.id, item])),
   });
+  if (!canAccessPago(pago, access)) throw new Error("No tienes acceso a este pago.");
+  return pago;
 }
 
 function isCancelledItem(item: Pick<ShippingV2Item, "estado" | "estadoRevision" | "estadoTriangulacion" | "estadoDespiece">) {
@@ -2860,10 +3106,10 @@ function computePagosSummary(porPagar: ShippingV2PagoPendingItem[], pagosPendien
   };
 }
 
-export async function getShippingV2PendingPaymentItems(context?: { pagos?: ShippingV2Pago[]; items?: ShippingV2Item[] }) {
+export async function getShippingV2PendingPaymentItems(context?: { pagos?: ShippingV2Pago[]; items?: ShippingV2Item[]; access?: ShippingV2AccessContext }) {
   const [pagos, items] = await Promise.all([
-    context?.pagos ? Promise.resolve(context.pagos) : getShippingV2Pagos(),
-    context?.items ? Promise.resolve(context.items) : getShippingV2Items({ includeAiName: false }),
+    context?.pagos ? Promise.resolve(context.pagos) : getShippingV2Pagos(context?.access),
+    context?.items ? Promise.resolve(context.items) : getShippingV2Items({ includeAiName: false, access: context?.access }),
   ]);
   const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
   return items
@@ -2905,18 +3151,20 @@ function getPaidItemsWithoutSupport(items: ShippingV2Item[], pagosById: Map<stri
     });
 }
 
-export async function getShippingV2PagosWorkspace(): Promise<ShippingV2PagosWorkspace> {
+export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessContext): Promise<ShippingV2PagosWorkspace> {
+  assertShippingV2Permission(access, "canViewPayments", "No tienes permiso para ver pagos de Shipping.");
   const [pagos, proveedores, items] = await Promise.all([
-    getShippingV2Pagos(),
+    getShippingV2Pagos(access),
     getShippingV2Proveedores(),
-    getShippingV2Items({ includeAiName: false }),
+    getShippingV2Items({ includeAiName: false, access }),
   ]);
   const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
-  const itemsPendientes = await getShippingV2PendingPaymentItems({ pagos, items });
+  const canManagePayments = canShippingV2(access, "canManagePayments");
+  const itemsPendientes = canManagePayments ? await getShippingV2PendingPaymentItems({ pagos, items, access }) : [];
   const pagosPendientes = pagos.filter(isPendingPayment);
   const pagosPagados = pagos.filter((pago) => normalizeStatus(String(pago.estadoPago)) === "pagado");
   const pagosCompletos = pagosPagados.filter(isCompletePaidPayment);
-  const pagosIncompletos: Extract<ShippingV2PagoSupportCard, { kind: "pago" }>[] = pagosPagados
+  const pagosIncompletos: Extract<ShippingV2PagoSupportCard, { kind: "pago" }>[] = canManagePayments ? pagosPagados
     .filter((pago) => !isCompletePaidPayment(pago))
     .map((pago): Extract<ShippingV2PagoSupportCard, { kind: "pago" }> => ({
       kind: "pago",
@@ -2926,12 +3174,14 @@ export async function getShippingV2PagosWorkspace(): Promise<ShippingV2PagosWork
       proveedorNombre: pago.proveedorNombre,
       total: pago.totalPagado ?? pago.totalAPagar,
       missing: getPaymentSupportMissing(pago),
-    }));
-  const itemsPagadosSinPago = getPaidItemsWithoutSupport(items, pagosById).filter((card): card is Extract<ShippingV2PagoSupportCard, { kind: "item" }> => card.kind === "item");
+    })) : [];
+  const itemsPagadosSinPago = canManagePayments
+    ? getPaidItemsWithoutSupport(items, pagosById).filter((card): card is Extract<ShippingV2PagoSupportCard, { kind: "item" }> => card.kind === "item")
+    : [];
   const pagadosSinSoporte = [...itemsPagadosSinPago, ...pagosIncompletos];
   return {
     pagos,
-    proveedores,
+    proveedores: access?.providerId ? proveedores.filter((provider) => provider.id === access.providerId) : proveedores,
     itemsPendientes,
     porPagar: itemsPendientes,
     pagosPendientes,
@@ -2983,7 +3233,8 @@ async function assertItemsCanJoinPayment(itemIds: string[], regalosIds: string[]
   return { items, gifts };
 }
 
-export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, options: { registradoPor: string }) {
+export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, options: { registradoPor: string; access?: ShippingV2AccessContext }) {
+  assertShippingV2Permission(options.access, "canManagePayments", "No tienes permiso para crear pagos de Shipping.");
   assertShippingV2GeneratedSchema();
   const proveedorId = cleanString(input.proveedorId);
   if (!proveedorId) throw new Error("Proveedor es obligatorio.");
@@ -3027,7 +3278,7 @@ export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, opti
   });
   const created = response.records?.[0];
   if (!created) throw new Error("Airtable no devolvió el pago creado.");
-  const pago = await getShippingV2PagoById(created.id);
+  const pago = await getShippingV2PagoById(created.id, options.access);
   if (estadoPago === "Pagado") {
     return markShippingV2PagoAsPaid(pago.id, input, options);
   }
@@ -3126,8 +3377,9 @@ async function updateItemsToPaidAfterPayment(pago: Pick<ShippingV2Pago, "itemIds
   }
 }
 
-export async function markShippingV2PagoAsPaid(recordId: string, input: ShippingV2PagoMarkPaidInput, options: { registradoPor: string }) {
-  const pago = await getShippingV2PagoById(recordId);
+export async function markShippingV2PagoAsPaid(recordId: string, input: ShippingV2PagoMarkPaidInput, options: { registradoPor: string; access?: ShippingV2AccessContext }) {
+  assertShippingV2Permission(options.access, "canManagePayments", "No tienes permiso para marcar pagos de Shipping.");
+  const pago = await getShippingV2PagoById(recordId, options.access);
   const status = normalizeStatus(String(pago.estadoPago));
   if (status === "anulado") throw new Error("Un pago Anulado no puede marcarse como pagado.");
   if (normalizeStatus(String(pago.estadoIntegracionFinanzas)).includes("sincronizado")) throw new Error("No se puede modificar un pago ya sincronizado con Finanzas.");
@@ -3152,21 +3404,23 @@ export async function markShippingV2PagoAsPaid(recordId: string, input: Shipping
     body: JSON.stringify({ records: [{ id: pago.id, fields }] }),
   });
   await updateItemsToPaidAfterPayment(pago);
-  return getShippingV2PagoById(pago.id);
+  return getShippingV2PagoById(pago.id, options.access);
 }
 
-export async function setShippingV2PagoInReview(recordId: string, options: { registradoPor: string }) {
-  const pago = await getShippingV2PagoById(recordId);
+export async function setShippingV2PagoInReview(recordId: string, options: { registradoPor: string; access?: ShippingV2AccessContext }) {
+  assertShippingV2Permission(options.access, "canManagePayments", "No tienes permiso para cambiar pagos de Shipping.");
+  const pago = await getShippingV2PagoById(recordId, options.access);
   if (["pagado", "anulado"].includes(normalizeStatus(String(pago.estadoPago)))) throw new Error("Este pago no permite enviarse a revisión.");
   await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.pagos), {
     method: "PATCH",
     body: JSON.stringify({ records: [{ id: pago.id, fields: { [SHIPPING_V2_PAYMENT_FIELDS.estadoPago]: "En revisión" } }] }),
   });
-  return getShippingV2PagoById(pago.id);
+  return getShippingV2PagoById(pago.id, options.access);
 }
 
-export async function cancelShippingV2Pago(recordId: string, input: { motivo?: string }, options: { registradoPor: string }) {
-  const pago = await getShippingV2PagoById(recordId);
+export async function cancelShippingV2Pago(recordId: string, input: { motivo?: string }, options: { registradoPor: string; access?: ShippingV2AccessContext }) {
+  assertShippingV2Permission(options.access, "canManagePayments", "No tienes permiso para anular pagos de Shipping.");
+  const pago = await getShippingV2PagoById(recordId, options.access);
   if (normalizeStatus(String(pago.estadoPago)) === "pagado" && pago.movimientoFinanzasIds.length) {
     throw new Error("No se puede anular libremente un pago pagado con movimiento financiero.");
   }
@@ -3185,7 +3439,7 @@ export async function cancelShippingV2Pago(recordId: string, input: { motivo?: s
       }],
     }),
   });
-  return getShippingV2PagoById(pago.id);
+  return getShippingV2PagoById(pago.id, options.access);
 }
 
 function packingFieldsFromInput(input: ShippingV2PackingWriteInput, extra: Record<string, unknown> = {}) {
@@ -3340,11 +3594,14 @@ export async function getShippingV2PackingById(recordId: string, access?: Shippi
   packing.items = itemRecords
     .filter((record): record is AirtableRecord => Boolean(record))
     .map((record) => mapItem(record, { includeAiName: options.includeAiName !== false }))
-    .filter((item) => canAccessItem(item, access));
+    .map((item) => applyItemProviderLabels(item, labelsById))
+    .filter((item) => canAccessItem(item, access))
+    .map((item) => sanitizeShippingV2ItemForAccess(item, access));
   return packing;
 }
 
 export async function getShippingV2PackingInvoiceData(recordId: string, access?: ShippingV2AccessContext): Promise<ShippingV2PackingInvoiceData> {
+  assertShippingV2Permission(access, "canViewInvoice", "No tienes permiso para ver la factura de este packing.");
   const packing = await getShippingV2PackingById(recordId, access, { includeAiName: false });
   if (!packing) throw new Error("Packing no encontrado.");
   if (!packing.items.length) throw new Error("Este packing no tiene items vinculados. Agrega items antes de generar la factura.");
@@ -3436,6 +3693,7 @@ export async function linkShippingV2DestinatarioToPacking(
   destinatarioId: string,
   options: { registradoPor: string; access?: ShippingV2AccessContext }
 ) {
+  assertShippingV2Permission(options.access, "canLinkDestinatario", "No tienes permiso para cambiar el destinatario del packing.");
   const packing = await getShippingV2PackingById(packingId, options.access, { includeAiName: false });
   const record = await getRecordById(SHIPPING_V2_DESTINATARIOS_TABLE, cleanString(destinatarioId));
   if (!record) throw new Error("Destinatario no encontrado.");
@@ -3478,7 +3736,9 @@ export async function attachShippingV2PackingInvoice(input: {
   pdfBytes: Uint8Array;
   registradoPor: string;
   invoiceNumber: string;
+  access?: ShippingV2AccessContext;
 }) {
+  assertShippingV2Permission(input.access, "canGenerateInvoice", "No tienes permiso para generar facturas de packing.");
   await uploadAttachmentToRecord({
     recordId: input.packingId,
     attachmentFieldIdOrName: SHIPPING_V2_PACKING_INVOICE_FIELD,
@@ -3503,6 +3763,7 @@ export async function attachShippingV2PackingInvoice(input: {
 }
 
 export async function createShippingV2Packing(input: ShippingV2PackingWriteInput, options: { creadoPor: string; access?: ShippingV2AccessContext }) {
+  assertShippingV2Permission(options.access, "canCreatePacking", "No tienes permiso para crear packings.");
   assertShippingV2GeneratedSchema();
   validateOptionalWeight(input.peso);
   await validatePackingLogisticsProvider(input.proveedorLogisticoEcId);
@@ -3543,7 +3804,17 @@ export async function createShippingV2Packing(input: ShippingV2PackingWriteInput
   return packing;
 }
 
+function isPackingWeightOnlyInput(input: ShippingV2PackingWriteInput) {
+  const keys = Object.keys(input).filter((key) => Object.prototype.hasOwnProperty.call(input, key));
+  return keys.length === 1 && keys[0] === "peso";
+}
+
 export async function updateShippingV2Packing(recordId: string, input: ShippingV2PackingWriteInput, options: { actualizadoPor: string; access?: ShippingV2AccessContext }) {
+  const canEditPacking = canShippingV2(options.access, "canEditPacking");
+  const canEditWeightOnly = isPackingWeightOnlyInput(input) && canShippingV2(options.access, "canEditPackingWeight");
+  if (!canEditPacking && !canEditWeightOnly) {
+    throw new Error("No tienes permiso para editar packings.");
+  }
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de packing inválido.");
   const existing = await getShippingV2PackingById(id, options.access, { includeItems: false, includeAiName: false });
@@ -3615,8 +3886,7 @@ function getPackingCandidateDiagnostics(items: ShippingV2Item[], packing: Shippi
 
 export async function getShippingV2PackingCandidateItems(packingId: string, access?: ShippingV2AccessContext) {
   const packing = await getShippingV2PackingById(packingId, access, { includeItems: false, includeAiName: false });
-  const items = await getShippingV2Items({ includeAiName: false });
-  const scopedItems = items.filter((item) => canAccessItem(item, access));
+  const scopedItems = await getShippingV2Items({ includeAiName: false, access });
   if (process.env.NODE_ENV !== "production" && process.env.SHIPPING_V2_DEBUG_PACKINGS === "true") {
     console.info("[Shipping V2 Packings candidatos]", {
       packingId: packing.id,
@@ -3629,6 +3899,7 @@ export async function getShippingV2PackingCandidateItems(packingId: string, acce
 }
 
 export async function addItemsToShippingV2Packing(packingId: string, itemIds: string[], options: { registradoPor: string; access?: ShippingV2AccessContext }) {
+  assertShippingV2Permission(options.access, "canAddItemsToPacking", "No tienes permiso para agregar items al packing.");
   const id = cleanString(packingId);
   const uniqueItemIds = Array.from(new Set(itemIds.map(cleanString).filter(Boolean)));
   if (!id) throw new Error("Record ID de packing inválido.");
@@ -3637,7 +3908,7 @@ export async function addItemsToShippingV2Packing(packingId: string, itemIds: st
   const packing = await getShippingV2PackingById(id, options.access, { includeItems: false, includeAiName: false });
   if (!isOpenPackingStatus(packing.estado)) throw new Error("Este packing ya no permite modificar items desde vista normal.");
 
-  const items = await Promise.all(uniqueItemIds.map((itemId) => getShippingV2ItemById(itemId, { includeAiName: false })));
+  const items = await Promise.all(uniqueItemIds.map((itemId) => getShippingV2ItemById(itemId, { includeAiName: false, access: options.access })));
   for (const item of items) {
     if (!canAccessItem(item, options.access)) throw new Error(`No tienes acceso al item ${item.sku}.`);
     if (item.packingId && item.packingId !== id) throw new Error(`El item ${item.sku} ya está asignado a otro packing.`);
@@ -3706,13 +3977,14 @@ export async function addItemsToShippingV2Packing(packingId: string, itemIds: st
 }
 
 export async function removeItemFromShippingV2Packing(packingId: string, itemId: string, options: { registradoPor: string; access?: ShippingV2AccessContext }) {
+  assertShippingV2Permission(options.access, "canRemoveItemsFromPacking", "No tienes permiso para quitar items del packing.");
   const id = cleanString(packingId);
   const itemRecordId = cleanString(itemId);
   if (!id || !itemRecordId) throw new Error("Packing o item inválido.");
   const packing = await getShippingV2PackingById(id, options.access, { includeItems: false, includeAiName: false });
   if (!isOpenPackingStatus(packing.estado)) throw new Error("Este packing ya no permite modificar items desde vista normal.");
   if (!packing.itemIds.includes(itemRecordId)) throw new Error("El item no pertenece a este packing.");
-  const item = await getShippingV2ItemById(itemRecordId, { includeAiName: false });
+  const item = await getShippingV2ItemById(itemRecordId, { includeAiName: false, access: options.access });
   if (!canAccessItem(item, options.access)) throw new Error("No tienes acceso a este item.");
 
   const nextItemIds = packing.itemIds.filter((value) => value !== itemRecordId);
@@ -3773,6 +4045,7 @@ export async function removeItemFromShippingV2Packing(packingId: string, itemId:
 }
 
 export async function closeShippingV2Packing(packingId: string, options: { cerradoPor: string; access?: ShippingV2AccessContext }) {
+  assertShippingV2Permission(options.access, "canClosePacking", "No tienes permiso para cerrar packings.");
   const id = cleanString(packingId);
   if (!id) throw new Error("Record ID de packing inválido.");
   const packing = await getShippingV2PackingById(id, options.access);
@@ -4033,6 +4306,8 @@ export async function transitionShippingV2PackingStatus(
     return closeShippingV2Packing(id, { cerradoPor: input.actor, access: input.access });
   }
 
+  assertShippingV2Permission(input.access, "canTransitionPackingStatus", "No tienes permiso para cambiar este estado del packing.");
+
   if (input.action === "mark-in-transit") {
     if (currentStatus !== "cerrado") throw new Error("Solo puedes marcar en tránsito un packing cerrado.");
     await updatePackingItemsForStatus(packing, {
@@ -4172,6 +4447,7 @@ export async function createShippingV2PackingNovedad(
   input: ShippingV2PackingNovedadInput,
   options: { registradoPor: string; access?: ShippingV2AccessContext }
 ) {
+  assertShippingV2Permission(options.access, "canCreateNovedades", "No tienes permiso para registrar novedades.");
   const id = cleanString(packingId);
   if (!id) throw new Error("Record ID de packing inválido.");
   const tipo = cleanString(input.tipo);
@@ -4232,19 +4508,31 @@ export async function getShippingV2Recepciones() {
   return records.map(mapRecepcion);
 }
 
-export async function getShippingV2Novedades() {
+export async function getShippingV2Novedades(access?: ShippingV2AccessContext) {
   const records = await listRecords(SHIPPING_V2_TABLES.novedades, { maxRecords: 200 });
-  return records.map(mapNovedad);
+  const novedades = records.map(mapNovedad);
+  if (!access || access.isAdmin) return novedades;
+  if (!access.providerId) return [];
+  const [items, packings] = await Promise.all([
+    getShippingV2Items({ includeAiName: false, access }),
+    getShippingV2Packings(access),
+  ]);
+  return novedades.filter((novedad) => canAccessNovedad(novedad, access, {
+    itemIds: new Set(items.map((item) => item.id)),
+    packingIds: new Set(packings.map((packing) => packing.id)),
+  }));
 }
 
-export async function getShippingV2NovedadesForItem(itemRecordId: string) {
+export async function getShippingV2NovedadesForItem(itemRecordId: string, access?: ShippingV2AccessContext) {
   const itemId = cleanString(itemRecordId);
   if (!itemId) return [];
+  await getShippingV2ItemById(itemId, { includeAiName: false, access });
 
   const records = await listRecords(SHIPPING_V2_TABLES.novedades, { maxRecords: 500 });
   return records
     .map(mapNovedad)
     .filter((novedad) => novedad.itemIds.includes(itemId))
+    .filter((novedad) => canAccessNovedad(novedad, access, { itemIds: new Set([itemId]) }))
     .sort((a, b) => {
       const bTime = Date.parse(b.fechaRegistro || b.createdTime || "");
       const aTime = Date.parse(a.fechaRegistro || a.createdTime || "");
@@ -4321,12 +4609,12 @@ export async function marcarShippingV2ItemDisponible(
   return itemActualizado;
 }
 
-export async function getShippingV2DashboardSummary(): Promise<ShippingV2DashboardSummary> {
+export async function getShippingV2DashboardSummary(access?: ShippingV2AccessContext): Promise<ShippingV2DashboardSummary> {
   const [items, pagos, packings, novedades] = await Promise.all([
-    getShippingV2Items(),
-    getShippingV2Pagos(),
-    getShippingV2Packings(),
-    getShippingV2Novedades(),
+    getShippingV2Items({ access }),
+    canShippingV2(access, "canViewPayments") ? getShippingV2Pagos(access) : Promise.resolve([]),
+    getShippingV2Packings(access),
+    getShippingV2Novedades(access),
   ]);
 
   return {

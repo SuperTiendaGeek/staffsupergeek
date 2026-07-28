@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { marcarShippingV2ItemDisponible } from "@/lib/shipping-v2/airtable";
+import { canShippingV2, getShippingV2AccessContextForSession, marcarShippingV2ItemDisponible } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,10 @@ export async function POST(_request: Request, { params }: Params) {
   const { id } = await params;
 
   try {
+    const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canUseRecepcion")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para usar recepción." }, { status: 403 });
+    }
     const item = await marcarShippingV2ItemDisponible(id, {
       actualizadoPor: getShippingV2SessionName(session),
     });

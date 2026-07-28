@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addFotosToShippingV2Item, createShippingV2Item, getShippingV2Items, type ShippingV2AttachmentUpload } from "@/lib/shipping-v2/airtable";
+import { addFotosToShippingV2Item, canShippingV2, createShippingV2Item, getShippingV2AccessContextForSession, getShippingV2Items, type ShippingV2AttachmentUpload } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ShippingV2ItemWriteInput } from "@/types/shipping-v2";
 
@@ -98,11 +98,12 @@ async function parseFotos(formData: FormData): Promise<ShippingV2AttachmentUploa
 }
 
 export async function GET() {
-  const { response } = await requireShippingV2Session();
+  const { response, session } = await requireShippingV2Session();
   if (response) return response;
 
   try {
-    const items = await getShippingV2Items();
+    const access = await getShippingV2AccessContextForSession(session);
+    const items = await getShippingV2Items({ access });
     return NextResponse.json({ success: true, data: items });
   } catch (error) {
     console.error("Error al obtener items Shipping V2:", error);
@@ -118,6 +119,10 @@ export async function POST(request: Request) {
   if (response) return response;
 
   try {
+    const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canEditItems")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para crear items." }, { status: 403 });
+    }
     const contentType = request.headers.get("content-type") || "";
     let body: Record<string, unknown>;
     let fotos: ShippingV2AttachmentUpload[] = [];
