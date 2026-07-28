@@ -18,7 +18,7 @@ import type {
   ShippingV2Proveedor,
 } from "@/types/shipping-v2";
 
-const STAFF_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
+export const STAFF_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
   canViewItems: true,
   canEditItems: true,
   canEditProviderItemFields: true,
@@ -44,7 +44,7 @@ const STAFF_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
   canViewProviderCost: true,
 };
 
-const NO_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
+export const NO_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
   canViewItems: false,
   canEditItems: false,
   canEditProviderItemFields: false,
@@ -70,22 +70,64 @@ const NO_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
   canViewProviderCost: false,
 };
 
-function providerShippingV2Permissions(provider?: ShippingV2Proveedor): ShippingV2AccessPermissions {
-  return {
-    ...NO_SHIPPING_V2_PERMISSIONS,
-    canViewItems: true,
-    canEditProviderItemFields: true,
-    canViewPackings: true,
-    canEditPackingWeight: true,
-    canAddItemsToPacking: true,
-    canClosePacking: true,
-    canViewInvoice: true,
-    canViewPayments: true,
-    canViewNovedades: true,
-    canRespondNovedades: provider?.puedeResponderNovedadesGarantias === true,
-    canViewPackingLocation: true,
-    canViewProviderCost: true,
-  };
+// ─── Permisos que se configuran por proveedor desde Airtable ─────────────────
+//
+// Campo "Permisos portal proveedor" (multipleSelects) en Shipping Proveedores.
+// La etiqueta es la que ve el dueño del negocio al marcar; el valor es el
+// permiso interno. Lo que NO está en esta lista no se le puede dar a un
+// proveedor por configuración: crear packings, quitar artículos, gestionar
+// pagos, usar Recepción, ver los costos internos o facturar son de staff.
+export const PERMISOS_PORTAL_PROVEEDOR = {
+  "Ver artículos": "canViewItems",
+  "Editar nombre y observaciones": "canEditProviderItemFields",
+  "Ver packings": "canViewPackings",
+  "Editar peso del packing": "canEditPackingWeight",
+  "Agregar artículos al packing": "canAddItemsToPacking",
+  "Cerrar packing": "canClosePacking",
+  "Ver factura del packing": "canViewInvoice",
+  "Ver pagos": "canViewPayments",
+  "Ver novedades": "canViewNovedades",
+  "Responder novedades": "canRespondNovedades",
+  "Ver ubicación del packing": "canViewPackingLocation",
+  "Ver su costo de proveedor": "canViewProviderCost",
+} as const satisfies Record<string, keyof ShippingV2AccessPermissions>;
+
+export type EtiquetaPermisoProveedor = keyof typeof PERMISOS_PORTAL_PROVEEDOR;
+
+export const ETIQUETAS_PERMISO_PROVEEDOR = Object.keys(
+  PERMISOS_PORTAL_PROVEEDOR
+) as EtiquetaPermisoProveedor[];
+
+function normalizarEtiqueta(valor: string): string {
+  return valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+const PERMISO_POR_ETIQUETA_NORMALIZADA = new Map<string, keyof ShippingV2AccessPermissions>(
+  Object.entries(PERMISOS_PORTAL_PROVEEDOR).map(([etiqueta, permiso]) => [
+    normalizarEtiqueta(etiqueta),
+    permiso as keyof ShippingV2AccessPermissions,
+  ])
+);
+
+/**
+ * Traduce lo marcado en Airtable al conjunto de permisos del proveedor.
+ *
+ * Sin nada marcado: NO puede hacer nada. Dar de alta un proveedor y olvidarse
+ * de marcar permisos no debe concederle acceso por accidente.
+ */
+export function providerShippingV2Permissions(
+  provider?: Pick<ShippingV2Proveedor, "permisosPortal">
+): ShippingV2AccessPermissions {
+  const permisos: ShippingV2AccessPermissions = { ...NO_SHIPPING_V2_PERMISSIONS };
+  for (const etiqueta of provider?.permisosPortal ?? []) {
+    const permiso = PERMISO_POR_ETIQUETA_NORMALIZADA.get(normalizarEtiqueta(etiqueta));
+    if (permiso) permisos[permiso] = true;
+  }
+  return permisos;
 }
 
 // ─── Contextos ───────────────────────────────────────────────────────────────

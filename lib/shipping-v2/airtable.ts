@@ -126,6 +126,8 @@ export {
   canShippingV2,
   assertShippingV2Permission,
   isShippingV2ProviderAccess,
+  PERMISOS_PORTAL_PROVEEDOR,
+  ETIQUETAS_PERMISO_PROVEEDOR,
 } from "@/lib/shipping-v2/access";
 
 function getRequiredEnv(name: "AIRTABLE_API_KEY" | "AIRTABLE_BASE_ID") {
@@ -1006,6 +1008,7 @@ function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
     puedeRecibirEncargosTerceros: firstBoolean(f[F.puedeRecibirEncargosTerceros] ?? f["Puede recibir encargos de terceros"]),
     permiteTriangulacion: firstBoolean(f[F.permiteTriangulacion] ?? f["Permite triangulación"] ?? f["Permite triangulacion"]),
     permiteAccesoPortalProveedor: firstBoolean(f["Permite acceso portal proveedor"]),
+    permisosPortal: stringArray(f["Permisos portal proveedor"]),
     puedeResponderNovedadesGarantias: firstBoolean(f["Puede responder novedades o garantías"] ?? f["Puede responder novedades o garantias"]),
     contacto: firstString(f.Contacto),
     email: firstString(f["Email proveedor"] ?? f.Email ?? f["Email de contacto"]),

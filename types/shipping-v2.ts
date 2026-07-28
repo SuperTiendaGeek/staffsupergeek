@@ -169,6 +169,12 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   permiteTriangulacion: boolean | null;
   permiteAccesoPortalProveedor: boolean | null;
   puedeResponderNovedadesGarantias: boolean | null;
+  /**
+   * Lo marcado en "Permisos portal proveedor" (Shipping Proveedores). Define
+   * qué puede hacer ESTE proveedor dentro del portal. Vacío = no puede nada.
+   * Las etiquetas válidas están en lib/shipping-v2/access.ts.
+   */
+  permisosPortal: string[];
   contacto?: string;
   email?: string;
   telefono?: string;
