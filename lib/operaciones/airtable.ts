@@ -17,6 +17,7 @@ import { createShippingV2ItemFromOperacion } from "@/lib/shipping-v2/airtable";
 import { normalizeCedula } from "@/lib/clientes/normalizeCedula";
 import { calcularTotalCotizado } from "@/lib/operaciones/cobro";
 import { validarOpcion } from "@/lib/operaciones/opciones";
+import { elegirSiguienteIdAbono } from "@/lib/operaciones/id-abono";
 
 type AirtableRecord = {
   id: string;
@@ -349,30 +350,26 @@ export async function fetchOperacionDetalle(id: string): Promise<OperacionDetall
     };
   };
 
-  const fetchArticuloFisico = async (): Promise<ShippingItemResumen | null> => {
-    if (articuloFisicoIds.length === 0) return null;
-    const itemId = articuloFisicoIds[0];
-    const url = new URL(
-      `${client.baseUrl}/${encodeURIComponent(SHIPPING_ITEMS_TABLE)}/${encodeURIComponent(itemId)}`
-    );
-    url.searchParams.append("fields[]", "Nombre del item");
-    url.searchParams.append("fields[]", "Estado Item");
-    const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
-    if (!res.ok) return null;
-    const rec = (await res.json()) as AirtableRecord;
-    return {
+  // "Artículo físico" es un link MÚLTIPLE: una operación puede haber generado
+  // varios artículos. Antes solo se leía el primero (`[0]`) y el resto era
+  // invisible en la pantalla, aunque la cuenta unificada sí los sumaba todos —
+  // la operación mostraba un artículo y cobraba por varios.
+  const fetchArticulosFisicos = async (): Promise<ShippingItemResumen[]> => {
+    if (articuloFisicoIds.length === 0) return [];
+    const records = await fetchByIds(client, SHIPPING_ITEMS_TABLE, articuloFisicoIds);
+    return records.map((rec) => ({
       id: rec.id,
       nombre: firstString(rec.fields["Nombre del item"]),
       estadoItem: firstString(rec.fields["Estado Item"], "Registrado"),
-    };
+    }));
   };
 
-  const [opcionesRecords, abonosOpRecords, { ordenVinculada, ordenRecord }, articuloFisico] =
+  const [opcionesRecords, abonosOpRecords, { ordenVinculada, ordenRecord }, articulosFisicos] =
     await Promise.all([
       fetchByIds(client, OPCIONES_TABLE, opcionIds),
       fetchByIds(client, ABONOS_TABLE, abonosOpIds),
       fetchOrden(),
-      fetchArticuloFisico(),
+      fetchArticulosFisicos(),
     ]);
 
   // 3. Fetch abonos linked to the order, if any
@@ -431,7 +428,7 @@ export async function fetchOperacionDetalle(id: string): Promise<OperacionDetall
     estadoInstalacion: firstString(f["Estado Instalación"]),
     observacionInterna: firstString(f["Observación Interna"]),
     opcionElegidaId,
-    articuloFisico,
+    articulosFisicos,
     ordenVinculada,
     opciones,
     abonos,
@@ -455,12 +452,41 @@ export async function getMaxIdAbono(): Promise<number> {
   return firstNumber(data.records?.[0]?.fields?.["ID Abono"]) ?? 0;
 }
 
+/**
+ * Siguiente "ID Abono" libre.
+ *
+ * Antes cada módulo hacía `getMaxIdAbono() + 1` por su cuenta. Como técnicos,
+ * operaciones y facturación escriben en la MISMA tabla, dos cobros a la vez
+ * podían leer el mismo máximo y quedarse con el mismo número — sin que nada lo
+ * detectara. Aquí se lee la cola de números altos y se salta lo ocupado.
+ *
+ * No es un bloqueo real (Airtable no lo ofrece), pero cierra la ventana de la
+ * práctica: dos personas cobrando en el mismo segundo.
+ */
+export async function reservarSiguienteIdAbono(): Promise<number> {
+  const client = getClient();
+  const url = new URL(`${client.baseUrl}/${encodeURIComponent(ABONOS_TABLE)}`);
+  url.searchParams.set("pageSize", "20");
+  url.searchParams.set("sort[0][field]", "ID Abono");
+  url.searchParams.set("sort[0][direction]", "desc");
+  url.searchParams.append("fields[]", "ID Abono");
+
+  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+  if (!res.ok) return (await getMaxIdAbono()) + 1;
+
+  const data = (await res.json()) as AirtableListResponse;
+  const ocupados = (data.records ?? [])
+    .map((r) => firstNumber(r.fields?.["ID Abono"]))
+    .filter((n): n is number => n !== null);
+
+  return elegirSiguienteIdAbono(ocupados[0] ?? 0, ocupados);
+}
+
 export async function crearAbono(input: CrearAbonoInput): Promise<{ id: string; idAbono: number }> {
   const client = getClient();
 
-  // Read MAX just before insert to minimise collision risk
-  const maxId = await getMaxIdAbono();
-  const idAbono = maxId + 1;
+  // Número libre verificado contra los ya ocupados (ver reservarSiguienteIdAbono).
+  const idAbono = await reservarSiguienteIdAbono();
 
   const fields: Record<string, unknown> = {
     "ID Abono": idAbono,

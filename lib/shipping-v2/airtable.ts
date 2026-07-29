@@ -38,6 +38,7 @@ import type { StaffSession } from "@/lib/session";
 import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
 import { getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
 import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
+import { validarReglaDistribucion } from "@/lib/shipping-v2/packing-costos";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
@@ -194,6 +195,18 @@ function firstNumber(value: unknown): number | null {
     }
   }
   return null;
+}
+
+/**
+ * Rechaza las reglas de distribución que las fórmulas de Airtable no saben
+ * repartir. Elegir "Por peso" dejaría el flete y el arancel en $0 para todos
+ * los artículos del packing, sin que nada lo indique en pantalla.
+ * Ver lib/shipping-v2/packing-costos.ts.
+ */
+function assertReglaDistribucionSoportada(regla: string | null | undefined) {
+  if (regla === undefined) return; // no viene en el payload: no se toca
+  const error = validarReglaDistribucion(regla);
+  if (error) throw new Error(error);
 }
 
 function validateOptionalWeight(value: number | null | undefined) {
@@ -3690,6 +3703,7 @@ export async function createShippingV2Packing(input: ShippingV2PackingWriteInput
   assertShippingV2Permission(options.access, "canCreatePacking", "No tienes permiso para crear packings.");
   assertShippingV2GeneratedSchema();
   validateOptionalWeight(input.peso);
+  assertReglaDistribucionSoportada(input.reglaDistribucionCostos);
   await validatePackingLogisticsProvider(input.proveedorLogisticoEcId);
   await validatePackingTransportistas(input);
   if (options.access && !options.access.isAdmin && options.access.providerId) {
@@ -3744,6 +3758,7 @@ export async function updateShippingV2Packing(recordId: string, input: ShippingV
   const existing = await getShippingV2PackingById(id, options.access, { includeItems: false, includeAiName: false });
   assertPackingPatchAllowed(existing.estado, input);
   validateOptionalWeight(input.peso);
+  assertReglaDistribucionSoportada(input.reglaDistribucionCostos);
   validateOptionalMoney(input.flete, "Flete");
   validateOptionalMoney(input.arancel, "Arancel");
   validateOptionalMoney(input.otrosCostos, "Otros costos");

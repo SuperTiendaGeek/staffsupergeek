@@ -31,7 +31,7 @@ import "server-only";
 // apartado ni en la caja.
 
 import { fetchRecordsByIds, firstString } from "../gancho/airtableGancho";
-import { getMaxIdAbono } from "@/lib/operaciones/airtable";
+import { reservarSiguienteIdAbono } from "@/lib/operaciones/airtable";
 import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
@@ -169,7 +169,7 @@ export async function registrarAbonoReserva(input: {
     const fecha = (input.fecha ?? new Date().toISOString()).slice(0, 10);
 
     // Crear el registro en Abonos, ligado a la reserva (tercer origen de abono).
-    const idAbono = (await getMaxIdAbono()) + 1;
+    const idAbono = await reservarSiguienteIdAbono();
     const abonoId = await postAbono({
       "ID Abono": idAbono,
       "Monto": input.monto,

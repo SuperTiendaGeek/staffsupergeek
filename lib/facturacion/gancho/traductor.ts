@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
+import { esAbonoVigente } from "@/types/cuenta-unificada";
 import type { GetCuentaUnificadaInput } from "@/types/cuenta-unificada";
 
 import type { DatosVenta, OrigenGancho } from "../emitirFactura";
@@ -121,7 +122,7 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
   const importeTotal       = round2(totalSinImpuestos + totalIva);
 
   // ── 7. Formas de pago: abonos reales (no anulados) + saldo pendiente ─────────
-  const abonosVigentes = cuenta.abonos.filter((a) => a.estado !== "Anulado");
+  const abonosVigentes = cuenta.abonos.filter(esAbonoVigente);
   const pagos = calcularFormasPago(abonosVigentes, importeTotal);
 
   const datosVenta: DatosVenta = {

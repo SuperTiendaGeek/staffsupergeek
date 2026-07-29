@@ -157,7 +157,12 @@ export type OperacionDetalle = {
   estadoInstalacion: string;
   observacionInterna: string;
   opcionElegidaId: string | null;
-  articuloFisico: ShippingItemResumen | null;
+  /**
+   * Artículos de inventario generados por esta operación ("Artículo físico" es
+   * un link múltiple). Antes se exponía solo el primero y el resto no se veía
+   * en pantalla, aunque la cuenta unificada sí los cobraba todos.
+   */
+  articulosFisicos: ShippingItemResumen[];
   ordenVinculada: OrdenVinculada | null;
   opciones: OpcionDetalle[];
   abonos: AbonoDetalle[];

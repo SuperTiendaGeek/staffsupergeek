@@ -50,6 +50,19 @@ export interface CuentaUnificadaRepuestoHistorico {
 // referencia legible del movimiento). Es UN solo abono, no dos.
 export type CuentaUnificadaAbonoOrigen = "orden" | "operacion" | "ambos";
 
+/**
+ * Estado de un abono anulado en Airtable. Anular no borra el registro ni lo
+ * desvincula de su orden/operación: sigue colgando de ellas, así que CADA
+ * lectura tiene que descartarlo. Un solo olvido reintroduce el monto en un
+ * total. Se define aquí para que nadie vuelva a escribir el literal a mano.
+ */
+export const ESTADO_ABONO_ANULADO = "Anulado";
+
+/** ¿Este abono cuenta como dinero recibido? */
+export function esAbonoVigente(abono: { estado: string }): boolean {
+  return abono.estado !== ESTADO_ABONO_ANULADO;
+}
+
 export interface CuentaUnificadaAbono {
   id: string;
   idAbono: string | null;

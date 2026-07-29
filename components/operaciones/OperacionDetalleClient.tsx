@@ -619,26 +619,35 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
         )}
       </section>
 
-      {/* Artículo físico en inventario */}
-      {operacion.articuloFisico && (
+      {/* Artículos físicos en inventario. Son varios cuando la operación
+          generó más de un artículo; antes solo se veía el primero. */}
+      {operacion.articulosFisicos.length > 0 && (
         <section className="rounded-xl border border-[#56E3A4]/25 bg-[#56E3A4]/5 p-4 sm:p-5">
           <div className="mb-2 flex items-center gap-1.5">
             <Box size={13} className="text-[#56E3A4]" />
-            <h3 className="text-sm font-semibold text-[#56E3A4]">Artículo en inventario</h3>
+            <h3 className="text-sm font-semibold text-[#56E3A4]">
+              {operacion.articulosFisicos.length === 1
+                ? "Artículo en inventario"
+                : `Artículos en inventario (${operacion.articulosFisicos.length})`}
+            </h3>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-col gap-0.5">
-              <p className="text-sm font-medium text-[#F0F0EC]">{operacion.articuloFisico.nombre}</p>
-              <span className="w-fit rounded-full bg-[#56E3A4]/15 px-2 py-0.5 text-[11px] font-medium text-[#56E3A4]">
-                {operacion.articuloFisico.estadoItem}
-              </span>
-            </div>
-            <Link
-              href={`/shipping-v2/items/${operacion.articuloFisico.id}`}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[#56E3A4]/30 bg-[#56E3A4]/10 px-3 py-1.5 text-xs font-medium text-[#56E3A4] transition hover:border-[#56E3A4]/60 hover:bg-[#56E3A4]/20"
-            >
-              Ver en Shipping <ExternalLink size={11} />
-            </Link>
+          <div className="flex flex-col gap-3">
+            {operacion.articulosFisicos.map((articulo) => (
+              <div key={articulo.id} className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-sm font-medium text-[#F0F0EC]">{articulo.nombre}</p>
+                  <span className="w-fit rounded-full bg-[#56E3A4]/15 px-2 py-0.5 text-[11px] font-medium text-[#56E3A4]">
+                    {articulo.estadoItem}
+                  </span>
+                </div>
+                <Link
+                  href={`/shipping-v2/items/${articulo.id}`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#56E3A4]/30 bg-[#56E3A4]/10 px-3 py-1.5 text-xs font-medium text-[#56E3A4] transition hover:border-[#56E3A4]/60 hover:bg-[#56E3A4]/20"
+                >
+                  Ver en Shipping <ExternalLink size={11} />
+                </Link>
+              </div>
+            ))}
           </div>
         </section>
       )}

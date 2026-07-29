@@ -13,6 +13,7 @@
  */
 
 import { markShippingV2PagoAsPaid } from "../../shipping-v2/airtable";
+import { systemShippingV2Access } from "../../shipping-v2/access";
 import { __resetCacheNombreTablaParaPruebas } from "../table-names";
 import { activarEnvFalso, construirFetchDouble, crearCuentaDouble, crearEstadoDouble, limpiarEnvFalso } from "./_airtableDouble";
 
@@ -79,11 +80,11 @@ async function main() {
     observacion: "Pago de prueba",
   };
 
-  const primeraLlamada = await markShippingV2PagoAsPaid(PAGO_ID, input, { registradoPor: "Test" });
+  const primeraLlamada = await markShippingV2PagoAsPaid(PAGO_ID, input, { registradoPor: "Test", access: systemShippingV2Access() });
   assert(primeraLlamada.movimientoFinanzasIds.length === 1, "Primera llamada crea exactamente 1 movimiento vinculado al pago");
   assert(finanzasState.movimientos.size === 1, "El store de movimientos financieros tiene exactamente 1 registro tras la primera llamada");
 
-  const segundaLlamada = await markShippingV2PagoAsPaid(PAGO_ID, input, { registradoPor: "Test" });
+  const segundaLlamada = await markShippingV2PagoAsPaid(PAGO_ID, input, { registradoPor: "Test", access: systemShippingV2Access() });
   assert(finanzasState.movimientos.size === 1, "El store sigue teniendo exactamente 1 registro tras la segunda llamada — no se duplicó");
   assert(
     segundaLlamada.movimientoFinanzasIds[0] === primeraLlamada.movimientoFinanzasIds[0],

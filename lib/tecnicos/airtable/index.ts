@@ -1,5 +1,5 @@
 import { AIRTABLE_TABLES, loadAirtableEnv } from "../config/airtable";
-import { getMaxIdAbono } from "@/lib/operaciones/airtable";
+import { reservarSiguienteIdAbono } from "@/lib/operaciones/airtable";
 import { normalizeCedula } from "@/lib/clientes/normalizeCedula";
 import {
   ESTADOS_ORDEN,
@@ -2255,9 +2255,8 @@ export const createAbonoPorOrden = async ({
   const operacionId = toLinkedRecordIds(ordenRecord.fields?.["Operaciones Comerciales"])[0] ?? null;
 
   // Un solo generador de "ID Abono" para toda la tabla, compartido con
-  // operaciones, releído justo antes de insertar para minimizar colisiones.
-  const maxIdAbono = await getMaxIdAbono();
-  const nextIdAbono = maxIdAbono + 1;
+  // operaciones y reservas. Verifica los números ya ocupados antes de elegir.
+  const nextIdAbono = await reservarSiguienteIdAbono();
 
   const fechaSoloFecha = (fecha ?? "").trim() || formatAirtableDateOnly();
   const fechaAbono = combineFechaConHoraActualEcuador(fechaSoloFecha);
