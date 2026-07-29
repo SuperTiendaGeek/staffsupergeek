@@ -32,6 +32,12 @@
 | F-25 · El repuesto de stock no cambiaba de estado | ✅ **Corregido** | PR7 — al vincularlo a una orden pasa a `Estado Item = "Reservado"` |
 | F-16 · `Cantidad` vs `Reservado` | ⏸️ **Decisión tomada, datos sin migrar** | Modelo elegido: un registro por unidad física. La división de los 8 artículos multiunidad queda para más adelante |
 | F-35 · `Tarifa IVA` vacía en todos los items | ⬇️ **Bajado a P3** | El default es 15%, correcto para todo el catálogo actual (equipos, repuestos, accesorios). Solo importaría si se vende algo exento o al 0% |
+| F-19 · `/cotizaciones` y `/pedidos` contra tablas inexistentes | ✅ **Corregido** | PR8 — las pantallas ya redirigían; se congelaron las 14 rutas de API (410) |
+| F-32 · Opciones basura en producción | ✅ **Corregido** | PR8 — borrada la opción "NO ELEGIBLE (ELIMINAR)" y añadida validación al crear/editar opciones |
+| Permisos del portal de proveedores | ✅ **Endurecido** | PR7 — negar por omisión + permisos por proveedor configurables desde Airtable |
+| F-22 · Editar un item revertía el estado | ✅ **Corregido** | PR8 — `applyCalculatedItemFlow` distingue alta de edición; al editar ya no retrocede el estado |
+| F-29 · El formulario prometía campos que descartaba | ✅ **Corregido** (menor) | PR8 — el panel dice que lo decide el tipo de operación; eliminado estado muerto del formulario |
+| F-39 · `Abonos por Orden` legacy | ✅ **Conciliado** | PR8 — 128/128 con equivalente exacto en la tabla nueva; $0 sin espejar. La tabla se puede retirar |
 | F-22 · Editar un item revierte el estado | ⚠️ **Reclasificado a P3** | No lo dispara ninguna pantalla; queda pendiente blindar la función |
 | Resto | Pendiente | — |
 
