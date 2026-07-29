@@ -39,6 +39,11 @@
 | F-29 · El formulario prometía campos que descartaba | ✅ **Corregido** (menor) | PR8 — el panel dice que lo decide el tipo de operación; eliminado estado muerto del formulario |
 | F-39 · `Abonos por Orden` legacy | ✅ **Conciliado** | PR8 — 128/128 con equivalente exacto en la tabla nueva; $0 sin espejar. La tabla se puede retirar |
 | F-22 · Editar un item revierte el estado | ⚠️ **Reclasificado a P3** | No lo dispara ninguna pantalla; queda pendiente blindar la función |
+| F-18 · Solo se veía 1 artículo físico | ✅ **Corregido** | PR9 — `articuloFisico` pasó a ser la lista `articulosFisicos`; la pantalla los muestra todos |
+| F-21 · Prorrateo de flete y arancel | ✅ **Corregido** (la causa real) | PR9 — verificado contra 68 items: el reparto **sí funciona**. El fallo real era otro: "Por peso" se ofrecía en el menú y Airtable no la reconoce, asignando $0 en silencio. Ahora se rechaza al guardar |
+| F-34 · `ID Abono` por `MAX()+1` | ✅ **Corregido** | PR9 — `reservarSiguienteIdAbono()` salta los números ya ocupados; los 3 módulos usan la misma función |
+| F-13 · Abonos anulados seguían vinculados | ✅ **Corregido** | PR9 — `esAbonoVigente()` centraliza el filtro; se aplica en cuenta unificada, facturación y finanzas |
+| F-38 · Documentación desactualizada | ✅ **Corregido** | PR9 — borrados los 3 snapshots pre-migración (983 KB); nuevo `docs/ESQUEMA.md` verificado contra Airtable |
 | Resto | Pendiente | — |
 
 **Campos creados en Airtable (2026-07-27).** Solo se agregó; nada se borró.
@@ -504,6 +509,8 @@ Basta que la orden tenga **cualquier** operación vinculada para que **todos** s
 
 3 abonos anulados ($141) siguen con sus links `Aplicado a: Orden` / `Aplicado a: Operación` intactos. Los rollups los filtran correctamente, pero cualquier lectura por link (`fetchAbonosPorOrden`, `fetchOperacionDetalle`, la lista de la cuenta unificada) los trae y la UI depende de filtrar por `estado !== "Anulado"` en cada punto. Un solo olvido reintroduce el monto.
 
+**Corrección (PR9).** No se desvinculan los abonos anulados —conviene que sigan visibles, tachados, como rastro de lo que pasó—; lo que se elimina es que cada lectura tenga que acordarse de filtrarlos. `esAbonoVigente()` y la constante `ESTADO_ABONO_ANULADO` viven ahora en `types/cuenta-unificada.ts` y se usan en los tres sitios que suman dinero: cuenta unificada, gancho de facturación (`traductor.ts`) y puente de finanzas. Nadie vuelve a escribir el literal `"Anulado"` a mano. Un abono **sin estado** se considera vigente a propósito: es preferible mostrar un cobro de más y que se revise, a hacer desaparecer dinero real por un campo vacío. Cubierto por `lib/cuenta-unificada/__tests__/abonoAnuladoNoSuma.test.ts`, construido sobre el caso real de OR000234 ($50 anulado + $10 vigente → total $10, saldo $30).
+
 ---
 
 ## Bloque B — Modelo de datos y ambigüedades de Shipping Items
@@ -604,6 +611,8 @@ const itemId = articuloFisicoIds[0];      // ← solo el primero
 
 `getCuentaUnificada` sí trae todos (`fetchItemsPedido`). La pantalla de Operaciones y la de la orden muestran conjuntos distintos de artículos para la misma operación.
 
+**Corrección (PR9).** `articuloFisico: ShippingItemResumen | null` pasó a ser `articulosFisicos: ShippingItemResumen[]` en `types/operaciones.ts`, `lib/operaciones/airtable.ts` y `components/operaciones/OperacionDetalleClient.tsx`. Al ser un cambio de tipo, el compilador obligó a actualizar todos los puntos de uso: no puede quedar ninguna pantalla leyendo solo el primero. En Airtable se añadió el rollup `Total Artículos Físicos` para poder cotejar el conteo desde la base.
+
 ---
 
 ### F-19 · P1 · Módulos vivos apuntando a tablas que ya no existen
@@ -654,6 +663,8 @@ IF(FIND("cantidad", LOWER(ARRAYJOIN({Regla distribución Packing}))),
 ```
 
 `ARRAYJOIN` de un lookup con varios valores devuelve `"120,80"`; `VALUE("120,80")` devuelve `120`. Como `Shipping Packings` es un link **múltiple** en el item, un item en 2 packings prorratea silenciosamente contra el primero. Además, `FIND` sobre texto libre de la regla: si alguien escribe la regla con otra palabra, el prorrateo cae a **0** sin error.
+
+**Verificación y corrección (PR9).** Contrastado contra los 68 items reales con packing: **el reparto es correcto en todos**. Los 7 packings usan "Por costo del item" y ninguno tiene un item en dos packings a la vez, así que el riesgo del `ARRAYJOIN` múltiple es teórico hoy (ejemplo comprobado: LAP-000013, costo $454 dentro de un packing de $2.160,50 con $308,17 de flete → $64,76 asignados ✓). La mitad que **sí estaba viva** es la segunda: el menú de reglas ofrece **"Por peso"**, y las fórmulas solo reconocen textos que contengan "cantidad" o "costo" — elegirla asignaba **$0 de flete y arancel a todo el packing, sin ningún aviso**. `assertReglaDistribucionSoportada()` ahora rechaza esa regla al crear o editar un packing, con un mensaje que dice qué usar en su lugar. Reglas por estado en `lib/shipping-v2/packing-costos.ts`: reparten automáticamente "Por costo del item" y "Por cantidad"; no reparten (a propósito) "Manual" y "No definida"; se rechaza "Por peso" hasta que exista la fórmula.
 
 ---
 
@@ -805,6 +816,8 @@ No hay validación de `Precio Venta Cliente > 0` al crear opción.
 
 Mismo patrón en `siguienteNumeroReserva()` (`RES-000001`) y `generatePackingId()`.
 
+**Corrección (PR9).** El problema no era solo la carrera entre dos usuarios: bastaba **anular o borrar el último abono** para que `MAX()+1` devolviera un número ya usado antes. `elegirSiguienteIdAbono(maximoActual, ocupados)` (`lib/operaciones/id-abono.ts`) avanza hasta encontrar un número realmente libre, y `reservarSiguienteIdAbono()` en `lib/operaciones/airtable.ts` lo alimenta con los IDs existentes. Los tres módulos —técnicos, operaciones y reservas— llaman ahora a esa única función. Queda pendiente el mismo tratamiento para `siguienteNumeroReserva()` y `generatePackingId()`, que siguen con el patrón viejo.
+
 ### F-35 · P2 · `Tarifa IVA` vacía en los 86 items
 
 `construirLineaProducto` cae al default `"15%"` para todos. Ningún item tiene tarifa explícita, así que un item exento o 0% se facturaría al 15% salvo que alguien lo llene a mano antes de emitir.
@@ -817,9 +830,11 @@ Mismo patrón en `siguienteNumeroReserva()` (`RES-000001`) y `generatePackingId(
 
 `POST /api/facturacion/reservas` toma `body.precioVenta` y solo valida `> 0`; **no lo contrasta con `Precio venta final` del item**. Un precio manipulado o desactualizado queda grabado en la reserva y en su PDF.
 
-### F-38 · P3 · Documentación desactualizada en `docs/`
+### F-38 · P3 · Documentación desactualizada en `docs/` — ✅ CORREGIDO (PR9)
 
 `docs/sgadm-schema-raw.json` y `docs/sgadm-schema.json` describen una base **sin** Órdenes de Reparación, Operación Comercial, Abonos, Opciones ni Reservas, y **con** Cotizaciones / Opciones de Cotización / Abonos de Cotización. Es un snapshot pre-migración que hoy induce a error.
+
+**Corrección.** Se borraron los tres snapshots (`sgadm-schema.json`, `sgadm-schema-raw.json`, `gestion-ordenes-schema.json`, 983 KB en total; quedan en el historial de git). Ningún archivo de código los importaba: eran documentación pura. En su lugar, `docs/ESQUEMA.md` explica cómo consultar el esquema vivo por Metadata API, lista las 48 tablas actuales —verificadas contra Airtable el 28-jul-2026— y, sobre todo, documenta **qué campos calculados de Airtable el código ignora a propósito** (`Total Cubierto`, `Saldo Item`, `Total Cotizado`, `Saldo Pendiente`) y cuáles sí deben cuadrar siempre con las pantallas (`Total a Pagar NV`, `Saldo NV`). `CLAUDE.md` apunta al nuevo documento.
 
 ### F-40 · P0 · El `Estado Item` no puede llegar nunca a "Disponible": el ciclo de vida se atasca en "En revisión"
 
