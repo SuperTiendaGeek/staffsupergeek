@@ -16,6 +16,7 @@ import type {
 import { createShippingV2ItemFromOperacion } from "@/lib/shipping-v2/airtable";
 import { normalizeCedula } from "@/lib/clientes/normalizeCedula";
 import { calcularTotalCotizado } from "@/lib/operaciones/cobro";
+import { validarOpcion } from "@/lib/operaciones/opciones";
 
 type AirtableRecord = {
   id: string;
@@ -798,6 +799,13 @@ export async function crearOpcion(
 ): Promise<{ id: string }> {
   const client = getClient();
 
+  // Antes no se validaba nada: en producción quedó una opción llamada
+  // "NO ELEGIBLE (ELIMINAR)" y otra sin precio. Y como el Total Cotizado de la
+  // operación sale de la opción elegida, una opción sin precio hace que el
+  // tablero diga "Sin cotizar" aunque ya se le pasó propuesta al cliente.
+  const error = validarOpcion(input);
+  if (error) throw new Error(error);
+
   const fields: Record<string, unknown> = {
     "Producto / Descripción": input.productoDescripcion.trim(),
     "Operación": [operacionId],
@@ -821,11 +829,43 @@ export async function crearOpcion(
   return { id: record.id };
 }
 
+/** Lee solo lo que hace falta para validar una edición parcial de opción. */
+async function fetchOpcionParaValidar(opcionId: string): Promise<{
+  productoDescripcion: string;
+  precioVentaCliente: number | null;
+  costoProveedor: number | null;
+}> {
+  const client = getClient();
+  const res = await fetch(
+    `${client.baseUrl}/${encodeURIComponent(OPCIONES_TABLE)}/${encodeURIComponent(opcionId)}`,
+    { headers: client.headers, cache: "no-store" }
+  );
+  if (!res.ok) throw new Error(`Airtable error ${res.status} leyendo la opción`);
+  const rec = (await res.json()) as AirtableRecord;
+  return {
+    productoDescripcion: firstString(rec.fields["Producto / Descripción"]),
+    precioVentaCliente: firstNumber(rec.fields["Precio Venta Cliente"]),
+    costoProveedor: firstNumber(rec.fields["Costo Proveedor"]),
+  };
+}
+
 export async function actualizarOpcion(
   opcionId: string,
   input: Partial<CrearOpcionInput>
 ): Promise<void> {
   const client = getClient();
+
+  // Es una edición parcial: solo se valida lo que viene en el payload, para no
+  // exigir el precio a quien solo está corrigiendo una nota.
+  if (input.productoDescripcion !== undefined || input.precioVentaCliente !== undefined || input.costoProveedor !== undefined) {
+    const actual = await fetchOpcionParaValidar(opcionId);
+    const error = validarOpcion({
+      productoDescripcion: input.productoDescripcion ?? actual.productoDescripcion,
+      precioVentaCliente: input.precioVentaCliente !== undefined ? input.precioVentaCliente : actual.precioVentaCliente,
+      costoProveedor: input.costoProveedor !== undefined ? input.costoProveedor : actual.costoProveedor,
+    });
+    if (error) throw new Error(error);
+  }
 
   const fields: Record<string, unknown> = {};
   if (input.productoDescripcion != null) fields["Producto / Descripción"] = input.productoDescripcion.trim();
