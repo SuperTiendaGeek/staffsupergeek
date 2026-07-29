@@ -711,7 +711,26 @@ function validateItemInput(input: ShippingV2ItemWriteInput) {
   }
 }
 
-function applyCalculatedItemFlow(input: ShippingV2ItemWriteInput): ShippingV2ItemWriteInput {
+/**
+ * Deriva las banderas de flujo (requiere pago, packing, inventario, venta) del
+ * tipo de operación.
+ *
+ * `momento` decide qué pasa con el Estado Item:
+ *
+ *  · "alta"    → el estado lo pone la regla. Un artículo que nace como "Compra
+ *                a proveedor" arranca en "Pendiente de pago".
+ *  · "edicion" → el estado NO se toca. La regla devuelve siempre el estado
+ *                INICIAL del tipo de operación, así que aplicarla a un artículo
+ *                que ya avanzó lo mandaría hacia atrás: uno "Disponible" o
+ *                "Vendido" volvería a "Pendiente de pago" solo por corregirle
+ *                el nombre. El ciclo de vida lo mueven los pasos del flujo
+ *                (pago, packing, recepción, "Listo para vender"), no una
+ *                edición de datos.
+ */
+function applyCalculatedItemFlow(
+  input: ShippingV2ItemWriteInput,
+  momento: "alta" | "edicion" = "alta"
+): ShippingV2ItemWriteInput {
   const flow = getDefaultItemFlowByOperation({
     tipoOperacion: cleanString(input.tipoOperacion),
     categoria: cleanString(input.categoria),
@@ -733,7 +752,7 @@ function applyCalculatedItemFlow(input: ShippingV2ItemWriteInput): ShippingV2Ite
     afectaInventario: flow.afectaInventario,
     disponibleVenta: input.reservado === true ? false : flow.disponibleParaVenta,
     modoLogistico: requestedMode,
-    estado: flow.estadoItemSugerido,
+    estado: momento === "alta" ? flow.estadoItemSugerido : cleanString(input.estado) || flow.estadoItemSugerido,
     estadoRevision: cleanString(input.estadoRevision) || flow.estadoRevisionSugerido,
   };
 }
@@ -2681,7 +2700,8 @@ export async function removeFotoFromShippingV2Item(
 export async function updateShippingV2Item(recordId: string, input: ShippingV2ItemWriteInput, options: { actualizadoPor: string }) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
-  const calculatedInput = applyCalculatedItemFlow(input);
+  // "edicion": recalcula las banderas de flujo pero NO retrocede el estado.
+  const calculatedInput = applyCalculatedItemFlow(input, "edicion");
   validateItemInput(calculatedInput);
   await validateItemProviderRules(calculatedInput);
 
