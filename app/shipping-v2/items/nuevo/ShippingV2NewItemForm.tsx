@@ -32,13 +32,11 @@ type FormState = {
   tipoOperacion: string;
   tipoItem: string;
   categoria: string;
+  // Solo alimenta el cálculo del flujo (getDefaultItemFlowByOperation lo usa
+  // como estado actual). Lo que se guarda es calculatedFlow.estadoItemSugerido.
   estado: string;
   proveedorId: string;
   proveedorLogisticoId: string;
-  requierePago: boolean;
-  requierePacking: boolean;
-  afectaInventario: boolean;
-  disponibleVenta: boolean;
   modoLogistico: string;
   trackingDirecto: string;
   sku: string;
@@ -66,10 +64,6 @@ const initialState: FormState = {
   estado: "Registrado",
   proveedorId: "",
   proveedorLogisticoId: "",
-  requierePago: true,
-  requierePacking: true,
-  afectaInventario: true,
-  disponibleVenta: false,
   modoLogistico: "Pendiente de packing",
   trackingDirecto: "",
   sku: "",
@@ -470,7 +464,16 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
         </div>
 
         <aside className="space-y-3 lg:col-span-4">
-          <FormCard title="Flujo calculado" description="El flujo se calcula según el tipo de operación. Puedes ajustar algunos valores si el formulario lo permite.">
+          {/* Estos cuatro valores NO se editan aquí: los decide el tipo de
+              operación (ver lib/shipping-v2/item-operation-rules.ts) y el
+              servidor los recalcula al guardar. El único que el usuario mueve
+              es el modo logístico, y solo afecta a "Requiere packing". El texto
+              anterior decía "puedes ajustar algunos valores si el formulario lo
+              permite", que invitaba a buscar dónde. */}
+          <FormCard
+            title="Flujo calculado"
+            description="Lo decide el tipo de operación, no se edita a mano. Cambia el tipo de operación o el modo logístico para que cambien."
+          >
             <div className="grid grid-cols-2 gap-2">
               <FlowBadge label="Requiere pago" active={calculatedFlow.requierePago} />
               <FlowBadge label="Requiere packing" active={effectiveRequiresPacking} />
