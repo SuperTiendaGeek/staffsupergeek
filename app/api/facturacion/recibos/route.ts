@@ -4,6 +4,7 @@ import { crearRecibo, adjuntarPdfRecibo, listarRecibos } from "@/lib/facturacion
 import { descontarInventarioRecibo, registrarIngresoRecibo } from "@/lib/facturacion/recibos/efectos";
 import { generarReciboPdf }          from "@/lib/facturacion/recibos/pdf";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
+import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import type { CrearReciboInput }     from "@/lib/facturacion/recibos/types";
@@ -38,6 +39,8 @@ export async function POST(request: Request) {
   if (!Array.isArray(body.lineas) || body.lineas.length === 0) return NextResponse.json({ success: false, error: "Agrega al menos una línea" }, { status: 400 });
   if (body.lineas.some((l) => !l.descripcion?.trim())) return NextResponse.json({ success: false, error: "Todas las líneas deben tener descripción" }, { status: 400 });
   if (body.lineas.some((l) => !(l.cantidad > 0) || !Number.isInteger(l.cantidad) || l.precioUnitario < 0)) return NextResponse.json({ success: false, error: "Cantidad entera > 0 y precio ≥ 0 en todas las líneas" }, { status: 400 });
+  const errorPrecioShipping = mensajePrecioShippingItemInvalido(body.lineas);
+  if (errorPrecioShipping) return NextResponse.json({ success: false, error: errorPrecioShipping }, { status: 400 });
   if (!body.formaPago?.trim()) return NextResponse.json({ success: false, error: "Elige una forma de pago" }, { status: 400 });
 
   // Verificar stock (como una factura) — bloquea antes de crear el recibo.

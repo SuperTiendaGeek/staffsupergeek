@@ -13,6 +13,10 @@ export type LineaProforma = {
   descuento:      number;
   /** Código de tarifa SRI: "4"=15%, "2"=0%, "1"=Exento, "0"=No objeto. */
   tarifaIva:      string;
+  /** Metadata opcional en Líneas JSON; no requiere campo nuevo en Airtable. */
+  origen?:        "manual" | "shipping-item" | string;
+  /** Record ID de Shipping Items cuando la línea viene del inventario. */
+  shippingItemId?: string;
 };
 
 export type ProformaCliente = {

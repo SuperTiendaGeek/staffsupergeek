@@ -131,10 +131,10 @@ export function agruparTotalConImpuestos(detalles: DetalleFactura[]): TotalImpue
 // informativo para el caso clásico (registro de 1 unidad ya vendido:
 // factura previa + cantidad 0); sin factura previa, cantidad 0 reporta
 // "SIN_STOCK".
-export type ItemNoListo = { id: string; nombre: string; motivo: "NO_RESERVADO" | "YA_FACTURADO" | "SIN_STOCK" };
+export type ItemNoListo = { id: string; nombre: string; motivo: "NO_RESERVADO" | "YA_FACTURADO" | "SIN_STOCK" | "SIN_PRECIO_FINAL" };
 
 export function evaluarItemNoListo(
-  item: Pick<CuentaUnificadaItem, "id" | "nombre">,
+  item: Pick<CuentaUnificadaItem, "id" | "nombre" | "precio">,
   detalle: Pick<ItemDetalleGancho, "reservado" | "tieneFacturaPrevia" | "cantidad"> | undefined
 ): ItemNoListo | null {
   if (!detalle) return null; // fetch inconsistente — se ignora en vez de bloquear (ver traductor.ts)
@@ -143,6 +143,7 @@ export function evaluarItemNoListo(
     return { id: item.id, nombre: item.nombre, motivo: "SIN_STOCK" };
   }
   if (!detalle.reservado) return { id: item.id, nombre: item.nombre, motivo: "NO_RESERVADO" };
+  if (!(item.precio > 0)) return { id: item.id, nombre: item.nombre, motivo: "SIN_PRECIO_FINAL" };
   return null;
 }
 

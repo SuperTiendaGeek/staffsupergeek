@@ -1,5 +1,11 @@
 import "server-only";
 
+import {
+  buildShippingItemsProductFilterFormula,
+  mapShippingItemProductRecord,
+  type ProductoCatalogo,
+} from "@/lib/facturacion/airtable/productosShippingItems";
+
 // Busca productos vendibles en "Shipping Items" (base SUPER GEEK ADM).
 // SOLO LECTURA — este módulo nunca escribe en Shipping Items.
 // Decisión: la emisión de facturas no afecta el inventario; el módulo de
@@ -24,47 +30,7 @@ function getClient() {
   };
 }
 
-export type ProductoCatalogo = {
-  id:          string;
-  sku:         string;
-  nombre:      string;
-  descripcion: string;
-  precioVenta: number;
-  unidad:      string;
-  // Fase 17.b (inventario por cantidad): unidades en stock según el campo
-  // "Cantidad". El buscador ya filtra Cantidad >= 1, así que aquí siempre
-  // llega >= 1; el formulario lo usa para (a) mostrar el stock en la
-  // sugerencia y (b) validar que la cantidad pedida no lo supere.
-  cantidadDisponible: number;
-};
-
-function firstStr(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (Array.isArray(v)) return typeof v[0] === "string" ? v[0] : "";
-  return "";
-}
-function firstNum(v: unknown): number {
-  if (typeof v === "number") return v;
-  const n = parseFloat(String(v));
-  return isNaN(n) ? 0 : n;
-}
-
-function mapProductoRecord(r: { id: string; fields?: Record<string, unknown> }): ProductoCatalogo {
-  const f = r.fields ?? {};
-  return {
-    id:          r.id,
-    sku:         firstStr(f["SKU"] ?? f["SKU interno"]),
-    nombre:      firstStr(f["Nombre del item"] ?? f["Nombre"]),
-    descripcion: firstStr(f["Descripción"] ?? f["Descripcion"]),
-    precioVenta: firstNum(f["Precio venta final"] ?? f["Precio venta sugerido"] ?? 0),
-    unidad:      firstStr(f["Unidad"]) || "UNIDAD",
-    cantidadDisponible: firstNum(f["Cantidad"] ?? 0),
-  };
-}
-
-function escapeFormula(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
+export type { ProductoCatalogo };
 
 export async function buscarProductos(q: string, pageSize = 8): Promise<ProductoCatalogo[]> {
   const query = q.trim();
@@ -72,20 +38,13 @@ export async function buscarProductos(q: string, pageSize = 8): Promise<Producto
 
   const client  = getClient();
   // Pre-lowercase the term in code; search in lowercased field for case-insensitive match.
-  const escaped = escapeFormula(query.toLowerCase());
-
   // Campos buscados: "Nombre del item" y "SKU".
   // {Disponible para venta} es checkbox → truthy cuando está marcado; no necesita =TRUE().
   // {Cantidad}>=1 (Fase 17.b): un item sin stock no aparece en el buscador —
   // regla del dueño: Cantidad 0 = no se puede cargar ni facturar.
+  // {Precio venta final}>0: el precio sugerido no es fuente autorizada para facturar.
   // AND necesita coma entre argumentos — no .join("") sobre múltiples piezas.
-  const formula =
-    `AND({Disponible para venta},` +
-    `{Cantidad}>=1,` +
-    `OR(` +
-      `SEARCH("${escaped}",LOWER({Nombre del item})),` +
-      `SEARCH("${escaped}",LOWER({SKU}))` +
-    `))`;
+  const formula = buildShippingItemsProductFilterFormula(query);
 
   const params = new URLSearchParams({
     filterByFormula: formula,
@@ -95,7 +54,6 @@ export async function buscarProductos(q: string, pageSize = 8): Promise<Producto
   params.append("fields[]", "Nombre del item");
   params.append("fields[]", "Descripción");
   params.append("fields[]", "Precio venta final");
-  params.append("fields[]", "Precio venta sugerido");
   params.append("fields[]", "Unidad");
   params.append("fields[]", "Disponible para venta");
   params.append("fields[]", "Cantidad");
@@ -109,5 +67,5 @@ export async function buscarProductos(q: string, pageSize = 8): Promise<Producto
   }
 
   const data = (await res.json()) as { records?: Array<{ id: string; fields?: Record<string, unknown> }> };
-  return (data.records ?? []).map(mapProductoRecord);
+  return (data.records ?? []).map(mapShippingItemProductRecord).filter((producto): producto is ProductoCatalogo => producto !== null);
 }

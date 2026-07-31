@@ -39,10 +39,25 @@ import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
 import { getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
 import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
+import {
+  isPositiveShippingV2Price,
+  isShippingV2GiftOperation,
+  isShippingV2PurchaseOperation,
+  normalizeShippingV2InlineMoneyQuantityField,
+  normalizeShippingV2ItemMoneyQuantityInput,
+} from "@/lib/shipping-v2/item-money-quantity";
+import {
+  SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE,
+  calculateShippingV2PaymentItemSubtotal,
+  calculateShippingV2PaymentItemsTotal,
+  type ShippingV2PaymentItemLike,
+} from "@/lib/shipping-v2/payment-calculations";
+import { withShippingV2PackingProviderCostSummary } from "@/lib/shipping-v2/packing-calculations";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { canBeUsaTransportProvider, isCompatibleEcuadorTransportProvider } from "@/lib/shipping-v2/tracking-providers";
 import { generateUniqueSkuFromExistingSkus, normalizeSku } from "@/lib/sku/sku-service";
+import { round2 } from "@/lib/finanzas/validaciones";
 import {
   canShippingV2,
   assertShippingV2Permission,
@@ -73,6 +88,10 @@ type AirtableRecordResponse = AirtableRecord;
 type AirtableMutationResponse = {
   records?: AirtableRecord[];
 };
+
+const AIRTABLE_RATE_LIMIT_MAX_RETRIES = 3;
+const AIRTABLE_RATE_LIMIT_BASE_DELAY_MS = 250;
+const AIRTABLE_BATCH_RECORD_ID_CHUNK_SIZE = 25;
 
 export type ShippingV2TechnicalOptionType = "connectivity" | "port" | "extraFeature";
 export type ShippingV2ItemsListSortKey =
@@ -686,15 +705,15 @@ function validateItemInput(input: ShippingV2ItemWriteInput) {
   if (!estado) throw new Error("Estado Item es obligatorio.");
   if (input.requierePago && !proveedorId) throw new Error("Proveedor de compra es obligatorio cuando el item requiere pago.");
 
-  if (["Compra a proveedor", "Compra ya pagada"].includes(tipoOperacion)) {
+  if (isShippingV2PurchaseOperation(tipoOperacion)) {
     if (!proveedorId) throw new Error("Proveedor de compra es obligatorio para compras a proveedor.");
-    if (costoProveedor === null || costoProveedor === undefined || !Number.isFinite(costoProveedor)) {
-      throw new Error("Costo proveedor es obligatorio para compras a proveedor.");
+    if (!isPositiveShippingV2Price(costoProveedor)) {
+      throw new Error("Costo proveedor por unidad debe ser mayor a 0 para compras a proveedor.");
     }
   }
 
-  if (tipoOperacion === "Regalo de proveedor" && costoProveedor !== null && costoProveedor !== undefined && costoProveedor !== 0) {
-    throw new Error("En regalos de proveedor, el costo proveedor debe estar vacío o ser 0.");
+  if (isShippingV2GiftOperation(tipoOperacion) && costoProveedor !== null && costoProveedor !== undefined && costoProveedor !== 0) {
+    throw new Error("En regalos de proveedor, el costo proveedor por unidad debe estar vacío o ser 0.");
   }
 
   const modoLogistico = cleanString(input.modoLogistico);
@@ -840,12 +859,58 @@ function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, un
   });
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(value: string | null | undefined): number | null {
+  const text = cleanString(value);
+  if (!text) return null;
+
+  const seconds = Number(text);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+
+  const dateMs = Date.parse(text);
+  if (Number.isFinite(dateMs)) return Math.max(0, dateMs - Date.now());
+  return null;
+}
+
+export function getAirtableRateLimitRetryDelayMs(headers: Headers | undefined, retryIndex: number) {
+  const retryAfterMs = parseRetryAfterMs(headers?.get("Retry-After"));
+  if (retryAfterMs !== null) return retryAfterMs;
+  return AIRTABLE_RATE_LIMIT_BASE_DELAY_MS * (2 ** retryIndex);
+}
+
+function mergeAirtableHeaders(headers?: HeadersInit) {
+  if (!headers) return getClient().headers;
+  const merged = new Headers(getClient().headers);
+  new Headers(headers).forEach((value, key) => merged.set(key, value));
+  return merged;
+}
+
+async function airtableFetch(url: string, init: RequestInit = {}, context: { operation: string }) {
+  for (let attempt = 0; attempt <= AIRTABLE_RATE_LIMIT_MAX_RETRIES; attempt++) {
+    const response = await fetch(url, {
+      ...init,
+      headers: mergeAirtableHeaders(init.headers),
+      cache: "no-store",
+    });
+
+    if (response.status !== 429) return response;
+
+    if (attempt >= AIRTABLE_RATE_LIMIT_MAX_RETRIES) {
+      const text = await response.text();
+      throw new Error(`Airtable Shipping V2 ${context.operation} 429: ${text || "RATE_LIMIT_REACHED"}. Se agotaron ${AIRTABLE_RATE_LIMIT_MAX_RETRIES} reintentos por rate limit.`);
+    }
+
+    await sleep(getAirtableRateLimitRetryDelayMs(response.headers, attempt));
+  }
+
+  throw new Error(`Airtable Shipping V2 ${context.operation}: reintentos agotados.`);
+}
+
 async function airtableMutation<T>(url: string, init: RequestInit) {
-  const response = await fetch(url, {
-    ...init,
-    headers: getClient().headers,
-    cache: "no-store",
-  });
+  const response = await airtableFetch(url, init, { operation: "escritura" });
 
   if (!response.ok) {
     const text = await response.text();
@@ -878,7 +943,7 @@ async function uploadAttachmentToRecord(input: {
 }) {
   const client = getClient();
   const url = `https://content.airtable.com/v0/${encodeURIComponent(getRequiredEnv("AIRTABLE_BASE_ID"))}/${encodeURIComponent(input.recordId)}/${encodeURIComponent(input.attachmentFieldIdOrName)}/uploadAttachment`;
-  const response = await fetch(url, {
+  const response = await airtableFetch(url, {
     method: "POST",
     headers: {
       ...client.headers,
@@ -890,8 +955,7 @@ async function uploadAttachmentToRecord(input: {
       filename: input.filename,
       file: input.fileBase64,
     }),
-    cache: "no-store",
-  });
+  }, { operation: "uploadAttachment" });
 
   if (!response.ok) {
     const text = await response.text();
@@ -900,10 +964,7 @@ async function uploadAttachmentToRecord(input: {
 }
 
 async function airtableRequest<T>(url: string) {
-  const response = await fetch(url, {
-    headers: getClient().headers,
-    cache: "no-store",
-  });
+  const response = await airtableFetch(url, {}, { operation: "lectura" });
 
   if (!response.ok) {
     const text = await response.text();
@@ -917,10 +978,7 @@ async function recordExists(tableName: string, recordId: string) {
   const id = cleanString(recordId);
   if (!id) return true;
 
-  const response = await fetch(`${tableUrl(tableName)}/${encodeURIComponent(id)}`, {
-    headers: getClient().headers,
-    cache: "no-store",
-  });
+  const response = await airtableFetch(`${tableUrl(tableName)}/${encodeURIComponent(id)}`, {}, { operation: "lectura" });
 
   if (response.status === 404) return false;
   if (!response.ok) {
@@ -934,10 +992,7 @@ async function getRecordById(tableName: string, recordId: string) {
   const id = cleanString(recordId);
   if (!id) return null;
 
-  const response = await fetch(`${tableUrl(tableName)}/${encodeURIComponent(id)}`, {
-    headers: getClient().headers,
-    cache: "no-store",
-  });
+  const response = await airtableFetch(`${tableUrl(tableName)}/${encodeURIComponent(id)}`, {}, { operation: "lectura" });
 
   if (response.status === 404) return null;
   if (!response.ok) {
@@ -946,6 +1001,30 @@ async function getRecordById(tableName: string, recordId: string) {
   }
 
   return (await response.json()) as AirtableRecordResponse;
+}
+
+function escapeAirtableFormulaString(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+function recordIdFilterFormula(recordIds: string[]) {
+  const clauses = recordIds.map((id) => `RECORD_ID()='${escapeAirtableFormulaString(id)}'`);
+  return clauses.length === 1 ? clauses[0] : `OR(${clauses.join(",")})`;
+}
+
+async function listRecordsByIds(tableName: string, recordIds: string[]) {
+  const uniqueIds = Array.from(new Set(recordIds.map(cleanString).filter(Boolean)));
+  const records: AirtableRecord[] = [];
+
+  for (let index = 0; index < uniqueIds.length; index += AIRTABLE_BATCH_RECORD_ID_CHUNK_SIZE) {
+    const chunk = uniqueIds.slice(index, index + AIRTABLE_BATCH_RECORD_ID_CHUNK_SIZE);
+    records.push(...await listRecords(tableName, {
+      pageSize: Math.min(chunk.length, 100),
+      filterByFormula: recordIdFilterFormula(chunk),
+    }));
+  }
+
+  return records;
 }
 
 type ListRecordsOptions = {
@@ -1136,8 +1215,9 @@ function rankComputerCatalogEntry(entry: ShippingV2ComputerCatalogEntry, brand: 
   return 100;
 }
 
-type MapItemOptions = { includeAiName?: boolean; access?: ShippingV2AccessContext; sanitizeForAccess?: boolean };
-type MapPackingOptions = { includeItems?: boolean; includeAiName?: boolean };
+type MapItemOptions = { includeAiName?: boolean; access?: ShippingV2AccessContext; sanitizeForAccess?: boolean; proveedores?: ShippingV2Proveedor[] };
+type MapPackingOptions = { includeItems?: boolean; includeAiName?: boolean; proveedores?: ShippingV2Proveedor[] };
+type PackingCandidateItemsOptions = { packing?: ShippingV2Packing; proveedores?: ShippingV2Proveedor[] };
 
 export type ShippingV2ItemNavigationEntry = Pick<ShippingV2Item, "id" | "sku" | "nombre">;
 
@@ -1342,6 +1422,7 @@ function summarizePaymentItem(item: ShippingV2Item) {
     proveedorLogisticoId: item.proveedorLogisticoId,
     proveedorLogisticoNombre: item.proveedorLogisticoNombre,
     costoProveedor: item.costoProveedor,
+    cantidad: item.cantidad,
     esRegalo: item.esRegalo,
   };
 }
@@ -1373,7 +1454,7 @@ function mapPago(record: AirtableRecord, context: { labelsById?: Map<string, str
     totalAPagar,
     totalPagado: firstNumber(f[F.totalPagado]),
     saldoPendiente: firstNumber(f[F.saldoPendiente]),
-    totalRegalos: regalosResumen.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0),
+    totalRegalos: regalosResumen.reduce((sum, item) => sum + paymentSubtotalOrZero(item), 0),
     cantidadItems: itemIds.length,
     cantidadRegalos: regalosIds.length,
     fechaCreacion: firstString(f[F.fechaCreacion], record.createdTime),
@@ -1457,8 +1538,11 @@ function mapPacking(record: AirtableRecord): ShippingV2Packing {
     flete: firstNumber(f[F.flete]),
     arancel: firstNumber(f[F.arancel]),
     otrosCostos: firstNumber(f[F.otrosCostos]),
+    costoTotalProveedorItems: null,
     costoTotalItemsProveedor: firstNumber(f[F.costoTotalItemsProveedor]),
     cantidadItemsPacking: firstNumber(f[F.cantidadItemsPacking]),
+    referenciasIncluidas: items.length,
+    unidadesTotales: null,
     reglaDistribucionCostos: firstString(f[F.reglaDistribucionCostos]),
     reglaDistribucion: firstString(f[F.reglaDistribucionCostos]),
     observacionCostos: firstString(f[F.observacionCostos]),
@@ -1647,13 +1731,14 @@ function getShippingV2ItemsListSort(sortBy: ShippingV2ItemsListSortKey = "newest
 }
 
 export async function getShippingV2Items(options: MapItemOptions = {}) {
+  const proveedoresPromise = options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores();
   const [records, proveedores] = await Promise.all([
     listRecords(SHIPPING_V2_TABLES.items, {
       maxRecords: 200,
       sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro,
       sortDirection: "desc",
     }),
-    getShippingV2Proveedores(),
+    proveedoresPromise,
   ]);
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
   return records
@@ -1673,13 +1758,14 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
   const sort = getShippingV2ItemsListSort(options.sortBy);
 
   if (options.access && !options.access.isAdmin) {
+    const proveedoresPromise = options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores();
     const [records, proveedores] = await Promise.all([
       listRecords(SHIPPING_V2_TABLES.items, {
         maxRecords: 200,
         sortField: sort.sortField,
         sortDirection: sort.sortDirection,
       }),
-      getShippingV2Proveedores(),
+      proveedoresPromise,
     ]);
     const labelsById = createShippingV2ProveedorLabelMap(proveedores);
 
@@ -1701,7 +1787,7 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
       sortField: sort.sortField,
       sortDirection: sort.sortDirection,
     }),
-    getShippingV2Proveedores(),
+    options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores(),
   ]);
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
 
@@ -2375,8 +2461,11 @@ async function validateInlineItemFieldChange(input: {
     throw new Error("No se puede cambiar el proveedor de compra porque el Item ya tiene pago relacionado.");
   }
 
-  if (input.field === SHIPPING_V2_ITEM_FIELDS.costoProveedor && input.item.pagoId) {
-    throw new Error("No se puede cambiar el costo proveedor porque el Item ya tiene pago relacionado.");
+  if (
+    (input.field === SHIPPING_V2_ITEM_FIELDS.cantidad || input.field === SHIPPING_V2_ITEM_FIELDS.costoProveedor) &&
+    await itemHasActiveV2PaymentLink(input.item)
+  ) {
+    throw new Error(SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE);
   }
 
   if (input.field === getOfficialSkuField()) {
@@ -2405,7 +2494,11 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
   if (!config) throw new Error("Campo no reconocido para Shipping Items.");
 
   const existing = await getShippingV2ItemById(id, { access: options.access, sanitizeForAccess: false });
-  const normalizedValue = normalizeInlineValue(config.type, input.value);
+  const normalizedValue = normalizeShippingV2InlineMoneyQuantityField({
+    field,
+    value: normalizeInlineValue(config.type, input.value),
+    item: existing,
+  });
   const esAdmin = options.esAdmin === true;
   await validateInlineItemFieldChange({ item: existing, recordId: id, field, rawValue: input.value, normalizedValue, esAdmin });
 
@@ -2502,10 +2595,11 @@ async function createShippingV2ItemRecord(
 
 export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string }) {
   const calculatedInput = applyCalculatedItemFlow(input);
-  validateItemInput(calculatedInput);
-  await validateItemProviderRules(calculatedInput);
+  const normalizedInput = normalizeShippingV2ItemMoneyQuantityInput(calculatedInput, { mode: "create" });
+  validateItemInput(normalizedInput);
+  await validateItemProviderRules(normalizedInput);
 
-  return createShippingV2ItemRecord(calculatedInput, options);
+  return createShippingV2ItemRecord(normalizedInput, options);
 }
 
 export async function createShippingV2ItemFromOperacion(
@@ -2579,7 +2673,9 @@ export async function createShippingV2ItemFromOperacion(
     fotos: input.fotos,
   };
 
-  return createShippingV2ItemRecord(itemInput, {
+  const normalizedItemInput = normalizeShippingV2ItemMoneyQuantityInput(itemInput, { mode: "create" });
+
+  return createShippingV2ItemRecord(normalizedItemInput, {
     registradoPor: options.registradoPor,
     eventDescription: `Item creado desde Operaciones Comerciales para opción ${opcionId}.`,
     extraFields: {
@@ -2702,12 +2798,20 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   if (!id) throw new Error("Record ID de item inválido.");
   // "edicion": recalcula las banderas de flujo pero NO retrocede el estado.
   const calculatedInput = applyCalculatedItemFlow(input, "edicion");
-  validateItemInput(calculatedInput);
-  await validateItemProviderRules(calculatedInput);
+  const normalizedInput = normalizeShippingV2ItemMoneyQuantityInput(calculatedInput, { mode: "update" });
+  validateItemInput(normalizedInput);
+  await validateItemProviderRules(normalizedInput);
 
   const existing = await getShippingV2ItemById(id, { access: systemShippingV2Access() });
-  const nextSku = normalizeSku(cleanString(calculatedInput.sku ?? calculatedInput.skuInterno));
-  if (existing.packingId && cleanString(calculatedInput.modoLogistico) !== cleanString(existing.modoLogistico)) {
+  if (
+    (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) ||
+      nullableNumberChanged(normalizedInput.costoProveedor, existing.costoProveedor)) &&
+    await itemHasActiveV2PaymentLink(existing)
+  ) {
+    throw new Error(SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE);
+  }
+  const nextSku = normalizeSku(cleanString(normalizedInput.sku ?? normalizedInput.skuInterno));
+  if (existing.packingId && cleanString(normalizedInput.modoLogistico) !== cleanString(existing.modoLogistico)) {
     throw new Error("No se puede cambiar el modo logístico porque el Item ya tiene packing relacionado.");
   }
 
@@ -2718,7 +2822,7 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
     }
   }
 
-  const fields = getItemFields(calculatedInput, {
+  const fields = getItemFields(normalizedInput, {
     ...(nextSku ? { [getOfficialSkuField()]: nextSku } : {}),
     [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
     [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.actualizadoPor,
@@ -2940,6 +3044,10 @@ function isActivePaymentStatus(status: string) {
   return normalizeStatus(status) !== "anulado";
 }
 
+function paymentLinkedIdsForItem(item: Pick<ShippingV2Item, "pagoV2ItemIds" | "pagoV2RegaloIds">) {
+  return [...item.pagoV2ItemIds, ...item.pagoV2RegaloIds].map(cleanString).filter(Boolean);
+}
+
 function isPaidItemCandidate(item: Pick<ShippingV2Item, "estado" | "tipoOperacion">) {
   return normalizeStatus(item.estado) === "pagado" || normalizeStatus(item.tipoOperacion) === "compra ya pagada";
 }
@@ -2950,11 +3058,31 @@ function providerRequiredForPayment(item: Pick<ShippingV2Item, "tipoOperacion" |
 }
 
 function itemIsLinkedToActivePayment(item: Pick<ShippingV2Item, "pagoV2ItemIds" | "pagoV2RegaloIds">, pagosById: Map<string, ShippingV2Pago>) {
-  const paymentIds = [...item.pagoV2ItemIds, ...item.pagoV2RegaloIds];
+  const paymentIds = paymentLinkedIdsForItem(item);
   return paymentIds.some((id) => {
     const pago = pagosById.get(id);
     return pago ? isActivePaymentStatus(String(pago.estadoPago)) : true;
   });
+}
+
+async function itemHasActiveV2PaymentLink(item: Pick<ShippingV2Item, "pagoV2ItemIds" | "pagoV2RegaloIds">) {
+  const paymentIds = paymentLinkedIdsForItem(item);
+  if (!paymentIds.length) return false;
+  const pagos = await getShippingV2Pagos(systemShippingV2Access());
+  const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
+  return itemIsLinkedToActivePayment(item, pagosById);
+}
+
+function paymentSubtotalOrZero(item: ShippingV2PaymentItemLike) {
+  try {
+    return calculateShippingV2PaymentItemSubtotal(item);
+  } catch {
+    return 0;
+  }
+}
+
+function nullableNumberChanged(next: number | null | undefined, current: number | null | undefined) {
+  return (next ?? null) !== (current ?? null);
 }
 
 function toPendingPaymentItem(item: ShippingV2Item): ShippingV2PagoPendingItem {
@@ -3016,11 +3144,11 @@ function computeSuggestedDueDate(provider: ShippingV2Proveedor | null, fallback?
   return date.toISOString().slice(0, 10);
 }
 
-function computePagosSummary(porPagar: ShippingV2PagoPendingItem[], pagosPendientes: ShippingV2Pago[], pagadosSinSoporte: ShippingV2PagoSupportCard[], pagosCompletos: ShippingV2Pago[]): ShippingV2PagosSummary {
+export function computePagosSummary(porPagar: ShippingV2PagoPendingItem[], pagosPendientes: ShippingV2Pago[], pagadosSinSoporte: ShippingV2PagoSupportCard[], pagosCompletos: ShippingV2Pago[]): ShippingV2PagosSummary {
   return {
-    totalPorPagar: porPagar.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0) + pagosPendientes.reduce((sum, pago) => sum + (pago.saldoPendiente ?? pago.totalAPagar ?? 0), 0),
-    totalPagadoSinSoporte: pagadosSinSoporte.reduce((sum, card) => sum + (card.total ?? 0), 0),
-    totalPagadoCompleto: pagosCompletos.reduce((sum, pago) => sum + (pago.totalPagado ?? pago.totalAPagar ?? 0), 0),
+    totalPorPagar: round2(porPagar.reduce((sum, item) => sum + paymentSubtotalOrZero(item), 0) + pagosPendientes.reduce((sum, pago) => sum + (pago.saldoPendiente ?? pago.totalAPagar ?? 0), 0)),
+    totalPagadoSinSoporte: round2(pagadosSinSoporte.reduce((sum, card) => sum + (card.total ?? 0), 0)),
+    totalPagadoCompleto: round2(pagosCompletos.reduce((sum, pago) => sum + (pago.totalPagado ?? pago.totalAPagar ?? 0), 0)),
     incompletos: pagadosSinSoporte.length,
     porPagarCount: porPagar.length + pagosPendientes.length,
     itemsSinPagoCount: porPagar.length,
@@ -3069,7 +3197,7 @@ function getPaidItemsWithoutSupport(items: ShippingV2Item[], pagosById: Map<stri
         item: pendingItem,
         proveedorId: item.proveedorId,
         proveedorNombre: item.proveedorNombre,
-        total: item.costoProveedor,
+        total: paymentSubtotalOrZero(item),
         missing,
       };
     });
@@ -3134,7 +3262,17 @@ function attachmentFromUrl(urlValue?: string) {
   return url ? [{ url }] : undefined;
 }
 
+function assertNoDuplicatedPaymentItemIds(itemIds: string[], regalosIds: string[]) {
+  const seen = new Set<string>();
+  const allIds = [...itemIds, ...regalosIds].map(cleanString).filter(Boolean);
+  for (const id of allIds) {
+    if (seen.has(id)) throw new Error("No se puede crear un pago con Items duplicados.");
+    seen.add(id);
+  }
+}
+
 async function assertItemsCanJoinPayment(itemIds: string[], regalosIds: string[]) {
+  assertNoDuplicatedPaymentItemIds(itemIds, regalosIds);
   const uniqueItemIds = Array.from(new Set(itemIds.map(cleanString).filter(Boolean)));
   const uniqueGiftIds = Array.from(new Set(regalosIds.map(cleanString).filter(Boolean)));
   const items = await Promise.all(uniqueItemIds.map((id) => getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() })));
@@ -3171,7 +3309,7 @@ export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, opti
   const invalidGift = gifts.find((gift) => gift.proveedorId && gift.proveedorId !== proveedorId);
   if (invalidGift) throw new Error(`El regalo ${invalidGift.sku} pertenece a otro proveedor.`);
 
-  const totalAPagar = items.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0);
+  const totalAPagar = calculateShippingV2PaymentItemsTotal(items);
   const F = SHIPPING_V2_PAYMENT_FIELDS;
   const requestedStatus = cleanString(input.estadoPago);
   const estadoPago = normalizeStatus(requestedStatus) === "pagado" ? "Pagado" : requestedStatus || "Pendiente";
@@ -3506,22 +3644,25 @@ export async function getShippingV2PackingById(recordId: string, access?: Shippi
   if (!id) throw new Error("Record ID de packing inválido.");
   const includeItems = options.includeItems !== false;
 
+  const proveedoresPromise = options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores();
   const [record, proveedores] = await Promise.all([
     airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.packings)}/${encodeURIComponent(id)}`),
-    getShippingV2Proveedores(),
+    proveedoresPromise,
   ]);
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
   const packing = applyPackingProviderLabels(mapPacking(record), labelsById);
   if (!canAccessPacking(packing, access)) throw new Error("No tienes acceso a este packing.");
   if (!includeItems) return packing;
-  const itemRecords = await Promise.all(packing.itemIds.map((itemId) => getRecordById(SHIPPING_V2_TABLES.items, itemId)));
-  packing.items = itemRecords
+  const itemRecords = await listRecordsByIds(SHIPPING_V2_TABLES.items, packing.itemIds);
+  const itemRecordsById = new Map(itemRecords.map((itemRecord) => [itemRecord.id, itemRecord]));
+  packing.items = packing.itemIds
+    .map((itemId) => itemRecordsById.get(itemId))
     .filter((record): record is AirtableRecord => Boolean(record))
     .map((record) => mapItem(record, { includeAiName: options.includeAiName !== false }))
     .map((item) => applyItemProviderLabels(item, labelsById))
     .filter((item) => canAccessItem(item, access))
     .map((item) => sanitizeShippingV2ItemForAccess(item, access));
-  return packing;
+  return withShippingV2PackingProviderCostSummary(packing);
 }
 
 export async function getShippingV2PackingInvoiceData(recordId: string, access?: ShippingV2AccessContext): Promise<ShippingV2PackingInvoiceData> {
@@ -3808,9 +3949,13 @@ function getPackingCandidateDiagnostics(items: ShippingV2Item[], packing: Shippi
   };
 }
 
-export async function getShippingV2PackingCandidateItems(packingId: string, access?: ShippingV2AccessContext) {
-  const packing = await getShippingV2PackingById(packingId, access, { includeItems: false, includeAiName: false });
-  const scopedItems = await getShippingV2Items({ includeAiName: false, access });
+export async function getShippingV2PackingCandidateItems(packingId: string, access?: ShippingV2AccessContext, options: PackingCandidateItemsOptions = {}) {
+  const packing = options.packing ?? await getShippingV2PackingById(packingId, access, {
+    includeItems: false,
+    includeAiName: false,
+    proveedores: options.proveedores,
+  });
+  const scopedItems = await getShippingV2Items({ includeAiName: false, access, proveedores: options.proveedores });
   if (process.env.NODE_ENV !== "production" && process.env.SHIPPING_V2_DEBUG_PACKINGS === "true") {
     console.info("[Shipping V2 Packings candidatos]", {
       packingId: packing.id,

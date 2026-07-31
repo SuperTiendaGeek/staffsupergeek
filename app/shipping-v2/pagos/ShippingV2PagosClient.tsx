@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { calculateShippingV2PaymentItemSubtotal, calculateShippingV2PaymentItemsTotal } from "@/lib/shipping-v2/payment-calculations";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import type { ShippingV2AccessPermissions, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagoSupportCard, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 
@@ -73,6 +74,7 @@ function buildPaymentItemSearchText(item: ShippingV2PagoPendingItem | ShippingV2
     item.proveedorNombre,
     item.proveedorLogisticoId,
     item.proveedorLogisticoNombre,
+    item.cantidad,
     item.costoProveedor,
   ]);
 }
@@ -107,6 +109,28 @@ function buildPaymentSearchText(pago: ShippingV2Pago) {
 
 function money(value: number | null | undefined) {
   return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(value ?? 0);
+}
+
+type PaymentDisplayItem = ShippingV2PagoPendingItem | ShippingV2PagoItemResumen;
+
+function paymentItemCalculation(item: PaymentDisplayItem) {
+  try {
+    return { subtotal: calculateShippingV2PaymentItemSubtotal(item), error: "" };
+  } catch (error) {
+    return { subtotal: null, error: error instanceof Error ? error.message : "No se pudo calcular el subtotal." };
+  }
+}
+
+function paymentItemsTotal(items: PaymentDisplayItem[]) {
+  try {
+    return calculateShippingV2PaymentItemsTotal(items);
+  } catch {
+    return items.reduce((sum, item) => sum + (paymentItemCalculation(item).subtotal ?? 0), 0);
+  }
+}
+
+function paymentItemValidationErrors(items: PaymentDisplayItem[]) {
+  return items.map((item) => paymentItemCalculation(item).error).filter(Boolean);
 }
 
 function dateText(value?: string) {
@@ -191,6 +215,30 @@ function MissingList({ missing }: { missing: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {missing.map((item) => <Badge key={item} tone="support">{item}</Badge>)}
+    </div>
+  );
+}
+
+function PaymentItemLine({ item }: { item: PaymentDisplayItem }) {
+  const calculation = paymentItemCalculation(item);
+  return (
+    <div className="rounded-lg bg-[#101010] px-3 py-2 text-sm text-[#A7A7A7]">
+      <p className="font-semibold text-[#F5F5F5]"><span className="text-[#D7FF4F]">{item.sku}</span> · {item.nombre || "-"}</p>
+      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        <span>Cantidad: <span className="text-[#F5F5F5]">{item.cantidad ?? "-"}</span></span>
+        {item.esRegalo ? (
+          <span className="text-yellow-100">Regalo — no suma</span>
+        ) : (
+          <span>Costo unitario: <span className="text-[#F5F5F5]">{money(item.costoProveedor)}</span></span>
+        )}
+        <span>
+          {item.esRegalo ? "Subtotal pagable" : "Subtotal"}:{" "}
+          <span className={calculation.error ? "text-[#FFB4A8]" : "text-[#F5F5F5]"}>
+            {calculation.error ? "No calculable" : money(calculation.subtotal)}
+          </span>
+        </span>
+      </div>
+      {calculation.error ? <p className="mt-1 text-xs text-[#FFB4A8]">{calculation.error}</p> : null}
     </div>
   );
 }
@@ -299,10 +347,10 @@ function DetailModal({ pago, canManage, onClose, onUpdated }: { pago: ShippingV2
         <article className="mt-4 rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-4">
           <h3 className="font-semibold text-[#F5F5F5]">Items relacionados</h3>
           <div className="mt-3 grid gap-2">
-            {pago.itemsResumen.map((item) => <p key={item.id} className="rounded-lg bg-[#101010] px-3 py-2 text-sm text-[#A7A7A7]"><span className="font-semibold text-[#D7FF4F]">{item.sku}</span> · {item.nombre} · {money(item.costoProveedor)}</p>)}
+            {pago.itemsResumen.map((item) => <PaymentItemLine key={item.id} item={item} />)}
             {!pago.itemsResumen.length ? <p className="text-sm text-[#A7A7A7]">Sin items cargados.</p> : null}
           </div>
-          {pago.regalosResumen.length ? <div className="mt-4"><p className="text-sm font-semibold text-[#F5F5F5]">Regalos incluidos</p>{pago.regalosResumen.map((item) => <p key={item.id} className="mt-2 rounded-lg bg-[#101010] px-3 py-2 text-sm text-[#A7A7A7]">{item.sku} · {item.nombre}</p>)}</div> : null}
+          {pago.regalosResumen.length ? <div className="mt-4"><p className="text-sm font-semibold text-[#F5F5F5]">Regalos incluidos</p><div className="mt-2 grid gap-2">{pago.regalosResumen.map((item) => <PaymentItemLine key={item.id} item={item} />)}</div></div> : null}
         </article>
         {canManage ? (
           <>
@@ -335,11 +383,17 @@ function CreatePaymentModal({ selectedItems, registerPaidDefault, onClose, onCre
   const sameProvider = selectedItems.every((item) => item.proveedorId === providerId);
   const paidItems = selectedItems.filter((item) => !item.esRegalo);
   const giftItems = selectedItems.filter((item) => item.esRegalo);
-  const total = paidItems.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0);
+  const total = paymentItemsTotal(paidItems);
+  const validationErrors = paymentItemValidationErrors(paidItems);
 
   async function createPayment() {
     setBusy(true);
     setError("");
+    if (validationErrors.length) {
+      setBusy(false);
+      setError(validationErrors[0] || "Corrige los items seleccionados antes de crear el pago.");
+      return;
+    }
     if (registerPaidDefault) {
       const validationError = validatePaymentSupportForm(form);
       if (validationError) {
@@ -384,13 +438,11 @@ function CreatePaymentModal({ selectedItems, registerPaidDefault, onClose, onCre
         </div>
         {error ? <p className="mt-4 rounded-[1rem] border border-[#FF914D]/35 bg-[#FF914D]/10 p-3 text-sm text-[#FFB07A]">{error}</p> : null}
         {!sameProvider || !providerId ? <p className="mt-4 rounded-[1rem] border border-[#FF914D]/35 bg-[#FF914D]/10 p-3 text-sm text-[#FFB07A]">La selección debe tener un solo proveedor válido.</p> : null}
+        {validationErrors.length ? <div className="mt-4 rounded-[1rem] border border-[#FF914D]/35 bg-[#FF914D]/10 p-3 text-sm text-[#FFB07A]"><MissingList missing={validationErrors} /></div> : null}
         {!registerPaidDefault ? <p className="mt-4 rounded-[1rem] border border-yellow-300/25 bg-yellow-300/10 p-3 text-sm text-yellow-100">Este paso crea la obligación de pago. Los datos de pago real se registran cuando se pague.</p> : null}
         <div className="mt-5 grid gap-2">
           {selectedItems.map((item) => (
-            <div key={item.id} className="flex flex-col gap-1 rounded-[1rem] border border-[#3A3A36] bg-[#151515] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <span className="text-sm text-[#F5F5F5]"><span className="font-semibold text-[#D7FF4F]">{item.sku}</span> · {item.nombre}</span>
-              <span className="text-sm text-[#A7A7A7]">{money(item.costoProveedor)}</span>
-            </div>
+            <PaymentItemLine key={item.id} item={item} />
           ))}
         </div>
         {registerPaidDefault ? (
@@ -407,7 +459,7 @@ function CreatePaymentModal({ selectedItems, registerPaidDefault, onClose, onCre
         ) : null}
         <textarea value={form.observacion} onChange={(event) => setForm((current) => ({ ...current, observacion: event.target.value }))} placeholder="Observación" className="mt-4 min-h-24 w-full rounded-[1rem] border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5]" />
         <div className="mt-5 flex justify-end">
-          <button disabled={busy || !sameProvider || !providerId || !selectedItems.length} onClick={() => void createPayment()} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] disabled:opacity-50">{busy ? "Guardando..." : registerPaidDefault ? "Registrar pago" : "Crear pago pendiente"}</button>
+          <button disabled={busy || !sameProvider || !providerId || !selectedItems.length || validationErrors.length > 0} onClick={() => void createPayment()} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] disabled:opacity-50">{busy ? "Guardando..." : registerPaidDefault ? "Registrar pago" : "Crear pago pendiente"}</button>
         </div>
       </section>
     </div>
@@ -452,7 +504,8 @@ function SelectFilter({ label, value, options, onChange }: { label: string; valu
 }
 
 function PendingItemRow({ item, selected, onToggle }: { item: ShippingV2PagoPendingItem; selected: boolean; onToggle: () => void }) {
-  const missing = [!item.proveedorId ? "Sin proveedor" : "", !item.costoProveedor ? "Sin costo" : ""].filter(Boolean);
+  const calculation = paymentItemCalculation(item);
+  const missing = [!item.proveedorId ? "Sin proveedor" : "", !item.costoProveedor ? "Sin costo" : "", calculation.error].filter(Boolean);
   return (
     <tr className="border-t border-[#3A3A36]/70 hover:bg-[#20211F]">
       <td className="px-4 py-3"><input aria-label={`Seleccionar ${item.sku}`} type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 accent-[#D7FF4F]" /></td>
@@ -461,7 +514,9 @@ function PendingItemRow({ item, selected, onToggle }: { item: ShippingV2PagoPend
       <td className="px-4 py-3 text-[#A7A7A7]">{item.proveedorNombre || "-"}</td>
       <td className="px-4 py-3 text-[#A7A7A7]">{item.tipoOperacion || "-"}</td>
       <td className="px-4 py-3"><Badge tone="yellow">{item.estado || "-"}</Badge></td>
+      <td className="px-4 py-3 text-[#F5F5F5]">{item.cantidad ?? "-"}</td>
       <td className="px-4 py-3 text-[#F5F5F5]">{money(item.costoProveedor)}</td>
+      <td className="px-4 py-3 text-[#F5F5F5]">{calculation.error ? "—" : money(calculation.subtotal)}</td>
       <td className="px-4 py-3 text-[#A7A7A7]">{dateText(item.fechaRegistro)}</td>
       <td className="px-4 py-3"><MissingList missing={missing} /></td>
     </tr>
@@ -470,6 +525,7 @@ function PendingItemRow({ item, selected, onToggle }: { item: ShippingV2PagoPend
 
 function SupportItemRow({ card, selected, onToggle }: { card: Extract<ShippingV2PagoSupportCard, { kind: "item" }>; selected: boolean; onToggle: () => void }) {
   const item = card.item;
+  const calculation = paymentItemCalculation(item);
   return (
     <tr className="border-t border-[#3A3A36]/70 hover:bg-[#20211F]">
       <td className="px-4 py-3"><input aria-label={`Seleccionar ${item.sku}`} type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 accent-[#D7FF4F]" /></td>
@@ -478,7 +534,9 @@ function SupportItemRow({ card, selected, onToggle }: { card: Extract<ShippingV2
       <td className="px-4 py-3 text-[#A7A7A7]">{item.proveedorNombre || "-"}</td>
       <td className="px-4 py-3 text-[#A7A7A7]">{item.tipoOperacion || "-"}</td>
       <td className="px-4 py-3"><Badge tone="support">Sin pago V2</Badge></td>
+      <td className="px-4 py-3 text-[#F5F5F5]">{item.cantidad ?? "-"}</td>
       <td className="px-4 py-3 text-[#F5F5F5]">{money(item.costoProveedor)}</td>
+      <td className="px-4 py-3 text-[#F5F5F5]">{calculation.error ? "—" : money(calculation.subtotal)}</td>
       <td className="px-4 py-3 text-[#A7A7A7]">{dateText(item.fechaRegistro)}</td>
     </tr>
   );
@@ -516,10 +574,15 @@ function PagoRow({ pago, expanded, canManage, onToggle, onRegister, onComplete, 
             <div className="grid gap-4 lg:grid-cols-2">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Items relacionados</p>
-                <div className="mt-2 grid gap-2">{pago.itemsResumen.map((item) => <p key={item.id} className="rounded-lg bg-[#101010] px-3 py-2 text-sm text-[#A7A7A7]"><span className="font-semibold text-[#D7FF4F]">{item.sku}</span> · {item.nombre} · {money(item.costoProveedor)}</p>)}</div>
+                <div className="mt-2 grid gap-2">{pago.itemsResumen.map((item) => <PaymentItemLine key={item.id} item={item} />)}</div>
               </div>
               <div className="grid content-start gap-2 text-sm text-[#A7A7A7]">
-                <p>Regalos: <span className="text-[#F5F5F5]">{pago.regalosResumen.map((item) => item.sku).join(", ") || "-"}</span></p>
+                <div>
+                  <p>Regalos:</p>
+                  <div className="mt-2 grid gap-2">
+                    {pago.regalosResumen.length ? pago.regalosResumen.map((item) => <PaymentItemLine key={item.id} item={item} />) : <span className="text-[#F5F5F5]">-</span>}
+                  </div>
+                </div>
                 <p>Transacción: <span className="text-[#F5F5F5]">{pago.transaccionId || "-"}</span></p>
                 <p>Movimiento Finanzas: <span className="text-[#F5F5F5]">{pago.movimientoFinanzasId || "-"}</span></p>
                 <p>Comprobantes: <span className="text-[#F5F5F5]">{pago.comprobante.length}</span></p>
@@ -671,15 +734,15 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
             <div className="flex flex-col gap-2 border-b border-[#30312D] bg-[#20211D] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Items pendientes sin pago V2</h2>
-                <p className="mt-0.5 text-xs text-[#A7A7A7]">{selectedPendingItems.length} seleccionados · {money(selectedPendingItems.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0))}</p>
+                <p className="mt-0.5 text-xs text-[#A7A7A7]">{selectedPendingItems.length} seleccionados · {money(paymentItemsTotal(selectedPendingItems))}</p>
               </div>
               {canManagePayments ? (
                 <button disabled={!canCreatePending} onClick={() => openCreate(selectedPendingItems, false)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Crear pago pendiente agrupado</button>
               ) : null}
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1120px] text-left text-sm">
-                <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "SKU", "Nombre", "Proveedor", "Operación", "Estado", "Costo", "Registro", "Faltantes"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
+              <table className="w-full min-w-[1280px] text-left text-sm">
+                <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "SKU", "Nombre", "Proveedor", "Operación", "Estado", "Cantidad", "Costo unit.", "Subtotal", "Registro", "Faltantes"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
                 <tbody>{pendingItems.map((item) => <PendingItemRow key={item.id} item={item} selected={selectedPendingIds.includes(item.id)} onToggle={() => toggleId(item.id, setSelectedPendingIds)} />)}</tbody>
               </table>
               {!pendingItems.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay items pendientes con estos filtros.</p> : null}
@@ -707,15 +770,15 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
             <div className="flex flex-col gap-2 border-b border-[#30312D] bg-[#20211D] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Items pagados sin pago V2</h2>
-                <p className="mt-0.5 text-xs text-[#A7A7A7]">{selectedSupportItems.length} seleccionados · {money(selectedSupportItems.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0))}</p>
+                <p className="mt-0.5 text-xs text-[#A7A7A7]">{selectedSupportItems.length} seleccionados · {money(paymentItemsTotal(selectedSupportItems))}</p>
               </div>
               {canManagePayments ? (
                 <button disabled={!canCreatePaid} onClick={() => openCreate(selectedSupportItems, true)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Registrar pago ya realizado agrupado</button>
               ) : null}
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-left text-sm">
-                <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "SKU", "Nombre", "Proveedor", "Operación", "Badge", "Costo", "Registro"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
+              <table className="w-full min-w-[1160px] text-left text-sm">
+                <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "SKU", "Nombre", "Proveedor", "Operación", "Badge", "Cantidad", "Costo unit.", "Subtotal", "Registro"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
                 <tbody>{supportItems.map((card) => <SupportItemRow key={card.id} card={card} selected={selectedSupportIds.includes(card.item.id)} onToggle={() => toggleId(card.item.id, setSelectedSupportIds)} />)}</tbody>
               </table>
               {!supportItems.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay items sin soporte con estos filtros.</p> : null}

@@ -283,6 +283,7 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   costoLogisticoAsignado: number | null;
   costoTotalUnidad: number | null;
   costoTotalEstimado: number | null;
+  subtotalProveedorPacking?: number | null;
   precioVentaSugerido: number | null;
   precioVenta: number | null;
   qty: number | null;
@@ -477,6 +478,7 @@ export type ShippingV2PagoItemResumen = Pick<
   | "proveedorLogisticoId"
   | "proveedorLogisticoNombre"
   | "costoProveedor"
+  | "cantidad"
   | "esRegalo"
 >;
 
@@ -547,8 +549,12 @@ export type ShippingV2Packing = ShippingV2RecordBase & {
   flete: number | null;
   arancel: number | null;
   otrosCostos: number | null;
+  /** Total derivado desde items incluidos: suma(Cantidad * Costo proveedor unitario). */
+  costoTotalProveedorItems: number | null;
   costoTotalItemsProveedor: number | null;
   cantidadItemsPacking: number | null;
+  referenciasIncluidas: number;
+  unidadesTotales: number | null;
   reglaDistribucion?: string;
   reglaDistribucionCostos?: string;
   observacionCostos?: string;

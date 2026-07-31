@@ -9,17 +9,6 @@ const MAX_FOTOS_PER_ITEM = 10;
 const MAX_FOTO_SIZE = 10 * 1024 * 1024;
 const ALLOWED_FOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-function toNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const normalized = value.trim().replace(",", ".");
-    if (!normalized) return null;
-    const parsed = Number(normalized);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
 function toBoolean(value: unknown) {
   return value === true || value === "true" || value === "on";
 }
@@ -45,8 +34,11 @@ function parseInput(body: Record<string, unknown>): ShippingV2ItemWriteInput {
     marca: String(body.marca ?? ""),
     numeroSerie: String(body.numeroSerie ?? ""),
     condicion: String(body.condicion ?? ""),
-    costoProveedor: toNumber(body.costoProveedor),
-    precioVentaSugerido: toNumber(body.precioVentaSugerido),
+    cantidad: body.cantidad as number | null,
+    unidad: String(body.unidad ?? ""),
+    costoProveedor: body.costoProveedor as number | null,
+    precioVentaSugerido: body.precioVentaSugerido as number | null,
+    precioVenta: (body.precioVentaFinal ?? body.precioVenta) as number | null,
     ubicacionActual: String(body.ubicacionActual ?? ""),
     observacionesInternas: String(body.observacionesInternas ?? ""),
     observacionVenta: String(body.observacionVenta ?? ""),

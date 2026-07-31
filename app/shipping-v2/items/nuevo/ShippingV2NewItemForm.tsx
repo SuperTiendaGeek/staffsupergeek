@@ -9,10 +9,12 @@ import {
   SHIPPING_V2_MODOS_LOGISTICOS,
   SHIPPING_V2_TIPOS_ITEM,
   SHIPPING_V2_TIPOS_OPERACION,
+  SHIPPING_V2_UNIDADES,
   type ShippingV2Proveedor,
 } from "@/types/shipping-v2";
 import { normalizeItemNameFast } from "@/lib/shipping-v2/item-name-normalizer";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
+import { isShippingV2GiftOperation, isShippingV2PurchaseOperation } from "@/lib/shipping-v2/item-money-quantity";
 import { getShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 
@@ -45,8 +47,11 @@ type FormState = {
   marca: string;
   numeroSerie: string;
   condicion: string;
+  cantidad: string;
+  unidad: string;
   costoProveedor: string;
   precioVentaSugerido: string;
+  precioVentaFinal: string;
   ubicacionActual: string;
   observacionesInternas: string;
 };
@@ -72,8 +77,11 @@ const initialState: FormState = {
   marca: "",
   numeroSerie: "",
   condicion: firstOption(SHIPPING_V2_CONDICIONES),
+  cantidad: "1",
+  unidad: "Unidad",
   costoProveedor: "",
   precioVentaSugerido: "",
+  precioVentaFinal: "",
   ubicacionActual: "",
   observacionesInternas: "",
 };
@@ -172,6 +180,33 @@ function formatFileSize(bytes: number) {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
+function parseDecimalInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parsePositiveIntegerInput(value: string) {
+  const parsed = parseDecimalInput(value);
+  return parsed !== null && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseNonNegativeMoneyInput(value: string) {
+  const parsed = parseDecimalInput(value);
+  return parsed !== null && parsed >= 0 ? parsed : null;
+}
+
+function parsePositiveMoneyInput(value: string) {
+  const parsed = parseDecimalInput(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
+}
+
+function formatMoneyPreview(value: number | null) {
+  if (value === null) return "—";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+}
+
 export function ShippingV2NewItemForm({ proveedores }: Props) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(initialState);
@@ -203,8 +238,24 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
   const selectedModeUsesDirectTracking = form.modoLogistico === "Tracking directo";
   const effectiveRequiresPacking = selectedModeUsesDirectTracking ? false : selectedModeUsesPacking ? true : calculatedFlow.requierePacking;
   const modeHelpText = LOGISTICS_MODE_HELP[form.modoLogistico] ?? "";
+  const cantidadNormalizada = parsePositiveIntegerInput(form.cantidad);
+  const costoProveedorUnitario = parseNonNegativeMoneyInput(form.costoProveedor);
+  const precioVentaFinalDecimal = parseDecimalInput(form.precioVentaFinal);
+  const precioVentaFinalUnitario = parsePositiveMoneyInput(form.precioVentaFinal);
+  const isPurchaseOperation = isShippingV2PurchaseOperation(form.tipoOperacion);
+  const isGiftOperation = isShippingV2GiftOperation(form.tipoOperacion);
+  const subtotalProveedor = cantidadNormalizada !== null && costoProveedorUnitario !== null
+    ? cantidadNormalizada * costoProveedorUnitario
+    : null;
+  const valorPotencialVenta = cantidadNormalizada !== null && precioVentaFinalUnitario !== null
+    ? cantidadNormalizada * precioVentaFinalUnitario
+    : null;
   const showProviderWarning = calculatedFlow.requierePago && !form.proveedorId;
-  const showCostWarning = calculatedFlow.requierePago && !form.costoProveedor;
+  const showQuantityWarning = submitAttempted && cantidadNormalizada === null;
+  const showCostWarning = isPurchaseOperation && !parsePositiveMoneyInput(form.costoProveedor);
+  const showGiftCostWarning = isGiftOperation && costoProveedorUnitario !== null && costoProveedorUnitario > 0;
+  const finalPriceProvided = form.precioVentaFinal.trim() !== "";
+  const showFinalPriceWarning = submitAttempted && finalPriceProvided && (precioVentaFinalDecimal === null || precioVentaFinalDecimal < 0);
   const showCategoryWarning = submitAttempted && !form.categoria;
 
   useEffect(() => {
@@ -286,6 +337,22 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
 
     if (!form.categoria) {
       setError("Selecciona una categoría técnica/comercial para crear el item.");
+      return;
+    }
+    if (cantidadNormalizada === null) {
+      setError("Cantidad debe ser un número entero mayor a 0.");
+      return;
+    }
+    if (isPurchaseOperation && !parsePositiveMoneyInput(form.costoProveedor)) {
+      setError("Costo proveedor por unidad debe ser mayor a 0 para compras a proveedor.");
+      return;
+    }
+    if (showGiftCostWarning) {
+      setError("En regalos de proveedor, el costo proveedor por unidad debe estar vacío o ser 0.");
+      return;
+    }
+    if (showFinalPriceWarning) {
+      setError("Precio venta final por unidad no puede ser negativo.");
       return;
     }
 
@@ -439,15 +506,60 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
             </div>
           </FormCard>
 
-          <FormCard title="Costos y venta" description="Flete, arancel y costo total unidad se calculan luego desde Packing.">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <Field label="Costo proveedor">
-                <TextInput type="number" step="0.01" value={form.costoProveedor} onChange={(event) => update("costoProveedor", event.target.value)} />
+          <FormCard title="Cantidad, costos y venta" description="Flete, arancel y costo total unitario se calculan luego desde Packing.">
+            <div className="grid gap-3 md:grid-cols-3">
+              <Field label="Cantidad" required error={showQuantityWarning ? "Entero mayor a 0." : undefined}>
+                <TextInput
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={form.cantidad}
+                  aria-invalid={showQuantityWarning}
+                  onChange={(event) => update("cantidad", event.target.value)}
+                />
+              </Field>
+              <Field label="Unidad">
+                <SelectInput value={form.unidad} onChange={(event) => update("unidad", event.target.value)}>
+                  {SHIPPING_V2_UNIDADES.map((option) => <option key={option}>{option}</option>)}
+                </SelectInput>
+              </Field>
+              <Field label="Costo proveedor por unidad">
+                <TextInput
+                  type="number"
+                  min={isPurchaseOperation ? "0.01" : "0"}
+                  step="0.01"
+                  value={form.costoProveedor}
+                  aria-invalid={showCostWarning || showGiftCostWarning}
+                  onChange={(event) => update("costoProveedor", event.target.value)}
+                />
                 {showCostWarning ? <p className="text-xs leading-5 text-[#FFB07A]">Este flujo requiere costo proveedor.</p> : null}
+                {showGiftCostWarning ? <p className="text-xs leading-5 text-[#FFB07A]">En regalos debe estar vacío o en 0.</p> : null}
               </Field>
-              <Field label="Precio venta sugerido">
-                <TextInput type="number" step="0.01" value={form.precioVentaSugerido} onChange={(event) => update("precioVentaSugerido", event.target.value)} />
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <Field label="Precio venta sugerido por unidad">
+                <TextInput type="number" min="0.01" step="0.01" value={form.precioVentaSugerido} onChange={(event) => update("precioVentaSugerido", event.target.value)} />
               </Field>
+              <Field label="Precio venta final por unidad" error={showFinalPriceWarning ? "No puede ser negativo." : undefined}>
+                <TextInput
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.precioVentaFinal}
+                  aria-invalid={showFinalPriceWarning}
+                  onChange={(event) => update("precioVentaFinal", event.target.value)}
+                />
+              </Field>
+            </div>
+            <div className="mt-3 grid gap-2 border-t border-[#30312D] pt-3 sm:grid-cols-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Subtotal proveedor</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums text-[#F5F5F5]">{formatMoneyPreview(subtotalProveedor)}</p>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Valor potencial de venta</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums text-[#D7FF4F]">{formatMoneyPreview(valorPotencialVenta)}</p>
+              </div>
             </div>
           </FormCard>
 

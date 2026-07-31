@@ -5,6 +5,7 @@ import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { buscarFacturaBloqueante } from "@/lib/facturacion/gancho/idempotencia";
 import { postEmision } from "@/lib/facturacion/gancho/postEmision";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
+import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
 import { marcarReservaFacturada } from "@/lib/facturacion/reservas/airtable";
 
@@ -34,6 +35,10 @@ export async function POST(request: Request) {
   }
   if (!Array.isArray(body.pagos) || body.pagos.length === 0) {
     return NextResponse.json({ success: false, error: "Al menos una forma de pago requerida" }, { status: 400 });
+  }
+  const errorPrecioShipping = mensajePrecioShippingItemInvalido(body.detalles);
+  if (errorPrecioShipping) {
+    return NextResponse.json({ success: false, error: errorPrecioShipping }, { status: 400 });
   }
 
   // Fase 16 PR2: si viene de una orden/operación, re-verificar idempotencia

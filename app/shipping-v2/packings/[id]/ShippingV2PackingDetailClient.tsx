@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
+import {
+  calculateShippingV2PackingProviderCostSummary,
+  calculateShippingV2PackingProviderItemSubtotal,
+  formatShippingV2PackingItemsUnitsSummary,
+} from "@/lib/shipping-v2/packing-calculations";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { buildTrackingUrl } from "@/lib/shipping-v2/tracking";
 import { getEcuadorTransportProvidersForPacking, getUsaTransportProviders, providerTrackingLabel } from "@/lib/shipping-v2/tracking-providers";
@@ -36,13 +41,31 @@ function formatDate(value?: string) {
   return new Intl.DateTimeFormat("es-EC", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
-function formatCurrency(value: number | null | undefined) {
-  if (value === null || value === undefined) return "-";
-  return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(value);
-}
-
 function formatCurrencyZero(value: number | null | undefined) {
   return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(value ?? 0);
+}
+
+function packingProviderItemCalculation(item: ShippingV2Item) {
+  try {
+    return { subtotal: item.subtotalProveedorPacking ?? calculateShippingV2PackingProviderItemSubtotal(item), error: "" };
+  } catch (error) {
+    return { subtotal: null, error: error instanceof Error ? error.message : "No se pudo calcular el subtotal proveedor." };
+  }
+}
+
+function packingProviderCostSummary(items: ShippingV2Item[]) {
+  try {
+    return { ...calculateShippingV2PackingProviderCostSummary(items), error: "" };
+  } catch (error) {
+    const subtotalSeguro = items.reduce((sum, item) => sum + (packingProviderItemCalculation(item).subtotal ?? 0), 0);
+    const unidadesSeguras = items.reduce((sum, item) => sum + (Number.isInteger(item.cantidad) && item.cantidad && item.cantidad > 0 ? item.cantidad : 0), 0);
+    return {
+      costoTotalProveedorItems: subtotalSeguro,
+      referenciasIncluidas: items.length,
+      unidadesTotales: unidadesSeguras,
+      error: error instanceof Error ? error.message : "No se pudo calcular el total proveedor de items.",
+    };
+  }
 }
 
 function formatWeight(peso: number | null | undefined) {
@@ -75,6 +98,42 @@ function providerDisplayValue(...values: Array<string | undefined>) {
 }
 
 function ignoreItemPhotoUpdate(_item: ShippingV2Item) {}
+
+function ProviderCostRows({ item, includeAssignedCosts = false }: { item: ShippingV2Item; includeAssignedCosts?: boolean }) {
+  const calculation = packingProviderItemCalculation(item);
+  const rows = [
+    { label: "Costo proveedor por unidad", value: formatCurrencyZero(item.costoProveedor) },
+    { label: "Cantidad", value: display(item.cantidad) },
+    {
+      label: "Subtotal proveedor",
+      value: calculation.error ? "No calculable" : formatCurrencyZero(calculation.subtotal),
+      accent: true,
+    },
+    ...(item.esRegalo ? [{ label: "Regalo", value: "No suma" }] : []),
+    ...(includeAssignedCosts ? [
+      { label: "Flete", value: formatCurrencyZero(item.costoFleteAsignado) },
+      { label: "Arancel", value: formatCurrencyZero(item.costoArancelAsignado) },
+      { label: "Otros", value: formatCurrencyZero(item.otrosCostosAsignados) },
+      { label: "Logístico", value: formatCurrencyZero(item.costoLogisticoAsignado) },
+      { label: "Total unidad", value: formatCurrencyZero(item.costoTotalUnidad), accent: true },
+    ] : []),
+  ];
+
+  return (
+    <div className="mt-3 border-t border-[#2F302C] pt-3">
+      <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Costos</p>
+      <div className="mt-2 grid grid-cols-1 gap-x-3 gap-y-1 text-[11px] text-[#A7A7A7] sm:grid-cols-2">
+        {rows.map((row) => (
+          <p key={row.label} className="flex min-w-0 justify-between gap-2">
+            <span className="truncate">{row.label}</span>
+            <span className={`shrink-0 font-semibold ${row.accent ? "text-[#D7FF4F]" : "text-[#F5F5F5]"}`}>{row.value}</span>
+          </p>
+        ))}
+      </div>
+      {calculation.error ? <p className="mt-2 text-xs font-semibold text-[#FFB07A]">{calculation.error}</p> : null}
+    </div>
+  );
+}
 
 function destinatarioMatchesPacking(destinatario: ShippingV2Destinatario, packing: ShippingV2Packing) {
   return destinatario.packingIds.includes(packing.id) || destinatario.packingLabels.includes(packing.packingId);
@@ -779,15 +838,6 @@ function ItemCard({
   const purchaseProviderLabel = providerDisplayValue(providerLabel, item.proveedorNombre);
   const logisticsDisplayLabel = providerDisplayValue(logisticsProviderLabel, item.proveedorLogisticoNombre);
   const supplierSku = item.skuProveedor?.trim();
-  const shouldShowActionProviderPrice = canViewProviderCost && (!showCosts || !canViewCosts);
-  const costRows = [
-    { label: "Proveedor", value: item.costoProveedor },
-    { label: "Flete", value: item.costoFleteAsignado },
-    { label: "Arancel", value: item.costoArancelAsignado },
-    { label: "Otros", value: item.otrosCostosAsignados },
-    { label: "Logístico", value: item.costoLogisticoAsignado },
-    { label: "Total unidad", value: item.costoTotalUnidad },
-  ];
 
   return (
     <article
@@ -818,14 +868,9 @@ function ItemCard({
                 {display(item.nombre)}
               </Link>
             </div>
-            {action || shouldShowActionProviderPrice ? (
+            {action ? (
               <div className="flex shrink-0 flex-col items-center gap-2">
                 {action}
-                {shouldShowActionProviderPrice ? (
-                  <p className="text-center text-sm font-bold leading-none text-[#D7FF4F]">
-                    <span>{formatCurrency(item.costoProveedor)}</span>
-                  </p>
-                ) : null}
               </div>
             ) : null}
           </div>
@@ -839,20 +884,8 @@ function ItemCard({
           </div>
         </div>
       </div>
-      {showCosts && canViewCosts ? <div className="mt-3 border-t border-[#2F302C] pt-3">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Costos</p>
-          <p className="text-xs font-semibold text-[#F5F5F5]">{formatCurrencyZero(item.costoTotalUnidad)}</p>
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-[#A7A7A7] sm:grid-cols-3">
-          {costRows.map((row) => (
-            <p key={row.label} className="flex min-w-0 justify-between gap-2">
-              <span className="truncate">{row.label}</span>
-              <span className="shrink-0 font-semibold text-[#F5F5F5]">{formatCurrencyZero(row.value)}</span>
-            </p>
-          ))}
-        </div>
-      </div> : null}
+      {showCosts && canViewCosts ? <ProviderCostRows item={item} includeAssignedCosts /> : null}
+      {(!showCosts || !canViewCosts) && canViewProviderCost ? <ProviderCostRows item={item} /> : null}
     </article>
   );
 }
@@ -881,10 +914,12 @@ function safeMoneyInputValue(value: string) {
 function LogisticsCostsSection({
   packing,
   canEdit,
+  providerSummary,
   onSaved,
 }: {
   packing: ShippingV2Packing;
   canEdit: boolean;
+  providerSummary: ReturnType<typeof packingProviderCostSummary>;
   onSaved: (packing: ShippingV2Packing) => void;
 }) {
   const [form, setForm] = useState({
@@ -971,8 +1006,9 @@ function LogisticsCostsSection({
           <input inputMode="decimal" value={form.otrosCostos} disabled={!canEdit} onChange={(event) => update("otrosCostos", event.target.value)} className={compactInputClass} />
         </CostSummaryItem>
         <CostSummaryItem label="Total logístico" value={formatCurrencyZero(total)} strong />
-        <CostSummaryItem label="Costo total proveedor items" value={formatCurrencyZero(packing.costoTotalItemsProveedor)} />
-        <CostSummaryItem label="Cantidad items" value={display(packing.cantidadItemsPacking ?? packing.itemCount)} />
+        <CostSummaryItem label="Costo total proveedor items" value={formatCurrencyZero(providerSummary.costoTotalProveedorItems)} />
+        <CostSummaryItem label="Ítems incluidos" value={display(providerSummary.referenciasIncluidas)} />
+        <CostSummaryItem label="Unidades totales" value={display(providerSummary.unidadesTotales)} />
         <CostSummaryItem label="Regla distribución">
           <select value={form.reglaDistribucionCostos} disabled={!canEdit} onChange={(event) => update("reglaDistribucionCostos", event.target.value)} className={compactSelectClass}>
             {SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS.map((option) => <option key={option} value={option}>{option}</option>)}
@@ -986,6 +1022,7 @@ function LogisticsCostsSection({
       <p className="mt-3 text-xs leading-5 text-[#A7A7A7]">
         La distribución por item se calcula automáticamente desde Airtable según la regla seleccionada.
       </p>
+      {providerSummary.error ? <p className="mt-2 text-xs font-semibold text-[#FFB07A]">{providerSummary.error}</p> : null}
 
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="grid gap-1 text-xs text-[#A7A7A7] sm:grid-cols-3 sm:gap-4">
@@ -1108,6 +1145,8 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     [packing, shippingDestinatarios]
   );
   const missingTracking = !packing.trackingUsa?.trim() && !packing.trackingEc?.trim();
+  const providerSummary = useMemo(() => packingProviderCostSummary(packing.items), [packing.items]);
+  const packingItemsUnitsSummary = formatShippingV2PackingItemsUnitsSummary(providerSummary);
 
   useEffect(() => setPackingNovedades(novedades), [novedades]);
   useEffect(() => setShippingDestinatarios(destinatarios), [destinatarios]);
@@ -1712,7 +1751,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
               <div>
                 <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Caja abierta / Packing actual</p>
                 <h4 className="mt-1 text-xl font-semibold text-[#F5F5F5]">{display(packing.packingId)}</h4>
-                <p className="mt-1 text-sm text-[#A7A7A7]">{display(packing.estado)} · {packing.items.length} items</p>
+                <p className="mt-1 text-sm text-[#A7A7A7]">{display(packing.estado)} · {packingItemsUnitsSummary}</p>
                 <p className="mt-1 text-sm text-[#A7A7A7]">Proveedor: {display(responsableLabel || packing.proveedorResponsableNombre)}</p>
                 {packing.trackingUsa ? <p className="mt-1 text-sm text-[#A7A7A7]">Tracking USA: {packing.trackingUsa}</p> : null}
                 {packing.trackingEc ? <p className="mt-1 text-sm text-[#A7A7A7]">Tracking EC: {packing.trackingEc}</p> : null}
@@ -1785,6 +1824,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
         <LogisticsCostsSection
           packing={packing}
           canEdit={canEditLogisticsCosts()}
+          providerSummary={providerSummary}
           onSaved={(updatedPacking) => {
             setPacking(updatedPacking);
             router.refresh();

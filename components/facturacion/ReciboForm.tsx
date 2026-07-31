@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { totalRecibo, totalLinea } from "@/lib/facturacion/recibos/calculos";
 import type { LineaRecibo } from "@/lib/facturacion/recibos/types";
+import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { ClienteCard, CLIENTE_VACIO, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 
 const FORMAS_PAGO = [
@@ -63,6 +64,9 @@ export function ReciboForm() {
     if (lineas.length === 0) { setError("Agrega al menos un producto o servicio"); return; }
     if (lineas.some((l) => !l.descripcion.trim())) { setError("Todas las líneas deben tener descripción"); return; }
     if (lineas.some((l) => !(l.cantidad > 0) || !Number.isInteger(l.cantidad))) { setError("La cantidad debe ser un número entero mayor a 0"); return; }
+    if (lineas.some((l) => l.precioUnitario < 0)) { setError("El precio no puede ser negativo"); return; }
+    const errPrecioShipping = mensajePrecioShippingItemInvalido(lineas);
+    if (errPrecioShipping) { setError(errPrecioShipping); return; }
     const sinStock = lineas.filter((l) => l.shippingItemId && l.stockDisponible !== undefined && l.cantidad > l.stockDisponible);
     if (sinStock.length > 0) { setError(`Sin stock: ${sinStock.map((l) => `"${l.descripcion}" (pide ${l.cantidad}, hay ${l.stockDisponible})`).join("; ")}`); return; }
 
