@@ -39,6 +39,13 @@ import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
 import { getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
 import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
+import {
+  isPositiveShippingV2Price,
+  isShippingV2GiftOperation,
+  isShippingV2PurchaseOperation,
+  normalizeShippingV2InlineMoneyQuantityField,
+  normalizeShippingV2ItemMoneyQuantityInput,
+} from "@/lib/shipping-v2/item-money-quantity";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { canBeUsaTransportProvider, isCompatibleEcuadorTransportProvider } from "@/lib/shipping-v2/tracking-providers";
@@ -686,15 +693,15 @@ function validateItemInput(input: ShippingV2ItemWriteInput) {
   if (!estado) throw new Error("Estado Item es obligatorio.");
   if (input.requierePago && !proveedorId) throw new Error("Proveedor de compra es obligatorio cuando el item requiere pago.");
 
-  if (["Compra a proveedor", "Compra ya pagada"].includes(tipoOperacion)) {
+  if (isShippingV2PurchaseOperation(tipoOperacion)) {
     if (!proveedorId) throw new Error("Proveedor de compra es obligatorio para compras a proveedor.");
-    if (costoProveedor === null || costoProveedor === undefined || !Number.isFinite(costoProveedor)) {
-      throw new Error("Costo proveedor es obligatorio para compras a proveedor.");
+    if (!isPositiveShippingV2Price(costoProveedor)) {
+      throw new Error("Costo proveedor por unidad debe ser mayor a 0 para compras a proveedor.");
     }
   }
 
-  if (tipoOperacion === "Regalo de proveedor" && costoProveedor !== null && costoProveedor !== undefined && costoProveedor !== 0) {
-    throw new Error("En regalos de proveedor, el costo proveedor debe estar vacío o ser 0.");
+  if (isShippingV2GiftOperation(tipoOperacion) && costoProveedor !== null && costoProveedor !== undefined && costoProveedor !== 0) {
+    throw new Error("En regalos de proveedor, el costo proveedor por unidad debe estar vacío o ser 0.");
   }
 
   const modoLogistico = cleanString(input.modoLogistico);
@@ -2405,7 +2412,11 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
   if (!config) throw new Error("Campo no reconocido para Shipping Items.");
 
   const existing = await getShippingV2ItemById(id, { access: options.access, sanitizeForAccess: false });
-  const normalizedValue = normalizeInlineValue(config.type, input.value);
+  const normalizedValue = normalizeShippingV2InlineMoneyQuantityField({
+    field,
+    value: normalizeInlineValue(config.type, input.value),
+    item: existing,
+  });
   const esAdmin = options.esAdmin === true;
   await validateInlineItemFieldChange({ item: existing, recordId: id, field, rawValue: input.value, normalizedValue, esAdmin });
 
@@ -2502,10 +2513,11 @@ async function createShippingV2ItemRecord(
 
 export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string }) {
   const calculatedInput = applyCalculatedItemFlow(input);
-  validateItemInput(calculatedInput);
-  await validateItemProviderRules(calculatedInput);
+  const normalizedInput = normalizeShippingV2ItemMoneyQuantityInput(calculatedInput, { mode: "create" });
+  validateItemInput(normalizedInput);
+  await validateItemProviderRules(normalizedInput);
 
-  return createShippingV2ItemRecord(calculatedInput, options);
+  return createShippingV2ItemRecord(normalizedInput, options);
 }
 
 export async function createShippingV2ItemFromOperacion(
@@ -2579,7 +2591,9 @@ export async function createShippingV2ItemFromOperacion(
     fotos: input.fotos,
   };
 
-  return createShippingV2ItemRecord(itemInput, {
+  const normalizedItemInput = normalizeShippingV2ItemMoneyQuantityInput(itemInput, { mode: "create" });
+
+  return createShippingV2ItemRecord(normalizedItemInput, {
     registradoPor: options.registradoPor,
     eventDescription: `Item creado desde Operaciones Comerciales para opción ${opcionId}.`,
     extraFields: {
@@ -2702,12 +2716,13 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   if (!id) throw new Error("Record ID de item inválido.");
   // "edicion": recalcula las banderas de flujo pero NO retrocede el estado.
   const calculatedInput = applyCalculatedItemFlow(input, "edicion");
-  validateItemInput(calculatedInput);
-  await validateItemProviderRules(calculatedInput);
+  const normalizedInput = normalizeShippingV2ItemMoneyQuantityInput(calculatedInput, { mode: "update" });
+  validateItemInput(normalizedInput);
+  await validateItemProviderRules(normalizedInput);
 
   const existing = await getShippingV2ItemById(id, { access: systemShippingV2Access() });
-  const nextSku = normalizeSku(cleanString(calculatedInput.sku ?? calculatedInput.skuInterno));
-  if (existing.packingId && cleanString(calculatedInput.modoLogistico) !== cleanString(existing.modoLogistico)) {
+  const nextSku = normalizeSku(cleanString(normalizedInput.sku ?? normalizedInput.skuInterno));
+  if (existing.packingId && cleanString(normalizedInput.modoLogistico) !== cleanString(existing.modoLogistico)) {
     throw new Error("No se puede cambiar el modo logístico porque el Item ya tiene packing relacionado.");
   }
 
@@ -2718,7 +2733,7 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
     }
   }
 
-  const fields = getItemFields(calculatedInput, {
+  const fields = getItemFields(normalizedInput, {
     ...(nextSku ? { [getOfficialSkuField()]: nextSku } : {}),
     [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
     [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.actualizadoPor,

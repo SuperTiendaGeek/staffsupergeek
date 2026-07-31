@@ -158,7 +158,7 @@ for (const precioFinal of [100, 50, 80, 35, 20, 46, 33.33, 10, 1, 0.01, 115, 19.
 // puede representar varias unidades y venderse en partes.
 {
   const bloqueo = evaluarItemNoListo(
-    { id: "recX", nombre: "Item sin reservar" },
+    { id: "recX", nombre: "Item sin reservar", precio: 100 },
     { reservado: false, tieneFacturaPrevia: false, cantidad: 1 }
   );
   assert(bloqueo?.motivo === "NO_RESERVADO", "Item con Reservado=false debe bloquear con NO_RESERVADO");
@@ -166,14 +166,14 @@ for (const precioFinal of [100, 50, 80, 35, 20, 46, 33.33, 10, 1, 0.01, 115, 19.
 {
   // El caso clásico del registro-por-unidad: ya vendido = factura previa + cantidad 0
   const bloqueo = evaluarItemNoListo(
-    { id: "recY", nombre: "Item ya facturado" },
+    { id: "recY", nombre: "Item ya facturado", precio: 100 },
     { reservado: true, tieneFacturaPrevia: true, cantidad: 0 }
   );
   assert(bloqueo?.motivo === "YA_FACTURADO", "Item agotado con link Factura previo debe bloquear con YA_FACTURADO");
 }
 {
   const bloqueo = evaluarItemNoListo(
-    { id: "recZ", nombre: "Item listo" },
+    { id: "recZ", nombre: "Item listo", precio: 100 },
     { reservado: true, tieneFacturaPrevia: false, cantidad: 1 }
   );
   assert(bloqueo === null, "Item Reservado, con stock y sin Factura previa no debe bloquear");
@@ -181,7 +181,7 @@ for (const precioFinal of [100, 50, 80, 35, 20, 46, 33.33, 10, 1, 0.01, 115, 19.
 {
   // Prioridad: agotado con AMBOS problemas reporta YA_FACTURADO (más específico/grave)
   const bloqueo = evaluarItemNoListo(
-    { id: "recW", nombre: "Item con los dos problemas" },
+    { id: "recW", nombre: "Item con los dos problemas", precio: 100 },
     { reservado: false, tieneFacturaPrevia: true, cantidad: 0 }
   );
   assert(bloqueo?.motivo === "YA_FACTURADO", "Con ambos problemas, prioriza YA_FACTURADO sobre NO_RESERVADO");
@@ -189,7 +189,7 @@ for (const precioFinal of [100, 50, 80, 35, 20, 46, 33.33, 10, 1, 0.01, 115, 19.
 {
   // Fase 17.b — sin stock y sin factura previa: SIN_STOCK
   const bloqueo = evaluarItemNoListo(
-    { id: "recS", nombre: "Item agotado" },
+    { id: "recS", nombre: "Item agotado", precio: 100 },
     { reservado: true, tieneFacturaPrevia: false, cantidad: 0 }
   );
   assert(bloqueo?.motivo === "SIN_STOCK", "Item con Cantidad 0 sin factura previa debe bloquear con SIN_STOCK");
@@ -197,10 +197,19 @@ for (const precioFinal of [100, 50, 80, 35, 20, 46, 33.33, 10, 1, 0.01, 115, 19.
 {
   // Fase 17.b — factura previa PERO stock restante: vendible (venta parcial previa)
   const bloqueo = evaluarItemNoListo(
-    { id: "recP", nombre: "Item parcialmente vendido" },
+    { id: "recP", nombre: "Item parcialmente vendido", precio: 100 },
     { reservado: true, tieneFacturaPrevia: true, cantidad: 3 }
   );
   assert(bloqueo === null, "Item con factura previa pero stock restante NO debe bloquear (venta parcial)");
+}
+{
+  // Fase 1 auditoría Shipping Items: un item con stock/reserva no puede
+  // volverse facturable si no tiene Precio venta final.
+  const bloqueo = evaluarItemNoListo(
+    { id: "recP0", nombre: "Item sin precio final", precio: 0 },
+    { reservado: true, tieneFacturaPrevia: false, cantidad: 1 }
+  );
+  assert(bloqueo?.motivo === "SIN_PRECIO_FINAL", "Item reservado y con stock pero sin Precio venta final debe bloquear");
 }
 
 // ─── calcularFormasPago ────────────────────────────────────────────────────────

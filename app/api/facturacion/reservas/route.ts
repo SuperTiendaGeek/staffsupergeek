@@ -6,6 +6,7 @@ import { abonoMinimo, fechaLimiteReserva, PLAZOS_VALIDOS, validarAbono } from "@
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import { fetchRecordsByIds }         from "@/lib/facturacion/gancho/airtableGancho";
 import { resolverClienteDocumento }  from "@/lib/facturacion/clientesResolver";
+import { resolverDatosShippingItemParaReserva, ShippingItemReservaPrecioError } from "@/lib/facturacion/reservas/precioShippingItem";
 import type { PlazoReserva }         from "@/lib/facturacion/reservas/types";
 
 export const dynamic     = "force-dynamic";
@@ -45,28 +46,26 @@ export async function POST(request: Request) {
 
   const razonSocial = body.cliente?.razonSocial?.trim();
   const shippingItemId = body.shippingItemId?.trim();
-  const precioVenta = Number(body.precioVenta);
   const plazoDias = Number(body.plazoDias);
   const montoAbono = Number(body.abonoInicial?.monto);
   const formaPago = body.abonoInicial?.formaPago?.trim();
 
   if (!razonSocial) return NextResponse.json({ success: false, error: "Falta el nombre del cliente" }, { status: 400 });
   if (!shippingItemId) return NextResponse.json({ success: false, error: "Falta el ítem a reservar" }, { status: 400 });
-  if (!(precioVenta > 0)) return NextResponse.json({ success: false, error: "El precio del ítem debe ser mayor a 0" }, { status: 400 });
   if (!PLAZOS_VALIDOS.includes(plazoDias as PlazoReserva)) return NextResponse.json({ success: false, error: "El plazo debe ser 7, 15 o 30 días" }, { status: 400 });
   if (!formaPago) return NextResponse.json({ success: false, error: "Elige una forma de pago para el abono" }, { status: 400 });
-  const errAbono = validarAbono(montoAbono, precioVenta, 0);
-  if (errAbono) return NextResponse.json({ success: false, error: `${errAbono} (mínimo $${abonoMinimo(precioVenta).toFixed(2)})` }, { status: 400 });
 
   // El ítem debe estar disponible para venta y sin otra reserva activa encima.
   // Esto es solo el aviso temprano con buen mensaje: la barrera dura es
   // apartarItemParaReserva(), más abajo, que falla si el ítem ya está apartado.
+  let datosItemReserva: { descripcionItem: string; precioVenta: number } | null = null;
   try {
     const [rec] = await fetchRecordsByIds("Shipping Items", [shippingItemId]);
     if (!rec) return NextResponse.json({ success: false, error: "El ítem no existe" }, { status: 404 });
     if (rec.fields["Disponible para venta"] !== true) {
       return NextResponse.json({ success: false, error: "El ítem ya no está disponible (vendido o reservado)" }, { status: 400 });
     }
+    datosItemReserva = resolverDatosShippingItemParaReserva(rec, { descripcionItem: body.descripcionItem });
     const reservaActiva = await buscarReservaActivaPorItem(shippingItemId);
     if (reservaActiva) {
       return NextResponse.json(
@@ -74,9 +73,20 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-  } catch {
+  } catch (e) {
+    if (e instanceof ShippingItemReservaPrecioError) {
+      return NextResponse.json({ success: false, error: e.message }, { status: 400 });
+    }
     return NextResponse.json({ success: false, error: "No se pudo verificar el ítem. Intenta de nuevo." }, { status: 503 });
   }
+
+  if (!datosItemReserva) {
+    return NextResponse.json({ success: false, error: "No se pudo verificar el precio del ítem. Intenta de nuevo." }, { status: 503 });
+  }
+
+  const precioVenta = datosItemReserva.precioVenta;
+  const errAbono = validarAbono(montoAbono, precioVenta, 0);
+  if (errAbono) return NextResponse.json({ success: false, error: `${errAbono} (mínimo $${abonoMinimo(precioVenta).toFixed(2)})` }, { status: 400 });
 
   // Resolver el cliente contra la tabla Clientes (la reserva DEBE quedar
   // vinculada a un cliente real). Ver lib/facturacion/clientesResolver.
@@ -112,7 +122,7 @@ export async function POST(request: Request) {
     creada = await crearReserva({
       cliente: { identificacion: resol.datos.identificacion, razonSocial: resol.datos.razonSocial, correo: resol.datos.correo, telefono: resol.datos.telefono, airtableId: resol.clienteId },
       shippingItemId: shippingItemId!,
-      descripcionItem: body.descripcionItem?.trim() || "Ítem reservado",
+      descripcionItem: datosItemReserva.descripcionItem,
       precioVenta, plazoDias, fechaLimite, abonoInicial, registradoPor,
     });
   } catch (e) {

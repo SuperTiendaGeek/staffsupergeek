@@ -143,7 +143,7 @@ const AVAILABLE_COLUMNS: ShippingV2ItemsColumn[] = [
   { key: "logisticProvider", label: "Proveedor logístico", defaultWidth: 170, minWidth: 140, defaultVisible: true, category: "Logística" },
   { key: "packing", label: "Packing", defaultWidth: 120, minWidth: 100, defaultVisible: true, category: "Logística" },
   { key: "providerCost", label: "Costo proveedor", defaultWidth: 130, minWidth: 110, align: "right", defaultVisible: true, category: "Compra" },
-  { key: "salePrice", label: "Precio venta", defaultWidth: 120, minWidth: 100, align: "right", defaultVisible: true, category: "Inventario" },
+  { key: "salePrice", label: "Precio venta unit.", defaultWidth: 130, minWidth: 120, align: "right", defaultVisible: true, category: "Inventario" },
   { key: "createdAt", label: "Fecha registro", defaultWidth: 150, minWidth: 130, defaultVisible: true, category: "Sistema" },
   { key: "brand", label: "Marca", defaultWidth: 120, minWidth: 100, defaultVisible: false, category: "Principal" },
   { key: "model", label: "Modelo", defaultWidth: 160, minWidth: 120, defaultVisible: false, category: "Principal" },
@@ -313,16 +313,40 @@ function formatCurrency(value: number | null) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
 
-function calculateItemProfit(item: ShippingV2Item) {
-  if (typeof item.precioVenta !== "number" || !Number.isFinite(item.precioVenta)) return null;
+function getItemStockQuantity(item: ShippingV2Item) {
+  const cantidad = typeof item.cantidad === "number" && Number.isFinite(item.cantidad)
+    ? item.cantidad
+    : typeof item.qty === "number" && Number.isFinite(item.qty)
+      ? item.qty
+      : null;
+  return cantidad !== null && cantidad > 0 ? cantidad : null;
+}
 
-  const costBasis = typeof item.costoTotalUnidad === "number" && Number.isFinite(item.costoTotalUnidad)
+function calculateItemUnitCost(item: ShippingV2Item) {
+  return typeof item.costoTotalUnidad === "number" && Number.isFinite(item.costoTotalUnidad)
     ? item.costoTotalUnidad
     : typeof item.costoProveedor === "number" && Number.isFinite(item.costoProveedor)
       ? item.costoProveedor + (typeof item.costoLogisticoAsignado === "number" && Number.isFinite(item.costoLogisticoAsignado) ? item.costoLogisticoAsignado : 0)
       : null;
+}
 
+function calculateItemUnitProfit(item: ShippingV2Item) {
+  if (typeof item.precioVenta !== "number" || !Number.isFinite(item.precioVenta)) return null;
+
+  const costBasis = calculateItemUnitCost(item);
   return costBasis === null ? null : item.precioVenta - costBasis;
+}
+
+function calculateItemStockCost(item: ShippingV2Item) {
+  const costBasis = calculateItemUnitCost(item);
+  const cantidad = getItemStockQuantity(item);
+  return costBasis === null || cantidad === null ? null : costBasis * cantidad;
+}
+
+function calculateItemStockProfit(item: ShippingV2Item) {
+  const gananciaUnidad = calculateItemUnitProfit(item);
+  const cantidad = getItemStockQuantity(item);
+  return gananciaUnidad === null || cantidad === null ? null : gananciaUnidad * cantidad;
 }
 
 function formatDate(value?: string) {
@@ -880,10 +904,10 @@ function MobileItemCard({
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Proveedor</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.proveedorCompraDisplay)}</dd></div>
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Packing</dt><dd className="text-right text-[#F5F5F5]">{displayValue(packingLabel(item))}</dd></div>
         {canViewProviderCost ? (
-          <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Precio proveedor</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.costoProveedor)}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Costo proveedor unitario</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.costoProveedor)}</dd></div>
         ) : null}
         {canViewCosts ? (
-          <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Precio venta</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.precioVenta)}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Precio venta final unitario</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.precioVenta)}</dd></div>
         ) : null}
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Fecha registro</dt><dd className="text-right text-[#F5F5F5]">{formatDate(item.fechaRegistro || item.createdTime)}</dd></div>
       </dl>
@@ -1158,7 +1182,7 @@ function ShippingV2ProviderItemDetailView({
             />
 
             <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {canViewProviderCost ? <ProviderDatum label="Precio proveedor" value={formatCurrency(item.costoProveedor)} featured /> : null}
+              {canViewProviderCost ? <ProviderDatum label="Costo proveedor unitario" value={formatCurrency(item.costoProveedor)} featured /> : null}
               <ProviderDatum label="SKU proveedor" value={displayValue(item.skuProveedor)} />
               <ProviderDatum label="SKU" value={displayValue(item.sku)} />
               <ProviderDatum label="Categoría" value={displayValue(item.categoria)} />
@@ -1299,7 +1323,9 @@ export function ShippingV2ItemDetailView({
   }, [item.id]);
 
   const C = SHIPPING_V2_ITEM_EDIT_FIELDS;
-  const ganancia = calculateItemProfit(item);
+  const gananciaUnidad = calculateItemUnitProfit(item);
+  const gananciaStock = calculateItemStockProfit(item);
+  const costoStock = calculateItemStockCost(item);
   const aiNameSuggestion = item.aiNombre?.trim();
   const canEditItems = permissions?.canEditItems !== false;
   const canEditProviderItemFields = permissions?.canEditProviderItemFields === true;
@@ -1360,12 +1386,14 @@ export function ShippingV2ItemDetailView({
         { label: "Costo arancel asignado", value: item.costoArancelAsignado, displayValue: formatCurrency(item.costoArancelAsignado), readOnly: true },
         { label: "Otros costos asignados", value: item.otrosCostosAsignados, displayValue: formatCurrency(item.otrosCostosAsignados), readOnly: true },
         { label: "Costo logístico asignado", value: item.costoLogisticoAsignado, displayValue: formatCurrency(item.costoLogisticoAsignado), readOnly: true },
-        { label: "Costo total unidad", value: item.costoTotalUnidad, displayValue: formatCurrency(item.costoTotalUnidad), readOnly: true },
+        { label: "Costo total unitario", value: item.costoTotalUnidad, displayValue: formatCurrency(item.costoTotalUnidad), readOnly: true },
+        { label: "Costo total del stock", value: costoStock, displayValue: formatCurrency(costoStock), readOnly: true },
         { label: "Costo asignado despiece", value: item.costoAsignadoDespiece, displayValue: formatCurrency(item.costoAsignadoDespiece), readOnly: true },
         { label: "Costo total estimado", value: item.costoTotalEstimado, displayValue: formatCurrency(item.costoTotalEstimado), readOnly: true },
         { label: C.precioVentaSugerido.label, value: item.precioVentaSugerido, displayValue: formatCurrency(item.precioVentaSugerido), config: C.precioVentaSugerido },
         { label: C.precioVentaFinal.label, value: item.precioVenta, displayValue: formatCurrency(item.precioVenta), config: C.precioVentaFinal },
-        { label: "Ganancia", value: ganancia, displayValue: formatCurrency(ganancia), readOnly: true },
+        { label: "Ganancia por unidad", value: gananciaUnidad, displayValue: formatCurrency(gananciaUnidad), readOnly: true },
+        { label: "Ganancia total del stock", value: gananciaStock, displayValue: formatCurrency(gananciaStock), readOnly: true },
       ],
     } satisfies { key: ItemDetailTabKey; label: string; title: string; accent: "lime" | "purple" | "orange" | "yellow"; rows: DetailRow[] }] : []),
     {
@@ -1467,7 +1495,7 @@ export function ShippingV2ItemDetailView({
                 readOnly={!canEditItems}
                 onSave={(value) => saveField(C.precioVentaFinal.field, value)}
               />
-              <DetailMetric label="Costo total unidad" value={formatCurrency(item.costoTotalUnidad)} />
+              <DetailMetric label="Costo total unitario" value={formatCurrency(item.costoTotalUnidad)} />
               <InlineEditableField
                 label={C.costoProveedor.label}
                 value={item.costoProveedor}
@@ -1480,7 +1508,9 @@ export function ShippingV2ItemDetailView({
                 onSave={(value) => saveField(C.costoProveedor.field, value)}
               />
               <DetailMetric label="Costo logístico" value={formatCurrency(item.costoLogisticoAsignado)} />
-              <DetailMetric label="Ganancia" value={formatCurrency(ganancia)} tone={ganancia !== null && ganancia < 0 ? "orange" : "lime"} />
+              <DetailMetric label="Costo total del stock" value={formatCurrency(costoStock)} />
+              <DetailMetric label="Ganancia por unidad" value={formatCurrency(gananciaUnidad)} tone={gananciaUnidad !== null && gananciaUnidad < 0 ? "orange" : "lime"} />
+              <DetailMetric label="Ganancia total del stock" value={formatCurrency(gananciaStock)} tone={gananciaStock !== null && gananciaStock < 0 ? "orange" : "lime"} />
             </div>
           </article> : null}
 

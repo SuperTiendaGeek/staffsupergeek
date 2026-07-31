@@ -4,6 +4,7 @@ import { crearProforma, adjuntarPdfProforma, listarProformas } from "@/lib/factu
 import { generarProformaPdf }        from "@/lib/facturacion/proformas/pdf";
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
+import { validarLineasProformaShippingItems } from "@/lib/facturacion/proformas/preciosShippingItems";
 import type { CrearProformaInput }   from "@/lib/facturacion/proformas/types";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +42,11 @@ export async function POST(request: Request) {
   if (body.lineas.some((l) => !(l.cantidad > 0) || l.precioUnitario < 0)) return NextResponse.json({ success: false, error: "Cantidad > 0 y precio ≥ 0 en todas las líneas" }, { status: 400 });
 
   try {
+    const errorShippingItems = await validarLineasProformaShippingItems(body.lineas);
+    if (errorShippingItems) {
+      return NextResponse.json({ success: false, error: errorShippingItems }, { status: 400 });
+    }
+
     const { recordId, numero } = await crearProforma(body);
 
     // PDF best-effort — la proforma ya quedó guardada aunque el PDF falle.

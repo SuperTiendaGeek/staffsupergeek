@@ -58,11 +58,12 @@ export function ProformaForm() {
     setLineas((prev) => [...prev, {
       _id: crypto.randomUUID(), codigo: p.sku || p.id, descripcion: p.nombre, unidadMedida: p.unidad,
       cantidad: 1, precioUnitario: p.precioVenta, descuento: 0, tarifaIva: "4",
+      origen: "shipping-item", shippingItemId: p.id,
     }]);
     setQueryProd(""); setProdSug([]); prodRef.current?.focus();
   }
   function agregarManual() {
-    setLineas((prev) => [...prev, { _id: crypto.randomUUID(), codigo: "", descripcion: "", unidadMedida: "UNIDAD", cantidad: 1, precioUnitario: 0, descuento: 0, tarifaIva: "4" }]);
+    setLineas((prev) => [...prev, { _id: crypto.randomUUID(), codigo: "", descripcion: "", unidadMedida: "UNIDAD", cantidad: 1, precioUnitario: 0, descuento: 0, tarifaIva: "4", origen: "manual" }]);
   }
   function actualizar(id: string, campo: keyof Linea, valor: string | number) {
     setLineas((prev) => prev.map((l) => (l._id === id ? { ...l, [campo]: valor } : l)));
@@ -75,6 +76,7 @@ export function ProformaForm() {
     if (lineas.length === 0) { setError("Agrega al menos un producto o servicio"); return; }
     if (lineas.some((l) => !l.descripcion.trim())) { setError("Todas las líneas deben tener descripción"); return; }
     if (lineas.some((l) => !(l.cantidad > 0) || l.precioUnitario < 0)) { setError("Cantidad > 0 y precio ≥ 0 en todas las líneas"); return; }
+    if (lineas.some((l) => l.shippingItemId && l.precioUnitario <= 0)) { setError("Los productos de Shipping Items requieren precio unitario mayor a 0"); return; }
 
     setGenerando(true);
     try {
@@ -153,7 +155,7 @@ export function ProformaForm() {
                   <tr key={l._id} className="border-b border-[#2A2B28]">
                     <td className="py-1.5 pr-2"><input value={l.descripcion} onChange={(e) => actualizar(l._id, "descripcion", e.target.value)} className="w-full rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5]" /></td>
                     <td className="py-1.5 pr-2"><input type="number" min="1" step="1" value={l.cantidad} onChange={(e) => actualizar(l._id, "cantidad", Math.max(0, parseInt(e.target.value, 10) || 0))} className="w-14 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5]" /></td>
-                    <td className="py-1.5 pr-2"><input type="number" min="0" step="0.01" value={l.precioUnitario} onChange={(e) => actualizar(l._id, "precioUnitario", parseFloat(e.target.value) || 0)} className="w-20 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5]" /></td>
+                    <td className="py-1.5 pr-2"><input type="number" min={l.shippingItemId ? "0.01" : "0"} step="0.01" value={l.precioUnitario} onChange={(e) => actualizar(l._id, "precioUnitario", parseFloat(e.target.value) || 0)} className="w-20 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5]" /></td>
                     <td className="py-1.5 pr-2"><input type="number" min="0" step="0.01" value={l.descuento} onChange={(e) => actualizar(l._id, "descuento", parseFloat(e.target.value) || 0)} className="w-16 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5]" /></td>
                     <td className="py-1.5 pr-2"><select value={l.tarifaIva} onChange={(e) => actualizar(l._id, "tarifaIva", e.target.value)} className="w-20 rounded bg-[#252622] border border-[#3A3A36] px-1 py-1 text-xs text-[#F5F5F5]">{TARIFAS.map((t) => <option key={t.codigo} value={t.codigo}>{t.label}</option>)}</select></td>
                     <td className="py-1.5 pr-2 text-right text-xs text-[#D7FF4F] font-semibold">${round2(l.cantidad * l.precioUnitario - l.descuento).toFixed(2)}</td>

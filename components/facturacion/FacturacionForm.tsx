@@ -5,6 +5,7 @@ import { useSearchParams }             from "next/navigation";
 import type { ResultadoPreFactura }    from "@/lib/facturacion/gancho/traductor";
 import type { OrigenGancho }           from "@/lib/facturacion/emitirFactura";
 import { round2, desglosarPrecioConIvaIncluido } from "@/lib/facturacion/ivaIncluido";
+import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { ClienteCard, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 
 // ─── Tipos locales ─────────────────────────────────────────────────────────────
@@ -654,6 +655,10 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
     }
     if (lineas.some((l) => l.cantidad <= 0 || l.precioUnitario < 0)) {
       setErrGlobal("Cantidad debe ser > 0 y precio ≥ 0 en todos los detalles"); return;
+    }
+    const errPrecioShipping = mensajePrecioShippingItemInvalido(lineas);
+    if (errPrecioShipping) {
+      setErrGlobal(errPrecioShipping); return;
     }
     if (lineas.some((l) => !Number.isInteger(l.cantidad))) {
       setErrGlobal("La cantidad debe ser un número entero (se venden unidades completas)"); return;
@@ -1411,6 +1416,8 @@ function PreFacturaBloqueadaBanner({ resultado }: { resultado: Extract<Resultado
                 ? "no está Reservado"
                 : item.motivo === "SIN_STOCK"
                 ? "no tiene stock disponible"
+                : item.motivo === "SIN_PRECIO_FINAL"
+                ? "no tiene Precio venta final"
                 : "ya tiene una factura vinculada"}
             </span>
           </li>
