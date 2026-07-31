@@ -52,6 +52,7 @@ import {
   calculateShippingV2PaymentItemsTotal,
   type ShippingV2PaymentItemLike,
 } from "@/lib/shipping-v2/payment-calculations";
+import { withShippingV2PackingProviderCostSummary } from "@/lib/shipping-v2/packing-calculations";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { canBeUsaTransportProvider, isCompatibleEcuadorTransportProvider } from "@/lib/shipping-v2/tracking-providers";
@@ -87,6 +88,10 @@ type AirtableRecordResponse = AirtableRecord;
 type AirtableMutationResponse = {
   records?: AirtableRecord[];
 };
+
+const AIRTABLE_RATE_LIMIT_MAX_RETRIES = 3;
+const AIRTABLE_RATE_LIMIT_BASE_DELAY_MS = 250;
+const AIRTABLE_BATCH_RECORD_ID_CHUNK_SIZE = 25;
 
 export type ShippingV2TechnicalOptionType = "connectivity" | "port" | "extraFeature";
 export type ShippingV2ItemsListSortKey =
@@ -854,12 +859,58 @@ function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, un
   });
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(value: string | null | undefined): number | null {
+  const text = cleanString(value);
+  if (!text) return null;
+
+  const seconds = Number(text);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+
+  const dateMs = Date.parse(text);
+  if (Number.isFinite(dateMs)) return Math.max(0, dateMs - Date.now());
+  return null;
+}
+
+export function getAirtableRateLimitRetryDelayMs(headers: Headers | undefined, retryIndex: number) {
+  const retryAfterMs = parseRetryAfterMs(headers?.get("Retry-After"));
+  if (retryAfterMs !== null) return retryAfterMs;
+  return AIRTABLE_RATE_LIMIT_BASE_DELAY_MS * (2 ** retryIndex);
+}
+
+function mergeAirtableHeaders(headers?: HeadersInit) {
+  if (!headers) return getClient().headers;
+  const merged = new Headers(getClient().headers);
+  new Headers(headers).forEach((value, key) => merged.set(key, value));
+  return merged;
+}
+
+async function airtableFetch(url: string, init: RequestInit = {}, context: { operation: string }) {
+  for (let attempt = 0; attempt <= AIRTABLE_RATE_LIMIT_MAX_RETRIES; attempt++) {
+    const response = await fetch(url, {
+      ...init,
+      headers: mergeAirtableHeaders(init.headers),
+      cache: "no-store",
+    });
+
+    if (response.status !== 429) return response;
+
+    if (attempt >= AIRTABLE_RATE_LIMIT_MAX_RETRIES) {
+      const text = await response.text();
+      throw new Error(`Airtable Shipping V2 ${context.operation} 429: ${text || "RATE_LIMIT_REACHED"}. Se agotaron ${AIRTABLE_RATE_LIMIT_MAX_RETRIES} reintentos por rate limit.`);
+    }
+
+    await sleep(getAirtableRateLimitRetryDelayMs(response.headers, attempt));
+  }
+
+  throw new Error(`Airtable Shipping V2 ${context.operation}: reintentos agotados.`);
+}
+
 async function airtableMutation<T>(url: string, init: RequestInit) {
-  const response = await fetch(url, {
-    ...init,
-    headers: getClient().headers,
-    cache: "no-store",
-  });
+  const response = await airtableFetch(url, init, { operation: "escritura" });
 
   if (!response.ok) {
     const text = await response.text();
@@ -892,7 +943,7 @@ async function uploadAttachmentToRecord(input: {
 }) {
   const client = getClient();
   const url = `https://content.airtable.com/v0/${encodeURIComponent(getRequiredEnv("AIRTABLE_BASE_ID"))}/${encodeURIComponent(input.recordId)}/${encodeURIComponent(input.attachmentFieldIdOrName)}/uploadAttachment`;
-  const response = await fetch(url, {
+  const response = await airtableFetch(url, {
     method: "POST",
     headers: {
       ...client.headers,
@@ -904,8 +955,7 @@ async function uploadAttachmentToRecord(input: {
       filename: input.filename,
       file: input.fileBase64,
     }),
-    cache: "no-store",
-  });
+  }, { operation: "uploadAttachment" });
 
   if (!response.ok) {
     const text = await response.text();
@@ -914,10 +964,7 @@ async function uploadAttachmentToRecord(input: {
 }
 
 async function airtableRequest<T>(url: string) {
-  const response = await fetch(url, {
-    headers: getClient().headers,
-    cache: "no-store",
-  });
+  const response = await airtableFetch(url, {}, { operation: "lectura" });
 
   if (!response.ok) {
     const text = await response.text();
@@ -931,10 +978,7 @@ async function recordExists(tableName: string, recordId: string) {
   const id = cleanString(recordId);
   if (!id) return true;
 
-  const response = await fetch(`${tableUrl(tableName)}/${encodeURIComponent(id)}`, {
-    headers: getClient().headers,
-    cache: "no-store",
-  });
+  const response = await airtableFetch(`${tableUrl(tableName)}/${encodeURIComponent(id)}`, {}, { operation: "lectura" });
 
   if (response.status === 404) return false;
   if (!response.ok) {
@@ -948,10 +992,7 @@ async function getRecordById(tableName: string, recordId: string) {
   const id = cleanString(recordId);
   if (!id) return null;
 
-  const response = await fetch(`${tableUrl(tableName)}/${encodeURIComponent(id)}`, {
-    headers: getClient().headers,
-    cache: "no-store",
-  });
+  const response = await airtableFetch(`${tableUrl(tableName)}/${encodeURIComponent(id)}`, {}, { operation: "lectura" });
 
   if (response.status === 404) return null;
   if (!response.ok) {
@@ -960,6 +1001,30 @@ async function getRecordById(tableName: string, recordId: string) {
   }
 
   return (await response.json()) as AirtableRecordResponse;
+}
+
+function escapeAirtableFormulaString(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+function recordIdFilterFormula(recordIds: string[]) {
+  const clauses = recordIds.map((id) => `RECORD_ID()='${escapeAirtableFormulaString(id)}'`);
+  return clauses.length === 1 ? clauses[0] : `OR(${clauses.join(",")})`;
+}
+
+async function listRecordsByIds(tableName: string, recordIds: string[]) {
+  const uniqueIds = Array.from(new Set(recordIds.map(cleanString).filter(Boolean)));
+  const records: AirtableRecord[] = [];
+
+  for (let index = 0; index < uniqueIds.length; index += AIRTABLE_BATCH_RECORD_ID_CHUNK_SIZE) {
+    const chunk = uniqueIds.slice(index, index + AIRTABLE_BATCH_RECORD_ID_CHUNK_SIZE);
+    records.push(...await listRecords(tableName, {
+      pageSize: Math.min(chunk.length, 100),
+      filterByFormula: recordIdFilterFormula(chunk),
+    }));
+  }
+
+  return records;
 }
 
 type ListRecordsOptions = {
@@ -1150,8 +1215,9 @@ function rankComputerCatalogEntry(entry: ShippingV2ComputerCatalogEntry, brand: 
   return 100;
 }
 
-type MapItemOptions = { includeAiName?: boolean; access?: ShippingV2AccessContext; sanitizeForAccess?: boolean };
-type MapPackingOptions = { includeItems?: boolean; includeAiName?: boolean };
+type MapItemOptions = { includeAiName?: boolean; access?: ShippingV2AccessContext; sanitizeForAccess?: boolean; proveedores?: ShippingV2Proveedor[] };
+type MapPackingOptions = { includeItems?: boolean; includeAiName?: boolean; proveedores?: ShippingV2Proveedor[] };
+type PackingCandidateItemsOptions = { packing?: ShippingV2Packing; proveedores?: ShippingV2Proveedor[] };
 
 export type ShippingV2ItemNavigationEntry = Pick<ShippingV2Item, "id" | "sku" | "nombre">;
 
@@ -1472,8 +1538,11 @@ function mapPacking(record: AirtableRecord): ShippingV2Packing {
     flete: firstNumber(f[F.flete]),
     arancel: firstNumber(f[F.arancel]),
     otrosCostos: firstNumber(f[F.otrosCostos]),
+    costoTotalProveedorItems: null,
     costoTotalItemsProveedor: firstNumber(f[F.costoTotalItemsProveedor]),
     cantidadItemsPacking: firstNumber(f[F.cantidadItemsPacking]),
+    referenciasIncluidas: items.length,
+    unidadesTotales: null,
     reglaDistribucionCostos: firstString(f[F.reglaDistribucionCostos]),
     reglaDistribucion: firstString(f[F.reglaDistribucionCostos]),
     observacionCostos: firstString(f[F.observacionCostos]),
@@ -1662,13 +1731,14 @@ function getShippingV2ItemsListSort(sortBy: ShippingV2ItemsListSortKey = "newest
 }
 
 export async function getShippingV2Items(options: MapItemOptions = {}) {
+  const proveedoresPromise = options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores();
   const [records, proveedores] = await Promise.all([
     listRecords(SHIPPING_V2_TABLES.items, {
       maxRecords: 200,
       sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro,
       sortDirection: "desc",
     }),
-    getShippingV2Proveedores(),
+    proveedoresPromise,
   ]);
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
   return records
@@ -1688,13 +1758,14 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
   const sort = getShippingV2ItemsListSort(options.sortBy);
 
   if (options.access && !options.access.isAdmin) {
+    const proveedoresPromise = options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores();
     const [records, proveedores] = await Promise.all([
       listRecords(SHIPPING_V2_TABLES.items, {
         maxRecords: 200,
         sortField: sort.sortField,
         sortDirection: sort.sortDirection,
       }),
-      getShippingV2Proveedores(),
+      proveedoresPromise,
     ]);
     const labelsById = createShippingV2ProveedorLabelMap(proveedores);
 
@@ -1716,7 +1787,7 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
       sortField: sort.sortField,
       sortDirection: sort.sortDirection,
     }),
-    getShippingV2Proveedores(),
+    options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores(),
   ]);
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
 
@@ -3573,22 +3644,25 @@ export async function getShippingV2PackingById(recordId: string, access?: Shippi
   if (!id) throw new Error("Record ID de packing inválido.");
   const includeItems = options.includeItems !== false;
 
+  const proveedoresPromise = options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores();
   const [record, proveedores] = await Promise.all([
     airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.packings)}/${encodeURIComponent(id)}`),
-    getShippingV2Proveedores(),
+    proveedoresPromise,
   ]);
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
   const packing = applyPackingProviderLabels(mapPacking(record), labelsById);
   if (!canAccessPacking(packing, access)) throw new Error("No tienes acceso a este packing.");
   if (!includeItems) return packing;
-  const itemRecords = await Promise.all(packing.itemIds.map((itemId) => getRecordById(SHIPPING_V2_TABLES.items, itemId)));
-  packing.items = itemRecords
+  const itemRecords = await listRecordsByIds(SHIPPING_V2_TABLES.items, packing.itemIds);
+  const itemRecordsById = new Map(itemRecords.map((itemRecord) => [itemRecord.id, itemRecord]));
+  packing.items = packing.itemIds
+    .map((itemId) => itemRecordsById.get(itemId))
     .filter((record): record is AirtableRecord => Boolean(record))
     .map((record) => mapItem(record, { includeAiName: options.includeAiName !== false }))
     .map((item) => applyItemProviderLabels(item, labelsById))
     .filter((item) => canAccessItem(item, access))
     .map((item) => sanitizeShippingV2ItemForAccess(item, access));
-  return packing;
+  return withShippingV2PackingProviderCostSummary(packing);
 }
 
 export async function getShippingV2PackingInvoiceData(recordId: string, access?: ShippingV2AccessContext): Promise<ShippingV2PackingInvoiceData> {
@@ -3875,9 +3949,13 @@ function getPackingCandidateDiagnostics(items: ShippingV2Item[], packing: Shippi
   };
 }
 
-export async function getShippingV2PackingCandidateItems(packingId: string, access?: ShippingV2AccessContext) {
-  const packing = await getShippingV2PackingById(packingId, access, { includeItems: false, includeAiName: false });
-  const scopedItems = await getShippingV2Items({ includeAiName: false, access });
+export async function getShippingV2PackingCandidateItems(packingId: string, access?: ShippingV2AccessContext, options: PackingCandidateItemsOptions = {}) {
+  const packing = options.packing ?? await getShippingV2PackingById(packingId, access, {
+    includeItems: false,
+    includeAiName: false,
+    proveedores: options.proveedores,
+  });
+  const scopedItems = await getShippingV2Items({ includeAiName: false, access, proveedores: options.proveedores });
   if (process.env.NODE_ENV !== "production" && process.env.SHIPPING_V2_DEBUG_PACKINGS === "true") {
     console.info("[Shipping V2 Packings candidatos]", {
       packingId: packing.id,

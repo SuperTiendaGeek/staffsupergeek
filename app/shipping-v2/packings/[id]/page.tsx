@@ -27,13 +27,16 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
     isAdmin = access.isAdmin;
     permissions = access.permissions;
     providerName = access.providerName || access.providerCode || "";
-    const [loadedPacking, loadedCandidates, loadedProveedores, loadedNovedades, loadedDestinatarios] = await Promise.all([
-      getShippingV2PackingById(id, access, { includeAiName: false }),
-      getShippingV2PackingCandidateItems(id, access),
-      getShippingV2Proveedores(),
+    const loadedProveedores = await getShippingV2Proveedores();
+    const [loadedPacking, loadedNovedades, loadedDestinatarios] = await Promise.all([
+      getShippingV2PackingById(id, access, { includeAiName: false, proveedores: loadedProveedores }),
       getShippingV2Novedades(access),
       getShippingV2Destinatarios(access),
     ]);
+    const loadedCandidates = await getShippingV2PackingCandidateItems(id, access, {
+      packing: loadedPacking,
+      proveedores: loadedProveedores,
+    });
     packing = loadedPacking;
     candidates = loadedCandidates;
     proveedores = loadedProveedores;
