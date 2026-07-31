@@ -477,6 +477,7 @@ export type ShippingV2PagoItemResumen = Pick<
   | "proveedorLogisticoId"
   | "proveedorLogisticoNombre"
   | "costoProveedor"
+  | "cantidad"
   | "esRegalo"
 >;
 

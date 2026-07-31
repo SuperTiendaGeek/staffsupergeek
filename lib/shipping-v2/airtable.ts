@@ -46,10 +46,17 @@ import {
   normalizeShippingV2InlineMoneyQuantityField,
   normalizeShippingV2ItemMoneyQuantityInput,
 } from "@/lib/shipping-v2/item-money-quantity";
+import {
+  SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE,
+  calculateShippingV2PaymentItemSubtotal,
+  calculateShippingV2PaymentItemsTotal,
+  type ShippingV2PaymentItemLike,
+} from "@/lib/shipping-v2/payment-calculations";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { canBeUsaTransportProvider, isCompatibleEcuadorTransportProvider } from "@/lib/shipping-v2/tracking-providers";
 import { generateUniqueSkuFromExistingSkus, normalizeSku } from "@/lib/sku/sku-service";
+import { round2 } from "@/lib/finanzas/validaciones";
 import {
   canShippingV2,
   assertShippingV2Permission,
@@ -1349,6 +1356,7 @@ function summarizePaymentItem(item: ShippingV2Item) {
     proveedorLogisticoId: item.proveedorLogisticoId,
     proveedorLogisticoNombre: item.proveedorLogisticoNombre,
     costoProveedor: item.costoProveedor,
+    cantidad: item.cantidad,
     esRegalo: item.esRegalo,
   };
 }
@@ -1380,7 +1388,7 @@ function mapPago(record: AirtableRecord, context: { labelsById?: Map<string, str
     totalAPagar,
     totalPagado: firstNumber(f[F.totalPagado]),
     saldoPendiente: firstNumber(f[F.saldoPendiente]),
-    totalRegalos: regalosResumen.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0),
+    totalRegalos: regalosResumen.reduce((sum, item) => sum + paymentSubtotalOrZero(item), 0),
     cantidadItems: itemIds.length,
     cantidadRegalos: regalosIds.length,
     fechaCreacion: firstString(f[F.fechaCreacion], record.createdTime),
@@ -2382,8 +2390,11 @@ async function validateInlineItemFieldChange(input: {
     throw new Error("No se puede cambiar el proveedor de compra porque el Item ya tiene pago relacionado.");
   }
 
-  if (input.field === SHIPPING_V2_ITEM_FIELDS.costoProveedor && input.item.pagoId) {
-    throw new Error("No se puede cambiar el costo proveedor porque el Item ya tiene pago relacionado.");
+  if (
+    (input.field === SHIPPING_V2_ITEM_FIELDS.cantidad || input.field === SHIPPING_V2_ITEM_FIELDS.costoProveedor) &&
+    await itemHasActiveV2PaymentLink(input.item)
+  ) {
+    throw new Error(SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE);
   }
 
   if (input.field === getOfficialSkuField()) {
@@ -2721,6 +2732,13 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   await validateItemProviderRules(normalizedInput);
 
   const existing = await getShippingV2ItemById(id, { access: systemShippingV2Access() });
+  if (
+    (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) ||
+      nullableNumberChanged(normalizedInput.costoProveedor, existing.costoProveedor)) &&
+    await itemHasActiveV2PaymentLink(existing)
+  ) {
+    throw new Error(SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE);
+  }
   const nextSku = normalizeSku(cleanString(normalizedInput.sku ?? normalizedInput.skuInterno));
   if (existing.packingId && cleanString(normalizedInput.modoLogistico) !== cleanString(existing.modoLogistico)) {
     throw new Error("No se puede cambiar el modo logístico porque el Item ya tiene packing relacionado.");
@@ -2955,6 +2973,10 @@ function isActivePaymentStatus(status: string) {
   return normalizeStatus(status) !== "anulado";
 }
 
+function paymentLinkedIdsForItem(item: Pick<ShippingV2Item, "pagoV2ItemIds" | "pagoV2RegaloIds">) {
+  return [...item.pagoV2ItemIds, ...item.pagoV2RegaloIds].map(cleanString).filter(Boolean);
+}
+
 function isPaidItemCandidate(item: Pick<ShippingV2Item, "estado" | "tipoOperacion">) {
   return normalizeStatus(item.estado) === "pagado" || normalizeStatus(item.tipoOperacion) === "compra ya pagada";
 }
@@ -2965,11 +2987,31 @@ function providerRequiredForPayment(item: Pick<ShippingV2Item, "tipoOperacion" |
 }
 
 function itemIsLinkedToActivePayment(item: Pick<ShippingV2Item, "pagoV2ItemIds" | "pagoV2RegaloIds">, pagosById: Map<string, ShippingV2Pago>) {
-  const paymentIds = [...item.pagoV2ItemIds, ...item.pagoV2RegaloIds];
+  const paymentIds = paymentLinkedIdsForItem(item);
   return paymentIds.some((id) => {
     const pago = pagosById.get(id);
     return pago ? isActivePaymentStatus(String(pago.estadoPago)) : true;
   });
+}
+
+async function itemHasActiveV2PaymentLink(item: Pick<ShippingV2Item, "pagoV2ItemIds" | "pagoV2RegaloIds">) {
+  const paymentIds = paymentLinkedIdsForItem(item);
+  if (!paymentIds.length) return false;
+  const pagos = await getShippingV2Pagos(systemShippingV2Access());
+  const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
+  return itemIsLinkedToActivePayment(item, pagosById);
+}
+
+function paymentSubtotalOrZero(item: ShippingV2PaymentItemLike) {
+  try {
+    return calculateShippingV2PaymentItemSubtotal(item);
+  } catch {
+    return 0;
+  }
+}
+
+function nullableNumberChanged(next: number | null | undefined, current: number | null | undefined) {
+  return (next ?? null) !== (current ?? null);
 }
 
 function toPendingPaymentItem(item: ShippingV2Item): ShippingV2PagoPendingItem {
@@ -3031,11 +3073,11 @@ function computeSuggestedDueDate(provider: ShippingV2Proveedor | null, fallback?
   return date.toISOString().slice(0, 10);
 }
 
-function computePagosSummary(porPagar: ShippingV2PagoPendingItem[], pagosPendientes: ShippingV2Pago[], pagadosSinSoporte: ShippingV2PagoSupportCard[], pagosCompletos: ShippingV2Pago[]): ShippingV2PagosSummary {
+export function computePagosSummary(porPagar: ShippingV2PagoPendingItem[], pagosPendientes: ShippingV2Pago[], pagadosSinSoporte: ShippingV2PagoSupportCard[], pagosCompletos: ShippingV2Pago[]): ShippingV2PagosSummary {
   return {
-    totalPorPagar: porPagar.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0) + pagosPendientes.reduce((sum, pago) => sum + (pago.saldoPendiente ?? pago.totalAPagar ?? 0), 0),
-    totalPagadoSinSoporte: pagadosSinSoporte.reduce((sum, card) => sum + (card.total ?? 0), 0),
-    totalPagadoCompleto: pagosCompletos.reduce((sum, pago) => sum + (pago.totalPagado ?? pago.totalAPagar ?? 0), 0),
+    totalPorPagar: round2(porPagar.reduce((sum, item) => sum + paymentSubtotalOrZero(item), 0) + pagosPendientes.reduce((sum, pago) => sum + (pago.saldoPendiente ?? pago.totalAPagar ?? 0), 0)),
+    totalPagadoSinSoporte: round2(pagadosSinSoporte.reduce((sum, card) => sum + (card.total ?? 0), 0)),
+    totalPagadoCompleto: round2(pagosCompletos.reduce((sum, pago) => sum + (pago.totalPagado ?? pago.totalAPagar ?? 0), 0)),
     incompletos: pagadosSinSoporte.length,
     porPagarCount: porPagar.length + pagosPendientes.length,
     itemsSinPagoCount: porPagar.length,
@@ -3084,7 +3126,7 @@ function getPaidItemsWithoutSupport(items: ShippingV2Item[], pagosById: Map<stri
         item: pendingItem,
         proveedorId: item.proveedorId,
         proveedorNombre: item.proveedorNombre,
-        total: item.costoProveedor,
+        total: paymentSubtotalOrZero(item),
         missing,
       };
     });
@@ -3149,7 +3191,17 @@ function attachmentFromUrl(urlValue?: string) {
   return url ? [{ url }] : undefined;
 }
 
+function assertNoDuplicatedPaymentItemIds(itemIds: string[], regalosIds: string[]) {
+  const seen = new Set<string>();
+  const allIds = [...itemIds, ...regalosIds].map(cleanString).filter(Boolean);
+  for (const id of allIds) {
+    if (seen.has(id)) throw new Error("No se puede crear un pago con Items duplicados.");
+    seen.add(id);
+  }
+}
+
 async function assertItemsCanJoinPayment(itemIds: string[], regalosIds: string[]) {
+  assertNoDuplicatedPaymentItemIds(itemIds, regalosIds);
   const uniqueItemIds = Array.from(new Set(itemIds.map(cleanString).filter(Boolean)));
   const uniqueGiftIds = Array.from(new Set(regalosIds.map(cleanString).filter(Boolean)));
   const items = await Promise.all(uniqueItemIds.map((id) => getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() })));
@@ -3186,7 +3238,7 @@ export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, opti
   const invalidGift = gifts.find((gift) => gift.proveedorId && gift.proveedorId !== proveedorId);
   if (invalidGift) throw new Error(`El regalo ${invalidGift.sku} pertenece a otro proveedor.`);
 
-  const totalAPagar = items.reduce((sum, item) => sum + (item.costoProveedor ?? 0), 0);
+  const totalAPagar = calculateShippingV2PaymentItemsTotal(items);
   const F = SHIPPING_V2_PAYMENT_FIELDS;
   const requestedStatus = cleanString(input.estadoPago);
   const estadoPago = normalizeStatus(requestedStatus) === "pagado" ? "Pagado" : requestedStatus || "Pendiente";
