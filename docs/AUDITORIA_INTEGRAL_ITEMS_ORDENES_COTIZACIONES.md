@@ -30,7 +30,10 @@
 | F-17 · Orden↔Operación N:M leída como 1:1 | ✅ **Corregido** | PR5 — la cuenta suma los artículos y abonos de TODAS las operaciones vinculadas |
 | F-11 · Abonos sin movimiento financiero | ✅ **Diagnosticado** · backfill listo | PR6 — el puente NO falla; corte exacto 14-jul-2026 17:22. Script `scripts/backfill-movimientos-abonos.ts` pendiente de ejecutar |
 | F-25 · El repuesto de stock no cambiaba de estado | ✅ **Corregido** | PR7 — al vincularlo a una orden pasa a `Estado Item = "Reservado"` |
-| F-16 · `Cantidad` vs `Reservado` | ⏸️ **Decisión tomada, datos sin migrar** | Modelo elegido: un registro por unidad física. La división de los 8 artículos multiunidad queda para más adelante |
+| F-16 · `Cantidad` vs `Reservado` | 🔄 **Decisión REVERTIDA (31-jul-2026)** | Se mantiene **un registro con `Cantidad`**, no un registro por unidad física. No hay migración de datos que hacer. Abre F-42 (ver abajo) |
+| F-36 · Cliente guardado cuatro veces en la reserva | ✅ **Corregido** | PR10 — manda el vínculo a la ficha viva; las copias quedan como caché para las vistas de Airtable |
+| F-37 · `precioVenta` de la reserva venía del navegador | ✅ **Corregido** | Resuelto por Codex en `lib/facturacion/reservas/precioShippingItem.ts`: el precio se lee del artículo en el servidor |
+| F-42 · Reservar una unidad bloquea todas | 🔴 **Abierto · P1** | Consecuencia de mantener `Cantidad`. Requiere campo nuevo en Airtable |
 | F-35 · `Tarifa IVA` vacía en todos los items | ⬇️ **Bajado a P3** | El default es 15%, correcto para todo el catálogo actual (equipos, repuestos, accesorios). Solo importaría si se vende algo exento o al 0% |
 | F-19 · `/cotizaciones` y `/pedidos` contra tablas inexistentes | ✅ **Corregido** | PR8 — las pantallas ya redirigían; se congelaron las 14 rutas de API (410) |
 | F-32 · Opciones basura en producción | ✅ **Corregido** | PR8 — borrada la opción "NO ELEGIBLE (ELIMINAR)" y añadida validación al crear/editar opciones |
@@ -576,6 +579,33 @@ if (!detalle.reservado) return { motivo: "NO_RESERVADO" };
 
 → vender 1 de 52 obliga a marcar las 52 como reservadas. Y al liberar, `liberarShippingItemDeOrdenStock` pone `Reservado = false` para las 52.
 
+**Decisión del negocio, 31-jul-2026 — se mantiene `Cantidad`.** Se revierte la decisión anterior (un registro por unidad física). Motivos: la lógica de pagos y packings por cantidad ya está construida y validada, y dividir los registros multiplicaría el inventario sin aportar trazabilidad que hoy se use. **No hay migración de datos pendiente**; F-16 deja de ser una tarea de datos.
+
+Lo que esta decisión NO resuelve queda registrado como **F-42**: el conflicto entre `Cantidad` y `Reservado` sigue existiendo, solo que ahora es permanente en vez de transitorio, y hay que resolverlo en código.
+
+---
+
+### F-42 · P1 · Reservar una unidad bloquea todo el stock del registro
+
+Descubierto el 31-jul-2026 al evaluar las consecuencias de la decisión sobre F-16. **Facturar y reservar tratan la cantidad de forma distinta:**
+
+| Acción | Comportamiento con `Cantidad = 3` |
+|---|---|
+| Facturar 1 unidad (`postEmision.ts`) | ✅ Correcto: `Cantidad` baja a 2, el registro sigue vivo, solo se marca `Vendido` cuando llega a 0, e idempotente por el link a la factura |
+| Emitir recibo (`recibos/efectos.ts`) | ✅ Mismo criterio |
+| **Reservar 1 unidad (`reservas/efectos.ts`)** | ❌ `apartarItemParaReserva` pone `Estado Item = "Reservado"`, `Reservado = true` y `Disponible para venta = false` **en el registro entero**, sin mirar `Cantidad`. Las otras 2 unidades quedan invendibles |
+
+Es decir: el descuento de inventario ya está preparado para el modelo por cantidad, pero el apartado no. Afecta hoy a los artículos con `Cantidad > 1` (entre ellos `REP-000017` con 52 unidades: apartar una bloquea las 52).
+
+**Propuesta.** Añadir a Shipping Items un campo numérico `Cantidad Reservada` y derivar la disponibilidad de `Cantidad - Cantidad Reservada`:
+
+- `apartarItemParaReserva` incrementa `Cantidad Reservada` y falla solo si no quedan unidades libres, en vez de bloquear el registro.
+- `liberarItem` decrementa.
+- `Reservado`/`Disponible para venta` pasan a derivarse: reservado del todo cuando no quedan unidades libres.
+- `evaluarItemNoListo` deja de exigir `reservado === true` y pasa a exigir que haya unidades suficientes.
+
+Requiere un campo nuevo en Airtable, por lo que está pendiente de aprobación antes de implementarse.
+
 Además la línea de factura fuerza `cantidad: 1` siempre:
 ```ts
 // construccion.ts:construirLineaProducto
@@ -822,9 +852,19 @@ Mismo patrón en `siguienteNumeroReserva()` (`RES-000001`) y `generatePackingId(
 
 `construirLineaProducto` cae al default `"15%"` para todos. Ningún item tiene tarifa explícita, así que un item exento o 0% se facturaría al 15% salvo que alguien lo llene a mano antes de emitir.
 
-### F-36 · P3 · Reservas guardan al cliente tres veces
+### F-36 · P3 · Reservas guardan al cliente tres veces — ✅ CORREGIDO (PR10)
 
 `Cliente` (link), `Cliente Nombre` (texto), `Cliente Identificación` (texto) y **otra vez** dentro de `Abonos JSON`. En RES-000001 el link a `Clientes` está **vacío** pero el JSON sí trae `cliente.identificacion`; en RES-000002 y RES-000003 sí hay link. Tres copias que pueden divergir.
+
+**Corrección (PR10).** No se eliminan las copias: los filtros y vistas de Airtable buscan por `{Cliente Nombre}` y `{Cliente Identificación}`, así que borrarlas rompería la búsqueda de reservas. Lo que cambia es **cuál manda**. Antes ganaba la copia guardada dentro de `Abonos JSON` —justo la que nadie mantiene—, así que corregir una cédula en la ficha del cliente no se reflejaba en el comprobante. Ahora `resolverClienteReserva` lee la ficha viva por el vínculo y `combinarClienteReserva` la impone **campo por campo**, no en bloque: si la ficha trae el dato, gana; si lo tiene vacío, se conserva lo de la reserva en vez de borrarlo.
+
+Tres decisiones deliberadas, todas cubiertas por `lib/facturacion/reservas/__tests__/clienteReserva.test.ts` (11 asserts):
+
+- **La razón social nunca queda vacía.** Sin nombre en la ficha se conserva el de la reserva; un comprobante sin nombre no sirve.
+- **Si la ficha no se puede leer** (borrada, sin permiso, red caída) se devuelve la copia guardada. Mostrar datos algo viejos es mejor que impedir imprimir el comprobante de una reserva pagada.
+- **Cliente de mostrador sin ficha:** sin vínculo se respeta lo guardado tal cual y no se inventa un `airtableId`.
+
+Queda expuesto `copiaDesactualizada()` para poder avisar en pantalla cuando la copia difiere de la ficha. No bloquea nada.
 
 ### F-37 · P3 · `precioVenta` de la reserva viene del cliente HTTP
 

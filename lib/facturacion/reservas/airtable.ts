@@ -1,13 +1,29 @@
 import "server-only";
 
 // Persistencia de reservas (apartados) — tabla "Reservas" (base SUPER GEEK ADM).
-// Documento interno; se referencia POR NOMBRE. El cliente completo (correo,
-// teléfono, vínculo) y los abonos viven en "Abonos JSON", igual que el recibo
-// guarda su cliente/líneas en "Líneas JSON".
+// Documento interno; se referencia POR NOMBRE.
+//
+// F-36 — dónde vive el cliente de una reserva. Los datos del cliente están
+// guardados CUATRO veces: el vínculo `Cliente`, el texto `Cliente Nombre`, el
+// texto `Cliente Identificación` y una copia completa dentro de `Abonos JSON`.
+// Las tres últimas son copias congeladas del momento en que se creó la
+// reserva; si después alguien corrige la cédula o el correo en la ficha del
+// cliente, siguen mostrando lo viejo.
+//
+// Antes ganaba la copia del JSON, que es justamente la que nadie mantiene: el
+// comprobante podía salir con una cédula ya corregida. Ahora manda el VÍNCULO
+// cuando existe (`resolverClienteReserva`), y las copias solo se usan como
+// respaldo para reservas antiguas o para clientes de mostrador sin ficha.
+//
+// Los campos de texto se siguen escribiendo a propósito: las vistas y los
+// filtros de búsqueda de Airtable los necesitan (`listarReservas` filtra por
+// {Cliente Nombre} y {Cliente Identificación}). Son caché, no la verdad.
 
 import type { AbonoReserva, ReservaCliente, ReservaEstado } from "./types";
+import { combinarClienteReserva } from "./clienteReserva";
 
 const TABLE = "Reservas";
+const TABLA_CLIENTES = "Clientes";
 
 function getClient() {
   const token  = process.env.AIRTABLE_API_KEY?.trim();
@@ -31,6 +47,24 @@ function str(v: unknown): string {
 function num(v: unknown): number { const n = typeof v === "number" ? v : parseFloat(String(v)); return Number.isFinite(n) ? n : 0; }
 function att(v: unknown): boolean { return Array.isArray(v) && v.length > 0; }
 function linkId(v: unknown): string | undefined { return Array.isArray(v) && typeof v[0] === "string" ? v[0] : undefined; }
+
+/**
+ * Trae la ficha viva del cliente y la combina con la copia guardada en la
+ * reserva. Si la ficha no se puede leer (borrada, sin permiso, red caída) se
+ * devuelve la copia guardada: mostrar datos algo viejos es mejor que romper
+ * la pantalla de una reserva o impedir que se imprima su comprobante.
+ */
+async function resolverClienteReserva(
+  clienteRecordId: string | undefined,
+  guardado: ReservaCliente
+): Promise<ReservaCliente> {
+  if (!clienteRecordId) return guardado;
+  const c = getClient();
+  const ficha = await req<{ fields: Record<string, unknown> }>(
+    `${c.baseUrl}/${encodeURIComponent(TABLA_CLIENTES)}/${encodeURIComponent(clienteRecordId)}`
+  ).catch(() => null);
+  return combinarClienteReserva(guardado, ficha?.fields ?? null, clienteRecordId);
+}
 
 // ─── Numeración RES-000001 (por el máximo Número, sin campo Secuencial) ───────
 
@@ -99,17 +133,21 @@ export async function obtenerReservaPorId(recordId: string): Promise<ReservaComp
   if (!data) return null;
   const f = data.fields;
 
-  let cliente: ReservaCliente = { razonSocial: str(f["Cliente Nombre"]) };
+  let clienteGuardado: ReservaCliente = { razonSocial: str(f["Cliente Nombre"]) };
+  if (str(f["Cliente Identificación"])) clienteGuardado.identificacion = str(f["Cliente Identificación"]);
   let abonos: AbonoReserva[] = [];
   try {
     const parsed = JSON.parse(str(f["Abonos JSON"]) || "{}");
-    if (parsed?.cliente && typeof parsed.cliente === "object") cliente = parsed.cliente as ReservaCliente;
+    if (parsed?.cliente && typeof parsed.cliente === "object") clienteGuardado = parsed.cliente as ReservaCliente;
     if (Array.isArray(parsed?.abonos)) abonos = parsed.abonos as AbonoReserva[];
   } catch { /* ignore */ }
 
+  const clienteRecordId = linkId(f["Cliente"]);
+  const cliente = await resolverClienteReserva(clienteRecordId, clienteGuardado);
+
   return {
     recordId, numero: str(f["Número"]), fecha: str(f["Fecha"]), estado: (str(f["Estado"]) || "Activa") as ReservaEstado,
-    cliente, clienteRecordId: linkId(f["Cliente"]),
+    cliente, clienteRecordId,
     shippingItemId: linkId(f["Shipping Item"]), descripcionItem: str(f["Descripción Item"]),
     precio: num(f["Precio"]), totalAbonado: num(f["Total Abonado"]), fechaLimite: str(f["Fecha Límite"]),
     plazoDias: num(f["Plazo Días"]), abonos, saldoAFavor: num(f["Saldo a Favor Generado"]),
