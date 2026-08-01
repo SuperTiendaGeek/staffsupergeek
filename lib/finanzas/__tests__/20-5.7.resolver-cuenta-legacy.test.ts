@@ -11,6 +11,7 @@
  */
 
 import { markShippingV2PagoAsPaid } from "../../shipping-v2/airtable";
+import { systemShippingV2Access } from "../../shipping-v2/access";
 import { fetchCuentaPorNombreNormalizado } from "../cuentas";
 import { MOVIMIENTOS_FIELDS } from "../movimientos-fields";
 import { __resetCacheNombreTablaParaPruebas } from "../table-names";
@@ -67,7 +68,7 @@ async function pagarConCuentaOrigen(cuentaOrigenTexto: string, finanzasState: Re
       transaccionId: "TX-TARJETA-001",
       observacion: "Pago de prueba con tarjeta",
     },
-    { registradoPor: "Test" }
+    { registradoPor: "Test", access: systemShippingV2Access() }
   );
   const movimientoId = resultado.movimientoFinanzasIds[0];
   const movimiento = finanzasState.movimientos.get(movimientoId)!;

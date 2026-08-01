@@ -1,3 +1,4 @@
+import { esAbonoVigente } from "@/types/cuenta-unificada";
 import "server-only";
 
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
@@ -140,7 +141,7 @@ async function procesarConOrigen(facturaId: string, body: DatosVenta, origen: Or
     abonoIds = await abonoIdsVigentesDeReserva(origen.recordId);
   } else {
     const cuenta = await getCuentaUnificada(origen.tipo === "orden" ? { ordenId: origen.recordId } : { operacionId: origen.recordId });
-    abonoIds = cuenta.abonos.filter((a) => a.estado !== "Anulado").map((a) => a.id);
+    abonoIds = cuenta.abonos.filter(esAbonoVigente).map((a) => a.id);
   }
 
   for (const abonoId of abonoIds) {

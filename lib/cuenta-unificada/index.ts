@@ -13,6 +13,7 @@ import type {
   GetCuentaUnificadaInput,
   ModoRepuestos,
 } from "@/types/cuenta-unificada";
+import { esAbonoVigente } from "@/types/cuenta-unificada";
 
 // ─── Gates de repuestos (extraído para poder testearlo sin mockear todo el
 // árbol de fetches de getCuentaUnificada) ────────────────────────────────────
@@ -343,9 +344,7 @@ export async function getCuentaUnificada(
   //
   // Se suma la lista ya deduplicada. El filtro de anulados replica en JS la
   // condición que los rollups aplicaban del lado de Airtable.
-  const totalAbonado = abonos
-    .filter((a) => a.estado !== "Anulado")
-    .reduce((sum, a) => sum + a.monto, 0);
+  const totalAbonado = abonos.filter(esAbonoVigente).reduce((sum, a) => sum + a.monto, 0);
   const saldo = totalCuenta - totalAbonado;
 
   return {

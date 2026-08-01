@@ -17,6 +17,8 @@ Thumbs.db
 *.tsbuildinfo
 .vercel
 .env*.local
+next-env.d.ts
+.claude/settings.local.json
 
 # Firmas electrónicas
 *.p12
@@ -32,4 +34,3 @@ horarios-rediseno-propuesta.html
 
 # Carpetas temporales que dejan los tests de facturación al correr localmente
 .tmp-test-*/
-
