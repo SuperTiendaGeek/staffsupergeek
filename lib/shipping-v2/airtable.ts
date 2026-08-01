@@ -1,5 +1,7 @@
 import "server-only";
 
+import { comprometerUnidades, liberarUnidades, unidadesReservadas } from "./unidades";
+
 import type {
   ShippingV2DashboardSummary,
   ShippingV2AccessContext,
@@ -4826,9 +4828,24 @@ export async function reservarShippingItemComoRepuestoDeOrdenStock({
       `Un artículo de categoría "${categoriaItem || "sin categoría"}" no se puede montar como repuesto en una orden.`
     );
   }
-  if (firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.reservado]) || firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.disponibleVenta]) === false) {
-    throw new Error("Este item ya está reservado o no está disponible para venta.");
+  // F-42 — se compromete UNA UNIDAD, no el registro entero. La guarda anterior
+  // rechazaba en cuanto la bandera "Reservado" estuviera encendida, así que
+  // montar 1 unidad de REP-000017 (52 unidades) bloqueaba las 52 para
+  // cualquier otra orden, reserva o venta.
+  const unidadesItem = {
+    cantidad: firstNumber(f[SHIPPING_V2_ITEM_FIELDS.cantidad]) ?? 0,
+    cantidadReservada: firstNumber(f[SHIPPING_V2_ITEM_FIELDS.cantidadReservada]) ?? 0,
+    reservado: firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.reservado]),
+  };
+  // "Disponible para venta" apagada significa dos cosas distintas: que el
+  // artículo aún no está vendible (en tránsito, en packing) o que ya no quedan
+  // unidades libres. Se distinguen por si hay algo comprometido; sin esto se
+  // podría montar en una orden mercadería que todavía no ha llegado.
+  if (firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.disponibleVenta]) === false && unidadesReservadas(unidadesItem) === 0) {
+    throw new Error("Este item no está disponible para venta.");
   }
+  const compromiso = comprometerUnidades(unidadesItem, 1);
+  if (!compromiso.ok) throw new Error(compromiso.motivo);
 
   // El artículo pasa a "Reservado" pero NO se descuenta del inventario: sigue
   // siendo tuyo y sigue contando en el stock. Solo una factura o un recibo
@@ -4845,10 +4862,18 @@ export async function reservarShippingItemComoRepuestoDeOrdenStock({
         {
           id,
           fields: {
-            [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Reservado",
-            [SHIPPING_V2_ITEM_FIELDS.reservado]: true,
-            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: false,
-            [ORDEN_STOCK_LINK_FIELD]: [ordenRecordId],
+            [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: compromiso.cantidadReservada,
+            [SHIPPING_V2_ITEM_FIELDS.reservado]: compromiso.reservado,
+            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: compromiso.disponibleVenta,
+            // Solo se cierra el estado cuando ya no quedan unidades libres.
+            ...(compromiso.reservado ? { [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Reservado" } : {}),
+            // APPEND, no reemplazo: con varias unidades el mismo registro
+            // puede estar montado en más de una orden a la vez. Antes se
+            // escribía [ordenRecordId], lo que desvinculaba en silencio la
+            // orden anterior.
+            [ORDEN_STOCK_LINK_FIELD]: Array.from(
+              new Set([...linkedRecordIds(f[ORDEN_STOCK_LINK_FIELD]), ordenRecordId])
+            ),
           },
         },
       ],
@@ -4904,7 +4929,19 @@ export async function liberarShippingItemDeOrdenStock({
   // no puede resucitarlo a la venta — mismo criterio que liberarItem() de
   // reservas.
   const estadoActual = firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoItem]);
-  const vuelveADisponible = estadoActual === "Reservado";
+
+  // F-42 — se devuelve UNA unidad al stock libre, y se desvincula SOLO esta
+  // orden: el registro puede seguir montado en otras.
+  const liberacion = liberarUnidades(
+    {
+      cantidad: firstNumber(f[SHIPPING_V2_ITEM_FIELDS.cantidad]) ?? 0,
+      cantidadReservada: firstNumber(f[SHIPPING_V2_ITEM_FIELDS.cantidadReservada]) ?? 0,
+      reservado: firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.reservado]),
+    },
+    1
+  );
+  const ordenesRestantes = linkedOrdenIds.filter((x) => x !== ordenRecordId);
+  const vuelveADisponible = estadoActual === "Reservado" && liberacion.disponibleVenta;
 
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
     method: "PATCH",
@@ -4913,14 +4950,12 @@ export async function liberarShippingItemDeOrdenStock({
         {
           id,
           fields: {
-            ...(vuelveADisponible
-              ? {
-                [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Disponible",
-                [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: true,
-              }
-              : {}),
-            [SHIPPING_V2_ITEM_FIELDS.reservado]: false,
-            [ORDEN_STOCK_LINK_FIELD]: [],
+            ...(vuelveADisponible ? { [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Disponible" } : {}),
+            [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: liberacion.cantidadReservada,
+            [SHIPPING_V2_ITEM_FIELDS.reservado]: liberacion.reservado,
+            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: liberacion.disponibleVenta,
+            // Se quita SOLO esta orden; las demás siguen montadas.
+            [ORDEN_STOCK_LINK_FIELD]: ordenesRestantes,
           },
         },
       ],

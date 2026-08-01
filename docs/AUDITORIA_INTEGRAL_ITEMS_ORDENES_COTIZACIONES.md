@@ -33,7 +33,7 @@
 | F-16 · `Cantidad` vs `Reservado` | 🔄 **Decisión REVERTIDA (31-jul-2026)** | Se mantiene **un registro con `Cantidad`**, no un registro por unidad física. No hay migración de datos que hacer. Abre F-42 (ver abajo) |
 | F-36 · Cliente guardado cuatro veces en la reserva | ✅ **Corregido** | PR10 — manda el vínculo a la ficha viva; las copias quedan como caché para las vistas de Airtable |
 | F-37 · `precioVenta` de la reserva venía del navegador | ✅ **Corregido** | Resuelto por Codex en `lib/facturacion/reservas/precioShippingItem.ts`: el precio se lee del artículo en el servidor |
-| F-42 · Reservar una unidad bloquea todas | 🔴 **Abierto · P1** | Consecuencia de mantener `Cantidad`. Requiere campo nuevo en Airtable |
+| F-42 · Reservar una unidad bloquea todas | ✅ **Corregido** | PR11 — campo `Cantidad Reservada`; las banderas pasan a derivarse de las unidades. Alcanzaba a 36 registros multiunidad y liberó 56 unidades congeladas |
 | F-35 · `Tarifa IVA` vacía en todos los items | ⬇️ **Bajado a P3** | El default es 15%, correcto para todo el catálogo actual (equipos, repuestos, accesorios). Solo importaría si se vende algo exento o al 0% |
 | F-19 · `/cotizaciones` y `/pedidos` contra tablas inexistentes | ✅ **Corregido** | PR8 — las pantallas ya redirigían; se congelaron las 14 rutas de API (410) |
 | F-32 · Opciones basura en producción | ✅ **Corregido** | PR8 — borrada la opción "NO ELEGIBLE (ELIMINAR)" y añadida validación al crear/editar opciones |
@@ -604,7 +604,17 @@ Es decir: el descuento de inventario ya está preparado para el modelo por canti
 - `Reservado`/`Disponible para venta` pasan a derivarse: reservado del todo cuando no quedan unidades libres.
 - `evaluarItemNoListo` deja de exigir `reservado === true` y pasa a exigir que haya unidades suficientes.
 
-Requiere un campo nuevo en Airtable, por lo que está pendiente de aprobación antes de implementarse.
+**Corrección (PR11).** Campo `Cantidad Reservada` (`fld6tH0L5LPIrOown`, entero) en Shipping Items. La aritmética vive aislada en `lib/shipping-v2/unidades.ts` (26 asserts) y se cablea en los cuatro puntos: apartar reserva, liberar reserva, montar repuesto en orden y desmontarlo.
+
+Decisiones que conviene tener presentes:
+
+- **Las banderas dejan de decidir y pasan a derivarse.** `Reservado` y `Disponible para venta` ya no se escriben a mano: se calculan desde las unidades, y `Reservado` solo se enciende cuando no queda ninguna libre. Con esto ya no pueden contradecirse entre sí ni con la cantidad — cierra también la parte de F-15/F-28 que afectaba a estos tres campos.
+- **Los datos existentes no necesitan migración.** Un registro con `Reservado` encendido y el campo nuevo vacío se lee como **1 unidad** comprometida, no como el registro entero: el modelo viejo solo permitía un compromiso por registro, así que 1 es el número correcto y suponer más congelaría stock libre. Al desplegar, REP-000017 recupera 51 unidades vendibles sin tocar nada.
+- **El vínculo a órdenes pasa a ser múltiple.** Antes se escribía `[ordenRecordId]`, reemplazando: montar el repuesto en una segunda orden desvinculaba la primera **en silencio**. Ahora se agrega, y liberar quita solo esa orden.
+- **La precondición de facturación se ajustó.** `evaluarItemNoListo` exigía `reservado === true`; como esa bandera ahora solo se enciende al agotarse las unidades, sin este cambio todo el stock multiunidad habría dejado de poder facturarse. Pasa a aceptar cualquier unidad comprometida por cualquiera de las dos vías.
+- **Se conserva la puerta de "aún no está vendible".** Quitar la comprobación de `Disponible para venta` habría permitido apartar mercadería en tránsito. Se distingue por si hay algo comprometido: con 0 unidades comprometidas, la bandera apagada significa que el artículo no ha llegado; con unidades comprometidas, significa que se agotaron las libres, y de eso ya se encarga la aritmética.
+
+Verificado además que **facturar y emitir recibo ya funcionaban bien** con cantidades: descuentan de `Cantidad`, solo cierran el registro como "Vendido" al llegar a 0 y son idempotentes por el vínculo a la factura. El desajuste estaba solo del lado del apartado.
 
 Además la línea de factura fuerza `cantidad: 1` siempre:
 ```ts

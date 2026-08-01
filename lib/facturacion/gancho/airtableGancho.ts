@@ -100,6 +100,12 @@ export type ItemDetalleGancho = {
   // "Cantidad" de Shipping Items. Campo vacío/ausente → 0, fail-closed:
   // un item sin cantidad definida se trata como sin stock, nunca al revés.
   cantidad: number;
+  // F-42: unidades comprometidas (reserva u orden) aún no vendidas. Hace falta
+  // aquí porque la bandera `reservado` ahora solo se enciende cuando NO queda
+  // ninguna unidad libre; para un registro multiunidad con 1 de 52
+  // comprometidas, `reservado` es false pero el artículo SÍ está apartado y
+  // debe poder facturarse.
+  cantidadReservada: number;
 };
 
 export function numberOrZero(value: unknown): number {
@@ -119,6 +125,7 @@ export async function fetchDetalleItems(itemIds: string[]): Promise<Map<string, 
       tieneFacturaPrevia: linkedIds(r.fields["Factura"]).length > 0,
       tarifaIva: firstString(r.fields["Tarifa IVA"]),
       cantidad: numberOrZero(r.fields["Cantidad"]),
+      cantidadReservada: numberOrZero(r.fields["Cantidad Reservada"]),
     });
   }
   return map;

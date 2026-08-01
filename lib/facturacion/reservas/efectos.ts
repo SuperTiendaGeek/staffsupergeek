@@ -33,9 +33,14 @@ import "server-only";
 import { fetchRecordsByIds, firstString } from "../gancho/airtableGancho";
 import { reservarSiguienteIdAbono } from "@/lib/operaciones/airtable";
 import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
+import { comprometerUnidades, liberarUnidades, unidadesReservadas } from "@/lib/shipping-v2/unidades";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 const ABONOS_TABLE = "Abonos";
+
+// Estados desde los que un artículo NO se puede apartar, tengan las unidades
+// que tengan: ya salió del inventario vendible por otro camino.
+const ESTADOS_NO_APARTABLES = new Set(["Vendido", "Con novedad", "Destinado a partes", "Devuelto"]);
 
 async function patchItem(itemId: string, fields: Record<string, unknown>): Promise<void> {
   const token = process.env.AIRTABLE_API_KEY?.trim();
@@ -61,18 +66,48 @@ async function patchItem(itemId: string, fields: Record<string, unknown>): Promi
  * lanza: apartar algo que ya está apartado es un error del negocio, no un
  * no-op. Es la única barrera dura contra la doble reserva.
  */
-export async function apartarItemParaReserva(shippingItemId: string): Promise<void> {
+export async function apartarItemParaReserva(shippingItemId: string, unidades = 1): Promise<void> {
   const [rec] = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, [shippingItemId]);
   if (!rec) throw new Error("El ítem a reservar no existe.");
 
+  // F-42 — se aparta por UNIDADES, no por registro. Antes bastaba con que la
+  // bandera "Reservado" estuviera encendida para rechazar el apartado, así que
+  // apartar 1 de 52 unidades dejaba las otras 51 invendibles. Ahora solo se
+  // rechaza cuando de verdad no quedan unidades libres.
   const estado = firstString(rec.fields["Estado Item"]);
-  const yaReservado = rec.fields["Reservado"] === true || estado === "Reservado";
-  if (yaReservado) throw new Error("Este ítem ya está apartado para otra reserva.");
-  if (rec.fields["Disponible para venta"] !== true) {
+  if (ESTADOS_NO_APARTABLES.has(estado)) {
+    throw new Error(`Un ítem en estado "${estado}" no se puede apartar.`);
+  }
+
+  const unidadesItem = {
+    cantidad: Number(rec.fields["Cantidad"] ?? 0),
+    cantidadReservada: Number(rec.fields["Cantidad Reservada"] ?? 0),
+    reservado: rec.fields["Reservado"] === true,
+  };
+
+  // "Disponible para venta" apagada puede significar dos cosas distintas:
+  //   · el artículo no está vendible todavía (en tránsito, en packing, en
+  //     revisión) → no se puede apartar;
+  //   · o simplemente que ya no quedan unidades libres → de eso se encarga la
+  //     aritmética de abajo, que además sabe si quedan unidades sueltas.
+  // Se distinguen por si hay algo comprometido: sin nada comprometido, la
+  // bandera apagada es la primera razón. Sin esta comprobación se podría
+  // apartar mercadería que ni siquiera ha llegado.
+  if (rec.fields["Disponible para venta"] !== true && unidadesReservadas(unidadesItem) === 0) {
     throw new Error("Este ítem no está disponible para venta.");
   }
 
-  await patchItem(shippingItemId, { "Estado Item": "Reservado", "Disponible para venta": false, "Reservado": true });
+  const resultado = comprometerUnidades(unidadesItem, unidades);
+  if (!resultado.ok) throw new Error(resultado.motivo);
+
+  // "Estado Item" solo pasa a "Reservado" cuando se agotan las unidades
+  // libres; con stock restante el registro conserva su estado logístico.
+  await patchItem(shippingItemId, {
+    "Cantidad Reservada": resultado.cantidadReservada,
+    "Reservado": resultado.reservado,
+    "Disponible para venta": resultado.disponibleVenta,
+    ...(resultado.reservado ? { "Estado Item": "Reservado" } : {}),
+  });
 }
 
 /**
@@ -84,19 +119,48 @@ export async function apartarItemParaReserva(shippingItemId: string): Promise<vo
  * una reserva no puede resucitar a la venta un equipo que ya siguió otro
  * camino.
  */
-export async function liberarItem(shippingItemId: string): Promise<void> {
+export async function liberarItem(shippingItemId: string, unidades = 1): Promise<void> {
   const [rec] = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, [shippingItemId]);
   if (!rec) return;
 
   const estado = firstString(rec.fields["Estado Item"]);
-  if (estado === "Disponible") return; // ya disponible
-  if (estado !== "Reservado") {
-    // El ítem avanzó por otro lado; solo se suelta la marca de reservado.
-    if (rec.fields["Reservado"] === true) await patchItem(shippingItemId, { "Reservado": false });
+  const nuevo = liberarUnidades(
+    {
+      cantidad: Number(rec.fields["Cantidad"] ?? 0),
+      cantidadReservada: Number(rec.fields["Cantidad Reservada"] ?? 0),
+      reservado: rec.fields["Reservado"] === true,
+    },
+    unidades
+  );
+
+  // Idempotente: si no hay nada comprometido y el ítem ya está a la venta, no
+  // se escribe. Evita un PATCH inútil (y un evento de historial) cada vez que
+  // se libera una reserva que ya estaba liberada.
+  const nadaQueLiberar =
+    nuevo.cantidadReservada === unidadesReservadas({
+      cantidad: Number(rec.fields["Cantidad"] ?? 0),
+      cantidadReservada: Number(rec.fields["Cantidad Reservada"] ?? 0),
+      reservado: rec.fields["Reservado"] === true,
+    }) &&
+    rec.fields["Reservado"] !== true &&
+    estado !== "Reservado";
+  if (nadaQueLiberar) return;
+
+  // Si el ítem avanzó a otro estado (Vendido, Con novedad, Destinado a
+  // partes…), soltar la reserva devuelve las unidades al contador pero NO lo
+  // resucita a la venta: ese camino ya lo decidió otra cosa.
+  const siguioOtroCamino = estado !== "Reservado" && estado !== "Disponible";
+  if (siguioOtroCamino) {
+    await patchItem(shippingItemId, { "Cantidad Reservada": nuevo.cantidadReservada, "Reservado": nuevo.reservado });
     return;
   }
 
-  await patchItem(shippingItemId, { "Estado Item": "Disponible", "Disponible para venta": true, "Reservado": false });
+  await patchItem(shippingItemId, {
+    "Cantidad Reservada": nuevo.cantidadReservada,
+    "Reservado": nuevo.reservado,
+    "Disponible para venta": nuevo.disponibleVenta,
+    ...(nuevo.disponibleVenta && estado === "Reservado" ? { "Estado Item": "Disponible" } : {}),
+  });
 }
 
 // ─── Abono en la tabla centralizada "Abonos" ─────────────────────────────────
