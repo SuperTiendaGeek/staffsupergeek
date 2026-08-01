@@ -92,6 +92,7 @@ type AirtableMutationResponse = {
 const AIRTABLE_RATE_LIMIT_MAX_RETRIES = 3;
 const AIRTABLE_RATE_LIMIT_BASE_DELAY_MS = 250;
 const AIRTABLE_BATCH_RECORD_ID_CHUNK_SIZE = 25;
+const AIRTABLE_MUTATION_RECORD_CHUNK_SIZE = 25;
 
 export type ShippingV2TechnicalOptionType = "connectivity" | "port" | "extraFeature";
 export type ShippingV2ItemsListSortKey =
@@ -918,6 +919,20 @@ async function airtableMutation<T>(url: string, init: RequestInit) {
   }
 
   return (await response.json()) as T;
+}
+
+async function patchAirtableRecords(tableName: string, records: Array<{ id: string; fields: Record<string, unknown> }>) {
+  const updatedRecords: AirtableRecord[] = [];
+
+  for (let index = 0; index < records.length; index += AIRTABLE_MUTATION_RECORD_CHUNK_SIZE) {
+    const response = await airtableMutation<AirtableMutationResponse>(tableUrl(tableName), {
+      method: "PATCH",
+      body: JSON.stringify({ records: records.slice(index, index + AIRTABLE_MUTATION_RECORD_CHUNK_SIZE) }),
+    });
+    updatedRecords.push(...(response.records ?? []));
+  }
+
+  return updatedRecords;
 }
 
 function logLinkedTableMismatch(context: {
@@ -3819,7 +3834,7 @@ export async function attachShippingV2PackingInvoice(input: {
     descripcion: "Factura proveedor generada",
     observacion: `${input.filename} · ${input.invoiceNumber}`,
   });
-  const updated = await getShippingV2PackingById(input.packingId, undefined, { includeAiName: false });
+  const updated = await getShippingV2PackingById(input.packingId, input.access, { includeAiName: false });
   const attachment = updated.factura[0];
   return {
     packing: updated,
@@ -4006,21 +4021,16 @@ export async function addItemsToShippingV2Packing(packingId: string, itemIds: st
     throw error;
   }
 
-  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
-    method: "PATCH",
-    body: JSON.stringify({
-      records: items.map((item) => ({
-        id: item.id,
-        fields: {
-          [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "En packing",
-          [SHIPPING_V2_ITEM_FIELDS.requierePacking]: true,
-          [SHIPPING_V2_ITEM_FIELDS.modoLogistico]: "Asignar a packing existente",
-          [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
-          [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
-        },
-      })),
-    }),
-  });
+  await patchAirtableRecords(SHIPPING_V2_TABLES.items, items.map((item) => ({
+    id: item.id,
+    fields: {
+      [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "En packing",
+      [SHIPPING_V2_ITEM_FIELDS.requierePacking]: true,
+      [SHIPPING_V2_ITEM_FIELDS.modoLogistico]: "Asignar a packing existente",
+      [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+      [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
+    },
+  })));
 
   await createShippingV2Event({
     action: "Actualizado",
@@ -4349,15 +4359,10 @@ async function patchPackingStatus(input: {
 
 async function updatePackingItemsForStatus(packing: ShippingV2Packing, fields: Record<string, unknown>) {
   if (!packing.itemIds.length) return;
-  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
-    method: "PATCH",
-    body: JSON.stringify({
-      records: packing.itemIds.map((itemId) => ({
-        id: itemId,
-        fields,
-      })),
-    }),
-  });
+  await patchAirtableRecords(SHIPPING_V2_TABLES.items, packing.itemIds.map((itemId) => ({
+    id: itemId,
+    fields,
+  })));
 }
 
 export async function transitionShippingV2PackingStatus(

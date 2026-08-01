@@ -3,6 +3,7 @@ import {
   getAirtableRateLimitRetryDelayMs,
   getShippingV2PackingById,
   getShippingV2Proveedores,
+  transitionShippingV2PackingStatus,
 } from "../airtable";
 import { formatShippingV2PackingItemsUnitsSummary } from "../packing-calculations";
 import {
@@ -29,6 +30,7 @@ type AirtableCall = {
   method: string;
   tableName: string;
   recordId: string;
+  recordCount: number | null;
   url: string;
 };
 
@@ -70,10 +72,20 @@ async function assertRejects(fn: () => unknown | Promise<unknown>, fragmento: st
 function parseAirtableCall(input: string | URL, init?: RequestInit): AirtableCall {
   const url = new URL(String(input));
   const segments = decodeURIComponent(url.pathname).split("/").filter(Boolean);
+  let recordCount: number | null = null;
+  if (init?.body) {
+    try {
+      const body = JSON.parse(String(init.body)) as { records?: unknown[] };
+      recordCount = Array.isArray(body.records) ? body.records.length : null;
+    } catch {
+      recordCount = null;
+    }
+  }
   return {
     method: (init?.method ?? "GET").toUpperCase(),
     tableName: segments[2] ?? "",
     recordId: segments[3] ?? "",
+    recordCount,
     url: url.toString(),
   };
 }
@@ -84,6 +96,7 @@ function setupFixture(): Fixture {
   registrarTablaDouble(state, SHIPPING_V2_TABLES.proveedores);
   registrarTablaDouble(state, SHIPPING_V2_TABLES.items);
   registrarTablaDouble(state, SHIPPING_V2_TABLES.packings);
+  registrarTablaDouble(state, SHIPPING_V2_TABLES.eventos);
 
   const providerId = crearRegistroDouble(state, SHIPPING_V2_TABLES.proveedores, {
     [F_PROV.proveedorId]: "PROV-PACK",
@@ -145,7 +158,7 @@ function createItemRecord(
   });
 }
 
-function createPackingRecord(fixture: Fixture, itemIds: string[]) {
+function createPackingRecord(fixture: Fixture, itemIds: string[], overrides: Record<string, unknown> = {}) {
   return crearRegistroDouble(fixture.state, SHIPPING_V2_TABLES.packings, {
     [F_PACKING.packingId]: "PACK-RATE-001",
     [F_PACKING.nombre]: "Packing rate limit",
@@ -155,6 +168,7 @@ function createPackingRecord(fixture: Fixture, itemIds: string[]) {
     [F_PACKING.itemsIncluidos]: itemIds,
     [F_PACKING.reglaDistribucionCostos]: "Por cantidad",
     [F_PACKING.fechaCreacion]: "2026-07-31T00:00:00.000Z",
+    ...overrides,
   });
 }
 
@@ -176,6 +190,10 @@ function itemListGetCount(calls: AirtableCall[]) {
 
 function writeCount(calls: AirtableCall[]) {
   return calls.filter((call) => call.method !== "GET").length;
+}
+
+function itemPatchCalls(calls: AirtableCall[]) {
+  return calls.filter((call) => call.method === "PATCH" && call.tableName === SHIPPING_V2_TABLES.items);
 }
 
 function response(status: number, body: unknown, headers?: Record<string, string>): Response {
@@ -260,6 +278,42 @@ async function testPackingCargaVeinteItemsAgrupados() {
   });
 }
 
+async function testPackingActualizaCuarentaYUnItemsEnLotes() {
+  await withFixture(async (fixture) => {
+    const itemIds = Array.from({ length: 41 }, (_, index) =>
+      createItemRecord(fixture, index + 1, {
+        [F_ITEM.cantidad]: 1,
+        [F_ITEM.costoProveedor]: 2,
+      })
+    );
+    const packingId = createPackingRecord(fixture, itemIds, {
+      [F_PACKING.estado]: "Cerrado",
+    });
+
+    const packing = await transitionShippingV2PackingStatus(packingId, {
+      action: "mark-in-transit",
+      actor: "Admin Test",
+      access: systemShippingV2Access(),
+    });
+    const patchCalls = itemPatchCalls(fixture.calls);
+
+    assert(packing.estado === "En tránsito", "Packing con 41 items puede marcarse en tránsito");
+    assert(patchCalls.length === 2, "Los 41 items se actualizan en 2 PATCH a Shipping Items");
+    assert(
+      patchCalls.map((call) => call.recordCount).join(",") === "25,16",
+      "Los lotes respetan el máximo de 25 records de Airtable"
+    );
+    assert(
+      patchCalls.every((call) => (call.recordCount ?? 0) <= 25),
+      "Ningún PATCH de Shipping Items supera 25 records"
+    );
+    assert(
+      itemIds.every((itemId) => fixture.state.otras.get(SHIPPING_V2_TABLES.items)?.get(itemId)?.fields[F_ITEM.estadoItem] === "En tránsito"),
+      "Todos los items quedan en tránsito"
+    );
+  });
+}
+
 async function testRateLimitReintentaYLuegoResuelve() {
   let attempts = 0;
   await withFakeFetch((async () => {
@@ -312,6 +366,7 @@ async function testRateLimitAgotaIntentosConMensajeClaro() {
 async function main() {
   await testPackingCargaUnItemAgrupado();
   await testPackingCargaVeinteItemsAgrupados();
+  await testPackingActualizaCuarentaYUnItemsEnLotes();
   await testRateLimitReintentaYLuegoResuelve();
   testRateLimitEsperaProgresiva();
   await testErrorNoRateLimitNoReintenta();
