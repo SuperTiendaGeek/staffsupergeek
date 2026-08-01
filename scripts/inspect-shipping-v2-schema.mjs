@@ -10,7 +10,12 @@ const TABLES = {
   proveedores: "Shipping Proveedores",
   items: "Shipping Items",
   pagos: "Shipping Pagos",
-  finanzasMovimientos: "Shipping Finanzas Movimientos",
+  // OJO: la TABLA se renombró a "Movimientos Financieros" durante la Fase 20.
+  // El CAMPO de enlace dentro de Shipping Pagos sigue llamándose "Shipping
+  // Finanzas Movimientos" (ver PAYMENT_FIELD_KEYS.movimientosFinanzas y
+  // EXPECTED_PAYMENT_FIELDS) — renombrar aquel rompería el puente
+  // pagos→finanzas. Son dos nombres distintos que se parecen; no unificar.
+  finanzasMovimientos: "Movimientos Financieros",
   packings: "Shipping Packings",
   recepciones: "Shipping Recepciones",
   novedades: "Shipping Novedades",
@@ -250,6 +255,9 @@ const ITEM_FIELD_KEYS = {
   precioVentaFinal: "Precio venta final",
   precioVentaSugerido: "Precio venta sugerido",
   cantidad: "Cantidad",
+  // F-42 — unidades comprometidas (reserva de cliente u orden) aún no
+  // vendidas. Libres = Cantidad - Cantidad Reservada. Ver lib/shipping-v2/unidades.ts.
+  cantidadReservada: "Cantidad Reservada",
   unidad: "Unidad",
   skuInterno: "SKU interno",
   skuProveedor: "SKU proveedor",
@@ -747,7 +755,7 @@ async function main() {
   for (const field of validation.proveedores.found) console.log(`- ${field}`);
   console.log("Campos reales detectados en Shipping Pagos:");
   for (const field of validation.pagos.found) console.log(`- ${field}`);
-  console.log("Campos reales detectados en Shipping Finanzas Movimientos:");
+  console.log("Campos reales detectados en Movimientos Financieros:");
   for (const field of validation.finanzas.found) console.log(`- ${field}`);
   console.log("Campos reales detectados en Shipping Packings:");
   for (const field of validation.packings.found) console.log(`- ${field}`);

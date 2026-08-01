@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T15:27:32.786Z",
+  "generatedAt": "2026-08-01T01:55:42.442Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -184,7 +184,7 @@
           "id": "fldZqja4TmWs8Nnla",
           "type": "multipleRecordLinks",
           "linkedTableId": "tbla8HwlJLOX86fQJ",
-          "linkedTableName": "Shipping Finanzas Movimientos"
+          "linkedTableName": "Movimientos Financieros"
         },
         "Shipping Packings (Proveedor responsable)": {
           "id": "fldL4hjlWc7N4tUld",
@@ -291,6 +291,24 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblYRUY3ZaBKAMaG8",
           "linkedTableName": "Opciones"
+        },
+        "Permisos portal proveedor": {
+          "id": "fldB4iUW8RZelSmN8",
+          "type": "multipleSelects",
+          "options": [
+            "Ver artículos",
+            "Editar nombre y observaciones",
+            "Ver packings",
+            "Editar peso del packing",
+            "Agregar artículos al packing",
+            "Cerrar packing",
+            "Ver factura del packing",
+            "Ver pagos",
+            "Ver novedades",
+            "Responder novedades",
+            "Ver ubicación del packing",
+            "Ver su costo de proveedor"
+          ]
         }
       }
     },
@@ -326,11 +344,11 @@
             "Encargo enviado a proveedor",
             "Reajuste de inventario",
             "Uso local",
-            "Repuesto",
             "Parte / componente",
             "Despiece de equipo",
             "Migración histórica",
-            "Corrección administrativa"
+            "Corrección administrativa",
+            "Repuesto"
           ]
         },
         "Tipo de item": {
@@ -358,6 +376,7 @@
             "RAM",
             "SSD",
             "HDD",
+            "Tablet",
             "Pantalla",
             "Teclado",
             "Batería",
@@ -1250,6 +1269,54 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblm4bd1eUUqDEHmz",
           "linkedTableName": "Órdenes de Reparación"
+        },
+        "Factura": {
+          "id": "fldA2rvyJmzqP0Sfo",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblcm85VnzJ1ZVhe5",
+          "linkedTableName": "Facturas Electrónicas"
+        },
+        "Tarifa IVA": {
+          "id": "fld7Ruj2iW8CqqkEw",
+          "type": "singleSelect",
+          "options": [
+            "15%",
+            "0%",
+            "Exento",
+            "No objeto"
+          ]
+        },
+        "Nota de Crédito": {
+          "id": "fldC7kGzR0MENqpVz",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblpLAlpEnXL9r4nW",
+          "linkedTableName": "Notas de Crédito Electrónicas"
+        },
+        "Recibo": {
+          "id": "fldiPZgq8Pw0dA06A",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl6wt6UeX7ssszpH",
+          "linkedTableName": "Recibos"
+        },
+        "Reservas": {
+          "id": "fldhKY3r1dDGKyEfh",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblI9BXe7CmMHIjvj",
+          "linkedTableName": "Reservas"
+        },
+        "Texto Facebook": {
+          "id": "fldeFrnn3KpMWkYo3",
+          "type": "formula"
+        },
+        "Facebook Super Geek": {
+          "id": "fldUnC2Y1Q3e4eFpe",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Cantidad Reservada": {
+          "id": "fld6tH0L5LPIrOown",
+          "type": "number",
+          "kind": "number"
         }
       }
     },
@@ -1425,7 +1492,7 @@
           "id": "fldoB84U31cinIBYv",
           "type": "multipleRecordLinks",
           "linkedTableId": "tbla8HwlJLOX86fQJ",
-          "linkedTableName": "Shipping Finanzas Movimientos"
+          "linkedTableName": "Movimientos Financieros"
         },
         "Shipping Migraciones": {
           "id": "fld0hiiApePHUrA0V",
@@ -1441,7 +1508,7 @@
         }
       }
     },
-    "Shipping Finanzas Movimientos": {
+    "Movimientos Financieros": {
       "id": "tbla8HwlJLOX86fQJ",
       "fields": {
         "Movimiento Shipping ID": {
@@ -1453,7 +1520,12 @@
           "id": "fldplAJWk47g02RDD",
           "type": "singleSelect",
           "options": [
-            "Shipping"
+            "Shipping",
+            "Abonos",
+            "Facturación",
+            "Nómina",
+            "Manual",
+            "Sistema"
           ]
         },
         "Tipo de movimiento": {
@@ -1463,7 +1535,8 @@
             "Egreso",
             "Ingreso",
             "Ajuste",
-            "No aplica"
+            "No aplica",
+            "Movimiento Interno"
           ]
         },
         "Estado de integración": {
@@ -1509,7 +1582,12 @@
             "Tarjeta",
             "Depósito",
             "Otro",
-            "No aplica"
+            "No aplica",
+            "Tarjeta débito",
+            "Tarjeta crédito",
+            "DataFast",
+            "PayPhone",
+            "Dinero electrónico"
           ]
         },
         "Cuenta origen": {
@@ -1576,6 +1654,145 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblS0nSrZnRNHS3xI",
           "linkedTableName": "Shipping Eventos"
+        },
+        "Cuenta Origen (Finanzas)": {
+          "id": "fldCQzAMmesoNEJSw",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblAdnR9uucXAElXj",
+          "linkedTableName": "Cuentas Financieras"
+        },
+        "Cuenta Destino (Finanzas)": {
+          "id": "fldFY51DdTnkFMiIp",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblAdnR9uucXAElXj",
+          "linkedTableName": "Cuentas Financieras"
+        },
+        "Categoría": {
+          "id": "fldnhqwK6ui6GyfNA",
+          "type": "singleSelect",
+          "options": [
+            "Venta Mostrador",
+            "Venta Producto",
+            "Servicio Reparación",
+            "Repuesto",
+            "Producto Digital",
+            "Anticipo Cliente",
+            "Compra Proveedor Shipping",
+            "Compra Local Repuesto",
+            "Compra Licencia",
+            "Nómina",
+            "Recuperación Garantía",
+            "Depósito de Caja",
+            "Distribución de Rubros",
+            "Acreditación Pasarela",
+            "Pago SRI",
+            "Devolución",
+            "Otro",
+            "Ajuste de Caja",
+            "Pago Tarjeta de Crédito"
+          ]
+        },
+        "Estado del Movimiento": {
+          "id": "fldWlT1lMeEhd00mQ",
+          "type": "singleSelect",
+          "options": [
+            "Pendiente",
+            "Confirmado",
+            "Acreditado",
+            "Anulado"
+          ]
+        },
+        "Rubro Capital": {
+          "id": "fldBwnsRQez9mjFjm",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Rubro Utilidad": {
+          "id": "fldauU6arcaWRBsNI",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Rubro IVA": {
+          "id": "fldNicTiJA3CuSwFW",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Rubro Repuesto Externo": {
+          "id": "fld3uZm3bH3v5Sn3J",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Estado Distribución": {
+          "id": "fldKlIavcabp0IVEM",
+          "type": "singleSelect",
+          "options": [
+            "Sin distribuir",
+            "Distribuido",
+            "Pendiente de clasificar",
+            "No aplica"
+          ]
+        },
+        "Alerta Descuadre": {
+          "id": "fldXNKRK8NPSIHRVu",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Monto Bruto": {
+          "id": "fldjS7S8N3Q4h6FnN",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Monto Neto": {
+          "id": "fldZ0kXZAfhuDoQFX",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Comisión": {
+          "id": "fld4oJWAm2hmQarp8",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Abono": {
+          "id": "fldzs9Ca6NR5sRR9X",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbli03YnDxVsrnmZK",
+          "linkedTableName": "Abonos"
+        },
+        "Factura Electrónica": {
+          "id": "fldnkmSA9fpeOpZKP",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblcm85VnzJ1ZVhe5",
+          "linkedTableName": "Facturas Electrónicas"
+        },
+        "Horarios Pago": {
+          "id": "fldERoYs6GLP4nHDv",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbllCpplmnW10emVm",
+          "linkedTableName": "Horarios Pagos"
+        },
+        "Cliente": {
+          "id": "fldzP9YRQg2Cpcj21",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblReyBWhMDeHGwKy",
+          "linkedTableName": "Clientes"
+        },
+        "Reversa a": {
+          "id": "fldfdO4UW3QTmaG2x",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbla8HwlJLOX86fQJ",
+          "linkedTableName": "Movimientos Financieros"
+        },
+        "Compensado Por": {
+          "id": "flddYJ1WmMJ4zzR3W",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbla8HwlJLOX86fQJ",
+          "linkedTableName": "Movimientos Financieros"
+        },
+        "Cuadre de Caja": {
+          "id": "fldXC8tMKumkjlJjA",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblMvq6DW07sbjNn2",
+          "linkedTableName": "Finanzas Cuadres"
         }
       }
     },
@@ -2379,7 +2596,7 @@
           "id": "fldkadn9cc47B7ZWl",
           "type": "multipleRecordLinks",
           "linkedTableId": "tbla8HwlJLOX86fQJ",
-          "linkedTableName": "Shipping Finanzas Movimientos"
+          "linkedTableName": "Movimientos Financieros"
         },
         "Migración relacionada": {
           "id": "fldrBsmDPjmUF4Prc",
