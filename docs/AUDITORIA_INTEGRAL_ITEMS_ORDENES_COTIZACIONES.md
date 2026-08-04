@@ -35,6 +35,7 @@
 | F-37 · `precioVenta` de la reserva venía del navegador | ✅ **Corregido** | Resuelto por Codex en `lib/facturacion/reservas/precioShippingItem.ts`: el precio se lee del artículo en el servidor |
 | F-42 · Reservar una unidad bloquea todas | ✅ **Corregido** | PR11 — campo `Cantidad Reservada`; las banderas pasan a derivarse de las unidades. Alcanzaba a 36 registros multiunidad y liberó 56 unidades congeladas |
 | F-26 · Doble reserva simultánea (TOCTOU) | ⚠️ **Mitigado, no eliminable** | PR12 — turno por artículo + verificación tras escribir. Airtable no tiene transacciones y Vercel corre varias instancias: se reduce y se hace visible, no se cierra del todo |
+| F-30 · Validaciones como texto de ayuda | ✅ **Corregido** | PR13 — reglas en un solo módulo con el mismo texto del servidor; se informan todos los faltantes juntos. La descripción original del hallazgo era inexacta: el servidor sí validaba |
 | F-35 · `Tarifa IVA` vacía en todos los items | ⬇️ **Bajado a P3** | El default es 15%, correcto para todo el catálogo actual (equipos, repuestos, accesorios). Solo importaría si se vende algo exento o al 0% |
 | F-19 · `/cotizaciones` y `/pedidos` contra tablas inexistentes | ✅ **Corregido** | PR8 — las pantallas ya redirigían; se congelaron las 14 rutas de API (410) |
 | F-32 · Opciones basura en producción | ✅ **Corregido** | PR8 — borrada la opción "NO ELEGIBLE (ELIMINAR)" y añadida validación al crear/editar opciones |
@@ -843,6 +844,19 @@ En `/shipping-v2/items/nuevo` (captura adjunta) el panel "Flujo calculado" muest
 ### F-30 · P2 · Validaciones de negocio expresadas como texto de ayuda, no como bloqueo
 
 En la captura: *"Este flujo requiere proveedor de compra"* y *"Este flujo requiere costo proveedor"* aparecen como avisos naranjas. La validación real ocurre en el servidor (`validateItemInput`) y devuelve un throw genérico. El usuario puede llenar todo el formulario y perder el trabajo al enviar.
+
+**Corrección de la descripción.** Este hallazgo NO era un agujero de validación: el servidor sí exige todas estas reglas y con mensajes específicos, no genéricos. Quien llame la API directamente no se salta nada. Era un problema de usabilidad y de reglas duplicadas.
+
+**Estado al abordarlo (PR13).** La Fase 1 de Codex ya había añadido comprobación en el formulario para categoría, cantidad, costo de compra, costo de regalo y precio final. **Quedaba un hueco real**: el aviso de proveedor se mostraba pero `handleSubmit` no lo comprobaba, así que ese caso —y solo ese— sí viajaba al servidor para volver con el mismo error.
+
+**Corrección.** La causa de fondo era tener las reglas escritas dos veces, en el formulario y en el servidor, sin nada que las mantuviera de acuerdo — por eso una se quedó atrás. Ahora viven una sola vez en `lib/shipping-v2/item-requisitos.ts`, que devuelve la lista de lo que falta con **el mismo texto exacto que devolvería el servidor**, de modo que la persona lee lo mismo por cualquiera de los dos caminos.
+
+Dos mejoras que salieron de paso:
+
+- **Se informan todos los faltantes de una vez**, no el primero. Antes, con tres campos mal había que enviar tres veces para descubrirlos uno a uno.
+- Se distinguen las **dos razones distintas** por las que el proveedor es obligatorio (ser una compra, o que el flujo implique pago), cada una con su mensaje, en vez de un aviso único.
+
+`validateItemInput` en el servidor **sigue siendo la autoridad** y no se tocó: lo nuevo es la misma regla dicha antes, para no hacer perder el viaje. Cubierto por `lib/shipping-v2/__tests__/item-requisitos.test.ts` (17 asserts), incluidos los casos que deben seguir siendo válidos: precio final vacío o 0 ("sin precio asignado"), y regalo de proveedor con costo vacío o 0.
 
 ### F-31 · P2 · `Estado item sugerido` es de solo lectura y no refleja lo que se guardará tras editar
 
