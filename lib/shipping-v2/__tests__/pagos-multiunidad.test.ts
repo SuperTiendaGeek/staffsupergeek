@@ -196,7 +196,6 @@ function itemWriteInput(fixture: Fixture, overrides: Partial<ShippingV2ItemWrite
     disponibleVenta: false,
     reservado: false,
     sku: "PAY-EDIT-001",
-    skuInterno: "PAY-EDIT-001",
     skuProveedor: "",
     modelo: "",
     marca: "",
@@ -518,7 +517,6 @@ await withFixture(async (fixture) => {
       item,
       itemWriteInput(fixture, {
         sku: "PAY-LOCK-PATCH",
-        skuInterno: "PAY-LOCK-PATCH",
         cantidad: 2,
         costoProveedor: 100,
         modoLogistico: "Pendiente de packing",

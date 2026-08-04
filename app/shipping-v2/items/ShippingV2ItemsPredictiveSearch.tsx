@@ -65,7 +65,6 @@ function fallbackItemToSearchEntry(item: FallbackItem): ShippingV2ItemSearchEntr
     proveedorCompra: item.proveedorCompraDisplay || item.proveedorNombre,
     proveedorLogistico: item.proveedorLogisticoDisplay || item.proveedorLogisticoNombre,
     packingId: item.packingId,
-    legacyPackingId: item.legacyPackingId,
     trackingDirecto: item.trackingDirecto,
     trackingHaciaIntermediario: item.trackingHaciaIntermediario,
     trackingDesdeIntermediario: item.trackingDesdeIntermediario,

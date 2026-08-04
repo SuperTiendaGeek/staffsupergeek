@@ -84,7 +84,6 @@ function buildFields(item: ShippingV2ItemSearchEntry) {
     field("proveedorCompra", "Proveedor compra", item.proveedorCompra),
     field("proveedorLogistico", "Proveedor logistico", item.proveedorLogistico),
     field("packingId", "Packing", item.packingId),
-    field("legacyPackingId", "Packing legacy", item.legacyPackingId),
     field("trackingDirecto", "Tracking directo", item.trackingDirecto),
     field("trackingHaciaIntermediario", "Tracking hacia intermediario", item.trackingHaciaIntermediario),
     field("trackingDesdeIntermediario", "Tracking desde intermediario", item.trackingDesdeIntermediario),
@@ -103,7 +102,7 @@ export function prepareShippingV2ItemSearchIndex(items: ShippingV2ItemSearchEntr
     const providerFields = fields.filter((entry) => ["proveedorCompra", "proveedorLogistico"].includes(entry.key));
     const statusFields = fields.filter((entry) => ["estado", "tipoOperacion"].includes(entry.key));
     const trackingFields = fields.filter((entry) => entry.key.startsWith("tracking"));
-    const packingFields = fields.filter((entry) => entry.key === "packingId" || entry.key === "legacyPackingId");
+    const packingFields = fields.filter((entry) => entry.key === "packingId");
 
     return {
       item,
@@ -157,7 +156,7 @@ function calculateScore(entry: ShippingV2PreparedItemSearchEntry, query: string,
   if (exact(supplierSku, query) || exact(compact(supplierSku), compactQuery)) return 10;
   if (exact(serial, query) || exact(compact(serial), compactQuery)) return 20;
   if (entry.fields.some((fieldEntry) => fieldEntry.key.startsWith("tracking") && (exact(fieldEntry.normalized, query) || exact(compact(fieldEntry.normalized), compactQuery)))) return 30;
-  if (entry.fields.some((fieldEntry) => (fieldEntry.key === "packingId" || fieldEntry.key === "legacyPackingId") && (exact(fieldEntry.normalized, query) || exact(compact(fieldEntry.normalized), compactQuery)))) return 40;
+  if (entry.fields.some((fieldEntry) => fieldEntry.key === "packingId" && (exact(fieldEntry.normalized, query) || exact(compact(fieldEntry.normalized), compactQuery)))) return 40;
   if (starts(sku, query) || starts(compact(sku), compactQuery)) return 50;
   if (starts(serial, query) || starts(compact(serial), compactQuery) || entry.fields.some((fieldEntry) => fieldEntry.key.startsWith("tracking") && (starts(fieldEntry.normalized, query) || starts(compact(fieldEntry.normalized), compactQuery)))) return 60;
   if (exact(name, query)) return 70;

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { comprometerUnidades, liberarUnidades, unidadesReservadas } from "./unidades";
-import { verificarEscrituraUnica, withLock } from "@/lib/concurrencia";
+import { EscrituraConcurrenteError, verificarEscrituraUnica, withLock } from "@/lib/concurrencia";
 
 import type {
   ShippingV2DashboardSummary,
@@ -60,7 +60,7 @@ import { withShippingV2PackingProviderCostSummary } from "@/lib/shipping-v2/pack
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { canBeUsaTransportProvider, isCompatibleEcuadorTransportProvider } from "@/lib/shipping-v2/tracking-providers";
-import { generateUniqueSkuFromExistingSkus, normalizeSku } from "@/lib/sku/sku-service";
+import { generateUniqueSkuFromExistingSkus, getSkuPrefixByCategory, normalizeSku } from "@/lib/sku/sku-service";
 import { round2 } from "@/lib/finanzas/validaciones";
 import {
   canShippingV2,
@@ -643,10 +643,7 @@ function sanitizeShippingV2ItemForAccess(item: ShippingV2Item, access?: Shipping
     precioVentaSugerido: null,
     precioVenta: null,
     observacionesInternas: canEditProviderItemFields ? item.observacionesInternas : "",
-    legacyPagoId: "",
     legacyPagoRelacionadoIds: [],
-    fuenteMigracion: "",
-    estadoMigracion: "",
   };
 }
 
@@ -1286,12 +1283,8 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     sku,
     itemId: sku,
     codigo: sku,
-    skuInterno: sku,
     skuProveedor: firstString(f[F.skuProveedor]),
     metodoAsignacionSku: firstString(f[F.metodoAsignacionSku]),
-    skuProveedorUsadoComoInterno: firstBoolean(f[F.skuProveedorUsadoComoInterno]),
-    skuDuplicadoDetectado: firstBoolean(f[F.skuDuplicadoDetectado]),
-    skuOriginalSugerido: firstString(f[F.skuOriginalSugerido]),
     nombre: firstString(f[F.nombre]),
     aiNombre: includeAiName ? aiTextString(f[F.aiNombre]) : "",
     descripcion: firstString(f[F.descripcion]),
@@ -1410,11 +1403,6 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     esParteRecuperada: firstBoolean(f["Es parte recuperada"] ?? f["Parte recuperada"]),
     observacionesInternas: firstString(f[F.observacionesInternas]),
     observacionVenta: firstString(f[F.observacionVenta]),
-    legacyItemId: firstString(f["Legacy Item ID"]),
-    legacyPagoId: firstString(f["Legacy Pago ID"]),
-    legacyPackingId: firstString(f["Legacy Packing ID"]),
-    fuenteMigracion: firstString(f["Fuente de migración"] ?? f["Fuente de migracion"] ?? f["Fuente Migracion"]),
-    estadoMigracion: firstString(f["Estado de migración"] ?? f["Estado de migracion"] ?? f["Estado Migracion"]),
     registradoPor: firstString(f["Registrado por"] ?? f["Registrado Por"]),
     ultimaActualizacion: firstString(f["Última actualización"] ?? f["Ultima actualizacion"] ?? f["Ultima Actualizacion"]),
     actualizadoPor: firstString(f["Actualizado por"] ?? f["Actualizado Por"]),
@@ -1904,7 +1892,6 @@ function mapItemSearchEntry(
     proveedorCompra: resolveShippingV2ProveedorLabel(proveedorCompraId, context.providerLabelsById) || undefined,
     proveedorLogistico: resolveShippingV2ProveedorLabel(proveedorLogisticoId, context.providerLabelsById) || undefined,
     packingId: packingInfo?.packingId || packingRecordId || undefined,
-    legacyPackingId: firstString(f["Legacy Packing ID"]) || undefined,
     trackingDirecto: firstString(f[F.trackingDirecto]) || undefined,
     trackingHaciaIntermediario: firstString(f[F.trackingHaciaIntermediario]) || undefined,
     trackingDesdeIntermediario: firstString(f[F.trackingDesdeIntermediario]) || undefined,
@@ -1947,7 +1934,6 @@ export async function getShippingV2ItemSearchIndex(access?: ShippingV2AccessCont
       F.proveedorCompra,
       F.proveedorLogistico,
       F.packingRelacionado,
-      "Legacy Packing ID",
       F.trackingDirecto,
       F.trackingHaciaIntermediario,
       F.trackingDesdeIntermediario,
@@ -2365,13 +2351,58 @@ export async function generateUniqueShippingV2SkuForCategory(category?: string) 
   return generateUniqueSkuFromExistingSkus(category, await getExistingShippingV2Skus());
 }
 
+/**
+ * Elige el SKU con el que nacerá el item, garantizando que no se repita.
+ *
+ * Cada SKU debe ser único e irrepetible: es el número con el que el artículo
+ * se identifica en facturas, packings y órdenes. Dos artículos con el mismo
+ * SKU harían imposible saber cuál se vendió.
+ *
+ * Airtable no puede imponer unicidad por sí solo, así que la garantía es del
+ * código y tiene dos partes:
+ *
+ *   1. El TURNO por prefijo de categoría. Tanto elegir el siguiente número
+ *      libre como comprobar que un SKU manual no exista son "leer y luego
+ *      escribir": entre las dos cosas cabe otra creación. Serializando por
+ *      prefijo, dos SSD nunca se calculan a la vez, mientras que crear un SSD
+ *      y una RAM siguen siendo simultáneos.
+ *   2. La VERIFICACIÓN posterior (en createShippingV2ItemRecord), porque el
+ *      turno no cruza instancias del servidor.
+ *
+ * Antes esto no tenía protección: dos artículos de la misma categoría creados
+ * en el mismo instante podían recibir ambos el mismo número.
+ */
 async function resolveOfficialSkuForCreate(input: ShippingV2ItemWriteInput) {
-  const manualSku = normalizeSku(cleanString(input.sku ?? input.skuInterno));
-  if (!manualSku) return generateUniqueShippingV2SkuForCategory(cleanString(input.categoria));
+  const manualSku = normalizeSku(cleanString(input.sku));
+  const prefijo = manualSku ? manualSku.split("-")[0] : getSkuPrefixByCategory(cleanString(input.categoria));
 
-  const existing = await findShippingV2ItemBySku(manualSku);
-  if (existing) throw new Error("Este SKU ya existe en Shipping Items.");
-  return manualSku;
+  return withLock(`shipping-sku:${prefijo}`, async () => {
+    if (!manualSku) return generateUniqueShippingV2SkuForCategory(cleanString(input.categoria));
+
+    const existing = await findShippingV2ItemBySku(manualSku);
+    if (existing) throw new Error(`El SKU ${manualSku} ya existe en Shipping Items (artículo "${existing.nombre}").`);
+    return manualSku;
+  });
+}
+
+/**
+ * Tras crear el item, confirma que su SKU siguió siendo único. Si otra
+ * instancia creó otro artículo con el mismo SKU en el mismo instante, aquí se
+ * detecta: el registro recién creado queda señalado para corregirlo a mano, en
+ * vez de convivir en silencio con su gemelo.
+ */
+async function verificarSkuUnicoTrasCrear(sku: string, recordIdCreado: string): Promise<void> {
+  const registros = await listRecords(SHIPPING_V2_TABLES.items, {
+    maxRecords: 2,
+    fields: [getOfficialSkuField()],
+    filterByFormula: `LOWER({${getOfficialSkuField()}}) = LOWER('${escapeFormulaString(sku)}')`,
+  });
+  const otros = registros.filter((r) => r.id !== recordIdCreado);
+  if (otros.length > 0) {
+    throw new EscrituraConcurrenteError(
+      `el SKU ${sku} quedó duplicado (registros ${recordIdCreado} y ${otros.map((r) => r.id).join(", ")}); corrige uno de los dos a mano`
+    );
+  }
 }
 
 async function createShippingV2Event(input: {
@@ -2593,11 +2624,7 @@ async function createShippingV2ItemRecord(
   const sku = await resolveOfficialSkuForCreate(input);
   const fields = getItemFields(input, {
     [getOfficialSkuField()]: sku,
-    [SHIPPING_V2_ITEM_FIELDS.skuInterno]: undefined,
     [SHIPPING_V2_ITEM_FIELDS.metodoAsignacionSku]: undefined,
-    [SHIPPING_V2_ITEM_FIELDS.skuProveedorUsadoComoInterno]: undefined,
-    [SHIPPING_V2_ITEM_FIELDS.skuDuplicadoDetectado]: undefined,
-    [SHIPPING_V2_ITEM_FIELDS.skuOriginalSugerido]: undefined,
     ...options.extraFields,
     [SHIPPING_V2_ITEM_FIELDS.fechaRegistro]: new Date().toISOString(),
     [SHIPPING_V2_ITEM_FIELDS.registradoPor]: options.registradoPor,
@@ -2610,6 +2637,10 @@ async function createShippingV2ItemRecord(
 
   const created = response.records?.[0];
   if (!created) throw new Error("Airtable no devolvió el item creado.");
+
+  // Segunda capa de la unicidad del SKU: el turno de arriba no cruza
+  // instancias del servidor, así que se confirma releyendo.
+  await verificarSkuUnicoTrasCrear(sku, created.id);
 
   const item = mapItem(created);
   await createShippingV2Event({
@@ -2841,7 +2872,7 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   ) {
     throw new Error(SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE);
   }
-  const nextSku = normalizeSku(cleanString(normalizedInput.sku ?? normalizedInput.skuInterno));
+  const nextSku = normalizeSku(cleanString(normalizedInput.sku));
   if (existing.packingId && cleanString(normalizedInput.modoLogistico) !== cleanString(existing.modoLogistico)) {
     throw new Error("No se puede cambiar el modo logístico porque el Item ya tiene packing relacionado.");
   }

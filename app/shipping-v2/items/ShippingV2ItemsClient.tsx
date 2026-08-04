@@ -409,7 +409,7 @@ function sortItems(items: ResolvedItem[], sortBy: SortKey) {
 }
 
 function packingLabel(item: ResolvedItem) {
-  return item.packingId || item.legacyPackingId || "";
+  return item.packingId || "";
 }
 
 function supplierSkuLabel(item: ResolvedItem) {
@@ -1147,8 +1147,8 @@ function ShippingV2ProviderItemDetailView({
   onSaved: (item: ShippingV2Item) => void;
 }) {
   const C = SHIPPING_V2_ITEM_EDIT_FIELDS;
-  const packingDisplay = packing?.packingId || item.packingId || item.legacyPackingId || "—";
-  const paymentDisplay = pago?.pagoId || item.pagoId || item.legacyPagoId || "—";
+  const packingDisplay = packing?.packingId || item.packingId || "—";
+  const paymentDisplay = pago?.pagoId || item.pagoId || "—";
 
   return (
     <div className="w-full max-w-none space-y-3">
@@ -1422,7 +1422,7 @@ export function ShippingV2ItemDetailView({
         { label: "Estado de pago", value: pago?.estadoPago, displayValue: pago?.estadoPago ? <EstadoBadge estado={pago.estadoPago} /> : "—", readOnly: true },
         { label: "Total del pago", value: pago?.totalAPagar ?? pago?.total, displayValue: formatCurrency(pago?.totalAPagar ?? pago?.total ?? null), readOnly: true },
         { label: "Fecha real de pago", value: pago?.fechaPagoReal, displayValue: formatDate(pago?.fechaPagoReal), readOnly: true },
-        { label: "Pago legacy", value: item.legacyPagoId || item.legacyPagoRelacionadoIds.join(", "), readOnly: true },
+        { label: "Pago legacy", value: item.legacyPagoRelacionadoIds.join(", "), readOnly: true },
       ],
     },
     {
@@ -1457,10 +1457,6 @@ export function ShippingV2ItemDetailView({
         { label: C.registradoPor.label, value: item.registradoPor, config: C.registradoPor },
         { label: C.ultimaActualizacion.label, value: item.ultimaActualizacion, displayValue: formatDate(item.ultimaActualizacion), config: C.ultimaActualizacion },
         { label: C.actualizadoPor.label, value: item.actualizadoPor, config: C.actualizadoPor },
-        { label: C.legacyItemId.label, value: item.legacyItemId, config: C.legacyItemId },
-        { label: C.legacyPackingId.label, value: item.legacyPackingId, config: C.legacyPackingId },
-        { label: C.fuenteMigracion.label, value: item.fuenteMigracion, config: C.fuenteMigracion },
-        { label: C.estadoMigracion.label, value: item.estadoMigracion, config: C.estadoMigracion },
       ],
     },
   ];
