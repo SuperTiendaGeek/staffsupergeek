@@ -6,23 +6,10 @@ import "server-only";
 
 import { maxSecuencialUsado } from "../airtable/facturas";
 import { getFacturacionConfig }    from "../config";
+import { withLock } from "@/lib/concurrencia";
 
 // ─── Lock por proceso (una cola por combinación estab+ptoEmi) ─────────────────
 
-const locks = new Map<string, Promise<void>>();
-
-async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const prev = locks.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const next = new Promise<void>((r) => { release = r; });
-  locks.set(key, next);
-  await prev;
-  try {
-    return await fn();
-  } finally {
-    release();
-  }
-}
 
 // ─── Siguiente secuencial ─────────────────────────────────────────────────────
 

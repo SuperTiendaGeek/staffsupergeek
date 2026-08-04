@@ -34,6 +34,7 @@ import { fetchRecordsByIds, firstString } from "../gancho/airtableGancho";
 import { reservarSiguienteIdAbono } from "@/lib/operaciones/airtable";
 import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
 import { comprometerUnidades, liberarUnidades, unidadesReservadas } from "@/lib/shipping-v2/unidades";
+import { verificarEscrituraUnica, withLock } from "@/lib/concurrencia";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 const ABONOS_TABLE = "Abonos";
@@ -67,6 +68,13 @@ async function patchItem(itemId: string, fields: Record<string, unknown>): Promi
  * no-op. Es la única barrera dura contra la doble reserva.
  */
 export async function apartarItemParaReserva(shippingItemId: string, unidades = 1): Promise<void> {
+  // F-26 — entre leer las unidades libres y escribirlas hay una ventana en la
+  // que otro apartado puede colarse. El turno cubre el caso frecuente (mismo
+  // proceso); la verificación de después cubre lo que el turno no alcanza.
+  return withLock(`shipping-item:${shippingItemId}`, () => apartarItemSinTurno(shippingItemId, unidades));
+}
+
+async function apartarItemSinTurno(shippingItemId: string, unidades: number): Promise<void> {
   const [rec] = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, [shippingItemId]);
   if (!rec) throw new Error("El ítem a reservar no existe.");
 
@@ -108,6 +116,17 @@ export async function apartarItemParaReserva(shippingItemId: string, unidades = 
     "Disponible para venta": resultado.disponibleVenta,
     ...(resultado.reservado ? { "Estado Item": "Reservado" } : {}),
   });
+
+  // F-26 — se relee para confirmar que nuestro incremento sobrevivió. Si otra
+  // instancia apartó la misma unidad en paralelo, su escritura pisó la nuestra
+  // (Airtable es "gana el último") y el contador no coincidirá. Falla visible
+  // en vez de dos reservas sobre la misma unidad.
+  const [confirmacion] = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, [shippingItemId]);
+  verificarEscrituraUnica(
+    Number(confirmacion?.fields["Cantidad Reservada"] ?? 0),
+    resultado.cantidadReservada,
+    `apartar ${shippingItemId}`
+  );
 }
 
 /**
