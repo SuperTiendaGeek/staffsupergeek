@@ -56,7 +56,7 @@ export function mapShippingItemProductRecord(record: ProductoRecord): ProductoCa
 
   return {
     id: record.id,
-    sku: firstStr(fields["SKU"] ?? fields["SKU interno"]),
+    sku: firstStr(fields["SKU"]),
     nombre: firstStr(fields["Nombre del item"] ?? fields["Nombre"]),
     descripcion: firstStr(fields["Descripción"] ?? fields["Descripcion"]),
     precioVenta,

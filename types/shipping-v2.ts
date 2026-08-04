@@ -240,12 +240,8 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   sku: string;
   itemId?: string;
   codigo: string;
-  skuInterno: string;
   skuProveedor?: string;
   metodoAsignacionSku?: string;
-  skuProveedorUsadoComoInterno: boolean | null;
-  skuDuplicadoDetectado: boolean | null;
-  skuOriginalSugerido?: string;
   nombre: string;
   aiNombre?: string;
   descripcion?: string;
@@ -337,11 +333,6 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   esParteRecuperada: boolean | null;
   observacionesInternas?: string;
   observacionVenta?: string;
-  legacyItemId?: string;
-  legacyPagoId?: string;
-  legacyPackingId?: string;
-  fuenteMigracion?: string;
-  estadoMigracion?: string;
   registradoPor?: string;
   ultimaActualizacion?: string;
   actualizadoPor?: string;
@@ -361,7 +352,6 @@ export type ShippingV2ItemSearchEntry = ShippingV2RecordBase & {
   proveedorCompra?: string;
   proveedorLogistico?: string;
   packingId?: string;
-  legacyPackingId?: string;
   trackingDirecto?: string;
   trackingHaciaIntermediario?: string;
   trackingDesdeIntermediario?: string;
@@ -400,7 +390,6 @@ export type ShippingV2ItemWriteInput = {
   disponibleVenta?: boolean;
   reservado?: boolean;
   sku?: string;
-  skuInterno?: string;
   skuProveedor?: string;
   modelo?: string;
   marca?: string;

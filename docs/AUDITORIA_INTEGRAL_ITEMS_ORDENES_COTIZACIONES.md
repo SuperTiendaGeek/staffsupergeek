@@ -36,6 +36,8 @@
 | F-42 · Reservar una unidad bloquea todas | ✅ **Corregido** | PR11 — campo `Cantidad Reservada`; las banderas pasan a derivarse de las unidades. Alcanzaba a 36 registros multiunidad y liberó 56 unidades congeladas |
 | F-26 · Doble reserva simultánea (TOCTOU) | ⚠️ **Mitigado, no eliminable** | PR12 — turno por artículo + verificación tras escribir. Airtable no tiene transacciones y Vercel corre varias instancias: se reduce y se hace visible, no se cierra del todo |
 | F-30 · Validaciones como texto de ayuda | ✅ **Corregido** | PR13 — reglas en un solo módulo con el mismo texto del servidor; se informan todos los faltantes juntos. La descripción original del hallazgo era inexacta: el servidor sí validaba |
+| F-20 · Campos duplicados / redundantes | ✅ **Analizado y depurado** | PR14 — de 145 campos, **duplicados: ninguno**. Se retiraron 9 realmente muertos (migración V1→V2 y diagnóstico de SKU). Ver el análisis abajo |
+| Unicidad del SKU | ✅ **Reforzada** | PR14 — turno por prefijo de categoría + verificación tras crear. Los 3 campos que decían vigilarlo nunca se escribieron |
 | F-35 · `Tarifa IVA` vacía en todos los items | ⬇️ **Bajado a P3** | El default es 15%, correcto para todo el catálogo actual (equipos, repuestos, accesorios). Solo importaría si se vende algo exento o al 0% |
 | F-19 · `/cotizaciones` y `/pedidos` contra tablas inexistentes | ✅ **Corregido** | PR8 — las pantallas ya redirigían; se congelaron las 14 rutas de API (410) |
 | F-32 · Opciones basura en producción | ✅ **Corregido** | PR8 — borrada la opción "NO ELEGIBLE (ELIMINAR)" y añadida validación al crear/editar opciones |
@@ -691,6 +693,40 @@ Consecuencia directa: **F-03** (el único escritor de `Total Cotizado` vive aqu�
 | Legacy | `Legacy Item ID`, `Legacy Pago ID`, `Legacy Packing ID`, `Fuente de migración`, `Estado de migración` |
 
 `Pago relacionado` y `Packing relacionado` son **texto libre** paralelos a links reales: no hay integridad referencial.
+
+## Análisis exhaustivo (PR14) — la premisa del hallazgo era falsa
+
+Se cruzaron los **145 campos** (eran 142 al auditar) contra cuatro fuentes: el código de producción, las fórmulas/rollups/lookups de la propia tabla, los rollups y lookups de **otras** tablas que apuntan a Shipping Items, y los **187 registros reales**.
+
+**Duplicados: ninguno.** Los pares que arriba parecían duplicados no lo son: `Costo total estimado` es entrada manual y `Costo total unidad` es la fórmula que suma costo + logística; `Marca`/`Marca ficha` separan el dato comercial del técnico; `Conectividad` vs `Conectividad V2` es la migración a catálogos, ya completa del lado V2. La tabla es grande porque la aplicación modela mucho, no por descuido.
+
+Dos trampas que este análisis evitó, y que conviene recordar antes de tocar campos:
+
+1. **Los campos de vínculo no se borran aunque estén vacíos.** Son una relación de dos vías: quitar `Shipping Recepciones` en Items la elimina también desde Recepciones. Cuatro vínculos vacíos quedaron fuera de la lista por esto.
+2. **Aparecer poco en el código no significa estar muerto.** Un primer cruce marcó como inertes `Revisado por`, `Shopify publicado por`, `Fecha fotos` y una docena más; al leer el código, los escribe la pantalla de recepción. Son ~30 campos vivos que parecían ruido.
+
+**Retirados (9), todos vacíos en los 187 registros y sin uso real:**
+
+| Grupo | Campos | Por qué |
+|---|---|---|
+| Migración V1→V2 | `Legacy Item ID`, `Legacy Pago ID`, `Legacy Packing ID`, `Fuente de migración`, `Estado de migración` | Andamio de una migración terminada. Solo se leían para pintarlos vacíos en el detalle; el buscador aún ofrecía buscar por "packing legacy", una búsqueda que no podía encontrar nada |
+| Diagnóstico de SKU | `SKU duplicado detectado`, `SKU original sugerido`, `SKU proveedor fue usado como interno`, `SKU interno` | **Nadie los escribía nunca.** Eran informes de la migración; no protegían la unicidad, pese a su nombre |
+
+**Conservados por decisión del negocio (31-jul-2026):** los 8 campos de **despiece** (Alex confirma que piensa usarlo; falta construir la pantalla que cree artículos hijos desde el padre) y los 3 de **triangulación** (aún no se ha dado la oportunidad de usarla).
+
+Al retirar `SKU interno` hubo que sacarlo también de `EXPECTED_ITEM_FIELDS` en el generador: seguía en la lista de campos obligatorios, así que la siguiente regeneración del esquema habría fallado y `assertShippingV2GeneratedSchema()` habría dejado la aplicación sin arrancar.
+
+## Unicidad del SKU — cómo queda garantizada
+
+Cada SKU debe ser único e irrepetible: es el número con el que el artículo se identifica en facturas, packings y órdenes. Airtable **no puede imponer unicidad**, así que la garantía es del código.
+
+Lo que ya funcionaba: un SKU escrito a mano se contrasta contra Airtable y se rechaza si existe; uno automático se calcula desde el número más alto de su categoría verificando que el candidato esté libre. Se comprobó que esa consulta **sí recorre los 187 registros** y no se queda en la primera página de 100 — era la sospecha principal.
+
+Lo que faltaba, y se añadió: entre consultar y guardar hay una ventana. Dos artículos de la misma categoría creados en el mismo instante podían recibir ambos `SSD-000014`. Ahora se aplica el mismo mecanismo de F-26 — **turno por prefijo de categoría** (`shipping-sku:SSD`), de modo que crear un SSD y una RAM siguen siendo simultáneos — más una **verificación al crear** que relee y falla de forma visible si el SKU quedó duplicado, en vez de dejar dos gemelos conviviendo en silencio.
+
+Detalle deliberado: **los números liberados no se reutilizan.** Si se borra `SSD-000002`, el siguiente será `SSD-000004`, no `SSD-000002`. Reutilizarlo haría que dos artículos distintos compartieran número a lo largo del historial de facturas.
+
+Cubierto por `lib/sku/__tests__/skuUnico.test.ts` (12 asserts), que empieza demostrando el fallo: sin turno, dos creaciones simultáneas reciben el mismo SKU.
 
 ---
 
