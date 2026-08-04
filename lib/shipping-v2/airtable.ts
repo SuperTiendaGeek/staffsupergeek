@@ -1,6 +1,17 @@
 import "server-only";
 
 import { comprometerUnidades, liberarUnidades, unidadesReservadas } from "./unidades";
+import {
+  calcularCierreDespiece,
+  calcularRepartoParaPiezas,
+  construirInputPiezaDespiece,
+  evaluarSiSePuedeDespiezar,
+  puedeCancelarseDespiece,
+  type NuevaPiezaInput,
+  type PiezaDespiece,
+  type ResumenDespiece,
+} from "./despiece-airtable";
+
 import { EscrituraConcurrenteError, verificarEscrituraUnica, withLock } from "@/lib/concurrencia";
 
 import type {
@@ -5038,4 +5049,335 @@ export async function liberarShippingItemDeOrdenStock({
   });
 
   return resumen;
+}
+
+// ─── Despiece ────────────────────────────────────────────────────────────────
+//
+// Desarmar un equipo para vender sus piezas por separado. Las reglas y el
+// reparto del costo viven en ./despiece.ts (puro, con pruebas); aquí solo se
+// lee y se escribe. Ver docs/DISENO_DESPIECE.md.
+
+const CAMPO_ITEMS_HIJOS = "Items hijos";
+const CAMPO_ITEM_PADRE = "Item padre";
+const CAMPO_COSTO_ASIGNADO_DESPIECE = "Costo asignado por despiece";
+const CAMPO_MOTIVO_DESPIECE = "Motivo de despiece";
+const CAMPO_FECHA_DESPIECE = "Fecha de despiece";
+const CAMPO_RESPONSABLE_DESPIECE = "Responsable de despiece";
+
+async function leerRegistroItem(id: string) {
+  return airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`);
+}
+
+function mapPiezaDespiece(record: AirtableRecord): PiezaDespiece {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const f = record.fields;
+  return {
+    id: record.id,
+    sku: firstString(f[F.sku]),
+    nombre: firstString(f[F.nombre]),
+    categoria: firstString(f[F.categoria]),
+    cantidad: firstNumber(f[F.cantidad]) ?? 1,
+    condicion: firstString(f[F.condicion]),
+    precioVenta: firstNumber(f[F.precioVentaFinal]),
+    costoAsignado: firstNumber(f[CAMPO_COSTO_ASIGNADO_DESPIECE]) ?? 0,
+    estadoItem: firstString(f[F.estadoItem]),
+    observaciones: firstString(f[F.observacionesInternas]),
+    numeroSerie: firstString(f[F.numeroSerie]),
+    tieneFacturaORecibo:
+      linkedRecordIds(f["Factura"]).length > 0 || linkedRecordIds(f["Recibo"]).length > 0,
+  };
+}
+
+/**
+ * Todo lo que la pestaña necesita: si se puede despiezar, las piezas ya
+ * creadas con su costo, y cuánto costo queda sin repartir.
+ */
+export async function getResumenDespiece(
+  itemRecordId: string,
+  access?: ShippingV2AccessContext
+): Promise<ResumenDespiece> {
+  assertShippingV2GeneratedSchema();
+  assertShippingV2Permission(access, "canViewItems", "No tienes acceso a este item.");
+  const id = cleanString(itemRecordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+
+  const padreRecord = await leerRegistroItem(id);
+  const f = padreRecord.fields;
+  const hijosIds = linkedRecordIds(f[CAMPO_ITEMS_HIJOS]);
+  const hijosRecords = hijosIds.length > 0 ? await listRecordsByIds(SHIPPING_V2_TABLES.items, hijosIds) : [];
+  const piezas = hijosRecords.map(mapPiezaDespiece);
+
+  const costoTotalEquipo = firstNumber(f[SHIPPING_V2_ITEM_FIELDS.costoTotalUnidad]) ?? 0;
+  const evaluacion = evaluarSiSePuedeDespiezar({
+    estadoItem: firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoItem]),
+    estadoDespiece: firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoDespiece]),
+    cantidad: firstNumber(f[SHIPPING_V2_ITEM_FIELDS.cantidad]) ?? 0,
+    cantidadReservada: firstNumber(f[SHIPPING_V2_ITEM_FIELDS.cantidadReservada]) ?? 0,
+    reservado: firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.reservado]),
+    tieneFacturaORecibo:
+      linkedRecordIds(f["Factura"]).length > 0 || linkedRecordIds(f["Recibo"]).length > 0,
+  });
+  const reparto = calcularRepartoParaPiezas(costoTotalEquipo, piezas);
+  const cancelacion = puedeCancelarseDespiece(piezas);
+
+  return {
+    padreId: id,
+    puedeDespiezar: evaluacion.puede,
+    motivoBloqueo: evaluacion.puede ? undefined : evaluacion.mensaje,
+    estadoDespiece: firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoDespiece]) || "No aplica",
+    motivo: firstString(f[CAMPO_MOTIVO_DESPIECE]),
+    costoTotalEquipo,
+    piezas: piezas.map((p) => ({
+      ...p,
+      costoAsignado: reparto.piezas.find((r) => r.id === p.id)?.costoAsignado ?? p.costoAsignado,
+    })),
+    sinRepartir: reparto.sinRepartir,
+    piezasSinPrecio: reparto.piezasSinPrecio,
+    puedeCancelar: piezas.length > 0 && cancelacion.puede,
+    motivoNoCancelable: cancelacion.mensaje,
+  };
+}
+
+/** Escribe el costo repartido en cada pieza que lo necesite (en lotes de 10). */
+async function sincronizarCostosPiezas(costoTotalEquipo: number, piezas: PiezaDespiece[]): Promise<void> {
+  const { aEscribir } = calcularRepartoParaPiezas(costoTotalEquipo, piezas);
+  for (let i = 0; i < aEscribir.length; i += 10) {
+    const lote = aEscribir.slice(i, i + 10);
+    await airtableMutation(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({
+        records: lote.map((r) => ({ id: r.id, fields: { [CAMPO_COSTO_ASIGNADO_DESPIECE]: r.costoAsignado } })),
+      }),
+    });
+  }
+}
+
+/**
+ * Crea una pieza a partir del equipo padre. El reparto del costo se recalcula
+ * después, porque agregar una pieza cambia lo que cargan todas las demás.
+ */
+export async function crearPiezaDespiece(
+  input: NuevaPiezaInput & { padreId: string },
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
+  const padreId = cleanString(input.padreId);
+  if (!padreId) throw new Error("Record ID del equipo padre inválido.");
+
+  // Se vuelve a comprobar en el servidor: la pantalla puede haberse quedado
+  // con datos viejos, y entre que se abrió y se guarda el equipo pudo venderse.
+  const resumen = await getResumenDespiece(padreId, options.access);
+  if (!resumen.puedeDespiezar) throw new Error(resumen.motivoBloqueo ?? "Este equipo no se puede despiezar.");
+
+  const padreRecord = await leerRegistroItem(padreId);
+  const itemInput = construirInputPiezaDespiece(input, {
+    proveedorCompraId: linkedRecordIds(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.proveedorCompra])[0],
+    tipoOperacion: firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.tipoOperacion]),
+  });
+
+  const pieza = await createShippingV2ItemRecord(itemInput as ShippingV2ItemWriteInput, {
+    registradoPor: options.registradoPor,
+    eventDescription: `Pieza recuperada del despiece de ${firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.sku])}.`,
+    extraFields: { [CAMPO_ITEM_PADRE]: [padreId], "Es parte recuperada": true },
+  });
+
+  // El equipo entra en "Despiece en proceso" en cuanto nace la primera pieza.
+  if (resumen.estadoDespiece !== "Despiece en proceso") {
+    await airtableMutation(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({
+        records: [{ id: padreId, fields: { [SHIPPING_V2_ITEM_FIELDS.estadoDespiece]: "Despiece en proceso" } }],
+      }),
+    });
+  }
+
+  const actualizado = await getResumenDespiece(padreId, options.access);
+  await sincronizarCostosPiezas(actualizado.costoTotalEquipo, actualizado.piezas);
+  invalidateShippingV2ItemSearchIndexCache();
+  return getResumenDespiece(padreId, options.access);
+}
+
+/** Quita una pieza del despiece. Solo mientras no se haya vendido ni facturado. */
+export async function borrarPiezaDespiece(
+  input: { padreId: string; piezaId: string },
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
+  const padreId = cleanString(input.padreId);
+  const piezaId = cleanString(input.piezaId);
+  if (!padreId || !piezaId) throw new Error("Identificadores inválidos.");
+
+  const resumen = await getResumenDespiece(padreId, options.access);
+  const pieza = resumen.piezas.find((p) => p.id === piezaId);
+  if (!pieza) throw new Error("Esa pieza no pertenece a este despiece.");
+  if (pieza.estadoItem === "Vendido" || pieza.tieneFacturaORecibo) {
+    throw new Error(`La pieza ${pieza.sku} ya se vendió o facturó; no se puede quitar del despiece.`);
+  }
+
+  await airtableMutation(`${tableUrl(SHIPPING_V2_TABLES.items)}?records[]=${encodeURIComponent(piezaId)}`, {
+    method: "DELETE",
+  });
+
+  const actualizado = await getResumenDespiece(padreId, options.access);
+  await sincronizarCostosPiezas(actualizado.costoTotalEquipo, actualizado.piezas);
+  invalidateShippingV2ItemSearchIndexCache();
+  return getResumenDespiece(padreId, options.access);
+}
+
+/**
+ * Edita una pieza ya creada. Hace falta sobre todo por el precio: es lo que
+ * decide cómo se reparte el costo del equipo, así que corregir un precio mal
+ * escrito no puede obligar a borrar la pieza y volver a crearla (perdería su
+ * SKU y su historial).
+ */
+export async function editarPiezaDespiece(
+  input: {
+    padreId: string;
+    piezaId: string;
+    nombre?: string;
+    categoria?: string;
+    cantidad?: number;
+    condicion?: string;
+    precioVenta?: number | null;
+    observaciones?: string;
+  },
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
+  const padreId = cleanString(input.padreId);
+  const piezaId = cleanString(input.piezaId);
+  if (!padreId || !piezaId) throw new Error("Identificadores inválidos.");
+
+  const resumen = await getResumenDespiece(padreId, options.access);
+  const pieza = resumen.piezas.find((p) => p.id === piezaId);
+  if (!pieza) throw new Error("Esa pieza no pertenece a este despiece.");
+  if (pieza.estadoItem === "Vendido" || pieza.tieneFacturaORecibo) {
+    throw new Error(`La pieza ${pieza.sku} ya se vendió o facturó; no se puede modificar.`);
+  }
+
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const campos: Record<string, unknown> = {};
+  if (cleanString(input.nombre)) campos[F.nombre] = cleanString(input.nombre);
+  if (cleanString(input.categoria)) campos[F.categoria] = cleanString(input.categoria);
+  if (cleanString(input.condicion)) campos[F.condicion] = cleanString(input.condicion);
+  if (typeof input.cantidad === "number" && Number.isInteger(input.cantidad) && input.cantidad > 0) {
+    campos[F.cantidad] = input.cantidad;
+  }
+  if (input.observaciones !== undefined) campos[F.observacionesInternas] = cleanString(input.observaciones);
+  // El precio SÍ se puede dejar en blanco a propósito: significa "sin precio
+  // asignado todavía", y la pieza simplemente no entra a facturación.
+  if (input.precioVenta !== undefined) {
+    campos[F.precioVentaFinal] = typeof input.precioVenta === "number" && input.precioVenta > 0 ? input.precioVenta : null;
+  }
+  if (Object.keys(campos).length === 0) return resumen;
+
+  await airtableMutation(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id: piezaId, fields: campos }], typecast: true }),
+  });
+
+  // Cambiar un precio cambia el reparto de TODAS las piezas, no solo de esta.
+  const actualizado = await getResumenDespiece(padreId, options.access);
+  await sincronizarCostosPiezas(actualizado.costoTotalEquipo, actualizado.piezas);
+  invalidateShippingV2ItemSearchIndexCache();
+  return getResumenDespiece(padreId, options.access);
+}
+
+/**
+ * Cierra el despiece: descuenta la unidad desarmada del equipo padre y lo saca
+ * de la venta. Es la tercera forma legítima de reducir inventario —junto a la
+ * factura y el recibo— y la única que no es una venta: el equipo no se vendió,
+ * cambió de forma. Por eso no genera ningún movimiento financiero.
+ */
+export async function completarDespiece(
+  input: { padreId: string; completo: boolean; motivo?: string },
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
+  const padreId = cleanString(input.padreId);
+  if (!padreId) throw new Error("Record ID del equipo padre inválido.");
+
+  return withLock(`shipping-item:${padreId}`, async () => {
+    const resumen = await getResumenDespiece(padreId, options.access);
+    if (!resumen.puedeDespiezar) throw new Error(resumen.motivoBloqueo ?? "Este equipo no se puede despiezar.");
+    if (resumen.piezas.length === 0) {
+      throw new Error("Agrega al menos una pieza antes de completar el despiece.");
+    }
+
+    const padreRecord = await leerRegistroItem(padreId);
+    const estadoAnterior = firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.estadoItem]);
+    const cierre = calcularCierreDespiece(
+      {
+        cantidad: firstNumber(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.cantidad]) ?? 0,
+        cantidadReservada: firstNumber(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.cantidadReservada]) ?? 0,
+      },
+      input.completo
+    );
+
+    await sincronizarCostosPiezas(resumen.costoTotalEquipo, resumen.piezas);
+
+    await airtableMutation(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({
+        records: [{
+          id: padreId,
+          fields: {
+            [SHIPPING_V2_ITEM_FIELDS.estadoItem]: cierre.estadoItemPadre,
+            [SHIPPING_V2_ITEM_FIELDS.estadoDespiece]: cierre.estadoDespiecePadre,
+            [SHIPPING_V2_ITEM_FIELDS.cantidad]: cierre.cantidadPadre,
+            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: false,
+            [CAMPO_FECHA_DESPIECE]: new Date().toISOString(),
+            [CAMPO_RESPONSABLE_DESPIECE]: options.registradoPor,
+            ...(cleanString(input.motivo) ? { [CAMPO_MOTIVO_DESPIECE]: cleanString(input.motivo) } : {}),
+          },
+        }],
+      }),
+    });
+
+    await createShippingV2Event({
+      action: "Cambio de estado",
+      entity: "Shipping Item",
+      itemRecordId: padreId,
+      itemName: firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.nombre]),
+      registradoPor: options.registradoPor,
+      descripcion: `${cierre.estadoDespiecePadre}: se recuperaron ${resumen.piezas.length} pieza(s). La unidad desarmada se descontó del inventario.`,
+      estadoAnterior,
+      estadoNuevo: cierre.estadoItemPadre,
+    });
+
+    invalidateShippingV2ItemSearchIndexCache();
+    return getResumenDespiece(padreId, options.access);
+  });
+}
+
+/** Deshace el despiece. Solo si ninguna pieza salió ya del inventario. */
+export async function cancelarDespiece(
+  input: { padreId: string },
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
+  const padreId = cleanString(input.padreId);
+  if (!padreId) throw new Error("Record ID del equipo padre inválido.");
+
+  const resumen = await getResumenDespiece(padreId, options.access);
+  const cancelacion = puedeCancelarseDespiece(resumen.piezas);
+  if (!cancelacion.puede) throw new Error(cancelacion.mensaje ?? "No se puede cancelar este despiece.");
+
+  await airtableMutation(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{ id: padreId, fields: { [SHIPPING_V2_ITEM_FIELDS.estadoDespiece]: "Cancelado" } }],
+    }),
+  });
+
+  await createShippingV2Event({
+    action: "Cambio de estado",
+    entity: "Shipping Item",
+    itemRecordId: padreId,
+    registradoPor: options.registradoPor,
+    descripcion: `Despiece cancelado. Las ${resumen.piezas.length} pieza(s) creadas siguen existiendo como artículos independientes.`,
+  });
+
+  invalidateShippingV2ItemSearchIndexCache();
+  return getResumenDespiece(padreId, options.access);
 }
