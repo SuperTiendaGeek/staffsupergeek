@@ -1,6 +1,7 @@
 import "server-only";
 
 import { comprometerUnidades, liberarUnidades, unidadesReservadas } from "./unidades";
+import { verificarEscrituraUnica, withLock } from "@/lib/concurrencia";
 
 import type {
   ShippingV2DashboardSummary,
@@ -4802,7 +4803,21 @@ export async function buscarShippingItemsRepuestoStockDisponibles(
 // venta=false, y lo enlaza a la orden vía "Orden de Reparación (Stock)".
 // Valida categoría/disponibilidad para evitar reservar dos veces por una
 // condición de carrera (dos técnicos agregando el mismo item a la vez).
-export async function reservarShippingItemComoRepuestoDeOrdenStock({
+export async function reservarShippingItemComoRepuestoDeOrdenStock(opciones: {
+  itemId: string;
+  ordenRecordId: string;
+  ordenIdVisible: string;
+  registradoPor: string;
+}): Promise<ShippingV2RepuestoStockResumen> {
+  // F-26 — mismo turno por artículo que usa el apartado de reservas, para que
+  // montar un repuesto y apartar para un cliente no puedan colarse a la vez
+  // sobre la misma unidad.
+  return withLock(`shipping-item:${cleanString(opciones.itemId)}`, () =>
+    reservarRepuestoDeOrdenSinTurno(opciones)
+  );
+}
+
+async function reservarRepuestoDeOrdenSinTurno({
   itemId,
   ordenRecordId,
   ordenIdVisible,
@@ -4882,6 +4897,20 @@ export async function reservarShippingItemComoRepuestoDeOrdenStock({
 
   const updated = response.records?.[0];
   if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
+
+  // F-26 — se relee para confirmar que nuestro incremento sobrevivió. Si otra
+  // instancia comprometió la misma unidad en paralelo, su escritura pisó la
+  // nuestra y el contador no coincidirá. Se falla antes de registrar el evento
+  // en el historial, para no dejar rastro de algo que no ocurrió.
+  const releido = await airtableRequest<AirtableRecordResponse>(
+    `${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`
+  );
+  verificarEscrituraUnica(
+    firstNumber(releido.fields[SHIPPING_V2_ITEM_FIELDS.cantidadReservada]) ?? 0,
+    compromiso.cantidadReservada,
+    `montar repuesto ${id}`
+  );
+
   const resumen = mapRepuestoStockResumen(updated);
 
   await createShippingV2Event({

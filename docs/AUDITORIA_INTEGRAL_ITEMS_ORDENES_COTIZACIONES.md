@@ -34,6 +34,7 @@
 | F-36 · Cliente guardado cuatro veces en la reserva | ✅ **Corregido** | PR10 — manda el vínculo a la ficha viva; las copias quedan como caché para las vistas de Airtable |
 | F-37 · `precioVenta` de la reserva venía del navegador | ✅ **Corregido** | Resuelto por Codex en `lib/facturacion/reservas/precioShippingItem.ts`: el precio se lee del artículo en el servidor |
 | F-42 · Reservar una unidad bloquea todas | ✅ **Corregido** | PR11 — campo `Cantidad Reservada`; las banderas pasan a derivarse de las unidades. Alcanzaba a 36 registros multiunidad y liberó 56 unidades congeladas |
+| F-26 · Doble reserva simultánea (TOCTOU) | ⚠️ **Mitigado, no eliminable** | PR12 — turno por artículo + verificación tras escribir. Airtable no tiene transacciones y Vercel corre varias instancias: se reduce y se hace visible, no se cierra del todo |
 | F-35 · `Tarifa IVA` vacía en todos los items | ⬇️ **Bajado a P3** | El default es 15%, correcto para todo el catálogo actual (equipos, repuestos, accesorios). Solo importaría si se vende algo exento o al 0% |
 | F-19 · `/cotizaciones` y `/pedidos` contra tablas inexistentes | ✅ **Corregido** | PR8 — las pantallas ya redirigían; se congelaron las 14 rutas de API (410) |
 | F-32 · Opciones basura en producción | ✅ **Corregido** | PR8 — borrada la opción "NO ELEGIBLE (ELIMINAR)" y añadida validación al crear/editar opciones |
@@ -804,6 +805,18 @@ Además el PATCH **reemplaza** el array de links:
 ```ts
 [ORDEN_STOCK_LINK_FIELD]: [ordenRecordId],   // no acumula
 ```
+*(El reemplazo de links quedó corregido en PR11, junto con F-42.)*
+
+**Corrección (PR12) — y hasta dónde llega.** Airtable no ofrece transacciones ni escrituras condicionales, y la aplicación corre en Vercel con varias instancias en paralelo. **Esta condición de carrera no se puede cerrar del todo desde el código**; lo honesto es reducirla y hacerla visible cuando ocurra. Se defiende en dos capas, en `lib/concurrencia.ts`:
+
+1. **`withLock`** — un turno en memoria, con clave por artículo (`shipping-item:<id>`). Serializa el caso frecuente de verdad: el mismo empleado haciendo doble clic, dos pestañas del mismo navegador, o dos peticiones que caen en la misma instancia. La clave es por artículo, no global: apartar dos artículos distintos sigue ocurriendo en paralelo, porque un candado global bloquearía el mostrador entero. Lo usan tanto el apartado de reservas como el montaje de repuestos en órdenes, así que las dos operaciones compiten por el mismo turno y no pueden colarse una sobre la otra.
+2. **`verificarEscrituraUnica`** — cubre lo que el turno no ve. Después de escribir se relee el registro y se comprueba que `Cantidad Reservada` haya quedado en el valor esperado. Si otra instancia escribió en medio, su PATCH pisó el nuestro (Airtable es "gana el último") y el contador no coincide: se lanza `EscrituraConcurrenteError` con un mensaje que le dice a la persona que reintente. **No se intenta reparar automáticamente**, porque deshacer sería otra carrera; es preferible fallar de forma visible a dejar dos reservas silenciosas sobre la misma unidad, que fue exactamente lo que pasó con DES-000005.
+
+En el repuesto de orden la verificación va **antes** de registrar el evento en el historial, para no dejar rastro de un movimiento que no llegó a ocurrir.
+
+De paso se eliminó la copia privada de `withLock` que vivía en `lib/facturacion/secuencial/asignar.ts` (numeración de facturas), que ahora importa la compartida: había dos implementaciones idénticas del mismo mecanismo.
+
+Cubierto por `lib/__tests__/concurrencia.test.ts` (8 asserts), que empieza **reproduciendo el bug** —dos apartados simultáneos sin turno dejan el contador en 1 en vez de 2— y luego verifica que con turno cuenta bien, que artículos distintos no hacen cola entre sí, y que un error dentro del turno no deja el candado trabado.
 
 ---
 
