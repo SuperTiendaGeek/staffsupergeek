@@ -157,13 +157,20 @@ Detalles que resolvió la aritmética y conviene no perder:
 - **Si ninguna pieza tiene precio todavía**, se reparte en partes iguales por unidad, en vez de dejar todo el costo colgando.
 - **Agregar una pieza recalcula lo que cargan las demás**, porque el reparto es sobre el conjunto. Solo se escriben en Airtable las que realmente cambian.
 
-**Pendiente de construir:**
+**Construido también (misma entrega):**
 
 | Parte | Dónde |
 |---|---|
-| Pestaña y tabla editable | `app/shipping-v2/items/ShippingV2ItemDetailView` (agregar `"despiece"` a `ItemDetailTabKey`) |
-| Lectura/escritura real | `lib/shipping-v2/airtable.ts` |
-| Crear pieza / completar / cancelar | Rutas en `app/api/shipping-v2/items/[id]/despiece/` |
-| Permisos | Reutilizar `canShippingV2`; el despiece es operación de taller, no de proveedor |
+| Lectura y escrituras | `lib/shipping-v2/airtable.ts` — `getResumenDespiece`, `crearPiezaDespiece`, `editarPiezaDespiece`, `borrarPiezaDespiece`, `completarDespiece`, `cancelarDespiece` |
+| API | `app/api/shipping-v2/items/[id]/despiece/route.ts` (GET + POST con acciones) |
+| Pestaña | `app/shipping-v2/items/ShippingV2DespieceTab.tsx`, enganchada en el detalle |
+| Permisos | `canViewItems` para mirar, `canEditItems` para despiezar — un proveedor externo no puede |
+
+Decisiones de la implementación:
+
+- **El reparto se recalcula solo** cada vez que se agrega o quita una pieza, porque depende de los precios de todas. Solo se escriben en Airtable las piezas cuyo costo realmente cambió.
+- **Las reglas se comprueban otra vez en el servidor.** La pantalla puede llevar rato abierta y el equipo pudo venderse o reservarse mientras tanto; lo que valida el navegador es comodidad, no garantía.
+- **Completar el despiece toma el mismo turno por artículo** que las reservas y los repuestos de orden (F-26), para que nadie pueda apartar el equipo mientras se está cerrando su despiece.
+- **Cancelar no borra las piezas.** Solo marca el despiece como cancelado: las piezas ya creadas siguen existiendo como artículos independientes, porque físicamente ya se desarmaron. Lo que se deshace es el rótulo, no la realidad.
 
 El reparto del costo va en un módulo aparte y con pruebas por la misma razón que el prorrateo del flete: es aritmética de dinero, y ahí es donde duelen los errores.

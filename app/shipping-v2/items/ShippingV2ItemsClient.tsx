@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { SHIPPING_V2_ITEM_EDIT_FIELDS, type ShippingV2ItemEditFieldConfig } from "@/lib/shipping-v2/item-edit-config";
 import { createShippingV2ProveedorLabelMap, getShippingV2ProveedorLabel, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
+import { ShippingV2DespieceTab } from "./ShippingV2DespieceTab";
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
 import { ShippingV2ItemsPredictiveSearch } from "./ShippingV2ItemsPredictiveSearch";
 import {
@@ -85,7 +86,7 @@ type DetailRow = {
   options?: readonly string[] | readonly { value: string; label: string }[];
 };
 
-type ItemDetailTabKey = "general" | "costos" | "logistica" | "pago" | "packing" | "observaciones";
+type ItemDetailTabKey = "general" | "costos" | "logistica" | "pago" | "packing" | "observaciones" | "despiece";
 
 const ALL = "Todos";
 
@@ -1459,6 +1460,15 @@ export function ShippingV2ItemDetailView({
         { label: C.actualizadoPor.label, value: item.actualizadoPor, config: C.actualizadoPor },
       ],
     },
+    {
+      // Esta pestaña no pinta campos: renderiza su propia tabla de piezas
+      // (ver el bloque de render más abajo). `rows` va vacío a propósito.
+      key: "despiece",
+      label: "Despiece",
+      title: "Despiece",
+      accent: "purple",
+      rows: [],
+    },
   ];
   const activeSection = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
   const fichaGenerada = isFichaGenerada(item);
@@ -1636,7 +1646,13 @@ export function ShippingV2ItemDetailView({
               })}
             </div>
             <div className="mt-2">
-              <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} />
+              {activeTab === "despiece" ? (
+                // El despiece no es una lista de campos sino una tabla donde se
+                // van creando artículos hijos, así que no usa DetailSection.
+                <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} />
+              ) : (
+                <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} />
+              )}
             </div>
           </section>
 
