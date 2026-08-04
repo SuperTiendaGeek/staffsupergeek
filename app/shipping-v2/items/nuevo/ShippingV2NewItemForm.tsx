@@ -17,6 +17,7 @@ import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-
 import { isShippingV2GiftOperation, isShippingV2PurchaseOperation } from "@/lib/shipping-v2/item-money-quantity";
 import { getShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
+import { requisitosFaltantesItem } from "@/lib/shipping-v2/item-requisitos";
 
 type Props = {
   proveedores: ShippingV2Proveedor[];
@@ -258,6 +259,20 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
   const showFinalPriceWarning = submitAttempted && finalPriceProvided && (precioVentaFinalDecimal === null || precioVentaFinalDecimal < 0);
   const showCategoryWarning = submitAttempted && !form.categoria;
 
+  // F-30 — una sola fuente para "qué le falta a este item". Antes las mismas
+  // reglas vivían aquí como avisos y otra vez en el servidor, y no coincidían:
+  // el aviso de proveedor se mostraba pero no impedía enviar.
+  const requisitosFaltantes = requisitosFaltantesItem({
+    categoria: form.categoria,
+    cantidad: cantidadNormalizada,
+    requierePago: calculatedFlow.requierePago,
+    esCompraProveedor: isPurchaseOperation,
+    esRegaloProveedor: isGiftOperation,
+    proveedorId: form.proveedorId,
+    costoProveedor: costoProveedorUnitario,
+    precioVentaFinal: finalPriceProvided ? precioVentaFinalDecimal : null,
+  });
+
   useEffect(() => {
     if (logisticsOptions.some((option) => option === form.modoLogistico)) return;
     update("modoLogistico", logisticsOptions[0] ?? "No aplica");
@@ -335,24 +350,12 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
     setError("");
     setSubmitAttempted(true);
 
-    if (!form.categoria) {
-      setError("Selecciona una categoría técnica/comercial para crear el item.");
-      return;
-    }
-    if (cantidadNormalizada === null) {
-      setError("Cantidad debe ser un número entero mayor a 0.");
-      return;
-    }
-    if (isPurchaseOperation && !parsePositiveMoneyInput(form.costoProveedor)) {
-      setError("Costo proveedor por unidad debe ser mayor a 0 para compras a proveedor.");
-      return;
-    }
-    if (showGiftCostWarning) {
-      setError("En regalos de proveedor, el costo proveedor por unidad debe estar vacío o ser 0.");
-      return;
-    }
-    if (showFinalPriceWarning) {
-      setError("Precio venta final por unidad no puede ser negativo.");
+    // F-30 — se informan TODOS los faltantes de una vez. Antes se devolvía el
+    // primero, así que con tres campos mal había que enviar tres veces; y el
+    // proveedor no se comprobaba aquí, de modo que ese error solo aparecía
+    // después del viaje al servidor.
+    if (requisitosFaltantes.length > 0) {
+      setError(requisitosFaltantes.map((r) => `· ${r.mensaje}`).join("\n"));
       return;
     }
 
@@ -400,7 +403,7 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
   return (
     <form onSubmit={handleSubmit} noValidate className="w-full max-w-none space-y-3">
       {error ? (
-        <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{error}</div>
+        <div className="whitespace-pre-line rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{error}</div>
       ) : null}
 
       <div className="grid gap-3 lg:grid-cols-12 lg:items-start">
