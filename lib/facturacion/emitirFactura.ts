@@ -23,7 +23,8 @@ import { getFacturacionConfig,
 import { generateAccessKey }      from "./claveAcceso";
 import { construirFacturaXml }    from "./xml/construirFacturaXml";
 import { firmarXml }              from "./firma/firmar";
-import { obtenerFirmaActiva }     from "./firma/resolverFirmaActiva";
+import { obtenerFirmaActiva,
+         assertFirmaVigente }    from "./firma/resolverFirmaActiva";
 import { enviarComprobante }      from "./sri/recepcion";
 import { esperarAutorizacion }    from "./sri/cola";
 import { siguienteSecuencial }    from "./secuencial/asignar";
@@ -138,6 +139,10 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
   // /facturacion/firma; si no, de las variables de entorno de siempre.
   // Se resuelve una sola vez, fuera del bucle de reintentos.
   const firma = await obtenerFirmaActiva();
+  // Aborta antes de tocar el secuencial y antes de contactar al SRI: firmar
+  // con un certificado vencido solo produce un [39] FIRMA INVALIDA y, en
+  // producción, un hueco en la numeración.
+  assertFirmaVigente(firma, fechaEmision);
 
   // Leer el secuencial base una sola vez; los reintentos usan offset creciente
   const base = await siguienteSecuencial(cfg.establecimiento, cfg.puntoEmision);

@@ -17,7 +17,8 @@ import { generateAccessKey }       from "../claveAcceso";
 import { getFacturacionConfig }    from "../config";
 import { ahoraEnEcuador }          from "../fechaEcuador";
 import { firmarXml }               from "../firma/firmar";
-import { obtenerFirmaActiva }      from "../firma/resolverFirmaActiva";
+import { obtenerFirmaActiva,
+         assertFirmaVigente }     from "../firma/resolverFirmaActiva";
 import { enviarComprobante }       from "../sri/recepcion";
 import { esperarAutorizacion }     from "../sri/cola";
 import { generarRide }             from "../ride/generarRide";
@@ -142,6 +143,7 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
   // Misma firma que la factura: Airtable si hay una cargada, variables de
   // entorno si no. Se resuelve una sola vez, fuera del bucle de reintentos.
   const firma = await obtenerFirmaActiva();
+  assertFirmaVigente(firma, fechaEmision);
 
   const base = await siguienteSecuencialNotaCredito(cfg.establecimiento, cfg.puntoEmision);
 
