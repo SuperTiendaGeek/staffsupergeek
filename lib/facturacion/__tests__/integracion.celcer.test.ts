@@ -31,6 +31,7 @@ import { enviarComprobante }    from "../sri/recepcion";
 import { esperarAutorizacion }  from "../sri/cola";
 import { generateAccessKey }    from "../claveAcceso";
 import { getFacturacionConfig } from "../config";
+import { obtenerFirmaActiva }   from "../firma/resolverFirmaActiva";
 import type { FacturaInput }    from "../types/factura";
 
 // ─── Cargar .env.local ────────────────────────────────────────────────────────
@@ -107,7 +108,13 @@ function divider(title: string): void {
     console.log(`  Oblig. Contab. : ${cfg.obligadoContabilidad}`);
   console.log(`  Serie          : ${cfg.establecimiento}-${cfg.puntoEmision}`);
   console.log(`  Secuencial     : ${cfg.secuencial}`);
-  console.log(`  Firma (.p12)   : ${cfg.firmaPath}`);
+  // La firma ya no vive en la config: se resuelve aparte (Airtable si hay una
+  // cargada desde el portal, variables de entorno si no).
+  const firma = await obtenerFirmaActiva();
+  console.log(`  Firma (.p12)   : ${firma.p12Path}  [origen: ${firma.origen}]`);
+  if (firma.metadatos) {
+    console.log(`  Firma válida h.: ${firma.metadatos.validoHasta.toISOString().split("T")[0]}`);
+  }
 
   // ── 1. Clave de acceso ────────────────────────────────────────────────────
 
@@ -212,8 +219,8 @@ function divider(title: string): void {
   divider("PASO 2 — Firmar con .p12");
   const xmlFirmado = await firmarXml({
     xmlSinFirmar,
-    p12Path:  cfg.firmaPath,
-    p12Clave: cfg.firmaPassword,
+    p12Path:  firma.p12Path,
+    p12Clave: firma.password,
   });
   console.log(`  XML firmado    : ${xmlFirmado.length} bytes`);
   console.log(`  ds:Signature   : ${xmlFirmado.includes("ds:Signature") ? "✅ presente" : "❌ ausente"}`);

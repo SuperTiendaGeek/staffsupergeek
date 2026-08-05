@@ -17,6 +17,7 @@ import { generateAccessKey }       from "../claveAcceso";
 import { getFacturacionConfig }    from "../config";
 import { ahoraEnEcuador }          from "../fechaEcuador";
 import { firmarXml }               from "../firma/firmar";
+import { obtenerFirmaActiva }      from "../firma/resolverFirmaActiva";
 import { enviarComprobante }       from "../sri/recepcion";
 import { esperarAutorizacion }     from "../sri/cola";
 import { generarRide }             from "../ride/generarRide";
@@ -138,6 +139,10 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
   const fechaEmision = ahoraEnEcuador();
   const totales      = calcularTotalesNotaCredito(datos.detalles);
 
+  // Misma firma que la factura: Airtable si hay una cargada, variables de
+  // entorno si no. Se resuelve una sola vez, fuera del bucle de reintentos.
+  const firma = await obtenerFirmaActiva();
+
   const base = await siguienteSecuencialNotaCredito(cfg.establecimiento, cfg.puntoEmision);
 
   for (let intento = 0; intento < MAX_REINTENTOS; intento++) {
@@ -184,8 +189,8 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
 
     const xmlFirmado = await firmarXml({
       xmlSinFirmar,
-      p12Path:  cfg.firmaPath,
-      p12Clave: cfg.firmaPassword,
+      p12Path:  firma.p12Path,
+      p12Clave: firma.password,
       tipo:     "notaCredito",   // firma con signCreditNoteXml (inserta antes de </notaCredito>)
     });
 

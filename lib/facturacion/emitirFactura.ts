@@ -23,6 +23,7 @@ import { getFacturacionConfig,
 import { generateAccessKey }      from "./claveAcceso";
 import { construirFacturaXml }    from "./xml/construirFacturaXml";
 import { firmarXml }              from "./firma/firmar";
+import { obtenerFirmaActiva }     from "./firma/resolverFirmaActiva";
 import { enviarComprobante }      from "./sri/recepcion";
 import { esperarAutorizacion }    from "./sri/cola";
 import { siguienteSecuencial }    from "./secuencial/asignar";
@@ -133,6 +134,11 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
   // el SRI la devolvía con [65] FECHA EMISIÓN EXTEMPORANEA.
   const fechaEmision = ahoraEnEcuador();
 
+  // Firma: viene de Airtable si el administrador cargó una en
+  // /facturacion/firma; si no, de las variables de entorno de siempre.
+  // Se resuelve una sola vez, fuera del bucle de reintentos.
+  const firma = await obtenerFirmaActiva();
+
   // Leer el secuencial base una sola vez; los reintentos usan offset creciente
   const base = await siguienteSecuencial(cfg.establecimiento, cfg.puntoEmision);
 
@@ -209,8 +215,8 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
     // ── 4. Firmar ───────────────────────────────────────────────────────────
     const xmlFirmado = await firmarXml({
       xmlSinFirmar,
-      p12Path:  cfg.firmaPath,
-      p12Clave: cfg.firmaPassword,
+      p12Path:  firma.p12Path,
+      p12Clave: firma.password,
     });
 
     // ── 5. Recepción SRI ────────────────────────────────────────────────────
