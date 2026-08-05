@@ -45,6 +45,8 @@ export {
 export type { NivelVigencia } from "./firma/vigencia";
 export { leerFirmaActiva, listarFirmas, guardarFirmaActiva, existeHuella } from "./firma/almacen";
 export type { FirmaRegistro, FirmaGuardar } from "./firma/almacen";
+export { evaluarCargaFirma, avisoAlCargar } from "./firma/validarCarga";
+export type { RechazoCarga } from "./firma/validarCarga";
 
 // Fase 3: clientes SOAP SRI
 export { enviarComprobante } from "./sri/recepcion";
