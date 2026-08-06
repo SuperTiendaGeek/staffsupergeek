@@ -1,8 +1,9 @@
 import { redirect }       from "next/navigation";
 import { StaffAppShell }  from "@/components/staff/StaffAppShell";
-import { canAccessApp }   from "@/lib/apps";
+import { canAccessApp, isAdministratorRole } from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
 import { HistorialFacturas } from "@/components/facturacion/HistorialFacturas";
+import { AvisoFirma } from "@/components/facturacion/AvisoFirma";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,8 @@ export default async function HistorialFacturasPage() {
 
   return (
     <StaffAppShell activeHref="/facturacion" sectionLabel="Facturación — Historial">
-      <HistorialFacturas />
+      <AvisoFirma esAdmin={isAdministratorRole(session.user.rol)} />
+      <HistorialFacturas esAdmin={isAdministratorRole(session.user.rol)} />
     </StaffAppShell>
   );
 }

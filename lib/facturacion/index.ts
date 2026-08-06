@@ -30,6 +30,25 @@ export type {
 export { firmarXml } from "./firma/firmar";
 export type { FirmaInput } from "./firma/firmar";
 
+// Gestión de la firma electrónica (carga desde el portal + vigencia)
+export { obtenerFirmaActiva, assertFirmaVigente } from "./firma/resolverFirmaActiva";
+export type { FirmaResuelta, OrigenFirma } from "./firma/resolverFirmaActiva";
+export { inspeccionarP12, identificacionCoincideConRuc, FirmaInvalidaError } from "./firma/inspeccionar";
+export type { MetadatosFirma } from "./firma/inspeccionar";
+export {
+  diasRestantes,
+  nivelVigencia,
+  requiereAviso,
+  tocaNotificar,
+  mensajeVigencia,
+} from "./firma/vigencia";
+export type { NivelVigencia } from "./firma/vigencia";
+export { leerFirmaActiva, listarFirmas, guardarFirmaActiva, existeHuella } from "./firma/almacen";
+export type { FirmaRegistro, FirmaGuardar } from "./firma/almacen";
+export { evaluarCargaFirma, avisoAlCargar } from "./firma/validarCarga";
+export { notificarVencimientoFirma, claveAviso, umbralDeHoy } from "./firma/avisos";
+export type { RechazoCarga } from "./firma/validarCarga";
+
 // Fase 3: clientes SOAP SRI
 export { enviarComprobante } from "./sri/recepcion";
 export type { ResultadoRecepcion, MensajeSRI } from "./sri/recepcion";

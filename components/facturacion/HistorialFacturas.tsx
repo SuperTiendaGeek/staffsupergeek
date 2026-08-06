@@ -586,7 +586,7 @@ const EMPTY_FILTROS: Filtros = {
   fechaDesde: "", fechaHasta: "", cliente: "", numero: "", estado: "", ambiente: "",
 };
 
-export function HistorialFacturas() {
+export function HistorialFacturas({ esAdmin = false }: { esAdmin?: boolean } = {}) {
   const [filtros, setFiltros]     = useState<Filtros>(EMPTY_FILTROS);
   const [aplicados, setAplicados] = useState<Filtros>(EMPTY_FILTROS);
   const [facturas, setFacturas]   = useState<FacturaHistorial[]>([]);
@@ -666,6 +666,17 @@ export function HistorialFacturas() {
           <p className="text-sm text-[#666] mt-0.5">Facturas Electrónicas · PRUEBAS</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Solo administrador: cambiar la firma cambia con qué identidad
+              tributaria se emite todo. La pantalla vuelve a redirigir si
+              alguien llega por URL sin ser admin. */}
+          {esAdmin && (
+            <Link
+              href="/facturacion/firma"
+              className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]"
+            >
+              Firma electrónica
+            </Link>
+          )}
           <Link
             href="/facturacion/anulaciones"
             className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-red-500/60 hover:text-red-300"
