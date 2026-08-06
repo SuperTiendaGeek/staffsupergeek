@@ -99,17 +99,130 @@ function formatAjusteTipo(ajuste: HorarioAjuste) {
   return ajuste.tipoAjuste || "Descuento";
 }
 
-function truncateText(text: string, maxLength: number) {
+function toPdfText(value: unknown) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean" || value instanceof Date) {
+    return String(value);
+  }
+
+  return "";
+}
+
+function truncateText(value: unknown, maxLength: number) {
+  const text = toPdfText(value);
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
 }
 
-function drawText(page: PDFPage, text: string, x: number, y: number, font: PDFFont, size: number, color = DARK) {
-  page.drawText(text, { x, y, font, size, color });
+function wrapText(value: unknown, font: PDFFont, size: number, maxWidth: number) {
+  const text = toPdfText(value).replace(/\r/g, "").trim();
+
+  if (!text) {
+    return ["--"];
+  }
+
+  const lines: string[] = [];
+  const paragraphs = text.split("\n");
+
+  paragraphs.forEach((paragraph) => {
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
+    let line = "";
+
+    words.forEach((word) => {
+      const nextLine = line ? `${line} ${word}` : word;
+
+      if (font.widthOfTextAtSize(nextLine, size) <= maxWidth) {
+        line = nextLine;
+        return;
+      }
+
+      if (line) {
+        lines.push(line);
+        line = "";
+      }
+
+      if (font.widthOfTextAtSize(word, size) <= maxWidth) {
+        line = word;
+        return;
+      }
+
+      let chunk = "";
+
+      Array.from(word).forEach((char) => {
+        const nextChunk = `${chunk}${char}`;
+
+        if (font.widthOfTextAtSize(nextChunk, size) <= maxWidth) {
+          chunk = nextChunk;
+          return;
+        }
+
+        if (chunk) {
+          lines.push(chunk);
+        }
+
+        chunk = char;
+      });
+
+      line = chunk;
+    });
+
+    if (line) {
+      lines.push(line);
+    }
+  });
+
+  return lines.length ? lines : ["--"];
 }
 
-function drawKeyValue(page: PDFPage, label: string, value: string, x: number, y: number, fonts: { regular: PDFFont; bold: PDFFont }) {
+function drawText(page: PDFPage, text: unknown, x: number, y: number, font: PDFFont, size: number, color = DARK) {
+  page.drawText(toPdfText(text), { x, y, font, size, color });
+}
+
+function drawTextLines(page: PDFPage, lines: string[], x: number, y: number, font: PDFFont, size: number, color = DARK, lineHeight = size + 3) {
+  lines.forEach((line, index) => {
+    drawText(page, line, x, y - index * lineHeight, font, size, color);
+  });
+}
+
+function drawLabeledWrappedText(
+  page: PDFPage,
+  label: string,
+  value: unknown,
+  x: number,
+  y: number,
+  width: number,
+  fonts: { regular: PDFFont; bold: PDFFont },
+  size = 8,
+  lineHeight = size + 3
+) {
+  const labelText = `${label}:`;
+  const labelWidth = fonts.bold.widthOfTextAtSize(labelText, size) + 4;
+  const valueLines = wrapText(value, fonts.regular, size, width - labelWidth);
+
+  drawText(page, labelText, x, y, fonts.bold, size, GRAY);
+  drawTextLines(page, valueLines, x + labelWidth, y, fonts.regular, size, DARK, lineHeight);
+
+  return valueLines.length * lineHeight;
+}
+
+function getLabeledWrappedTextHeight(label: string, value: unknown, fonts: { regular: PDFFont; bold: PDFFont }, size: number, width: number, lineHeight = size + 3) {
+  const labelWidth = fonts.bold.widthOfTextAtSize(`${label}:`, size) + 4;
+  const valueLines = wrapText(value, fonts.regular, size, width - labelWidth);
+
+  return valueLines.length * lineHeight;
+}
+
+function drawKeyValue(page: PDFPage, label: string, value: unknown, x: number, y: number, fonts: { regular: PDFFont; bold: PDFFont }) {
+  const textValue = toPdfText(value).trim();
+
   drawText(page, label, x, y, fonts.bold, 9, GRAY);
-  drawText(page, truncateText(value || "--", 34), x, y - 14, fonts.regular, 10, DARK);
+  drawText(page, truncateText(textValue || "--", 34), x, y - 14, fonts.regular, 10, DARK);
 }
 
 function addPage(pdf: PDFDocument) {
@@ -173,25 +286,36 @@ function drawPagosTable(pdf: PDFDocument, page: PDFPage, y: number, pagos: Horar
   drawSectionTitle(page, "Pagos registrados", y, fonts.bold);
   y -= 28;
 
-  const headers = ["Fecha", "Monto", "Metodo", "Transaccion", "Banco", "Estado"];
-  const xs = [MARGIN, 110, 175, 275, 395, 475];
+  const headers = ["Fecha", "Monto", "Metodo", "Estado"];
+  const xs = [MARGIN, 118, 210, 470];
   headers.forEach((header, index) => drawText(page, header, xs[index], y, fonts.bold, 8, GRAY));
   y -= 12;
 
   pagos.forEach((pago) => {
-    state = ensureSpace(pdf, page, y, 18);
+    const metodoLines = wrapText(pago.metodoPago || "--", fonts.regular, 8, 230);
+    const detallePago = [
+      `Transaccion: ${toPdfText(pago.numeroTransaccion).trim() || "--"}`,
+      `Banco: ${toPdfText(pago.bancoCuentaOrigen).trim() || "--"}`,
+      pago.observacion ? `Observacion: ${pago.observacion}` : ""
+    ]
+      .filter(Boolean)
+      .join(" | ");
+    const detailLineHeight = 11;
+    const detalleHeight = getLabeledWrappedTextHeight("Detalle", detallePago, fonts, 8, PAGE_WIDTH - MARGIN * 2, detailLineHeight);
+    const rowHeight = Math.max(18, metodoLines.length * detailLineHeight) + detalleHeight + 10;
+
+    state = ensureSpace(pdf, page, y, rowHeight);
     page = state.page;
     y = state.y;
-    const values = [
-      formatDate(pago.fechaPago),
-      formatMoney(pago.montoPagado),
-      pago.metodoPago || "--",
-      pago.numeroTransaccion || "--",
-      pago.bancoCuentaOrigen || "--",
-      pago.estadoPago || "Registrado"
-    ];
-    values.forEach((value, index) => drawText(page, truncateText(value, index >= 2 ? 18 : 14), xs[index], y, fonts.regular, 8, DARK));
-    y -= 14;
+
+    drawText(page, formatDate(pago.fechaPago), MARGIN, y, fonts.regular, 8, DARK);
+    drawText(page, formatMoney(pago.montoPagado), 118, y, fonts.regular, 8, DARK);
+    drawTextLines(page, metodoLines, 210, y, fonts.regular, 8, DARK, detailLineHeight);
+    drawText(page, pago.estadoPago || "Registrado", 470, y, fonts.regular, 8, DARK);
+    y -= Math.max(18, metodoLines.length * detailLineHeight);
+    y -= drawLabeledWrappedText(page, "Detalle", detallePago, MARGIN, y, PAGE_WIDTH - MARGIN * 2, fonts, 8, detailLineHeight);
+    y -= 8;
+    drawDivider(page, y + 3);
   });
 
   return { page, y: y - 8 };
@@ -209,26 +333,31 @@ function drawAjustesTable(pdf: PDFDocument, page: PDFPage, y: number, ajustes: H
     return { page, y: y - 22 };
   }
 
-  const headers = ["Fecha", "Tipo", "Motivo", "Horas", "Monto", "Estado"];
-  const xs = [MARGIN, 94, 190, 350, 405, 475];
+  const headers = ["Fecha", "Tipo", "Horas", "Monto", "Estado"];
+  const xs = [MARGIN, 118, 330, 395, 470];
   headers.forEach((header, index) => drawText(page, header, xs[index], y, fonts.bold, 8, GRAY));
   y -= 12;
 
   ajustes.forEach((ajuste) => {
-    state = ensureSpace(pdf, page, y, 18);
+    const tipoLines = wrapText(formatAjusteTipo(ajuste), fonts.regular, 8, 170);
+    const detailLineHeight = 11;
+    const motivoHeight = getLabeledWrappedTextHeight("Motivo", ajuste.motivo || "--", fonts, 8, PAGE_WIDTH - MARGIN * 2, detailLineHeight);
+    const rowHeight = Math.max(18, tipoLines.length * detailLineHeight) + motivoHeight + 10;
+
+    state = ensureSpace(pdf, page, y, rowHeight);
     page = state.page;
     y = state.y;
     const horasAjustadas = ajuste.horasAjustadas || ajuste.minutosAjustados / 60;
-    const values = [
-      formatDate(ajuste.fechaAjuste),
-      formatAjusteTipo(ajuste),
-      ajuste.motivo || "--",
-      formatSignedHours(horasAjustadas),
-      formatMoney(ajuste.montoAjustado),
-      ajuste.estado || "Aplicado"
-    ];
-    values.forEach((value, index) => drawText(page, truncateText(value, index === 2 ? 26 : 14), xs[index], y, fonts.regular, 8, DARK));
-    y -= 14;
+
+    drawText(page, formatDate(ajuste.fechaAjuste), MARGIN, y, fonts.regular, 8, DARK);
+    drawTextLines(page, tipoLines, 118, y, fonts.regular, 8, DARK, detailLineHeight);
+    drawText(page, formatSignedHours(horasAjustadas), 330, y, fonts.regular, 8, DARK);
+    drawText(page, formatMoney(ajuste.montoAjustado), 395, y, fonts.regular, 8, DARK);
+    drawText(page, ajuste.estado || "Aplicado", 470, y, fonts.regular, 8, DARK);
+    y -= Math.max(18, tipoLines.length * detailLineHeight);
+    y -= drawLabeledWrappedText(page, "Motivo", ajuste.motivo || "--", MARGIN, y, PAGE_WIDTH - MARGIN * 2, fonts, 8, detailLineHeight);
+    y -= 8;
+    drawDivider(page, y + 3);
   });
 
   return { page, y: y - 8 };
