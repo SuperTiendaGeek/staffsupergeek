@@ -1,0 +1,46 @@
+{
+  "Facturas Electrónicas": [
+    "Error Sincronización",
+    "Sincronización Inventario"
+  ],
+  "Shipping Items": [
+    "Cantidad",
+    "Factura",
+    "Disponible para venta",
+    "Estado Item",
+    "Nota de Crédito",
+    "Recibo"
+  ],
+  "Notas de Crédito Electrónicas": [
+    "Reverso Inventario",
+    "Error Reverso"
+  ],
+  "Movimientos Financieros": [
+    "Alerta Descuadre",
+    "Categoría",
+    "Cuenta Origen (Finanzas)",
+    "Estado Distribución",
+    "Estado del Movimiento",
+    "Fecha de creación",
+    "Fecha del movimiento",
+    "Monto",
+    "Movimiento Shipping ID",
+    "Método",
+    "Observación",
+    "Origen",
+    "Registrado por",
+    "Tipo de movimiento",
+    "Cuenta Destino (Finanzas)",
+    "Factura Electrónica"
+  ],
+  "Recibos": [
+    "Sincronización Inventario",
+    "Movimiento Contable",
+    "Error Inventario",
+    "Error Contable"
+  ],
+  "Reservas": [
+    "Estado",
+    "Factura"
+  ]
+}
