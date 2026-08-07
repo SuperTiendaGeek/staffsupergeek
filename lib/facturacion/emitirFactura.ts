@@ -145,7 +145,7 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
   assertFirmaVigente(firma, fechaEmision);
 
   // Leer el secuencial base una sola vez; los reintentos usan offset creciente
-  const base = await siguienteSecuencial(cfg.establecimiento, cfg.puntoEmision);
+  const base = await siguienteSecuencial(cfg.establecimiento, cfg.puntoEmision, cfg.ambiente);
 
   for (let intento = 0; intento < MAX_REINTENTOS; intento++) {
     // ── 1. Secuencial con offset para reintentos por "clave ya registrada" ──

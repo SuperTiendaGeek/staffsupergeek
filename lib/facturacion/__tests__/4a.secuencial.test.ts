@@ -34,13 +34,15 @@ import { getFacturacionConfig }    from "../config";
   console.log("── 4a: Lectura de máximo secuencial en Airtable ──");
   console.log(`  Tabla : Facturas Electrónicas (base: ${process.env.AIRTABLE_BASE_ID})`);
   console.log(`  Serie : ${cfg.establecimiento}-${cfg.puntoEmision}`);
+  console.log(`  Ambiente : ${cfg.ambiente === "2" ? "PRODUCCIÓN" : "PRUEBAS"} (la numeración es independiente por ambiente)`);
 
-  const maxActual = await maxSecuencialUsado(cfg.establecimiento, cfg.puntoEmision);
+  const maxActual = await maxSecuencialUsado(cfg.establecimiento, cfg.puntoEmision, cfg.ambiente);
   console.log(`  Máx. secuencial usado en Airtable: ${maxActual ?? "(ninguno)"}`);
 
   const { secuencial, numeroFactura } = await siguienteSecuencial(
     cfg.establecimiento,
-    cfg.puntoEmision
+    cfg.puntoEmision,
+    cfg.ambiente
   );
   console.log(`  Siguiente secuencial : ${secuencial}`);
   console.log(`  Número de factura    : ${numeroFactura}`);

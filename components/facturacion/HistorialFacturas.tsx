@@ -586,7 +586,13 @@ const EMPTY_FILTROS: Filtros = {
   fechaDesde: "", fechaHasta: "", cliente: "", numero: "", estado: "", ambiente: "",
 };
 
-export function HistorialFacturas({ esAdmin = false }: { esAdmin?: boolean } = {}) {
+export function HistorialFacturas(
+  { esAdmin = false, ambiente = "1" }: { esAdmin?: boolean; ambiente?: "1" | "2" } = {}
+) {
+  // El ambiente llega del servidor (SRI_AMBIENTE). Antes esta pantalla decía
+  // "PRUEBAS" escrito a mano: el día del cutover habría seguido diciéndolo con
+  // facturas reales delante — hallazgo M-2 de la auditoría.
+  const esProduccion = ambiente === "2";
   const [filtros, setFiltros]     = useState<Filtros>(EMPTY_FILTROS);
   const [aplicados, setAplicados] = useState<Filtros>(EMPTY_FILTROS);
   const [facturas, setFacturas]   = useState<FacturaHistorial[]>([]);
@@ -663,7 +669,12 @@ export function HistorialFacturas({ esAdmin = false }: { esAdmin?: boolean } = {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-[#D7FF4F]">Historial de Facturas</h1>
-          <p className="text-sm text-[#666] mt-0.5">Facturas Electrónicas · PRUEBAS</p>
+          <p className="text-sm text-[#666] mt-0.5">
+            Facturas Electrónicas ·{" "}
+            <span className={esProduccion ? "text-[#D7FF4F] font-bold" : "text-yellow-400 font-bold"}>
+              {esProduccion ? "PRODUCCIÓN" : "PRUEBAS"}
+            </span>
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {/* Solo administrador: cambiar la firma cambia con qué identidad

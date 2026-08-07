@@ -23,20 +23,26 @@ function padSecuencial(n: number): string {
  * PENDIENTE, RECIBIDA). Excluye BORRADOR y ANULADA.
  *
  * SRI_SECUENCIAL solo actúa como semilla de arranque cuando Airtable no tiene
- * ningún registro previo (primer uso o tabla vacía). Una vez que existe aunque
- * sea un registro, Airtable es la única fuente de verdad.
+ * ningún registro previo EN ESE AMBIENTE. Una vez que existe aunque sea un
+ * registro del mismo ambiente, Airtable es la única fuente de verdad.
+ *
+ * Hallazgo M-1: el ambiente forma parte de la consulta. Las facturas de prueba
+ * no consumen numeración de producción ni al revés.
  *
  * SERIALIZADO: llamadas concurrentes esperan su turno antes de leer Airtable,
  * evitando que dos emisiones tomen el mismo número.
  */
 export async function siguienteSecuencial(
   estab:    string,
-  ptoEmi:   string
+  ptoEmi:   string,
+  ambiente: "1" | "2"
 ): Promise<{ secuencial: string; numeroFactura: string }> {
-  const key = `${estab}-${ptoEmi}`;
+  // El lock incluye el ambiente: son dos cuentas independientes y no tienen
+  // por qué esperarse la una a la otra.
+  const key = `${estab}-${ptoEmi}-${ambiente}`;
 
   return withLock(key, async () => {
-    const maxEnAirtable = await maxSecuencialUsado(estab, ptoEmi);
+    const maxEnAirtable = await maxSecuencialUsado(estab, ptoEmi, ambiente);
 
     let siguiente: number;
     if (maxEnAirtable !== null) {

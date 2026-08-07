@@ -2,6 +2,7 @@ import { redirect }       from "next/navigation";
 import { StaffAppShell }  from "@/components/staff/StaffAppShell";
 import { canAccessApp, isAdministratorRole } from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
+import { getFacturacionConfig } from "@/lib/facturacion/config";
 import { HistorialFacturas } from "@/components/facturacion/HistorialFacturas";
 import { AvisoFirma } from "@/components/facturacion/AvisoFirma";
 
@@ -15,7 +16,10 @@ export default async function HistorialFacturasPage() {
   return (
     <StaffAppShell activeHref="/facturacion" sectionLabel="Facturación — Historial">
       <AvisoFirma esAdmin={isAdministratorRole(session.user.rol)} />
-      <HistorialFacturas esAdmin={isAdministratorRole(session.user.rol)} />
+      <HistorialFacturas
+        esAdmin={isAdministratorRole(session.user.rol)}
+        ambiente={getFacturacionConfig().ambiente}
+      />
     </StaffAppShell>
   );
 }
