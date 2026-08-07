@@ -25,6 +25,7 @@ import { generarRide }             from "../ride/generarRide";
 import { enviarRide }              from "../correo/enviarRide";
 import { construirNotaCreditoXml } from "./construirNotaCreditoXml";
 import { calcularTotalesNotaCredito, round2 } from "./calculos";
+import { assertNotaCreditoValida } from "./validarNotaCredito";
 import {
   maxSecuencialNotaCreditoUsado,
   crearRegistroNotaCredito,
@@ -57,16 +58,19 @@ async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 export async function siguienteSecuencialNotaCredito(
   estab: string,
-  ptoEmi: string
+  ptoEmi: string,
+  ambiente: "1" | "2"
 ): Promise<{ secuencial: string; numeroNotaCredito: string }> {
-  return withLock(`nc-${estab}-${ptoEmi}`, async () => {
-    const max = await maxSecuencialNotaCreditoUsado(estab, ptoEmi);
+  return withLock(`nc-${estab}-${ptoEmi}-${ambiente}`, async () => {
+    const max = await maxSecuencialNotaCreditoUsado(estab, ptoEmi, ambiente);
     let siguiente: number;
     if (max !== null) {
       siguiente = max + 1;
     } else {
-      // Semilla solo con la tabla vacía. En producción debe valer 2: la
-      // última NC del sistema viejo fue la 001-002-000000001.
+      // Semilla solo cuando no hay ninguna NC de ESTE ambiente. En el corte
+      // a producción se cumple siempre, así que SRI_SECUENCIAL_NC manda:
+      // hay que fijarla con el último número real del sistema viejo el mismo
+      // día del corte (el dato de julio, 001-002-000000001, ya está viejo).
       const seed = parseInt((process.env.SRI_SECUENCIAL_NC ?? "1").replace(/\D/g, ""), 10);
       siguiente = Number.isFinite(seed) && seed > 0 ? seed : 1;
     }
@@ -145,7 +149,7 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
   const firma = await obtenerFirmaActiva();
   assertFirmaVigente(firma, fechaEmision);
 
-  const base = await siguienteSecuencialNotaCredito(cfg.establecimiento, cfg.puntoEmision);
+  const base = await siguienteSecuencialNotaCredito(cfg.establecimiento, cfg.puntoEmision, cfg.ambiente);
 
   for (let intento = 0; intento < MAX_REINTENTOS; intento++) {
     const secNum      = parseInt(base.secuencial, 10) + intento;
@@ -188,6 +192,14 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
       motivo:                      datos.motivo,
       detalles:                    datos.detalles,
     });
+
+    // Validar ANTES de firmar y antes de contactar al SRI (hallazgo NC-1).
+    // siguienteSecuencialNotaCredito() es una lectura pura —no reserva ningún
+    // número— así que abortar aquí no quema el secuencial: el próximo intento
+    // vuelve a calcular el mismo MAX+1. Un XML mal construido es un bug del
+    // código, no un resultado de negocio: se relanza para que se vea y se
+    // corrija, en vez de registrarlo como intento fallido.
+    assertNotaCreditoValida(xmlSinFirmar);
 
     const xmlFirmado = await firmarXml({
       xmlSinFirmar,

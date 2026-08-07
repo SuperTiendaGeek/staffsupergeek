@@ -99,7 +99,7 @@ export const staffApps: StaffApp[] = [
     route: "/facturacion",
     status: "Disponible",
     icon: "invoice",
-    description: "Emisión de facturas electrónicas SRI — ambiente PRUEBAS (celcer).",
+    description: "Emisión de facturas y notas de crédito electrónicas ante el SRI.",
     requiredRoles: ["admin", "manager", "finance"]
   },
   {

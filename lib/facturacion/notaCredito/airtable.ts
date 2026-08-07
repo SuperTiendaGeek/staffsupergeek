@@ -92,21 +92,26 @@ export type NotaCreditoAirtableInput = {
 
 // ─── Secuencial ──────────────────────────────────────────────────────────────
 //
-// Misma lógica que facturas: MAX(Secuencial) sobre las NC que ya tomaron un
-// número real ante el SRI. Excluye ANULADA. La semilla SRI_SECUENCIAL_NC solo
-// aplica cuando la tabla está vacía — dato de negocio confirmado por el dueño:
-// la última NC del sistema viejo es la 001-002-000000001, así que producción
-// arranca en 2.
+// Misma lógica que facturas, filtro de AMBIENTE incluido (hallazgo M-1): las
+// notas de crédito de prueba no consumen numeración de producción ni al revés.
+// Excluye ANULADA.
+//
+// La semilla SRI_SECUENCIAL_NC solo aplica cuando no hay ninguna NC de ese
+// ambiente. En el corte a producción eso es exactamente lo que pasa, así que
+// el valor de esa variable SÍ manda — hay que fijarlo con el último número
+// real del sistema viejo el mismo día del corte, no antes.
 
 export async function maxSecuencialNotaCreditoUsado(
   estab: string,
-  ptoEmi: string
+  ptoEmi: string,
+  ambiente: "1" | "2"
 ): Promise<number | null> {
   const client  = getClient();
   const prefijo = `${estab}-${ptoEmi}-`;
+  const etiquetaAmbiente = ambiente === "2" ? "PRODUCCIÓN" : "PRUEBAS";
 
   const params = new URLSearchParams({
-    filterByFormula: `AND(LEFT({Número de Nota de Crédito},${prefijo.length})="${prefijo}",{Secuencial}>0,{Estado}!="ANULADA")`,
+    filterByFormula: `AND(LEFT({Número de Nota de Crédito},${prefijo.length})="${prefijo}",{Secuencial}>0,{Ambiente}="${etiquetaAmbiente}",{Estado}!="ANULADA")`,
     "sort[0][field]":     "Secuencial",
     "sort[0][direction]": "desc",
     maxRecords:           "1",

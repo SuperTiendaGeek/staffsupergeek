@@ -150,7 +150,7 @@ function uploadUrl(recordId: string, field: string) {
   return `https://content.airtable.com/v0/${encodeURIComponent(c.baseId)}/${encodeURIComponent(recordId)}/${encodeURIComponent(field)}/uploadAttachment`;
 }
 
-function ambienteLabel(a: "1" | "2"): "PRUEBAS" | "PRODUCCIÓN" {
+export function ambienteLabel(a: "1" | "2"): "PRUEBAS" | "PRODUCCIÓN" {
   return a === "1" ? "PRUEBAS" : "PRODUCCIÓN";
 }
 
@@ -208,16 +208,33 @@ function mapHistorialRecord(r: { id: string; fields: Record<string, unknown> }):
 // Antes solo filtraba {Estado}="AUTORIZADO", lo que provocaba que registros
 // DEVUELTA con secuencial alto quedaran invisibles y el sistema reutilizara
 // esos números, generando errores 43/45 en cascada.
+//
+// ─── Por qué filtra por AMBIENTE (hallazgo M-1, auditoría 2026-08-04) ───────
+//
+// Antes no lo hacía: pruebas y producción compartían una sola numeración. Dos
+// consecuencias, las dos malas:
+//
+//   · Al pasar a producción, el sistema arrancaba desde el número más alto de
+//     las facturas de PRUEBA (hoy el 685), un número inventado contra celcer
+//     que no tiene nada que ver con la serie real del SRI.
+//   · Si alguien vuelve a poner SRI_AMBIENTE=1 después del cutover —para
+//     probar algo— esas facturas ficticias consumirían números de la serie
+//     REAL, dejando huecos que hay que justificar ante el SRI.
+//
+// Con el filtro, cada ambiente lleva su propia cuenta. En producción, la
+// primera factura sale del valor de SRI_SECUENCIAL (la tabla no tiene ninguna
+// factura de PRODUCCIÓN todavía), que es justo lo que se quiere en el corte.
 
 export async function maxSecuencialUsado(
   estab: string,
-  ptoEmi: string
+  ptoEmi: string,
+  ambiente: "1" | "2"
 ): Promise<number | null> {
   const client = getClient();
   const prefijo = `${estab}-${ptoEmi}-`;
 
   const params = new URLSearchParams({
-    filterByFormula: `AND(LEFT({Número de Factura},${prefijo.length})="${prefijo}",{Secuencial}>0,NOT(OR({Estado}="BORRADOR",{Estado}="ANULADA")))`,
+    filterByFormula: `AND(LEFT({Número de Factura},${prefijo.length})="${prefijo}",{Secuencial}>0,{Ambiente}="${ambienteLabel(ambiente)}",NOT(OR({Estado}="BORRADOR",{Estado}="ANULADA")))`,
     "sort[0][field]":     "Secuencial",
     "sort[0][direction]": "desc",
     maxRecords:           "1",
