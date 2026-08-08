@@ -485,6 +485,21 @@ export async function subirAdjunto(
   }
 }
 
+// ─── Historial de intentos ────────────────────────────────────────────────────
+//
+// Escribe "Mensajes SRI" con el texto COMPLETO ya acumulado. El que llama es
+// quien acumula (lib/facturacion/historialIntentos.ts); aquí solo se guarda.
+// Se separa de crearRegistroFactura a propósito: ese sobreescribe el campo con
+// los mensajes del último intento, y perder los anteriores es justo lo que hay
+// que evitar.
+
+export async function actualizarMensajesSri(recordId: string, historial: string): Promise<void> {
+  await airtableRequest(tableUrl(recordId), {
+    method: "PATCH",
+    body:   JSON.stringify({ fields: { "Mensajes SRI": historial } }),
+  });
+}
+
 // ─── Actualizar estado ────────────────────────────────────────────────────────
 
 export async function actualizarEstadoFactura(
