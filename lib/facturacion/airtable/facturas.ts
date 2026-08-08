@@ -4,6 +4,7 @@ import "server-only";
 // Reutiliza AIRTABLE_API_KEY + AIRTABLE_BASE_ID (mismas credenciales que lib/airtable.ts).
 
 import type { MensajeSRI } from "../sri/recepcion";
+import { etiquetaAirtable, codigoDesdeAirtable } from "../reglas/identificacion";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,8 @@ export type FacturaAirtableInput = {
   ambiente:             "1" | "2";
   clienteNombre:        string;
   clienteIdentificacion:string;
+  /** Código SRI: "04" RUC · "05" cédula · "06" pasaporte · "07" cons. final · "08" exterior. */
+  clienteTipoIdentificacion?: string;
   clienteCorreo?:       string;
   subtotal:             number;
   iva:                  number;
@@ -88,6 +91,8 @@ export type FacturaHistorial = {
   numeroAutorizacion:   string;
   clienteNombre:        string;
   clienteIdentificacion:string;
+  /** Código SRI guardado. undefined en facturas anteriores a este campo. */
+  clienteTipoIdentificacion?: string;
   clienteCorreo:        string;
   subtotal:             number;
   iva:                  number;
@@ -189,6 +194,7 @@ function mapHistorialRecord(r: { id: string; fields: Record<string, unknown> }):
     subtotal:              safeNum(f["Subtotal"]),
     iva:                   safeNum(f["IVA"]),
     total:                 safeNum(f["Total"]),
+    clienteTipoIdentificacion: codigoDesdeAirtable(safeStr(f["Cliente - Tipo Identificación"])),
     mensajesSri:           safeStr(f["Mensajes SRI"]),
     lineasJson:            safeStr(f["Líneas JSON"]),
     tieneXml:              hasAttachment(f["XML Autorizado"]),
@@ -293,6 +299,11 @@ export async function crearRegistroFactura(
   if (input.numeroAutorizacion)   fields["Número de Autorización"] = input.numeroAutorizacion;
   if (input.fechaAutorizacion)    fields["Fecha de Autorización"]  = input.fechaAutorizacion;
   if (input.clienteCorreo)        fields["Cliente - Correo"]       = input.clienteCorreo;
+  // El tipo se GUARDA para que nadie tenga que volver a adivinarlo: al
+  // reintentar, al corregir o al hacer una nota de crédito, un pasaporte
+  // debe seguir siendo un pasaporte y no convertirse en cédula por su largo.
+  const etiquetaTipo = etiquetaAirtable(input.clienteTipoIdentificacion ?? "");
+  if (etiquetaTipo)               fields["Cliente - Tipo Identificación"] = etiquetaTipo;
   if (mensajesTexto)              fields["Mensajes SRI"]           = mensajesTexto;
   if (input.lineasJson)           fields["Líneas JSON"]            = input.lineasJson;
   if (input.estadoCorreo)         fields["Estado Correo"]          = input.estadoCorreo;

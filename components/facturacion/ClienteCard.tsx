@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { ClienteModal, type ClienteResuelto } from "@/components/facturacion/ClienteModal";
+import { inferirTipoSugerido } from "@/lib/facturacion/reglas/identificacion";
 
 export type ClienteDoc = {
   esConsumidorFinal:  boolean;
@@ -22,11 +23,16 @@ export type ClienteDoc = {
 export const CLIENTE_VACIO: ClienteDoc = { esConsumidorFinal: false, tipoIdentificacion: "05", identificacion: "", razonSocial: "", correo: "", telefono: "", direccion: "" };
 export const CONSUMIDOR_FINAL_DOC: ClienteDoc = { esConsumidorFinal: true, tipoIdentificacion: "07", identificacion: "9999999999999", razonSocial: "CONSUMIDOR FINAL", correo: "", telefono: "", direccion: "" };
 
+// Antes esto terminaba en `return "06"`: cualquier cosa que no fueran 10 ni 13
+// dígitos se convertía en PASAPORTE, sin preguntar. Así se emitió la factura
+// 001-002-000000689 a una identificación de nueve dígitos que no existe.
+//
+// Ahora solo propone cuando el número es VÁLIDO de verdad (con su dígito
+// verificador). Si no hay respuesta clara devuelve "", y la pantalla obliga a
+// elegir el tipo — que es lo correcto: pasaporte e identificación del exterior
+// se eligen a conciencia, nunca por descarte.
 function tipoDe(cedula: string): string {
-  const d = cedula.replace(/\D/g, "");
-  if (d.length === 13) return "04";
-  if (d.length === 10) return "05";
-  return "06";
+  return inferirTipoSugerido(cedula) ?? "";
 }
 function docFrom(c: ClienteResuelto): ClienteDoc {
   return { esConsumidorFinal: false, tipoIdentificacion: tipoDe(c.cedula ?? ""), identificacion: c.cedula ?? "", razonSocial: c.nombre, correo: c.correo ?? "", telefono: c.telefono ?? "", direccion: c.direccion ?? "", airtableId: c.id };

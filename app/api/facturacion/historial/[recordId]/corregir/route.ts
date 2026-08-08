@@ -133,7 +133,10 @@ export async function POST(request: Request, { params }: Params) {
   } catch { /* factura sin líneas guardadas: se sigue sin origen */ }
 
   const datosVenta: DatosVenta = {
-    tipoIdentificacionComprador: body.tipoIdentificacionComprador ?? "05",
+    // Se puede corregir el tipo (a veces ESE es el error), pero nunca se
+    // asume "05" por descarte: si no viene, manda el guardado.
+    tipoIdentificacionComprador:
+      body.tipoIdentificacionComprador ?? factura.clienteTipoIdentificacion ?? "",
     razonSocialComprador:        body.razonSocialComprador.trim(),
     identificacionComprador:     body.identificacionComprador.trim(),
     correoComprador:             body.correoComprador?.trim() || undefined,

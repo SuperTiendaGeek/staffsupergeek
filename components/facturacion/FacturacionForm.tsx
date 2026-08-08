@@ -7,6 +7,7 @@ import type { OrigenGancho }           from "@/lib/facturacion/emitirFactura";
 import { round2, desglosarPrecioConIvaIncluido } from "@/lib/facturacion/ivaIncluido";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { ClienteCard, type ClienteDoc } from "@/components/facturacion/ClienteCard";
+import { validarIdentificacion } from "@/lib/facturacion/reglas/identificacion";
 
 // ─── Tipos locales ─────────────────────────────────────────────────────────────
 
@@ -131,32 +132,14 @@ type ResultadoEmision = {
 };
 
 // ─── Validación de identificación ─────────────────────────────────────────────
-
-function validarCedula(v: string): boolean {
-  if (!/^\d{10}$/.test(v)) return false;
-  const c = [2, 1, 2, 1, 2, 1, 2, 1, 2];
-  const s = c.reduce((acc, coef, i) => {
-    const x = parseInt(v[i], 10) * coef;
-    return acc + (x >= 10 ? x - 9 : x);
-  }, 0);
-  return (10 - (s % 10)) % 10 === parseInt(v[9], 10);
-}
-
-function validarIdentificacion(tipo: TipoIdentificacion, id: string): string | null {
-  if (tipo === "07") return null;
-  const v = id.trim();
-  if (!v) return "Identificación requerida";
-  if (tipo === "05") {
-    if (!validarCedula(v)) return "Cédula inválida (10 dígitos, dígito verificador)";
-  }
-  if (tipo === "04") {
-    if (!/^\d{13}$/.test(v)) return "RUC debe tener 13 dígitos";
-  }
-  if (tipo === "06" || tipo === "08") {
-    if (v.length < 1 || v.length > 20) return "Debe tener entre 1 y 20 caracteres";
-  }
-  return null;
-}
+//
+// La lógica vive en lib/facturacion/reglas/identificacion.ts, COMPARTIDA con
+// el servidor. Antes había una copia aquí que solo comprobaba que un RUC
+// tuviera 13 dígitos —sin dígito verificador— y que dejaba pasar cualquier
+// documento marcado como pasaporte. El servidor no validaba nada.
+//
+// Ahora la pantalla avisa mientras se escribe y el servidor vuelve a validar
+// antes de emitir, con exactamente las mismas reglas.
 
 // ─── Helpers numéricos ─────────────────────────────────────────────────────────
 

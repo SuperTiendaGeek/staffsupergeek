@@ -34,6 +34,7 @@ import { actualizarEstadoCorreo } from "./airtable/facturas";
 import { generarRide }            from "./ride/generarRide";
 import { enviarRide }             from "./correo/enviarRide";
 import { assertConsumidorFinalPermitido } from "./reglas/consumidorFinal";
+import { assertIdentificacionValida } from "./reglas/identificacion";
 import { ahoraEnEcuador }         from "./fechaEcuador";
 import { assertXmlValidoSri }     from "./reglas/validacionXsd";
 import { assertPagosCuadranConTotal } from "./reglas/pagos";
@@ -149,6 +150,17 @@ export async function emitirFactura(
     datos.importeTotal,
     getConsumidorFinalLimite()
   );
+
+  // ── 0.1 Identificación del comprador ────────────────────────────────────
+  // Hasta el 8-ago-2026 esto solo se validaba en el navegador, y el tipo se
+  // adivinaba por la longitud: lo que no era cédula ni RUC terminaba marcado
+  // como PASAPORTE sin que nadie lo eligiera. Así salió la factura
+  // 001-002-000000689 a "CUMOS LIAS" con 893849324 — nueve dígitos — y el SRI
+  // la autorizó porque no valida documentos extranjeros.
+  //
+  // Aquí no se puede saltar: cubre el mostrador, el gancho desde órdenes y
+  // operaciones, las reservas y la corrección.
+  assertIdentificacionValida(datos.tipoIdentificacionComprador, datos.identificacionComprador);
 
   // El formulario manual siempre manda una sola forma de pago igual al
   // total (nunca dispara esto); el gancho de Fase 16 arma varias líneas
@@ -296,9 +308,10 @@ export async function emitirFactura(
         fechaEmision,
         ambiente:    cfg.ambiente,
         cliente: {
-          nombre:         datos.razonSocialComprador,
-          identificacion: datos.identificacionComprador,
-          correo:         datos.correoComprador,
+          nombre:            datos.razonSocialComprador,
+          identificacion:    datos.identificacionComprador,
+          tipoIdentificacion: datos.tipoIdentificacionComprador,
+          correo:            datos.correoComprador,
         },
         subtotal:    datos.totalSinImpuestos,
         iva:         calcularIva(datos.totalConImpuestos),
@@ -337,9 +350,10 @@ export async function emitirFactura(
       fechaEmision,
       ambiente:    cfg.ambiente,
       cliente: {
-        nombre:         datos.razonSocialComprador,
-        identificacion: datos.identificacionComprador,
-        correo:         datos.correoComprador,
+        nombre:            datos.razonSocialComprador,
+        identificacion:    datos.identificacionComprador,
+        tipoIdentificacion: datos.tipoIdentificacionComprador,
+        correo:            datos.correoComprador,
       },
       subtotal:    datos.totalSinImpuestos,
       iva:         calcularIva(datos.totalConImpuestos),
@@ -390,9 +404,10 @@ export async function emitirFactura(
         fechaEmision,
         ambiente:    cfg.ambiente,
         cliente: {
-          nombre:         datos.razonSocialComprador,
-          identificacion: datos.identificacionComprador,
-          correo:         datos.correoComprador,
+          nombre:            datos.razonSocialComprador,
+          identificacion:    datos.identificacionComprador,
+          tipoIdentificacion: datos.tipoIdentificacionComprador,
+          correo:            datos.correoComprador,
         },
         subtotal:    datos.totalSinImpuestos,
         iva:         calcularIva(datos.totalConImpuestos),
@@ -480,9 +495,10 @@ export async function emitirFactura(
       fechaEmision,
       ambiente:            cfg.ambiente,
       cliente: {
-        nombre:         datos.razonSocialComprador,
-        identificacion: datos.identificacionComprador,
-        correo:         datos.correoComprador,
+        nombre:            datos.razonSocialComprador,
+        identificacion:    datos.identificacionComprador,
+        tipoIdentificacion: datos.tipoIdentificacionComprador,
+        correo:            datos.correoComprador,
       },
       subtotal:   datos.totalSinImpuestos,
       iva:        calcularIva(datos.totalConImpuestos),

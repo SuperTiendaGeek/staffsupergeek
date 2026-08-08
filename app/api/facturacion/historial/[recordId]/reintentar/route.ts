@@ -5,6 +5,7 @@ import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitir
 import type { DatosVenta, OrigenGancho } from "@/lib/facturacion/emitirFactura";
 import type { DetalleFactura, Pago } from "@/lib/facturacion/types/factura";
 import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
+import { inferirTipoSugerido } from "@/lib/facturacion/reglas/identificacion";
 
 export const dynamic    = "force-dynamic";
 export const maxDuration = 90;
@@ -84,7 +85,15 @@ export async function POST(req: Request, { params }: Params) {
   }
 
   const datosVenta: DatosVenta = {
-    tipoIdentificacionComprador: factura.clienteIdentificacion.length === 13 ? "04" : "05",
+    // El tipo GUARDADO manda. Antes se deducía por la longitud, y un
+    // pasaporte de 13 caracteres se reenviaba al SRI como si fuera un RUC.
+    // Facturas anteriores a ese campo no lo tienen: ahí sí toca inferirlo, y
+    // si no hay una respuesta clara el guard del servidor bloquea y obliga a
+    // corregir en vez de inventar un tipo.
+    tipoIdentificacionComprador:
+      factura.clienteTipoIdentificacion ??
+      inferirTipoSugerido(factura.clienteIdentificacion) ??
+      "",
     razonSocialComprador:        factura.clienteNombre,
     identificacionComprador:     factura.clienteIdentificacion,
     correoComprador:             factura.clienteCorreo || undefined,
