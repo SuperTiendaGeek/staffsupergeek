@@ -12,7 +12,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   try {
     const c = await fetchClienteById(id);
     if (!c) return NextResponse.json({ success: false, error: "Cliente no encontrado" }, { status: 404 });
-    return NextResponse.json({ success: true, data: { id: c.id, nombre: c.nombre, cedula: c.cedula, telefono: c.telefono, correo: c.correo, direccion: c.direccion, notas: c.notas ?? "" } });
+    return NextResponse.json({ success: true, data: { id: c.id, nombre: c.nombre, cedula: c.cedula, tipoIdentificacion: c.tipoIdentificacion, telefono: c.telefono, correo: c.correo, direccion: c.direccion, notas: c.notas ?? "" } });
   } catch (e) {
     return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "Error al cargar el cliente" }, { status: 500 });
   }
@@ -33,12 +33,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const c = await updateClienteById(id, {
       nombre,
       cedula:    String(b.cedula ?? "").trim() || null,
+      tipoIdentificacion: String(b.tipoIdentificacion ?? "").trim() || null,
       telefono:  String(b.telefono ?? "").trim() || null,
       correo:    String(b.correo ?? "").trim() || null,
       direccion: String(b.direccion ?? "").trim() || null,
       notas:     String(b.notas ?? "").trim() || null,
     });
-    return NextResponse.json({ success: true, data: { id: c.id, nombre: c.nombre, cedula: c.cedula, telefono: c.telefono, correo: c.correo, direccion: c.direccion } });
+    return NextResponse.json({ success: true, data: { id: c.id, nombre: c.nombre, cedula: c.cedula, tipoIdentificacion: c.tipoIdentificacion, telefono: c.telefono, correo: c.correo, direccion: c.direccion } });
   } catch (e) {
     return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "Error al actualizar el cliente" }, { status: 400 });
   }

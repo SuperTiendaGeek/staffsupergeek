@@ -16,6 +16,7 @@ import {
   AbonoComprobanteAdjunto,
   AirtableAttachment,
 } from "@/types/tecnicos";
+import { etiquetaAirtable, codigoDesdeAirtable } from "@/lib/facturacion/reglas/identificacion";
 
 // Attachment mínimo (id + url) usado para adjuntos simples de un campo.
 export interface AirtableSimpleAttachment {
@@ -57,6 +58,16 @@ export interface ClienteBusqueda {
   id: string;
   nombre: string;
   cedula: string;
+  /**
+   * Código SRI del documento: "04" RUC · "05" cédula · "06" pasaporte ·
+   * "08" identificación del exterior. Cadena vacía en fichas anteriores al
+   * campo "Cliente - Tipo Identificación".
+   *
+   * Se GUARDA en vez de deducirse por la longitud: esa deducción fue la que
+   * marcó como pasaporte una cédula de nueve dígitos y dejó salir la factura
+   * 001-002-000000689 (8-ago-2026).
+   */
+  tipoIdentificacion: string;
   telefono: string;
   correo: string;
   direccion: string;
@@ -91,6 +102,8 @@ export interface ClientesPageResult {
 export interface NuevoClienteInput {
   nombre: string;
   cedula?: string | null;
+  /** Código SRI: "04" "05" "06" "08". Ver ClienteBusqueda.tipoIdentificacion. */
+  tipoIdentificacion?: string | null;
   telefono?: string | null;
   correo?: string | null;
   direccion?: string | null;
@@ -613,6 +626,9 @@ const mapClienteRecord = (record: {
     id: record.id,
     nombre: pickStringField(f, ["Nombre"], "Cliente sin nombre"),
     cedula: pickStringField(f, ["C\u00e9dula", "Cedula"], ""),
+    tipoIdentificacion: codigoDesdeAirtable(
+      pickStringField(f, ["Cliente - Tipo Identificaci\u00f3n"], "")
+    ) ?? "",
     telefono: pickStringField(f, ["Tel\u00e9fono", "Telefono"], ""),
     correo: pickStringField(f, ["Correo"], ""),
     direccion: pickStringField(f, ["Direcci\u00f3n", "Direccion"], ""),
@@ -1156,6 +1172,7 @@ export const createCliente = async (input: NuevoClienteInput): Promise<ClienteBu
     {
       Nombre: nombre,
       "C\u00e9dula": input.cedula?.trim() || undefined,
+      "Cliente - Tipo Identificaci\u00f3n": etiquetaAirtable(input.tipoIdentificacion ?? "") || undefined,
       "Tel\u00e9fono": input.telefono?.trim() || undefined,
       Correo: input.correo?.trim() || undefined,
       "Direcci\u00f3n": input.direccion?.trim() || undefined,
@@ -1165,6 +1182,7 @@ export const createCliente = async (input: NuevoClienteInput): Promise<ClienteBu
     {
       Nombre: nombre,
       Cedula: input.cedula?.trim() || undefined,
+      "Cliente - Tipo Identificaci\u00f3n": etiquetaAirtable(input.tipoIdentificacion ?? "") || undefined,
       Telefono: input.telefono?.trim() || undefined,
       Correo: input.correo?.trim() || undefined,
       Direccion: input.direccion?.trim() || undefined,

@@ -35,7 +35,10 @@ function tipoDe(cedula: string): string {
   return inferirTipoSugerido(cedula) ?? "";
 }
 function docFrom(c: ClienteResuelto): ClienteDoc {
-  return { esConsumidorFinal: false, tipoIdentificacion: tipoDe(c.cedula ?? ""), identificacion: c.cedula ?? "", razonSocial: c.nombre, correo: c.correo ?? "", telefono: c.telefono ?? "", direccion: c.direccion ?? "", airtableId: c.id };
+  // El tipo GUARDADO en la ficha manda. tipoDe() solo entra en fichas viejas
+  // que aún no lo tienen, y ya no inventa: si no hay respuesta clara devuelve
+  // "" y la pantalla obliga a elegirlo.
+  return { esConsumidorFinal: false, tipoIdentificacion: c.tipoIdentificacion || tipoDe(c.cedula ?? ""), identificacion: c.cedula ?? "", razonSocial: c.nombre, correo: c.correo ?? "", telefono: c.telefono ?? "", direccion: c.direccion ?? "", airtableId: c.id };
 }
 
 type Sug = { id: string; nombre: string; cedula: string; telefono: string; correo: string; direccion: string };
