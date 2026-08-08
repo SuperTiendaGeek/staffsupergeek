@@ -79,6 +79,26 @@ export type DatosVenta = {
   clienteRecordId?:            string;
 };
 
+/**
+ * Identidad de un comprobante que YA existe y se está corrigiendo.
+ *
+ * Cuando viene, emitirFactura() NO pide un secuencial nuevo ni genera una
+ * clave nueva: reutiliza los guardados. Es lo que hace que corregir la cédula
+ * de la factura 123 la deje siendo la 123, y no la convierta en la 124.
+ *
+ * La fecha va incluida a la fuerza: la clave de acceso lleva el día dentro,
+ * así que conservar la clave obliga a conservar la fecha. Quien llama es
+ * responsable de comprobar que sigue siendo el mismo día — lo hace
+ * `evaluarCorreccion()` en reglas/correccion.ts.
+ */
+export type ComprobanteExistente = {
+  recordId:      string;
+  secuencial:    string;
+  numeroFactura: string;
+  claveAcceso:   string;
+  fechaEmision:  Date;
+};
+
 export type ResultadoEmision = {
   // EN PROCESAMIENTO: el SRI recibió el comprobante y todavía no lo resuelve.
   // NO es un fallo y NO se debe reenviar nada — solo volver a consultar la
@@ -113,7 +133,11 @@ function calcularIva(totales: TotalImpuesto[]): number {
 
 // ─── Función principal ────────────────────────────────────────────────────────
 
-export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision> {
+export async function emitirFactura(
+  datos: DatosVenta,
+  /** Presente solo al CORREGIR una factura rechazada. Ver ComprobanteExistente. */
+  existente?: ComprobanteExistente
+): Promise<ResultadoEmision> {
   // ── 0. Regla Consumidor Final ≥ límite ──────────────────────────────────
   // Se valida antes de tocar Airtable o el SRI: emitirFactura() es el único
   // punto de entrada compartido por /api/facturacion/emitir, /reintentar y
@@ -136,7 +160,10 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
   // lib/facturacion/fechaEcuador.ts. Con new Date() a secas, toda emisión
   // entre las 19:00 y las 24:00 de Ecuador salía fechada al día siguiente y
   // el SRI la devolvía con [65] FECHA EMISIÓN EXTEMPORANEA.
-  const fechaEmision = ahoraEnEcuador();
+  // Al corregir se conserva la fecha ORIGINAL: la clave de acceso la lleva
+  // dentro y no puede cambiar. Si ya no es el mismo día, quien llama debió
+  // haberlo impedido antes de llegar aquí.
+  const fechaEmision = existente?.fechaEmision ?? ahoraEnEcuador();
 
   // Firma: viene de Airtable si el administrador cargó una en
   // /facturacion/firma; si no, de las variables de entorno de siempre.
@@ -147,17 +174,27 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
   // producción, un hueco en la numeración.
   assertFirmaVigente(firma, fechaEmision);
 
-  // Leer el secuencial base una sola vez; los reintentos usan offset creciente
-  const base = await siguienteSecuencial(cfg.establecimiento, cfg.puntoEmision, cfg.ambiente);
+  // Leer el secuencial base una sola vez; los reintentos usan offset creciente.
+  // Al corregir NO se pide número nuevo: el comprobante ya tiene el suyo y le
+  // pertenece para siempre.
+  const base = existente
+    ? { secuencial: existente.secuencial, numeroFactura: existente.numeroFactura }
+    : await siguienteSecuencial(cfg.establecimiento, cfg.puntoEmision, cfg.ambiente);
 
   for (let intento = 0; intento < MAX_REINTENTOS; intento++) {
     // ── 1. Secuencial con offset para reintentos por "clave ya registrada" ──
-    const secNum    = parseInt(base.secuencial, 10) + intento;
-    const secuencial    = String(secNum).padStart(9, "0");
-    const numeroFactura = `${cfg.establecimiento}-${cfg.puntoEmision}-${secuencial}`;
+    // El offset por reintento solo aplica a una emisión nueva: si el SRI dice
+    // que ese número ya está registrado, hay que avanzar. Corrigiendo no se
+    // avanza nunca — sería convertir la factura de un cliente en otra venta.
+    const secNum    = parseInt(base.secuencial, 10) + (existente ? 0 : intento);
+    const secuencial    = existente ? existente.secuencial    : String(secNum).padStart(9, "0");
+    const numeroFactura = existente ? existente.numeroFactura : `${cfg.establecimiento}-${cfg.puntoEmision}-${secuencial}`;
 
     // ── 2. Clave de acceso ──────────────────────────────────────────────────
-    const claveAcceso = generateAccessKey({
+    // La clave de acceso también se conserva: es la identidad del comprobante
+    // ante el SRI. Regenerarla crearía un documento distinto con el mismo
+    // número, que es exactamente lo que no puede pasar.
+    const claveAcceso = existente ? existente.claveAcceso : generateAccessKey({
       fechaEmision,
       tipoComprobante: "01",
       ruc:             cfg.ruc,
@@ -288,6 +325,10 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
     // Se guarda primero y se completa después. Best-effort: si Airtable falla
     // aquí no se aborta la emisión (la factura ya está en el SRI y abortar no
     // la deshace), pero sí queda en los logs.
+    // También al corregir: la fila pasa a RECIBIDA mientras se espera. Si la
+    // espera se agota, queda en un estado consultable y no atrapada en
+    // DEVUELTA con un intento nuevo ya en marcha dentro del SRI.
+    // (`mensajesSri: []` no toca el campo, así que el historial sobrevive.)
     const recordIdProvisional = await registrarIntento({
       claveAcceso,
       numeroFactura,
@@ -304,9 +345,9 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
       iva:         calcularIva(datos.totalConImpuestos),
       total:       datos.importeTotal,
       mensajesSri: [],
-    }).catch((e) => {
+    }, existente?.recordId).catch((e) => {
       console.error("[emitirFactura] no se pudo pre-registrar el comprobante RECIBIDO:", e);
-      return undefined;
+      return existente?.recordId;
     });
 
     // ── 6. Autorización SRI ─────────────────────────────────────────────────
