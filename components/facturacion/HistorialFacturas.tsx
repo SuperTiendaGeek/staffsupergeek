@@ -37,6 +37,11 @@ const CORREO_COLOR: Record<EstadoCorreo, string> = {
   NO_ENVIADO: "text-[#555]",
 };
 
+// Estados en los que el SRI todavía no ha dado una respuesta definitiva. En
+// estos NUNCA se reenvía el comprobante: ya está en el SRI con su número y su
+// clave. Solo se vuelve a consultar.
+const ESTADOS_SIN_RESOLVER = new Set(["PENDIENTE", "RECIBIDA", "EN PROCESAMIENTO"]);
+
 const AMBIENTE_COLOR: Record<string, string> = {
   PRUEBAS:    "bg-yellow-900/30 text-yellow-400 border-yellow-700/40",
   PRODUCCIÓN: "bg-blue-900/30 text-blue-300 border-blue-700/40",
@@ -539,6 +544,20 @@ function DetallePanel({
                 className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-red-500/60 hover:text-red-300 disabled:opacity-40"
               >
                 {accion === "Solicitar anulación" ? "Registrando…" : "⊘ Solicitar anulación"}
+              </button>
+            )}
+
+            {/* Consultar estado — para las que el SRI todavía no resolvió.
+                NO reenvía nada: solo vuelve a preguntar por la misma clave de
+                acceso. Reenviar aquí duplicaría un comprobante que ya existe
+                en el SRI. */}
+            {ESTADOS_SIN_RESOLVER.has(factura.estado) && (
+              <button
+                disabled={!!accion}
+                onClick={() => doAccion(`/api/facturacion/historial/${factura.recordId}/consultar-estado`, "Consultar estado")}
+                className="rounded-full border border-sky-700/50 px-3 py-1.5 text-xs text-sky-300 hover:border-sky-400 disabled:opacity-40 flex items-center gap-1"
+              >
+                {accion === "Consultar estado" ? <><SpinnerIcon /> Consultando al SRI…</> : "⟳ Consultar estado"}
               </button>
             )}
 

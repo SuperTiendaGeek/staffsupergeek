@@ -50,7 +50,9 @@ export type DatosComprobanteError = {
   claveAcceso:    string;
   numeroFactura:  string;
   secuencial:     string;
-  estado:         "DEVUELTA" | "NO AUTORIZADO";
+  // RECIBIDA = el SRI aceptó el comprobante y todavía no lo autoriza. Se usa
+  // para dejar rastro ANTES de esperar la autorización (ver emitirFactura).
+  estado:         "DEVUELTA" | "NO AUTORIZADO" | "RECIBIDA";
   fechaEmision:   Date;
   ambiente:       AmbienteSRI;
   cliente:        DatosCliente;
@@ -116,7 +118,15 @@ export function intentarGuardarEnDisco(
 
 // ─── Persistir comprobante AUTORIZADO ────────────────────────────────────────
 
-export async function persistirAutorizado(datos: DatosComprobanteOk): Promise<string> {
+export async function persistirAutorizado(
+  datos: DatosComprobanteOk,
+  /**
+   * Fila creada ANTES de esperar la autorización (estado RECIBIDA). Si viene,
+   * se completa esa misma en vez de crear otra — si no, tendríamos dos filas
+   * con el mismo número de factura.
+   */
+  recordIdExistente?: string
+): Promise<string> {
   // 1a. Disco — best-effort (ver intentarGuardarEnDisco). Antes era un paso
   //     fatal síncrono que abortaba toda la persistencia si fallaba, dejando
   //     una factura ya AUTORIZADA sin ningún rastro ni en disco ni en Airtable.
@@ -157,7 +167,7 @@ export async function persistirAutorizado(datos: DatosComprobanteOk): Promise<st
     ordenId:               datos.ordenId,
     operacionId:           datos.operacionId,
     clienteId:             datos.clienteId,
-  });
+  }, recordIdExistente);
 
   // 3. Subir adjuntos; si falla, NO eliminar la fila — el comprobante ya está
   //    en disco y la fila queda marcada para re-sincronizar después.
@@ -182,7 +192,11 @@ export async function persistirAutorizado(datos: DatosComprobanteOk): Promise<st
 
 // ─── Registrar intento fallido (DEVUELTA / NO AUTORIZADO) ────────────────────
 
-export async function registrarIntento(datos: DatosComprobanteError): Promise<string> {
+export async function registrarIntento(
+  datos: DatosComprobanteError,
+  /** Igual que en persistirAutorizado: completa la fila RECIBIDA en vez de duplicarla. */
+  recordIdExistente?: string
+): Promise<string> {
   return crearRegistroFactura({
     claveAcceso:           datos.claveAcceso,
     numeroFactura:         datos.numeroFactura,
@@ -197,5 +211,5 @@ export async function registrarIntento(datos: DatosComprobanteError): Promise<st
     iva:                   datos.iva,
     total:                 datos.total,
     mensajesSri:           datos.mensajesSri,
-  });
+  }, recordIdExistente);
 }
