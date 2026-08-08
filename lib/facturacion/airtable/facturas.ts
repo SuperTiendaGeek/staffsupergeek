@@ -254,7 +254,15 @@ export async function maxSecuencialUsado(
 // ─── Crear registro (todos los campos escalares) ──────────────────────────────
 
 export async function crearRegistroFactura(
-  input: FacturaAirtableInput
+  input: FacturaAirtableInput,
+  /**
+   * Si se pasa, ACTUALIZA ese registro en vez de crear uno nuevo.
+   *
+   * Lo usa emitirFactura() para el comprobante que ya se persistió como
+   * RECIBIDA antes de esperar la autorización: cuando el SRI responde, hay
+   * que completar esa misma fila —no crear una segunda con el mismo número.
+   */
+  recordIdExistente?: string
 ): Promise<string> {
   const mensajesTexto = input.mensajesSri?.length
     ? input.mensajesSri
@@ -293,6 +301,17 @@ export async function crearRegistroFactura(
   if (input.ordenId)              fields["Orden"]                  = [input.ordenId];
   if (input.operacionId)          fields["Operación"]               = [input.operacionId];
   if (input.clienteId)            fields["Cliente"]                 = [input.clienteId];
+
+  if (recordIdExistente) {
+    // "Sincronización Inventario" se deja fuera al actualizar: postEmision()
+    // puede haberla escrito ya y sobreescribirla con "N/A" borraría el rastro.
+    delete fields["Sincronización Inventario"];
+    const body = await airtableRequest<{ id: string }>(
+      `${tableUrl()}/${encodeURIComponent(recordIdExistente)}`,
+      { method: "PATCH", body: JSON.stringify({ fields, typecast: true }) }
+    );
+    return body.id;
+  }
 
   const body = await airtableRequest<{ id: string }>(tableUrl(), {
     method: "POST",

@@ -80,7 +80,10 @@ export type DatosVenta = {
 };
 
 export type ResultadoEmision = {
-  estado:            "AUTORIZADO" | "DEVUELTA" | "NO AUTORIZADO";
+  // EN PROCESAMIENTO: el SRI recibió el comprobante y todavía no lo resuelve.
+  // NO es un fallo y NO se debe reenviar nada — solo volver a consultar la
+  // misma clave de acceso más tarde. Ver el bloque 6 de emitirFactura().
+  estado:            "AUTORIZADO" | "DEVUELTA" | "NO AUTORIZADO" | "EN PROCESAMIENTO";
   claveAcceso:       string;
   numeroFactura:     string;
   numeroAutorizacion?: string;
@@ -275,11 +278,65 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
       };
     }
 
-    // ── 6. Autorización SRI ─────────────────────────────────────────────────
-    const autorizacion = await esperarAutorizacion(claveAcceso, cfg, {
-      maxEsperaMs:    60_000,
-      intervaloBase:   2_000,
+    // ── 5.5 Persistir el comprobante RECIBIDO, ANTES de esperar ─────────────
+    //
+    // El SRI ya aceptó el comprobante: existe allá, con este número y esta
+    // clave. Si la espera de abajo se agota o el proceso se cae, sin esta fila
+    // tendríamos una factura REAL de la que el sistema no sabe nada — y la
+    // siguiente venta intentaría reutilizar su número.
+    //
+    // Se guarda primero y se completa después. Best-effort: si Airtable falla
+    // aquí no se aborta la emisión (la factura ya está en el SRI y abortar no
+    // la deshace), pero sí queda en los logs.
+    const recordIdProvisional = await registrarIntento({
+      claveAcceso,
+      numeroFactura,
+      secuencial,
+      estado:      "RECIBIDA",
+      fechaEmision,
+      ambiente:    cfg.ambiente,
+      cliente: {
+        nombre:         datos.razonSocialComprador,
+        identificacion: datos.identificacionComprador,
+        correo:         datos.correoComprador,
+      },
+      subtotal:    datos.totalSinImpuestos,
+      iva:         calcularIva(datos.totalConImpuestos),
+      total:       datos.importeTotal,
+      mensajesSri: [],
+    }).catch((e) => {
+      console.error("[emitirFactura] no se pudo pre-registrar el comprobante RECIBIDO:", e);
+      return undefined;
     });
+
+    // ── 6. Autorización SRI ─────────────────────────────────────────────────
+    //
+    // Si se agota la espera, el comprobante NO se pierde ni se reenvía: queda
+    // como EN PROCESAMIENTO con su clave guardada, y se consulta después desde
+    // el historial. Reenviar aquí crearía un duplicado ante el SRI.
+    let autorizacion;
+    try {
+      autorizacion = await esperarAutorizacion(claveAcceso, cfg, {
+        maxEsperaMs:    60_000,
+        intervaloBase:   2_000,
+      });
+    } catch (e) {
+      console.error("[emitirFactura] autorización no resuelta a tiempo:", e);
+      return {
+        estado:        "EN PROCESAMIENTO",
+        claveAcceso,
+        numeroFactura,
+        recordId:      recordIdProvisional,
+        ambiente:      cfg.ambiente,
+        mensajes: [{
+          identificador: "EN-PROCESO",
+          tipo:          "INFORMATIVO",
+          mensaje:
+            "El SRI recibió la factura y todavía no la autoriza. No se ha perdido nada: " +
+            "queda guardada y se puede consultar su estado desde el historial.",
+        }],
+      };
+    }
 
     if (autorizacion.estado !== "AUTORIZADO") {
       const mensajes = "mensajes" in autorizacion ? autorizacion.mensajes : [];
@@ -300,12 +357,14 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
         iva:         calcularIva(datos.totalConImpuestos),
         total:       datos.importeTotal,
         mensajesSri: mensajes,
-      }).catch(() => undefined);
+      }, recordIdProvisional).catch(() => undefined);
 
       return {
         estado:        autorizacion.estado === "NO AUTORIZADO" ? "NO AUTORIZADO" : "DEVUELTA",
         claveAcceso,
         numeroFactura,
+        recordId:      recordIdProvisional,
+        ambiente:      cfg.ambiente,
         mensajes,
       };
     }
@@ -393,7 +452,7 @@ export async function emitirFactura(datos: DatosVenta): Promise<ResultadoEmision
       ordenId:     datos.origen?.tipo === "orden" ? datos.origen.recordId : undefined,
       operacionId: datos.origen?.tipo === "operacion" ? datos.origen.recordId : undefined,
       clienteId:   datos.clienteRecordId,
-    });
+    }, recordIdProvisional);
 
     // ── 9. Enviar correo (best-effort) + persistir Estado Correo ───────────
     if (datos.correoComprador) {
