@@ -20,6 +20,8 @@ import type { AmbienteSRI }                   from "../config";
 // ─── Tipos de entrada ─────────────────────────────────────────────────────────
 
 export type DatosCliente = {
+  /** Código SRI del tipo de documento: "04" "05" "06" "07" "08". */
+  tipoIdentificacion?: string;
   nombre:         string;
   identificacion: string;
   correo?:        string;
@@ -158,6 +160,7 @@ export async function persistirAutorizado(
     ambiente:              datos.ambiente,
     clienteNombre:         datos.cliente.nombre,
     clienteIdentificacion: datos.cliente.identificacion,
+    clienteTipoIdentificacion: datos.cliente.tipoIdentificacion,
     clienteCorreo:         datos.cliente.correo,
     subtotal:              datos.subtotal,
     iva:                   datos.iva,
@@ -206,6 +209,7 @@ export async function registrarIntento(
     ambiente:              datos.ambiente,
     clienteNombre:         datos.cliente.nombre,
     clienteIdentificacion: datos.cliente.identificacion,
+    clienteTipoIdentificacion: datos.cliente.tipoIdentificacion,
     clienteCorreo:         datos.cliente.correo,
     subtotal:              datos.subtotal,
     iva:                   datos.iva,

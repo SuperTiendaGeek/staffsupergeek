@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { buscarClientes, createCliente, CedulaEnUsoError } from "@/lib/tecnicos/airtable/index";
+import { validarIdentificacion } from "@/lib/facturacion/reglas/identificacion";
 
 export const dynamic = "force-dynamic";
 
@@ -33,13 +34,22 @@ export async function POST(request: Request) {
   const telefono = String(body.telefono ?? "").trim() || undefined;
   const correo   = String(body.correo   ?? "").trim() || undefined;
   const direccion= String(body.direccion ?? "").trim() || undefined;
+  const tipoId   = String(body.tipoIdentificacion ?? "").trim();
 
   if (!nombre) {
     return NextResponse.json({ success: false, error: "Nombre requerido" }, { status: 400 });
   }
 
+  // La ficha del cliente se valida al guardarse, no solo al facturar: si se
+  // guarda mal, el problema reaparece más tarde con una factura delante. El
+  // navegador ya avisó; esto es lo que no se puede saltar.
+  if (cedula) {
+    const errId = validarIdentificacion(tipoId, cedula);
+    if (errId) return NextResponse.json({ success: false, error: errId }, { status: 400 });
+  }
+
   try {
-    const data = await createCliente({ nombre, cedula: cedula || null, telefono: telefono ?? null, correo: correo ?? null, direccion: direccion ?? null });
+    const data = await createCliente({ nombre, cedula: cedula || null, tipoIdentificacion: tipoId || null, telefono: telefono ?? null, correo: correo ?? null, direccion: direccion ?? null });
     return NextResponse.json({ success: true, data });
   } catch (e) {
     // Cédula ya registrada: devolvemos el cliente existente para que el modal

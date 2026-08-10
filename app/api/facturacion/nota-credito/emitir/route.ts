@@ -14,6 +14,7 @@ import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import type { DetalleFactura }       from "@/lib/facturacion/types/factura";
 import type { SeleccionLinea }       from "@/lib/facturacion/notaCredito/calculos";
 import type { DestinoNotaCredito }   from "@/lib/facturacion/notaCredito/types";
+import { inferirTipoSugerido }       from "@/lib/facturacion/reglas/identificacion";
 
 export const dynamic     = "force-dynamic";
 export const maxDuration = 90;   // igual que la emisión de factura
@@ -101,9 +102,13 @@ export async function POST(request: Request) {
   const totales = calcularTotalesNotaCredito(detallesNC);
 
   // ── Reglas (revalidación server-side, con el monto real) ──────────────────
-  const ident = (factura.clienteIdentificacion ?? "").replace(/\D/g, "");
+  // El tipo de la FACTURA ORIGINAL manda: una nota de crédito no puede
+  // cambiar la identidad del comprador. Antes se deducía por la longitud, así
+  // que un pasaporte podía acabar declarado como cédula ante el SRI.
   const tipoIdentificacionComprador =
-    ident === "9999999999999" ? "07" : ident.length === 13 && ident.endsWith("001") ? "04" : ident.length === 10 ? "05" : "07";
+    factura.clienteTipoIdentificacion ??
+    inferirTipoSugerido(factura.clienteIdentificacion ?? "") ??
+    "07";
 
   const totalYaAcreditado = await totalAcreditadoDeFactura(factura.numeroFactura).catch(() => {
     throw new Error("No se pudo verificar cuánto se ha acreditado ya de esta factura");
