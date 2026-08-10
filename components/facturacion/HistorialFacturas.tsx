@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState, Fragment } from "react";
 import Link from "next/link";
+import { CorregirFacturaModal } from "@/components/facturacion/CorregirFacturaModal";
+import { evaluarCorreccion } from "@/lib/facturacion/reglas/correccion";
 import type { FacturaHistorial, EstadoFactura, EstadoCorreo, EstadoSincronizacionInventario } from "@/lib/facturacion/airtable/facturas";
 
 // ─── Etiquetas visuales (solo UI, no tocan valores internos) ─────────────────
@@ -234,6 +236,8 @@ function DetallePanel({
   onRefresh: () => void;
 }) {
   const [accion, setAccion] = useState<string | null>(null);
+  // ¿Está abierto el modal de corrección? La factura ya viene por prop.
+  const [corrigiendo, setCorrigiendo] = useState(false);
   const [msg, setMsg]       = useState<string | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
@@ -547,6 +551,23 @@ function DetallePanel({
               </button>
             )}
 
+            {/* Corregir y reenviar — solo en facturas rechazadas y del mismo
+                día. Pasado el día, la clave de acceso (que lleva la fecha
+                dentro) ya no sirve y hay que emitir una nueva. */}
+            {evaluarCorreccion({
+              estado:       factura.estado,
+              fechaEmision: new Date(`${factura.fechaEmision}T00:00:00`),
+              ahora:        new Date(),
+            }).modo === "reenviar-misma" && (
+              <button
+                disabled={!!accion}
+                onClick={() => setCorrigiendo(true)}
+                className="rounded-full border border-[#D7FF4F]/60 px-3 py-1.5 text-xs font-bold text-[#D7FF4F] hover:bg-[#D7FF4F]/10 disabled:opacity-40"
+              >
+                ✎ Corregir y reenviar
+              </button>
+            )}
+
             {/* Consultar estado — para las que el SRI todavía no resolvió.
                 NO reenvía nada: solo vuelve a preguntar por la misma clave de
                 acceso. Reenviar aquí duplicaría un comprobante que ya existe
@@ -595,6 +616,27 @@ function DetallePanel({
           </div>
         </section>
       </div>
+
+      {/* Corregir y reenviar ESTA misma factura: mismo número, misma clave. */}
+      {corrigiendo && (
+        <CorregirFacturaModal
+          factura={{
+            recordId:                  factura.recordId,
+            numeroFactura:             factura.numeroFactura,
+            claveAcceso:               factura.claveAcceso,
+            fechaEmision:              factura.fechaEmision,
+            estado:                    factura.estado,
+            total:                     factura.total,
+            clienteNombre:             factura.clienteNombre,
+            clienteIdentificacion:     factura.clienteIdentificacion,
+            clienteTipoIdentificacion: factura.clienteTipoIdentificacion,
+            clienteCorreo:             factura.clienteCorreo,
+            mensajesSri:               factura.mensajesSri,
+          }}
+          onClose={() => setCorrigiendo(false)}
+          onCorregida={() => { setCorrigiendo(false); onRefresh(); }}
+        />
+      )}
     </div>
   );
 }
@@ -898,6 +940,7 @@ export function HistorialFacturas(
           onRefresh={refreshDetalle}
         />
       )}
+
     </div>
   );
 }
