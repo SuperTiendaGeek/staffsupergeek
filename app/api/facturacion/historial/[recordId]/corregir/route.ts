@@ -8,6 +8,7 @@ import { agregarIntento, recortarSiHaceFalta } from "@/lib/facturacion/historial
 import { explicarMensajesSri }       from "@/lib/facturacion/sri/errores";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
+import { totalesDesdeDetalles } from "@/lib/facturacion/reglas/totales";
 
 export const dynamic     = "force-dynamic";
 export const maxDuration = 90;
@@ -98,9 +99,6 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ success: false, error: "Body JSON inválido" }, { status: 400 });
   }
 
-  if (!Array.isArray(body.detalles) || body.detalles.length === 0) {
-    return NextResponse.json({ success: false, error: "La factura debe tener al menos una línea." }, { status: 400 });
-  }
   if (!body.identificacionComprador?.trim() || !body.razonSocialComprador?.trim()) {
     return NextResponse.json(
       { success: false, error: "Faltan los datos del comprador." },
@@ -108,29 +106,58 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  // ── Rastro de lo que cambia ──────────────────────────────────────────────
-  const cambios = describirCambios(
+  // ── Rastro de lo que cambia (se completa con el total tras recalcularlo) ──
+  const cambiosCliente = describirCambios(
     {
       identificacionComprador: factura.clienteIdentificacion,
       razonSocialComprador:    factura.clienteNombre,
       correoComprador:         factura.clienteCorreo,
-      importeTotal:            factura.total,
     },
     {
       identificacionComprador: body.identificacionComprador,
       razonSocialComprador:    body.razonSocialComprador,
       correoComprador:         body.correoComprador,
-      importeTotal:            body.importeTotal,
     }
   );
 
   // El origen (orden / operación) se recupera de lo guardado, nunca del body:
   // cambiarlo sería reutilizar el número para otra venta.
+  //
+  // Las LÍNEAS también salen de lo guardado si el body no las manda. Ese es el
+  // caso normal: la pantalla de corrección solo toca los datos del comprador,
+  // que es de donde vienen casi todos los rechazos del SRI. Poder mandarlas
+  // sigue siendo posible (a veces el error es una tarifa de IVA), pero no
+  // hace falta reenviar toda la factura para arreglar una cédula.
   let origen: DatosVenta["origen"];
+  let detallesGuardados: DatosVenta["detalles"] = [];
   try {
-    const payload = JSON.parse(factura.lineasJson || "{}") as { origen?: DatosVenta["origen"] };
+    const payload = JSON.parse(factura.lineasJson || "{}") as {
+      origen?: DatosVenta["origen"];
+      detalles?: DatosVenta["detalles"];
+    };
     origen = payload.origen;
-  } catch { /* factura sin líneas guardadas: se sigue sin origen */ }
+    if (Array.isArray(payload.detalles)) detallesGuardados = payload.detalles;
+  } catch { /* factura sin líneas guardadas: se detecta abajo */ }
+
+  const detalles = Array.isArray(body.detalles) && body.detalles.length > 0
+    ? body.detalles
+    : detallesGuardados;
+
+  if (detalles.length === 0) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "Esta factura no tiene sus líneas guardadas, así que no se puede reconstruir para " +
+          "reenviarla. Emite una nueva; este número queda registrado como no emitido.",
+      },
+      { status: 400 }
+    );
+  }
+
+  // Los totales se RECALCULAN desde las líneas, no se copian del body: así el
+  // XML siempre cuadra consigo mismo aunque la pantalla mande otra cosa.
+  const totalesRecalculados = totalesDesdeDetalles(detalles);
 
   const datosVenta: DatosVenta = {
     // Se puede corregir el tipo (a veces ESE es el error), pero nunca se
@@ -140,12 +167,12 @@ export async function POST(request: Request, { params }: Params) {
     razonSocialComprador:        body.razonSocialComprador.trim(),
     identificacionComprador:     body.identificacionComprador.trim(),
     correoComprador:             body.correoComprador?.trim() || undefined,
-    detalles:                    body.detalles,
-    totalSinImpuestos:           body.totalSinImpuestos ?? 0,
-    totalDescuento:              body.totalDescuento ?? 0,
-    totalConImpuestos:           body.totalConImpuestos ?? [],
-    importeTotal:                body.importeTotal ?? 0,
-    pagos:                       body.pagos ?? [{ formaPago: "01", total: body.importeTotal ?? 0 }],
+    detalles,
+    totalSinImpuestos:           totalesRecalculados.totalSinImpuestos,
+    totalDescuento:              totalesRecalculados.totalDescuento,
+    totalConImpuestos:           totalesRecalculados.totalConImpuestos,
+    importeTotal:                totalesRecalculados.importeTotal,
+    pagos:                       body.pagos ?? [{ formaPago: "01", total: totalesRecalculados.importeTotal }],
     vendedor:                    session.user.nombre,
     origen,
   };
@@ -160,6 +187,16 @@ export async function POST(request: Request, { params }: Params) {
       claveAcceso:   factura.claveAcceso,
       fechaEmision:  new Date(`${factura.fechaEmision}T00:00:00`),
     });
+
+    // El cambio de IMPORTE TOTAL se anota aparte, ya con el total recalculado:
+    // es la señal de que la corrección dejó de ser un arreglo de datos y tocó
+    // la operación comercial. No se prohíbe, pero nunca pasa desapercibido.
+    const cambios = [...cambiosCliente];
+    if (Math.abs((factura.total ?? 0) - totalesRecalculados.importeTotal) > 0.001) {
+      cambios.push(
+        `⚠ IMPORTE TOTAL: $${(factura.total ?? 0).toFixed(2)} → $${totalesRecalculados.importeTotal.toFixed(2)}`
+      );
+    }
 
     // ── Historial: se acumula, nunca se sobreescribe ────────────────────────
     const mensajesTexto = (resultado.mensajes ?? []).map(
