@@ -91,3 +91,22 @@ marca identifica el lote completo y se puede borrar desde Airtable.
 
 Antes de correr con `--aplicar`, duplica la base ("Duplicate base"). Es un
 minuto y evita el mal rato.
+
+---
+
+## Nota sobre la columna CATEGORIA
+
+La categoría se **propone** leyendo el nombre; no se adivina bien siempre.
+
+Auditando el export real aparecieron casos como estos, ya corregidos:
+
+| Nombre | Proponía | Es |
+|---|---|---|
+| Kensington Combination **Laptop Lock** | Laptop | Accesorio |
+| **Adaptador** Wi-Fi USB | Cargador | Accesorio |
+| NexiGo Glow Light … para **pantalla** | Pantalla | Accesorio |
+| Lenovo ThinkSmart Core Mini … **NVMe** | SSD | Desktop |
+
+Quedan otros que no detecté. **Revisa la columna CATEGORIA entera**, no solo las
+celdas vacías: una categoría equivocada se ve igual de convincente que una
+correcta.

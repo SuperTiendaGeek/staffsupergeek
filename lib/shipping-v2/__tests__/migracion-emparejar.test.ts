@@ -185,6 +185,22 @@ assert(proponerCategoria("Memoria RAM DDR4 8GB para laptop") === "RAM",
 assert(proponerCategoria("Cargador original Dell 65W con cable de poder") === "Cargador",
   "Un cargador 'con cable' sigue siendo Cargador");
 
+console.log("\n── las trampas del export real ──");
+
+// Los cuatro errores que salieron al auditar el archivo del sistema viejo.
+assert(proponerCategoria("Kensington Combination Laptop Lock for Laptops/Notebooks K64673AM") === "Accesorio",
+  "Un candado de laptop es un Accesorio, no una Laptop");
+assert(proponerCategoria("Candado Laptop Kensigton") === "Accesorio",
+  "Un candado sigue siendo Accesorio aunque diga Laptop");
+assert(proponerCategoria("Adaptador Wi-Fi USB") === "Accesorio",
+  "Un adaptador Wi-Fi no es un Cargador");
+assert(proponerCategoria("NexiGo Glow Light - Luz para streamer. Con sujetador para pantalla") === "Accesorio",
+  "Una luz con sujetador para pantalla no es una Pantalla");
+assert(proponerCategoria("Lenovo ThinkSmart Core Mini i5-1145G7E Windows 11 Pro PC NEW 256GB NVMe") === "Desktop",
+  "Un mini PC con NVMe es un Desktop, no un SSD");
+assert(proponerCategoria("Cargador Lenovo ADLX90NCC2A 20V 4.5A 90W") === "Cargador",
+  "Y un cargador de verdad sigue siendo Cargador");
+
 console.log("\n── sin pista clara, no se inventa ──");
 
 assert(proponerCategoria("Artículo genérico sin pistas") === undefined,

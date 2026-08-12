@@ -40,6 +40,7 @@ import fs   from "fs";
 import path from "path";
 import { readFile } from "node:fs/promises";
 
+import { leerTabla, normalizarCabecera } from "./leer-tabla";
 import {
   emparejar,
   proponerCategoria,
@@ -69,48 +70,31 @@ async function cargarEnvLocal(): Promise<void> {
 
 // ─── CSV ─────────────────────────────────────────────────────────────────────
 
-/** Parser de CSV que respeta comillas y comas dentro de un campo. */
-function parsearCsv(texto: string): string[][] {
-  const filas: string[][] = [];
-  let fila: string[] = [];
-  let campo = "";
-  let enComillas = false;
-
-  const limpio = texto.replace(/^﻿/, "");   // BOM de Excel
-
-  for (let i = 0; i < limpio.length; i++) {
-    const c = limpio[i];
-    if (enComillas) {
-      if (c === '"' && limpio[i + 1] === '"') { campo += '"'; i++; }
-      else if (c === '"') enComillas = false;
-      else campo += c;
-    } else if (c === '"') enComillas = true;
-    else if (c === "," || c === ";") { fila.push(campo); campo = ""; }
-    else if (c === "\n") { fila.push(campo); filas.push(fila); fila = []; campo = ""; }
-    else if (c !== "\r") campo += c;
-  }
-  if (campo || fila.length) { fila.push(campo); filas.push(fila); }
-  return filas.filter((f) => f.some((c) => c.trim() !== ""));
-}
-
 function escapar(v: string | number | undefined | null): string {
   const s = String(v ?? "");
   return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-function normalizarCabecera(s: string): string {
-  return s.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-}
-
-function buscarColumna(cabeceras: string[], candidatas: string[]): number {
+/**
+ * Encuentra una columna por el nombre de su cabecera.
+ *
+ * `veto` descarta cabeceras que contengan esa palabra. Hace falta de verdad:
+ * el export trae "Precio de Venta" Y "Precio Última Compra", y también
+ * "Stock Actual" Y "Cantidad Compra". Sin el veto, una búsqueda por "precio"
+ * o por "cantidad" puede quedarse con la columna de la compra al proveedor e
+ * importar el dato equivocado sin avisar.
+ */
+function buscarColumna(cabeceras: string[], candidatas: string[], veto: string[] = []): number {
   const norm = cabeceras.map(normalizarCabecera);
+  const vetada = (h: string) => veto.some((v) => h.includes(v));
+
   for (const c of candidatas) {
-    const i = norm.indexOf(c);
+    const i = norm.findIndex((h) => h === c && !vetada(h));
     if (i >= 0) return i;
   }
   // Coincidencia parcial, por si la cabecera trae texto de más.
   for (const c of candidatas) {
-    const i = norm.findIndex((h) => h.includes(c));
+    const i = norm.findIndex((h) => h.includes(c) && !vetada(h));
     if (i >= 0) return i;
   }
   return -1;
@@ -125,6 +109,18 @@ function aNumero(v: string | undefined): number | null {
     : limpio.replace(/,/g, "");
   const n = parseFloat(conPunto);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Redondea a centavos.
+ *
+ * El export del sistema viejo trae los precios con basura decimal —
+ * 79.99999955 en vez de 80.00, 40.00000035 en vez de 40.00 — en 280 de 283
+ * filas. Parece que guarda el precio sin IVA y lo multiplica al exportar.
+ * Sin redondear, ese ruido entra tal cual a Airtable y sale en las facturas.
+ */
+function aCentavos(n: number | null): number | null {
+  return n === null ? null : Math.round(n * 100) / 100;
 }
 
 // ─── Airtable (solo lectura) ─────────────────────────────────────────────────
@@ -186,47 +182,97 @@ async function main(): Promise<void> {
   await cargarEnvLocal();
 
   // ── Leer el export ────────────────────────────────────────────────────────
-  const filas = parsearCsv(fs.readFileSync(archivo, "utf8"));
-  if (filas.length < 2) {
+  const tabla = leerTabla(archivo);
+  if (!tabla.filas.length) {
     console.error("\n  El archivo no tiene datos (solo cabecera o vacío).\n");
     process.exit(1);
   }
 
-  const cabeceras = filas[0];
+  const { cabeceras } = tabla;
+  console.log(`\n  Leído como ${tabla.formato.toUpperCase()}.`);
+  if (tabla.descartadas > 0) {
+    console.log(`  Se saltaron ${tabla.descartadas} fila(s) de adorno antes de la cabecera.`);
+  }
+
+  // "compra" veta las columnas del proveedor: Precio Última Compra y Cantidad
+  // Compra son de la compra, no del artículo en venta.
+  const VETO = ["compra"];
   const col = {
-    nombre:   buscarColumna(cabeceras, ["nombre", "descripcion", "titulo", "articulo", "item", "producto"]),
+    nombre:   buscarColumna(cabeceras, ["nombre", "titulo", "articulo", "item", "producto", "descripcion"]),
     codigo:   buscarColumna(cabeceras, ["codigo", "sku", "referencia"]),
-    cantidad: buscarColumna(cabeceras, ["cantidad", "stock", "existencia"]),
-    costo:    buscarColumna(cabeceras, ["costo proveedor", "costo", "precio compra"]),
-    precio:   buscarColumna(cabeceras, ["precio venta", "precio publico", "pvp", "precio"]),
+    cantidad: buscarColumna(cabeceras, ["stock actual", "existencia", "stock", "cantidad"], VETO),
+    costo:    buscarColumna(cabeceras, ["costo producto", "costo proveedor", "costo"], VETO),
+    precio:   buscarColumna(cabeceras, ["precio de venta", "precio venta", "precio publico", "pvp", "precio"], VETO),
   };
 
   console.log("\n══ Columnas encontradas en el export ═══════════════════════\n");
   for (const [k, i] of Object.entries(col)) {
     console.log(`  ${k.padEnd(10)}: ${i >= 0 ? `"${cabeceras[i]}"` : "── no encontrada"}`);
   }
+  console.log(`\n  Columnas ignoradas: ${cabeceras
+    .filter((_, i) => !Object.values(col).includes(i))
+    .map((c) => `"${c}"`)
+    .join(", ") || "ninguna"}`);
+
   if (col.nombre < 0) {
-    console.error("\n  Sin columna de nombre no se puede hacer nada. Revisa la cabecera del CSV.\n");
+    console.error("\n  Sin columna de nombre no se puede hacer nada. Revisa la cabecera.\n");
+    process.exit(1);
+  }
+  if (col.precio < 0) {
+    console.error("\n  Sin columna de precio de venta no se puede crear ningún item.\n");
     process.exit(1);
   }
 
-  const viejos: ItemViejo[] = filas.slice(1).map((f) => ({
+  const viejos: ItemViejo[] = tabla.filas.map((f) => ({
     nombre:      (f[col.nombre]   ?? "").trim(),
     codigo:      col.codigo   >= 0 ? (f[col.codigo] ?? "").trim() : undefined,
     cantidad:    (col.cantidad >= 0 ? aNumero(f[col.cantidad]) : null) ?? 1,
-    costo:       col.costo    >= 0 ? aNumero(f[col.costo])   : null,
-    precioVenta: col.precio   >= 0 ? aNumero(f[col.precio])  : null,
-  }));
+    costo:       aCentavos(col.costo  >= 0 ? aNumero(f[col.costo])  : null),
+    precioVenta: aCentavos(col.precio >= 0 ? aNumero(f[col.precio]) : null),
+  })).filter((v) => v.nombre !== "");
+
+  // Nombres repetidos DENTRO del propio export: en el archivo real hay 3.
+  // Se avisan aparte porque el emparejamiento mira el portal, no el export
+  // contra sí mismo, y crearía los dos.
+  const cuentaNombres = new Map<string, number>();
+  for (const v of viejos) {
+    const k = v.nombre.trim().toLowerCase();
+    cuentaNombres.set(k, (cuentaNombres.get(k) ?? 0) + 1);
+  }
+  const repetidosEnExport = new Set(
+    [...cuentaNombres.entries()].filter(([, n]) => n > 1).map(([k]) => k)
+  );
 
   // ── Leer el portal ────────────────────────────────────────────────────────
-  console.log("\n  Leyendo Shipping Items del portal…");
-  const portal = await leerShippingItems();
+  // --portal <archivo.tsv> lee una foto del catálogo en vez de Airtable. Sirve
+  // para volver a analizar sin conexión mientras se afina la hoja de revisión.
+  const iFoto = process.argv.indexOf("--portal");
+  let portal: ItemPortal[];
+
+  if (iFoto > 0 && process.argv[iFoto + 1]) {
+    const ruta = process.argv[iFoto + 1];
+    console.log(`\n  Leyendo el catálogo desde la foto ${path.basename(ruta)} (no se toca Airtable)…`);
+    portal = fs.readFileSync(ruta, "utf8").split(/\r?\n/).filter(Boolean).map((l) => {
+      const [sku, nombre, cantidad, precio] = l.split("\t");
+      return {
+        recordId: sku,
+        sku,
+        nombre,
+        cantidad: Number(cantidad) || 0,
+        precioVentaFinal: precio ? Number(precio) : null,
+      };
+    });
+  } else {
+    console.log("\n  Leyendo Shipping Items del portal…");
+    portal = await leerShippingItems();
+  }
   console.log(`  ${portal.length} artículos en el portal · ${viejos.length} en el export\n`);
 
   // ── Clasificar ────────────────────────────────────────────────────────────
   const cuenta = { "YA EXISTE": 0, "POSIBLE DUPLICADO": 0, "NUEVO": 0 };
   let sinCategoria = 0;
   let sinPrecio    = 0;
+  let duplicadosInternos = 0;
 
   const salida: string[] = [
     [
@@ -246,14 +292,22 @@ async function main(): Promise<void> {
 
     // La decisión se propone; el precio faltante fuerza revisión porque sin él
     // el artículo no se puede facturar.
+    const repetido = repetidosEnExport.has(v.nombre.trim().toLowerCase());
+    if (repetido) duplicadosInternos++;
+
     const decision =
       e.clasificacion === "YA EXISTE"         ? "omitir"
       : e.clasificacion === "POSIBLE DUPLICADO" ? "revisar"
+      : repetido                                 ? "revisar"
       : (!categoria || !v.precioVenta || v.precioVenta <= 0) ? "revisar"
       : "crear";
 
+    const motivo = repetido
+      ? `${e.motivo} · ⚠ este nombre aparece más de una vez en el propio export`
+      : e.motivo;
+
     salida.push([
-      decision, categoria, e.clasificacion, e.motivo,
+      decision, categoria, e.clasificacion, motivo,
       v.nombre, v.codigo ?? "", v.cantidad, v.costo ?? "", v.precioVenta ?? "",
       e.candidato?.sku ?? "", e.candidato?.nombre ?? "",
       e.candidato?.cantidad ?? "", e.candidato?.precioVentaFinal ?? "",
@@ -272,6 +326,7 @@ async function main(): Promise<void> {
   console.log("");
   if (sinCategoria) console.log(`  ⚠ ${sinCategoria} sin categoría propuesta — hay que llenarla a mano (es obligatoria)`);
   if (sinPrecio)    console.log(`  ⚠ ${sinPrecio} sin precio de venta — sin precio no se pueden facturar`);
+  if (duplicadosInternos) console.log(`  ⚠ ${duplicadosInternos} con el nombre repetido DENTRO del export — van a revisión`);
 
   console.log(`\n  Hoja de revisión: ${path.relative(process.cwd(), SALIDA)}`);
   console.log("\n  Ábrela en Google Sheets o Excel y revisa:");

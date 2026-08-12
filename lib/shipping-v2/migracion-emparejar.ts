@@ -288,8 +288,28 @@ export type Categoria = (typeof CATEGORIAS)[number];
  * Pistas por categoría, de la más específica a la más general. El orden
  * importa: "cargador de laptop" es un Cargador, no una Laptop.
  */
+/**
+ * Frases que mandan por encima de todo, incluida la posición.
+ *
+ * Son los casos donde una palabra que normalmente indica el tipo aquí es solo
+ * un complemento. Salieron de auditar el export real:
+ *
+ *   "Kensington Combination Laptop Lock"  →  no es una Laptop, es un candado
+ *   "Adaptador Wi-Fi USB"                 →  no es un Cargador
+ *   "NexiGo Glow Light … para pantalla"   →  no es una Pantalla
+ *
+ * La regla de posición no las salva porque la palabra engañosa va primero.
+ */
+const FRASES: Array<{ categoria: Categoria; frases: string[] }> = [
+  { categoria: "Accesorio", frases: [
+      "laptop lock", "candado", "lock",
+      "adaptador wi fi", "adaptador wifi", "antena",
+      "glow light", "luz para", "lector de tarjetas", "lector usb",
+  ] },
+];
+
 const PISTAS: Array<{ categoria: Categoria; palabras: string[] }> = [
-  { categoria: "Cargador",        palabras: ["cargador", "adaptador", "charger"] },
+  { categoria: "Cargador",        palabras: ["cargador", "charger", "adaptador de corriente", "adaptador de poder", "adaptador ac"] },
   { categoria: "Batería",         palabras: ["bateria", "battery"] },
   { categoria: "Teclado",         palabras: ["teclado", "keyboard"] },
   { categoria: "Pantalla",        palabras: ["pantalla", "display", "lcd"] },
@@ -305,8 +325,19 @@ const PISTAS: Array<{ categoria: Categoria; palabras: string[] }> = [
   { categoria: "Tablet",          palabras: ["tablet", "ipad"] },
   { categoria: "Cable",           palabras: ["cable", "hdmi", "usb c", "displayport"] },
   { categoria: "Laptop",          palabras: ["laptop", "notebook", "thinkpad", "latitude", "elitebook", "macbook", "inspiron", "vivobook", "ideapad", "probook"] },
-  { categoria: "Desktop",         palabras: ["desktop", "thinkcentre", "optiplex", "prodesk", "elitedesk", "torre", "mini pc", "minipc"] },
-  { categoria: "Accesorio",       palabras: ["mouse", "funda", "soporte", "hub", "docking", "base"] },
+  { categoria: "Desktop",         palabras: ["desktop", "thinkcentre", "optiplex", "prodesk", "elitedesk", "torre", "mini pc", "minipc", "nuc", "thinksmart", "beelink", "wintel"] },
+  // Audio, video y periféricos. Salieron del export real del sistema viejo:
+  // 103 de 283 artículos no tenían ninguna pista, y la mayoría eran audífonos,
+  // parlantes, cámaras y micrófonos. Todos caen en "Accesorio", que sí existe
+  // en el desplegable de Airtable.
+  { categoria: "Accesorio",       palabras: [
+      "mouse", "funda", "estuche", "soporte", "hub", "docking", "dock", "base",
+      "audifono", "audifonos", "headset", "headphones", "earbuds", "airpods", "auriculares",
+      "parlante", "parlantes", "speaker", "altavoz",
+      "camara", "webcam",
+      "microfono", "mic",
+  ] },
+  { categoria: "Otro",            palabras: ["licencia", "office 365", "microsoft office"] },
 ];
 
 /**
@@ -339,6 +370,10 @@ const PISTAS: Array<{ categoria: Categoria; palabras: string[] }> = [
 export function proponerCategoria(nombre: string): Categoria | undefined {
   const n = normalizarParaComparar(nombre);
   if (!n) return undefined;
+
+  for (const { categoria, frases } of FRASES) {
+    if (frases.some((f) => n.includes(f))) return categoria;
+  }
 
   let mejor: { categoria: Categoria; posicion: number; prioridad: number } | undefined;
 
