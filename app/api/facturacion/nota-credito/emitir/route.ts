@@ -9,6 +9,7 @@ import {
   validarMotivo,
 } from "@/lib/facturacion/notaCredito/calculos";
 import { emitirNotaCredito }         from "@/lib/facturacion/notaCredito/emitirNotaCredito";
+import { procesarPuenteNotaCredito } from "@/lib/finanzas/puentes/notaCredito";
 import { revertirInventarioNotaCredito } from "@/lib/facturacion/notaCredito/revertirInventario";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import type { DetalleFactura }       from "@/lib/facturacion/types/factura";
@@ -142,10 +143,12 @@ export async function POST(request: Request) {
       destino:                 body.destino,
     });
 
-    // Efecto interno tras AUTORIZADO — reverso de inventario (PR2a), best-effort
-    // en su propio try/catch, con efecto real solo en producción (guard de
-    // ambiente interno). La NC NO genera egreso contable (decisión del dueño).
+    // Efectos internos tras AUTORIZADO. Los dos son best-effort, cada uno en su
+    // propio try/catch y con guardián de ambiente propio: una nota de crédito
+    // ya autorizada ante el SRI es un documento real y ningún fallo interno
+    // puede alterarla ni impedir que se devuelva al usuario.
     if (resultado.estado === "AUTORIZADO" && resultado.recordId) {
+      // (a) Devolver el stock al inventario.
       try {
         await revertirInventarioNotaCredito({
           notaCreditoRecordId: resultado.recordId,
@@ -154,6 +157,17 @@ export async function POST(request: Request) {
         });
       } catch (e) {
         console.error("[/api/facturacion/nota-credito/emitir] reverso de inventario falló:", e);
+      }
+
+      // (b) Revertir el ingreso contable y arrancar el reloj de caducidad del
+      // crédito. No mueve caja: la NC sigue sin generar egreso de dinero.
+      const puente = await procesarPuenteNotaCredito({
+        notaCreditoRecordId: resultado.recordId,
+        ambiente:            resultado.ambiente,
+        registradoPor:       session.user.nombre || session.user.email || "Portal",
+      });
+      if (puente.estado === "ERROR") {
+        console.error("[/api/facturacion/nota-credito/emitir] puente contable falló:", puente.motivo);
       }
     }
 

@@ -41,6 +41,10 @@ export const MOVIMIENTOS_FIELDS = {
   motivoAnulacion: "Motivo de anulación",
   abono: "Abono",
   facturaElectronica: "Factura Electrónica",
+  // Creado a mano en Airtable el 14-ago-2026 para los asientos de la nota de
+  // crédito: la reversa del ingreso al autorizarla y el ingreso por el crédito
+  // que caduca sin usarse. Ver docs/DISENO_NC_REVERSA_Y_CADUCIDAD.md.
+  notaCredito: "Nota de Crédito",
   horariosPago: "Horarios Pago",
   cliente: "Cliente",
   proveedor: "Proveedor",
