@@ -20,8 +20,10 @@ type LineasJsonEnvoltorio = {
   origen?:   OrigenGancho;
 };
 
-// Reintentar sincronización solo tiene sentido para facturas ya AUTORIZADAS
-// con origen (gancho) — mostrador nunca dispara postEmision.
+// Reintentar sincronización tiene sentido para cualquier factura ya AUTORIZADA
+// que traiga líneas de inventario, venga del gancho o del mostrador. (Hasta
+// agosto de 2026 este comentario decía "mostrador nunca dispara postEmision":
+// era cierto, pero por un bug del endpoint de emisión, no por diseño.)
 export async function POST(_req: Request, { params }: Params) {
   const { response } = await requireFacturacionSession();
   if (response) return response;
