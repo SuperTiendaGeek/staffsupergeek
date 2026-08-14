@@ -371,7 +371,7 @@ const PISTAS: Array<{ categoria: Categoria; palabras: string[] }> = [
   { categoria: "Consola",         palabras: ["playstation", "xbox", "nintendo", "consola", "ps4", "ps5"] },
   { categoria: "Tablet",          palabras: ["tablet", "ipad"] },
   { categoria: "Cable",           palabras: ["cable", "hdmi", "usb c", "displayport"] },
-  { categoria: "Laptop",          palabras: ["laptop", "notebook", "thinkpad", "latitude", "elitebook", "macbook", "inspiron", "vivobook", "ideapad", "probook"] },
+  { categoria: "Laptop",          palabras: ["laptop", "notebook", "thinkpad", "latitude", "elitebook", "macbook", "inspiron", "vivobook", "ideapad", "probook", "chromebook"] },
   { categoria: "Desktop",         palabras: ["desktop", "thinkcentre", "optiplex", "prodesk", "elitedesk", "torre", "mini pc", "minipc", "nuc", "thinksmart", "beelink", "wintel"] },
   // Audio, video y periféricos. Salieron del export real del sistema viejo:
   // 103 de 283 artículos no tenían ninguna pista, y la mayoría eran audífonos,
@@ -385,6 +385,8 @@ const PISTAS: Array<{ categoria: Categoria; palabras: string[] }> = [
       "microfono", "mic",
   ] },
   { categoria: "Otro",            palabras: ["licencia", "office 365", "microsoft office"] },
+  // Tarjetas internas de red: en el portal viven como Repuesto (REP-000015/16).
+  { categoria: "Repuesto",        palabras: ["tarjeta wifi", "tarjeta bluetooth", "tarjeta de red", "ventilador", "disipador"] },
 ];
 
 /**

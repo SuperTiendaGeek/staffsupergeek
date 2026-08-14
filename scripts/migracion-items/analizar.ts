@@ -49,6 +49,50 @@ import {
 } from "@/lib/shipping-v2/migracion-emparejar";
 
 const SALIDA = path.join(process.cwd(), "scripts/migracion-items/revision.csv");
+
+/**
+ * La columna "Categoría" del sistema viejo, traducida al desplegable del portal.
+ *
+ * Solo se usa cuando el NOMBRE no dio ninguna pista. Es una red, no la regla:
+ * las categorías del sistema viejo son mucho más gruesas que las del portal
+ * (todo un mundo de aparatos cabe en "ELECTRÓNICOS").
+ *
+ * "ELECTRÓNICOS" → "Otro" es decisión de Alex: son aparatos completos
+ * (amplificadores, repetidores Wi-Fi, grabadoras), no partes ni accesorios de
+ * computador, y "Otro" los deja juntos y fáciles de reclasificar después.
+ */
+const CATEGORIA_VIEJA_A_PORTAL: Record<string, string> = {
+  "LAPTOPS":      "Laptop",
+  "DESKTOP":      "Desktop",
+  "ACCESORIOS":   "Accesorio",
+  "ELECTRONICOS": "Otro",
+};
+
+/**
+ * Categorías del sistema viejo que NO se importan, por decisión de Alex.
+ *
+ * ENVIOS COURIER son servicios ("ENTREGA A DOMICILIO", "SERVICIO FYBECA") a los
+ * que el sistema viejo les puso stock 1 para poder facturarlos. Shipping Items
+ * es inventario físico.
+ *
+ * SOFTWARE son llaves de licencia (Windows, Office, McAfee). No son mercadería
+ * y se manejan por fuera del portal.
+ */
+const CATEGORIAS_QUE_NO_SE_IMPORTAN: Record<string, string> = {
+  "ENVIOS COURIER": "es un servicio, no mercadería física",
+  "SOFTWARE":       "es una licencia, se maneja fuera del portal",
+};
+
+/** "Presentación" del sistema viejo → campo "Condición" de Shipping Items. */
+const PRESENTACION_A_CONDICION: Record<string, string> = {
+  "USADO":  "Usado",  "USADA": "Usado",  "USADOS": "Usado",  "USADAS": "Usado",
+  "NUEVO":  "Nuevo",  "NUEVA": "Nuevo",  "NUEVOS": "Nuevo",
+  "PARTES": "Para partes",
+};
+
+function sinTildes(s: string): string {
+  return s.trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
 const TABLA  = "Shipping Items";
 
 // ─── Entorno ─────────────────────────────────────────────────────────────────
@@ -203,6 +247,8 @@ async function main(): Promise<void> {
     cantidad: buscarColumna(cabeceras, ["stock actual", "existencia", "stock", "cantidad"], VETO),
     costo:    buscarColumna(cabeceras, ["costo producto", "costo proveedor", "costo"], VETO),
     precio:   buscarColumna(cabeceras, ["precio de venta", "precio venta", "precio publico", "pvp", "precio"], VETO),
+    categoriaVieja: buscarColumna(cabeceras, ["categoria", "categoría", "familia", "grupo"]),
+    presentacion:   buscarColumna(cabeceras, ["presentacion", "condicion", "estado"]),
   };
 
   console.log("\n══ Columnas encontradas en el export ═══════════════════════\n");
@@ -223,13 +269,21 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const viejos: ItemViejo[] = tabla.filas.map((f) => ({
+  const extras = new Map<number, { categoriaVieja: string; presentacion: string }>();
+  const viejos: ItemViejo[] = tabla.filas.map((f, i) => {
+    extras.set(i, {
+      categoriaVieja: col.categoriaVieja >= 0 ? (f[col.categoriaVieja] ?? "").trim() : "",
+      presentacion:   col.presentacion   >= 0 ? (f[col.presentacion]   ?? "").trim() : "",
+    });
+    return {
     nombre:      (f[col.nombre]   ?? "").trim(),
     codigo:      col.codigo   >= 0 ? (f[col.codigo] ?? "").trim() : undefined,
     cantidad:    (col.cantidad >= 0 ? aNumero(f[col.cantidad]) : null) ?? 1,
     costo:       aCentavos(col.costo  >= 0 ? aNumero(f[col.costo])  : null),
     precioVenta: aCentavos(col.precio >= 0 ? aNumero(f[col.precio]) : null),
-  })).filter((v) => v.nombre !== "");
+    };
+  });
+  const extrasDe = (i: number) => extras.get(i) ?? { categoriaVieja: "", presentacion: "" };
 
   // Nombres repetidos DENTRO del propio export: en el archivo real hay 3.
   // Se avisan aparte porque el emparejamiento mira el portal, no el export
@@ -273,21 +327,37 @@ async function main(): Promise<void> {
   let sinCategoria = 0;
   let sinPrecio    = 0;
   let duplicadosInternos = 0;
+  let noImportados = 0;
 
   const salida: string[] = [
     [
-      "DECISION", "CATEGORIA", "clasificacion", "motivo",
+      "DECISION", "CATEGORIA", "CONDICION", "clasificacion", "motivo",
       "nombre_viejo", "codigo_viejo", "cantidad_viejo", "costo_viejo", "precio_viejo",
       "sku_portal", "nombre_portal", "cantidad_portal", "precio_portal", "parecido_%",
+      "categoria_vieja", "presentacion_vieja",
     ].join(","),
   ];
 
-  for (const v of viejos) {
+  for (const [i, v] of viejos.entries()) {
+    if (v.nombre === "") continue;
+
+    const { categoriaVieja, presentacion } = extrasDe(i);
+    const claveVieja = sinTildes(categoriaVieja);
+
     const e = emparejar(v, portal);
     cuenta[e.clasificacion]++;
 
-    const categoria = proponerCategoria(v.nombre) ?? "";
+    // El nombre manda; la categoría del sistema viejo solo rescata lo que el
+    // nombre no resolvió.
+    const categoria =
+      proponerCategoria(v.nombre) ?? CATEGORIA_VIEJA_A_PORTAL[claveVieja] ?? "";
     if (!categoria) sinCategoria++;
+
+    const condicion = PRESENTACION_A_CONDICION[sinTildes(presentacion)] ?? "";
+
+    // Lo que Alex decidió no importar sale marcado y explicado.
+    const razonNoImportar = CATEGORIAS_QUE_NO_SE_IMPORTAN[claveVieja];
+    if (razonNoImportar) noImportados++;
     if (!v.precioVenta || v.precioVenta <= 0) sinPrecio++;
 
     // La decisión se propone; el precio faltante fuerza revisión porque sin él
@@ -296,22 +366,26 @@ async function main(): Promise<void> {
     if (repetido) duplicadosInternos++;
 
     const decision =
-      e.clasificacion === "YA EXISTE"         ? "omitir"
+      razonNoImportar                          ? "omitir"
+      : e.clasificacion === "YA EXISTE"         ? "omitir"
       : e.clasificacion === "POSIBLE DUPLICADO" ? "revisar"
       : repetido                                 ? "revisar"
       : (!categoria || !v.precioVenta || v.precioVenta <= 0) ? "revisar"
       : "crear";
 
-    const motivo = repetido
+    const motivo = razonNoImportar
+      ? `No se importa: ${razonNoImportar} (categoría "${categoriaVieja}" del sistema viejo).`
+      : repetido
       ? `${e.motivo} · ⚠ este nombre aparece más de una vez en el propio export`
       : e.motivo;
 
     salida.push([
-      decision, categoria, e.clasificacion, motivo,
+      decision, categoria, condicion, e.clasificacion, motivo,
       v.nombre, v.codigo ?? "", v.cantidad, v.costo ?? "", v.precioVenta ?? "",
       e.candidato?.sku ?? "", e.candidato?.nombre ?? "",
       e.candidato?.cantidad ?? "", e.candidato?.precioVentaFinal ?? "",
       Math.round(e.parecido * 100),
+      categoriaVieja, presentacion,
     ].map(escapar).join(","));
   }
 
@@ -326,6 +400,7 @@ async function main(): Promise<void> {
   console.log("");
   if (sinCategoria) console.log(`  ⚠ ${sinCategoria} sin categoría propuesta — hay que llenarla a mano (es obligatoria)`);
   if (sinPrecio)    console.log(`  ⚠ ${sinPrecio} sin precio de venta — sin precio no se pueden facturar`);
+  if (noImportados) console.log(`  · ${noImportados} no se importan por decisión previa (servicios y licencias)`);
   if (duplicadosInternos) console.log(`  ⚠ ${duplicadosInternos} con el nombre repetido DENTRO del export — van a revisión`);
 
   console.log(`\n  Hoja de revisión: ${path.relative(process.cwd(), SALIDA)}`);

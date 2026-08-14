@@ -46,6 +46,18 @@ const ENTRADA = path.join(process.cwd(), "scripts/migracion-items/revision.csv")
 const TABLA   = "Shipping Items";
 const APLICAR = process.argv.includes("--aplicar");
 
+/**
+ * Opciones del campo "Condición" en Shipping Items.
+ *
+ * Se valida contra esta lista antes de escribir porque la creación va con
+ * typecast: true, y typecast CREA la opción si no existe. Un error de dedo
+ * dejaría una opción basura en el desplegable de Airtable para siempre.
+ */
+const CONDICIONES = [
+  "Usado", "Open Box", "Nuevo", "Para partes", "Dañado",
+  "No probado", "Reacondicionado", "Otro",
+] as const;
+
 const MARCA_LOTE = `[MIGRACION-SISTEMA-VIEJO ${new Date().toISOString().split("T")[0]}]`;
 
 // ─── Entorno ─────────────────────────────────────────────────────────────────
@@ -174,6 +186,7 @@ async function main(): Promise<void> {
   const iCodigo    = idx("codigo_viejo");
   const iCantidad  = idx("cantidad_viejo");
   const iPrecio    = idx("precio_viejo");
+  const iCondicion = idx("CONDICION");   // opcional: si no está, se omite el campo
 
   if ([iDecision, iCategoria, iNombre, iCantidad, iPrecio].some((i) => i < 0)) {
     console.error("\n  A la hoja le faltan columnas. ¿Se guardó con otro formato?");
@@ -182,7 +195,7 @@ async function main(): Promise<void> {
   }
 
   // ── Filtrar y validar ─────────────────────────────────────────────────────
-  const aCrear: Array<{ nombre: string; codigo: string; categoria: string; cantidad: number; precio: number }> = [];
+  const aCrear: Array<{ nombre: string; codigo: string; categoria: string; cantidad: number; precio: number; condicion: string }> = [];
   const problemas: string[] = [];
   const conteo = { crear: 0, omitir: 0, revisar: 0, otro: 0 };
 
@@ -213,7 +226,13 @@ async function main(): Promise<void> {
       continue;
     }
 
-    aCrear.push({ nombre, codigo: (f[iCodigo] ?? "").trim(), categoria, cantidad, precio });
+    const condicion = iCondicion >= 0 ? (f[iCondicion] ?? "").trim() : "";
+    if (condicion && !(CONDICIONES as readonly string[]).includes(condicion)) {
+      problemas.push(`"${nombre}": condición "${condicion}" no existe en el desplegable de Airtable`);
+      continue;
+    }
+
+    aCrear.push({ nombre, codigo: (f[iCodigo] ?? "").trim(), categoria, cantidad, precio, condicion });
   }
 
   console.log("\n══ Hoja de revisión ════════════════════════════════════════\n");
@@ -255,6 +274,7 @@ async function main(): Promise<void> {
         "Categoría":             it.categoria,
         "Cantidad":              it.cantidad,
         "Precio venta final":    it.precio,
+        ...(it.condicion ? { "Condición": it.condicion } : {}),
         "Tipo de operación":     "Migración histórica",
         "Estado Item":           "Disponible",
         "Disponible para venta": true,
