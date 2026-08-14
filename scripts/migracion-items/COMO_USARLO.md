@@ -23,6 +23,18 @@ Guárdalo donde quieras, por ejemplo `~/Downloads/items-viejos.csv`.
 > El precio se toma **con IVA incluido**, tal como lo tiene el sistema viejo, y
 > va al campo `Precio venta final`.
 
+Las dos últimas columnas son opcionales pero ayudan mucho:
+
+- **Categoría** del sistema viejo se usa solo como red, cuando el nombre no dio
+  ninguna pista. `LAPTOPS`→Laptop, `DESKTOP`→Desktop, `ACCESORIOS`→Accesorio,
+  `ELECTRÓNICOS`→Otro.
+- **Presentación** (`USADO` / `NUEVO` / `PARTES`) se traduce al campo
+  **Condición** de Shipping Items.
+
+**No se importan** las filas cuya categoría en el sistema viejo sea
+`ENVIOS COURIER` (son servicios, no mercadería) ni `SOFTWARE` (son licencias).
+Salen en la hoja marcadas `omitir` y con el motivo escrito.
+
 ---
 
 ## 2 · Analizar — solo lectura

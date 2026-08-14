@@ -223,6 +223,11 @@ assert(proponerCategoria("Disco Duro Interno 500GB SATA") === "HDD",
 assert(proponerCategoria("Memoria USB 2.0 128GB") === "Accesorio",
   "Una memoria USB es un Accesorio, no una RAM");
 
+assert(proponerCategoria("Acer Chromebook 13 C810-T9CA") === "Laptop",
+  "Un Chromebook es una Laptop");
+assert(proponerCategoria("Tarjeta WiFi/Bluetooth Intel AX211NGW WiFi 6E M.2") === "Repuesto",
+  "Una tarjeta Wi-Fi interna es un Repuesto, no un SSD por decir M.2");
+
 console.log("\n── sin pista clara, no se inventa ──");
 
 assert(proponerCategoria("Artículo genérico sin pistas") === undefined,

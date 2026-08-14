@@ -3,7 +3,7 @@ import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitirFactura";
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { buscarFacturaBloqueante } from "@/lib/facturacion/gancho/idempotencia";
-import { postEmision } from "@/lib/facturacion/gancho/postEmision";
+import { postEmision, debeIntentarPostEmision } from "@/lib/facturacion/gancho/postEmision";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
@@ -88,7 +88,9 @@ export async function POST(request: Request) {
     // la respuesta de la emisión no cambia — la factura ya es AUTORIZADA
     // ante el SRI. Se espera (no fire-and-forget) porque el runtime
     // serverless puede congelar la función apenas se envía la respuesta.
-    if (resultado.estado === "AUTORIZADO" && body.origen && resultado.recordId) {
+    // La condición vive en debeIntentarPostEmision() y NO mira body.origen:
+    // el mostrador también descuenta inventario desde la Fase 17.b.
+    if (debeIntentarPostEmision(resultado)) {
       try {
         await postEmision({ facturaRecordId: resultado.recordId, detalles: body.detalles, ambiente: resultado.ambiente });
       } catch (e) {

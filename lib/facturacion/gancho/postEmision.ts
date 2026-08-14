@@ -104,6 +104,38 @@ export type PostEmisionInput = {
 // contable para "2" === producción.
 const AMBIENTE_PRODUCCION = "2";
 
+/**
+ * ¿Corresponde intentar el descuento de inventario tras esta emisión?
+ *
+ * ─── Por qué esta función existe ─────────────────────────────────────────────
+ *
+ * Porque su ausencia costó una factura real. El endpoint de emisión tenía la
+ * condición escrita a mano así:
+ *
+ *     if (resultado.estado === "AUTORIZADO" && body.origen && resultado.recordId)
+ *
+ * Ese `body.origen` venía de la Fase 16, cuando SOLO el gancho (órdenes y
+ * operaciones comerciales) descontaba inventario. En la Fase 17.b se conectó
+ * el mostrador: el buscador del formulario empezó a vincular cada línea con su
+ * Shipping Item, y la verificación previa de stock pasó a correr para TODAS
+ * las facturas. Pero la condición del descuento se quedó como estaba.
+ *
+ * El resultado era una contradicción silenciosa: una venta de mostrador no
+ * tiene `origen`, así que el sistema comprobaba que hubiera stock, dejaba
+ * vender, y no descontaba nada. Lo encontró Alex en la primera factura real
+ * de producción, la 001-002-000000674, el 14 de agosto de 2026.
+ *
+ * La regla NO mira el origen. Importa que la factura sea real (AUTORIZADO) y
+ * que exista su registro. Qué líneas descuentan lo decide postEmision(), que
+ * ignora servicios y líneas manuales, y el ambiente lo filtra su propio
+ * guardián.
+ */
+export function debeIntentarPostEmision<T extends { estado: string; recordId?: string }>(
+  resultado: T
+): resultado is T & { recordId: string } {
+  return resultado.estado === "AUTORIZADO" && !!resultado.recordId;
+}
+
 export async function postEmision(input: PostEmisionInput): Promise<ResultadoPostEmision> {
   if (input.ambiente !== AMBIENTE_PRODUCCION) {
     return { estado: "OK" };
