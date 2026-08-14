@@ -367,23 +367,43 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
   delete process.env.AIRTABLE_API_KEY;
   delete process.env.AIRTABLE_BASE_ID;
 
-  // ─── Mostrador — verificación a nivel de código fuente ───────────────────────
-  // El endpoint de emisión solo llama a postEmision() cuando el body trae
-  // origen (gancho); mostrador jamás manda origen, así que el guard en el
-  // código fuente es la garantía real de que nunca se dispara para mostrador.
-  const rutaEmitir = path.join(__dirname, "..", "..", "..", "app", "api", "facturacion", "emitir", "route.ts");
+  // ─── El disparador del descuento, leído del código fuente ──────────────────
+  //
+  // Este bloque llegó a afirmar lo contrario de lo correcto:
+  //
+  //     "postEmision() debe estar condicionado a que el body traiga origen
+  //      (mostrador nunca lo manda)"
+  //
+  // Era la descripción del bug, escrita como si fuera la regla. El endpoint
+  // exigía body.origen y por eso las ventas de mostrador no descontaban stock
+  // — lo pagó la primera factura real de producción, la 001-002-000000674.
+  //
+  // Y cuando el bug se arregló, las aserciones NO fallaron: seguían pasando
+  // por coincidencia textual. La de "origen" enganchaba con el if (body.origen)
+  // de la idempotencia, y la de "AUTORIZADO" con el bloque de reservas. Un
+  // regex sin anclar sobre un archivo entero encuentra casi cualquier cosa.
+  //
+  // Por eso ahora se busca la llamada concreta y se mira SU condición, no el
+  // archivo completo. El comportamiento de la regla en sí se prueba aparte, sin
+  // regex, en mostrador.descuentaStock.test.ts.
+  const rutaEmitir   = path.join(__dirname, "..", "..", "..", "app", "api", "facturacion", "emitir", "route.ts");
   const codigoEmitir = fs.readFileSync(rutaEmitir, "utf8");
+
+  const iLlamada = codigoEmitir.indexOf("await postEmision(");
+  assert(iLlamada > 0, "El endpoint de emisión debe invocar postEmision()");
+
+  // La condición que gobierna esa llamada: el if inmediatamente anterior.
+  const antes       = codigoEmitir.slice(0, iLlamada);
+  const iIf         = antes.lastIndexOf("if (");
+  const condicion   = antes.slice(iIf, antes.indexOf("{", iIf));
+
   assert(
-    codigoEmitir.includes("postEmision"),
-    "El endpoint de emisión debe invocar postEmision()"
+    condicion.includes("debeIntentarPostEmision"),
+    "La llamada a postEmision() debe estar gobernada por debeIntentarPostEmision()"
   );
   assert(
-    /if\s*\([^)]*body\.origen[^)]*\)\s*\{[\s\S]*?postEmision/.test(codigoEmitir),
-    "postEmision() debe estar condicionado a que el body traiga origen (mostrador nunca lo manda)"
-  );
-  assert(
-    codigoEmitir.includes("resultado.estado === \"AUTORIZADO\""),
-    "postEmision() debe estar condicionado también a que la emisión haya quedado AUTORIZADO"
+    !condicion.includes("origen"),
+    "Esa condición NO puede mirar el origen: el mostrador también descuenta inventario"
   );
 
   if (fallos > 0) {

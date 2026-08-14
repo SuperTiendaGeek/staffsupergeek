@@ -34,3 +34,6 @@ horarios-rediseno-propuesta.html
 
 # Carpetas temporales que dejan los tests de facturación al correr localmente
 .tmp-test-*/
+
+# Hoja de revisión de la migración de items: datos del negocio, no código.
+scripts/migracion-items/revision.csv
