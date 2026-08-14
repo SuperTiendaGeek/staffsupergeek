@@ -26,6 +26,10 @@ export type CategoriaMovimiento =
   | "Acreditación Pasarela"
   | "Pago SRI"
   | "Devolución"
+  // Ingreso por un crédito de nota de crédito que caducó sin que el cliente lo
+  // usara. A los 6 meses ese dinero deja de ser una deuda con el cliente y pasa
+  // a ser ingreso del período en que caduca.
+  | "Crédito Caducado"
   | "Ajuste de Caja"
   | "Pago Tarjeta de Crédito"
   | "Otro";
@@ -139,6 +143,9 @@ export type CrearMovimientoInput = {
   montoBruto?: number;
   montoNeto?: number;
   comision?: number;
+  // Enlace al registro de la nota de crédito que originó el asiento (reversa o
+  // caducidad). Ver lib/finanzas/puentes/notaCredito.ts.
+  notaCreditoId?: string;
   abonoId?: string;
   facturaElectronicaId?: string;
   horariosPagoId?: string;

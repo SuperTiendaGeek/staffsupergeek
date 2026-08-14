@@ -102,6 +102,7 @@ export async function crearMovimiento(input: CrearMovimientoInput, options: Crea
     [F.fechaCreacion]: new Date().toISOString(),
     [F.abono]: input.abonoId ? [input.abonoId] : undefined,
     [F.facturaElectronica]: input.facturaElectronicaId ? [input.facturaElectronicaId] : undefined,
+    [F.notaCredito]:        input.notaCreditoId ? [input.notaCreditoId] : undefined,
     [F.horariosPago]: input.horariosPagoId ? [input.horariosPagoId] : undefined,
     [F.cliente]: input.clienteId ? [input.clienteId] : undefined,
     [F.proveedor]: input.proveedorId ? [input.proveedorId] : undefined,

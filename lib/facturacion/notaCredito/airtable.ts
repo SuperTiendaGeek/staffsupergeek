@@ -250,10 +250,40 @@ export async function actualizarReversoInventario(
   );
 }
 
-// Nota (2026-07-22): la NC NO genera movimiento contable automático (decisión
-// operativa del dueño). El circuito contable final es factura original + NC +
-// factura de reemplazo pagada con crédito/compensación — no un egreso de la NC.
-// Por eso no hay puente contable aquí.
+// ─── Asiento de reversa y fecha de caducidad ─────────────────────────────────
+//
+// Hasta el 14-ago-2026 aquí decía que la NC no generaba ningún movimiento
+// contable. Era cierto y estaba mal: el ingreso original se quedaba registrado
+// y la factura de reemplazo registraba ingreso otra vez, así que una venta de
+// $100 devuelta y reemplazada aparecía como $200 de ingresos con $100 de
+// dinero real. Lo que NO debe generar la NC es un EGRESO DE CAJA — eso sigue
+// igual: el asiento de reversa va sin cuenta.
+//
+// Ver docs/DISENO_NC_REVERSA_Y_CADUCIDAD.md.
+
+/**
+ * Deja constancia del asiento de reversa y arranca el reloj del crédito.
+ *
+ * Sin typecast a propósito: si "Estado Crédito" no tuviera la opción exacta,
+ * typecast la CREARÍA en el desplegable de Airtable y el error pasaría
+ * inadvertido. Preferimos que falle aquí y se vea.
+ */
+export async function marcarReversaContable(
+  recordId:       string,
+  movimientoId:   string,
+  fechaCaducidad: string
+): Promise<void> {
+  const client = getClient();
+  const fields: Record<string, unknown> = {
+    "Movimiento Reversa": [movimientoId],
+    "Estado Crédito":     "Vigente",
+  };
+  if (fechaCaducidad) fields["Fecha de Caducidad"] = fechaCaducidad;
+  await airtableRequest(
+    `${client.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(recordId)}`,
+    { method: "PATCH", body: JSON.stringify({ fields }) }
+  );
+}
 
 // ─── Obtener una NC individual por record id ─────────────────────────────────
 // Para el reemplazo: leer una NC puntual sin listar (evita el tope de 100
@@ -270,6 +300,11 @@ export type NotaCreditoIndividual = {
   total:                 number;
   saldoDisponible:       number;
   lineasJson:            string;
+  fechaAutorizacion:       string;
+  fechaCaducidad:          string;
+  estadoCredito:           string;
+  movimientoReversaIds:    string[];
+  movimientoCaducidadIds:  string[];
 };
 
 export async function obtenerNotaCreditoPorId(recordId: string): Promise<NotaCreditoIndividual | null> {
@@ -290,6 +325,11 @@ export async function obtenerNotaCreditoPorId(recordId: string): Promise<NotaCre
     total:                 num(f["Total"]),
     saldoDisponible:       num(f["Saldo Disponible"]),
     lineasJson:            str(f["Líneas JSON"]),
+    fechaAutorizacion:      str(f["Fecha de Autorización"]),
+    fechaCaducidad:         str(f["Fecha de Caducidad"]),
+    estadoCredito:          str(f["Estado Crédito"]),
+    movimientoReversaIds:   linkedIdsRaw(f["Movimiento Reversa"]),
+    movimientoCaducidadIds: linkedIdsRaw(f["Movimiento Caducidad"]),
   };
 }
 
