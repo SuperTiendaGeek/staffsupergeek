@@ -116,6 +116,21 @@ const e7 = emparejar({ nombre: "", cantidad: 1 }, PORTAL);
 assert(e7.clasificacion === "POSIBLE DUPLICADO",
   "Sin nombre nunca se crea a ciegas: va a revisión");
 
+// El que se escapó en la prueba con datos reales: 67 unidades del mismo disco.
+const e10 = emparejar({ nombre: "Disco Duro Interno SSD 120GB", cantidad: 67 }, [
+  { recordId: "recX", sku: "REP-000017", nombre: "Disco Duro Sólido Interno 120GB 2.5 SATA Mixed/Brands", cantidad: 52, precioVentaFinal: 40 },
+]);
+assert(e10.clasificacion === "POSIBLE DUPLICADO",
+  "Un disco con casi las mismas palabras que uno del portal va a revisión, no se crea a ciegas");
+assert(e10.candidato?.sku === "REP-000017", "…y señala el REP-000017");
+
+// Pero la sospecha por contención no puede volverse ruido.
+const e11 = emparejar({ nombre: "Memoria USB 2.0 128GB", cantidad: 3 }, [
+  { recordId: "recY", sku: "LAP-000052", nombre: 'Dell Latitude 7370 Core m5-6Y54 13.3" 1920x1080 Windows 11 Pro Laptop 128GB M.2 SSD 8GB RAM, Bluetooth, USB 3.0, Thunderbolt 3 (USB-C)', cantidad: 1, precioVentaFinal: 240 },
+]);
+assert(e11.clasificacion === "NUEVO",
+  "Una memoria USB no es una laptop Dell por compartir 'usb' y '128gb'");
+
 console.log("\n── el código, cuando existe, manda ──");
 
 const e8 = emparejar({ nombre: "Nombre completamente distinto", codigo: "DES-000005", cantidad: 1 }, PORTAL);
@@ -201,6 +216,13 @@ assert(proponerCategoria("Lenovo ThinkSmart Core Mini i5-1145G7E Windows 11 Pro 
 assert(proponerCategoria("Cargador Lenovo ADLX90NCC2A 20V 4.5A 90W") === "Cargador",
   "Y un cargador de verdad sigue siendo Cargador");
 
+assert(proponerCategoria("Disco Duro Interno SSD 120GB") === "SSD",
+  "Un 'Disco Duro Interno SSD' es SSD, no HDD");
+assert(proponerCategoria("Disco Duro Interno 500GB SATA") === "HDD",
+  "Pero un disco duro sin SSD sigue siendo HDD");
+assert(proponerCategoria("Memoria USB 2.0 128GB") === "Accesorio",
+  "Una memoria USB es un Accesorio, no una RAM");
+
 console.log("\n── sin pista clara, no se inventa ──");
 
 assert(proponerCategoria("Artículo genérico sin pistas") === undefined,
@@ -214,6 +236,40 @@ for (const [nombre] of casos) {
   const c = proponerCategoria(nombre);
   assert(!c || (CATEGORIAS as readonly string[]).includes(c),
     `La categoría propuesta para "${nombre}" existe en el desplegable de Airtable`);
+}
+
+
+console.log("\n── la sospecha por contención no puede volverse ruido ──");
+
+// Todos estos compartían palabras sueltas con un artículo del portal y salían
+// marcados como posible duplicado. Ninguno lo es.
+const RUIDO: ItemPortal[] = [
+  { recordId: "r1", sku: "LAP-000052", nombre: 'Dell Latitude 7370 Core m5-6Y54 13.3" 1920x1080 Windows 11 Pro Laptop 128GB M.2 SSD 8GB RAM, Backlit Keyboard, Bluetooth, USB 3.0, Thunderbolt 3 (USB-C) c/ Cargador Original Dell USB-C', cantidad: 1, precioVentaFinal: 240 },
+  { recordId: "r2", sku: "DES-000011", nombre: "Dell Optiplex 9020, Adaptador HDMI, Wi-Fi, Core i5-4590T, 120GB SSD + 3 x 60GB SSD, 8GB RAM, Linux Mint 22.2, Cargador original", cantidad: 1, precioVentaFinal: null },
+  { recordId: "r3", sku: "ACC-000039", nombre: "Microsoft Modern Wireless Headset 8JR-00001 Bluetooth Headsets c/ cable USB-C", cantidad: 2, precioVentaFinal: null },
+];
+for (const [nombre, porque] of [
+  ["Memoria USB 2.0 128GB",       "compartir 'usb' y '128gb' no hace de una memoria una laptop"],
+  ['Estuche Dell Original 13"',   "compartir 'dell' y 'original' no hace de un estuche una laptop"],
+  ["Adaptador Wi-Fi USB",         "compartir 'adaptador' y 'wi fi' no hace de una antena un desktop"],
+  ["Mouse Microsoft de cable USB","un mouse no es un headset"],
+] as Array<[string, string]>) {
+  assert(emparejar({ nombre, cantidad: 1 }, RUIDO).clasificacion === "NUEVO", `"${nombre}" → NUEVO: ${porque}`);
+}
+
+// Pero lo que sí merece una mirada humana se queda.
+const PARECIDOS: ItemPortal[] = [
+  { recordId: "p1", sku: "OTR-000012", nombre: "CARGADOR HP PUNTA AZUL 4.5X3.0MM 19.5V 3.33A 65W Genérico", cantidad: 1, precioVentaFinal: 25 },
+  { recordId: "p2", sku: "OTR-000021", nombre: "Jabra Evolve2 55 Bluetooth Headset c/ Cable USB-C", cantidad: 1, precioVentaFinal: null },
+  { recordId: "p3", sku: "ACC-000040", nombre: "Amazon Echo Dot 3rd Gen (D9N29T) Smart Speaker", cantidad: 1, precioVentaFinal: 35 },
+];
+for (const [nombre, porque] of [
+  ["Cargador HP PPP009C 19.5V 3.33A 65W Punta Gruesa",   "otro cargador HP de los mismos vatios"],
+  ["Jabra Evolve2 65 UC Wireless Headset con cable USB", "Evolve2 65 contra 55"],
+  ["Amazon Echo Dot (2nd Generation) Smart Speaker",     "2nd contra 3rd Gen"],
+] as Array<[string, string]>) {
+  assert(emparejar({ nombre, cantidad: 1 }, PARECIDOS).clasificacion === "POSIBLE DUPLICADO",
+    `"${nombre}" → a revisión: ${porque}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
