@@ -158,6 +158,27 @@ export const UMBRAL_REVISION  = 0.55;
  * una o dos ("Memoria RAM") cualquier cosa contiene a cualquier cosa.
  */
 export const UMBRAL_CONTENCION = 0.85;
+/**
+ * Contención suficiente para SOSPECHAR, no para afirmar.
+ *
+ * Caso real que se escapó con 0.85:
+ *
+ *   viejo : "Disco Duro Interno SSD 120GB"                        67 unidades
+ *   portal: "Disco Duro Sólido Interno 120GB 2.5 SATA Mixed/Brands" 52 unidades
+ *
+ * Contención 0.80, parecido 0.36 → salía NUEVO. Habría dejado 119 unidades
+ * del mismo disco donde hay 67. Ahora cae en POSIBLE DUPLICADO y lo decide
+ * una persona.
+ */
+export const UMBRAL_CONTENCION_REVISION = 0.70;
+/**
+ * Piso de parecido para que una sospecha por contención valga la pena.
+ *
+ * Sin él entraba puro ruido: "Memoria USB 2.0 128GB" se emparejaba con una
+ * laptop Dell porque las dos dicen "usb" y "128gb", y con solo 5 palabras la
+ * contención sale 0.80. El parecido real entre esas dos es 0.11.
+ */
+export const UMBRAL_SOSPECHA_PARECIDO = 0.30;
 const MIN_TOKENS_CONTENCION    = 3;
 
 export function emparejar(viejo: ItemViejo, portal: readonly ItemPortal[]): Emparejamiento {
@@ -198,6 +219,7 @@ export function emparejar(viejo: ItemViejo, portal: readonly ItemPortal[]): Empa
   let mejor: ItemPortal | undefined;
   let mejorParecido = 0;
   let mejorContenido = false;
+  let mejorSospecha: { item: ItemPortal; c: number } | undefined;
 
   const tokensViejo = tokens(viejo.nombre);
 
@@ -213,6 +235,17 @@ export function emparejar(viejo: ItemViejo, portal: readonly ItemPortal[]): Empa
 
     // Se ordena por el mejor de los dos: así un candidato contenido gana a
     // otro que solo comparte la marca.
+    // Contención alta pero por debajo del umbral: no basta para afirmar que es
+    // el mismo, pero sí para que lo mire una persona.
+    if (
+      c >= UMBRAL_CONTENCION_REVISION &&
+      s >= UMBRAL_SOSPECHA_PARECIDO &&
+      Math.min(tokensViejo.length, tokens(p.nombre).length) >= MIN_TOKENS_CONTENCION &&
+      c > (mejorSospecha?.c ?? 0)
+    ) {
+      mejorSospecha = { item: p, c };
+    }
+
     const puntaje = contenido ? Math.max(s, c) : s;
     if (puntaje > mejorParecido) {
       mejorParecido  = puntaje;
@@ -229,6 +262,19 @@ export function emparejar(viejo: ItemViejo, portal: readonly ItemPortal[]): Empa
       motivo:
         `El nombre está contenido entero en ${mejor.sku} — probablemente es el mismo ` +
         `artículo con menos detalle. Confírmalo.`,
+    };
+  }
+
+  // Antes de darlo por nuevo: ¿había alguno con contención sospechosa?
+  if ((!mejor || mejorParecido < UMBRAL_REVISION) && mejorSospecha) {
+    return {
+      clasificacion: "POSIBLE DUPLICADO",
+      candidato: mejorSospecha.item,
+      parecido: mejorSospecha.c,
+      motivo:
+        `Casi todas sus palabras están en ${mejorSospecha.item.sku} ` +
+        `(${Math.round(mejorSospecha.c * 100)}%), pero el nombre completo difiere. ` +
+        `Puede ser el mismo artículo escrito de otra forma. Confírmalo.`,
     };
   }
 
@@ -305,6 +351,7 @@ const FRASES: Array<{ categoria: Categoria; frases: string[] }> = [
       "laptop lock", "candado", "lock",
       "adaptador wi fi", "adaptador wifi", "antena",
       "glow light", "luz para", "lector de tarjetas", "lector usb",
+      "memoria usb", "memoria flash", "pendrive", "flash drive",
   ] },
 ];
 
@@ -392,6 +439,12 @@ export function proponerCategoria(nombre: string): Categoria | undefined {
       if (gana) mejor = { categoria, posicion, prioridad };
     }
   });
+
+  // "Disco Duro Interno SSD 120GB" salía HDD: "disco duro" va antes que "ssd".
+  // Son 67 unidades en el export real, así que no es un detalle.
+  if (mejor?.categoria === "HDD" && /(^|\s)(ssd|solido|nvme|m2)(\s|$)/.test(n)) {
+    return "SSD";
+  }
 
   return mejor?.categoria;
 }
