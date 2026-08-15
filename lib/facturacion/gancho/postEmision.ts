@@ -10,15 +10,22 @@ import "server-only";
 // factura ya es real ante el SRI aunque este paso falle.
 //
 // Regla de la casa: nunca filtrar por campo de link — se lee el estado
-// actual de cada Shipping Item por su record id (ya conocido, viene en la
-// línea) y se escribe directamente por RECORD_ID (PATCH por id, no por
-// filterByFormula).
+// actual de cada Shipping Item (o Producto Digital) por su record id (ya
+// conocido, viene en la línea) y se escribe directamente por RECORD_ID
+// (PATCH por id, no por filterByFormula).
+//
+// Productos digitales (este trabajo): rama independiente de la de Shipping
+// Items, misma forma pero sobre la tabla "Productos Digitales" — marca
+// Estado="Usado" y enlaza la factura, nunca descuenta inventario. Corren en
+// paralelo porque son tablas distintas sin relación entre sí; sus fallos se
+// combinan en un solo resultado, pero uno no puede hacer fallar al otro.
 
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero } from "./airtableGancho";
 import { actualizarSincronizacionInventario } from "../airtable/facturas";
 import type { DetalleFactura } from "../types/factura";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
+const PRODUCTOS_DIGITALES_TABLE = "Productos Digitales";
 
 // ─── Estado actual del item (para decidir si ya está hecho) ─────────────────
 
@@ -37,15 +44,33 @@ async function fetchEstadoActualItems(itemIds: string[]): Promise<Map<string, Es
   return map;
 }
 
-// ─── PATCH con reintento ──────────────────────────────────────────────────────
-// Shipping Items no tiene un helper de reintentos propio todavía (el módulo
-// gancho trae sus propios fetchers mínimos, sin tocar lib/shipping-v2/ —
-// mismo patrón que airtableGancho.ts). Reintenta 429/502/503/504 con
-// backoff simple — igual en espíritu al patrón ya usado en
-// lib/horarios/airtable.ts, acotado a este módulo.
+// ─── Estado actual del producto digital (idempotencia) ──────────────────────
+// Solo hace falta "Factura": es la marca de "ya hecho" (mismo criterio que
+// Shipping Items). El estado se sobreescribe siempre a "Usado" cuando no está
+// hecho — no hace falta leerlo antes.
 
-async function patchShippingItemConReintento(
-  itemId: string,
+type EstadoProductoDigitalActual = { facturaIds: string[] };
+
+async function fetchEstadoActualProductosDigitales(ids: string[]): Promise<Map<string, EstadoProductoDigitalActual>> {
+  const records = await fetchRecordsByIds(PRODUCTOS_DIGITALES_TABLE, ids);
+  const map = new Map<string, EstadoProductoDigitalActual>();
+  for (const r of records) {
+    map.set(r.id, { facturaIds: linkedIds(r.fields["Factura"]) });
+  }
+  return map;
+}
+
+// ─── PATCH con reintento ──────────────────────────────────────────────────────
+// Ni Shipping Items ni Productos Digitales tienen un helper de reintentos
+// propio todavía (el módulo gancho trae sus propios fetchers mínimos, sin
+// tocar lib/shipping-v2/ ni lib/tecnicos/airtable/ — mismo patrón que
+// airtableGancho.ts). Reintenta 429/502/503/504 con backoff simple — igual
+// en espíritu al patrón ya usado en lib/horarios/airtable.ts, acotado a
+// este módulo. Parametrizado por tabla para que ambas ramas lo compartan.
+
+async function patchConReintento(
+  table:  string,
+  recordId: string,
   fields: Record<string, unknown>
 ): Promise<void> {
   const token  = process.env.AIRTABLE_API_KEY?.trim();
@@ -53,7 +78,7 @@ async function patchShippingItemConReintento(
   if (!token)  throw new Error("Falta AIRTABLE_API_KEY en .env.local.");
   if (!baseId) throw new Error("Falta AIRTABLE_BASE_ID en .env.local.");
 
-  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(SHIPPING_ITEMS_TABLE)}/${encodeURIComponent(itemId)}`;
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(table)}/${encodeURIComponent(recordId)}`;
   const retryable = new Set([429, 502, 503, 504]);
 
   let res: Response | null = null;
@@ -70,8 +95,18 @@ async function patchShippingItemConReintento(
 
   if (!res || !res.ok) {
     const text = res ? await res.text() : "sin respuesta";
-    throw new Error(`PATCH Shipping Items ${itemId} → ${res?.status ?? "?"}: ${text}`);
+    throw new Error(`PATCH ${table} ${recordId} → ${res?.status ?? "?"}: ${text}`);
   }
+}
+
+// Shipping Items seguía llamando a esta función por su nombre — se conserva
+// tal cual (misma tabla, mismo comportamiento) para no tocar la rama de
+// Shipping Items ni una línea de más.
+async function patchShippingItemConReintento(
+  itemId: string,
+  fields: Record<string, unknown>
+): Promise<void> {
+  return patchConReintento(SHIPPING_ITEMS_TABLE, itemId, fields);
 }
 
 // ─── postEmision ──────────────────────────────────────────────────────────────
@@ -136,11 +171,11 @@ export function debeIntentarPostEmision<T extends { estado: string; recordId?: s
   return resultado.estado === "AUTORIZADO" && !!resultado.recordId;
 }
 
-export async function postEmision(input: PostEmisionInput): Promise<ResultadoPostEmision> {
-  if (input.ambiente !== AMBIENTE_PRODUCCION) {
-    return { estado: "OK" };
-  }
-
+// ─── Shipping Items — descuento de inventario ────────────────────────────────
+// Cuerpo SIN CAMBIOS respecto a antes de este trabajo (solo se le quitó el
+// guardián de ambiente de arriba, que ahora vive una sola vez en el
+// orquestador postEmision() de más abajo y gobierna las dos ramas).
+async function postEmisionShippingItems(input: PostEmisionInput): Promise<ResultadoPostEmision> {
   // Solo líneas tipo:"producto" con shippingItemId cuentan — servicios y
   // líneas manuales agregadas a mano en el formulario (buscador o "+
   // Agregar línea manual") nunca llevan esta marca, se ignoran aquí tal
@@ -258,6 +293,110 @@ export async function postEmision(input: PostEmisionInput): Promise<ResultadoPos
   await actualizarSincronizacionInventario(input.facturaRecordId, "ERROR", detalle).catch((e) => {
     console.error("[postEmision] no se pudo marcar ERROR en Sincronización Inventario:", e);
   });
+
+  return { estado: "ERROR", detalle };
+}
+
+// ─── Productos Digitales — marcar Usado y enlazar la factura ────────────────
+//
+// Espejo de postEmisionShippingItems(), pero para "Productos Digitales": al
+// autorizarse la factura, cada producto digital vendido queda Usado y
+// enlazado — nunca descuenta inventario (esa tabla no tiene cantidad, cada
+// registro es una unidad). "Orden de Reparación" no se toca aquí: ya viene
+// puesto desde asignarProductoDigitalAOrden() (lib/tecnicos/airtable), que
+// desde este trabajo dejó de escribir Estado — ese campo ahora lo pone
+// exclusivamente esta función, al facturarse de verdad.
+async function postEmisionProductosDigitales(input: PostEmisionInput): Promise<ResultadoPostEmision> {
+  const lineasProductoDigital = input.detalles.filter(
+    (d): d is DetalleFactura & { productoDigitalId: string } =>
+      d.tipo === "productoDigital" && !!d.productoDigitalId
+  );
+
+  if (lineasProductoDigital.length === 0) {
+    return { estado: "OK" };
+  }
+
+  // Un producto digital es siempre 1 unidad — a diferencia de Shipping
+  // Items no hace falta agrupar cantidades, solo deduplicar por si la misma
+  // línea apareciera más de una vez.
+  const productosPorId = new Map<string, { descripcion: string }>();
+  for (const linea of lineasProductoDigital) {
+    if (!productosPorId.has(linea.productoDigitalId)) {
+      productosPorId.set(linea.productoDigitalId, { descripcion: linea.descripcion });
+    }
+  }
+
+  const ids          = [...productosPorId.keys()];
+  const estadoActual = await fetchEstadoActualProductosDigitales(ids);
+  const fallidos: Array<{ id: string; descripcion: string; error: string }> = [];
+  let yaHechos = 0;
+  let marcados = 0;
+
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  for (const [id, producto] of productosPorId) {
+    const actual = estadoActual.get(id);
+
+    // Idempotente: el link a ESTA factura es la marca de "ya hecho" — mismo
+    // criterio que Shipping Items. Un reintento (/sincronizar) no debe
+    // volver a escribir lo que ya quedó marcado.
+    if (actual && actual.facturaIds.includes(input.facturaRecordId)) {
+      yaHechos++;
+      continue;
+    }
+
+    // Sin typecast: si "Usado" no existiera como opción en el desplegable,
+    // esto debe fallar y verse — no crear la opción sola (bitácora §6).
+    const fields: Record<string, unknown> = {
+      "Estado":              "Usado",
+      "Factura":             [...(actual?.facturaIds ?? []), input.facturaRecordId],
+      "Fecha de Uso / Venta": hoy,
+    };
+
+    try {
+      await patchConReintento(PRODUCTOS_DIGITALES_TABLE, id, fields);
+      marcados++;
+    } catch (e) {
+      fallidos.push({
+        id,
+        descripcion: producto.descripcion,
+        error:       e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  if (fallidos.length === 0) {
+    return { estado: "OK" };
+  }
+
+  const detalle =
+    `${marcados + yaHechos}/${productosPorId.size} productos digitales marcados. Fallaron: ` +
+    fallidos.map((f) => `${f.descripcion} (${f.id}): ${f.error}`).join("; ");
+
+  return { estado: "ERROR", detalle };
+}
+
+// ─── Orquestador ──────────────────────────────────────────────────────────────
+// Shipping Items y Productos Digitales son tablas independientes sin
+// relación entre sí — corren en paralelo y ninguno hace fallar al otro. El
+// guardián de ambiente vive UNA sola vez aquí y gobierna las dos ramas.
+export async function postEmision(input: PostEmisionInput): Promise<ResultadoPostEmision> {
+  if (input.ambiente !== AMBIENTE_PRODUCCION) {
+    return { estado: "OK" };
+  }
+
+  const [resultadoItems, resultadoProductosDigitales] = await Promise.all([
+    postEmisionShippingItems(input),
+    postEmisionProductosDigitales(input),
+  ]);
+
+  if (resultadoItems.estado === "OK" && resultadoProductosDigitales.estado === "OK") {
+    return { estado: "OK" };
+  }
+
+  const detalle = [resultadoItems.detalle, resultadoProductosDigitales.detalle]
+    .filter((d): d is string => !!d)
+    .join(" | ");
 
   return { estado: "ERROR", detalle };
 }
