@@ -60,6 +60,26 @@ const TIPO_BADGE: Record<TipoDocumento, string> = {
   notaCredito: "bg-amber-900/40 text-amber-300 border-amber-700/50",
 };
 
+// Mismo mapa de colores que HistorialFacturas.tsx (AMBIENTE_COLOR) — se
+// repite aquí en vez de importarlo porque allá es una constante interna no
+// exportada. PRUEBAS en amarillo llamativo a propósito: antes la única señal
+// de ambiente en esta pantalla era un texto gris de 10px en el modal de
+// detalle, insuficiente para distinguir una venta real de una de prueba de un
+// vistazo.
+const AMBIENTE_BADGE: Record<string, string> = {
+  PRUEBAS:    "bg-yellow-900/40 text-yellow-300 border-yellow-700/50",
+  PRODUCCIÓN: "bg-blue-900/30 text-blue-300 border-blue-700/40",
+};
+
+function AmbienteBadge({ ambiente }: { ambiente: string }) {
+  if (!ambiente) return null;
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${AMBIENTE_BADGE[ambiente] ?? ""}`}>
+      {ambiente}
+    </span>
+  );
+}
+
 const ESTADO_FACTURA_LABEL: Record<string, string> = {
   AUTORIZADO: "Autorizada", DEVUELTA: "Devuelta", "NO AUTORIZADO": "No autorizada",
   PENDIENTE: "En proceso", RECIBIDA: "En proceso", BORRADOR: "Borrador", ANULADA: "Anulada",
@@ -216,7 +236,7 @@ function DocumentoDetalleModal({
             <div className="flex items-center gap-2 flex-wrap">
               <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TIPO_BADGE[doc.tipo]}`}>{TIPO_LABEL[doc.tipo]}</span>
               <span className={`text-xs ${estadoColor(doc.estado)}`}>{estadoLabel(doc)}</span>
-              {doc.ambiente && <span className="text-[10px] text-[#666]">{doc.ambiente}</span>}
+              <AmbienteBadge ambiente={doc.ambiente} />
             </div>
             <p className="mt-1 text-lg font-bold font-mono text-[#F5F5F5]">{doc.numero || "borrador"}</p>
             {doc.numeroDocModificado && <p className="text-xs text-[#888]">corrige {doc.numeroDocModificado}</p>}
@@ -315,6 +335,9 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
   const [nuevoAbierto, setNuevoAbierto] = useState(false);
   const [q, setQ]                   = useState("");
   const [qAplicado, setQAplicado]   = useState("");
+  // Apagado por defecto: los documentos de ambiente PRUEBAS no son ventas
+  // reales y no deben aparecer salvo que se pidan a propósito.
+  const [incluirPruebas, setIncluirPruebas] = useState(false);
   const [docs, setDocs]             = useState<DocumentoResumen[]>([]);
   const [suma, setSuma]             = useState(0);
   const [cargando, setCargando]     = useState(false);
@@ -331,10 +354,11 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
   const buscando = qAplicado.trim() !== "";
   const seleccionado = docs.find((d) => d.recordId === selId) ?? null;
 
-  const cargar = useCallback(async (g: GrupoVista, query: string) => {
+  const cargar = useCallback(async (g: GrupoVista, query: string, pruebas: boolean) => {
     setCargando(true); setError(null);
     const params = new URLSearchParams({ grupo: g });
     if (query.trim()) params.set("q", query.trim());
+    if (pruebas) params.set("pruebas", "1");
     try {
       const r = await fetch(`/api/facturacion/documentos?${params}`);
       const d = await r.json() as { success: boolean; data?: { documentos: DocumentoResumen[]; suma: number }; error?: string };
@@ -376,8 +400,8 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [q]);
 
-  // Recargar al cambiar grupo o búsqueda aplicada.
-  useEffect(() => { cargar(grupo, qAplicado); setSelId(null); setDetalleDoc(null); }, [grupo, qAplicado, cargar]);
+  // Recargar al cambiar grupo, búsqueda aplicada o el interruptor de pruebas.
+  useEffect(() => { cargar(grupo, qAplicado, incluirPruebas); setSelId(null); setDetalleDoc(null); }, [grupo, qAplicado, incluirPruebas, cargar]);
 
   function onPost(url: string, label: string, body?: Record<string, unknown>) {
     setAccion(label); setMsg(null); setErrMsg(null);
@@ -386,7 +410,7 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
       : { method: "POST" })
       .then((r) => r.json())
       .then((d: { success: boolean; error?: string }) => {
-        if (d.success) { setMsg(`${label} · listo`); cargar(grupo, qAplicado); cargarPendientes(); }
+        if (d.success) { setMsg(`${label} · listo`); cargar(grupo, qAplicado, incluirPruebas); cargarPendientes(); }
         else setErrMsg(d.error ?? "Error");
       })
       .catch(() => setErrMsg("Error de red"))
@@ -399,7 +423,7 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
     fetch(url, { method: "DELETE" })
       .then((r) => r.json())
       .then((d: { success: boolean; error?: string }) => {
-        if (d.success) { setMsg("Borrador eliminado"); setSelId(null); setDetalleDoc(null); cargar(grupo, qAplicado); }
+        if (d.success) { setMsg("Borrador eliminado"); setSelId(null); setDetalleDoc(null); cargar(grupo, qAplicado, incluirPruebas); }
         else setErrMsg(d.error ?? "Error al eliminar");
       })
       .catch(() => setErrMsg("Error de red"))
@@ -460,6 +484,15 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
           );
         })}
         <div className="ml-auto flex items-center gap-2 flex-wrap">
+          <label className="flex items-center gap-1.5 text-xs text-[#A7A7A7] cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={incluirPruebas}
+              onChange={(e) => setIncluirPruebas(e.target.checked)}
+              className="h-3.5 w-3.5 accent-yellow-500"
+            />
+            Mostrar documentos de prueba
+          </label>
           <Link
             href="/facturacion/reservas"
             className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition ${reservasVencidas > 0 ? "border-red-700/50 text-red-300 hover:border-red-400" : "border-[#3A3A36] text-[#A7A7A7] hover:border-[#D7FF4F]/40 hover:text-[#F5F5F5]"}`}
@@ -481,6 +514,22 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
           </Link>
         </div>
       </div>
+
+      {/* Aviso: interruptor de pruebas encendido — mezcla ventas reales con
+          documentos de PRUEBAS. La señal tiene que notarse de un vistazo:
+          antes de esto, la única pista era un texto gris de 10px por
+          documento en el modal de detalle. */}
+      {incluirPruebas && (
+        <div className="mb-4 rounded-xl border border-yellow-700/50 bg-yellow-900/20 px-3 py-2.5 flex items-start gap-2">
+          <span className="text-yellow-400 text-base leading-none mt-0.5">⚠</span>
+          <div>
+            <p className="text-sm font-semibold text-yellow-300">Viendo también documentos de PRUEBAS</p>
+            <p className="text-xs text-yellow-200/70 mt-0.5">
+              No son ventas reales. Cada documento de ese ambiente lleva su etiqueta <span className="font-semibold">PRUEBAS</span> en el listado.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Aviso de modo búsqueda */}
       {buscando && (
@@ -524,15 +573,19 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
               >
                 {/* Móvil */}
                 <div className="md:hidden flex items-center justify-between gap-2">
-                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TIPO_BADGE[d.tipo]}`}>{TIPO_LABEL[d.tipo]}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TIPO_BADGE[d.tipo]}`}>{TIPO_LABEL[d.tipo]}</span>
+                    {d.ambiente === "PRUEBAS" && <AmbienteBadge ambiente={d.ambiente} />}
+                  </span>
                   <span className="flex-1 truncate text-sm text-[#F5F5F5]">{d.clienteNombre || "—"}</span>
                   <span className="text-sm font-bold text-[#D7FF4F]">{mon(d.total)}</span>
                 </div>
                 <div className="md:hidden mt-0.5 text-xs font-mono text-[#777] truncate">{d.numero || "borrador"} · {fmt(d.fecha)} · <span className={estadoColor(d.estado)}>{estadoLabel(d)}</span></div>
 
                 {/* Escritorio */}
-                <span className="hidden md:flex items-center">
+                <span className="hidden md:flex items-center gap-1.5">
                   <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TIPO_BADGE[d.tipo]}`}>{TIPO_LABEL[d.tipo]}</span>
+                  {d.ambiente === "PRUEBAS" && <AmbienteBadge ambiente={d.ambiente} />}
                 </span>
                 <span className="hidden md:block text-sm text-[#F5F5F5] truncate">{d.clienteNombre || "—"}</span>
                 <span className="hidden md:block text-xs font-mono text-[#8A8A8A] truncate">
@@ -562,7 +615,7 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
       {nuevoAbierto && (
         <NuevoDocumentoModal
           consumidorFinalLimite={consumidorFinalLimite}
-          onClose={() => { setNuevoAbierto(false); cargar(grupo, qAplicado); cargarPendientes(); }}
+          onClose={() => { setNuevoAbierto(false); cargar(grupo, qAplicado, incluirPruebas); cargarPendientes(); }}
         />
       )}
     </div>

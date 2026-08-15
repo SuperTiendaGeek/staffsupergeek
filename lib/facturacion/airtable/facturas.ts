@@ -423,8 +423,14 @@ export async function listarFacturas(filtros: FiltrosHistorial = {}): Promise<Li
       : `AND(${conditions.join(",")})`;
 
   const params = new URLSearchParams({
+    // "Fecha de Emisión" guarda solo el día, sin hora — varias facturas del
+    // mismo día quedan empatadas en ese criterio y Airtable las deja en un
+    // orden que no corresponde a cuándo se emitieron. "Secuencial" desempata:
+    // dentro del mismo día, un secuencial mayor siempre es más reciente.
     "sort[0][field]":     "Fecha de Emisión",
     "sort[0][direction]": "desc",
+    "sort[1][field]":     "Secuencial",
+    "sort[1][direction]": "desc",
     pageSize:             String(pageSize),
   });
   if (formula)         params.set("filterByFormula", formula);
