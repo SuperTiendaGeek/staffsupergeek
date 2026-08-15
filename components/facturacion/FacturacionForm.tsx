@@ -114,6 +114,10 @@ type ProductoCatalogo = {
   precioVenta: number;
   unidad:      string;
   cantidadDisponible: number;
+  // Obligatorio — mismo criterio que lib/facturacion/airtable/productosShippingItems.ts:
+  // cada sitio que consume un ProductoCatalogo tiene que decidir explícitamente
+  // qué hacer con cada fuente, el compilador no deja pasar el caso sin decidir.
+  fuente: "shippingItem" | "productoDigital";
 };
 
 type ClienteBusqueda = {
@@ -353,25 +357,52 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   }, [queryProducto]);
 
   // ── Líneas de detalle ─────────────────────────────────────────────────────
+  // fuente decide el resto de la línea — el compilador exige cubrir las dos
+  // ramas (ProductoCatalogo.fuente no es opcional).
   function agregarProducto(p: ProductoCatalogo) {
-    setLineas((prev) => [
-      ...prev,
-      {
-        _id:            crypto.randomUUID(),
-        codigoPrincipal:p.sku || p.id,
-        descripcion:    p.nombre,
-        unidadMedida:   p.unidad,
-        cantidad:       1,
-        precioUnitario: p.precioVenta,
-        descuento:      0,
-        tarifaIva:      "4",  // IVA 15% por defecto (Shipping Items no tiene campo IVA)
-        // Fase 17.b: la línea de mostrador ahora sí queda vinculada a su
-        // Shipping Item — descuenta stock al facturar, igual que el gancho.
-        tipo:            "producto",
-        shippingItemId:  p.id,
-        stockDisponible: p.cantidadDisponible,
-      },
-    ]);
+    if (p.fuente === "productoDigital") {
+      // El mismo producto digital no se puede agregar dos veces a la misma
+      // factura: cada registro es una unidad única con su propia clave, no
+      // tiene sentido "vender 2 veces la misma licencia".
+      if (lineas.some((l) => l.productoDigitalId === p.id)) {
+        setErrGlobal(`"${p.nombre}" ya está en la factura — un producto digital no se puede agregar dos veces.`);
+        return;
+      }
+      setLineas((prev) => [
+        ...prev,
+        {
+          _id:            crypto.randomUUID(),
+          codigoPrincipal:p.id,
+          descripcion:    p.nombre,
+          unidadMedida:   "UNIDAD",
+          cantidad:       1,
+          precioUnitario: p.precioVenta,
+          descuento:      0,
+          tarifaIva:      "4", // Productos Digitales no tiene campo de IVA propio, mismo default
+          tipo:              "productoDigital",
+          productoDigitalId: p.id,
+        },
+      ]);
+    } else {
+      setLineas((prev) => [
+        ...prev,
+        {
+          _id:            crypto.randomUUID(),
+          codigoPrincipal:p.sku || p.id,
+          descripcion:    p.nombre,
+          unidadMedida:   p.unidad,
+          cantidad:       1,
+          precioUnitario: p.precioVenta,
+          descuento:      0,
+          tarifaIva:      "4",  // IVA 15% por defecto (Shipping Items no tiene campo IVA)
+          // Fase 17.b: la línea de mostrador ahora sí queda vinculada a su
+          // Shipping Item — descuenta stock al facturar, igual que el gancho.
+          tipo:            "producto",
+          shippingItemId:  p.id,
+          stockDisponible: p.cantidadDisponible,
+        },
+      ]);
+    }
     setQueryProducto("");
     setProductosSug([]);
     productoRef.current?.focus();
@@ -970,13 +1001,20 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
           {productosSug.length > 0 && (
             <ul className="absolute z-20 mt-1 w-full rounded-md border border-[#3A3A36] bg-[#1A1B18] shadow-xl divide-y divide-[#2A2B28]">
               {productosSug.map((p) => (
-                <li key={p.id}>
+                <li key={`${p.fuente}-${p.id}`}>
                   <button
                     onClick={() => agregarProducto(p)}
                     className="w-full text-left px-4 py-2.5 hover:bg-[#252622] text-sm"
                   >
                     <p className="font-semibold text-[#F5F5F5]">{p.nombre}</p>
-                    <p className="text-[#666] text-xs">{p.sku} · {p.unidad} · ${p.precioVenta.toFixed(2)} · stock: {p.cantidadDisponible}</p>
+                    {p.fuente === "productoDigital" ? (
+                      <p className="text-xs">
+                        <span className="text-blue-400/80">● Producto digital</span>{" "}
+                        <span className="text-[#666]">· ${p.precioVenta.toFixed(2)} · 1 unidad disponible</span>
+                      </p>
+                    ) : (
+                      <p className="text-[#666] text-xs">{p.sku} · {p.unidad} · ${p.precioVenta.toFixed(2)} · stock: {p.cantidadDisponible}</p>
+                    )}
                   </button>
                 </li>
               ))}
@@ -1193,6 +1231,7 @@ function LineaRow({
   onDelete: () => void;
 }) {
   const total = calcularLinea(linea);
+  const esDigital = linea.tipo === "productoDigital";
   return (
     <tr>
       {/* SKU y Descripción son ajustables: el borde derecho se arrastra para
@@ -1207,14 +1246,20 @@ function LineaRow({
         <div className="resize-x overflow-hidden w-[300px] min-w-[140px]" title="Arrastra el borde derecho para ajustar el ancho">
           <input type="text" title={linea.descripcion} value={linea.descripcion} onChange={(e) => onChange("descripcion", e.target.value)} className="w-full rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" placeholder="Descripción" />
         </div>
+        {/* Mismo estilo de "caption" con punto de color que ya usa el
+            formulario para marcar líneas especiales (ver "● Abono
+            registrado" / "● Saldo por cobrar" en FormasPagoEditor). */}
+        {esDigital && <p className="mt-0.5 text-[10px] text-blue-400/80">● Producto digital</p>}
       </td>
       <td className="py-1.5 pr-2 text-center">
         <input type="text" value={linea.unidadMedida} onChange={(e) => onChange("unidadMedida", e.target.value)} className="w-16 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-center text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" />
       </td>
       <td className="py-1.5 pr-2">
         {/* Cantidad: solo enteros (pedido del dueño 2026-07-20) — se venden
-            unidades físicas, nunca fracciones. parseInt + step=1. */}
-        <input type="number" min="1" step="1" value={linea.cantidad} onChange={(e) => onChange("cantidad", Math.max(0, parseInt(e.target.value, 10) || 0))} className="w-16 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" />
+            unidades físicas, nunca fracciones. parseInt + step=1.
+            Producto digital: fija en 1, no editable — cada registro es una
+            unidad con su propia clave, "2 unidades" no significa nada. */}
+        <input type="number" min="1" step="1" value={linea.cantidad} disabled={esDigital} title={esDigital ? "Un producto digital siempre es 1 unidad" : undefined} onChange={(e) => onChange("cantidad", Math.max(0, parseInt(e.target.value, 10) || 0))} className="w-16 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30 disabled:opacity-50 disabled:cursor-not-allowed" />
       </td>
       <td className="py-1.5 pr-2">
         <input type="number" min="0" step="0.01" value={linea.precioUnitario} onChange={(e) => onChange("precioUnitario", parseFloat(e.target.value) || 0)} className="w-24 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" />
