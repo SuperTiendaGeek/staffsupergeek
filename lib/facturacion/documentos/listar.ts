@@ -111,7 +111,17 @@ async function mapNotasCredito(pageSize: number): Promise<DocumentoResumen[]> {
 
 // ─── Orden y filtro ──────────────────────────────────────────────────────────
 
-const porFechaDesc = (a: DocumentoResumen, b: DocumentoResumen) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0);
+// doc.fecha también guarda solo el día: varios documentos del mismo día
+// quedan empatados en ese criterio. Se desempata por doc.numero descendente
+// como texto — NUNCA parseando a número, porque los cuatro tipos conviven en
+// el mismo array con formatos de número distintos ("001-002-000000678" vs
+// "REC-000001") y una comparación numérica no tiene sentido entre ellos.
+// Dentro de un mismo tipo, la comparación de texto sí ordena correctamente
+// porque el secuencial va con ceros a la izquierda de ancho fijo.
+const porFechaDesc = (a: DocumentoResumen, b: DocumentoResumen) => {
+  if (a.fecha !== b.fecha) return a.fecha < b.fecha ? 1 : -1;
+  return a.numero < b.numero ? 1 : a.numero > b.numero ? -1 : 0;
+};
 
 function coincide(doc: DocumentoResumen, q: string): boolean {
   const campos = [doc.clienteNombre, doc.clienteIdentificacion, doc.clienteCorreo, doc.numero];
