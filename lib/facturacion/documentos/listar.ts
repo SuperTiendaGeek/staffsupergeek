@@ -18,15 +18,18 @@ import { listarFacturas }      from "@/lib/facturacion/airtable/facturas";
 import { listarRecibos }       from "@/lib/facturacion/recibos/airtable";
 import { listarProformas }     from "@/lib/facturacion/proformas/airtable";
 import { listarNotasCredito }  from "@/lib/facturacion/notaCredito/airtable";
-import type { DocumentoResumen, GrupoVista, ListadoDocumentos } from "./tipos";
+import type { DocumentoResumen, ListadoDocumentos, OpcionesListado } from "./tipos";
 
 const PAGE_NAV      = 50;   // registros por fuente al navegar un grupo
 const PAGE_BUSQUEDA = 100;  // registros por fuente al buscar (filtro en memoria)
 
 // ─── Proyecciones a DocumentoResumen ─────────────────────────────────────────
 
-async function mapFacturas(pageSize: number): Promise<DocumentoResumen[]> {
-  const { facturas } = await listarFacturas({ pageSize });
+async function mapFacturas(pageSize: number, incluirPruebas: boolean): Promise<DocumentoResumen[]> {
+  const { facturas } = await listarFacturas({
+    pageSize,
+    ...(incluirPruebas ? {} : { ambiente: "PRODUCCIÓN" }),
+  });
   return facturas.map((f): DocumentoResumen => ({
     tipo: "factura",
     recordId: f.recordId,
@@ -88,9 +91,13 @@ async function mapProformas(pageSize: number): Promise<DocumentoResumen[]> {
   }));
 }
 
-async function mapNotasCredito(pageSize: number): Promise<DocumentoResumen[]> {
+// listarNotasCredito no acepta filtro de ambiente (a propósito: no se le
+// cambió la firma por esto — ver PASO 3 del pedido). Se filtra aquí, en
+// memoria, sobre el campo ya proyectado.
+async function mapNotasCredito(pageSize: number, incluirPruebas: boolean): Promise<DocumentoResumen[]> {
   const { notas } = await listarNotasCredito({ pageSize });
-  return notas.map((n): DocumentoResumen => ({
+  const filtradas = incluirPruebas ? notas : notas.filter((n) => n.ambiente === "PRODUCCIÓN");
+  return filtradas.map((n): DocumentoResumen => ({
     tipo: "notaCredito",
     recordId: n.recordId,
     numero: n.numeroNotaCredito,
@@ -130,27 +137,30 @@ function coincide(doc: DocumentoResumen, q: string): boolean {
 
 // ─── API pública ─────────────────────────────────────────────────────────────
 
-export async function listarDocumentos(opts: { grupo: GrupoVista; q?: string }): Promise<ListadoDocumentos> {
+export async function listarDocumentos(opts: OpcionesListado): Promise<ListadoDocumentos> {
   const q = opts.q?.trim().toLowerCase() ?? "";
+  // Defecto: false → solo PRODUCCIÓN. Proformas y recibos no tienen campo
+  // Ambiente y nunca se filtran por esto (ver mapProformas/mapRecibos).
+  const incluirPruebas = opts.incluirPruebas === true;
 
   let documentos: DocumentoResumen[];
 
   if (q) {
     // Búsqueda universal: las cuatro fuentes, filtro en memoria, ignora el grupo.
     const [fac, rec, pro, nc] = await Promise.all([
-      mapFacturas(PAGE_BUSQUEDA),
+      mapFacturas(PAGE_BUSQUEDA, incluirPruebas),
       mapRecibos(PAGE_BUSQUEDA),
       mapProformas(PAGE_BUSQUEDA),
-      mapNotasCredito(PAGE_BUSQUEDA),
+      mapNotasCredito(PAGE_BUSQUEDA, incluirPruebas),
     ]);
     documentos = [...fac, ...rec, ...pro, ...nc].filter((d) => coincide(d, q)).sort(porFechaDesc);
   } else if (opts.grupo === "ventas") {
-    const [fac, rec] = await Promise.all([mapFacturas(PAGE_NAV), mapRecibos(PAGE_NAV)]);
+    const [fac, rec] = await Promise.all([mapFacturas(PAGE_NAV, incluirPruebas), mapRecibos(PAGE_NAV)]);
     documentos = [...fac, ...rec].sort(porFechaDesc);
   } else if (opts.grupo === "proformas") {
     documentos = (await mapProformas(PAGE_BUSQUEDA)).sort(porFechaDesc);
   } else {
-    documentos = (await mapNotasCredito(PAGE_BUSQUEDA)).sort(porFechaDesc);
+    documentos = (await mapNotasCredito(PAGE_BUSQUEDA, incluirPruebas)).sort(porFechaDesc);
   }
 
   const suma = documentos.reduce((s, d) => s + d.total, 0);

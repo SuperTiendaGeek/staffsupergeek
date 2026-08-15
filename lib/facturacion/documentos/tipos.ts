@@ -45,6 +45,17 @@ export type ListadoDocumentos = {
   suma:       number;
 };
 
+export type OpcionesListado = {
+  grupo: GrupoVista;
+  q?:    string;
+  /** Por defecto (false/undefined) solo se listan documentos de ambiente
+   *  PRODUCCIÓN. Facturas y notas de crédito de ambiente PRUEBAS no
+   *  representan ventas reales y quedan ocultas salvo que se pidan a
+   *  propósito. Proformas y recibos no tienen campo Ambiente y no se ven
+   *  afectados por esta bandera. */
+  incluirPruebas?: boolean;
+};
+
 // ─── Detalle (cuerpo) para el visualizador flotante ──────────────────────────
 
 export type ItemDetalle = {
