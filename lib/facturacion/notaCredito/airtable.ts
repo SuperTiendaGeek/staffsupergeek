@@ -439,6 +439,97 @@ function hasAtt(v: unknown): boolean {
   return Array.isArray(v) && v.length > 0;
 }
 
+
+// ─── Caducidad del crédito ───────────────────────────────────────────────────
+
+export type NotaCreditoCandidataCaducidad = {
+  recordId:               string;
+  numeroNotaCredito:      string;
+  clienteNombre:          string;
+  clienteRecordId?:       string;
+  estado:                 string;
+  saldoDisponible:        number;
+  fechaCaducidad:         string;
+  estadoCredito:          string;
+  movimientoCaducidadIds: string[];
+};
+
+/**
+ * Notas de crédito con crédito vivo que ya pasó su fecha de caducidad.
+ *
+ * Se filtra por "Estado Crédito" (select) y "Fecha de Caducidad" (fecha), NUNCA
+ * por un campo de enlace — filtrar por link en Airtable falla en silencio y
+ * devuelve una lista vacía sin avisar. Que la nota ya tenga su movimiento de
+ * caducidad se comprueba después, en memoria, con debeCaducar().
+ *
+ * El corte va con IS_BEFORE contra la fecha recibida: el día de la caducidad
+ * todavía es válido para el cliente.
+ */
+export async function listarCandidatasACaducar(hoy: string): Promise<NotaCreditoCandidataCaducidad[]> {
+  const client = getClient();
+  const formula =
+    `AND({Estado} = "AUTORIZADO", {Estado Crédito} = "Vigente", ` +
+    `{Saldo Disponible} > 0, IS_BEFORE({Fecha de Caducidad}, "${hoy}"))`;
+
+  const salida: NotaCreditoCandidataCaducidad[] = [];
+  let offset: string | undefined;
+
+  do {
+    const params = new URLSearchParams({ filterByFormula: formula, pageSize: "100" });
+    if (offset) params.set("offset", offset);
+    const data = await airtableRequest<{
+      records: Array<{ id: string; fields: Record<string, unknown> }>;
+      offset?: string;
+    }>(`${client.baseUrl}/${encodeURIComponent(TABLE)}?${params.toString()}`);
+
+    for (const r of data.records) {
+      const f = r.fields;
+      salida.push({
+        recordId:               r.id,
+        numeroNotaCredito:      str(f["Número de Nota de Crédito"]),
+        clienteNombre:          str(f["Cliente Nombre"]),
+        clienteRecordId:        linkedIdsRaw(f["Cliente"])[0],
+        estado:                 str(f["Estado"]),
+        saldoDisponible:        num(f["Saldo Disponible"]),
+        fechaCaducidad:         str(f["Fecha de Caducidad"]),
+        estadoCredito:          str(f["Estado Crédito"]),
+        movimientoCaducidadIds: linkedIdsRaw(f["Movimiento Caducidad"]),
+      });
+    }
+    offset = data.offset;
+  } while (offset);
+
+  return salida;
+}
+
+/**
+ * Cierra el crédito caducado: enlaza el asiento, deja el saldo en cero y marca
+ * el estado.
+ *
+ * El saldo se pone a 0 en la MISMA escritura que enlaza el movimiento. Si
+ * fueran dos llamadas y la segunda fallara, quedaría una nota con el ingreso ya
+ * registrado y saldo todavía disponible — el cliente podría gastar un crédito
+ * que ya se contabilizó como ingreso.
+ *
+ * Sin typecast: una opción mal escrita debe fallar, no crearse sola.
+ */
+export async function marcarCreditoCaducado(recordId: string, movimientoId: string): Promise<void> {
+  const client = getClient();
+  await airtableRequest(
+    `${client.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(recordId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        fields: {
+          "Movimiento Caducidad": [movimientoId],
+          "Saldo Disponible":     0,
+          "Estado Crédito":       "Caducado",
+        },
+      }),
+    }
+  );
+}
+
 export type ListadoNotasCredito = {
   notas:  NotaCreditoHistorial[];
   offset?: string;
