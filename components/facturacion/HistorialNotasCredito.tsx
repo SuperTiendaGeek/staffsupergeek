@@ -41,6 +41,42 @@ export function HistorialNotasCredito() {
   const [qNumero, setQNumero]   = useState("");
   const [expandida, setExpandida] = useState<string | null>(null);
 
+  // Caducidades: el crédito no usado se convierte en ingreso a los 6 meses.
+  // Se dispara a mano al cerrar el mes; el endpoint es idempotente, así que
+  // pulsarlo de más no cuesta nada. Ver docs/DISENO_NC_REVERSA_Y_CADUCIDAD.md.
+  const [caducando, setCaducando] = useState(false);
+  const [avisoCaducidad, setAvisoCaducidad] = useState<string | null>(null);
+
+  async function procesarCaducidades() {
+    setCaducando(true);
+    setAvisoCaducidad(null);
+    try {
+      const r = await fetch("/api/facturacion/nota-credito/caducidades", { method: "POST" });
+      const d = await r.json();
+      if (!d.success) { setAvisoCaducidad(`No se pudo procesar: ${d.error}`); return; }
+
+      const { procesadas = [], fallidas = [], montoTotal = 0, motivo } = d.data ?? {};
+      if (motivo && procesadas.length === 0 && fallidas.length === 0) {
+        setAvisoCaducidad(motivo);
+      } else if (procesadas.length === 0 && fallidas.length === 0) {
+        setAvisoCaducidad("No hay créditos vencidos por procesar.");
+      } else {
+        const partes = [
+          `${procesadas.length} crédito(s) caducado(s) por $${montoTotal.toFixed(2)}, registrados como ingreso.`,
+        ];
+        if (fallidas.length) {
+          partes.push(`${fallidas.length} no se pudo procesar: ${fallidas.map((f: { numeroNotaCredito: string }) => f.numeroNotaCredito).join(", ")}.`);
+        }
+        setAvisoCaducidad(partes.join(" "));
+        cargar();
+      }
+    } catch (e) {
+      setAvisoCaducidad(e instanceof Error ? e.message : "Error al procesar las caducidades");
+    } finally {
+      setCaducando(false);
+    }
+  }
+
   function cargar() {
     setCargando(true);
     const p = new URLSearchParams();
@@ -64,10 +100,26 @@ export function HistorialNotasCredito() {
           <h1 className="text-lg font-bold text-[#F5F5F5]">Historial de Notas de Crédito</h1>
           <p className="text-xs text-[#666]">{notas.length} en pantalla · ${suma.toFixed(2)} acreditado (autorizadas)</p>
         </div>
-        <Link href="/facturacion/historial" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]">
-          ← Facturas
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={procesarCaducidades}
+            disabled={caducando}
+            title="Convierte en ingreso el crédito de las notas que vencieron sin usarse (6 meses). Se puede pulsar las veces que haga falta: no duplica."
+            className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5] disabled:opacity-40"
+          >
+            {caducando ? "Procesando…" : "⏳ Procesar caducidades"}
+          </button>
+          <Link href="/facturacion/historial" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]">
+            ← Facturas
+          </Link>
+        </div>
       </div>
+
+      {avisoCaducidad && (
+        <p className="mb-3 rounded-lg border border-[#3A3A36] bg-[#1F1F1A] px-3 py-2 text-sm text-[#A7A7A7]">
+          {avisoCaducidad}
+        </p>
+      )}
 
       <div className="flex flex-wrap gap-2 mb-4">
         <input value={qCliente} onChange={(e) => setQCliente(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cargar()}
