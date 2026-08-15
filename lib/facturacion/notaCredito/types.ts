@@ -35,7 +35,12 @@ export type DetalleNotaCredito = {
   // Marcas internas — NUNCA se serializan al XML del SRI. Viajan en
   // "Líneas JSON" para que el reverso de inventario (Fase 18 PR2) sepa qué
   // Shipping Item devolver al stock y por cuántas unidades.
-  tipo?: "producto" | "servicio";
+  // "productoDigital" incluido solo para que el tipo siga siendo un espejo
+  // fiel de DetalleFactura (comentario de arriba) — la NC de un producto
+  // digital no está resuelta todavía (fuera del alcance de este trabajo);
+  // hoy simplemente no ofrece "devolución física" para esas líneas, igual
+  // que ya hace con "servicio".
+  tipo?: "producto" | "servicio" | "productoDigital";
   shippingItemId?: string;
   /** true = el cliente devolvió físicamente el item (suma de vuelta al stock).
    *  false = ajuste de precio/descuento posterior, no vuelve mercadería. */
