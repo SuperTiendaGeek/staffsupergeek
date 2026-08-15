@@ -39,9 +39,22 @@ export type DetalleFactura = {
   // nunca se serializa al XML del SRI (construirFacturaXml no la lee), solo
   // viaja en "Líneas JSON" para que un futuro postEmision() (Fase 16 PR3)
   // sepa qué líneas corresponden a Shipping Items a marcar como Vendido.
-  tipo?: "producto" | "servicio";
+  //
+  // "productoDigital" es un tipo propio, no una variante de "producto": un
+  // producto digital vive en su propia tabla de Airtable ("Productos
+  // Digitales", no "Shipping Items") y postEmision() lo marca "Usado" +
+  // enlaza la factura, nunca descuenta inventario. Los sitios que filtran
+  // por (tipo === "producto" && shippingItemId) — reglas/stock.ts,
+  // gancho/postEmision.ts, anulaciones/reverso.ts,
+  // notaCredito/revertirInventario.ts — necesitan que un producto digital
+  // NUNCA entre por ahí; reusar "producto" habría exigido añadir un chequeo
+  // negativo en cada uno de esos sitios para no confundirlo con un Shipping
+  // Item real.
+  tipo?: "producto" | "servicio" | "productoDigital";
   // record id del Shipping Item de origen, solo si tipo === "producto".
   shippingItemId?: string;
+  // record id del Producto Digital de origen, solo si tipo === "productoDigital".
+  productoDigitalId?: string;
 };
 
 // ─── Totales de impuesto ─────────────────────────────────────────────────────

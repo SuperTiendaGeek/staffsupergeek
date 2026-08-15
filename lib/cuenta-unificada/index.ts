@@ -2,18 +2,21 @@ import {
   fetchRepuestosPorOrden,
   fetchServiciosPorOrden,
   fetchAbonosPorOrden,
+  fetchProductosDigitalesPorOrden,
 } from "@/lib/tecnicos/airtable";
 import { resolveModoRepuestos } from "./config";
 import type {
   CuentaUnificada,
   CuentaUnificadaAbono,
   CuentaUnificadaItem,
+  CuentaUnificadaProductoDigital,
   CuentaUnificadaRepuestoHistorico,
   CuentaUnificadaServicio,
   GetCuentaUnificadaInput,
   ModoRepuestos,
 } from "@/types/cuenta-unificada";
 import { esAbonoVigente } from "@/types/cuenta-unificada";
+import type { ProductoDigital } from "@/lib/tecnicos/airtable";
 
 // ─── Gates de repuestos (extraído para poder testearlo sin mockear todo el
 // árbol de fetches de getCuentaUnificada) ────────────────────────────────────
@@ -44,6 +47,7 @@ const ORDENES_TABLE = "Órdenes de Reparación";
 const OPERACIONES_TABLE = "Operación Comercial";
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 const ABONOS_TABLE = "Abonos";
+const CATALOGO_PRODUCTOS_DIGITALES_TABLE = "Catálogo Productos Digitales";
 
 type AirtableRecord = {
   id: string;
@@ -147,6 +151,64 @@ function mapAbonoRecordToCuentaAbono(
     origen,
     observacion: typeof f["Observación"] === "string" ? (f["Observación"] as string) : null,
   };
+}
+
+// La lista completa detrás del rollup "Total Productos Digitales" que ya se
+// leía (ver totalProductosDigitales más abajo) — Fase de facturación: hace
+// falta la lista, no solo el total, para poder construir una línea de
+// factura por cada producto digital.
+//
+// El nombre comercial limpio viene del CATÁLOGO ("Producto Base"), nunca de
+// ProductoDigital.softwareProducto: ese campo se lee de "Producto Digital"
+// en Airtable, una fórmula que concatena Catálogo · Estado · Fecha de
+// compra (p.ej. "McAfee AntiVirus 1 Year · Usado · 11/08/2026" — hallazgo
+// real en OR000418). Esa cadena viajaba tal cual a la descripción de la
+// línea de factura — al XML del SRI y al RIDE del cliente. Un documento
+// tributario no puede decir que el producto está "Usado" ni llevar la fecha
+// en que SUPER GEEK se lo compró al proveedor. Empeora desde que
+// asignarProductoDigitalAOrden() dejó de escribir "Usado" al vincular (ver
+// 8a6ca33): el producto queda "Disponible" hasta que la factura se
+// autoriza, así que la próxima factura habría dicho "· Disponible ·".
+//
+// softwareProducto SIGUE existiendo tal cual para /tecnicos/productos-
+// digitales (OrdenDetalle.productosDigitales, un array distinto de este) —
+// ahí ver el estado y la fecha de compra sí es útil. Este cambio solo toca
+// la fuente de CuentaUnificadaProductoDigital.nombre, que es lo único que
+// alimenta la línea de factura (construccion.ts).
+function mapProductoDigitalToCuenta(
+  p: ProductoDigital,
+  nombresCatalogo: Map<string, string>
+): CuentaUnificadaProductoDigital {
+  return {
+    id: p.id,
+    // Vacío si el producto no tiene catálogo vinculado, o el catálogo no
+    // tiene "Producto Base" — NUNCA cae a softwareProducto (el campo sucio).
+    // Un nombre vacío bloquea la pre-factura más adelante
+    // (evaluarProductoDigitalNoListo, construccion.ts), no se inventa nada.
+    nombre: (p.catalogoId && nombresCatalogo.get(p.catalogoId)) || "",
+    precioVenta: p.precioVenta ?? 0,
+    precioVentaCatalogo: p.precioVentaCatalogo ?? 0,
+  };
+}
+
+// "Software / Producto" es un campo de enlace: la API de Airtable devuelve
+// el record id del catálogo, no su nombre — no hay lookup de "Producto
+// Base" en la tabla "Productos Digitales" (verificado contra el esquema
+// real), así que hay que resolverlo con un fetch aparte. Regla de la casa:
+// por RECORD_ID(), nunca filtrando por el propio campo de enlace.
+async function fetchNombresCatalogoProductosDigitales(
+  catalogoIds: string[],
+  client: AirtableClient
+): Promise<Map<string, string>> {
+  const ids = [...new Set(catalogoIds)];
+  const records = await fetchRecordsByIds(client, CATALOGO_PRODUCTOS_DIGITALES_TABLE, ids);
+  const map = new Map<string, string>();
+  for (const r of records) {
+    // Sin fallback a "Sin nombre" aquí a propósito — ver el porqué junto a
+    // mapProductoDigitalToCuenta().
+    map.set(r.id, firstString(r.fields["Producto Base"], ""));
+  }
+  return map;
 }
 
 // Repuestos "de stock" en modo V2: leídos vía el link "Repuestos de Stock (V2)"
@@ -257,7 +319,7 @@ export async function getCuentaUnificada(
   const { legacyCuentanParaTotal: repuestosLegacyCuentanParaTotal, incluyeStockV2: ordenTieneRepuestosStockV2 } =
     resolverGatesRepuestos({ ordenId, operacionId, modoRepuestos });
 
-  const [servicios, repuestosLegacyRaw, repuestosStockV2, abonosOrden, itemsPedidoPorOperacion, abonosPorOperacion] =
+  const [servicios, repuestosLegacyRaw, repuestosStockV2, abonosOrden, itemsPedidoPorOperacion, abonosPorOperacion, productosDigitalesRaw] =
     await Promise.all([
       ordenId ? fetchServiciosPorOrden(ordenId) : Promise.resolve([]),
       // Siempre se trae (si hay orden) para la pestaña de históricos, sin
@@ -269,11 +331,21 @@ export async function getCuentaUnificada(
       ordenId ? fetchAbonosPorOrden(ordenId) : Promise.resolve([]),
       Promise.all(operacionRecords.map((r) => fetchItemsPedido(r, client))),
       Promise.all(operacionRecords.map((r) => fetchAbonosOperacion(r, client))),
+      // Siempre de la orden, nunca de la operación (ver comentario junto a
+      // totalProductosDigitales).
+      ordenId ? fetchProductosDigitalesPorOrden(ordenId) : Promise.resolve([]),
     ]);
   const itemsPedido = itemsPedidoPorOperacion.flat();
   const abonosOperacion = abonosPorOperacion.flat();
 
   const repuestosHistoricos = repuestosLegacyRaw.map(mapRepuestoHistorico);
+  // Depende de los ids de catálogo que trae productosDigitalesRaw — no puede
+  // ir en el Promise.all de arriba.
+  const catalogoIds = productosDigitalesRaw
+    .map((p) => p.catalogoId)
+    .filter((id): id is string => !!id);
+  const nombresCatalogo = await fetchNombresCatalogoProductosDigitales(catalogoIds, client);
+  const productosDigitales = productosDigitalesRaw.map((p) => mapProductoDigitalToCuenta(p, nombresCatalogo));
 
   // La lista principal de "items" es exclusivamente Shipping Items (pedido/
   // stock), tal como pide el modelo cerrado — los renglones legacy NUNCA se
@@ -359,6 +431,7 @@ export async function getCuentaUnificada(
     servicios: serviciosMapped,
     repuestosHistoricos,
     repuestosHistoricosCuentanParaTotal: repuestosLegacyCuentanParaTotal,
+    productosDigitales,
     abonos,
     totalRepuestos,
     totalServicios,

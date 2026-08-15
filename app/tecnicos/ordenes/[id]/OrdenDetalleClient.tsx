@@ -3329,6 +3329,7 @@ export function OrdenDetalleClient() {
                       servicios: [],
                       repuestosHistoricos: [],
                       repuestosHistoricosCuentanParaTotal: false,
+                      productosDigitales: [],
                       abonos: [],
                       totalRepuestos: 0,
                       totalServicios: 0,

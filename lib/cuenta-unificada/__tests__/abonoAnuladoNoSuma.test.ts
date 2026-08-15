@@ -77,7 +77,7 @@ function fakeFetch(input: RequestInfo | URL): Promise<Response> {
     const ids = Object.keys(ABONOS).filter((id) => d.includes(id));
     return Promise.resolve(json({ records: ids.map((id) => ABONOS[id]) }));
   }
-  if (d.includes("/Servicios por Orden") || d.includes("/Repuestos por Orden") || d.includes("/Shipping Items")) {
+  if (d.includes("/Servicios por Orden") || d.includes("/Repuestos por Orden") || d.includes("/Shipping Items") || d.includes("/Productos Digitales")) {
     return Promise.resolve(json({ records: [] }));
   }
   throw new Error(`fetch inesperado en el test hacia: ${url}`);

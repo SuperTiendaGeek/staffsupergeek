@@ -6,7 +6,7 @@ import "server-only";
 // Airtable ni red.
 
 import type { DetalleFactura, TotalImpuesto, Pago } from "../types/factura";
-import type { CuentaUnificadaItem, CuentaUnificadaServicio, CuentaUnificadaAbono, CuentaUnificadaRepuestoHistorico } from "@/types/cuenta-unificada";
+import type { CuentaUnificadaItem, CuentaUnificadaServicio, CuentaUnificadaAbono, CuentaUnificadaRepuestoHistorico, CuentaUnificadaProductoDigital } from "@/types/cuenta-unificada";
 import type { ItemDetalleGancho } from "./airtableGancho";
 import {
   SERVICIO_IVA_DEFAULT, TARIFA_IVA_SRI, TARIFA_IVA_ITEM_DEFAULT,
@@ -102,6 +102,106 @@ export function construirLineaServicio(
     impuestos: [{ codigo: "2", codigoPorcentaje, tarifa, baseImponible: base, valor: valorIva }],
     tipo: "servicio",
   };
+}
+
+// ─── Producto digital ("Productos Digitales") ────────────────────────────────
+//
+// El precio final: SOLO precioVenta, sin caer al catálogo (precioVentaCatalogo).
+// Compartido entre la precondición de abajo y la construcción de la línea
+// para que ambas miren exactamente el mismo número.
+//
+// Hubo un fallback a precioVentaCatalogo hasta que se detectó que rompía la
+// garantía central de este trabajo (importeTotal === cuenta.totalCuenta): el
+// rollup "Total Productos Digitales" en Airtable (lib/cuenta-unificada/
+// index.ts) suma ÚNICAMENTE el campo "Precio Venta" de cada producto, nunca
+// el del catálogo. Si un producto tuviera precioVenta vacío pero catálogo
+// con precio, la línea de factura habría usado el catálogo mientras la
+// cuenta seguía sumando $0 para ese producto — las dos cifras se habrían
+// desviado en silencio, justo lo que este trabajo existe para evitar.
+// Verificado contra los datos reales: 0 de 50 productos digitales tienen
+// Precio Venta vacío — quitar el fallback no rompe nada hoy, y evita que
+// vuelva a romperse el día que sí aparezca uno.
+//
+// construirLineaProductoDigital() y evaluarProductoDigitalNoListo() ya no
+// reciben precioVentaCatalogo en su firma — a propósito, para que sea
+// imposible volver a leerlo por accidente. CuentaUnificadaProductoDigital
+// sigue trayendo el campo (uso de catálogo/display fuera de este archivo),
+// pero estas dos funciones ahora piden explícitamente menos de lo que ese
+// tipo ofrece.
+function resolverPrecioProductoDigital(
+  p: Pick<CuentaUnificadaProductoDigital, "precioVenta">
+): number {
+  return p.precioVenta;
+}
+
+// Mismo precedente que construirLineaRepuestoHistorico() más abajo (bueno,
+// arriba): una tabla con dinero real vinculado a la orden que SÍ sumaba al
+// total de la cuenta (lib/cuenta-unificada/index.ts, rollup "Total Productos
+// Digitales") pero no generaba línea de factura — importeTotal quedaba corto
+// exactamente por ese monto, en silencio. Mismo síntoma, ahora para licencias
+// y cuentas digitales en vez de repuestos.
+//
+// El precio guardado es FINAL CON IVA incluido, igual que las otras tres
+// líneas — se desglosa hacia adentro. La tabla "Productos Digitales" no
+// tiene campo de IVA propio (verificado contra el esquema real de Airtable),
+// así que se usa la misma tarifa por defecto que los servicios.
+export function construirLineaProductoDigital(
+  producto: Pick<CuentaUnificadaProductoDigital, "id" | "nombre" | "precioVenta">,
+  indiceUnoBasado: number
+): DetalleFactura {
+  const { codigoPorcentaje, tarifa } = SERVICIO_IVA_DEFAULT;
+  const precioFinal = resolverPrecioProductoDigital(producto);
+  const { base, valorIva } = desglosarPrecioConIvaIncluido(precioFinal, tarifa);
+  return {
+    codigoPrincipal: `DIG-${indiceUnoBasado}`,
+    descripcion:     producto.nombre,
+    cantidad:        1,
+    precioUnitario:  base,
+    descuento:       0,
+    precioTotalSinImpuesto: base,
+    impuestos: [{ codigo: "2", codigoPorcentaje, tarifa, baseImponible: base, valor: valorIva }],
+    tipo:              "productoDigital",
+    productoDigitalId: producto.id,
+  };
+}
+
+// ─── Precondición dura de productos digitales ────────────────────────────────
+// Un producto digital vinculado a la orden SIN Precio Venta (>0) no puede
+// convertirse en línea de factura — construirLineaProductoDigital()
+// generaría una línea de $0 y importeTotal volvería a quedar corto, en
+// silencio, que es justo el fallo que este trabajo arregla. Fail closed: se
+// bloquea la pre-factura entera, mismo mecanismo que evaluarItemNoListo()
+// usa para Shipping Items.
+//
+// Sin fallback al catálogo aquí tampoco, por la misma razón que
+// resolverPrecioProductoDigital() ya no lo usa: el rollup "Total Productos
+// Digitales" no lo contempla, y dejar pasar un producto con precio de
+// catálogo (pero sin Precio Venta) volvería a abrir la brecha entre
+// importeTotal y cuenta.totalCuenta.
+//
+// SIN_NOMBRE — mismo fail-closed, mismo mecanismo, para el otro campo que
+// alimenta la línea. producto.nombre ya viene resuelto desde el catálogo
+// (lib/cuenta-unificada/index.ts, mapProductoDigitalToCuenta) — NUNCA desde
+// la fórmula sucia "Producto Digital" (Catálogo · Estado · Fecha de compra).
+// Si viene vacío es porque el producto no tiene catálogo vinculado, o el
+// catálogo no tiene "Producto Base": no hay nada limpio que facturar, y
+// construirLineaProductoDigital() generaría una línea sin descripción (o,
+// peor, alguien podría verse tentado a rellenarla con el campo sucio). No
+// se inventa un nombre — se bloquea, igual que sin precio.
+export type ProductoDigitalNoListo = { id: string; nombre: string; motivo: "SIN_PRECIO" | "SIN_NOMBRE" };
+
+export function evaluarProductoDigitalNoListo(
+  producto: Pick<CuentaUnificadaProductoDigital, "id" | "nombre" | "precioVenta">
+): ProductoDigitalNoListo | null {
+  // Sin nombre limpio no hay nada que mostrarle al usuario en la lista de
+  // bloqueados tampoco — se identifica por su id, nunca por el campo sucio.
+  if (!producto.nombre.trim()) {
+    return { id: producto.id, nombre: `(sin nombre de catálogo — id ${producto.id})`, motivo: "SIN_NOMBRE" };
+  }
+  if (!(resolverPrecioProductoDigital(producto) > 0)) {
+    return { id: producto.id, nombre: producto.nombre, motivo: "SIN_PRECIO" };
+  }
+  return null;
 }
 
 // ─── Agrupar totalConImpuestos por tarifa ────────────────────────────────────

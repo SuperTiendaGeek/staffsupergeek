@@ -44,6 +44,19 @@ export interface CuentaUnificadaRepuestoHistorico {
   subtotal: number;
 }
 
+// Renglón de "Productos Digitales" vinculado a la orden (licencias, cuentas,
+// activaciones). Siempre proviene de la orden, nunca de la operación (ver
+// comentario junto a totalProductosDigitales más abajo). precioVenta es el
+// precio fijado para ESTA venta puntual; precioVentaCatalogo es el precio
+// por defecto del software en el catálogo — la construcción de la línea de
+// factura cae a este último cuando precioVenta viene vacío.
+export interface CuentaUnificadaProductoDigital {
+  id: string;
+  nombre: string;
+  precioVenta: number;
+  precioVentaCatalogo: number;
+}
+
 // "ambos" = el registro de Abonos lleva a la vez "Aplicado a: Orden" y
 // "Aplicado a: Operación" (es lo que escriben createAbonoPorOrden y crearAbono
 // cuando el par orden↔operación existe, y de lo que depende Finanzas para la
@@ -86,6 +99,10 @@ export interface CuentaUnificada {
   // Siempre poblado si la orden tiene filas en "Repuestos por Orden", sin
   // importar el modo — es de solo lectura, nunca se escribe desde Etapa 2.
   repuestosHistoricos: CuentaUnificadaRepuestoHistorico[];
+  // Siempre de la orden (nunca de la operación — ver comentario junto a
+  // totalProductosDigitales). Fase de facturación: la lista completa, no solo
+  // el total, para poder construir una línea de factura por cada uno.
+  productosDigitales: CuentaUnificadaProductoDigital[];
   // true cuando la cuenta tiene orden: desde la auditoría F-04/F-12 los
   // históricos suman aunque exista operación vinculada o el viejo modo diga V2.
   repuestosHistoricosCuentanParaTotal: boolean;
