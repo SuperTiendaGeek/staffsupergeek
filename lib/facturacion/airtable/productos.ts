@@ -5,12 +5,21 @@ import {
   mapShippingItemProductRecord,
   type ProductoCatalogo,
 } from "@/lib/facturacion/airtable/productosShippingItems";
+import { buscarProductosDigitales } from "@/lib/facturacion/airtable/productosDigitales";
 
-// Busca productos vendibles en "Shipping Items" (base SUPER GEEK ADM).
-// SOLO LECTURA — este módulo nunca escribe en Shipping Items.
+// Busca productos vendibles en DOS fuentes — "Shipping Items" y "Productos
+// Digitales" (ambas en la base SUPER GEEK ADM) — para el buscador único del
+// formulario de facturación.
+// SOLO LECTURA — este módulo nunca escribe.
 // Decisión: la emisión de facturas no afecta el inventario; el módulo de
 // facturación es únicamente SRI + registro en "Facturas Electrónicas".
 // El descuento de stock se gestionará en un flujo separado cuando se implemente.
+//
+// Las dos búsquedas van en paralelo (Promise.all, no allSettled): si
+// cualquiera de las dos falla, buscarProductos() completa falla — nunca se
+// arma una lista a medias con un fallback silencioso. Un error visible es
+// mejor que un buscador que dice "no hay resultados" cuando en realidad una
+// de las dos fuentes no se pudo consultar.
 //
 // TODO: Shipping Items no tiene campo de IVA por producto.
 //       Todos los productos se asignan a IVA 15% (codigoPorcentaje "4").
@@ -32,10 +41,7 @@ function getClient() {
 
 export type { ProductoCatalogo };
 
-export async function buscarProductos(q: string, pageSize = 8): Promise<ProductoCatalogo[]> {
-  const query = q.trim();
-  if (query.length < 2) return [];
-
+async function buscarEnShippingItems(query: string, pageSize: number): Promise<ProductoCatalogo[]> {
   const client  = getClient();
   // Pre-lowercase the term in code; search in lowercased field for case-insensitive match.
   // Campos buscados: "Nombre del item" y "SKU".
@@ -68,4 +74,16 @@ export async function buscarProductos(q: string, pageSize = 8): Promise<Producto
 
   const data = (await res.json()) as { records?: Array<{ id: string; fields?: Record<string, unknown> }> };
   return (data.records ?? []).map(mapShippingItemProductRecord).filter((producto): producto is ProductoCatalogo => producto !== null);
+}
+
+export async function buscarProductos(q: string, pageSize = 8): Promise<ProductoCatalogo[]> {
+  const query = q.trim();
+  if (query.length < 2) return [];
+
+  const [shippingItems, productosDigitales] = await Promise.all([
+    buscarEnShippingItems(query, pageSize),
+    buscarProductosDigitales(query, pageSize),
+  ]);
+
+  return [...shippingItems, ...productosDigitales];
 }

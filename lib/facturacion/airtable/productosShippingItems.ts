@@ -1,3 +1,11 @@
+// "fuente" es obligatorio a propósito, no opcional: cada sitio que consume
+// un ProductoCatalogo (agregarProducto en el formulario, hoy; cualquier
+// otro futuro) tiene que decidir explícitamente qué hacer con cada fuente
+// — un shippingItemId no significa lo mismo que un productoDigitalId, y un
+// campo opcional dejaría pasar el caso "no decidí nada" sin que el
+// compilador se queje.
+export type FuenteProductoCatalogo = "shippingItem" | "productoDigital";
+
 export type ProductoCatalogo = {
   id: string;
   sku: string;
@@ -6,6 +14,7 @@ export type ProductoCatalogo = {
   precioVenta: number;
   unidad: string;
   cantidadDisponible: number;
+  fuente: FuenteProductoCatalogo;
 };
 
 type ProductoRecord = {
@@ -62,5 +71,6 @@ export function mapShippingItemProductRecord(record: ProductoRecord): ProductoCa
     precioVenta,
     unidad: firstStr(fields["Unidad"]) || "UNIDAD",
     cantidadDisponible: firstNum(fields["Cantidad"] ?? 0),
+    fuente: "shippingItem",
   };
 }
