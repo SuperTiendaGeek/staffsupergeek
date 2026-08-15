@@ -336,7 +336,12 @@ async function postEmisionProductosDigitales(input: PostEmisionInput): Promise<R
   // ahoraEnEcuador(), no new Date(): Vercel corre en UTC, y new Date() aquí
   // habría escrito la fecha de "mañana" entre las 19:00 y medianoche hora
   // Ecuador (mismo bug que fechaEcuador.ts documenta para la emisión).
-  const hoy = ahoraEnEcuador().toISOString().slice(0, 10);
+  // Con getters LOCALES (getDate/getMonth/getFullYear), no con
+  // .toISOString(): ese reconvierte a UTC y deshace la corrección salvo que
+  // el servidor ya esté en UTC — mismo patrón que usa el resto del módulo
+  // (claveAcceso.ts, ride/generarRide.ts, almacenamiento/blob.ts, etc.).
+  const ahora = ahoraEnEcuador();
+  const hoy = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}-${String(ahora.getDate()).padStart(2, "0")}`;
 
   for (const [id, producto] of productosPorId) {
     const actual = estadoActual.get(id);

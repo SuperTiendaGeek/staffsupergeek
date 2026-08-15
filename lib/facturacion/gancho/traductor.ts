@@ -91,10 +91,11 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
     return { bloqueado: true, motivo: "ITEMS_NO_LISTOS", itemsNoListos };
   }
 
-  // ── 3b. Precondición dura de productos digitales (precio utilizable) ────────
-  // Sin esto, un producto digital sin precio generaría una línea de $0 (o
-  // ninguna línea) y importeTotal volvería a quedar corto en silencio —
-  // exactamente el fallo que este trabajo arregla, solo que a medias.
+  // ── 3b. Precondición dura de productos digitales (nombre y precio) ──────────
+  // Sin esto, un producto digital sin nombre limpio o sin precio generaría
+  // una línea rota (sin descripción, o de $0) e importeTotal volvería a
+  // quedar corto en silencio — exactamente el fallo que este trabajo
+  // arregla, solo que a medias.
   const productosDigitalesNoListos: ProductoDigitalNoListo[] = [];
   for (const producto of cuenta.productosDigitales) {
     const bloqueo = evaluarProductoDigitalNoListo(producto);

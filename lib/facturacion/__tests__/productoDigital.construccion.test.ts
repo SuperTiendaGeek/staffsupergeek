@@ -13,6 +13,14 @@
  *       catálogo: no hay fallback (ver el comentario junto a
  *       resolverPrecioProductoDigital() en construccion.ts — el rollup
  *       "Total Productos Digitales" de Airtable solo suma Precio Venta).
+ *       Mismo fail-closed para SIN_NOMBRE: un producto sin nombre limpio
+ *       (catálogo no vinculado o sin "Producto Base") también bloquea.
+ *   (c) la descripción de una línea de producto digital NUNCA lleva el
+ *       campo fórmula sucio de Airtable ("Producto Digital" = Catálogo ·
+ *       Estado · Fecha de compra) — falla si alguien vuelve a enchufarlo.
+ *       El caso end-to-end (que la resolución desde el catálogo funciona de
+ *       verdad, no solo el formato) está en
+ *       lib/cuenta-unificada/__tests__/productoDigitalNombreLimpio.test.ts.
  *   + construirLineaProductoDigital() en aislado: desglose de IVA,
  *     codigoPrincipal.
  *
@@ -105,6 +113,61 @@ function assert(cond: boolean, msg: string): void {
     { id: "recPD7", nombre: "Licencia normal", precioVenta: 25 }
   );
   assert(bloqueo === null, "Con precioVenta > 0 no bloquea");
+}
+
+// SIN_NOMBRE — mismo fail-closed, para el nombre. Producto sin catálogo
+// vinculado (o catálogo sin "Producto Base"): lib/cuenta-unificada/index.ts
+// (mapProductoDigitalToCuenta) deja nombre="" en ese caso — nunca cae a la
+// fórmula sucia. Aquí se prueba que esa cadena vacía bloquea.
+{
+  const bloqueo = evaluarProductoDigitalNoListo(
+    { id: "recPD8", nombre: "", precioVenta: 25 }
+  );
+  assert(bloqueo?.motivo === "SIN_NOMBRE", "Sin nombre (aunque haya precio) → bloquea con SIN_NOMBRE");
+  assert(bloqueo?.id === "recPD8", "El bloqueo identifica el producto exacto por id");
+  assert(!bloqueo?.nombre.includes("undefined"), "El mensaje de bloqueo no se rompe con un nombre vacío");
+}
+{
+  const bloqueo = evaluarProductoDigitalNoListo(
+    { id: "recPD9", nombre: "   ", precioVenta: 25 }
+  );
+  assert(bloqueo?.motivo === "SIN_NOMBRE", "Nombre solo con espacios en blanco → bloquea con SIN_NOMBRE (no cuela como 'con nombre')");
+}
+// Prioridad: sin nombre Y sin precio a la vez reporta SIN_NOMBRE (el nombre
+// hace falta incluso para poder mostrarle el problema de precio al usuario).
+{
+  const bloqueo = evaluarProductoDigitalNoListo(
+    { id: "recPD10", nombre: "", precioVenta: 0 }
+  );
+  assert(bloqueo?.motivo === "SIN_NOMBRE", "Con ambos problemas a la vez, prioriza SIN_NOMBRE");
+}
+
+// ─── (PASO 4, cambio de descripción) La línea de producto digital NUNCA ──────
+// lleva el campo fórmula sucio de Airtable ("Producto Digital" = Catálogo ·
+// Estado · Fecha de compra). Falla si alguien vuelve a enchufarlo: cualquier
+// " · ", "Usado"/"Disponible" o fecha DD/MM/AAAA en la descripción de una
+// línea de producto digital es la fórmula sucia colándose otra vez.
+{
+  const PATRON_SUCIO = /\s·\s|Usado|Disponible|Reservado|Anulado|Vencido|\d{2}\/\d{2}\/\d{4}/;
+  const nombresReales = [
+    "McAfee AntiVirus 1 Year",
+    "Windows 11 Pro",
+    "Microsoft Office 2024 Professional Plus",
+    "Windows 11 Home-Licencia",
+    "Microsoft 365 Education (PC, Mac)",
+  ];
+  for (const nombre of nombresReales) {
+    const linea = construirLineaProductoDigital({ id: "recX", nombre, precioVenta: 20 }, 1);
+    assert(linea.descripcion === nombre, `La descripción es EXACTAMENTE el nombre limpio, sin agregar nada ("${nombre}")`);
+    assert(!PATRON_SUCIO.test(linea.descripcion), `"${linea.descripcion}" no debe contener rastros de estado ni fecha`);
+  }
+  // El regex en sí tiene que reconocer la fórmula sucia real (si esto
+  // fallara, las aserciones de arriba estarían pasando por un regex roto,
+  // no porque el código esté bien).
+  assert(
+    PATRON_SUCIO.test("McAfee AntiVirus 1 Year · Usado · 11/08/2026"),
+    "Sanity del propio patrón: SÍ debe reconocer la fórmula sucia real como sucia"
+  );
 }
 
 // ─── (a) importeTotal === totalCuenta con productos digitales ────────────────

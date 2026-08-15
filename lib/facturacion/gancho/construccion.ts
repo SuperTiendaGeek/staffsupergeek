@@ -178,11 +178,26 @@ export function construirLineaProductoDigital(
 // Digitales" no lo contempla, y dejar pasar un producto con precio de
 // catálogo (pero sin Precio Venta) volvería a abrir la brecha entre
 // importeTotal y cuenta.totalCuenta.
-export type ProductoDigitalNoListo = { id: string; nombre: string; motivo: "SIN_PRECIO" };
+//
+// SIN_NOMBRE — mismo fail-closed, mismo mecanismo, para el otro campo que
+// alimenta la línea. producto.nombre ya viene resuelto desde el catálogo
+// (lib/cuenta-unificada/index.ts, mapProductoDigitalToCuenta) — NUNCA desde
+// la fórmula sucia "Producto Digital" (Catálogo · Estado · Fecha de compra).
+// Si viene vacío es porque el producto no tiene catálogo vinculado, o el
+// catálogo no tiene "Producto Base": no hay nada limpio que facturar, y
+// construirLineaProductoDigital() generaría una línea sin descripción (o,
+// peor, alguien podría verse tentado a rellenarla con el campo sucio). No
+// se inventa un nombre — se bloquea, igual que sin precio.
+export type ProductoDigitalNoListo = { id: string; nombre: string; motivo: "SIN_PRECIO" | "SIN_NOMBRE" };
 
 export function evaluarProductoDigitalNoListo(
   producto: Pick<CuentaUnificadaProductoDigital, "id" | "nombre" | "precioVenta">
 ): ProductoDigitalNoListo | null {
+  // Sin nombre limpio no hay nada que mostrarle al usuario en la lista de
+  // bloqueados tampoco — se identifica por su id, nunca por el campo sucio.
+  if (!producto.nombre.trim()) {
+    return { id: producto.id, nombre: `(sin nombre de catálogo — id ${producto.id})`, motivo: "SIN_NOMBRE" };
+  }
   if (!(resolverPrecioProductoDigital(producto) > 0)) {
     return { id: producto.id, nombre: producto.nombre, motivo: "SIN_PRECIO" };
   }
