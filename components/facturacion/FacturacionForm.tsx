@@ -6,6 +6,7 @@ import type { ResultadoPreFactura }    from "@/lib/facturacion/gancho/traductor"
 import type { OrigenGancho }           from "@/lib/facturacion/emitirFactura";
 import { round2, desglosarPrecioConIvaIncluido } from "@/lib/facturacion/ivaIncluido";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
+import { camposLineaDesdeProducto } from "@/lib/facturacion/lineaDesdeProductoCatalogo";
 import { ClienteCard, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 import { validarIdentificacion } from "@/lib/facturacion/reglas/identificacion";
 
@@ -357,52 +358,19 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   }, [queryProducto]);
 
   // ── Líneas de detalle ─────────────────────────────────────────────────────
-  // fuente decide el resto de la línea — el compilador exige cubrir las dos
-  // ramas (ProductoCatalogo.fuente no es opcional).
+  // Los campos de la línea salen de camposLineaDesdeProducto() (pura,
+  // lib/facturacion/lineaDesdeProductoCatalogo.ts, compartida con las
+  // pruebas) — aquí solo queda lo que necesita estado de React: el chequeo
+  // de duplicado y el push a `lineas`.
   function agregarProducto(p: ProductoCatalogo) {
-    if (p.fuente === "productoDigital") {
-      // El mismo producto digital no se puede agregar dos veces a la misma
-      // factura: cada registro es una unidad única con su propia clave, no
-      // tiene sentido "vender 2 veces la misma licencia".
-      if (lineas.some((l) => l.productoDigitalId === p.id)) {
-        setErrGlobal(`"${p.nombre}" ya está en la factura — un producto digital no se puede agregar dos veces.`);
-        return;
-      }
-      setLineas((prev) => [
-        ...prev,
-        {
-          _id:            crypto.randomUUID(),
-          codigoPrincipal:p.id,
-          descripcion:    p.nombre,
-          unidadMedida:   "UNIDAD",
-          cantidad:       1,
-          precioUnitario: p.precioVenta,
-          descuento:      0,
-          tarifaIva:      "4", // Productos Digitales no tiene campo de IVA propio, mismo default
-          tipo:              "productoDigital",
-          productoDigitalId: p.id,
-        },
-      ]);
-    } else {
-      setLineas((prev) => [
-        ...prev,
-        {
-          _id:            crypto.randomUUID(),
-          codigoPrincipal:p.sku || p.id,
-          descripcion:    p.nombre,
-          unidadMedida:   p.unidad,
-          cantidad:       1,
-          precioUnitario: p.precioVenta,
-          descuento:      0,
-          tarifaIva:      "4",  // IVA 15% por defecto (Shipping Items no tiene campo IVA)
-          // Fase 17.b: la línea de mostrador ahora sí queda vinculada a su
-          // Shipping Item — descuenta stock al facturar, igual que el gancho.
-          tipo:            "producto",
-          shippingItemId:  p.id,
-          stockDisponible: p.cantidadDisponible,
-        },
-      ]);
+    // El mismo producto digital no se puede agregar dos veces a la misma
+    // factura: cada registro es una unidad única con su propia clave, no
+    // tiene sentido "vender 2 veces la misma licencia".
+    if (p.fuente === "productoDigital" && lineas.some((l) => l.productoDigitalId === p.id)) {
+      setErrGlobal(`"${p.nombre}" ya está en la factura — un producto digital no se puede agregar dos veces.`);
+      return;
     }
+    setLineas((prev) => [...prev, { _id: crypto.randomUUID(), ...camposLineaDesdeProducto(p) }]);
     setQueryProducto("");
     setProductosSug([]);
     productoRef.current?.focus();
