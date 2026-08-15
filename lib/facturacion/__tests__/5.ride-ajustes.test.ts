@@ -28,6 +28,9 @@ function loadEnvLocal() {
 
 loadEnvLocal();
 
+import { assertPruebaConRedPermitida } from "./_guardaRed";
+assertPruebaConRedPermitida("5.ride-ajustes");
+
 import { emitirFactura } from "../emitirFactura";
 
 const REQUIRED = [

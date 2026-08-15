@@ -31,6 +31,9 @@ function loadEnvLocal() {
 
 loadEnvLocal();
 
+import { assertPruebaConRedPermitida } from "./_guardaRed";
+assertPruebaConRedPermitida("4e.integracion.fase4");
+
 import { emitirFactura } from "../emitirFactura";
 
 const REQUIRED = [

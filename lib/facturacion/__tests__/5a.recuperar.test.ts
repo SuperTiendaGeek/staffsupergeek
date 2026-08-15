@@ -24,6 +24,9 @@ function loadEnvLocal() {
 
 loadEnvLocal();
 
+import { assertPruebaConRedPermitida } from "./_guardaRed";
+assertPruebaConRedPermitida("5a.recuperar");
+
 import { recuperarFacturaAutorizadaPorClave } from "../almacenamiento/recuperar";
 
 const CLAVE_663 = "2306202601100371027200110010020000006636893832213";

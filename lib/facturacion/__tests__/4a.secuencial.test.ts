@@ -24,6 +24,9 @@ function loadEnvLocal() {
 
 loadEnvLocal();
 
+import { assertPruebaConRedPermitida } from "./_guardaRed";
+assertPruebaConRedPermitida("4a.secuencial");
+
 import { maxSecuencialUsado } from "../airtable/facturas";
 import { siguienteSecuencial }     from "../secuencial/asignar";
 import { getFacturacionConfig }    from "../config";
