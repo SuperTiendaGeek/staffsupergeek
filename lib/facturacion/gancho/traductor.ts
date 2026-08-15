@@ -14,11 +14,12 @@ import { buscarFacturaBloqueante } from "./idempotencia";
 import type { FacturaVinculadaGancho } from "./airtableGancho";
 import {
   derivarTipoIdentificacion, construirLineaProducto, construirLineaServicio, construirLineaRepuestoHistorico,
-  agruparTotalConImpuestos, evaluarItemNoListo, calcularFormasPago, round2,
+  construirLineaProductoDigital, agruparTotalConImpuestos, evaluarItemNoListo, evaluarProductoDigitalNoListo,
+  calcularFormasPago, round2,
 } from "./construccion";
-import type { ItemNoListo } from "./construccion";
+import type { ItemNoListo, ProductoDigitalNoListo } from "./construccion";
 
-export type { ItemNoListo } from "./construccion";
+export type { ItemNoListo, ProductoDigitalNoListo } from "./construccion";
 
 // ─── Tipos públicos ───────────────────────────────────────────────────────────
 
@@ -26,9 +27,14 @@ export type PreFacturaInput = { ordenId: string } | { operacionId: string };
 
 export type PreFacturaBloqueada = {
   bloqueado:        true;
-  motivo:           "FACTURA_EXISTENTE" | "ITEMS_NO_LISTOS";
+  motivo:           "FACTURA_EXISTENTE" | "ITEMS_NO_LISTOS" | "PRODUCTOS_DIGITALES_SIN_PRECIO";
   facturaExistente?: FacturaVinculadaGancho;
   itemsNoListos?:    ItemNoListo[];
+  // Motivo análogo a itemsNoListos, propio de "Productos Digitales": un
+  // producto vinculado a la orden sin precio utilizable (ni el fijado para
+  // esta venta ni el del catálogo) — ver evaluarProductoDigitalNoListo() en
+  // construccion.ts.
+  productosDigitalesNoListos?: ProductoDigitalNoListo[];
 };
 
 export type PreFacturaLista = {
@@ -85,6 +91,19 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
     return { bloqueado: true, motivo: "ITEMS_NO_LISTOS", itemsNoListos };
   }
 
+  // ── 3b. Precondición dura de productos digitales (precio utilizable) ────────
+  // Sin esto, un producto digital sin precio generaría una línea de $0 (o
+  // ninguna línea) y importeTotal volvería a quedar corto en silencio —
+  // exactamente el fallo que este trabajo arregla, solo que a medias.
+  const productosDigitalesNoListos: ProductoDigitalNoListo[] = [];
+  for (const producto of cuenta.productosDigitales) {
+    const bloqueo = evaluarProductoDigitalNoListo(producto);
+    if (bloqueo) productosDigitalesNoListos.push(bloqueo);
+  }
+  if (productosDigitalesNoListos.length > 0) {
+    return { bloqueado: true, motivo: "PRODUCTOS_DIGITALES_SIN_PRECIO", productosDigitalesNoListos };
+  }
+
   // ── 4. Cliente (link real de la orden/operación) ────────────────────────────
   const clienteIdsOrigen = linkedIds(registroOrigen?.fields["Cliente"]);
   const clienteIds = clienteIdsOrigen.length > 0 ? clienteIdsOrigen : linkedIds(registroOtro?.fields["Cliente"]);
@@ -100,7 +119,7 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
   const razonSocialComprador = clienteRecord && clienteNombre ? clienteNombre.toUpperCase() : "CONSUMIDOR FINAL";
   const identificacionComprador = clienteRecord && clienteCedula ? clienteCedula : "9999999999999";
 
-  // ── 5. Líneas: productos + servicios ─────────────────────────────────────────
+  // ── 5. Líneas: productos + servicios + productos digitales ──────────────────
   const detallesProducto: DetalleFactura[] = cuenta.items.map((item) =>
     construirLineaProducto(item, detalleItems.get(item.id))
   );
@@ -113,7 +132,14 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
   const detallesRepuestoHistorico: DetalleFactura[] = cuenta.repuestosHistoricosCuentanParaTotal
     ? cuenta.repuestosHistoricos.map((r, i) => construirLineaRepuestoHistorico(r, i + 1))
     : [];
-  const detalles = [...detallesProducto, ...detallesRepuestoHistorico, ...detallesServicio];
+  // Productos digitales: siempre de la orden (cuenta.productosDigitales ya lo
+  // garantiza — ver lib/cuenta-unificada/index.ts). La precondición de arriba
+  // (3b) ya descartó los que no tienen precio utilizable, así que todos los
+  // que llegan aquí producen una línea válida.
+  const detallesProductoDigital: DetalleFactura[] = cuenta.productosDigitales.map((p, i) =>
+    construirLineaProductoDigital(p, i + 1)
+  );
+  const detalles = [...detallesProducto, ...detallesRepuestoHistorico, ...detallesServicio, ...detallesProductoDigital];
 
   // ── 6. Totales agrupados por tarifa ───────────────────────────────────────────
   const totalConImpuestos = agruparTotalConImpuestos(detalles);

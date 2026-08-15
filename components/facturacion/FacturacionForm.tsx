@@ -94,8 +94,12 @@ type LineaDetalle = {
   // Fase 17.b, en líneas agregadas con el buscador de productos de mostrador
   // (agregarProducto) — ambas descuentan stock al facturar. Solo "+ Agregar
   // línea manual" sigue sin vínculo a inventario.
-  tipo?:           "producto" | "servicio";
-  shippingItemId?: string;
+  tipo?:              "producto" | "servicio" | "productoDigital";
+  shippingItemId?:    string;
+  // Misma idea que shippingItemId, para líneas de "Productos Digitales"
+  // (solo si tipo === "productoDigital") — postEmision() lo usa para marcar
+  // Usado y enlazar la factura al autorizarse.
+  productoDigitalId?: string;
   // Stock visto al momento de agregar la línea (solo buscador de mostrador).
   // Referencial para validación temprana en el formulario — la verificación
   // definitiva la hace el servidor releyendo Airtable justo antes de emitir.
@@ -508,6 +512,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             tarifaIva:       (d.impuestos[0]?.codigoPorcentaje ?? "4") as TarifaCodigo,
             tipo:            d.tipo,
             shippingItemId:  d.shippingItemId,
+            productoDigitalId: d.productoDigitalId,
           }))
         );
 
@@ -722,6 +727,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             // líneas que llegaron precargadas del gancho lo traen.
             tipo:           l.tipo,
             shippingItemId: l.shippingItemId,
+            productoDigitalId: l.productoDigitalId,
           };
         })
       : lineas.map((l) => {
@@ -748,6 +754,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             ],
             tipo:           l.tipo,
             shippingItemId: l.shippingItemId,
+            productoDigitalId: l.productoDigitalId,
           };
         });
 
@@ -1380,6 +1387,24 @@ function PreFacturaBloqueadaBanner({ resultado }: { resultado: Extract<Resultado
         >
           Ver historial de facturas
         </a>
+      </div>
+    );
+  }
+
+  if (resultado.motivo === "PRODUCTOS_DIGITALES_SIN_PRECIO") {
+    return (
+      <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">
+        <p className="text-[#F0C75E] font-bold text-lg mb-2">No se puede facturar todavía</p>
+        <p className="text-[#A7A7A7] text-sm mb-3">
+          Algunos productos digitales de esta orden no tienen precio:
+        </p>
+        <ul className="flex flex-col gap-1">
+          {(resultado.productosDigitalesNoListos ?? []).map((item) => (
+            <li key={item.id} className="text-sm text-[#F5F5F5]">
+              {item.nombre} — <span className="text-[#F0C75E]">no tiene Precio Venta ni Precio Venta Catálogo</span>
+            </li>
+          ))}
+        </ul>
       </div>
     );
   }
