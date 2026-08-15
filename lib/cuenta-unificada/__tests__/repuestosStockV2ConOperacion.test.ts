@@ -98,6 +98,9 @@ function fetchDoble(url: string | URL) {
   if (urlStr.includes(encodeURIComponent("Abonos"))) {
     return Promise.resolve({ ok: true, json: async () => ({ records: [] }) } as Response);
   }
+  if (urlStr.includes(encodeURIComponent("Productos Digitales"))) {
+    return Promise.resolve({ ok: true, json: async () => ({ records: [] }) } as Response);
+  }
 
   throw new Error(`fetch inesperado en el test hacia: ${urlStr}`);
 }

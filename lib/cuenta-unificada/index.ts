@@ -2,18 +2,21 @@ import {
   fetchRepuestosPorOrden,
   fetchServiciosPorOrden,
   fetchAbonosPorOrden,
+  fetchProductosDigitalesPorOrden,
 } from "@/lib/tecnicos/airtable";
 import { resolveModoRepuestos } from "./config";
 import type {
   CuentaUnificada,
   CuentaUnificadaAbono,
   CuentaUnificadaItem,
+  CuentaUnificadaProductoDigital,
   CuentaUnificadaRepuestoHistorico,
   CuentaUnificadaServicio,
   GetCuentaUnificadaInput,
   ModoRepuestos,
 } from "@/types/cuenta-unificada";
 import { esAbonoVigente } from "@/types/cuenta-unificada";
+import type { ProductoDigital } from "@/lib/tecnicos/airtable";
 
 // ─── Gates de repuestos (extraído para poder testearlo sin mockear todo el
 // árbol de fetches de getCuentaUnificada) ────────────────────────────────────
@@ -149,6 +152,19 @@ function mapAbonoRecordToCuentaAbono(
   };
 }
 
+// La lista completa detrás del rollup "Total Productos Digitales" que ya se
+// leía (ver totalProductosDigitales más abajo) — Fase de facturación: hace
+// falta la lista, no solo el total, para poder construir una línea de
+// factura por cada producto digital.
+function mapProductoDigitalToCuenta(p: ProductoDigital): CuentaUnificadaProductoDigital {
+  return {
+    id: p.id,
+    nombre: p.softwareProducto,
+    precioVenta: p.precioVenta ?? 0,
+    precioVentaCatalogo: p.precioVentaCatalogo ?? 0,
+  };
+}
+
 // Repuestos "de stock" en modo V2: leídos vía el link "Repuestos de Stock (V2)"
 // en la orden (inverso de Shipping Items."Orden de Reparación (Stock)").
 async function fetchRepuestosStockV2(
@@ -257,7 +273,7 @@ export async function getCuentaUnificada(
   const { legacyCuentanParaTotal: repuestosLegacyCuentanParaTotal, incluyeStockV2: ordenTieneRepuestosStockV2 } =
     resolverGatesRepuestos({ ordenId, operacionId, modoRepuestos });
 
-  const [servicios, repuestosLegacyRaw, repuestosStockV2, abonosOrden, itemsPedidoPorOperacion, abonosPorOperacion] =
+  const [servicios, repuestosLegacyRaw, repuestosStockV2, abonosOrden, itemsPedidoPorOperacion, abonosPorOperacion, productosDigitalesRaw] =
     await Promise.all([
       ordenId ? fetchServiciosPorOrden(ordenId) : Promise.resolve([]),
       // Siempre se trae (si hay orden) para la pestaña de históricos, sin
@@ -269,11 +285,15 @@ export async function getCuentaUnificada(
       ordenId ? fetchAbonosPorOrden(ordenId) : Promise.resolve([]),
       Promise.all(operacionRecords.map((r) => fetchItemsPedido(r, client))),
       Promise.all(operacionRecords.map((r) => fetchAbonosOperacion(r, client))),
+      // Siempre de la orden, nunca de la operación (ver comentario junto a
+      // totalProductosDigitales).
+      ordenId ? fetchProductosDigitalesPorOrden(ordenId) : Promise.resolve([]),
     ]);
   const itemsPedido = itemsPedidoPorOperacion.flat();
   const abonosOperacion = abonosPorOperacion.flat();
 
   const repuestosHistoricos = repuestosLegacyRaw.map(mapRepuestoHistorico);
+  const productosDigitales = productosDigitalesRaw.map(mapProductoDigitalToCuenta);
 
   // La lista principal de "items" es exclusivamente Shipping Items (pedido/
   // stock), tal como pide el modelo cerrado — los renglones legacy NUNCA se
@@ -359,6 +379,7 @@ export async function getCuentaUnificada(
     servicios: serviciosMapped,
     repuestosHistoricos,
     repuestosHistoricosCuentanParaTotal: repuestosLegacyCuentanParaTotal,
+    productosDigitales,
     abonos,
     totalRepuestos,
     totalServicios,

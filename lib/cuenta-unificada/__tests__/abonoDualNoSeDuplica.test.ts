@@ -129,8 +129,9 @@ function fakeFetch(input: RequestInfo | URL): Promise<Response> {
     const records = decoded.includes("recABONO1") ? [ABONO] : [];
     return Promise.resolve(json({ records }));
   }
-  // Servicios / Repuestos por Orden (legacy) — vacíos en este escenario.
-  if (decoded.includes("/Servicios por Orden") || decoded.includes("/Repuestos por Orden")) {
+  // Servicios / Repuestos por Orden (legacy) / Productos Digitales — vacíos
+  // en este escenario.
+  if (decoded.includes("/Servicios por Orden") || decoded.includes("/Repuestos por Orden") || decoded.includes("/Productos Digitales")) {
     return Promise.resolve(json({ records: [] }));
   }
 
