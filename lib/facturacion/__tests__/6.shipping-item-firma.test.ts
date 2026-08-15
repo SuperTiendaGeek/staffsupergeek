@@ -28,6 +28,9 @@ function loadEnvLocal() {
 
 loadEnvLocal();
 
+import { assertPruebaConRedPermitida } from "./_guardaRed";
+assertPruebaConRedPermitida("6.shipping-item-firma");
+
 import { emitirFactura } from "../emitirFactura";
 import { buscarProductos } from "../airtable/productos";
 

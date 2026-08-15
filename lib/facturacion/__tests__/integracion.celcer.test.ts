@@ -33,6 +33,7 @@ import { generateAccessKey }    from "../claveAcceso";
 import { getFacturacionConfig } from "../config";
 import { obtenerFirmaActiva }   from "../firma/resolverFirmaActiva";
 import type { FacturaInput }    from "../types/factura";
+import { assertPruebaConRedPermitida } from "./_guardaRed";
 
 // ─── Cargar .env.local ────────────────────────────────────────────────────────
 
@@ -92,6 +93,7 @@ function divider(title: string): void {
 
 (async () => {
   loadEnvLocal();
+  assertPruebaConRedPermitida("integracion.celcer");
   if (!checkCredenciales()) process.exit(0);
 
   const cfg = getFacturacionConfig();

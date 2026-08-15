@@ -25,6 +25,9 @@ function loadEnvLocal() {
 
 loadEnvLocal();
 
+import { assertPruebaConRedPermitida } from "./_guardaRed";
+assertPruebaConRedPermitida("5b.emitir664");
+
 import { emitirFactura } from "../emitirFactura";
 
 (async () => {
