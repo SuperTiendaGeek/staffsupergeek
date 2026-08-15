@@ -8,10 +8,13 @@
  *       cálculo se queda corto exactamente por el total de productos
  *       digitales, para probar que el assert de (a) de verdad detecta el
  *       fallo y no pasa por casualidad.
- *   (b) un producto digital sin precio utilizable bloquea la pre-factura
- *       (evaluarProductoDigitalNoListo)
- *   + construirLineaProductoDigital() en aislado: desglose de IVA, fallback
- *     a precioVentaCatalogo, codigoPrincipal.
+ *   (b) un producto digital sin Precio Venta bloquea la pre-factura
+ *       (evaluarProductoDigitalNoListo) — INCLUSO si tiene precio de
+ *       catálogo: no hay fallback (ver el comentario junto a
+ *       resolverPrecioProductoDigital() en construccion.ts — el rollup
+ *       "Total Productos Digitales" de Airtable solo suma Precio Venta).
+ *   + construirLineaProductoDigital() en aislado: desglose de IVA,
+ *     codigoPrincipal.
  *
  * Lanza en la primera falla y sale con código distinto de 0.
  */
@@ -35,7 +38,7 @@ function assert(cond: boolean, msg: string): void {
 
 {
   const linea = construirLineaProductoDigital(
-    { id: "recPD1", nombre: "Windows 11 Pro", precioVenta: 20, precioVentaCatalogo: 20 },
+    { id: "recPD1", nombre: "Windows 11 Pro", precioVenta: 20 },
     1
   );
   assert(linea.tipo === "productoDigital", "Línea de producto digital: tipo marcado como 'productoDigital'");
@@ -53,48 +56,53 @@ function assert(cond: boolean, msg: string): void {
 }
 {
   const linea = construirLineaProductoDigital(
-    { id: "recPD2", nombre: "Office 365", precioVenta: 30, precioVentaCatalogo: 30 },
+    { id: "recPD2", nombre: "Office 365", precioVenta: 30 },
     2
   );
   assert(linea.codigoPrincipal === "DIG-2", "Segundo producto digital: DIG-2 (consecutivo)");
 }
 
-// precioVenta vacío (0) → cae a precioVentaCatalogo
+// Sin fallback: con precioVenta en 0, la línea sale en $0 tal cual — esta
+// función ya NO mira ningún catálogo. Es exactamente por esto que
+// evaluarProductoDigitalNoListo() tiene que correr ANTES en el traductor: a
+// esta función no le corresponde bloquear nada, solo construir con lo que
+// le den.
 {
   const linea = construirLineaProductoDigital(
-    { id: "recPD3", nombre: "Antivirus X", precioVenta: 0, precioVentaCatalogo: 15 },
+    { id: "recPD3", nombre: "Antivirus X", precioVenta: 0 },
     1
   );
-  assert(linea.precioTotalSinImpuesto + linea.impuestos[0].valor === 15, "precioVenta=0 → usa precioVentaCatalogo (15) como precio final");
-}
-// precioVenta con valor → NUNCA cae al catálogo, aunque este sea distinto
-{
-  const linea = construirLineaProductoDigital(
-    { id: "recPD4", nombre: "Antivirus Y", precioVenta: 12, precioVentaCatalogo: 15 },
-    1
-  );
-  assert(linea.precioTotalSinImpuesto + linea.impuestos[0].valor === 12, "precioVenta>0 → manda sobre precioVentaCatalogo, no se promedia ni se ignora");
+  assert(linea.precioTotalSinImpuesto + linea.impuestos[0].valor === 0, "precioVenta=0 → línea de $0, sin caer a ningún catálogo");
 }
 
 // ─── evaluarProductoDigitalNoListo — precondición dura (PASO 4) ──────────────
+// Sin fallback: el ÚNICO precio que cuenta es precioVenta. Un producto con
+// precio de catálogo pero sin Precio Venta bloquea igual — es el caso que
+// motivó quitar el fallback (el rollup "Total Productos Digitales" nunca
+// suma el catálogo, así que dejarlo pasar habría vuelto a desviar
+// importeTotal de cuenta.totalCuenta).
 
 {
   const bloqueo = evaluarProductoDigitalNoListo(
-    { id: "recPD5", nombre: "Licencia sin precio", precioVenta: 0, precioVentaCatalogo: 0 }
+    { id: "recPD5", nombre: "Licencia sin precio", precioVenta: 0 }
   );
-  assert(bloqueo?.motivo === "SIN_PRECIO", "Sin precioVenta NI precioVentaCatalogo → bloquea con SIN_PRECIO");
+  assert(bloqueo?.motivo === "SIN_PRECIO", "Sin precioVenta → bloquea con SIN_PRECIO");
   assert(bloqueo?.id === "recPD5", "El bloqueo identifica el producto exacto");
   assert(bloqueo?.nombre === "Licencia sin precio", "El bloqueo trae el nombre para el mensaje al usuario");
 }
 {
+  // Caso que motivó este cambio: precioVenta vacío, PERO con precio de
+  // catálogo. Antes esto caía al catálogo y no bloqueaba — ahora bloquea
+  // igual, porque el catálogo nunca entra al rollup que cuenta_unificada usa
+  // para totalProductosDigitales.
   const bloqueo = evaluarProductoDigitalNoListo(
-    { id: "recPD6", nombre: "Licencia con catálogo", precioVenta: 0, precioVentaCatalogo: 25 }
+    { id: "recPD6", nombre: "Licencia con catálogo pero sin Precio Venta", precioVenta: 0 }
   );
-  assert(bloqueo === null, "Sin precioVenta pero CON precioVentaCatalogo no bloquea (cae al fallback)");
+  assert(bloqueo?.motivo === "SIN_PRECIO", "precioVenta vacío CON catálogo con precio → bloquea igual (ya no hay fallback)");
 }
 {
   const bloqueo = evaluarProductoDigitalNoListo(
-    { id: "recPD7", nombre: "Licencia normal", precioVenta: 25, precioVentaCatalogo: 25 }
+    { id: "recPD7", nombre: "Licencia normal", precioVenta: 25 }
   );
   assert(bloqueo === null, "Con precioVenta > 0 no bloquea");
 }
@@ -115,10 +123,10 @@ function assert(cond: boolean, msg: string): void {
   );
   const lineaServicio = construirLineaServicio({ nombre: "Diagnóstico", costo: 23 }, 1);
   const lineaDigital1 = construirLineaProductoDigital(
-    { id: "recPDA", nombre: "Windows 11 Pro", precioVenta: 20, precioVentaCatalogo: 20 }, 1
+    { id: "recPDA", nombre: "Windows 11 Pro", precioVenta: 20 }, 1
   );
   const lineaDigital2 = construirLineaProductoDigital(
-    { id: "recPDB", nombre: "Office 365", precioVenta: 15, precioVentaCatalogo: 15 }, 2
+    { id: "recPDB", nombre: "Office 365", precioVenta: 15 }, 2
   );
 
   // totalCuenta tal como lo arma lib/cuenta-unificada/index.ts: suma de

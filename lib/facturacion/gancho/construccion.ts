@@ -106,14 +106,32 @@ export function construirLineaServicio(
 
 // ─── Producto digital ("Productos Digitales") ────────────────────────────────
 //
-// El precio final: el fijado para esta venta puntual (precioVenta) si existe;
-// si no, el precio por defecto del catálogo (precioVentaCatalogo). Compartido
-// entre la precondición de abajo y la construcción de la línea para que
-// ambas miren exactamente el mismo número.
+// El precio final: SOLO precioVenta, sin caer al catálogo (precioVentaCatalogo).
+// Compartido entre la precondición de abajo y la construcción de la línea
+// para que ambas miren exactamente el mismo número.
+//
+// Hubo un fallback a precioVentaCatalogo hasta que se detectó que rompía la
+// garantía central de este trabajo (importeTotal === cuenta.totalCuenta): el
+// rollup "Total Productos Digitales" en Airtable (lib/cuenta-unificada/
+// index.ts) suma ÚNICAMENTE el campo "Precio Venta" de cada producto, nunca
+// el del catálogo. Si un producto tuviera precioVenta vacío pero catálogo
+// con precio, la línea de factura habría usado el catálogo mientras la
+// cuenta seguía sumando $0 para ese producto — las dos cifras se habrían
+// desviado en silencio, justo lo que este trabajo existe para evitar.
+// Verificado contra los datos reales: 0 de 50 productos digitales tienen
+// Precio Venta vacío — quitar el fallback no rompe nada hoy, y evita que
+// vuelva a romperse el día que sí aparezca uno.
+//
+// construirLineaProductoDigital() y evaluarProductoDigitalNoListo() ya no
+// reciben precioVentaCatalogo en su firma — a propósito, para que sea
+// imposible volver a leerlo por accidente. CuentaUnificadaProductoDigital
+// sigue trayendo el campo (uso de catálogo/display fuera de este archivo),
+// pero estas dos funciones ahora piden explícitamente menos de lo que ese
+// tipo ofrece.
 function resolverPrecioProductoDigital(
-  p: Pick<CuentaUnificadaProductoDigital, "precioVenta" | "precioVentaCatalogo">
+  p: Pick<CuentaUnificadaProductoDigital, "precioVenta">
 ): number {
-  return p.precioVenta > 0 ? p.precioVenta : p.precioVentaCatalogo;
+  return p.precioVenta;
 }
 
 // Mismo precedente que construirLineaRepuestoHistorico() más abajo (bueno,
@@ -128,7 +146,7 @@ function resolverPrecioProductoDigital(
 // tiene campo de IVA propio (verificado contra el esquema real de Airtable),
 // así que se usa la misma tarifa por defecto que los servicios.
 export function construirLineaProductoDigital(
-  producto: Pick<CuentaUnificadaProductoDigital, "id" | "nombre" | "precioVenta" | "precioVentaCatalogo">,
+  producto: Pick<CuentaUnificadaProductoDigital, "id" | "nombre" | "precioVenta">,
   indiceUnoBasado: number
 ): DetalleFactura {
   const { codigoPorcentaje, tarifa } = SERVICIO_IVA_DEFAULT;
@@ -148,16 +166,22 @@ export function construirLineaProductoDigital(
 }
 
 // ─── Precondición dura de productos digitales ────────────────────────────────
-// Un producto digital vinculado a la orden SIN precio utilizable (ni
-// precioVenta ni precioVentaCatalogo) no puede convertirse en línea de
-// factura — construirLineaProductoDigital() generaría una línea de $0 y
-// importeTotal volvería a quedar corto, en silencio, que es justo el fallo
-// que este trabajo arregla. Fail closed: se bloquea la pre-factura entera,
-// mismo mecanismo que evaluarItemNoListo() usa para Shipping Items.
+// Un producto digital vinculado a la orden SIN Precio Venta (>0) no puede
+// convertirse en línea de factura — construirLineaProductoDigital()
+// generaría una línea de $0 y importeTotal volvería a quedar corto, en
+// silencio, que es justo el fallo que este trabajo arregla. Fail closed: se
+// bloquea la pre-factura entera, mismo mecanismo que evaluarItemNoListo()
+// usa para Shipping Items.
+//
+// Sin fallback al catálogo aquí tampoco, por la misma razón que
+// resolverPrecioProductoDigital() ya no lo usa: el rollup "Total Productos
+// Digitales" no lo contempla, y dejar pasar un producto con precio de
+// catálogo (pero sin Precio Venta) volvería a abrir la brecha entre
+// importeTotal y cuenta.totalCuenta.
 export type ProductoDigitalNoListo = { id: string; nombre: string; motivo: "SIN_PRECIO" };
 
 export function evaluarProductoDigitalNoListo(
-  producto: Pick<CuentaUnificadaProductoDigital, "id" | "nombre" | "precioVenta" | "precioVentaCatalogo">
+  producto: Pick<CuentaUnificadaProductoDigital, "id" | "nombre" | "precioVenta">
 ): ProductoDigitalNoListo | null {
   if (!(resolverPrecioProductoDigital(producto) > 0)) {
     return { id: producto.id, nombre: producto.nombre, motivo: "SIN_PRECIO" };

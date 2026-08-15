@@ -1396,12 +1396,12 @@ function PreFacturaBloqueadaBanner({ resultado }: { resultado: Extract<Resultado
       <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">
         <p className="text-[#F0C75E] font-bold text-lg mb-2">No se puede facturar todavía</p>
         <p className="text-[#A7A7A7] text-sm mb-3">
-          Algunos productos digitales de esta orden no tienen precio:
+          Algunos productos digitales de esta orden no tienen Precio Venta:
         </p>
         <ul className="flex flex-col gap-1">
           {(resultado.productosDigitalesNoListos ?? []).map((item) => (
             <li key={item.id} className="text-sm text-[#F5F5F5]">
-              {item.nombre} — <span className="text-[#F0C75E]">no tiene Precio Venta ni Precio Venta Catálogo</span>
+              {item.nombre} — <span className="text-[#F0C75E]">falta poner su Precio Venta</span>
             </li>
           ))}
         </ul>

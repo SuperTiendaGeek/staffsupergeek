@@ -22,6 +22,7 @@ import "server-only";
 
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero } from "./airtableGancho";
 import { actualizarSincronizacionInventario } from "../airtable/facturas";
+import { ahoraEnEcuador } from "../fechaEcuador";
 import type { DetalleFactura } from "../types/factura";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
@@ -332,7 +333,10 @@ async function postEmisionProductosDigitales(input: PostEmisionInput): Promise<R
   let yaHechos = 0;
   let marcados = 0;
 
-  const hoy = new Date().toISOString().slice(0, 10);
+  // ahoraEnEcuador(), no new Date(): Vercel corre en UTC, y new Date() aquí
+  // habría escrito la fecha de "mañana" entre las 19:00 y medianoche hora
+  // Ecuador (mismo bug que fechaEcuador.ts documenta para la emisión).
+  const hoy = ahoraEnEcuador().toISOString().slice(0, 10);
 
   for (const [id, producto] of productosPorId) {
     const actual = estadoActual.get(id);
