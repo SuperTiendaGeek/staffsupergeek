@@ -6,7 +6,7 @@ import "server-only";
 // Airtable ni red.
 
 import type { DetalleFactura, TotalImpuesto, Pago } from "../types/factura";
-import type { CuentaUnificadaItem, CuentaUnificadaServicio, CuentaUnificadaAbono, CuentaUnificadaRepuestoHistorico } from "@/types/cuenta-unificada";
+import type { CuentaUnificadaItem, CuentaUnificadaServicio, CuentaUnificadaAbono, CuentaUnificadaRepuestoHistorico, CuentaUnificadaProductoDigital } from "@/types/cuenta-unificada";
 import type { ItemDetalleGancho } from "./airtableGancho";
 import {
   SERVICIO_IVA_DEFAULT, TARIFA_IVA_SRI, TARIFA_IVA_ITEM_DEFAULT,
@@ -102,6 +102,67 @@ export function construirLineaServicio(
     impuestos: [{ codigo: "2", codigoPorcentaje, tarifa, baseImponible: base, valor: valorIva }],
     tipo: "servicio",
   };
+}
+
+// ─── Producto digital ("Productos Digitales") ────────────────────────────────
+//
+// El precio final: el fijado para esta venta puntual (precioVenta) si existe;
+// si no, el precio por defecto del catálogo (precioVentaCatalogo). Compartido
+// entre la precondición de abajo y la construcción de la línea para que
+// ambas miren exactamente el mismo número.
+function resolverPrecioProductoDigital(
+  p: Pick<CuentaUnificadaProductoDigital, "precioVenta" | "precioVentaCatalogo">
+): number {
+  return p.precioVenta > 0 ? p.precioVenta : p.precioVentaCatalogo;
+}
+
+// Mismo precedente que construirLineaRepuestoHistorico() más abajo (bueno,
+// arriba): una tabla con dinero real vinculado a la orden que SÍ sumaba al
+// total de la cuenta (lib/cuenta-unificada/index.ts, rollup "Total Productos
+// Digitales") pero no generaba línea de factura — importeTotal quedaba corto
+// exactamente por ese monto, en silencio. Mismo síntoma, ahora para licencias
+// y cuentas digitales en vez de repuestos.
+//
+// El precio guardado es FINAL CON IVA incluido, igual que las otras tres
+// líneas — se desglosa hacia adentro. La tabla "Productos Digitales" no
+// tiene campo de IVA propio (verificado contra el esquema real de Airtable),
+// así que se usa la misma tarifa por defecto que los servicios.
+export function construirLineaProductoDigital(
+  producto: Pick<CuentaUnificadaProductoDigital, "id" | "nombre" | "precioVenta" | "precioVentaCatalogo">,
+  indiceUnoBasado: number
+): DetalleFactura {
+  const { codigoPorcentaje, tarifa } = SERVICIO_IVA_DEFAULT;
+  const precioFinal = resolverPrecioProductoDigital(producto);
+  const { base, valorIva } = desglosarPrecioConIvaIncluido(precioFinal, tarifa);
+  return {
+    codigoPrincipal: `DIG-${indiceUnoBasado}`,
+    descripcion:     producto.nombre,
+    cantidad:        1,
+    precioUnitario:  base,
+    descuento:       0,
+    precioTotalSinImpuesto: base,
+    impuestos: [{ codigo: "2", codigoPorcentaje, tarifa, baseImponible: base, valor: valorIva }],
+    tipo:              "productoDigital",
+    productoDigitalId: producto.id,
+  };
+}
+
+// ─── Precondición dura de productos digitales ────────────────────────────────
+// Un producto digital vinculado a la orden SIN precio utilizable (ni
+// precioVenta ni precioVentaCatalogo) no puede convertirse en línea de
+// factura — construirLineaProductoDigital() generaría una línea de $0 y
+// importeTotal volvería a quedar corto, en silencio, que es justo el fallo
+// que este trabajo arregla. Fail closed: se bloquea la pre-factura entera,
+// mismo mecanismo que evaluarItemNoListo() usa para Shipping Items.
+export type ProductoDigitalNoListo = { id: string; nombre: string; motivo: "SIN_PRECIO" };
+
+export function evaluarProductoDigitalNoListo(
+  producto: Pick<CuentaUnificadaProductoDigital, "id" | "nombre" | "precioVenta" | "precioVentaCatalogo">
+): ProductoDigitalNoListo | null {
+  if (!(resolverPrecioProductoDigital(producto) > 0)) {
+    return { id: producto.id, nombre: producto.nombre, motivo: "SIN_PRECIO" };
+  }
+  return null;
 }
 
 // ─── Agrupar totalConImpuestos por tarifa ────────────────────────────────────
