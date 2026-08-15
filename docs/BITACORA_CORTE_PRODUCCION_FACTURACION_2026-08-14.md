@@ -362,9 +362,31 @@ NODE_OPTIONS="--conditions react-server" npx tsx lib/facturacion/__tests__/<nomb
 ```
 
 No hay corredor de pruebas en el proyecto: son scripts con `assert()` que salen
-con código distinto de cero si algo falla. Las que se llaman `integracion.celcer`
-y `4e.integracion.fase4` **hablan de verdad con el SRI de pruebas** — leer su
-cabecera antes de correrlas.
+con código distinto de cero si algo falla.
+
+**45 son puras** (lógica en memoria, sin red). **7 hablan de verdad con
+Airtable y/o el SRI**, usando las credenciales reales de `.env.local` — no
+existe una base de Airtable de pruebas separada, así que escriben en SUPER
+GEEK ADM tal cual:
+
+- `4a.secuencial`
+- `4e.integracion.fase4`
+- `5.ride-ajustes`
+- `5a.recuperar`
+- `5b.emitir664`
+- `6.shipping-item-firma`
+- `integracion.celcer`
+
+Las siete están protegidas por `lib/facturacion/__tests__/_guardaRed.ts`:
+para correrlas hay que anteponer `PRUEBAS_CON_RED=1` a propósito —
+
+```bash
+PRUEBAS_CON_RED=1 NODE_OPTIONS="--conditions react-server" npx tsx lib/facturacion/__tests__/<nombre>.test.ts
+```
+
+— y si `SRI_AMBIENTE=2` (producción), el guardián las bloquea sin excepción,
+tenga o no `PRUEBAS_CON_RED=1`: no hay caso legítimo para correr estos
+scripts sueltos contra el SRI de producción.
 
 ### Documentos relacionados
 
