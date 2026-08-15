@@ -3339,7 +3339,17 @@ export const asignarProductoDigitalAOrden = async ({
 }): Promise<ProductoDigital> => {
   const client = getClient();
 
-  // Verificar que el producto existe y está disponible
+  // Verificar que el producto existe y está disponible.
+  //
+  // El guard de Estado sigue teniendo sentido después de que esta función
+  // dejó de escribir "Usado" (ver abajo): ahora un producto solo llega a
+  // "Usado" cuando su factura se AUTORIZA de verdad (postEmision, gancho de
+  // facturación) — así que si llega aquí con "Usado" es porque ya se vendió,
+  // y con "Anulado"/"Vencido" porque no es un producto vendible. El cerrojo
+  // contra vincular el MISMO producto a dos órdenes a la vez es el segundo
+  // guard, el de ordenReparacionId — ese es ahora el único que hace ese
+  // trabajo (antes, vincularlo ya lo dejaba "Usado" y ese estado hacía de
+  // doble candado; ya no).
   const productoActual = await fetchProductoDigitalById(productoId, client);
   if (!productoActual) throw new Error("Producto digital no encontrado.");
   if (["Usado", "Anulado", "Vencido"].includes(productoActual.estado)) {
@@ -3351,8 +3361,10 @@ export const asignarProductoDigitalAOrden = async ({
 
   const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}/${encodeURIComponent(productoId)}`;
 
+  // "Estado" YA NO se toca aquí — lo pone postEmision() (lib/facturacion/
+  // gancho/postEmision.ts) al autorizarse la factura de verdad, no al
+  // vincular el producto a la orden. Vincular ya no es lo mismo que vender.
   const fields: Record<string, unknown> = {
-    "Estado": "Usado",
     "Orden de Reparación": [ordenRecordId],
     "Tipo de Uso": "Orden de reparación",
     "Fecha de Uso / Venta": formatAirtableDateOnly(),
