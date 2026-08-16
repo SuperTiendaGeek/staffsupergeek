@@ -45,18 +45,23 @@ async function fetchEstadoActualItems(itemIds: string[]): Promise<Map<string, Es
   return map;
 }
 
-// ─── Estado actual del producto digital (idempotencia) ──────────────────────
-// Solo hace falta "Factura": es la marca de "ya hecho" (mismo criterio que
-// Shipping Items). El estado se sobreescribe siempre a "Usado" cuando no está
-// hecho — no hace falta leerlo antes.
+// ─── Estado actual del producto digital (idempotencia + Tipo de Uso) ────────
+// "Factura" es la marca de "ya hecho" (mismo criterio que Shipping Items).
+// El estado se sobreescribe siempre a "Usado" cuando no está hecho — no hace
+// falta leerlo antes. "Orden de Reparación" sí hace falta leerlo: decide si
+// esta venta es de mostrador (sin orden) para escribir "Tipo de Uso" —
+// ver el comentario junto a esa escritura, más abajo.
 
-type EstadoProductoDigitalActual = { facturaIds: string[] };
+type EstadoProductoDigitalActual = { facturaIds: string[]; tieneOrden: boolean };
 
 async function fetchEstadoActualProductosDigitales(ids: string[]): Promise<Map<string, EstadoProductoDigitalActual>> {
   const records = await fetchRecordsByIds(PRODUCTOS_DIGITALES_TABLE, ids);
   const map = new Map<string, EstadoProductoDigitalActual>();
   for (const r of records) {
-    map.set(r.id, { facturaIds: linkedIds(r.fields["Factura"]) });
+    map.set(r.id, {
+      facturaIds: linkedIds(r.fields["Factura"]),
+      tieneOrden: linkedIds(r.fields["Orden de Reparación"]).length > 0,
+    });
   }
   return map;
 }
@@ -307,6 +312,12 @@ async function postEmisionShippingItems(input: PostEmisionInput): Promise<Result
 // puesto desde asignarProductoDigitalAOrden() (lib/tecnicos/airtable), que
 // desde este trabajo dejó de escribir Estado — ese campo ahora lo pone
 // exclusivamente esta función, al facturarse de verdad.
+//
+// "Tipo de Uso" (venta en mostrador, PR de productos digitales en
+// mostrador): se escribe "Venta directa" SOLO cuando el producto no tiene
+// orden vinculada — una venta de mostrador nunca pasó por
+// asignarProductoDigitalAOrden(), así que ese campo llegaría vacío si no se
+// pone aquí. Con orden vinculada no se toca: ya dice "Orden de reparación".
 async function postEmisionProductosDigitales(input: PostEmisionInput): Promise<ResultadoPostEmision> {
   const lineasProductoDigital = input.detalles.filter(
     (d): d is DetalleFactura & { productoDigitalId: string } =>
@@ -354,13 +365,22 @@ async function postEmisionProductosDigitales(input: PostEmisionInput): Promise<R
       continue;
     }
 
-    // Sin typecast: si "Usado" no existiera como opción en el desplegable,
-    // esto debe fallar y verse — no crear la opción sola (bitácora §6).
+    // Sin typecast: si "Usado" (o "Venta directa") no existiera como opción
+    // en el desplegable, esto debe fallar y verse — no crear la opción sola
+    // (bitácora §6).
     const fields: Record<string, unknown> = {
       "Estado":              "Usado",
       "Factura":             [...(actual?.facturaIds ?? []), input.facturaRecordId],
       "Fecha de Uso / Venta": hoy,
     };
+    // "Tipo de Uso" SOLO si el producto no tiene orden vinculada — una
+    // venta de mostrador nunca pasó por asignarProductoDigitalAOrden(), así
+    // que ese campo quedaría vacío si no se escribe aquí. Si SÍ tiene
+    // orden, no se toca: ya dice "Orden de reparación" (lo puso
+    // asignarProductoDigitalAOrden() al vincular).
+    if (!actual?.tieneOrden) {
+      fields["Tipo de Uso"] = "Venta directa";
+    }
 
     try {
       await patchConReintento(PRODUCTOS_DIGITALES_TABLE, id, fields);

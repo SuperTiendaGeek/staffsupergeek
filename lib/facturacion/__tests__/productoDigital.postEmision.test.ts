@@ -8,6 +8,9 @@
  *   (d) postEmision es idempotente: correrlo dos veces no cambia nada la
  *       segunda (cero PATCH adicionales)
  *   (e) con ambiente != "2" no escribe nada
+ *   (e-mostrador, PR de productos digitales en mostrador) "Tipo de Uso" se
+ *       escribe "Venta directa" SOLO cuando el producto no tiene orden
+ *       vinculada; con orden, no se toca ese campo.
  *   + confirma que "Orden de Reparación" nunca se toca, que la escritura va
  *     SIN typecast, y que Shipping Items y Productos Digitales conviven en
  *     una misma factura sin interferirse (corren en paralelo, cada uno con
@@ -32,7 +35,7 @@ function assert(cond: boolean, msg: string): void {
 const fetchOriginal = global.fetch;
 const FACTURA_ID = "recFACT0099";
 
-type ProductoDigitalSimulado = { id: string; estado: string; facturaIds: string[] };
+type ProductoDigitalSimulado = { id: string; estado: string; facturaIds: string[]; ordenId?: string };
 
 function crearDoble(productos: Map<string, ProductoDigitalSimulado>) {
   const patchesRecibidos: Array<{ id: string; fields: Record<string, unknown>; typecast?: boolean }> = [];
@@ -46,7 +49,11 @@ function crearDoble(productos: Map<string, ProductoDigitalSimulado>) {
     if (method === "GET" && urlStr.includes("Productos%20Digitales")) {
       const records = [...productos.values()].map((p) => ({
         id: p.id,
-        fields: { "Estado": p.estado, "Factura": p.facturaIds },
+        fields: {
+          "Estado": p.estado,
+          "Factura": p.facturaIds,
+          "Orden de Reparación": p.ordenId ? [p.ordenId] : [],
+        },
       }));
       return { ok: true, json: async () => ({ records }) } as Response;
     }
@@ -191,6 +198,38 @@ const FECHA_ISO_DIA = /^\d{4}-\d{2}-\d{2}$/;
 
     assert(resultado.estado === "OK", "(e bis) ambiente indefinido: responde OK");
     assert(patchesRecibidos.length === 0, "(e bis) ambiente indefinido: fail-closed — cero llamadas");
+  }
+
+  // ─── "Tipo de Uso" = "Venta directa" SOLO sin orden vinculada ─────────────
+  {
+    const productos = new Map<string, ProductoDigitalSimulado>([
+      ["recPD6", { id: "recPD6", estado: "Disponible", facturaIds: [] }], // sin ordenId — venta de mostrador
+    ]);
+    const { fetchDoble, patchesRecibidos } = crearDoble(productos);
+    global.fetch = fetchDoble as unknown as typeof fetch;
+
+    await postEmision({
+      facturaRecordId: FACTURA_ID,
+      detalles: [lineaProductoDigital("recPD6")],
+      ambiente: "2",
+    });
+
+    assert(patchesRecibidos[0]?.fields["Tipo de Uso"] === "Venta directa", "Sin orden vinculada: 'Tipo de Uso' = 'Venta directa'");
+  }
+  {
+    const productos = new Map<string, ProductoDigitalSimulado>([
+      ["recPD7", { id: "recPD7", estado: "Disponible", facturaIds: [], ordenId: "recORD999" }],
+    ]);
+    const { fetchDoble, patchesRecibidos } = crearDoble(productos);
+    global.fetch = fetchDoble as unknown as typeof fetch;
+
+    await postEmision({
+      facturaRecordId: FACTURA_ID,
+      detalles: [lineaProductoDigital("recPD7")],
+      ambiente: "2",
+    });
+
+    assert(!("Tipo de Uso" in (patchesRecibidos[0]?.fields ?? {})), "CON orden vinculada: 'Tipo de Uso' no se toca (ya dice 'Orden de reparación')");
   }
 
   // ─── Convivencia: una factura con línea de Shipping Item Y de producto digital ──

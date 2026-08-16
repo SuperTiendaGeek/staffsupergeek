@@ -5,6 +5,7 @@ import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { buscarFacturaBloqueante } from "@/lib/facturacion/gancho/idempotencia";
 import { postEmision, debeIntentarPostEmision } from "@/lib/facturacion/gancho/postEmision";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
+import { verificarProductosDigitalesDisponibles, mensajeProductosDigitalesNoDisponibles } from "@/lib/facturacion/reglas/productosDigitalesDisponibles";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
 import { marcarReservaFacturada } from "@/lib/facturacion/reservas/airtable";
@@ -76,6 +77,30 @@ export async function POST(request: Request) {
     console.error("[/api/facturacion/emitir POST] error verificando stock:", e);
     return NextResponse.json(
       { success: false, error: "No se pudo verificar el stock disponible. Intente de nuevo." },
+      { status: 503 }
+    );
+  }
+
+  // Productos digitales — misma puerta, mismo espíritu que el stock de
+  // arriba, pero por Estado/vinculación a orden en vez de cantidad (ver
+  // lib/facturacion/reglas/productosDigitalesDisponibles.ts). El filtro del
+  // buscador es cosmético; esta es la verificación que de verdad puede
+  // bloquear la emisión.
+  //
+  // ordenOrigenId: solo cuando la factura viene de una orden — para
+  // cualquier otro origen (operación, reserva) o mostrador (sin origen),
+  // los productos digitales solo cuelgan de órdenes, así que se trata igual
+  // que mostrador (null): cualquier vinculación a una orden bloquea.
+  try {
+    const ordenOrigenId = body.origen?.tipo === "orden" ? body.origen.recordId : null;
+    const noDisponibles = await verificarProductosDigitalesDisponibles(body.detalles, ordenOrigenId);
+    if (noDisponibles.length > 0) {
+      return NextResponse.json({ success: false, error: mensajeProductosDigitalesNoDisponibles(noDisponibles) }, { status: 400 });
+    }
+  } catch (e) {
+    console.error("[/api/facturacion/emitir POST] error verificando productos digitales:", e);
+    return NextResponse.json(
+      { success: false, error: "No se pudo verificar la disponibilidad de los productos digitales. Intente de nuevo." },
       { status: 503 }
     );
   }
