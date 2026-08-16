@@ -20,8 +20,9 @@ type DetalleFactura = {
   descuento:        number;
   precioTotalSinImpuesto: number;
   impuestos: Array<{ codigoPorcentaje: string; tarifa: number; baseImponible: number; valor: number }>;
-  tipo?:            "producto" | "servicio";
-  shippingItemId?:  string;
+  tipo?:              "producto" | "servicio" | "productoDigital";
+  shippingItemId?:    string;
+  productoDigitalId?: string;
 };
 
 type FacturaOrigen = {
@@ -76,6 +77,8 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
         setDetalles(j.data.detalles);
         // Por defecto: todo incluido, cantidad completa, con devolución física
         // en las líneas de producto (el caso común es el cambio de equipo).
+        // Para "productoDigital" da igual qué valor tome: el servidor la
+        // ignora por completo (ver la celda de "¿Devuelve el item?" abajo).
         setSel(j.data.detalles.map((d: DetalleFactura) => ({
           incluida: true,
           cantidad: d.cantidad,
@@ -251,6 +254,13 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
                     {d.tipo === "producto" ? (
                       <input type="checkbox" checked={s?.devolucionFisica ?? false} disabled={!s?.incluida}
                         onChange={(e) => actualizar(i, { devolucionFisica: e.target.checked })} className="accent-[#D7FF4F] disabled:opacity-40" />
+                    ) : d.tipo === "productoDigital" ? (
+                      // Sin casilla a propósito: "¿Devuelve el item?" no
+                      // aplica a un producto digital (no hay nada físico que
+                      // devolver) y el servidor la ignora por completo para
+                      // estas líneas — cualquier NC que incluya esta línea
+                      // marca la licencia como Anulada, sin excepción.
+                      <span className="text-[10px] text-blue-400/80">producto digital · queda Anulado</span>
                     ) : (
                       <span className="text-[10px] text-[#666]">servicio</span>
                     )}
@@ -263,7 +273,8 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
         </table>
         <p className="mt-3 text-[10px] text-[#666]">
           &quot;¿Devuelve el item?&quot; marca que la mercadería vuelve físicamente al inventario. Desmárcalo si es
-          solo un ajuste de precio sin devolución.
+          solo un ajuste de precio sin devolución. Un producto digital no tiene esta opción: la clave ya se
+          entregó, así que cualquier nota de crédito sobre esa línea la deja Anulada — nunca revendible.
         </p>
       </div>
 
