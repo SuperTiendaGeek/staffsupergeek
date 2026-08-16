@@ -86,8 +86,14 @@ export async function POST(request: Request) {
   // lib/facturacion/reglas/productosDigitalesDisponibles.ts). El filtro del
   // buscador es cosmético; esta es la verificación que de verdad puede
   // bloquear la emisión.
+  //
+  // ordenOrigenId: solo cuando la factura viene de una orden — para
+  // cualquier otro origen (operación, reserva) o mostrador (sin origen),
+  // los productos digitales solo cuelgan de órdenes, así que se trata igual
+  // que mostrador (null): cualquier vinculación a una orden bloquea.
   try {
-    const noDisponibles = await verificarProductosDigitalesDisponibles(body.detalles);
+    const ordenOrigenId = body.origen?.tipo === "orden" ? body.origen.recordId : null;
+    const noDisponibles = await verificarProductosDigitalesDisponibles(body.detalles, ordenOrigenId);
     if (noDisponibles.length > 0) {
       return NextResponse.json({ success: false, error: mensajeProductosDigitalesNoDisponibles(noDisponibles) }, { status: 400 });
     }
