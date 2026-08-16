@@ -12,10 +12,12 @@
  * un Shipping Item real. Aquí se prueban los tres que faltan.
  *
  * Sin red donde la propia función lo permite (el filtro corta ANTES del
- * primer fetch); con un doble mínimo donde la función sí escribe un estado
- * de "sin nada que revertir" antes de salir (revertirInventarioNotaCredito).
- * En ambos casos, si Shipping Items llegara a tocarse, el doble lanza y la
- * prueba falla — es la garantía real, no una lectura del código.
+ * primer fetch); con un doble mínimo en los demás casos — incluida la rama
+ * de reverso de anulación, que desde el trabajo de "productos digitales en
+ * reverso" SÍ toca Productos Digitales (para devolverlos a Disponible) pero
+ * NUNCA Shipping Items. En todos los casos, si Shipping Items llegara a
+ * tocarse, el doble lanza y la prueba falla — es la garantía real, no una
+ * lectura del código.
  *
  * Lanza en la primera falla y sale con código distinto de 0.
  */
@@ -84,20 +86,28 @@ function lineaProductoDigital(productoDigitalId: string): DetalleFactura {
   }
 
   // ─── anulaciones/reverso.ts — revertirInventarioFacturaAnulada ─────────────
-  // Con solo líneas digitales, conItem.length===0 → retorna OK ANTES de
-  // cualquier fetch (a diferencia de la NC, este archivo no escribe ningún
-  // estado de "sin nada que revertir").
+  // Desde el trabajo de reverso de productos digitales, una línea digital SÍ
+  // genera fetch aquí (para devolverla a Disponible — ver
+  // productoDigital.reverso.test.ts para ese comportamiento completo). Lo
+  // que se prueba aquí es que, aun así, NUNCA toca Shipping Items.
   {
-    global.fetch = fetchQueLanza() as unknown as typeof fetch;
+    global.fetch = ((url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes(encodeURIComponent("Productos Digitales"))) {
+        // Sin la factura enlazada en el fixture: rama idempotente, sin PATCH.
+        return Promise.resolve({ ok: true, json: async () => ({ records: [{ id: "recPD4", fields: { "Factura": [] } }] }) } as Response);
+      }
+      throw new Error(`fetch inesperado hacia Shipping Items u otra tabla: ${urlStr}`);
+    }) as unknown as typeof fetch;
+
     const resultado = await revertirInventarioFacturaAnulada({
       facturaRecordId: "recFACT1",
       detalles: [lineaProductoDigital("recPD4")],
       ambiente: "2",
     });
     assert(resultado.estado === "OK", "revertirInventarioFacturaAnulada: solo-productos-digitales → OK");
-    // Si hubiera intentado tocar Shipping Items, fetchQueLanza ya habría
-    // lanzado y este assert nunca se alcanzaría — la ausencia de excepción
-    // ES la prueba.
+    // Si hubiera intentado tocar Shipping Items, el doble ya habría lanzado
+    // y este assert nunca se alcanzaría.
   }
 
   // ─── notaCredito/revertirInventario.ts — revertirInventarioNotaCredito ────

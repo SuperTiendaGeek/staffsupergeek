@@ -33,17 +33,20 @@ export type DetalleNotaCredito = {
   detallesAdicionales?: DetalleAdicional[];  // máx 3
   impuestos: ImpuestoDetalle[];
   // Marcas internas — NUNCA se serializan al XML del SRI. Viajan en
-  // "Líneas JSON" para que el reverso de inventario (Fase 18 PR2) sepa qué
-  // Shipping Item devolver al stock y por cuántas unidades.
-  // "productoDigital" incluido solo para que el tipo siga siendo un espejo
-  // fiel de DetalleFactura (comentario de arriba) — la NC de un producto
-  // digital no está resuelta todavía (fuera del alcance de este trabajo);
-  // hoy simplemente no ofrece "devolución física" para esas líneas, igual
-  // que ya hace con "servicio".
+  // "Líneas JSON" para que el reverso de inventario (Fase 18 PR2, y su
+  // hermano para productos digitales) sepa qué revertir.
   tipo?: "producto" | "servicio" | "productoDigital";
   shippingItemId?: string;
+  // record id del Producto Digital de origen, solo si tipo === "productoDigital"
+  // — mismo criterio que shippingItemId. Lo usa
+  // revertirInventarioNotaCredito() (notaCredito/revertirInventario.ts) para
+  // marcar el producto "Anulado".
+  productoDigitalId?: string;
   /** true = el cliente devolvió físicamente el item (suma de vuelta al stock).
-   *  false = ajuste de precio/descuento posterior, no vuelve mercadería. */
+   *  false = ajuste de precio/descuento posterior, no vuelve mercadería.
+   *  Sin efecto en líneas de producto digital: no hay nada físico que
+   *  devolver, así que revertirInventarioNotaCredito() la ignora por
+   *  completo para esas líneas — ver el comentario ahí. */
   devolucionFisica?: boolean;
 };
 

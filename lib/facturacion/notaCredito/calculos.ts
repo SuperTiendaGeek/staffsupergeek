@@ -64,6 +64,7 @@ export function construirLineaNotaCredito(
     impuestos,
     tipo: original.tipo,
     shippingItemId: original.shippingItemId,
+    productoDigitalId: original.productoDigitalId,
     devolucionFisica,
   };
 }
