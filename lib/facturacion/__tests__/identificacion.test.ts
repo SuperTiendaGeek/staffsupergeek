@@ -18,6 +18,7 @@ import {
   validarCedula,
   validarRuc,
   validarIdentificacion,
+  revisarIdentificacion,
   assertIdentificacionValida,
   inferirTipoSugerido,
   etiquetaAirtable,
@@ -106,9 +107,26 @@ assert(typeof validarRuc("1790011114001") === "boolean",
 assert(typeof validarRuc("1760001550001") === "boolean",
   "Un RUC del sector público también");
 
-// El caso que motivó el cambio: antes bastaban 13 dígitos cualesquiera.
-assert(validarIdentificacion("04", "1234567890123") !== null,
-  "Un RUC inventado de 13 dígitos se RECHAZA — antes pasaba solo por la longitud");
+// El caso que motivó el cambio original (26-jul): antes bastaban 13
+// dígitos cualesquiera. validarRuc() (el booleano estricto: estructura Y
+// dígito verificador) sigue rechazándolo, sin excepción.
+assert(!validarRuc("1234567890123"), "Un RUC inventado de 13 dígitos sigue sin pasar el chequeo estricto");
+
+// Actualizado por el hotfix del dígito verificador (2026-08-17, ver el
+// comentario de cabecera de identificacion.ts): "1234567890123" tiene
+// ESTRUCTURA válida (provincia 12, persona natural) — su único problema es
+// el dígito verificador. Ya NO bloquea la emisión, solo advierte. Esto es
+// intencional: no hay forma de distinguir computacionalmente este caso del
+// de un RUC real (como SALUDSÍ) sin consultar al SRI, así que el sistema ya
+// no se arriesga a bloquear lo real por parecerse a lo inventado.
+assert(
+  revisarIdentificacion("04", "1234567890123").error === null,
+  "Ese mismo RUC ya NO bloquea (hotfix dígito verificador) — validarIdentificacion() devuelve null"
+);
+assert(
+  revisarIdentificacion("04", "1234567890123").advertencia !== null,
+  "...pero sí genera advertencia — no desaparece sin dejar rastro"
+);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 4. Consumidor final y extranjeros
