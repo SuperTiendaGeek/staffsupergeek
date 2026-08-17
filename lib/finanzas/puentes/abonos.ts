@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { CategoriaMovimiento, EstadoMovimiento, MetodoMovimiento } from "@/types/finanzas";
+import { esMetodoPagoAbonoValido, type MetodoPagoAbono } from "@/types/abonos";
 import {
   airtableRequest,
   cleanString,
@@ -59,9 +60,14 @@ function firstString(value: unknown): string {
  * campo `Cuenta Destino` (texto libre) de Abonos se ignora a propósito —
  * vacío en 97% de los registros y no siempre consistente con Método de Pago
  * cuando sí está lleno.
+ *
+ * Tipado contra `MetodoPagoAbono` (types/abonos.ts, fuente única del
+ * catálogo): si el catálogo gana un método nuevo, este mapa deja de
+ * compilar hasta que se le agregue una entrada — no puede quedar
+ * desincronizado en silencio.
  */
 const MAPA_METODO_PAGO_ABONO: Record<
-  string,
+  MetodoPagoAbono,
   { cuentaDestinoNombre: string; estado: EstadoMovimiento; metodo: MetodoMovimiento } | null
 > = {
   Efectivo: { cuentaDestinoNombre: "Caja Registradora", estado: "Confirmado", metodo: "Efectivo" },
@@ -73,12 +79,19 @@ const MAPA_METODO_PAGO_ABONO: Record<
   // "Otro" y cualquier valor no reconocido (incluido vacío) caen al `null`
   // del default más abajo — sin cuenta resuelta, Alerta Descuadre.
   Otro: null,
+  // DeUna (2026-08-16) — mismo patrón que PayPal, no el de Tarjeta: es
+  // dinero que llega ya acreditado a la cuenta virtual propia "DeUna" desde
+  // el segundo uno (Tipo "Tránsito" en Cuentas Financieras, luego se
+  // transfiere a mano a SGINGRESOS), no un cobro que el banco todavía no
+  // acreditó como sí pasa con una tarjeta. Por eso "Confirmado", no
+  // "Pendiente".
+  DeUna: { cuentaDestinoNombre: "DeUna", estado: "Confirmado", metodo: "DeUna" },
 };
 
 function resolverMapeoMetodoPago(metodoPago: string | null) {
   const clave = cleanString(metodoPago);
-  if (!clave) return null;
-  return MAPA_METODO_PAGO_ABONO[clave] ?? null;
+  if (!clave || !esMetodoPagoAbonoValido(clave)) return null;
+  return MAPA_METODO_PAGO_ABONO[clave];
 }
 
 export type ResultadoPuenteAbono = { ok: true; movimientoId: string } | { ok: false; error: string };

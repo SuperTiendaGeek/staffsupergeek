@@ -2,19 +2,11 @@ import { NextResponse } from "next/server";
 import { createAbonoPorOrden } from "@/lib/tecnicos/airtable";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
+import { esMetodoPagoAbonoValido, requiereNumeroTransaccion } from "@/types/abonos";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
-const METODOS_PAGO_VALIDOS = [
-  "Efectivo",
-  "Transferencia",
-  "Tarjeta",
-  "Depósito",
-  "PayPal",
-  "PayPhone",
-  "Otro",
-] as const;
 
 const toNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -137,9 +129,22 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  if (!METODOS_PAGO_VALIDOS.includes(metodoPago as (typeof METODOS_PAGO_VALIDOS)[number])) {
+  if (!esMetodoPagoAbonoValido(metodoPago)) {
     return NextResponse.json(
       { success: false, error: "El método de pago no es válido" },
+      { status: 400 }
+    );
+  }
+
+  // La validación de pantalla no basta: un request directo la salta. Mismo
+  // criterio que assertConsumidorFinalPermitido() en facturación — la regla
+  // vive también en el servidor.
+  if (requiereNumeroTransaccion(metodoPago) && !numeroTransaccion) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `El número de transacción es obligatorio para el método de pago "${metodoPago}"`,
+      },
       { status: 400 }
     );
   }

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { requireOperacionesSession } from "@/lib/operaciones/auth";
 import { crearAbono, uploadComprobanteAbono } from "@/lib/operaciones/airtable";
 import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
+import { requiereNumeroTransaccion } from "@/types/abonos";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -37,6 +38,17 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
   const ordenId = (formData.get("ordenId") as string | null)?.trim() || null;
   const numeroTransaccion = (formData.get("numeroTransaccion") as string | null)?.trim() || undefined;
+
+  // La validación de pantalla no basta: un request directo la salta. Mismo
+  // criterio que assertConsumidorFinalPermitido() en facturación — la regla
+  // vive también en el servidor.
+  if (requiereNumeroTransaccion(metodoPago) && !numeroTransaccion) {
+    return NextResponse.json(
+      { success: false, error: `El número de transacción es obligatorio para el método de pago "${metodoPago}".` },
+      { status: 400 }
+    );
+  }
+
   const observacion = (formData.get("observacion") as string | null)?.trim() || undefined;
   const comprobanteFile = formData.get("comprobante") instanceof File
     ? (formData.get("comprobante") as File)

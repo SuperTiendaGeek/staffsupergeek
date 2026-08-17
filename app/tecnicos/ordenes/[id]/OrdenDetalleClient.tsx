@@ -15,6 +15,7 @@ import { buildAbandonmentWhatsAppMessage } from "@/lib/tecnicos/orders/abandonme
 import { buildWhatsAppUrl } from "@/lib/tecnicos/whatsapp";
 import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnificadaPanel";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
+import { METODOS_PAGO_ABONO, esMetodoPagoAbonoValido, requiereNumeroTransaccion } from "@/types/abonos";
 
 type HistorialItem = {
   id: string;
@@ -197,15 +198,6 @@ const parseApiResponseSafely = async (res: Response): Promise<ApiResponsePayload
 
 const INITIAL_SEARCH_SUGGESTIONS = 5;
 const MAX_SEARCH_RESULTS = 12;
-const ABONO_METODOS_PAGO = [
-  "Efectivo",
-  "Transferencia",
-  "Tarjeta",
-  "Depósito",
-  "PayPal",
-  "PayPhone",
-  "Otro",
-] as const;
 
 const formatTimelineDate = (value?: string | null) => {
   if (!value) return "â€“";
@@ -1257,8 +1249,12 @@ export function OrdenDetalleClient() {
       setAbonoError("Selecciona un método de pago.");
       return;
     }
-    if (!ABONO_METODOS_PAGO.includes(metodoPago as (typeof ABONO_METODOS_PAGO)[number])) {
+    if (!esMetodoPagoAbonoValido(metodoPago)) {
       setAbonoError("El método de pago seleccionado no es válido.");
+      return;
+    }
+    if (requiereNumeroTransaccion(metodoPago) && !abonoNumeroTransaccion.trim()) {
+      setAbonoError(`El número de transacción es obligatorio para el método "${metodoPago}".`);
       return;
     }
 
@@ -3761,7 +3757,7 @@ export function OrdenDetalleClient() {
                       disabled={abonoSaving}
                     >
                       <option value="">Seleccionar método de pago</option>
-                      {ABONO_METODOS_PAGO.map((method) => (
+                      {METODOS_PAGO_ABONO.map((method) => (
                         <option key={method} value={method}>
                           {method}
                         </option>
@@ -3769,7 +3765,14 @@ export function OrdenDetalleClient() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-[#A7A7A7]">N° de transacción (opcional)</label>
+                    <label className="text-xs font-medium text-[#A7A7A7]">
+                      N° de transacción{" "}
+                      {requiereNumeroTransaccion(abonoMetodoPago) ? (
+                        <span className="text-[#FF5A4F]">*</span>
+                      ) : (
+                        "(opcional)"
+                      )}
+                    </label>
                     <input
                       type="text"
                       value={abonoNumeroTransaccion}

@@ -2,16 +2,7 @@
 
 import { useState } from "react";
 import { X, DollarSign } from "lucide-react";
-
-const METODOS_PAGO = [
-  "Efectivo",
-  "Transferencia",
-  "Tarjeta",
-  "Depósito",
-  "PayPal",
-  "PayPhone",
-  "Otro",
-] as const;
+import { METODOS_PAGO_ABONO, requiereNumeroTransaccion } from "@/types/abonos";
 
 function defaultEcuadorDatetime(): string {
   // Return current time as YYYY-MM-DDTHH:mm in Ecuador timezone (UTC-5)
@@ -44,6 +35,10 @@ export function RegistrarAbonoModal({ operacionId, ordenId, onClose, onSuccess }
     e.preventDefault();
     if (!montoValido) {
       setError("El monto debe ser mayor a 0.");
+      return;
+    }
+    if (requiereNumeroTransaccion(metodoPago) && !numeroTransaccion.trim()) {
+      setError(`El número de transacción es obligatorio para el método "${metodoPago}".`);
       return;
     }
 
@@ -166,7 +161,7 @@ export function RegistrarAbonoModal({ operacionId, ordenId, onClose, onSuccess }
               disabled={loading}
               className="w-full rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2.5 text-sm text-[#F0F0EC] outline-none transition focus:border-[#D7FF4F]/60 focus:ring-1 focus:ring-[#D7FF4F]/20 disabled:opacity-50"
             >
-              {METODOS_PAGO.map((m) => (
+              {METODOS_PAGO_ABONO.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>
@@ -213,7 +208,12 @@ export function RegistrarAbonoModal({ operacionId, ordenId, onClose, onSuccess }
           {/* N° Transacción */}
           <div className="flex flex-col gap-1.5">
             <label htmlFor="abono-nro" className="text-xs font-medium text-[#8A8A80]">
-              N° de Transacción (opcional)
+              N° de Transacción{" "}
+              {requiereNumeroTransaccion(metodoPago) ? (
+                <span className="text-[#FF5A4F]">*</span>
+              ) : (
+                "(opcional)"
+              )}
             </label>
             <input
               id="abono-nro"

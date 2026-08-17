@@ -46,6 +46,7 @@ export type MetodoMovimiento =
   | "DataFast"
   | "PayPhone"
   | "PayPal"
+  | "DeUna"
   | "Dinero electrónico"
   | "Depósito"
   | "Tarjeta"
