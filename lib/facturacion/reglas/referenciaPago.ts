@@ -107,3 +107,28 @@ export function construirCamposReferenciaPago(pagos: Pago[], limiteCampos: numbe
 
   return [...individuales, campoMerge];
 }
+
+/**
+ * Compone el infoAdicional final de una factura: "Vendedor" (si lo hay) +
+ * cualquier infoAdicional extra que traiga el llamador, más un campo por
+ * cada pago con referencia — todo dentro del tope de 15 del XSD.
+ *
+ * Aísla exactamente la lógica que emitirFactura.ts arma junto a la
+ * inyección de "Vendedor", para poder probarla sola (Paso 7) sin levantar
+ * todo el pipeline de emisión (firma, SRI, Airtable). Sin referencias, el
+ * resultado es exactamente el infoAdicional de antes de esta fase — no
+ * cambia el comportamiento existente en absoluto.
+ */
+export function construirInfoAdicionalFactura(
+  vendedor: string | undefined,
+  infoAdicionalExtra: CampoAdicional[] | undefined,
+  pagos: Pago[]
+): CampoAdicional[] {
+  const base: CampoAdicional[] = [
+    ...(vendedor?.trim() ? [{ nombre: "Vendedor", valor: vendedor.trim() }] : []),
+    ...(infoAdicionalExtra ?? []),
+  ];
+  const espacioParaReferencias = Math.max(0, MAX_CAMPOS_INFO_ADICIONAL - base.length);
+  const camposReferenciaPago = construirCamposReferenciaPago(pagos, espacioParaReferencias);
+  return [...base, ...camposReferenciaPago];
+}

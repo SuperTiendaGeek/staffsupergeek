@@ -38,7 +38,7 @@ import { assertIdentificacionValida } from "./reglas/identificacion";
 import { ahoraEnEcuador }         from "./fechaEcuador";
 import { assertXmlValidoSri }     from "./reglas/validacionXsd";
 import { assertPagosCuadranConTotal } from "./reglas/pagos";
-import { construirCamposReferenciaPago, MAX_CAMPOS_INFO_ADICIONAL } from "./reglas/referenciaPago";
+import { construirInfoAdicionalFactura } from "./reglas/referenciaPago";
 
 import type { FacturaInput,
               DetalleFactura,
@@ -223,19 +223,17 @@ export async function emitirFactura(
     // construirFacturaXml pasa los valores de infoAdicional por escFree(), así que
     // cualquier carácter especial en el nombre del vendedor queda normalizado antes
     // de entrar al XML que se firma.
-    const infoAdicionalBase: CampoAdicional[] = [
-      ...(datos.vendedor?.trim() ? [{ nombre: "Vendedor", valor: datos.vendedor.trim() }] : []),
-      ...(datos.infoAdicional ?? []),
-    ];
     // Referencia de pago (número de transacción): un campoAdicional por cada
     // pago que la traiga — "DeUna 1", "Transferencia 2" (viene de un abono)
-    // o "Ref. pago 1" (mostrador, solo código SRI). El espacio disponible
-    // descuenta lo que Vendedor + infoAdicional ya ocuparon del tope de 15
-    // del XSD; si sobran más referencias que espacio, se juntan en un solo
-    // campo de cierre — ver construirCamposReferenciaPago().
-    const espacioParaReferencias = Math.max(0, MAX_CAMPOS_INFO_ADICIONAL - infoAdicionalBase.length);
-    const camposReferenciaPago = construirCamposReferenciaPago(datos.pagos, espacioParaReferencias);
-    const infoAdicionalFinal: CampoAdicional[] = [...infoAdicionalBase, ...camposReferenciaPago];
+    // o "Ref. pago 1" (mostrador, solo código SRI) — junto a "Vendedor",
+    // todo dentro del tope de 15 del XSD. Lógica de composición aislada en
+    // construirInfoAdicionalFactura() (reglas/referenciaPago.ts) para poder
+    // probarla sin levantar todo este pipeline.
+    const infoAdicionalFinal: CampoAdicional[] = construirInfoAdicionalFactura(
+      datos.vendedor,
+      datos.infoAdicional,
+      datos.pagos
+    );
 
     const facturaInput: FacturaInput = {
       ambiente:        cfg.ambiente,
