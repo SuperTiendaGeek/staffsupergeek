@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Wrench, DollarSign, Phone, Mail, Package, CheckCircle, Circle, XCircle, ExternalLink, Plus, Pencil, Star, StarOff, Trash2, AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Box } from "lucide-react";
+import { ArrowLeft, Wrench, DollarSign, Phone, Mail, Package, CheckCircle, Circle, XCircle, ExternalLink, Plus, Pencil, Star, StarOff, Trash2, AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Box, MessageCircle } from "lucide-react";
 import type { OperacionDetalle, OpcionDetalle, AbonoDetalle, AirtableAttachment } from "@/types/operaciones";
 import { ESTADOS_TABLERO, ESTADOS_OPERACION } from "@/types/operaciones";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
@@ -11,6 +11,11 @@ import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnific
 import { RegistrarAbonoModal } from "./RegistrarAbonoModal";
 import { VincularOrdenModal } from "./VincularOrdenModal";
 import { OpcionModal } from "./OpcionModal";
+import {
+  construirMensajeOpcionCotizada,
+  construirMensajeOpcionesCotizadas,
+  construirUrlWhatsApp,
+} from "@/lib/operaciones/whatsappCotizacion";
 
 const ESTADO_COLOR: Record<string, string> = {
   Requerimiento: "#D7FF4F",
@@ -246,12 +251,13 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, onSuccess }: C
 type OpcionCardProps = {
   opcion: OpcionDetalle;
   opcionElegidaId: string | null;
+  whatsappUrl: string | null;
   onEditar: (op: OpcionDetalle) => void;
   onElegir: (opcionId: string) => Promise<void>;
   onQuitarElegida: () => Promise<void>;
 };
 
-function OpcionCard({ opcion, opcionElegidaId, onEditar, onElegir, onQuitarElegida }: OpcionCardProps) {
+function OpcionCard({ opcion, opcionElegidaId, whatsappUrl, onEditar, onElegir, onQuitarElegida }: OpcionCardProps) {
   const [actioning, setActioning] = useState(false);
   const estadoColor = ESTADO_OPCION_COLOR[opcion.estadoOpcion] ?? "#6B7280";
 
@@ -371,7 +377,27 @@ function OpcionCard({ opcion, opcionElegidaId, onEditar, onElegir, onQuitarElegi
       )}
 
       {/* Actions */}
-      <div className="mt-auto flex items-center gap-1.5 border-t border-[#3A3A36] pt-3">
+      <div className="mt-auto flex flex-wrap items-center gap-1.5 border-t border-[#3A3A36] pt-3">
+        {whatsappUrl ? (
+          <a
+            href={whatsappUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-full border border-[#25D366]/40 bg-[#25D366]/5 px-2.5 py-1 text-[11px] font-medium text-[#56E3A4] transition hover:border-[#25D366]/70 hover:bg-[#25D366]/10"
+            title="Enviar esta opción por WhatsApp"
+          >
+            <MessageCircle size={10} /> WhatsApp
+          </a>
+        ) : (
+          <button
+            type="button"
+            disabled
+            className="inline-flex items-center gap-1 rounded-full border border-[#3A3A36] px-2.5 py-1 text-[11px] font-medium text-[#6B6B66] opacity-50"
+            title="Agrega un teléfono al cliente para enviar por WhatsApp"
+          >
+            <MessageCircle size={10} /> WhatsApp
+          </button>
+        )}
         <button
           type="button"
           onClick={() => onEditar(opcion)}
@@ -424,6 +450,12 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
   const [accionError, setAccionError] = useState("");
 
   const estadoColor = ESTADO_COLOR[operacion.estado] ?? "#8A8A80";
+  const whatsappTodasUrl = operacion.opciones.length > 0
+    ? construirUrlWhatsApp(
+        operacion.clienteTelefono,
+        construirMensajeOpcionesCotizadas({ operacion, opciones: operacion.opciones })
+      )
+    : null;
 
   function handleAbonoSuccess() {
     setAbonoModalOpen(false);
@@ -582,20 +614,44 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
 
       {/* Opciones */}
       <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4 sm:p-5">
-        <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="text-sm font-semibold text-[#F0F0EC]">
             Opciones cotizadas{" "}
             {operacion.opciones.length > 0 && (
               <span className="font-normal text-[#6B6B66]">({operacion.opciones.length})</span>
             )}
           </h3>
-          <button
-            type="button"
-            onClick={() => { setOpcionEditing(null); setOpcionModalOpen(true); }}
-            className="inline-flex items-center gap-1 rounded-full border border-[#D7FF4F]/40 bg-[#D7FF4F]/5 px-3 py-1.5 text-xs font-medium text-[#D7FF4F] transition hover:border-[#D7FF4F]/70 hover:bg-[#D7FF4F]/10"
-          >
-            <Plus size={11} /> Agregar opción
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {operacion.opciones.length > 0 && (
+              whatsappTodasUrl ? (
+                <a
+                  href={whatsappTodasUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full border border-[#25D366]/40 bg-[#25D366]/5 px-3 py-1.5 text-xs font-medium text-[#56E3A4] transition hover:border-[#25D366]/70 hover:bg-[#25D366]/10"
+                  title="Enviar todas las opciones por WhatsApp"
+                >
+                  <MessageCircle size={11} /> Enviar todas
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex items-center gap-1 rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-medium text-[#6B6B66] opacity-50"
+                  title="Agrega un teléfono al cliente para enviar por WhatsApp"
+                >
+                  <MessageCircle size={11} /> Enviar todas
+                </button>
+              )
+            )}
+            <button
+              type="button"
+              onClick={() => { setOpcionEditing(null); setOpcionModalOpen(true); }}
+              className="inline-flex items-center gap-1 rounded-full border border-[#D7FF4F]/40 bg-[#D7FF4F]/5 px-3 py-1.5 text-xs font-medium text-[#D7FF4F] transition hover:border-[#D7FF4F]/70 hover:bg-[#D7FF4F]/10"
+            >
+              <Plus size={11} /> Agregar opción
+            </button>
+          </div>
         </div>
         {operacion.opciones.length > 0 ? (
           <div className="overflow-x-auto pb-2">
@@ -605,6 +661,10 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
                   key={op.id}
                   opcion={op}
                   opcionElegidaId={operacion.opcionElegidaId}
+                  whatsappUrl={construirUrlWhatsApp(
+                    operacion.clienteTelefono,
+                    construirMensajeOpcionCotizada({ operacion, opcion: op })
+                  )}
                   onEditar={(o) => { setOpcionEditing(o); setOpcionModalOpen(true); }}
                   onElegir={handleElegir}
                   onQuitarElegida={handleQuitarElegida}
