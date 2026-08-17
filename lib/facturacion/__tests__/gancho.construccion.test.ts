@@ -237,7 +237,10 @@ for (const precioFinal of [100, 50, 80, 35, 20, 46, 33.33, 10, 1, 0.01, 115, 19.
 // Sin saldo pendiente: abonos cubren el total exacto
 {
   const pagos = calcularFormasPago(
-    [{ metodoPago: "Efectivo", monto: 60 }, { metodoPago: "Transferencia", monto: 40 }],
+    [
+      { metodoPago: "Efectivo", monto: 60, numeroTransaccion: null },
+      { metodoPago: "Transferencia", monto: 40, numeroTransaccion: "TRF-100" },
+    ],
     100
   );
   assert(pagos.length === 2, "Sin saldo pendiente: no se agrega línea extra");
@@ -249,7 +252,7 @@ for (const precioFinal of [100, 50, 80, 35, 20, 46, 33.33, 10, 1, 0.01, 115, 19.
 
 // Con saldo pendiente: se agrega la forma de pago default por el saldo
 {
-  const pagos = calcularFormasPago([{ metodoPago: "Efectivo", monto: 60 }], 100);
+  const pagos = calcularFormasPago([{ metodoPago: "Efectivo", monto: 60, numeroTransaccion: null }], 100);
   assert(pagos.length === 2, "Con saldo pendiente: se agrega una línea extra");
   assert(pagos[1].formaPago === "01", "La línea de saldo usa la forma de pago default (01)");
   assert(Math.abs(pagos[1].total - 40) < 0.01, "La línea de saldo es exactamente el pendiente (100-60=40)");
@@ -267,7 +270,7 @@ for (const precioFinal of [100, 50, 80, 35, 20, 46, 33.33, 10, 1, 0.01, 115, 19.
 // Método de pago sin mapeo conocido → fallback (no debería pasar con los 7
 // valores reales de Abonos, pero no debe romper si aparece uno nuevo)
 {
-  const pagos = calcularFormasPago([{ metodoPago: "Bitcoin", monto: 10 }], 10);
+  const pagos = calcularFormasPago([{ metodoPago: "Bitcoin", monto: 10, numeroTransaccion: null }], 10);
   assert(pagos[0].formaPago === "01", "Método de pago desconocido cae al fallback (01)");
 }
 
