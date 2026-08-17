@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { CategoriaMovimiento, EstadoMovimiento, MetodoMovimiento } from "@/types/finanzas";
+import { esMetodoPagoAbonoValido, type MetodoPagoAbono } from "@/types/abonos";
 import {
   airtableRequest,
   cleanString,
@@ -59,9 +60,14 @@ function firstString(value: unknown): string {
  * campo `Cuenta Destino` (texto libre) de Abonos se ignora a propósito —
  * vacío en 97% de los registros y no siempre consistente con Método de Pago
  * cuando sí está lleno.
+ *
+ * Tipado contra `MetodoPagoAbono` (types/abonos.ts, fuente única del
+ * catálogo): si el catálogo gana un método nuevo, este mapa deja de
+ * compilar hasta que se le agregue una entrada — no puede quedar
+ * desincronizado en silencio.
  */
 const MAPA_METODO_PAGO_ABONO: Record<
-  string,
+  MetodoPagoAbono,
   { cuentaDestinoNombre: string; estado: EstadoMovimiento; metodo: MetodoMovimiento } | null
 > = {
   Efectivo: { cuentaDestinoNombre: "Caja Registradora", estado: "Confirmado", metodo: "Efectivo" },
@@ -77,8 +83,8 @@ const MAPA_METODO_PAGO_ABONO: Record<
 
 function resolverMapeoMetodoPago(metodoPago: string | null) {
   const clave = cleanString(metodoPago);
-  if (!clave) return null;
-  return MAPA_METODO_PAGO_ABONO[clave] ?? null;
+  if (!clave || !esMetodoPagoAbonoValido(clave)) return null;
+  return MAPA_METODO_PAGO_ABONO[clave];
 }
 
 export type ResultadoPuenteAbono = { ok: true; movimientoId: string } | { ok: false; error: string };

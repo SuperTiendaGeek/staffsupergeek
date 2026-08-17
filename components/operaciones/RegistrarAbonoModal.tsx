@@ -2,16 +2,7 @@
 
 import { useState } from "react";
 import { X, DollarSign } from "lucide-react";
-
-const METODOS_PAGO = [
-  "Efectivo",
-  "Transferencia",
-  "Tarjeta",
-  "Depósito",
-  "PayPal",
-  "PayPhone",
-  "Otro",
-] as const;
+import { METODOS_PAGO_ABONO } from "@/types/abonos";
 
 function defaultEcuadorDatetime(): string {
   // Return current time as YYYY-MM-DDTHH:mm in Ecuador timezone (UTC-5)
@@ -166,7 +157,7 @@ export function RegistrarAbonoModal({ operacionId, ordenId, onClose, onSuccess }
               disabled={loading}
               className="w-full rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2.5 text-sm text-[#F0F0EC] outline-none transition focus:border-[#D7FF4F]/60 focus:ring-1 focus:ring-[#D7FF4F]/20 disabled:opacity-50"
             >
-              {METODOS_PAGO.map((m) => (
+              {METODOS_PAGO_ABONO.map((m) => (
                 <option key={m} value={m}>
                   {m}
                 </option>

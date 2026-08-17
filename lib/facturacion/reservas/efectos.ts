@@ -200,6 +200,19 @@ export async function liberarItem(shippingItemId: string, unidades = 1): Promise
 // financiero) y 21 (endoso de títulos) cuando lleguen a usarse en una reserva.
 // Hoy → "Otro" (sin cuenta, marca Alerta Descuadre para clasificación manual).
 // Al confirmarse, cambiar los valores de estos 3 códigos en el mapa de abajo.
+//
+// Nota (rama DeUna, 2026-08-16) — Reservas NO usa el catálogo central de
+// types/abonos.ts y queda deliberadamente fuera de esa fase. La traducción
+// código SRI → Método de Pago de este archivo es LOSSY: el código "20" por
+// sí solo cubre Transferencia, Depósito, PayPal, PayPhone y ahora DeUna —
+// cinco métodos que van a cuentas distintas — y hoy los deja a todos
+// indistintamente en "Otro" (sin cuenta, Alerta Descuadre). No es un
+// problema nuevo de esta fase ni lo agrava: ya existía. Verificado
+// 2026-08-16 que no hay ningún abono de Reservas en la tabla `Abonos`
+// todavía, así que no hay nada acumulado que arreglar. Arreglarlo de
+// verdad — dar a Reservas su propio selector de Método de Pago con número
+// de transacción, en vez de traducir desde un código SRI — es trabajo
+// aparte, no de esta rama.
 const MAPA_FORMA_PAGO_A_METODO: Record<string, string> = {
   "01": "Efectivo",
   "16": "Tarjeta", // débito
