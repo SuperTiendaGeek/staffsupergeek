@@ -28,8 +28,10 @@ export const TARIFA_IVA_ITEM_DEFAULT = TARIFA_IVA_SRI["15%"];
 
 // ─── Formas de pago: Método de Pago (Abonos) → forma de pago SRI ────────────
 // "Método de Pago" en Abonos es un singleSelect real (confirmado vía
-// Airtable Metadata API el 2026-07-xx): exactamente estos 7 valores, ni uno
-// más — no inventar variantes.
+// Airtable Metadata API el 2026-07-xx, y ampliado el 2026-08-16 con
+// "DeUna"): exactamente estos 8 valores, ni uno más — no inventar
+// variantes. La lista completa vive centralizada en types/abonos.ts
+// (METODOS_PAGO_ABONO); este mapa debe cubrir cada uno de esos valores.
 //
 // Catálogo SRI de formas de pago (Ficha Técnica, Tabla 22) usado aquí:
 //   01 = sin utilización del sistema financiero (efectivo)
@@ -56,6 +58,7 @@ export const MAPA_METODO_PAGO_SRI: Record<string, string> = {
   "PayPal":        "20", // ⚠️ no es "17 dinero electrónico" (ese es el sistema específico del BCE)
   "PayPhone":      "20", // ⚠️ ídem PayPal — procesador privado, no el dinero electrónico del BCE
   "Otro":          "20", // ⚠️ conservador, revisar caso por caso
+  "DeUna":         "20", // ⚠️ ídem PayPal/PayPhone — billetera privada, no "17 dinero electrónico" del BCE
 };
 
 // Forma de pago para la línea de saldo pendiente que agrega la pre-factura

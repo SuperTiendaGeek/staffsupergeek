@@ -79,6 +79,13 @@ const MAPA_METODO_PAGO_ABONO: Record<
   // "Otro" y cualquier valor no reconocido (incluido vacío) caen al `null`
   // del default más abajo — sin cuenta resuelta, Alerta Descuadre.
   Otro: null,
+  // DeUna (2026-08-16) — mismo patrón que PayPal, no el de Tarjeta: es
+  // dinero que llega ya acreditado a la cuenta virtual propia "DeUna" desde
+  // el segundo uno (Tipo "Tránsito" en Cuentas Financieras, luego se
+  // transfiere a mano a SGINGRESOS), no un cobro que el banco todavía no
+  // acreditó como sí pasa con una tarjeta. Por eso "Confirmado", no
+  // "Pendiente".
+  DeUna: { cuentaDestinoNombre: "DeUna", estado: "Confirmado", metodo: "DeUna" },
 };
 
 function resolverMapeoMetodoPago(metodoPago: string | null) {

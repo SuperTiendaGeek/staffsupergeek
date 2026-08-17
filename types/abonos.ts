@@ -19,6 +19,7 @@ export const METODOS_PAGO_ABONO = [
   "PayPal",
   "PayPhone",
   "Otro",
+  "DeUna",
 ] as const;
 
 export type MetodoPagoAbono = (typeof METODOS_PAGO_ABONO)[number];
