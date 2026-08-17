@@ -239,6 +239,38 @@ function assert(cond: boolean, msg: string): void {
   assert(CODIGO_SRI_REQUIERE_REFERENCIA === "20", "la constante exportada coincide con el código SRI real");
 }
 
+// ═══ Reemplazo con nota de crédito — la diferencia en código 20 ═════════════
+// FacturacionForm.tsx arma pagosReemplazo como [compensación (15), diferencia
+// (código elegido)] — mismo shape reproducido aquí. Cliente y servidor
+// validan con la MISMA función (mensajeReferenciaPagoFaltante), así que
+// probarla contra este shape cubre los dos lados sin necesitar un arnés de
+// pruebas de React (no existe uno en este proyecto).
+{
+  const pagosReemplazoSinReferencia = [
+    { formaPago: "15", total: 40 }, // compensación: crédito de la NC, nunca exige referencia
+    { formaPago: "20", total: 10 }, // diferencia por transferencia, SIN número
+  ];
+  const error = mensajeReferenciaPagoFaltante(pagosReemplazoSinReferencia);
+  assert(error !== null, "reemplazo NC: diferencia en código 20 sin referencia → se rechaza (mismo mensaje en cliente y servidor)");
+
+  const pagosReemplazoConReferencia = [
+    { formaPago: "15", total: 40 },
+    { formaPago: "20", total: 10, referencia: "TRF-REEMPLAZO-001" },
+  ];
+  assert(
+    mensajeReferenciaPagoFaltante(pagosReemplazoConReferencia) === null,
+    "reemplazo NC: diferencia en código 20 CON referencia → pasa"
+  );
+
+  // Con referencia, también genera su campoAdicional — igual que cualquier
+  // otro pago. La diferencia de un reemplazo nunca trae metodoPago (no viene
+  // de un abono), así que cae en "Ref. pago N", no en un nombre de método.
+  const campos = construirCamposReferenciaPago(pagosReemplazoConReferencia as Pago[], 14);
+  assert(campos.length === 1, "reemplazo NC: la compensación (15) no genera campo — solo la diferencia con referencia");
+  assert(campos[0].nombre === "Ref. pago 1", "reemplazo NC: sin metodoPago, se nombra 'Ref. pago 1'");
+  assert(campos[0].valor === "TRF-REEMPLAZO-001", "reemplazo NC: con el número correcto");
+}
+
 if (fallos > 0) {
   console.error(`\n❌ referenciaPago.test.ts — ${fallos} aserción(es) fallida(s)`);
   process.exit(1);
