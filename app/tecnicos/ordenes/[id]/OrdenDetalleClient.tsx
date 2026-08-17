@@ -15,7 +15,7 @@ import { buildAbandonmentWhatsAppMessage } from "@/lib/tecnicos/orders/abandonme
 import { buildWhatsAppUrl } from "@/lib/tecnicos/whatsapp";
 import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnificadaPanel";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
-import { METODOS_PAGO_ABONO, esMetodoPagoAbonoValido } from "@/types/abonos";
+import { METODOS_PAGO_ABONO, esMetodoPagoAbonoValido, requiereNumeroTransaccion } from "@/types/abonos";
 
 type HistorialItem = {
   id: string;
@@ -1251,6 +1251,10 @@ export function OrdenDetalleClient() {
     }
     if (!esMetodoPagoAbonoValido(metodoPago)) {
       setAbonoError("El método de pago seleccionado no es válido.");
+      return;
+    }
+    if (requiereNumeroTransaccion(metodoPago) && !abonoNumeroTransaccion.trim()) {
+      setAbonoError(`El número de transacción es obligatorio para el método "${metodoPago}".`);
       return;
     }
 
@@ -3761,7 +3765,14 @@ export function OrdenDetalleClient() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-[#A7A7A7]">N° de transacción (opcional)</label>
+                    <label className="text-xs font-medium text-[#A7A7A7]">
+                      N° de transacción{" "}
+                      {requiereNumeroTransaccion(abonoMetodoPago) ? (
+                        <span className="text-[#FF5A4F]">*</span>
+                      ) : (
+                        "(opcional)"
+                      )}
+                    </label>
                     <input
                       type="text"
                       value={abonoNumeroTransaccion}

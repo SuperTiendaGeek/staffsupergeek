@@ -29,12 +29,15 @@ export function esMetodoPagoAbonoValido(valor: string): valor is MetodoPagoAbono
 }
 
 /**
- * Métodos para los que el número de transacción es obligatorio. Hoy
- * ninguno — el campo es opcional para los 7 métodos existentes. (Vacío a
- * propósito en esta primera centralización, que no cambia comportamiento;
- * una fase posterior puede poblar este conjunto.)
+ * Métodos para los que el número de transacción es obligatorio (decisión de
+ * Alex, 2026-08-16): Transferencia y DeUna dejan un comprobante/rastro
+ * bancario verificable con el que se puede conciliar la cuenta destino — a
+ * diferencia de Efectivo (nada que conciliar) o Tarjeta (se concilia con el
+ * lote del POS, no con un número suelto). El resto de métodos sigue
+ * opcional. Aplica solo hacia adelante: los abonos ya guardados sin número
+ * no se tocan ni se marcan.
  */
-const METODOS_QUE_EXIGEN_NUMERO_TRANSACCION = new Set<MetodoPagoAbono>([]);
+const METODOS_QUE_EXIGEN_NUMERO_TRANSACCION = new Set<MetodoPagoAbono>(["Transferencia", "DeUna"]);
 
 export function requiereNumeroTransaccion(metodo: string): boolean {
   return esMetodoPagoAbonoValido(metodo) && METODOS_QUE_EXIGEN_NUMERO_TRANSACCION.has(metodo);

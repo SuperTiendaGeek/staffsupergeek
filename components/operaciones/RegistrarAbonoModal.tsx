@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { X, DollarSign } from "lucide-react";
-import { METODOS_PAGO_ABONO } from "@/types/abonos";
+import { METODOS_PAGO_ABONO, requiereNumeroTransaccion } from "@/types/abonos";
 
 function defaultEcuadorDatetime(): string {
   // Return current time as YYYY-MM-DDTHH:mm in Ecuador timezone (UTC-5)
@@ -35,6 +35,10 @@ export function RegistrarAbonoModal({ operacionId, ordenId, onClose, onSuccess }
     e.preventDefault();
     if (!montoValido) {
       setError("El monto debe ser mayor a 0.");
+      return;
+    }
+    if (requiereNumeroTransaccion(metodoPago) && !numeroTransaccion.trim()) {
+      setError(`El número de transacción es obligatorio para el método "${metodoPago}".`);
       return;
     }
 
@@ -204,7 +208,12 @@ export function RegistrarAbonoModal({ operacionId, ordenId, onClose, onSuccess }
           {/* N° Transacción */}
           <div className="flex flex-col gap-1.5">
             <label htmlFor="abono-nro" className="text-xs font-medium text-[#8A8A80]">
-              N° de Transacción (opcional)
+              N° de Transacción{" "}
+              {requiereNumeroTransaccion(metodoPago) ? (
+                <span className="text-[#FF5A4F]">*</span>
+              ) : (
+                "(opcional)"
+              )}
             </label>
             <input
               id="abono-nro"
