@@ -7,6 +7,7 @@ import { postEmision, debeIntentarPostEmision } from "@/lib/facturacion/gancho/p
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
 import { verificarProductosDigitalesDisponibles, mensajeProductosDigitalesNoDisponibles } from "@/lib/facturacion/reglas/productosDigitalesDisponibles";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
+import { mensajeReferenciaPagoFaltante } from "@/lib/facturacion/reglas/referenciaPago";
 import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
 import { marcarReservaFacturada } from "@/lib/facturacion/reservas/airtable";
 
@@ -40,6 +41,13 @@ export async function POST(request: Request) {
   const errorPrecioShipping = mensajePrecioShippingItemInvalido(body.detalles);
   if (errorPrecioShipping) {
     return NextResponse.json({ success: false, error: errorPrecioShipping }, { status: 400 });
+  }
+  // La validación de pantalla no basta: un request directo la salta. Mismo
+  // criterio que assertConsumidorFinalPermitido() en facturación — la
+  // regla vive también en el servidor.
+  const errorReferenciaPago = mensajeReferenciaPagoFaltante(body.pagos);
+  if (errorReferenciaPago) {
+    return NextResponse.json({ success: false, error: errorReferenciaPago }, { status: 400 });
   }
 
   // Fase 16 PR2: si viene de una orden/operación, re-verificar idempotencia
