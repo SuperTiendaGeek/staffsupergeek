@@ -82,6 +82,22 @@ export type Pago = {
   // (construirFacturaXml no la lee).
   origenPago?: "abono" | "saldo";
   fechaAbono?: string; // fecha del abono en Airtable, solo si origenPago === "abono"
+  // Fase "referencia de pago en factura" (2026-08-17): número de
+  // transacción del pago (transferencia, DeUna, depósito, etc.). Igual que
+  // origenPago/fechaAbono, NUNCA se serializa al nodo <pago> del XML — ese
+  // nodo está cerrado en formaPago/total/plazo/unidadTiempo, el XSD no
+  // admite un campo más (construirFacturaXml no debe leerlo). Viaja solo
+  // para que emitirFactura.ts arme un campoAdicional de infoAdicional por
+  // pago (ver lib/facturacion/reglas/referenciaPago.ts) y para que el
+  // formulario lo muestre/edite.
+  referencia?: string;
+  // Nombre legible del método de pago (p.ej. "DeUna", "Transferencia"),
+  // solo cuando se conoce — hoy únicamente en líneas que vienen de un abono
+  // (calcularFormasPago() lo copia de CuentaUnificadaAbono.metodoPago). Una
+  // línea de mostrador solo trae el código SRI, nunca este campo. Se usa
+  // para nombrar el campoAdicional ("DeUna 1" en vez de "Ref. pago 1") —
+  // tampoco se serializa al XML.
+  metodoPago?: string;
 };
 
 // ─── Compensaciones ──────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/prec
 import { camposLineaDesdeProducto } from "@/lib/facturacion/lineaDesdeProductoCatalogo";
 import { ClienteCard, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 import { validarIdentificacion } from "@/lib/facturacion/reglas/identificacion";
+import { mensajeReferenciaPagoFaltante, CODIGO_SRI_REQUIERE_REFERENCIA } from "@/lib/facturacion/reglas/referenciaPago";
 
 // ─── Tipos locales ─────────────────────────────────────────────────────────────
 
@@ -263,7 +264,19 @@ const LABEL = "block mb-1 text-xs font-semibold text-[#A7A7A7] uppercase trackin
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-type PagoForm = { formaPago: string; total: number; origenPago?: "abono" | "saldo"; fechaAbono?: string };
+type PagoForm = {
+  formaPago: string;
+  total: number;
+  origenPago?: "abono" | "saldo";
+  fechaAbono?: string;
+  // Número de transacción — obligatorio cuando formaPago === "20" (ver
+  // CODIGO_SRI_REQUIERE_REFERENCIA), opcional para el resto. Nunca se
+  // serializa al XML (ver Pago.referencia en lib/facturacion/types/factura.ts).
+  referencia?: string;
+  // Solo presente en filas que vienen de un abono (calcularFormasPago()) —
+  // una fila de mostrador nunca lo trae.
+  metodoPago?: string;
+};
 
 // Tipo del payload guardado en Líneas JSON para borradores.
 // version 2 (gancho Fase 16 PR2): agrega pagosPrecargados/origen/bannerOrigen
@@ -297,6 +310,10 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   const [modoCliente, setModoCliente] = useState<ModoCliente>("consumidor");
   const [lineas, setLineas]     = useState<LineaDetalle[]>([]);
   const [formaPago, setFormaPago] = useState("01");
+  // Número de transacción del modo "un solo pago" (mostrador sin pago
+  // mixto) — obligatorio cuando formaPago === "20". En modo pago mixto /
+  // gancho, cada fila de FormasPagoEditor trae la suya propia (PagoForm.referencia).
+  const [referenciaPagoUnico, setReferenciaPagoUnico] = useState("");
   // Toggle "Precios incluyen IVA" — default activado (decisión de negocio:
   // los precios que maneja el negocio ya incluyen IVA). Al desactivarlo,
   // el formulario vuelve al cálculo histórico (precio = base, IVA sumado
@@ -338,6 +355,11 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   // el crédito, código 15). El cliente puede pagar la diferencia con lo que
   // quiera: efectivo, tarjeta, transferencia, etc.
   const [formaPagoDiferencia, setFormaPagoDiferencia] = useState("01");
+  // N° de referencia de esa diferencia — obligatorio cuando formaPagoDiferencia
+  // === "20" (transferencia, depósito, PayPal, PayPhone o DeUna), igual que en
+  // los otros modos. La compensación (código 15) nunca lo necesita: no es un
+  // cobro con comprobante bancario.
+  const [referenciaPagoDiferencia, setReferenciaPagoDiferencia] = useState("");
 
   // ── Debounce productos ────────────────────────────────────────────────────
   useEffect(() => {
@@ -520,6 +542,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
           datosVenta.pagos.map((p) => ({
             formaPago: p.formaPago, total: p.total,
             origenPago: p.origenPago, fechaAbono: p.fechaAbono,
+            referencia: p.referencia, metodoPago: p.metodoPago,
           }))
         );
         setOrigen(datosVenta.origen ?? { tipo: origenTipo, recordId });
@@ -571,7 +594,13 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         const comp = Math.min(reemplazoNC.creditoDisponible, totales.importeTotal);
         const diferencia = round2(totales.importeTotal - comp);
         const pagos: PagoForm[] = [{ formaPago: "15", total: round2(comp) }];
-        if (diferencia > 0.005) pagos.push({ formaPago: formaPagoDiferencia, total: diferencia });
+        if (diferencia > 0.005) {
+          pagos.push({
+            formaPago: formaPagoDiferencia,
+            total: diferencia,
+            referencia: referenciaPagoDiferencia.trim() || undefined,
+          });
+        }
         return pagos;
       })()
     : null;
@@ -678,6 +707,20 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
     if (reemplazoNC && totales.importeTotal <= 0) {
       setErrGlobal("Agrega el equipo de reemplazo antes de emitir");
       return;
+    }
+    // Referencia de pago obligatoria para código "20" — se valida igual en
+    // los tres modos (único, pago mixto/gancho, reemplazo NC): el modo
+    // reemplazo ya tiene su propio campo de referencia para la diferencia
+    // (ver referenciaPagoDiferencia más arriba), así que puede cumplir la
+    // regla como cualquier otro.
+    {
+      const pagosAValidar =
+        pagosReemplazo ??
+        pagosPrecargados ?? [
+          { formaPago, total: totales.importeTotal, referencia: referenciaPagoUnico.trim() || undefined },
+        ];
+      const errReferencia = mensajeReferenciaPagoFaltante(pagosAValidar);
+      if (errReferencia) { setErrGlobal(errReferencia); return; }
     }
 
     // Construir DatosVenta.
@@ -793,7 +836,9 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       totalConImpuestos,
       importeTotal:      totales.importeTotal,
       // En reemplazo: compensación (crédito NC) + efectivo (diferencia).
-      pagos: pagosReemplazo ?? pagosPrecargados ?? [{ formaPago, total: totales.importeTotal }],
+      pagos: pagosReemplazo ?? pagosPrecargados ?? [
+        { formaPago, total: totales.importeTotal, referencia: referenciaPagoUnico.trim() || undefined },
+      ],
       origen:          origen ?? undefined,
       // cliente.airtableId (no el clienteRecordId que trajo la pre-factura):
       // si el humano cambia de cliente en el formulario, el link
@@ -1066,6 +1111,15 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
                       </div>
                     );
                   })()}
+                  {formaPagoDiferencia === CODIGO_SRI_REQUIERE_REFERENCIA && (
+                    <input
+                      type="text"
+                      value={referenciaPagoDiferencia}
+                      onChange={(e) => setReferenciaPagoDiferencia(e.target.value)}
+                      placeholder="N° de referencia de la diferencia (obligatorio)"
+                      className={`${INPUT} text-xs py-1.5`}
+                    />
+                  )}
                   {round2(reemplazoNC.creditoDisponible - (pagosReemplazo.find((p) => p.formaPago === "15")?.total ?? 0)) > 0.005 && (
                     <p className="text-[10px] text-[#F0C75E] pt-2 border-t border-[#3A3A36]">
                       Quedará ${round2(reemplazoNC.creditoDisponible - (pagosReemplazo.find((p) => p.formaPago === "15")?.total ?? 0)).toFixed(2)} de saldo en la NC {reemplazoNC.numero}.
@@ -1082,7 +1136,9 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
                       type="button"
                       onClick={() =>
                         setPagosPrecargados((actual) =>
-                          actual ? null : [{ formaPago, total: totales.importeTotal }]
+                          actual
+                            ? null
+                            : [{ formaPago, total: totales.importeTotal, referencia: referenciaPagoUnico.trim() || undefined }]
                         )
                       }
                       className="text-xs text-lime-400 hover:text-lime-300 underline"
@@ -1094,11 +1150,24 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
                 {pagosPrecargados ? (
                   <FormasPagoEditor pagos={pagosPrecargados} onChange={setPagosPrecargados} />
                 ) : (
-                  <select value={formaPago} onChange={(e) => setFormaPago(e.target.value)} className={SELECT}>
-                    {FORMAS_PAGO.map((fp) => (
-                      <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>
-                    ))}
-                  </select>
+                  <div className="flex flex-col gap-1.5">
+                    <select value={formaPago} onChange={(e) => setFormaPago(e.target.value)} className={SELECT}>
+                      {FORMAS_PAGO.map((fp) => (
+                        <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={referenciaPagoUnico}
+                      onChange={(e) => setReferenciaPagoUnico(e.target.value)}
+                      placeholder={
+                        formaPago === CODIGO_SRI_REQUIERE_REFERENCIA
+                          ? "N° de referencia (obligatorio)"
+                          : "N° de referencia (opcional)"
+                      }
+                      className={INPUT}
+                    />
+                  </div>
                 )}
               </>
             )}
@@ -1304,7 +1373,7 @@ function FormasPagoEditor({
 }) {
   const [desbloqueados, setDesbloqueados] = useState<Set<number>>(new Set());
 
-  function actualizar(i: number, campo: "formaPago" | "total", valor: string | number) {
+  function actualizar(i: number, campo: "formaPago" | "total" | "referencia", valor: string | number) {
     onChange(pagos.map((p, idx) => (idx === i ? { ...p, [campo]: valor } : p)));
   }
   function eliminar(i: number) {
@@ -1369,6 +1438,22 @@ function FormasPagoEditor({
                 <span className="text-[#F0C75E]/80">● Saldo por cobrar</span>
               )}
             </p>
+            {/* N° de referencia — obligatorio solo con código "20" (Otros
+                sist. financiero: transferencia, depósito, PayPal, PayPhone,
+                DeUna). Editable siempre, incluso en una fila de abono: esto
+                solo afecta el infoAdicional de ESTA factura, nunca escribe
+                de vuelta en el registro del abono. */}
+            <input
+              type="text"
+              value={p.referencia ?? ""}
+              onChange={(e) => actualizar(i, "referencia", e.target.value)}
+              placeholder={
+                p.formaPago === CODIGO_SRI_REQUIERE_REFERENCIA
+                  ? "N° de referencia (obligatorio)"
+                  : "N° de referencia (opcional)"
+              }
+              className={`${INPUT} text-xs py-1.5`}
+            />
           </div>
         );
       })}

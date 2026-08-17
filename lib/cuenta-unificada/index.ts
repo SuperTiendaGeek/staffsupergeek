@@ -150,6 +150,8 @@ function mapAbonoRecordToCuentaAbono(
     estado: firstString(f["Estado del Abono"], "Registrado"),
     origen,
     observacion: typeof f["Observación"] === "string" ? (f["Observación"] as string) : null,
+    // Nombre exacto del campo, con tilde — Airtable falla en silencio si difiere.
+    numeroTransaccion: typeof f["Número de Transacción"] === "string" ? (f["Número de Transacción"] as string) : null,
   };
 }
 
@@ -382,6 +384,7 @@ export async function getCuentaUnificada(
       estado: a.estado,
       origen: "orden",
       observacion: a.observacion,
+      numeroTransaccion: a.numeroTransaccion,
     });
   }
   for (const a of abonosOperacion) {

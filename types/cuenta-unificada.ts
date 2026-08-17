@@ -85,6 +85,12 @@ export interface CuentaUnificadaAbono {
   estado: string;
   origen: CuentaUnificadaAbonoOrigen;
   observacion: string | null;
+  // Fase "referencia de pago en factura" (2026-08-17): "Número de
+  // Transacción" del abono en Airtable, para que llegue hasta infoAdicional
+  // de la factura (ver lib/facturacion/gancho/construccion.ts,
+  // calcularFormasPago()). null si el abono no lo trae — hoy es opcional
+  // salvo para Transferencia/DeUna (ver types/abonos.ts).
+  numeroTransaccion: string | null;
 }
 
 export interface CuentaUnificada {

@@ -257,9 +257,17 @@ export function evaluarItemNoListo(
 // Cada Pago sale marcado con origenPago ("abono" vs "saldo") y, para los que
 // vienen de un abono, su fecha — puramente informativo para que
 // FacturacionForm distinga visualmente "Abono registrado · <fecha>" de
-// "Saldo por cobrar" (editable). No afecta el XML/RIDE.
+// "Saldo por cobrar" (editable). No afecta el nodo <pago> del XML.
+//
+// referencia/metodoPago (Fase "referencia de pago en factura"): se copian
+// tal cual del abono — numeroTransaccion → referencia, metodoPago →
+// metodoPago — para que emitirFactura.ts arme un campoAdicional por pago
+// (ver lib/facturacion/reglas/referenciaPago.ts). La línea de "saldo
+// pendiente" de más abajo NUNCA lleva referencia: no es un cobro
+// registrado, es el remanente que se está cobrando recién al facturar, sin
+// número de transacción que citar.
 export function calcularFormasPago(
-  abonosVigentes: (Pick<CuentaUnificadaAbono, "metodoPago" | "monto"> & { fecha?: string | null })[],
+  abonosVigentes: (Pick<CuentaUnificadaAbono, "metodoPago" | "monto" | "numeroTransaccion"> & { fecha?: string | null })[],
   importeTotal: number
 ): Pago[] {
   const pagos: Pago[] = abonosVigentes.map((a) => ({
@@ -267,6 +275,8 @@ export function calcularFormasPago(
     total:     round2(a.monto),
     origenPago: "abono",
     fechaAbono: a.fecha ?? undefined,
+    metodoPago: a.metodoPago ?? undefined,
+    referencia: a.numeroTransaccion ?? undefined,
   }));
 
   const sumaAbonos     = round2(pagos.reduce((s, p) => s + p.total, 0));
