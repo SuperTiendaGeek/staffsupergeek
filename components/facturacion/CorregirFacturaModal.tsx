@@ -21,6 +21,7 @@ import { useState } from "react";
 import {
   TIPOS_IDENTIFICACION,
   validarIdentificacion,
+  revisarIdentificacion,
 } from "@/lib/facturacion/reglas/identificacion";
 
 type MotivoSri = {
@@ -65,6 +66,9 @@ export function CorregirFacturaModal({ factura, onClose, onCorregida }: {
   const [exito, setExito]         = useState<string | null>(null);
 
   const errId = identificacion.trim() ? validarIdentificacion(tipoId, identificacion.trim()) : null;
+  // Dígito verificador que no cuadra (RUC/cédula real, p.ej. SALUDSÍ EC
+  // S.A.S.) — NO bloquea puedeEnviar, solo se muestra en ámbar más abajo.
+  const advertenciaId = identificacion.trim() ? revisarIdentificacion(tipoId, identificacion.trim()).advertencia : null;
   const puedeEnviar = !!razonSocial.trim() && !!identificacion.trim() && !errId && !enviando;
 
   async function reenviar() {
@@ -177,7 +181,7 @@ export function CorregirFacturaModal({ factura, onClose, onCorregida }: {
             <div>
               <label className={LABEL}>Número de documento</label>
               <input value={identificacion} onChange={(e) => setIdent(e.target.value)} className={INPUT} />
-              {errId && <p className="mt-1 text-[11px] text-amber-300">{errId}</p>}
+              {(errId || advertenciaId) && <p className="mt-1 text-[11px] text-amber-300">{errId ?? advertenciaId}</p>}
             </div>
             <div className="md:col-span-2">
               <label className={LABEL}>Nombre / Razón social</label>

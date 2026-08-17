@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import {
   TIPOS_IDENTIFICACION,
   validarIdentificacion,
+  revisarIdentificacion,
   inferirTipoSugerido,
 } from "@/lib/facturacion/reglas/identificacion";
 
@@ -119,9 +120,14 @@ export function ClienteModal({ modo, clienteId, onClose, onGuardado }: {
                   className={INPUT}
                   placeholder={tipoId === "04" ? "1790011114001" : tipoId === "05" ? "1003710272" : "Número del documento"}
                 />
-                {cedula.trim() && validarIdentificacion(tipoId, cedula.trim()) && (
-                  <p className="mt-1 text-[11px] text-amber-300">{validarIdentificacion(tipoId, cedula.trim())}</p>
-                )}
+                {cedula.trim() && (() => {
+                  const revision = revisarIdentificacion(tipoId, cedula.trim());
+                  const mensaje = revision.error ?? revision.advertencia;
+                  // El error sigue bloqueando guardar() más abajo; la
+                  // advertencia (dígito verificador, p.ej. RUC de SALUDSÍ)
+                  // NO bloquea — mismo aviso ámbar, solo informativo.
+                  return mensaje && <p className="mt-1 text-[11px] text-amber-300">{mensaje}</p>;
+                })()}
               </div>
               <div><label className={LABEL}>Teléfono</label><input value={telefono} onChange={(e) => setTelefono(e.target.value)} className={INPUT} placeholder="09XXXXXXXX" /></div>
               <div><label className={LABEL}>Correo</label><input type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} className={INPUT} placeholder="cliente@email.com" /></div>

@@ -8,7 +8,7 @@ import { round2, desglosarPrecioConIvaIncluido } from "@/lib/facturacion/ivaIncl
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { camposLineaDesdeProducto } from "@/lib/facturacion/lineaDesdeProductoCatalogo";
 import { ClienteCard, type ClienteDoc } from "@/components/facturacion/ClienteCard";
-import { validarIdentificacion } from "@/lib/facturacion/reglas/identificacion";
+import { validarIdentificacion, revisarIdentificacion } from "@/lib/facturacion/reglas/identificacion";
 import { mensajeReferenciaPagoFaltante, CODIGO_SRI_REQUIERE_REFERENCIA } from "@/lib/facturacion/reglas/referenciaPago";
 
 // ─── Tipos locales ─────────────────────────────────────────────────────────────
@@ -890,6 +890,13 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
     modoCliente === "consumidor" ||
     (cliente.identificacion && !validarIdentificacion(cliente.tipoIdentificacion, cliente.identificacion));
 
+  // Dígito verificador que no cuadra (RUC/cédula real, p.ej. SALUDSÍ EC
+  // S.A.S.) — NO bloquea clienteOk, solo se muestra en ámbar más abajo.
+  const advertenciaIdentificacion =
+    modoCliente !== "consumidor" && cliente.identificacion
+      ? revisarIdentificacion(cliente.tipoIdentificacion, cliente.identificacion).advertencia
+      : null;
+
   // Puente con la tarjeta de cliente compartida (misma UI que el resto).
   const clienteDoc = facturaToDoc(cliente, modoCliente);
   function onClienteCard(doc: ClienteDoc) {
@@ -1191,6 +1198,17 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
               </p>
               <p className="text-xs text-[#A7A7A7]">
                 El SRI no permite Consumidor Final para facturas que superen este monto. Elige o crea el cliente en la tarjeta de arriba.
+              </p>
+            </div>
+          )}
+
+          {/* Aviso dígito verificador — NO bloquea, algunos RUC/cédula reales
+              no cumplen el algoritmo del SRI (ver lib/facturacion/reglas/identificacion.ts). */}
+          {advertenciaIdentificacion && (
+            <div className="w-full rounded-xl border border-[#FFB07A]/40 bg-[#FF914D]/10 px-4 py-3">
+              <p className="text-sm font-semibold text-[#FFB07A] mb-1">{advertenciaIdentificacion}</p>
+              <p className="text-xs text-[#A7A7A7]">
+                Esto no bloquea la emisión — algunos documentos reales del SRI no cumplen su propio algoritmo de verificación.
               </p>
             </div>
           )}
