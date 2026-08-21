@@ -1107,7 +1107,7 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
       {error ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{error}</div> : null}
       {message ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{message}</div> : null}
 
-      <section className="rounded-xl border border-[#30312D] bg-[#11120F] px-2 py-1.5 shadow-xl shadow-black/15">
+      <section className="relative z-40 rounded-xl border border-[#30312D] bg-[#11120F] px-2 py-1.5 shadow-xl shadow-black/15">
         <div className="flex flex-wrap items-center gap-1.5">
           <div className="flex max-w-full flex-none flex-wrap items-center gap-1">
             {receptionFilters.map((item) => (
@@ -1138,7 +1138,7 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
               />
             </label>
 
-            <div ref={toolbarRef} className="relative flex shrink-0 items-center gap-1">
+            <div ref={toolbarRef} className="relative z-50 flex shrink-0 items-center gap-1">
               <ToolbarButton label="Filtrar" active={activeFilterCount > 0} onClick={() => setToolbarMenuOpen((current) => current === "filters" ? null : "filters")}>
                 <ListFilter className="h-4 w-4" aria-hidden="true" />
                 {activeFilterCount ? <span className="rounded-full bg-[#151515] px-1.5 text-[10px] text-[#D7FF4F]">{activeFilterCount}</span> : null}
@@ -1152,7 +1152,7 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
 
               {toolbarMenuOpen ? (
                 <div
-                  className={`absolute right-0 top-full z-30 mt-2 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-[#30312D] bg-[#11120F] shadow-2xl shadow-black/45 ${
+                  className={`absolute right-0 top-full z-50 mt-2 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-[#30312D] bg-[#11120F] shadow-2xl shadow-black/45 ${
                     toolbarMenuOpen === "filters" ? "w-[min(92vw,680px)]" : "w-[min(92vw,320px)]"
                   }`}
                 >
