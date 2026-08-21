@@ -102,12 +102,16 @@ export default async function ShippingV2SkuLabelPage({ params }: Props) {
     redirect("/shipping-v2/packings");
   }
 
+  let item;
   try {
-    const item = await getShippingV2ItemById(id, { includeAiName: false, access });
-    return <PrintableSkuLabel sku={item.sku?.trim() || "SKU no disponible"} />;
+    item = await getShippingV2ItemById(id, { includeAiName: false, access });
   } catch (error) {
     console.error("Error al cargar etiqueta SKU Shipping V2:", error);
     if (error instanceof Error && error.message.includes("NOT_FOUND")) notFound();
     return <PrintableSkuLabel sku="SKU no disponible" />;
   }
+  if (item.recibido !== true) {
+    redirect("/shipping-v2/recepcion");
+  }
+  return <PrintableSkuLabel sku={item.sku?.trim() || "SKU no disponible"} />;
 }

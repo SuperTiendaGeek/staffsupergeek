@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ id: string }> };
 
 const ALLOWED_ACTIONS = new Set<ShippingV2RecepcionChecklistAction>([
+  "received",
   "reviewed",
   "photos-taken",
   "published-shopify",

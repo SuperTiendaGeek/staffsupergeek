@@ -289,6 +289,7 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   esRepuesto: boolean | null;
   esRegalo: boolean | null;
   conNovedad: boolean | null;
+  recibido: boolean | null;
   revisadoFisicamente: boolean | null;
   revisadoPor?: string;
   fechaRevision?: string;
@@ -661,6 +662,7 @@ export type ShippingV2PackingNovedadInput = {
 };
 
 export type ShippingV2RecepcionChecklistAction =
+  | "received"
   | "reviewed"
   | "photos-taken"
   | "published-shopify"

@@ -1342,6 +1342,7 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     esRepuesto: firstBoolean(f[F.esRepuesto]),
     esRegalo: firstBoolean(f[F.esRegalo]),
     conNovedad: firstBoolean(f["Con novedad"] ?? f.Novedad ?? f.Novedades),
+    recibido: firstBoolean(f[F.recibido]),
     revisadoFisicamente: firstBoolean(f["Revisado física/técnicamente"]),
     revisadoPor: firstString(f["Revisado por"]),
     fechaRevision: firstString(f["Fecha revisión"]),
@@ -2932,6 +2933,8 @@ export async function updateShippingV2ItemTechnicalSheet(
   if (!id) throw new Error("Record ID de item inválido.");
 
   const existing = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
+  if (existing.recibido !== true) throw new Error("Marca primero Recibido antes de preparar la ficha técnica.");
+
   const F = SHIPPING_V2_ITEM_FIELDS;
   const now = new Date().toISOString();
   const batteryHealth = shippingV2CategoryDoesNotUseScreenOrBattery(existing.categoria) ? null : optionalNumberField(input.bateriaSalud);
@@ -4236,7 +4239,17 @@ function revisionStateForNovedad(type: string) {
   return "Aceptado con observación";
 }
 
-const RECEPTION_CHECKLIST_FIELDS: Record<ShippingV2RecepcionChecklistAction, { checked: string; by: string; date: string; label: string }> = {
+const RECEIVED_REQUIRED_MESSAGE = "Marca primero Recibido para continuar con la revisión de este item.";
+
+type ReceptionChecklistFieldConfig = {
+  checked: string;
+  by?: string;
+  date?: string;
+  label: string;
+};
+
+const RECEPTION_CHECKLIST_FIELDS: Record<ShippingV2RecepcionChecklistAction, ReceptionChecklistFieldConfig> = {
+  received: { checked: SHIPPING_V2_ITEM_FIELDS.recibido, label: "Recibido" },
   reviewed: { checked: "Revisado física/técnicamente", by: "Revisado por", date: "Fecha revisión", label: "Revisado física/técnicamente" },
   "photos-taken": { checked: "Fotos tomadas", by: "Fotos tomadas por", date: "Fecha fotos", label: "Fotos tomadas" },
   "published-shopify": { checked: "Shopify publicado", by: "Shopify publicado por", date: "Fecha Shopify publicado", label: "Shopify publicado" },
@@ -4261,14 +4274,34 @@ export async function updateShippingV2ReceptionChecklistItem(
   };
   const checklistFields = RECEPTION_CHECKLIST_FIELDS[input.action];
   if (!checklistFields) throw new Error("Acción de recepción no soportada.");
+  if (input.action !== "received" && item.recibido !== true) throw new Error(RECEIVED_REQUIRED_MESSAGE);
   fields[checklistFields.checked] = input.value;
-  if (input.value) {
+  if (input.value && checklistFields.by && checklistFields.date) {
     fields[checklistFields.by] = options.actualizadoPor;
     fields[checklistFields.date] = now;
   }
   if (note) fields["Observación recepción"] = `${item.observacionRecepcion ? `${item.observacionRecepcion}\n` : ""}[${now}] ${options.actualizadoPor}: ${note}`;
 
-  if (input.action === "reviewed") {
+  if (input.action === "received") {
+    if (input.value) {
+      const currentReviewStatus = normalizeStatus(item.estadoRevision || "");
+      if (!currentReviewStatus || currentReviewStatus === "pendiente de recepcion" || currentReviewStatus === "pendiente de recepción" || currentReviewStatus === "no aplica") {
+        fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = "Recibido pendiente de revisión";
+      }
+      if (normalizeStatus(item.estado) === "en transito" || normalizeStatus(item.estado) === "en tránsito") {
+        fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = "Recibido";
+      }
+    } else {
+      fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = "Pendiente de recepción";
+      fields[SHIPPING_V2_ITEM_FIELDS.disponibleVenta] = false;
+      if (["recibido", "en revision", "en revisión", "disponible"].includes(normalizeStatus(item.estado))) {
+        fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = "Recibido";
+      }
+      for (const [action, config] of Object.entries(RECEPTION_CHECKLIST_FIELDS) as Array<[ShippingV2RecepcionChecklistAction, ReceptionChecklistFieldConfig]>) {
+        if (action !== "received") fields[config.checked] = false;
+      }
+    }
+  } else if (input.action === "reviewed") {
     fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = input.value ? "Recibido correctamente" : "Recibido pendiente de revisión";
     if (input.value && normalizeStatus(item.estado) === "recibido") fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = "En revisión";
   }
@@ -4466,7 +4499,8 @@ export async function transitionShippingV2PackingStatus(
     if (currentStatus !== "en transito") throw new Error("Solo puedes marcar recibido un packing en tránsito.");
     await updatePackingItemsForStatus(packing, {
       [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Recibido",
-      [SHIPPING_V2_ITEM_FIELDS.estadoRevision]: "Recibido pendiente de revisión",
+      [SHIPPING_V2_ITEM_FIELDS.estadoRevision]: "Pendiente de recepción",
+      [SHIPPING_V2_ITEM_FIELDS.recibido]: false,
       [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: now,
       [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: input.actor,
     });
@@ -4479,7 +4513,7 @@ export async function transitionShippingV2PackingStatus(
         [SHIPPING_V2_PACKING_FIELDS.fechaRecepcion]: now,
         "Recibido por": input.actor,
       },
-      descripcion: "Packing marcado como recibido desde Portal Staff. Los items quedan pendientes de revisión.",
+      descripcion: "Packing marcado como recibido desde Portal Staff. Los items quedan pendientes de confirmación de recepción.",
     });
   }
 
@@ -4691,6 +4725,8 @@ export async function marcarShippingV2ItemDisponible(
   if (!id) throw new Error("Record ID de item inválido.");
 
   const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
+  if (item.recibido !== true) throw new Error("Marca primero Recibido antes de dejar el item listo para vender.");
+
   const novedades = await getShippingV2NovedadesForItem(id);
   const novedadesAbiertas = novedades.filter((n) => isOpenNovedadStatus(n.estado)).length;
 

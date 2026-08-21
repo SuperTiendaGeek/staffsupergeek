@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-01T01:55:42.442Z",
+  "generatedAt": "2026-08-21T20:31:24.442Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -320,6 +320,17 @@
           "type": "singleLineText",
           "kind": "singleLineText"
         },
+        "Recibo": {
+          "id": "fldiPZgq8Pw0dA06A",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl6wt6UeX7ssszpH",
+          "linkedTableName": "Recibos"
+        },
+        "Recibido": {
+          "id": "fldUjb51VJs6fHuWr",
+          "type": "checkbox",
+          "checkbox": true
+        },
         "AI Nombre del item": {
           "id": "fldWS0nuWqJ8stRFU",
           "type": "aiText"
@@ -578,11 +589,6 @@
             "Otro"
           ]
         },
-        "SKU interno": {
-          "id": "fldPNgbFlkA6XH4b4",
-          "type": "singleLineText",
-          "kind": "singleLineText"
-        },
         "SKU proveedor": {
           "id": "fldbnb12bLcRmnvwS",
           "type": "singleLineText",
@@ -736,40 +742,6 @@
           "type": "singleLineText",
           "kind": "singleLineText"
         },
-        "Legacy Item ID": {
-          "id": "fld0ry6phyCuKiCtN",
-          "type": "singleLineText",
-          "kind": "singleLineText"
-        },
-        "Legacy Pago ID": {
-          "id": "flduwqwPVD3UOSX9b",
-          "type": "singleLineText",
-          "kind": "singleLineText"
-        },
-        "Legacy Packing ID": {
-          "id": "fldhB5uPbToaYAHwI",
-          "type": "singleLineText",
-          "kind": "singleLineText"
-        },
-        "Fuente de migración": {
-          "id": "fldQXOgJgFyZUN1y8",
-          "type": "singleLineText",
-          "kind": "singleLineText"
-        },
-        "Estado de migración": {
-          "id": "fldsaKHXzGDdTsObl",
-          "type": "singleSelect",
-          "options": [
-            "No aplica",
-            "No migrado",
-            "Pendiente de revisión",
-            "Listo para migrar",
-            "Migrado",
-            "Migrado con observaciones",
-            "Error de migración",
-            "Omitido"
-          ]
-        },
         "Shipping Pagos (Items relacionados)": {
           "id": "fldb0ZZAxRSTx1Af8",
           "type": "multipleRecordLinks",
@@ -824,21 +796,6 @@
             "No migrado",
             "Listo para migrar"
           ]
-        },
-        "SKU proveedor fue usado como interno": {
-          "id": "fld4EyGA61GnDaMmF",
-          "type": "checkbox",
-          "checkbox": true
-        },
-        "SKU duplicado detectado": {
-          "id": "fldsB3DNvEbclZANw",
-          "type": "checkbox",
-          "checkbox": true
-        },
-        "SKU original sugerido": {
-          "id": "fldUQ1e2BWQx6K1ad",
-          "type": "singleLineText",
-          "kind": "singleLineText"
         },
         "Modo logístico": {
           "id": "fldB3A7yAxCJDhZ83",
@@ -1292,12 +1249,6 @@
           "linkedTableId": "tblpLAlpEnXL9r4nW",
           "linkedTableName": "Notas de Crédito Electrónicas"
         },
-        "Recibo": {
-          "id": "fldiPZgq8Pw0dA06A",
-          "type": "multipleRecordLinks",
-          "linkedTableId": "tbl6wt6UeX7ssszpH",
-          "linkedTableName": "Recibos"
-        },
         "Reservas": {
           "id": "fldhKY3r1dDGKyEfh",
           "type": "multipleRecordLinks",
@@ -1587,7 +1538,8 @@
             "Tarjeta crédito",
             "DataFast",
             "PayPhone",
-            "Dinero electrónico"
+            "Dinero electrónico",
+            "DeUna"
           ]
         },
         "Cuenta origen": {
@@ -1793,6 +1745,24 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblMvq6DW07sbjNn2",
           "linkedTableName": "Finanzas Cuadres"
+        },
+        "Nota de Crédito": {
+          "id": "fldDAoYsFkIibUIxW",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblpLAlpEnXL9r4nW",
+          "linkedTableName": "Notas de Crédito Electrónicas"
+        },
+        "Notas de Crédito Electrónicas (Movimiento Reversa)": {
+          "id": "fldEwQtJ57ATyi1gl",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblpLAlpEnXL9r4nW",
+          "linkedTableName": "Notas de Crédito Electrónicas"
+        },
+        "Notas de Crédito Electrónicas (Movimiento Caducidad)": {
+          "id": "fldYyX2UoRBoHi0XQ",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblpLAlpEnXL9r4nW",
+          "linkedTableName": "Notas de Crédito Electrónicas"
         }
       }
     },

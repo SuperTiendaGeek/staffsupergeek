@@ -11,6 +11,23 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHIPPING_V2_ITEM_EDIT_FIELDS, type ShippingV2ItemEditFieldConfig } from "@/lib/shipping-v2/item-edit-config";
+import {
+  SHIPPING_V2_ALL_FILTER,
+  filterShippingV2Items,
+  formatShippingV2ItemQuantity,
+  getShippingV2ItemQuantity,
+  getShippingV2ItemFilterOptions,
+  getShippingV2SortOptions,
+  groupShippingV2Items,
+  normalizeShippingV2ListText,
+  resolveShippingV2Items,
+  sanitizeShippingV2ProviderSort,
+  shippingV2ItemGroupOptions,
+  sortShippingV2Items,
+  type ShippingV2ItemGroupKey,
+  type ShippingV2ItemSortKey,
+  type ShippingV2ResolvedItem,
+} from "@/lib/shipping-v2/item-list-view";
 import { createShippingV2ProveedorLabelMap, getShippingV2ProveedorLabel, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { ShippingV2DespieceTab } from "./ShippingV2DespieceTab";
@@ -44,38 +61,11 @@ type Props = {
   };
 };
 
-type ItemFilterKey = "estado" | "tipoOperacion" | "proveedorCompra" | "tipoItem";
-type SortKey =
-  | "newest"
-  | "oldest"
-  | "sku-asc"
-  | "sku-desc"
-  | "name-asc"
-  | "name-desc"
-  | "estado"
-  | "proveedor-compra"
-  | "costo-desc"
-  | "precio-desc";
-type GroupKey =
-  | "none"
-  | "estado"
-  | "proveedor-compra"
-  | "proveedor-logistico"
-  | "packing"
-  | "tipo-operacion"
-  | "categoria";
+type SortKey = ShippingV2ItemSortKey;
+type GroupKey = ShippingV2ItemGroupKey;
 type ToolbarMenuKey = "filters" | "sort" | "group";
 
-export type ResolvedItem = ShippingV2Item & {
-  proveedorCompraDisplay: string;
-  proveedorLogisticoDisplay: string;
-};
-
-type ItemGroup = {
-  key: string;
-  label: string;
-  items: ResolvedItem[];
-};
+export type ResolvedItem = ShippingV2ResolvedItem;
 
 type DetailRow = {
   label: string;
@@ -88,7 +78,13 @@ type DetailRow = {
 
 type ItemDetailTabKey = "general" | "costos" | "logistica" | "pago" | "packing" | "observaciones" | "despiece";
 
-const ALL = "Todos";
+const ALL = SHIPPING_V2_ALL_FILTER;
+const groupOptions = shippingV2ItemGroupOptions;
+const normalizeText = normalizeShippingV2ListText;
+const getSortOptions = getShippingV2SortOptions;
+const sanitizeProviderSort = sanitizeShippingV2ProviderSort;
+const sortItems = sortShippingV2Items;
+const groupItems = groupShippingV2Items;
 
 const COLUMN_WIDTHS_STORAGE_KEY = "shipping-v2-items-column-widths";
 const TABLE_VIEW_STORAGE_KEY = "shipping-v2-items-table-view";
@@ -97,6 +93,7 @@ type ShippingV2ItemsColumnKey =
   | "sku"
   | "supplierSku"
   | "name"
+  | "quantity"
   | "operationType"
   | "itemStatus"
   | "generalRole"
@@ -136,6 +133,7 @@ const AVAILABLE_COLUMNS: ShippingV2ItemsColumn[] = [
   { key: "sku", label: "SKU", defaultWidth: 110, minWidth: 90, defaultVisible: true, required: true, category: "Principal" },
   { key: "supplierSku", label: "SKU proveedor", defaultWidth: 140, minWidth: 110, defaultVisible: true, category: "Principal" },
   { key: "name", label: "Nombre", defaultWidth: 280, minWidth: 180, defaultVisible: true, required: true, category: "Principal" },
+  { key: "quantity", label: "Cantidad", defaultWidth: 86, minWidth: 74, maxWidth: 110, align: "center", defaultVisible: true, required: true, category: "Principal" },
   { key: "operationType", label: "Tipo de operación", defaultWidth: 150, minWidth: 130, defaultVisible: true, category: "Compra" },
   { key: "itemStatus", label: "Estado item", defaultWidth: 140, minWidth: 120, defaultVisible: true, category: "Principal" },
   { key: "generalRole", label: "Rol general", defaultWidth: 140, minWidth: 120, defaultVisible: true, category: "Principal" },
@@ -168,38 +166,6 @@ type ShippingV2ItemsTableViewConfig = {
   orderedColumnKeys: ShippingV2ItemsColumnKey[];
   visibleColumnKeys: ShippingV2ItemsColumnKey[];
 };
-
-const sortOptions: Array<{ value: SortKey; label: string }> = [
-  { value: "newest", label: "Más nuevos primero" },
-  { value: "oldest", label: "Más antiguos primero" },
-  { value: "sku-asc", label: "SKU A-Z" },
-  { value: "sku-desc", label: "SKU Z-A" },
-  { value: "name-asc", label: "Nombre A-Z" },
-  { value: "name-desc", label: "Nombre Z-A" },
-  { value: "estado", label: "Estado" },
-  { value: "proveedor-compra", label: "Proveedor de compra" },
-  { value: "costo-desc", label: "Costo mayor a menor" },
-  { value: "precio-desc", label: "Precio mayor a menor" },
-];
-
-const groupOptions: Array<{ value: GroupKey; label: string }> = [
-  { value: "none", label: "Sin agrupar" },
-  { value: "estado", label: "Estado Item" },
-  { value: "proveedor-compra", label: "Proveedor de compra" },
-  { value: "proveedor-logistico", label: "Proveedor logístico / intermediario" },
-  { value: "packing", label: "Packing relacionado" },
-  { value: "tipo-operacion", label: "Tipo de operación" },
-  { value: "categoria", label: "Categoría" },
-];
-
-function normalizeText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 function displayValue(value?: string | number | null, fallback = "—") {
   if (value === null || value === undefined) return fallback;
@@ -243,20 +209,6 @@ function getAvailableColumns(canViewCosts: boolean, canViewProviderCost: boolean
   });
 }
 
-function getSortOptions(canViewCosts: boolean, canViewProviderCost: boolean) {
-  return sortOptions.filter((option) => {
-    if (option.value === "costo-desc") return canViewProviderCost;
-    if (option.value === "precio-desc") return canViewCosts;
-    return true;
-  });
-}
-
-function sanitizeProviderSort(sortBy: SortKey, canViewCosts: boolean, canViewProviderCost: boolean): SortKey {
-  if (sortBy === "costo-desc" && !canViewProviderCost) return "newest";
-  if (sortBy === "precio-desc" && !canViewCosts) return "newest";
-  return sortBy;
-}
-
 function sanitizeTableViewConfig(input?: Partial<ShippingV2ItemsTableViewConfig> | null, availableColumns = AVAILABLE_COLUMNS): ShippingV2ItemsTableViewConfig {
   const defaults = createDefaultTableViewConfig();
   const availableColumnKeys = new Set(availableColumns.map((column) => column.key));
@@ -267,10 +219,17 @@ function sanitizeTableViewConfig(input?: Partial<ShippingV2ItemsTableViewConfig>
     ? input.visibleColumnKeys.filter((key) => isColumnKey(key) && availableColumnKeys.has(key))
     : defaults.visibleColumnKeys.filter((key) => availableColumnKeys.has(key));
 
-  const orderedColumnKeys = [
+  let orderedColumnKeys = [
     ...orderedFromInput,
     ...availableColumns.map((column) => column.key).filter((key) => !orderedFromInput.includes(key)),
   ];
+
+  if (!orderedFromInput.includes("quantity") && orderedColumnKeys.includes("quantity") && orderedColumnKeys.includes("name")) {
+    orderedColumnKeys = orderedColumnKeys.filter((key) => key !== "quantity");
+    const nameIndex = orderedColumnKeys.indexOf("name");
+    orderedColumnKeys.splice(nameIndex + 1, 0, "quantity");
+  }
+
   const visibleColumnKeys = new Set<ShippingV2ItemsColumnKey>(visibleFromInput);
 
   availableColumns.forEach((column) => {
@@ -315,11 +274,7 @@ function formatCurrency(value: number | null) {
 }
 
 function getItemStockQuantity(item: ShippingV2Item) {
-  const cantidad = typeof item.cantidad === "number" && Number.isFinite(item.cantidad)
-    ? item.cantidad
-    : typeof item.qty === "number" && Number.isFinite(item.qty)
-      ? item.qty
-      : null;
+  const cantidad = getShippingV2ItemQuantity(item);
   return cantidad !== null && cantidad > 0 ? cantidad : null;
 }
 
@@ -365,50 +320,6 @@ function formatDate(value?: string) {
   }).format(date).replace(",", "");
 }
 
-function timestampValue(item: ResolvedItem) {
-  const parsed = Date.parse(item.fechaRegistro || item.createdTime || "");
-  return Number.isNaN(parsed) ? -Infinity : parsed;
-}
-
-function compareText(a: string | null | undefined, b: string | null | undefined) {
-  return displayValue(a, "").localeCompare(displayValue(b, ""), "es", { numeric: true, sensitivity: "base" });
-}
-
-function compareNumberDesc(a: number | null | undefined, b: number | null | undefined) {
-  return (b ?? -Infinity) - (a ?? -Infinity);
-}
-
-function sortItems(items: ResolvedItem[], sortBy: SortKey) {
-  return [...items].sort((a, b) => {
-    const byNewest = timestampValue(b) - timestampValue(a);
-    const byOldest = timestampValue(a) - timestampValue(b);
-
-    switch (sortBy) {
-      case "oldest":
-        return byOldest || compareText(a.sku, b.sku);
-      case "sku-asc":
-        return compareText(a.sku, b.sku) || byNewest;
-      case "sku-desc":
-        return compareText(b.sku, a.sku) || byNewest;
-      case "name-asc":
-        return compareText(a.nombre, b.nombre) || byNewest;
-      case "name-desc":
-        return compareText(b.nombre, a.nombre) || byNewest;
-      case "estado":
-        return compareText(a.estado, b.estado) || byNewest;
-      case "proveedor-compra":
-        return compareText(a.proveedorCompraDisplay, b.proveedorCompraDisplay) || byNewest;
-      case "costo-desc":
-        return compareNumberDesc(a.costoProveedor, b.costoProveedor) || byNewest;
-      case "precio-desc":
-        return compareNumberDesc(a.precioVenta, b.precioVenta) || byNewest;
-      case "newest":
-      default:
-        return byNewest || compareText(a.sku, b.sku);
-    }
-  });
-}
-
 function packingLabel(item: ResolvedItem) {
   return item.packingId || "";
 }
@@ -439,6 +350,8 @@ function getItemCellTitle(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKe
       return supplierSkuLabel(item);
     case "name":
       return displayName(item.nombre);
+    case "quantity":
+      return formatShippingV2ItemQuantity(item);
     case "generalRole":
       return displayValue(item.tipoItem);
     case "category":
@@ -494,6 +407,12 @@ function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey)
       return supplierSkuLabel(item);
     case "name":
       return <span className="block truncate">{displayName(item.nombre)}</span>;
+    case "quantity":
+      return (
+        <span className="inline-flex min-w-9 justify-center rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-2 py-0.5 text-[12px] font-bold tabular-nums text-[#D7FF4F]">
+          {formatShippingV2ItemQuantity(item)}
+        </span>
+      );
     case "operationType":
       return <OperationBadge value={item.tipoOperacion} />;
     case "itemStatus":
@@ -541,46 +460,6 @@ function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey)
     default:
       return "—";
   }
-}
-
-function groupValue(item: ResolvedItem, groupBy: GroupKey) {
-  switch (groupBy) {
-    case "estado":
-      return item.estado;
-    case "proveedor-compra":
-      return item.proveedorCompraDisplay;
-    case "proveedor-logistico":
-      return item.proveedorLogisticoDisplay;
-    case "packing":
-      return packingLabel(item);
-    case "tipo-operacion":
-      return item.tipoOperacion;
-    case "categoria":
-      return item.categoria;
-    case "none":
-    default:
-      return "";
-  }
-}
-
-function groupItems(items: ResolvedItem[], groupBy: GroupKey): ItemGroup[] {
-  if (groupBy === "none") return [{ key: "all", label: "", items }];
-
-  const groups = new Map<string, ItemGroup>();
-  items.forEach((item) => {
-    const rawLabel = displayValue(groupValue(item, groupBy), "Sin dato");
-    const label = rawLabel === "—" ? "Sin dato" : rawLabel;
-    const key = normalizeText(label) || "sin-dato";
-    const group = groups.get(key) || { key, label, items: [] };
-    group.items.push(item);
-    groups.set(key, group);
-  });
-
-  return Array.from(groups.values());
-}
-
-function uniqueValues(items: ResolvedItem[], getValue: (item: ResolvedItem) => string | undefined) {
-  return Array.from(new Set(items.map(getValue).map((value) => value?.trim()).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b, "es"));
 }
 
 function estadoTone(estado: string) {
@@ -900,6 +779,7 @@ function MobileItemCard({
       </div>
       <dl className="mt-4 grid gap-2 text-sm">
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Operacion</dt><dd className="text-right text-[#F5F5F5]"><OperationBadge value={item.tipoOperacion} /></dd></div>
+        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Cantidad</dt><dd className="text-right font-semibold tabular-nums text-[#D7FF4F]">{formatShippingV2ItemQuantity(item)}</dd></div>
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Rol general</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.tipoItem)}</dd></div>
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Categoría</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.categoria)}</dd></div>
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Proveedor</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.proveedorCompraDisplay)}</dd></div>
@@ -1868,55 +1748,17 @@ export function ShippingV2ItemsClient({ items, proveedores, error, permissions, 
     setDraggedColumnKey(null);
   }, [draggedColumnKey, updateTableView]);
 
-  const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
+  const resolvedItems = useMemo<ResolvedItem[]>(() => resolveShippingV2Items(items, proveedores), [items, proveedores]);
 
-  const resolvedItems = useMemo<ResolvedItem[]>(() => items.map((item) => ({
-    ...item,
-    proveedorCompraDisplay: resolveShippingV2ProveedorLabel(item.proveedorId, providerLabelsById),
-    proveedorLogisticoDisplay: resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabelsById),
-  })), [items, providerLabelsById]);
+  const filterOptions = useMemo(() => getShippingV2ItemFilterOptions(resolvedItems), [resolvedItems]);
 
-  const filterOptions = useMemo(() => ({
-    estados: uniqueValues(resolvedItems, (item) => item.estado),
-    operaciones: uniqueValues(resolvedItems, (item) => item.tipoOperacion),
-    proveedores: uniqueValues(resolvedItems, (item) => item.proveedorCompraDisplay),
-    tipos: uniqueValues(resolvedItems, (item) => item.tipoItem),
-  }), [resolvedItems]);
-
-  const filteredItems = useMemo(() => {
-    const query = normalizeText(search);
-    const tokens = query.split(" ").filter(Boolean);
-
-    // Si Shipping Items crece a miles de registros, conviene mover esta busqueda a paginacion o filtros server-side.
-    return resolvedItems.filter((item) => {
-      const searchText = [
-        item.sku,
-        item.skuProveedor,
-        item.nombre,
-        item.modelo,
-        item.marca,
-        item.numeroSerie,
-        item.proveedorCompraDisplay,
-        item.proveedorLogisticoDisplay,
-        packingLabel(item),
-        item.trackingDirecto,
-        item.trackingHaciaIntermediario,
-        item.trackingDesdeIntermediario,
-        item.trackingUsa,
-        item.trackingEc,
-        item.estado,
-        item.tipoOperacion,
-      ].map((value) => normalizeText(value ?? "")).join(" ");
-
-      return (
-        (!query || tokens.every((token) => searchText.includes(token))) &&
-        (estado === ALL || item.estado === estado) &&
-        (tipoOperacion === ALL || item.tipoOperacion === tipoOperacion) &&
-        (proveedorCompra === ALL || item.proveedorCompraDisplay === proveedorCompra) &&
-        (tipoItem === ALL || item.tipoItem === tipoItem)
-      );
-    });
-  }, [estado, proveedorCompra, resolvedItems, search, tipoItem, tipoOperacion]);
+  const filteredItems = useMemo(() => filterShippingV2Items(resolvedItems, {
+    search,
+    estado,
+    tipoOperacion,
+    proveedorCompra,
+    tipoItem,
+  }), [estado, proveedorCompra, resolvedItems, search, tipoItem, tipoOperacion]);
 
   const sortedItems = useMemo(() => sortItems(filteredItems, sortBy), [filteredItems, sortBy]);
   const groupedItems = useMemo(() => groupItems(sortedItems, groupBy), [groupBy, sortedItems]);
@@ -2292,6 +2134,11 @@ export function ShippingV2ItemsClient({ items, proveedores, error, permissions, 
                     >
                       {visibleColumns.map((column) => {
                         const mutedColumn = column.key === "generalRole" || column.key === "category" || column.key === "packing" || column.key === "createdAt" || column.key === "brand" || column.key === "model" || column.key === "serial" || column.key === "condition" || column.key === "location" || column.key === "triangulationStatus" || column.key === "reviewStatus" || column.key === "requiresPayment" || column.key === "requiresPacking" || column.key === "physicalReview" || column.key === "notes";
+                        const alignClass = column.align === "right"
+                          ? "whitespace-nowrap text-right tabular-nums"
+                          : column.align === "center"
+                            ? "whitespace-nowrap text-center tabular-nums"
+                            : "whitespace-nowrap";
                         return (
                           <td
                             key={column.key}
@@ -2301,7 +2148,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error, permissions, 
                               minWidth: column.minWidth,
                               maxWidth: column.maxWidth,
                             }}
-                            className={`overflow-hidden border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:px-3 2xl:py-2.5 ${column.key === "sku" ? "whitespace-nowrap font-semibold text-[#CFFF3A]" : ""} ${column.align === "right" ? "whitespace-nowrap text-right tabular-nums" : "whitespace-nowrap"} ${mutedColumn ? "text-[#A7A7A7]" : ""}`}
+                            className={`overflow-hidden border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:px-3 2xl:py-2.5 ${column.key === "sku" ? "font-semibold text-[#CFFF3A]" : ""} ${alignClass} ${mutedColumn ? "text-[#A7A7A7]" : ""}`}
                           >
                             {renderItemCell(item, column.key)}
                           </td>

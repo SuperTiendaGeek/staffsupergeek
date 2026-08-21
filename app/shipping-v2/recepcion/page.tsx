@@ -16,6 +16,7 @@ function shouldShowReceptionItem(item: ShippingV2Item) {
   const review = normalize(item.estadoRevision);
   const allowedStates = new Set(["recibido", "en revision", "con novedad", "repuesto"]);
   const allowedReviewStates = new Set([
+    "pendiente de recepcion",
     "recibido pendiente de revision",
     "recibido correctamente",
     "aceptado con observacion",
@@ -64,7 +65,14 @@ export default async function ShippingV2RecepcionPage() {
 
   return (
     <StaffAppShell activeHref="/shipping-v2/recepcion" sectionLabel="Shipping V2">
-      <ShippingV2RecepcionClient items={items} packings={packings} proveedores={proveedores} novedades={novedades} error={error} />
+      <ShippingV2RecepcionClient
+        items={items}
+        packings={packings}
+        proveedores={proveedores}
+        novedades={novedades}
+        error={error}
+        preferenceScope={session?.user.userId || session?.user.email || "staff"}
+      />
     </StaffAppShell>
   );
 }

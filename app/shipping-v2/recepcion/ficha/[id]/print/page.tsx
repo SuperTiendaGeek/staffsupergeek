@@ -123,6 +123,9 @@ export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props)
     getShippingV2ItemById(id, { includeAiName: false, access }),
     getShippingV2TechnicalOptionSets(),
   ]);
+  if (item.recibido !== true) {
+    redirect("/shipping-v2/recepcion");
+  }
 
   if (!isFichaGenerada(item)) {
     const hasMinimumFicha = Boolean(clean(item.technicalSheet.marcaFicha) && clean(item.technicalSheet.modeloFicha));

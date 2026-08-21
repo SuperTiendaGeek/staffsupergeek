@@ -21,6 +21,9 @@ export default async function ShippingV2FichaTecnicaPage({ params }: Props) {
     getShippingV2ItemById(id, { includeAiName: false, access }),
     getShippingV2TechnicalOptionSets(),
   ]);
+  if (item.recibido !== true) {
+    redirect("/shipping-v2/recepcion");
+  }
 
   return (
     <StaffAppShell activeHref="/shipping-v2/recepcion" sectionLabel="Shipping V2">
