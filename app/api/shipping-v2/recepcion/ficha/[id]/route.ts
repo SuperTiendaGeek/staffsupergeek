@@ -25,6 +25,7 @@ function parseBody(value: unknown): ShippingV2TechnicalSheetInput {
     almacenamientoPrincipal: body.almacenamientoPrincipal as string | undefined,
     almacenamientoTipo: body.almacenamientoTipo as string | undefined,
     gpu: body.gpu as string | undefined,
+    gpuIntegrada: body.gpuIntegrada as string | undefined,
     bateriaSalud: body.bateriaSalud as number | string | null | undefined,
     bateriaEstado: body.bateriaEstado as string | undefined,
     connectivityV2Ids: body.connectivityV2Ids as string[] | undefined,

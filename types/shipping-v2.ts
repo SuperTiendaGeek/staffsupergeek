@@ -122,6 +122,7 @@ export type ShippingV2TechnicalSheet = {
   almacenamientoPrincipal?: string;
   almacenamientoTipo?: string;
   gpu?: string;
+  gpuIntegrada?: string;
   bateriaSalud: number | null;
   bateriaEstado?: ShippingV2BateriaEstado | string;
   connectivityV2Ids: string[];

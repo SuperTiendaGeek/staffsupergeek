@@ -3,9 +3,11 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
+import { buildFichaVentaData, type FichaVentaData } from "@/lib/shipping-v2/ficha-venta-data";
 import { SHIPPING_V2_ITEM_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import { calculateShippingV2BatteryState, inferShippingV2TechnicalSheetFromItem, shippingV2CategoryDoesNotUseScreenOrBattery } from "@/lib/shipping-v2/technical-sheet";
 import type { ShippingV2Item, ShippingV2TechnicalOption, ShippingV2TechnicalSheetInput } from "@/types/shipping-v2";
+import { FichaVentaPrintTemplate } from "./print/FichaVentaPrintTemplate";
 
 type Props = {
   item: ShippingV2Item;
@@ -28,7 +30,7 @@ type CpuCatalogResult = {
   verified: boolean | null;
   sourceName?: string;
 };
-type CpuAutofillKey = "cpuMarca" | "cpuFrecuenciaBase" | "cpuFrecuenciaTurbo" | "ramTipo" | "gpu";
+type CpuAutofillKey = "cpuMarca" | "cpuFrecuenciaBase" | "cpuFrecuenciaTurbo" | "ramTipo" | "gpuIntegrada";
 type ComputerCatalogResult = {
   id: string;
   computerModel: string;
@@ -64,6 +66,14 @@ const sourceLabels: Record<FieldSource, string> = {
   cpuCatalog: "Sugerido desde Catálogo CPUs",
   manual: "Editado manualmente",
 };
+
+function cpuAutofillLabel(key: CpuAutofillKey) {
+  if (key === "cpuMarca") return "CPU marca";
+  if (key === "cpuFrecuenciaBase") return "frecuencia base";
+  if (key === "cpuFrecuenciaTurbo") return "frecuencia turbo";
+  if (key === "ramTipo") return "RAM tipo";
+  return "GPU integrada";
+}
 
 function sourceText(source?: FieldSource) {
   return source ? sourceLabels[source] : "";
@@ -143,6 +153,7 @@ function normalizeForm(item: ShippingV2Item): ShippingV2TechnicalSheetInput {
     almacenamientoPrincipal: item.technicalSheet.almacenamientoPrincipal || "",
     almacenamientoTipo: item.technicalSheet.almacenamientoTipo || "",
     gpu: item.technicalSheet.gpu || "",
+    gpuIntegrada: item.technicalSheet.gpuIntegrada || "",
     bateriaSalud: item.technicalSheet.bateriaSalud,
     bateriaEstado: item.technicalSheet.bateriaEstado || "",
     connectivityV2Ids: item.technicalSheet.connectivityV2Ids || [],
@@ -263,6 +274,26 @@ function SectionCard({ title, children, action }: { title: string; children: Rea
   );
 }
 
+function FichaVentaLivePreview({ ficha }: { ficha: FichaVentaData }) {
+  return (
+    <aside className="self-start rounded-xl border border-[#30312D] bg-[#11120F] p-4 2xl:sticky 2xl:top-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-[#F5F5F5]">Vista previa</h3>
+        </div>
+        <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2 py-1 text-[11px] font-bold text-[#D7FF4F]">Ficha</span>
+      </div>
+      <div className="overflow-auto rounded-xl border border-[#3A3A36] bg-[#f2f2f2] p-3">
+        <div className="mx-auto" style={{ width: "287px", height: "412px" }}>
+          <div style={{ width: "140.5mm", height: "202mm", transform: "scale(0.54)", transformOrigin: "top left" }}>
+            <FichaVentaPrintTemplate ficha={ficha} />
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
 export function ShippingV2FichaTecnicaClient({ item: initialItem, technicalOptions }: Props) {
   const [item, setItem] = useState(initialItem);
   const [form, setForm] = useState<ShippingV2TechnicalSheetInput>(() => normalizeForm(initialItem));
@@ -281,6 +312,18 @@ export function ShippingV2FichaTecnicaClient({ item: initialItem, technicalOptio
   const isDesktopLike = shippingV2CategoryDoesNotUseScreenOrBattery(item.categoria);
   const calculatedBatteryState = useMemo(() => calculateShippingV2BatteryState(item.categoria, typeof form.bateriaSalud === "number" ? form.bateriaSalud : Number(form.bateriaSalud)), [form.bateriaSalud, item.categoria]);
   const technicalOptionPreview = normalizeTechnicalLabel(technicalOptionModal.label, technicalOptionModal.type);
+  const previewFicha = useMemo(() => buildFichaVentaData(item, {
+    connectivity: connectivityOptions,
+    ports: portOptions,
+    extraFeatures: extraOptions,
+  }, {
+    sheet: {
+      ...form,
+      pantallaTamano: isDesktopLike ? "No aplica" : form.pantallaTamano,
+      pantallaResolucion: isDesktopLike ? "No aplica" : form.pantallaResolucion,
+      bateriaEstado: isDesktopLike ? "No aplica" : (calculatedBatteryState || form.bateriaEstado || ""),
+    },
+  }), [calculatedBatteryState, connectivityOptions, extraOptions, form, isDesktopLike, item, portOptions]);
 
   function updateField(key: FieldKey, value: string | string[], source: FieldSource = "manual") {
     setForm((current) => ({
@@ -402,28 +445,28 @@ export function ShippingV2FichaTecnicaClient({ item: initialItem, technicalOptio
       ["cpuFrecuenciaBase", entry.baseFrequency],
       ["cpuFrecuenciaTurbo", entry.turboFrequency],
       ["ramTipo", entry.suggestedRamType],
-      ["gpu", entry.integratedGpu],
+      ["gpuIntegrada", entry.integratedGpu],
     ];
 
     for (const [key, value] of replacements) {
       if (!value) continue;
       const current = next[key];
-      if (key === "ramTipo" || key === "gpu") {
+      if (key === "ramTipo" || key === "gpuIntegrada") {
         if (isEmptyOrUnspecified(current as string | undefined)) {
           next[key] = value;
           sources[key] = "cpuCatalog";
-          applied.push(key === "ramTipo" ? "RAM tipo" : "GPU");
+          applied.push(cpuAutofillLabel(key));
         }
         continue;
       }
       if (isEmptyOrUnspecified(current as string | undefined)) {
         next[key] = value;
         sources[key] = "cpuCatalog";
-        applied.push(key === "cpuMarca" ? "CPU marca" : key === "cpuFrecuenciaBase" ? "frecuencia base" : "frecuencia turbo");
+        applied.push(cpuAutofillLabel(key));
       } else if (String(current) !== value && window.confirm(`"${String(current)}" ya tiene valor. ¿Deseas reemplazarlo con "${value}" del catálogo?`)) {
         next[key] = value;
         sources[key] = "cpuCatalog";
-        applied.push(key === "cpuMarca" ? "CPU marca" : key === "cpuFrecuenciaBase" ? "frecuencia base" : "frecuencia turbo");
+        applied.push(cpuAutofillLabel(key));
       }
     }
 
@@ -653,94 +696,98 @@ export function ShippingV2FichaTecnicaClient({ item: initialItem, technicalOptio
         </div>
       </section>
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <SectionCard title="Identificación del equipo" action={
-          <button type="button" disabled={busy === "computer-catalog"} onClick={() => void searchComputerCatalog()} className="h-7 rounded-lg border border-[#4FC3FF]/45 bg-[#4FC3FF]/10 px-2 text-[11px] font-bold text-[#BDEAFF] disabled:opacity-60">
-            {busy === "computer-catalog" ? "Buscando..." : "Buscar modelo"}
-          </button>
-        }>
-          <TextField label="Marca ficha" value={form.marcaFicha} source={fieldSources.marcaFicha} onChange={(value) => updateField("marcaFicha", value)} />
-          <TextField label="Modelo ficha" value={form.modeloFicha} source={fieldSources.modeloFicha} onChange={(value) => updateField("modeloFicha", value)} />
-          <SelectField label="Sistema operativo" value={form.sistemaOperativo} source={fieldSources.sistemaOperativo} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.sistemaOperativo} onChange={(value) => updateField("sistemaOperativo", value)} />
-          <div className="rounded-lg border border-[#30312D] bg-[#151613] p-3">
-            <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Catálogo Computadores</span>
-            {computerCatalogStatus ? <p className="mt-2 text-xs font-semibold text-[#D7FF4F]">{computerCatalogStatus}</p> : <p className="mt-2 text-xs text-[#6E6F68]">Usa el botón principal o búsqueda manual.</p>}
-            {computerMatches.length ? (
-              <select value="" onChange={(event) => {
-                const selected = computerMatches.find((entry) => entry.id === event.target.value);
-                if (selected) applyComputerCatalogEntry(selected);
-              }} className="mt-2 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-xs font-semibold text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70">
-                <option value="">Elegir modelo del catálogo</option>
-                {computerMatches.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {[entry.brand, entry.computerModel].filter(Boolean).join(" ")}{entry.verified ? " · verificado" : ""}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-          </div>
-        </SectionCard>
+      <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="grid gap-3 xl:grid-cols-2">
+          <SectionCard title="Identificación del equipo" action={
+            <button type="button" disabled={busy === "computer-catalog"} onClick={() => void searchComputerCatalog()} className="h-7 rounded-lg border border-[#4FC3FF]/45 bg-[#4FC3FF]/10 px-2 text-[11px] font-bold text-[#BDEAFF] disabled:opacity-60">
+              {busy === "computer-catalog" ? "Buscando..." : "Buscar modelo"}
+            </button>
+          }>
+            <TextField label="Marca ficha" value={form.marcaFicha} source={fieldSources.marcaFicha} onChange={(value) => updateField("marcaFicha", value)} />
+            <TextField label="Modelo ficha" value={form.modeloFicha} source={fieldSources.modeloFicha} onChange={(value) => updateField("modeloFicha", value)} />
+            <SelectField label="Sistema operativo" value={form.sistemaOperativo} source={fieldSources.sistemaOperativo} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.sistemaOperativo} onChange={(value) => updateField("sistemaOperativo", value)} />
+            <div className="rounded-lg border border-[#30312D] bg-[#151613] p-3">
+              <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Catálogo Computadores</span>
+              {computerCatalogStatus ? <p className="mt-2 text-xs font-semibold text-[#D7FF4F]">{computerCatalogStatus}</p> : <p className="mt-2 text-xs text-[#6E6F68]">Usa el botón principal o búsqueda manual.</p>}
+              {computerMatches.length ? (
+                <select value="" onChange={(event) => {
+                  const selected = computerMatches.find((entry) => entry.id === event.target.value);
+                  if (selected) applyComputerCatalogEntry(selected);
+                }} className="mt-2 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-xs font-semibold text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70">
+                  <option value="">Elegir modelo del catálogo</option>
+                  {computerMatches.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {[entry.brand, entry.computerModel].filter(Boolean).join(" ")}{entry.verified ? " · verificado" : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
+          </SectionCard>
 
-        <SectionCard title="Procesador y memoria" action={
-          <button type="button" disabled={busy === "cpu-catalog"} onClick={() => void searchCpuCatalog()} className="h-7 rounded-lg border border-[#4FC3FF]/45 bg-[#4FC3FF]/10 px-2 text-[11px] font-bold text-[#BDEAFF] disabled:opacity-60">
-            {busy === "cpu-catalog" ? "Buscando..." : "Buscar CPU"}
-          </button>
-        }>
-          <SelectField label="CPU marca" value={form.cpuMarca} source={fieldSources.cpuMarca} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.cpuMarca} onChange={(value) => updateField("cpuMarca", value)} />
-        <div className="block">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">CPU modelo</span>
-          </div>
-          <input value={form.cpuModelo || ""} onChange={(event) => updateField("cpuModelo", event.target.value)} className={inputClass} />
-          <FieldHint source={fieldSources.cpuModelo} />
-          {cpuCatalogStatus ? <p className="mt-1 text-xs font-semibold text-[#D7FF4F]">{cpuCatalogStatus}</p> : null}
-          {cpuMatches.length ? (
-            <select value="" onChange={(event) => {
-              const selected = cpuMatches.find((entry) => entry.id === event.target.value);
-              if (selected) applyCpuCatalogEntry(selected);
-            }} className="mt-2 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-xs font-semibold text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70">
-              <option value="">Elegir CPU del catálogo</option>
-              {cpuMatches.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.cpuModel}{entry.cpuBrand ? ` · ${entry.cpuBrand}` : ""}{entry.verified ? " · verificado" : ""}
-                </option>
-              ))}
-            </select>
-          ) : null}
-        </div>
-          <TextField label="CPU frecuencia base" value={form.cpuFrecuenciaBase} source={fieldSources.cpuFrecuenciaBase} onChange={(value) => updateField("cpuFrecuenciaBase", value)} />
-          <TextField label="CPU frecuencia turbo" value={form.cpuFrecuenciaTurbo} source={fieldSources.cpuFrecuenciaTurbo} onChange={(value) => updateField("cpuFrecuenciaTurbo", value)} />
-          <SelectField label="RAM capacidad" value={form.ramCapacidad} source={fieldSources.ramCapacidad} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.ramCapacidad} onChange={(value) => updateField("ramCapacidad", value)} />
-          <SelectField label="RAM tipo" value={form.ramTipo} source={fieldSources.ramTipo} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.ramTipo} onChange={(value) => updateField("ramTipo", value)} />
-        </SectionCard>
+          <SectionCard title="Procesador y memoria" action={
+            <button type="button" disabled={busy === "cpu-catalog"} onClick={() => void searchCpuCatalog()} className="h-7 rounded-lg border border-[#4FC3FF]/45 bg-[#4FC3FF]/10 px-2 text-[11px] font-bold text-[#BDEAFF] disabled:opacity-60">
+              {busy === "cpu-catalog" ? "Buscando..." : "Buscar CPU"}
+            </button>
+          }>
+            <SelectField label="CPU marca" value={form.cpuMarca} source={fieldSources.cpuMarca} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.cpuMarca} onChange={(value) => updateField("cpuMarca", value)} />
+            <div className="block">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">CPU modelo</span>
+              </div>
+              <input value={form.cpuModelo || ""} onChange={(event) => updateField("cpuModelo", event.target.value)} className={inputClass} />
+              <FieldHint source={fieldSources.cpuModelo} />
+              {cpuCatalogStatus ? <p className="mt-1 text-xs font-semibold text-[#D7FF4F]">{cpuCatalogStatus}</p> : null}
+              {cpuMatches.length ? (
+                <select value="" onChange={(event) => {
+                  const selected = cpuMatches.find((entry) => entry.id === event.target.value);
+                  if (selected) applyCpuCatalogEntry(selected);
+                }} className="mt-2 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-xs font-semibold text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70">
+                  <option value="">Elegir CPU del catálogo</option>
+                  {cpuMatches.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.cpuModel}{entry.cpuBrand ? ` · ${entry.cpuBrand}` : ""}{entry.verified ? " · verificado" : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
+            <TextField label="CPU frecuencia base" value={form.cpuFrecuenciaBase} source={fieldSources.cpuFrecuenciaBase} onChange={(value) => updateField("cpuFrecuenciaBase", value)} />
+            <TextField label="CPU frecuencia turbo" value={form.cpuFrecuenciaTurbo} source={fieldSources.cpuFrecuenciaTurbo} onChange={(value) => updateField("cpuFrecuenciaTurbo", value)} />
+            <SelectField label="RAM capacidad" value={form.ramCapacidad} source={fieldSources.ramCapacidad} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.ramCapacidad} onChange={(value) => updateField("ramCapacidad", value)} />
+            <SelectField label="RAM tipo" value={form.ramTipo} source={fieldSources.ramTipo} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.ramTipo} onChange={(value) => updateField("ramTipo", value)} />
+          </SectionCard>
 
-        <SectionCard title="Pantalla y almacenamiento">
-          <SelectField label="Pantalla tamaño" value={isDesktopLike ? "No aplica" : form.pantallaTamano} source={fieldSources.pantallaTamano} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.pantallaTamano} onChange={(value) => updateField("pantallaTamano", value)} disabled={isDesktopLike} />
-          <SelectField label="Pantalla resolución" value={isDesktopLike ? "No aplica" : form.pantallaResolucion} source={fieldSources.pantallaResolucion} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.pantallaResolucion} onChange={(value) => updateField("pantallaResolucion", value)} disabled={isDesktopLike} />
-          <TextField label="Almacenamiento principal" value={form.almacenamientoPrincipal} source={fieldSources.almacenamientoPrincipal} onChange={(value) => updateField("almacenamientoPrincipal", value)} />
-          <SelectField label="Almacenamiento tipo" value={form.almacenamientoTipo} source={fieldSources.almacenamientoTipo} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.almacenamientoTipo} onChange={(value) => updateField("almacenamientoTipo", value)} />
-        </SectionCard>
+          <SectionCard title="Gráficos y almacenamiento">
+            <SelectField label="Pantalla tamaño" value={isDesktopLike ? "No aplica" : form.pantallaTamano} source={fieldSources.pantallaTamano} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.pantallaTamano} onChange={(value) => updateField("pantallaTamano", value)} disabled={isDesktopLike} />
+            <SelectField label="Pantalla resolución" value={isDesktopLike ? "No aplica" : form.pantallaResolucion} source={fieldSources.pantallaResolucion} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.pantallaResolucion} onChange={(value) => updateField("pantallaResolucion", value)} disabled={isDesktopLike} />
+            <TextField label="GPU" value={form.gpu} source={fieldSources.gpu} onChange={(value) => updateField("gpu", value)} />
+            <TextField label="GPU integrada" value={form.gpuIntegrada} source={fieldSources.gpuIntegrada} onChange={(value) => updateField("gpuIntegrada", value)} />
+            <TextField label="Almacenamiento principal" value={form.almacenamientoPrincipal} source={fieldSources.almacenamientoPrincipal} onChange={(value) => updateField("almacenamientoPrincipal", value)} />
+            <SelectField label="Almacenamiento tipo" value={form.almacenamientoTipo} source={fieldSources.almacenamientoTipo} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.almacenamientoTipo} onChange={(value) => updateField("almacenamientoTipo", value)} />
+          </SectionCard>
 
-        <SectionCard title="Conectividad, puertos y extras" action={
+          <SectionCard title="Conectividad, puertos y extras" action={
             <button type="button" onClick={() => setTechnicalOptionModal({ open: true, type: "connectivity", label: "", message: "", busy: false })} className="h-8 rounded-lg border border-[#4FC3FF]/45 bg-[#4FC3FF]/10 px-3 text-xs font-bold text-[#BDEAFF]">
               Nueva opción técnica
             </button>
-        }>
-          <MultiSelectField label="Conectividad" value={form.connectivityV2Ids} source={fieldSources.connectivityV2Ids} options={connectivityOptions} onChange={(value) => updateField("connectivityV2Ids", value)} />
-          <MultiSelectField label="Puertos" value={form.portV2Ids} source={fieldSources.portV2Ids} options={portOptions} onChange={(value) => updateField("portV2Ids", value)} />
-          <MultiSelectField label="Características extras" value={form.extraFeatureV2Ids} source={fieldSources.extraFeatureV2Ids} options={extraOptions} onChange={(value) => updateField("extraFeatureV2Ids", value)} />
-        </SectionCard>
+          }>
+            <MultiSelectField label="Conectividad" value={form.connectivityV2Ids} source={fieldSources.connectivityV2Ids} options={connectivityOptions} onChange={(value) => updateField("connectivityV2Ids", value)} />
+            <MultiSelectField label="Puertos" value={form.portV2Ids} source={fieldSources.portV2Ids} options={portOptions} onChange={(value) => updateField("portV2Ids", value)} />
+            <MultiSelectField label="Características extras" value={form.extraFeatureV2Ids} source={fieldSources.extraFeatureV2Ids} options={extraOptions} onChange={(value) => updateField("extraFeatureV2Ids", value)} />
+          </SectionCard>
 
-        <SectionCard title="Batería y observaciones">
-          <TextField label="Batería salud %" type="number" value={isDesktopLike ? "" : form.bateriaSalud} source={fieldSources.bateriaSalud} onChange={(value) => updateField("bateriaSalud", value)} disabled={isDesktopLike} />
-          <SelectField label="Batería estado" value={isDesktopLike ? "No aplica" : (calculatedBatteryState || form.bateriaEstado || "")} source={fieldSources.bateriaEstado} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.bateriaEstado} onChange={(value) => updateField("bateriaEstado", value)} disabled />
-          <TextField label="GPU" value={form.gpu} source={fieldSources.gpu} onChange={(value) => updateField("gpu", value)} />
-          <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Observación ficha técnica</span>
-            <textarea value={form.observacionFichaTecnica || ""} onChange={(event) => updateField("observacionFichaTecnica", event.target.value)} className="mt-1 min-h-24 w-full resize-y rounded-lg border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
-            <FieldHint source={fieldSources.observacionFichaTecnica} />
-          </label>
-        </SectionCard>
+          <SectionCard title="Batería y observaciones">
+            <TextField label="Batería salud %" type="number" value={isDesktopLike ? "" : form.bateriaSalud} source={fieldSources.bateriaSalud} onChange={(value) => updateField("bateriaSalud", value)} disabled={isDesktopLike} />
+            <SelectField label="Batería estado" value={isDesktopLike ? "No aplica" : (calculatedBatteryState || form.bateriaEstado || "")} source={fieldSources.bateriaEstado} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.bateriaEstado} onChange={(value) => updateField("bateriaEstado", value)} disabled />
+            <label className="block">
+              <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Observación ficha técnica</span>
+              <textarea value={form.observacionFichaTecnica || ""} onChange={(event) => updateField("observacionFichaTecnica", event.target.value)} className="mt-1 min-h-24 w-full resize-y rounded-lg border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
+              <FieldHint source={fieldSources.observacionFichaTecnica} />
+            </label>
+          </SectionCard>
+        </div>
+        <FichaVentaLivePreview ficha={previewFicha} />
       </div>
 
       {technicalOptionModal.open ? (

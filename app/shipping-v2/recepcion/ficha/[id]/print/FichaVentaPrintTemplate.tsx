@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useRef } from "react";
 import { Lilita_One } from "next/font/google";
+import type { FichaVentaData } from "@/lib/shipping-v2/ficha-venta-data";
 import styles from "./ficha-print.module.css";
 import { markFichaPrintReady } from "./ficha-print-ready";
 
@@ -13,20 +14,7 @@ const lilitaOne = Lilita_One({
   fallback: ["Luckiest Guy", "Chalkboard SE", "Comic Sans MS", "sans-serif"],
 });
 
-export interface FichaVentaData {
-  marca: string;
-  modelo: string;
-  precio: number | null;
-  sistemaOperativo: string | null;
-  pantalla: string | null;
-  cpuLinea1: string | null;
-  cpuLinea2: string | null;
-  almacenamiento: string | null;
-  ram: string | null;
-  conectividadYPuertos: string | null;
-  bateriaEstado: string | null;
-  sku: string;
-}
+export type { FichaVentaData };
 
 // Marca, modelo y batería mantienen el ajuste aproximado por ancho estimado
 // (no cambian de comportamiento). El resto de las líneas se ajustan en el
@@ -67,6 +55,22 @@ function fitLineToWidth(el: HTMLElement | null, availableWidthPx: number, min: n
 export function FichaVentaPrintTemplate({ ficha }: { ficha: FichaVentaData }) {
   const price = formatPrice(ficha.precio);
   const battery = ficha.bateriaEstado ? `Batería ${ficha.bateriaEstado}` : "";
+  const fitSignature = [
+    ficha.marca,
+    ficha.modelo,
+    price,
+    ficha.sistemaOperativo,
+    ficha.pantalla,
+    ficha.cpuLinea1,
+    ficha.cpuLinea2,
+    ficha.gpu,
+    ficha.gpuIntegrada,
+    ficha.almacenamiento,
+    ficha.ram,
+    ficha.conectividadYPuertos,
+    battery,
+    ficha.sku,
+  ].join("|");
 
   const brandSizeMm = fitWidthMm(ficha.marca, MIXED_CASE_RATIO, 11, 30, CARD_WIDTH_MM * 0.6);
   const modelSizeMm = fitWidthMm(ficha.modelo, MIXED_CASE_RATIO, 8, 24) * 0.8;
@@ -83,6 +87,8 @@ export function FichaVentaPrintTemplate({ ficha }: { ficha: FichaVentaData }) {
   const screenRef = useRef<HTMLParagraphElement>(null);
   const cpu1Ref = useRef<HTMLParagraphElement>(null);
   const cpu2Ref = useRef<HTMLParagraphElement>(null);
+  const gpuRef = useRef<HTMLParagraphElement>(null);
+  const gpuIntegradaRef = useRef<HTMLParagraphElement>(null);
   const storageRef = useRef<HTMLParagraphElement>(null);
   const ramRef = useRef<HTMLParagraphElement>(null);
   const connectivityWrapRef = useRef<HTMLDivElement>(null);
@@ -117,6 +123,8 @@ export function FichaVentaPrintTemplate({ ficha }: { ficha: FichaVentaData }) {
       fitLineToWidth(screenRef.current, specsWidthPx, minSpecPx, maxSpecPx);
       fitLineToWidth(cpu1Ref.current, specsWidthPx, minSpecPx, maxSpecPx);
       fitLineToWidth(cpu2Ref.current, specsWidthPx, minSpecPx, maxSpecPx);
+      fitLineToWidth(gpuRef.current, specsWidthPx, minSpecPx, maxSpecPx);
+      fitLineToWidth(gpuIntegradaRef.current, specsWidthPx, minSpecPx, maxSpecPx);
       fitLineToWidth(storageRef.current, specsWidthPx, minSpecPx, maxSpecPx);
       fitLineToWidth(ramRef.current, specsWidthPx, minSpecPx, maxSpecPx);
 
@@ -182,8 +190,7 @@ export function FichaVentaPrintTemplate({ ficha }: { ficha: FichaVentaData }) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fitSignature]);
 
   return (
     <article ref={cardRef} className={cx(styles.card, lilitaOne.className)}>
@@ -222,6 +229,16 @@ export function FichaVentaPrintTemplate({ ficha }: { ficha: FichaVentaData }) {
           {ficha.cpuLinea2 ? (
             <p ref={cpu2Ref} className={cx(styles.line, styles.cpuLine2)}>
               {ficha.cpuLinea2}
+            </p>
+          ) : null}
+          {ficha.gpu ? (
+            <p ref={gpuRef} className={cx(styles.line, styles.gpu)}>
+              {ficha.gpu}
+            </p>
+          ) : null}
+          {ficha.gpuIntegrada ? (
+            <p ref={gpuIntegradaRef} className={cx(styles.line, styles.gpu)}>
+              {ficha.gpuIntegrada}
             </p>
           ) : null}
           {ficha.almacenamiento ? (
