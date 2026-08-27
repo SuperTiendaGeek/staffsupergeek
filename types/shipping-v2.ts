@@ -306,6 +306,9 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   mercadoLibrePublicadoPor?: string;
   fechaMercadoLibrePublicado?: string;
   gruposFacebookPublicado: boolean | null;
+  textoFacebook?: string;
+  textoFacebookLegacy?: string;
+  facebookSuperGeek: boolean | null;
   facebookPublicadoPor?: string;
   fechaFacebookPublicado?: string;
   observacionRecepcion?: string;
@@ -668,7 +671,8 @@ export type ShippingV2RecepcionChecklistAction =
   | "published-shopify"
   | "published-marketplace"
   | "published-mercado-libre"
-  | "published-facebook";
+  | "published-facebook"
+  | "facebook-super-geek";
 
 export type ShippingV2ItemNovedadInput = {
   tipo: string;

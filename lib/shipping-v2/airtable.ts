@@ -50,7 +50,8 @@ import type {
 } from "@/types/shipping-v2";
 import type { StaffSession } from "@/lib/session";
 import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
-import { getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
+import { SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD, getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
+import { getShippingV2FacebookPublicationBlockReason, getShippingV2FacebookTextGenerationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
 import { validarReglaDistribucion } from "@/lib/shipping-v2/packing-costos";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
@@ -1359,6 +1360,9 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     mercadoLibrePublicadoPor: firstString(f["Mercado Libre publicado por"]),
     fechaMercadoLibrePublicado: firstString(f["Fecha Mercado Libre publicado"]),
     gruposFacebookPublicado: firstBoolean(f["Grupos Facebook publicado"]),
+    textoFacebook: firstString(f[SHIPPING_V2_TEXTO_FACEBOOK_FIELD]),
+    textoFacebookLegacy: firstString(f[SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD]),
+    facebookSuperGeek: firstBoolean(f[SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD]),
     facebookPublicadoPor: firstString(f["Facebook publicado por"]),
     fechaFacebookPublicado: firstString(f["Fecha Facebook publicado"]),
     observacionRecepcion: firstString(f["Observación recepción"]),
@@ -2505,6 +2509,27 @@ async function validateInlineItemFieldChange(input: {
 
   if (config.type === "linkedRecord") {
     await validateInlineProviderRule(input.field, input.normalizedValue);
+  }
+
+  if (input.field === SHIPPING_V2_TEXTO_FACEBOOK_FIELD) {
+    const nextText = cleanString(input.normalizedValue);
+    if (input.item.facebookSuperGeek === true) {
+      throw new Error("Facebook Super Geek ya fue activado; no se puede editar Texto Facebook desde el sistema.");
+    }
+    if (nextText) {
+      const reason = getShippingV2FacebookTextGenerationBlockReason(input.item);
+      if (reason) throw new Error(reason);
+    }
+  }
+
+  if (input.field === SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD) {
+    if (input.item.facebookSuperGeek === true && input.normalizedValue !== true) {
+      throw new Error("Facebook Super Geek ya fue activado; no se puede desactivar desde el sistema.");
+    }
+    if (input.normalizedValue === true) {
+      const reason = getShippingV2FacebookPublicationBlockReason(input.item);
+      if (reason) throw new Error(reason);
+    }
   }
 
   // Pasar un item a "Disponible" es la publicación del artículo: el camino
@@ -4256,6 +4281,7 @@ const RECEPTION_CHECKLIST_FIELDS: Record<ShippingV2RecepcionChecklistAction, Rec
   "published-marketplace": { checked: "Marketplace publicado", by: "Marketplace publicado por", date: "Fecha Marketplace publicado", label: "Marketplace publicado" },
   "published-mercado-libre": { checked: "Mercado Libre publicado", by: "Mercado Libre publicado por", date: "Fecha Mercado Libre publicado", label: "Mercado Libre publicado" },
   "published-facebook": { checked: "Grupos Facebook publicado", by: "Facebook publicado por", date: "Fecha Facebook publicado", label: "Grupos Facebook publicado" },
+  "facebook-super-geek": { checked: SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, label: "Facebook Super Geek" },
 };
 
 export async function updateShippingV2ReceptionChecklistItem(
@@ -4275,6 +4301,15 @@ export async function updateShippingV2ReceptionChecklistItem(
   const checklistFields = RECEPTION_CHECKLIST_FIELDS[input.action];
   if (!checklistFields) throw new Error("Acción de recepción no soportada.");
   if (input.action !== "received" && item.recibido !== true) throw new Error(RECEIVED_REQUIRED_MESSAGE);
+  if (input.action === "facebook-super-geek") {
+    if (item.facebookSuperGeek === true && input.value !== true) {
+      throw new Error("Facebook Super Geek ya fue activado; no se puede desactivar desde el sistema.");
+    }
+    if (input.value) {
+      const reason = getShippingV2FacebookPublicationBlockReason(item);
+      if (reason) throw new Error(reason);
+    }
+  }
   fields[checklistFields.checked] = input.value;
   if (input.value && checklistFields.by && checklistFields.date) {
     fields[checklistFields.by] = options.actualizadoPor;
@@ -4298,7 +4333,7 @@ export async function updateShippingV2ReceptionChecklistItem(
         fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = "Recibido";
       }
       for (const [action, config] of Object.entries(RECEPTION_CHECKLIST_FIELDS) as Array<[ShippingV2RecepcionChecklistAction, ReceptionChecklistFieldConfig]>) {
-        if (action !== "received") fields[config.checked] = false;
+        if (action !== "received" && action !== "facebook-super-geek") fields[config.checked] = false;
       }
     }
   } else if (input.action === "reviewed") {

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T20:31:24.442Z",
+  "generatedAt": "2026-08-24T03:29:22.174Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -320,11 +320,30 @@
           "type": "singleLineText",
           "kind": "singleLineText"
         },
+        "Precio venta final": {
+          "id": "fldST0lr5q3eKIc1o",
+          "type": "currency",
+          "kind": "currency"
+        },
         "Recibo": {
           "id": "fldiPZgq8Pw0dA06A",
           "type": "multipleRecordLinks",
           "linkedTableId": "tbl6wt6UeX7ssszpH",
           "linkedTableName": "Recibos"
+        },
+        "Texto Facebook": {
+          "id": "fldeFrnn3KpMWkYo3",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Texto Facebook fórmula legacy": {
+          "id": "fldzz1Ykz5GpfSx3C",
+          "type": "formula"
+        },
+        "Facebook Super Geek": {
+          "id": "fldUnC2Y1Q3e4eFpe",
+          "type": "checkbox",
+          "checkbox": true
         },
         "Recibido": {
           "id": "fldUjb51VJs6fHuWr",
@@ -537,11 +556,6 @@
         },
         "Precio venta sugerido": {
           "id": "fldTMSgsl5Fm6QWqP",
-          "type": "currency",
-          "kind": "currency"
-        },
-        "Precio venta final": {
-          "id": "fldST0lr5q3eKIc1o",
           "type": "currency",
           "kind": "currency"
         },
@@ -1254,15 +1268,6 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblI9BXe7CmMHIjvj",
           "linkedTableName": "Reservas"
-        },
-        "Texto Facebook": {
-          "id": "fldeFrnn3KpMWkYo3",
-          "type": "formula"
-        },
-        "Facebook Super Geek": {
-          "id": "fldUnC2Y1Q3e4eFpe",
-          "type": "checkbox",
-          "checkbox": true
         },
         "Cantidad Reservada": {
           "id": "fld6tH0L5LPIrOown",

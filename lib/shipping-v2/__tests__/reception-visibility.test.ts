@@ -27,6 +27,7 @@ const base: Entrada = {
   marketplacePublicado: true,
   mercadoLibrePublicado: true,
   gruposFacebookPublicado: true,
+  facebookSuperGeek: true,
 };
 
 function visible(caso: string, patch: Partial<Entrada>) {
@@ -41,6 +42,7 @@ visible("Vendido con revisión Faltante sigue en Recepción", { estadoRevision: 
 visible("Vendido recibido correctamente sigue en Recepción", { estadoRevision: "Recibido correctamente" });
 oculto("Vendido sin estado de revisión de Recepción no reaparece por defecto", {});
 visible("Disponible con publicación pendiente sigue en Recepción", { estado: "Disponible", fotosTomadas: false });
+visible("Disponible sin Facebook Super Geek sigue en Recepción", { estado: "Disponible", facebookSuperGeek: false });
 oculto("Disponible completamente publicado sale de Recepción", { estado: "Disponible" });
 
 if (fallos > 0) {
