@@ -15,6 +15,7 @@ const ALLOWED_ACTIONS = new Set<ShippingV2RecepcionChecklistAction>([
   "published-marketplace",
   "published-mercado-libre",
   "published-facebook",
+  "facebook-super-geek",
 ]);
 
 function parseAction(value: unknown): ShippingV2RecepcionChecklistAction {

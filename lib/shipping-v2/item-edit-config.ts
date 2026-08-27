@@ -22,6 +22,10 @@ export type ShippingV2ItemEditFieldConfig = {
 const F = SHIPPING_V2_ITEM_FIELDS;
 const O = SHIPPING_V2_ITEM_SELECT_OPTIONS;
 
+export const SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD = "Facebook Super Geek";
+export const SHIPPING_V2_TEXTO_FACEBOOK_FIELD = "Texto Facebook";
+export const SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD = "Texto Facebook fórmula legacy";
+
 export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   itemId: { key: "itemId", field: F.itemId, label: "SKU", category: "hidden", type: "readOnly" },
   nombre: { key: "nombre", field: F.nombre, label: "Nombre del item", category: "normal", type: "text" },
@@ -44,6 +48,8 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   afectaInventario: { key: "afectaInventario", field: F.afectaInventario, label: "Afecta inventario", category: "readOnly", type: "readOnly" },
   disponibleVenta: { key: "disponibleVenta", field: F.disponibleVenta, label: "Disponible para venta/reserva", category: "special", type: "checkbox", adminOnly: true },
   reservado: { key: "reservado", field: F.reservado, label: "Reservado", category: "normal", type: "checkbox" },
+  textoFacebook: { key: "textoFacebook", field: SHIPPING_V2_TEXTO_FACEBOOK_FIELD, label: "Texto Facebook", category: "special", type: "textarea" },
+  facebookSuperGeek: { key: "facebookSuperGeek", field: SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, label: "Facebook Super Geek", category: "special", type: "checkbox" },
   costoProveedor: { key: "costoProveedor", field: F.costoProveedor, label: "Costo proveedor unitario", category: "special", type: "currency" },
   precioVentaSugerido: { key: "precioVentaSugerido", field: F.precioVentaSugerido, label: "Precio venta sugerido unitario", category: "normal", type: "currency" },
   precioVentaFinal: { key: "precioVenta", field: F.precioVentaFinal, label: "Precio venta final unitario", category: "normal", type: "currency" },

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
-import { ArrowDownAZ, ArrowLeft, Check, ChevronLeft, ChevronRight, ChevronsLeft, ListFilter, Printer, Rows3, Tag, X } from "lucide-react";
+import { ArrowDownAZ, ArrowLeft, BadgeCheck, Check, ChevronLeft, ChevronRight, ChevronsLeft, FileText, ListFilter, Loader2, Printer, Rows3, Sparkles, Tag, X } from "lucide-react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,13 @@ import {
   type ShippingV2ItemSortKey,
   type ShippingV2ResolvedItem,
 } from "@/lib/shipping-v2/item-list-view";
+import {
+  generateShippingV2FacebookTextOptions,
+  getShippingV2FacebookPublicationBlockReason,
+  getShippingV2FacebookTextGenerationBlockReason,
+  hasShippingV2FacebookPrice,
+  hasShippingV2FacebookText,
+} from "@/lib/shipping-v2/facebook-super-geek-text";
 import { createShippingV2ProveedorLabelMap, getShippingV2ProveedorLabel, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { ShippingV2DespieceTab } from "./ShippingV2DespieceTab";
@@ -112,6 +119,7 @@ type ShippingV2ItemsColumnKey =
   | "triangulationStatus"
   | "reviewStatus"
   | "availability"
+  | "facebookSuperGeek"
   | "requiresPayment"
   | "requiresPacking"
   | "physicalReview"
@@ -152,6 +160,7 @@ const AVAILABLE_COLUMNS: ShippingV2ItemsColumn[] = [
   { key: "triangulationStatus", label: "Triangulación", defaultWidth: 150, minWidth: 120, defaultVisible: false, category: "Logística" },
   { key: "reviewStatus", label: "Estado revisión", defaultWidth: 150, minWidth: 120, defaultVisible: false, category: "Revisión" },
   { key: "availability", label: "Disponibilidad", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Inventario" },
+  { key: "facebookSuperGeek", label: "Facebook SG", defaultWidth: 112, minWidth: 96, maxWidth: 132, align: "center", defaultVisible: true, category: "Inventario" },
   { key: "requiresPayment", label: "Requiere pago", defaultWidth: 130, minWidth: 110, defaultVisible: false, category: "Compra" },
   { key: "requiresPacking", label: "Requiere packing", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Logística" },
   { key: "physicalReview", label: "Revisión física", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Revisión" },
@@ -165,6 +174,12 @@ type ShippingV2ItemsColumnWidths = Record<ShippingV2ItemsColumnKey, number>;
 type ShippingV2ItemsTableViewConfig = {
   orderedColumnKeys: ShippingV2ItemsColumnKey[];
   visibleColumnKeys: ShippingV2ItemsColumnKey[];
+};
+
+type ItemCellRenderContext = {
+  canEditFacebookSuperGeek: boolean;
+  facebookSuperGeekBusyId: string;
+  onFacebookSuperGeekChange: (item: ResolvedItem, value: boolean) => void;
 };
 
 function displayValue(value?: string | number | null, fallback = "—") {
@@ -228,6 +243,12 @@ function sanitizeTableViewConfig(input?: Partial<ShippingV2ItemsTableViewConfig>
     orderedColumnKeys = orderedColumnKeys.filter((key) => key !== "quantity");
     const nameIndex = orderedColumnKeys.indexOf("name");
     orderedColumnKeys.splice(nameIndex + 1, 0, "quantity");
+  }
+
+  if (!orderedFromInput.includes("facebookSuperGeek") && orderedColumnKeys.includes("facebookSuperGeek") && orderedColumnKeys.includes("availability")) {
+    orderedColumnKeys = orderedColumnKeys.filter((key) => key !== "facebookSuperGeek");
+    const availabilityIndex = orderedColumnKeys.indexOf("availability");
+    orderedColumnKeys.splice(availabilityIndex + 1, 0, "facebookSuperGeek");
   }
 
   const visibleColumnKeys = new Set<ShippingV2ItemsColumnKey>(visibleFromInput);
@@ -384,6 +405,8 @@ function getItemCellTitle(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKe
       return displayValue(item.estadoRevision);
     case "availability":
       return availabilityLabel(item);
+    case "facebookSuperGeek":
+      return item.facebookSuperGeek ? "Facebook Super Geek activo" : "Facebook Super Geek inactivo";
     case "requiresPayment":
       return displayBoolean(item.requierePago);
     case "requiresPacking":
@@ -399,7 +422,7 @@ function getItemCellTitle(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKe
   }
 }
 
-function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey) {
+function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey, context: ItemCellRenderContext) {
   switch (columnKey) {
     case "sku":
       return displayValue(item.sku);
@@ -449,6 +472,15 @@ function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey)
       return displayValue(item.estadoRevision);
     case "availability":
       return <AvailabilityBadge item={item} />;
+    case "facebookSuperGeek":
+      return (
+        <FacebookSuperGeekToggle
+          item={item}
+          canEdit={context.canEditFacebookSuperGeek}
+          busy={context.facebookSuperGeekBusyId === item.id}
+          onChange={context.onFacebookSuperGeekChange}
+        />
+      );
     case "requiresPayment":
       return displayBoolean(item.requierePago);
     case "requiresPacking":
@@ -565,6 +597,294 @@ function AvailabilityBadge({ item }: { item: ResolvedItem }) {
   }
 
   return <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${tone}`}>{label}</span>;
+}
+
+function FacebookSuperGeekToggle({
+  item,
+  canEdit,
+  busy,
+  onChange,
+}: {
+  item: ResolvedItem;
+  canEdit: boolean;
+  busy: boolean;
+  onChange: (item: ResolvedItem, value: boolean) => void;
+}) {
+  const checked = item.facebookSuperGeek === true;
+  const activationBlockReason = checked ? "" : getShippingV2FacebookPublicationBlockReason(item);
+  const disabled = checked || !canEdit || busy || Boolean(activationBlockReason);
+  const actionLabel = checked ? "Facebook Super Geek publicado" : "Activar Facebook Super Geek";
+  const disabledTitle = checked ? "Publicación ya activada; no se puede desactivar desde el sistema." : activationBlockReason;
+
+  return (
+    <button
+      type="button"
+      aria-label={actionLabel}
+      aria-pressed={checked}
+      title={canEdit ? disabledTitle || actionLabel : "Facebook Super Geek"}
+      disabled={disabled}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (!checked) onChange(item, true);
+      }}
+      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35 disabled:cursor-not-allowed ${checked ? "" : "disabled:opacity-55"} ${
+        checked
+          ? "border-[#D7FF4F]/55 bg-[#D7FF4F]/12 text-[#D7FF4F] shadow-lg shadow-[#D7FF4F]/10"
+          : "border-[#3A3A36] bg-[#151613] text-[#A7A7A7] hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F]"
+      }`}
+    >
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <BadgeCheck className="h-4 w-4" aria-hidden="true" />}
+    </button>
+  );
+}
+
+function FacebookSuperGeekDetailButton({
+  item,
+  checked,
+  canEdit,
+  busy,
+  onOpen,
+}: {
+  item: ResolvedItem;
+  checked: boolean;
+  canEdit: boolean;
+  busy: boolean;
+  onOpen: () => void;
+}) {
+  const blockReason = getShippingV2FacebookPublicationBlockReason(item);
+  const actionLabel = checked ? "Ver publicación Facebook SG" : "Preparar Facebook SG";
+  const statusLabel = checked ? "Publicado" : blockReason ? "Pendiente" : "Listo";
+
+  return (
+    <button
+      type="button"
+      aria-label={actionLabel}
+      aria-pressed={checked}
+      title={canEdit || checked ? actionLabel : "Facebook Super Geek"}
+      disabled={busy || (!canEdit && !checked)}
+      onClick={onOpen}
+      className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-[12px] font-bold transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35 disabled:cursor-not-allowed disabled:opacity-55 ${
+        checked
+          ? "border-[#D7FF4F]/60 bg-[#D7FF4F]/12 text-[#D7FF4F] shadow-lg shadow-[#D7FF4F]/10"
+          : "border-[#3A3A36] bg-[#20211D] text-[#A7A7A7] hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F]"
+      }`}
+    >
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <BadgeCheck className="h-4 w-4" aria-hidden="true" />}
+      <span>Facebook SG</span>
+      <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${checked ? "bg-[#D7FF4F] text-[#151515]" : "bg-[#151515] text-[#8F908A]"}`}>
+        {statusLabel}
+      </span>
+    </button>
+  );
+}
+
+function FacebookSuperGeekTextModal({
+  item,
+  draft,
+  canEdit,
+  saving,
+  activating,
+  message,
+  onDraftChange,
+  onSave,
+  onActivate,
+  onClose,
+}: {
+  item: ResolvedItem;
+  draft: string;
+  canEdit: boolean;
+  saving: boolean;
+  activating: boolean;
+  message: string;
+  onDraftChange: (value: string) => void;
+  onSave: () => void;
+  onActivate: () => void;
+  onClose: () => void;
+}) {
+  const [showOptions, setShowOptions] = useState(() => !hasShippingV2FacebookText(item));
+  const generationBlockReason = getShippingV2FacebookTextGenerationBlockReason(item);
+  const publicationBlockReason = getShippingV2FacebookPublicationBlockReason(item);
+  const options = useMemo(() => generateShippingV2FacebookTextOptions(item), [item]);
+  const savedText = item.textoFacebook?.trim() || "";
+  const published = item.facebookSuperGeek === true;
+  const hasPrice = hasShippingV2FacebookPrice(item);
+  const hasSavedText = hasShippingV2FacebookText(item);
+  const draftText = draft.trim();
+  const isDirty = draftText !== savedText;
+  const canSave = canEdit && !published && hasPrice && draftText.length > 0 && isDirty && !saving && !activating;
+  const activationBlockReason = published
+    ? "Publicación ya activada; no se puede desactivar ni editar desde el sistema."
+    : isDirty
+      ? "Guarda el texto revisado antes de activar Facebook SG."
+      : publicationBlockReason;
+  const canActivate = canEdit && !published && !saving && !activating && !activationBlockReason;
+  const legacyText = item.textoFacebookLegacy?.trim() || "";
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !saving && !activating) onClose();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activating, onClose, saving]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-black/75 px-3 py-5 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="facebook-super-geek-title"
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !saving && !activating) onClose();
+      }}
+    >
+      <section className="w-full max-w-5xl overflow-hidden rounded-xl border border-[#30312D] bg-[#11120F] shadow-2xl shadow-black/50">
+        <header className="border-b border-[#30312D] bg-[#171814] px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="grid h-9 w-9 place-items-center rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]">
+                  <BadgeCheck className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <h2 id="facebook-super-geek-title" className="text-base font-semibold text-[#F5F5F5]">Publicación Facebook Super Geek</h2>
+                  <p className="mt-0.5 truncate text-[12px] text-[#8F908A]">{displayValue(item.sku)} · {displayName(item.nombre)}</p>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${hasPrice ? "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]" : "border-[#FF914D]/35 bg-[#FF914D]/10 text-[#FFB07A]"}`}>
+                  Precio final: {hasPrice ? "listo" : "pendiente"}
+                </span>
+                <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${hasSavedText ? "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]" : "border-[#FF914D]/35 bg-[#FF914D]/10 text-[#FFB07A]"}`}>
+                  Texto Facebook: {hasSavedText ? "guardado" : "pendiente"}
+                </span>
+                <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${published ? "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]" : publicationBlockReason || isDirty ? "border-[#3A3A36] bg-[#151515] text-[#A7A7A7]" : "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]"}`}>
+                  Publicación: {published ? "activada" : publicationBlockReason || isDirty ? "bloqueada" : "lista"}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving || activating}
+              aria-label="Cerrar publicación Facebook Super Geek"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[#3A3A36] bg-[#20211D] text-[#A7A7A7] transition hover:border-[#D7FF4F]/55 hover:text-[#F5F5F5] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+
+        <div className="grid max-h-[calc(100vh-9rem)] gap-0 overflow-y-auto lg:grid-cols-[360px_minmax(0,1fr)]">
+          <aside className="border-b border-[#30312D] bg-[#151613] p-4 lg:border-b-0 lg:border-r">
+            <div className="rounded-lg border border-[#30312D] bg-[#10110F] p-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-[#D7FF4F]" aria-hidden="true" />
+                <p className="text-sm font-semibold text-[#F5F5F5]">Versiones sugeridas</p>
+              </div>
+              <p className="mt-1 text-[12px] leading-5 text-[#8F908A]">Elige una base, ajústala y guarda el texto final antes de aprobar.</p>
+              {generationBlockReason ? (
+                <div className="mt-3 rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-[12px] leading-5 text-[#FFB07A]">
+                  {generationBlockReason}
+                </div>
+              ) : null}
+              {published ? (
+                <div className="mt-3 rounded-lg border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-3 py-2 text-[12px] leading-5 text-[#D7FF4F]">
+                  Esta publicación ya fue activada. El texto queda solo lectura.
+                </div>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowOptions((current) => !current)}
+              disabled={!canEdit || published || Boolean(generationBlockReason)}
+              title={generationBlockReason || "Mostrar opciones de texto"}
+              className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-[#D7FF4F]/55 bg-[#D7FF4F]/10 px-3 text-[12px] font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F]/18 disabled:cursor-not-allowed disabled:border-[#3A3A36] disabled:bg-[#171814] disabled:text-[#6E6F68]"
+            >
+              <FileText className="h-4 w-4" aria-hidden="true" />
+              {showOptions ? "Ocultar versiones" : "Ver versiones"}
+            </button>
+
+            {showOptions ? (
+              <div className="mt-3 grid gap-2">
+                {options.map((option) => (
+                  <button
+                    key={option.tone}
+                    type="button"
+                    onClick={() => onDraftChange(option.text)}
+                    disabled={!canEdit || published}
+                    className="rounded-lg border border-[#30312D] bg-[#171814] p-3 text-left transition hover:border-[#D7FF4F]/45 hover:bg-[#1D1E1A] disabled:cursor-not-allowed disabled:opacity-55"
+                  >
+                    <span className="block text-sm font-semibold text-[#F5F5F5]">{option.label}</span>
+                    <span className="mt-1 block text-[12px] leading-5 text-[#8F908A]">{option.description}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {legacyText ? (
+              <details className="mt-3 rounded-lg border border-[#30312D] bg-[#171814] px-3 py-2">
+                <summary className="cursor-pointer text-[12px] font-semibold text-[#A7A7A7]">Ver Texto Facebook legacy</summary>
+                <pre className="mt-2 max-h-36 overflow-y-auto whitespace-pre-wrap text-[12px] leading-5 text-[#D8D8D3]">{legacyText}</pre>
+              </details>
+            ) : null}
+          </aside>
+
+          <main className="p-4">
+            <label className="block">
+              <span className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">Texto revisado</span>
+              <textarea
+                value={draft}
+                onChange={(event) => onDraftChange(event.target.value)}
+                readOnly={published}
+                disabled={!canEdit || !hasPrice}
+                placeholder={hasPrice ? "Elige una versión o escribe el texto que se publicará..." : "Agrega Precio venta final para habilitar el texto."}
+                className="mt-2 min-h-[420px] w-full resize-y rounded-lg border border-[#3A3A36] bg-[#10110F] px-3 py-2 text-sm leading-6 text-[#F5F5F5] outline-none transition placeholder:text-[#5E5F59] focus:border-[#D7FF4F]/70 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </label>
+
+            <div className="mt-3 rounded-lg border border-[#30312D] bg-[#151613] px-3 py-2">
+              <p className={`text-[12px] leading-5 ${message ? "text-[#D7FF4F]" : activationBlockReason ? "text-[#A7A7A7]" : "text-[#D7FF4F]"}`}>
+                {message || activationBlockReason || "Texto guardado y listo para aprobación final."}
+              </p>
+            </div>
+
+            <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={saving || activating}
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-bold text-[#F5F5F5] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={onSave}
+                disabled={!canSave}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-bold text-[#D7FF4F] transition hover:border-[#D7FF4F]/55 disabled:cursor-not-allowed disabled:text-[#6E6F68] disabled:opacity-60"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
+                Guardar texto
+              </button>
+              <button
+                type="button"
+                onClick={onActivate}
+                disabled={!canActivate}
+                title={activationBlockReason || "Aprobar y activar Facebook Super Geek"}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-black text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:border-[#3A3A36] disabled:bg-[#20211D] disabled:text-[#6E6F68]"
+              >
+                {activating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <BadgeCheck className="h-4 w-4" aria-hidden="true" />}
+                Aprobar y activar
+              </button>
+            </div>
+          </main>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function FilterGroup({
@@ -749,11 +1069,17 @@ function MobileItemCard({
   item,
   canViewCosts,
   canViewProviderCost,
+  canEditFacebookSuperGeek,
+  facebookSuperGeekBusy,
+  onFacebookSuperGeekChange,
   onOpen,
 }: {
   item: ResolvedItem;
   canViewCosts: boolean;
   canViewProviderCost: boolean;
+  canEditFacebookSuperGeek: boolean;
+  facebookSuperGeekBusy: boolean;
+  onFacebookSuperGeekChange: (item: ResolvedItem, value: boolean) => void;
   onOpen: () => void;
 }) {
   return (
@@ -790,6 +1116,17 @@ function MobileItemCard({
         {canViewCosts ? (
           <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Precio venta final unitario</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.precioVenta)}</dd></div>
         ) : null}
+        <div className="flex items-center justify-between gap-4">
+          <dt className="text-[#A7A7A7]">Facebook Super Geek</dt>
+          <dd className="text-right text-[#F5F5F5]">
+            <FacebookSuperGeekToggle
+              item={item}
+              canEdit={canEditFacebookSuperGeek}
+              busy={facebookSuperGeekBusy}
+              onChange={onFacebookSuperGeekChange}
+            />
+          </dd>
+        </div>
         <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Fecha registro</dt><dd className="text-right text-[#F5F5F5]">{formatDate(item.fechaRegistro || item.createdTime)}</dd></div>
       </dl>
     </article>
@@ -1119,6 +1456,11 @@ export function ShippingV2ItemDetailView({
   const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
   const [item, setItem] = useState(initialItem);
   const [applyingAiName, setApplyingAiName] = useState(false);
+  const [facebookSuperGeekModalOpen, setFacebookSuperGeekModalOpen] = useState(false);
+  const [facebookSuperGeekDetailBusy, setFacebookSuperGeekDetailBusy] = useState(false);
+  const [facebookTextDraft, setFacebookTextDraft] = useState(initialItem.textoFacebook ?? "");
+  const [facebookTextSaving, setFacebookTextSaving] = useState(false);
+  const [facebookTextMessage, setFacebookTextMessage] = useState("");
   const [ignoredAiName, setIgnoredAiName] = useState("");
   const [activeTab, setActiveTab] = useState<ItemDetailTabKey>("general");
   const purchaseProviderOptions = useMemo(
@@ -1133,6 +1475,10 @@ export function ShippingV2ItemDetailView({
   useEffect(() => {
     setItem(initialItem);
   }, [initialItem]);
+
+  useEffect(() => {
+    setFacebookTextDraft(item.textoFacebook ?? "");
+  }, [item.id, item.textoFacebook]);
 
   function handleSaved(updatedItem: ShippingV2Item) {
     const resolved: ResolvedItem = {
@@ -1216,6 +1562,38 @@ export function ShippingV2ItemDetailView({
   const isProviderDetail = !canEditItems && canEditProviderItemFields;
   const hasAiNameSuggestion = Boolean(aiNameSuggestion && normalizeText(aiNameSuggestion) !== normalizeText(item.nombre) && aiNameSuggestion !== ignoredAiName);
 
+  async function toggleFacebookSuperGeek(value: boolean) {
+    setFacebookSuperGeekDetailBusy(true);
+    setFacebookTextMessage("");
+    try {
+      await saveField(C.facebookSuperGeek.field, value);
+      setFacebookTextMessage("Facebook Super Geek activado. Airtable ya puede publicar este texto.");
+    } catch (error) {
+      setFacebookTextMessage(error instanceof Error ? error.message : "No se pudo actualizar Facebook Super Geek.");
+    } finally {
+      setFacebookSuperGeekDetailBusy(false);
+    }
+  }
+
+  async function saveFacebookText() {
+    setFacebookTextSaving(true);
+    setFacebookTextMessage("");
+    try {
+      await saveField(C.textoFacebook.field, facebookTextDraft);
+      setFacebookTextMessage("Texto Facebook guardado. Ya puedes aprobar la publicación.");
+    } catch (error) {
+      setFacebookTextMessage(error instanceof Error ? error.message : "No se pudo guardar Texto Facebook.");
+    } finally {
+      setFacebookTextSaving(false);
+    }
+  }
+
+  function openFacebookSuperGeekModal() {
+    setFacebookTextDraft(item.textoFacebook ?? "");
+    setFacebookTextMessage("");
+    setFacebookSuperGeekModalOpen(true);
+  }
+
   if (isProviderDetail) {
     return (
       <ShippingV2ProviderItemDetailView
@@ -1252,6 +1630,7 @@ export function ShippingV2ItemDetailView({
         { label: C.afectaInventario.label, value: item.afectaInventario, displayValue: displayBoolean(item.afectaInventario), config: C.afectaInventario },
         { label: C.disponibleVenta.label, value: item.disponibleVenta, displayValue: displayBoolean(item.disponibleVenta), config: C.disponibleVenta },
         { label: C.reservado.label, value: item.reservado, config: C.reservado },
+        { label: C.facebookSuperGeek.label, value: item.facebookSuperGeek, displayValue: displayBoolean(item.facebookSuperGeek), readOnly: true },
         { label: C.ubicacionActual.label, value: item.ubicacionActual, config: C.ubicacionActual },
         { label: "Origen físico actual", value: item.origenFisicoActual, readOnly: true },
       ],
@@ -1354,7 +1733,6 @@ export function ShippingV2ItemDetailView({
   const fichaGenerada = isFichaGenerada(item);
   const fichaHref = shippingV2TechnicalSheetHref(item);
   const skuLabelHref = shippingV2SkuLabelHref(item.id);
-
   return (
     <div className="w-full max-w-none space-y-3">
       <section className="grid w-full gap-3 xl:grid-cols-12">
@@ -1409,6 +1787,7 @@ export function ShippingV2ItemDetailView({
               <BooleanPill label="Requiere pago" value={item.requierePago} />
               <BooleanPill label="Requiere packing" value={item.requierePacking} />
               <BooleanPill label="Disponible venta" value={item.disponibleVenta} />
+              <BooleanPill label="Facebook SG" value={item.facebookSuperGeek} />
             </div>
             <div className="mt-3">
               <SmallDataRow label="Ubicación" value={displayValue(item.ubicacionActual)} />
@@ -1452,7 +1831,14 @@ export function ShippingV2ItemDetailView({
                 />
               </div>
               <TooltipProvider delayDuration={200}>
-                <div className="flex shrink-0 items-center gap-1.5 lg:self-center">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 lg:self-center">
+                  <FacebookSuperGeekDetailButton
+                    item={item}
+                    checked={item.facebookSuperGeek === true}
+                    canEdit={canEditItems}
+                    busy={facebookSuperGeekDetailBusy}
+                    onOpen={openFacebookSuperGeekModal}
+                  />
                   {canUseRecepcion ? <Tooltip>
                     <TooltipTrigger asChild>
                       <Link href={fichaHref} target={fichaGenerada ? "_blank" : undefined} rel={fichaGenerada ? "noreferrer" : undefined} aria-label={fichaGenerada ? "Imprimir ficha" : "Preparar ficha"} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] text-[#F5F5F5] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35">
@@ -1477,6 +1863,24 @@ export function ShippingV2ItemDetailView({
               </TooltipProvider>
             </div>
           </article>
+
+          {facebookSuperGeekModalOpen ? (
+            <FacebookSuperGeekTextModal
+              item={item}
+              draft={facebookTextDraft}
+              canEdit={canEditItems}
+              saving={facebookTextSaving}
+              activating={facebookSuperGeekDetailBusy}
+              message={facebookTextMessage}
+              onDraftChange={(value) => {
+                setFacebookTextDraft(value);
+                if (facebookTextMessage) setFacebookTextMessage("");
+              }}
+              onSave={() => void saveFacebookText()}
+              onActivate={() => void toggleFacebookSuperGeek(true)}
+              onClose={() => setFacebookSuperGeekModalOpen(false)}
+            />
+          ) : null}
 
           {hasAiNameSuggestion && canEditItems ? (
             <article className="rounded-xl border border-[#D7FF4F]/25 bg-[#151613] p-3 shadow-lg shadow-black/10">
@@ -1543,7 +1947,7 @@ export function ShippingV2ItemDetailView({
   );
 }
 
-export function ShippingV2ItemsClient({ items, proveedores, error, permissions, providerName, initialSortBy, pagination }: Props) {
+export function ShippingV2ItemsClient({ items: initialItems, proveedores, error, permissions, providerName, initialSortBy, pagination }: Props) {
   const router = useRouter();
   const canEditItems = permissions?.canEditItems !== false;
   const canViewCosts = permissions?.canViewCosts !== false;
@@ -1551,6 +1955,7 @@ export function ShippingV2ItemsClient({ items, proveedores, error, permissions, 
   const isProviderPortal = Boolean(providerName && permissions?.canEditItems === false);
   const availableColumns = useMemo(() => getAvailableColumns(canViewCosts, canViewProviderCost), [canViewCosts, canViewProviderCost]);
   const availableSortOptions = useMemo(() => getSortOptions(canViewCosts, canViewProviderCost), [canViewCosts, canViewProviderCost]);
+  const [items, setItems] = useState(initialItems);
   const [search, setSearch] = useState("");
   const [estado, setEstado] = useState(ALL);
   const [tipoOperacion, setTipoOperacion] = useState(ALL);
@@ -1564,8 +1969,13 @@ export function ShippingV2ItemsClient({ items, proveedores, error, permissions, 
   const [fieldsPanelOpen, setFieldsPanelOpen] = useState(false);
   const [toolbarMenuOpen, setToolbarMenuOpen] = useState<ToolbarMenuKey | null>(null);
   const [draggedColumnKey, setDraggedColumnKey] = useState<ShippingV2ItemsColumnKey | null>(null);
+  const [facebookSuperGeekBusyId, setFacebookSuperGeekBusyId] = useState("");
   const toolbarMenuRef = useRef<HTMLDivElement>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    setItems(initialItems);
+  }, [initialItems]);
 
   useEffect(() => {
     const storedNotice = window.sessionStorage.getItem("shipping-v2:notice");
@@ -1811,6 +2221,41 @@ export function ShippingV2ItemsClient({ items, proveedores, error, permissions, 
     setFieldsPanelOpen(false);
     setToolbarMenuOpen((current) => (current === menu ? null : menu));
   }, []);
+
+  const updateFacebookSuperGeek = useCallback(async (item: ResolvedItem, value: boolean) => {
+    if (!canEditItems) return;
+    if (!value) {
+      setNotice("Facebook Super Geek ya no se puede desactivar desde el sistema.");
+      return;
+    }
+
+    setFacebookSuperGeekBusyId(item.id);
+    setNotice("");
+    try {
+      const response = await fetch(`/api/shipping-v2/items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          field: SHIPPING_V2_ITEM_EDIT_FIELDS.facebookSuperGeek.field,
+          value,
+          eventDescription: "Facebook Super Geek activado desde listado de Items.",
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok || !payload.success) {
+        throw new Error(String(payload.error || "No se pudo actualizar Facebook Super Geek."));
+      }
+
+      const updated = payload.data as ShippingV2Item;
+      setItems((current) => current.map((currentItem) => currentItem.id === updated.id ? updated : currentItem));
+      setNotice(`${updated.sku || updated.nombre}: Facebook Super Geek activado.`);
+    } catch (updateError) {
+      setNotice(updateError instanceof Error ? updateError.message : "Error inesperado al actualizar Facebook Super Geek.");
+    } finally {
+      setFacebookSuperGeekBusyId("");
+    }
+  }, [canEditItems]);
 
   function openItemFromRow(event: MouseEvent<HTMLElement>, item: ResolvedItem) {
     const target = event.target as HTMLElement;
@@ -2150,7 +2595,11 @@ export function ShippingV2ItemsClient({ items, proveedores, error, permissions, 
                             }}
                             className={`overflow-hidden border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:px-3 2xl:py-2.5 ${column.key === "sku" ? "font-semibold text-[#CFFF3A]" : ""} ${alignClass} ${mutedColumn ? "text-[#A7A7A7]" : ""}`}
                           >
-                            {renderItemCell(item, column.key)}
+                            {renderItemCell(item, column.key, {
+                              canEditFacebookSuperGeek: canEditItems,
+                              facebookSuperGeekBusyId,
+                              onFacebookSuperGeekChange: updateFacebookSuperGeek,
+                            })}
                           </td>
                         );
                       })}
@@ -2180,7 +2629,16 @@ export function ShippingV2ItemsClient({ items, proveedores, error, permissions, 
                 </div>
               ) : null}
               {group.items.map((item) => (
-                <MobileItemCard key={item.id} item={item} canViewCosts={canViewCosts} canViewProviderCost={canViewProviderCost} onOpen={() => router.push(`/shipping-v2/items/${item.id}`)} />
+                <MobileItemCard
+                  key={item.id}
+                  item={item}
+                  canViewCosts={canViewCosts}
+                  canViewProviderCost={canViewProviderCost}
+                  canEditFacebookSuperGeek={canEditItems}
+                  facebookSuperGeekBusy={facebookSuperGeekBusyId === item.id}
+                  onFacebookSuperGeekChange={updateFacebookSuperGeek}
+                  onOpen={() => router.push(`/shipping-v2/items/${item.id}`)}
+                />
               ))}
             </div>
           )) : (

@@ -10,6 +10,7 @@ type ReceptionVisibilityItem = Pick<
   | "marketplacePublicado"
   | "mercadoLibrePublicado"
   | "gruposFacebookPublicado"
+  | "facebookSuperGeek"
 >;
 
 function normalize(value?: string) {
@@ -41,6 +42,7 @@ export function shouldShowShippingV2ReceptionItem(item: ReceptionVisibilityItem)
     item.shopifyPublicado !== true ||
     item.marketplacePublicado !== true ||
     item.mercadoLibrePublicado !== true ||
-    item.gruposFacebookPublicado !== true
+    item.gruposFacebookPublicado !== true ||
+    item.facebookSuperGeek !== true
   );
 }

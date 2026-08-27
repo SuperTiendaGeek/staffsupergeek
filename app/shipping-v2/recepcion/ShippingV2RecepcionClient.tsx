@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, typ
 import {
   AlertTriangle,
   ArrowDownAZ,
+  BadgeCheck,
   Camera,
   Check,
   ClipboardCheck,
@@ -29,6 +30,7 @@ import {
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
 import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
+import { getShippingV2FacebookPublicationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import {
   SHIPPING_V2_ALL_FILTER,
   filterShippingV2Items,
@@ -139,7 +141,7 @@ const RECEPTION_COLUMNS: ReceptionColumn[] = [
   { key: "packing", label: "Packing", defaultWidth: 150, minWidth: 112, maxWidth: 220 },
   { key: "provider", label: "Proveedor", defaultWidth: 190, minWidth: 130, maxWidth: 260 },
   { key: "price", label: "Precio", defaultWidth: 104, minWidth: 88, maxWidth: 150, align: "right" },
-  { key: "checklist", label: "Checklist", defaultWidth: 282, minWidth: 268, maxWidth: 320, align: "center" },
+  { key: "checklist", label: "Checklist", defaultWidth: 316, minWidth: 304, maxWidth: 360, align: "center" },
   { key: "actions", label: "Acciones", defaultWidth: 210, minWidth: 190, maxWidth: 260 },
 ];
 
@@ -151,6 +153,7 @@ const CHECKLIST_CONTROLS: Array<{ action: ShippingV2RecepcionChecklistAction; la
   { action: "published-marketplace", label: "Marketplace", icon: Store },
   { action: "published-mercado-libre", label: "Mercado Libre", icon: Tags },
   { action: "published-facebook", label: "Grupos Facebook", icon: Megaphone },
+  { action: "facebook-super-geek", label: "Facebook Super Geek", icon: BadgeCheck },
 ];
 
 const receptionFilterKeys = [ALL, "pending-review", "reviewed-no-photos", "unpublished", "with-issue", "available"] as const;
@@ -297,7 +300,8 @@ function matchesReceptionFilter(item: ReceptionItem, filter: ReceptionFilterKey)
       item.shopifyPublicado !== true ||
       item.marketplacePublicado !== true ||
       item.mercadoLibrePublicado !== true ||
-      item.gruposFacebookPublicado !== true
+      item.gruposFacebookPublicado !== true ||
+      item.facebookSuperGeek !== true
     );
   }
   if (filter === "with-issue") return item.openNovedades.length > 0 || normalize(item.estado).includes("novedad") || hasBlockingReview(item);
@@ -386,10 +390,10 @@ function ChecklistToggle({
   return (
     <label
       className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-[11px] font-semibold leading-4 transition ${
-        disabled
-          ? "border-[#2A2A28] bg-[#121310] text-[#6E6F68]"
-          : checked
-            ? "border-[#D7FF4F]/50 bg-[#D7FF4F]/10 text-[#D7FF4F]"
+        checked
+          ? "border-[#D7FF4F]/50 bg-[#D7FF4F]/10 text-[#D7FF4F]"
+          : disabled
+            ? "border-[#2A2A28] bg-[#121310] text-[#6E6F68]"
             : "border-[#3A3A36] bg-[#171814] text-[#F5F5F5] hover:border-[#D7FF4F]/45"
       }`}
       title={help || label}
@@ -642,6 +646,9 @@ function ReceptionItemRow({
   const reviewHelp = reviewed
     ? `Revisado por ${item.revisadoPor?.trim() || "Sin registrar"} · ${formatDateTime(item.fechaRevision)}`
     : "Marcar como revisado física/técnicamente";
+  const facebookSuperGeekBlockReason = item.facebookSuperGeek === true
+    ? "Publicación ya activada; no se puede desactivar desde el sistema."
+    : getShippingV2FacebookPublicationBlockReason(item);
   const checklistChecked: Record<ShippingV2RecepcionChecklistAction, boolean> = {
     received,
     reviewed,
@@ -650,6 +657,7 @@ function ReceptionItemRow({
     "published-marketplace": item.marketplacePublicado === true,
     "published-mercado-libre": item.mercadoLibrePublicado === true,
     "published-facebook": item.gruposFacebookPublicado === true,
+    "facebook-super-geek": item.facebookSuperGeek === true,
   };
 
   function renderCell(column: ReceptionColumn) {
@@ -713,18 +721,32 @@ function ReceptionItemRow({
     if (column.key === "checklist") {
       return (
         <div className="flex min-w-0 items-center gap-1">
-          {CHECKLIST_CONTROLS.map(({ action, label, icon }) => (
-            <ChecklistToggle
-              key={action}
-              label={label}
-              icon={icon}
-              checked={checklistChecked[action]}
-              disabled={action !== "received" && !received}
-              busy={busyKey === `${item.id}:${action}`}
-              help={action === "received" ? receivedHelp : action === "reviewed" && received ? reviewHelp : received ? label : receivedGateHelp}
-              onChange={(value) => onChecklistChange(item, action, value)}
-            />
-          ))}
+          {CHECKLIST_CONTROLS.map(({ action, label, icon }) => {
+            const blockedByReceipt = action !== "received" && !received;
+            const blockedByFacebookText = action === "facebook-super-geek" && Boolean(facebookSuperGeekBlockReason);
+            const help = action === "received"
+              ? receivedHelp
+              : action === "reviewed" && received
+                ? reviewHelp
+                : blockedByReceipt
+                  ? receivedGateHelp
+                  : blockedByFacebookText
+                    ? facebookSuperGeekBlockReason
+                    : label;
+
+            return (
+              <ChecklistToggle
+                key={action}
+                label={label}
+                icon={icon}
+                checked={checklistChecked[action]}
+                disabled={blockedByReceipt || blockedByFacebookText}
+                busy={busyKey === `${item.id}:${action}`}
+                help={help}
+                onChange={(value) => onChecklistChange(item, action, value)}
+              />
+            );
+          })}
         </div>
       );
     }
