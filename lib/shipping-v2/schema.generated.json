@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-24T03:29:22.174Z",
+  "generatedAt": "2026-08-27T17:37:20.842Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -349,6 +349,11 @@
           "id": "fldUjb51VJs6fHuWr",
           "type": "checkbox",
           "checkbox": true
+        },
+        "GPU Integrada": {
+          "id": "fldSvmF0VImibFnO4",
+          "type": "singleLineText",
+          "kind": "singleLineText"
         },
         "AI Nombre del item": {
           "id": "fldWS0nuWqJ8stRFU",
