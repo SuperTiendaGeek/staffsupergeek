@@ -240,6 +240,10 @@ function DetallePanel({
   const [corrigiendo, setCorrigiendo] = useState(false);
   const [msg, setMsg]       = useState<string | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  // El cierre por "clic afuera" solo cuenta si el clic empieza Y termina en
+  // el fondo — evita que seleccionar texto en el panel lo cierre al soltar
+  // el mouse un pixel fuera de él.
+  const [mouseDownEnFondo, setMouseDownEnFondo] = useState(false);
 
   const ESTADOS_REINTENTABLES = new Set(["PENDIENTE", "RECIBIDA", "DEVUELTA"]);
   const lineasData = parsearLineasJson(factura.lineasJson);
@@ -286,7 +290,8 @@ function DetallePanel({
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-end bg-black/60"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onMouseDown={(e) => setMouseDownEnFondo(e.target === e.currentTarget)}
+      onClick={(e) => { if (mouseDownEnFondo && e.target === e.currentTarget) onClose(); }}
     >
       <div className="h-full w-full max-w-xl overflow-y-auto bg-[#1A1A16] border-l border-[#2A2A22] p-6 flex flex-col gap-5">
         {/* Header */}

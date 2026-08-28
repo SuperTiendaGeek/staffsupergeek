@@ -46,9 +46,21 @@ export function NuevoDocumentoModal({
   onClose: () => void;
 }) {
   const [tipo, setTipo] = useState<TipoNuevo>("factura");
+  // El cierre por "clic afuera" solo debe contar cuando el clic EMPIEZA y
+  // TERMINA en el fondo. Si solo se mira e.target en el click, seleccionar
+  // texto dentro de un input (doble clic o arrastrar para reemplazar un
+  // valor) y soltar el mouse un pixel más allá del borde del formulario —muy
+  // fácil en un modal largo y denso como este— dispara un click cuyo target
+  // ES el fondo, y el modal se cerraba solo en medio de la edición sin que
+  // nadie hiciera clic "afuera" a propósito. Ver también ClienteModal.tsx.
+  const [mouseDownEnFondo, setMouseDownEnFondo] = useState(false);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-3 md:p-4 overflow-y-auto" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-3 md:p-4 overflow-y-auto"
+      onMouseDown={(e) => setMouseDownEnFondo(e.target === e.currentTarget)}
+      onClick={(e) => { if (mouseDownEnFondo && e.target === e.currentTarget) onClose(); }}
+    >
       {/* Compactación del espacio vertical de los formularios embebidos + ocultar
           los enlaces de navegación ("Ver recibos/proformas/historial") que solo
           tienen sentido en la página completa, no dentro del modal. Se hace con

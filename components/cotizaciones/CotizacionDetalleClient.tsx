@@ -158,6 +158,9 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // El cierre por "clic afuera" solo cuenta si el clic empieza Y termina en
+  // el fondo — ver el mismo fix en components/facturacion/*.
+  const [mouseDownEnFondo, setMouseDownEnFondo] = useState(false);
   const whatsappUrl = useMemo(
     () =>
       buildWhatsAppUrl(
@@ -1686,7 +1689,8 @@ export function CotizacionDetalleClient({ initialCotizacion, proveedores, canSee
     {deleteOpen && (
       <div
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-        onClick={(e) => { if (e.target === e.currentTarget && !deleting) setDeleteOpen(false); }}
+        onMouseDown={(e) => setMouseDownEnFondo(e.target === e.currentTarget)}
+        onClick={(e) => { if (mouseDownEnFondo && e.target === e.currentTarget && !deleting) setDeleteOpen(false); }}
       >
         <div className="mx-4 w-full max-w-md rounded-2xl border border-[#3A3A36] bg-[#1E1F1C] p-6 shadow-2xl">
           <h3 className="mb-3 text-base font-bold text-[#F5F5F5]">¿Eliminar cotización?</h3>

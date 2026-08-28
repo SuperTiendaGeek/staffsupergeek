@@ -211,6 +211,11 @@ function DocumentoDetalleModal({
   const [cuerpo, setCuerpo]     = useState<DocumentoCuerpo | null>(null);
   const [cargando, setCargando] = useState(true);
   const [err, setErr]           = useState<string | null>(null);
+  // El cierre por "clic afuera" solo cuenta si el clic empieza Y termina en
+  // el fondo — si solo se mira dónde termina (onClick), seleccionar texto
+  // dentro del modal y soltar el mouse un pixel fuera del cuadro cierra la
+  // ventana sin que nadie haya hecho clic "afuera" a propósito.
+  const [mouseDownEnFondo, setMouseDownEnFondo] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -228,7 +233,11 @@ function DocumentoDetalleModal({
   }, [doc.tipo, doc.recordId]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onMouseDown={(e) => setMouseDownEnFondo(e.target === e.currentTarget)}
+      onClick={(e) => { if (mouseDownEnFondo && e.target === e.currentTarget) onClose(); }}
+    >
       <div className="w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-2xl border border-[#2A2A22] bg-[#1A1A16] shadow-2xl">
         {/* Encabezado */}
         <div className="sticky top-0 z-10 bg-[#1A1A16] border-b border-[#2A2A22] px-5 py-4 flex items-start justify-between gap-3">
