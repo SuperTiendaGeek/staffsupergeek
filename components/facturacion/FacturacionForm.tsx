@@ -42,6 +42,17 @@ const TARIFAS_IVA = [
   { codigo: "0", label: "No objeto",tarifa: 0  },
 ] as const;
 
+// Fallback cuando una línea trae un tarifaIva que no es uno de los 4 códigos
+// de arriba — pasa en líneas precargadas desde el gancho (?origen=) o desde
+// un reemplazo de nota de crédito (?reemplazoNC=), donde codigoPorcentaje
+// viene tal cual del backend y se castea con `as TarifaCodigo` sin validar
+// (ver los useEffect "solo al montar" más abajo). El <select> del formulario
+// solo ofrece estos 4 valores, así que nunca lo produce una edición manual.
+// Antes esto usaba `TARIFAS_IVA.find(...)!`, que crasheaba el render entero
+// (y con él, toda la app: no hay Error Boundary) apenas se calculaban los
+// totales de una línea así.
+const TARIFA_IVA_DESCONOCIDA = TARIFAS_IVA[3]; // "0" No objeto — trata la línea como sin IVA, nunca revienta el cálculo
+
 type TarifaCodigo = "4" | "2" | "1" | "0";
 
 type ModoCliente = "consumidor" | "buscar" | "nuevo";
@@ -218,7 +229,7 @@ function calcularTotalesIvaIncluido(lineas: LineaDetalle[]): TotalesFact {
     const desc  = round2(l.descuento);
     const montoLinea = round2(bruto - desc);
     totalDescuento += desc;
-    const tarifaInfo = TARIFAS_IVA.find((t) => t.codigo === l.tarifaIva)!;
+    const tarifaInfo = TARIFAS_IVA.find((t) => t.codigo === l.tarifaIva) ?? TARIFA_IVA_DESCONOCIDA;
     const { base, valorIva } = desglosarPrecioConIvaIncluido(montoLinea, tarifaInfo.tarifa);
     if (l.tarifaIva === "4")      { subtotal15      += base; iva15 += valorIva; }
     else if (l.tarifaIva === "2") subtotal0        += base;

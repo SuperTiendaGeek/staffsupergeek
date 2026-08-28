@@ -39,6 +39,11 @@ export function ClienteModal({ modo, clienteId, onClose, onGuardado }: {
   const [guardando, setGuardando] = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [existente, setExistente] = useState<ClienteResuelto | null>(null);
+  // Ver el mismo comentario en NuevoDocumentoModal.tsx: el cierre por "clic
+  // afuera" solo cuenta si el clic empieza Y termina en el fondo, para que
+  // seleccionar/arrastrar texto en un campo (nombre, cédula, dirección…) no
+  // cierre el modal cuando el mouse se suelta un pixel fuera del cuadro.
+  const [mouseDownEnFondo, setMouseDownEnFondo] = useState(false);
 
   useEffect(() => {
     if (modo !== "editar" || !clienteId) return;
@@ -75,7 +80,11 @@ export function ClienteModal({ modo, clienteId, onClose, onGuardado }: {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 overflow-y-auto" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 overflow-y-auto"
+      onMouseDown={(e) => setMouseDownEnFondo(e.target === e.currentTarget)}
+      onClick={(e) => { if (mouseDownEnFondo && e.target === e.currentTarget) onClose(); }}
+    >
       <div className="w-full max-w-lg my-8 rounded-2xl border border-[#2A2A22] bg-[#1A1A16] shadow-2xl">
         <div className="flex items-center justify-between border-b border-[#2A2A22] px-5 py-4">
           <h3 className="text-base font-bold text-[#D7FF4F]">{modo === "crear" ? "Nuevo cliente" : "Editar cliente"}</h3>

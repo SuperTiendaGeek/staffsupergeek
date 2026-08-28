@@ -138,6 +138,10 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [facturarOpen, setFacturarOpen] = useState(false);
+  // El cierre por "clic afuera" solo cuenta si el clic empieza Y termina en
+  // el fondo — evita que seleccionar texto en un campo cierre el panel al
+  // soltar el mouse un pixel fuera de él.
+  const [mouseDownEnFondo, setMouseDownEnFondo] = useState(false);
 
   const saldo = saldoPendiente(reserva.precio, reserva.totalAbonado);
   const completa = pagoCompleto(reserva.precio, reserva.totalAbonado);
@@ -176,7 +180,11 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
   const btn = "rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] transition";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-end bg-black/60" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-end bg-black/60"
+      onMouseDown={(e) => setMouseDownEnFondo(e.target === e.currentTarget)}
+      onClick={(e) => { if (mouseDownEnFondo && e.target === e.currentTarget) onClose(); }}
+    >
       <div className="h-full w-full max-w-lg overflow-y-auto bg-[#1A1A16] border-l border-[#2A2A22] p-6 flex flex-col gap-4">
         <div className="flex items-start justify-between">
           <div>
@@ -259,6 +267,10 @@ function FacturarReservaModal({ reserva, onClose, onFacturada }: { reserva: Deta
   const [emitiendo, setEmitiendo] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  // Mismo criterio que DetalleReserva: el clic afuera solo cierra si empezó
+  // Y terminó en el fondo, para no cerrar el modal por soltar una selección
+  // de texto fuera del cuadro.
+  const [mouseDownEnFondo, setMouseDownEnFondo] = useState(false);
 
   const cargarPre = useCallback(async (forma: string) => {
     setCargando(true); setErr(null);
@@ -290,7 +302,11 @@ function FacturarReservaModal({ reserva, onClose, onFacturada }: { reserva: Deta
   const tieneSaldo = (resumen?.saldo ?? 0) > 0;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={(e) => { if (e.target === e.currentTarget && !emitiendo) onClose(); }}>
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
+      onMouseDown={(e) => setMouseDownEnFondo(e.target === e.currentTarget)}
+      onClick={(e) => { if (mouseDownEnFondo && e.target === e.currentTarget && !emitiendo) onClose(); }}
+    >
       <div className="w-full max-w-md rounded-2xl border border-[#2A2A22] bg-[#1A1A16] p-6 flex flex-col gap-4">
         <div className="flex items-start justify-between">
           <div>

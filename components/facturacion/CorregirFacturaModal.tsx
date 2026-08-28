@@ -64,6 +64,10 @@ export function CorregirFacturaModal({ factura, onClose, onCorregida }: {
   const [error, setError]         = useState<string | null>(null);
   const [motivos, setMotivos]     = useState<MotivoSri[] | null>(null);
   const [exito, setExito]         = useState<string | null>(null);
+  // El cierre por "clic afuera" solo cuenta si el clic empieza Y termina en
+  // el fondo — evita que seleccionar texto en un campo y soltar el mouse un
+  // pixel fuera del cuadro cierre el modal a mitad de la corrección.
+  const [mouseDownEnFondo, setMouseDownEnFondo] = useState(false);
 
   const errId = identificacion.trim() ? validarIdentificacion(tipoId, identificacion.trim()) : null;
   // Dígito verificador que no cuadra (RUC/cédula real, p.ej. SALUDSÍ EC
@@ -118,7 +122,8 @@ export function CorregirFacturaModal({ factura, onClose, onCorregida }: {
   return (
     <div
       className="fixed inset-0 z-[60] flex items-start justify-center bg-black/60 p-4 overflow-y-auto"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onMouseDown={(e) => setMouseDownEnFondo(e.target === e.currentTarget)}
+      onClick={(e) => { if (mouseDownEnFondo && e.target === e.currentTarget) onClose(); }}
     >
       <div className="w-full max-w-2xl my-8 rounded-2xl border border-[#2A2A22] bg-[#1A1A16] shadow-2xl">
         <div className="flex items-center justify-between border-b border-[#2A2A22] px-5 py-4">
