@@ -7,7 +7,7 @@ type OperacionCotizacionWhatsapp = Pick<
 
 type OpcionCotizacionWhatsapp = Pick<
   OpcionDetalle,
-  "productoDescripcion" | "proveedorNombre" | "tiempoEstimado" | "precioVentaCliente" | "notaParaCliente"
+  "productoDescripcion" | "tiempoEstimado" | "precioVentaCliente" | "notaParaCliente"
 >;
 
 const CIERRE_COTIZACION = "Quedamos atentos a su confirmación para proceder con el pedido.";
@@ -34,9 +34,11 @@ export function normalizarTelefonoWhatsApp(telefono: string): string | null {
   return null;
 }
 
+// El proveedor es información interna (de dónde compramos) — el cliente no
+// debe verla en la cotización, así que nunca entra a este bloque aunque
+// venga en `opcion.proveedorNombre`.
 function construirBloqueOpcion(opcion: OpcionCotizacionWhatsapp, titulo?: string): string {
   const producto = textoLimpio(opcion.productoDescripcion) || "Artículo cotizado";
-  const proveedor = textoLimpio(opcion.proveedorNombre);
   const tiempo = textoLimpio(opcion.tiempoEstimado);
   const precio = formatearDinero(opcion.precioVentaCliente);
   const notaCliente = textoLimpio(opcion.notaParaCliente);
@@ -44,7 +46,6 @@ function construirBloqueOpcion(opcion: OpcionCotizacionWhatsapp, titulo?: string
   const lineas = [
     titulo,
     `*Artículo:* ${producto}`,
-    proveedor ? `*Proveedor:* ${proveedor}` : null,
     precio ? `*Precio:* $${precio}` : null,
     tiempo ? `*Entrega estimada:* ${tiempo}` : null,
     notaCliente ? `*Nota para el cliente:*\n${notaCliente}` : null,

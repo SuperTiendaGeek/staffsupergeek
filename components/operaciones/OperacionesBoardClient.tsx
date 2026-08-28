@@ -73,7 +73,7 @@ function moneyBadge(op: OperacionListado): { label: string; color: string } {
 
 function OperacionCard({ op }: { op: OperacionListado }) {
   const money = moneyBadge(op);
-  // Solo "Cotizado" espera respuesta del cliente — ver resolverAlertaGestion.
+  // Solo Requerimiento y Cotizado alertan — ver resolverAlertaGestion.
   const alerta = resolverAlertaGestion({ estado: op.estado, ultimaActualizacion: op.ultimaActualizacion });
   const alertaColor = alerta ? ALERTA_GESTION_COLOR[alerta.nivel] : null;
 

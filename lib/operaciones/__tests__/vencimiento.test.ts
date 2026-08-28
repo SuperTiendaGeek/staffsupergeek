@@ -32,10 +32,6 @@ assert(calcularDiasSinGestion(haceDias(15), AHORA) === 15, "hace 15 días → 15
 
 // ── resolverAlertaGestion ────────────────────────────────────────────────────
 assert(
-  resolverAlertaGestion({ estado: "Requerimiento", ultimaActualizacion: haceDias(30) }, AHORA) === null,
-  "Requerimiento nunca alerta: todavía no se envió nada"
-);
-assert(
   resolverAlertaGestion({ estado: "Aprobado", ultimaActualizacion: haceDias(30) }, AHORA) === null,
   "Aprobado nunca alerta: ya tuvo respuesta del cliente"
 );
@@ -44,19 +40,29 @@ assert(
   "Pedido nunca alerta"
 );
 assert(
+  resolverAlertaGestion({ estado: "Entregado", ultimaActualizacion: haceDias(30) }, AHORA) === null,
+  "Entregado nunca alerta"
+);
+assert(
   resolverAlertaGestion({ estado: "Rechazado", ultimaActualizacion: haceDias(30) }, AHORA) === null,
   "Rechazado nunca alerta"
 );
 
-const nivel = (dias: number) =>
-  resolverAlertaGestion({ estado: "Cotizado", ultimaActualizacion: haceDias(dias) }, AHORA)?.nivel;
+const nivel = (estado: string, dias: number) =>
+  resolverAlertaGestion({ estado, ultimaActualizacion: haceDias(dias) }, AHORA)?.nivel;
 
-assert(nivel(0) === "nueva", "Cotizado hace 0 días → nueva (verde)");
-assert(nivel(1) === "nueva", "Cotizado hace 1 día → nueva (verde)");
-assert(nivel(2) === "atencion", "Cotizado hace 2 días → atención (amarillo)");
-assert(nivel(5) === "atencion", "Cotizado hace 5 días → todavía atención (amarillo)");
-assert(nivel(6) === "urgente", "Cotizado hace 6 días → urgente (rojo)");
-assert(nivel(20) === "urgente", "Cotizado hace 20 días → urgente (rojo)");
+assert(nivel("Cotizado", 0) === "nueva", "Cotizado hace 0 días → nueva (verde)");
+assert(nivel("Cotizado", 1) === "nueva", "Cotizado hace 1 día → nueva (verde)");
+assert(nivel("Cotizado", 2) === "atencion", "Cotizado hace 2 días → atención (amarillo)");
+assert(nivel("Cotizado", 5) === "atencion", "Cotizado hace 5 días → todavía atención (amarillo)");
+assert(nivel("Cotizado", 6) === "urgente", "Cotizado hace 6 días → urgente (rojo)");
+assert(nivel("Cotizado", 20) === "urgente", "Cotizado hace 20 días → urgente (rojo)");
+
+// Requerimiento sigue las mismas franjas: un registro sin cotizar todavía
+// también es "algo que un empleado debe mover", solo que sin auto-rechazo.
+assert(nivel("Requerimiento", 0) === "nueva", "Requerimiento hace 0 días → nueva (verde)");
+assert(nivel("Requerimiento", 3) === "atencion", "Requerimiento hace 3 días → atención (amarillo)");
+assert(nivel("Requerimiento", 10) === "urgente", "Requerimiento hace 10 días → urgente (rojo)");
 
 // ── debeAutoRechazarse ───────────────────────────────────────────────────────
 assert(
@@ -78,6 +84,10 @@ assert(
 assert(
   debeAutoRechazarse({ estado: "Pedido", ultimaActualizacion: haceDias(30) }, AHORA) === false,
   "Pedido nunca se auto-rechaza — sería peligroso cancelar una compra ya en curso"
+);
+assert(
+  debeAutoRechazarse({ estado: "Requerimiento", ultimaActualizacion: haceDias(30) }, AHORA) === false,
+  "Requerimiento nunca se auto-rechaza — todavía no se le prometió nada al cliente, solo alerta visual"
 );
 
 // Reactivación: una cotización auto-rechazada y reactivada a mano resetea su

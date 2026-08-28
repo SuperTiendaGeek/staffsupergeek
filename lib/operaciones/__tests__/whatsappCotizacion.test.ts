@@ -44,7 +44,7 @@ const mensajeIndividual = construirMensajeOpcionCotizada({ operacion, opcion });
 assert(mensajeIndividual.includes("*Juan Mateo*"), "Incluye nombre del cliente");
 assert(mensajeIndividual.includes("*OP-2026-000065*"), "Incluye código de operación");
 assert(mensajeIndividual.includes("*Artículo:* M-Audio Fast Track Ultra"), "Incluye producto");
-assert(mensajeIndividual.includes("*Proveedor:* eBay"), "Incluye proveedor visible de la opción");
+assert(!mensajeIndividual.includes("eBay") && !mensajeIndividual.includes("Proveedor"), "NO incluye el proveedor: es información interna");
 assert(mensajeIndividual.includes("*Precio:* $180,00"), "Incluye precio al cliente");
 assert(mensajeIndividual.includes("*Entrega estimada:* 2 a 3 semanas"), "Incluye tiempo estimado");
 assert(mensajeIndividual.includes("OPEN BOX"), "Incluye nota para el cliente");
