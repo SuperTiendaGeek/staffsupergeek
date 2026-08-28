@@ -27,6 +27,21 @@ export type OperacionListado = {
   totalAbonado: number | null;
   saldoPendiente: number | null;
   tieneOrden: boolean;
+  /** Hay al menos una opción cargada, elegida o no (ver resolverEstadoCobro). */
+  tieneOpciones: boolean;
+  /**
+   * Fecha de creación del registro (ISO 8601), tomada de `createdTime` de
+   * Airtable — no hay un campo "Fecha" propio en "Operación Comercial".
+   */
+  fechaCreacion: string;
+  /**
+   * "Última Actualización" de Airtable (ISO 8601, lastModifiedTime — se
+   * resetea con cualquier cambio al registro). Es la referencia para "días
+   * sin gestión" (ver lib/operaciones/vencimiento.ts): a diferencia de la
+   * fecha de creación, se reinicia sola si alguien reactiva una cotización
+   * rechazada automáticamente, evitando que vuelva a rechazarse de inmediato.
+   */
+  ultimaActualizacion: string;
 };
 
 export type AirtableAttachment = {
@@ -139,6 +154,10 @@ export type ShippingItemResumen = {
 export type OperacionDetalle = {
   id: string;
   codigo: string;
+  /** Fecha de creación del registro (ISO 8601), ver `OperacionListado.fechaCreacion`. */
+  fechaCreacion: string;
+  /** Ver `OperacionListado.ultimaActualizacion`. */
+  ultimaActualizacion: string;
   productoSolicitado: string;
   descripcionRequerimiento: string;
   estado: string;

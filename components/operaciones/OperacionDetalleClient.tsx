@@ -3,9 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Wrench, DollarSign, Phone, Mail, Package, CheckCircle, Circle, XCircle, ExternalLink, Plus, Pencil, Star, StarOff, Trash2, AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Box, MessageCircle } from "lucide-react";
+import { ArrowLeft, Wrench, DollarSign, Phone, Mail, Package, CheckCircle, Circle, XCircle, ExternalLink, Plus, Pencil, Star, StarOff, Trash2, AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Box, MessageCircle, Calendar, Clock } from "lucide-react";
 import type { OperacionDetalle, OpcionDetalle, AbonoDetalle, AirtableAttachment } from "@/types/operaciones";
 import { ESTADOS_TABLERO, ESTADOS_OPERACION } from "@/types/operaciones";
+import { resolverAlertaGestion, type NivelAlertaGestion } from "@/lib/operaciones/vencimiento";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
 import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnificadaPanel";
 import { RegistrarAbonoModal } from "./RegistrarAbonoModal";
@@ -26,6 +27,13 @@ const ESTADO_COLOR: Record<string, string> = {
   Rechazado: "#FF5A4F",
 };
 
+// Mismo semáforo que el tablero (ver OperacionesBoardClient.tsx).
+const ALERTA_GESTION_COLOR: Record<NivelAlertaGestion, string> = {
+  nueva: "#D7FF4F",
+  atencion: "#F0C75E",
+  urgente: "#FF5A4F",
+};
+
 const ESTADO_OPCION_COLOR: Record<string, string> = {
   Disponible: "#78B7FF",
   "Ofrecida al cliente": "#D7FF4F",
@@ -37,6 +45,15 @@ const ESTADO_OPCION_COLOR: Record<string, string> = {
 function fmt(n: number | null): string {
   if (n === null) return "—";
   return n.toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// No hay campo "Fecha" propio en "Operación Comercial" — se deriva del
+// createdTime del registro de Airtable (ver OperacionDetalle.fechaCreacion).
+function formatFecha(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("es-EC", { day: "numeric", month: "long", year: "numeric" });
 }
 
 function thumbnailUrl(att: AirtableAttachment): string {
@@ -450,6 +467,11 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
   const [accionError, setAccionError] = useState("");
 
   const estadoColor = ESTADO_COLOR[operacion.estado] ?? "#8A8A80";
+  const alertaGestion = resolverAlertaGestion({
+    estado: operacion.estado,
+    ultimaActualizacion: operacion.ultimaActualizacion,
+  });
+  const alertaGestionColor = alertaGestion ? ALERTA_GESTION_COLOR[alertaGestion.nivel] : null;
   const whatsappTodasUrl = operacion.opciones.length > 0
     ? construirUrlWhatsApp(
         operacion.clienteTelefono,
@@ -534,6 +556,21 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
           {operacion.categoria && (
             <span className="rounded-full bg-[#3A3A36]/60 px-2 py-0.5 text-[10px] text-[#8A8A80]">
               {operacion.categoria}
+            </span>
+          )}
+          {operacion.fechaCreacion && (
+            <span className="inline-flex items-center gap-1 text-xs text-[#6B6B66]">
+              <Calendar size={11} />
+              {formatFecha(operacion.fechaCreacion)}
+            </span>
+          )}
+          {alertaGestion && alertaGestion.nivel !== "nueva" && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              style={{ background: `${alertaGestionColor}22`, color: alertaGestionColor ?? undefined }}
+            >
+              <Clock size={11} />
+              {alertaGestion.dias} {alertaGestion.dias === 1 ? "día" : "días"} sin gestión
             </span>
           )}
           <span

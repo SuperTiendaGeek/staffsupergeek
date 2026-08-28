@@ -2,11 +2,21 @@
 
 import Link from "next/link";
 import { useState, useMemo } from "react";
-import { Wrench, Plus } from "lucide-react";
+import { Wrench, Plus, Clock } from "lucide-react";
 import type { OperacionListado } from "@/types/operaciones";
 import { ESTADOS_TABLERO } from "@/types/operaciones";
 import { resolverEstadoCobro } from "@/lib/operaciones/cobro";
+import { resolverAlertaGestion, type NivelAlertaGestion } from "@/lib/operaciones/vencimiento";
 import { NuevaOperacionModal } from "./NuevaOperacionModal";
+
+// Mismos colores que ESTADO_COLOR (Requerimiento/Aprobado/Rechazado): el
+// contenedor de una cotización "Cotizado" avisa con el mismo código de
+// semáforo cuánto lleva esperando respuesta del cliente.
+const ALERTA_GESTION_COLOR: Record<NivelAlertaGestion, string> = {
+  nueva: "#D7FF4F",
+  atencion: "#F0C75E",
+  urgente: "#FF5A4F",
+};
 
 const ESTADO_COLOR: Record<string, string> = {
   Requerimiento: "#D7FF4F",
@@ -20,6 +30,15 @@ const ESTADO_COLOR: Record<string, string> = {
 const money = (n: number) =>
   n.toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// No hay campo "Fecha" propio en "Operación Comercial" — se deriva del
+// createdTime del registro de Airtable (ver OperacionListado.fechaCreacion).
+function formatFecha(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 // Presentación del estado de cobro. La DECISIÓN vive en lib/operaciones/cobro
 // (pura y testeada); acá solo se traduce a etiqueta y color.
 function moneyBadge(op: OperacionListado): { label: string; color: string } {
@@ -27,6 +46,7 @@ function moneyBadge(op: OperacionListado): { label: string; color: string } {
     estado: op.estado,
     totalCotizado: op.totalCotizado,
     totalAbonado: op.totalAbonado,
+    tieneOpciones: op.tieneOpciones,
   });
 
   switch (estado) {
@@ -38,6 +58,8 @@ function moneyBadge(op: OperacionListado): { label: string; color: string } {
       return { label: `Abonado $${money(monto)} · sin cotizar`, color: "#F0C75E" };
     case "sin-cotizar":
       return { label: "Sin cotizar", color: "#6B7280" };
+    case "opciones-sin-elegir":
+      return { label: "Opciones enviadas", color: "#78B7FF" };
     case "por-cobrar":
       return { label: `Por cobrar $${money(monto)}`, color: "#FF9F4F" };
     case "saldo-parcial":
@@ -51,10 +73,19 @@ function moneyBadge(op: OperacionListado): { label: string; color: string } {
 
 function OperacionCard({ op }: { op: OperacionListado }) {
   const money = moneyBadge(op);
+  // Solo "Cotizado" espera respuesta del cliente — ver resolverAlertaGestion.
+  const alerta = resolverAlertaGestion({ estado: op.estado, ultimaActualizacion: op.ultimaActualizacion });
+  const alertaColor = alerta ? ALERTA_GESTION_COLOR[alerta.nivel] : null;
+
   return (
     <Link
       href={`/operaciones/${op.id}`}
-      className="block rounded-lg border border-[#3A3A36] bg-[#1A1B18] p-3 flex flex-col gap-2 transition hover:border-[#5A5A56] hover:bg-[#202119]"
+      className="block rounded-lg border p-3 flex flex-col gap-2 transition hover:brightness-110"
+      style={
+        alertaColor
+          ? { borderColor: `${alertaColor}55`, background: `${alertaColor}0D` }
+          : { borderColor: "#3A3A36", background: "#1A1B18" }
+      }
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-[11px] font-mono text-[#6B6B66]">{op.codigo}</span>
@@ -66,6 +97,18 @@ function OperacionCard({ op }: { op: OperacionListado }) {
         {op.productoSolicitado}
       </p>
       <p className="text-xs text-[#8A8A80] truncate">{op.clienteNombre}</p>
+      {op.fechaCreacion && (
+        <p className="text-[11px] text-[#6B6B66]">{formatFecha(op.fechaCreacion)}</p>
+      )}
+      {alerta && alerta.nivel !== "nueva" && (
+        <span
+          className="inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+          style={{ background: `${alertaColor}22`, color: alertaColor ?? undefined }}
+        >
+          <Clock size={10} />
+          {alerta.dias} {alerta.dias === 1 ? "día" : "días"} sin gestión
+        </span>
+      )}
       <div className="flex items-center justify-between gap-2 pt-0.5">
         <span
           className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
