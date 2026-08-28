@@ -60,8 +60,10 @@ const LIST_FIELDS = [
   "Estado",
   "Cliente Nombre",
   "Total Abonado",
+  "Opciones",
   "Opción Elegida",
   "Orden de Reparación",
+  "Última Actualización",
 ];
 
 function getClient(): AirtableClient {
@@ -151,6 +153,9 @@ function mapOperacion(
     // (cliente con saldo a favor) — la UI decide cómo presentarlo.
     saldoPendiente: totalCotizado - totalAbonado,
     tieneOrden: linkedIds(f["Orden de Reparación"]).length > 0,
+    tieneOpciones: linkedIds(f["Opciones"]).length > 0,
+    fechaCreacion: record.createdTime ?? "",
+    ultimaActualizacion: firstString(f["Última Actualización"]) || record.createdTime || "",
   };
 }
 
@@ -408,6 +413,8 @@ export async function fetchOperacionDetalle(id: string): Promise<OperacionDetall
   return {
     id: opRecord.id,
     codigo: firstString(f["Código Operación"], opRecord.id),
+    fechaCreacion: opRecord.createdTime ?? "",
+    ultimaActualizacion: firstString(f["Última Actualización"]) || opRecord.createdTime || "",
     productoSolicitado: firstString(f["Producto Solicitado"]),
     descripcionRequerimiento: firstString(f["Descripción del Requerimiento"]),
     estado: firstString(f["Estado"], "Requerimiento"),

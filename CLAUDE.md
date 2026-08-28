@@ -26,6 +26,7 @@ Required in `.env.local`:
 | `RESEND_API_KEY` | Email sending via Resend |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob storage |
 | `AIRTABLE_ACCESS_LOG_TABLE` | Access log table (optional) |
+| `CRON_SECRET` | Bearer token Vercel Cron sends to `/api/cron/*` routes (e.g. `operaciones-depurar-cotizaciones`, see `vercel.json`); the route rejects any request without a matching `Authorization: Bearer` header |
 
 Shipping V2 reads its env vars at runtime; running `npm run shipping-v2:schema` uses `.env.local` to fetch the live Airtable schema and regenerates `lib/shipping-v2/schema.generated.ts`.
 

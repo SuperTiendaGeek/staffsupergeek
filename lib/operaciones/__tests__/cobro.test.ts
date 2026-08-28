@@ -22,7 +22,7 @@ function assert(cond: boolean, msg: string): void {
 
 function esperar(
   caso: string,
-  input: { estado: string; totalCotizado: number | null; totalAbonado: number | null },
+  input: { estado: string; totalCotizado: number | null; totalAbonado: number | null; tieneOpciones?: boolean },
   esperado: { estado: string; monto: number }
 ) {
   const r = resolverEstadoCobro(input);
@@ -89,11 +89,21 @@ esperar(
   { estado: "rechazada-con-abono", monto: 120 }
 );
 
-// OP-2026-000046 · Cotizado pero sin opción elegida todavía.
+// OP-2026-000046 · Cotizado pero sin opción elegida todavía y sin ninguna
+// opción cargada (caso raro: la operación pasó a "Cotizado" a mano).
 esperar(
-  "Cotizado sin opción elegida",
-  { estado: "Cotizado", totalCotizado: 0, totalAbonado: 0 },
+  "Cotizado sin ninguna opción cargada",
+  { estado: "Cotizado", totalCotizado: 0, totalAbonado: 0, tieneOpciones: false },
   { estado: "sin-cotizar", monto: 0 }
+);
+
+// OP-2026-000073 · Cotizado, con 2 opciones cargadas y enviadas al cliente,
+// pero "Opción Elegida" vacía (se fija recién al pasar a Aprobado). El chip
+// mentía "Sin cotizar" cuando en realidad sí se cotizó, solo falta elegir.
+esperar(
+  "Cotizado con opciones enviadas, sin elegir ninguna",
+  { estado: "Cotizado", totalCotizado: 0, totalAbonado: 0, tieneOpciones: true },
+  { estado: "opciones-sin-elegir", monto: 0 }
 );
 
 // Abonó antes de que se fijara el precio — el dinero no se puede perder de vista.

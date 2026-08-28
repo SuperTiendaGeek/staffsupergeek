@@ -15,7 +15,8 @@
 export type EstadoCobro =
   | "rechazada" // rechazada y sin dinero dentro
   | "rechazada-con-abono" // rechazada pero el cliente ya había abonado → devolver
-  | "sin-cotizar" // aún no hay opción elegida: no hay nada que cobrar
+  | "sin-cotizar" // no hay ninguna opción cargada todavía
+  | "opciones-sin-elegir" // hay opciones cotizadas y enviadas, pero ninguna elegida: aún no hay precio comprometido
   | "sin-cotizar-con-abono" // abonó antes de que se fijara el precio
   | "por-cobrar" // hay precio, no se ha abonado nada
   | "saldo-parcial" // abonó una parte
@@ -48,6 +49,14 @@ export function resolverEstadoCobro(input: {
   estado: string;
   totalCotizado: number | null;
   totalAbonado: number | null;
+  /**
+   * Hay al menos una opción cargada (cotizada/enviada al cliente), aunque
+   * ninguna esté marcada como "Opción Elegida" todavía. "Opción Elegida" solo
+   * se fija al pasar a Aprobado, así que una operación en "Cotizado" con
+   * opciones reales caía en "sin-cotizar" — mentía que no se había cotizado
+   * nada cuando sí se había enviado una propuesta.
+   */
+  tieneOpciones?: boolean;
 }): ResumenCobro {
   const cotizado = input.totalCotizado ?? 0;
   const abonado = input.totalAbonado ?? 0;
@@ -62,8 +71,9 @@ export function resolverEstadoCobro(input: {
   }
 
   if (cotizado <= EPS) {
-    return abonado > EPS
-      ? { estado: "sin-cotizar-con-abono", monto: abonado }
+    if (abonado > EPS) return { estado: "sin-cotizar-con-abono", monto: abonado };
+    return input.tieneOpciones
+      ? { estado: "opciones-sin-elegir", monto: 0 }
       : { estado: "sin-cotizar", monto: 0 };
   }
 
