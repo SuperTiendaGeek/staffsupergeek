@@ -37,6 +37,25 @@ assert(
   camposConfigurables("shipping-v2", "items").length > 0,
   "Shipping → Items sí tiene campos configurables (todos menos adminOnly/readOnly/hidden)"
 );
+
+// Los 5 valores de la tarjeta "Resumen rápido" (JSX a mano, no pasa por
+// SHIPPING_V2_ITEM_EDIT_FIELDS) también deben poder ocultarse — es el pedido
+// concreto: un técnico debe poder ver solo el precio de venta, nunca el
+// costo ni la ganancia.
+for (const key of ["costoTotalUnidad", "costoLogisticoAsignado", "costoTotalStock", "gananciaUnidad", "gananciaStock"]) {
+  assert(
+    camposConfigurables("shipping-v2", "items").some((c) => c.key === key),
+    `"${key}" (tarjeta Resumen rápido) está en el catálogo configurable`
+  );
+}
+// costoProveedor y precioVenta ya venían del catálogo editable — se
+// verifica que sigan ahí, porque son los otros dos campos de esa tarjeta.
+for (const key of ["costoProveedor", "precioVenta"]) {
+  assert(
+    camposConfigurables("shipping-v2", "items").some((c) => c.key === key),
+    `"${key}" (tarjeta Resumen rápido) sigue en el catálogo configurable`
+  );
+}
 assert(
   camposConfigurables("shipping-v2", "pagos").length === 0,
   "Una pantalla sin catálogo data-driven (Pagos) no tiene campos configurables todavía"
@@ -108,6 +127,15 @@ assert(redactado.nombre === "Laptop", "un campo NO listado para ocultar queda in
 
 const conKeyInexistente = ocultarCamposDeObjeto(item, ["campoQueNoExiste"]);
 assert(JSON.stringify(conKeyInexistente) === JSON.stringify(item), "una clave que no existe en el objeto no rompe nada");
+
+// "costoTotalStock"/"gananciaUnidad"/"gananciaStock" no son propiedades del
+// item (la pantalla los calcula al vuelo) — ocultarlos es un no-op seguro
+// sobre el objeto; la fila se oculta aparte, en la propia pantalla.
+const sinPropiedadPropia = ocultarCamposDeObjeto(item, ["costoTotalStock", "gananciaUnidad", "gananciaStock"]);
+assert(
+  JSON.stringify(sinPropiedadPropia) === JSON.stringify(item),
+  "ocultar una clave calculada (sin propiedad propia en el objeto) no rompe ni cambia nada"
+);
 
 if (fallos > 0) {
   console.error(`\n${fallos} assert(s) fallaron.`);
