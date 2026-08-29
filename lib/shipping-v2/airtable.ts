@@ -4941,8 +4941,20 @@ const CATEGORIAS_REPUESTO_STOCK = [
   "Accesorio",
 ] as const;
 
+function escapeAirtableSearchTerm(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 // Items montables, disponibles para venta y sin reservar — candidatos a
 // agregarse como repuesto de stock a una orden de reparación.
+//
+// El texto buscado se filtra EN LA FÓRMULA de Airtable, no en JS después de
+// traer un lote — antes traía como mucho maxRecords y recién ahí filtraba
+// por nombre/SKU, así que un item que calzaba con la búsqueda pero caía
+// fuera de ese lote (orden interno de Airtable, no alfabético) era invisible
+// aunque su SKU se escribiera exacto. Con cientos de repuestos disponibles
+// ya pasaba de sobra: RAM-000010 nunca aparecía aunque cumplía todas las
+// condiciones, simplemente porque Airtable la devolvía después del corte.
 export async function buscarShippingItemsRepuestoStockDisponibles(
   query?: string
 ): Promise<ShippingV2RepuestoStockResumen[]> {
@@ -4950,21 +4962,33 @@ export async function buscarShippingItemsRepuestoStockDisponibles(
   const categoriasOr = CATEGORIAS_REPUESTO_STOCK.map(
     (c) => `{${SHIPPING_V2_ITEM_FIELDS.categoria}}="${c}"`
   ).join(",");
-  const records = await listRecords(SHIPPING_V2_TABLES.items, {
-    maxRecords: 200,
-    filterByFormula: `AND(OR(${categoriasOr}), {${SHIPPING_V2_ITEM_FIELDS.disponibleVenta}}=1, {${SHIPPING_V2_ITEM_FIELDS.reservado}}=0)`,
-  });
 
-  let results = records.map(mapRepuestoStockResumen);
+  const condiciones = [
+    `OR(${categoriasOr})`,
+    `{${SHIPPING_V2_ITEM_FIELDS.disponibleVenta}}=1`,
+    `{${SHIPPING_V2_ITEM_FIELDS.reservado}}=0`,
+  ];
 
   const q = cleanString(query).toLowerCase();
   if (q) {
-    results = results.filter(
-      (item) => item.nombre.toLowerCase().includes(q) || item.sku.toLowerCase().includes(q)
+    const escaped = escapeAirtableSearchTerm(q);
+    condiciones.push(
+      `OR(SEARCH("${escaped}", LOWER({${SHIPPING_V2_ITEM_FIELDS.sku}}&"")), SEARCH("${escaped}", LOWER({${SHIPPING_V2_ITEM_FIELDS.nombre}}&"")))`
     );
   }
 
-  return results.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  const records = await listRecords(SHIPPING_V2_TABLES.items, {
+    // Sin texto de búsqueda es solo navegación libre — un tope razonable
+    // evita traer de golpe todo el inventario montable. Con texto, Airtable
+    // ya hizo el filtro exacto: no debería haber cientos de coincidencias
+    // para un SKU o nombre concretos, así que el tope sube de largo.
+    maxRecords: q ? 500 : 200,
+    filterByFormula: `AND(${condiciones.join(",")})`,
+    sortField: SHIPPING_V2_ITEM_FIELDS.nombre,
+    sortDirection: "asc",
+  });
+
+  return records.map(mapRepuestoStockResumen).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 }
 
 // Reserva un item de stock para una orden: Reservado=true, Disponible para
