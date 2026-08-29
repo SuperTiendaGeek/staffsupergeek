@@ -1579,6 +1579,11 @@ export function ShippingV2ItemDetailView({
   const canViewProviderCost = canViewCosts || permissions?.canViewProviderCost !== false;
   const canUseRecepcion = permissions?.canUseRecepcion !== false;
   const isProviderDetail = !canEditItems && canEditProviderItemFields;
+  // Personalización por usuario (Fase 2 de permisos, ver lib/permissions/campos.ts).
+  // La tarjeta "Resumen rápido" de abajo es JSX a mano (no pasa por
+  // DetailSection), así que cada fila se filtra a mano contra las mismas listas.
+  const verCampo = (key: string) => !camposOcultos.includes(key);
+  const campoSoloLectura = (key: string) => camposSoloLectura.includes(key);
   const hasAiNameSuggestion = Boolean(aiNameSuggestion && normalizeText(aiNameSuggestion) !== normalizeText(item.nombre) && aiNameSuggestion !== ignoredAiName);
 
   async function toggleFacebookSuperGeek(value: boolean) {
@@ -1767,33 +1772,47 @@ export function ShippingV2ItemDetailView({
           {canViewCosts ? <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
             <h2 className="text-sm font-semibold text-[#F5F5F5]">Resumen rápido</h2>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              <InlineEditableField
-                label={C.precioVentaFinal.label}
-                value={item.precioVenta}
-                type={C.precioVentaFinal.type}
-                displayValue={formatCurrency(item.precioVenta)}
-                className="rounded-xl border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-[#151515] transition"
-                labelClassName="text-[11px] font-bold uppercase tracking-normal text-[#151515]/70"
-                valueClassName="mt-1 min-h-5 break-words text-lg font-semibold tabular-nums text-[#151515]"
-                readOnly={!canEditItems}
-                onSave={(value) => saveField(C.precioVentaFinal.field, value)}
-              />
-              <DetailMetric label="Costo total unitario" value={formatCurrency(item.costoTotalUnidad)} />
-              <InlineEditableField
-                label={C.costoProveedor.label}
-                value={item.costoProveedor}
-                type={C.costoProveedor.type}
-                displayValue={formatCurrency(item.costoProveedor)}
-                className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2 transition"
-                labelClassName="text-[11px] font-bold uppercase tracking-normal text-[#8F908A]"
-                valueClassName="mt-1 min-h-5 break-words text-lg font-semibold tabular-nums text-[#F5F5F5]"
-                readOnly={!canEditItems}
-                onSave={(value) => saveField(C.costoProveedor.field, value)}
-              />
-              <DetailMetric label="Costo logístico" value={formatCurrency(item.costoLogisticoAsignado)} />
-              <DetailMetric label="Costo total del stock" value={formatCurrency(costoStock)} />
-              <DetailMetric label="Ganancia por unidad" value={formatCurrency(gananciaUnidad)} tone={gananciaUnidad !== null && gananciaUnidad < 0 ? "orange" : "lime"} />
-              <DetailMetric label="Ganancia total del stock" value={formatCurrency(gananciaStock)} tone={gananciaStock !== null && gananciaStock < 0 ? "orange" : "lime"} />
+              {verCampo("precioVenta") && (
+                <InlineEditableField
+                  label={C.precioVentaFinal.label}
+                  value={item.precioVenta}
+                  type={C.precioVentaFinal.type}
+                  displayValue={formatCurrency(item.precioVenta)}
+                  className="rounded-xl border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-[#151515] transition"
+                  labelClassName="text-[11px] font-bold uppercase tracking-normal text-[#151515]/70"
+                  valueClassName="mt-1 min-h-5 break-words text-lg font-semibold tabular-nums text-[#151515]"
+                  readOnly={!canEditItems || campoSoloLectura("precioVenta")}
+                  onSave={(value) => saveField(C.precioVentaFinal.field, value)}
+                />
+              )}
+              {verCampo("costoTotalUnidad") && (
+                <DetailMetric label="Costo total unitario" value={formatCurrency(item.costoTotalUnidad)} />
+              )}
+              {verCampo("costoProveedor") && (
+                <InlineEditableField
+                  label={C.costoProveedor.label}
+                  value={item.costoProveedor}
+                  type={C.costoProveedor.type}
+                  displayValue={formatCurrency(item.costoProveedor)}
+                  className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2 transition"
+                  labelClassName="text-[11px] font-bold uppercase tracking-normal text-[#8F908A]"
+                  valueClassName="mt-1 min-h-5 break-words text-lg font-semibold tabular-nums text-[#F5F5F5]"
+                  readOnly={!canEditItems || campoSoloLectura("costoProveedor")}
+                  onSave={(value) => saveField(C.costoProveedor.field, value)}
+                />
+              )}
+              {verCampo("costoLogisticoAsignado") && (
+                <DetailMetric label="Costo logístico" value={formatCurrency(item.costoLogisticoAsignado)} />
+              )}
+              {verCampo("costoTotalStock") && (
+                <DetailMetric label="Costo total del stock" value={formatCurrency(costoStock)} />
+              )}
+              {verCampo("gananciaUnidad") && (
+                <DetailMetric label="Ganancia por unidad" value={formatCurrency(gananciaUnidad)} tone={gananciaUnidad !== null && gananciaUnidad < 0 ? "orange" : "lime"} />
+              )}
+              {verCampo("gananciaStock") && (
+                <DetailMetric label="Ganancia total del stock" value={formatCurrency(gananciaStock)} tone={gananciaStock !== null && gananciaStock < 0 ? "orange" : "lime"} />
+              )}
             </div>
           </article> : null}
 

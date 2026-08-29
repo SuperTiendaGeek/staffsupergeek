@@ -29,9 +29,32 @@ const CAMPO_VACIO: CamposRestringidos = {};
 // El catálogo de "items" sale de la config existente de la ficha del item —
 // una sola fuente de verdad, para que agregar/quitar un campo ahí no
 // requiera acordarse de duplicar el cambio aquí.
-const CAMPOS_ITEMS_CONFIGURABLES: readonly CampoDef[] = (Object.values(SHIPPING_V2_ITEM_EDIT_FIELDS) as ShippingV2ItemEditFieldConfig[])
+const CAMPOS_ITEMS_EDITABLES: readonly CampoDef[] = (Object.values(SHIPPING_V2_ITEM_EDIT_FIELDS) as ShippingV2ItemEditFieldConfig[])
   .filter((f) => (f.category === "normal" || f.category === "special") && !f.adminOnly)
   .map((f) => ({ key: f.key, label: f.label }));
+
+// La tarjeta "Resumen rápido" del item (costo/ganancia) es JSX a mano, no
+// pasa por SHIPPING_V2_ITEM_EDIT_FIELDS — de ahí que estas claves no tengan
+// config de edición propia. "costoTotalUnidad" y "costoLogisticoAsignado" SÍ
+// son propiedades reales de ShippingV2Item (ocultarCamposDeObjeto las
+// redacta solas); "costoTotalStock", "gananciaUnidad" y "gananciaStock" son
+// valores que la pantalla calcula al vuelo a partir de esas dos más
+// costoProveedor/precioVenta/cantidad — no existen como propiedad del item,
+// así que "oculto" en ellas solo controla si la FILA se dibuja, no redacta
+// ningún dato (no hay ningún dato propio que redactar: ocultando sus
+// insumos ya cae en "—" de todas formas).
+const CAMPOS_ITEMS_RESUMEN_COSTOS: readonly CampoDef[] = [
+  { key: "costoTotalUnidad", label: "Costo total unitario" },
+  { key: "costoLogisticoAsignado", label: "Costo logístico" },
+  { key: "costoTotalStock", label: "Costo total del stock" },
+  { key: "gananciaUnidad", label: "Ganancia por unidad" },
+  { key: "gananciaStock", label: "Ganancia total del stock" },
+];
+
+const CAMPOS_ITEMS_CONFIGURABLES: readonly CampoDef[] = [
+  ...CAMPOS_ITEMS_EDITABLES,
+  ...CAMPOS_ITEMS_RESUMEN_COSTOS,
+];
 
 // Solo "items" tiene hoy un renderizado de campos genérico y data-driven
 // (DetailSection en ShippingV2ItemsClient.tsx). Recepción/Packings/Pagos son
