@@ -1,5 +1,6 @@
 import { jwtVerify, SignJWT, type JWTPayload } from "jose";
 import type { PantallasRestringidas } from "@/lib/permissions/pantallas";
+import type { CamposRestringidos } from "@/lib/permissions/campos";
 
 export const SESSION_COOKIE_NAME = "sg_staff_session";
 export const TWO_FACTOR_PENDING_COOKIE_NAME = "sg_staff_2fa_pending";
@@ -18,6 +19,8 @@ export type SessionUser = {
    * en el siguiente login, no al instante.
    */
   pantallasRestringidas: PantallasRestringidas;
+  /** Campos ocultos/solo-lectura por pantalla (ver lib/permissions/campos.ts). Mismo criterio de horneado que pantallasRestringidas. */
+  camposRestringidos: CamposRestringidos;
 };
 
 export type StaffSession = {
@@ -40,6 +43,7 @@ type StaffJwtPayload = JWTPayload & {
   // Opcional: los tokens emitidos antes de este campo no lo traen. Se trata
   // como "sin restricciones" en vez de invalidar sesiones ya activas.
   pantallasRestringidas?: PantallasRestringidas;
+  camposRestringidos?: CamposRestringidos;
 };
 
 type PendingTwoFactorJwtPayload = StaffJwtPayload & {
@@ -70,6 +74,30 @@ function normalizePantallasRestringidasFromPayload(value: unknown): PantallasRes
   return result;
 }
 
+function esEstadoCampoValido(value: unknown): value is "oculto" | "solo-lectura" {
+  return value === "oculto" || value === "solo-lectura";
+}
+
+/** Mismo criterio defensivo que normalizePantallasRestringidasFromPayload, un nivel más anidado. */
+function normalizeCamposRestringidosFromPayload(value: unknown): CamposRestringidos {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: CamposRestringidos = {};
+  for (const [modulo, pantallas] of Object.entries(value as Record<string, unknown>)) {
+    if (!pantallas || typeof pantallas !== "object" || Array.isArray(pantallas)) continue;
+    const pantallasLimpias: Record<string, Record<string, "oculto" | "solo-lectura">> = {};
+    for (const [pantalla, campos] of Object.entries(pantallas as Record<string, unknown>)) {
+      if (!campos || typeof campos !== "object" || Array.isArray(campos)) continue;
+      const camposLimpios: Record<string, "oculto" | "solo-lectura"> = {};
+      for (const [campo, estado] of Object.entries(campos as Record<string, unknown>)) {
+        if (esEstadoCampoValido(estado)) camposLimpios[campo] = estado;
+      }
+      if (Object.keys(camposLimpios).length > 0) pantallasLimpias[pantalla] = camposLimpios;
+    }
+    if (Object.keys(pantallasLimpias).length > 0) result[modulo] = pantallasLimpias;
+  }
+  return result;
+}
+
 function parseSessionPayload(payload: JWTPayload): StaffSession | null {
   const staffPayload = payload as StaffJwtPayload;
 
@@ -91,7 +119,8 @@ function parseSessionPayload(payload: JWTPayload): StaffSession | null {
       email: staffPayload.email,
       rol: staffPayload.rol,
       appsPermitidas: staffPayload.appsPermitidas,
-      pantallasRestringidas: normalizePantallasRestringidasFromPayload(staffPayload.pantallasRestringidas)
+      pantallasRestringidas: normalizePantallasRestringidasFromPayload(staffPayload.pantallasRestringidas),
+      camposRestringidos: normalizeCamposRestringidosFromPayload(staffPayload.camposRestringidos)
     },
     expiresAt: new Date(staffPayload.exp * 1000).toISOString()
   };
@@ -119,7 +148,8 @@ function parsePendingTwoFactorPayload(payload: JWTPayload): PendingTwoFactorSess
       email: pendingPayload.email,
       rol: pendingPayload.rol,
       appsPermitidas: pendingPayload.appsPermitidas,
-      pantallasRestringidas: normalizePantallasRestringidasFromPayload(pendingPayload.pantallasRestringidas)
+      pantallasRestringidas: normalizePantallasRestringidasFromPayload(pendingPayload.pantallasRestringidas),
+      camposRestringidos: normalizeCamposRestringidosFromPayload(pendingPayload.camposRestringidos)
     },
     twoFactorCodeRecordId: pendingPayload.twoFactorCodeRecordId,
     expiresAt: new Date(pendingPayload.exp * 1000).toISOString()
@@ -167,7 +197,8 @@ export async function createSessionToken(user: SessionUser) {
     email: user.email,
     rol: user.rol,
     appsPermitidas: user.appsPermitidas,
-    pantallasRestringidas: user.pantallasRestringidas
+    pantallasRestringidas: user.pantallasRestringidas,
+    camposRestringidos: user.camposRestringidos
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -183,6 +214,7 @@ export async function createTwoFactorPendingToken(input: SessionUser & { twoFact
     rol: input.rol,
     appsPermitidas: input.appsPermitidas,
     pantallasRestringidas: input.pantallasRestringidas,
+    camposRestringidos: input.camposRestringidos,
     twoFactorCodeRecordId: input.twoFactorCodeRecordId
   })
     .setProtectedHeader({ alg: "HS256" })

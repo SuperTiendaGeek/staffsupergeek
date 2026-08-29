@@ -6,6 +6,11 @@ import {
   serializePantallasRestringidas,
   type PantallasRestringidas,
 } from "@/lib/permissions/pantallas";
+import {
+  parseCamposRestringidos,
+  serializeCamposRestringidos,
+  type CamposRestringidos,
+} from "@/lib/permissions/campos";
 
 export type AirtableUser = {
   recordId: string;
@@ -20,6 +25,7 @@ export type AirtableUser = {
   appsPermitidas: string[];
   requiere2FA: boolean;
   pantallasRestringidas: PantallasRestringidas;
+  camposRestringidos: CamposRestringidos;
 };
 
 type AirtableRecord<TFields> = {
@@ -47,6 +53,7 @@ type AirtableUserFields = {
   "Fecha Ingreso"?: string;
   "Último Login"?: string;
   "Pantallas Restringidas"?: string;
+  "Campos Restringidos"?: string;
 };
 
 function getRequiredEnv(name: "AIRTABLE_API_KEY" | "AIRTABLE_BASE_ID" | "AIRTABLE_USERS_TABLE") {
@@ -146,7 +153,8 @@ function mapAirtableUser(record: AirtableRecord<AirtableUserFields>): AirtableUs
     ultimoLogin: fields["Último Login"],
     appsPermitidas: normalizeAppsPermitidas(fields["Apps Permitidas"]),
     requiere2FA: fields["Requiere 2FA"] === true,
-    pantallasRestringidas: parsePantallasRestringidas(fields["Pantallas Restringidas"])
+    pantallasRestringidas: parsePantallasRestringidas(fields["Pantallas Restringidas"]),
+    camposRestringidos: parseCamposRestringidos(fields["Campos Restringidos"])
   };
 }
 
@@ -168,7 +176,8 @@ function mapPortalUser(record: AirtableRecord<AirtableUserFields>): PortalUser |
     ultimoLogin: fields["Último Login"],
     appsPermitidas: normalizeAppsPermitidas(fields["Apps Permitidas"]),
     requiere2FA: fields["Requiere 2FA"] === true,
-    pantallasRestringidas: parsePantallasRestringidas(fields["Pantallas Restringidas"])
+    pantallasRestringidas: parsePantallasRestringidas(fields["Pantallas Restringidas"]),
+    camposRestringidos: parseCamposRestringidos(fields["Campos Restringidos"])
   };
 }
 
@@ -433,6 +442,38 @@ export async function updatePortalUserPantallasRestringidas(recordId: string, va
     });
 
     throw new Error(`Airtable portal user pantallas restringidas update failed with status ${response.status}`);
+  }
+
+  const record = await parseAirtableJson<AirtableRecord<AirtableUserFields>>(response);
+  const user = mapPortalUser(record);
+
+  if (!user) {
+    throw new Error("Airtable returned an invalid portal user record");
+  }
+
+  return user;
+}
+
+export async function updatePortalUserCamposRestringidos(recordId: string, value: CamposRestringidos) {
+  const response = await fetch(getUsersTableUrl(recordId), {
+    method: "PATCH",
+    headers: getAirtableHeaders(),
+    body: JSON.stringify({
+      fields: {
+        "Campos Restringidos": serializeCamposRestringidos(value)
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+
+    logAirtableFailure("Portal user campos restringidos update failed", {
+      status: response.status,
+      responseText
+    });
+
+    throw new Error(`Airtable portal user campos restringidos update failed with status ${response.status}`);
   }
 
   const record = await parseAirtableJson<AirtableRecord<AirtableUserFields>>(response);

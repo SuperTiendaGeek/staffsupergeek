@@ -36,7 +36,8 @@ export async function authenticateWithPassword(email: string, password: string):
       email: user.email,
       rol: user.rol,
       appsPermitidas: user.appsPermitidas,
-      pantallasRestringidas: user.pantallasRestringidas
+      pantallasRestringidas: user.pantallasRestringidas,
+      camposRestringidos: user.camposRestringidos
     }
   };
 }

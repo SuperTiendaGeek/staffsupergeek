@@ -90,8 +90,21 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS_BY_FIELD = Object.fromEntries(
   Object.values(SHIPPING_V2_ITEM_EDIT_FIELDS).map((config) => [config.field, config])
 ) as Record<string, ShippingV2ItemEditFieldConfig>;
 
+// Por config.key (el nombre que usa ShippingV2ItemWriteInput/ShippingV2Item,
+// p.ej. "marca", "costoProveedor") — no confundir con
+// SHIPPING_V2_ITEM_EDIT_FIELDS_BY_FIELD, que indexa por el nombre del campo
+// en Airtable. Lo usa el candado de "Campos Restringidos" (Fase 2 de
+// permisos, ver lib/permissions/campos.ts).
+export const SHIPPING_V2_ITEM_EDIT_FIELDS_BY_KEY = Object.fromEntries(
+  Object.values(SHIPPING_V2_ITEM_EDIT_FIELDS).map((config) => [config.key, config])
+) as Record<string, ShippingV2ItemEditFieldConfig>;
+
 export function getShippingV2ItemEditField(field: string) {
   return SHIPPING_V2_ITEM_EDIT_FIELDS_BY_FIELD[field] ?? null;
+}
+
+export function getShippingV2ItemEditFieldByKey(key: string) {
+  return SHIPPING_V2_ITEM_EDIT_FIELDS_BY_KEY[key] ?? null;
 }
 
 export function isShippingV2ItemEditableField(field: string) {
