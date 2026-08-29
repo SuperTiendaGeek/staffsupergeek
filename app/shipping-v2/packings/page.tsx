@@ -1,6 +1,7 @@
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2Packings, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
+import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import type { ShippingV2AccessPermissions, ShippingV2Packing, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2PackingsClient } from "./ShippingV2PackingsClient";
 
@@ -12,6 +13,9 @@ export default async function ShippingV2PackingsPage() {
   let permissions: ShippingV2AccessPermissions | null = null;
   let providerName = "";
   let error = "";
+
+  const sessionForGuard = await getSessionFromCookie();
+  requirePantallaVisible(sessionForGuard?.user.pantallasRestringidas ?? {}, "shipping-v2", "packings");
 
   try {
     const session = await getSessionFromCookie();

@@ -1,6 +1,11 @@
 import "server-only";
 
 import type { PortalUser, PortalUserInput } from "@/types/admin-users";
+import {
+  parsePantallasRestringidas,
+  serializePantallasRestringidas,
+  type PantallasRestringidas,
+} from "@/lib/permissions/pantallas";
 
 export type AirtableUser = {
   recordId: string;
@@ -14,6 +19,7 @@ export type AirtableUser = {
   ultimoLogin?: string;
   appsPermitidas: string[];
   requiere2FA: boolean;
+  pantallasRestringidas: PantallasRestringidas;
 };
 
 type AirtableRecord<TFields> = {
@@ -40,6 +46,7 @@ type AirtableUserFields = {
   "Fecha de ingreso"?: string;
   "Fecha Ingreso"?: string;
   "Último Login"?: string;
+  "Pantallas Restringidas"?: string;
 };
 
 function getRequiredEnv(name: "AIRTABLE_API_KEY" | "AIRTABLE_BASE_ID" | "AIRTABLE_USERS_TABLE") {
@@ -138,7 +145,8 @@ function mapAirtableUser(record: AirtableRecord<AirtableUserFields>): AirtableUs
     activoDesde: fields["Activo desde"] || fields["Fecha de ingreso"] || fields["Fecha Ingreso"] || record.createdTime,
     ultimoLogin: fields["Último Login"],
     appsPermitidas: normalizeAppsPermitidas(fields["Apps Permitidas"]),
-    requiere2FA: fields["Requiere 2FA"] === true
+    requiere2FA: fields["Requiere 2FA"] === true,
+    pantallasRestringidas: parsePantallasRestringidas(fields["Pantallas Restringidas"])
   };
 }
 
@@ -159,7 +167,8 @@ function mapPortalUser(record: AirtableRecord<AirtableUserFields>): PortalUser |
     activoDesde: fields["Activo desde"] || fields["Fecha de ingreso"] || fields["Fecha Ingreso"] || record.createdTime,
     ultimoLogin: fields["Último Login"],
     appsPermitidas: normalizeAppsPermitidas(fields["Apps Permitidas"]),
-    requiere2FA: fields["Requiere 2FA"] === true
+    requiere2FA: fields["Requiere 2FA"] === true,
+    pantallasRestringidas: parsePantallasRestringidas(fields["Pantallas Restringidas"])
   };
 }
 
@@ -392,6 +401,38 @@ export async function updatePortalUserStatus(recordId: string, activo: boolean) 
     });
 
     throw new Error(`Airtable portal user status update failed with status ${response.status}`);
+  }
+
+  const record = await parseAirtableJson<AirtableRecord<AirtableUserFields>>(response);
+  const user = mapPortalUser(record);
+
+  if (!user) {
+    throw new Error("Airtable returned an invalid portal user record");
+  }
+
+  return user;
+}
+
+export async function updatePortalUserPantallasRestringidas(recordId: string, value: PantallasRestringidas) {
+  const response = await fetch(getUsersTableUrl(recordId), {
+    method: "PATCH",
+    headers: getAirtableHeaders(),
+    body: JSON.stringify({
+      fields: {
+        "Pantallas Restringidas": serializePantallasRestringidas(value)
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const responseText = await response.text();
+
+    logAirtableFailure("Portal user pantallas restringidas update failed", {
+      status: response.status,
+      responseText
+    });
+
+    throw new Error(`Airtable portal user pantallas restringidas update failed with status ${response.status}`);
   }
 
   const record = await parseAirtableJson<AirtableRecord<AirtableUserFields>>(response);

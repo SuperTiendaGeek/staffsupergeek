@@ -1,4 +1,5 @@
 import { jwtVerify, SignJWT, type JWTPayload } from "jose";
+import type { PantallasRestringidas } from "@/lib/permissions/pantallas";
 
 export const SESSION_COOKIE_NAME = "sg_staff_session";
 export const TWO_FACTOR_PENDING_COOKIE_NAME = "sg_staff_2fa_pending";
@@ -11,6 +12,12 @@ export type SessionUser = {
   email: string;
   rol: string;
   appsPermitidas: string[];
+  /**
+   * Pantallas ocultas por módulo (ver lib/permissions/pantallas.ts). Igual
+   * que appsPermitidas, viaja horneada en el JWT: un cambio del admin aplica
+   * en el siguiente login, no al instante.
+   */
+  pantallasRestringidas: PantallasRestringidas;
 };
 
 export type StaffSession = {
@@ -30,6 +37,9 @@ type StaffJwtPayload = JWTPayload & {
   email: string;
   rol: string;
   appsPermitidas: string[];
+  // Opcional: los tokens emitidos antes de este campo no lo traen. Se trata
+  // como "sin restricciones" en vez de invalidar sesiones ya activas.
+  pantallasRestringidas?: PantallasRestringidas;
 };
 
 type PendingTwoFactorJwtPayload = StaffJwtPayload & {
@@ -48,6 +58,16 @@ function getSecretKey() {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+/** Defensivo: un JWT viejo (sin el campo) o corrupto cae a "sin restricciones", nunca rompe la sesión. */
+function normalizePantallasRestringidasFromPayload(value: unknown): PantallasRestringidas {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: PantallasRestringidas = {};
+  for (const [modulo, pantallas] of Object.entries(value as Record<string, unknown>)) {
+    if (isStringArray(pantallas)) result[modulo] = pantallas;
+  }
+  return result;
 }
 
 function parseSessionPayload(payload: JWTPayload): StaffSession | null {
@@ -70,7 +90,8 @@ function parseSessionPayload(payload: JWTPayload): StaffSession | null {
       nombre: staffPayload.nombre,
       email: staffPayload.email,
       rol: staffPayload.rol,
-      appsPermitidas: staffPayload.appsPermitidas
+      appsPermitidas: staffPayload.appsPermitidas,
+      pantallasRestringidas: normalizePantallasRestringidasFromPayload(staffPayload.pantallasRestringidas)
     },
     expiresAt: new Date(staffPayload.exp * 1000).toISOString()
   };
@@ -97,7 +118,8 @@ function parsePendingTwoFactorPayload(payload: JWTPayload): PendingTwoFactorSess
       nombre: pendingPayload.nombre,
       email: pendingPayload.email,
       rol: pendingPayload.rol,
-      appsPermitidas: pendingPayload.appsPermitidas
+      appsPermitidas: pendingPayload.appsPermitidas,
+      pantallasRestringidas: normalizePantallasRestringidasFromPayload(pendingPayload.pantallasRestringidas)
     },
     twoFactorCodeRecordId: pendingPayload.twoFactorCodeRecordId,
     expiresAt: new Date(pendingPayload.exp * 1000).toISOString()
@@ -144,7 +166,8 @@ export async function createSessionToken(user: SessionUser) {
     nombre: user.nombre,
     email: user.email,
     rol: user.rol,
-    appsPermitidas: user.appsPermitidas
+    appsPermitidas: user.appsPermitidas,
+    pantallasRestringidas: user.pantallasRestringidas
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -159,6 +182,7 @@ export async function createTwoFactorPendingToken(input: SessionUser & { twoFact
     email: input.email,
     rol: input.rol,
     appsPermitidas: input.appsPermitidas,
+    pantallasRestringidas: input.pantallasRestringidas,
     twoFactorCodeRecordId: input.twoFactorCodeRecordId
   })
     .setProtectedHeader({ alg: "HS256" })

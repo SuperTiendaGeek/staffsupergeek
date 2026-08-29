@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getShippingV2AccessContextForSession, getShippingV2ItemById, getShippingV2TechnicalOptionSets } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
+import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import { buildFichaVentaData } from "@/lib/shipping-v2/ficha-venta-data";
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
 import { ShippingV2PrintControls } from "./ShippingV2PrintControls";
@@ -21,6 +22,7 @@ function clean(value?: string | number | null) {
 export default async function ShippingV2FichaTecnicaPrintPage({ params }: Props) {
   const { id } = await params;
   const session = await getSessionFromCookie();
+  requirePantallaVisible(session?.user.pantallasRestringidas ?? {}, "shipping-v2", "recepcion");
   const access = await getShippingV2AccessContextForSession(session);
   if (!access.permissions.canUseRecepcion) {
     redirect("/shipping-v2/packings");

@@ -1,3 +1,5 @@
+import type { PantallasRestringidas } from "@/lib/permissions/pantallas";
+
 export type PortalUser = {
   id: string;
   nombre: string;
@@ -9,6 +11,8 @@ export type PortalUser = {
   activoDesde?: string;
   ultimoLogin?: string;
   requiere2FA: boolean;
+  /** Pantallas ocultas por módulo — ver lib/permissions/pantallas.ts. */
+  pantallasRestringidas: PantallasRestringidas;
 };
 
 export type PortalUserInput = {

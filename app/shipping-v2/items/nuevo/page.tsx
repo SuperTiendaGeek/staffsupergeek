@@ -5,6 +5,7 @@ import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSyste
 import { Button } from "@/components/ui/button";
 import { getShippingV2AccessContextForSession, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
+import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import type { ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2NewItemForm } from "./ShippingV2NewItemForm";
 
@@ -14,6 +15,7 @@ export default async function ShippingV2NewItemPage() {
   let proveedores: ShippingV2Proveedor[] = [];
   let error = "";
   const session = await getSessionFromCookie();
+  requirePantallaVisible(session?.user.pantallasRestringidas ?? {}, "shipping-v2", "items");
   const access = await getShippingV2AccessContextForSession(session);
   if (!access.permissions.canEditItems) {
     redirect("/shipping-v2/packings");

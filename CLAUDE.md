@@ -50,6 +50,7 @@ Shipping V2 reads its env vars at runtime; running `npm run shipping-v2:schema` 
 - `canAccessApp(session, appName)` — normalizes Unicode, case-insensitive match against `appsPermitidas`
 - Administrators (`rol === "admin" | "administrador"`) bypass all per-app checks
 - Each API module has its own `requireXSession()` guard (e.g. `lib/tecnicos/api-auth.ts`, `lib/shipping-v2/auth.ts`)
+- `lib/permissions/pantallas.ts` adds a second, finer layer **within** a module: per-user, per-screen visibility (deny-list, module → hidden screen keys), stored as JSON in the `Usuarios."Pantallas Restringidas"` field and baked into the session JWT (`SessionUser.pantallasRestringidas`) same as `appsPermitidas` — a change applies on next login, not instantly. Piloted on Shipping V2 (`requirePantallaVisible()` guards every `app/shipping-v2/**/page.tsx`); configured by an Administrator from `/admin/usuarios`. Field-level visibility within a screen is a planned Phase 2, not built yet.
 
 ### Single Airtable Base
 Every module reads/writes the **same Airtable base** ("SUPER GEEK ADM"), via `AIRTABLE_API_KEY` + `AIRTABLE_BASE_ID`: portal users, access logs, 2FA codes, `Órdenes de Reparación`, `Clientes`, `Operación Comercial`, `Abonos`, `Shipping Items`, `Facturas Electrónicas`, etc. (see `lib/shipping-v2/schema.generated.ts` for the shipping-v2 tables). Técnicos previously read/wrote a separate base via `AIRTABLE_TECNICOS_TOKEN`/`AIRTABLE_TECNICOS_BASE_ID` — that migration is complete and those variables are no longer used anywhere in the codebase; don't reintroduce them.

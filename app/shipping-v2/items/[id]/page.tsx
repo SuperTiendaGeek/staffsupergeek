@@ -5,6 +5,7 @@ import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSyste
 import { Button } from "@/components/ui/button";
 import { canAccessApp, isAdministratorRole } from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
+import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import {
   getShippingV2AccessContextForSession,
   getShippingV2ItemById,
@@ -80,6 +81,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
   if (!session || !canAccessApp(session, "Shipping")) {
     redirect("/acceso-denegado");
   }
+  requirePantallaVisible(session.user.pantallasRestringidas, "shipping-v2", "items");
 
   const { id } = await params;
   let item: ResolvedItem | null = null;
