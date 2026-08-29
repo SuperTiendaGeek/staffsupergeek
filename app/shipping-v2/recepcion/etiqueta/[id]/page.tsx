@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getShippingV2AccessContextForSession, getShippingV2ItemById } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
+import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import { PrintSkuLabelButton } from "./PrintSkuLabelButton";
 
 type Props = {
@@ -97,6 +98,7 @@ function PrintableSkuLabel({ sku }: { sku: string }) {
 export default async function ShippingV2SkuLabelPage({ params }: Props) {
   const { id } = await params;
   const session = await getSessionFromCookie();
+  requirePantallaVisible(session?.user.pantallasRestringidas ?? {}, "shipping-v2", "recepcion");
   const access = await getShippingV2AccessContextForSession(session);
   if (!access.permissions.canUseRecepcion) {
     redirect("/shipping-v2/packings");

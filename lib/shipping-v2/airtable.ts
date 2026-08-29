@@ -50,7 +50,7 @@ import type {
 } from "@/types/shipping-v2";
 import type { StaffSession } from "@/lib/session";
 import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
-import { SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD, getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
+import { SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD, getShippingV2ItemEditField, getShippingV2ItemEditFieldByKey } from "@/lib/shipping-v2/item-edit-config";
 import { getShippingV2FacebookPublicationBlockReason, getShippingV2FacebookTextGenerationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
 import { validarReglaDistribucion } from "@/lib/shipping-v2/packing-costos";
@@ -2478,6 +2478,9 @@ function shouldLogShippingV2ItemFieldEvent(config: { field: string; category: st
     SHIPPING_V2_ITEM_FIELDS.sku,
     SHIPPING_V2_ITEM_FIELDS.skuProveedor,
     SHIPPING_V2_ITEM_FIELDS.tipoOperacion,
+    // Ahora adminOnly (ver item-edit-config.ts): toda corrección manual de
+    // cantidad queda en el historial del item, sin excepción.
+    SHIPPING_V2_ITEM_FIELDS.cantidad,
   ]);
 
   return config.category === "special" || criticalFields.has(config.field);
@@ -2490,6 +2493,8 @@ async function validateInlineItemFieldChange(input: {
   rawValue: unknown;
   normalizedValue: unknown;
   esAdmin: boolean;
+  /** Claves (config.key) que este usuario tiene en "oculto" o "solo-lectura" — ver lib/permissions/campos.ts. Vacío para un administrador. */
+  camposNoEditables?: readonly string[];
 }) {
   const config = getShippingV2ItemEditField(input.field);
   if (!config || (config.category !== "normal" && config.category !== "special")) {
@@ -2499,6 +2504,12 @@ async function validateInlineItemFieldChange(input: {
   // Campos de corrección: visibles para todos, editables solo por administración.
   if (config.adminOnly && !input.esAdmin) {
     throw new Error(`Solo un administrador puede corregir "${config.label}" a mano.`);
+  }
+
+  // Personalización por usuario (Fase 2 de permisos, ver lib/permissions/campos.ts).
+  // Nunca aplica a un campo adminOnly: ese ya tiene el candado más fuerte de arriba.
+  if (!config.adminOnly && !input.esAdmin && input.camposNoEditables?.includes(config.key)) {
+    throw new Error(`No tienes permiso para editar "${config.label}".`);
   }
 
   if (config.type === "singleSelect") {
@@ -2580,7 +2591,7 @@ async function validateInlineItemFieldChange(input: {
   }
 }
 
-export async function updateShippingV2ItemField(recordId: string, input: { field: string; value: unknown; eventDescription?: string }, options: { actualizadoPor: string; esAdmin?: boolean; access?: ShippingV2AccessContext; allowedFields?: readonly string[] }) {
+export async function updateShippingV2ItemField(recordId: string, input: { field: string; value: unknown; eventDescription?: string }, options: { actualizadoPor: string; esAdmin?: boolean; access?: ShippingV2AccessContext; allowedFields?: readonly string[]; camposNoEditables?: readonly string[] }) {
   assertShippingV2GeneratedSchema();
   const id = cleanString(recordId);
   const field = cleanString(input.field);
@@ -2600,7 +2611,7 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
     item: existing,
   });
   const esAdmin = options.esAdmin === true;
-  await validateInlineItemFieldChange({ item: existing, recordId: id, field, rawValue: input.value, normalizedValue, esAdmin });
+  await validateInlineItemFieldChange({ item: existing, recordId: id, field, rawValue: input.value, normalizedValue, esAdmin, camposNoEditables: options.camposNoEditables });
 
   const mode = field === SHIPPING_V2_ITEM_FIELDS.modoLogistico ? cleanString(normalizedValue) : "";
   const logisticsFlowFields = mode
@@ -2893,7 +2904,7 @@ export async function removeFotoFromShippingV2Item(
   return item;
 }
 
-export async function updateShippingV2Item(recordId: string, input: ShippingV2ItemWriteInput, options: { actualizadoPor: string }) {
+export async function updateShippingV2Item(recordId: string, input: ShippingV2ItemWriteInput, options: { actualizadoPor: string; esAdmin?: boolean; camposNoEditables?: readonly string[] }) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
   // "edicion": recalcula las banderas de flujo pero NO retrocede el estado.
@@ -2903,6 +2914,32 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   await validateItemProviderRules(normalizedInput);
 
   const existing = await getShippingV2ItemById(id, { access: systemShippingV2Access() });
+
+  // Mismo candado que el editor de campo individual (ver adminOnly en
+  // item-edit-config.ts): este es el otro camino de escritura del mismo
+  // campo — el formulario completo de edición, no la celda inline — y sin
+  // este chequeo cualquiera con permiso de editar items podía cambiar la
+  // cantidad por aquí sin pasar por la validación de rol.
+  if (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) && options.esAdmin !== true) {
+    throw new Error('Solo un administrador puede corregir "Cantidad" a mano.');
+  }
+
+  // Personalización por usuario (Fase 2 de permisos, ver
+  // lib/permissions/campos.ts) — mismo criterio que en el editor de campo
+  // individual, pero comparando cada campo restringido contra su valor
+  // anterior porque acá llegan todos juntos en un solo objeto.
+  if (options.esAdmin !== true) {
+    for (const key of options.camposNoEditables ?? []) {
+      if (
+        key in normalizedInput &&
+        valorCampoCambio((normalizedInput as Record<string, unknown>)[key], (existing as Record<string, unknown>)[key])
+      ) {
+        const label = getShippingV2ItemEditFieldByKey(key)?.label ?? key;
+        throw new Error(`No tienes permiso para editar "${label}".`);
+      }
+    }
+  }
+
   if (
     (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) ||
       nullableNumberChanged(normalizedInput.costoProveedor, existing.costoProveedor)) &&
@@ -3186,6 +3223,22 @@ function paymentSubtotalOrZero(item: ShippingV2PaymentItemLike) {
 
 function nullableNumberChanged(next: number | null | undefined, current: number | null | undefined) {
   return (next ?? null) !== (current ?? null);
+}
+
+/**
+ * Comparación genérica para el candado de "Campos Restringidos" (Fase 2 de
+ * permisos, ver lib/permissions/campos.ts) sobre el formulario completo de
+ * edición del item, donde los campos vienen mezclados en un solo objeto de
+ * tipos distintos. Trata "" y null/undefined como el mismo "vacío" para no
+ * marcar cambio cuando solo cambió la representación del dato.
+ */
+function valorCampoCambio(next: unknown, current: unknown): boolean {
+  if (Array.isArray(next) || Array.isArray(current)) {
+    return JSON.stringify(next ?? []) !== JSON.stringify(current ?? []);
+  }
+  const a = next === "" || next === undefined ? null : next;
+  const b = current === "" || current === undefined ? null : current;
+  return a !== b;
 }
 
 function toPendingPaymentItem(item: ShippingV2Item): ShippingV2PagoPendingItem {
@@ -5314,7 +5367,7 @@ export async function editarPiezaDespiece(
     precioVenta?: number | null;
     observaciones?: string;
   },
-  options: { registradoPor: string; access?: ShippingV2AccessContext }
+  options: { registradoPor: string; access?: ShippingV2AccessContext; esAdmin?: boolean }
 ) {
   assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
   const padreId = cleanString(input.padreId);
@@ -5334,6 +5387,13 @@ export async function editarPiezaDespiece(
   if (cleanString(input.categoria)) campos[F.categoria] = cleanString(input.categoria);
   if (cleanString(input.condicion)) campos[F.condicion] = cleanString(input.condicion);
   if (typeof input.cantidad === "number" && Number.isInteger(input.cantidad) && input.cantidad > 0) {
+    // Una pieza de despiece es un Shipping Item más: mismo candado que
+    // cualquier otro item (ver adminOnly en item-edit-config.ts). Al crear
+    // la pieza sí se puede fijar la cantidad inicial (crearPiezaDespiece);
+    // corregirla después es lo que se restringe.
+    if (input.cantidad !== pieza.cantidad && options.esAdmin !== true) {
+      throw new Error('Solo un administrador puede corregir la "Cantidad" de una pieza ya creada.');
+    }
     campos[F.cantidad] = input.cantidad;
   }
   if (input.observaciones !== undefined) campos[F.observacionesInternas] = cleanString(input.observaciones);

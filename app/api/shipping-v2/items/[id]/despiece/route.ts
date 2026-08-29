@@ -10,6 +10,7 @@ import {
   getShippingV2AccessContextForSession,
 } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
+import { isAdministratorRole } from "@/lib/apps";
 
 export const dynamic = "force-dynamic";
 
@@ -104,7 +105,7 @@ export async function POST(request: Request, { params }: Params) {
               : Number(body.precioVenta),
           observaciones: body.observaciones !== undefined ? String(body.observaciones) : undefined,
         },
-        { registradoPor, access }
+        { registradoPor, access, esAdmin: isAdministratorRole(session?.user.rol) }
       );
       return NextResponse.json({ success: true, data });
     }

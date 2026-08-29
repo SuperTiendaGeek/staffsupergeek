@@ -54,7 +54,7 @@ function Campo({ label, children, hint }: { label: string; children: React.React
   );
 }
 
-export function ShippingV2DespieceTab({ itemId, canEdit }: { itemId: string; canEdit: boolean }) {
+export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: string; canEdit: boolean; esAdmin: boolean }) {
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -248,8 +248,16 @@ export function ShippingV2DespieceTab({ itemId, canEdit }: { itemId: string; can
                   {SHIPPING_V2_CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </Campo>
-              <Campo label="Cantidad" hint="Ej. 2 memorias iguales">
+              <Campo
+                label="Cantidad"
+                hint={
+                  borrador.piezaId && !esAdmin
+                    ? "Solo un Administrador puede corregir la cantidad de una pieza ya creada"
+                    : "Ej. 2 memorias iguales"
+                }
+              >
                 <input value={borrador.cantidad} inputMode="numeric" className={inputCls}
+                  disabled={Boolean(borrador.piezaId) && !esAdmin}
                   onChange={(e) => setBorrador({ ...borrador, cantidad: e.target.value })} />
               </Campo>
               <Campo label="Condición" hint="¿Funciona?">

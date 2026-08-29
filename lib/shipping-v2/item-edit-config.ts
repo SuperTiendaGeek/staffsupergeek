@@ -53,7 +53,11 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   costoProveedor: { key: "costoProveedor", field: F.costoProveedor, label: "Costo proveedor unitario", category: "special", type: "currency" },
   precioVentaSugerido: { key: "precioVentaSugerido", field: F.precioVentaSugerido, label: "Precio venta sugerido unitario", category: "normal", type: "currency" },
   precioVentaFinal: { key: "precioVenta", field: F.precioVentaFinal, label: "Precio venta final unitario", category: "normal", type: "currency" },
-  cantidad: { key: "cantidad", field: F.cantidad, label: "Cantidad", category: "normal", type: "number" },
+  // adminOnly: la cantidad en inventario es el dato más sensible del item —
+  // de ahí sale el stock disponible para vender, reservar y facturar. Solo
+  // Administrador puede corregirlo a mano; el resto del sistema lo mueve
+  // solo (recepción, ventas, packing, despiece).
+  cantidad: { key: "cantidad", field: F.cantidad, label: "Cantidad", category: "normal", type: "number", adminOnly: true },
   unidad: { key: "unidad", field: F.unidad, label: "Unidad", category: "normal", type: "singleSelect", options: O.unidad },
   sku: { key: "sku", field: F.sku, label: "SKU", category: "special", type: "text" },
   skuProveedor: { key: "skuProveedor", field: F.skuProveedor, label: "SKU proveedor", category: "special", type: "text" },
@@ -86,8 +90,21 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS_BY_FIELD = Object.fromEntries(
   Object.values(SHIPPING_V2_ITEM_EDIT_FIELDS).map((config) => [config.field, config])
 ) as Record<string, ShippingV2ItemEditFieldConfig>;
 
+// Por config.key (el nombre que usa ShippingV2ItemWriteInput/ShippingV2Item,
+// p.ej. "marca", "costoProveedor") — no confundir con
+// SHIPPING_V2_ITEM_EDIT_FIELDS_BY_FIELD, que indexa por el nombre del campo
+// en Airtable. Lo usa el candado de "Campos Restringidos" (Fase 2 de
+// permisos, ver lib/permissions/campos.ts).
+export const SHIPPING_V2_ITEM_EDIT_FIELDS_BY_KEY = Object.fromEntries(
+  Object.values(SHIPPING_V2_ITEM_EDIT_FIELDS).map((config) => [config.key, config])
+) as Record<string, ShippingV2ItemEditFieldConfig>;
+
 export function getShippingV2ItemEditField(field: string) {
   return SHIPPING_V2_ITEM_EDIT_FIELDS_BY_FIELD[field] ?? null;
+}
+
+export function getShippingV2ItemEditFieldByKey(key: string) {
+  return SHIPPING_V2_ITEM_EDIT_FIELDS_BY_KEY[key] ?? null;
 }
 
 export function isShippingV2ItemEditableField(field: string) {

@@ -2315,7 +2315,9 @@ export async function fetchHorariosEmpleadosParaPeriodo(): Promise<HorarioEmplea
           nombre: user.nombre,
           email: user.email,
           rol: user.rol,
-          appsPermitidas: user.appsPermitidas
+          appsPermitidas: user.appsPermitidas,
+          pantallasRestringidas: user.pantallasRestringidas,
+          camposRestringidos: user.camposRestringidos
         }, "Horarios") ||
         isAdministratorRole(user.rol) ||
         isEligibleHorarioRole(user.rol)

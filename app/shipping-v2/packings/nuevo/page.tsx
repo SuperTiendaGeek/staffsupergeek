@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
+import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import type { ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2NewPackingForm } from "./ShippingV2NewPackingForm";
 
@@ -11,6 +12,7 @@ export default async function ShippingV2NewPackingPage() {
   let proveedores: ShippingV2Proveedor[] = [];
   let error = "";
   const session = await getSessionFromCookie();
+  requirePantallaVisible(session?.user.pantallasRestringidas ?? {}, "shipping-v2", "packings");
   const access = await getShippingV2AccessContextForSession(session);
   if (!access.permissions.canCreatePacking) {
     redirect("/shipping-v2/packings");

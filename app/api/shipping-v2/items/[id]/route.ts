@@ -3,7 +3,21 @@ import { canShippingV2, getShippingV2AccessContextForSession, getShippingV2ItemB
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import { isShippingV2ProviderItemEditableField, SHIPPING_V2_PROVIDER_ITEM_EDITABLE_FIELDS } from "@/lib/shipping-v2/item-edit-config";
 import { isAdministratorRole } from "@/lib/apps";
+import { camposConEstado, ocultarCamposDeObjeto } from "@/lib/permissions/campos";
+import type { StaffSession } from "@/lib/session";
 import type { ShippingV2ItemWriteInput } from "@/types/shipping-v2";
+
+// Personalización por usuario (Fase 2 de permisos, ver
+// lib/permissions/campos.ts) — un Administrador nunca queda restringido por
+// esto, ni siquiera si alguien le configuró algo por error: son quienes
+// configuran las reglas, no a quienes se les aplican.
+function camposPersonalizadosDelUsuario(session: StaffSession | null) {
+  const esAdmin = isAdministratorRole(session?.user.rol);
+  const restringidos = esAdmin ? {} : (session?.user.camposRestringidos ?? {});
+  const ocultos = camposConEstado(restringidos, "shipping-v2", "items", "oculto");
+  const soloLectura = camposConEstado(restringidos, "shipping-v2", "items", "solo-lectura");
+  return { esAdmin, ocultos, noEditables: [...ocultos, ...soloLectura] };
+}
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +77,8 @@ export async function GET(_request: Request, { params }: Params) {
   try {
     const access = await getShippingV2AccessContextForSession(session);
     const item = await getShippingV2ItemById(id, { access });
-    return NextResponse.json({ success: true, data: item });
+    const { ocultos } = camposPersonalizadosDelUsuario(session);
+    return NextResponse.json({ success: true, data: ocultarCamposDeObjeto(item, ocultos) });
   } catch (error) {
     console.error("Error al obtener item Shipping V2:", error);
     return NextResponse.json(
@@ -84,6 +99,7 @@ export async function PATCH(request: Request, { params }: Params) {
     const access = await getShippingV2AccessContextForSession(session);
     const actor = getShippingV2SessionName(session);
     const isInlineFieldUpdate = typeof body?.field === "string";
+    const { esAdmin, ocultos, noEditables } = camposPersonalizadosDelUsuario(session);
 
     if (isInlineFieldUpdate) {
       const canEditAnyItemField = canShippingV2(access, "canEditItems");
@@ -100,12 +116,13 @@ export async function PATCH(request: Request, { params }: Params) {
         eventDescription: typeof body.eventDescription === "string" ? body.eventDescription : undefined,
       }, {
         actualizadoPor: actor,
-        esAdmin: isAdministratorRole(session?.user.rol),
+        esAdmin,
         access,
         allowedFields: canEditAnyItemField ? undefined : SHIPPING_V2_PROVIDER_ITEM_EDITABLE_FIELDS,
+        camposNoEditables: noEditables,
       });
 
-      return NextResponse.json({ success: true, data: item });
+      return NextResponse.json({ success: true, data: ocultarCamposDeObjeto(item, ocultos) });
     }
 
     if (!canShippingV2(access, "canEditItems")) {
@@ -114,9 +131,11 @@ export async function PATCH(request: Request, { params }: Params) {
 
     const item = await updateShippingV2Item(id, parseInput(body), {
       actualizadoPor: actor,
+      esAdmin,
+      camposNoEditables: noEditables,
     });
 
-    return NextResponse.json({ success: true, data: item });
+    return NextResponse.json({ success: true, data: ocultarCamposDeObjeto(item, ocultos) });
   } catch (error) {
     console.error("Error al actualizar item Shipping V2:", error);
     return NextResponse.json(

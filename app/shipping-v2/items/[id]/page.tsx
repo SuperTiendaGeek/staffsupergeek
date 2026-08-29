@@ -5,6 +5,8 @@ import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSyste
 import { Button } from "@/components/ui/button";
 import { canAccessApp, isAdministratorRole } from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
+import { requirePantallaVisible } from "@/lib/permissions/pantallas";
+import { camposConEstado, ocultarCamposDeObjeto } from "@/lib/permissions/campos";
 import {
   getShippingV2AccessContextForSession,
   getShippingV2ItemById,
@@ -80,6 +82,14 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
   if (!session || !canAccessApp(session, "Shipping")) {
     redirect("/acceso-denegado");
   }
+  requirePantallaVisible(session.user.pantallasRestringidas, "shipping-v2", "items");
+
+  // Personalización por usuario (Fase 2 de permisos, ver
+  // lib/permissions/campos.ts). Un administrador nunca queda restringido.
+  const esAdmin = isAdministratorRole(session.user.rol);
+  const restringidosDelUsuario = esAdmin ? {} : session.user.camposRestringidos;
+  const camposOcultos = camposConEstado(restringidosDelUsuario, "shipping-v2", "items", "oculto");
+  const camposSoloLectura = camposConEstado(restringidosDelUsuario, "shipping-v2", "items", "solo-lectura");
 
   const { id } = await params;
   let item: ResolvedItem | null = null;
@@ -107,7 +117,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
     proveedores = access.providerId ? loadedProveedores.filter((provider) => provider.id === access.providerId) : loadedProveedores;
     novedades = loadedNovedades;
     navigation = loadedNavigation;
-    item = resolveItem(loadedItem, proveedores);
+    item = ocultarCamposDeObjeto(resolveItem(loadedItem, proveedores), camposOcultos);
     const [loadedPago, loadedPacking] = await Promise.all([
       item.pagoId ? getShippingV2PagoById(item.pagoId, access).catch((relatedError) => {
         console.warn("No se pudo cargar pago relacionado del item Shipping V2:", relatedError);
@@ -147,7 +157,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
               </>
             }
           />
-          <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} esAdmin={isAdministratorRole(session.user.rol)} permissions={permissions} />
+          <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} esAdmin={esAdmin} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} permissions={permissions} />
         </div>
       )}
     </StaffAppShell>

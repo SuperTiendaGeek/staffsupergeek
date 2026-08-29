@@ -1,6 +1,7 @@
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2ItemsPage, getShippingV2Proveedores, type ShippingV2ItemsListSortKey } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
+import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2ItemsClient } from "./ShippingV2ItemsClient";
 
@@ -77,6 +78,13 @@ function buildItemsPageHref(input: {
 }
 
 export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
+  // Fuera del try/catch de abajo a propósito: requirePantallaVisible() usa
+  // redirect(), que lanza una excepción especial de Next.js — si quedara
+  // dentro del try, el catch la atraparía como un error de carga cualquiera
+  // y el redirect nunca ocurriría.
+  const sessionForGuard = await getSessionFromCookie();
+  requirePantallaVisible(sessionForGuard?.user.pantallasRestringidas ?? {}, "shipping-v2", "items");
+
   let items: ShippingV2Item[] = [];
   let proveedores: ShippingV2Proveedor[] = [];
   let permissions: ShippingV2AccessPermissions | null = null;

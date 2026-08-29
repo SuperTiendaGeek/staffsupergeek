@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2Destinatarios, getShippingV2Novedades, getShippingV2PackingById, getShippingV2PackingCandidateItems, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
+import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import type { ShippingV2AccessPermissions, ShippingV2Destinatario, ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2PackingDetailClient } from "./ShippingV2PackingDetailClient";
 
@@ -10,6 +11,9 @@ export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ id: string }> };
 
 export default async function ShippingV2PackingDetailPage({ params }: Props) {
+  const sessionForGuard = await getSessionFromCookie();
+  requirePantallaVisible(sessionForGuard?.user.pantallasRestringidas ?? {}, "shipping-v2", "packings");
+
   const { id } = await params;
   let packing: ShippingV2Packing | null = null;
   let candidates: ShippingV2Item[] = [];

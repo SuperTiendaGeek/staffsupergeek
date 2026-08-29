@@ -3,6 +3,7 @@ import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2Items, getShippingV2Novedades, getShippingV2Packings, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { shouldShowShippingV2ReceptionItem } from "@/lib/shipping-v2/reception-visibility";
 import { getSessionFromCookie } from "@/lib/session";
+import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import type { ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2RecepcionClient } from "./ShippingV2RecepcionClient";
 
@@ -15,6 +16,7 @@ export default async function ShippingV2RecepcionPage() {
   let novedades: ShippingV2Novedad[] = [];
   let error = "";
   const session = await getSessionFromCookie();
+  requirePantallaVisible(session?.user.pantallasRestringidas ?? {}, "shipping-v2", "recepcion");
   const access = await getShippingV2AccessContextForSession(session);
   if (!access.permissions.canUseRecepcion) {
     redirect("/shipping-v2/packings");

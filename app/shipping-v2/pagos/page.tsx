@@ -1,12 +1,16 @@
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2PagosWorkspace } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
+import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import type { ShippingV2AccessPermissions, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 import { ShippingV2PagosClient } from "./ShippingV2PagosClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function ShippingV2PagosPage() {
+  const sessionForGuard = await getSessionFromCookie();
+  requirePantallaVisible(sessionForGuard?.user.pantallasRestringidas ?? {}, "shipping-v2", "pagos");
+
   let workspace: ShippingV2PagosWorkspace = {
     pagos: [],
     proveedores: [],

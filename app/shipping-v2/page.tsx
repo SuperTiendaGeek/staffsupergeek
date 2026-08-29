@@ -3,6 +3,7 @@ import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffStatCard } from "@/components/staff/StaffDesignSystem";
 import { getShippingV2AccessContextForSession, getShippingV2DashboardSummary } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
+import { puedeVerPantalla } from "@/lib/permissions/pantallas";
 import type { ShippingV2DashboardSummary } from "@/types/shipping-v2";
 
 export const dynamic = "force-dynamic";
@@ -30,19 +31,19 @@ const kpiLabels: Array<{ key: keyof ShippingV2DashboardSummary; label: string; t
 ];
 
 const staffQuickAccess = [
-  { label: "Items", href: "/shipping-v2/items", active: true },
-  { label: "Pagos", href: "/shipping-v2/pagos", active: true },
-  { label: "Packings", href: "/shipping-v2/packings", active: true },
-  { label: "Recepcion", href: "/shipping-v2/recepcion", active: true },
-  { label: "Novedades", href: null, active: false },
-  { label: "Proveedores", href: null, active: false },
+  { key: "items", label: "Items", href: "/shipping-v2/items", active: true },
+  { key: "pagos", label: "Pagos", href: "/shipping-v2/pagos", active: true },
+  { key: "packings", label: "Packings", href: "/shipping-v2/packings", active: true },
+  { key: "recepcion", label: "Recepcion", href: "/shipping-v2/recepcion", active: true },
+  { key: null, label: "Novedades", href: null, active: false },
+  { key: null, label: "Proveedores", href: null, active: false },
 ];
 
 const providerQuickAccess = [
-  { label: "Items", href: "/shipping-v2/items", active: true },
-  { label: "Packings", href: "/shipping-v2/packings", active: true },
-  { label: "Pagos", href: "/shipping-v2/pagos", active: true },
-  { label: "Novedades / garantías", href: null, active: false },
+  { key: null, label: "Items", href: "/shipping-v2/items", active: true },
+  { key: null, label: "Packings", href: "/shipping-v2/packings", active: true },
+  { key: null, label: "Pagos", href: "/shipping-v2/pagos", active: true },
+  { key: null, label: "Novedades / garantías", href: null, active: false },
 ];
 
 const toneStyles = {
@@ -61,9 +62,10 @@ export default async function ShippingV2Page() {
   let error = "";
   let isProviderPortal = false;
   let providerName = "";
+  const session = await getSessionFromCookie();
+  const pantallasRestringidas = session?.user.pantallasRestringidas ?? {};
 
   try {
-    const session = await getSessionFromCookie();
     const access = await getShippingV2AccessContextForSession(session);
     isProviderPortal = access.mode === "provider";
     providerName = access.providerName || access.providerCode || "";
@@ -103,7 +105,9 @@ export default async function ShippingV2Page() {
           </div>
 
           <div className="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-4">
-            {(isProviderPortal ? providerQuickAccess : staffQuickAccess).map((item) => (
+            {(isProviderPortal ? providerQuickAccess : staffQuickAccess)
+              .filter((item) => !item.key || puedeVerPantalla(pantallasRestringidas, "shipping-v2", item.key))
+              .map((item) => (
               item.href ? (
                 <Link
                   key={item.label}

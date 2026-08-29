@@ -2,6 +2,18 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { isProviderRole } from "@/lib/apps";
+import {
+  MODULO_POR_APP_PERMITIDA,
+  PANTALLAS_POR_MODULO,
+  pantallasVisibles,
+  type ModuloConPantallas,
+} from "@/lib/permissions/pantallas";
+import {
+  camposConfigurables,
+  estadoCampo,
+  type CampoDef,
+  type EstadoCampoPersonalizado,
+} from "@/lib/permissions/campos";
 import type { PortalUser } from "@/types/admin-users";
 
 type AdminUsersClientProps = {
@@ -38,6 +50,30 @@ const emptyForm: UserFormState = {
   activo: true,
   requiere2FA: false
 };
+
+// Módulos con control de pantallas a los que este usuario tiene acceso —
+// hoy solo "Shipping" está mapeado (ver MODULO_POR_APP_PERMITIDA), así que
+// esto será una lista de 0 o 1 elemento hasta que se agregue otro módulo.
+function modulosConPantallasDe(user: PortalUser): ModuloConPantallas[] {
+  const modulos = user.appsPermitidas
+    .map((app) => MODULO_POR_APP_PERMITIDA[app])
+    .filter((m): m is ModuloConPantallas => Boolean(m));
+  return Array.from(new Set(modulos));
+}
+
+// Pantallas del usuario que además tienen un catálogo de campos configurable
+// (hoy solo Shipping → Items) — el botón "Campos" solo aparece si esto no
+// está vacío.
+function pantallasConCamposDe(user: PortalUser): Array<{ modulo: ModuloConPantallas; pantalla: string; label: string; campos: readonly CampoDef[] }> {
+  const resultado: Array<{ modulo: ModuloConPantallas; pantalla: string; label: string; campos: readonly CampoDef[] }> = [];
+  for (const modulo of modulosConPantallasDe(user)) {
+    for (const pantalla of PANTALLAS_POR_MODULO[modulo]) {
+      const campos = camposConfigurables(modulo, pantalla.key);
+      if (campos.length > 0) resultado.push({ modulo, pantalla: pantalla.key, label: pantalla.label, campos });
+    }
+  }
+  return resultado;
+}
 
 function userToForm(user: PortalUser): UserFormState {
   return {
@@ -107,6 +143,13 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
   const [editingUser, setEditingUser] = useState<PortalUser | null>(null);
   const [passwordUser, setPasswordUser] = useState<PortalUser | null>(null);
   const [statusUser, setStatusUser] = useState<PortalUser | null>(null);
+  const [pantallasUser, setPantallasUser] = useState<PortalUser | null>(null);
+  const [pantallasForm, setPantallasForm] = useState<Record<string, Set<string>>>({});
+  const [camposUser, setCamposUser] = useState<PortalUser | null>(null);
+  // clave "modulo::pantalla" -> { campoKey: estado }. "editable" es el default
+  // implícito (ausente del JSON guardado), pero se guarda explícito en el
+  // form para que el <select> tenga un valor.
+  const [camposForm, setCamposForm] = useState<Record<string, Record<string, EstadoCampoPersonalizado | "editable">>>({});
   const [form, setForm] = useState<UserFormState>(emptyForm);
   const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState("");
@@ -140,12 +183,142 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
     setEditingUser(null);
     setPasswordUser(null);
     setStatusUser(null);
+    setPantallasUser(null);
+    setCamposUser(null);
     setNewPassword("");
     setError("");
   }
 
+  function openPantallas(user: PortalUser) {
+    setError("");
+    setNotice("");
+    const form: Record<string, Set<string>> = {};
+    for (const modulo of modulosConPantallasDe(user)) {
+      form[modulo] = new Set(pantallasVisibles(user.pantallasRestringidas, modulo).map((p) => p.key));
+    }
+    setPantallasForm(form);
+    setPantallasUser(user);
+  }
+
+  function togglePantalla(modulo: string, key: string) {
+    setPantallasForm((current) => {
+      const visibles = new Set(current[modulo] ?? []);
+      if (visibles.has(key)) visibles.delete(key);
+      else visibles.add(key);
+      return { ...current, [modulo]: visibles };
+    });
+  }
+
+  async function handlePantallasSave() {
+    if (!pantallasUser) return;
+    setError("");
+    setNotice("");
+    setIsSubmitting(true);
+
+    try {
+      let lastUser: PortalUser | null = null;
+      // Un PATCH por módulo — hoy es uno solo (Shipping), pero el contrato de
+      // la ruta es "un módulo a la vez" para no arrastrar los demás sin querer.
+      for (const [modulo, visibles] of Object.entries(pantallasForm)) {
+        const pantallasOcultas = (PANTALLAS_POR_MODULO[modulo as ModuloConPantallas] ?? [])
+          .map((p) => p.key)
+          .filter((key) => !visibles.has(key));
+
+        const response = await fetch(`/api/admin/usuarios/${pantallasUser.id}/pantallas`, {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ modulo, pantallasOcultas }),
+        });
+        const result = (await response.json()) as ApiResult;
+
+        if (!response.ok || !result.success || !result.user) {
+          setError(result.error || "No se pudo guardar las pantallas");
+          return;
+        }
+        lastUser = result.user;
+      }
+
+      if (lastUser) {
+        updateUserInList(lastUser);
+        setNotice("Pantallas actualizadas correctamente");
+      }
+      closeModals();
+    } catch {
+      setError("No se pudo conectar con el servidor");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   function updateUserInList(user: PortalUser) {
     setUsers((currentUsers) => currentUsers.map((item) => (item.id === user.id ? user : item)));
+  }
+
+  function openCampos(user: PortalUser) {
+    setError("");
+    setNotice("");
+    const form: Record<string, Record<string, EstadoCampoPersonalizado | "editable">> = {};
+    for (const { modulo, pantalla, campos } of pantallasConCamposDe(user)) {
+      const clave = `${modulo}::${pantalla}`;
+      form[clave] = {};
+      for (const campo of campos) {
+        form[clave][campo.key] = estadoCampo(user.camposRestringidos, modulo, pantalla, campo.key) ?? "editable";
+      }
+    }
+    setCamposForm(form);
+    setCamposUser(user);
+  }
+
+  function setCampoEstado(clave: string, campoKey: string, estado: EstadoCampoPersonalizado | "editable") {
+    setCamposForm((current) => ({
+      ...current,
+      [clave]: { ...current[clave], [campoKey]: estado },
+    }));
+  }
+
+  async function handleCamposSave() {
+    if (!camposUser) return;
+    setError("");
+    setNotice("");
+    setIsSubmitting(true);
+
+    try {
+      let lastUser: PortalUser | null = null;
+      // Un PATCH por pantalla — hoy es una sola (Shipping → Items), mismo
+      // contrato "una pantalla a la vez" que la ruta de pantallas.
+      for (const [clave, estados] of Object.entries(camposForm)) {
+        const [modulo, pantalla] = clave.split("::");
+        const campos: Record<string, EstadoCampoPersonalizado> = {};
+        for (const [campoKey, estado] of Object.entries(estados)) {
+          if (estado !== "editable") campos[campoKey] = estado;
+        }
+
+        const response = await fetch(`/api/admin/usuarios/${camposUser.id}/campos`, {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ modulo, pantalla, campos }),
+        });
+        const result = (await response.json()) as ApiResult;
+
+        if (!response.ok || !result.success || !result.user) {
+          setError(result.error || "No se pudo guardar los campos");
+          return;
+        }
+        lastUser = result.user;
+      }
+
+      if (lastUser) {
+        updateUserInList(lastUser);
+        setNotice("Campos actualizados correctamente");
+      }
+      closeModals();
+    } catch {
+      setError("No se pudo conectar con el servidor");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   function toggleApp(app: string) {
@@ -301,7 +474,7 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
           {notice}
         </p>
       ) : null}
-      {error && !mode && !passwordUser && !statusUser ? (
+      {error && !mode && !passwordUser && !statusUser && !pantallasUser && !camposUser ? (
         <p className="rounded-md border border-red-400/30 bg-red-400/10 px-4 py-3 text-sm text-red-100" role="alert">
           {error}
         </p>
@@ -350,6 +523,16 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
                       <button type="button" onClick={() => setPasswordUser(user)} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">
                         Contraseña
                       </button>
+                      {modulosConPantallasDe(user).length > 0 && (
+                        <button type="button" onClick={() => openPantallas(user)} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">
+                          Pantallas
+                        </button>
+                      )}
+                      {pantallasConCamposDe(user).length > 0 && (
+                        <button type="button" onClick={() => openCampos(user)} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">
+                          Campos
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={user.id === currentUserId && user.activo}
@@ -384,10 +567,16 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
                   </span>
                 )) : <span className="text-sm text-[#A7A7A7]">Sin apps</span>}
               </div>
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                <button type="button" onClick={() => openEdit(user)} className="rounded-full border border-[#3A3A36] px-2 py-2 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Editar</button>
-                <button type="button" onClick={() => setPasswordUser(user)} className="rounded-full border border-[#3A3A36] px-2 py-2 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Contraseña</button>
-                <button type="button" disabled={user.id === currentUserId && user.activo} onClick={() => setStatusUser(user)} className="rounded-full border border-[#3A3A36] px-2 py-2 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F] disabled:opacity-50">
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" onClick={() => openEdit(user)} className="flex-1 rounded-full border border-[#3A3A36] px-2 py-2 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Editar</button>
+                <button type="button" onClick={() => setPasswordUser(user)} className="flex-1 rounded-full border border-[#3A3A36] px-2 py-2 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Contraseña</button>
+                {modulosConPantallasDe(user).length > 0 && (
+                  <button type="button" onClick={() => openPantallas(user)} className="flex-1 rounded-full border border-[#3A3A36] px-2 py-2 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Pantallas</button>
+                )}
+                {pantallasConCamposDe(user).length > 0 && (
+                  <button type="button" onClick={() => openCampos(user)} className="flex-1 rounded-full border border-[#3A3A36] px-2 py-2 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Campos</button>
+                )}
+                <button type="button" disabled={user.id === currentUserId && user.activo} onClick={() => setStatusUser(user)} className="flex-1 rounded-full border border-[#3A3A36] px-2 py-2 text-xs font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F] disabled:opacity-50">
                   {user.activo ? "Off" : "On"}
                 </button>
               </div>
@@ -499,6 +688,104 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
               <button type="button" onClick={closeModals} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Cancelar</button>
               <button type="button" disabled={isSubmitting} onClick={handleStatusChange} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60">
                 Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pantallasUser ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 px-4 py-8 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 text-left shadow-2xl shadow-black">
+            <h2 className="text-xl font-semibold text-[#F5F5F5]">Pantallas visibles</h2>
+            <p className="mt-1 text-sm text-[#A7A7A7]">
+              {pantallasUser.nombre} — desmarca una pantalla para ocultársela. Por defecto ve todas.
+            </p>
+            {error ? <p className="mt-4 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
+
+            <div className="mt-5 space-y-5">
+              {modulosConPantallasDe(pantallasUser).map((modulo) => (
+                <div key={modulo}>
+                  <p className="text-sm font-medium text-[#CFCFCB]">
+                    {modulo === "shipping-v2" ? "Shipping" : modulo}
+                  </p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {PANTALLAS_POR_MODULO[modulo].map((pantalla) => (
+                      <label key={pantalla.key} className="flex items-center gap-3 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#CFCFCB]">
+                        <input
+                          type="checkbox"
+                          checked={pantallasForm[modulo]?.has(pantalla.key) ?? true}
+                          onChange={() => togglePantalla(modulo, pantalla.key)}
+                          className="h-4 w-4 accent-[#D7FF4F]"
+                        />
+                        {pantalla.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <p className="mt-4 text-xs text-[#A7A7A7]">
+              El cambio aplica la próxima vez que {pantallasUser.nombre.split(" ")[0]} inicie sesión, no de inmediato.
+            </p>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" onClick={closeModals} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Cancelar</button>
+              <button type="button" disabled={isSubmitting} onClick={handlePantallasSave} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60">
+                {isSubmitting ? "Guardando..." : "Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {camposUser ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 px-4 py-8 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 text-left shadow-2xl shadow-black">
+            <h2 className="text-xl font-semibold text-[#F5F5F5]">Campos por pantalla</h2>
+            <p className="mt-1 text-sm text-[#A7A7A7]">
+              {camposUser.nombre} — "Cantidad" no aparece aquí: siempre requiere Administrador, sin excepción.
+            </p>
+            {error ? <p className="mt-4 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
+
+            <div className="mt-5 space-y-5">
+              {pantallasConCamposDe(camposUser).map(({ modulo, pantalla, label, campos }) => {
+                const clave = `${modulo}::${pantalla}`;
+                return (
+                  <div key={clave}>
+                    <p className="text-sm font-medium text-[#CFCFCB]">
+                      {modulo === "shipping-v2" ? "Shipping" : modulo} · {label}
+                    </p>
+                    <div className="mt-2 divide-y divide-[#3A3A36] rounded-lg border border-[#3A3A36]">
+                      {campos.map((campo) => (
+                        <div key={campo.key} className="flex items-center justify-between gap-3 px-3 py-2">
+                          <span className="text-sm text-[#CFCFCB]">{campo.label}</span>
+                          <select
+                            value={camposForm[clave]?.[campo.key] ?? "editable"}
+                            onChange={(event) => setCampoEstado(clave, campo.key, event.target.value as EstadoCampoPersonalizado | "editable")}
+                            className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-2 py-1.5 text-xs text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none"
+                          >
+                            <option value="editable">Editable</option>
+                            <option value="solo-lectura">Solo lectura</option>
+                            <option value="oculto">Oculto</option>
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <p className="mt-4 text-xs text-[#A7A7A7]">
+              El cambio aplica la próxima vez que {camposUser.nombre.split(" ")[0]} inicie sesión, no de inmediato.
+            </p>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" onClick={closeModals} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm font-medium text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">Cancelar</button>
+              <button type="button" disabled={isSubmitting} onClick={handleCamposSave} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60">
+                {isSubmitting ? "Guardando..." : "Guardar"}
               </button>
             </div>
           </div>

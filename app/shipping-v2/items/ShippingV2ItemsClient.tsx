@@ -1140,6 +1140,8 @@ function DetailSection({
   onSave,
   esAdmin = false,
   canEdit = true,
+  camposOcultos = [],
+  camposSoloLectura = [],
 }: {
   title: string;
   accent: "lime" | "purple" | "orange" | "yellow";
@@ -1147,6 +1149,9 @@ function DetailSection({
   onSave: (field: string, value: string | number | boolean | null) => Promise<void>;
   esAdmin?: boolean;
   canEdit?: boolean;
+  /** Personalización por usuario (Fase 2 de permisos, ver lib/permissions/campos.ts). */
+  camposOcultos?: readonly string[];
+  camposSoloLectura?: readonly string[];
 }) {
   const accentClass = {
     lime: "bg-[#D7FF4F]",
@@ -1155,6 +1160,13 @@ function DetailSection({
     yellow: "bg-[#F4E85B]",
   }[accent];
 
+  // "Oculto" nunca aplica a un campo adminOnly (Cantidad, Disponible para
+  // venta): ese ya tiene su propio candado, más estricto, que no depende de
+  // esta configuración por usuario.
+  const rowsVisibles = rows.filter(
+    (row) => row.config?.adminOnly === true || !row.config || !camposOcultos.includes(row.config.key)
+  );
+
   return (
     <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-lg shadow-black/10">
       <div className="mb-2.5 flex items-center gap-2">
@@ -1162,12 +1174,14 @@ function DetailSection({
         <h3 className="text-sm font-semibold text-[#F5F5F5]">{title}</h3>
       </div>
       <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-        {rows.map((row) => {
+        {rowsVisibles.map((row) => {
           // Los campos marcados adminOnly se ven siempre, pero solo administración
           // los puede editar (el servidor lo vuelve a validar).
           const bloqueadoPorRol = row.config?.adminOnly === true && !esAdmin;
+          const bloqueadoPersonalizado =
+            row.config?.adminOnly !== true && Boolean(row.config) && camposSoloLectura.includes(row.config!.key);
           const soloLectura =
-            !canEdit || (row.readOnly ?? !row.config) || row.config?.category === "readOnly" || bloqueadoPorRol;
+            !canEdit || (row.readOnly ?? !row.config) || row.config?.category === "readOnly" || bloqueadoPorRol || bloqueadoPersonalizado;
 
           return (
             <InlineEditableField
@@ -1441,6 +1455,8 @@ export function ShippingV2ItemDetailView({
   novedades,
   onSaved,
   esAdmin = false,
+  camposOcultos = [],
+  camposSoloLectura = [],
   permissions,
 }: {
   item: ResolvedItem;
@@ -1451,6 +1467,9 @@ export function ShippingV2ItemDetailView({
   onSaved?: (item: ShippingV2Item) => void;
   /** Habilita los campos de corrección manual (config.adminOnly). */
   esAdmin?: boolean;
+  /** Personalización por usuario (Fase 2 de permisos) — claves (config.key) a ocultar/volver solo lectura. */
+  camposOcultos?: readonly string[];
+  camposSoloLectura?: readonly string[];
   permissions?: ShippingV2AccessPermissions | null;
 }) {
   const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
@@ -1933,9 +1952,9 @@ export function ShippingV2ItemDetailView({
               {activeTab === "despiece" ? (
                 // El despiece no es una lista de campos sino una tabla donde se
                 // van creando artículos hijos, así que no usa DetailSection.
-                <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} />
+                <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} esAdmin={esAdmin} />
               ) : (
-                <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} />
+                <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} />
               )}
             </div>
           </section>
