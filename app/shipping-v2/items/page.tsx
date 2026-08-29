@@ -2,6 +2,8 @@ import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2ItemsPage, getShippingV2Proveedores, type ShippingV2ItemsListSortKey } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
+import { camposConEstado, ocultarCamposDeObjeto } from "@/lib/permissions/campos";
+import { isAdministratorRole } from "@/lib/apps";
 import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2ItemsClient } from "./ShippingV2ItemsClient";
 
@@ -85,6 +87,13 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
   const sessionForGuard = await getSessionFromCookie();
   requirePantallaVisible(sessionForGuard?.user.pantallasRestringidas ?? {}, "shipping-v2", "items");
 
+  // Personalización por usuario (Fase 2 de permisos, ver
+  // lib/permissions/campos.ts). Un administrador nunca queda restringido.
+  const restringidosDelUsuario = isAdministratorRole(sessionForGuard?.user.rol)
+    ? {}
+    : (sessionForGuard?.user.camposRestringidos ?? {});
+  const camposOcultos = camposConEstado(restringidosDelUsuario, "shipping-v2", "items", "oculto");
+
   let items: ShippingV2Item[] = [];
   let proveedores: ShippingV2Proveedor[] = [];
   let permissions: ShippingV2AccessPermissions | null = null;
@@ -116,7 +125,7 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
       }),
       getShippingV2Proveedores(),
     ]);
-    items = itemsPage.items;
+    items = itemsPage.items.map((item) => ocultarCamposDeObjeto(item, camposOcultos));
     nextOffset = itemsPage.nextOffset;
     proveedores = access.providerId ? proveedoresResult.filter((provider) => provider.id === access.providerId) : proveedoresResult;
   } catch (loadError) {
@@ -144,6 +153,7 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
         error={error}
         permissions={permissions}
         providerName={providerName}
+        camposOcultos={camposOcultos}
         initialSortBy={sortBy}
         pagination={{
           pageIndex,

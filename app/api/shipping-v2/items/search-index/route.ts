@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getShippingV2AccessContextForSession, getShippingV2ItemSearchIndex } from "@/lib/shipping-v2/airtable";
 import { requireShippingV2Session } from "@/lib/shipping-v2/auth";
+import { isAdministratorRole } from "@/lib/apps";
+import { camposConEstado, ocultarCamposDeObjeto } from "@/lib/permissions/campos";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +13,22 @@ export async function GET() {
   try {
     const access = await getShippingV2AccessContextForSession(session);
     const index = await getShippingV2ItemSearchIndex(access);
+
+    // Personalización por usuario (Fase 2 de permisos, ver
+    // lib/permissions/campos.ts). El índice se cachea compartido entre
+    // sesiones (getShippingV2ItemSearchIndex), así que la redacción se aplica
+    // aquí, después de leer el caché — nunca dentro de él — para no filtrar
+    // el dato real hacia una sesión que no debe verlo. "Cache-Control:
+    // private" abajo asegura que esta respuesta ya redactada no se comparte
+    // entre navegadores.
+    const restringidosDelUsuario = isAdministratorRole(session?.user.rol) ? {} : (session?.user.camposRestringidos ?? {});
+    const camposOcultos = camposConEstado(restringidosDelUsuario, "shipping-v2", "items", "oculto");
+    const items = camposOcultos.length > 0 ? index.items.map((item) => ocultarCamposDeObjeto(item, camposOcultos)) : index.items;
+
     return NextResponse.json(
       {
-        items: index.items,
-        total: index.items.length,
+        items,
+        total: items.length,
         generatedAt: index.generatedAt,
       },
       {

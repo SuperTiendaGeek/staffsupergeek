@@ -56,6 +56,8 @@ type Props = {
   error: string;
   permissions?: ShippingV2AccessPermissions | null;
   providerName?: string;
+  /** Personalización por usuario (Fase 2 de permisos, ver lib/permissions/campos.ts). */
+  camposOcultos?: readonly string[];
   initialSortBy: SortKey;
   pagination: {
     pageIndex: number;
@@ -216,10 +218,10 @@ function createDefaultTableViewConfig(): ShippingV2ItemsTableViewConfig {
 
 const restrictedInternalColumns = new Set<ShippingV2ItemsColumnKey>(["salePrice"]);
 
-function getAvailableColumns(canViewCosts: boolean, canViewProviderCost: boolean) {
+function getAvailableColumns(canViewCosts: boolean, canViewProviderCost: boolean, camposOcultos: readonly string[] = []) {
   return AVAILABLE_COLUMNS.filter((column) => {
-    if (column.key === "providerCost") return canViewProviderCost;
-    if (restrictedInternalColumns.has(column.key)) return canViewCosts;
+    if (column.key === "providerCost") return canViewProviderCost && !camposOcultos.includes("costoProveedor");
+    if (restrictedInternalColumns.has(column.key)) return canViewCosts && !camposOcultos.includes("precioVenta");
     return true;
   });
 }
@@ -1985,13 +1987,17 @@ export function ShippingV2ItemDetailView({
   );
 }
 
-export function ShippingV2ItemsClient({ items: initialItems, proveedores, error, permissions, providerName, initialSortBy, pagination }: Props) {
+export function ShippingV2ItemsClient({ items: initialItems, proveedores, error, permissions, providerName, camposOcultos = [], initialSortBy, pagination }: Props) {
   const router = useRouter();
   const canEditItems = permissions?.canEditItems !== false;
   const canViewCosts = permissions?.canViewCosts !== false;
   const canViewProviderCost = canViewCosts || permissions?.canViewProviderCost !== false;
+  // Personalización por usuario (Fase 2 de permisos) intersecada con los
+  // permisos de rol: se necesitan AMBOS para ver el dato.
+  const puedeVerCostoProveedorLista = canViewProviderCost && !camposOcultos.includes("costoProveedor");
+  const puedeVerPrecioVentaLista = canViewCosts && !camposOcultos.includes("precioVenta");
   const isProviderPortal = Boolean(providerName && permissions?.canEditItems === false);
-  const availableColumns = useMemo(() => getAvailableColumns(canViewCosts, canViewProviderCost), [canViewCosts, canViewProviderCost]);
+  const availableColumns = useMemo(() => getAvailableColumns(canViewCosts, canViewProviderCost, camposOcultos), [canViewCosts, canViewProviderCost, camposOcultos]);
   const availableSortOptions = useMemo(() => getSortOptions(canViewCosts, canViewProviderCost), [canViewCosts, canViewProviderCost]);
   const [items, setItems] = useState(initialItems);
   const [search, setSearch] = useState("");
@@ -2315,7 +2321,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
           </Link>
         </div>
         <div className="w-full">
-          <ShippingV2ItemsPredictiveSearch search={search} setSearch={setSearch} fallbackItems={resolvedItems} canViewCosts={canViewCosts} />
+          <ShippingV2ItemsPredictiveSearch search={search} setSearch={setSearch} fallbackItems={resolvedItems} canViewCosts={puedeVerPrecioVentaLista} />
         </div>
         <div ref={toolbarMenuRef} className="relative flex shrink-0 items-center gap-1.5 justify-self-start">
           <TooltipProvider delayDuration={180}>
@@ -2670,8 +2676,8 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
                 <MobileItemCard
                   key={item.id}
                   item={item}
-                  canViewCosts={canViewCosts}
-                  canViewProviderCost={canViewProviderCost}
+                  canViewCosts={puedeVerPrecioVentaLista}
+                  canViewProviderCost={puedeVerCostoProveedorLista}
                   canEditFacebookSuperGeek={canEditItems}
                   facebookSuperGeekBusy={facebookSuperGeekBusyId === item.id}
                   onFacebookSuperGeekChange={updateFacebookSuperGeek}
