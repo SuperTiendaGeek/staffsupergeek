@@ -2478,6 +2478,9 @@ function shouldLogShippingV2ItemFieldEvent(config: { field: string; category: st
     SHIPPING_V2_ITEM_FIELDS.sku,
     SHIPPING_V2_ITEM_FIELDS.skuProveedor,
     SHIPPING_V2_ITEM_FIELDS.tipoOperacion,
+    // Ahora adminOnly (ver item-edit-config.ts): toda corrección manual de
+    // cantidad queda en el historial del item, sin excepción.
+    SHIPPING_V2_ITEM_FIELDS.cantidad,
   ]);
 
   return config.category === "special" || criticalFields.has(config.field);
@@ -2893,7 +2896,7 @@ export async function removeFotoFromShippingV2Item(
   return item;
 }
 
-export async function updateShippingV2Item(recordId: string, input: ShippingV2ItemWriteInput, options: { actualizadoPor: string }) {
+export async function updateShippingV2Item(recordId: string, input: ShippingV2ItemWriteInput, options: { actualizadoPor: string; esAdmin?: boolean }) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
   // "edicion": recalcula las banderas de flujo pero NO retrocede el estado.
@@ -2903,6 +2906,16 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   await validateItemProviderRules(normalizedInput);
 
   const existing = await getShippingV2ItemById(id, { access: systemShippingV2Access() });
+
+  // Mismo candado que el editor de campo individual (ver adminOnly en
+  // item-edit-config.ts): este es el otro camino de escritura del mismo
+  // campo — el formulario completo de edición, no la celda inline — y sin
+  // este chequeo cualquiera con permiso de editar items podía cambiar la
+  // cantidad por aquí sin pasar por la validación de rol.
+  if (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) && options.esAdmin !== true) {
+    throw new Error('Solo un administrador puede corregir "Cantidad" a mano.');
+  }
+
   if (
     (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) ||
       nullableNumberChanged(normalizedInput.costoProveedor, existing.costoProveedor)) &&
@@ -5314,7 +5327,7 @@ export async function editarPiezaDespiece(
     precioVenta?: number | null;
     observaciones?: string;
   },
-  options: { registradoPor: string; access?: ShippingV2AccessContext }
+  options: { registradoPor: string; access?: ShippingV2AccessContext; esAdmin?: boolean }
 ) {
   assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
   const padreId = cleanString(input.padreId);
@@ -5334,6 +5347,13 @@ export async function editarPiezaDespiece(
   if (cleanString(input.categoria)) campos[F.categoria] = cleanString(input.categoria);
   if (cleanString(input.condicion)) campos[F.condicion] = cleanString(input.condicion);
   if (typeof input.cantidad === "number" && Number.isInteger(input.cantidad) && input.cantidad > 0) {
+    // Una pieza de despiece es un Shipping Item más: mismo candado que
+    // cualquier otro item (ver adminOnly en item-edit-config.ts). Al crear
+    // la pieza sí se puede fijar la cantidad inicial (crearPiezaDespiece);
+    // corregirla después es lo que se restringe.
+    if (input.cantidad !== pieza.cantidad && options.esAdmin !== true) {
+      throw new Error('Solo un administrador puede corregir la "Cantidad" de una pieza ya creada.');
+    }
     campos[F.cantidad] = input.cantidad;
   }
   if (input.observaciones !== undefined) campos[F.observacionesInternas] = cleanString(input.observaciones);

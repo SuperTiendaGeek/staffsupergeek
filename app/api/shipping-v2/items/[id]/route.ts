@@ -114,6 +114,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
     const item = await updateShippingV2Item(id, parseInput(body), {
       actualizadoPor: actor,
+      esAdmin: isAdministratorRole(session?.user.rol),
     });
 
     return NextResponse.json({ success: true, data: item });

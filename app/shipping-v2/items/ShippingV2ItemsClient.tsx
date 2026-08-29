@@ -1933,7 +1933,7 @@ export function ShippingV2ItemDetailView({
               {activeTab === "despiece" ? (
                 // El despiece no es una lista de campos sino una tabla donde se
                 // van creando artículos hijos, así que no usa DetailSection.
-                <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} />
+                <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} esAdmin={esAdmin} />
               ) : (
                 <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} />
               )}
