@@ -1,26 +1,20 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { canAccessApp } from "@/lib/apps";
 import { getSessionFromCookie } from "@/lib/session";
-import { obtenerFactura } from "@/lib/facturacion/airtable/facturas";
-import { parsearLineasFactura } from "@/lib/facturacion/print/lineasFactura";
+import { obtenerFacturaSoloLectura } from "@/lib/facturacion/documentos/facturaSoloLectura";
 
 export const dynamic = "force-dynamic";
 
 // Vista de SOLO LECTURA de una factura — sin ninguna acción (nada de
-// reenviar correo, nota de crédito, anulación, etc.). Nace del enlace
-// "Factura NNN..." en /tecnicos/mantenimientos (ver
-// app/tecnicos/mantenimientos/MantenimientosPageClient.tsx): antes ese
-// enlace apuntaba al DocumentoDetalleModal de /facturacion, que SÍ es de
-// solo lectura en su contenido, pero trae pegada la barra de "Acciones"
-// completa (Reenviar correo, Nota de crédito, Solicitar anulación…) — botones
-// sin ningún sentido fuera del flujo de facturación. Esta es la misma
-// información, sin esa barra.
+// reenviar correo, nota de crédito, anulación, etc.). Acceso directo por
+// URL a la misma información que el modal VerFacturaModal de
+// /tecnicos/mantenimientos consulta vía /api/facturacion/ver-factura — ver
+// lib/facturacion/documentos/facturaSoloLectura.ts, un solo lugar arma esta
+// forma para los dos casos.
 //
-// Requiere permiso de Facturación (no Técnicos) a propósito: es información
-// financiera/tributaria de la factura (montos, IVA, clave de acceso SRI), y
-// eso se protege por el dato, no por la pantalla desde la que se llegó a él
-// — igual que el modal de /facturacion del que viene.
+// Sin permiso de Facturación como requisito a propósito — solo sesión
+// activa — para que cualquier miembro del staff logueado pueda abrirla sin
+// toparse con un bloqueo.
 
 const mon = (n: number) => `$${n.toFixed(2)}`;
 const fmt = (iso: string) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—");
@@ -62,10 +56,9 @@ const FORMA_PAGO_LABEL: Record<string, string> = {
 export default async function VerFacturaPage({ params }: { params: Promise<{ recordId: string }> }) {
   const session = await getSessionFromCookie();
   if (!session) redirect("/login");
-  if (!canAccessApp(session, "Facturación")) redirect("/");
 
   const { recordId } = await params;
-  const factura = recordId ? await obtenerFactura(recordId) : null;
+  const factura = recordId ? await obtenerFacturaSoloLectura(recordId) : null;
 
   if (!factura) {
     return (
@@ -79,8 +72,6 @@ export default async function VerFacturaPage({ params }: { params: Promise<{ rec
       </main>
     );
   }
-
-  const { items, formaPago } = parsearLineasFactura(factura.lineasJson);
 
   return (
     <main className="min-h-screen bg-[#101110] px-4 py-10 text-[#F0F0EC]">
@@ -126,7 +117,7 @@ export default async function VerFacturaPage({ params }: { params: Promise<{ rec
             </div>
           </div>
 
-          {items.length > 0 ? (
+          {factura.items.length > 0 ? (
             <div className="rounded-xl border border-[#2A2A22] bg-[#151510] overflow-hidden">
               <table className="w-full text-xs">
                 <thead>
@@ -138,7 +129,7 @@ export default async function VerFacturaPage({ params }: { params: Promise<{ rec
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#1E1E1A]">
-                  {items.map((it, i) => (
+                  {factura.items.map((it, i) => (
                     <tr key={i}>
                       <td className="py-1.5 px-2 text-[#F5F5F5]">
                         {it.codigo && <span className="block font-mono text-[10px] text-[#777]">SKU: {it.codigo}</span>}
@@ -171,11 +162,11 @@ export default async function VerFacturaPage({ params }: { params: Promise<{ rec
             </div>
           </div>
 
-          {formaPago && (
+          {factura.formaPago && (
             <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm">
               <div className="flex justify-between gap-3">
                 <span className="text-[#666]">Forma de pago</span>
-                <span className="text-[#F5F5F5] text-right">{FORMA_PAGO_LABEL[formaPago] ?? formaPago}</span>
+                <span className="text-[#F5F5F5] text-right">{FORMA_PAGO_LABEL[factura.formaPago] ?? factura.formaPago}</span>
               </div>
             </div>
           )}

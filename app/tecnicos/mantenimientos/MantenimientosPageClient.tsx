@@ -102,7 +102,7 @@ function BadgeDias({ fecha, realizado }: { fecha: string; realizado: boolean }) 
   );
 }
 
-function BadgeOrigen({ item }: { item: MantenimientoItem }) {
+function BadgeOrigen({ item, onVerFactura }: { item: MantenimientoItem; onVerFactura: (facturaRecordId: string) => void }) {
   if (item.origen === "Orden de Reparación" && item.ordenRecordId) {
     return (
       <Link
@@ -116,15 +116,14 @@ function BadgeOrigen({ item }: { item: MantenimientoItem }) {
   }
   if (item.facturaRecordId) {
     return (
-      <Link
-        href={`/facturacion/documentos/factura/${encodeURIComponent(item.facturaRecordId)}`}
-        target="_blank"
-        rel="noopener"
+      <button
+        type="button"
+        onClick={() => onVerFactura(item.facturaRecordId as string)}
         className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
         title="Ver factura (solo lectura, sin acciones)"
       >
         Factura{item.facturaNumero ? ` ${item.facturaNumero}` : ""}
-      </Link>
+      </button>
     );
   }
   return (
@@ -170,10 +169,12 @@ function HistorialModal({
   cliente,
   items,
   onClose,
+  onVerFactura,
 }: {
   cliente: { identificacion: string; nombre: string };
   items: MantenimientoItem[];
   onClose: () => void;
+  onVerFactura: (facturaRecordId: string) => void;
 }) {
   const ciclos = useMemo(() => {
     const propios = cliente.identificacion
@@ -239,12 +240,218 @@ function HistorialModal({
                 </div>
                 <p className="mt-1 text-xs text-[#A7A7A7]">{c.equipo}</p>
                 <div className="mt-1">
-                  <BadgeOrigen item={c} />
+                  <BadgeOrigen item={c} onVerFactura={onVerFactura} />
                 </div>
               </div>
             ))}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Detalle de solo lectura de una factura (sin ninguna acción) — se abre
+// como modal DENTRO de esta misma pestaña, apilado encima de lo que ya
+// esté abierto (la tabla principal, o el modal de historial): cerrarlo
+// regresa a lo de atrás, en vez de navegar a otra pestaña.
+type FacturaDetalle = {
+  numeroFactura: string;
+  estado: string;
+  ambiente: string;
+  clienteNombre: string;
+  clienteIdentificacion: string;
+  clienteCorreo: string;
+  fechaEmision: string;
+  claveAcceso: string;
+  subtotal: number;
+  iva: number;
+  total: number;
+  formaPago: string;
+  items: Array<{ codigo: string; descripcion: string; cantidad: number; precioUnitario: number; total: number }>;
+};
+
+const mon = (n: number) => `$${n.toFixed(2)}`;
+const fmtFecha = (iso: string) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—");
+
+const ESTADO_FACTURA_LABEL: Record<string, string> = {
+  AUTORIZADO: "Autorizada",
+  DEVUELTA: "Devuelta",
+  "NO AUTORIZADO": "No autorizada",
+  PENDIENTE: "En proceso",
+  RECIBIDA: "En proceso",
+  BORRADOR: "Borrador",
+  ANULADA: "Anulada",
+};
+
+const FORMA_PAGO_LABEL: Record<string, string> = {
+  "01": "Efectivo",
+  "15": "Compensación de deudas",
+  "16": "Tarjeta de débito",
+  "17": "Dinero electrónico",
+  "18": "Tarjeta prepago",
+  "19": "Tarjeta de crédito",
+  "20": "Otros (sist. financiero)",
+  "21": "Endoso de títulos",
+};
+
+function VerFacturaModal({ facturaRecordId, onClose }: { facturaRecordId: string; onClose: () => void }) {
+  const [factura, setFactura] = useState<FacturaDetalle | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetch(`/api/facturacion/ver-factura/${encodeURIComponent(facturaRecordId)}`, {
+          signal: controller.signal,
+        });
+        const json = (await res.json()) as { success?: boolean; data?: FacturaDetalle; error?: string };
+        if (!res.ok || !json.success || !json.data) throw new Error(json.error || "No se pudo cargar la factura");
+        setFactura(json.data);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setError(err instanceof Error ? err.message : "Error desconocido");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [facturaRecordId]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-10 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-[#2A2A22] bg-[#1A1A16] text-[#F0F0EC] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {loading ? (
+          <div className="flex items-center justify-center px-5 py-10 text-sm text-[#A7A7A7]">Cargando factura…</div>
+        ) : error || !factura ? (
+          <div className="px-5 py-6">
+            <p className="text-sm text-red-400">{error || "Factura no encontrada."}</p>
+            <button type="button" onClick={onClose} className="mt-3 text-sm text-[#D7FF4F] hover:underline">
+              Cerrar
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-start justify-between gap-3 border-b border-[#2A2A22] px-5 py-4">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold bg-[#D7FF4F]/15 text-[#D7FF4F] border-[#D7FF4F]/40">
+                    Factura
+                  </span>
+                  <span className="text-xs text-[#A7A7A7]">{ESTADO_FACTURA_LABEL[factura.estado] ?? factura.estado}</span>
+                  {factura.ambiente && (
+                    <span className="inline-flex items-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">
+                      {factura.ambiente}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-lg font-bold font-mono text-[#F5F5F5]">{factura.numeroFactura || "—"}</p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-xl leading-none text-[#6B6B66] transition hover:text-[#F0F0EC]"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm space-y-1">
+                <div className="flex justify-between gap-3">
+                  <span className="text-[#666]">Cliente</span>
+                  <span className="text-[#F5F5F5] text-right">{factura.clienteNombre || "—"}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-[#666]">Identificación</span>
+                  <span className="text-[#F5F5F5] text-right">{factura.clienteIdentificacion || "—"}</span>
+                </div>
+                {factura.clienteCorreo && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-[#666]">Correo</span>
+                    <span className="text-[#F5F5F5] text-right truncate">{factura.clienteCorreo}</span>
+                  </div>
+                )}
+                <div className="flex justify-between gap-3">
+                  <span className="text-[#666]">Fecha</span>
+                  <span className="text-[#F5F5F5] text-right">{fmtFecha(factura.fechaEmision)}</span>
+                </div>
+              </div>
+
+              {factura.items.length > 0 && (
+                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-[#555] border-b border-[#2A2A22]">
+                        <th className="text-left font-semibold py-1.5 px-2">Descripción</th>
+                        <th className="text-right font-semibold py-1.5 px-2">Cant.</th>
+                        <th className="text-right font-semibold py-1.5 px-2">P.Unit</th>
+                        <th className="text-right font-semibold py-1.5 px-2">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#1E1E1A]">
+                      {factura.items.map((it, i) => (
+                        <tr key={i}>
+                          <td className="py-1.5 px-2 text-[#F5F5F5]">
+                            {it.codigo && <span className="block font-mono text-[10px] text-[#777]">SKU: {it.codigo}</span>}
+                            {it.descripcion}
+                          </td>
+                          <td className="py-1.5 px-2 text-right text-[#A7A7A7]">{it.cantidad}</td>
+                          <td className="py-1.5 px-2 text-right text-[#A7A7A7]">{mon(it.precioUnitario)}</td>
+                          <td className="py-1.5 px-2 text-right text-[#D7FF4F] font-semibold">{mon(it.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-[#666]">Subtotal</span>
+                  <span className="text-[#F5F5F5]">{mon(factura.subtotal)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#666]">IVA</span>
+                  <span className="text-[#F5F5F5]">{mon(factura.iva)}</span>
+                </div>
+                <div className="flex justify-between text-base font-bold">
+                  <span className="text-[#F5F5F5]">TOTAL</span>
+                  <span className="text-[#D7FF4F]">{mon(factura.total)}</span>
+                </div>
+              </div>
+
+              {factura.formaPago && (
+                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-[#666]">Forma de pago</span>
+                    <span className="text-[#F5F5F5] text-right">{FORMA_PAGO_LABEL[factura.formaPago] ?? factura.formaPago}</span>
+                  </div>
+                </div>
+              )}
+
+              {factura.claveAcceso && (
+                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-[10px] text-[#888] break-all">
+                  <p className="text-[#666] font-semibold uppercase tracking-wider mb-1">SRI</p>
+                  <p>
+                    <span className="text-[#666]">Clave de acceso:</span> {factura.claveAcceso}
+                  </p>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -344,6 +551,7 @@ export function MantenimientosPageClient() {
   // o realizado), para deshabilitar el botón y evitar dobles clics.
   const [guardandoId, setGuardandoId] = useState<string | null>(null);
   const [historialCliente, setHistorialCliente] = useState<{ identificacion: string; nombre: string } | null>(null);
+  const [facturaAbierta, setFacturaAbierta] = useState<string | null>(null);
 
   const [colWidths, setColWidths] = useState<Record<ColumnKey, number>>(COLUMN_DEFAULTS);
   const colWidthsRef = useRef(colWidths);
@@ -602,7 +810,7 @@ export function MantenimientosPageClient() {
                             </button>
                           </td>
                           <td className="overflow-hidden px-3 py-3">
-                            <BadgeOrigen item={item} />
+                            <BadgeOrigen item={item} onVerFactura={setFacturaAbierta} />
                           </td>
                           <td className="px-3 py-3 pr-6">
                             <div className="flex justify-end">
@@ -650,7 +858,16 @@ export function MantenimientosPageClient() {
       </aside>
 
       {historialCliente && (
-        <HistorialModal cliente={historialCliente} items={items} onClose={() => setHistorialCliente(null)} />
+        <HistorialModal
+          cliente={historialCliente}
+          items={items}
+          onClose={() => setHistorialCliente(null)}
+          onVerFactura={setFacturaAbierta}
+        />
+      )}
+
+      {facturaAbierta && (
+        <VerFacturaModal facturaRecordId={facturaAbierta} onClose={() => setFacturaAbierta(null)} />
       )}
     </div>
   );
