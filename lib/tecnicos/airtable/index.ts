@@ -297,6 +297,8 @@ export interface OrdenDetalle {
   documentos: AirtableAttachment[];
   cotizacionId: string;
   cotizacionCodigo: string;
+  /** Fecha (YYYY-MM-DD) impresa en la última etiqueta de mantenimiento de este equipo, si se ha impreso alguna. */
+  proximoMantenimiento: string;
 }
 
 // Helpers
@@ -1566,6 +1568,7 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     documentos: parseAttachments(f["Documentos"]),
     cotizacionId: pickStringField(f, ["Cotización ID", "Cotizacion ID"], ""),
     cotizacionCodigo: pickStringField(f, ["Cotización Código", "Cotizacion Codigo"], ""),
+    proximoMantenimiento: safeString(f["Próximo Mantenimiento"], ""),
   };
 
   // Historial: preferir IDs vinculados desde la orden
@@ -2699,6 +2702,33 @@ export const updateOrdenNotaInterna = async ({
   }
 
   return { notaInterna };
+};
+
+// --- Escritura: fecha impresa en la etiqueta de mantenimiento ---
+export const updateOrdenProximoMantenimiento = async ({
+  ordenRecordId,
+  fecha,
+}: {
+  ordenRecordId: string;
+  /** YYYY-MM-DD */
+  fecha: string;
+}): Promise<{ proximoMantenimiento: string }> => {
+  const client = getClient();
+  const urlOrden = `${client.baseUrl}/${encodeURIComponent(
+    AIRTABLE_TABLES.ordenes
+  )}/${encodeURIComponent(ordenRecordId)}`;
+
+  const res = await fetch(urlOrden, {
+    method: "PATCH",
+    headers: client.headers,
+    body: JSON.stringify({ fields: { "Próximo Mantenimiento": fecha } }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Airtable error ${res.status}: ${text}`);
+  }
+
+  return { proximoMantenimiento: fecha };
 };
 
 // --- Escritura: actualizar campos directos de la orden ---

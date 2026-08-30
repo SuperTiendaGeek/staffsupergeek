@@ -16,6 +16,7 @@ import { buildWhatsAppUrl } from "@/lib/tecnicos/whatsapp";
 import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnificadaPanel";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
 import { METODOS_PAGO_ABONO, esMetodoPagoAbonoValido, requiereNumeroTransaccion } from "@/types/abonos";
+import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
 
 type HistorialItem = {
   id: string;
@@ -144,6 +145,7 @@ type OrdenDetalle = {
   documentos: OrdenDocumentoItem[];
   cotizacionId: string;
   cotizacionCodigo: string;
+  proximoMantenimiento: string;
 };
 
 const formatDate = (value?: string | null) => {
@@ -708,6 +710,7 @@ export function OrdenDetalleClient() {
   const [cuentaUnificadaError, setCuentaUnificadaError] = useState<string | null>(null);
   const [showRepuestosHistoricos, setShowRepuestosHistoricos] = useState(false);
   const [showRepuestoV2Modal, setShowRepuestoV2Modal] = useState(false);
+  const [showMantenimientoModal, setShowMantenimientoModal] = useState(false);
   const [repuestoV2Search, setRepuestoV2Search] = useState("");
   const [repuestoV2Resultados, setRepuestoV2Resultados] = useState<RepuestoStockResumen[]>([]);
   const [repuestoV2SearchLoading, setRepuestoV2SearchLoading] = useState(false);
@@ -2096,6 +2099,19 @@ export function OrdenDetalleClient() {
                         <PrintIcon className="h-3.5 w-3.5" />
                         Etiqueta
                       </a>
+                      <button
+                        type="button"
+                        onClick={() => setShowMantenimientoModal(true)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]"
+                      >
+                        <PrintIcon className="h-3.5 w-3.5" />
+                        Mantenimiento
+                        {orden.proximoMantenimiento && (
+                          <span className="text-[var(--sg-text-muted)]/70">
+                            ({formatDate(orden.proximoMantenimiento)})
+                          </span>
+                        )}
+                      </button>
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
@@ -3951,6 +3967,13 @@ export function OrdenDetalleClient() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {showMantenimientoModal && (
+              <ImprimirEtiquetaMantenimientoModal
+                ordenId={id}
+                onClose={() => setShowMantenimientoModal(false)}
+              />
             )}
 
             {showProductoDigitalModal && (
