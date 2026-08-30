@@ -114,6 +114,19 @@ function BadgeOrigen({ item }: { item: MantenimientoItem }) {
       </Link>
     );
   }
+  if (item.facturaRecordId) {
+    return (
+      <Link
+        href={`/facturacion/imprimir/factura/${encodeURIComponent(item.facturaRecordId)}`}
+        target="_blank"
+        rel="noopener"
+        className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
+        title="Ver factura (abre el comprobante de 80mm en una pestaña nueva)"
+      >
+        Factura{item.facturaNumero ? ` ${item.facturaNumero}` : ""}
+      </Link>
+    );
+  }
   return (
     <span
       className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]"
@@ -127,7 +140,7 @@ function BadgeOrigen({ item }: { item: MantenimientoItem }) {
 function EstadoCiclo({ item }: { item: MantenimientoItem }) {
   if (item.realizado) {
     return (
-      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
         ✓ Realizado{item.fechaRealizado ? ` · ${formatFecha(item.fechaRealizado)}` : ""}
       </span>
     );
@@ -135,13 +148,13 @@ function EstadoCiclo({ item }: { item: MantenimientoItem }) {
   const dias = diasRestantes(item.fecha);
   if (dias !== null && dias < 0) {
     return (
-      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-300">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">
         ✗ Incumplido
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-3 py-1 text-xs font-semibold text-[#A7A7A7]">
+    <span className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">
       ⏳ Pendiente
     </span>
   );
@@ -180,13 +193,13 @@ function HistorialModal({
       onClick={onClose}
     >
       <div
-        className="flex w-full max-w-3xl max-h-[88vh] flex-col overflow-hidden rounded-2xl border border-[#3A3A36] bg-[#1A1B18] text-[#F0F0EC] shadow-2xl"
+        className="flex w-full max-w-3xl max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-[#3A3A36] bg-[#1A1B18] text-[#F0F0EC] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-[#2A2A22] px-8 py-6">
+        <div className="flex items-start justify-between gap-4 border-b border-[#2A2A22] px-6 py-4">
           <div>
-            <h3 className="text-lg font-bold text-[#D7FF4F]">Historial de mantenimientos</h3>
-            <p className="mt-1 text-sm text-[#A7A7A7]">
+            <h3 className="text-sm font-bold text-[#D7FF4F]">Historial de mantenimientos</h3>
+            <p className="mt-0.5 text-xs text-[#8A8A80]">
               {cliente.nombre}
               {cliente.identificacion ? ` · ${cliente.identificacion}` : ""}
             </p>
@@ -194,38 +207,38 @@ function HistorialModal({
           <button
             type="button"
             onClick={onClose}
-            className="text-2xl leading-none text-[#6B6B66] transition hover:text-[#F0F0EC]"
+            className="text-xl leading-none text-[#6B6B66] transition hover:text-[#F0F0EC]"
             aria-label="Cerrar"
           >
             ✕
           </button>
         </div>
 
-        <div className="overflow-y-auto px-8 py-6">
-          <div className="mb-6 grid grid-cols-3 gap-4 rounded-xl border border-[#3A3A36] bg-[#252622] p-5 text-center">
+        <div className="overflow-y-auto px-6 py-4">
+          <div className="mb-4 grid grid-cols-3 gap-2 rounded-lg border border-[#3A3A36] bg-[#252622] p-3 text-center">
             <div>
-              <p className="text-3xl font-bold text-[#D7FF4F]">{ciclos.length}</p>
-              <p className="mt-1 text-xs uppercase tracking-wide text-[#8A8A80]">Ciclos totales</p>
+              <p className="text-lg font-bold text-[#D7FF4F]">{ciclos.length}</p>
+              <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Ciclos</p>
             </div>
             <div>
-              <p className="text-3xl font-bold text-emerald-300">{realizados}</p>
-              <p className="mt-1 text-xs uppercase tracking-wide text-[#8A8A80]">Realizados</p>
+              <p className="text-lg font-bold text-emerald-300">{realizados}</p>
+              <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Realizados</p>
             </div>
             <div>
-              <p className="text-3xl font-bold text-[#F0F0EC]">{cumplimientoPct === null ? "—" : `${cumplimientoPct}%`}</p>
-              <p className="mt-1 text-xs uppercase tracking-wide text-[#8A8A80]">Cumplimiento</p>
+              <p className="text-lg font-bold text-[#F0F0EC]">{cumplimientoPct === null ? "—" : `${cumplimientoPct}%`}</p>
+              <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Cumplimiento</p>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             {ciclos.map((c) => (
-              <div key={c.mantenimientoRecordId} className="rounded-xl border border-[#3A3A36] bg-[#252622] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-base font-semibold text-white">{formatFecha(c.fecha)}</span>
+              <div key={c.mantenimientoRecordId} className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-white">{formatFecha(c.fecha)}</span>
                   <EstadoCiclo item={c} />
                 </div>
-                <p className="mt-2 text-sm text-[#CFCFCB]">{c.equipo}</p>
-                <div className="mt-2">
+                <p className="mt-1 text-xs text-[#A7A7A7]">{c.equipo}</p>
+                <div className="mt-1">
                   <BadgeOrigen item={c} />
                 </div>
               </div>
