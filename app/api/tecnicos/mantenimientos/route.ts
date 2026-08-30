@@ -70,6 +70,7 @@ export async function POST(request: Request) {
 
     const facturaRecordId = typeof body.facturaRecordId === "string" ? body.facturaRecordId.trim() : "";
     const clienteNombre = typeof body.clienteNombre === "string" ? body.clienteNombre : "";
+    const clienteIdentificacion = typeof body.clienteIdentificacion === "string" ? body.clienteIdentificacion : "";
     const telefono = typeof body.telefono === "string" ? body.telefono : "";
     const equipo = typeof body.equipo === "string" ? body.equipo.trim() : "";
     if (!facturaRecordId) {
@@ -82,6 +83,7 @@ export async function POST(request: Request) {
       origen: "factura",
       facturaRecordId,
       clienteNombre,
+      clienteIdentificacion,
       telefono,
       equipo,
       fecha,

@@ -356,6 +356,7 @@ function DocumentoDetalleModal({
           factura={{
             recordId: doc.recordId,
             clienteNombre: doc.clienteNombre,
+            clienteIdentificacion: doc.clienteIdentificacion,
             telefono: cuerpo?.clienteTelefono ?? "",
             equipoSugerido: cuerpo?.items[0]?.descripcion ?? "",
           }}

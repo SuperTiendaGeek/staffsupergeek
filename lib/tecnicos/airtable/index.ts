@@ -314,11 +314,17 @@ export interface MantenimientoProximo {
   ordenIdVisible: string | null;
   facturaRecordId: string | null;
   facturaNumero: string | null;
+  /** Cédula/RUC del cliente — llave estable para agrupar el historial de un mismo equipo entre ciclos (venta → mantenimiento → mantenimiento…), aunque cada ciclo nazca de una orden o factura distinta. */
+  clienteIdentificacion: string;
   clienteNombre: string;
   telefono: string;
   equipo: string;
   fecha: string;
+  /** Se le avisó al cliente (WhatsApp) de este ciclo. No implica que haya venido. */
   notificado: boolean;
+  /** El cliente trajo el equipo y el mantenimiento de este ciclo se hizo. */
+  realizado: boolean;
+  fechaRealizado: string | null;
 }
 
 // Helpers
@@ -2755,11 +2761,14 @@ const mapMantenimientoRecord = (record: {
     ordenIdVisible: null,
     facturaRecordId,
     facturaNumero: null,
+    clienteIdentificacion: safeString(f["Cliente Identificación"], ""),
     clienteNombre: safeString(f["Cliente"], "Cliente no disponible"),
     telefono: safeString(f["Teléfono"], "-"),
     equipo: safeString(f["Equipo"], "Sin equipo"),
     fecha: safeString(f["Fecha"], ""),
     notificado: f["Notificado"] === true,
+    realizado: f["Realizado"] === true,
+    fechaRealizado: safeString(f["Fecha Realizado"], "") || null,
   };
 };
 
@@ -2769,7 +2778,7 @@ const mapMantenimientoRecord = (record: {
 const fetchOrdenResumenBasico = async (
   ordenRecordId: string,
   client: AirtableClient
-): Promise<{ clienteNombre: string; telefono: string; equipo: string } | null> => {
+): Promise<{ clienteNombre: string; telefono: string; equipo: string; cedula: string } | null> => {
   const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.ordenes)}/${encodeURIComponent(ordenRecordId)}`;
   const res = await fetch(url, { headers: client.headers, cache: "no-store" });
   if (!res.ok) return null;
@@ -2785,6 +2794,7 @@ const fetchOrdenResumenBasico = async (
     clienteNombre: clienteNombre || "Cliente no disponible",
     telefono: safeString(f["Telefono"], "-"),
     equipo: safeString(f["Equipo"], "Sin equipo"),
+    cedula: pickStringField(f, ["CedulaTXT", "Cédula", "Cedula"], ""),
   };
 };
 
@@ -2815,7 +2825,14 @@ export type RegistrarMantenimientoInput = {
   impresoPor?: string | null;
 } & (
   | { origen: "orden"; ordenRecordId: string; equipo?: string }
-  | { origen: "factura"; facturaRecordId: string; clienteNombre: string; telefono: string; equipo: string }
+  | {
+      origen: "factura";
+      facturaRecordId: string;
+      clienteNombre: string;
+      clienteIdentificacion: string;
+      telefono: string;
+      equipo: string;
+    }
 );
 
 // --- Escritura: registrar (o actualizar, si ya existía para el mismo origen) una etiqueta de mantenimiento ---
@@ -2825,6 +2842,7 @@ export const registrarMantenimiento = async (
   const client = getClient();
 
   let clienteNombre: string;
+  let clienteIdentificacion: string;
   let telefono: string;
   let equipo: string;
   const linkField: "Orden" | "Factura" = input.origen === "orden" ? "Orden" : "Factura";
@@ -2833,25 +2851,37 @@ export const registrarMantenimiento = async (
   if (input.origen === "orden") {
     const base = await fetchOrdenResumenBasico(input.ordenRecordId, client);
     clienteNombre = base?.clienteNombre ?? "Cliente no disponible";
+    clienteIdentificacion = base?.cedula ?? "";
     telefono = base?.telefono ?? "-";
     equipo = (input.equipo ?? "").trim() || base?.equipo || "Sin equipo";
   } else {
     clienteNombre = input.clienteNombre.trim() || "Cliente no disponible";
+    clienteIdentificacion = input.clienteIdentificacion.trim();
     telefono = input.telefono.trim() || "-";
     equipo = input.equipo.trim() || "Equipo no especificado";
   }
 
   // Reimprimir para el mismo origen (misma orden o misma factura) es un
   // ciclo de aviso nuevo: se actualiza la fila existente en vez de duplicar,
-  // y se resetea "Notificado" aunque el ciclo anterior ya se hubiera avisado.
+  // y se resetea "Notificado"/"Realizado" aunque el ciclo anterior ya se
+  // hubiera avisado o completado — es una fecha programada nueva.
+  //
+  // Ojo: esto NO agrupa ciclos distintos del mismo equipo (ej. venta →
+  // primer mantenimiento) — cada orden/factura de origen distinta siempre
+  // crea una fila nueva a propósito, para no perder el historial. Agrupar
+  // el historial de un mismo cliente se hace por "Cliente Identificación"
+  // en la pantalla /tecnicos/mantenimientos, no aquí.
   const existente = await fetchMantenimientoPorLink(linkField, linkedRecordId, client);
 
   const fields: Record<string, unknown> = {
     Cliente: clienteNombre,
+    "Cliente Identificación": clienteIdentificacion,
     "Teléfono": telefono,
     Equipo: equipo,
     Fecha: input.fecha,
     Notificado: false,
+    Realizado: false,
+    "Fecha Realizado": null,
     Origen: input.origen === "orden" ? "Orden de Reparación" : "Factura",
     [linkField]: [linkedRecordId],
     "Impreso Por": input.impresoPor ?? "",
@@ -2899,6 +2929,39 @@ export const marcarMantenimientoNotificado = async ({
   }
 
   return { notificado };
+};
+
+// --- Escritura: marcar/desmarcar un ciclo de mantenimiento como realizado ---
+// Distinto de "Notificado": Notificado solo dice que se le avisó al
+// cliente; Realizado dice que efectivamente trajo el equipo y se le hizo el
+// mantenimiento. Sin este estado no hay forma de medir cumplimiento.
+export const marcarMantenimientoRealizado = async ({
+  mantenimientoRecordId,
+  realizado,
+}: {
+  mantenimientoRecordId: string;
+  realizado: boolean;
+}): Promise<{ realizado: boolean; fechaRealizado: string | null }> => {
+  const client = getClient();
+  const url = `${client.baseUrl}/${encodeURIComponent(
+    AIRTABLE_TABLES.mantenimientos
+  )}/${encodeURIComponent(mantenimientoRecordId)}`;
+
+  // Al marcar "realizado" se registra hoy como fecha; al desmarcar (ej. clic
+  // accidental) se limpia, no se conserva una fecha inconsistente con el flag.
+  const fechaRealizado = realizado ? formatAirtableDateOnly() : null;
+
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: client.headers,
+    body: JSON.stringify({ fields: { Realizado: realizado, "Fecha Realizado": fechaRealizado } }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Airtable error ${res.status}: ${text}`);
+  }
+
+  return { realizado, fechaRealizado };
 };
 
 // Número visible de una factura, resuelto en un solo query batched (no uno

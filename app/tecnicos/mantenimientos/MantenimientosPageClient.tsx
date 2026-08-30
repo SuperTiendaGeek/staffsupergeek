@@ -6,6 +6,13 @@
 // (venta de mostrador, sin orden asociada). Ordenada por fecha ascendente
 // (las más próximas a vencer primero), con el estado de aviso al cliente y
 // un botón de WhatsApp para notificarlo.
+//
+// Cada ciclo (venta → mantenimiento → mantenimiento…) nace de una orden o
+// factura distinta, así que cada impresión es SU PROPIA fila — no se puede
+// saber si dos filas son "el mismo equipo" mirando solo el origen. Por eso
+// el historial de un cliente (botón sobre su nombre) agrupa por
+// `clienteIdentificacion` (cédula/RUC), que es estable entre ciclos aunque
+// el origen cambie.
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -20,11 +27,14 @@ type MantenimientoItem = {
   ordenIdVisible: string | null;
   facturaRecordId: string | null;
   facturaNumero: string | null;
+  clienteIdentificacion: string;
   clienteNombre: string;
   telefono: string;
   equipo: string;
   fecha: string; // YYYY-MM-DD
   notificado: boolean;
+  realizado: boolean;
+  fechaRealizado: string | null;
 };
 
 const formatFecha = (fecha: string): string => {
@@ -43,14 +53,22 @@ const diasRestantes = (fecha: string): number | null => {
   return Math.round((target.getTime() - hoy.getTime()) / 86_400_000);
 };
 
-function BadgeDias({ fecha }: { fecha: string }) {
+function BadgeDias({ fecha, realizado }: { fecha: string; realizado: boolean }) {
+  if (realizado) {
+    return (
+      <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+        ✓ Realizado
+      </span>
+    );
+  }
+
   const dias = diasRestantes(fecha);
   if (dias === null) return <span className="text-xs text-[#A7A7A7]">—</span>;
 
   if (dias < 0) {
     return (
       <span className="inline-flex items-center rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">
-        Venció hace {Math.abs(dias)} {Math.abs(dias) === 1 ? "día" : "días"}
+        Incumplido — venció hace {Math.abs(dias)} {Math.abs(dias) === 1 ? "día" : "días"}
       </span>
     );
   }
@@ -97,14 +115,118 @@ function BadgeOrigen({ item }: { item: MantenimientoItem }) {
   );
 }
 
+function EstadoCiclo({ item }: { item: MantenimientoItem }) {
+  if (item.realizado) {
+    return (
+      <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+        ✓ Realizado{item.fechaRealizado ? ` (${formatFecha(item.fechaRealizado)})` : ""}
+      </span>
+    );
+  }
+  const dias = diasRestantes(item.fecha);
+  if (dias !== null && dias < 0) {
+    return (
+      <span className="inline-flex items-center rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">
+        ✗ Incumplido
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">
+      ⏳ Pendiente
+    </span>
+  );
+}
+
+// Historial de un mismo equipo/cliente a través de varios ciclos (venta →
+// mantenimiento → mantenimiento…). Se agrupa por `clienteIdentificacion`
+// (cédula/RUC) porque es la única llave estable entre ciclos — el origen
+// (orden u factura) cambia cada vez y no sirve para esto. Si por algún
+// motivo no hay identificación guardada (dato viejo o vacío), se cae a
+// agrupar por nombre exacto, mejor que no mostrar nada.
+function HistorialModal({
+  cliente,
+  items,
+  onClose,
+}: {
+  cliente: { identificacion: string; nombre: string };
+  items: MantenimientoItem[];
+  onClose: () => void;
+}) {
+  const ciclos = useMemo(() => {
+    const propios = cliente.identificacion
+      ? items.filter((i) => i.clienteIdentificacion === cliente.identificacion)
+      : items.filter((i) => !i.clienteIdentificacion && i.clienteNombre === cliente.nombre);
+    return [...propios].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  }, [items, cliente]);
+
+  const realizados = ciclos.filter((c) => c.realizado).length;
+  const incumplidos = ciclos.filter((c) => !c.realizado && (diasRestantes(c.fecha) ?? 0) < 0).length;
+  const base = realizados + incumplidos;
+  const cumplimientoPct = base > 0 ? Math.round((realizados / base) * 100) : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-[#3A3A36] bg-[#1A1B18] p-5 text-[#F0F0EC] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-bold text-[#D7FF4F]">Historial de mantenimientos</h3>
+          <button type="button" onClick={onClose} className="text-[#6B6B66] transition hover:text-[#F0F0EC]" aria-label="Cerrar">
+            ✕
+          </button>
+        </div>
+        <p className="mb-4 text-xs text-[#8A8A80]">
+          {cliente.nombre}
+          {cliente.identificacion ? ` · ${cliente.identificacion}` : ""}
+        </p>
+
+        <div className="mb-4 grid grid-cols-3 gap-2 rounded-lg border border-[#3A3A36] bg-[#252622] p-3 text-center">
+          <div>
+            <p className="text-lg font-bold text-[#D7FF4F]">{ciclos.length}</p>
+            <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Ciclos</p>
+          </div>
+          <div>
+            <p className="text-lg font-bold text-emerald-300">{realizados}</p>
+            <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Realizados</p>
+          </div>
+          <div>
+            <p className="text-lg font-bold text-[#F0F0EC]">{cumplimientoPct === null ? "—" : `${cumplimientoPct}%`}</p>
+            <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Cumplimiento</p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {ciclos.map((c) => (
+            <div key={c.mantenimientoRecordId} className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-white">{formatFecha(c.fecha)}</span>
+                <EstadoCiclo item={c} />
+              </div>
+              <p className="mt-1 truncate text-xs text-[#A7A7A7]" title={c.equipo}>
+                {c.equipo}
+              </p>
+              <div className="mt-1">
+                <BadgeOrigen item={c} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function MantenimientosPageClient() {
   const [items, setItems] = useState<MantenimientoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  // mantenimientoRecordId -> true mientras hay un PATCH de "notificado" en
-  // curso, para deshabilitar el botón y evitar dobles clics.
+  // mantenimientoRecordId -> true mientras hay un PATCH en curso (notificado
+  // o realizado), para deshabilitar el botón y evitar dobles clics.
   const [guardandoId, setGuardandoId] = useState<string | null>(null);
+  const [historialCliente, setHistorialCliente] = useState<{ identificacion: string; nombre: string } | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -139,6 +261,7 @@ export function MantenimientosPageClient() {
         item.clienteNombre.toLowerCase().includes(q) ||
         item.equipo.toLowerCase().includes(q) ||
         item.telefono.includes(q) ||
+        item.clienteIdentificacion.toLowerCase().includes(q) ||
         (item.ordenIdVisible ?? "").toLowerCase().includes(q) ||
         (item.facturaNumero ?? "").toLowerCase().includes(q)
     );
@@ -146,21 +269,21 @@ export function MantenimientosPageClient() {
 
   const pendientes = items.filter((i) => !i.notificado).length;
 
-  async function toggleNotificado(item: MantenimientoItem) {
-    const nuevoValor = !item.notificado;
+  async function toggleCampo(item: MantenimientoItem, campo: "notificado" | "realizado") {
+    const nuevoValor = !item[campo];
     setGuardandoId(item.mantenimientoRecordId);
     // Optimista: la pantalla es de seguimiento manual, un fallo silencioso
     // aquí no bloquea nada crítico — si falla, se revierte abajo.
     setItems((prev) =>
-      prev.map((i) => (i.mantenimientoRecordId === item.mantenimientoRecordId ? { ...i, notificado: nuevoValor } : i))
+      prev.map((i) => (i.mantenimientoRecordId === item.mantenimientoRecordId ? { ...i, [campo]: nuevoValor } : i))
     );
     try {
       const res = await fetch(
-        `/api/tecnicos/mantenimientos/${encodeURIComponent(item.mantenimientoRecordId)}/notificado`,
+        `/api/tecnicos/mantenimientos/${encodeURIComponent(item.mantenimientoRecordId)}/${campo}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ notificado: nuevoValor }),
+          body: JSON.stringify({ [campo]: nuevoValor }),
         }
       );
       const json = await res.json().catch(() => ({}));
@@ -169,7 +292,7 @@ export function MantenimientosPageClient() {
       // Revertir en caso de error.
       setItems((prev) =>
         prev.map((i) =>
-          i.mantenimientoRecordId === item.mantenimientoRecordId ? { ...i, notificado: !nuevoValor } : i
+          i.mantenimientoRecordId === item.mantenimientoRecordId ? { ...i, [campo]: !nuevoValor } : i
         )
       );
     } finally {
@@ -183,7 +306,7 @@ export function MantenimientosPageClient() {
     // Enviar el recordatorio marca automáticamente el ciclo como notificado;
     // el badge de abajo sigue siendo editable a mano por si hace falta
     // corregirlo (ej. clic accidental, o se avisó por otro canal).
-    if (!item.notificado) void toggleNotificado(item);
+    if (!item.notificado) void toggleCampo(item, "notificado");
   }
 
   return (
@@ -208,7 +331,7 @@ export function MantenimientosPageClient() {
                   <line x1="13.5" y1="13.5" x2="18" y2="18" strokeLinecap="round" />
                 </svg>
                 <input
-                  placeholder="Cliente, equipo, teléfono, orden o factura"
+                  placeholder="Cliente, cédula, equipo, teléfono, orden o factura"
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                   className="h-full w-full bg-transparent text-sm outline-none placeholder:text-[#A7A7A7]/50"
@@ -234,13 +357,14 @@ export function MantenimientosPageClient() {
                 </div>
               ) : (
                 <div className="w-full overflow-x-auto rounded-lg border border-[#3A3A36] bg-[#252622]">
-                  <div className="grid min-w-[1160px] grid-cols-[minmax(0,1.2fr)_minmax(0,1.1fr)_minmax(105px,0.7fr)_minmax(130px,0.8fr)_minmax(140px,0.9fr)_minmax(150px,0.9fr)_140px_170px] border-b border-[#3A3A36] bg-[#30312D] px-6 py-3 text-[12px] uppercase tracking-wide text-[#A7A7A7]">
+                  <div className="grid min-w-[1280px] grid-cols-[minmax(0,1.2fr)_minmax(0,1.1fr)_minmax(105px,0.7fr)_minmax(130px,0.8fr)_minmax(140px,0.9fr)_minmax(150px,0.9fr)_minmax(150px,0.9fr)_140px_170px] border-b border-[#3A3A36] bg-[#30312D] px-6 py-3 text-[12px] uppercase tracking-wide text-[#A7A7A7]">
                     <span>Cliente</span>
                     <span>Equipo</span>
                     <span>Teléfono</span>
                     <span>Próximo mant.</span>
                     <span>Vence</span>
-                    <span>Estado</span>
+                    <span>Notificado</span>
+                    <span>Realizado</span>
                     <span>Origen</span>
                     <span className="text-right">Acción</span>
                   </div>
@@ -248,23 +372,30 @@ export function MantenimientosPageClient() {
                     {itemsFiltrados.map((item) => (
                       <div
                         key={item.mantenimientoRecordId}
-                        className="grid min-w-[1160px] grid-cols-[minmax(0,1.2fr)_minmax(0,1.1fr)_minmax(105px,0.7fr)_minmax(130px,0.8fr)_minmax(140px,0.9fr)_minmax(150px,0.9fr)_140px_170px] items-center bg-[#252622] px-6 py-3 text-sm text-[#CFCFCB] transition hover:bg-[#2D2E2A]"
+                        className="grid min-w-[1280px] grid-cols-[minmax(0,1.2fr)_minmax(0,1.1fr)_minmax(105px,0.7fr)_minmax(130px,0.8fr)_minmax(140px,0.9fr)_minmax(150px,0.9fr)_minmax(150px,0.9fr)_140px_170px] items-center bg-[#252622] px-6 py-3 text-sm text-[#CFCFCB] transition hover:bg-[#2D2E2A]"
                       >
-                        <span className="truncate font-semibold text-white" title={item.clienteNombre}>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setHistorialCliente({ identificacion: item.clienteIdentificacion, nombre: item.clienteNombre })
+                          }
+                          className="truncate text-left font-semibold text-white underline decoration-dotted decoration-[#5A5A54] underline-offset-2 hover:text-[#D7FF4F]"
+                          title={`Ver historial de ${item.clienteNombre}`}
+                        >
                           {item.clienteNombre}
-                        </span>
+                        </button>
                         <span className="truncate text-[#CFCFCB]" title={item.equipo}>
                           {item.equipo}
                         </span>
                         <span className="truncate text-[#CFCFCB]">{item.telefono || "-"}</span>
                         <span className="text-[#CFCFCB]">{formatFecha(item.fecha)}</span>
                         <span>
-                          <BadgeDias fecha={item.fecha} />
+                          <BadgeDias fecha={item.fecha} realizado={item.realizado} />
                         </span>
                         <span>
                           <button
                             type="button"
-                            onClick={() => toggleNotificado(item)}
+                            onClick={() => toggleCampo(item, "notificado")}
                             disabled={guardandoId === item.mantenimientoRecordId}
                             title="Clic para cambiar el estado a mano"
                             className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
@@ -274,6 +405,21 @@ export function MantenimientosPageClient() {
                             }`}
                           >
                             {item.notificado ? "✓ Notificado" : "Pendiente"}
+                          </button>
+                        </span>
+                        <span>
+                          <button
+                            type="button"
+                            onClick={() => toggleCampo(item, "realizado")}
+                            disabled={guardandoId === item.mantenimientoRecordId}
+                            title="Marcar si el cliente ya trajo el equipo y se le hizo el mantenimiento"
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
+                              item.realizado
+                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:border-emerald-500/70"
+                                : "border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
+                            }`}
+                          >
+                            {item.realizado ? "✓ Hecho" : "No aún"}
                           </button>
                         </span>
                         <span>
@@ -312,7 +458,17 @@ export function MantenimientosPageClient() {
           <p className="mt-2 text-3xl font-bold text-amber-300">{pendientes}</p>
           <p className="mt-1 text-xs text-[#A7A7A7]">Aún sin aviso de WhatsApp</p>
         </div>
+        <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
+          <p className="text-sm font-semibold text-white">Ver historial</p>
+          <p className="mt-1 text-xs text-[#A7A7A7]">
+            Haz clic en el nombre de un cliente en la tabla para ver todos sus ciclos de mantenimiento y su cumplimiento.
+          </p>
+        </div>
       </aside>
+
+      {historialCliente && (
+        <HistorialModal cliente={historialCliente} items={items} onClose={() => setHistorialCliente(null)} />
+      )}
     </div>
   );
 }

@@ -26,6 +26,8 @@ type Props = {
   factura?: {
     recordId: string;
     clienteNombre: string;
+    /** Cédula/RUC — llave para agrupar el historial de este cliente en /tecnicos/mantenimientos. */
+    clienteIdentificacion: string;
     telefono: string;
     /** Prellenado sugerido para el campo "Equipo" (ej. la descripción del primer ítem facturado). */
     equipoSugerido?: string;
@@ -91,6 +93,7 @@ export function ImprimirEtiquetaMantenimientoModal({ onClose, ordenId, factura }
               origen: "factura",
               facturaRecordId: factura!.recordId,
               clienteNombre: factura!.clienteNombre,
+              clienteIdentificacion: factura!.clienteIdentificacion,
               telefono: factura!.telefono,
               equipo: equipo.trim(),
               fecha: toDateInputValue(fecha),
