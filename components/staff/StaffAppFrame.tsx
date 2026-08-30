@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
+  BellRing,
   BookOpen,
   CalendarClock,
   ChevronLeft,
@@ -76,6 +77,7 @@ type NavItem = {
 
 const tecnicosSubItems: SubNavItem[] = [
   { href: "/tecnicos/ordenes", label: "Órdenes", icon: ClipboardList },
+  { href: "/tecnicos/mantenimientos", label: "Mantenimientos", icon: BellRing },
   { href: "/tecnicos/clientes", label: "Clientes", icon: UserRound },
   { href: "/tecnicos/catalogo-repuestos", label: "Repuestos", icon: Package },
   { href: "/tecnicos/catalogo-servicios", label: "Servicios", icon: Cog },

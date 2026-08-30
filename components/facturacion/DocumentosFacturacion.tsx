@@ -21,6 +21,7 @@ import Link from "next/link";
 import type { DocumentoResumen, GrupoVista, TipoDocumento, DocumentoCuerpo } from "@/lib/facturacion/documentos/tipos";
 import { TIPO_LABEL } from "@/lib/facturacion/documentos/tipos";
 import { NuevoDocumentoModal } from "@/components/facturacion/NuevoDocumentoModal";
+import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
 import { normalizeEcuadorPhone } from "@/lib/tecnicos/whatsapp";
 import { reservaVencida } from "@/lib/facturacion/reservas/reglas";
 
@@ -216,6 +217,10 @@ function DocumentoDetalleModal({
   // dentro del modal y soltar el mouse un pixel fuera del cuadro cierra la
   // ventana sin que nadie haya hecho clic "afuera" a propósito.
   const [mouseDownEnFondo, setMouseDownEnFondo] = useState(false);
+  // El botón de etiqueta de mantenimiento solo tiene sentido para una factura
+  // ya emitida (el equipo ya salió del taller) — no en un borrador.
+  const [mantenimientoModalOpen, setMantenimientoModalOpen] = useState(false);
+  const puedeImprimirMantenimiento = doc.tipo === "factura" && doc.estado === "AUTORIZADO";
 
   useEffect(() => {
     let vivo = true;
@@ -329,10 +334,34 @@ function DocumentoDetalleModal({
           {/* Acciones (mismas que la barra superior) */}
           <div className="border-t border-[#2A2A22] pt-3">
             <p className="text-[10px] text-[#666] uppercase tracking-wider mb-2">Acciones</p>
-            <BarraAcciones doc={doc} accion={accion} onPost={onPost} onDelete={onDelete} />
+            <div className="flex flex-wrap items-center gap-2">
+              <BarraAcciones doc={doc} accion={accion} onPost={onPost} onDelete={onDelete} />
+              {puedeImprimirMantenimiento && (
+                <button
+                  type="button"
+                  onClick={() => setMantenimientoModalOpen(true)}
+                  className={btnLink}
+                >
+                  🖨 Etiqueta mantenimiento
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      {mantenimientoModalOpen && (
+        <ImprimirEtiquetaMantenimientoModal
+          onClose={() => setMantenimientoModalOpen(false)}
+          factura={{
+            recordId: doc.recordId,
+            clienteNombre: doc.clienteNombre,
+            clienteIdentificacion: doc.clienteIdentificacion,
+            telefono: cuerpo?.clienteTelefono ?? "",
+            equipoSugerido: cuerpo?.items[0]?.descripcion ?? "",
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,874 @@
+"use client";
+
+// Seguimiento de "próximo mantenimiento" — lista la tabla centralizada
+// "Mantenimientos" (ver lib/tecnicos/airtable/index.ts), que cubre tanto
+// etiquetas impresas desde una Orden de Reparación como desde una Factura
+// (venta de mostrador, sin orden asociada). Ordenada por fecha ascendente
+// (las más próximas a vencer primero), con el estado de aviso al cliente y
+// un botón de WhatsApp para notificarlo.
+//
+// Cada ciclo (venta → mantenimiento → mantenimiento…) nace de una orden o
+// factura distinta, así que cada impresión es SU PROPIA fila — no se puede
+// saber si dos filas son "el mismo equipo" mirando solo el origen. Por eso
+// el historial de un cliente (botón sobre su nombre) agrupa por
+// `clienteIdentificacion` (cédula/RUC), que es estable entre ciclos aunque
+// el origen cambie.
+//
+// La tabla es de ancho fijo por columna (<colgroup>) con manijas de resize
+// entre encabezados — el contenido nunca se pisa: si no cabe, se recorta
+// con "…" (nunca salta de línea, que era lo que engordaba las filas) y el
+// usuario ensancha la columna que le haga falta. Los anchos se recuerdan
+// en localStorage por navegador.
+
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
+import styles from "@/components/tecnicos/layout/TecnicosTheme.module.css";
+import { buildWhatsAppUrl } from "@/lib/tecnicos/whatsapp";
+import { buildMantenimientoWhatsAppMessage } from "@/lib/tecnicos/orders/mantenimientoWhatsApp";
+
+type MantenimientoItem = {
+  mantenimientoRecordId: string;
+  origen: "Orden de Reparación" | "Factura";
+  ordenRecordId: string | null;
+  ordenIdVisible: string | null;
+  facturaRecordId: string | null;
+  facturaNumero: string | null;
+  clienteIdentificacion: string;
+  clienteNombre: string;
+  telefono: string;
+  equipo: string;
+  fecha: string; // YYYY-MM-DD
+  notificado: boolean;
+  realizado: boolean;
+  fechaRealizado: string | null;
+};
+
+const formatFecha = (fecha: string): string => {
+  const parsed = new Date(`${fecha}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return fecha;
+  return parsed.toLocaleDateString("es-EC", { year: "numeric", month: "short", day: "2-digit" });
+};
+
+/** Días de diferencia entre hoy y la fecha objetivo (negativo = ya venció). */
+const diasRestantes = (fecha: string): number | null => {
+  const target = new Date(`${fecha}T12:00:00`);
+  if (Number.isNaN(target.getTime())) return null;
+  const hoy = new Date();
+  hoy.setHours(12, 0, 0, 0);
+  target.setHours(12, 0, 0, 0);
+  return Math.round((target.getTime() - hoy.getTime()) / 86_400_000);
+};
+
+function BadgeDias({ fecha, realizado }: { fecha: string; realizado: boolean }) {
+  if (realizado) {
+    return (
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+        ✓ Realizado
+      </span>
+    );
+  }
+
+  const dias = diasRestantes(fecha);
+  if (dias === null) return <span className="text-xs text-[#A7A7A7]">—</span>;
+
+  if (dias < 0) {
+    return (
+      <span
+        className="inline-flex items-center whitespace-nowrap rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-300"
+        title={`Venció hace ${Math.abs(dias)} ${Math.abs(dias) === 1 ? "día" : "días"}`}
+      >
+        ✗ Incumplido
+      </span>
+    );
+  }
+  if (dias === 0) {
+    return (
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+        Hoy
+      </span>
+    );
+  }
+  if (dias <= 15) {
+    return (
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+        En {dias} {dias === 1 ? "día" : "días"}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">
+      En {dias} días
+    </span>
+  );
+}
+
+function BadgeOrigen({ item, onVerFactura }: { item: MantenimientoItem; onVerFactura: (facturaRecordId: string) => void }) {
+  if (item.origen === "Orden de Reparación" && item.ordenRecordId) {
+    return (
+      <Link
+        href={`/tecnicos/ordenes/${encodeURIComponent(item.ordenRecordId)}`}
+        className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
+        title="Ver orden de reparación"
+      >
+        Orden{item.ordenIdVisible ? ` #${item.ordenIdVisible}` : ""}
+      </Link>
+    );
+  }
+  if (item.facturaRecordId) {
+    return (
+      <button
+        type="button"
+        onClick={() => onVerFactura(item.facturaRecordId as string)}
+        className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
+        title="Ver factura (solo lectura, sin acciones)"
+      >
+        Factura{item.facturaNumero ? ` ${item.facturaNumero}` : ""}
+      </button>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]"
+      title="Venta de mostrador — sin orden de reparación asociada"
+    >
+      Factura{item.facturaNumero ? ` ${item.facturaNumero}` : ""}
+    </span>
+  );
+}
+
+function EstadoCiclo({ item }: { item: MantenimientoItem }) {
+  if (item.realizado) {
+    return (
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+        ✓ Realizado{item.fechaRealizado ? ` · ${formatFecha(item.fechaRealizado)}` : ""}
+      </span>
+    );
+  }
+  const dias = diasRestantes(item.fecha);
+  if (dias !== null && dias < 0) {
+    return (
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">
+        ✗ Incumplido
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">
+      ⏳ Pendiente
+    </span>
+  );
+}
+
+// Historial de un mismo equipo/cliente a través de varios ciclos (venta →
+// mantenimiento → mantenimiento…). Se agrupa por `clienteIdentificacion`
+// (cédula/RUC) porque es la única llave estable entre ciclos — el origen
+// (orden u factura) cambia cada vez y no sirve para esto. Si por algún
+// motivo no hay identificación guardada (dato viejo o vacío), se cae a
+// agrupar por nombre exacto, mejor que no mostrar nada.
+function HistorialModal({
+  cliente,
+  items,
+  onClose,
+  onVerFactura,
+}: {
+  cliente: { identificacion: string; nombre: string };
+  items: MantenimientoItem[];
+  onClose: () => void;
+  onVerFactura: (facturaRecordId: string) => void;
+}) {
+  const ciclos = useMemo(() => {
+    const propios = cliente.identificacion
+      ? items.filter((i) => i.clienteIdentificacion === cliente.identificacion)
+      : items.filter((i) => !i.clienteIdentificacion && i.clienteNombre === cliente.nombre);
+    return [...propios].sort((a, b) => a.fecha.localeCompare(b.fecha));
+  }, [items, cliente]);
+
+  const realizados = ciclos.filter((c) => c.realizado).length;
+  const incumplidos = ciclos.filter((c) => !c.realizado && (diasRestantes(c.fecha) ?? 0) < 0).length;
+  const base = realizados + incumplidos;
+  const cumplimientoPct = base > 0 ? Math.round((realizados / base) * 100) : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-10 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="flex w-full max-w-3xl max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-[#3A3A36] bg-[#1A1B18] text-[#F0F0EC] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-[#2A2A22] px-6 py-4">
+          <div>
+            <h3 className="text-sm font-bold text-[#D7FF4F]">Historial de mantenimientos</h3>
+            <p className="mt-0.5 text-xs text-[#8A8A80]">
+              {cliente.nombre}
+              {cliente.identificacion ? ` · ${cliente.identificacion}` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xl leading-none text-[#6B6B66] transition hover:text-[#F0F0EC]"
+            aria-label="Cerrar"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-4">
+          <div className="mb-4 grid grid-cols-3 gap-2 rounded-lg border border-[#3A3A36] bg-[#252622] p-3 text-center">
+            <div>
+              <p className="text-lg font-bold text-[#D7FF4F]">{ciclos.length}</p>
+              <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Ciclos</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-emerald-300">{realizados}</p>
+              <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Realizados</p>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-[#F0F0EC]">{cumplimientoPct === null ? "—" : `${cumplimientoPct}%`}</p>
+              <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Cumplimiento</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {ciclos.map((c) => (
+              <div key={c.mantenimientoRecordId} className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold text-white">{formatFecha(c.fecha)}</span>
+                  <EstadoCiclo item={c} />
+                </div>
+                <p className="mt-1 text-xs text-[#A7A7A7]">{c.equipo}</p>
+                <div className="mt-1">
+                  <BadgeOrigen item={c} onVerFactura={onVerFactura} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Detalle de solo lectura de una factura (sin ninguna acción) — se abre
+// como modal DENTRO de esta misma pestaña, apilado encima de lo que ya
+// esté abierto (la tabla principal, o el modal de historial): cerrarlo
+// regresa a lo de atrás, en vez de navegar a otra pestaña.
+type FacturaDetalle = {
+  numeroFactura: string;
+  estado: string;
+  ambiente: string;
+  clienteNombre: string;
+  clienteIdentificacion: string;
+  clienteCorreo: string;
+  fechaEmision: string;
+  claveAcceso: string;
+  subtotal: number;
+  iva: number;
+  total: number;
+  formaPago: string;
+  items: Array<{ codigo: string; descripcion: string; cantidad: number; precioUnitario: number; total: number }>;
+};
+
+const mon = (n: number) => `$${n.toFixed(2)}`;
+const fmtFecha = (iso: string) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—");
+
+const ESTADO_FACTURA_LABEL: Record<string, string> = {
+  AUTORIZADO: "Autorizada",
+  DEVUELTA: "Devuelta",
+  "NO AUTORIZADO": "No autorizada",
+  PENDIENTE: "En proceso",
+  RECIBIDA: "En proceso",
+  BORRADOR: "Borrador",
+  ANULADA: "Anulada",
+};
+
+const FORMA_PAGO_LABEL: Record<string, string> = {
+  "01": "Efectivo",
+  "15": "Compensación de deudas",
+  "16": "Tarjeta de débito",
+  "17": "Dinero electrónico",
+  "18": "Tarjeta prepago",
+  "19": "Tarjeta de crédito",
+  "20": "Otros (sist. financiero)",
+  "21": "Endoso de títulos",
+};
+
+function VerFacturaModal({ facturaRecordId, onClose }: { facturaRecordId: string; onClose: () => void }) {
+  const [factura, setFactura] = useState<FacturaDetalle | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetch(`/api/facturacion/ver-factura/${encodeURIComponent(facturaRecordId)}`, {
+          signal: controller.signal,
+        });
+        const json = (await res.json()) as { success?: boolean; data?: FacturaDetalle; error?: string };
+        if (!res.ok || !json.success || !json.data) throw new Error(json.error || "No se pudo cargar la factura");
+        setFactura(json.data);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setError(err instanceof Error ? err.message : "Error desconocido");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [facturaRecordId]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-10 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-[#2A2A22] bg-[#1A1A16] text-[#F0F0EC] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {loading ? (
+          <div className="flex items-center justify-center px-5 py-10 text-sm text-[#A7A7A7]">Cargando factura…</div>
+        ) : error || !factura ? (
+          <div className="px-5 py-6">
+            <p className="text-sm text-red-400">{error || "Factura no encontrada."}</p>
+            <button type="button" onClick={onClose} className="mt-3 text-sm text-[#D7FF4F] hover:underline">
+              Cerrar
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-start justify-between gap-3 border-b border-[#2A2A22] px-5 py-4">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold bg-[#D7FF4F]/15 text-[#D7FF4F] border-[#D7FF4F]/40">
+                    Factura
+                  </span>
+                  <span className="text-xs text-[#A7A7A7]">{ESTADO_FACTURA_LABEL[factura.estado] ?? factura.estado}</span>
+                  {factura.ambiente && (
+                    <span className="inline-flex items-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">
+                      {factura.ambiente}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-lg font-bold font-mono text-[#F5F5F5]">{factura.numeroFactura || "—"}</p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-xl leading-none text-[#6B6B66] transition hover:text-[#F0F0EC]"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm space-y-1">
+                <div className="flex justify-between gap-3">
+                  <span className="text-[#666]">Cliente</span>
+                  <span className="text-[#F5F5F5] text-right">{factura.clienteNombre || "—"}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-[#666]">Identificación</span>
+                  <span className="text-[#F5F5F5] text-right">{factura.clienteIdentificacion || "—"}</span>
+                </div>
+                {factura.clienteCorreo && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-[#666]">Correo</span>
+                    <span className="text-[#F5F5F5] text-right truncate">{factura.clienteCorreo}</span>
+                  </div>
+                )}
+                <div className="flex justify-between gap-3">
+                  <span className="text-[#666]">Fecha</span>
+                  <span className="text-[#F5F5F5] text-right">{fmtFecha(factura.fechaEmision)}</span>
+                </div>
+              </div>
+
+              {factura.items.length > 0 && (
+                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-[#555] border-b border-[#2A2A22]">
+                        <th className="text-left font-semibold py-1.5 px-2">Descripción</th>
+                        <th className="text-right font-semibold py-1.5 px-2">Cant.</th>
+                        <th className="text-right font-semibold py-1.5 px-2">P.Unit</th>
+                        <th className="text-right font-semibold py-1.5 px-2">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#1E1E1A]">
+                      {factura.items.map((it, i) => (
+                        <tr key={i}>
+                          <td className="py-1.5 px-2 text-[#F5F5F5]">
+                            {it.codigo && <span className="block font-mono text-[10px] text-[#777]">SKU: {it.codigo}</span>}
+                            {it.descripcion}
+                          </td>
+                          <td className="py-1.5 px-2 text-right text-[#A7A7A7]">{it.cantidad}</td>
+                          <td className="py-1.5 px-2 text-right text-[#A7A7A7]">{mon(it.precioUnitario)}</td>
+                          <td className="py-1.5 px-2 text-right text-[#D7FF4F] font-semibold">{mon(it.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-[#666]">Subtotal</span>
+                  <span className="text-[#F5F5F5]">{mon(factura.subtotal)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#666]">IVA</span>
+                  <span className="text-[#F5F5F5]">{mon(factura.iva)}</span>
+                </div>
+                <div className="flex justify-between text-base font-bold">
+                  <span className="text-[#F5F5F5]">TOTAL</span>
+                  <span className="text-[#D7FF4F]">{mon(factura.total)}</span>
+                </div>
+              </div>
+
+              {factura.formaPago && (
+                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-[#666]">Forma de pago</span>
+                    <span className="text-[#F5F5F5] text-right">{FORMA_PAGO_LABEL[factura.formaPago] ?? factura.formaPago}</span>
+                  </div>
+                </div>
+              )}
+
+              {factura.claveAcceso && (
+                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-[10px] text-[#888] break-all">
+                  <p className="text-[#666] font-semibold uppercase tracking-wider mb-1">SRI</p>
+                  <p>
+                    <span className="text-[#666]">Clave de acceso:</span> {factura.claveAcceso}
+                  </p>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Tabla de ancho ajustable ────────────────────────────────────────────────
+
+type ColumnKey =
+  | "cliente"
+  | "equipo"
+  | "telefono"
+  | "fecha"
+  | "vence"
+  | "notificado"
+  | "realizado"
+  | "origen"
+  | "accion";
+
+const COLUMN_ORDER: ColumnKey[] = [
+  "cliente",
+  "equipo",
+  "telefono",
+  "fecha",
+  "vence",
+  "notificado",
+  "realizado",
+  "origen",
+  "accion",
+];
+
+const COLUMN_LABELS: Record<ColumnKey, string> = {
+  cliente: "Cliente",
+  equipo: "Equipo",
+  telefono: "Teléfono",
+  fecha: "Próximo mant.",
+  vence: "Vence",
+  notificado: "Notificado",
+  realizado: "Realizado",
+  origen: "Origen",
+  accion: "",
+};
+
+// Calibrados para que el contenido típico entre sin recortarse (ej. "Factura
+// 001-002-000000698" completo en "Origen"). "Equipo" no tiene un ancho que
+// alcance para descripciones largas de producto — eso siempre se recorta
+// con "…" y tooltip; para verlo completo está el historial.
+const COLUMN_DEFAULTS: Record<ColumnKey, number> = {
+  cliente: 170,
+  equipo: 280,
+  telefono: 115,
+  fecha: 115,
+  vence: 150,
+  notificado: 125,
+  realizado: 110,
+  origen: 205,
+  accion: 56,
+};
+
+const MIN_COLUMN_WIDTH = 60;
+const COLUMN_WIDTHS_STORAGE_KEY = "sg-tecnicos-mantenimientos-column-widths";
+
+function ColumnResizeHandle({ onResize, onResizeEnd }: { onResize: (deltaPx: number) => void; onResizeEnd: () => void }) {
+  const startXRef = useRef(0);
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      title="Arrastra para ajustar el ancho de la columna"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        startXRef.current = e.clientX;
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        if (e.buttons !== 1) return;
+        const delta = e.clientX - startXRef.current;
+        if (delta !== 0) {
+          startXRef.current = e.clientX;
+          onResize(delta);
+        }
+      }}
+      onPointerUp={onResizeEnd}
+      className="group absolute right-0 top-0 z-10 h-full w-2.5 -mr-1 cursor-col-resize touch-none select-none"
+    >
+      <div className="mx-auto h-full w-px bg-[#3A3A36] group-hover:w-1 group-hover:bg-[#D7FF4F]/70" />
+    </div>
+  );
+}
+
+export function MantenimientosPageClient() {
+  const [items, setItems] = useState<MantenimientoItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  // mantenimientoRecordId -> true mientras hay un PATCH en curso (notificado
+  // o realizado), para deshabilitar el botón y evitar dobles clics.
+  const [guardandoId, setGuardandoId] = useState<string | null>(null);
+  const [historialCliente, setHistorialCliente] = useState<{ identificacion: string; nombre: string } | null>(null);
+  const [facturaAbierta, setFacturaAbierta] = useState<string | null>(null);
+
+  const [colWidths, setColWidths] = useState<Record<ColumnKey, number>>(COLUMN_DEFAULTS);
+  const colWidthsRef = useRef(colWidths);
+  colWidthsRef.current = colWidths;
+
+  // Los anchos son una comodidad por navegador — se cargan después del
+  // primer render (nunca durante SSR) para no desincronizar el HTML del
+  // servidor con lo guardado en este navegador.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
+      if (raw) setColWidths((prev) => ({ ...prev, ...JSON.parse(raw) }));
+    } catch {
+      // Sin localStorage (modo privado, etc.) — se queda con los anchos por defecto.
+    }
+  }, []);
+
+  function resizeColumn(key: ColumnKey, deltaPx: number) {
+    setColWidths((prev) => ({ ...prev, [key]: Math.max(MIN_COLUMN_WIDTH, prev[key] + deltaPx) }));
+  }
+
+  function persistColumnWidths() {
+    try {
+      window.localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(colWidthsRef.current));
+    } catch {
+      // No es crítico — el próximo resize lo vuelve a intentar.
+    }
+  }
+
+  function restablecerAnchos() {
+    setColWidths(COLUMN_DEFAULTS);
+    try {
+      window.localStorage.removeItem(COLUMN_WIDTHS_STORAGE_KEY);
+    } catch {
+      // ignorar
+    }
+  }
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetch("/api/tecnicos/mantenimientos", { signal: controller.signal });
+        const json = (await res.json()) as { success?: boolean; data?: MantenimientoItem[]; error?: string };
+        if (!res.ok || !json.success) {
+          throw new Error(json.error || "No se pudo cargar el listado de mantenimientos");
+        }
+        setItems(json.data ?? []);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setError(err instanceof Error ? err.message : "Error desconocido");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    };
+
+    void fetchData();
+    return () => controller.abort();
+  }, []);
+
+  const itemsFiltrados = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter(
+      (item) =>
+        item.clienteNombre.toLowerCase().includes(q) ||
+        item.equipo.toLowerCase().includes(q) ||
+        item.telefono.includes(q) ||
+        item.clienteIdentificacion.toLowerCase().includes(q) ||
+        (item.ordenIdVisible ?? "").toLowerCase().includes(q) ||
+        (item.facturaNumero ?? "").toLowerCase().includes(q)
+    );
+  }, [items, searchTerm]);
+
+  const pendientes = items.filter((i) => !i.notificado).length;
+
+  async function toggleCampo(item: MantenimientoItem, campo: "notificado" | "realizado") {
+    const nuevoValor = !item[campo];
+    setGuardandoId(item.mantenimientoRecordId);
+    // Optimista: la pantalla es de seguimiento manual, un fallo silencioso
+    // aquí no bloquea nada crítico — si falla, se revierte abajo.
+    setItems((prev) =>
+      prev.map((i) => (i.mantenimientoRecordId === item.mantenimientoRecordId ? { ...i, [campo]: nuevoValor } : i))
+    );
+    try {
+      const res = await fetch(
+        `/api/tecnicos/mantenimientos/${encodeURIComponent(item.mantenimientoRecordId)}/${campo}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [campo]: nuevoValor }),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success) throw new Error(json.error || "No se pudo guardar");
+    } catch {
+      // Revertir en caso de error.
+      setItems((prev) =>
+        prev.map((i) =>
+          i.mantenimientoRecordId === item.mantenimientoRecordId ? { ...i, [campo]: !nuevoValor } : i
+        )
+      );
+    } finally {
+      setGuardandoId(null);
+    }
+  }
+
+  function enviarWhatsApp(item: MantenimientoItem) {
+    const url = buildWhatsAppUrl(item.telefono, buildMantenimientoWhatsAppMessage(item));
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    // Enviar el recordatorio marca automáticamente el ciclo como notificado;
+    // el badge de abajo sigue siendo editable a mano por si hace falta
+    // corregirlo (ej. clic accidental, o se avisó por otro canal).
+    if (!item.notificado) void toggleCampo(item, "notificado");
+  }
+
+  const totalWidth = COLUMN_ORDER.reduce((sum, key) => sum + colWidths[key], 0);
+
+  return (
+    <div className={`${styles.theme} grid gap-6 xl:grid-cols-[minmax(0,4fr)_minmax(300px,1.1fr)]`}>
+      <div className="w-full space-y-4">
+        <section className="w-full space-y-4 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
+          <div className="grid w-full items-end gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-4">
+            <label className="w-full">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[#D7FF4F]">
+                Buscar
+              </span>
+              <div className="mt-2 flex h-9 items-center gap-3 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm text-[#F5F5F5] transition focus-within:border-[#D7FF4F]/70">
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 20 20"
+                  className="h-4 w-4 shrink-0 text-[#A7A7A7]"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle cx="9" cy="9" r="5" />
+                  <line x1="13.5" y1="13.5" x2="18" y2="18" strokeLinecap="round" />
+                </svg>
+                <input
+                  placeholder="Cliente, cédula, equipo, teléfono, orden o factura"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  className="h-full w-full bg-transparent text-sm outline-none placeholder:text-[#A7A7A7]/50"
+                />
+              </div>
+            </label>
+            <button
+              type="button"
+              onClick={restablecerAnchos}
+              title="Volver las columnas de la tabla a su ancho original"
+              className="h-9 shrink-0 rounded-full border border-[#3A3A36] px-4 text-xs font-medium text-[#A7A7A7] transition hover:border-[#D7FF4F]/40 hover:text-[#F5F5F5]"
+            >
+              ⟲ Restablecer columnas
+            </button>
+          </div>
+
+          {loading && <div className="text-sm text-[#CFCFCB]">Cargando mantenimientos…</div>}
+          {error && (
+            <div className="text-sm text-red-400">
+              Ocurrió un problema al cargar el listado: {error}
+            </div>
+          )}
+
+          {!loading && !error && (
+            <>
+              {itemsFiltrados.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-[#3A3A36] bg-[#1E1F1C] px-4 py-6 text-sm text-[#A7A7A7]">
+                  {items.length === 0
+                    ? "Todavía no se ha impreso ninguna etiqueta de mantenimiento."
+                    : "No se encontraron mantenimientos con esa búsqueda."}
+                </div>
+              ) : (
+                <div className="w-full overflow-x-auto rounded-lg border border-[#3A3A36] bg-[#252622]">
+                  <table style={{ tableLayout: "fixed", width: totalWidth }} className="border-collapse text-sm">
+                    <colgroup>
+                      {COLUMN_ORDER.map((key) => (
+                        <col key={key} style={{ width: colWidths[key] }} />
+                      ))}
+                    </colgroup>
+                    <thead>
+                      <tr className="border-b border-[#3A3A36] bg-[#30312D] text-[12px] uppercase tracking-wide text-[#A7A7A7]">
+                        {COLUMN_ORDER.map((key) => (
+                          <th key={key} className="relative px-3 py-3 text-left font-semibold first:pl-6 last:pr-6">
+                            <span className="block truncate pr-2">{COLUMN_LABELS[key]}</span>
+                            {key !== "accion" && (
+                              <ColumnResizeHandle
+                                onResize={(delta) => resizeColumn(key, delta)}
+                                onResizeEnd={persistColumnWidths}
+                              />
+                            )}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#3A3A36]">
+                      {itemsFiltrados.map((item) => (
+                        <tr key={item.mantenimientoRecordId} className="text-[#CFCFCB] transition hover:bg-[#2D2E2A]">
+                          <td className="px-3 py-3 pl-6">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setHistorialCliente({ identificacion: item.clienteIdentificacion, nombre: item.clienteNombre })
+                              }
+                              className="block w-full truncate text-left font-semibold text-white underline decoration-dotted decoration-[#5A5A54] underline-offset-2 hover:text-[#D7FF4F]"
+                              title={`Ver historial de ${item.clienteNombre}`}
+                            >
+                              {item.clienteNombre}
+                            </button>
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className="block truncate" title={item.equipo}>
+                              {item.equipo}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className="block truncate">{item.telefono || "-"}</span>
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className="block truncate">{formatFecha(item.fecha)}</span>
+                          </td>
+                          <td className="px-3 py-3">
+                            <BadgeDias fecha={item.fecha} realizado={item.realizado} />
+                          </td>
+                          <td className="px-3 py-3">
+                            <button
+                              type="button"
+                              onClick={() => toggleCampo(item, "notificado")}
+                              disabled={guardandoId === item.mantenimientoRecordId}
+                              title="Clic para cambiar el estado a mano"
+                              className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
+                                item.notificado
+                                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:border-emerald-500/70"
+                                  : "border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
+                              }`}
+                            >
+                              {item.notificado ? "✓ Notificado" : "Pendiente"}
+                            </button>
+                          </td>
+                          <td className="px-3 py-3">
+                            <button
+                              type="button"
+                              onClick={() => toggleCampo(item, "realizado")}
+                              disabled={guardandoId === item.mantenimientoRecordId}
+                              title="Marcar si el cliente ya trajo el equipo y se le hizo el mantenimiento"
+                              className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
+                                item.realizado
+                                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:border-emerald-500/70"
+                                  : "border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
+                              }`}
+                            >
+                              {item.realizado ? "✓ Hecho" : "No aún"}
+                            </button>
+                          </td>
+                          <td className="overflow-hidden px-3 py-3">
+                            <BadgeOrigen item={item} onVerFactura={setFacturaAbierta} />
+                          </td>
+                          <td className="px-3 py-3 pr-6">
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => enviarWhatsApp(item)}
+                                title="Enviar recordatorio por WhatsApp"
+                                className="flex h-7 w-7 items-center justify-center rounded-md bg-[#D7FF4F] transition hover:brightness-110"
+                              >
+                                <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#151515]" aria-hidden="true">
+                                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                                </svg>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </div>
+
+      <aside className="space-y-4">
+        <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
+          <p className="text-sm font-semibold text-white">Mantenimientos registrados</p>
+          <p className="mt-2 text-3xl font-bold text-[#D7FF4F]">{items.length}</p>
+          <p className="mt-1 text-xs text-[#A7A7A7]">Órdenes y facturas con etiqueta impresa</p>
+        </div>
+        <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
+          <p className="text-sm font-semibold text-white">Pendientes de notificar</p>
+          <p className="mt-2 text-3xl font-bold text-amber-300">{pendientes}</p>
+          <p className="mt-1 text-xs text-[#A7A7A7]">Aún sin aviso de WhatsApp</p>
+        </div>
+        <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
+          <p className="text-sm font-semibold text-white">Consejos</p>
+          <p className="mt-1 text-xs text-[#A7A7A7]">
+            Arrastra el borde de un encabezado para ajustar su ancho — se recuerda en este navegador. Haz clic en el
+            nombre de un cliente para ver su historial completo y su cumplimiento.
+          </p>
+        </div>
+      </aside>
+
+      {historialCliente && (
+        <HistorialModal
+          cliente={historialCliente}
+          items={items}
+          onClose={() => setHistorialCliente(null)}
+          onVerFactura={setFacturaAbierta}
+        />
+      )}
+
+      {facturaAbierta && (
+        <VerFacturaModal facturaRecordId={facturaAbierta} onClose={() => setFacturaAbierta(null)} />
+      )}
+    </div>
+  );
+}

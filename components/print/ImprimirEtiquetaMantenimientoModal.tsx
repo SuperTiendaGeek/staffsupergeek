@@ -1,10 +1,14 @@
 "use client";
 
 // Modal compartido "Imprimir etiqueta de mantenimiento" — se usa desde
-// /tecnicos/ordenes/[id] (con ordenId: la fecha elegida se guarda en la
-// orden) y desde el selector "Nuevo documento" de /facturacion (sin
-// ordenId: no siempre hay una orden de reparación de por medio ahí, así que
-// esa variante es solo de impresión, sin guardar nada).
+// /tecnicos/ordenes/[id] (prop `ordenId`: la fecha se guarda vinculada a esa
+// orden) y desde el detalle de una factura emitida en /facturacion (prop
+// `factura`: la fecha se guarda vinculada a esa factura — una venta de
+// mostrador no tiene una orden de reparación de por medio, así que el
+// "equipo" se escribe a mano en vez de venir de un campo fijo). En ambos
+// casos se registra en la tabla centralizada "Mantenimientos" — ver
+// lib/tecnicos/airtable/index.ts (registrarMantenimiento) — que es lo que
+// alimenta el seguimiento en /tecnicos/mantenimientos.
 //
 // Imprime directamente desde el propio modal — sin navegar a otra pantalla —
 // aislando con CSS el nodo de la etiqueta para que sea lo único que salga en
@@ -16,11 +20,30 @@ import { EtiquetaMantenimiento } from "./EtiquetaMantenimiento";
 
 type Props = {
   onClose: () => void;
-  /** Si viene, la fecha elegida se guarda en esta orden al imprimir. Si no, el modal solo imprime. */
+  /** Guarda la fecha vinculada a esta orden de reparación (cliente/teléfono/equipo se toman de la orden). */
   ordenId?: string;
+  /** Guarda la fecha vinculada a esta factura — caso venta de mostrador, sin orden de reparación. */
+  factura?: {
+    recordId: string;
+    clienteNombre: string;
+    /** Cédula/RUC — llave para agrupar el historial de este cliente en /tecnicos/mantenimientos. */
+    clienteIdentificacion: string;
+    telefono: string;
+    /** Prellenado sugerido para el campo "Equipo" (ej. la descripción del primer ítem facturado). */
+    equipoSugerido?: string;
+  };
 };
 
 const PRINT_TARGET_ID = "etiqueta-mantenimiento-imprimir";
+
+// Ampliación de la vista previa en pantalla. La etiqueta real es 50×25mm —
+// sin ampliar sería casi ilegible en un monitor. `transform: scale()` NO
+// cambia el tamaño de layout del elemento (solo lo que se PINTA), así que
+// hace falta reservar el espacio real (ancho/alto en `calc(Nmm * escala)`)
+// con overflow:hidden alrededor; si no, el contenido ampliado se dibuja por
+// encima del resto del modal en vez de empujarlo — eso es lo que rompía el
+// layout antes.
+const PREVIEW_SCALE = 2.4;
 
 function seisMesesDesdeHoy(): Date {
   const d = new Date();
@@ -45,31 +68,49 @@ function fromDateInputValue(value: string): Date | null {
   return Number.isNaN(fecha.getTime()) ? null : fecha;
 }
 
-export function ImprimirEtiquetaMantenimientoModal({ onClose, ordenId }: Props) {
+export function ImprimirEtiquetaMantenimientoModal({ onClose, ordenId, factura }: Props) {
   const [fecha, setFecha] = useState<Date>(() => seisMesesDesdeHoy());
+  const [equipo, setEquipo] = useState(factura?.equipoSugerido ?? "");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fechaInputValue = useMemo(() => toDateInputValue(fecha), [fecha]);
 
+  const equipoInvalido = Boolean(factura) && equipo.trim().length === 0;
+
   async function handleImprimir() {
     setError(null);
+    if (equipoInvalido) {
+      setError("Escribe el equipo antes de imprimir — la factura no trae ese dato por sí sola.");
+      return;
+    }
 
-    if (ordenId) {
+    if (ordenId || factura) {
       setGuardando(true);
       try {
-        const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/proximo-mantenimiento`, {
-          method: "PATCH",
+        const body = ordenId
+          ? { origen: "orden", ordenRecordId: ordenId, fecha: toDateInputValue(fecha) }
+          : {
+              origen: "factura",
+              facturaRecordId: factura!.recordId,
+              clienteNombre: factura!.clienteNombre,
+              clienteIdentificacion: factura!.clienteIdentificacion,
+              telefono: factura!.telefono,
+              equipo: equipo.trim(),
+              fecha: toDateInputValue(fecha),
+            };
+        const res = await fetch("/api/tecnicos/mantenimientos", {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fecha: toDateInputValue(fecha) }),
+          body: JSON.stringify(body),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json.success) {
           // No bloquea la impresión: el técnico ya está listo para pegar la
           // etiqueta, y puede corregir el registro después.
-          setError(json.error || "No se pudo guardar la fecha en la orden, pero la etiqueta se imprime igual.");
+          setError(json.error || "No se pudo guardar el mantenimiento, pero la etiqueta se imprime igual.");
         }
       } catch {
-        setError("No se pudo guardar la fecha en la orden (sin conexión), pero la etiqueta se imprime igual.");
+        setError("No se pudo guardar el mantenimiento (sin conexión), pero la etiqueta se imprime igual.");
       } finally {
         setGuardando(false);
       }
@@ -100,7 +141,7 @@ export function ImprimirEtiquetaMantenimientoModal({ onClose, ordenId }: Props) 
         }
       `}</style>
 
-      <div className="w-full max-w-sm rounded-2xl border border-[#3A3A36] bg-[#1A1B18] p-5 text-[#F0F0EC] shadow-2xl">
+      <div className="w-full max-w-lg rounded-2xl border border-[#3A3A36] bg-[#1A1B18] p-5 text-[#F0F0EC] shadow-2xl">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="text-sm font-bold text-[#D7FF4F]">Imprimir etiqueta de mantenimiento</h3>
           <button
@@ -112,6 +153,24 @@ export function ImprimirEtiquetaMantenimientoModal({ onClose, ordenId }: Props) 
             ✕
           </button>
         </div>
+
+        {factura && (
+          <label className="mb-4 block">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[#8A8A80]">
+              Equipo
+            </span>
+            <input
+              type="text"
+              value={equipo}
+              onChange={(e) => setEquipo(e.target.value)}
+              placeholder="Ej. Laptop HP Pavilion 15"
+              className="w-full rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-sm text-[#F0F0EC] focus:border-[#D7FF4F]/60 focus:outline-none"
+            />
+            <p className="mt-1 text-[11px] text-[#8A8A80]">
+              La factura no trae un campo de equipo fijo — se guarda tal cual lo escribas aquí.
+            </p>
+          </label>
+        )}
 
         <label className="mb-4 block">
           <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[#8A8A80]">
@@ -130,11 +189,22 @@ export function ImprimirEtiquetaMantenimientoModal({ onClose, ordenId }: Props) 
 
         <div className="mb-4">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#8A8A80]">Vista previa</p>
-          <div className="flex justify-center rounded-lg border border-dashed border-[#3A3A36] bg-[#0E0F0C] py-6">
-            {/* Ampliada x4 en pantalla — el tamaño real de impresión es 50×25mm.
-                @media print restaura el tamaño físico y aísla este nodo. */}
-            <div id={PRINT_TARGET_ID} style={{ transform: "scale(4)" }}>
-              <EtiquetaMantenimiento fecha={fecha} />
+          <div className="flex justify-center rounded-lg border border-dashed border-[#3A3A36] bg-[#0E0F0C] p-4">
+            {/* El tamaño real de impresión es 50×25mm; @media print restaura
+                ese tamaño físico y aísla este nodo (ver estilo de arriba). */}
+            <div
+              style={{
+                width: `calc(50mm * ${PREVIEW_SCALE})`,
+                height: `calc(25mm * ${PREVIEW_SCALE})`,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                id={PRINT_TARGET_ID}
+                style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: "top left" }}
+              >
+                <EtiquetaMantenimiento fecha={fecha} />
+              </div>
             </div>
           </div>
         </div>
