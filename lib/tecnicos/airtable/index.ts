@@ -297,21 +297,28 @@ export interface OrdenDetalle {
   documentos: AirtableAttachment[];
   cotizacionId: string;
   cotizacionCodigo: string;
-  /** Fecha (YYYY-MM-DD) impresa en la última etiqueta de mantenimiento de este equipo, si se ha impreso alguna. */
+  /** Fecha (YYYY-MM-DD) del próximo mantenimiento, si se ha impreso una etiqueta para esta orden. Vive en la tabla "Mantenimientos" (ver fetchMantenimientoPorOrden), no en un campo propio de la orden. */
   proximoMantenimiento: string;
-  /** true si ya se le avisó al cliente (WhatsApp) del mantenimiento de `proximoMantenimiento`. */
-  mantenimientoNotificado: boolean;
 }
 
-/** Fila del listado de seguimiento de mantenimientos (/tecnicos/mantenimientos). */
+/** Origen de un registro de la tabla centralizada "Mantenimientos". */
+export type MantenimientoOrigen = "Orden de Reparación" | "Factura";
+
+/** Fila del listado de seguimiento de mantenimientos (/tecnicos/mantenimientos) —
+ *  cubre tanto etiquetas impresas desde una Orden de Reparación como desde una
+ *  Factura (venta de mostrador), que no tiene una orden asociada. */
 export interface MantenimientoProximo {
-  ordenRecordId: string;
-  idVisible: string;
+  mantenimientoRecordId: string;
+  origen: MantenimientoOrigen;
+  ordenRecordId: string | null;
+  ordenIdVisible: string | null;
+  facturaRecordId: string | null;
+  facturaNumero: string | null;
   clienteNombre: string;
   telefono: string;
   equipo: string;
-  proximoMantenimiento: string;
-  mantenimientoNotificado: boolean;
+  fecha: string;
+  notificado: boolean;
 }
 
 // Helpers
@@ -1581,8 +1588,6 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     documentos: parseAttachments(f["Documentos"]),
     cotizacionId: pickStringField(f, ["Cotización ID", "Cotizacion ID"], ""),
     cotizacionCodigo: pickStringField(f, ["Cotización Código", "Cotizacion Codigo"], ""),
-    proximoMantenimiento: safeString(f["Próximo Mantenimiento"], ""),
-    mantenimientoNotificado: f["Mantenimiento Notificado"] === true,
   };
 
   // Historial: preferir IDs vinculados desde la orden
@@ -1592,15 +1597,17 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
       ? (historialIdsRaw as string[])
       : [];
 
-  const [historial, repuestosPorOrden, serviciosPorOrden, abonosPorOrden, productosDigitales] = await Promise.all([
-    historialIds.length > 0
-      ? fetchHistorialByIds(historialIds, client)
-      : fetchHistorialByOrden(ordenRecordId, client),
-    fetchRepuestosPorOrden(ordenRecordId, client),
-    fetchServiciosPorOrden(ordenRecordId, client),
-    fetchAbonosPorOrden(ordenRecordId, client),
-    fetchProductosDigitalesPorOrden(ordenRecordId, client),
-  ]);
+  const [historial, repuestosPorOrden, serviciosPorOrden, abonosPorOrden, productosDigitales, mantenimiento] =
+    await Promise.all([
+      historialIds.length > 0
+        ? fetchHistorialByIds(historialIds, client)
+        : fetchHistorialByOrden(ordenRecordId, client),
+      fetchRepuestosPorOrden(ordenRecordId, client),
+      fetchServiciosPorOrden(ordenRecordId, client),
+      fetchAbonosPorOrden(ordenRecordId, client),
+      fetchProductosDigitalesPorOrden(ordenRecordId, client),
+      fetchMantenimientoPorOrden(ordenRecordId, client),
+    ]);
 
   return {
     ...baseDetail,
@@ -1611,6 +1618,10 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     serviciosPorOrden,
     abonosPorOrden,
     productosDigitales,
+    // Se lee de la tabla centralizada "Mantenimientos" (ver
+    // fetchMantenimientoPorOrden), no de un campo propio de la orden —
+    // la misma tabla también cubre mantenimientos originados en facturas.
+    proximoMantenimiento: mantenimiento?.fecha ?? "",
   };
 };
 
@@ -2718,89 +2729,217 @@ export const updateOrdenNotaInterna = async ({
   return { notaInterna };
 };
 
-// --- Escritura: fecha impresa en la etiqueta de mantenimiento ---
-export const updateOrdenProximoMantenimiento = async ({
-  ordenRecordId,
-  fecha,
-}: {
-  ordenRecordId: string;
-  /** YYYY-MM-DD */
-  fecha: string;
-}): Promise<{ proximoMantenimiento: string }> => {
-  const client = getClient();
-  const urlOrden = `${client.baseUrl}/${encodeURIComponent(
-    AIRTABLE_TABLES.ordenes
-  )}/${encodeURIComponent(ordenRecordId)}`;
+// ─── Mantenimientos (tabla centralizada) ─────────────────────────────────────
+// Una fila por equipo con "próximo mantenimiento" impreso, sin importar si
+// nació en una Orden de Reparación o en una Factura (venta de mostrador sin
+// orden asociada). Reimprimir para el mismo origen actualiza la misma fila
+// (nuevo ciclo de aviso) en vez de crear una duplicada.
 
-  const res = await fetch(urlOrden, {
-    method: "PATCH",
+const mapMantenimientoRecord = (record: {
+  id: string;
+  fields: Record<string, unknown>;
+}): MantenimientoProximo => {
+  const f = record.fields ?? {};
+  const origen: MantenimientoOrigen = firstString(f["Origen"], "") === "Factura" ? "Factura" : "Orden de Reparación";
+  const ordenLink = f["Orden"];
+  const facturaLink = f["Factura"];
+  const ordenRecordId =
+    Array.isArray(ordenLink) && typeof ordenLink[0] === "string" ? (ordenLink[0] as string) : null;
+  const facturaRecordId =
+    Array.isArray(facturaLink) && typeof facturaLink[0] === "string" ? (facturaLink[0] as string) : null;
+
+  return {
+    mantenimientoRecordId: record.id,
+    origen,
+    ordenRecordId,
+    ordenIdVisible: null,
+    facturaRecordId,
+    facturaNumero: null,
+    clienteNombre: safeString(f["Cliente"], "Cliente no disponible"),
+    telefono: safeString(f["Teléfono"], "-"),
+    equipo: safeString(f["Equipo"], "Sin equipo"),
+    fecha: safeString(f["Fecha"], ""),
+    notificado: f["Notificado"] === true,
+  };
+};
+
+// Datos mínimos de una orden para poblar una fila nueva de Mantenimientos —
+// una consulta liviana, no el fetchOrdenById completo (que trae historial,
+// repuestos, abonos, etc., innecesario aquí).
+const fetchOrdenResumenBasico = async (
+  ordenRecordId: string,
+  client: AirtableClient
+): Promise<{ clienteNombre: string; telefono: string; equipo: string } | null> => {
+  const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.ordenes)}/${encodeURIComponent(ordenRecordId)}`;
+  const res = await fetch(url, { headers: client.headers, cache: "no-store" });
+  if (!res.ok) return null;
+  const payload = (await res.json()) as { fields?: Record<string, unknown> };
+  const f = payload.fields ?? {};
+  let clienteNombre = firstString(f["ClienteTXT"], "");
+  if (clienteNombre.startsWith("rec")) clienteNombre = "";
+  if (!clienteNombre) {
+    const cli = firstString(f["Cliente"], "");
+    clienteNombre = cli && !cli.startsWith("rec") ? cli : "";
+  }
+  return {
+    clienteNombre: clienteNombre || "Cliente no disponible",
+    telefono: safeString(f["Telefono"], "-"),
+    equipo: safeString(f["Equipo"], "Sin equipo"),
+  };
+};
+
+const fetchMantenimientoPorLink = async (
+  linkField: "Orden" | "Factura",
+  linkedRecordId: string,
+  client: AirtableClient
+): Promise<MantenimientoProximo | null> => {
+  const url = new URL(`${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.mantenimientos)}`);
+  url.searchParams.set("pageSize", "1");
+  url.searchParams.set("filterByFormula", `FIND("${linkedRecordId}", ARRAYJOIN({${linkField}})) > 0`);
+  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { records?: { id: string; fields: Record<string, unknown> }[] };
+  const record = data.records?.[0];
+  return record ? mapMantenimientoRecord(record) : null;
+};
+
+/** Mantenimiento vinculado a una orden, si alguna vez se imprimió una etiqueta para ella. Usado por fetchOrdenById. */
+export const fetchMantenimientoPorOrden = (
+  ordenRecordId: string,
+  client: AirtableClient = getClient()
+): Promise<MantenimientoProximo | null> => fetchMantenimientoPorLink("Orden", ordenRecordId, client);
+
+export type RegistrarMantenimientoInput = {
+  fecha: string; // YYYY-MM-DD
+  /** Nombre de quien imprime, para auditoría ("Impreso Por"). */
+  impresoPor?: string | null;
+} & (
+  | { origen: "orden"; ordenRecordId: string; equipo?: string }
+  | { origen: "factura"; facturaRecordId: string; clienteNombre: string; telefono: string; equipo: string }
+);
+
+// --- Escritura: registrar (o actualizar, si ya existía para el mismo origen) una etiqueta de mantenimiento ---
+export const registrarMantenimiento = async (
+  input: RegistrarMantenimientoInput
+): Promise<MantenimientoProximo> => {
+  const client = getClient();
+
+  let clienteNombre: string;
+  let telefono: string;
+  let equipo: string;
+  const linkField: "Orden" | "Factura" = input.origen === "orden" ? "Orden" : "Factura";
+  const linkedRecordId = input.origen === "orden" ? input.ordenRecordId : input.facturaRecordId;
+
+  if (input.origen === "orden") {
+    const base = await fetchOrdenResumenBasico(input.ordenRecordId, client);
+    clienteNombre = base?.clienteNombre ?? "Cliente no disponible";
+    telefono = base?.telefono ?? "-";
+    equipo = (input.equipo ?? "").trim() || base?.equipo || "Sin equipo";
+  } else {
+    clienteNombre = input.clienteNombre.trim() || "Cliente no disponible";
+    telefono = input.telefono.trim() || "-";
+    equipo = input.equipo.trim() || "Equipo no especificado";
+  }
+
+  // Reimprimir para el mismo origen (misma orden o misma factura) es un
+  // ciclo de aviso nuevo: se actualiza la fila existente en vez de duplicar,
+  // y se resetea "Notificado" aunque el ciclo anterior ya se hubiera avisado.
+  const existente = await fetchMantenimientoPorLink(linkField, linkedRecordId, client);
+
+  const fields: Record<string, unknown> = {
+    Cliente: clienteNombre,
+    "Teléfono": telefono,
+    Equipo: equipo,
+    Fecha: input.fecha,
+    Notificado: false,
+    Origen: input.origen === "orden" ? "Orden de Reparación" : "Factura",
+    [linkField]: [linkedRecordId],
+    "Impreso Por": input.impresoPor ?? "",
+  };
+
+  const url = existente
+    ? `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.mantenimientos)}/${encodeURIComponent(existente.mantenimientoRecordId)}`
+    : `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.mantenimientos)}`;
+
+  const res = await fetch(url, {
+    method: existente ? "PATCH" : "POST",
     headers: client.headers,
-    // Cada fecha nueva es un ciclo de aviso nuevo: se resetea el flag de
-    // notificado aunque el ciclo anterior ya se hubiera avisado.
-    body: JSON.stringify({
-      fields: { "Próximo Mantenimiento": fecha, "Mantenimiento Notificado": false },
-    }),
+    body: JSON.stringify({ fields }),
   });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Airtable error ${res.status}: ${text}`);
   }
 
-  return { proximoMantenimiento: fecha };
+  const record = (await res.json()) as { id: string; fields: Record<string, unknown> };
+  return mapMantenimientoRecord(record);
 };
 
 // --- Escritura: marcar/desmarcar el aviso de mantenimiento como enviado ---
 export const marcarMantenimientoNotificado = async ({
-  ordenRecordId,
+  mantenimientoRecordId,
   notificado,
 }: {
-  ordenRecordId: string;
+  mantenimientoRecordId: string;
   notificado: boolean;
-}): Promise<{ mantenimientoNotificado: boolean }> => {
+}): Promise<{ notificado: boolean }> => {
   const client = getClient();
-  const urlOrden = `${client.baseUrl}/${encodeURIComponent(
-    AIRTABLE_TABLES.ordenes
-  )}/${encodeURIComponent(ordenRecordId)}`;
+  const url = `${client.baseUrl}/${encodeURIComponent(
+    AIRTABLE_TABLES.mantenimientos
+  )}/${encodeURIComponent(mantenimientoRecordId)}`;
 
-  const res = await fetch(urlOrden, {
+  const res = await fetch(url, {
     method: "PATCH",
     headers: client.headers,
-    body: JSON.stringify({ fields: { "Mantenimiento Notificado": notificado } }),
+    body: JSON.stringify({ fields: { Notificado: notificado } }),
   });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Airtable error ${res.status}: ${text}`);
   }
 
-  return { mantenimientoNotificado: notificado };
+  return { notificado };
+};
+
+// Número visible de una factura, resuelto en un solo query batched (no uno
+// por fila) para no golpear la API de Airtable en el listado. Misma tabla
+// que lib/facturacion/airtable/facturas.ts ("Facturas Electrónicas") —
+// se consulta directo por nombre, sin importar ese módulo.
+const fetchNumerosFactura = async (
+  recordIds: string[],
+  client: AirtableClient
+): Promise<Map<string, string>> => {
+  const mapa = new Map<string, string>();
+  if (recordIds.length === 0) return mapa;
+
+  const url = new URL(`${client.baseUrl}/${encodeURIComponent("Facturas Electrónicas")}`);
+  url.searchParams.set("filterByFormula", `OR(${recordIds.map((id) => `RECORD_ID()="${id}"`).join(",")})`);
+  url.searchParams.append("fields[]", "Número de Factura");
+  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+  if (!res.ok) return mapa;
+
+  const data = (await res.json()) as { records?: { id: string; fields: Record<string, unknown> }[] };
+  for (const record of data.records ?? []) {
+    mapa.set(record.id, safeString(record.fields["Número de Factura"], ""));
+  }
+  return mapa;
 };
 
 // --- Lectura: listado de seguimiento de mantenimientos próximos ---
-// Trae TODAS las órdenes con una fecha de próximo mantenimiento guardada,
-// ordenadas ascendente (las más próximas a vencer primero). El volumen
-// esperado es bajo (solo órdenes donde alguna vez se imprimió esta
-// etiqueta), así que se pagina hasta agotar el offset en vez de limitar
-// a una sola página.
+// Trae TODAS las filas de la tabla centralizada, ordenadas ascendente por
+// fecha (las más próximas a vencer primero). El volumen esperado es bajo
+// (solo equipos donde alguna vez se imprimió esta etiqueta), así que se
+// pagina hasta agotar el offset en vez de limitar a una sola página.
 export const fetchMantenimientosProximos = async (): Promise<MantenimientoProximo[]> => {
   const client = getClient();
   const registros: { id: string; fields: Record<string, unknown> }[] = [];
   let offset: string | undefined;
 
   do {
-    const url = new URL(`${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.ordenes)}`);
+    const url = new URL(`${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.mantenimientos)}`);
     url.searchParams.set("pageSize", "100");
-    url.searchParams.set("filterByFormula", "NOT({Próximo Mantenimiento} = '')");
-    url.searchParams.append("sort[0][field]", "Próximo Mantenimiento");
+    url.searchParams.append("sort[0][field]", "Fecha");
     url.searchParams.append("sort[0][direction]", "asc");
-    [
-      "ID",
-      "ClienteTXT",
-      "Cliente",
-      "Telefono",
-      "Equipo",
-      "Próximo Mantenimiento",
-      "Mantenimiento Notificado",
-    ].forEach((field) => url.searchParams.append("fields[]", field));
     if (offset) url.searchParams.set("offset", offset);
 
     const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
@@ -2817,26 +2956,17 @@ export const fetchMantenimientosProximos = async (): Promise<MantenimientoProxim
     offset = data.offset;
   } while (offset);
 
-  return registros.map((record) => {
-    const f = record.fields;
-    let clienteNombre = firstString(f["ClienteTXT"], "");
-    if (clienteNombre.startsWith("rec")) clienteNombre = "";
-    if (!clienteNombre) {
-      const cli = firstString(f["Cliente"], "");
-      clienteNombre = cli && !cli.startsWith("rec") ? cli : "";
-    }
-    if (!clienteNombre) clienteNombre = "Cliente no disponible";
+  const items = registros.map(mapMantenimientoRecord);
 
-    return {
-      ordenRecordId: record.id,
-      idVisible: safeString(f["ID"], record.id),
-      clienteNombre,
-      telefono: safeString(f["Telefono"], "-"),
-      equipo: safeString(f["Equipo"], "Sin equipo"),
-      proximoMantenimiento: safeString(f["Próximo Mantenimiento"], ""),
-      mantenimientoNotificado: f["Mantenimiento Notificado"] === true,
-    };
-  });
+  const facturaIds = [...new Set(items.map((i) => i.facturaRecordId).filter((id): id is string => id !== null))];
+  if (facturaIds.length > 0) {
+    const numeros = await fetchNumerosFactura(facturaIds, client);
+    for (const item of items) {
+      if (item.facturaRecordId) item.facturaNumero = numeros.get(item.facturaRecordId) ?? null;
+    }
+  }
+
+  return items;
 };
 
 // --- Escritura: actualizar campos directos de la orden ---

@@ -351,7 +351,15 @@ function DocumentoDetalleModal({
       </div>
 
       {mantenimientoModalOpen && (
-        <ImprimirEtiquetaMantenimientoModal onClose={() => setMantenimientoModalOpen(false)} />
+        <ImprimirEtiquetaMantenimientoModal
+          onClose={() => setMantenimientoModalOpen(false)}
+          factura={{
+            recordId: doc.recordId,
+            clienteNombre: doc.clienteNombre,
+            telefono: cuerpo?.clienteTelefono ?? "",
+            equipoSugerido: cuerpo?.items[0]?.descripcion ?? "",
+          }}
+        />
       )}
     </div>
   );

@@ -23,11 +23,11 @@ const formatFecha = (fecha: string): string => {
 export const buildMantenimientoWhatsAppMessage = (item: {
   clienteNombre?: string | null;
   equipo?: string | null;
-  proximoMantenimiento: string;
+  fecha: string;
 }): string => {
   const clientName = cleanText(item.clienteNombre, FALLBACK_CLIENT);
   const equipment = cleanText(item.equipo, FALLBACK_EQUIPMENT);
-  const fecha = formatFecha(item.proximoMantenimiento);
+  const fecha = formatFecha(item.fecha);
 
   return `Hola ${clientName}, le saludamos de SUPER GEEK.
 

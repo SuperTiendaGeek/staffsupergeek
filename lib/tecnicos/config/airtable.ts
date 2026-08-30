@@ -14,6 +14,7 @@ export const AIRTABLE_TABLES = {
   abonos: "Abonos",
   productosDigitales: "Productos Digitales",
   catalogoProductosDigitales: "Catálogo Productos Digitales",
+  mantenimientos: "Mantenimientos",
 } as const;
 
 // Vars de entorno requeridas para conectarse desde el backend de Next.js.
