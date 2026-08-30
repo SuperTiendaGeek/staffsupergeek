@@ -22,6 +22,15 @@ type Props = {
 
 const PRINT_TARGET_ID = "etiqueta-mantenimiento-imprimir";
 
+// Ampliación de la vista previa en pantalla. La etiqueta real es 50×25mm —
+// sin ampliar sería casi ilegible en un monitor. `transform: scale()` NO
+// cambia el tamaño de layout del elemento (solo lo que se PINTA), así que
+// hace falta reservar el espacio real (ancho/alto en `calc(Nmm * escala)`)
+// con overflow:hidden alrededor; si no, el contenido ampliado se dibuja por
+// encima del resto del modal en vez de empujarlo — eso es lo que rompía el
+// layout antes.
+const PREVIEW_SCALE = 2.4;
+
 function seisMesesDesdeHoy(): Date {
   const d = new Date();
   d.setMonth(d.getMonth() + 6);
@@ -100,7 +109,7 @@ export function ImprimirEtiquetaMantenimientoModal({ onClose, ordenId }: Props) 
         }
       `}</style>
 
-      <div className="w-full max-w-sm rounded-2xl border border-[#3A3A36] bg-[#1A1B18] p-5 text-[#F0F0EC] shadow-2xl">
+      <div className="w-full max-w-lg rounded-2xl border border-[#3A3A36] bg-[#1A1B18] p-5 text-[#F0F0EC] shadow-2xl">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="text-sm font-bold text-[#D7FF4F]">Imprimir etiqueta de mantenimiento</h3>
           <button
@@ -130,11 +139,22 @@ export function ImprimirEtiquetaMantenimientoModal({ onClose, ordenId }: Props) 
 
         <div className="mb-4">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[#8A8A80]">Vista previa</p>
-          <div className="flex justify-center rounded-lg border border-dashed border-[#3A3A36] bg-[#0E0F0C] py-6">
-            {/* Ampliada x4 en pantalla — el tamaño real de impresión es 50×25mm.
-                @media print restaura el tamaño físico y aísla este nodo. */}
-            <div id={PRINT_TARGET_ID} style={{ transform: "scale(4)" }}>
-              <EtiquetaMantenimiento fecha={fecha} />
+          <div className="flex justify-center rounded-lg border border-dashed border-[#3A3A36] bg-[#0E0F0C] p-4">
+            {/* El tamaño real de impresión es 50×25mm; @media print restaura
+                ese tamaño físico y aísla este nodo (ver estilo de arriba). */}
+            <div
+              style={{
+                width: `calc(50mm * ${PREVIEW_SCALE})`,
+                height: `calc(25mm * ${PREVIEW_SCALE})`,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                id={PRINT_TARGET_ID}
+                style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: "top left" }}
+              >
+                <EtiquetaMantenimiento fecha={fecha} />
+              </div>
             </div>
           </div>
         </div>

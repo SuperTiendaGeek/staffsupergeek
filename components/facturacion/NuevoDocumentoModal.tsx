@@ -16,7 +16,6 @@ import { FacturacionForm } from "@/components/facturacion/FacturacionForm";
 import { ReciboForm }      from "@/components/facturacion/ReciboForm";
 import { ProformaForm }    from "@/components/facturacion/ProformaForm";
 import { ReservaForm }     from "@/components/facturacion/ReservaForm";
-import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
 
 type TipoNuevo = "factura" | "recibo" | "proforma" | "reserva";
 
@@ -55,9 +54,6 @@ export function NuevoDocumentoModal({
   // ES el fondo, y el modal se cerraba solo en medio de la edición sin que
   // nadie hiciera clic "afuera" a propósito. Ver también ClienteModal.tsx.
   const [mouseDownEnFondo, setMouseDownEnFondo] = useState(false);
-  // Sin ordenId: este modal no siempre nace desde una orden de reparación
-  // (mostrador libre), así que aquí es solo de impresión — no guarda nada.
-  const [mantenimientoModalOpen, setMantenimientoModalOpen] = useState(false);
 
   return (
     <div
@@ -84,15 +80,7 @@ export function NuevoDocumentoModal({
         <div className="sticky top-0 z-10 bg-[#151510] border-b border-[#2A2A22] rounded-t-2xl px-5 py-4">
           <div className="flex items-center justify-between gap-3 mb-3">
             <h2 className="text-lg font-bold text-[#D7FF4F]">Nuevo documento</h2>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setMantenimientoModalOpen(true)}
-                className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-medium text-[#A7A7A7] transition hover:border-[#D7FF4F]/40 hover:text-[#F5F5F5]"
-              >
-                🖨 Etiqueta mantenimiento
-              </button>
-              <button onClick={onClose} className="text-[#666] hover:text-[#F5F5F5] text-xl leading-none" aria-label="Cerrar">✕</button>
-            </div>
+            <button onClick={onClose} className="text-[#666] hover:text-[#F5F5F5] text-xl leading-none" aria-label="Cerrar">✕</button>
           </div>
           <div className="flex flex-wrap gap-2">
             {TABS.map((t) => {
@@ -126,10 +114,6 @@ export function NuevoDocumentoModal({
           {tipo === "reserva"  && <ReservaForm />}
         </div>
       </div>
-
-      {mantenimientoModalOpen && (
-        <ImprimirEtiquetaMantenimientoModal onClose={() => setMantenimientoModalOpen(false)} />
-      )}
     </div>
   );
 }
