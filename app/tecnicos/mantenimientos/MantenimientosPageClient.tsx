@@ -13,9 +13,15 @@
 // el historial de un cliente (botón sobre su nombre) agrupa por
 // `clienteIdentificacion` (cédula/RUC), que es estable entre ciclos aunque
 // el origen cambie.
+//
+// La tabla es de ancho fijo por columna (<colgroup>) con manijas de resize
+// entre encabezados — el contenido nunca se pisa: si no cabe, se recorta
+// con "…" (nunca salta de línea, que era lo que engordaba las filas) y el
+// usuario ensancha la columna que le haga falta. Los anchos se recuerdan
+// en localStorage por navegador.
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "@/components/tecnicos/layout/TecnicosTheme.module.css";
 import { buildWhatsAppUrl } from "@/lib/tecnicos/whatsapp";
 import { buildMantenimientoWhatsAppMessage } from "@/lib/tecnicos/orders/mantenimientoWhatsApp";
@@ -56,7 +62,7 @@ const diasRestantes = (fecha: string): number | null => {
 function BadgeDias({ fecha, realizado }: { fecha: string; realizado: boolean }) {
   if (realizado) {
     return (
-      <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
         ✓ Realizado
       </span>
     );
@@ -67,27 +73,30 @@ function BadgeDias({ fecha, realizado }: { fecha: string; realizado: boolean }) 
 
   if (dias < 0) {
     return (
-      <span className="inline-flex items-center rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">
-        Incumplido — venció hace {Math.abs(dias)} {Math.abs(dias) === 1 ? "día" : "días"}
+      <span
+        className="inline-flex items-center whitespace-nowrap rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-300"
+        title={`Venció hace ${Math.abs(dias)} ${Math.abs(dias) === 1 ? "día" : "días"}`}
+      >
+        ✗ Incumplido
       </span>
     );
   }
   if (dias === 0) {
     return (
-      <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
         Hoy
       </span>
     );
   }
   if (dias <= 15) {
     return (
-      <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
         En {dias} {dias === 1 ? "día" : "días"}
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">
+    <span className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">
       En {dias} días
     </span>
   );
@@ -98,7 +107,7 @@ function BadgeOrigen({ item }: { item: MantenimientoItem }) {
     return (
       <Link
         href={`/tecnicos/ordenes/${encodeURIComponent(item.ordenRecordId)}`}
-        className="inline-flex items-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
+        className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
         title="Ver orden de reparación"
       >
         Orden{item.ordenIdVisible ? ` #${item.ordenIdVisible}` : ""}
@@ -107,7 +116,7 @@ function BadgeOrigen({ item }: { item: MantenimientoItem }) {
   }
   return (
     <span
-      className="inline-flex items-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]"
+      className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]"
       title="Venta de mostrador — sin orden de reparación asociada"
     >
       Factura{item.facturaNumero ? ` ${item.facturaNumero}` : ""}
@@ -118,21 +127,21 @@ function BadgeOrigen({ item }: { item: MantenimientoItem }) {
 function EstadoCiclo({ item }: { item: MantenimientoItem }) {
   if (item.realizado) {
     return (
-      <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
-        ✓ Realizado{item.fechaRealizado ? ` (${formatFecha(item.fechaRealizado)})` : ""}
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+        ✓ Realizado{item.fechaRealizado ? ` · ${formatFecha(item.fechaRealizado)}` : ""}
       </span>
     );
   }
   const dias = diasRestantes(item.fecha);
   if (dias !== null && dias < 0) {
     return (
-      <span className="inline-flex items-center rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold text-red-300">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-300">
         ✗ Incumplido
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">
+    <span className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-3 py-1 text-xs font-semibold text-[#A7A7A7]">
       ⏳ Pendiente
     </span>
   );
@@ -166,54 +175,149 @@ function HistorialModal({
   const cumplimientoPct = base > 0 ? Math.round((realizados / base) * 100) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-8 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-10 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-[#3A3A36] bg-[#1A1B18] p-5 text-[#F0F0EC] shadow-2xl"
+        className="flex w-full max-w-3xl max-h-[88vh] flex-col overflow-hidden rounded-2xl border border-[#3A3A36] bg-[#1A1B18] text-[#F0F0EC] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-1 flex items-center justify-between gap-3">
-          <h3 className="text-sm font-bold text-[#D7FF4F]">Historial de mantenimientos</h3>
-          <button type="button" onClick={onClose} className="text-[#6B6B66] transition hover:text-[#F0F0EC]" aria-label="Cerrar">
+        <div className="flex items-start justify-between gap-4 border-b border-[#2A2A22] px-8 py-6">
+          <div>
+            <h3 className="text-lg font-bold text-[#D7FF4F]">Historial de mantenimientos</h3>
+            <p className="mt-1 text-sm text-[#A7A7A7]">
+              {cliente.nombre}
+              {cliente.identificacion ? ` · ${cliente.identificacion}` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-2xl leading-none text-[#6B6B66] transition hover:text-[#F0F0EC]"
+            aria-label="Cerrar"
+          >
             ✕
           </button>
         </div>
-        <p className="mb-4 text-xs text-[#8A8A80]">
-          {cliente.nombre}
-          {cliente.identificacion ? ` · ${cliente.identificacion}` : ""}
-        </p>
 
-        <div className="mb-4 grid grid-cols-3 gap-2 rounded-lg border border-[#3A3A36] bg-[#252622] p-3 text-center">
-          <div>
-            <p className="text-lg font-bold text-[#D7FF4F]">{ciclos.length}</p>
-            <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Ciclos</p>
-          </div>
-          <div>
-            <p className="text-lg font-bold text-emerald-300">{realizados}</p>
-            <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Realizados</p>
-          </div>
-          <div>
-            <p className="text-lg font-bold text-[#F0F0EC]">{cumplimientoPct === null ? "—" : `${cumplimientoPct}%`}</p>
-            <p className="text-[10px] uppercase tracking-wide text-[#8A8A80]">Cumplimiento</p>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          {ciclos.map((c) => (
-            <div key={c.mantenimientoRecordId} className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold text-white">{formatFecha(c.fecha)}</span>
-                <EstadoCiclo item={c} />
-              </div>
-              <p className="mt-1 truncate text-xs text-[#A7A7A7]" title={c.equipo}>
-                {c.equipo}
-              </p>
-              <div className="mt-1">
-                <BadgeOrigen item={c} />
-              </div>
+        <div className="overflow-y-auto px-8 py-6">
+          <div className="mb-6 grid grid-cols-3 gap-4 rounded-xl border border-[#3A3A36] bg-[#252622] p-5 text-center">
+            <div>
+              <p className="text-3xl font-bold text-[#D7FF4F]">{ciclos.length}</p>
+              <p className="mt-1 text-xs uppercase tracking-wide text-[#8A8A80]">Ciclos totales</p>
             </div>
-          ))}
+            <div>
+              <p className="text-3xl font-bold text-emerald-300">{realizados}</p>
+              <p className="mt-1 text-xs uppercase tracking-wide text-[#8A8A80]">Realizados</p>
+            </div>
+            <div>
+              <p className="text-3xl font-bold text-[#F0F0EC]">{cumplimientoPct === null ? "—" : `${cumplimientoPct}%`}</p>
+              <p className="mt-1 text-xs uppercase tracking-wide text-[#8A8A80]">Cumplimiento</p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {ciclos.map((c) => (
+              <div key={c.mantenimientoRecordId} className="rounded-xl border border-[#3A3A36] bg-[#252622] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-base font-semibold text-white">{formatFecha(c.fecha)}</span>
+                  <EstadoCiclo item={c} />
+                </div>
+                <p className="mt-2 text-sm text-[#CFCFCB]">{c.equipo}</p>
+                <div className="mt-2">
+                  <BadgeOrigen item={c} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Tabla de ancho ajustable ────────────────────────────────────────────────
+
+type ColumnKey =
+  | "cliente"
+  | "equipo"
+  | "telefono"
+  | "fecha"
+  | "vence"
+  | "notificado"
+  | "realizado"
+  | "origen"
+  | "accion";
+
+const COLUMN_ORDER: ColumnKey[] = [
+  "cliente",
+  "equipo",
+  "telefono",
+  "fecha",
+  "vence",
+  "notificado",
+  "realizado",
+  "origen",
+  "accion",
+];
+
+const COLUMN_LABELS: Record<ColumnKey, string> = {
+  cliente: "Cliente",
+  equipo: "Equipo",
+  telefono: "Teléfono",
+  fecha: "Próximo mant.",
+  vence: "Vence",
+  notificado: "Notificado",
+  realizado: "Realizado",
+  origen: "Origen",
+  accion: "",
+};
+
+// Calibrados para que el contenido típico entre sin recortarse (ej. "Factura
+// 001-002-000000698" completo en "Origen"). "Equipo" no tiene un ancho que
+// alcance para descripciones largas de producto — eso siempre se recorta
+// con "…" y tooltip; para verlo completo está el historial.
+const COLUMN_DEFAULTS: Record<ColumnKey, number> = {
+  cliente: 170,
+  equipo: 280,
+  telefono: 115,
+  fecha: 115,
+  vence: 150,
+  notificado: 125,
+  realizado: 110,
+  origen: 205,
+  accion: 56,
+};
+
+const MIN_COLUMN_WIDTH = 60;
+const COLUMN_WIDTHS_STORAGE_KEY = "sg-tecnicos-mantenimientos-column-widths";
+
+function ColumnResizeHandle({ onResize, onResizeEnd }: { onResize: (deltaPx: number) => void; onResizeEnd: () => void }) {
+  const startXRef = useRef(0);
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      title="Arrastra para ajustar el ancho de la columna"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        startXRef.current = e.clientX;
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        if (e.buttons !== 1) return;
+        const delta = e.clientX - startXRef.current;
+        if (delta !== 0) {
+          startXRef.current = e.clientX;
+          onResize(delta);
+        }
+      }}
+      onPointerUp={onResizeEnd}
+      className="group absolute right-0 top-0 z-10 h-full w-2.5 -mr-1 cursor-col-resize touch-none select-none"
+    >
+      <div className="mx-auto h-full w-px bg-[#3A3A36] group-hover:w-1 group-hover:bg-[#D7FF4F]/70" />
     </div>
   );
 }
@@ -227,6 +331,43 @@ export function MantenimientosPageClient() {
   // o realizado), para deshabilitar el botón y evitar dobles clics.
   const [guardandoId, setGuardandoId] = useState<string | null>(null);
   const [historialCliente, setHistorialCliente] = useState<{ identificacion: string; nombre: string } | null>(null);
+
+  const [colWidths, setColWidths] = useState<Record<ColumnKey, number>>(COLUMN_DEFAULTS);
+  const colWidthsRef = useRef(colWidths);
+  colWidthsRef.current = colWidths;
+
+  // Los anchos son una comodidad por navegador — se cargan después del
+  // primer render (nunca durante SSR) para no desincronizar el HTML del
+  // servidor con lo guardado en este navegador.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
+      if (raw) setColWidths((prev) => ({ ...prev, ...JSON.parse(raw) }));
+    } catch {
+      // Sin localStorage (modo privado, etc.) — se queda con los anchos por defecto.
+    }
+  }, []);
+
+  function resizeColumn(key: ColumnKey, deltaPx: number) {
+    setColWidths((prev) => ({ ...prev, [key]: Math.max(MIN_COLUMN_WIDTH, prev[key] + deltaPx) }));
+  }
+
+  function persistColumnWidths() {
+    try {
+      window.localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(colWidthsRef.current));
+    } catch {
+      // No es crítico — el próximo resize lo vuelve a intentar.
+    }
+  }
+
+  function restablecerAnchos() {
+    setColWidths(COLUMN_DEFAULTS);
+    try {
+      window.localStorage.removeItem(COLUMN_WIDTHS_STORAGE_KEY);
+    } catch {
+      // ignorar
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -309,6 +450,8 @@ export function MantenimientosPageClient() {
     if (!item.notificado) void toggleCampo(item, "notificado");
   }
 
+  const totalWidth = COLUMN_ORDER.reduce((sum, key) => sum + colWidths[key], 0);
+
   return (
     <div className={`${styles.theme} grid gap-6 xl:grid-cols-[minmax(0,4fr)_minmax(300px,1.1fr)]`}>
       <div className="w-full space-y-4">
@@ -338,6 +481,14 @@ export function MantenimientosPageClient() {
                 />
               </div>
             </label>
+            <button
+              type="button"
+              onClick={restablecerAnchos}
+              title="Volver las columnas de la tabla a su ancho original"
+              className="h-9 shrink-0 rounded-full border border-[#3A3A36] px-4 text-xs font-medium text-[#A7A7A7] transition hover:border-[#D7FF4F]/40 hover:text-[#F5F5F5]"
+            >
+              ⟲ Restablecer columnas
+            </button>
           </div>
 
           {loading && <div className="text-sm text-[#CFCFCB]">Cargando mantenimientos…</div>}
@@ -357,89 +508,107 @@ export function MantenimientosPageClient() {
                 </div>
               ) : (
                 <div className="w-full overflow-x-auto rounded-lg border border-[#3A3A36] bg-[#252622]">
-                  <div className="grid min-w-[1280px] grid-cols-[minmax(0,1.2fr)_minmax(0,1.1fr)_minmax(105px,0.7fr)_minmax(130px,0.8fr)_minmax(140px,0.9fr)_minmax(150px,0.9fr)_minmax(150px,0.9fr)_140px_170px] border-b border-[#3A3A36] bg-[#30312D] px-6 py-3 text-[12px] uppercase tracking-wide text-[#A7A7A7]">
-                    <span>Cliente</span>
-                    <span>Equipo</span>
-                    <span>Teléfono</span>
-                    <span>Próximo mant.</span>
-                    <span>Vence</span>
-                    <span>Notificado</span>
-                    <span>Realizado</span>
-                    <span>Origen</span>
-                    <span className="text-right">Acción</span>
-                  </div>
-                  <div className="divide-y divide-[#3A3A36]">
-                    {itemsFiltrados.map((item) => (
-                      <div
-                        key={item.mantenimientoRecordId}
-                        className="grid min-w-[1280px] grid-cols-[minmax(0,1.2fr)_minmax(0,1.1fr)_minmax(105px,0.7fr)_minmax(130px,0.8fr)_minmax(140px,0.9fr)_minmax(150px,0.9fr)_minmax(150px,0.9fr)_140px_170px] items-center bg-[#252622] px-6 py-3 text-sm text-[#CFCFCB] transition hover:bg-[#2D2E2A]"
-                      >
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setHistorialCliente({ identificacion: item.clienteIdentificacion, nombre: item.clienteNombre })
-                          }
-                          className="truncate text-left font-semibold text-white underline decoration-dotted decoration-[#5A5A54] underline-offset-2 hover:text-[#D7FF4F]"
-                          title={`Ver historial de ${item.clienteNombre}`}
-                        >
-                          {item.clienteNombre}
-                        </button>
-                        <span className="truncate text-[#CFCFCB]" title={item.equipo}>
-                          {item.equipo}
-                        </span>
-                        <span className="truncate text-[#CFCFCB]">{item.telefono || "-"}</span>
-                        <span className="text-[#CFCFCB]">{formatFecha(item.fecha)}</span>
-                        <span>
-                          <BadgeDias fecha={item.fecha} realizado={item.realizado} />
-                        </span>
-                        <span>
-                          <button
-                            type="button"
-                            onClick={() => toggleCampo(item, "notificado")}
-                            disabled={guardandoId === item.mantenimientoRecordId}
-                            title="Clic para cambiar el estado a mano"
-                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
-                              item.notificado
-                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:border-emerald-500/70"
-                                : "border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
-                            }`}
-                          >
-                            {item.notificado ? "✓ Notificado" : "Pendiente"}
-                          </button>
-                        </span>
-                        <span>
-                          <button
-                            type="button"
-                            onClick={() => toggleCampo(item, "realizado")}
-                            disabled={guardandoId === item.mantenimientoRecordId}
-                            title="Marcar si el cliente ya trajo el equipo y se le hizo el mantenimiento"
-                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
-                              item.realizado
-                                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:border-emerald-500/70"
-                                : "border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
-                            }`}
-                          >
-                            {item.realizado ? "✓ Hecho" : "No aún"}
-                          </button>
-                        </span>
-                        <span>
-                          <BadgeOrigen item={item} />
-                        </span>
-                        <span className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => enviarWhatsApp(item)}
-                            title="Enviar recordatorio por WhatsApp"
-                            className="flex h-7 w-7 items-center justify-center rounded-md bg-[#D7FF4F] transition hover:brightness-110"
-                          >
-                            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#151515]" aria-hidden="true">
-                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                            </svg>
-                          </button>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                  <table style={{ tableLayout: "fixed", width: totalWidth }} className="border-collapse text-sm">
+                    <colgroup>
+                      {COLUMN_ORDER.map((key) => (
+                        <col key={key} style={{ width: colWidths[key] }} />
+                      ))}
+                    </colgroup>
+                    <thead>
+                      <tr className="border-b border-[#3A3A36] bg-[#30312D] text-[12px] uppercase tracking-wide text-[#A7A7A7]">
+                        {COLUMN_ORDER.map((key) => (
+                          <th key={key} className="relative px-3 py-3 text-left font-semibold first:pl-6 last:pr-6">
+                            <span className="block truncate pr-2">{COLUMN_LABELS[key]}</span>
+                            {key !== "accion" && (
+                              <ColumnResizeHandle
+                                onResize={(delta) => resizeColumn(key, delta)}
+                                onResizeEnd={persistColumnWidths}
+                              />
+                            )}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#3A3A36]">
+                      {itemsFiltrados.map((item) => (
+                        <tr key={item.mantenimientoRecordId} className="text-[#CFCFCB] transition hover:bg-[#2D2E2A]">
+                          <td className="px-3 py-3 pl-6">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setHistorialCliente({ identificacion: item.clienteIdentificacion, nombre: item.clienteNombre })
+                              }
+                              className="block w-full truncate text-left font-semibold text-white underline decoration-dotted decoration-[#5A5A54] underline-offset-2 hover:text-[#D7FF4F]"
+                              title={`Ver historial de ${item.clienteNombre}`}
+                            >
+                              {item.clienteNombre}
+                            </button>
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className="block truncate" title={item.equipo}>
+                              {item.equipo}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className="block truncate">{item.telefono || "-"}</span>
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className="block truncate">{formatFecha(item.fecha)}</span>
+                          </td>
+                          <td className="px-3 py-3">
+                            <BadgeDias fecha={item.fecha} realizado={item.realizado} />
+                          </td>
+                          <td className="px-3 py-3">
+                            <button
+                              type="button"
+                              onClick={() => toggleCampo(item, "notificado")}
+                              disabled={guardandoId === item.mantenimientoRecordId}
+                              title="Clic para cambiar el estado a mano"
+                              className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
+                                item.notificado
+                                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:border-emerald-500/70"
+                                  : "border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
+                              }`}
+                            >
+                              {item.notificado ? "✓ Notificado" : "Pendiente"}
+                            </button>
+                          </td>
+                          <td className="px-3 py-3">
+                            <button
+                              type="button"
+                              onClick={() => toggleCampo(item, "realizado")}
+                              disabled={guardandoId === item.mantenimientoRecordId}
+                              title="Marcar si el cliente ya trajo el equipo y se le hizo el mantenimiento"
+                              className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
+                                item.realizado
+                                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:border-emerald-500/70"
+                                  : "border-[#3A3A36] bg-[#1E1F1C] text-[#A7A7A7] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
+                              }`}
+                            >
+                              {item.realizado ? "✓ Hecho" : "No aún"}
+                            </button>
+                          </td>
+                          <td className="overflow-hidden px-3 py-3">
+                            <BadgeOrigen item={item} />
+                          </td>
+                          <td className="px-3 py-3 pr-6">
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => enviarWhatsApp(item)}
+                                title="Enviar recordatorio por WhatsApp"
+                                className="flex h-7 w-7 items-center justify-center rounded-md bg-[#D7FF4F] transition hover:brightness-110"
+                              >
+                                <svg viewBox="0 0 24 24" className="h-4 w-4 fill-[#151515]" aria-hidden="true">
+                                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                                </svg>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </>
@@ -459,9 +628,10 @@ export function MantenimientosPageClient() {
           <p className="mt-1 text-xs text-[#A7A7A7]">Aún sin aviso de WhatsApp</p>
         </div>
         <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
-          <p className="text-sm font-semibold text-white">Ver historial</p>
+          <p className="text-sm font-semibold text-white">Consejos</p>
           <p className="mt-1 text-xs text-[#A7A7A7]">
-            Haz clic en el nombre de un cliente en la tabla para ver todos sus ciclos de mantenimiento y su cumplimiento.
+            Arrastra el borde de un encabezado para ajustar su ancho — se recuerda en este navegador. Haz clic en el
+            nombre de un cliente para ver su historial completo y su cumplimiento.
           </p>
         </div>
       </aside>
