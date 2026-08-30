@@ -117,11 +117,11 @@ function BadgeOrigen({ item }: { item: MantenimientoItem }) {
   if (item.facturaRecordId) {
     return (
       <Link
-        href={`/facturacion/imprimir/factura/${encodeURIComponent(item.facturaRecordId)}`}
+        href={`/facturacion/documentos/factura/${encodeURIComponent(item.facturaRecordId)}`}
         target="_blank"
         rel="noopener"
         className="inline-flex items-center whitespace-nowrap rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
-        title="Ver factura (abre el comprobante de 80mm en una pestaña nueva)"
+        title="Ver factura (solo lectura, sin acciones)"
       >
         Factura{item.facturaNumero ? ` ${item.facturaNumero}` : ""}
       </Link>
