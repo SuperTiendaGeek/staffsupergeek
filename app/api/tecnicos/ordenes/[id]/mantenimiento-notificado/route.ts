@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
-import { updateOrdenProximoMantenimiento } from "@/lib/tecnicos/airtable";
+import { marcarMantenimientoNotificado } from "@/lib/tecnicos/airtable";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
-
-const FECHA_ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function PATCH(request: Request, { params }: Params) {
   const { id: ordenRecordId } = await params;
@@ -21,29 +19,28 @@ export async function PATCH(request: Request, { params }: Params) {
     );
   }
 
-  let body: { fecha?: string };
+  let body: { notificado?: boolean };
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { success: false, error: "JSON inválido" },
-      { status: 400 }
-    );
+    return NextResponse.json({ success: false, error: "JSON inválido" }, { status: 400 });
   }
 
-  const fecha = (body.fecha ?? "").trim();
-  if (!FECHA_ISO_RE.test(fecha)) {
+  if (typeof body.notificado !== "boolean") {
     return NextResponse.json(
-      { success: false, error: "Fecha inválida (se espera AAAA-MM-DD)" },
+      { success: false, error: "Falta 'notificado' (boolean)" },
       { status: 400 }
     );
   }
 
   try {
-    const result = await updateOrdenProximoMantenimiento({ ordenRecordId, fecha });
+    const result = await marcarMantenimientoNotificado({
+      ordenRecordId,
+      notificado: body.notificado,
+    });
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
-    console.error("Error al actualizar próximo mantenimiento en Airtable:", error);
+    console.error("Error al actualizar 'Mantenimiento Notificado' en Airtable:", error);
     const message = error instanceof Error ? error.message : "Error inesperado";
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }

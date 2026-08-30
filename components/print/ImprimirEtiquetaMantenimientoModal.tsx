@@ -1,22 +1,32 @@
 "use client";
 
 // Modal compartido "Imprimir etiqueta de mantenimiento" — se usa desde
-// /tecnicos/ordenes/[id] (con ordenId: la fecha elegida se guarda en la
-// orden) y desde el selector "Nuevo documento" de /facturacion (sin
-// ordenId: no siempre hay una orden de reparación de por medio ahí, así que
-// esa variante es solo de impresión, sin guardar nada).
+// /tecnicos/ordenes/[id] (con ordenId: la fecha elegida se guarda directo en
+// esa orden) y desde el detalle de una factura emitida en /facturacion (sin
+// ordenId: una factura no trae equipo ni está ligada a una orden de
+// reparación puntual). En ese segundo caso se ofrece un buscador para
+// encontrar y vincular la orden del cliente — así la fecha también queda
+// guardada y aparece en el seguimiento de /tecnicos/mantenimientos. Si no se
+// vincula ninguna orden, el modal sigue funcionando como antes: solo imprime.
 //
 // Imprime directamente desde el propio modal — sin navegar a otra pantalla —
 // aislando con CSS el nodo de la etiqueta para que sea lo único que salga en
 // @media print, mientras en pantalla se ve ampliado (transform: scale) para
 // que la vista previa sea legible.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EtiquetaMantenimiento } from "./EtiquetaMantenimiento";
+
+type OrdenBusqueda = {
+  recordId: string;
+  idVisible: string;
+  clienteNombre: string;
+  equipo: string;
+};
 
 type Props = {
   onClose: () => void;
-  /** Si viene, la fecha elegida se guarda en esta orden al imprimir. Si no, el modal solo imprime. */
+  /** Si viene, la fecha elegida se guarda en esta orden al imprimir. Si no, el modal ofrece buscarla. */
   ordenId?: string;
 };
 
@@ -60,13 +70,78 @@ export function ImprimirEtiquetaMantenimientoModal({ onClose, ordenId }: Props) 
   const [error, setError] = useState<string | null>(null);
   const fechaInputValue = useMemo(() => toDateInputValue(fecha), [fecha]);
 
+  // Búsqueda de orden a vincular — solo aplica cuando no llega ordenId
+  // (caso /facturacion).
+  const [busqueda, setBusqueda] = useState("");
+  const [resultados, setResultados] = useState<OrdenBusqueda[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [mostrarResultados, setMostrarResultados] = useState(false);
+  const [ordenVinculada, setOrdenVinculada] = useState<OrdenBusqueda | null>(null);
+  const buscadorRef = useRef<HTMLDivElement>(null);
+
+  const ordenIdEfectivo = ordenId ?? ordenVinculada?.recordId ?? null;
+
+  useEffect(() => {
+    if (ordenId) return; // ya viene fija, no hay nada que buscar
+    const q = busqueda.trim();
+    if (q.length < 2) {
+      setResultados([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        setBuscando(true);
+        const params = new URLSearchParams({ q, pageSize: "6" });
+        const res = await fetch(`/api/tecnicos/ordenes?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const json = await res.json().catch(() => ({}));
+        const registros = (json.records ?? json.data ?? []) as Array<{
+          recordId: string;
+          idVisible: string;
+          clienteNombre: string;
+          equipo: string;
+        }>;
+        setResultados(
+          registros.map((r) => ({
+            recordId: r.recordId,
+            idVisible: r.idVisible,
+            clienteNombre: r.clienteNombre,
+            equipo: r.equipo,
+          }))
+        );
+      } catch {
+        // Búsqueda best-effort: si falla, simplemente no hay resultados.
+      } finally {
+        if (!controller.signal.aborted) setBuscando(false);
+      }
+    }, 300);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [busqueda, ordenId]);
+
+  // Cerrar el desplegable de resultados al hacer clic fuera del buscador.
+  useEffect(() => {
+    function handleClickFuera(e: MouseEvent) {
+      if (buscadorRef.current && !buscadorRef.current.contains(e.target as Node)) {
+        setMostrarResultados(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickFuera);
+    return () => document.removeEventListener("mousedown", handleClickFuera);
+  }, []);
+
   async function handleImprimir() {
     setError(null);
 
-    if (ordenId) {
+    if (ordenIdEfectivo) {
       setGuardando(true);
       try {
-        const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/proximo-mantenimiento`, {
+        const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenIdEfectivo)}/proximo-mantenimiento`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fecha: toDateInputValue(fecha) }),
@@ -121,6 +196,75 @@ export function ImprimirEtiquetaMantenimientoModal({ onClose, ordenId }: Props) 
             ✕
           </button>
         </div>
+
+        {!ordenId && (
+          <div className="mb-4" ref={buscadorRef}>
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[#8A8A80]">
+              Vincular a una orden de reparación
+            </span>
+            {ordenVinculada ? (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-[#D7FF4F]/40 bg-[#D7FF4F]/10 px-3 py-2 text-sm">
+                <span className="truncate">
+                  <span className="font-semibold text-[#D7FF4F]">{ordenVinculada.clienteNombre}</span>
+                  {" · "}
+                  <span className="text-[#CFCFCB]">{ordenVinculada.equipo}</span>
+                  {" · "}
+                  <span className="text-[#8A8A80]">#{ordenVinculada.idVisible}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setOrdenVinculada(null)}
+                  className="shrink-0 text-[#8A8A80] hover:text-[#F0F0EC]"
+                  aria-label="Quitar orden vinculada"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  type="text"
+                  value={busqueda}
+                  onChange={(e) => {
+                    setBusqueda(e.target.value);
+                    setMostrarResultados(true);
+                  }}
+                  onFocus={() => setMostrarResultados(true)}
+                  placeholder="Buscar por cliente, teléfono o equipo…"
+                  className="w-full rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-sm text-[#F0F0EC] focus:border-[#D7FF4F]/60 focus:outline-none"
+                />
+                {mostrarResultados && busqueda.trim().length >= 2 && (
+                  <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[#3A3A36] bg-[#1E1F1C] shadow-xl">
+                    {buscando ? (
+                      <p className="px-3 py-2 text-xs text-[#8A8A80]">Buscando…</p>
+                    ) : resultados.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-[#8A8A80]">Sin resultados.</p>
+                    ) : (
+                      resultados.map((r) => (
+                        <button
+                          key={r.recordId}
+                          type="button"
+                          onClick={() => {
+                            setOrdenVinculada(r);
+                            setMostrarResultados(false);
+                            setBusqueda("");
+                          }}
+                          className="block w-full truncate px-3 py-2 text-left text-sm text-[#F0F0EC] hover:bg-[#2D2E2A]"
+                        >
+                          <span className="font-semibold">{r.clienteNombre}</span>{" "}
+                          <span className="text-[#8A8A80]">· {r.equipo} · #{r.idVisible}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            <p className="mt-1 text-[11px] text-[#8A8A80]">
+              Opcional — sin vincular una orden, la etiqueta se imprime pero la fecha no queda en el seguimiento de mantenimientos.
+            </p>
+          </div>
+        )}
 
         <label className="mb-4 block">
           <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[#8A8A80]">

@@ -299,6 +299,19 @@ export interface OrdenDetalle {
   cotizacionCodigo: string;
   /** Fecha (YYYY-MM-DD) impresa en la última etiqueta de mantenimiento de este equipo, si se ha impreso alguna. */
   proximoMantenimiento: string;
+  /** true si ya se le avisó al cliente (WhatsApp) del mantenimiento de `proximoMantenimiento`. */
+  mantenimientoNotificado: boolean;
+}
+
+/** Fila del listado de seguimiento de mantenimientos (/tecnicos/mantenimientos). */
+export interface MantenimientoProximo {
+  ordenRecordId: string;
+  idVisible: string;
+  clienteNombre: string;
+  telefono: string;
+  equipo: string;
+  proximoMantenimiento: string;
+  mantenimientoNotificado: boolean;
 }
 
 // Helpers
@@ -1569,6 +1582,7 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     cotizacionId: pickStringField(f, ["Cotización ID", "Cotizacion ID"], ""),
     cotizacionCodigo: pickStringField(f, ["Cotización Código", "Cotizacion Codigo"], ""),
     proximoMantenimiento: safeString(f["Próximo Mantenimiento"], ""),
+    mantenimientoNotificado: f["Mantenimiento Notificado"] === true,
   };
 
   // Historial: preferir IDs vinculados desde la orden
@@ -2721,7 +2735,11 @@ export const updateOrdenProximoMantenimiento = async ({
   const res = await fetch(urlOrden, {
     method: "PATCH",
     headers: client.headers,
-    body: JSON.stringify({ fields: { "Próximo Mantenimiento": fecha } }),
+    // Cada fecha nueva es un ciclo de aviso nuevo: se resetea el flag de
+    // notificado aunque el ciclo anterior ya se hubiera avisado.
+    body: JSON.stringify({
+      fields: { "Próximo Mantenimiento": fecha, "Mantenimiento Notificado": false },
+    }),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -2729,6 +2747,96 @@ export const updateOrdenProximoMantenimiento = async ({
   }
 
   return { proximoMantenimiento: fecha };
+};
+
+// --- Escritura: marcar/desmarcar el aviso de mantenimiento como enviado ---
+export const marcarMantenimientoNotificado = async ({
+  ordenRecordId,
+  notificado,
+}: {
+  ordenRecordId: string;
+  notificado: boolean;
+}): Promise<{ mantenimientoNotificado: boolean }> => {
+  const client = getClient();
+  const urlOrden = `${client.baseUrl}/${encodeURIComponent(
+    AIRTABLE_TABLES.ordenes
+  )}/${encodeURIComponent(ordenRecordId)}`;
+
+  const res = await fetch(urlOrden, {
+    method: "PATCH",
+    headers: client.headers,
+    body: JSON.stringify({ fields: { "Mantenimiento Notificado": notificado } }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Airtable error ${res.status}: ${text}`);
+  }
+
+  return { mantenimientoNotificado: notificado };
+};
+
+// --- Lectura: listado de seguimiento de mantenimientos próximos ---
+// Trae TODAS las órdenes con una fecha de próximo mantenimiento guardada,
+// ordenadas ascendente (las más próximas a vencer primero). El volumen
+// esperado es bajo (solo órdenes donde alguna vez se imprimió esta
+// etiqueta), así que se pagina hasta agotar el offset en vez de limitar
+// a una sola página.
+export const fetchMantenimientosProximos = async (): Promise<MantenimientoProximo[]> => {
+  const client = getClient();
+  const registros: { id: string; fields: Record<string, unknown> }[] = [];
+  let offset: string | undefined;
+
+  do {
+    const url = new URL(`${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.ordenes)}`);
+    url.searchParams.set("pageSize", "100");
+    url.searchParams.set("filterByFormula", "NOT({Próximo Mantenimiento} = '')");
+    url.searchParams.append("sort[0][field]", "Próximo Mantenimiento");
+    url.searchParams.append("sort[0][direction]", "asc");
+    [
+      "ID",
+      "ClienteTXT",
+      "Cliente",
+      "Telefono",
+      "Equipo",
+      "Próximo Mantenimiento",
+      "Mantenimiento Notificado",
+    ].forEach((field) => url.searchParams.append("fields[]", field));
+    if (offset) url.searchParams.set("offset", offset);
+
+    const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Airtable error ${res.status}: ${text}`);
+    }
+
+    const data = (await res.json()) as {
+      records?: { id: string; fields: Record<string, unknown> }[];
+      offset?: string;
+    };
+    registros.push(...(data.records ?? []));
+    offset = data.offset;
+  } while (offset);
+
+  return registros.map((record) => {
+    const f = record.fields;
+    let clienteNombre = firstString(f["ClienteTXT"], "");
+    if (clienteNombre.startsWith("rec")) clienteNombre = "";
+    if (!clienteNombre) {
+      const cli = firstString(f["Cliente"], "");
+      clienteNombre = cli && !cli.startsWith("rec") ? cli : "";
+    }
+    if (!clienteNombre) clienteNombre = "Cliente no disponible";
+
+    return {
+      ordenRecordId: record.id,
+      idVisible: safeString(f["ID"], record.id),
+      clienteNombre,
+      telefono: safeString(f["Telefono"], "-"),
+      equipo: safeString(f["Equipo"], "Sin equipo"),
+      proximoMantenimiento: safeString(f["Próximo Mantenimiento"], ""),
+      mantenimientoNotificado: f["Mantenimiento Notificado"] === true,
+    };
+  });
 };
 
 // --- Escritura: actualizar campos directos de la orden ---
