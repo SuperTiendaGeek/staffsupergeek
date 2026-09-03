@@ -18,6 +18,7 @@ const SUPPORTED_ACTIONS = new Set<ShippingV2PackingStatusAction>([
   "restore-review",
   "close-final",
   "cancel",
+  "reopen",
 ]);
 
 function parseAction(value: unknown): ShippingV2PackingStatusAction {

@@ -180,6 +180,26 @@ function proveedorCon(permisos: string[]): ShippingV2Proveedor {
   assert(puedeAlcanzarProveedor(sinId, "recPROV_ROBERTO") === false, "Proveedor sin id no alcanza nada");
 }
 
+// ── 6. isAdmin (staff interno) ≠ isSiteAdmin (rol Administrador real) ───────
+//
+// isAdmin ya es amplio (cualquier staff no-proveedor); reabrir un packing
+// cerrado usa isSiteAdmin a propósito para quedar fuera del alcance de
+// técnicos, atención, etc. Ninguno de estos builders debe conceder
+// isSiteAdmin por su cuenta — eso solo lo decide
+// getShippingV2AccessContextForSession() en airtable.ts a partir de la
+// sesión real (isAdministratorRole), que necesita Airtable y no se prueba
+// aquí (este archivo es la parte pura).
+
+{
+  assert(staffShippingV2Access().isSiteAdmin === false, "staffShippingV2Access() no concede isSiteAdmin por sí solo");
+  assert(systemShippingV2Access().isSiteAdmin === false, "systemShippingV2Access() no concede isSiteAdmin por sí solo");
+  assert(noShippingV2Access().isSiteAdmin === false, "noShippingV2Access() no concede isSiteAdmin");
+  assert(
+    providerShippingV2Access(proveedorCon(["Ver artículos"])).isSiteAdmin === false,
+    "Un proveedor nunca es isSiteAdmin"
+  );
+}
+
 if (fallos > 0) {
   console.error(`\n${fallos} assert(s) fallaron.`);
   process.exit(1);

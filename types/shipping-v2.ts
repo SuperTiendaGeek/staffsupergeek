@@ -219,7 +219,10 @@ export type ShippingV2AccessPermissions = {
 };
 
 export type ShippingV2AccessContext = {
+  /** Staff interno (no proveedor) — NO equivale al rol "Administrador" del sistema. Ver `isSiteAdmin`. */
   isAdmin: boolean;
+  /** true solo si la sesión real tiene el rol "Administrador" del sistema (isAdministratorRole). Distinto de `isAdmin`: cualquier staff (técnico, atención, etc.) tiene isAdmin=true aquí, pero isSiteAdmin=false salvo que sea Administrador de verdad. Reservado para acciones que deben quedar fuera del alcance de todo el staff, como reabrir un packing cerrado. */
+  isSiteAdmin: boolean;
   mode: ShippingV2AccessMode;
   providerId?: string;
   providerCode?: string;
@@ -657,7 +660,8 @@ export type ShippingV2PackingStatusAction =
   | "restore-received"
   | "restore-review"
   | "close-final"
-  | "cancel";
+  | "cancel"
+  | "reopen";
 
 export type ShippingV2PackingNovedadInput = {
   tipo: string;

@@ -1712,13 +1712,20 @@ export async function getShippingV2Proveedores() {
 
 export async function getShippingV2AccessContextForSession(session: StaffSession | null): Promise<ShippingV2AccessContext> {
   const role = session?.user.rol;
+  // isSiteAdmin: el ÚNICO lugar del módulo que sabe si la sesión es
+  // realmente el rol "Administrador" del sistema — no "staff interno"
+  // (isAdmin ya significa eso, para todo lo demás). Reservado para acciones
+  // que deben quedar fuera del alcance de cualquier otro staff, como
+  // reabrir un packing cerrado.
+  const isSiteAdmin = Boolean(session && isAdministratorRole(role));
+
   if (!session || isAdministratorRole(role) || ["manager", "gerente"].includes(normalizeStatus(role || ""))) {
-    return session ? staffShippingV2Access() : noShippingV2Access();
+    return session ? { ...staffShippingV2Access(), isSiteAdmin } : noShippingV2Access();
   }
 
   const email = session.user.email.trim().toLowerCase();
   const roleIsProvider = isProviderRole(role);
-  if (!email) return roleIsProvider ? noShippingV2Access() : staffShippingV2Access();
+  if (!email) return roleIsProvider ? noShippingV2Access() : { ...staffShippingV2Access(), isSiteAdmin };
 
   const proveedores = await getShippingV2Proveedores();
   const provider = proveedores.find((item) => item.email?.trim().toLowerCase() === email);
@@ -1730,7 +1737,7 @@ export async function getShippingV2AccessContextForSession(session: StaffSession
     return providerShippingV2Access(provider);
   }
 
-  return roleIsProvider ? noShippingV2Access() : staffShippingV2Access();
+  return roleIsProvider ? noShippingV2Access() : { ...staffShippingV2Access(), isSiteAdmin };
 }
 
 async function getShippingV2ProveedorById(recordId: string) {
@@ -4687,6 +4694,26 @@ export async function transitionShippingV2PackingStatus(
         "Motivo de cancelación": decision || "Cancelado desde Portal Staff.",
       },
       descripcion: "Packing cancelado desde Portal Staff.",
+      observacion: decision,
+    });
+  }
+
+  if (input.action === "reopen") {
+    // Solo el rol "Administrador" del sistema — no cualquier staff (isAdmin
+    // ya es amplio: técnico, atención, etc.). Ver la nota en isSiteAdmin.
+    if (!input.access?.isSiteAdmin) throw new Error("Solo un administrador del sistema puede reabrir un packing cerrado.");
+    if (currentStatus !== "cerrado") throw new Error("Solo puedes reabrir un packing que esté Cerrado.");
+    if (!decision) throw new Error("Registra un motivo para reabrir el packing.");
+    // Deliberadamente acotado a Cerrado → En Proceso: en ese punto los items
+    // siguen en "En packing" (mark-in-transit es lo único que los mueve de
+    // ahí) y todavía no puede existir ninguna novedad (nacen desde "En
+    // revisión" en adelante) — no hay nada más que revertir.
+    return patchPackingStatus({
+      packing,
+      estado: OPEN_PACKING_STATUS,
+      actor: input.actor,
+      access: input.access,
+      descripcion: "Packing reabierto por un administrador del sistema desde Portal Staff.",
       observacion: decision,
     });
   }

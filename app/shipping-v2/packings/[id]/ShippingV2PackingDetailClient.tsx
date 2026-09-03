@@ -22,6 +22,8 @@ type Props = {
   novedades: ShippingV2Novedad[];
   destinatarios: ShippingV2Destinatario[];
   isAdmin: boolean;
+  /** Rol "Administrador" real del sistema — distinto de isAdmin (cualquier staff). Solo esto habilita reabrir un packing cerrado. */
+  isSiteAdmin: boolean;
   permissions: ShippingV2AccessPermissions | null;
   providerName?: string;
 };
@@ -483,6 +485,7 @@ function StatusActionPanel({
   packing,
   novedades,
   isAdmin,
+  isSiteAdmin,
   canClose,
   canTransition,
   canCreateNovedad,
@@ -497,6 +500,7 @@ function StatusActionPanel({
   packing: ShippingV2Packing;
   novedades: ShippingV2Novedad[];
   isAdmin: boolean;
+  isSiteAdmin: boolean;
   canClose: boolean;
   canTransition: boolean;
   canCreateNovedad: boolean;
@@ -514,6 +518,10 @@ function StatusActionPanel({
   const canCancel = isAdmin && canTransition && !["cancelado", "cerrado final"].includes(state);
   const canRegisterNovedad = canCreateNovedad && (["en proceso", "cerrado", "en transito", "recibido", "en revision"].includes(state) || (isAdmin && state === "cerrado final"));
   const canRestoreLegacyNovedad = isAdmin && canTransition && state === "con novedad";
+  // Deliberadamente MÁS estricto que canCancel/canRestoreLegacyNovedad: esos
+  // usan isAdmin (cualquier staff interno). Reabrir un packing cerrado es
+  // exclusivo del rol Administrador del sistema — ver isSiteAdmin.
+  const canReopen = isSiteAdmin && canTransition && state === "cerrado";
   const canRunConfiguredAction = config.action === "close" ? canClose : canTransition;
 
   return (
@@ -575,12 +583,28 @@ function StatusActionPanel({
             </button>
           ) : null}
 
-          {(canCancel || canRestoreLegacyNovedad) ? (
+          {(canCancel || canRestoreLegacyNovedad || canReopen) ? (
             <details className="relative">
               <summary className="flex h-9 cursor-pointer list-none items-center rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/45 hover:text-[#F5F5F5]">
                 Más acciones
               </summary>
               <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-[#3A3A36] bg-[#10110F] p-2 shadow-2xl shadow-black/50">
+                {canReopen ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onOpenStatusModal({
+                      action: "reopen",
+                      title: "Reabrir packing",
+                      label: "Reabrir packing",
+                      fieldLabel: "Motivo de la reapertura",
+                      description: "Vuelve el packing a En Proceso para poder agregar o quitar items. Solo disponible para Administradores.",
+                    })}
+                    className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#D7FF4F] hover:bg-[#1E1F1C] disabled:opacity-50"
+                  >
+                    Reabrir packing
+                  </button>
+                ) : null}
                 {canRestoreLegacyNovedad ? (
                   <>
                     <button
@@ -1051,7 +1075,7 @@ function CostSummaryItem({ label, value, strong = false, children }: { label: st
   );
 }
 
-export function ShippingV2PackingDetailClient({ packing: initialPacking, candidates, proveedores, novedades, destinatarios, isAdmin, permissions, providerName }: Props) {
+export function ShippingV2PackingDetailClient({ packing: initialPacking, candidates, proveedores, novedades, destinatarios, isAdmin, isSiteAdmin, permissions, providerName }: Props) {
   const router = useRouter();
   const [packing, setPacking] = useState(initialPacking);
   const [shippingDestinatarios, setShippingDestinatarios] = useState(destinatarios);
@@ -1572,6 +1596,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
             packing={packing}
             novedades={packingNovedades}
             isAdmin={isAdmin}
+            isSiteAdmin={isSiteAdmin}
             canClose={canClosePacking}
             canTransition={canTransitionPackingStatus}
             canCreateNovedad={canCreateNovedad}

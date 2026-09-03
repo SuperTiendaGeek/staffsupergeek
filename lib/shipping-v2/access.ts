@@ -132,8 +132,12 @@ export function providerShippingV2Permissions(
 
 // ─── Contextos ───────────────────────────────────────────────────────────────
 
+// isSiteAdmin: false por defecto — solo getShippingV2AccessContextForSession()
+// lo pone en true, y solo cuando la sesión real tiene el rol "Administrador"
+// del sistema. Este helper se usa para CUALQUIER staff interno (y de rebote,
+// para systemShippingV2Access()); no debe implicar administrador de verdad.
 export function staffShippingV2Access(): ShippingV2AccessContext {
-  return { isAdmin: true, mode: "staff", permissions: STAFF_SHIPPING_V2_PERMISSIONS };
+  return { isAdmin: true, isSiteAdmin: false, mode: "staff", permissions: STAFF_SHIPPING_V2_PERMISSIONS };
 }
 
 /**
@@ -148,16 +152,17 @@ export function staffShippingV2Access(): ShippingV2AccessContext {
  * sesión (`getShippingV2AccessContextForSession`).
  */
 export function systemShippingV2Access(): ShippingV2AccessContext {
-  return { isAdmin: true, mode: "staff", permissions: STAFF_SHIPPING_V2_PERMISSIONS };
+  return { isAdmin: true, isSiteAdmin: false, mode: "staff", permissions: STAFF_SHIPPING_V2_PERMISSIONS };
 }
 
 export function noShippingV2Access(): ShippingV2AccessContext {
-  return { isAdmin: false, mode: "none", permissions: NO_SHIPPING_V2_PERMISSIONS };
+  return { isAdmin: false, isSiteAdmin: false, mode: "none", permissions: NO_SHIPPING_V2_PERMISSIONS };
 }
 
 export function providerShippingV2Access(provider: ShippingV2Proveedor): ShippingV2AccessContext {
   return {
     isAdmin: false,
+    isSiteAdmin: false,
     mode: "provider",
     providerId: provider.id,
     providerCode: provider.proveedorId,
