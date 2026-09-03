@@ -21,6 +21,7 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
   let novedades: ShippingV2Novedad[] = [];
   let destinatarios: ShippingV2Destinatario[] = [];
   let isAdmin = false;
+  let isSiteAdmin = false;
   let permissions: ShippingV2AccessPermissions | null = null;
   let providerName = "";
   let error = "";
@@ -29,6 +30,7 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
     const session = await getSessionFromCookie();
     const access = await getShippingV2AccessContextForSession(session);
     isAdmin = access.isAdmin;
+    isSiteAdmin = access.isSiteAdmin;
     permissions = access.permissions;
     providerName = access.providerName || access.providerCode || "";
     const loadedProveedores = await getShippingV2Proveedores();
@@ -62,7 +64,7 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
           <p className="mt-2 text-sm leading-6 text-orange-100/85">{error || "No se pudo cargar el packing."}</p>
         </section>
       ) : (
-        <ShippingV2PackingDetailClient packing={packing} candidates={candidates} proveedores={proveedores} novedades={novedades} destinatarios={destinatarios} isAdmin={isAdmin} permissions={permissions} providerName={providerName} />
+        <ShippingV2PackingDetailClient packing={packing} candidates={candidates} proveedores={proveedores} novedades={novedades} destinatarios={destinatarios} isAdmin={isAdmin} isSiteAdmin={isSiteAdmin} permissions={permissions} providerName={providerName} />
       )}
     </StaffAppShell>
   );

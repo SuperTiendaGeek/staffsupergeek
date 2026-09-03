@@ -151,6 +151,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void> | void) {
 function providerAccess(providerId: string): ShippingV2AccessContext {
   return {
     isAdmin: false,
+    isSiteAdmin: false,
     mode: "provider",
     providerId,
     providerCode: "ROBERTO-USA",
