@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { Fragment, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { calculateShippingV2PaymentItemSubtotal, calculateShippingV2PaymentItemsTotal } from "@/lib/shipping-v2/payment-calculations";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import type { ShippingV2AccessPermissions, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagoSupportCard, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
@@ -503,6 +503,50 @@ function SelectFilter({ label, value, options, onChange }: { label: string; valu
   );
 }
 
+function PendingGroupHeaderRow({
+  packingIdVisible,
+  packingEstado,
+  items,
+  selectedIds,
+  columnCount,
+  onToggleAll,
+}: {
+  packingIdVisible: string;
+  packingEstado: string;
+  items: ShippingV2PagoPendingItem[];
+  selectedIds: string[];
+  columnCount: number;
+  onToggleAll: () => void;
+}) {
+  const selectedCount = items.filter((item) => selectedIds.includes(item.id)).length;
+  const allSelected = selectedCount === items.length;
+  const someSelected = selectedCount > 0 && !allSelected;
+  const unidades = items.reduce((sum, item) => sum + (item.cantidad || 0), 0);
+  return (
+    <tr className="border-t border-[#3A3A36] bg-[#1B1C19]">
+      <td className="px-4 py-2">
+        <input
+          type="checkbox"
+          aria-label={`Seleccionar todo el packing ${packingIdVisible}`}
+          checked={allSelected}
+          ref={(el) => { if (el) el.indeterminate = someSelected; }}
+          onChange={onToggleAll}
+          className="h-4 w-4 accent-[#D7FF4F]"
+        />
+      </td>
+      <td colSpan={columnCount - 1} className="px-4 py-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="text-sm font-bold text-[#D7FF4F]">📦 {packingIdVisible}</span>
+          {packingEstado ? <Badge tone="yellow">{packingEstado}</Badge> : null}
+          <span className="text-xs text-[#A7A7A7]">{items.length} {items.length === 1 ? "ítem" : "ítems"}</span>
+          <span className="text-xs text-[#A7A7A7]">{unidades} {unidades === 1 ? "unidad" : "unidades"}</span>
+          <span className="text-xs font-semibold text-[#F5F5F5]">{money(paymentItemsTotal(items))}</span>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function PendingItemRow({ item, selected, onToggle }: { item: ShippingV2PagoPendingItem; selected: boolean; onToggle: () => void }) {
   const calculation = paymentItemCalculation(item);
   const missing = [!item.proveedorId ? "Sin proveedor" : "", !item.costoProveedor ? "Sin costo" : "", calculation.error].filter(Boolean);
@@ -624,6 +668,30 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
   }, [workspace]);
 
   const pendingItems = useMemo(() => workspace.pendientes.itemsSinPago.filter((item) => itemMatches(item, filters)), [filters, workspace.pendientes.itemsSinPago]);
+  // Agrupa por packing reutilizando la relación que ya trae el item
+  // (packingId/packingIdVisible/packingEstado, resueltos server-side en
+  // toPendingPaymentItem) — no es una relación nueva, solo se aprovecha acá.
+  // Los items sin packing (venta suelta, sin requerir armado) se listan aparte.
+  const pendingGroups = useMemo(() => {
+    const byPacking = new Map<string, { key: string; packingIdVisible: string; packingEstado: string; items: ShippingV2PagoPendingItem[] }>();
+    const sueltos: ShippingV2PagoPendingItem[] = [];
+    pendingItems.forEach((item) => {
+      if (!item.packingId) {
+        sueltos.push(item);
+        return;
+      }
+      const existing = byPacking.get(item.packingId);
+      if (existing) existing.items.push(item);
+      else byPacking.set(item.packingId, {
+        key: item.packingId,
+        packingIdVisible: item.packingIdVisible || item.packingId,
+        packingEstado: item.packingEstado || "",
+        items: [item],
+      });
+    });
+    const grupos = Array.from(byPacking.values()).sort((a, b) => a.packingIdVisible.localeCompare(b.packingIdVisible, "es"));
+    return { grupos, sueltos };
+  }, [pendingItems]);
   const pendingPayments = useMemo(() => workspace.pendientes.pagosPendientes.filter((pago) => pagoMatches(pago, filters)), [filters, workspace.pendientes.pagosPendientes]);
   const supportItems = useMemo(() => workspace.sinSoporte.itemsPagadosSinPago.filter((card) => itemMatches(card.item, filters)), [filters, workspace.sinSoporte.itemsPagadosSinPago]);
   const incompletePayments = useMemo(() => workspace.sinSoporte.pagosIncompletos.filter((card) => pagoMatches(card.pago, filters)), [filters, workspace.sinSoporte.pagosIncompletos]);
@@ -663,6 +731,21 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
 
 function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
     setter((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  }
+
+  // Selecciona/deselecciona TODOS los items de un packing de una sola vez, sin
+  // tocar la selección individual de items de otros grupos — misma lista de
+  // ids que ya usan los checkboxes uno-a-uno (selectedPendingIds), así que
+  // seguir marcando o desmarcando items sueltos dentro del grupo funciona igual.
+  function toggleGroupSelection(items: ShippingV2PagoPendingItem[]) {
+    const ids = items.map((item) => item.id);
+    const allSelected = ids.every((id) => selectedPendingIds.includes(id));
+    setSelectedPendingIds((current) => {
+      if (allSelected) return current.filter((id) => !ids.includes(id));
+      const merged = new Set(current);
+      ids.forEach((id) => merged.add(id));
+      return Array.from(merged);
+    });
   }
 
   function openCreate(items: ShippingV2PagoPendingItem[], paid: boolean) {
@@ -743,7 +826,31 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1280px] text-left text-sm">
                 <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "SKU", "Nombre", "Proveedor", "Operación", "Estado", "Cantidad", "Costo unit.", "Subtotal", "Registro", "Faltantes"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
-                <tbody>{pendingItems.map((item) => <PendingItemRow key={item.id} item={item} selected={selectedPendingIds.includes(item.id)} onToggle={() => toggleId(item.id, setSelectedPendingIds)} />)}</tbody>
+                <tbody>
+                  {pendingGroups.grupos.map((group) => (
+                    <Fragment key={group.key}>
+                      <PendingGroupHeaderRow
+                        packingIdVisible={group.packingIdVisible}
+                        packingEstado={group.packingEstado}
+                        items={group.items}
+                        selectedIds={selectedPendingIds}
+                        columnCount={11}
+                        onToggleAll={() => toggleGroupSelection(group.items)}
+                      />
+                      {group.items.map((item) => <PendingItemRow key={item.id} item={item} selected={selectedPendingIds.includes(item.id)} onToggle={() => toggleId(item.id, setSelectedPendingIds)} />)}
+                    </Fragment>
+                  ))}
+                  {pendingGroups.sueltos.length ? (
+                    <Fragment>
+                      {pendingGroups.grupos.length ? (
+                        <tr className="border-t border-[#3A3A36] bg-[#1B1C19]">
+                          <td colSpan={11} className="px-4 py-2 text-xs font-semibold uppercase tracking-normal text-[#8F908A]">Sin packing asignado</td>
+                        </tr>
+                      ) : null}
+                      {pendingGroups.sueltos.map((item) => <PendingItemRow key={item.id} item={item} selected={selectedPendingIds.includes(item.id)} onToggle={() => toggleId(item.id, setSelectedPendingIds)} />)}
+                    </Fragment>
+                  ) : null}
+                </tbody>
               </table>
               {!pendingItems.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay items pendientes con estos filtros.</p> : null}
             </div>

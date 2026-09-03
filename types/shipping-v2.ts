@@ -783,7 +783,12 @@ export type ShippingV2PagoPendingItem = Pick<
   | "fechaRegistro"
   | "pagoV2ItemIds"
   | "pagoV2RegaloIds"
->;
+  | "packingId"
+> & {
+  /** "PK-..." visible del packing vinculado — resuelto aparte, ShippingV2Item.packingId solo trae el record id. */
+  packingIdVisible?: string;
+  packingEstado?: string;
+};
 
 export type ShippingV2PagoSupportCard =
   | {
