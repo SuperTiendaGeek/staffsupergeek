@@ -27,8 +27,25 @@ function display(value?: string | number | null) {
   return text || "-";
 }
 
-function pdfText(value?: string | number | null) {
-  return display(value).replace(/[–—]/g, "-");
+// Las StandardFonts de pdf-lib (Helvetica/HelveticaBold) usan la
+// codificación WinAnsi (Windows-1252) — no representan emoji ni la mayoría
+// de símbolos fuera de Latin-1. Un nombre o descripción de producto con un
+// emoji (pasa más seguido de lo que uno esperaría — ver PK-20260902-45681)
+// hacía que TODA la generación de la factura reventara con un 500, sin
+// identificar siquiera qué ítem tenía el problema. Se reemplaza cualquier
+// carácter no codificable por "?" en vez de dejar que pdf-lib lance.
+function pdfText(value: string | number | null | undefined, font: PDFFont) {
+  const text = display(value).replace(/[–—]/g, "-");
+  let safe = "";
+  for (const char of text) {
+    try {
+      font.widthOfTextAtSize(char, 1);
+      safe += char;
+    } catch {
+      safe += "?";
+    }
+  }
+  return safe;
 }
 
 function cleanMarkdownUrl(value: string) {
@@ -74,11 +91,11 @@ function dateText(value?: string) {
 }
 
 function drawText(page: PDFPage, text: string, x: number, y: number, font: PDFFont, size: number, color = TEXT) {
-  page.drawText(pdfText(text), { x, y, size, font, color });
+  page.drawText(pdfText(text, font), { x, y, size, font, color });
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number) {
-  const words = pdfText(text).split(/\s+/).filter(Boolean);
+  const words = pdfText(text, font).split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let line = "";
 
@@ -297,8 +314,9 @@ const RL_MUTED = rgb(0.4, 0.42, 0.4);
 const RL_WHITE = rgb(1, 1, 1);
 
 function drawRightAligned(page: PDFPage, text: string, rightX: number, y: number, font: PDFFont, size: number, color = TEXT) {
-  const width = font.widthOfTextAtSize(pdfText(text), size);
-  drawText(page, text, rightX - width, y, font, size, color);
+  const safeText = pdfText(text, font);
+  const width = font.widthOfTextAtSize(safeText, size);
+  drawText(page, safeText, rightX - width, y, font, size, color);
 }
 
 function drawEstiloRobertoLvHeader(page: PDFPage, data: ShippingV2PackingInvoiceData, fonts: Fonts, logo: PDFImage | null) {
