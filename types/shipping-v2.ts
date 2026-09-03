@@ -188,6 +188,13 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   logoProveedor: ShippingV2Attachment[];
   permiteRastreoWeb: boolean | null;
   notasRastreo?: string;
+  /** "Diseño de factura" en Shipping Proveedores. Vacío/"Estándar" = diseño actual (sin cambios). Elegido una vez por proveedor, recordado siempre — no se elige por factura. */
+  disenoFactura?: string;
+  /** Nombre público a mostrar en la factura si es distinto del nombre interno del proveedor (ej. "LV Electronics Recycling" vs "Roberto-USA"). Vacío = se usa el nombre normal. */
+  nombreComercialFactura?: string;
+  esloganFactura?: string;
+  /** Texto libre, una línea por dato (dirección, teléfono, registro, etc.) — se muestra tal cual en el encabezado de la factura. Solo lo usan las plantillas que lo necesitan. */
+  datosEmpresaFactura?: string;
 };
 
 export type ShippingV2AccessMode = "staff" | "provider" | "none";
@@ -596,6 +603,10 @@ export type ShippingV2PackingInvoiceData = {
     website?: string;
     email?: string;
     invoiceFooter?: string;
+    /** "Diseño de factura" del proveedor — decide qué plantilla dibuja generateShippingV2PackingInvoicePdf(). Vacío = estándar. */
+    template?: string;
+    tagline?: string;
+    companyInfo?: string;
   };
   recipient: {
     name: string;

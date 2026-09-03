@@ -1160,6 +1160,10 @@ function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
     logoProveedor: mapAttachments(f["Logo proveedor"] ?? f.Logo),
     permiteRastreoWeb: firstBoolean(f[F.permiteRastreoWeb] ?? f["Permite rastreo web"]),
     notasRastreo: firstString(f[F.notasRastreo] ?? f["Notas de rastreo"]),
+    disenoFactura: firstString(f["Diseño de factura"]),
+    nombreComercialFactura: firstString(f["Nombre comercial (factura)"]),
+    esloganFactura: firstString(f["Eslogan (factura)"]),
+    datosEmpresaFactura: firstString(f["Datos de empresa (factura)"]),
   };
 }
 
@@ -3884,11 +3888,18 @@ export async function getShippingV2PackingInvoiceData(recordId: string, access?:
     },
     provider: {
       id: provider.id,
-      name: provider.nombre || provider.label,
+      // Nombre comercial (factura) pisa el nombre interno si está definido —
+      // ej. Roberto-USA (nombre interno con el que trabaja el staff) factura
+      // como "LV Electronics Recycling" (nombre público). Vacío en el resto
+      // de proveedores, así que no cambia nada para ellos.
+      name: provider.nombreComercialFactura || provider.nombre || provider.label,
       logoUrl: provider.logoProveedor[0]?.thumbnailUrl || provider.logoProveedor[0]?.url,
       website: provider.website,
       email: provider.email,
       invoiceFooter: provider.pieFactura,
+      template: provider.disenoFactura,
+      tagline: provider.esloganFactura,
+      companyInfo: provider.datosEmpresaFactura,
     },
     recipient: {
       name: recipient.nombre,
