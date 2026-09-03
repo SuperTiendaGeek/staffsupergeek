@@ -1101,6 +1101,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   const [novedadForm, setNovedadForm] = useState({ tipo: NOVEDAD_TYPES[0], descripcion: "", evidenciaUrl: "" });
   const canEditPacking = permissions?.canEditPacking !== false;
   const canEditPackingWeight = permissions?.canEditPackingWeight !== false;
+  const canEditPackingShippingFields = permissions?.canEditPackingShippingFields !== false;
   const canAddItems = isOpen(packing.estado) && permissions?.canAddItemsToPacking !== false;
   const canRemoveItems = isOpen(packing.estado) && permissions?.canRemoveItemsFromPacking !== false;
   const canViewCosts = permissions?.canViewCosts !== false;
@@ -1219,6 +1220,15 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   function canEditField(field: EditablePackingField) {
     const state = normalize(packing.estado);
     if (field === "peso" && canEditPackingWeight) return ["en proceso", "cerrado", "en transito"].includes(state);
+    // Mismo alcance que ya tiene el staff para estos 3 campos en cada estado
+    // (ver más abajo) — canEditPackingShippingFields solo destraba el rol,
+    // no relaja en qué estado del packing se puede tocar cada uno.
+    if ((field === "trackingUsa" || field === "transportistaUsa") && canEditPackingShippingFields) {
+      return ["en proceso", "cerrado", "en transito"].includes(state);
+    }
+    if (field === "observaciones" && canEditPackingShippingFields) {
+      return state === "en proceso";
+    }
     if (!canEditPacking) return false;
     if (field === "ordenReferencia") return true;
     if (state === "en proceso") return true;
