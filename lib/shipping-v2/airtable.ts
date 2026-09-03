@@ -4072,10 +4072,22 @@ function isPackingWeightOnlyInput(input: ShippingV2PackingWriteInput) {
   return keys.length === 1 && keys[0] === "peso";
 }
 
+// Mismo patrón que isPackingWeightOnlyInput: un proveedor con
+// canEditPackingShippingFields (sin canEditPacking completo) solo puede
+// tocar estos 3 campos — cualquier otro campo colado en el mismo request
+// tumba la validación en vez de dejarlo pasar.
+const PACKING_SHIPPING_FIELDS: ReadonlySet<keyof ShippingV2PackingWriteInput> = new Set(["trackingUsa", "transportistaUsa", "observaciones"]);
+
+function isPackingShippingFieldsOnlyInput(input: ShippingV2PackingWriteInput) {
+  const keys = Object.keys(input).filter((key) => Object.prototype.hasOwnProperty.call(input, key)) as Array<keyof ShippingV2PackingWriteInput>;
+  return keys.length > 0 && keys.every((key) => PACKING_SHIPPING_FIELDS.has(key));
+}
+
 export async function updateShippingV2Packing(recordId: string, input: ShippingV2PackingWriteInput, options: { actualizadoPor: string; access?: ShippingV2AccessContext }) {
   const canEditPacking = canShippingV2(options.access, "canEditPacking");
   const canEditWeightOnly = isPackingWeightOnlyInput(input) && canShippingV2(options.access, "canEditPackingWeight");
-  if (!canEditPacking && !canEditWeightOnly) {
+  const canEditShippingFieldsOnly = isPackingShippingFieldsOnlyInput(input) && canShippingV2(options.access, "canEditPackingShippingFields");
+  if (!canEditPacking && !canEditWeightOnly && !canEditShippingFieldsOnly) {
     throw new Error("No tienes permiso para editar packings.");
   }
   const id = cleanString(recordId);

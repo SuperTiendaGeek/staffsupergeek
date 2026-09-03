@@ -207,6 +207,8 @@ export type ShippingV2AccessPermissions = {
   canCreatePacking: boolean;
   canEditPacking: boolean;
   canEditPackingWeight: boolean;
+  /** Igual que canEditPackingWeight pero para trackingUsa/transportistaUsa/observaciones — permiso de proveedor acotado a esos 3 campos, no todo canEditPacking. */
+  canEditPackingShippingFields: boolean;
   canAddItemsToPacking: boolean;
   canRemoveItemsFromPacking: boolean;
   canClosePacking: boolean;
