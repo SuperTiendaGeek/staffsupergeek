@@ -1286,7 +1286,13 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
   const proveedorCompra = f[F.proveedorCompra];
   const proveedorLogistico = f[F.proveedorLogistico];
   const fechaRegistro = firstString(f[F.fechaRegistro], record.createdTime);
+  // "Packing relacionado" (F.packingRelacionado) es texto libre legacy, casi
+  // siempre vacío en datos reales — el link de verdad, auto-mantenido por
+  // Airtable como reverso de "Items incluidos" en Shipping Packings, es
+  // "Shipping Packings". Se prioriza ese; el texto legacy queda de respaldo
+  // por si algún registro viejo todavía lo trae.
   const packingRelacionado = f[F.packingRelacionado];
+  const packingLinkIds = linkedRecordIds(f["Shipping Packings"]);
   const pagoRelacionado = f[F.pagoRelacionado];
   const pagoV2ItemIds = linkedRecordIds(f["Shipping Pagos (Items relacionados)"]);
   const pagoV2RegaloIds = linkedRecordIds(f["Shipping Pagos (Regalos incluidos)"]);
@@ -1413,7 +1419,7 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     requierePacking: firstBoolean(f[F.requierePacking]),
     pagoV2ItemIds,
     pagoV2RegaloIds,
-    packingId: firstString(packingRelacionado),
+    packingId: firstString(packingLinkIds) || firstString(packingRelacionado) || undefined,
     pagoId: pagoV2ItemIds[0] ?? pagoV2RegaloIds[0],
     legacyPagoRelacionadoIds: linkedRecordIds(pagoRelacionado),
     itemPadreId: firstString(f["Item padre"] ?? f["Item Padre"]),
@@ -3252,7 +3258,14 @@ function valorCampoCambio(next: unknown, current: unknown): boolean {
   return a !== b;
 }
 
-function toPendingPaymentItem(item: ShippingV2Item): ShippingV2PagoPendingItem {
+// El item ya trae packingId (ShippingV2Item.packingId) — la relación con
+// Packings ya existe, aquí solo se resuelve el "PK-..." visible y el estado
+// del packing para no obligar al frontend a ir a buscarlo aparte. packingsById
+// es opcional: si no se pasa (por ejemplo, alguna otra pantalla que reutilice
+// esta función sin necesitar agrupar por packing), el item queda igual que
+// antes, solo sin esos dos campos de más.
+function toPendingPaymentItem(item: ShippingV2Item, packingsById?: Map<string, ShippingV2Packing>): ShippingV2PagoPendingItem {
+  const packing = item.packingId ? packingsById?.get(item.packingId) : undefined;
   return {
     id: item.id,
     sku: item.sku,
@@ -3273,6 +3286,9 @@ function toPendingPaymentItem(item: ShippingV2Item): ShippingV2PagoPendingItem {
     fechaRegistro: item.fechaRegistro,
     pagoV2ItemIds: item.pagoV2ItemIds,
     pagoV2RegaloIds: item.pagoV2RegaloIds,
+    packingId: item.packingId,
+    packingIdVisible: packing?.packingId,
+    packingEstado: packing?.estado,
   };
 }
 
@@ -3325,12 +3341,14 @@ export function computePagosSummary(porPagar: ShippingV2PagoPendingItem[], pagos
   };
 }
 
-export async function getShippingV2PendingPaymentItems(context?: { pagos?: ShippingV2Pago[]; items?: ShippingV2Item[]; access?: ShippingV2AccessContext }) {
-  const [pagos, items] = await Promise.all([
+export async function getShippingV2PendingPaymentItems(context?: { pagos?: ShippingV2Pago[]; items?: ShippingV2Item[]; packings?: ShippingV2Packing[]; access?: ShippingV2AccessContext }) {
+  const [pagos, items, packings] = await Promise.all([
     context?.pagos ? Promise.resolve(context.pagos) : getShippingV2Pagos(context?.access),
     context?.items ? Promise.resolve(context.items) : getShippingV2Items({ includeAiName: false, access: context?.access }),
+    context?.packings ? Promise.resolve(context.packings) : getShippingV2Packings(context?.access),
   ]);
   const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
+  const packingsById = new Map(packings.map((packing) => [packing.id, packing]));
   return items
     .filter((item) => {
       if (!item.requierePago) return false;
@@ -3341,10 +3359,10 @@ export async function getShippingV2PendingPaymentItems(context?: { pagos?: Shipp
       if (isPaidItemCandidate(item)) return false;
       return true;
     })
-    .map(toPendingPaymentItem);
+    .map((item) => toPendingPaymentItem(item, packingsById));
 }
 
-function getPaidItemsWithoutSupport(items: ShippingV2Item[], pagosById: Map<string, ShippingV2Pago>): ShippingV2PagoSupportCard[] {
+function getPaidItemsWithoutSupport(items: ShippingV2Item[], pagosById: Map<string, ShippingV2Pago>, packingsById: Map<string, ShippingV2Packing>): ShippingV2PagoSupportCard[] {
   return items
     .filter((item) => {
       if (!item.requierePago) return false;
@@ -3355,7 +3373,7 @@ function getPaidItemsWithoutSupport(items: ShippingV2Item[], pagosById: Map<stri
       return isPaidItemCandidate(item);
     })
     .map((item) => {
-      const pendingItem = toPendingPaymentItem(item);
+      const pendingItem = toPendingPaymentItem(item, packingsById);
       const missing = ["Pago Shipping V2", "Movimiento puente"];
       if (!item.costoProveedor) missing.push("Costo proveedor");
       return {
@@ -3372,14 +3390,19 @@ function getPaidItemsWithoutSupport(items: ShippingV2Item[], pagosById: Map<stri
 
 export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessContext): Promise<ShippingV2PagosWorkspace> {
   assertShippingV2Permission(access, "canViewPayments", "No tienes permiso para ver pagos de Shipping.");
-  const [pagos, proveedores, items] = await Promise.all([
+  const [pagos, proveedores, items, packings] = await Promise.all([
     getShippingV2Pagos(access),
     getShippingV2Proveedores(),
     getShippingV2Items({ includeAiName: false, access }),
+    // La relación item → packing ya existe (ShippingV2Item.packingId); acá
+    // solo se resuelve el packing en sí para poder agrupar por él en la
+    // pantalla de Pagos, sin inventar una relación paralela.
+    getShippingV2Packings(access),
   ]);
   const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
+  const packingsById = new Map(packings.map((packing) => [packing.id, packing]));
   const canManagePayments = canShippingV2(access, "canManagePayments");
-  const itemsPendientes = canManagePayments ? await getShippingV2PendingPaymentItems({ pagos, items, access }) : [];
+  const itemsPendientes = canManagePayments ? await getShippingV2PendingPaymentItems({ pagos, items, packings, access }) : [];
   const pagosPendientes = pagos.filter(isPendingPayment);
   const pagosPagados = pagos.filter((pago) => normalizeStatus(String(pago.estadoPago)) === "pagado");
   const pagosCompletos = pagosPagados.filter(isCompletePaidPayment);
@@ -3395,7 +3418,7 @@ export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessConte
       missing: getPaymentSupportMissing(pago),
     })) : [];
   const itemsPagadosSinPago = canManagePayments
-    ? getPaidItemsWithoutSupport(items, pagosById).filter((card): card is Extract<ShippingV2PagoSupportCard, { kind: "item" }> => card.kind === "item")
+    ? getPaidItemsWithoutSupport(items, pagosById, packingsById).filter((card): card is Extract<ShippingV2PagoSupportCard, { kind: "item" }> => card.kind === "item")
     : [];
   const pagadosSinSoporte = [...itemsPagadosSinPago, ...pagosIncompletos];
   return {
