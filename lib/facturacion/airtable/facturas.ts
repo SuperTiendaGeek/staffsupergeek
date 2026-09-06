@@ -103,6 +103,7 @@ export type FacturaHistorial = {
   tieneRide:            boolean;
   sincronizacionInventario: EstadoSincronizacionInventario;
   errorSincronizacion:      string;
+  movimientosFinancierosIds: string[];
 };
 
 // Filtros para el listado
@@ -226,6 +227,11 @@ function hasAttachment(v: unknown): boolean {
   return Array.isArray(v) && v.length > 0;
 }
 
+function linkedIdsFactura(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((id): id is string => typeof id === "string" && id.trim().length > 0);
+}
+
 function attachmentNames(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   return v
@@ -282,6 +288,7 @@ function mapHistorialRecord(r: { id: string; fields: Record<string, unknown> }):
     tieneRide:             hasAttachment(f["RIDE PDF"]),
     sincronizacionInventario: (syncRaw as EstadoSincronizacionInventario) || "N/A",
     errorSincronizacion:      safeStr(f["Error Sincronización"]),
+    movimientosFinancierosIds: linkedIdsFactura(f["Movimientos Financieros (Facturación)"]),
   };
 }
 
@@ -524,6 +531,7 @@ export async function listarFacturas(filtros: FiltrosHistorial = {}): Promise<Li
     "Subtotal", "IVA", "Total", "Mensajes SRI", "Líneas JSON",
     "XML Autorizado", "RIDE PDF",
     "Sincronización Inventario", "Error Sincronización",
+    "Movimientos Financieros (Facturación)",
   ];
   for (const f of FIELDS) params.append("fields[]", f);
 
@@ -819,6 +827,7 @@ export async function buscarFacturaPorClave(claveAcceso: string): Promise<Factur
     "Subtotal", "IVA", "Total", "Mensajes SRI", "Líneas JSON",
     "XML Autorizado", "RIDE PDF",
     "Sincronización Inventario", "Error Sincronización",
+    "Movimientos Financieros (Facturación)",
   ];
   for (const f of FIELDS) params.append("fields[]", f);
   const url  = `${client.baseUrl}/${encodeURIComponent(TABLE)}?${params}`;

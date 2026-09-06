@@ -6,7 +6,7 @@ import { dentroDelPlazoAnulacion }   from "@/lib/facturacion/anulaciones/fechas"
 import { revertirInventarioFacturaAnulada, revertirContableFacturaAnulada } from "@/lib/facturacion/anulaciones/reverso";
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
-import type { DetalleFactura, Pago } from "@/lib/facturacion/types/factura";
+import type { DetalleFactura }        from "@/lib/facturacion/types/factura";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,7 @@ function tipoIdent(ident: string): string {
   return d === "9999999999999" ? "07" : d.length === 13 && d.endsWith("001") ? "04" : d.length === 10 ? "05" : "07";
 }
 
-type LineasEnvoltorio = { detalles?: DetalleFactura[]; pagos?: Pago[] };
+type LineasEnvoltorio = { detalles?: DetalleFactura[] };
 
 export async function POST(request: Request, { params }: { params: Promise<{ recordId: string }> }) {
   const { response, session } = await requireFacturacionSession();
@@ -65,12 +65,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ rec
     const cfg = getFacturacionConfig();
 
     let detalles: DetalleFactura[] = [];
-    let pagos: Pago[] = [];
     try {
       const raw: unknown = JSON.parse(factura.lineasJson || "{}");
       if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-        detalles = (raw as LineasEnvoltorio).detalles ?? [];
-        pagos    = (raw as LineasEnvoltorio).pagos ?? [];
+        const posiblesDetalles = (raw as LineasEnvoltorio).detalles;
+        detalles = Array.isArray(posiblesDetalles) ? posiblesDetalles : [];
       } else if (Array.isArray(raw)) {
         detalles = raw as DetalleFactura[];
       }
@@ -81,10 +80,45 @@ export async function POST(request: Request, { params }: { params: Promise<{ rec
     await actualizarEstadoAnulacion(recordId, "Anulada").catch(() => {});
 
     // Reversos best-effort (guardados a producción por su ambiente).
-    await revertirInventarioFacturaAnulada({ facturaRecordId: recordId, detalles, ambiente: cfg.ambiente }).catch((e) => console.error("[anulación] inventario:", e));
-    await revertirContableFacturaAnulada({ numeroFactura: factura.numeroFactura, pagos: pagos.length ? pagos : [{ formaPago: "01", total: factura.total }], clienteRecordId: undefined, registradoPor: session.user.nombre || session.user.email || "Portal", ambiente: cfg.ambiente }).catch((e) => console.error("[anulación] contable:", e));
+    const avisos: string[] = [];
+    const resultadoInventario = await revertirInventarioFacturaAnulada({
+      facturaRecordId: recordId,
+      detalles,
+      ambiente: cfg.ambiente,
+    }).catch((e): { estado: "ERROR"; detalle: string } => {
+      const detalle = e instanceof Error ? e.message : String(e);
+      console.error("[anulación] inventario:", e);
+      return { estado: "ERROR", detalle };
+    });
+    if (resultadoInventario.estado === "ERROR") {
+      avisos.push(`Reverso de inventario pendiente: ${resultadoInventario.detalle ?? "falló sin detalle"}. La factura ya quedó ANULADA; revisa el inventario manualmente.`);
+    }
 
-    return NextResponse.json({ success: true, data: { estado: "ANULADA" } });
+    const resultadoContable = await revertirContableFacturaAnulada({
+      numeroFactura: factura.numeroFactura,
+      movimientosFinancierosIds: factura.movimientosFinancierosIds,
+      clienteRecordId: undefined,
+      registradoPor: session.user.nombre || session.user.email || "Portal",
+      ambiente: cfg.ambiente,
+    });
+    if (resultadoContable.estado === "OMITIDO") {
+      avisos.push(resultadoContable.detalle ?? "No se creó egreso contable porque no había ingreso real enlazado.");
+    }
+    if (resultadoContable.estado === "ERROR") {
+      avisos.push(`${resultadoContable.detalle ?? "Reverso contable falló sin detalle"}. La factura ya quedó ANULADA; revisa Finanzas manualmente.`);
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        estado: "ANULADA",
+        reversos: {
+          inventario: resultadoInventario,
+          contable: resultadoContable,
+        },
+        avisos,
+      },
+    });
   }
 
   return NextResponse.json({ success: false, error: "Acción inválida" }, { status: 400 });

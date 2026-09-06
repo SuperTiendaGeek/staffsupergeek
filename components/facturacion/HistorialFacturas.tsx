@@ -88,6 +88,15 @@ type Filtros = {
 const mon  = (n: number) => `$${n.toFixed(2)}`;
 const fmt  = (iso: string) => iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—";
 
+function extraerAvisosRespuesta(respuesta: unknown): string[] {
+  if (!respuesta || typeof respuesta !== "object") return [];
+  const data = (respuesta as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return [];
+  const avisos = (data as { avisos?: unknown }).avisos;
+  if (!Array.isArray(avisos)) return [];
+  return avisos.filter((aviso): aviso is string => typeof aviso === "string" && aviso.trim().length > 0);
+}
+
 // ─── Forma de pago ────────────────────────────────────────────────────────────
 
 const FORMA_PAGO_LABEL: Record<string, string> = {
@@ -255,7 +264,11 @@ function DetallePanel({
         ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
         : { method: "POST" });
       const d = await r.json();
-      if (d.success) { setMsg(`${label} completado`); onRefresh(); }
+      if (d.success) {
+        const avisos = extraerAvisosRespuesta(d);
+        setMsg([`${label} completado`, ...avisos].join("\n"));
+        onRefresh();
+      }
       else setErrMsg(d.error ?? "Error desconocido");
     } catch { setErrMsg("Error de red"); }
     finally  { setAccion(null); }
@@ -489,7 +502,7 @@ function DetallePanel({
         )}
 
         {/* Feedback acciones */}
-        {msg    && <p className="rounded-lg bg-emerald-900/30 border border-emerald-700/40 px-3 py-2 text-sm text-emerald-300">{msg}</p>}
+        {msg    && <p className="rounded-lg bg-emerald-900/30 border border-emerald-700/40 px-3 py-2 text-sm text-emerald-300 whitespace-pre-wrap">{msg}</p>}
         {errMsg && <p className="rounded-lg bg-red-900/30 border border-red-700/40 px-3 py-2 text-sm text-red-300">{errMsg}</p>}
 
         {/* Acciones */}

@@ -3,10 +3,9 @@ import "server-only";
 // Reverso al confirmarse la anulación de una factura (Fase 18 PR5).
 // Una factura anulada nunca entregó mercadería ni retuvo el dinero:
 //   · Inventario: cada línea de producto vuelve al stock.
-//   · Contable: se devuelve el dinero (Egreso) por cada forma de pago que fue
-//     un cobro real de caja — la compensación (crédito de NC, código 15) no se
-//     devuelve en efectivo. Es el ÚNICO documento que genera egreso de caja
-//     (decisión del dueño: anulación = cliente devuelve el equipo y su dinero).
+//   · Contable: se devuelve el dinero (Egreso) solo si la factura tiene un
+//     Ingreso real enlazado en Finanzas. Si no hay movimiento financiero, no
+//     se inventa forma de pago ni se mueve saldo.
 // Ambos guardados por ambiente "2" (en pruebas no tocan datos reales).
 //
 // Productos digitales (este trabajo): rama independiente de la de Shipping
@@ -18,16 +17,14 @@ import "server-only";
 // porque son tablas distintas sin relación entre sí.
 
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero } from "../gancho/airtableGancho";
-import { crearMovimiento } from "@/lib/finanzas/movimientos";
-import { fetchCuentaPorNombre } from "@/lib/finanzas/cuentas";
-import type { EstadoMovimiento, MetodoMovimiento } from "@/types/finanzas";
+import { crearMovimiento, fetchMovimientoById } from "@/lib/finanzas/movimientos";
+import type { EstadoMovimiento, Movimiento } from "@/types/finanzas";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 const PRODUCTOS_DIGITALES_TABLE = "Productos Digitales";
 const AMBIENTE_PRODUCCION = "2";
 
 type DetalleFacturaMin = { tipo?: string; shippingItemId?: string; productoDigitalId?: string; cantidad?: number; descripcion?: string };
-type PagoMin = { formaPago: string; total: number };
 
 // ─── PATCH con reintento ──────────────────────────────────────────────────────
 // Parametrizado por tabla para que Shipping Items y Productos Digitales lo
@@ -189,40 +186,126 @@ export async function revertirInventarioFacturaAnulada(input: {
   return { estado: "ERROR", detalle };
 }
 
-// ─── Contable: devolver el dinero (Egreso por cada cobro real) ───────────────
+// ─── Contable: devolver el dinero (Egreso por cada ingreso real) ─────────────
 
-const MAPA: Record<string, { cuenta: string; estado: EstadoMovimiento; metodo: MetodoMovimiento } | null> = {
-  "01": { cuenta: "Caja Registradora", estado: "Confirmado", metodo: "Efectivo" },
-  "16": { cuenta: "Tarjetas en Tránsito", estado: "Pendiente", metodo: "Tarjeta débito" },
-  "19": { cuenta: "Tarjetas en Tránsito", estado: "Pendiente", metodo: "Tarjeta crédito" },
-  "18": { cuenta: "Tarjetas en Tránsito", estado: "Pendiente", metodo: "Tarjeta débito" },
-  "17": { cuenta: "SGINGRESOS", estado: "Confirmado", metodo: "Dinero electrónico" },
-  "15": null, "20": null, "21": null,
+export type ResultadoReversoContableAnulacion = {
+  estado: "OK" | "OMITIDO" | "ERROR";
+  movimientosRevertidos: number;
+  totalRevertido: number;
+  detalle?: string;
 };
 
+function resultadoContable(
+  estado: ResultadoReversoContableAnulacion["estado"],
+  movimientosRevertidos: number,
+  totalRevertido: number,
+  detalle?: string
+): ResultadoReversoContableAnulacion {
+  return {
+    estado,
+    movimientosRevertidos,
+    totalRevertido: Math.round((totalRevertido + Number.EPSILON) * 100) / 100,
+    ...(detalle ? { detalle } : {}),
+  };
+}
+
+function esIngresoFacturacionActivo(movimiento: Movimiento): boolean {
+  return movimiento.origen === "Facturación" &&
+    movimiento.tipo === "Ingreso" &&
+    movimiento.estado !== "Anulado" &&
+    movimiento.monto > 0;
+}
+
+function estadoReversoPara(movimiento: Movimiento): EstadoMovimiento {
+  return movimiento.estado === "Pendiente" ? "Pendiente" : "Confirmado";
+}
+
+async function yaTieneDevolucionActiva(movimiento: Movimiento): Promise<boolean> {
+  if (movimiento.compensadoPorIds.length === 0) return false;
+  const compensadores = await Promise.all(movimiento.compensadoPorIds.map((id) => fetchMovimientoById(id)));
+  return compensadores.some((compensador) =>
+    !!compensador &&
+    compensador.estado !== "Anulado" &&
+    compensador.tipo === "Egreso" &&
+    compensador.origen === "Facturación" &&
+    compensador.categoria === "Devolución"
+  );
+}
+
 export async function revertirContableFacturaAnulada(input: {
-  numeroFactura: string; pagos: PagoMin[]; clienteRecordId?: string; registradoPor: string; ambiente?: string;
-}): Promise<void> {
-  if (input.ambiente !== AMBIENTE_PRODUCCION) return;
-  for (const pago of input.pagos) {
-    if (!(pago.total > 0)) continue;
-    const mapeo = MAPA[pago.formaPago] ?? null;
-    // La compensación (15) no fue caja real → no se devuelve en efectivo.
-    if (!mapeo) continue;
+  numeroFactura: string;
+  movimientosFinancierosIds: string[];
+  clienteRecordId?: string;
+  registradoPor: string;
+  ambiente?: string;
+}): Promise<ResultadoReversoContableAnulacion> {
+  if (input.ambiente !== AMBIENTE_PRODUCCION) return resultadoContable("OK", 0, 0);
+
+  const ids = [...new Set(input.movimientosFinancierosIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) {
+    return resultadoContable(
+      "OMITIDO",
+      0,
+      0,
+      "No se creó egreso: la factura no tiene movimiento financiero enlazado; no hay un ingreso real que revertir."
+    );
+  }
+
+  const movimientos: Movimiento[] = [];
+  const fallidos: string[] = [];
+
+  for (const id of ids) {
     try {
-      const cuenta = await fetchCuentaPorNombre(mapeo.cuenta);
+      const movimiento = await fetchMovimientoById(id);
+      if (movimiento) movimientos.push(movimiento);
+      else fallidos.push(`${id}: movimiento financiero no encontrado`);
+    } catch (e) {
+      fallidos.push(`${id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  const ingresos = movimientos.filter(esIngresoFacturacionActivo);
+  if (ingresos.length === 0 && fallidos.length === 0) {
+    return resultadoContable(
+      "OMITIDO",
+      0,
+      0,
+      "No se creó egreso: los movimientos enlazados no son ingresos activos de Facturación."
+    );
+  }
+
+  let movimientosRevertidos = 0;
+  let totalRevertido = 0;
+  for (const movimiento of ingresos) {
+    try {
+      if (await yaTieneDevolucionActiva(movimiento)) continue;
       await crearMovimiento(
         {
           tipo: "Egreso", origen: "Facturación", categoria: "Devolución",
-          monto: pago.total, cuentaOrigenId: cuenta?.id ?? null,
-          estado: "Confirmado", metodo: mapeo.metodo, fecha: new Date().toISOString(),
-          registradoPor: input.registradoPor, clienteId: input.clienteRecordId,
-          observacion: `Anulación de la factura ${input.numeroFactura} — devolución al cliente`,
+          monto: movimiento.monto, cuentaOrigenId: movimiento.cuentaDestinoId,
+          estado: estadoReversoPara(movimiento), metodo: movimiento.metodo ?? "Otro",
+          fecha: new Date().toISOString(), registradoPor: input.registradoPor,
+          clienteId: movimiento.clienteIds[0] ?? input.clienteRecordId,
+          reversaAId: movimiento.id,
+          observacion: `Anulación de la factura ${input.numeroFactura} — reverso del ingreso ${movimiento.movimientoId}`,
         },
-        { permitirCuentaFaltante: cuenta === null }
+        { permitirCuentaFaltante: movimiento.cuentaDestinoId === null }
       );
+      movimientosRevertidos++;
+      totalRevertido += movimiento.monto;
     } catch (e) {
-      console.error("[revertirContableFacturaAnulada]", e);
+      fallidos.push(`${movimiento.movimientoId}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+
+  if (fallidos.length > 0) {
+    return resultadoContable(
+      "ERROR",
+      movimientosRevertidos,
+      totalRevertido,
+      `Reverso contable incompleto: ${fallidos.join("; ")}`
+    );
+  }
+
+  return resultadoContable("OK", movimientosRevertidos, totalRevertido);
 }

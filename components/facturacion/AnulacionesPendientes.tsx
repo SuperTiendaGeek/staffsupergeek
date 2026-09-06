@@ -9,10 +9,20 @@ type Solicitud = {
   fechaLimite: string; diasRestantes: number;
 };
 
+function extraerAvisosRespuesta(respuesta: unknown): string[] {
+  if (!respuesta || typeof respuesta !== "object") return [];
+  const data = (respuesta as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return [];
+  const avisos = (data as { avisos?: unknown }).avisos;
+  if (!Array.isArray(avisos)) return [];
+  return avisos.filter((aviso): aviso is string => typeof aviso === "string" && aviso.trim().length > 0);
+}
+
 export function AnulacionesPendientes() {
   const [solicitudes, setSolicitudes] = useState<Solicitud[]>([]);
   const [cargando, setCargando] = useState(true);
   const [accion, setAccion] = useState<string | null>(null);
+  const [mensaje, setMensaje] = useState<string | null>(null);
 
   function cargar() {
     setCargando(true);
@@ -28,13 +38,18 @@ export function AnulacionesPendientes() {
       : `¿Marcar como RECHAZADA la solicitud de anulación de ${numero}? La factura sigue siendo válida.`;
     if (!confirm(msg)) return;
     setAccion(recordId);
+    setMensaje(null);
     try {
       const r = await fetch(`/api/facturacion/anulaciones/${recordId}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accion: tipo }),
       });
       const j = await r.json();
       if (!j.success) alert(j.error ?? "No se pudo procesar");
-      else cargar();
+      else {
+        const avisos = extraerAvisosRespuesta(j);
+        setMensaje(avisos.length > 0 ? [`${tipo === "confirmar" ? "Anulación registrada" : "Solicitud actualizada"}.`, ...avisos].join("\n") : null);
+        cargar();
+      }
     } finally { setAccion(null); }
   }
 
@@ -53,6 +68,12 @@ export function AnulacionesPendientes() {
         </div>
         <Link href="/facturacion" className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]">← Facturas</Link>
       </div>
+
+      {mensaje && (
+        <p className="mb-3 rounded-lg border border-yellow-700/40 bg-yellow-900/20 px-3 py-2 text-sm text-yellow-200 whitespace-pre-wrap">
+          {mensaje}
+        </p>
+      )}
 
       {cargando ? <p className="text-sm text-[#A7A7A7]">Cargando…</p>
         : solicitudes.length === 0 ? <p className="text-sm text-[#A7A7A7]">No hay anulaciones pendientes.</p>
