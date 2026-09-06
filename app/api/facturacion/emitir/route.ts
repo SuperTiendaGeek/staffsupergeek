@@ -5,11 +5,15 @@ import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { buscarFacturaBloqueante } from "@/lib/facturacion/gancho/idempotencia";
 import { postEmision, debeIntentarPostEmision } from "@/lib/facturacion/gancho/postEmision";
 import {
+  agregarNotaAuditoriaFactura,
   assertBorradorDisponibleParaEmision,
   BorradorConsumidoError,
   BorradorNoDisponibleError,
+  buscarFacturaDuplicadaReciente,
+  debeBloquearFacturaDuplicadaReciente,
   marcarBorradorConsumido,
   obtenerBorradorParaEmision,
+  VENTANA_DUPLICADO_FACTURA_MINUTOS,
 } from "@/lib/facturacion/airtable/facturas";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
 import { verificarProductosDigitalesDisponibles, mensajeProductosDigitalesNoDisponibles } from "@/lib/facturacion/reglas/productosDigitalesDisponibles";
@@ -19,13 +23,33 @@ import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
 import { marcarReservaFacturada } from "@/lib/facturacion/reservas/airtable";
 
 const AMBIENTE_PRODUCCION = "2";
+const CODIGO_DUPLICADO_RECIENTE = "POSIBLE_FACTURA_DUPLICADA_RECIENTE";
 
 type BodyEmitirFactura = DatosVenta & {
   borradorOrigenId?: unknown;
+  confirmadoNoEsDuplicado?: unknown;
 };
 
 function textoRecordId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function minutosDesde(iso: string, ahora = new Date()): number {
+  const diff = ahora.getTime() - new Date(iso).getTime();
+  return Math.max(0, Math.floor(diff / 60_000));
+}
+
+function etiquetaMinutos(minutos: number): string {
+  return minutos <= 0 ? "menos de 1 minuto" : `${minutos} minuto${minutos === 1 ? "" : "s"}`;
+}
+
+function horaEcuador(iso: string): string {
+  return new Intl.DateTimeFormat("es-EC", {
+    timeZone: "America/Guayaquil",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(iso));
 }
 
 function emisionConsumeBorrador(estado: string): boolean {
@@ -110,6 +134,45 @@ export async function POST(request: Request) {
     }
   }
 
+  let duplicadoConfirmado = null as Awaited<ReturnType<typeof buscarFacturaDuplicadaReciente>>;
+  try {
+    duplicadoConfirmado = await buscarFacturaDuplicadaReciente({
+      clienteIdentificacion: body.identificacionComprador,
+      total: body.importeTotal,
+    });
+  } catch (e) {
+    console.error("[/api/facturacion/emitir POST] error verificando duplicados recientes:", e);
+    return NextResponse.json(
+      { success: false, error: "No se pudo verificar si ya existe una factura reciente para este cliente y monto. Intente de nuevo." },
+      { status: 503 }
+    );
+  }
+  if (duplicadoConfirmado && debeBloquearFacturaDuplicadaReciente(duplicadoConfirmado, body.confirmadoNoEsDuplicado === true)) {
+    const minutos = minutosDesde(duplicadoConfirmado.creadaIso);
+    const numero = duplicadoConfirmado.numeroFactura || duplicadoConfirmado.recordId;
+    return NextResponse.json(
+      {
+        success: false,
+        code: CODIGO_DUPLICADO_RECIENTE,
+        error:
+          `Hace ${etiquetaMinutos(minutos)} emitiste la factura ${numero} a este mismo cliente por el mismo monto ` +
+          `(${duplicadoConfirmado.estado}, ${horaEcuador(duplicadoConfirmado.creadaIso)}). ¿Es una venta distinta?`,
+        data: {
+          numeroFactura: numero,
+          estado: duplicadoConfirmado.estado,
+          hora: horaEcuador(duplicadoConfirmado.creadaIso),
+          minutosDesdeEmision: minutos,
+          clienteIdentificacion: duplicadoConfirmado.clienteIdentificacion,
+          clienteNombre: duplicadoConfirmado.clienteNombre,
+          total: duplicadoConfirmado.total,
+          recordId: duplicadoConfirmado.recordId,
+          ventanaMinutos: VENTANA_DUPLICADO_FACTURA_MINUTOS,
+        },
+      },
+      { status: 409 }
+    );
+  }
+
   // Fase 17.b — verificación de stock ANTES de emitir. Después de la
   // autorización del SRI la venta ya no se puede rechazar, así que esta es
   // la única puerta válida. Falla cerrado también ante un error de lectura:
@@ -160,6 +223,20 @@ export async function POST(request: Request) {
         await marcarBorradorConsumido(borradorOrigenId, resultado.numeroFactura);
       } catch (e) {
         console.error("[/api/facturacion/emitir POST] marcar borrador consumido falló:", e);
+      }
+    }
+
+    if (body.confirmadoNoEsDuplicado === true && duplicadoConfirmado && resultado.recordId && emisionConsumeBorrador(resultado.estado)) {
+      try {
+        const numeroDuplicado = duplicadoConfirmado.numeroFactura || duplicadoConfirmado.recordId;
+        await agregarNotaAuditoriaFactura(
+          resultado.recordId,
+          `[AUDITORIA] ${new Date().toISOString()} — Se confirmó manualmente que la factura ${resultado.numeroFactura} ` +
+          `era una venta distinta de ${numeroDuplicado}, emitida hace ${etiquetaMinutos(minutosDesde(duplicadoConfirmado.creadaIso))} ` +
+          `al mismo cliente por el mismo monto.`
+        );
+      } catch (e) {
+        console.error("[/api/facturacion/emitir POST] auditoría de confirmación de duplicado falló:", e);
       }
     }
 

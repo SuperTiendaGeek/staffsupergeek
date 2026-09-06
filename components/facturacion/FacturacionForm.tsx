@@ -152,9 +152,23 @@ type ResultadoEmision = {
   recordId?:          string;
 };
 
+type DuplicadoRecientePayload = {
+  numeroFactura: string;
+  estado: string;
+  hora: string;
+  minutosDesdeEmision: number;
+  clienteIdentificacion: string;
+  clienteNombre: string;
+  total: number;
+  recordId: string;
+  ventanaMinutos: number;
+};
+
 type EmitirResponse =
   | { success: true; data: ResultadoEmision }
-  | { success: false; error?: string };
+  | { success: false; error?: string; code?: string; data?: unknown };
+
+const CODIGO_DUPLICADO_RECIENTE = "POSIBLE_FACTURA_DUPLICADA_RECIENTE";
 
 // ─── Validación de identificación ─────────────────────────────────────────────
 //
@@ -265,6 +279,26 @@ function calcularTotales(lineas: LineaDetalle[], ivaIncluido: boolean): TotalesF
   return ivaIncluido ? calcularTotalesIvaIncluido(lineas) : calcularTotalesBaseMasIva(lineas);
 }
 
+function esDuplicadoRecientePayload(value: unknown): value is DuplicadoRecientePayload {
+  if (!value || typeof value !== "object") return false;
+  const d = value as Partial<DuplicadoRecientePayload>;
+  return (
+    typeof d.numeroFactura === "string" &&
+    typeof d.estado === "string" &&
+    typeof d.hora === "string" &&
+    typeof d.minutosDesdeEmision === "number" &&
+    typeof d.clienteIdentificacion === "string" &&
+    typeof d.clienteNombre === "string" &&
+    typeof d.total === "number" &&
+    typeof d.recordId === "string" &&
+    typeof d.ventanaMinutos === "number"
+  );
+}
+
+function etiquetaMinutos(minutos: number): string {
+  return minutos <= 0 ? "menos de 1 minuto" : `${minutos} minuto${minutos === 1 ? "" : "s"}`;
+}
+
 // ─── Clases de input reutilizables ─────────────────────────────────────────────
 
 const INPUT =
@@ -337,6 +371,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   const [emitiendo, setEmitiendo] = useState(false);
   const [resultado, setResultado] = useState<ResultadoEmision | null>(null);
   const [errGlobal, setErrGlobal] = useState<string | null>(null);
+  const [duplicadoReciente, setDuplicadoReciente] = useState<DuplicadoRecientePayload | null>(null);
 
   // ── Borrador ──────────────────────────────────────────────────────────────
   const [borradorId, setBorradorId]           = useState<string | null>(null);
@@ -672,9 +707,10 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   }
 
   // ── Emitir ────────────────────────────────────────────────────────────────
-  async function handleEmitir() {
+  async function handleEmitir(confirmadoNoEsDuplicado = false) {
     setErrGlobal(null);
     setResultado(null);
+    setDuplicadoReciente(null);
 
     // Validaciones de cliente
     const errId = validarIdentificacion(cliente.tipoIdentificacion, cliente.identificacion);
@@ -856,6 +892,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       ],
       origen:          origen ?? undefined,
       borradorOrigenId: borradorId ?? undefined,
+      confirmadoNoEsDuplicado: confirmadoNoEsDuplicado || undefined,
       // cliente.airtableId (no el clienteRecordId que trajo la pre-factura):
       // si el humano cambia de cliente en el formulario, el link
       // post-emisión debe usar el cliente final elegido, no el original.
@@ -871,7 +908,11 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
       });
       const j = (await r.json()) as EmitirResponse;
       if (!j.success) {
-        setErrGlobal(j.error ?? "Error al emitir");
+        if (j.code === CODIGO_DUPLICADO_RECIENTE && esDuplicadoRecientePayload(j.data)) {
+          setDuplicadoReciente(j.data);
+        } else {
+          setErrGlobal(j.error ?? "Error al emitir");
+        }
       } else {
         // Reemplazo: al autorizar, descontar el crédito de la NC (best-effort;
         // si falla, la factura ya es válida — el aviso pide conciliar a mano).
@@ -990,6 +1031,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             setBannerOrigen(null);
             setBorradorId(null);
             setMsgBorrador(null);
+            setDuplicadoReciente(null);
           }}
           // UX fix 2026-07-19 (pedido del dueño): tras un rechazo del SRI,
           // "Corregir y reintentar" antes vaciaba TODO el formulario y había
@@ -1246,9 +1288,16 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
               {errGlobal}
             </p>
           )}
+          {duplicadoReciente && (
+            <DuplicadoRecienteDialog
+              duplicado={duplicadoReciente}
+              emitiendo={emitiendo}
+              onConfirmar={() => handleEmitir(true)}
+            />
+          )}
           <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={handleEmitir}
+              onClick={() => handleEmitir()}
               disabled={emitiendo || guardandoBorrador || !clienteOk || lineas.length === 0 || !!resultado || excedeLimiteConsumidor}
               className={[
                 "rounded-full border px-6 py-2.5 text-sm font-bold transition",
@@ -1294,6 +1343,64 @@ function Card({ titulo, children }: { titulo: string; children: React.ReactNode 
     <div className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-5">
       <h2 className="mb-4 text-xs font-bold uppercase tracking-widest text-[#D7FF4F]">{titulo}</h2>
       {children}
+    </div>
+  );
+}
+
+function DuplicadoRecienteDialog({
+  duplicado,
+  emitiendo,
+  onConfirmar,
+}: {
+  duplicado: DuplicadoRecientePayload;
+  emitiendo: boolean;
+  onConfirmar: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full max-w-lg rounded-xl border border-[#FFB07A]/50 bg-[#1E1F1C] p-5 shadow-2xl">
+        <p className="text-xs font-bold uppercase tracking-wide text-[#FFB07A]">Posible factura duplicada</p>
+        <h2 className="mt-2 text-lg font-bold text-[#F5F5F5]">
+          Hace {etiquetaMinutos(duplicado.minutosDesdeEmision)} emitiste la factura {duplicado.numeroFactura} a este mismo cliente por el mismo monto.
+        </h2>
+        <p className="mt-3 text-sm text-[#A7A7A7]">
+          ¿Es una venta distinta?
+        </p>
+        <dl className="mt-4 grid grid-cols-2 gap-3 rounded-lg border border-[#3A3A36] bg-[#151510] p-3 text-xs">
+          <div>
+            <dt className="text-[#666]">Cliente</dt>
+            <dd className="mt-0.5 font-semibold text-[#F5F5F5]">{duplicado.clienteNombre}</dd>
+          </div>
+          <div>
+            <dt className="text-[#666]">Identificación</dt>
+            <dd className="mt-0.5 font-semibold text-[#F5F5F5]">{duplicado.clienteIdentificacion}</dd>
+          </div>
+          <div>
+            <dt className="text-[#666]">Total</dt>
+            <dd className="mt-0.5 font-semibold text-[#F5F5F5]">${duplicado.total.toFixed(2)}</dd>
+          </div>
+          <div>
+            <dt className="text-[#666]">Hora</dt>
+            <dd className="mt-0.5 font-semibold text-[#F5F5F5]">{duplicado.hora} · {duplicado.estado}</dd>
+          </div>
+        </dl>
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <a
+            href="/facturacion/historial"
+            className="rounded-full border border-[#3A3A36] px-4 py-2 text-center text-sm font-semibold text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]"
+          >
+            Revisar historial
+          </a>
+          <button
+            type="button"
+            onClick={onConfirmar}
+            disabled={emitiendo}
+            className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {emitiendo ? "Emitiendo…" : "Confirmar y emitir"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

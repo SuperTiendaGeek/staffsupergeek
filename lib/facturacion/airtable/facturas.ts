@@ -131,6 +131,17 @@ export type BorradorEmision = {
   facturaEmitidaDesdeBorrador: string;
 };
 
+export type FacturaDuplicadaReciente = {
+  recordId: string;
+  numeroFactura: string;
+  estado: Extract<EstadoFactura, "PENDIENTE" | "RECIBIDA" | "AUTORIZADO">;
+  clienteIdentificacion: string;
+  clienteNombre: string;
+  total: number;
+  fechaEmision: string;
+  creadaIso: string;
+};
+
 export class BorradorConsumidoError extends Error {
   constructor(readonly facturaEmitidaDesdeBorrador: string) {
     super(
@@ -148,6 +159,20 @@ export class BorradorNoDisponibleError extends Error {
     this.name = "BorradorNoDisponibleError";
   }
 }
+
+// Decisión de Alex para ventas potencialmente repetidas: una emisión reciente
+// del mismo cliente por el mismo total bloquea durante 30 minutos, salvo
+// confirmación explícita de que es una venta distinta.
+export const VENTANA_DUPLICADO_FACTURA_MINUTOS = 30;
+// Airtable guarda números como flotantes; medio centavo permite comparar el
+// mismo importe a nivel contable sin convertir $25.01 en $25.00.
+export const TOLERANCIA_TOTAL_DUPLICADO_FACTURA = 0.005;
+
+const ESTADOS_BLOQUEANTES_DUPLICADO = new Set<EstadoFactura>([
+  "PENDIENTE",
+  "RECIBIDA",
+  "AUTORIZADO",
+]);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -194,6 +219,21 @@ function safeNum(v: unknown): number {
 }
 function hasAttachment(v: unknown): boolean {
   return Array.isArray(v) && v.length > 0;
+}
+
+function escFormula(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function estadoDuplicado(raw: unknown): FacturaDuplicadaReciente["estado"] | null {
+  const estado = safeStr(raw) as EstadoFactura;
+  return ESTADOS_BLOQUEANTES_DUPLICADO.has(estado)
+    ? estado as FacturaDuplicadaReciente["estado"]
+    : null;
 }
 
 function mapHistorialRecord(r: { id: string; fields: Record<string, unknown> }): FacturaHistorial {
@@ -540,6 +580,97 @@ export async function marcarBorradorConsumido(recordId: string, numeroFactura: s
         "Factura Emitida Desde Borrador": numeroFactura,
       },
     }),
+  });
+}
+
+// ─── Guarda de duplicado reciente por cliente + total ────────────────────────
+
+export async function buscarFacturaDuplicadaReciente(params: {
+  clienteIdentificacion: string;
+  total: number;
+  ahora?: Date;
+}): Promise<FacturaDuplicadaReciente | null> {
+  const client = getClient();
+  const identificacion = params.clienteIdentificacion.trim();
+  if (!identificacion) return null;
+
+  const formula = `AND({Cliente - Identificación}="${escFormula(identificacion)}",OR({Estado}="PENDIENTE",{Estado}="RECIBIDA",{Estado}="AUTORIZADO"))`;
+  const records: Array<{ id: string; createdTime?: string; fields: Record<string, unknown> }> = [];
+  let offset: string | undefined;
+
+  do {
+    const query = new URLSearchParams({
+      filterByFormula: formula,
+      pageSize: "100",
+    });
+    for (const f of ["Número de Factura", "Estado", "Cliente - Nombre", "Cliente - Identificación", "Total", "Fecha de Emisión"]) {
+      query.append("fields[]", f);
+    }
+    if (offset) query.set("offset", offset);
+
+    const url = `${client.baseUrl}/${encodeURIComponent(TABLE)}?${query}`;
+    const data = await airtableRequest<{
+      records: Array<{ id: string; createdTime?: string; fields: Record<string, unknown> }>;
+      offset?: string;
+    }>(url);
+    records.push(...data.records);
+    offset = data.offset;
+  } while (offset);
+
+  const ahoraMs = (params.ahora ?? new Date()).getTime();
+  const ventanaMs = VENTANA_DUPLICADO_FACTURA_MINUTOS * 60 * 1000;
+  const totalObjetivo = round2(params.total);
+
+  const candidatas = records
+    .map((r): FacturaDuplicadaReciente | null => {
+      const estado = estadoDuplicado(r.fields["Estado"]);
+      if (!estado || !r.createdTime) return null;
+
+      if (safeStr(r.fields["Cliente - Identificación"]) !== identificacion) return null;
+
+      const total = round2(safeNum(r.fields["Total"]));
+      if (Math.abs(total - totalObjetivo) > TOLERANCIA_TOTAL_DUPLICADO_FACTURA) return null;
+
+      const creadaMs = new Date(r.createdTime).getTime();
+      const edadMs = ahoraMs - creadaMs;
+      if (!Number.isFinite(creadaMs) || edadMs < 0 || edadMs > ventanaMs) return null;
+
+      return {
+        recordId: r.id,
+        numeroFactura: safeStr(r.fields["Número de Factura"]),
+        estado,
+        clienteIdentificacion: safeStr(r.fields["Cliente - Identificación"]),
+        clienteNombre: safeStr(r.fields["Cliente - Nombre"]),
+        total,
+        fechaEmision: safeStr(r.fields["Fecha de Emisión"]),
+        creadaIso: r.createdTime,
+      };
+    })
+    .filter((factura): factura is FacturaDuplicadaReciente => factura !== null)
+    .sort((a, b) => new Date(b.creadaIso).getTime() - new Date(a.creadaIso).getTime());
+
+  return candidatas[0] ?? null;
+}
+
+export function debeBloquearFacturaDuplicadaReciente(
+  duplicado: FacturaDuplicadaReciente | null,
+  confirmadoNoEsDuplicado: boolean
+): boolean {
+  return duplicado !== null && confirmadoNoEsDuplicado !== true;
+}
+
+export async function agregarNotaAuditoriaFactura(recordId: string, nota: string): Promise<void> {
+  const params = new URLSearchParams();
+  params.append("fields[]", "Mensajes SRI");
+  const actual = await airtableRequest<{ id: string; fields: Record<string, unknown> }>(
+    `${tableUrl(recordId)}?${params}`
+  );
+  const previo = safeStr(actual.fields["Mensajes SRI"]);
+  const siguiente = previo ? `${previo}\n${nota}` : nota;
+
+  await airtableRequest(tableUrl(recordId), {
+    method: "PATCH",
+    body: JSON.stringify({ fields: { "Mensajes SRI": siguiente } }),
   });
 }
 
