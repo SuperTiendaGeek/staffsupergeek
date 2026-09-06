@@ -3,6 +3,8 @@ import "server-only";
 import type { FacturacionConfig } from "../config";
 import type { MensajeSRI } from "./recepcion";
 
+const TIMEOUT_AUTORIZACION_MS = 30_000;
+
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
 export type ResultadoAutorizacion =
@@ -76,6 +78,33 @@ function parseSoapFault(xml: string): string | undefined {
   return fault || undefined;
 }
 
+function esAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
+function esErrorRedFetch(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (esAbortError(err)) return false;
+  if (err.message.startsWith("HTTP ")) return false;
+  return err.name === "TypeError" || /fetch failed|network|dns|tls|socket/i.test(err.message);
+}
+
+function errorAutorizacionSriNoRespondio(): Error {
+  return new Error(
+    "El SRI no responde en este momento. La factura YA fue enviada al SRI y " +
+    "NO se ha perdido; NO debes emitir otra factura por esta venta. Usa " +
+    "\"⟳ Consultar estado\" en el historial más tarde."
+  );
+}
+
+function errorTimeoutAutorizacion(): Error {
+  return new Error(
+    "Timeout (30s) al conectar con AutorizacionComprobantesOffline del SRI. " +
+    "La factura YA fue enviada al SRI y NO se ha perdido; NO debes emitir otra " +
+    "factura por esta venta. Usa \"⟳ Consultar estado\" en el historial más tarde."
+  );
+}
+
 // ─── Construcción del envelope ────────────────────────────────────────────────
 
 function buildEnvelope(claveAcceso: string): string {
@@ -123,7 +152,7 @@ export async function consultarAutorizacion(
         SOAPAction: '""',
       },
       body: envelope,
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(TIMEOUT_AUTORIZACION_MS),
     });
     body = await res.text();
 
@@ -131,8 +160,11 @@ export async function consultarAutorizacion(
       throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
     }
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error("Timeout (30s) al conectar con AutorizacionComprobantesOffline del SRI");
+    if (esAbortError(err)) {
+      throw errorTimeoutAutorizacion();
+    }
+    if (esErrorRedFetch(err)) {
+      throw errorAutorizacionSriNoRespondio();
     }
     throw err;
   }

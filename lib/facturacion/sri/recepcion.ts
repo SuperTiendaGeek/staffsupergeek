@@ -2,6 +2,9 @@ import "server-only";
 
 import type { FacturacionConfig } from "../config";
 
+const TIMEOUT_RECEPCION_MS = 30_000;
+const REINTENTOS_RED_RECEPCION_MS = [100, 250] as const;
+
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
 export type MensajeSRI = {
@@ -52,6 +55,35 @@ function parseSoapFault(xml: string): string | undefined {
   return fault || undefined;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function esAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
+function esErrorRedFetch(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (esAbortError(err)) return false;
+  if (err.message.startsWith("HTTP ")) return false;
+  return err.name === "TypeError" || /fetch failed|network|dns|tls|socket/i.test(err.message);
+}
+
+function errorRecepcionSriNoRespondio(): Error {
+  return new Error(
+    "El SRI no está respondiendo en este momento. La factura NO se emitió y " +
+    "NO se consumió ningún número; puedes reintentar en unos minutos."
+  );
+}
+
+function errorTimeoutRecepcion(): Error {
+  return new Error(
+    "Timeout (30s) al conectar con RecepcionComprobantesOffline del SRI. " +
+    "La factura NO se emitió y NO se consumió ningún número; puedes reintentar en unos minutos."
+  );
+}
+
 // ─── Construcción del envelope ────────────────────────────────────────────────
 
 function buildEnvelope(xmlBase64: string): string {
@@ -91,27 +123,37 @@ export async function enviarComprobante(
   const envelope = buildEnvelope(xmlBase64);
 
   let body: string;
-  try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/xml;charset=UTF-8",
-        SOAPAction: '""',
-      },
-      body: envelope,
-      signal: AbortSignal.timeout(30_000),
-    });
-    body = await res.text();
+  for (let intento = 0; ; intento++) {
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/xml;charset=UTF-8",
+          SOAPAction: '""',
+        },
+        body: envelope,
+        signal: AbortSignal.timeout(TIMEOUT_RECEPCION_MS),
+      });
+      body = await res.text();
 
-    // 500 con SOAP fault sigue siendo una respuesta válida para parsear
-    if (!res.ok && res.status !== 500) {
-      throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
+      // 500 con SOAP fault sigue siendo una respuesta válida para parsear
+      if (!res.ok && res.status !== 500) {
+        throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
+      }
+      break;
+    } catch (err: unknown) {
+      if (esAbortError(err)) {
+        throw errorTimeoutRecepcion();
+      }
+      if (esErrorRedFetch(err) && intento < REINTENTOS_RED_RECEPCION_MS.length) {
+        await sleep(REINTENTOS_RED_RECEPCION_MS[intento]);
+        continue;
+      }
+      if (esErrorRedFetch(err)) {
+        throw errorRecepcionSriNoRespondio();
+      }
+      throw err;
     }
-  } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error("Timeout (30s) al conectar con RecepcionComprobantesOffline del SRI");
-    }
-    throw err;
   }
 
   const fault = parseSoapFault(body);
