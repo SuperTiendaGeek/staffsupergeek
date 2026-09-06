@@ -4,6 +4,13 @@ import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitir
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { buscarFacturaBloqueante } from "@/lib/facturacion/gancho/idempotencia";
 import { postEmision, debeIntentarPostEmision } from "@/lib/facturacion/gancho/postEmision";
+import {
+  assertBorradorDisponibleParaEmision,
+  BorradorConsumidoError,
+  BorradorNoDisponibleError,
+  marcarBorradorConsumido,
+  obtenerBorradorParaEmision,
+} from "@/lib/facturacion/airtable/facturas";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
 import { verificarProductosDigitalesDisponibles, mensajeProductosDigitalesNoDisponibles } from "@/lib/facturacion/reglas/productosDigitalesDisponibles";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
@@ -13,6 +20,18 @@ import { marcarReservaFacturada } from "@/lib/facturacion/reservas/airtable";
 
 const AMBIENTE_PRODUCCION = "2";
 
+type BodyEmitirFactura = DatosVenta & {
+  borradorOrigenId?: unknown;
+};
+
+function textoRecordId(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function emisionConsumeBorrador(estado: string): boolean {
+  return estado === "AUTORIZADO" || estado === "EN PROCESAMIENTO";
+}
+
 export const dynamic = "force-dynamic";
 // La autorización puede tardar hasta 60 s; extendemos el timeout del route.
 export const maxDuration = 90;
@@ -21,9 +40,9 @@ export async function POST(request: Request) {
   const { response, session } = await requireFacturacionSession();
   if (response || !session) return response ?? NextResponse.json({ success: false, error: "Sin sesión" }, { status: 401 });
 
-  let body: DatosVenta;
+  let body: BodyEmitirFactura;
   try {
-    body = (await request.json()) as DatosVenta;
+    body = (await request.json()) as BodyEmitirFactura;
   } catch {
     return NextResponse.json({ success: false, error: "Body JSON inválido" }, { status: 400 });
   }
@@ -48,6 +67,26 @@ export async function POST(request: Request) {
   const errorReferenciaPago = mensajeReferenciaPagoFaltante(body.pagos);
   if (errorReferenciaPago) {
     return NextResponse.json({ success: false, error: errorReferenciaPago }, { status: 400 });
+  }
+
+  const borradorOrigenId = textoRecordId(body.borradorOrigenId);
+  if (borradorOrigenId) {
+    try {
+      const borrador = await obtenerBorradorParaEmision(borradorOrigenId);
+      assertBorradorDisponibleParaEmision(borrador);
+    } catch (e) {
+      console.error("[/api/facturacion/emitir POST] borrador de origen no disponible:", e);
+      if (e instanceof BorradorConsumidoError) {
+        return NextResponse.json({ success: false, error: e.message }, { status: 409 });
+      }
+      if (e instanceof BorradorNoDisponibleError) {
+        return NextResponse.json({ success: false, error: e.message }, { status: 409 });
+      }
+      return NextResponse.json(
+        { success: false, error: "No se pudo leer el borrador de origen. No se emitió la factura." },
+        { status: 503 }
+      );
+    }
   }
 
   // Fase 16 PR2: si viene de una orden/operación, re-verificar idempotencia
@@ -115,6 +154,14 @@ export async function POST(request: Request) {
 
   try {
     const resultado = await emitirFactura({ ...body, vendedor: session.user.nombre });
+
+    if (borradorOrigenId && emisionConsumeBorrador(resultado.estado)) {
+      try {
+        await marcarBorradorConsumido(borradorOrigenId, resultado.numeroFactura);
+      } catch (e) {
+        console.error("[/api/facturacion/emitir POST] marcar borrador consumido falló:", e);
+      }
+    }
 
     // Fase 16 PR3: post-emisión — SIEMPRE fuera de emitirFactura() (que se
     // mantiene puro) y SIEMPRE detrás de su propio try/catch: si esto falla,

@@ -143,7 +143,7 @@ type ClienteBusqueda = {
 };
 
 type ResultadoEmision = {
-  estado:             "AUTORIZADO" | "DEVUELTA" | "NO AUTORIZADO";
+  estado:             "AUTORIZADO" | "DEVUELTA" | "NO AUTORIZADO" | "EN PROCESAMIENTO";
   claveAcceso:        string;
   numeroFactura:      string;
   numeroAutorizacion?:string;
@@ -151,6 +151,10 @@ type ResultadoEmision = {
   mensajes?:          Array<{ identificador: string; tipo: string; mensaje: string }>;
   recordId?:          string;
 };
+
+type EmitirResponse =
+  | { success: true; data: ResultadoEmision }
+  | { success: false; error?: string };
 
 // ─── Validación de identificación ─────────────────────────────────────────────
 //
@@ -851,6 +855,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         { formaPago, total: totales.importeTotal, referencia: referenciaPagoUnico.trim() || undefined },
       ],
       origen:          origen ?? undefined,
+      borradorOrigenId: borradorId ?? undefined,
       // cliente.airtableId (no el clienteRecordId que trajo la pre-factura):
       // si el humano cambia de cliente en el formulario, el link
       // post-emisión debe usar el cliente final elegido, no el original.
@@ -864,7 +869,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(body),
       });
-      const j = (await r.json()) as { success: boolean; data?: ResultadoEmision; error?: string };
+      const j = (await r.json()) as EmitirResponse;
       if (!j.success) {
         setErrGlobal(j.error ?? "Error al emitir");
       } else {
@@ -887,6 +892,10 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
           }
         }
         setResultado(j.data!);
+        if (j.data.estado === "AUTORIZADO" || j.data.estado === "EN PROCESAMIENTO") {
+          setBorradorId(null);
+          setMsgBorrador(null);
+        }
       }
     } catch {
       setErrGlobal("Error de red al conectar con el servidor");
@@ -979,6 +988,8 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
             setOrigen(null);
             setPagosPrecargados(null);
             setBannerOrigen(null);
+            setBorradorId(null);
+            setMsgBorrador(null);
           }}
           // UX fix 2026-07-19 (pedido del dueño): tras un rechazo del SRI,
           // "Corregir y reintentar" antes vaciaba TODO el formulario y había
@@ -1597,6 +1608,21 @@ function ResultadoBanner({
             Ver / Descargar RIDE
           </a>
         </div>
+        <button onClick={onNueva} className="mt-4 text-xs text-[#666] underline hover:text-[#A7A7A7]">
+          Nueva factura
+        </button>
+      </div>
+    );
+  }
+
+  if (resultado.estado === "EN PROCESAMIENTO") {
+    return (
+      <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">
+        <p className="text-[#F0C75E] font-bold text-lg mb-1">En procesamiento</p>
+        <p className="text-[#F5F5F5] text-sm font-semibold">Factura {resultado.numeroFactura}</p>
+        <p className="text-[#A7A7A7] text-xs mt-1">
+          El SRI recibió la factura y todavía no la autoriza. No emitas otra factura por esta venta; consulta el estado desde el historial.
+        </p>
         <button onClick={onNueva} className="mt-4 text-xs text-[#666] underline hover:text-[#A7A7A7]">
           Nueva factura
         </button>

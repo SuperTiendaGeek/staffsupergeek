@@ -124,6 +124,31 @@ export type ListadoFacturas = {
   suma:     number;        // suma de totales en esta página
 };
 
+export type BorradorEmision = {
+  recordId: string;
+  estado: EstadoFactura;
+  borradorConsumido: boolean;
+  facturaEmitidaDesdeBorrador: string;
+};
+
+export class BorradorConsumidoError extends Error {
+  constructor(readonly facturaEmitidaDesdeBorrador: string) {
+    super(
+      facturaEmitidaDesdeBorrador
+        ? `Este borrador ya fue facturado como ${facturaEmitidaDesdeBorrador}. No se puede emitir otra factura desde el mismo borrador.`
+        : "Este borrador ya fue facturado. No se puede emitir otra factura desde el mismo borrador."
+    );
+    this.name = "BorradorConsumidoError";
+  }
+}
+
+export class BorradorNoDisponibleError extends Error {
+  constructor(message = "No se pudo confirmar que el borrador esté disponible. No se emitió la factura.") {
+    super(message);
+    this.name = "BorradorNoDisponibleError";
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function airtableRequest<T>(url: string, init?: RequestInit): Promise<T> {
@@ -474,6 +499,48 @@ export async function obtenerFactura(recordId: string): Promise<FacturaHistorial
   } catch {
     return null;
   }
+}
+
+// ─── Borrador de origen: lectura previa y consumo post-emisión ───────────────
+
+export async function obtenerBorradorParaEmision(recordId: string): Promise<BorradorEmision> {
+  const params = new URLSearchParams();
+  params.append("fields[]", "Estado");
+  params.append("fields[]", "Borrador Consumido");
+  params.append("fields[]", "Factura Emitida Desde Borrador");
+
+  const data = await airtableRequest<{ id: string; fields: Record<string, unknown> }>(
+    `${tableUrl(recordId)}?${params}`
+  );
+
+  const estado = safeStr(data.fields["Estado"]) as EstadoFactura;
+  return {
+    recordId: data.id,
+    estado,
+    borradorConsumido: data.fields["Borrador Consumido"] === true,
+    facturaEmitidaDesdeBorrador: safeStr(data.fields["Factura Emitida Desde Borrador"]),
+  };
+}
+
+export function assertBorradorDisponibleParaEmision(borrador: BorradorEmision): void {
+  if (borrador.estado !== "BORRADOR") {
+    throw new BorradorNoDisponibleError("El registro indicado ya no es un borrador. No se emitió la factura.");
+  }
+  if (borrador.borradorConsumido) {
+    throw new BorradorConsumidoError(borrador.facturaEmitidaDesdeBorrador);
+  }
+}
+
+export async function marcarBorradorConsumido(recordId: string, numeroFactura: string): Promise<void> {
+  await airtableRequest(tableUrl(recordId), {
+    method: "PATCH",
+    body: JSON.stringify({
+      fields: {
+        "Borrador Consumido": true,
+        "Factura Emitida Desde Borrador": numeroFactura,
+      },
+    }),
+  });
 }
 
 // ─── Subir adjunto ────────────────────────────────────────────────────────────
