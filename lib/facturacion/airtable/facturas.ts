@@ -142,6 +142,11 @@ export type FacturaDuplicadaReciente = {
   creadaIso: string;
 };
 
+export type NombresAdjuntosFactura = {
+  xmlAutorizado: string[];
+  ridePdf: string[];
+};
+
 export class BorradorConsumidoError extends Error {
   constructor(readonly facturaEmitidaDesdeBorrador: string) {
     super(
@@ -219,6 +224,17 @@ function safeNum(v: unknown): number {
 }
 function hasAttachment(v: unknown): boolean {
   return Array.isArray(v) && v.length > 0;
+}
+
+function attachmentNames(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((a) => {
+      if (!a || typeof a !== "object") return "";
+      const filename = (a as { filename?: unknown }).filename;
+      return typeof filename === "string" ? filename : "";
+    })
+    .filter((filename) => filename.length > 0);
 }
 
 function escFormula(s: string): string {
@@ -698,6 +714,21 @@ export async function subirAdjunto(
     const text = await res.text();
     throw new Error(`Airtable uploadAttachment (${campo}) ${res.status}: ${text}`);
   }
+}
+
+export async function obtenerNombresAdjuntosFactura(recordId: string): Promise<NombresAdjuntosFactura> {
+  const params = new URLSearchParams();
+  params.append("fields[]", "XML Autorizado");
+  params.append("fields[]", "RIDE PDF");
+
+  const data = await airtableRequest<{ id: string; fields: Record<string, unknown> }>(
+    `${tableUrl(recordId)}?${params}`
+  );
+
+  return {
+    xmlAutorizado: attachmentNames(data.fields["XML Autorizado"]),
+    ridePdf:       attachmentNames(data.fields["RIDE PDF"]),
+  };
 }
 
 // ─── Historial de intentos ────────────────────────────────────────────────────

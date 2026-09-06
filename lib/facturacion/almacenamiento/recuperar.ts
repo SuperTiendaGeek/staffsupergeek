@@ -16,8 +16,14 @@ import path from "path";
 
 import { consultarAutorizacion }                              from "../sri/autorizacion";
 import { getFacturacionConfig }                               from "../config";
-import { buscarFacturaPorClave, crearRegistroFactura,
-         subirAdjunto, marcarAdjuntosPendientes }             from "../airtable/facturas";
+import {
+  actualizarEstadoFactura,
+  buscarFacturaPorClave,
+  crearRegistroFactura,
+  marcarAdjuntosPendientes,
+  obtenerNombresAdjuntosFactura,
+  subirAdjunto,
+} from "../airtable/facturas";
 import { directorioBaseFacturas }                             from "./directorioFacturas";
 import { generarRide }                                        from "../ride/generarRide";
 import type { DetalleRide }                                   from "../ride/generarRide";
@@ -337,17 +343,30 @@ export async function recuperarFacturaAutorizadaPorClave(
       total:                 datos.importeTotal,
       lineasJson,
     });
+  } else {
+    await actualizarEstadoFactura(recordId, "AUTORIZADO", {
+      "Número de Autorización": autorizacion.numeroAutorizacion,
+      "Fecha de Autorización":  autorizacion.fechaAutorizacion,
+    });
   }
 
   // 6. Subir adjuntos
   let adjuntosSubidos = false;
   try {
-    const xmlB64 = Buffer.from(xmlAutorizado, "utf8").toString("base64");
-    await subirAdjunto(recordId, "XML Autorizado", `${claveAcceso}.xml`, "text/xml", xmlB64);
+    const adjuntosActuales = await obtenerNombresAdjuntosFactura(recordId);
+    const nombreXml = `${claveAcceso}.xml`;
+    const nombrePdf = `${claveAcceso}.pdf`;
+
+    if (!adjuntosActuales.xmlAutorizado.includes(nombreXml)) {
+      const xmlB64 = Buffer.from(xmlAutorizado, "utf8").toString("base64");
+      await subirAdjunto(recordId, "XML Autorizado", nombreXml, "text/xml", xmlB64);
+    }
 
     if (ridePdf) {
-      const pdfB64 = Buffer.from(ridePdf).toString("base64");
-      await subirAdjunto(recordId, "RIDE PDF", `${claveAcceso}.pdf`, "application/pdf", pdfB64);
+      if (!adjuntosActuales.ridePdf.includes(nombrePdf)) {
+        const pdfB64 = Buffer.from(ridePdf).toString("base64");
+        await subirAdjunto(recordId, "RIDE PDF", nombrePdf, "application/pdf", pdfB64);
+      }
     }
     adjuntosSubidos = true;
   } catch (adjErr) {
