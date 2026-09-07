@@ -13,7 +13,7 @@ import {
   conResolucionDeTablaMovimientos,
   resolverNombreTablaMovimientos,
 } from "../table-names";
-import { activarEnvFalso, construirFetchDouble, crearEstadoDouble, limpiarEnvFalso } from "./_airtableDouble";
+import { activarEnvFalso, construirFetchDouble, crearCuentaDouble, crearEstadoDouble, limpiarEnvFalso } from "./_airtableDouble";
 
 let fallos = 0;
 function assert(cond: boolean, msg: string): void {
@@ -88,11 +88,32 @@ async function conInvalidacionYReintento() {
   assert(intentos === 2, "La operación se reintentó exactamente una vez tras la invalidación (2 intentos en total)");
 }
 
+async function rechazaFieldsEnRegistroIndividual() {
+  const state = crearEstadoDouble("Movimientos Financieros");
+  const cuentaId = crearCuentaDouble(state, { nombre: "Caja Registradora" });
+  global.fetch = construirFetchDouble(state) as typeof fetch;
+
+  const client = getClient();
+  const urlRegistro = new URL(`${client.baseUrl}/${encodeURIComponent("Cuentas Financieras")}/${cuentaId}`);
+  urlRegistro.searchParams.append("fields[]", "Nombre");
+  const respuestaRegistro = await fetch(urlRegistro.toString(), { headers: client.headers });
+  assert(
+    respuestaRegistro.status === 422,
+    "El doble imita Airtable: GET de registro individual con fields[] devuelve 422"
+  );
+
+  const urlListado = new URL(`${client.baseUrl}/${encodeURIComponent("Cuentas Financieras")}`);
+  urlListado.searchParams.append("fields[]", "Nombre");
+  const respuestaListado = await fetch(urlListado.toString(), { headers: client.headers });
+  assert(respuestaListado.ok, "El doble conserva fields[] en GET de listado");
+}
+
 async function main() {
   await conSoloTablaVieja();
   await conSoloTablaNueva();
   await conNingunaTabla();
   await conInvalidacionYReintento();
+  await rechazaFieldsEnRegistroIndividual();
 
   global.fetch = fetchOriginal;
   limpiarEnvFalso();

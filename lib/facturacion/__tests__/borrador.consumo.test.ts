@@ -34,19 +34,27 @@ function json(data: unknown, status = 200): Response {
 
 const fetchOriginal = global.fetch;
 const patches: Array<{ url: string; body: Record<string, unknown> }> = [];
+const gets: string[] = [];
 
 global.fetch = (async (input: string | URL, init?: RequestInit) => {
-  const url = String(input);
+  const url = new URL(String(input));
   const method = (init?.method ?? "GET").toUpperCase();
+  const segments = decodeURIComponent(url.pathname).split("/").filter(Boolean);
+  const recordId = segments[3];
 
   if (method === "PATCH") {
-    patches.push({ url, body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown> });
+    patches.push({ url: url.toString(), body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown> });
     return json({ id: "recBORRADORLIMPIO" });
   }
 
   if (method !== "GET") return json({ error: "metodo inesperado" }, 500);
 
-  if (url.includes("recCONSUMIDO")) {
+  gets.push(url.toString());
+  if (recordId && url.searchParams.has("fields[]")) {
+    return json({ type: "INVALID_REQUEST_UNKNOWN", message: "parameter validation failed" }, 422);
+  }
+
+  if (url.toString().includes("recCONSUMIDO")) {
     return json({
       id: "recCONSUMIDO",
       fields: {
@@ -57,7 +65,7 @@ global.fetch = (async (input: string | URL, init?: RequestInit) => {
     });
   }
 
-  if (url.includes("recBORRADORLIMPIO")) {
+  if (url.toString().includes("recBORRADORLIMPIO")) {
     return json({
       id: "recBORRADORLIMPIO",
       fields: {
@@ -68,7 +76,7 @@ global.fetch = (async (input: string | URL, init?: RequestInit) => {
     });
   }
 
-  if (url.includes("recLECTURAFALLA")) return json({ error: "Airtable caido" }, 500);
+  if (url.toString().includes("recLECTURAFALLA")) return json({ error: "Airtable caido" }, 500);
 
   return json({ error: "registro no esperado" }, 404);
 }) as typeof fetch;
@@ -80,6 +88,11 @@ global.fetch = (async (input: string | URL, init?: RequestInit) => {
   // a) emitir desde un borrador ya consumido se rechaza con el numero anterior
   {
     const borrador = await obtenerBorradorParaEmision("recCONSUMIDO");
+    const lectura = gets.find((u) => u.includes("recCONSUMIDO")) ?? "";
+    assert(
+      !lectura.includes("fields%5B%5D") && !lectura.includes("fields[]"),
+      "Lectura de borrador consumido: GET de registro individual va sin fields[]"
+    );
     let error: unknown = null;
     try {
       assertBorradorDisponibleParaEmision(borrador);
@@ -96,6 +109,11 @@ global.fetch = (async (input: string | URL, init?: RequestInit) => {
   // b) emitir desde un borrador limpio procede y el borrador queda marcado
   {
     const borrador = await obtenerBorradorParaEmision("recBORRADORLIMPIO");
+    const lectura = gets.find((u) => u.includes("recBORRADORLIMPIO")) ?? "";
+    assert(
+      !lectura.includes("fields%5B%5D") && !lectura.includes("fields[]"),
+      "Lectura de borrador limpio: GET de registro individual va sin fields[]"
+    );
     let lanzo = false;
     try {
       assertBorradorDisponibleParaEmision(borrador);

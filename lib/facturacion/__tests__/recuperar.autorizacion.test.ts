@@ -140,6 +140,7 @@ function crearFetchDouble(registrosIniciales: RecordDouble[]) {
   const registros = new Map(registrosIniciales.map((r) => [r.id, { id: r.id, fields: { ...r.fields } }]));
   const uploads: Array<{ recordId: string; field: string; filename: string }> = [];
   const patches: Array<{ recordId: string; fields: Record<string, unknown> }> = [];
+  const gets: string[] = [];
   let nextId = 1;
 
   const fetchDoble = async (urlInput: string | URL, init?: RequestInit): Promise<Response> => {
@@ -163,6 +164,10 @@ function crearFetchDouble(registrosIniciales: RecordDouble[]) {
     const recordId = segments[3];
 
     if (method === "GET" && recordId) {
+      gets.push(url.toString());
+      if (url.searchParams.has("fields[]")) {
+        return respuesta(false, 422, { type: "INVALID_REQUEST_UNKNOWN", message: "parameter validation failed" });
+      }
       const record = registros.get(recordId);
       return record ? respuesta(true, 200, record) : respuesta(false, 404, "Record not found");
     }
@@ -191,7 +196,7 @@ function crearFetchDouble(registrosIniciales: RecordDouble[]) {
     throw new Error(`fetch inesperado: ${method} ${url.toString()}`);
   };
 
-  return { fetchDoble, registros, uploads, patches };
+  return { fetchDoble, registros, uploads, patches, gets };
 }
 
 (async () => {
@@ -201,7 +206,7 @@ function crearFetchDouble(registrosIniciales: RecordDouble[]) {
     instalarEnv("existente");
     const nombreXml = `${CLAVE}.xml`;
     const nombrePdf = `${CLAVE}.pdf`;
-    const { fetchDoble, registros, uploads, patches } = crearFetchDouble([
+    const { fetchDoble, registros, uploads, patches, gets } = crearFetchDouble([
       {
         id: "recFACTURA707",
         fields: {
@@ -236,6 +241,10 @@ function crearFetchDouble(registrosIniciales: RecordDouble[]) {
     assert(factura.fields["Líneas JSON"] === "{\"version\":2,\"detalles\":[]}", "Existente: no sobreescribe líneas");
     assert(uploads.length === 0, "Existente: si XML/RIDE de esa clave ya están adjuntos, no los duplica");
     assert(patches.some((p) => p.fields["Estado"] === "AUTORIZADO"), "Existente: hace PATCH de autorización");
+    assert(
+      gets.filter((url) => url.includes("recFACTURA707")).every((url) => !url.includes("fields%5B%5D") && !url.includes("fields[]")),
+      "Existente: las lecturas individuales de factura van sin fields[]"
+    );
   }
 
   // g) Si no existe, el camino de recuperación perdida sigue creando el
