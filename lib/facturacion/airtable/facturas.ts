@@ -568,13 +568,8 @@ export async function obtenerFactura(recordId: string): Promise<FacturaHistorial
 // ─── Borrador de origen: lectura previa y consumo post-emisión ───────────────
 
 export async function obtenerBorradorParaEmision(recordId: string): Promise<BorradorEmision> {
-  const params = new URLSearchParams();
-  params.append("fields[]", "Estado");
-  params.append("fields[]", "Borrador Consumido");
-  params.append("fields[]", "Factura Emitida Desde Borrador");
-
   const data = await airtableRequest<{ id: string; fields: Record<string, unknown> }>(
-    `${tableUrl(recordId)}?${params}`
+    tableUrl(recordId)
   );
 
   const estado = safeStr(data.fields["Estado"]) as EstadoFactura;
@@ -684,10 +679,8 @@ export function debeBloquearFacturaDuplicadaReciente(
 }
 
 export async function agregarNotaAuditoriaFactura(recordId: string, nota: string): Promise<void> {
-  const params = new URLSearchParams();
-  params.append("fields[]", "Mensajes SRI");
   const actual = await airtableRequest<{ id: string; fields: Record<string, unknown> }>(
-    `${tableUrl(recordId)}?${params}`
+    tableUrl(recordId)
   );
   const previo = safeStr(actual.fields["Mensajes SRI"]);
   const siguiente = previo ? `${previo}\n${nota}` : nota;
@@ -725,12 +718,8 @@ export async function subirAdjunto(
 }
 
 export async function obtenerNombresAdjuntosFactura(recordId: string): Promise<NombresAdjuntosFactura> {
-  const params = new URLSearchParams();
-  params.append("fields[]", "XML Autorizado");
-  params.append("fields[]", "RIDE PDF");
-
   const data = await airtableRequest<{ id: string; fields: Record<string, unknown> }>(
-    `${tableUrl(recordId)}?${params}`
+    tableUrl(recordId)
   );
 
   return {
