@@ -10,6 +10,7 @@ import { camposLineaDesdeProducto } from "@/lib/facturacion/lineaDesdeProductoCa
 import { ClienteCard, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 import { validarIdentificacion, revisarIdentificacion } from "@/lib/facturacion/reglas/identificacion";
 import { mensajeReferenciaPagoFaltante, CODIGO_SRI_REQUIERE_REFERENCIA } from "@/lib/facturacion/reglas/referenciaPago";
+import { resolverBorradorInicial } from "@/lib/facturacion/borradores/formulario";
 
 // ─── Tipos locales ─────────────────────────────────────────────────────────────
 
@@ -169,6 +170,12 @@ type EmitirResponse =
   | { success: false; error?: string; code?: string; data?: unknown };
 
 const CODIGO_DUPLICADO_RECIENTE = "POSIBLE_FACTURA_DUPLICADA_RECIENTE";
+
+type FacturacionFormProps = {
+  consumidorFinalLimite?: number;
+  borradorId?: string | null;
+  onEmisionExitosa?: (resultado: ResultadoEmision) => void;
+};
 
 // ─── Validación de identificación ─────────────────────────────────────────────
 //
@@ -351,7 +358,11 @@ type BorradorPayload = {
   ivaIncluido?:       boolean;
 };
 
-export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFinalLimite?: number }) {
+export function FacturacionForm({
+  consumidorFinalLimite = 50,
+  borradorId: borradorIdProp,
+  onEmisionExitosa,
+}: FacturacionFormProps) {
   const searchParams = useSearchParams();
 
   // ── Estado del formulario ─────────────────────────────────────────────────
@@ -481,9 +492,9 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
   const excedeLimiteConsumidor =
     modoCliente === "consumidor" && totales.importeTotal >= consumidorFinalLimite;
 
-  // ── Cargar borrador desde URL (?borrador=recordId) ───────────────────────
+  // ── Cargar borrador desde prop o URL (?borrador=recordId) ────────────────
   useEffect(() => {
-    const id = searchParams.get("borrador");
+    const id = resolverBorradorInicial(borradorIdProp, searchParams.get("borrador"));
     if (!id) return;
     setBorradorId(id);
     fetch(`/api/facturacion/historial/${id}`)
@@ -936,6 +947,7 @@ export function FacturacionForm({ consumidorFinalLimite = 50 }: { consumidorFina
         if (j.data.estado === "AUTORIZADO" || j.data.estado === "EN PROCESAMIENTO") {
           setBorradorId(null);
           setMsgBorrador(null);
+          onEmisionExitosa?.(j.data);
         }
       }
     } catch {

@@ -20,7 +20,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { DocumentoResumen, GrupoVista, TipoDocumento, DocumentoCuerpo } from "@/lib/facturacion/documentos/tipos";
 import { TIPO_LABEL } from "@/lib/facturacion/documentos/tipos";
-import { NuevoDocumentoModal } from "@/components/facturacion/NuevoDocumentoModal";
+import { NuevoDocumentoModal, type TipoNuevoDocumento } from "@/components/facturacion/NuevoDocumentoModal";
 import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
 import { normalizeEcuadorPhone } from "@/lib/tecnicos/whatsapp";
 import { reservaVencida } from "@/lib/facturacion/reservas/reglas";
@@ -121,13 +121,14 @@ type AccionesProps = {
   accion: string | null;
   onPost: (url: string, label: string, body?: Record<string, unknown>) => void;
   onDelete: (url: string, label: string) => void;
+  onAbrirBorrador: (recordId: string) => void;
 };
 
 const btnLink  = "rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] transition whitespace-nowrap";
 const btnDanger = "rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-red-500/60 hover:text-red-300 transition whitespace-nowrap disabled:opacity-40";
 const btnOff   = "rounded-full border border-[#2A2A22] px-3 py-1.5 text-xs text-[#555] cursor-not-allowed whitespace-nowrap";
 
-function BarraAcciones({ doc, accion, onPost, onDelete }: AccionesProps) {
+function BarraAcciones({ doc, accion, onPost, onDelete, onAbrirBorrador }: AccionesProps) {
   if (!doc) {
     return <span className="text-xs text-[#555] italic">Selecciona un documento para ver sus acciones</span>;
   }
@@ -140,7 +141,13 @@ function BarraAcciones({ doc, accion, onPost, onDelete }: AccionesProps) {
     return (
       <div className="flex flex-wrap items-center gap-2">
         {esBorrador && (
-          <Link href={`/facturacion/nueva?borrador=${doc.recordId}`} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-xs font-bold text-[#151515] hover:brightness-105 whitespace-nowrap">✏ Abrir para facturar</Link>
+          <button
+            type="button"
+            onClick={() => onAbrirBorrador(doc.recordId)}
+            className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-xs font-bold text-[#151515] hover:brightness-105 whitespace-nowrap"
+          >
+            ✏ Abrir para facturar
+          </button>
         )}
         <a href={`/facturacion/imprimir/factura/${doc.recordId}`} target="_blank" rel="noopener" className={btnLink}>🖨 Imprimir 80 mm</a>
         {doc.tieneRide && <a href={`/api/facturacion/ride/${doc.claveAcceso}`} target="_blank" rel="noopener" className={btnLink}>↓ RIDE PDF</a>}
@@ -201,12 +208,13 @@ function BarraAcciones({ doc, accion, onPost, onDelete }: AccionesProps) {
 // ─── Visualizador de documento (ventana flotante) ────────────────────────────
 
 function DocumentoDetalleModal({
-  doc, accion, onPost, onDelete, onClose,
+  doc, accion, onPost, onDelete, onAbrirBorrador, onClose,
 }: {
   doc: DocumentoResumen;
   accion: string | null;
   onPost: (url: string, label: string, body?: Record<string, unknown>) => void;
   onDelete: (url: string, label: string) => void;
+  onAbrirBorrador: (recordId: string) => void;
   onClose: () => void;
 }) {
   const [cuerpo, setCuerpo]     = useState<DocumentoCuerpo | null>(null);
@@ -335,7 +343,7 @@ function DocumentoDetalleModal({
           <div className="border-t border-[#2A2A22] pt-3">
             <p className="text-[10px] text-[#666] uppercase tracking-wider mb-2">Acciones</p>
             <div className="flex flex-wrap items-center gap-2">
-              <BarraAcciones doc={doc} accion={accion} onPost={onPost} onDelete={onDelete} />
+              <BarraAcciones doc={doc} accion={accion} onPost={onPost} onDelete={onDelete} onAbrirBorrador={onAbrirBorrador} />
               {puedeImprimirMantenimiento && (
                 <button
                   type="button"
@@ -370,7 +378,7 @@ function DocumentoDetalleModal({
 
 export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumidorFinalLimite?: number }) {
   const [grupo, setGrupo]           = useState<GrupoVista>("ventas");
-  const [nuevoAbierto, setNuevoAbierto] = useState(false);
+  const [nuevoDocumento, setNuevoDocumento] = useState<{ tipoInicial: TipoNuevoDocumento; borradorId?: string | null } | null>(null);
   const [q, setQ]                   = useState("");
   const [qAplicado, setQAplicado]   = useState("");
   // Apagado por defecto: los documentos de ambiente PRUEBAS no son ventas
@@ -468,6 +476,17 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
       .finally(() => setAccion(null));
   }
 
+  function cerrarNuevoDocumento() {
+    setNuevoDocumento(null);
+    cargar(grupo, qAplicado, incluirPruebas);
+    cargarPendientes();
+  }
+
+  function abrirBorradorParaFacturar(recordId: string) {
+    setDetalleDoc(null);
+    setNuevoDocumento({ tipoInicial: "factura", borradorId: recordId });
+  }
+
   return (
     <div className="min-h-screen bg-[#151510] text-[#F5F5F5] p-4 md:p-6">
       {/* ── Barra fija superior ── */}
@@ -486,7 +505,7 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
             )}
           </div>
           <button
-            onClick={() => setNuevoAbierto(true)}
+            onClick={() => setNuevoDocumento({ tipoInicial: "factura", borradorId: null })}
             className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] hover:brightness-105 whitespace-nowrap"
           >
             + Nuevo documento
@@ -495,7 +514,7 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
 
         {/* Acciones contextuales */}
         <div className="min-h-[34px] flex items-center">
-          <BarraAcciones doc={seleccionado} accion={accion} onPost={onPost} onDelete={onDelete} />
+          <BarraAcciones doc={seleccionado} accion={accion} onPost={onPost} onDelete={onDelete} onAbrirBorrador={abrirBorradorParaFacturar} />
         </div>
       </div>
 
@@ -645,15 +664,18 @@ export function DocumentosFacturacion({ consumidorFinalLimite = 50 }: { consumid
           accion={accion}
           onPost={(url, label, body) => { setDetalleDoc(null); onPost(url, label, body); }}
           onDelete={onDelete}
+          onAbrirBorrador={abrirBorradorParaFacturar}
           onClose={() => setDetalleDoc(null)}
         />
       )}
 
       {/* Ventana flotante de creación */}
-      {nuevoAbierto && (
+      {nuevoDocumento && (
         <NuevoDocumentoModal
           consumidorFinalLimite={consumidorFinalLimite}
-          onClose={() => { setNuevoAbierto(false); cargar(grupo, qAplicado, incluirPruebas); cargarPendientes(); }}
+          tipoInicial={nuevoDocumento.tipoInicial}
+          borradorId={nuevoDocumento.borradorId}
+          onClose={cerrarNuevoDocumento}
         />
       )}
     </div>

@@ -4,6 +4,7 @@ import { cleanText, formatPrintDate } from "@/components/tecnicos/print/printUti
 
 export type TicketFacturaData = {
   numeroFactura:        string;
+  estado:               string;
   fechaEmision:         string;
   clienteNombre:        string;
   clienteIdentificacion:string;
@@ -20,11 +21,19 @@ export type TicketFacturaData = {
 
 export function TicketFactura({ emisor, factura }: { emisor: EmisorTicket; factura: TicketFacturaData }) {
   const esPrueba = factura.ambiente === "PRUEBAS";
+  const esBorrador = factura.estado === "BORRADOR";
   return (
     <>
       <style>{TICKET_CSS}</style>
       <main className="ticket-page">
         <article className="ticket">
+          {esBorrador && (
+            <div className="aviso-borrador">
+              <div className="aviso-borrador-titulo">ESTO ES UN BORRADOR</div>
+              <div className="aviso-borrador-texto">NO ES UN COMPROBANTE VÁLIDO Y NO TIENE VALIDEZ TRIBUTARIA</div>
+            </div>
+          )}
+
           <EmisorHeader emisor={emisor} />
 
           <div className="center doc-title">Factura</div>

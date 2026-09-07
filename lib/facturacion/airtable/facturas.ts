@@ -101,6 +101,7 @@ export type FacturaHistorial = {
   lineasJson:           string;
   tieneXml:             boolean;
   tieneRide:            boolean;
+  borradorConsumido:    boolean;
   sincronizacionInventario: EstadoSincronizacionInventario;
   errorSincronizacion:      string;
   movimientosFinancierosIds: string[];
@@ -286,6 +287,7 @@ function mapHistorialRecord(r: { id: string; fields: Record<string, unknown> }):
     lineasJson:            safeStr(f["Líneas JSON"]),
     tieneXml:              hasAttachment(f["XML Autorizado"]),
     tieneRide:             hasAttachment(f["RIDE PDF"]),
+    borradorConsumido:     f["Borrador Consumido"] === true,
     sincronizacionInventario: (syncRaw as EstadoSincronizacionInventario) || "N/A",
     errorSincronizacion:      safeStr(f["Error Sincronización"]),
     movimientosFinancierosIds: linkedIdsFactura(f["Movimientos Financieros (Facturación)"]),
@@ -530,6 +532,7 @@ export async function listarFacturas(filtros: FiltrosHistorial = {}): Promise<Li
     "Cliente - Nombre", "Cliente - Identificación", "Cliente - Correo",
     "Subtotal", "IVA", "Total", "Mensajes SRI", "Líneas JSON",
     "XML Autorizado", "RIDE PDF",
+    "Borrador Consumido",
     "Sincronización Inventario", "Error Sincronización",
     "Movimientos Financieros (Facturación)",
   ];

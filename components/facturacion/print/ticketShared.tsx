@@ -44,6 +44,9 @@ export const TICKET_CSS = `
   .doc-title { margin-top: 8px; font-size: 13px; font-weight: 800; text-transform: uppercase; }
   .doc-num { font-size: 13px; font-weight: 800; }
   .aviso { margin: 6px 0; padding: 3px; border: 1px dashed #000; font-size: 10px; font-weight: 800; text-align: center; }
+  .aviso-borrador { margin: 0 0 8px; padding: 6px 4px; border: 3px solid #000; text-align: center; text-transform: uppercase; }
+  .aviso-borrador-titulo { font-size: 18px; line-height: 1.05; font-weight: 900; }
+  .aviso-borrador-texto { margin-top: 3px; font-size: 11px; line-height: 1.15; font-weight: 900; }
   .sep { border-top: 1px dashed #000; margin: 7px 0; }
   .row { display: flex; gap: 4px; margin: 2px 0; }
   .row .label { min-width: 20mm; font-weight: 700; }
@@ -56,7 +59,7 @@ export const TICKET_CSS = `
   .sri { font-size: 9px; word-break: break-all; }
   .sri .k { font-weight: 700; }
   .thanks { margin-top: 9px; font-size: 12px; font-weight: 800; text-align: center; }
-  .item, .tot, .sri, .aviso { page-break-inside: avoid; break-inside: avoid; }
+  .item, .tot, .sri, .aviso, .aviso-borrador { page-break-inside: avoid; break-inside: avoid; }
   .print-actions { display: flex; justify-content: center; gap: 8px; padding: 14px; background: #f3f3f3; }
   .print-actions button, .print-actions a { border: 1px solid #111; border-radius: 6px; background: #fff; color: #111; padding: 8px 12px; font: 700 13px Arial, Helvetica, sans-serif; text-decoration: none; cursor: pointer; }
   @media screen { .ticket-page { min-height: 100vh; } }
