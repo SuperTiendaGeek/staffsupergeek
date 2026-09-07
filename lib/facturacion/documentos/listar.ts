@@ -30,7 +30,9 @@ async function mapFacturas(pageSize: number, incluirPruebas: boolean): Promise<D
     pageSize,
     ...(incluirPruebas ? {} : { ambiente: "PRODUCCIÓN" }),
   });
-  return facturas.map((f): DocumentoResumen => ({
+  return facturas
+    .filter((f) => !(f.estado === "BORRADOR" && f.borradorConsumido))
+    .map((f): DocumentoResumen => ({
     tipo: "factura",
     recordId: f.recordId,
     numero: f.numeroFactura,
