@@ -39,6 +39,7 @@ export default async function ImprimirFacturaPage({ params }: { params: Promise<
         emisor={{ nombreComercial: cfg.nombreComercial, razonSocial: cfg.razonSocial, ruc: cfg.ruc, dirMatriz: cfg.dirMatriz }}
         factura={{
           numeroFactura:         factura.numeroFactura,
+          estado:                factura.estado,
           fechaEmision:          factura.fechaEmision,
           clienteNombre:         factura.clienteNombre,
           clienteIdentificacion: factura.clienteIdentificacion,
