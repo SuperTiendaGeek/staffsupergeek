@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 
 import {
+  agregarNotaAuditoriaFactura,
   buscarFacturaDuplicadaReciente,
   debeBloquearFacturaDuplicadaReciente,
   VENTANA_DUPLICADO_FACTURA_MINUTOS,
@@ -53,6 +54,40 @@ async function conFacturas(records: RecordDoble[], fn: () => Promise<void>): Pro
   }) as typeof fetch;
 
   await fn();
+}
+
+async function conFacturaIndividual(
+  record: RecordDoble,
+  fn: (capturas: { gets: string[]; patches: Array<{ recordId: string; fields: Record<string, unknown> }> }) => Promise<void>
+): Promise<void> {
+  const gets: string[] = [];
+  const patches: Array<{ recordId: string; fields: Record<string, unknown> }> = [];
+
+  global.fetch = (async (input: string | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    const method = (init?.method ?? "GET").toUpperCase();
+    const segments = decodeURIComponent(url.pathname).split("/").filter(Boolean);
+    const recordId = segments[3];
+
+    if (method === "GET" && recordId) {
+      gets.push(url.toString());
+      if (url.searchParams.has("fields[]")) {
+        return json({ type: "INVALID_REQUEST_UNKNOWN", message: "parameter validation failed" }, 422);
+      }
+      return recordId === record.id ? json(record) : json({ error: "Record not found" }, 404);
+    }
+
+    if (method === "PATCH" && recordId) {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { fields: Record<string, unknown> };
+      patches.push({ recordId, fields: body.fields });
+      record.fields = { ...record.fields, ...body.fields };
+      return json(record);
+    }
+
+    return json({ error: "metodo inesperado" }, 500);
+  }) as typeof fetch;
+
+  await fn({ gets, patches });
 }
 
 function factura(fields: Record<string, unknown>, minutos: number): RecordDoble {
@@ -145,6 +180,25 @@ function factura(fields: Record<string, unknown>, minutos: number): RecordDoble 
     assert(duplicado === null, "Sin duplicados recientes, la emision normal sigue sin bloqueo");
     assert(!debeBloquearFacturaDuplicadaReciente(duplicado, false), "Sin duplicado, la regla no bloquea");
   });
+
+  // i) La nota de auditoria de confirmacion se acumula leyendo el registro
+  // completo; Airtable real rechaza fields[] en este endpoint individual.
+  await conFacturaIndividual(
+    factura({ id: "recAUDITORIA", "Mensajes SRI": "nota previa" }, 1),
+    async ({ gets, patches }) => {
+      await agregarNotaAuditoriaFactura("recAUDITORIA", "confirmado como otra venta");
+      const lectura = gets[0] ?? "";
+      assert(
+        !lectura.includes("fields%5B%5D") && !lectura.includes("fields[]"),
+        "Nota de auditoria: GET de registro individual va sin fields[]"
+      );
+      const patch = patches[patches.length - 1];
+      assert(
+        patch?.fields["Mensajes SRI"] === "nota previa\nconfirmado como otra venta",
+        "Nota de auditoria: conserva el historial previo y agrega la confirmacion"
+      );
+    }
+  );
 
   global.fetch = fetchOriginal;
   delete process.env.AIRTABLE_API_KEY;

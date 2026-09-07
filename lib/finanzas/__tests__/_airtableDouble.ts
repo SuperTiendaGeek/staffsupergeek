@@ -219,6 +219,10 @@ function jsonResponse(ok: boolean, status: number, body: unknown): Response {
   return { ok, status, text: async () => text, json: async () => JSON.parse(text) } as Response;
 }
 
+function airtable422FieldsEnRegistro(): Response {
+  return jsonResponse(false, 422, { type: "INVALID_REQUEST_UNKNOWN", message: "parameter validation failed" });
+}
+
 export function construirFetchDouble(state: AirtableDoubleState) {
   return async (urlInput: string | URL, init?: RequestInit): Promise<Response> => {
     const url = new URL(String(urlInput));
@@ -237,6 +241,8 @@ export function construirFetchDouble(state: AirtableDoubleState) {
     if (!esCuentas && !esMovimientosActiva && !esOtraTabla) return jsonResponse(false, 404, "TABLE_NOT_FOUND");
 
     const store = esCuentas ? state.cuentas : esMovimientosActiva ? state.movimientos : storeDeOtraTabla(state, tableName);
+
+    if (method === "GET" && recordId && url.searchParams.has("fields[]")) return airtable422FieldsEnRegistro();
 
     if (method === "GET" && recordId) {
       const record = store.get(recordId);
