@@ -17,9 +17,9 @@ import { ReciboForm }      from "@/components/facturacion/ReciboForm";
 import { ProformaForm }    from "@/components/facturacion/ProformaForm";
 import { ReservaForm }     from "@/components/facturacion/ReservaForm";
 
-type TipoNuevo = "factura" | "recibo" | "proforma" | "reserva";
+export type TipoNuevoDocumento = "factura" | "recibo" | "proforma" | "reserva";
 
-const TABS: Array<{ id: TipoNuevo; label: string; hint: string }> = [
+const TABS: Array<{ id: TipoNuevoDocumento; label: string; hint: string }> = [
   { id: "factura",  label: "Factura",  hint: "tributaria · SRI" },
   { id: "recibo",   label: "Recibo",   hint: "interno · sin IVA" },
   { id: "proforma", label: "Proforma", hint: "cotización" },
@@ -41,11 +41,15 @@ function CargandoForm() {
 export function NuevoDocumentoModal({
   consumidorFinalLimite,
   onClose,
+  tipoInicial = "factura",
+  borradorId,
 }: {
   consumidorFinalLimite: number;
   onClose: () => void;
+  tipoInicial?: TipoNuevoDocumento;
+  borradorId?: string | null;
 }) {
-  const [tipo, setTipo] = useState<TipoNuevo>("factura");
+  const [tipo, setTipo] = useState<TipoNuevoDocumento>(tipoInicial);
   // El cierre por "clic afuera" solo debe contar cuando el clic EMPIEZA y
   // TERMINA en el fondo. Si solo se mira e.target en el click, seleccionar
   // texto dentro de un input (doble clic o arrastrar para reemplazar un
@@ -106,7 +110,7 @@ export function NuevoDocumentoModal({
         <div className="doc-compact px-4 py-3">
           {tipo === "factura" && (
             <Suspense fallback={<CargandoForm />}>
-              <FacturacionForm consumidorFinalLimite={consumidorFinalLimite} />
+              <FacturacionForm consumidorFinalLimite={consumidorFinalLimite} borradorId={borradorId ?? null} onEmisionExitosa={onClose} />
             </Suspense>
           )}
           {tipo === "recibo"   && <ReciboForm />}
