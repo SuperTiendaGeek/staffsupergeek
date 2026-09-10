@@ -35,14 +35,16 @@ type Props = {
 };
 
 const PRINT_TARGET_ID = "etiqueta-mantenimiento-imprimir";
+const ETIQUETA_ANCHO_MM = 50;
+const ETIQUETA_ALTO_MM = 25;
 
 // Ampliación de la vista previa en pantalla. La etiqueta real es 50×25mm —
 // sin ampliar sería casi ilegible en un monitor. `transform: scale()` NO
 // cambia el tamaño de layout del elemento (solo lo que se PINTA), así que
-// hace falta reservar el espacio real (ancho/alto en `calc(Nmm * escala)`)
-// con overflow:hidden alrededor; si no, el contenido ampliado se dibuja por
-// encima del resto del modal en vez de empujarlo — eso es lo que rompía el
-// layout antes.
+// hace falta reservar el espacio ampliado alrededor y dar al nodo escalado su
+// tamaño físico real; si no, el contenido ampliado puede pintarse corrido o por
+// encima del resto del modal en vez de quedar centrado dentro de la vista
+// previa.
 const PREVIEW_SCALE = 2.4;
 
 function seisMesesDesdeHoy(): Date {
@@ -194,14 +196,22 @@ export function ImprimirEtiquetaMantenimientoModal({ onClose, ordenId, factura }
                 ese tamaño físico y aísla este nodo (ver estilo de arriba). */}
             <div
               style={{
-                width: `calc(50mm * ${PREVIEW_SCALE})`,
-                height: `calc(25mm * ${PREVIEW_SCALE})`,
+                width: `${ETIQUETA_ANCHO_MM * PREVIEW_SCALE}mm`,
+                height: `${ETIQUETA_ALTO_MM * PREVIEW_SCALE}mm`,
                 overflow: "hidden",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
               <div
                 id={PRINT_TARGET_ID}
-                style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: "top left" }}
+                style={{
+                  width: `${ETIQUETA_ANCHO_MM}mm`,
+                  height: `${ETIQUETA_ALTO_MM}mm`,
+                  transform: `scale(${PREVIEW_SCALE})`,
+                  transformOrigin: "center center",
+                }}
               >
                 <EtiquetaMantenimiento fecha={fecha} />
               </div>
