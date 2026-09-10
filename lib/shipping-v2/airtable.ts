@@ -3755,6 +3755,7 @@ function packingPatchFieldsFromInput(input: ShippingV2PackingWriteInput) {
 
 function editablePackingKeysForStatus(status: string): Set<keyof ShippingV2PackingWriteInput> {
   const normalized = normalizeStatus(status);
+  const distributionRuleKeys: Array<keyof ShippingV2PackingWriteInput> = ["reglaDistribucionCostos"];
   const logisticsCostKeys: Array<keyof ShippingV2PackingWriteInput> = ["flete", "arancel", "otrosCostos", "reglaDistribucionCostos", "observacionCostos"];
   if (normalized === "en proceso") {
     return new Set(["nombre", "tipo", "ordenReferencia", "observaciones", "proveedorResponsableId", "trackingUsa", "transportistaUsa", "trackingEc", "transportistaEc", "peso", ...logisticsCostKeys]);
@@ -3767,6 +3768,9 @@ function editablePackingKeysForStatus(status: string): Set<keyof ShippingV2Packi
   }
   if (normalized === "recibido") {
     return new Set(["ordenReferencia", ...logisticsCostKeys]);
+  }
+  if (normalized === "en revision") {
+    return new Set(distributionRuleKeys);
   }
   return new Set();
 }

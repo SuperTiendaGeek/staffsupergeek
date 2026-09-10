@@ -937,12 +937,14 @@ function safeMoneyInputValue(value: string) {
 
 function LogisticsCostsSection({
   packing,
-  canEdit,
+  canEditCosts,
+  canEditDistributionRule,
   providerSummary,
   onSaved,
 }: {
   packing: ShippingV2Packing;
-  canEdit: boolean;
+  canEditCosts: boolean;
+  canEditDistributionRule: boolean;
   providerSummary: ReturnType<typeof packingProviderCostSummary>;
   onSaved: (packing: ShippingV2Packing) => void;
 }) {
@@ -971,22 +973,27 @@ function LogisticsCostsSection({
   const otrosCostos = safeMoneyInputValue(form.otrosCostos);
   const total = flete + arancel + otrosCostos;
   const isPreliminary = normalize(packing.estado) === "en proceso";
+  const canSave = canEditCosts || canEditDistributionRule;
 
   function update(key: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
   async function saveCosts() {
+    if (!canSave) return;
     setStatus("saving");
     setError("");
     try {
-      const payload = {
-        flete: parseMoneyInput(form.flete),
-        arancel: parseMoneyInput(form.arancel),
-        otrosCostos: parseMoneyInput(form.otrosCostos),
-        reglaDistribucionCostos: form.reglaDistribucionCostos,
-        observacionCostos: form.observacionCostos,
-      };
+      const payload: Record<string, string | number> = {};
+      if (canEditCosts) {
+        payload.flete = parseMoneyInput(form.flete);
+        payload.arancel = parseMoneyInput(form.arancel);
+        payload.otrosCostos = parseMoneyInput(form.otrosCostos);
+        payload.observacionCostos = form.observacionCostos;
+      }
+      if (canEditDistributionRule) {
+        payload.reglaDistribucionCostos = form.reglaDistribucionCostos;
+      }
       const response = await fetch(`/api/shipping-v2/packings/${packing.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1021,25 +1028,25 @@ function LogisticsCostsSection({
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <CostSummaryItem label="Flete">
-          <input inputMode="decimal" value={form.flete} disabled={!canEdit} onChange={(event) => update("flete", event.target.value)} className={compactInputClass} />
+          <input inputMode="decimal" value={form.flete} disabled={!canEditCosts} onChange={(event) => update("flete", event.target.value)} className={compactInputClass} />
         </CostSummaryItem>
         <CostSummaryItem label="Arancel">
-          <input inputMode="decimal" value={form.arancel} disabled={!canEdit} onChange={(event) => update("arancel", event.target.value)} className={compactInputClass} />
+          <input inputMode="decimal" value={form.arancel} disabled={!canEditCosts} onChange={(event) => update("arancel", event.target.value)} className={compactInputClass} />
         </CostSummaryItem>
         <CostSummaryItem label="Otros costos">
-          <input inputMode="decimal" value={form.otrosCostos} disabled={!canEdit} onChange={(event) => update("otrosCostos", event.target.value)} className={compactInputClass} />
+          <input inputMode="decimal" value={form.otrosCostos} disabled={!canEditCosts} onChange={(event) => update("otrosCostos", event.target.value)} className={compactInputClass} />
         </CostSummaryItem>
         <CostSummaryItem label="Total logístico" value={formatCurrencyZero(total)} strong />
         <CostSummaryItem label="Costo total proveedor items" value={formatCurrencyZero(providerSummary.costoTotalProveedorItems)} />
         <CostSummaryItem label="Ítems incluidos" value={display(providerSummary.referenciasIncluidas)} />
         <CostSummaryItem label="Unidades totales" value={display(providerSummary.unidadesTotales)} />
         <CostSummaryItem label="Regla distribución">
-          <select value={form.reglaDistribucionCostos} disabled={!canEdit} onChange={(event) => update("reglaDistribucionCostos", event.target.value)} className={compactSelectClass}>
+          <select value={form.reglaDistribucionCostos} disabled={!canEditDistributionRule} onChange={(event) => update("reglaDistribucionCostos", event.target.value)} className={compactSelectClass}>
             {SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS.map((option) => <option key={option} value={option}>{option}</option>)}
           </select>
         </CostSummaryItem>
         <CostSummaryItem label="Observación costos">
-          <textarea value={form.observacionCostos} disabled={!canEdit} onChange={(event) => update("observacionCostos", event.target.value)} className={compactTextareaClass} />
+          <textarea value={form.observacionCostos} disabled={!canEditCosts} onChange={(event) => update("observacionCostos", event.target.value)} className={compactTextareaClass} />
         </CostSummaryItem>
       </div>
 
@@ -1057,8 +1064,8 @@ function LogisticsCostsSection({
         <div className="flex flex-wrap items-center justify-end gap-3">
           {error ? <span className="text-sm font-semibold text-[#FFB07A]">{error}</span> : null}
           <SaveBadge status={status} />
-          <button type="button" disabled={!canEdit || status === "saving"} onClick={() => void saveCosts()} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-5 py-2.5 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">
-            Guardar costos
+          <button type="button" disabled={!canSave || status === "saving"} onClick={() => void saveCosts()} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-5 py-2.5 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">
+            {canEditCosts ? "Guardar costos" : "Guardar regla"}
           </button>
         </div>
       </div>
@@ -1241,6 +1248,12 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     if (!canEditPacking || !canViewCosts) return false;
     const state = normalize(packing.estado);
     return ["en proceso", "cerrado", "en transito", "recibido"].includes(state);
+  }
+
+  function canEditDistributionRule() {
+    if (!canEditPacking || !canViewCosts) return false;
+    const state = normalize(packing.estado);
+    return ["en proceso", "cerrado", "en transito", "recibido", "en revision"].includes(state);
   }
 
   async function copyTracking(kind: "usa" | "ec", value?: string) {
@@ -1858,7 +1871,8 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
       {canViewCosts ? (
         <LogisticsCostsSection
           packing={packing}
-          canEdit={canEditLogisticsCosts()}
+          canEditCosts={canEditLogisticsCosts()}
+          canEditDistributionRule={canEditDistributionRule()}
           providerSummary={providerSummary}
           onSaved={(updatedPacking) => {
             setPacking(updatedPacking);
