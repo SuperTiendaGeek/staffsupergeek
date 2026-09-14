@@ -1,3 +1,4 @@
+import type { ShippingV2PackingReviewProgress, ShippingV2PackingWorkHint } from "@/lib/shipping-v2/packing-lifecycle";
 import { SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 
 export type ShippingV2RecordBase = {
@@ -293,6 +294,10 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   costoTotalUnidad: number | null;
   costoTotalEstimado: number | null;
   subtotalProveedorPacking?: number | null;
+  /** Unidades usadas para el histórico del packing (ver packing-calculations). */
+  unidadesPacking?: number | null;
+  /** true cuando esas unidades se estimaron porque la Cantidad actual ya no sirve. */
+  unidadesPackingEstimadas?: boolean | null;
   precioVentaSugerido: number | null;
   precioVenta: number | null;
   qty: number | null;
@@ -561,6 +566,9 @@ export type ShippingV2Packing = ShippingV2RecordBase & {
   cantidadItemsPacking: number | null;
   referenciasIncluidas: number;
   unidadesTotales: number | null;
+  /** Registros cuyo histórico se calculó con unidades estimadas. */
+  referenciasConUnidadesEstimadas?: number;
+  advertenciasUnidades?: string[];
   reglaDistribucion?: string;
   reglaDistribucionCostos?: string;
   observacionCostos?: string;
@@ -572,6 +580,13 @@ export type ShippingV2Packing = ShippingV2RecordBase & {
   cerradoPor?: string;
   creadoPor?: string;
   conNovedad: boolean;
+};
+
+/** Avance de revisión de un packing calculado desde sus artículos. */
+export type ShippingV2PackingReviewSummary = {
+  progress: ShippingV2PackingReviewProgress;
+  novedadesAbiertas: number;
+  hint: ShippingV2PackingWorkHint;
 };
 
 export type ShippingV2Destinatario = ShippingV2RecordBase & {

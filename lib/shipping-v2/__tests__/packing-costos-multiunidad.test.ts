@@ -1,7 +1,9 @@
 import {
+  assertShippingV2PackingItemQuantity,
   calculateShippingV2PackingProviderCostSummary,
   calculateShippingV2PackingProviderItemSubtotal,
   formatShippingV2PackingItemsUnitsSummary,
+  resolveShippingV2PackingItemUnits,
   withShippingV2PackingProviderItemSubtotal,
 } from "../packing-calculations";
 
@@ -94,6 +96,47 @@ assertMoney(
   70,
   "No se modifica la distribución de flete/arancel/otros costos en esta fase"
 );
+
+// ─── Items ya vendidos: Cantidad 0 no puede romper el histórico del packing ──
+//
+// `Cantidad` en Shipping Items es stock ACTUAL: facturar o entregar un recibo
+// lo descuenta. Un packing recibido hace meses tiene items vendidos con
+// Cantidad 0, y eso hacía caer la pantalla entera del packing.
+
+const vendido = { id: "recVENDIDO", sku: "LAP-000023", cantidad: 0, costoProveedor: 167 };
+
+const unidadesVendido = resolveShippingV2PackingItemUnits(vendido);
+assert(unidadesVendido.unidades === 1, "Item vendido (Cantidad 0) se cuenta como 1 unidad histórica");
+assert(unidadesVendido.estimada === true, "Item vendido queda marcado como unidades estimadas");
+assert(unidadesVendido.advertencia.includes("LAP-000023"), "La advertencia identifica el SKU afectado");
+
+assertMoney(
+  calculateShippingV2PackingProviderItemSubtotal(vendido),
+  167,
+  "Item vendido conserva su subtotal proveedor histórico"
+);
+
+const resumenConVendido = calculateShippingV2PackingProviderCostSummary([item50, vendido]);
+assertMoney(resumenConVendido.costoTotalProveedorItems, 217, "El total del packing incluye items ya vendidos");
+assert(resumenConVendido.unidadesTotales === 2, "Unidades totales cuentan 1 por el item vendido");
+assert(resumenConVendido.referenciasConUnidadesEstimadas === 1, "El resumen reporta cuántas referencias se estimaron");
+assert(resumenConVendido.advertenciasUnidades.length === 1, "El resumen expone la advertencia para la pantalla");
+
+const sinCantidad = resolveShippingV2PackingItemUnits({ sku: "SIN-CANTIDAD", costoProveedor: 10 });
+assert(sinCantidad.unidades === 1 && sinCantidad.estimada, "Item sin Cantidad registrada también se estima en 1");
+
+const vendidoConSubtotal = withShippingV2PackingProviderItemSubtotal(vendido);
+assert(vendidoConSubtotal.unidadesPacking === 1, "La UI recibe las unidades usadas para el histórico");
+assert(vendidoConSubtotal.unidadesPackingEstimadas === true, "La UI recibe la marca de unidades estimadas");
+
+// La validación estricta sigue existiendo para rutas de ESCRITURA (pagos).
+let lanzoEstricto = false;
+try {
+  assertShippingV2PackingItemQuantity(vendido);
+} catch {
+  lanzoEstricto = true;
+}
+assert(lanzoEstricto, "assertShippingV2PackingItemQuantity sigue rechazando Cantidad 0 al escribir");
 
 if (fallos > 0) {
   console.error(`Fallaron ${fallos} comprobaciones.`);
