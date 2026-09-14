@@ -35,6 +35,7 @@ import type {
   ShippingV2PagoMarkPaidInput,
   ShippingV2PagoPendingItem,
   ShippingV2PagoSupportCard,
+  ShippingV2PackingReviewSummary,
   ShippingV2PagosSummary,
   ShippingV2PagosWorkspace,
   ShippingV2PackingInvoiceData,
@@ -69,6 +70,13 @@ import {
   type ShippingV2PaymentItemLike,
 } from "@/lib/shipping-v2/payment-calculations";
 import { withShippingV2PackingProviderCostSummary } from "@/lib/shipping-v2/packing-calculations";
+import { planShippingV2PackingItemSync } from "@/lib/shipping-v2/packing-item-sync";
+import {
+  calculateShippingV2PackingReviewProgress,
+  getShippingV2PackingTopPendingStep,
+  getShippingV2PackingWorkHint,
+} from "@/lib/shipping-v2/packing-lifecycle";
+import type { ShippingV2ReceptionChecklistItemLike } from "@/lib/shipping-v2/reception-checklist";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { canBeUsaTransportProvider, isCompatibleEcuadorTransportProvider } from "@/lib/shipping-v2/tracking-providers";
@@ -1788,6 +1796,44 @@ export async function getShippingV2Items(options: MapItemOptions = {}) {
   const [records, proveedores] = await Promise.all([
     listRecords(SHIPPING_V2_TABLES.items, {
       maxRecords: 200,
+      sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro,
+      sortDirection: "desc",
+    }),
+    proveedoresPromise,
+  ]);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+  return records
+    .map((record) => mapItem(record, options))
+    .map((item) => applyItemProviderLabels(item, labelsById))
+    .filter((item) => canAccessItem(item, options.access))
+    .map((item) => sanitizeShippingV2ItemForAccess(item, options.access, options))
+    .sort(compareShippingV2ItemListOrder);
+}
+
+/**
+ * Items para la pantalla de Recepción. SIN techo de registros.
+ *
+ * getShippingV2Items trae como mucho los 200 más recientes por Fecha de
+ * registro. Con 570 artículos en la base, esa ventana solo llegaba hasta el
+ * 2026-07-28: todo lo anterior desaparecía de Recepción en silencio, sin
+ * ningún aviso. Los 10 artículos de PK-20260610-47604 (junio) eran
+ * invisibles, así que el packing no se podía revisar ni cerrar.
+ *
+ * Recepción es una bandeja de trabajo: si un artículo pendiente no sale en la
+ * lista, el trabajo no se puede hacer. Aquí la completitud importa más que la
+ * latencia, así que se pagina la tabla entera (≈6 peticiones para 570
+ * registros, con el reintento por rate limit que ya tiene airtableRequest).
+ * El filtro de visibilidad real lo sigue aplicando
+ * shouldShowShippingV2ReceptionItem en la página.
+ *
+ * El tope de 5000 es solo un freno de seguridad para que esto no pueda
+ * dispararse si la tabla crece de forma inesperada.
+ */
+export async function getShippingV2ReceptionItems(options: MapItemOptions = {}) {
+  const proveedoresPromise = options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores();
+  const [records, proveedores] = await Promise.all([
+    listRecords(SHIPPING_V2_TABLES.items, {
+      maxRecords: 5000,
       sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro,
       sortDirection: "desc",
     }),
@@ -3833,6 +3879,84 @@ export async function getShippingV2Packings(access?: ShippingV2AccessContext) {
     .filter((packing) => canAccessPacking(packing, access));
 }
 
+/**
+ * Avance real de revisión de varios packings, en UNA sola lectura acotada.
+ *
+ * La lista de packings solo trae el "Estado Packing" de Airtable, que es
+ * manual y no dice nada de lo que pasó con el contenido de la caja. Sin esto,
+ * un packing con 46 de 47 artículos sin revisar se ve igual que uno terminado.
+ *
+ * Se leen únicamente los 4 campos necesarios de Shipping Items (no el registro
+ * entero) y se agrupan por el link "Shipping Packings". Las novedades se
+ * pasan ya cargadas desde la página para no volver a consultarlas por packing.
+ */
+export async function getShippingV2PackingsReviewProgress(
+  packings: ShippingV2Packing[],
+  novedades: ShippingV2Novedad[] = []
+): Promise<Map<string, ShippingV2PackingReviewSummary>> {
+  const resumen = new Map<string, ShippingV2PackingReviewSummary>();
+  if (!packings.length) return resumen;
+
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const records = await listRecords(SHIPPING_V2_TABLES.items, {
+    fields: [
+      F.sku,
+      F.estadoItem,
+      F.recibido,
+      "Revisado física/técnicamente",
+      "Fotos tomadas",
+      "Shopify publicado",
+      "Marketplace publicado",
+      "Mercado Libre publicado",
+      "Grupos Facebook publicado",
+      F.esRepuesto,
+      F.esUsoLocal,
+      "Shipping Packings",
+    ],
+  });
+
+  const itemsPorPacking = new Map<string, ShippingV2ReceptionChecklistItemLike[]>();
+  for (const record of records) {
+    const packingIds = linkedRecordIds(record.fields["Shipping Packings"]);
+    if (!packingIds.length) continue;
+    const item: ShippingV2ReceptionChecklistItemLike = {
+      id: record.id,
+      sku: firstString(record.fields[F.sku]),
+      estado: firstString(record.fields[F.estadoItem]),
+      recibido: firstBoolean(record.fields[F.recibido]),
+      revisadoFisicamente: firstBoolean(record.fields["Revisado física/técnicamente"]),
+      fotosTomadas: firstBoolean(record.fields["Fotos tomadas"]),
+      shopifyPublicado: firstBoolean(record.fields["Shopify publicado"]),
+      marketplacePublicado: firstBoolean(record.fields["Marketplace publicado"]),
+      mercadoLibrePublicado: firstBoolean(record.fields["Mercado Libre publicado"]),
+      gruposFacebookPublicado: firstBoolean(record.fields["Grupos Facebook publicado"]),
+      esRepuesto: firstBoolean(record.fields[F.esRepuesto]),
+      usoLocal: firstBoolean(record.fields[F.esUsoLocal]),
+    };
+    for (const packingId of packingIds) {
+      const bucket = itemsPorPacking.get(packingId);
+      if (bucket) bucket.push(item);
+      else itemsPorPacking.set(packingId, [item]);
+    }
+  }
+
+  for (const packing of packings) {
+    const items = itemsPorPacking.get(packing.id) ?? [];
+    const progress = calculateShippingV2PackingReviewProgress(items);
+    const novedadesAbiertas = novedades.filter((novedad) =>
+      isOpenNovedadStatus(novedad.estado) &&
+      (novedad.packingId === packing.id || Boolean(novedad.itemId && packing.itemIds.includes(novedad.itemId)))
+    ).length;
+    resumen.set(packing.id, {
+      progress,
+      novedadesAbiertas,
+      hint: getShippingV2PackingWorkHint({ estado: packing.estado, progress, novedadesAbiertas }),
+    });
+  }
+
+  return resumen;
+}
+
 export async function getShippingV2PackingById(recordId: string, access?: ShippingV2AccessContext, options: MapPackingOptions = {}) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de packing inválido.");
@@ -4597,12 +4721,38 @@ async function patchPackingStatus(input: {
   return getShippingV2PackingById(input.packing.id, input.access);
 }
 
-async function updatePackingItemsForStatus(packing: ShippingV2Packing, fields: Record<string, unknown>) {
-  if (!packing.itemIds.length) return;
-  await patchAirtableRecords(SHIPPING_V2_TABLES.items, packing.itemIds.map((itemId) => ({
-    id: itemId,
+/**
+ * Aplica un cambio de estado del packing a sus artículos.
+ *
+ * `estadoDestino` es obligatorio y actúa de guarda: solo se escriben los
+ * artículos que siguen en una etapa ANTERIOR. Los que ya pasaron por
+ * recepción, ya están a la venta, ya se vendieron o ya se consumieron se
+ * dejan intactos — ver packing-item-sync.ts para el caso real que motivó esto.
+ *
+ * Devuelve el plan para que quien llama pueda contarlo en el evento y en la
+ * respuesta al usuario.
+ */
+async function updatePackingItemsForStatus(
+  packing: ShippingV2Packing,
+  estadoDestino: string,
+  fields: Record<string, unknown>
+) {
+  const vacio = { aplicar: [], omitidos: [], resumen: "El packing no tiene artículos vinculados." };
+  if (!packing.itemIds.length) return vacio;
+
+  // packing.items viene cargado por getShippingV2PackingById. Si por acceso
+  // restringido llegara vacío, no se escribe nada: es preferible no avanzar a
+  // pisar artículos cuyo estado no se pudo leer.
+  if (!packing.items.length) return vacio;
+
+  const plan = planShippingV2PackingItemSync(packing.items, estadoDestino);
+  if (!plan.aplicar.length) return plan;
+
+  await patchAirtableRecords(SHIPPING_V2_TABLES.items, plan.aplicar.map((item) => ({
+    id: item.id,
     fields,
   })));
+  return plan;
 }
 
 export async function transitionShippingV2PackingStatus(
@@ -4624,7 +4774,7 @@ export async function transitionShippingV2PackingStatus(
 
   if (input.action === "mark-in-transit") {
     if (currentStatus !== "cerrado") throw new Error("Solo puedes marcar en tránsito un packing cerrado.");
-    await updatePackingItemsForStatus(packing, {
+    const planTransito = await updatePackingItemsForStatus(packing, "En tránsito", {
       [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "En tránsito",
       [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: now,
       [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: input.actor,
@@ -4638,13 +4788,13 @@ export async function transitionShippingV2PackingStatus(
         [SHIPPING_V2_PACKING_FIELDS.fechaEnvio]: now,
         "Enviado por": input.actor,
       },
-      descripcion: "Packing marcado en tránsito desde Portal Staff.",
+      descripcion: `Packing marcado en tránsito desde Portal Staff. ${planTransito.resumen}`,
     });
   }
 
   if (input.action === "mark-received") {
     if (currentStatus !== "en transito") throw new Error("Solo puedes marcar recibido un packing en tránsito.");
-    await updatePackingItemsForStatus(packing, {
+    const planRecibido = await updatePackingItemsForStatus(packing, "Recibido", {
       [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Recibido",
       [SHIPPING_V2_ITEM_FIELDS.estadoRevision]: "Pendiente de recepción",
       [SHIPPING_V2_ITEM_FIELDS.recibido]: false,
@@ -4660,13 +4810,13 @@ export async function transitionShippingV2PackingStatus(
         [SHIPPING_V2_PACKING_FIELDS.fechaRecepcion]: now,
         "Recibido por": input.actor,
       },
-      descripcion: "Packing marcado como recibido desde Portal Staff. Los items quedan pendientes de confirmación de recepción.",
+      descripcion: `Packing marcado como recibido desde Portal Staff. Los items quedan pendientes de confirmación de recepción. ${planRecibido.resumen}`,
     });
   }
 
   if (input.action === "start-review") {
     if (currentStatus !== "recibido") throw new Error("Solo puedes iniciar revisión de un packing recibido.");
-    await updatePackingItemsForStatus(packing, {
+    const planRevision = await updatePackingItemsForStatus(packing, "En revisión", {
       [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "En revisión",
       [SHIPPING_V2_ITEM_FIELDS.estadoRevision]: "Recibido pendiente de revisión",
       [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: now,
@@ -4677,7 +4827,7 @@ export async function transitionShippingV2PackingStatus(
       estado: "En revisión",
       actor: input.actor,
       access: input.access,
-      descripcion: "Revisión de packing iniciada desde Portal Staff.",
+      descripcion: `Revisión de packing iniciada desde Portal Staff. ${planRevision.resumen}`,
     });
   }
 
@@ -4720,12 +4870,39 @@ export async function transitionShippingV2PackingStatus(
       if (!input.access?.isAdmin) throw new Error("Solo un administrador puede cerrar un packing con novedad.");
       if (!decision) throw new Error("Registra una decisión para cerrar un packing con novedad.");
     }
+
+    // El ciclo se cierra cuando TODOS los artículos terminaron el suyo: las 7
+    // casillas de reception-checklist.ts. Antes esto no se miraba y el botón
+    // se habilitaba aunque no hubiera nada revisado, así que el indicador de
+    // la pantalla y la validación real decían cosas distintas.
+    //
+    // El Administrador puede cerrar igual registrando una justificación —
+    // mismo mecanismo que ya existe para cerrar un packing con novedad—, para
+    // que un dato imposible de completar no deje el packing atascado.
+    const progresoCiclo = calculateShippingV2PackingReviewProgress(packing.items);
+    if (!progresoCiclo.completo) {
+      const topPaso = getShippingV2PackingTopPendingStep(progresoCiclo);
+      const detalle = topPaso ? ` Lo que más falta: ${topPaso.label} (${topPaso.cantidad}).` : "";
+      const faltante = progresoCiclo.total === 0
+        ? "Este packing no tiene artículos vinculados."
+        : `Faltan ${progresoCiclo.pendientes} de ${progresoCiclo.total} artículos por completar su ciclo.${detalle}`;
+
+      if (!input.access?.isAdmin) throw new Error(`${faltante} Complétalos en Recepción antes de cerrar el ciclo.`);
+      if (!decision) throw new Error(`${faltante} Solo un administrador puede cerrarlo igualmente, y debe registrar una justificación.`);
+    }
+
+    const resumenCiclo = progresoCiclo.completo
+      ? `Ciclo completo en los ${progresoCiclo.total} artículos.`
+      : `Cerrado con ${progresoCiclo.pendientes} de ${progresoCiclo.total} artículos sin completar, por decisión administrativa.`;
+
     return patchPackingStatus({
       packing,
       estado: "Cerrado final",
       actor: input.actor,
       access: input.access,
-      descripcion: currentStatus === "con novedad" ? "Packing con novedad cerrado final con decisión administrativa." : "Packing cerrado final desde Portal Staff.",
+      descripcion: currentStatus === "con novedad"
+        ? `Packing con novedad cerrado final con decisión administrativa. ${resumenCiclo}`
+        : `Packing cerrado final desde Portal Staff. ${resumenCiclo}`,
       observacion: decision,
     });
   }

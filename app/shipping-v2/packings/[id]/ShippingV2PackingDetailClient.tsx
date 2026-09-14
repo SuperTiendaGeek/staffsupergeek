@@ -9,7 +9,15 @@ import {
   calculateShippingV2PackingProviderCostSummary,
   calculateShippingV2PackingProviderItemSubtotal,
   formatShippingV2PackingItemsUnitsSummary,
+  resolveShippingV2PackingItemUnits,
 } from "@/lib/shipping-v2/packing-calculations";
+import {
+  calculateShippingV2PackingReviewProgress,
+  formatShippingV2PackingBodegaProgress,
+  formatShippingV2PackingReviewProgress,
+  getShippingV2PackingFaseInfo,
+  getShippingV2PackingWorkHint,
+} from "@/lib/shipping-v2/packing-lifecycle";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { buildTrackingUrl } from "@/lib/shipping-v2/tracking";
 import { getEcuadorTransportProvidersForPacking, getUsaTransportProviders, providerTrackingLabel } from "@/lib/shipping-v2/tracking-providers";
@@ -59,12 +67,17 @@ function packingProviderCostSummary(items: ShippingV2Item[]) {
   try {
     return { ...calculateShippingV2PackingProviderCostSummary(items), error: "" };
   } catch (error) {
+    // Red de seguridad: el cálculo de unidades ya no lanza, pero un costo
+    // proveedor corrupto sí. Se muestra lo que sí se pudo sumar en vez de
+    // dejar la tarjeta de costos en blanco.
     const subtotalSeguro = items.reduce((sum, item) => sum + (packingProviderItemCalculation(item).subtotal ?? 0), 0);
-    const unidadesSeguras = items.reduce((sum, item) => sum + (Number.isInteger(item.cantidad) && item.cantidad && item.cantidad > 0 ? item.cantidad : 0), 0);
+    const unidades = items.map((item) => resolveShippingV2PackingItemUnits(item));
     return {
       costoTotalProveedorItems: subtotalSeguro,
       referenciasIncluidas: items.length,
-      unidadesTotales: unidadesSeguras,
+      unidadesTotales: unidades.reduce((sum, unidad) => sum + unidad.unidades, 0),
+      referenciasConUnidadesEstimadas: unidades.filter((unidad) => unidad.estimada).length,
+      advertenciasUnidades: unidades.filter((unidad) => unidad.estimada).map((unidad) => unidad.advertencia),
       error: error instanceof Error ? error.message : "No se pudo calcular el total proveedor de items.",
     };
   }
@@ -103,9 +116,13 @@ function ignoreItemPhotoUpdate(_item: ShippingV2Item) {}
 
 function ProviderCostRows({ item, includeAssignedCosts = false }: { item: ShippingV2Item; includeAssignedCosts?: boolean }) {
   const calculation = packingProviderItemCalculation(item);
+  const unidades = resolveShippingV2PackingItemUnits(item);
   const rows = [
     { label: "Costo proveedor por unidad", value: formatCurrencyZero(item.costoProveedor) },
-    { label: "Cantidad", value: display(item.cantidad) },
+    {
+      label: unidades.estimada ? "Unidades en packing (estimadas)" : "Cantidad",
+      value: unidades.estimada ? `${unidades.unidades} · stock actual ${display(item.cantidad)}` : display(item.cantidad),
+    },
     {
       label: "Subtotal proveedor",
       value: calculation.error ? "No calculable" : formatCurrencyZero(calculation.subtotal),
@@ -435,16 +452,20 @@ const NOVEDAD_TYPES = [
 ];
 
 function statusToneClass(status: string) {
-  const state = normalize(status);
-  if (state === "en proceso") return "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]";
-  if (state === "cerrado") return "border-[#F4E85B]/35 bg-[#F4E85B]/10 text-[#F4E85B]";
-  if (state === "en transito") return "border-[#8B73FF]/35 bg-[#8B73FF]/10 text-[#C9BFFF]";
-  if (state === "recibido" || state === "en revision") return "border-[#4FC3FF]/35 bg-[#4FC3FF]/10 text-[#BDEAFF]";
-  if (state === "con novedad" || state === "cancelado") return "border-[#FF914D]/35 bg-[#FF914D]/10 text-[#FFB07A]";
+  const { fase } = getShippingV2PackingFaseInfo(status);
+  if (fase === "preparacion") return "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]";
+  if (fase === "en-camino") return "border-[#8B73FF]/35 bg-[#8B73FF]/10 text-[#C9BFFF]";
+  if (fase === "en-bodega") return "border-[#4FC3FF]/35 bg-[#4FC3FF]/10 text-[#BDEAFF]";
+  if (fase === "revision") return "border-[#F4E85B]/35 bg-[#F4E85B]/10 text-[#F4E85B]";
+  if (fase === "cerrado") return "border-[#7BE495]/35 bg-[#7BE495]/10 text-[#9FEFB3]";
+  if (fase === "cancelado") return "border-[#FF914D]/35 bg-[#FF914D]/10 text-[#FFB07A]";
   return "border-[#3A3A36] bg-[#151515] text-[#A7A7A7]";
 }
 
-function getPackingStatusConfig(status: string, input: { hasOpenNovedades: boolean }): PackingStatusConfig {
+function getPackingStatusConfig(
+  status: string,
+  input: { hasOpenNovedades: boolean; cicloCompleto: boolean; pendientesCiclo: number; totalCiclo: number; isAdmin: boolean }
+): PackingStatusConfig {
   const state = normalize(status);
   if (state === "en proceso") {
     return { action: "close", label: "Cerrar packing", description: "Finaliza el armado y bloquea cambios normales de items." };
@@ -459,11 +480,30 @@ function getPackingStatusConfig(status: string, input: { hasOpenNovedades: boole
     return { action: "start-review", label: "Iniciar revisión", description: "Pasa el contenido a revisión operativa." };
   }
   if (state === "en revision") {
+    if (input.hasOpenNovedades) {
+      return {
+        action: "close-final",
+        label: "Cerrar ciclo",
+        description: "Hay novedades pendientes antes de cerrar el ciclo.",
+        disabled: true,
+      };
+    }
+    if (!input.cicloCompleto) {
+      // Bloqueado para todos; el Administrador tiene una salida aparte, con
+      // justificación, en el menú "Más acciones".
+      return {
+        action: "close-final",
+        label: "Cerrar ciclo",
+        description: input.totalCiclo === 0
+          ? "Este packing no tiene artículos vinculados."
+          : `Faltan ${input.pendientesCiclo} de ${input.totalCiclo} artículos por completar su ciclo en Recepción.${input.isAdmin ? " Como administrador puedes cerrarlo igualmente desde Más acciones, con justificación." : ""}`,
+        disabled: true,
+      };
+    }
     return {
       action: "close-final",
-      label: "Cerrar final",
-      description: input.hasOpenNovedades ? "Hay novedades pendientes antes del cierre final." : "Sin novedades pendientes: listo para cierre final.",
-      disabled: input.hasOpenNovedades,
+      label: "Cerrar ciclo",
+      description: "Todos los artículos completaron su ciclo y no hay novedades pendientes.",
     };
   }
   if (state === "con novedad") {
@@ -476,7 +516,7 @@ function getPackingStatusConfig(status: string, input: { hasOpenNovedades: boole
     return { description: "Packing cancelado. La operación quedó bloqueada.", disabled: true };
   }
   if (state === "cerrado final") {
-    return { description: "Packing cerrado final. Solo lectura.", disabled: true };
+    return { description: "Ciclo cerrado: logística y revisión terminadas. Lo único que queda es vender. Solo lectura.", disabled: true };
   }
   return { description: "Estado sin acción operativa configurada.", disabled: true };
 }
@@ -514,7 +554,27 @@ function StatusActionPanel({
 }) {
   const openNovedades = novedades.filter((novedad) => isOpenNovedadStatus(novedad.estado));
   const state = normalize(packing.estado);
-  const config = getPackingStatusConfig(packing.estado, { hasOpenNovedades: openNovedades.length > 0 });
+  const faseInfo = getShippingV2PackingFaseInfo(packing.estado);
+  const reviewProgress = calculateShippingV2PackingReviewProgress(packing.items);
+  const workHint = getShippingV2PackingWorkHint({
+    estado: packing.estado,
+    progress: reviewProgress,
+    novedadesAbiertas: openNovedades.length,
+  });
+  const config = getPackingStatusConfig(packing.estado, {
+    hasOpenNovedades: openNovedades.length > 0,
+    cicloCompleto: reviewProgress.completo,
+    pendientesCiclo: reviewProgress.pendientes,
+    totalCiclo: reviewProgress.total,
+    isAdmin,
+  });
+  // Salida administrativa: cerrar el ciclo con artículos incompletos, dejando
+  // registrada la justificación. Nunca se ofrece si hay novedades abiertas.
+  const canForceCloseCycle = isAdmin
+    && canTransition
+    && state === "en revision"
+    && !openNovedades.length
+    && !reviewProgress.completo;
   const canCancel = isAdmin && canTransition && !["cancelado", "cerrado final"].includes(state);
   const canRegisterNovedad = canCreateNovedad && (["en proceso", "cerrado", "en transito", "recibido", "en revision"].includes(state) || (isAdmin && state === "cerrado final"));
   const canRestoreLegacyNovedad = isAdmin && canTransition && state === "con novedad";
@@ -530,11 +590,29 @@ function StatusActionPanel({
         <div className="grid min-w-0 gap-2 sm:grid-cols-[auto_1fr] sm:items-center">
           <span className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${statusToneClass(packing.estado)}`}>
             <span className="h-2 w-2 rounded-full bg-current" />
-            {display(packing.estado)}
+            {faseInfo.estadoLabel}
           </span>
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Control operativo</p>
-            <p className="mt-0.5 text-sm leading-5 text-[#F5F5F5]">{config.description}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">
+              Fase: {faseInfo.faseLabel}
+              {packing.estado && faseInfo.estadoLabel !== packing.estado ? <span className="ml-1 font-normal normal-case text-[#6F706B]">(Airtable: {packing.estado})</span> : null}
+            </p>
+            <p className="mt-0.5 text-sm leading-5 text-[#F5F5F5]">{faseInfo.significado}</p>
+            <p className={`mt-0.5 text-sm leading-5 ${workHint.tono === "alerta" ? "text-[#FFB07A]" : workHint.tono === "listo" ? "text-[#9FEFB3]" : "text-[#D7FF4F]"}`}>
+              {workHint.texto}
+            </p>
+            {reviewProgress.total > 0 ? (
+              <p className="mt-0.5 text-xs leading-5 text-[#A7A7A7]">
+                Bodega (recibido · revisado · fotos): {formatShippingV2PackingBodegaProgress(reviewProgress)}
+                {" · "}
+                Ciclo completo: {formatShippingV2PackingReviewProgress(reviewProgress)}
+                {reviewProgress.sinPublicacionAplicable > 0
+                  ? ` · ${reviewProgress.sinPublicacionAplicable} sin publicación aplicable`
+                  : ""}
+              </p>
+            ) : null}
+            <p className="mt-1 text-[11px] uppercase tracking-normal text-[#6F706B]">Control operativo</p>
+            <p className="mt-0.5 text-sm leading-5 text-[#A7A7A7]">{config.description}</p>
             {(packing.trackingUsa || packing.trackingEc) && state === "cerrado" ? (
               <p className="mt-0.5 text-xs leading-5 text-[#D7FF4F]">Tracking registrado; el tránsito sigue requiriendo confirmación.</p>
             ) : null}
@@ -583,12 +661,28 @@ function StatusActionPanel({
             </button>
           ) : null}
 
-          {(canCancel || canRestoreLegacyNovedad || canReopen) ? (
+          {(canCancel || canRestoreLegacyNovedad || canReopen || canForceCloseCycle) ? (
             <details className="relative">
               <summary className="flex h-9 cursor-pointer list-none items-center rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/45 hover:text-[#F5F5F5]">
                 Más acciones
               </summary>
-              <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-[#3A3A36] bg-[#10110F] p-2 shadow-2xl shadow-black/50">
+              <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-[#3A3A36] bg-[#10110F] p-2 shadow-2xl shadow-black/50">
+                {canForceCloseCycle ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onOpenStatusModal({
+                      action: "close-final",
+                      title: "Cerrar ciclo con artículos incompletos",
+                      label: "Cerrar ciclo igualmente",
+                      fieldLabel: "Justificación administrativa",
+                      description: `Faltan ${reviewProgress.pendientes} de ${reviewProgress.total} artículos por completar su checklist. Cerrar el ciclo ahora deja ese trabajo sin hacer; la justificación queda registrada en el historial del packing.`,
+                    })}
+                    className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#D7FF4F] hover:bg-[#1E1F1C] disabled:opacity-50"
+                  >
+                    Cerrar ciclo igualmente
+                  </button>
+                ) : null}
                 {canReopen ? (
                   <button
                     type="button"
@@ -1054,6 +1148,16 @@ function LogisticsCostsSection({
         La distribución por item se calcula automáticamente desde Airtable según la regla seleccionada.
       </p>
       {providerSummary.error ? <p className="mt-2 text-xs font-semibold text-[#FFB07A]">{providerSummary.error}</p> : null}
+      {providerSummary.referenciasConUnidadesEstimadas ? (
+        <div className="mt-2 rounded-lg border border-[#4FC3FF]/30 bg-[#4FC3FF]/10 px-3 py-2">
+          <p className="text-xs font-semibold text-[#BDEAFF]">
+            {providerSummary.referenciasConUnidadesEstimadas} ítem(s) ya salieron del inventario (vendidos o consumidos).
+          </p>
+          <p className="mt-1 text-xs leading-5 text-[#BDEAFF]/85">
+            Su Cantidad actual es 0, así que el histórico de este packing se calcula con 1 unidad por registro. Es un dato informativo: no afecta al inventario ni a los pagos.
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="grid gap-1 text-xs text-[#A7A7A7] sm:grid-cols-3 sm:gap-4">

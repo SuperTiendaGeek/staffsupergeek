@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
-import { getShippingV2AccessContextForSession, getShippingV2Items, getShippingV2Novedades, getShippingV2Packings, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
+import { getShippingV2AccessContextForSession, getShippingV2Novedades, getShippingV2Packings, getShippingV2Proveedores, getShippingV2ReceptionItems } from "@/lib/shipping-v2/airtable";
 import { shouldShowShippingV2ReceptionItem } from "@/lib/shipping-v2/reception-visibility";
 import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
@@ -24,7 +24,7 @@ export default async function ShippingV2RecepcionPage() {
 
   try {
     const [loadedItems, loadedPackings, loadedProveedores, loadedNovedades] = await Promise.all([
-      getShippingV2Items({ includeAiName: false, access }),
+      getShippingV2ReceptionItems({ includeAiName: false, access }),
       getShippingV2Packings(access),
       getShippingV2Proveedores(),
       getShippingV2Novedades(access),
