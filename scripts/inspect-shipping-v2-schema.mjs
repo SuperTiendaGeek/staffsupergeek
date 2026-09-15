@@ -19,6 +19,8 @@ const TABLES = {
   packings: "Shipping Packings",
   recepciones: "Shipping Recepciones",
   novedades: "Shipping Novedades",
+  // Mantenimientos y mejoras hechos al item durante la inspección técnica.
+  intervenciones: "Shipping Intervenciones",
   migraciones: "Shipping Migraciones",
   eventos: "Shipping Eventos",
   cpuCatalog: "Catálogo CPUs",

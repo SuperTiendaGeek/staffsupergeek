@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T02:25:14.470Z",
+  "generatedAt": "2026-09-15T20:54:02.915Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -307,7 +307,8 @@
             "Ver novedades",
             "Responder novedades",
             "Ver ubicación del packing",
-            "Ver su costo de proveedor"
+            "Ver su costo de proveedor",
+            "Editar tracking, transportista USA y notas del packing"
           ]
         },
         "Diseño de factura": {
@@ -1301,6 +1302,42 @@
           "id": "fldSvmF0VImibFnO4",
           "type": "singleLineText",
           "kind": "singleLineText"
+        },
+        "Shipping Intervenciones": {
+          "id": "fldv5udAghxzATfHo",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tble8yjShlubBnTmn",
+          "linkedTableName": "Shipping Intervenciones"
+        },
+        "Almacenamiento 2": {
+          "id": "fldKY27YAoIYjrxKA",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Almacenamiento 2 tipo": {
+          "id": "fldcKfAP9sjJkLZgp",
+          "type": "singleSelect",
+          "options": [
+            "SSD",
+            "M.2 SSD",
+            "NVMe SSD",
+            "HDD",
+            "eMMC",
+            "Fusion Drive",
+            "Sin almacenamiento",
+            "Otro",
+            "No especificado"
+          ]
+        },
+        "Revisión técnica detalle": {
+          "id": "fldroeHB8J5YVVTNk",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Puntos de revisión fallidos": {
+          "id": "fldAFLr49ZJlg9JIL",
+          "type": "number",
+          "kind": "number"
         }
       }
     },
@@ -2301,7 +2338,12 @@
             "Aceptado con observación",
             "Descuento",
             "Pendiente",
-            "Otro"
+            "Otro",
+            "Se vende con descuento",
+            "Se repara internamente",
+            "Va a despiece",
+            "Se destina a uso local",
+            "Se descarta"
           ]
         },
         "Descripción de solución": {
@@ -2362,6 +2404,92 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblS0nSrZnRNHS3xI",
           "linkedTableName": "Shipping Eventos"
+        },
+        "Responsable de solución": {
+          "id": "fldcv6lT5p21UpsYM",
+          "type": "singleSelect",
+          "options": [
+            "SUPER GEEK",
+            "Proveedor"
+          ]
+        }
+      }
+    },
+    "Shipping Intervenciones": {
+      "id": "tble8yjShlubBnTmn",
+      "fields": {
+        "Intervención": {
+          "id": "fld5B3AqXD2ndmQCq",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Tipo": {
+          "id": "fldjej99X2ZafqWfw",
+          "type": "singleSelect",
+          "options": [
+            "Mantenimiento",
+            "Mejora"
+          ]
+        },
+        "Item": {
+          "id": "fldq6RKDe9yyBJIl5",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Repuesto usado": {
+          "id": "fldpkXWA6Q4knikdT",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Detalle": {
+          "id": "fldiKVxUMfO6tQSII",
+          "type": "singleSelect",
+          "options": [
+            "Limpieza interna",
+            "Cambio de pasta térmica",
+            "Ajuste o refuerzo de bisagras",
+            "Limpieza de teclado",
+            "Cambio de almohadillas",
+            "Reemplazo de tornillos o tapas",
+            "Actualización de BIOS / firmware",
+            "Ampliación de RAM",
+            "Cambio de almacenamiento",
+            "Cambio de batería",
+            "Cambio de pantalla",
+            "Cambio de teclado",
+            "Otro"
+          ]
+        },
+        "Nota": {
+          "id": "flduGf6THbjsLsFeE",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Cantidad usada": {
+          "id": "fldaDCw2tY2nXDMdV",
+          "type": "number",
+          "kind": "number"
+        },
+        "Costo repuesto": {
+          "id": "fldC3AYNM1KYuBVsS",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Realizado por": {
+          "id": "fldyRui2VsLmmfxL6",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha": {
+          "id": "fld4CYf7H8FOLYFVw",
+          "type": "dateTime"
+        },
+        "Evidencias": {
+          "id": "fldMC0r07KFUyE3q3",
+          "type": "multipleAttachments",
+          "attachment": true
         }
       }
     },
