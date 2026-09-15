@@ -1,6 +1,6 @@
 import "server-only";
 
-import { comprometerUnidades, liberarUnidades, unidadesLibres, unidadesReservadas } from "./unidades";
+import { comprometerUnidades, liberarUnidades, normalizarUnidades, unidadesLibres, unidadesReservadas } from "./unidades";
 import {
   calcularCierreDespiece,
   calcularRepartoParaPiezas,
@@ -28,6 +28,7 @@ import type {
   ShippingV2Item,
   ShippingV2ItemSearchEntry,
   ShippingV2ItemWriteInput,
+  ShippingV2TechnicalSheet,
   ShippingV2TechnicalSheetInput,
   ShippingV2Novedad,
   ShippingV2Packing,
@@ -85,6 +86,28 @@ import {
   validarTransicionNovedad,
 } from "@/lib/shipping-v2/novedades";
 import { validarEvidencias } from "@/lib/shipping-v2/evidencias";
+import {
+  construirZonasRevision,
+  resolverEstadoInspeccion,
+  type EstadoInspeccion,
+  type GrupoDeclarable,
+  type OpcionDeclarada,
+  type ResultadoPunto,
+  type ZonaRevision,
+} from "@/lib/shipping-v2/revision-tecnica";
+import {
+  actualizarEquipamiento,
+  confirmarEquipamiento,
+  contarFallas,
+  firmaVigente,
+  guardarObservacion,
+  limpiarHuerfanos,
+  marcarPunto,
+  parsearSnapshot,
+  resultadosDe,
+  serializarSnapshot,
+  type SnapshotRevision,
+} from "@/lib/shipping-v2/revision-tecnica-snapshot";
 import type { ShippingV2ReceptionChecklistItemLike } from "@/lib/shipping-v2/reception-checklist";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
@@ -1380,6 +1403,8 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     revisadoFisicamente: firstBoolean(f["Revisado física/técnicamente"]),
     revisadoPor: firstString(f["Revisado por"]),
     fechaRevision: firstString(f["Fecha revisión"]),
+    revisionTecnicaDetalle: firstString(f["Revisión técnica detalle"]),
+    puntosRevisionFallidos: firstNumber(f["Puntos de revisión fallidos"]),
     fotosTomadas: firstBoolean(f["Fotos tomadas"]),
     fotosTomadasPor: firstString(f["Fotos tomadas por"]),
     fechaFotos: firstString(f["Fecha fotos"]),
@@ -1413,6 +1438,10 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
       ramTipo: firstString(f[F.ramTipo]),
       almacenamientoPrincipal: firstString(f[F.almacenamientoPrincipal]),
       almacenamientoTipo: firstString(f[F.almacenamientoTipo]),
+      // Por nombre literal: el generador de schema tiene una lista fija de
+      // claves y estos dos campos no están en ella.
+      almacenamiento2: firstString(f["Almacenamiento 2"]),
+      almacenamiento2Tipo: firstString(f["Almacenamiento 2 tipo"]),
       gpu: firstString(f[F.gpu]),
       gpuIntegrada: firstString(f[F.gpuIntegrada]),
       bateriaSalud: firstNumber(f[F.bateriaSalud]),
@@ -3177,6 +3206,10 @@ export async function updateShippingV2ItemTechnicalSheet(
     [F.ramTipo]: optionalSelectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.ramTipo, input.ramTipo),
     [F.almacenamientoPrincipal]: optionalTextField(input.almacenamientoPrincipal),
     [F.almacenamientoTipo]: optionalSelectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.almacenamientoTipo, input.almacenamientoTipo),
+    // La segunda unidad usa las MISMAS opciones que la primera, a propósito:
+    // así la ficha las trata igual y no hay dos vocabularios de tipos.
+    "Almacenamiento 2": optionalTextField(input.almacenamiento2),
+    "Almacenamiento 2 tipo": optionalSelectOption(SHIPPING_V2_ITEM_SELECT_OPTIONS.almacenamientoTipo, input.almacenamiento2Tipo),
     [F.gpu]: optionalTextField(input.gpu),
     [F.gpuIntegrada]: optionalTextField(input.gpuIntegrada),
     [F.bateriaSalud]: batteryHealth,
@@ -6355,4 +6388,563 @@ export async function cancelarDespiece(
 
   invalidateShippingV2ItemSearchIndexCache();
   return getResumenDespiece(padreId, options.access);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INSPECCIÓN TÉCNICA
+//
+// Lo que el equipo TRAE no se guarda dos veces: vive en los mismos campos que
+// usa la ficha técnica (`Conectividad V2`, `Puertos V2`, `Características
+// extras V2`). El respaldo JSON solo guarda una COPIA de lo que se firmó, para
+// poder detectar que alguien cambió el equipamiento después de la firma.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type ShippingV2InspeccionDeclarable = {
+  id: string;
+  nombre: string;
+  declarada: boolean;
+};
+
+export type ShippingV2InspeccionGrupo = {
+  grupo: GrupoDeclarable;
+  titulo: string;
+  catalogo: string;
+  opciones: ShippingV2InspeccionDeclarable[];
+};
+
+export type ShippingV2InspeccionTecnica = {
+  item: ShippingV2Item;
+  zonas: ZonaRevision[];
+  snapshot: SnapshotRevision;
+  estado: EstadoInspeccion;
+  grupos: ShippingV2InspeccionGrupo[];
+  intervenciones: ShippingV2Intervencion[];
+  /** Novedades abiertas del item, para no volver a crear la misma. */
+  novedadesAbiertas: ShippingV2Novedad[];
+};
+
+export type ShippingV2Intervencion = {
+  id: string;
+  etiqueta: string;
+  tipo: string;
+  detalle?: string;
+  nota?: string;
+  itemId?: string;
+  repuestoId?: string;
+  cantidadUsada: number | null;
+  costoRepuesto: number | null;
+  realizadoPor?: string;
+  fecha?: string;
+};
+
+const INTERVENCION_TIPOS = new Set(["Mantenimiento", "Mejora"]);
+
+function mapIntervencion(record: AirtableRecord): ShippingV2Intervencion {
+  const f = record.fields;
+  const itemIds = linkedRecordIds(f.Item);
+  const repuestoIds = linkedRecordIds(f["Repuesto usado"]);
+  return {
+    id: record.id,
+    etiqueta: firstString(f["Intervención"], record.id),
+    tipo: firstString(f.Tipo, "Mantenimiento"),
+    detalle: firstString(f.Detalle),
+    nota: firstString(f.Nota),
+    itemId: itemIds[0],
+    repuestoId: repuestoIds[0],
+    cantidadUsada: firstNumber(f["Cantidad usada"]),
+    costoRepuesto: firstNumber(f["Costo repuesto"]),
+    realizadoPor: firstString(f["Realizado por"]),
+    fecha: firstString(f.Fecha, record.createdTime),
+  };
+}
+
+/**
+ * Arma la ficha COMPLETA a partir de la actual más los cambios.
+ *
+ * `updateShippingV2ItemTechnicalSheet` no hace merge: reescribe todos los
+ * campos, y lo que no venga en el input queda en null. Su único llamador
+ * anterior era el formulario de ficha, que siempre manda todo. La inspección
+ * manda parciales (un campo suelto al salir de un input), así que sin esta
+ * mezcla, anotar "512 GB" en Almacenamiento borraría marca, modelo, CPU, RAM,
+ * sistema operativo y las tres listas de conectividad/puertos/extras.
+ */
+function mezclarFichaTecnica(
+  actual: ShippingV2TechnicalSheet,
+  cambios: ShippingV2TechnicalSheetInput
+): ShippingV2TechnicalSheetInput {
+  return {
+    marcaFicha: actual.marcaFicha,
+    modeloFicha: actual.modeloFicha,
+    sistemaOperativo: actual.sistemaOperativo,
+    pantallaTamano: actual.pantallaTamano,
+    pantallaResolucion: actual.pantallaResolucion,
+    cpuMarca: actual.cpuMarca,
+    cpuModelo: actual.cpuModelo,
+    cpuFrecuenciaBase: actual.cpuFrecuenciaBase,
+    cpuFrecuenciaTurbo: actual.cpuFrecuenciaTurbo,
+    ramCapacidad: actual.ramCapacidad,
+    ramTipo: actual.ramTipo,
+    almacenamientoPrincipal: actual.almacenamientoPrincipal,
+    almacenamientoTipo: actual.almacenamientoTipo,
+    almacenamiento2: actual.almacenamiento2,
+    almacenamiento2Tipo: actual.almacenamiento2Tipo,
+    gpu: actual.gpu,
+    gpuIntegrada: actual.gpuIntegrada,
+    bateriaSalud: actual.bateriaSalud,
+    connectivityV2Ids: actual.connectivityV2Ids,
+    portV2Ids: actual.portV2Ids,
+    extraFeatureV2Ids: actual.extraFeatureV2Ids,
+    observacionFichaTecnica: actual.observacionFichaTecnica,
+    ...cambios,
+  } as ShippingV2TechnicalSheetInput;
+}
+
+/** Lo que el item declara tener, en la forma que espera `construirZonasRevision`. */
+function declaradasDeItem(item: ShippingV2Item): OpcionDeclarada[] {
+  const hoja = item.technicalSheet;
+  return [
+    ...hoja.connectivityV2Names.map((nombre) => ({ nombre, grupo: "conectividad" as GrupoDeclarable })),
+    ...hoja.portV2Names.map((nombre) => ({ nombre, grupo: "puerto" as GrupoDeclarable })),
+    ...hoja.extraFeatureV2Names.map((nombre) => ({ nombre, grupo: "extra" as GrupoDeclarable })),
+  ];
+}
+
+export async function getShippingV2InspeccionTecnica(
+  recordId: string,
+  options: { access?: ShippingV2AccessContext } = {}
+): Promise<ShippingV2InspeccionTecnica> {
+  assertShippingV2Permission(options.access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+
+  const [item, catalogos, intervenciones, novedades] = await Promise.all([
+    getShippingV2ItemById(id, { includeAiName: false, access: options.access }),
+    getShippingV2TechnicalOptionSets(),
+    getShippingV2IntervencionesDeItem(id),
+    getShippingV2NovedadesForItem(id, options.access),
+  ]);
+
+  const declaradas = declaradasDeItem(item);
+  const zonas = construirZonasRevision(item.categoria, declaradas);
+
+  // El respaldo puede traer resultados de puntos que ya no existen: pasa cuando
+  // se desmarca una característica. Se limpian ANTES de calcular nada, para que
+  // una falla huérfana no siga contando.
+  const crudo = parsearSnapshot(item.revisionTecnicaDetalle, item.categoria);
+  const { snapshot } = limpiarHuerfanos(crudo, zonas);
+
+  const estado = resolverEstadoInspeccion({
+    zonas,
+    resultados: resultadosDe(snapshot),
+    equipamientoConfirmado: firmaVigente(snapshot, declaradas),
+  });
+
+  const marcadas = (ids: string[]) => new Set(ids);
+  const conectividad = marcadas(item.technicalSheet.connectivityV2Ids);
+  const puertos = marcadas(item.technicalSheet.portV2Ids);
+  const extras = marcadas(item.technicalSheet.extraFeatureV2Ids);
+
+  const grupos: ShippingV2InspeccionGrupo[] = [
+    {
+      grupo: "conectividad", titulo: "Conectividad", catalogo: "Catálogo Conectividad",
+      opciones: catalogos.connectivity.map((o) => ({ id: o.id, nombre: o.name, declarada: conectividad.has(o.id) })),
+    },
+    {
+      grupo: "puerto", titulo: "Puertos", catalogo: "Catálogo Puertos",
+      opciones: catalogos.ports.map((o) => ({ id: o.id, nombre: o.name, declarada: puertos.has(o.id) })),
+    },
+    {
+      grupo: "extra", titulo: "Características del equipo", catalogo: "Catálogo Características Extras",
+      opciones: catalogos.extraFeatures.map((o) => ({ id: o.id, nombre: o.name, declarada: extras.has(o.id) })),
+    },
+  ];
+
+  return { item, zonas, snapshot, estado, grupos, intervenciones, novedadesAbiertas: novedades };
+}
+
+export type ShippingV2InspeccionCambios = {
+  /** Marcar o desmarcar puntos. `resultado: null` desmarca. */
+  puntos?: { puntoId: string; resultado: ResultadoPunto | null }[];
+  observaciones?: { zonaId: string; nota: string }[];
+  /** Ids de opciones por grupo. Si viene, reemplaza lo declarado. */
+  equipamiento?: { conectividadIds: string[]; puertosIds: string[]; extrasIds: string[]; confirmar?: boolean };
+  /** Datos de la ficha capturados durante la inspección. */
+  ficha?: ShippingV2TechnicalSheetInput;
+};
+
+/**
+ * Guarda la inspección. Pensada para llamarse seguido (autoguardado): siempre
+ * relee el estado actual y escribe el respaldo completo, así dos pestañas
+ * abiertas no se pisan a medias.
+ */
+export async function guardarShippingV2InspeccionTecnica(
+  recordId: string,
+  cambios: ShippingV2InspeccionCambios,
+  options: { actor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+
+  let item = await getShippingV2ItemById(id, { includeAiName: false, access: options.access });
+  if (item.recibido !== true) {
+    throw new Error("Marca primero el item como Recibido antes de inspeccionarlo.");
+  }
+  // Una inspección firmada no se edita a escondidas. Sin esta guarda, desmarcar
+  // una característica borraría resultados y tumbaría la firma del snapshot,
+  // pero el item seguiría marcado como "Revisado" y se publicaría igual.
+  if (item.revisadoFisicamente === true) {
+    throw new Error(
+      "Esta inspección ya está firmada. Para modificarla, desmarca primero “Revisado física/técnicamente” en Recepción."
+    );
+  }
+
+  const ahora = new Date().toISOString();
+
+  // ── 1) El equipamiento y la ficha van por el camino de siempre ──
+  // `updateShippingV2ItemTechnicalSheet` normaliza frecuencias, calcula el
+  // estado de batería y alimenta los catálogos. Escribir los campos a mano
+  // aquí perdería todo eso.
+  const parcial: ShippingV2TechnicalSheetInput = { ...(cambios.ficha ?? {}) };
+  if (cambios.equipamiento) {
+    parcial.connectivityV2Ids = cambios.equipamiento.conectividadIds;
+    parcial.portV2Ids = cambios.equipamiento.puertosIds;
+    parcial.extraFeatureV2Ids = cambios.equipamiento.extrasIds;
+  }
+  if (Object.keys(parcial).length > 0) {
+    const entradaFicha = mezclarFichaTecnica(item.technicalSheet, parcial);
+    await updateShippingV2ItemTechnicalSheet(id, entradaFicha, { actualizadoPor: options.actor });
+    item = await getShippingV2ItemById(id, { includeAiName: false, access: options.access });
+  }
+
+  // ── 2) El respaldo de la inspección ──
+  const declaradas = declaradasDeItem(item);
+  const zonas = construirZonasRevision(item.categoria, declaradas);
+  const textoPorPunto = new Map(zonas.flatMap((z) => z.puntos.map((p) => [p.id, p.texto] as const)));
+
+  let snapshot = parsearSnapshot(item.revisionTecnicaDetalle, item.categoria);
+
+  if (cambios.equipamiento?.confirmar) {
+    snapshot = confirmarEquipamiento(snapshot, { opciones: declaradas, actor: options.actor, ahora });
+  } else if (cambios.equipamiento) {
+    // Cambiar lo declarado sin firmar tumba la firma anterior: ya no es lo
+    // mismo que se firmó.
+    snapshot = actualizarEquipamiento(snapshot, { opciones: declaradas, actor: options.actor, ahora });
+  }
+
+  for (const punto of cambios.puntos ?? []) {
+    const texto = textoPorPunto.get(punto.puntoId);
+    if (!texto && punto.resultado !== null) {
+      // Un punto que no existe en esta categoría: se ignora en vez de romper.
+      console.warn("[Shipping V2 inspección] punto desconocido, ignorado:", punto.puntoId);
+      continue;
+    }
+    snapshot = marcarPunto(snapshot, {
+      puntoId: punto.puntoId,
+      texto: texto ?? "",
+      resultado: punto.resultado,
+      actor: options.actor,
+      ahora,
+    });
+  }
+
+  for (const obs of cambios.observaciones ?? []) {
+    snapshot = guardarObservacion(snapshot, { zonaId: obs.zonaId, nota: obs.nota, actor: options.actor, ahora });
+  }
+
+  const limpio = limpiarHuerfanos(snapshot, zonas);
+  snapshot = limpio.snapshot;
+
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{
+        id,
+        fields: {
+          "Revisión técnica detalle": serializarSnapshot(snapshot),
+          "Puntos de revisión fallidos": contarFallas(snapshot, zonas),
+          "Última actualización": ahora,
+          "Actualizado por": options.actor,
+        },
+      }],
+    }),
+  });
+
+  const actualizado = await getShippingV2ItemById(id, { includeAiName: false, access: options.access });
+  const estado = resolverEstadoInspeccion({
+    zonas,
+    resultados: resultadosDe(snapshot),
+    equipamientoConfirmado: firmaVigente(snapshot, declaradas),
+  });
+
+  return { item: actualizado, snapshot, zonas, estado };
+}
+
+/**
+ * Firma la inspección.
+ *
+ * NO decide si está completa: eso lo calcula `resolverEstadoInspeccion`. Aquí
+ * solo se comprueba y se sella, escribiendo por el camino de siempre
+ * (`updateShippingV2ReceptionChecklistItem`) para no perder sus efectos: pasar
+ * el `Estado de revisión`, mover el `Estado Item` y registrar el evento.
+ */
+export async function firmarShippingV2InspeccionTecnica(
+  recordId: string,
+  options: { actor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+
+  const inspeccion = await getShippingV2InspeccionTecnica(id, { access: options.access });
+  if (!inspeccion.estado.completa) {
+    throw new Error(inspeccion.estado.motivo);
+  }
+
+  const resumen = inspeccion.estado.fallasCriticas.length
+    ? `Inspección técnica firmada con ${inspeccion.estado.fallasCriticas.length} falla(s) crítica(s).`
+    : "Inspección técnica firmada sin fallas críticas.";
+
+  const item = await updateShippingV2ReceptionChecklistItem(
+    id,
+    { action: "reviewed", value: true, note: resumen },
+    { actualizadoPor: options.actor }
+  );
+
+  return { item, estado: inspeccion.estado };
+}
+
+// ─── Intervenciones: mantenimientos y mejoras ───────────────────────────────
+
+export async function getShippingV2IntervencionesDeItem(itemRecordId: string): Promise<ShippingV2Intervencion[]> {
+  const id = cleanString(itemRecordId);
+  if (!id) return [];
+  try {
+    // Se filtra EN AIRTABLE por el enlace al item. Leer los primeros 200 de la
+    // tabla y filtrar en memoria dejaría el historial vacío en cuanto la tabla
+    // creciera, sin ningún aviso.
+    const records = await listRecords(SHIPPING_V2_TABLES.intervenciones, {
+      maxRecords: 200,
+      filterByFormula: `FIND("${id}", ARRAYJOIN({Item}))`,
+      sortField: "Fecha",
+      sortDirection: "desc",
+    });
+    return records.map(mapIntervencion);
+  } catch (error) {
+    // Si la tabla no existe todavía en una base vieja, la pantalla no puede
+    // quedar inutilizable por eso.
+    console.error("No se pudieron leer las intervenciones del item:", error);
+    return [];
+  }
+}
+
+/**
+ * Repuestos con unidades libres, para el selector de Mejoras.
+ *
+ * No se usa `getShippingV2Items()`: tiene un tope de 200 ordenado por fecha, y
+ * con 570 artículos eso deja fuera todo lo anterior a hace dos meses — el mismo
+ * agujero que ya se corrigió en Recepción. Aquí se leen solo los campos que el
+ * selector necesita.
+ */
+export async function getShippingV2RepuestosDisponibles(access?: ShippingV2AccessContext) {
+  assertShippingV2Permission(access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const records = await listRecords(SHIPPING_V2_TABLES.items, {
+    maxRecords: 5000,
+    pageSize: 100,
+    filterByFormula: `{${F.esRepuesto}} = 1`,
+    fields: [F.sku, F.nombre, F.cantidad, F.cantidadReservada, F.reservado, F.costoProveedor, F.esRepuesto],
+  });
+
+  return records
+    .map((record) => {
+      const f = record.fields;
+      const libres = unidadesLibres({
+        cantidad: firstNumber(f[F.cantidad]),
+        cantidadReservada: firstNumber(f[F.cantidadReservada]),
+        reservado: firstBoolean(f[F.reservado]),
+      });
+      return {
+        id: record.id,
+        sku: firstString(f[F.sku]),
+        nombre: firstString(f[F.nombre]),
+        stock: libres,
+        costo: firstNumber(f[F.costoProveedor]) ?? 0,
+      };
+    })
+    .filter((repuesto) => repuesto.stock > 0)
+    .sort((a, b) => a.sku.localeCompare(b.sku));
+}
+
+export type ShippingV2IntervencionInput = {
+  tipo: string;
+  detalle: string;
+  nota?: string;
+  repuestoId?: string;
+  cantidadUsada?: number;
+};
+
+/**
+ * Registra un mantenimiento o una mejora.
+ *
+ * En una mejora se descuenta el repuesto del inventario. El orden importa:
+ * primero se descuenta y después se registra, y si el registro falla se
+ * devuelve la unidad. Al revés, un fallo dejaría un descuento sin respaldo
+ * documental y el inventario mentiría sin que nadie pudiera rastrearlo.
+ *
+ * El costo del repuesto NO se suma al costo del item: decisión del dueño. Se
+ * guarda aquí para poder calcularlo después si esa regla cambia.
+ */
+export async function registrarShippingV2Intervencion(
+  itemRecordId: string,
+  input: ShippingV2IntervencionInput,
+  options: { actor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+  const id = cleanString(itemRecordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+
+  const tipo = cleanString(input.tipo);
+  if (!INTERVENCION_TIPOS.has(tipo)) throw new Error("El tipo debe ser Mantenimiento o Mejora.");
+  const detalle = cleanString(input.detalle);
+  if (!detalle) throw new Error("Elige qué trabajo se hizo.");
+
+  const item = await getShippingV2ItemById(id, { includeAiName: false, access: options.access });
+  const ahora = new Date().toISOString();
+
+  let repuesto: ShippingV2Item | null = null;
+  let cantidadUsada = 0;
+
+  if (tipo === "Mejora") {
+    const repuestoId = cleanString(input.repuestoId);
+    if (!repuestoId) throw new Error("Una mejora necesita el repuesto que se usó.");
+    if (repuestoId === id) throw new Error("Un item no puede consumirse a sí mismo como repuesto.");
+
+    repuesto = await getShippingV2ItemById(repuestoId, { includeAiName: false, access: options.access });
+    cantidadUsada = Math.max(1, Math.trunc(input.cantidadUsada ?? 1));
+
+    // El cliente ya filtra la lista, pero el endpoint es público para quien
+    // tenga sesión: sin esta validación se podría bajar la cantidad de
+    // cualquier artículo del inventario pasando su record ID.
+    if (repuesto.esRepuesto !== true) {
+      throw new Error(`${repuesto.sku || repuesto.nombre} no está marcado como repuesto.`);
+    }
+
+    // Unidades LIBRES, no la cantidad total: una unidad apartada para un
+    // cliente no se puede consumir en una mejora.
+    const libres = unidadesLibres({
+      cantidad: repuesto.cantidad,
+      cantidadReservada: repuesto.cantidadReservada,
+      reservado: repuesto.reservado,
+    });
+    if (libres < cantidadUsada) {
+      throw new Error(
+        `No hay unidades libres de ${repuesto.sku || repuesto.nombre}: hay ${libres} sin apartar y se piden ${cantidadUsada}.`
+      );
+    }
+    const disponibles = normalizarUnidades(repuesto.cantidad);
+
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({
+        records: [{
+          id: repuesto.id,
+          fields: {
+            [SHIPPING_V2_ITEM_FIELDS.cantidad]: disponibles - cantidadUsada,
+            "Última actualización": ahora,
+            "Actualizado por": options.actor,
+          },
+        }],
+      }),
+    });
+  }
+
+  const etiqueta = [tipo, item.sku || item.nombre, detalle].filter(Boolean).join(" · ");
+
+  try {
+    const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.intervenciones), {
+      method: "POST",
+      body: JSON.stringify({
+        // Sin typecast: `Detalle` es un singleSelect cerrado y con typecast
+        // cualquier texto que llegue por la API crearía una opción nueva
+        // permanente en Airtable.
+        records: [{
+          fields: compactFields({
+            "Intervención": etiqueta,
+            Tipo: tipo,
+            Item: [id],
+            "Repuesto usado": repuesto ? [repuesto.id] : undefined,
+            Detalle: detalle,
+            Nota: cleanString(input.nota) || undefined,
+            "Cantidad usada": repuesto ? cantidadUsada : undefined,
+            "Costo repuesto": repuesto ? repuesto.costoProveedor ?? undefined : undefined,
+            "Realizado por": options.actor,
+            Fecha: ahora,
+          }),
+        }],
+      }),
+    });
+
+    const creado = response.records?.[0];
+    if (!creado) throw new Error("Airtable no devolvió la intervención creada.");
+
+    // Desde aquí YA NO se devuelve el stock: la intervención existe y el
+    // descuento tiene respaldo. Lo que sigue son efectos secundarios, y un
+    // fallo en ellos no puede disparar el rollback.
+    void (async () => {
+      try {
+        await createShippingV2Event({
+          action: "Actualizado",
+          itemRecordId: id,
+          itemName: item.nombre,
+          registradoPor: options.actor,
+          descripcion: repuesto
+            ? `${tipo}: ${detalle}. Se usó ${cantidadUsada} unidad(es) de ${repuesto.sku || repuesto.nombre}.`
+            : `${tipo}: ${detalle}.`,
+        });
+      } catch (error) {
+        console.error("Intervención registrada, pero no se pudo escribir el evento:", error);
+      }
+      // Si el repuesto se quedó sin unidades, sus banderas tienen que reflejarlo.
+      if (repuesto) {
+        try {
+          await recalcularDisponibilidadItem(repuesto.id, options.actor);
+        } catch (error) {
+          console.error("No se pudo recalcular la disponibilidad del repuesto:", error);
+        }
+      }
+    })();
+
+    return { intervencion: mapIntervencion(creado), repuestoDescontado: repuesto?.sku || "" };
+  } catch (error) {
+    // Devolver la unidad: sin el registro, el descuento no tiene respaldo.
+    //
+    // Se RELEE antes de escribir y se SUMA, en vez de restaurar el valor que se
+    // leyó al principio. Entre el descuento y este rollback pudo pasar una
+    // venta que bajó el stock por su cuenta; restaurar el valor viejo le
+    // devolvería al inventario unidades que ya no existen.
+    if (repuesto) {
+      try {
+        const actual = await getShippingV2ItemById(repuesto.id, {
+          includeAiName: false,
+          access: systemShippingV2Access(),
+        });
+        await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+          method: "PATCH",
+          body: JSON.stringify({
+            records: [{
+              id: repuesto.id,
+              fields: { [SHIPPING_V2_ITEM_FIELDS.cantidad]: normalizarUnidades(actual.cantidad) + cantidadUsada },
+            }],
+          }),
+        });
+      } catch (errorDevolucion) {
+        console.error(
+          "CRÍTICO: se descontó stock y no se pudo registrar ni devolver. Revisar a mano:",
+          { repuesto: repuesto.sku, cantidadUsada }, errorDevolucion
+        );
+      }
+    }
+    throw error;
+  }
 }

@@ -224,6 +224,10 @@ function openTechnicalSheetEditor(itemId: string) {
   window.location.href = `/shipping-v2/recepcion/ficha/${encodeURIComponent(itemId)}`;
 }
 
+function openInspeccion(itemId: string) {
+  window.location.href = `/shipping-v2/recepcion/inspeccion/${encodeURIComponent(itemId)}`;
+}
+
 function openTechnicalSheet(item: ShippingV2Item) {
   const generada = isFichaGenerada(item);
   const path = generada
@@ -844,6 +848,7 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
   onNovedad,
   onSkuLabel,
   onPrepareSheet,
+  onInspeccion,
   onPrintSheet,
 }: {
   item: ReceptionItem;
@@ -859,6 +864,7 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
   onNovedad: (item: ReceptionItem) => void;
   onSkuLabel: (itemId: string) => void;
   onPrepareSheet: (itemId: string) => void;
+  onInspeccion: (itemId: string) => void;
   onPrintSheet: (item: ReceptionItem) => void;
 }) {
   const received = isReceived(item);
@@ -1008,6 +1014,14 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
         </ActionButton>
         <ActionButton title={received ? "Imprimir etiqueta SKU" : receivedGateHelp} disabled={!received} onClick={() => onSkuLabel(item.id)}>
           <Tag className="h-3.5 w-3.5" aria-hidden="true" />
+        </ActionButton>
+        <ActionButton
+          tone="lime"
+          title={received ? "Inspección técnica" : receivedGateHelp}
+          disabled={!received}
+          onClick={() => onInspeccion(item.id)}
+        >
+          <ClipboardCheck className="h-3.5 w-3.5" aria-hidden="true" />
         </ActionButton>
         <ActionButton tone="blue" title={received ? "Preparar ficha" : receivedGateHelp} disabled={!received} onClick={() => onPrepareSheet(item.id)}>
           <Wrench className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1628,6 +1642,7 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
                     onNovedad={setNovedadItem}
                     onSkuLabel={openSkuLabel}
                     onPrepareSheet={openTechnicalSheetEditor}
+                    onInspeccion={openInspeccion}
                     onPrintSheet={openTechnicalSheet}
                   />
                 ))}

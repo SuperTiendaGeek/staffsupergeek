@@ -437,7 +437,13 @@ export function construirZonasRevision(
 
     const { zona, texto, critico } = generarPuntoDeclarado(nombre, opcion.grupo, idsZona);
     const lista = generados.get(zona) ?? [];
-    lista.push({ id: idPunto(zona, texto), texto, critico, origen: "declarado", declaradoDe: nombre });
+    // Dos opciones distintas pueden producir el MISMO punto: "Thunderbolt 3" y
+    // "Thunderbolt 4" se prueban igual, y "DVD Drive" y "Unidad óptica" son lo
+    // mismo. Si se colaran las dos, quedarían dos filas con el mismo id y
+    // marcar una marcaría la otra.
+    const idNuevo = idPunto(zona, texto);
+    if (lista.some((punto) => punto.id === idNuevo)) continue;
+    lista.push({ id: idNuevo, texto, critico, origen: "declarado", declaradoDe: nombre });
     generados.set(zona, lista);
   }
 
@@ -451,7 +457,8 @@ export function construirZonasRevision(
       critico: critico === 1,
       origen: "base",
     }));
-    const puntos = [...base, ...(generados.get(def.id) ?? [])];
+    const idsBase = new Set(base.map((p) => p.id));
+    const puntos = [...base, ...(generados.get(def.id) ?? []).filter((p) => !idsBase.has(p.id))];
     if (!puntos.length) continue;
 
     numero += 1;

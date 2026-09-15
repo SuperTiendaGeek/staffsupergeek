@@ -122,6 +122,10 @@ export type ShippingV2TechnicalSheet = {
   ramTipo?: string;
   almacenamientoPrincipal?: string;
   almacenamientoTipo?: string;
+  // Segunda unidad: el caso real de una laptop o torre con SSD de arranque +
+  // HDD de datos. Antes solo cabía una y el equipo se registraba incompleto.
+  almacenamiento2?: string;
+  almacenamiento2Tipo?: string;
   gpu?: string;
   gpuIntegrada?: string;
   bateriaSalud: number | null;
@@ -315,6 +319,10 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   revisadoFisicamente: boolean | null;
   revisadoPor?: string;
   fechaRevision?: string;
+  /** JSON con el respaldo completo de la inspección técnica. Ver revision-tecnica-snapshot.ts */
+  revisionTecnicaDetalle?: string;
+  /** Derivado del respaldo, para filtrar en Airtable sin leer el JSON. */
+  puntosRevisionFallidos: number | null;
   fotosTomadas: boolean | null;
   fotosTomadasPor?: string;
   fechaFotos?: string;
