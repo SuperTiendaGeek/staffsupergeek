@@ -50,6 +50,7 @@ export const PANTALLAS_POR_MODULO: Record<ModuloConPantallas, readonly PantallaD
     { key: "recepcion", label: "Recepción" },
     { key: "packings", label: "Packings" },
     { key: "pagos", label: "Pagos" },
+    { key: "novedades", label: "Novedades" },
   ],
 } as const;
 

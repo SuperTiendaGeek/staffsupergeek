@@ -294,6 +294,8 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   costoTotalUnidad: number | null;
   costoTotalEstimado: number | null;
   subtotalProveedorPacking?: number | null;
+  /** Packings que el sistema cerró solo al guardar esta casilla. Solo de respuesta. */
+  packingsCerradosAutomaticamente?: string[];
   /** Unidades usadas para el histórico del packing (ver packing-calculations). */
   unidadesPacking?: number | null;
   /** true cuando esas unidades se estimaron porque la Cantidad actual ya no sirve. */
@@ -303,6 +305,8 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   qty: number | null;
   disponibleVenta: boolean | null;
   reservado: boolean | null;
+  /** Unidades comprometidas (apartadas) pero todavía no vendidas. */
+  cantidadReservada: number | null;
   usoLocal: boolean | null;
   esRepuesto: boolean | null;
   esRegalo: boolean | null;
@@ -710,8 +714,13 @@ export type ShippingV2RecepcionChecklistAction =
 export type ShippingV2ItemNovedadInput = {
   tipo: string;
   descripcion: string;
+  /** @deprecated Se reemplaza por subida de archivos en la Fase 2 del plan de novedades. */
   evidenciaUrl?: string;
   packingId?: string;
+  /** Si no se envía, se deriva del proveedor DE COMPRA del artículo. */
+  proveedorResponsableId?: string;
+  /** "SUPER GEEK" (la resolvemos nosotros) o "Proveedor". Por defecto SUPER GEEK. */
+  responsable?: string;
 };
 
 export const SHIPPING_V2_PACKING_ESTADOS = SHIPPING_V2_PACKING_SELECT_OPTIONS.estado;
@@ -749,6 +758,23 @@ export type ShippingV2Novedad = ShippingV2RecordBase & {
   fechaCierre?: string;
   cerradoPor?: string;
   observacionFinal?: string;
+  prioridad?: string;
+  /** Quién resuelve: "SUPER GEEK" o "Proveedor". Decide el flujo entero. */
+  responsable?: string;
+  mensajeProveedor?: string;
+  fechaEnviadaProveedor?: string;
+  fechaRespuestaProveedor?: string;
+  montoReclamado?: number | null;
+  montoRecuperado?: number | null;
+  comprobanteSolucion: ShippingV2Attachment[];
+  ultimaActualizacion?: string;
+  actualizadoPor?: string;
+  /** Etiqueta del proveedor responsable, resuelta para la pantalla. */
+  proveedorResponsableNombre?: string;
+  /** SKU y nombre del artículo, resueltos para no abrir otra pantalla. */
+  itemSku?: string;
+  itemNombre?: string;
+  packingLabel?: string;
 };
 
 export type ShippingV2Migracion = ShippingV2RecordBase & {

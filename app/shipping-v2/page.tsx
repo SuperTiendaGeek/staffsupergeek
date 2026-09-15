@@ -35,7 +35,7 @@ const staffQuickAccess = [
   { key: "pagos", label: "Pagos", href: "/shipping-v2/pagos", active: true },
   { key: "packings", label: "Packings", href: "/shipping-v2/packings", active: true },
   { key: "recepcion", label: "Recepcion", href: "/shipping-v2/recepcion", active: true },
-  { key: null, label: "Novedades", href: null, active: false },
+  { key: "novedadesAbiertas", label: "Novedades", href: "/shipping-v2/novedades", active: true },
   { key: null, label: "Proveedores", href: null, active: false },
 ];
 
@@ -43,7 +43,7 @@ const providerQuickAccess = [
   { key: null, label: "Items", href: "/shipping-v2/items", active: true },
   { key: null, label: "Packings", href: "/shipping-v2/packings", active: true },
   { key: null, label: "Pagos", href: "/shipping-v2/pagos", active: true },
-  { key: null, label: "Novedades / garantías", href: null, active: false },
+  { key: null, label: "Novedades / garantías", href: "/shipping-v2/novedades", active: true },
 ];
 
 const toneStyles = {

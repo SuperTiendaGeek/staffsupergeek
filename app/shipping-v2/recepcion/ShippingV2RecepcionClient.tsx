@@ -1,7 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  ACCEPT_EVIDENCIAS,
+  clasificarEvidencia,
+  validarSeleccionEvidencias,
+} from "@/lib/shipping-v2/evidencias";
+import { EvidenciasInvalidasError, subirEvidenciasNovedad } from "@/lib/shipping-v2/subir-evidencias";
 import {
   AlertTriangle,
   ArrowDownAZ,
@@ -30,6 +36,9 @@ import {
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
 import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
+import { evaluarDisponibilidadComercial } from "@/lib/shipping-v2/item-comercial";
+import { esNovedadBloqueante } from "@/lib/shipping-v2/novedades";
+import { unidadesLibres } from "@/lib/shipping-v2/unidades";
 import { getShippingV2FacebookPublicationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import {
   SHIPPING_V2_ALL_FILTER,
@@ -223,12 +232,71 @@ function openTechnicalSheet(item: ShippingV2Item) {
   window.open(path, generada ? "_blank" : "_self", "noopener,noreferrer");
 }
 
+/** Novedades abiertas que de verdad impiden vender el artículo. */
+function novedadesBloqueantes(item: ReceptionItem) {
+  return item.openNovedades.filter((novedad) => esNovedadBloqueante(novedad)).length;
+}
+
 function stateTone(state: string) {
   const normalized = normalize(state);
   if (normalized.includes("disponible") || normalized.includes("recibido correctamente")) return "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]";
   if (normalized.includes("revision") || normalized.includes("recibido")) return "border-[#4FC3FF]/35 bg-[#4FC3FF]/10 text-[#BDEAFF]";
   if (normalized.includes("novedad") || normalized.includes("danado") || normalized.includes("faltante") || normalized.includes("garantia")) return "border-[#FF914D]/35 bg-[#FF914D]/10 text-[#FFB07A]";
   return "border-[#3A3A36] bg-[#151515] text-[#A7A7A7]";
+}
+
+/**
+ * Estado COMERCIAL del artículo, separado de su etapa logística.
+ *
+ * "En revisión" y "Disponible" son etapas del mismo campo en Airtable, así que
+ * un artículo en revisión se veía como no vendible aunque sí lo fuera. Este
+ * chip responde la pregunta que de verdad importa en tienda: ¿lo puedo apartar
+ * o vender ahora mismo? Ver lib/shipping-v2/item-comercial.ts.
+ */
+function ComercialChip({ item }: { item: ReceptionItem }) {
+  const disponibilidad = evaluarDisponibilidadComercial({
+    estado: item.estado,
+    estadoRevision: item.estadoRevision,
+    usoLocal: item.usoLocal,
+    // Solo las novedades BLOQUEANTES sacan el artículo de la venta. Una
+    // "Observación menor" abierta no debe marcarlo como no vendible: se vende
+    // con observación, que es justo para lo que existe ese tipo. Contar todas
+    // hacía que la pantalla dijera "No vendible" mientras el servidor lo tenía
+    // como disponible — dos verdades distintas para el mismo artículo.
+    novedadesAbiertas: novedadesBloqueantes(item),
+  });
+
+  if (!disponibilidad.apartable) {
+    return (
+      <span
+        className="shrink-0 rounded-full border border-[#FF914D]/35 bg-[#FF914D]/10 px-2 py-0.5 text-[11px] font-semibold text-[#FFB07A]"
+        title={disponibilidad.detalle}
+      >
+        No vendible
+      </span>
+    );
+  }
+
+  const libres = unidadesLibres(item);
+  if (libres <= 0) {
+    return (
+      <span
+        className="shrink-0 rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/10 px-2 py-0.5 text-[11px] font-semibold text-[#C9BFFF]"
+        title="El artículo está bien, pero todas sus unidades están apartadas o vendidas."
+        >
+        Sin unidades libres
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="shrink-0 rounded-full border border-[#7BE495]/35 bg-[#7BE495]/10 px-2 py-0.5 text-[11px] font-semibold text-[#9FEFB3]"
+      title="Se puede apartar o vender ahora, esté donde esté el artículo."
+    >
+      Apartable{libres > 1 ? ` · ${libres}` : ""}
+    </span>
+  );
 }
 
 function getItemPhoto(item: ShippingV2Item) {
@@ -599,7 +667,170 @@ function ColumnHeader({
   );
 }
 
-function ReceptionItemRow({
+/**
+ * Formulario de novedad, con su propio estado.
+ *
+ * Vivía dentro de ShippingV2RecepcionClient, que renderiza la tabla entera.
+ * Cada tecla disparaba un re-render de las ~175 filas con sus 8 casillas y 5
+ * botones cada una, y escribir se volvía inutilizable: se notaban segundos de
+ * retraso por letra. Aislarlo deja el tecleo dentro del modal.
+ */
+function NovedadForm({
+  item,
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  item: ReceptionItem;
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: (form: { tipo: string; descripcion: string; responsable: string; archivos: File[] }) => void;
+}) {
+  const [tipo, setTipo] = useState<string>(NOVEDAD_TYPES[0]);
+  const [descripcion, setDescripcion] = useState("");
+  const [responsable, setResponsable] = useState("SUPER GEEK");
+  // La evidencia real: fotos y videos cortos del celular. Se acumulan aquí y
+  // se suben DESPUÉS de crear la novedad, porque Airtable solo acepta
+  // adjuntos contra un registro que ya existe.
+  const [archivos, setArchivos] = useState<File[]>([]);
+  const [errorArchivos, setErrorArchivos] = useState("");
+  const archivosInputRef = useRef<HTMLInputElement | null>(null);
+
+  function agregarArchivos(nuevos: File[]) {
+    if (!nuevos.length) return;
+    const validacion = validarSeleccionEvidencias(
+      nuevos.map((archivo) => ({ name: archivo.name, type: archivo.type, size: archivo.size })),
+      { yaSubidas: archivos.length }
+    );
+    if (!validacion.ok) {
+      setErrorArchivos(validacion.motivo);
+      return;
+    }
+    setErrorArchivos("");
+    setArchivos((actuales) => [...actuales, ...nuevos]);
+  }
+
+  return (
+    <ModalShell title="Registrar novedad" description={`${item.sku} · ${item.nombre}`} onClose={onCancel}>
+      <div className="grid gap-3">
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Tipo de novedad</span>
+          <select value={tipo} onChange={(event) => setTipo(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-sm font-semibold text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70">
+            {NOVEDAD_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+          </select>
+        </label>
+
+        <div>
+          <span className="text-[12px] font-semibold uppercase tracking-normal text-[#A7A7A7]">¿Quién la resuelve?</span>
+          {/* La novedad nace encaminada: quien la detecta ya sabe si es algo
+              nuestro o un reclamo al proveedor. De esta decisión salen las
+              opciones de solución, quién la ve y de quién es el turno. */}
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {[
+              { valor: "SUPER GEEK", titulo: "Nosotros", detalle: "Se vende con descuento, va a despiece, se repara…" },
+              { valor: "Proveedor", titulo: "El proveedor", detalle: "Se le reclama al proveedor de compra." },
+            ].map((opcion) => (
+              <button
+                key={opcion.valor}
+                type="button"
+                onClick={() => setResponsable(opcion.valor)}
+                className={`rounded-lg border px-3 py-2 text-left transition ${
+                  responsable === opcion.valor
+                    ? "border-[#D7FF4F] bg-[#D7FF4F]/12 text-[#D7FF4F]"
+                    : "border-[#3A3A36] bg-[#101010] text-[#A7A7A7] hover:border-[#D7FF4F]/45"
+                }`}
+              >
+                <span className="block text-sm font-bold">{opcion.titulo}</span>
+                <span className="mt-0.5 block text-[11px] leading-4 opacity-80">{opcion.detalle}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Descripción</span>
+          <textarea value={descripcion} onChange={(event) => setDescripcion(event.target.value)} className="mt-2 min-h-28 w-full resize-y rounded-lg border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
+        </label>
+
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Evidencia</span>
+          <p className="mt-1 text-[11px] leading-4 text-[#6F706B]">
+            Fotos o un video corto del problema (video hasta 3.5 MB, unos 10 a 20 segundos). Las fotos se reducen solas, elige la que quieras. Opcional, pero una foto evita discutir después con el proveedor.
+          </p>
+
+          <input
+            ref={archivosInputRef}
+            type="file"
+            accept={ACCEPT_EVIDENCIAS}
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              agregarArchivos(Array.from(event.target.files || []));
+              if (archivosInputRef.current) archivosInputRef.current.value = "";
+            }}
+          />
+
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {archivos.map((archivo, indice) => (
+              <span
+                key={`${archivo.name}-${indice}`}
+                className="inline-flex max-w-[16rem] items-center gap-1.5 rounded-lg border border-[#3A3A36] bg-[#101010] py-1 pl-2 pr-1 text-[11px] text-[#C9C9C4]"
+              >
+                <span aria-hidden="true">{clasificarEvidencia({ type: archivo.type, filename: archivo.name }) === "video" ? "\u25B6" : "\u25A3"}</span>
+                <span className="truncate" title={archivo.name}>{archivo.name}</span>
+                <span className="shrink-0 text-[#6F706B]">{(archivo.size / (1024 * 1024)).toFixed(1)} MB</span>
+                <button
+                  type="button"
+                  onClick={() => setArchivos((actuales) => actuales.filter((_, i) => i !== indice))}
+                  className="grid h-5 w-5 shrink-0 place-items-center rounded text-[#8F908A] transition hover:bg-[#FF6B6B]/15 hover:text-[#FF9C9C]"
+                  aria-label={`Quitar ${archivo.name}`}
+                >
+                  &times;
+                </button>
+              </span>
+            ))}
+
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => archivosInputRef.current?.click()}
+              className="h-8 rounded-lg border border-dashed border-[#3A3A36] px-3 text-[12px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-40"
+            >
+              + Foto o video
+            </button>
+          </div>
+
+          {errorArchivos ? <p className="mt-1 text-[11px] text-[#FF9C9C]">{errorArchivos}</p> : null}
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button type="button" disabled={busy} onClick={onCancel} className="h-9 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45 disabled:opacity-50">Cancelar</button>
+        <button
+          type="button"
+          disabled={busy || !descripcion.trim()}
+          onClick={() => onSubmit({ tipo, descripcion, responsable, archivos })}
+          className="h-9 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50"
+        >
+          {busy ? "Guardando..." : "Guardar novedad"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+/**
+ * Una fila de recepción. Va envuelta en memo a propósito.
+ *
+ * Con ~175 artículos visibles, cada fila pinta 8 casillas de checklist y 5
+ * botones de acción. Sin memo, CUALQUIER cambio de estado del componente padre
+ * (escribir en el buscador, abrir un modal, marcar una casilla de otra fila)
+ * repintaba las 175 filas enteras y la pantalla se sentía pesada.
+ *
+ * Para que memo sirva, los callbacks que recibe deben ser estables: por eso el
+ * padre los define con useCallback y no como funciones en línea.
+ */
+const ReceptionItemRow = memo(function ReceptionItemRow({
   item,
   providerLabel,
   visibleColumns,
@@ -636,7 +867,7 @@ function ReceptionItemRow({
     estado: item.estado,
     estadoRevision: item.estadoRevision,
     revisadoFisicamente: item.revisadoFisicamente,
-    novedadesAbiertas: item.openNovedades.length,
+    novedadesAbiertas: novedadesBloqueantes(item),
   });
   const publicationBlock = publicacion.puede ? null : publicacion;
   const canPublish = received && publicacion.puede;
@@ -683,7 +914,13 @@ function ReceptionItemRow({
           >
             {display(item.nombre)}
           </button>
-          <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${stateTone(item.estado)}`}>{display(item.estado)}</span>
+          <span
+            className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${stateTone(item.estado)}`}
+            title={`Etapa logística: dónde está el artículo. No decide si se puede vender.`}
+          >
+            {display(item.estado)}
+          </span>
+          <ComercialChip item={item} />
           {item.estadoRevision ? (
             <span className={`hidden shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold 2xl:inline-flex ${stateTone(item.estadoRevision)}`} title={item.estadoRevision}>
               {item.estadoRevision}
@@ -796,7 +1033,7 @@ function ReceptionItemRow({
       ))}
     </article>
   );
-}
+})
 
 export function ShippingV2RecepcionClient({ items: initialItems, packings, proveedores, novedades: initialNovedades, error, preferenceScope }: Props) {
   const [items, setItems] = useState(initialItems);
@@ -816,7 +1053,6 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   const [detailData, setDetailData] = useState<DetailPayload | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
-  const [novedadForm, setNovedadForm] = useState({ tipo: NOVEDAD_TYPES[0], descripcion: "", evidenciaUrl: "" });
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
@@ -1016,9 +1252,17 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
     document.addEventListener("mouseup", cleanup);
   }
 
+  // openDetail también se pasa a las filas memoizadas: sin ref estable, cada
+  // render la recrearía y anularía el memo.
+  const openDetailRef = useRef<(item: ReceptionItem) => void>(() => {});
+  const handleOpenDetail = useCallback((item: ReceptionItem) => {
+    openDetailRef.current(item);
+  }, []);
+
   function openDetail(item: ReceptionItem) {
     setDetailItemId(item.id);
   }
+  openDetailRef.current = openDetail;
 
   function handleDetailSaved(updatedItem: ShippingV2Item) {
     setItems((current) => current.map((currentItem) => currentItem.id === updatedItem.id ? updatedItem : currentItem));
@@ -1055,6 +1299,17 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
       if (detailData?.item.id === updated.id) {
         setDetailData((current) => current ? { ...current, item: resolveShippingV2Items([updated], current.proveedores)[0] } : current);
       }
+      // El servidor cierra solo el ciclo del packing cuando esta casilla era
+      // la última que faltaba. Se avisa aquí para que el usuario se entere sin
+      // tener que ir a la pantalla de packings a comprobarlo.
+      const cerrados = updated.packingsCerradosAutomaticamente ?? [];
+      if (cerrados.length) {
+        setMessage(
+          cerrados.length === 1
+            ? `Ciclo cerrado: el packing ${cerrados[0]} completó todos sus artículos.`
+            : `Ciclo cerrado en ${cerrados.length} packings: ${cerrados.join(", ")}.`
+        );
+      }
     } catch (mutationError) {
       setMessage(mutationError instanceof Error ? mutationError.message : "Error inesperado.");
     } finally {
@@ -1085,22 +1340,77 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
     }
   }
 
-  async function saveNovedad() {
+  // Referencias ESTABLES para las filas memoizadas.
+  //
+  // Si se pasaran funciones en línea, cada render crearía funciones nuevas, las
+  // props de cada fila cambiarían siempre y memo no serviría de nada.
+  //
+  // Se usa un ref y NO un useCallback con dependencias vacías: estas funciones
+  // leen estado del componente (detailData, por ejemplo) y un closure con []
+  // congelaría el valor de la primera render, rompiendo la sincronización del
+  // modal de detalle. El ref siempre apunta a la versión actual.
+  const updateChecklistRef = useRef(updateChecklist);
+  const publicarItemRef = useRef(publicarItem);
+  updateChecklistRef.current = updateChecklist;
+  publicarItemRef.current = publicarItem;
+
+  const handleChecklistChange = useCallback(
+    (item: ReceptionItem, action: ShippingV2RecepcionChecklistAction, value: boolean) => {
+      void updateChecklistRef.current(item, action, value);
+    },
+    []
+  );
+  const handlePublish = useCallback((item: ReceptionItem) => {
+    void publicarItemRef.current(item);
+  }, []);
+
+  async function saveNovedad(form: { tipo: string; descripcion: string; responsable: string; archivos: File[] }) {
     if (!novedadItem) return;
     setBusyKey(`${novedadItem.id}:novedad`);
     setMessage("");
     try {
+      const { archivos, ...datos } = form;
       const response = await fetch(`/api/shipping-v2/recepcion/items/${novedadItem.id}/novedades`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...novedadForm, packingId: novedadItem.packing?.id || "" }),
+        body: JSON.stringify({ ...datos, packingId: novedadItem.packing?.id || "" }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo registrar la novedad."));
       const updated = payload.data as ShippingV2Item;
       setItems((current) => current.map((currentItem) => currentItem.id === updated.id ? updated : currentItem));
-      if (payload.novedad) setNovedades((current) => [payload.novedad as ShippingV2Novedad, ...current]);
-      setNovedadForm({ tipo: NOVEDAD_TYPES[0], descripcion: "", evidenciaUrl: "" });
+
+      // Las evidencias van en un segundo paso: Airtable necesita el registro
+      // creado para recibir adjuntos. Si esta parte falla, la novedad YA
+      // quedó guardada — se avisa, pero no se deshace nada ni se pierde lo
+      // que el técnico escribió.
+      let novedadCreada = payload.novedad as ShippingV2Novedad | undefined;
+      let evidenciasPendientes = false;
+
+      if (archivos.length && novedadCreada?.id) {
+        try {
+          const resultado = await subirEvidenciasNovedad(novedadCreada.id, archivos);
+          if (resultado.novedad) novedadCreada = resultado.novedad as ShippingV2Novedad;
+          if (resultado.aviso) setMessage(resultado.aviso);
+          evidenciasPendientes = resultado.fallidos.length > 0;
+        } catch (errorEvidencias) {
+          evidenciasPendientes = true;
+          setMessage(
+            errorEvidencias instanceof EvidenciasInvalidasError
+              ? `La novedad se guardó. Las evidencias no: ${errorEvidencias.message}`
+              : `La novedad se guardó, pero las evidencias no subieron: ${
+                  errorEvidencias instanceof Error ? errorEvidencias.message : "error inesperado"
+                }`
+          );
+        }
+      }
+
+      if (novedadCreada) setNovedades((current) => [novedadCreada as ShippingV2Novedad, ...current]);
+
+      // Si alguna evidencia no subió, el modal NO se cierra: los archivos
+      // siguen en memoria y basta con volver a pulsar Guardar. Cerrarlo
+      // obligaría al técnico a buscar o volver a tomar las fotos.
+      if (evidenciasPendientes) return;
       setNovedadItem(null);
     } catch (mutationError) {
       setMessage(mutationError instanceof Error ? mutationError.message : "Error inesperado.");
@@ -1311,10 +1621,10 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
                     columnWidths={columnWidths}
                     columnTemplate={columnTemplate}
                     busyKey={busyKey}
-                    onOpenDetail={openDetail}
+                    onOpenDetail={handleOpenDetail}
                     onOpenPhotos={setPhotoItem}
-                    onChecklistChange={(currentItem, action, value) => void updateChecklist(currentItem, action, value)}
-                    onPublish={(currentItem) => void publicarItem(currentItem)}
+                    onChecklistChange={handleChecklistChange}
+                    onPublish={handlePublish}
                     onNovedad={setNovedadItem}
                     onSkuLabel={openSkuLabel}
                     onPrepareSheet={openTechnicalSheetEditor}
@@ -1350,28 +1660,12 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
       ) : null}
 
       {novedadItem ? (
-        <ModalShell title="Registrar novedad" description={`${novedadItem.sku} · ${novedadItem.nombre}`} onClose={() => setNovedadItem(null)}>
-          <div className="grid gap-3">
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Tipo de novedad</span>
-              <select value={novedadForm.tipo} onChange={(event) => setNovedadForm((current) => ({ ...current, tipo: event.target.value }))} className="mt-2 h-10 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-sm font-semibold text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70">
-                {NOVEDAD_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Descripción</span>
-              <textarea value={novedadForm.descripcion} onChange={(event) => setNovedadForm((current) => ({ ...current, descripcion: event.target.value }))} className="mt-2 min-h-28 w-full resize-y rounded-lg border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Evidencia URL</span>
-              <input value={novedadForm.evidenciaUrl} onChange={(event) => setNovedadForm((current) => ({ ...current, evidenciaUrl: event.target.value }))} placeholder="Opcional" className="mt-2 h-10 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
-            </label>
-          </div>
-          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" disabled={Boolean(busyKey)} onClick={() => setNovedadItem(null)} className="h-9 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45 disabled:opacity-50">Cancelar</button>
-            <button type="button" disabled={Boolean(busyKey) || !novedadForm.descripcion.trim()} onClick={() => void saveNovedad()} className="h-9 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">{busyKey.endsWith(":novedad") ? "Guardando..." : "Guardar novedad"}</button>
-          </div>
-        </ModalShell>
+        <NovedadForm
+          item={novedadItem}
+          busy={Boolean(busyKey)}
+          onCancel={() => setNovedadItem(null)}
+          onSubmit={(form) => void saveNovedad(form)}
+        />
       ) : null}
 
       {detailItemId ? (
