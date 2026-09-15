@@ -9,6 +9,7 @@ import {
   crearSnapshotVacio,
   equipamientoConfirmado,
   fallasCriticas,
+  firmaVigente,
   guardarObservacion,
   limpiarHuerfanos,
   marcarPunto,
@@ -106,6 +107,42 @@ const cambiado = actualizarEquipamiento(conEquipo, {
 });
 assert(!equipamientoConfirmado(cambiado), "Agregar una característica tumba la firma anterior");
 assert(cambiado.equipamiento.opciones.length === 2, "Pero sí guarda lo nuevo declarado");
+
+// ─── La firma se cae si cambia lo declarado ─────────────────────────────────
+//
+// Lo declarado vive en la ficha, no en el snapshot. Si un compañero agrega una
+// característica después de que el técnico firmó, esa firma ya no vale: hay un
+// punto nuevo que nadie probó.
+
+const declaradoAlFirmar = [
+  { nombre: "Wi-Fi", grupo: "conectividad" as const },
+  { nombre: "USB-C", grupo: "puerto" as const },
+];
+const firmado = confirmarEquipamiento(crearSnapshotVacio("Laptop"), {
+  opciones: declaradoAlFirmar, actor: YO, ahora: AHORA,
+});
+
+assert(firmaVigente(firmado, declaradoAlFirmar), "Si nada cambió, la firma vale");
+assert(
+  firmaVigente(firmado, [declaradoAlFirmar[1], declaradoAlFirmar[0]]),
+  "El orden no importa: es el mismo equipamiento"
+);
+assert(
+  firmaVigente(firmado, [{ nombre: "  wi-fi  ", grupo: "conectividad" }, { nombre: "USB-C", grupo: "puerto" }]),
+  "Mayúsculas y espacios tampoco importan"
+);
+assert(
+  !firmaVigente(firmado, [...declaradoAlFirmar, { nombre: "Touch ID", grupo: "extra" }]),
+  "Agregar una característica después de firmar tumba la firma"
+);
+assert(
+  !firmaVigente(firmado, [declaradoAlFirmar[0]]),
+  "Quitar una también"
+);
+assert(
+  !firmaVigente(crearSnapshotVacio("Laptop"), declaradoAlFirmar),
+  "Sin firma previa, nunca está vigente"
+);
 
 // ─── Huérfanos ──────────────────────────────────────────────────────────────
 //

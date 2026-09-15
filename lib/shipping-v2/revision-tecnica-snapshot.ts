@@ -292,3 +292,28 @@ export function fallasCriticas(
   }
   return salida;
 }
+
+/**
+ * ¿La firma del equipamiento sigue valiendo?
+ *
+ * Lo que el equipo trae vive en los campos de la ficha (`Conectividad V2`,
+ * `Puertos V2`, `Características extras V2`), no aquí. El snapshot guarda una
+ * COPIA de lo que había cuando se firmó, justamente para detectar esto: si
+ * alguien editó la ficha después, la firma quedó sobre otra cosa y hay que
+ * volver a confirmar. Sin esta comparación, un compañero podría agregar una
+ * característica y la inspección se cerraría sin que nadie probara su punto.
+ */
+export function firmaVigente(
+  snapshot: SnapshotRevision,
+  declaradasAhora: readonly OpcionGuardada[]
+): boolean {
+  if (!equipamientoConfirmado(snapshot)) return false;
+
+  const clave = (opciones: readonly OpcionGuardada[]) =>
+    opciones
+      .map((o) => `${o.grupo}:${o.nombre.trim().toLowerCase()}`)
+      .sort()
+      .join("|");
+
+  return clave(snapshot.equipamiento.opciones) === clave(declaradasAhora);
+}
