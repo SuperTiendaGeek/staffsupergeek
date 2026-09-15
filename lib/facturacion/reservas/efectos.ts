@@ -33,15 +33,24 @@ import "server-only";
 import { fetchRecordsByIds, firstString } from "../gancho/airtableGancho";
 import { reservarSiguienteIdAbono } from "@/lib/operaciones/airtable";
 import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
+import { evaluarDisponibilidadComercial } from "@/lib/shipping-v2/item-comercial";
 import { comprometerUnidades, liberarUnidades, unidadesReservadas } from "@/lib/shipping-v2/unidades";
 import { verificarEscrituraUnica, withLock } from "@/lib/concurrencia";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 const ABONOS_TABLE = "Abonos";
 
-// Estados desde los que un artículo NO se puede apartar, tengan las unidades
-// que tengan: ya salió del inventario vendible por otro camino.
-const ESTADOS_NO_APARTABLES = new Set(["Vendido", "Con novedad", "Destinado a partes", "Devuelto"]);
+// Qué impide apartar un artículo ya NO se decide por su etapa logística.
+//
+// Antes esta lista incluía solo cuatro estados y, de rebote, la bandera
+// "Disponible para venta" bloqueaba todo lo que no hubiera llegado todavía.
+// Eso impedía apartar mercadería en tránsito o en packing, que es justo lo que
+// SUPER GEEK vende bajo pedido: un cliente aparta algo que aún está en eBay o
+// en la caja de Roberto.
+//
+// Ahora el criterio vive en lib/shipping-v2/item-comercial.ts y separa los dos
+// ejes: la ETAPA (dónde está) no bloquea; sí bloquean las SALIDAS del
+// inventario (vendido, consumido, anulado) y los problemas de revisión.
 
 async function patchItem(itemId: string, fields: Record<string, unknown>): Promise<void> {
   const token = process.env.AIRTABLE_API_KEY?.trim();
@@ -82,10 +91,15 @@ async function apartarItemSinTurno(shippingItemId: string, unidades: number): Pr
   // bandera "Reservado" estuviera encendida para rechazar el apartado, así que
   // apartar 1 de 52 unidades dejaba las otras 51 invendibles. Ahora solo se
   // rechaza cuando de verdad no quedan unidades libres.
-  const estado = firstString(rec.fields["Estado Item"]);
-  if (ESTADOS_NO_APARTABLES.has(estado)) {
-    throw new Error(`Un ítem en estado "${estado}" no se puede apartar.`);
-  }
+  const disponibilidad = evaluarDisponibilidadComercial({
+    estado: firstString(rec.fields["Estado Item"]),
+    estadoRevision: firstString(rec.fields["Estado de revisión"]),
+    usoLocal: rec.fields["Es uso local"] === true,
+    // Las novedades abiertas ya apagan "Disponible para venta" al registrarse
+    // (ver registrarShippingV2NovedadItem); aquí no se vuelve a consultar la
+    // tabla para no meter una lectura extra en el camino de la reserva.
+  });
+  if (!disponibilidad.apartable) throw new Error(disponibilidad.detalle);
 
   const unidadesItem = {
     cantidad: Number(rec.fields["Cantidad"] ?? 0),
@@ -93,17 +107,11 @@ async function apartarItemSinTurno(shippingItemId: string, unidades: number): Pr
     reservado: rec.fields["Reservado"] === true,
   };
 
-  // "Disponible para venta" apagada puede significar dos cosas distintas:
-  //   · el artículo no está vendible todavía (en tránsito, en packing, en
-  //     revisión) → no se puede apartar;
-  //   · o simplemente que ya no quedan unidades libres → de eso se encarga la
-  //     aritmética de abajo, que además sabe si quedan unidades sueltas.
-  // Se distinguen por si hay algo comprometido: sin nada comprometido, la
-  // bandera apagada es la primera razón. Sin esta comprobación se podría
-  // apartar mercadería que ni siquiera ha llegado.
-  if (rec.fields["Disponible para venta"] !== true && unidadesReservadas(unidadesItem) === 0) {
-    throw new Error("Este ítem no está disponible para venta.");
-  }
+  // Llegados aquí el artículo es bueno; lo único que queda por comprobar es si
+  // sobran unidades sin comprometer, y de eso se encarga comprometerUnidades.
+  // La bandera "Disponible para venta" NO se usa como guarda: se apaga sola
+  // cuando se agotan las unidades libres, y eso no es motivo para rechazar
+  // (puede quedar stock suelto que la bandera no refleja).
 
   const resultado = comprometerUnidades(unidadesItem, unidades);
   if (!resultado.ok) throw new Error(resultado.motivo);

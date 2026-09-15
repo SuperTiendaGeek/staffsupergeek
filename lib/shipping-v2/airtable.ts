@@ -1,6 +1,6 @@
 import "server-only";
 
-import { comprometerUnidades, liberarUnidades, unidadesReservadas } from "./unidades";
+import { comprometerUnidades, liberarUnidades, unidadesLibres, unidadesReservadas } from "./unidades";
 import {
   calcularCierreDespiece,
   calcularRepartoParaPiezas,
@@ -76,6 +76,15 @@ import {
   getShippingV2PackingTopPendingStep,
   getShippingV2PackingWorkHint,
 } from "@/lib/shipping-v2/packing-lifecycle";
+import { calcularDisponibleVenta, evaluarDisponibilidadComercial } from "@/lib/shipping-v2/item-comercial";
+import {
+  appendEntradaHilo,
+  esNovedadBloqueante,
+  getEstadoInicialNovedad,
+  isNovedadAbierta,
+  validarTransicionNovedad,
+} from "@/lib/shipping-v2/novedades";
+import { validarEvidencias } from "@/lib/shipping-v2/evidencias";
 import type { ShippingV2ReceptionChecklistItemLike } from "@/lib/shipping-v2/reception-checklist";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePackingLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
@@ -135,6 +144,11 @@ export type ShippingV2AttachmentUpload = {
   filename: string;
   contentType: string;
   fileBase64: string;
+  // Tamaño original en bytes. Opcional porque las fotos de Items no lo usan,
+  // pero las evidencias de novedades sí: el tope de un video (25 MB) es
+  // distinto al de una foto (10 MB) y el servidor revalida el lote completo
+  // sin confiar en lo que dijo el navegador.
+  sizeBytes?: number;
 };
 
 const PACKING_LOGISTICS_MODES = new Set(["Pendiente de packing", "Crear packing individual", "Asignar a packing existente"]);
@@ -1357,6 +1371,7 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     qty: firstNumber(f[F.cantidad]),
     disponibleVenta: firstBoolean(f[F.disponibleVenta]),
     reservado: firstBoolean(f[F.reservado]),
+    cantidadReservada: firstNumber(f[F.cantidadReservada]),
     usoLocal: firstBoolean(f[F.esUsoLocal]),
     esRepuesto: firstBoolean(f[F.esRepuesto]),
     esRegalo: firstBoolean(f[F.esRegalo]),
@@ -1720,6 +1735,16 @@ function mapNovedad(record: AirtableRecord): ShippingV2Novedad {
     fechaCierre: firstString(f["Fecha de cierre"]),
     cerradoPor: firstString(f["Cerrado por"]),
     observacionFinal: firstString(f["Observación final"]),
+    prioridad: firstString(f.Prioridad),
+    responsable: firstString(f["Responsable de solución"]),
+    mensajeProveedor: firstString(f["Mensaje enviado al proveedor"]),
+    fechaEnviadaProveedor: firstString(f["Fecha enviada a proveedor"]),
+    fechaRespuestaProveedor: firstString(f["Fecha de respuesta del proveedor"]),
+    montoReclamado: firstNumber(f["Monto reclamado"]),
+    montoRecuperado: firstNumber(f["Monto recuperado"]),
+    comprobanteSolucion: mapAttachments(f["Comprobante de solución"]),
+    ultimaActualizacion: firstString(f["Última actualización"]),
+    actualizadoPor: firstString(f["Actualizado por"]),
   };
 }
 
@@ -4480,9 +4505,17 @@ export async function closeShippingV2Packing(packingId: string, options: { cerra
   return getShippingV2PackingById(id, options.access);
 }
 
+/**
+ * ¿Esta novedad sigue pidiendo trabajo?
+ *
+ * Antes se comparaba contra una lista de palabras ("resuelta", "cerrada"…) que
+ * NO incluía dos estados reales de Airtable: "Rechazada" y "Cerrada sin
+ * respuesta". Ambos contaban como abiertos para siempre, así que bloqueaban el
+ * cierre de ciclo del packing y la disponibilidad del artículo sin que hubiera
+ * forma de desbloquearlos. La lista buena vive en novedades.ts.
+ */
 function isOpenNovedadStatus(status: string) {
-  const normalized = normalizeStatus(status);
-  return Boolean(normalized && !["resuelta", "resuelto", "cancelada", "cancelado", "cerrada", "cerrado"].includes(normalized));
+  return isNovedadAbierta(status);
 }
 
 function isCriticalNovedadType(type: string) {
@@ -4592,7 +4625,65 @@ export async function updateShippingV2ReceptionChecklistItem(
     descripcion: `Recepción: ${checklistFields.label} = ${input.value ? "sí" : "no"}.`,
     observacion: note,
   });
+
+  // Cierre automático del ciclo del packing. Va después del evento para que el
+  // historial conserve el orden real: primero la casilla, luego el cierre que
+  // esa casilla provocó.
+  const packingsDelItem = linkedRecordIds(updated.fields["Shipping Packings"]);
+  if (packingsDelItem.length) {
+    const cerrados = await autoCerrarShippingV2PackingsDeItem(packingsDelItem, options.actualizadoPor);
+    if (cerrados.length) return { ...updatedItem, packingsCerradosAutomaticamente: cerrados };
+  }
+
   return updatedItem;
+}
+
+/**
+ * Cierra solo el ciclo de los packings de un artículo, si ya corresponde.
+ *
+ * El estado "Ciclo cerrado" no tiene ninguna decisión humana dentro: es
+ * enteramente derivable de los artículos (todos con su checklist completo) y
+ * de las novedades (ninguna abierta). Obligar a alguien a entrar al detalle
+ * del packing y pulsar un botón para confirmar algo que el sistema ya sabe es
+ * trabajo inventado, y es la razón de que ningún packing llegara nunca a
+ * cerrarse.
+ *
+ * Distinto es cerrar CON artículos incompletos o CON novedades: eso sí es un
+ * juicio y sigue siendo manual, con justificación y solo para administradores.
+ *
+ * Nunca lanza: es un efecto secundario de guardar una casilla en Recepción.
+ * Si el cierre automático falla, la casilla igual se guardó y el cierre se
+ * puede hacer a mano; romper el guardado por esto sería peor.
+ */
+async function autoCerrarShippingV2PackingsDeItem(
+  packingIds: string[],
+  actor: string
+): Promise<string[]> {
+  const cerrados: string[] = [];
+  for (const packingId of packingIds) {
+    try {
+      const packing = await getShippingV2PackingById(packingId, systemShippingV2Access());
+      if (normalizeStatus(packing.estado) !== "en revision") continue;
+
+      const progreso = calculateShippingV2PackingReviewProgress(packing.items);
+      if (!progreso.completo) continue;
+
+      const novedadesAbiertas = await getOpenNovedadesForPacking(packing);
+      if (novedadesAbiertas.length) continue;
+
+      await patchPackingStatus({
+        packing,
+        estado: "Cerrado final",
+        actor,
+        access: systemShippingV2Access(),
+        descripcion: `Ciclo cerrado automáticamente: los ${progreso.total} artículos completaron su checklist y no hay novedades abiertas.`,
+      });
+      cerrados.push(packing.packingId || packing.id);
+    } catch (error) {
+      console.error(`No se pudo cerrar automáticamente el packing ${packingId}:`, error);
+    }
+  }
+  return cerrados;
 }
 
 function generateItemNovedadId(item: ShippingV2Item) {
@@ -4617,6 +4708,14 @@ export async function createShippingV2ItemNovedad(
 
   const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
   const critical = isCriticalNovedadType(tipo);
+  // "Proveedor responsable" es SIEMPRE el proveedor de COMPRA: a quien se le
+  // compró el artículo y por tanto a quien se le reclama. NO es el proveedor
+  // logístico: Roberto arma la caja y la envía, pero no responde por un
+  // artículo que se compró en eBay. Confundirlos haría que el reclamo le
+  // llegue a quien no vendió nada.
+  const proveedorResponsableId = cleanString(input.proveedorResponsableId)
+    || cleanString(item.proveedorId);
+  const responsable = cleanString(input.responsable) === "Proveedor" ? "Proveedor" : "SUPER GEEK";
 
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
     method: "POST",
@@ -4626,9 +4725,17 @@ export async function createShippingV2ItemNovedad(
         fields: compactFields({
           "Novedad ID": generateItemNovedadId(item),
           "Tipo de novedad": tipo,
-          "Estado Novedad": "Abierta",
           "Item relacionado": [item.id],
           "Packing relacionado": packingId ? [packingId] : undefined,
+          // Sin proveedor responsable la novedad no le llega a nadie: el panel
+          // no sabe a quién reclamarle y el portal del proveedor nunca la ve.
+          "Proveedor responsable": proveedorResponsableId ? [proveedorResponsableId] : undefined,
+          // La novedad NACE ENCAMINADA: quien la detecta ya sabe si la
+          // resolvemos nosotros o si hay que reclamarle al proveedor. De ahí
+          // sale también su estado inicial, para que caiga en la bandeja
+          // correcta sin que nadie tenga que moverla.
+          "Responsable de solución": responsable,
+          "Estado Novedad": getEstadoInicialNovedad(responsable),
           "Descripción": descripcion,
           "Evidencias": evidenciaUrl ? [{ url: evidenciaUrl }] : undefined,
           "Fecha de registro": new Date().toISOString(),
@@ -4650,6 +4757,12 @@ export async function createShippingV2ItemNovedad(
           fields: {
             [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Con novedad",
             [SHIPPING_V2_ITEM_FIELDS.estadoRevision]: revisionStateForNovedad(tipo),
+            // El bloqueo comercial se marca en su propio eje, no solo en el
+            // Estado Item: así una reserva o una venta lo respetan aunque el
+            // estado logistico cambie despues. Una reserva YA existente no se
+            // libera aqui a proposito: soltarle el articulo a un cliente sin
+            // hablarlo es peor que dejar la reserva marcada para gestion.
+            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: false,
             [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
             [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
           },
@@ -4672,6 +4785,417 @@ export async function createShippingV2ItemNovedad(
   });
 
   return { item: updatedItem, novedad: mapNovedad(created) };
+}
+
+/**
+ * Recalcula la disponibilidad comercial de un artículo y la escribe.
+ *
+ * Es el CAMINO DE VUELTA que faltaba: al registrar una novedad crítica el
+ * artículo queda bloqueado (`Disponible para venta` en false y Estado Item en
+ * "Con novedad"), y hasta ahora nada lo devolvía. Se llama al cerrar, rechazar
+ * o reabrir una novedad.
+ *
+ * Qué toca y qué no:
+ *  · `Disponible para venta` — se deriva siempre (item-comercial.ts).
+ *  · `Estado Item` — solo saca de "Con novedad"; nunca mueve otras etapas.
+ *  · `Estado de revisión` — si quedó un veredicto bloqueante (Dañado,
+ *    Faltante…) y ya no hay novedades abiertas, pasa a "Aceptado con
+ *    observación": el problema existió y se resolvió, pero el artículo carga
+ *    esa historia. Dejarlo en "Dañado" lo mantendría bloqueado para siempre.
+ */
+async function recalcularDisponibilidadItem(itemRecordId: string, actor: string) {
+  const id = cleanString(itemRecordId);
+  if (!id) return null;
+
+  const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
+  const novedades = await getShippingV2NovedadesForItem(id, systemShippingV2Access());
+  const bloqueantes = novedades.filter((novedad) => esNovedadBloqueante(novedad)).length;
+
+  const fields: Record<string, unknown> = {};
+
+  // Saca al artículo del estado "Con novedad" cuando ya no queda ninguna.
+  const estadoActual = normalizeStatus(item.estado);
+  if (estadoActual === "con novedad" && bloqueantes === 0) {
+    fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = item.recibido === true ? "En revisión" : "Recibido";
+  }
+
+  // Un veredicto bloqueante sin novedades abiertas dejaría el artículo
+  // invendible para siempre. Se convierte en observación, que no bloquea.
+  const estadoRevisionFinal = bloqueantes === 0 &&
+    !evaluarDisponibilidadComercial({ estadoRevision: item.estadoRevision }).apartable
+    ? "Aceptado con observación"
+    : item.estadoRevision;
+  if (estadoRevisionFinal !== item.estadoRevision) {
+    fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = estadoRevisionFinal;
+  }
+
+  const disponible = calcularDisponibleVenta({
+    estado: (fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] as string) ?? item.estado,
+    estadoRevision: estadoRevisionFinal,
+    usoLocal: item.usoLocal,
+    novedadesAbiertas: bloqueantes,
+    unidadesLibres: unidadesLibres({ cantidad: item.cantidad, cantidadReservada: item.cantidadReservada, reservado: item.reservado }),
+  });
+  if (disponible !== item.disponibleVenta) {
+    fields[SHIPPING_V2_ITEM_FIELDS.disponibleVenta] = disponible;
+  }
+
+  if (!Object.keys(fields).length) return item;
+
+  fields[SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion] = new Date().toISOString();
+  fields[SHIPPING_V2_ITEM_FIELDS.actualizadoPor] = actor;
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id, fields }] }),
+  });
+  const updated = response.records?.[0];
+  return updated ? mapItem(updated) : item;
+}
+
+/**
+ * Ejecuta una transición de novedad. Única puerta de escritura del ciclo.
+ *
+ * Valida SIEMPRE contra novedades.ts aunque la pantalla ya lo haya hecho: la
+ * pantalla decide qué botones mostrar, no qué se puede escribir.
+ *
+ * Los mensajes se APENDEN al hilo en vez de pisarse, para que rechazar una
+ * propuesta y recibir otra no borre lo anterior.
+ */
+export async function transitionShippingV2Novedad(
+  novedadRecordId: string,
+  input: {
+    accion: string;
+    valores?: Record<string, string>;
+    solucion?: string;
+    cerrarDirecto?: boolean;
+    montoReclamado?: number | null;
+    montoRecuperado?: number | null;
+    actor: string;
+    access?: ShippingV2AccessContext;
+    isSiteAdmin?: boolean;
+  }
+) {
+  assertShippingV2Permission(input.access, "canViewNovedades", "No tienes permiso para gestionar novedades.");
+  const id = cleanString(novedadRecordId);
+  if (!id) throw new Error("Record ID de novedad inválido.");
+
+  const record = await airtableRequest<AirtableRecordResponse>(
+    `${tableUrl(SHIPPING_V2_TABLES.novedades)}/${encodeURIComponent(id)}`
+  );
+  const novedad = mapNovedad(record);
+  if (!canAccessNovedad(novedad, input.access)) throw new Error("No tienes acceso a esta novedad.");
+
+  const valores = input.valores ?? {};
+  const solucion = cleanString(input.solucion) || novedad.solucion || "";
+  const validacion = validarTransicionNovedad({
+    estadoActual: novedad.estado,
+    responsable: novedad.responsable,
+    accion: input.accion,
+    isSiteAdmin: input.isSiteAdmin,
+    valores,
+    solucion,
+    cerrarDirecto: input.cerrarDirecto,
+  });
+  if (!validacion.ok) throw new Error(validacion.motivo);
+
+  const now = new Date().toISOString();
+  const { transicion, estadoDestino } = validacion;
+  const fields: Record<string, unknown> = {
+    "Estado Novedad": estadoDestino,
+    "Última actualización": now,
+    "Actualizado por": input.actor,
+  };
+
+  switch (transicion.accion) {
+    case "responder":
+      fields["Respuesta del proveedor"] = appendEntradaHilo(novedad.respuestaProveedor, input.actor, valores.respuesta, now);
+      fields["Fecha de respuesta del proveedor"] = now;
+      fields["Solución"] = solucion;
+      break;
+    case "aceptar-propuesta":
+      fields["Mensaje enviado al proveedor"] = appendEntradaHilo(novedad.mensajeProveedor, input.actor, `Aceptamos la propuesta: ${solucion}.`, now);
+      fields["Descripción de solución"] = valores.descripcionSolucion || novedad.descripcionSolucion || solucion;
+      break;
+    case "rechazar-propuesta":
+      fields["Mensaje enviado al proveedor"] = appendEntradaHilo(novedad.mensajeProveedor, input.actor, `Rechazamos la propuesta. ${valores.motivo}`, now);
+      // La pelota vuelve a su cancha: se limpia la fecha de respuesta para que
+      // el contador de días sin contestar empiece de nuevo.
+      fields["Fecha de respuesta del proveedor"] = null;
+      break;
+    case "resolver":
+      fields["Solución"] = solucion;
+      fields["Descripción de solución"] = valores.descripcionSolucion;
+      break;
+    case "cerrar":
+      // La resolución y su descripción ya quedaron registradas al acordarla.
+      // Aquí solo se sella el cierre; la nota es opcional.
+      if (valores.observacionFinal) fields["Observación final"] = valores.observacionFinal;
+      break;
+    case "cerrar-sin-respuesta":
+    case "anular":
+      fields["Observación final"] = valores.motivo;
+      fields["Fecha de cierre"] = now;
+      fields["Cerrado por"] = input.actor;
+      break;
+    case "reabrir":
+      fields["Observación final"] = valores.motivo;
+      fields["Fecha de cierre"] = null;
+      fields["Cerrado por"] = null;
+      break;
+  }
+
+  // Cierre directo: la resolución ya se cumplió en el mismo acto de acordarla
+  // ("se vende con descuento" no tiene nada que esperar). Se sella aquí sin
+  // obligar al usuario a volver a describir lo mismo en un segundo paso.
+  if (estadoDestino === "Cerrada") {
+    fields["Fecha de cierre"] = now;
+    fields["Cerrado por"] = input.actor;
+    if (!fields["Observación final"]) {
+      fields["Observación final"] = valores.observacionFinal || valores.descripcionSolucion || solucion;
+    }
+  }
+
+  if (typeof input.montoReclamado === "number") fields["Monto reclamado"] = input.montoReclamado;
+  if (typeof input.montoRecuperado === "number") fields["Monto recuperado"] = input.montoRecuperado;
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
+    method: "PATCH",
+    // Los nulls son intencionales (limpiar fecha de cierre / de respuesta), así
+    // que NO se pasa por compactFields, que los quitaría.
+    body: JSON.stringify({ records: [{ id, fields }] }),
+  });
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió la novedad actualizada.");
+  const novedadActualizada = mapNovedad(updated);
+
+  await createShippingV2Event({
+    action: "Cambio de estado",
+    entity: "Shipping Novedad",
+    novedadRecordId: id,
+    itemRecordId: novedad.itemId,
+    packingRecordId: novedad.packingId,
+    registradoPor: input.actor,
+    descripcion: `Novedad — ${transicion.label}: ${novedad.estado} → ${estadoDestino}.`,
+    observacion: Object.values(valores).filter(Boolean).join(" · "),
+    estadoAnterior: novedad.estado,
+    estadoNuevo: estadoDestino,
+  });
+
+  // El artículo recupera (o pierde) disponibilidad según cómo quedó la novedad.
+  // Es un efecto secundario: si falla, la novedad igual quedó guardada.
+  let item: ShippingV2Item | null = null;
+  if (novedad.itemId) {
+    try {
+      item = await recalcularDisponibilidadItem(novedad.itemId, input.actor);
+    } catch (error) {
+      console.error("No se pudo recalcular la disponibilidad del item tras la novedad:", error);
+    }
+  }
+
+  return { novedad: novedadActualizada, item };
+}
+
+/**
+ * Lee una novedad por su record ID aplicando el mismo control de acceso que el
+ * resto del módulo. Existe porque las evidencias se suben DESPUÉS de crear la
+ * novedad (Airtable solo acepta adjuntos contra un registro que ya existe) y
+ * hay que releerla para saber cuántas tiene y quién puede tocarla.
+ */
+async function fetchShippingV2NovedadById(
+  novedadRecordId: string,
+  access?: ShippingV2AccessContext
+): Promise<ShippingV2Novedad> {
+  const id = cleanString(novedadRecordId);
+  if (!id) throw new Error("Record ID de novedad inválido.");
+  const record = await airtableRequest<AirtableRecordResponse>(
+    `${tableUrl(SHIPPING_V2_TABLES.novedades)}/${encodeURIComponent(id)}`
+  );
+  const novedad = mapNovedad(record);
+  if (!canAccessNovedad(novedad, access)) throw new Error("No tienes acceso a esta novedad.");
+  return novedad;
+}
+
+/**
+ * Sube fotos y videos cortos al campo `Evidencias` de una novedad.
+ *
+ * Tolerante a propósito: si de 3 archivos falla 1, los otros 2 quedan
+ * guardados y se devuelve un `warning`. El técnico está parado frente al
+ * artículo con el celular en la mano; perder las tres fotos porque una pesaba
+ * de más lo obligaría a repetir todo.
+ */
+export async function addEvidenciasToShippingV2Novedad(
+  novedadRecordId: string,
+  archivos: ShippingV2AttachmentUpload[],
+  options: { actor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canViewNovedades", "No tienes permiso para gestionar novedades.");
+  const novedad = await fetchShippingV2NovedadById(novedadRecordId, options.access);
+
+  const validacion = validarEvidencias(
+    // Sin tamaño declarado se asume lo peor: mejor rechazar que dejar pasar
+    // un archivo que Airtable va a rebotar. El default NUNCA debe abrir.
+    archivos.map((archivo) => ({
+      name: archivo.filename,
+      type: archivo.contentType,
+      size: archivo.sizeBytes ?? Number.POSITIVE_INFINITY,
+    })),
+    { yaSubidas: novedad.evidencias.length }
+  );
+  if (!validacion.ok) throw new Error(validacion.motivo);
+
+  const fallidos: string[] = [];
+  for (const archivo of archivos) {
+    try {
+      await uploadAttachmentToRecord({
+        recordId: novedad.id,
+        attachmentFieldIdOrName: "Evidencias",
+        filename: archivo.filename,
+        contentType: archivo.contentType,
+        fileBase64: archivo.fileBase64,
+      });
+    } catch (error) {
+      console.error("No se pudo subir una evidencia de la novedad:", error);
+      fallidos.push(archivo.filename);
+    }
+  }
+
+  if (fallidos.length === archivos.length) {
+    throw new Error("No se pudo subir ninguna evidencia. Revisa tu conexión e intenta de nuevo.");
+  }
+
+  // Los archivos YA están en Airtable. Si la relectura falla (corte de red,
+  // límite de la API), no se puede decirle al usuario que la subida falló:
+  // volvería a subir las mismas fotos y quedarían duplicadas. Se devuelve la
+  // versión previa y la pantalla se refresca sola en la siguiente carga.
+  let actualizada = novedad;
+  let releyoOk = true;
+  try {
+    actualizada = await fetchShippingV2NovedadById(novedad.id, options.access);
+  } catch (error) {
+    console.error("Evidencias subidas, pero no se pudo releer la novedad:", error);
+    releyoOk = false;
+  }
+  const subidas = archivos.length - fallidos.length;
+
+  // Misma huella que al eliminar: quién tocó la evidencia y cuándo. Sin esto,
+  // una novedad podía ganar adjuntos sin que nada lo registrara.
+  try {
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
+      method: "PATCH",
+      body: JSON.stringify({
+        records: [{
+          id: novedad.id,
+          fields: { "Última actualización": new Date().toISOString(), "Actualizado por": options.actor },
+        }],
+      }),
+    });
+  } catch (error) {
+    console.error("No se pudo sellar la novedad tras subir evidencias:", error);
+  }
+
+  await createShippingV2Event({
+    action: "Actualizado",
+    entity: "Shipping Novedad",
+    novedadRecordId: novedad.id,
+    itemRecordId: novedad.itemId,
+    packingRecordId: novedad.packingId,
+    registradoPor: options.actor,
+    descripcion: subidas === 1 ? "Evidencia agregada a la novedad." : `${subidas} evidencias agregadas a la novedad.`,
+  });
+
+  const avisos: string[] = [];
+  if (fallidos.length) avisos.push(`No se pudieron subir: ${fallidos.join(", ")}.`);
+  if (!releyoOk) avisos.push("Las evidencias se guardaron; recarga la pantalla para verlas.");
+
+  return {
+    novedad: actualizada,
+    warning: avisos.length ? avisos.join(" ") : null,
+    uploadedCount: subidas,
+  };
+}
+
+/**
+ * Quita una evidencia. Airtable no borra adjuntos de a uno: se reescribe el
+ * campo con las que se conservan, referenciándolas por su URL actual.
+ */
+export async function removeEvidenciaFromShippingV2Novedad(
+  novedadRecordId: string,
+  input: { attachmentId?: string | null; url?: string | null; filename?: string | null },
+  options: { actor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canViewNovedades", "No tienes permiso para gestionar novedades.");
+  // Un proveedor PUEDE subir evidencia (su foto del empaque, su comprobante),
+  // pero NO puede borrar la nuestra: la evidencia es justamente lo que
+  // sostiene el reclamo en su contra. Borrar es acción de staff.
+  if (options.access && options.access.mode === "provider") {
+    throw new Error("Un proveedor no puede eliminar evidencias de una novedad.");
+  }
+  const novedad = await fetchShippingV2NovedadById(novedadRecordId, options.access);
+
+  const attachmentId = cleanString(input.attachmentId);
+  const url = cleanString(input.url);
+  const filename = cleanString(input.filename);
+  if (!attachmentId && !url && !filename) {
+    throw new Error("Falta identificar la evidencia a eliminar.");
+  }
+
+  // Se busca por id, y si no aparece se baja a la URL y luego al nombre. La
+  // URL importa porque Airtable la firma y la rota entre lecturas: la que
+  // tiene el navegador puede no ser la que acaba de llegar del servidor, y sin
+  // respaldo esa evidencia no se podría borrar nunca.
+  //
+  // Se descarta UNA SOLA posición, no todas las que coincidan: dos fotos del
+  // mismo celular pueden llamarse igual ("image.jpg") y borrar ambas perdería
+  // evidencia buena.
+  const posicion = (() => {
+    if (attachmentId) {
+      const porId = novedad.evidencias.findIndex((evidencia) => evidencia.id === attachmentId);
+      if (porId >= 0) return porId;
+    }
+    if (url) {
+      const porUrl = novedad.evidencias.findIndex((evidencia) => evidencia.url === url);
+      if (porUrl >= 0) return porUrl;
+    }
+    if (filename) {
+      const porNombre = novedad.evidencias.findIndex((evidencia) => evidencia.filename === filename);
+      if (porNombre >= 0) return porNombre;
+    }
+    return -1;
+  })();
+
+  if (posicion < 0) throw new Error("No se encontró la evidencia en la novedad.");
+
+  const conservadas = novedad.evidencias.filter((_, indice) => indice !== posicion);
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{
+        id: novedad.id,
+        fields: {
+          Evidencias: conservadas.map(keptAttachmentPayload),
+          "Última actualización": new Date().toISOString(),
+          "Actualizado por": options.actor,
+        },
+      }],
+    }),
+  });
+
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió la novedad actualizada.");
+
+  await createShippingV2Event({
+    action: "Actualizado",
+    entity: "Shipping Novedad",
+    novedadRecordId: novedad.id,
+    itemRecordId: novedad.itemId,
+    packingRecordId: novedad.packingId,
+    registradoPor: options.actor,
+    descripcion: "Evidencia eliminada de la novedad.",
+  });
+
+  return mapNovedad(updated);
 }
 
 async function getOpenNovedadesForPacking(packing: ShippingV2Packing) {
@@ -5035,6 +5559,44 @@ export async function getShippingV2Novedades(access?: ShippingV2AccessContext) {
   }));
 }
 
+/**
+ * Novedades listas para el panel: con SKU, proveedor y packing ya resueltos.
+ *
+ * El panel tiene que poder decidir sin abrir otra pantalla ("¿de qué artículo
+ * es esta novedad y a quién se la reclamo?"), así que se resuelven aquí en
+ * lecturas acotadas en vez de dejar que la tabla dispare una consulta por fila.
+ */
+export async function getShippingV2NovedadesPanel(access?: ShippingV2AccessContext) {
+  const novedades = await getShippingV2Novedades(access);
+  if (!novedades.length) return [];
+
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const itemIds = Array.from(new Set(novedades.flatMap((novedad) => novedad.itemIds)));
+  const packingIds = Array.from(new Set(novedades.flatMap((novedad) => novedad.packingIds)));
+
+  const [itemRecords, packingRecords, proveedores] = await Promise.all([
+    itemIds.length ? listRecordsByIds(SHIPPING_V2_TABLES.items, itemIds) : Promise.resolve([]),
+    packingIds.length ? listRecordsByIds(SHIPPING_V2_TABLES.packings, packingIds) : Promise.resolve([]),
+    getShippingV2Proveedores(),
+  ]);
+
+  const itemsById = new Map(itemRecords.map((record) => [record.id, record]));
+  const packingsById = new Map(packingRecords.map((record) => [record.id, record]));
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+
+  return novedades.map((novedad) => {
+    const itemRecord = novedad.itemId ? itemsById.get(novedad.itemId) : undefined;
+    const packingRecord = novedad.packingId ? packingsById.get(novedad.packingId) : undefined;
+    return {
+      ...novedad,
+      itemSku: itemRecord ? firstString(itemRecord.fields[getOfficialSkuField()], itemRecord.id) : "",
+      itemNombre: itemRecord ? firstString(itemRecord.fields[F.nombre]) : "",
+      packingLabel: packingRecord ? firstString(packingRecord.fields[SHIPPING_V2_PACKING_FIELDS.packingId], packingRecord.id) : "",
+      proveedorResponsableNombre: resolveShippingV2ProveedorLabel(novedad.proveedorResponsableId, labelsById),
+    };
+  });
+}
+
 export async function getShippingV2NovedadesForItem(itemRecordId: string, access?: ShippingV2AccessContext) {
   const itemId = cleanString(itemRecordId);
   if (!itemId) return [];
@@ -5072,7 +5634,9 @@ export async function marcarShippingV2ItemDisponible(
   if (item.recibido !== true) throw new Error("Marca primero Recibido antes de dejar el item listo para vender.");
 
   const novedades = await getShippingV2NovedadesForItem(id);
-  const novedadesAbiertas = novedades.filter((n) => isOpenNovedadStatus(n.estado)).length;
+  // Solo las bloqueantes impiden publicar: una "Observación menor" abierta no
+  // debe frenar la venta, para eso existe ese tipo.
+  const novedadesAbiertas = novedades.filter((n) => esNovedadBloqueante(n)).length;
 
   const evaluacion = evaluarPublicacionItem({
     estado: item.estado,

@@ -24,6 +24,7 @@ export async function POST(request: Request, { params }: Params) {
         descripcion: String(body.descripcion ?? ""),
         evidenciaUrl: String(body.evidenciaUrl ?? ""),
         packingId: String(body.packingId ?? ""),
+        responsable: String(body.responsable ?? ""),
       },
       { registradoPor: getShippingV2SessionName(session) }
     );
