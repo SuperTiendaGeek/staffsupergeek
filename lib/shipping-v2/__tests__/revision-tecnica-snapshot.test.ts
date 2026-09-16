@@ -3,6 +3,7 @@
 
 import { construirZonasRevision } from "../revision-tecnica";
 import {
+  avanceDeInspeccion,
   actualizarEquipamiento,
   confirmarEquipamiento,
   contarFallas,
@@ -203,6 +204,23 @@ assert(fallasCriticas(conLeve, zonas).length === 0, "Una falla en punto no crít
 // ─── Puente con revision-tecnica ────────────────────────────────────────────
 
 assert(resultadosDe(mixto)[p1.id] === "falla", "resultadosDe entrega lo que esperan las funciones de estado");
+
+// ── avanceDeInspeccion: el color del botón en la lista de Recepción ────────
+assert(avanceDeInspeccion("", false) === "sin-empezar", "sin respaldo, la inspección no empezó");
+assert(avanceDeInspeccion(undefined, false) === "sin-empezar", "un campo vacío no es 'en proceso'");
+assert(avanceDeInspeccion("{basura no json", false) === "sin-empezar", "basura en el campo no inventa avance");
+assert(
+  avanceDeInspeccion(serializarSnapshot(mixto), false) === "en-proceso",
+  "con puntos marcados, la inspección está a medias"
+);
+assert(
+  avanceDeInspeccion(serializarSnapshot(mixto), true) === "firmada",
+  "si el item está firmado, manda la firma"
+);
+assert(
+  avanceDeInspeccion("", true) === "firmada",
+  "una inspección firmada sin respaldo legible sigue siendo firmada"
+);
 
 if (fallos > 0) {
   console.error(`Fallaron ${fallos} comprobaciones.`);

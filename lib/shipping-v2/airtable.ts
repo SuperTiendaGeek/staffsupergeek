@@ -88,13 +88,20 @@ import {
 import { validarEvidencias } from "@/lib/shipping-v2/evidencias";
 import {
   construirZonasRevision,
+  getPerfilRevision,
   resolverEstadoInspeccion,
   type EstadoInspeccion,
   type GrupoDeclarable,
   type OpcionDeclarada,
+  type PerfilRevision,
   type ResultadoPunto,
   type ZonaRevision,
 } from "@/lib/shipping-v2/revision-tecnica";
+import {
+  getIntervencionesPorCategoria,
+  intervencionAplica,
+  type TipoIntervencion,
+} from "@/lib/shipping-v2/intervenciones";
 import {
   actualizarEquipamiento,
   confirmarEquipamiento,
@@ -6421,6 +6428,12 @@ export type ShippingV2InspeccionTecnica = {
   intervenciones: ShippingV2Intervencion[];
   /** Novedades abiertas del item, para no volver a crear la misma. */
   novedadesAbiertas: ShippingV2Novedad[];
+  /** Trabajos que aplican a ESTE tipo de item. El servidor valida lo mismo. */
+  trabajos: {
+    perfil: PerfilRevision;
+    mantenimientos: string[];
+    mejoras: string[];
+  };
 };
 
 export type ShippingV2Intervencion = {
@@ -6559,7 +6572,19 @@ export async function getShippingV2InspeccionTecnica(
     },
   ];
 
-  return { item, zonas, snapshot, estado, grupos, intervenciones, novedadesAbiertas: novedades };
+  return {
+    item,
+    zonas,
+    snapshot,
+    estado,
+    grupos,
+    intervenciones,
+    novedadesAbiertas: novedades,
+    // Los trabajos que aplican a esta categoría salen del servidor, del mismo
+    // módulo que valida al guardar: la pantalla no puede ofrecer algo que el
+    // servidor vaya a rechazar.
+    trabajos: getIntervencionesPorCategoria(item.categoria),
+  };
 }
 
 export type ShippingV2InspeccionCambios = {
@@ -6725,7 +6750,11 @@ export async function getShippingV2IntervencionesDeItem(itemRecordId: string): P
     // creciera, sin ningún aviso.
     const records = await listRecords(SHIPPING_V2_TABLES.intervenciones, {
       maxRecords: 200,
-      filterByFormula: `FIND("${id}", ARRAYJOIN({Item}))`,
+      // Se filtra por `Item ID` (texto con el record ID), NO por el enlace:
+      // ARRAYJOIN() sobre un campo de enlace devuelve los NOMBRES de los
+      // registros enlazados, no sus IDs, así que buscar "rec..." ahí nunca
+      // coincidía y el historial salía siempre vacío.
+      filterByFormula: `{Item ID} = "${id}"`,
       sortField: "Fecha",
       sortDirection: "desc",
     });
@@ -6810,6 +6839,15 @@ export async function registrarShippingV2Intervencion(
   if (!detalle) throw new Error("Elige qué trabajo se hizo.");
 
   const item = await getShippingV2ItemById(id, { includeAiName: false, access: options.access });
+
+  // El trabajo tiene que aplicar a ESTE tipo de item. El selector ya ofrece
+  // solo lo válido, pero el endpoint acepta cualquier JSON de quien tenga
+  // sesión: sin esto se podría guardar "Ajuste o refuerzo de bisagras" en un
+  // disco NVMe, o texto libre que ensucie el catálogo de Airtable.
+  const perfilItem = getPerfilRevision(item.categoria);
+  if (!intervencionAplica(perfilItem, tipo as TipoIntervencion, detalle)) {
+    throw new Error(`"${detalle}" no es un trabajo válido para ${item.categoria || "este tipo de item"}.`);
+  }
   const ahora = new Date().toISOString();
 
   let repuesto: ShippingV2Item | null = null;
@@ -6865,14 +6903,21 @@ export async function registrarShippingV2Intervencion(
     const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.intervenciones), {
       method: "POST",
       body: JSON.stringify({
-        // Sin typecast: `Detalle` es un singleSelect cerrado y con typecast
-        // cualquier texto que llegue por la API crearía una opción nueva
-        // permanente en Airtable.
+        // Con typecast: `Detalle` es un singleSelect y las opciones por
+        // categoría no se pueden dar de alta por API de otra forma. Es seguro
+        // porque el valor SIEMPRE sale de la lista cerrada de
+        // `intervenciones.ts`, ya validada arriba. Los demás campos del cuerpo
+        // no son texto libre: `Tipo` está validado contra dos valores, los
+        // enlaces llevan record IDs reales y el resto son números o fechas.
+        typecast: true,
         records: [{
           fields: compactFields({
             "Intervención": etiqueta,
             Tipo: tipo,
             Item: [id],
+            // Copia en texto del record ID del item. Es lo que permite filtrar
+            // el historial de forma exacta desde la app y desde Airtable.
+            "Item ID": id,
             "Repuesto usado": repuesto ? [repuesto.id] : undefined,
             Detalle: detalle,
             Nota: cleanString(input.nota) || undefined,
