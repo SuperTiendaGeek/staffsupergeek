@@ -317,3 +317,26 @@ export function firmaVigente(
 
   return clave(snapshot.equipamiento.opciones) === clave(declaradasAhora);
 }
+
+/**
+ * ¿En qué punto está la inspección de este item, sin abrir la pantalla?
+ *
+ * Lo usa la lista de Recepción para pintar el botón: verde cuando está
+ * firmada, ámbar cuando alguien empezó y la dejó a medias, apagado cuando
+ * nadie la tocó. Sin esto, una inspección abandonada se ve igual que una que
+ * nunca empezó, y nadie se entera de que quedó colgada.
+ *
+ * Es deliberadamente barato: no arma zonas ni cuenta puntos, solo mira si hay
+ * algo guardado. La lista puede tener cientos de filas.
+ */
+export function avanceDeInspeccion(
+  bruto: unknown,
+  firmada: boolean
+): "firmada" | "en-proceso" | "sin-empezar" {
+  if (firmada) return "firmada";
+  const snapshot = parsearSnapshot(bruto);
+  const hayMarcas = Object.keys(snapshot.puntos).length > 0;
+  const hayEquipamiento = Boolean(snapshot.equipamiento.confirmadoPor);
+  const hayNotas = Object.keys(snapshot.observaciones).length > 0;
+  return hayMarcas || hayEquipamiento || hayNotas ? "en-proceso" : "sin-empezar";
+}

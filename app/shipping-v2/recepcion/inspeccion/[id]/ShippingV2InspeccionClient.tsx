@@ -37,15 +37,10 @@ type Props = {
 
 type Pestana = "equipo" | "inspeccion" | "mantenimientos" | "mejoras";
 
-const MANTENIMIENTOS = [
-  "Limpieza interna", "Cambio de pasta térmica", "Ajuste o refuerzo de bisagras",
-  "Limpieza de teclado", "Cambio de almohadillas", "Reemplazo de tornillos o tapas",
-  "Actualización de BIOS / firmware", "Otro",
-];
-const MEJORAS = [
-  "Ampliación de RAM", "Cambio de almacenamiento", "Cambio de batería",
-  "Cambio de pantalla", "Cambio de teclado", "Otro",
-];
+// Los trabajos que se ofrecen salen del servidor (`inicial.trabajos`), no de
+// una lista fija aquí: a un disco NVMe no se le ajustan las bisagras y a un
+// monitor no se le cambia la pasta térmica. Es el mismo módulo que valida al
+// guardar, así que la pantalla nunca ofrece algo que el servidor rechace.
 
 const OPCIONES_FICHA: Record<string, readonly string[]> = {
   pantallaTamano: SHIPPING_V2_ITEM_SELECT_OPTIONS.pantallaTamano,
@@ -258,6 +253,26 @@ export function ShippingV2InspeccionClient({
     }
   }
 
+  async function reabrir() {
+    setGuardando(true);
+    setMensaje("");
+    try {
+      const respuesta = await fetch(`/api/shipping-v2/recepcion/items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reviewed", value: false }),
+      });
+      const payload = await respuesta.json().catch(() => ({}));
+      if (!respuesta.ok || !payload.success) throw new Error(String(payload.error || "No se pudo reabrir la inspección."));
+      setDatos((d) => ({ ...d, item: payload.data }));
+      setAviso("Inspección reabierta. Corrige lo que haga falta y vuelve a finalizarla.");
+    } catch (error) {
+      setMensaje(error instanceof Error ? error.message : "Error inesperado.");
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   // ── Novedad desde una falla ──
   async function crearNovedad(zonaNombre: string, puntoTexto: string) {
     setGuardando(true);
@@ -285,6 +300,8 @@ export function ShippingV2InspeccionClient({
   }
 
   // ── Intervenciones ──
+  const MANTENIMIENTOS = inicial.trabajos.mantenimientos;
+  const MEJORAS = inicial.trabajos.mejoras;
   const [mantTipo, setMantTipo] = useState(MANTENIMIENTOS[0]);
   const [mantNota, setMantNota] = useState("");
   const [mejTipo, setMejTipo] = useState(MEJORAS[0]);
@@ -401,7 +418,7 @@ export function ShippingV2InspeccionClient({
             {firmado ? (
               <p className="mb-3.5 rounded-lg border border-[#7BE495]/35 bg-[#7BE495]/8 px-3 py-2.5 text-[12.5px] leading-relaxed text-[#9FEFB3]">
                 Esta inspección ya está firmada, así que el equipamiento no se puede cambiar. Para corregirlo,
-                desmarca “Revisado física/técnicamente” en Recepción y vuelve a entrar.
+                usa “Reabrir inspección” en la barra de abajo.
               </p>
             ) : null}
             <p className="mb-3.5 rounded-lg border border-[#2E2F28] bg-[#22231C] px-3 py-2.5 text-[12.5px] leading-relaxed text-[#B4B5AC]">
@@ -779,6 +796,12 @@ export function ShippingV2InspeccionClient({
             className="rounded-lg border border-[#3A3A36] bg-[#2A2B23] px-3 py-2 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#A8C93B]">
             Guardar y seguir después
           </Link>
+          {firmado ? (
+            <button type="button" disabled={guardando} onClick={() => void reabrir()}
+              className="rounded-lg border border-[#F4C95B]/55 bg-[#F4C95B]/10 px-3 py-2 text-sm font-semibold text-[#F4C95B] transition hover:border-[#F4C95B] disabled:opacity-50">
+              Reabrir inspección
+            </button>
+          ) : null}
           <button type="button" disabled={!estado.completa || guardando || firmado} onClick={() => void firmar()}
             className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-sm font-bold text-[#141510] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40">
             {firmado ? "Inspección firmada" : "Finalizar inspección"}

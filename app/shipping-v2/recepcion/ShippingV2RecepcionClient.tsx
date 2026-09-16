@@ -1,13 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import {
   ACCEPT_EVIDENCIAS,
   clasificarEvidencia,
   validarSeleccionEvidencias,
 } from "@/lib/shipping-v2/evidencias";
 import { EvidenciasInvalidasError, subirEvidenciasNovedad } from "@/lib/shipping-v2/subir-evidencias";
+import { avanceDeInspeccion } from "@/lib/shipping-v2/revision-tecnica-snapshot";
 import {
   AlertTriangle,
   ArrowDownAZ,
@@ -156,7 +157,9 @@ const RECEPTION_COLUMNS: ReceptionColumn[] = [
 
 const CHECKLIST_CONTROLS: Array<{ action: ShippingV2RecepcionChecklistAction; label: string; icon: LucideIcon }> = [
   { action: "received", label: "Recibido", icon: PackageOpen },
-  { action: "reviewed", label: "Revisado física/técnicamente", icon: ClipboardCheck },
+  // "reviewed" NO está aquí a propósito: ese dato lo firma la pantalla de
+  // inspección técnica, no un clic suelto. En su lugar, la celda dibuja el
+  // botón que la abre, y su color dice en qué punto va.
   { action: "photos-taken", label: "Fotos tomadas", icon: Camera },
   { action: "published-shopify", label: "Shopify", icon: ShoppingBag },
   { action: "published-marketplace", label: "Marketplace", icon: Store },
@@ -480,6 +483,65 @@ function ChecklistToggle({
       />
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Icon className="h-4 w-4" aria-hidden="true" />}
     </label>
+  );
+}
+
+/**
+ * Abre la inspección técnica, y de paso dice en qué punto va.
+ *
+ * Tres estados, porque una inspección abandonada a la mitad no puede verse
+ * igual que una que nadie empezó:
+ *
+ *   verde  → firmada, con nombre y fecha en el tooltip
+ *   ámbar  → alguien la empezó y la dejó a medias
+ *   apagado → sin empezar
+ *
+ * No es una casilla: no se marca ni se desmarca desde aquí. Ese dato lo firma
+ * la pantalla de inspección, con todos sus puntos resueltos.
+ */
+function BotonInspeccion({
+  avance,
+  recibido,
+  revisadoPor,
+  fechaRevision,
+  onClick,
+}: {
+  avance: "firmada" | "en-proceso" | "sin-empezar";
+  recibido: boolean;
+  revisadoPor?: string;
+  fechaRevision?: string;
+  onClick: () => void;
+}) {
+  const tono = !recibido
+    ? "border-[#2A2A28] bg-[#121310] text-[#6E6F68]"
+    : avance === "firmada"
+      ? "border-[#D7FF4F]/50 bg-[#D7FF4F]/10 text-[#D7FF4F] hover:border-[#D7FF4F]"
+      : avance === "en-proceso"
+        ? "border-[#F4C95B]/55 bg-[#F4C95B]/10 text-[#F4C95B] hover:border-[#F4C95B]"
+        : "border-[#3A3A36] bg-[#171814] text-[#F5F5F5] hover:border-[#D7FF4F]/45";
+
+  const ayuda = !recibido
+    ? "Marca primero Recibido."
+    : avance === "firmada"
+      ? `Inspección firmada por ${revisadoPor?.trim() || "Sin registrar"} · ${formatDateTime(fechaRevision)}. Abrir para consultarla.`
+      : avance === "en-proceso"
+        ? "Inspección técnica empezada y sin terminar. Abrir para continuarla."
+        : "Abrir inspección técnica";
+
+  return (
+    <button
+      type="button"
+      disabled={!recibido}
+      onClick={onClick}
+      title={ayuda}
+      aria-label={ayuda}
+      className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed ${tono}`}
+    >
+      <ClipboardCheck className="h-4 w-4" aria-hidden="true" />
+      {recibido && avance === "en-proceso" ? (
+        <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-[#F4C95B]" aria-hidden="true" />
+      ) : null}
+    </button>
   );
 }
 
@@ -869,6 +931,7 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
 }) {
   const received = isReceived(item);
   const reviewed = isReviewed(item);
+  const avanceInspeccion = avanceDeInspeccion(item.revisionTecnicaDetalle, reviewed);
   const publicacion = evaluarPublicacionItem({
     estado: item.estado,
     estadoRevision: item.estadoRevision,
@@ -880,9 +943,6 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
   const publishBusy = busyKey === `${item.id}:disponible`;
   const receivedGateHelp = "Marca primero Recibido.";
   const receivedHelp = received ? "Item recibido físicamente" : "Confirmar que el item llegó físicamente";
-  const reviewHelp = reviewed
-    ? `Revisado por ${item.revisadoPor?.trim() || "Sin registrar"} · ${formatDateTime(item.fechaRevision)}`
-    : "Marcar como revisado física/técnicamente";
   const facebookSuperGeekBlockReason = item.facebookSuperGeek === true
     ? "Publicación ya activada; no se puede desactivar desde el sistema."
     : getShippingV2FacebookPublicationBlockReason(item);
@@ -964,30 +1024,39 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
     if (column.key === "checklist") {
       return (
         <div className="flex min-w-0 items-center gap-1">
-          {CHECKLIST_CONTROLS.map(({ action, label, icon }) => {
+          {CHECKLIST_CONTROLS.map(({ action, label, icon }, indice) => {
             const blockedByReceipt = action !== "received" && !received;
             const blockedByFacebookText = action === "facebook-super-geek" && Boolean(facebookSuperGeekBlockReason);
             const help = action === "received"
               ? receivedHelp
-              : action === "reviewed" && received
-                ? reviewHelp
-                : blockedByReceipt
-                  ? receivedGateHelp
-                  : blockedByFacebookText
-                    ? facebookSuperGeekBlockReason
-                    : label;
+              : blockedByReceipt
+                ? receivedGateHelp
+                : blockedByFacebookText
+                  ? facebookSuperGeekBlockReason
+                  : label;
 
             return (
-              <ChecklistToggle
-                key={action}
-                label={label}
-                icon={icon}
-                checked={checklistChecked[action]}
-                disabled={blockedByReceipt || blockedByFacebookText}
-                busy={busyKey === `${item.id}:${action}`}
-                help={help}
-                onChange={(value) => onChecklistChange(item, action, value)}
-              />
+              <Fragment key={action}>
+                <ChecklistToggle
+                  label={label}
+                  icon={icon}
+                  checked={checklistChecked[action]}
+                  disabled={blockedByReceipt || blockedByFacebookText}
+                  busy={busyKey === `${item.id}:${action}`}
+                  help={help}
+                  onChange={(value) => onChecklistChange(item, action, value)}
+                />
+                {/* Va justo después de "Recibido": es el paso siguiente. */}
+                {indice === 0 ? (
+                  <BotonInspeccion
+                    avance={avanceInspeccion}
+                    recibido={received}
+                    revisadoPor={item.revisadoPor}
+                    fechaRevision={item.fechaRevision}
+                    onClick={() => onInspeccion(item.id)}
+                  />
+                ) : null}
+              </Fragment>
             );
           })}
         </div>
@@ -1014,14 +1083,6 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
         </ActionButton>
         <ActionButton title={received ? "Imprimir etiqueta SKU" : receivedGateHelp} disabled={!received} onClick={() => onSkuLabel(item.id)}>
           <Tag className="h-3.5 w-3.5" aria-hidden="true" />
-        </ActionButton>
-        <ActionButton
-          tone="lime"
-          title={received ? "Inspección técnica" : receivedGateHelp}
-          disabled={!received}
-          onClick={() => onInspeccion(item.id)}
-        >
-          <ClipboardCheck className="h-3.5 w-3.5" aria-hidden="true" />
         </ActionButton>
         <ActionButton tone="blue" title={received ? "Preparar ficha" : receivedGateHelp} disabled={!received} onClick={() => onPrepareSheet(item.id)}>
           <Wrench className="h-3.5 w-3.5" aria-hidden="true" />

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T20:54:02.915Z",
+  "generatedAt": "2026-09-16T14:31:14.436Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -2490,6 +2490,11 @@
           "id": "fldMC0r07KFUyE3q3",
           "type": "multipleAttachments",
           "attachment": true
+        },
+        "Item ID": {
+          "id": "fld9RTd5AvcNjidDt",
+          "type": "singleLineText",
+          "kind": "singleLineText"
         }
       }
     },
