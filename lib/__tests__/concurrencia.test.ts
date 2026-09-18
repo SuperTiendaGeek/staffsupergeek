@@ -98,6 +98,64 @@ async function main(): Promise<void> {
     assert(!lanzoVacio, "Un campo vacío en Airtable se lee como 0, no como conflicto");
   }
 
+  // ── 7. Mejoras: dos técnicos consumiendo el mismo repuesto ────────────────
+  //
+  // El mismo bug, en otra pantalla. La inspección técnica descuenta una unidad
+  // del repuesto al registrar una mejora: leer "quedan 5", esperar el viaje a
+  // Airtable y escribir "quedan 4". Dos mejoras a la vez sobre el mismo
+  // repuesto consumen dos unidades y descuentan una sola.
+  {
+    let stock = 5;
+    const consumirSinTurno = async () => {
+      const disponibles = stock;   // lee
+      await dormir(5);             // ventana
+      stock = disponibles - 1;     // escribe (absoluto, no incremental)
+    };
+    await Promise.all([consumirSinTurno(), consumirSinTurno()]);
+    assert(stock === 4, `SIN turno, dos mejoras dejan el stock en 4 en vez de 3 — el bug (vino ${stock})`);
+  }
+
+  {
+    let stock = 5;
+    const consumirConTurno = () =>
+      withLock("shipping-item:recREP17", async () => {
+        const disponibles = stock;
+        await dormir(5);
+        stock = disponibles - 1;
+      });
+    await Promise.all([consumirConTurno(), consumirConTurno()]);
+    assert(stock === 3, `CON turno, dos mejoras descuentan las dos unidades (vino ${stock})`);
+  }
+
+  // Y el turno es POR repuesto: consumir una RAM no puede hacer esperar a quien
+  // consume un disco. La clave lleva el record ID justamente para eso.
+  {
+    const orden: string[] = [];
+    const consumir = (repuestoId: string, espera: number) =>
+      withLock(`shipping-item:${repuestoId}`, async () => {
+        await dormir(espera);
+        orden.push(repuestoId);
+      });
+    await Promise.all([consumir("recRAM", 20), consumir("recDISCO", 1)]);
+    assert(
+      orden[0] === "recDISCO",
+      `Repuestos distintos no se hacen esperar entre sí (orden: ${orden.join(", ")})`
+    );
+  }
+
+  // Un fallo dentro del turno tiene que liberarlo igual, o el siguiente técnico
+  // se queda esperando para siempre.
+  {
+    try {
+      await withLock("shipping-item:recFALLA", async () => { throw new Error("Airtable no respondió"); });
+    } catch {
+      // esperado
+    }
+    let siguienteCorrio = false;
+    await withLock("shipping-item:recFALLA", async () => { siguienteCorrio = true; });
+    assert(siguienteCorrio, "Un error dentro del turno no deja el repuesto bloqueado");
+  }
+
   if (fallos > 0) { console.error(`\n${fallos} assert(s) fallaron.`); process.exit(1); }
   console.log("\n✅ concurrencia.test.ts — todos los asserts pasaron");
 }
