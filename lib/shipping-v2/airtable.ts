@@ -6829,6 +6829,38 @@ export async function registrarShippingV2Intervencion(
   input: ShippingV2IntervencionInput,
   options: { actor: string; access?: ShippingV2AccessContext }
 ) {
+  const repuestoId = cleanString(input.repuestoId);
+
+  // Un mantenimiento no toca el inventario: no hay nada que serializar.
+  if (cleanString(input.tipo) !== "Mejora" || !repuestoId) {
+    return registrarIntervencionSinTurno(itemRecordId, input, options);
+  }
+
+  // Turno por repuesto. Sin esto, dos mejoras sobre el mismo repuesto leen la
+  // misma cantidad y escriben el mismo número: el stock baja UNA vez aunque se
+  // hayan consumido dos unidades, y el descuadre no deja rastro.
+  //
+  // Es la MISMA clave que usa el apartado de reservas y el montaje de
+  // repuestos en órdenes, a propósito: las unidades libres dependen de lo
+  // reservado, así que montar una pieza y consumirla en una mejora tampoco
+  // pueden colarse a la vez sobre la misma unidad.
+  //
+  // Qué NO cubre, para que quede dicho: el turno vive en la memoria de UNA
+  // instancia. En Vercel pueden levantarse varias, y dos empleados atendidos
+  // por procesos distintos siguen pudiendo pisarse. Airtable no ofrece
+  // escrituras condicionales, así que desde aquí no hay forma de cerrar esa
+  // puerta del todo. Con tres personas en la tienda, el caso real —el mismo
+  // empleado haciendo doble clic, o dos pestañas— queda cubierto.
+  return withLock(`shipping-item:${repuestoId}`, () =>
+    registrarIntervencionSinTurno(itemRecordId, input, options)
+  );
+}
+
+async function registrarIntervencionSinTurno(
+  itemRecordId: string,
+  input: ShippingV2IntervencionInput,
+  options: { actor: string; access?: ShippingV2AccessContext }
+) {
   assertShippingV2Permission(options.access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
   const id = cleanString(itemRecordId);
   if (!id) throw new Error("Record ID de item inválido.");
