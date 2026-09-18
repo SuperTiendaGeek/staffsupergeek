@@ -152,6 +152,10 @@ function normalizeForm(item: ShippingV2Item): ShippingV2TechnicalSheetInput {
     ramTipo: item.technicalSheet.ramTipo || "",
     almacenamientoPrincipal: item.technicalSheet.almacenamientoPrincipal || "",
     almacenamientoTipo: item.technicalSheet.almacenamientoTipo || "",
+    // Segunda unidad: el caso de toda laptop o torre con SSD de arranque + HDD
+    // de datos. Si no se carga aquí, guardar desde esta pantalla la borra.
+    almacenamiento2: item.technicalSheet.almacenamiento2 || "",
+    almacenamiento2Tipo: item.technicalSheet.almacenamiento2Tipo || "",
     gpu: item.technicalSheet.gpu || "",
     gpuIntegrada: item.technicalSheet.gpuIntegrada || "",
     bateriaSalud: item.technicalSheet.bateriaSalud,
@@ -765,6 +769,8 @@ export function ShippingV2FichaTecnicaClient({ item: initialItem, technicalOptio
             <TextField label="GPU integrada" value={form.gpuIntegrada} source={fieldSources.gpuIntegrada} onChange={(value) => updateField("gpuIntegrada", value)} />
             <TextField label="Almacenamiento principal" value={form.almacenamientoPrincipal} source={fieldSources.almacenamientoPrincipal} onChange={(value) => updateField("almacenamientoPrincipal", value)} />
             <SelectField label="Almacenamiento tipo" value={form.almacenamientoTipo} source={fieldSources.almacenamientoTipo} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.almacenamientoTipo} onChange={(value) => updateField("almacenamientoTipo", value)} />
+            <TextField label="2ª unidad — capacidad" value={form.almacenamiento2} source={fieldSources.almacenamiento2} onChange={(value) => updateField("almacenamiento2", value)} />
+            <SelectField label="2ª unidad — tipo" value={form.almacenamiento2Tipo} source={fieldSources.almacenamiento2Tipo} options={SHIPPING_V2_ITEM_SELECT_OPTIONS.almacenamientoTipo} onChange={(value) => updateField("almacenamiento2Tipo", value)} />
           </SectionCard>
 
           <SectionCard title="Conectividad, puertos y extras" action={

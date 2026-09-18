@@ -81,7 +81,11 @@ function cpuFrequencyLine(sheet: FichaVentaSheetSource) {
 }
 
 function storageLine(sheet: FichaVentaSheetSource) {
-  const line = joinParts([sheet.almacenamientoPrincipal, sheet.almacenamientoTipo]);
+  // Las dos unidades, separadas por " + ": un equipo con SSD de arranque y HDD
+  // de datos vale más por tener las dos, y la ficha solo mostraba la primera.
+  const primera = joinParts([sheet.almacenamientoPrincipal, sheet.almacenamientoTipo]);
+  const segunda = joinParts([sheet.almacenamiento2, sheet.almacenamiento2Tipo]);
+  const line = [primera, segunda].filter(hasValue).join(" + ");
   return hasValue(line) ? line : null;
 }
 
