@@ -18,6 +18,8 @@ import { isShippingV2GiftOperation, isShippingV2PurchaseOperation } from "@/lib/
 import { getShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { requisitosFaltantesItem } from "@/lib/shipping-v2/item-requisitos";
+import { ACCEPT_FOTOS_ITEM, validarSeleccionFotosItem } from "@/lib/shipping-v2/fotos-item";
+import { FotosInvalidasError, subirFotosItem } from "@/lib/shipping-v2/subir-fotos-item";
 
 type Props = {
   proveedores: ShippingV2Proveedor[];
@@ -162,9 +164,6 @@ function TextArea({
   );
 }
 
-const MAX_PHOTOS = 10;
-const MAX_PHOTO_SIZE = 10 * 1024 * 1024;
-const ALLOWED_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const PACKING_LOGISTICS_OPTIONS = ["Pendiente de packing", "Crear packing individual", "Asignar a packing existente"];
 const SIMPLE_LOGISTICS_OPTIONS = ["No aplica", "Tracking directo"];
 
@@ -297,21 +296,18 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
     const nextPhotos: SelectedPhoto[] = [];
     const currentKeys = new Set(photos.map((photo) => `${photo.file.name}:${photo.file.size}:${photo.file.lastModified}`));
 
-    if (photos.length + files.length > MAX_PHOTOS) {
-      setError(`Puedes subir hasta ${MAX_PHOTOS} fotos por item.`);
+    // Mismas reglas que el visor de fotos y que el servidor. Al ELEGIR se
+    // admite una foto grande: se comprime antes de subirla.
+    const validacion = validarSeleccionFotosItem(
+      files.map((file) => ({ name: file.name, type: file.type, size: file.size })),
+      { yaSubidas: photos.length }
+    );
+    if (!validacion.ok) {
+      setError(validacion.motivo);
       return;
     }
 
     for (const file of files) {
-      if (!ALLOWED_PHOTO_TYPES.has(file.type)) {
-        setError("Las fotos deben ser JPEG, PNG o WebP.");
-        return;
-      }
-      if (file.size > MAX_PHOTO_SIZE) {
-        setError("Cada foto debe pesar máximo 10 MB.");
-        return;
-      }
-
       const key = `${file.name}:${file.size}:${file.lastModified}`;
       if (currentKeys.has(key)) continue;
       currentKeys.add(key);
@@ -371,7 +367,9 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
     formData.set("trackingDirecto", selectedModeUsesDirectTracking ? form.trackingDirecto : "");
     formData.set("estado", calculatedFlow.estadoItemSugerido);
     formData.set("estadoRevision", calculatedFlow.estadoRevisionSugerido);
-    photos.forEach((photo) => formData.append("fotos", photo.file, photo.file.name));
+    // Las fotos NO van aquí: el formulario entero más diez fotos pasaba el
+    // tope de 4.5 MB que Vercel le da al cuerpo de una petición, y el 413 ni
+    // llegaba al servidor. Se suben después, de a una y ya comprimidas.
 
     const response = await fetch("/api/shipping-v2/items", {
       method: "POST",
@@ -386,12 +384,29 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
       return;
     }
 
-    const photoUploadStatus = String(payload.photoUploadStatus || "");
-    const uploadedFotos = Number(payload.uploadedFotos || 0);
-    const photoWarning = String(payload.photoWarning || payload.warning || "").trim();
-    const notice = photoUploadStatus === "failed" || photoUploadStatus === "partial" || photoWarning
-      ? `Item registrado correctamente, con fotos fallidas o pendientes.${photoWarning ? ` ${photoWarning}` : ""}`
-      : uploadedFotos > 0 || photoUploadStatus === "complete"
+    // El item YA existe. De aquí en adelante nada puede hacer que se pierda:
+    // si una foto falla, se avisa cuál, pero el item queda creado igual.
+    const creado = payload.data as { id?: string } | undefined;
+    let avisoFotos = "";
+
+    if (photos.length && !creado?.id) {
+      // No debería pasar, pero callarlo sería peor: el empleado se iría
+      // creyendo que las fotos quedaron guardadas.
+      avisoFotos = "Las fotos no se subieron: el servidor no devolvió el item creado. Agrégalas desde la ficha del item.";
+    } else if (photos.length && creado?.id) {
+      try {
+        const resultado = await subirFotosItem(creado.id, photos.map((photo) => photo.file));
+        avisoFotos = resultado.aviso;
+      } catch (errorFotos) {
+        avisoFotos = errorFotos instanceof FotosInvalidasError || errorFotos instanceof Error
+          ? `Las fotos no subieron: ${errorFotos.message}`
+          : "Las fotos no subieron.";
+      }
+    }
+
+    const notice = avisoFotos
+      ? `Item creado. ${avisoFotos}`
+      : photos.length
         ? "Item creado correctamente con fotos. La sugerencia IA se generará en segundo plano."
         : "Item creado correctamente. La sugerencia IA se generará en segundo plano.";
 
@@ -611,7 +626,7 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
 
           <FormCard title="Fotos del item" description="Hasta 10 imágenes JPG, PNG o WebP.">
             <label onDragOver={(event) => event.preventDefault()} onDrop={handleDrop} className="grid min-h-28 cursor-pointer place-items-center rounded-xl border border-dashed border-[#D7FF4F]/35 bg-[#151515] px-4 py-5 text-center transition hover:border-[#D7FF4F]/70 hover:bg-[#1E1F1C]">
-              <input type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" onChange={handlePhotoInput} />
+              <input type="file" accept={ACCEPT_FOTOS_ITEM} multiple className="sr-only" onChange={handlePhotoInput} />
               <span className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-xs font-bold uppercase tracking-normal text-[#151515]">Seleccionar fotos</span>
               <span className="mt-2 block text-xs text-[#A7A7A7]">También puedes arrastrarlas aquí</span>
             </label>

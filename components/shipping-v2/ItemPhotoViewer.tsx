@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ShippingV2Attachment, ShippingV2Item } from "@/types/shipping-v2";
+import { ACCEPT_FOTOS_ITEM, MAX_FOTOS_POR_ITEM } from "@/lib/shipping-v2/fotos-item";
+import { FotosInvalidasError, subirFotosItem } from "@/lib/shipping-v2/subir-fotos-item";
 
 type Props = {
   itemId: string;
@@ -12,10 +14,6 @@ type Props = {
   canEdit?: boolean;
   density?: "default" | "compact" | "immersive" | "thumbnail";
 };
-
-const MAX_FOTOS_PER_ITEM = 10;
-const MAX_FOTO_SIZE = 10 * 1024 * 1024;
-const ALLOWED_FOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function displayName(value?: string | null) {
   const clean = value?.trim();
@@ -37,6 +35,9 @@ export function ItemPhotoViewer({ itemId, itemName, fotos, onUpdated, canEdit = 
 
   const current = fotos[index] || null;
   const hasFotos = fotos.length > 0;
+  // Decirlo ANTES de abrir el selector: elegir cinco fotos para que las
+  // rechacen después es peor que no poder elegirlas.
+  const cupoLleno = fotos.length >= MAX_FOTOS_POR_ITEM;
   const initials = displayName(itemName).slice(0, 2).toUpperCase();
   const frameSize = density === "immersive"
     ? "min-h-[420px] h-[calc(100vh-17rem)] max-h-[820px]"
@@ -103,43 +104,29 @@ export function ItemPhotoViewer({ itemId, itemName, fotos, onUpdated, canEdit = 
     setIndex((currentIndex) => (currentIndex + direction + fotos.length) % fotos.length);
   }
 
-  function validateFiles(files: File[]) {
-    if (!files.length) return "Selecciona al menos una foto.";
-    if (fotos.length + files.length > MAX_FOTOS_PER_ITEM) {
-      return `El Item puede tener máximo ${MAX_FOTOS_PER_ITEM} fotos.`;
-    }
-    if (files.some((file) => !ALLOWED_FOTO_TYPES.has(file.type))) {
-      return "Las fotos deben ser JPEG, PNG o WebP.";
-    }
-    if (files.some((file) => file.size > MAX_FOTO_SIZE)) {
-      return "Cada foto debe pesar máximo 10 MB.";
-    }
-    return "";
-  }
-
   async function uploadFiles(files: File[]) {
-    const validationError = validateFiles(files);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
     setBusy(true);
     setError("");
     try {
-      const formData = new FormData();
-      files.forEach((file) => formData.append("fotos", file));
-      const response = await fetch(`/api/shipping-v2/items/${itemId}/photos`, {
-        method: "POST",
-        body: formData,
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) {
-        throw new Error(String(payload.error || "No se pudieron agregar las fotos."));
-      }
-      onUpdated(payload.data as ShippingV2Item);
+      // Comprime y sube una por una. Antes iban todas en un solo POST y tres
+      // fotos de 2 MB ya pasaban el tope de 4.5 MB del cuerpo en Vercel: el
+      // 413 ni llegaba al servidor y se veía como "Error inesperado".
+      const resultado = await subirFotosItem(itemId, files, { yaSubidas: fotos.length });
+
+      // El item se refresca aunque alguna foto haya fallado: las que sí
+      // subieron ya existen en Airtable y tienen que verse.
+      if (resultado.item) onUpdated(resultado.item as ShippingV2Item);
+
+      // Y si alguna no subió, se dice. Antes el servidor devolvía un aviso que
+      // esta pantalla no leía nunca: el empleado veía todo en orden y se iba
+      // creyendo que habían subido las cinco.
+      setError(resultado.aviso);
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Error inesperado");
+      setError(
+        uploadError instanceof FotosInvalidasError || uploadError instanceof Error
+          ? uploadError.message
+          : "Error inesperado"
+      );
     } finally {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -221,7 +208,7 @@ export function ItemPhotoViewer({ itemId, itemName, fotos, onUpdated, canEdit = 
       <input
         ref={inputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept={ACCEPT_FOTOS_ITEM}
         multiple
         hidden
         onChange={(event) => void uploadFiles(Array.from(event.target.files ?? []))}
@@ -274,10 +261,10 @@ export function ItemPhotoViewer({ itemId, itemName, fotos, onUpdated, canEdit = 
           {canEdit ? (
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || cupoLleno}
               onClick={() => inputRef.current?.click()}
               className={`grid ${floatingButtonSize} place-items-center rounded-full border border-[#D7FF4F]/45 bg-black/60 ${addButtonTextSize} font-semibold text-[#D7FF4F] backdrop-blur transition hover:bg-[#D7FF4F] hover:text-[#151515] disabled:cursor-wait disabled:opacity-50`}
-              title="Agregar foto"
+              title={cupoLleno ? `El item ya tiene ${MAX_FOTOS_POR_ITEM} fotos. Elimina alguna para agregar otra.` : `Agregar foto (${fotos.length} de ${MAX_FOTOS_POR_ITEM})`}
               aria-label="Agregar foto"
             >
               +

@@ -2,12 +2,9 @@ import { NextResponse } from "next/server";
 import { addFotosToShippingV2Item, canShippingV2, createShippingV2Item, getShippingV2AccessContextForSession, getShippingV2Items, type ShippingV2AttachmentUpload } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ShippingV2ItemWriteInput } from "@/types/shipping-v2";
+import { validarFotosItem } from "@/lib/shipping-v2/fotos-item";
 
 export const dynamic = "force-dynamic";
-
-const MAX_FOTOS_PER_ITEM = 10;
-const MAX_FOTO_SIZE = 10 * 1024 * 1024;
-const ALLOWED_FOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function toBoolean(value: unknown) {
   return value === true || value === "true" || value === "on";
@@ -58,21 +55,23 @@ function formDataToBody(formData: FormData) {
   return body;
 }
 
+/**
+ * Las fotos ya NO viajan en este POST: el formulario crea el item y después
+ * las sube de a una al endpoint de fotos, porque en Vercel el cuerpo entero no
+ * puede pasar de 4.5 MB y el formulario más diez fotos lo pasaba solo.
+ *
+ * Esto se conserva por compatibilidad con cualquier llamada vieja, y valida con
+ * las mismas reglas que el navegador (`lib/shipping-v2/fotos-item`).
+ */
 async function parseFotos(formData: FormData): Promise<ShippingV2AttachmentUpload[]> {
   const files = formData.getAll("fotos").filter((value): value is File => value instanceof File && value.size > 0);
-  if (files.length > MAX_FOTOS_PER_ITEM) {
-    throw new Error(`Puedes subir hasta ${MAX_FOTOS_PER_ITEM} fotos por item.`);
-  }
+  if (!files.length) return [];
+
+  const validacion = validarFotosItem(files.map((f) => ({ name: f.name, type: f.type, size: f.size })));
+  if (!validacion.ok) throw new Error(validacion.motivo);
 
   const fotos: ShippingV2AttachmentUpload[] = [];
   for (const file of files) {
-    if (!ALLOWED_FOTO_TYPES.has(file.type)) {
-      throw new Error("Las fotos deben ser JPEG, PNG o WebP.");
-    }
-    if (file.size > MAX_FOTO_SIZE) {
-      throw new Error("Cada foto debe pesar máximo 10 MB.");
-    }
-
     const bytes = await file.arrayBuffer();
     if (bytes.byteLength === 0) {
       throw new Error("Una de las fotos seleccionadas está vacía.");
