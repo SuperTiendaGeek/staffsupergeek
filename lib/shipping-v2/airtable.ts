@@ -98,6 +98,16 @@ import {
   type ZonaRevision,
 } from "@/lib/shipping-v2/revision-tecnica";
 import {
+  aplicarCambiosEspec,
+  camposDeCategoria,
+  especificacionesEfectivas,
+  parsearEspecificaciones,
+  resumenTecnico,
+  serializarEspecificaciones,
+  type CampoEspec,
+  type ValoresEspec,
+} from "@/lib/shipping-v2/especificaciones";
+import {
   getIntervencionesPorCategoria,
   intervencionAplica,
   type TipoIntervencion,
@@ -1412,6 +1422,8 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     fechaRevision: firstString(f["Fecha revisión"]),
     revisionTecnicaDetalle: firstString(f["Revisión técnica detalle"]),
     puntosRevisionFallidos: firstNumber(f["Puntos de revisión fallidos"]),
+    especificacionesTecnicas: firstString(f["Especificaciones técnicas"]),
+    resumenTecnico: firstString(f["Resumen técnico"]),
     fotosTomadas: firstBoolean(f["Fotos tomadas"]),
     fotosTomadasPor: firstString(f["Fotos tomadas por"]),
     fechaFotos: firstString(f["Fecha fotos"]),
@@ -6428,6 +6440,8 @@ export type ShippingV2InspeccionTecnica = {
   intervenciones: ShippingV2Intervencion[];
   /** Novedades abiertas del item, para no volver a crear la misma. */
   novedadesAbiertas: ShippingV2Novedad[];
+  /** Datos técnicos de la categoría. Vacío en Laptop/Desktop/All in One y en las que no llevan. */
+  especificaciones: ShippingV2EspecificacionesItem;
   /** Trabajos que aplican a ESTE tipo de item. El servidor valida lo mismo. */
   trabajos: {
     perfil: PerfilRevision;
@@ -6435,6 +6449,22 @@ export type ShippingV2InspeccionTecnica = {
     mejoras: string[];
   };
 };
+
+export type ShippingV2EspecificacionesItem = {
+  campos: CampoEspec[];
+  /** Lo guardado, con los huecos cubiertos por lo que ya sabía la ficha. */
+  valores: ValoresEspec;
+  /** La línea que va en la etiqueta con estos valores. */
+  resumen: string;
+};
+
+/** Datos técnicos de un item tal como los ve la pantalla. */
+export function especificacionesDeItem(item: ShippingV2Item): ShippingV2EspecificacionesItem {
+  const campos = camposDeCategoria(item.categoria);
+  const guardadas = parsearEspecificaciones(item.especificacionesTecnicas).valores;
+  const valores = especificacionesEfectivas(item.categoria, guardadas, item.technicalSheet);
+  return { campos, valores, resumen: resumenTecnico(item.categoria, valores) };
+}
 
 export type ShippingV2Intervencion = {
   id: string;
@@ -6584,6 +6614,7 @@ export async function getShippingV2InspeccionTecnica(
     // módulo que valida al guardar: la pantalla no puede ofrecer algo que el
     // servidor vaya a rechazar.
     trabajos: getIntervencionesPorCategoria(item.categoria),
+    especificaciones: especificacionesDeItem(item),
   };
 }
 
@@ -6595,6 +6626,8 @@ export type ShippingV2InspeccionCambios = {
   equipamiento?: { conectividadIds: string[]; puertosIds: string[]; extrasIds: string[]; confirmar?: boolean };
   /** Datos de la ficha capturados durante la inspección. */
   ficha?: ShippingV2TechnicalSheetInput;
+  /** Datos técnicos de la categoría: { campoId: valor }. "" borra el campo. */
+  especificaciones?: Record<string, string>;
 };
 
 /**
@@ -6620,7 +6653,7 @@ export async function guardarShippingV2InspeccionTecnica(
   // pero el item seguiría marcado como "Revisado" y se publicaría igual.
   if (item.revisadoFisicamente === true) {
     throw new Error(
-      "Esta inspección ya está firmada. Para modificarla, desmarca primero “Revisado física/técnicamente” en Recepción."
+      "Esta inspección ya está firmada. Para modificarla, usa “Reabrir inspección” en la barra inferior."
     );
   }
 
@@ -6680,12 +6713,32 @@ export async function guardarShippingV2InspeccionTecnica(
   const limpio = limpiarHuerfanos(snapshot, zonas);
   snapshot = limpio.snapshot;
 
+  // ── 3) Datos técnicos de la categoría ──
+  // Se parte de lo que el técnico VE en pantalla: lo guardado más lo heredado
+  // de la ficha. Así, al tocar un solo campo, lo heredado queda guardado de
+  // verdad en vez de seguir dependiendo de la ficha.
+  const camposEspec: Record<string, unknown> = {};
+  if (cambios.especificaciones && camposDeCategoria(item.categoria).length > 0) {
+    const actual = parsearEspecificaciones(item.especificacionesTecnicas);
+    const base = {
+      ...actual,
+      valores: {
+        ...actual.valores,
+        ...especificacionesEfectivas(item.categoria, actual.valores, item.technicalSheet),
+      },
+    };
+    const nuevo = aplicarCambiosEspec(base, item.categoria, cambios.especificaciones, { actor: options.actor, ahora });
+    camposEspec["Especificaciones técnicas"] = serializarEspecificaciones(nuevo);
+    camposEspec["Resumen técnico"] = resumenTecnico(item.categoria, nuevo.valores);
+  }
+
   await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
     method: "PATCH",
     body: JSON.stringify({
       records: [{
         id,
         fields: {
+          ...camposEspec,
           "Revisión técnica detalle": serializarSnapshot(snapshot),
           "Puntos de revisión fallidos": contarFallas(snapshot, zonas),
           "Última actualización": ahora,
@@ -6702,7 +6755,7 @@ export async function guardarShippingV2InspeccionTecnica(
     equipamientoConfirmado: firmaVigente(snapshot, declaradas),
   });
 
-  return { item: actualizado, snapshot, zonas, estado };
+  return { item: actualizado, snapshot, zonas, estado, especificaciones: especificacionesDeItem(actualizado) };
 }
 
 /**

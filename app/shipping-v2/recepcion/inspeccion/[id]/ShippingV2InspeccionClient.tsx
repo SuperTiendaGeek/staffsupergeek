@@ -81,7 +81,10 @@ export function ShippingV2InspeccionClient({
   const [mensaje, setMensaje] = useState("");
   const [aviso, setAviso] = useState("");
 
-  const { item, zonas, snapshot, estado, grupos, intervenciones, novedadesAbiertas } = datos;
+  const { item, zonas, snapshot, estado, grupos, intervenciones, novedadesAbiertas, especificaciones } = datos;
+  // Los datos técnicos se cargan en la PRIMERA zona: es la que el técnico abre
+  // con el equipo recién sacado de la caja.
+  const zonaEspec = especificaciones.campos.length ? zonas[0]?.id ?? "" : "";
   const perfil = getPerfilRevision(item.categoria);
   const coordenadas = COORDENADAS[perfil] ?? {};
 
@@ -126,6 +129,7 @@ export function ShippingV2InspeccionClient({
           zonas: payload.data.zonas,
           snapshot: payload.data.snapshot,
           estado: payload.data.estado,
+          especificaciones: payload.data.especificaciones ?? actual.especificaciones,
           // Los chips se reafirman contra lo que dice Airtable: si el PATCH
           // falló, el estado optimista no puede quedarse mintiendo.
           grupos: actual.grupos.map((g) => {
@@ -236,6 +240,14 @@ export function ShippingV2InspeccionClient({
     await guardar({ ficha: { [campo]: numero ? (valor === "" ? null : Number(valor)) : valor } });
   }
 
+  // ── Datos técnicos de la categoría ──
+  async function cambiarEspec(campoId: string, valor: string) {
+    // Sin cambios, no se guarda: un blur sobre un campo intacto no debe
+    // disparar una escritura ni firmar la hora de modificación.
+    if ((especificaciones.valores[campoId] ?? "") === valor.trim()) return;
+    await guardar({ especificaciones: { [campoId]: valor } });
+  }
+
   // ── Firmar ──
   async function firmar() {
     setGuardando(true);
@@ -343,8 +355,13 @@ export function ShippingV2InspeccionClient({
       const v = (item.technicalSheet as unknown as Record<string, unknown>)[c.campo];
       return v !== undefined && v !== null && v !== "";
     }).length;
-    return { ok, falla, na, resueltas: ok + falla + na, ficha: `${llenos}/${campos.length}` };
-  }, [zonas, snapshot, item.technicalSheet]);
+    const datosLlenos = especificaciones.campos.filter((c) => especificaciones.valores[c.id]).length;
+    return {
+      ok, falla, na, resueltas: ok + falla + na,
+      ficha: campos.length ? `${llenos}/${campos.length}` : "",
+      datos: especificaciones.campos.length ? `${datosLlenos}/${especificaciones.campos.length}` : "",
+    };
+  }, [zonas, snapshot, item.technicalSheet, especificaciones]);
 
   const firmado = item.revisadoFisicamente === true;
 
@@ -516,6 +533,9 @@ export function ShippingV2InspeccionClient({
                       {z.captura.length ? (
                         <span className="rounded border border-[#F4C95B]/45 px-1 text-[9px] font-bold text-[#F4C95B]">FICHA</span>
                       ) : null}
+                      {z.id === zonaEspec ? (
+                        <span className="rounded border border-[#F4C95B]/45 px-1 text-[9px] font-bold text-[#F4C95B]">DATOS</span>
+                      ) : null}
                       {z.critica ? (
                         <span className="rounded border border-[#FF7A6B]/45 px-1 text-[9px] font-bold text-[#FF7A6B]">CRÍTICA</span>
                       ) : null}
@@ -639,6 +659,51 @@ export function ShippingV2InspeccionClient({
                           Batería estado: <b className="font-semibold text-[#F4C95B]">{item.technicalSheet.bateriaEstado}</b> — lo calcula el sistema.
                         </p>
                       ) : null}
+                    </div>
+                  ) : null}
+
+                  {zona.id === zonaEspec ? (
+                    <div className="mt-3.5 rounded-lg border border-[#F4C95B]/32 bg-[#22231C] px-3 py-2.5">
+                      <h4 className="text-[12px] font-semibold uppercase tracking-wider text-[#F4C95B]">
+                        Datos técnicos
+                      </h4>
+                      <p className="mb-1 text-[11.5px] text-[#7E7F76]">
+                        Lo que se ve de un vistazo en la etiqueta SKU. Los que ya estaban en la ficha aparecen cargados.
+                      </p>
+                      <div className="grid gap-2.5 sm:grid-cols-2">
+                        {especificaciones.campos.map((c) => {
+                          const valor = especificaciones.valores[c.id] ?? "";
+                          return (
+                            <label key={c.id} className="mt-2 block">
+                              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[#7E7F76]">
+                                {c.etiqueta}{c.unidad && c.tipo === "numero" ? ` (${c.unidad})` : ""}
+                                {c.enEtiqueta ? <span className="ml-1 text-[#F4C95B]" title="Va impreso en la etiqueta">★</span> : null}
+                              </span>
+                              {c.tipo === "select" ? (
+                                <select value={valor} disabled={guardando || firmado}
+                                  onChange={(e) => void cambiarEspec(c.id, e.target.value)}
+                                  className="w-full rounded-lg border border-[#3A3A36] bg-[#141510] px-2.5 py-2 text-[13px] text-[#F5F5F5] outline-none focus:border-[#A8C93B] disabled:opacity-50">
+                                  <option value="">— sin dato —</option>
+                                  {(c.opciones ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
+                                </select>
+                              ) : (
+                                // La clave incluye el valor: si el servidor lo normaliza
+                                // ("512" → "512GB"), el campo se vuelve a dibujar con lo guardado.
+                                <input key={`${c.id}:${valor}`} type="text"
+                                  inputMode={c.tipo === "numero" ? "decimal" : undefined}
+                                  defaultValue={valor}
+                                  disabled={guardando || firmado}
+                                  onBlur={(e) => void cambiarEspec(c.id, e.target.value)}
+                                  placeholder={c.placeholder ?? ""}
+                                  className="w-full rounded-lg border border-[#3A3A36] bg-[#141510] px-2.5 py-2 text-[13px] text-[#F5F5F5] outline-none focus:border-[#A8C93B] disabled:opacity-50" />
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <p className="mt-2.5 rounded-md border border-dashed border-[#3A3A36] bg-[#141510] px-2.5 py-1.5 text-[12px] text-[#B4B5AC]">
+                        En la etiqueta: <b className="font-mono font-semibold text-[#F5F5F5]">{especificaciones.resumen || "— solo SKU y precio —"}</b>
+                      </p>
                     </div>
                   ) : null}
 
@@ -789,7 +854,8 @@ export function ShippingV2InspeccionClient({
           <span>Conformes <b className="font-mono text-[#F5F5F5]">{conteos.ok}</b></span>
           <span>Con falla <b className="font-mono text-[#F5F5F5]">{conteos.falla}</b></span>
           <span>Novedades <b className="font-mono text-[#F5F5F5]">{novedadesAbiertas.length}</b></span>
-          <span>Ficha <b className="font-mono text-[#F4C95B]">{conteos.ficha}</b></span>
+          {conteos.ficha ? <span>Ficha <b className="font-mono text-[#F4C95B]">{conteos.ficha}</b></span> : null}
+          {conteos.datos ? <span>Datos técnicos <b className="font-mono text-[#F4C95B]">{conteos.datos}</b></span> : null}
         </div>
         <div className="ml-auto flex gap-2">
           <Link href="/shipping-v2/recepcion"
