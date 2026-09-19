@@ -29,6 +29,33 @@ async function main(): Promise<void> {
   assert(getSkuPrefixByCategory("Batería") === "REP", "Una batería es repuesto → REP");
   assert(getSkuPrefixByCategory("Categoría inventada") === "OTR", "Una categoría desconocida cae en OTR, no falla");
 
+  // ── Toda categoría real tiene su prefijo (2026-09) ─────────────────────────
+  // Antes 12 de las 20 categorías caían en OTR: monitores y cargadores con SKU
+  // OTR-. Esta lista es la de Airtable; "Otro" es la única que DEBE dar OTR.
+  const PREFIJOS_ESPERADOS: Record<string, string> = {
+    "Laptop": "LAP", "Desktop": "DES", "All in One": "AIO", "Monitor": "MON",
+    "Consola": "CON", "RAM": "RAM", "SSD": "SSD", "HDD": "HDD", "Tablet": "TAB",
+    "Pantalla": "PAN", "Teclado": "TEC", "Batería": "REP", "Cargador": "CAR",
+    "Mainboard": "REP", "Tarjeta gráfica": "GPU", "Fuente de poder": "FUE",
+    "Cable": "CAB", "Accesorio": "ACC", "Repuesto": "REP",
+    "Smart Home": "SMT", "Audio": "AUD", "Adaptador / Dock / Lector": "ADP",
+    "Disco externo": "DEX", "Insumo": "INS", "Impresora": "IMP",
+    "Energía / Protección": "ENE", "Red / Wi-Fi": "RED",
+    "Cámara / Seguridad": "CAM", "Celular": "CEL",
+  };
+  for (const [categoria, prefijo] of Object.entries(PREFIJOS_ESPERADOS)) {
+    const real = getSkuPrefixByCategory(categoria);
+    assert(real === prefijo, `${categoria} → ${prefijo} (vino ${real})`);
+  }
+  assert(getSkuPrefixByCategory("Otro") === "OTR", "Otro sigue siendo OTR");
+  assert(
+    Object.values(PREFIJOS_ESPERADOS).every((p) => /^[A-Z]{3}$/.test(p)),
+    "Todos los prefijos son tres letras mayúsculas"
+  );
+  // Escrita a mano, con otra caja o espacios de más, tiene que dar lo mismo.
+  assert(getSkuPrefixByCategory("  energia / PROTECCION ") === "ENE", "Tildes, mayúsculas y espacios no cambian el prefijo");
+  assert(getSkuPrefixByCategory("Disco  externo") === "DEX", "Un espacio doble no manda el item a OTR");
+
   // ── El siguiente número libre ──────────────────────────────────────────────
   const existentes = ["SSD-000001", "SSD-000002", "LAP-000009"];
   assert(

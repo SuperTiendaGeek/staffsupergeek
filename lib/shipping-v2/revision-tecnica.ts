@@ -69,6 +69,9 @@ const PERFIL_POR_CATEGORIA: Record<string, PerfilRevision> = {
   "ram": "ram",
   "ssd": "disco",
   "hdd": "disco",
+  // Un disco portátil USB se revisa igual que uno interno: SMART, capacidad
+  // real y, sobre todo, borrado de los datos del dueño anterior.
+  "disco externo": "disco",
   "tarjeta grafica": "grafica",
   "tarjeta gráfica": "grafica",
   "mainboard": "mainboard",
