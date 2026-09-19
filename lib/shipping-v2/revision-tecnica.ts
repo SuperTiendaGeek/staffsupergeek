@@ -208,7 +208,9 @@ const ZONAS: Record<PerfilRevision, DefZona[]> = {
     {
       id: "panel", nombre: "Panel",
       base: [["Enciende y da imagen", 1], ["Sin píxeles muertos ni manchas", 1], ["Sin retención de imagen", 0], ["Brillo uniforme", 0]],
-      captura: [CAP.pantallaTamano, CAP.pantallaResolucion],
+      // Sin captura de ficha: estos datos van en las especificaciones de la
+      // categoría (lib/shipping-v2/especificaciones.ts). Pedirlos también aquí
+      // haría escribir lo mismo dos veces.
     },
     { id: "osd", nombre: "Botones y menú", base: [["Botones responden", 0], ["Menú OSD navega", 0]] },
     { id: "soporte", nombre: "Base y soporte", base: [["Base estable", 1], ["Anclaje VESA sin daño", 0]] },
@@ -220,7 +222,9 @@ const ZONAS: Record<PerfilRevision, DefZona[]> = {
     {
       id: "pantalla", nombre: "Pantalla",
       base: [["Enciende sin manchas ni líneas", 1], ["Táctil responde en toda la superficie", 1]],
-      captura: [CAP.pantallaTamano, CAP.pantallaResolucion],
+      // Sin captura de ficha: estos datos van en las especificaciones de la
+      // categoría (lib/shipping-v2/especificaciones.ts). Pedirlos también aquí
+      // haría escribir lo mismo dos veces.
     },
     { id: "cuentas", nombre: "Bloqueos de cuenta", base: [["Sin bloqueo iCloud / Google FRP", 1], ["Restaurada de fábrica", 1]] },
     {
@@ -246,7 +250,9 @@ const ZONAS: Record<PerfilRevision, DefZona[]> = {
     {
       id: "modulo", nombre: "Módulo",
       base: [["Capacidad y velocidad reales", 1], ["Test de memoria sin errores", 1], ["Contactos sin daño ni óxido", 1]],
-      captura: [CAP.ramCapacidad, CAP.ramTipo],
+      // Sin captura de ficha: estos datos van en las especificaciones de la
+      // categoría (lib/shipping-v2/especificaciones.ts). Pedirlos también aquí
+      // haría escribir lo mismo dos veces.
     },
   ],
   disco: [
@@ -254,7 +260,9 @@ const ZONAS: Record<PerfilRevision, DefZona[]> = {
       id: "unidad", nombre: "Unidad",
       base: [["SMART sano", 1], ["Capacidad real coincide", 1], ["Horas de uso y sectores reasignados anotados", 0],
         ["Velocidad de lectura y escritura", 0], ["Conector sin daño", 1], ["Borrado seguro de datos del dueño anterior", 1]],
-      captura: [CAP.almacenamientoPrincipal, CAP.almacenamientoTipo],
+      // Sin captura de ficha: estos datos van en las especificaciones de la
+      // categoría (lib/shipping-v2/especificaciones.ts). Pedirlos también aquí
+      // haría escribir lo mismo dos veces.
     },
   ],
   grafica: [
@@ -273,7 +281,9 @@ const ZONAS: Record<PerfilRevision, DefZona[]> = {
     {
       id: "bateria", nombre: "Batería",
       base: [["Salud medida y anotada", 1], ["Sin hinchazón (seguridad)", 1], ["Ciclos anotados", 0], ["Conector sin daño", 1]],
-      captura: [CAP.bateriaSalud],
+      // Sin captura de ficha: estos datos van en las especificaciones de la
+      // categoría (lib/shipping-v2/especificaciones.ts). Pedirlos también aquí
+      // haría escribir lo mismo dos veces.
     },
   ],
   cargador: [
@@ -284,7 +294,9 @@ const ZONAS: Record<PerfilRevision, DefZona[]> = {
     {
       id: "panel", nombre: "Panel",
       base: [["Sin píxeles muertos ni manchas", 1], ["Conector y flex sin daño", 1], ["Sin fisuras en el cristal", 1]],
-      captura: [CAP.pantallaTamano, CAP.pantallaResolucion],
+      // Sin captura de ficha: estos datos van en las especificaciones de la
+      // categoría (lib/shipping-v2/especificaciones.ts). Pedirlos también aquí
+      // haría escribir lo mismo dos veces.
     },
   ],
   "teclado-repuesto": [

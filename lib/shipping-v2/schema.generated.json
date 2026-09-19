@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-19T11:58:57.802Z",
+  "generatedAt": "2026-09-19T12:29:36.398Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -1348,6 +1348,16 @@
           "id": "fldAFLr49ZJlg9JIL",
           "type": "number",
           "kind": "number"
+        },
+        "Especificaciones técnicas": {
+          "id": "fldwxVpc6UXqahIyb",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Resumen técnico": {
+          "id": "fld8j4RA8yyrQSfOK",
+          "type": "singleLineText",
+          "kind": "singleLineText"
         }
       }
     },

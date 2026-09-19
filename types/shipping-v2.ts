@@ -323,6 +323,10 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   revisionTecnicaDetalle?: string;
   /** Derivado del respaldo, para filtrar en Airtable sin leer el JSON. */
   puntosRevisionFallidos: number | null;
+  /** JSON con los datos técnicos propios de la categoría. Ver especificaciones.ts */
+  especificacionesTecnicas?: string;
+  /** "8GB · DDR4 · 3200 · SODIMM". Lo que se imprime en la etiqueta SKU. */
+  resumenTecnico?: string;
   fotosTomadas: boolean | null;
   fotosTomadasPor?: string;
   fechaFotos?: string;

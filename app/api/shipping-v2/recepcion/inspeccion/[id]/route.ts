@@ -67,6 +67,16 @@ function parsearCambios(body: Record<string, unknown>): ShippingV2InspeccionCamb
     cambios.ficha = body.ficha as ShippingV2InspeccionCambios["ficha"];
   }
 
+  if (body.especificaciones && typeof body.especificaciones === "object" && !Array.isArray(body.especificaciones)) {
+    // Solo pares texto/texto. Qué campos existen y qué valores valen lo decide
+    // `aplicarCambiosEspec` según la categoría del item, en el servidor.
+    const especificaciones: Record<string, string> = {};
+    for (const [clave, valor] of Object.entries(body.especificaciones as Record<string, unknown>)) {
+      if (typeof valor === "string" || typeof valor === "number") especificaciones[clave] = String(valor);
+    }
+    cambios.especificaciones = especificaciones;
+  }
+
   return cambios;
 }
 
@@ -97,6 +107,7 @@ export async function PATCH(request: Request, { params }: Params) {
         snapshot: resultado.snapshot,
         zonas: resultado.zonas,
         estado: resultado.estado,
+        especificaciones: resultado.especificaciones,
       },
     });
   } catch (error) {
