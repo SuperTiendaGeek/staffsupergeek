@@ -91,22 +91,64 @@ export function normalizeSku(sku: string): string {
   return sku.trim().toUpperCase().replace(/\s+/g, "");
 }
 
+// Prefijo de SKU por categoría. La clave va sin tildes y en minúsculas.
+//
+// Hasta 2026-09 este mapa conocía 8 de las 20 categorías de Shipping Items y
+// todo lo demás caía en OTR: había monitores con SKU OTR-000161 y unos 70
+// cargadores con OTR-0000xx. El SKU existe para decir qué es la cosa de un
+// vistazo, y en medio catálogo decía "otro".
+//
+// Cambiar este mapa SOLO afecta a items nuevos. Los SKU ya emitidos no se
+// tocan nunca: están impresos en etiquetas, cotizaciones y facturas.
+//
+// Categoría nueva en Airtable → agregarla aquí, o nacerá con OTR.
+const PREFIJO_POR_CATEGORIA: Record<string, string> = {
+  // Equipos
+  "laptop": "LAP",
+  "desktop": "DES",
+  "imac": "DES",
+  "all in one": "AIO",
+  "monitor": "MON",
+  "tablet": "TAB",
+  "consola": "CON",
+  "celular": "CEL",
+  // Componentes
+  "ram": "RAM",
+  "ssd": "SSD",
+  "hdd": "HDD",
+  "tarjeta grafica": "GPU",
+  "fuente de poder": "FUE",
+  "pantalla": "PAN",
+  "teclado": "TEC",
+  "cargador": "CAR",
+  "cable": "CAB",
+  // Repuestos: se mantienen en REP como siempre
+  "repuesto": "REP",
+  "mainboard": "REP",
+  "bateria": "REP",
+  // Categorías creadas en 2026-09 al vaciar "Otro"
+  "smart home": "SMT",
+  "audio": "AUD",
+  "adaptador / dock / lector": "ADP",
+  "disco externo": "DEX",
+  "insumo": "INS",
+  "impresora": "IMP",
+  "energia / proteccion": "ENE",
+  "red / wi-fi": "RED",
+  "camara / seguridad": "CAM",
+  // Otros
+  "accesorio": "ACC",
+  "electronico": "ELE",
+};
+
 export function getSkuPrefixByCategory(category?: string): string {
   const normalized = (category || "")
     .trim()
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-
-  if (normalized === "laptop") return "LAP";
-  if (normalized === "desktop" || normalized === "imac") return "DES";
-  if (normalized === "accesorio") return "ACC";
-  if (normalized === "ram") return "RAM";
-  if (normalized === "ssd") return "SSD";
-  if (normalized === "tablet") return "TAB";
-  if (normalized === "repuesto" || normalized === "mainboard" || normalized === "bateria") return "REP";
-  if (normalized === "electronico") return "ELE";
-  return "OTR";
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+  return PREFIJO_POR_CATEGORIA[normalized] ?? "OTR";
 }
 
 function nextSkuFromExistingSkus(category: string | undefined, existingSkus: Iterable<string>, exists: (sku: string) => boolean) {

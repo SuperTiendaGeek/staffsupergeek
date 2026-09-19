@@ -256,6 +256,18 @@ const cable = construirZonasRevision("Cable", []);
 assert(cable.length === 1, "Un cable tiene una sola zona");
 assert(cable[0].puntos.length >= 3, "Pero igual tiene sus puntos: nada queda sin revisar");
 
+// ── Categorías creadas en 2026-09 ──────────────────────────────────────────
+// "Disco externo" usa el perfil de disco. Las demás todavía no tienen perfil
+// propio y caen en genérico — y NINGUNA puede caer por accidente en otro perfil
+// por el atajo de "el nombre contiene la palabra" (p. ej. "cámara" y "ram").
+assert(getPerfilRevision("Disco externo") === "disco", "Disco externo se inspecciona como disco");
+for (const categoria of [
+  "Smart Home", "Audio", "Adaptador / Dock / Lector", "Insumo", "Impresora",
+  "Energía / Protección", "Red / Wi-Fi", "Cámara / Seguridad", "Celular",
+]) {
+  assert(getPerfilRevision(categoria) === "generico", `${categoria} usa el perfil genérico por ahora`);
+}
+
 if (fallos > 0) {
   console.error(`Fallaron ${fallos} comprobaciones.`);
   process.exit(1);

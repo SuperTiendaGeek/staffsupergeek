@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-16T14:31:14.436Z",
+  "generatedAt": "2026-09-19T11:58:57.802Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -411,7 +411,17 @@
             "Cable",
             "Accesorio",
             "Repuesto",
-            "Otro"
+            "Otro",
+            "Disco externo",
+            "Audio",
+            "Insumo",
+            "Cámara / Seguridad",
+            "Red / Wi-Fi",
+            "Smart Home",
+            "Energía / Protección",
+            "Impresora",
+            "Adaptador / Dock / Lector",
+            "Celular"
           ]
         },
         "Estado Item": {
