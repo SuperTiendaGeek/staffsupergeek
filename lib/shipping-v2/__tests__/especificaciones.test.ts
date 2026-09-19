@@ -116,6 +116,12 @@ igual(lineaEtiqueta("Laptop", {}, { cpuModelo: "i5-8250U", ramCapacidad: "8GB", 
 igual(lineaEtiqueta("Desktop", {}, { cpuModelo: "i7-9700", ramCapacidad: "No especificado", almacenamientoTipo: "No aplica" }),
   "i7-9700", "Los 'No aplica' de la ficha no se imprimen");
 igual(lineaEtiqueta("SSD", {}, { almacenamientoPrincipal: "512" }), "512GB", "Un SSD recién heredado de la ficha ya tiene línea");
+// El caso real de LAP-000060: la ficha decía "512" y "Core i7-1265U".
+igual(lineaEtiqueta("Laptop", {}, { cpuModelo: "Core i7-1265U", ramCapacidad: "16GB", almacenamientoPrincipal: "512", almacenamientoTipo: "NVMe SSD" }),
+  "i7-1265U · 16GB · 512GB NVMe SSD", "Laptop: capacidad con unidad y sin la palabra Core");
+igual(lineaEtiqueta("Laptop", {}, { cpuModelo: "Intel Core i5-8250U" }), "i5-8250U", "También sin 'Intel Core'");
+igual(lineaEtiqueta("Laptop", {}, { cpuModelo: "Ryzen 5 5500U" }), "Ryzen 5 5500U", "Un Ryzen queda como está");
+igual(lineaEtiqueta("Laptop", {}, { cpuModelo: "M1" }), "M1", "Un Apple M1 queda como está");
 
 // ── Integridad del catálogo ─────────────────────────────────────────────────
 for (const clave of categoriasConEspecificaciones()) {

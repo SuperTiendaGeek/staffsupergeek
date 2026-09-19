@@ -430,8 +430,16 @@ export function resumenTecnico(categoria: string | null | undefined, valores: Va
 export function resumenDesdeFicha(ficha: FichaParcial): string {
   const texto = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const util = (v: string) => Boolean(v) && !/^(no aplica|no especificado|otro|-)$/i.test(v);
-  const disco = [texto(ficha.almacenamientoPrincipal), texto(ficha.almacenamientoTipo)].filter(util).join(" ");
-  return [texto(ficha.cpuModelo), texto(ficha.ramCapacidad), disco].filter(util).join(" · ");
+  // La capacidad pasa por la misma normalización que las especificaciones: la
+  // ficha de LAP-000060 decía "512" y la etiqueta salía "512 NVMe SSD".
+  const capacidad = texto(ficha.almacenamientoPrincipal);
+  const disco = [util(capacidad) ? normalizarCapacidad(capacidad) : "", texto(ficha.almacenamientoTipo)]
+    .filter(util)
+    .join(" ");
+  // "Intel Core i7-1265U" → "i7-1265U": así se nombra en la tienda, y en una
+  // etiqueta de 5 cm cada palabra le quita tamaño al resto de la línea.
+  const cpu = texto(ficha.cpuModelo).replace(/^(intel\s+)?core\s+/i, "");
+  return [cpu, texto(ficha.ramCapacidad), disco].filter(util).join(" · ");
 }
 
 /** La línea de etiqueta de cualquier item, venga de la ficha o de las especificaciones. */
