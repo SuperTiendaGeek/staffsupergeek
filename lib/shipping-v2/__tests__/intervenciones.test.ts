@@ -15,10 +15,15 @@ function assert(cond: boolean, msg: string): void {
   if (!cond) { fallos++; console.error("✗", msg); } else { console.log("✓", msg); }
 }
 
+const igual2 = (cond: boolean, msg: string) => assert(cond, msg);
+
 const PERFILES: PerfilRevision[] = [
   "laptop", "desktop", "allinone", "monitor", "tablet", "consola",
   "ram", "disco", "grafica", "mainboard", "fuente", "bateria",
-  "cargador", "pantalla-repuesto", "teclado-repuesto", "generico",
+  "cargador", "pantalla-repuesto", "teclado-repuesto",
+  "celular", "disco-externo", "smarthome", "audio", "impresora",
+  "red", "camara", "energia", "adaptador", "insumo",
+  "generico",
 ];
 
 // ── Lo que no puede faltar nunca ────────────────────────────────────────────
@@ -88,6 +93,20 @@ for (const [categoria, esperado] of [
 ] as [string, PerfilRevision][]) {
   assert(getPerfilRevision(categoria) === esperado, `"${categoria}" usa el perfil ${esperado}`);
 }
+
+// Las categorías creadas en 2026-09 tienen trabajos propios, no los genéricos.
+igual2(getIntervencionesPorCategoria("Impresora").mantenimientos.includes("Limpieza de cabezales"),
+  "a una impresora se le limpian los cabezales");
+igual2(!getIntervencionesPorCategoria("Impresora").mantenimientos.includes("Cambio de pasta térmica"),
+  "y no se le cambia la pasta térmica");
+igual2(getIntervencionesPorCategoria("Cámara / Seguridad").mantenimientos.includes("Limpieza de lente"),
+  "a una cámara se le limpia el lente");
+igual2(getIntervencionesPorCategoria("Celular").mejoras.includes("Cambio de pantalla"),
+  "a un celular se le cambia la pantalla");
+igual2(getIntervencionesPorCategoria("Insumo").mantenimientos.length === 2,
+  "un insumo se consume: solo le quedan las dos opciones comunes");
+igual2(!intervencionAplica("insumo", "Mantenimiento", "Limpieza de cabezales"),
+  "el servidor rechaza un trabajo de impresora en un insumo");
 
 const ssd = getIntervencionesPorCategoria("SSD");
 assert(ssd.perfil === "disco", "getIntervencionesPorCategoria resuelve el perfil");
