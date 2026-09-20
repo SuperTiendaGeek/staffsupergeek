@@ -584,6 +584,19 @@ function idPunto(zonaId: string, texto: string): string {
  * declarado. Una zona sin ningún punto no se muestra: un monitor no tiene por
  * qué enseñar una zona "Conectividad" vacía.
  */
+/**
+ * Todos los ids de zona que un perfil PUEDE llegar a mostrar.
+ *
+ * Distinto de construirZonasRevision(), que devuelve las zonas de un item
+ * concreto y esconde las que quedarían vacías (Conectividad, Puertos y Otras
+ * características solo aparecen si el item declaró algo). La guía visual de la
+ * inspección dibuja las condicionales igual, porque aparecen en cuanto el item
+ * trae opciones; necesita saber cuáles son válidas sin inventarse un item.
+ */
+export function idsDeZonaDelPerfil(perfil: PerfilRevision): string[] {
+  return ZONAS[perfil].map((d) => d.id);
+}
+
 export function construirZonasRevision(
   categoria: string | null | undefined,
   declaradas: readonly OpcionDeclarada[] = []
