@@ -16,6 +16,7 @@
  */
 
 import { apartarItemParaReserva, liberarItem } from "../reservas/efectos";
+import { MENSAJE_BLOQUEO_COMERCIAL } from "@/lib/shipping-v2/item-comercial";
 
 let fallos = 0;
 function assert(cond: boolean, msg: string): void {
@@ -105,11 +106,29 @@ async function main(): Promise<void> {
     await esperaError(() => apartarItemParaReserva("recITEM3"), "ya están comprometidas", "Marca de reservado sin estado Reservado");
 
     // ── Apartar algo que no está a la venta ───────────────────────────────────
+    // El texto sale de MENSAJE_BLOQUEO_COMERCIAL a propósito: cuando cambió el
+    // mensaje, este assert se quedó comparando contra el viejo ("no se puede
+    // apartar") y la suite empezó a fallar por una diferencia de redacción,
+    // no de comportamiento. Atado a la constante, eso no vuelve a pasar.
     prepararItem("recITEM4", { "Estado Item": "Vendido", "Disponible para venta": false, Reservado: false, Cantidad: 1, "Cantidad Reservada": 0 });
-    await esperaError(() => apartarItemParaReserva("recITEM4"), "no se puede apartar", "Ítem ya vendido");
+    await esperaError(
+      () => apartarItemParaReserva("recITEM4"),
+      MENSAJE_BLOQUEO_COMERCIAL["estado-terminal"],
+      "Ítem ya vendido"
+    );
 
+    // ── Apartar algo que todavía viene en camino: SÍ se puede ─────────────────
+    // Este test esperaba lo contrario, de cuando la etapa logística bloqueaba
+    // el apartado. Hoy item-comercial.ts separa a propósito la ETAPA (en
+    // tránsito, en packing) de la SALIDA del inventario (vendido, migrado…), y
+    // solo la segunda bloquea. Es lo que necesita el negocio: un cliente
+    // aparta con abono un artículo que todavía está llegando de USA. Ojo con
+    // "Disponible para venta": está en false y aun así se aparta — esa bandera
+    // no es guarda, se apaga sola cuando se agotan las unidades libres.
     prepararItem("recITEM5", { "Estado Item": "En tránsito", "Disponible para venta": false, Reservado: false, Cantidad: 1, "Cantidad Reservada": 0 });
-    await esperaError(() => apartarItemParaReserva("recITEM5"), "no está disponible", "Ítem todavía en camino");
+    await apartarItemParaReserva("recITEM5");
+    assert(items["recITEM5"]["Reservado"] === true, "Ítem en tránsito SÍ se puede apartar (el cliente lo encarga antes de que llegue)");
+    assert(items["recITEM5"]["Cantidad Reservada"] === 1, "El apartado del ítem en tránsito compromete la unidad");
 
     items = {};
     await esperaError(() => apartarItemParaReserva("recNOEXISTE"), "no existe", "Ítem inexistente");

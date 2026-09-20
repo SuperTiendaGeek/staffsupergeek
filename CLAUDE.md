@@ -8,10 +8,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev          # Start dev server
 npm run build        # Production build
 npm run typecheck    # TypeScript check (no emit)
+npm test             # Run every test suite
+npm test <filtro>    # Only suites whose path matches, e.g. `npm test pagos`
 npm run shipping-v2:schema  # Regenerate Airtable schema for shipping-v2
 ```
 
-There is no project-wide test runner (no Jest/Vitest config). Type-checking is the primary static check. `lib/facturacion/__tests__/` has standalone scripts run via `npx tsx` (some are pure unit checks, others are live integration tests against the SRI `celcer` sandbox and/or Airtable — see each file's header comment before running).
+## Tests
+
+There is no Jest/Vitest. Tests are standalone `assert()` scripts (~178 of them,
+under `**/__tests__/*.test.ts`) executed with `tsx`. **Always run them through
+`npm test`** (`scripts/run-tests.mjs`), never with a bare `npx tsx`, because the
+runner knows three things that are easy to get wrong:
+
+1. **`NODE_OPTIONS="--conditions react-server"` is mandatory** for any suite that
+   reaches `lib/shipping-v2/airtable.ts` or any other `import "server-only"`
+   module. Without it the suite dies on the first import and *looks* broken when
+   it is merely mis-invoked — that is exactly what happened to six suites.
+2. **A few suites need the opposite** (they pull in client components through
+   `lib/permissions/pantallas.ts` → `next/navigation`). The runner retries those
+   without the flag automatically.
+3. **Seven facturación suites talk to the real Airtable/SRI** and stop
+   themselves with exit code 78 (see `lib/facturacion/__tests__/_guardaRed.ts`).
+   The runner reports them as *omitidas*, not failures. To run them on purpose:
+   `PRUEBAS_CON_RED=1 npm test <filtro>` — and read the guard's comment first,
+   there is no test base in Airtable.
+
+Green baseline: **171 pass, 7 omitidas, 0 failures.** Anything else is a
+regression. Habit worth keeping: every money or inventory fix starts by pulling
+the pure logic into its own module with a test that reproduces the bug first.
 
 ## Environment Variables
 

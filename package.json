@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "node scripts/run-tests.mjs",
+    "test:live": "node scripts/run-tests.mjs --live",
     "shipping-v2:schema": "node scripts/inspect-shipping-v2-schema.mjs",
     "typecheck": "tsc --noEmit"
   },

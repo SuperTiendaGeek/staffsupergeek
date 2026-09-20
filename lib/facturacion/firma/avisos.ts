@@ -25,26 +25,16 @@ import "server-only";
 import { crearNotificacion } from "@/lib/notificaciones/airtable";
 import { listPortalUsers }   from "@/lib/airtable";
 import { isAdministratorRole } from "@/lib/apps";
-import { diasRestantes, DIAS_DE_AVISO } from "./vigencia";
+import { claveAviso, umbralDeHoy } from "./vigencia";
 import type { MetadatosFirma } from "./inspeccionar";
 
+// Las dos funciones puras del aviso viven en ./vigencia (que no es
+// "server-only" y sí se puede probar suelta). Se re-exportan desde acá para
+// que quien ya las importaba de "avisos" siga igual — por ejemplo
+// lib/facturacion/index.ts.
+export { claveAviso, umbralDeHoy };
+
 const NOTIFICACIONES_TABLE = process.env.AIRTABLE_NOTIFICACIONES_TABLE?.trim() || "Notificaciones";
-
-/** Clave determinística del aviso. Un umbral, una notificación, para siempre. */
-export function claveAviso(validoHasta: Date, umbral: number): string {
-  return `firma-vence:${validoHasta.toISOString().split("T")[0]}:${umbral}`;
-}
-
-/**
- * ¿Qué umbral corresponde hoy? Devuelve null si hoy no toca avisar.
- *
- * Se usa el umbral EXACTO (60, 30, 15, 7, 1) para que cada aviso se mande una
- * sola vez y no todos los días desde los 60.
- */
-export function umbralDeHoy(validoHasta: Date, ahora: Date): number | null {
-  const dias = diasRestantes(validoHasta, ahora);
-  return (DIAS_DE_AVISO as readonly number[]).includes(dias) ? dias : null;
-}
 
 // ─── Airtable: ¿ya existe este aviso? ────────────────────────────────────────
 
