@@ -24,6 +24,14 @@
 //
 // Se llama DESPUÉS de cargar .env.local (necesita SRI_AMBIENTE ya leído) y
 // ANTES de la primera llamada de red de la prueba.
+//
+// Códigos de salida (los lee scripts/run-tests.mjs):
+//   78 → la prueba se OMITIÓ por falta de PRUEBAS_CON_RED=1. No es un fallo:
+//        el corredor la cuenta como omitida y no rompe `npm test`.
+//    1 → portazo de producción (SRI_AMBIENTE=2). Eso sí es un fallo: significa
+//        que alguien está a punto de tocar documentos tributarios reales.
+export const SALIDA_PRUEBA_OMITIDA = 78;
+
 export function assertPruebaConRedPermitida(nombre: string): void {
   if (process.env.SRI_AMBIENTE === "2") {
     console.error(
@@ -40,8 +48,9 @@ export function assertPruebaConRedPermitida(nombre: string): void {
       `credenciales reales de .env.local. No existe una base de Airtable de ` +
       `pruebas: escribe en SUPER GEEK ADM tal cual. Para correrla a propósito, ` +
       `antepón PRUEBAS_CON_RED=1, por ejemplo:\n` +
-      `    PRUEBAS_CON_RED=1 NODE_OPTIONS="--conditions react-server" npx tsx lib/facturacion/__tests__/${nombre}.test.ts`
+      `    PRUEBAS_CON_RED=1 npx tsx lib/facturacion/__tests__/${nombre}.test.ts\n` +
+      `    (o PRUEBAS_CON_RED=1 npm test ${nombre})`
     );
-    process.exit(1);
+    process.exit(SALIDA_PRUEBA_OMITIDA);
   }
 }

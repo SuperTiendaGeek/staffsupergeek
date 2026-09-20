@@ -59,6 +59,28 @@ export function tocaNotificar(validoHasta: Date, ahora: Date): boolean {
   return (DIAS_DE_AVISO as readonly number[]).includes(dias);
 }
 
+// claveAviso() y umbralDeHoy() vivían en avisos.ts, que es "server-only" y
+// arrastra Airtable, notificaciones y next/navigation. Eso hacía imposible
+// probarlas sueltas (la suite firma.avisos no arrancaba por ese arrastre, no
+// por estas funciones). Son puras y pertenecen acá; avisos.ts las re-exporta
+// para no romper a nadie.
+
+/** Clave determinística del aviso. Un umbral, una notificación, para siempre. */
+export function claveAviso(validoHasta: Date, umbral: number): string {
+  return `firma-vence:${validoHasta.toISOString().split("T")[0]}:${umbral}`;
+}
+
+/**
+ * ¿Qué umbral corresponde hoy? Devuelve null si hoy no toca avisar.
+ *
+ * Se usa el umbral EXACTO (60, 30, 15, 7, 1) para que cada aviso se mande una
+ * sola vez y no todos los días desde los 60.
+ */
+export function umbralDeHoy(validoHasta: Date, ahora: Date): number | null {
+  const dias = diasRestantes(validoHasta, ahora);
+  return (DIAS_DE_AVISO as readonly number[]).includes(dias) ? dias : null;
+}
+
 function formatearFecha(f: Date): string {
   return f.toLocaleDateString("es-EC", { day: "numeric", month: "long", year: "numeric" });
 }

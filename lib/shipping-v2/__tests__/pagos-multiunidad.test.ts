@@ -478,10 +478,14 @@ await withFixture(async (fixture) => {
     () => updateShippingV2ItemField(
       item,
       { field: F_ITEM.cantidad, value: 2 },
-      { actualizadoPor: "Test", access: systemShippingV2Access() }
+      // esAdmin: Cantidad es adminOnly (ver item-edit-config.ts). Sin esto el
+      // error sería el de rol y nunca se probaría el candado de pago activo,
+      // que es justo lo que este test vigila: ni un administrador puede tocar
+      // la cantidad de un item con pago vivo.
+      { actualizadoPor: "Test", esAdmin: true, access: systemShippingV2Access() }
     ),
     SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE,
-    "Pago V2 activo bloquea edición inline de Cantidad"
+    "Pago V2 activo bloquea edición inline de Cantidad (ni siendo admin)"
   );
 });
 
@@ -521,10 +525,10 @@ await withFixture(async (fixture) => {
         costoProveedor: 100,
         modoLogistico: "Pendiente de packing",
       }),
-      { actualizadoPor: "Test" }
+      { actualizadoPor: "Test", esAdmin: true }
     ),
     SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE,
-    "Pago V2 activo bloquea PATCH completo que cambia Cantidad"
+    "Pago V2 activo bloquea PATCH completo que cambia Cantidad (ni siendo admin)"
   );
 });
 
@@ -539,10 +543,52 @@ await withFixture(async (fixture) => {
   await updateShippingV2ItemField(
     item,
     { field: F_ITEM.cantidad, value: 2 },
-    { actualizadoPor: "Test", access: systemShippingV2Access() }
+    { actualizadoPor: "Test", esAdmin: true, access: systemShippingV2Access() }
   );
   const itemRecord = fixture.state.otras.get(SHIPPING_V2_TABLES.items)?.get(item);
   assertMoney(itemRecord?.fields[F_ITEM.cantidad] as number | undefined, 2, "Pago V2 Anulado permite editar Cantidad");
+});
+
+// Cantidad es adminOnly: sin este par de casos, convertir el campo en adminOnly
+// pasaba desapercibido y solo se notaba porque rompía los tests del candado de
+// pago de arriba. Acá queda fijado el comportamiento esperado, con y sin pago.
+await withFixture(async (fixture) => {
+  const item = createItemRecord(fixture, {
+    [F_ITEM.sku]: "QTY-NO-ADMIN",
+    [F_ITEM.cantidad]: 1,
+    [F_ITEM.costoProveedor]: 100,
+  });
+  await assertRejects(
+    () => updateShippingV2ItemField(
+      item,
+      { field: F_ITEM.cantidad, value: 2 },
+      { actualizadoPor: "Test", access: systemShippingV2Access() }
+    ),
+    'Solo un administrador puede corregir "Cantidad" a mano.',
+    "Cantidad inline exige administrador aunque el item no tenga pago"
+  );
+});
+
+await withFixture(async (fixture) => {
+  const item = createItemRecord(fixture, {
+    [F_ITEM.sku]: "QTY-NO-ADMIN-PATCH",
+    [F_ITEM.cantidad]: 1,
+    [F_ITEM.costoProveedor]: 100,
+  });
+  await assertRejects(
+    () => updateShippingV2Item(
+      item,
+      itemWriteInput(fixture, {
+        sku: "QTY-NO-ADMIN-PATCH",
+        cantidad: 2,
+        costoProveedor: 100,
+        modoLogistico: "Pendiente de packing",
+      }),
+      { actualizadoPor: "Test" }
+    ),
+    'Solo un administrador puede corregir "Cantidad" a mano.',
+    "PATCH completo exige administrador para cambiar Cantidad"
+  );
 });
 
 await withFixture(async (fixture) => {

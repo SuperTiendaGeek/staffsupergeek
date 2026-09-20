@@ -11,7 +11,10 @@
  */
 
 import { assertFirmaVigente, type FirmaResuelta } from "../firma/resolverFirmaActiva";
-import { claveAviso, umbralDeHoy } from "../firma/avisos";
+// Desde ../firma/vigencia, no desde ../firma/avisos: avisos.ts es
+// "server-only" y arrastra Airtable + next/navigation, que es exactamente lo
+// que impedía que esta suite arrancara.
+import { claveAviso, umbralDeHoy } from "../firma/vigencia";
 import { FacturacionRechazoError } from "../errores";
 import type { MetadatosFirma } from "../firma/inspeccionar";
 
