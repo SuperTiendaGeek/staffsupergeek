@@ -2,15 +2,18 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { buildFichaVentaData, type FichaVentaData } from "@/lib/shipping-v2/ficha-venta-data";
 import { SHIPPING_V2_ITEM_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import { calculateShippingV2BatteryState, inferShippingV2TechnicalSheetFromItem, shippingV2CategoryDoesNotUseScreenOrBattery } from "@/lib/shipping-v2/technical-sheet";
 import type { ShippingV2Item, ShippingV2TechnicalOption, ShippingV2TechnicalSheetInput } from "@/types/shipping-v2";
+import type { ShippingV2EspecificacionesItem } from "@/lib/shipping-v2/airtable";
 import { FichaVentaPrintTemplate } from "./print/FichaVentaPrintTemplate";
 
 type Props = {
   item: ShippingV2Item;
+  /** Datos técnicos propios de la categoría. Vacío en computadores. */
+  especificaciones: ShippingV2EspecificacionesItem;
   technicalOptions: {
     connectivity: ShippingV2TechnicalOption[];
     ports: ShippingV2TechnicalOption[];
@@ -216,6 +219,38 @@ function SelectField({ label, value, options, onChange, disabled, source }: { la
   );
 }
 
+/**
+ * Campo de texto de los datos técnicos: guarda al salir del campo, no en cada
+ * tecla. Cada guardado es una escritura en Airtable; hacerlo por letra sería
+ * una escritura por carácter.
+ */
+function CampoEspecTexto({ label, valor, placeholder, disabled, onGuardar }: {
+  label: string;
+  valor: string;
+  placeholder?: string;
+  disabled?: boolean;
+  onGuardar: (valor: string) => void;
+}) {
+  const [local, setLocal] = useState(valor);
+  // El servidor normaliza ("512" → "512GB"): cuando vuelve, se muestra lo
+  // guardado de verdad, no lo que se tecleó.
+  useEffect(() => { setLocal(valor); }, [valor]);
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
+      <input
+        type="text"
+        value={local}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(event) => setLocal(event.target.value)}
+        onBlur={() => onGuardar(local)}
+        className={`${inputClass} disabled:cursor-not-allowed disabled:opacity-65`}
+      />
+    </label>
+  );
+}
+
 function SelectFieldWithLabels({ label, value, options, onChange }: { label: string; value?: string; options: Array<{ value: string; label: string }>; onChange: (value: string) => void }) {
   return (
     <label className="block">
@@ -298,8 +333,13 @@ function FichaVentaLivePreview({ ficha }: { ficha: FichaVentaData }) {
   );
 }
 
-export function ShippingV2FichaTecnicaClient({ item: initialItem, technicalOptions }: Props) {
+export function ShippingV2FichaTecnicaClient({
+  item: initialItem,
+  technicalOptions,
+  especificaciones: especificacionesIniciales,
+}: Props) {
   const [item, setItem] = useState(initialItem);
+  const [especificaciones, setEspecificaciones] = useState(especificacionesIniciales);
   const [form, setForm] = useState<ShippingV2TechnicalSheetInput>(() => normalizeForm(initialItem));
   const [fieldSources, setFieldSources] = useState<FieldSources>({});
   const [busy, setBusy] = useState("");
@@ -671,6 +711,36 @@ export function ShippingV2FichaTecnicaClient({ item: initialItem, technicalOptio
     }
   }
 
+  /**
+   * Guarda un dato técnico de la categoría.
+   *
+   * Va por su propio endpoint, NO por el de la ficha: aquel reescribe la ficha
+   * entera con lo que tenga el formulario. Y a diferencia de la inspección,
+   * aquí se puede corregir aunque la inspección ya esté firmada: son datos de
+   * venta, no una prueba del equipo.
+   */
+  async function guardarEspecificacion(campoId: string, valor: string) {
+    if ((especificaciones.valores[campoId] ?? "") === valor.trim()) return;
+    setBusy(`espec:${campoId}`);
+    setMessage("");
+    try {
+      const response = await fetch(`/api/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}/especificaciones`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ especificaciones: { [campoId]: valor } }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudieron guardar los datos técnicos."));
+      setItem(payload.data as ShippingV2Item);
+      if (payload.especificaciones) setEspecificaciones(payload.especificaciones as ShippingV2EspecificacionesItem);
+      setMessage("Datos técnicos guardados.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Error inesperado.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <div className="space-y-3">
       {message ? <div className="rounded-xl border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-2 text-sm text-[#E9FF9A]">{message}</div> : null}
@@ -699,6 +769,41 @@ export function ShippingV2FichaTecnicaClient({ item: initialItem, technicalOptio
           </div>
         </div>
       </section>
+
+      {especificaciones.campos.length ? (
+        <SectionCard title="Datos técnicos de la categoría" action={
+          <span className="rounded-full border border-[#3A3A36] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">
+            Se imprimen en la etiqueta SKU
+          </span>
+        }>
+          {especificaciones.campos.map((campo) => {
+            const valor = especificaciones.valores[campo.id] ?? "";
+            const etiqueta = `${campo.etiqueta}${campo.unidad && campo.tipo === "numero" ? ` (${campo.unidad})` : ""}${campo.enEtiqueta ? " ★" : ""}`;
+            return campo.tipo === "select" ? (
+              <SelectField
+                key={campo.id}
+                label={etiqueta}
+                value={valor}
+                options={campo.opciones ?? []}
+                onChange={(nuevo) => void guardarEspecificacion(campo.id, nuevo)}
+                disabled={busy.startsWith("espec:")}
+              />
+            ) : (
+              <CampoEspecTexto
+                key={campo.id}
+                label={etiqueta}
+                valor={valor}
+                placeholder={campo.placeholder}
+                onGuardar={(nuevo) => void guardarEspecificacion(campo.id, nuevo)}
+                disabled={busy.startsWith("espec:")}
+              />
+            );
+          })}
+          <div className="lg:col-span-2 rounded-lg border border-dashed border-[#3A3A36] bg-[#11120F] px-3 py-2 text-xs text-[#A7A7A7]">
+            En la etiqueta: <b className="font-mono text-sm text-[#F5F5F5]">{especificaciones.resumen || "— solo SKU y precio —"}</b>
+          </div>
+        </SectionCard>
+      ) : null}
 
       <div className="grid gap-3 2xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="grid gap-3 xl:grid-cols-2">
