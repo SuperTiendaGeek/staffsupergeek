@@ -23,7 +23,7 @@ import type {
 import type { ResultadoPunto, ZonaRevision } from "@/lib/shipping-v2/revision-tecnica";
 import { getPerfilRevision } from "@/lib/shipping-v2/revision-tecnica";
 import type { SnapshotRevision } from "@/lib/shipping-v2/revision-tecnica-snapshot";
-import { DibujoEquipo, COORDENADAS } from "./DibujoEquipo";
+import { DibujoEquipo } from "./DibujoEquipo";
 
 type RepuestoDisponible = { id: string; sku: string; nombre: string; stock: number; costo: number };
 
@@ -87,7 +87,6 @@ export function ShippingV2InspeccionClient({
   const zonaEspec = especificaciones.campos.length ? zonas[0]?.id ?? "" : "";
   const totalDeclarado = grupos.reduce((suma, g) => suma + g.opciones.filter((o) => o.declarada).length, 0);
   const perfil = getPerfilRevision(item.categoria);
-  const coordenadas = COORDENADAS[perfil] ?? {};
 
   const zona = useMemo(() => zonas.find((z) => z.id === zonaSel) ?? zonas[0], [zonas, zonaSel]);
 
@@ -571,7 +570,6 @@ export function ShippingV2InspeccionClient({
               zonas={zonas.map((z) => ({
                 id: z.id, numero: z.numero, nombre: z.nombre, estado: estadoDeZona(z, snapshot),
               }))}
-              coordenadas={coordenadas}
               zonaActiva={zona?.id ?? ""}
               onElegir={setZonaSel}
             />
