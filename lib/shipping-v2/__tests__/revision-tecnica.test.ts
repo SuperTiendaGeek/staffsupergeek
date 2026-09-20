@@ -268,6 +268,36 @@ for (const categoria of [
   assert(getPerfilRevision(categoria) === "generico", `${categoria} usa el perfil genérico por ahora`);
 }
 
+// ── El caso de LAP-000048 (2026-09-20) ─────────────────────────────────────
+// Una laptop vieja, sin conectividad, puertos ni extras declarados. Alexis
+// marcó los 25 puntos y el botón Finalizar seguía apagado: faltaba confirmar
+// el equipamiento, y desde el pie de página no había manera de llegar ahí.
+{
+  const laptopVacia = construirZonasRevision("Laptop", []);
+  assert(
+    laptopVacia.every((z) => z.puntos.length > 0),
+    "Sin nada declarado, no queda ninguna zona vacía (una zona sin puntos sería imposible de resolver)"
+  );
+
+  const todoOk: Record<string, ResultadoPunto> = {};
+  for (const zona of laptopVacia) for (const punto of zona.puntos) todoOk[punto.id] = "ok";
+
+  const sinConfirmar = resolverEstadoInspeccion({
+    zonas: laptopVacia, resultados: todoOk, equipamientoConfirmado: false,
+  });
+  assert(!sinConfirmar.completa, "Con todo marcado pero sin confirmar, todavía no se puede firmar");
+  assert(sinConfirmar.zonasPendientes.length === 0, "…y el motivo NO son zonas pendientes: están todas resueltas");
+  assert(
+    /confirmar/i.test(sinConfirmar.motivo),
+    `El motivo dice que falta confirmar (vino "${sinConfirmar.motivo}")`
+  );
+
+  const confirmada = resolverEstadoInspeccion({
+    zonas: laptopVacia, resultados: todoOk, equipamientoConfirmado: true,
+  });
+  assert(confirmada.completa, "Al confirmar el equipamiento, la inspección se puede firmar");
+}
+
 if (fallos > 0) {
   console.error(`Fallaron ${fallos} comprobaciones.`);
   process.exit(1);

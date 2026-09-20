@@ -6458,6 +6458,78 @@ export type ShippingV2EspecificacionesItem = {
   resumen: string;
 };
 
+/**
+ * Los dos campos de Airtable que hay que escribir para guardar datos técnicos.
+ *
+ * Lo usan la inspección y la ficha: así las dos pantallas escriben igual, y el
+ * resumen de la etiqueta se recalcula siempre con la misma regla.
+ *
+ * Se parte de lo que el usuario VE: lo guardado más lo heredado de la ficha.
+ * De otro modo, al tocar un solo campo lo heredado seguiría dependiendo de la
+ * ficha en vez de quedar guardado de verdad.
+ */
+function camposEspecificacionesParaGuardar(
+  item: ShippingV2Item,
+  cambios: Record<string, unknown>,
+  firma: { actor: string; ahora: string }
+): Record<string, unknown> {
+  if (camposDeCategoria(item.categoria).length === 0) return {};
+  const actual = parsearEspecificaciones(item.especificacionesTecnicas);
+  const base = {
+    ...actual,
+    valores: {
+      ...actual.valores,
+      ...especificacionesEfectivas(item.categoria, actual.valores, item.technicalSheet),
+    },
+  };
+  const nuevo = aplicarCambiosEspec(base, item.categoria, cambios, firma);
+  return {
+    "Especificaciones técnicas": serializarEspecificaciones(nuevo),
+    "Resumen técnico": resumenTecnico(item.categoria, nuevo.valores),
+  };
+}
+
+/**
+ * Guarda datos técnicos SIN pasar por la inspección.
+ *
+ * A propósito no exige que la inspección esté abierta: las especificaciones
+ * son información de venta, no una prueba del equipo. Corregir "DDR3" por
+ * "DDR4" no puede obligar a reabrir y volver a firmar una inspección entera,
+ * ni dejar el item sin publicar mientras tanto.
+ */
+export async function guardarShippingV2Especificaciones(
+  recordId: string,
+  cambios: Record<string, string>,
+  options: { actor: string; access?: ShippingV2AccessContext }
+): Promise<{ item: ShippingV2Item; especificaciones: ShippingV2EspecificacionesItem }> {
+  assertShippingV2Permission(options.access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+
+  const item = await getShippingV2ItemById(id, { includeAiName: false, access: options.access });
+  if (camposDeCategoria(item.categoria).length === 0) {
+    throw new Error(`La categoría ${item.categoria || "de este item"} no tiene datos técnicos propios.`);
+  }
+
+  const ahora = new Date().toISOString();
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{
+        id,
+        fields: {
+          ...camposEspecificacionesParaGuardar(item, cambios, { actor: options.actor, ahora }),
+          "Última actualización": ahora,
+          "Actualizado por": options.actor,
+        },
+      }],
+    }),
+  });
+
+  const actualizado = await getShippingV2ItemById(id, { includeAiName: false, access: options.access });
+  return { item: actualizado, especificaciones: especificacionesDeItem(actualizado) };
+}
+
 /** Datos técnicos de un item tal como los ve la pantalla. */
 export function especificacionesDeItem(item: ShippingV2Item): ShippingV2EspecificacionesItem {
   const campos = camposDeCategoria(item.categoria);
@@ -6714,23 +6786,9 @@ export async function guardarShippingV2InspeccionTecnica(
   snapshot = limpio.snapshot;
 
   // ── 3) Datos técnicos de la categoría ──
-  // Se parte de lo que el técnico VE en pantalla: lo guardado más lo heredado
-  // de la ficha. Así, al tocar un solo campo, lo heredado queda guardado de
-  // verdad en vez de seguir dependiendo de la ficha.
-  const camposEspec: Record<string, unknown> = {};
-  if (cambios.especificaciones && camposDeCategoria(item.categoria).length > 0) {
-    const actual = parsearEspecificaciones(item.especificacionesTecnicas);
-    const base = {
-      ...actual,
-      valores: {
-        ...actual.valores,
-        ...especificacionesEfectivas(item.categoria, actual.valores, item.technicalSheet),
-      },
-    };
-    const nuevo = aplicarCambiosEspec(base, item.categoria, cambios.especificaciones, { actor: options.actor, ahora });
-    camposEspec["Especificaciones técnicas"] = serializarEspecificaciones(nuevo);
-    camposEspec["Resumen técnico"] = resumenTecnico(item.categoria, nuevo.valores);
-  }
+  const camposEspec = cambios.especificaciones
+    ? camposEspecificacionesParaGuardar(item, cambios.especificaciones, { actor: options.actor, ahora })
+    : {};
 
   await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
     method: "PATCH",

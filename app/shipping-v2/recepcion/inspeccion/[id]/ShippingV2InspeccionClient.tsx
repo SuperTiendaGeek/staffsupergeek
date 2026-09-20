@@ -85,6 +85,7 @@ export function ShippingV2InspeccionClient({
   // Los datos técnicos se cargan en la PRIMERA zona: es la que el técnico abre
   // con el equipo recién sacado de la caja.
   const zonaEspec = especificaciones.campos.length ? zonas[0]?.id ?? "" : "";
+  const totalDeclarado = grupos.reduce((suma, g) => suma + g.opciones.filter((o) => o.declarada).length, 0);
   const perfil = getPerfilRevision(item.categoria);
   const coordenadas = COORDENADAS[perfil] ?? {};
 
@@ -364,6 +365,13 @@ export function ShippingV2InspeccionClient({
   }, [zonas, snapshot, item.technicalSheet, especificaciones]);
 
   const firmado = item.revisadoFisicamente === true;
+  const equipamientoConfirmado = Boolean(snapshot.equipamiento.confirmadoPor);
+  // Las zonas que todavía no se pueden dar por resueltas, con su id: el pie de
+  // página lleva directo a cada una.
+  const zonasPendientes = useMemo(
+    () => zonas.filter((z) => !["ok", "falla", "na"].includes(estadoDeZona(z, snapshot))),
+    [zonas, snapshot]
+  );
 
   return (
     <div className="w-full space-y-2.5">
@@ -481,6 +489,12 @@ export function ShippingV2InspeccionClient({
                 Ir a la inspección →
               </button>
             </div>
+            {!snapshot.equipamiento.confirmadoPor && totalDeclarado === 0 ? (
+              <p className="mt-3.5 rounded-lg border border-[#F4C95B]/40 bg-[#F4C95B]/8 px-3 py-2 text-[11.5px] leading-relaxed text-[#F4C95B]">
+                No marcaste ninguna característica. Si confirmas así, el equipo queda registrado como si no
+                tuviera Wi-Fi, puertos ni extras, y nadie los va a probar.
+              </p>
+            ) : null}
             <div className={`mt-3.5 flex items-center gap-2 rounded-lg border px-3 py-2 text-[11.5px] ${
               snapshot.equipamiento.confirmadoPor
                 ? "border-[#7BE495]/35 bg-[#22231C] text-[#B4B5AC]"
@@ -704,6 +718,14 @@ export function ShippingV2InspeccionClient({
                       <p className="mt-2.5 rounded-md border border-dashed border-[#3A3A36] bg-[#141510] px-2.5 py-1.5 text-[12px] text-[#B4B5AC]">
                         En la etiqueta: <b className="font-mono font-semibold text-[#F5F5F5]">{especificaciones.resumen || "— solo SKU y precio —"}</b>
                       </p>
+                      {firmado ? (
+                        <p className="mt-2 text-[11.5px] text-[#7E7F76]">
+                          La inspección está firmada. Para corregir un dato técnico sin reabrirla, entra por{" "}
+                          <Link href={`/shipping-v2/recepcion/ficha/${item.id}`} className="font-semibold text-[#D7FF4F] underline">
+                            Preparar ficha
+                          </Link>.
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -869,15 +891,37 @@ export function ShippingV2InspeccionClient({
             </button>
           ) : null}
           <button type="button" disabled={!estado.completa || guardando || firmado} onClick={() => void firmar()}
+            title={firmado ? "Ya está firmada" : estado.completa ? "Firmar la inspección" : estado.motivo}
             className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-sm font-bold text-[#141510] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40">
             {firmado ? "Inspección firmada" : "Finalizar inspección"}
           </button>
         </div>
-        <p className="w-full text-[11.5px] text-[#7E7F76]">
-          {firmado
-            ? `Firmada por ${item.revisadoPor || usuario}${item.fechaRevision ? ` · ${fecha(item.fechaRevision)}` : ""}.`
-            : estado.motivo}
-        </p>
+        {/* El bloqueo tiene que ser accionable DESDE AQUÍ. Antes el pie decía
+            "Falta confirmar qué trae el equipo", el botón Finalizar se veía
+            apagado y no había forma de saber que la salida era un botón en la
+            primera pestaña: un callejón sin salida. */}
+        <div className="flex w-full flex-wrap items-center gap-2 text-[11.5px] text-[#7E7F76]">
+          <span>
+            {firmado
+              ? `Firmada por ${item.revisadoPor || usuario}${item.fechaRevision ? ` · ${fecha(item.fechaRevision)}` : ""}.`
+              : estado.motivo}
+          </span>
+          {!firmado && !equipamientoConfirmado ? (
+            <button type="button" onClick={() => setPestana("equipo")}
+              className="rounded-md border border-[#D7FF4F]/50 bg-[#D7FF4F]/10 px-2 py-1 text-[11.5px] font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F]/20">
+              Ir a confirmar qué trae →
+            </button>
+          ) : null}
+          {!firmado && equipamientoConfirmado
+            ? zonasPendientes.map((z) => (
+                <button key={z.id} type="button"
+                  onClick={() => { setPestana("inspeccion"); setZonaSel(z.id); }}
+                  className="rounded-md border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-2 py-1 text-[11.5px] font-semibold text-[#F4C95B] transition hover:bg-[#F4C95B]/20">
+                  Falta: {z.nombre} →
+                </button>
+              ))
+            : null}
+        </div>
       </footer>
     </div>
   );

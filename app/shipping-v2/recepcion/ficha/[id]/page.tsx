@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
-import { getShippingV2AccessContextForSession, getShippingV2ItemById, getShippingV2TechnicalOptionSets } from "@/lib/shipping-v2/airtable";
+import { especificacionesDeItem, getShippingV2AccessContextForSession, getShippingV2ItemById, getShippingV2TechnicalOptionSets } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import { ShippingV2FichaTecnicaClient } from "./ShippingV2FichaTecnicaClient";
@@ -29,7 +29,7 @@ export default async function ShippingV2FichaTecnicaPage({ params }: Props) {
 
   return (
     <StaffAppShell activeHref="/shipping-v2/recepcion" sectionLabel="Shipping V2">
-      <ShippingV2FichaTecnicaClient item={item} technicalOptions={technicalOptions} />
+      <ShippingV2FichaTecnicaClient item={item} technicalOptions={technicalOptions} especificaciones={especificacionesDeItem(item)} />
     </StaffAppShell>
   );
 }
