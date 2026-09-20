@@ -55,7 +55,11 @@ export type EstadoZona = "" | "parcial" | "ok" | "falla" | "na";
 export type PerfilRevision =
   | "laptop" | "desktop" | "allinone" | "monitor" | "tablet" | "consola"
   | "ram" | "disco" | "grafica" | "mainboard" | "fuente" | "bateria"
-  | "cargador" | "pantalla-repuesto" | "teclado-repuesto" | "generico";
+  | "cargador" | "pantalla-repuesto" | "teclado-repuesto"
+  // Categorías creadas en 2026-09 al vaciar "Otro".
+  | "celular" | "disco-externo" | "smarthome" | "audio" | "impresora"
+  | "red" | "camara" | "energia" | "adaptador" | "insumo"
+  | "generico";
 
 const PERFIL_POR_CATEGORIA: Record<string, PerfilRevision> = {
   "laptop": "laptop",
@@ -69,22 +73,36 @@ const PERFIL_POR_CATEGORIA: Record<string, PerfilRevision> = {
   "ram": "ram",
   "ssd": "disco",
   "hdd": "disco",
-  // Un disco portátil USB se revisa igual que uno interno: SMART, capacidad
-  // real y, sobre todo, borrado de los datos del dueño anterior.
-  "disco externo": "disco",
+  // Un disco portátil comparte lo esencial con uno interno (SMART, capacidad,
+  // borrado de datos) pero suma lo suyo: carcasa, cable y velocidad por USB.
+  "disco externo": "disco-externo",
+  "celular": "celular",
+  "smart home": "smarthome",
+  "audio": "audio",
+  "impresora": "impresora",
+  "red / wi-fi": "red",
+  "camara / seguridad": "camara",
+  "energia / proteccion": "energia",
+  "adaptador / dock / lector": "adaptador",
+  "insumo": "insumo",
   "tarjeta grafica": "grafica",
-  "tarjeta gráfica": "grafica",
   "mainboard": "mainboard",
   "fuente de poder": "fuente",
   "bateria": "bateria",
-  "batería": "bateria",
   "cargador": "cargador",
   "pantalla": "pantalla-repuesto",
   "teclado": "teclado-repuesto",
 };
 
 function normalizar(valor?: string | null): string {
-  return (valor || "").trim().toLowerCase();
+  // Sin tildes: "Energía / Protección" y "Cámara / Seguridad" no encontraban su
+  // perfil y caían en el genérico. El resto del proyecto ya normaliza así.
+  return (valor || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
 }
 
 export function getPerfilRevision(categoria?: string | null): PerfilRevision {
@@ -303,6 +321,142 @@ const ZONAS: Record<PerfilRevision, DefZona[]> = {
     { id: "teclado", nombre: "Teclado", base: [["Todas las teclas responden", 1], ["Conector flex sin daño", 1],
       ["Distribución e idioma anotados", 0]] },
   ],
+  celular: [
+    {
+      id: "pantalla", nombre: "Pantalla",
+      base: [["Enciende sin manchas ni líneas", 1], ["Táctil responde en toda la superficie", 1], ["Vidrio sin fisuras", 0]],
+    },
+    { id: "cuentas", nombre: "Bloqueos de cuenta",
+      base: [["Sin bloqueo iCloud / Google FRP", 1], ["Restaurado de fábrica", 1]] },
+    { id: "red", nombre: "Red y operador",
+      base: [["Liberado de operador", 1], ["Hace y recibe llamadas", 1], ["IMEI sin reporte", 1], ["Datos móviles funcionan", 0]] },
+    { id: "bateria", nombre: "Batería y carga",
+      base: [["Salud de batería medida y anotada", 1], ["Puerto de carga funciona", 1], ["Sin hinchazón (seguridad)", 1]] },
+    { id: "camaras", nombre: "Cámaras y audio",
+      base: [["Cámara frontal", 0], ["Cámara trasera", 0], ["Altavoz y micrófono", 0]] },
+    { id: "botones", nombre: "Botones y chasis",
+      base: [["Botones físicos responden", 0], ["Chasis sin fisuras", 0], ["Lector de huella o rostro", 0]] },
+    { id: "conectividad", nombre: "Conectividad", base: [] },
+    { id: "puertos", nombre: "Puertos", base: [] },
+    { id: "extras", nombre: "Otras características", base: [] },
+    { id: "accesorios", nombre: "Accesorios", base: [["Cargador incluido", 0]] },
+  ],
+  "disco-externo": [
+    {
+      id: "unidad", nombre: "Unidad",
+      base: [
+        ["Se reconoce al conectarlo", 1],
+        ["SMART sano", 1],
+        ["Capacidad real coincide", 1],
+        ["Velocidad de transferencia anotada", 0],
+        ["Borrado seguro de datos del dueño anterior", 1],
+      ],
+    },
+    { id: "carcasa", nombre: "Carcasa y cable",
+      base: [["Conector sin daño", 1], ["Cable incluido", 0], ["Carcasa sin fisuras ni tornillos faltantes", 0]] },
+  ],
+  smarthome: [
+    { id: "arranque", nombre: "Enciende y arranca",
+      base: [["Enciende con su fuente", 1], ["Completa el arranque", 1], ["Fuente o cargador incluido", 0]] },
+    { id: "cuentas", nombre: "Cuentas y reseteo",
+      base: [["Desvinculado de la cuenta anterior", 1], ["Restaurado de fábrica", 1]] },
+    { id: "conexion", nombre: "Conexión",
+      base: [["Se conecta a Wi-Fi", 1], ["Responde desde la app", 1]] },
+    { id: "funciones", nombre: "Funciones",
+      base: [["Micrófono y altavoz responden", 0], ["Sensores o relé responden", 0]] },
+    { id: "conectividad", nombre: "Conectividad", base: [] },
+    { id: "puertos", nombre: "Puertos", base: [] },
+    { id: "extras", nombre: "Otras características", base: [] },
+  ],
+  audio: [
+    { id: "sonido", nombre: "Sonido",
+      base: [["Suena por todos los canales", 1], ["Sin distorsión a volumen alto", 1], ["Sin ruido de fondo", 0]] },
+    { id: "conexion", nombre: "Entradas y salidas",
+      base: [["Entradas y salidas responden", 1], ["Empareja por Bluetooth", 0]] },
+    { id: "controles", nombre: "Controles",
+      base: [["Perillas y botones responden", 0], ["Pantalla o luces indicadoras", 0]] },
+    { id: "alimentacion", nombre: "Alimentación",
+      base: [["Enciende con su fuente", 1], ["Fuente o cable incluido", 0]] },
+    { id: "fisico", nombre: "Estado físico",
+      base: [["Conos, rejillas y almohadillas sin daño", 0], ["Cable sin cortes ni empalmes", 0]] },
+    { id: "conectividad", nombre: "Conectividad", base: [] },
+    { id: "puertos", nombre: "Puertos", base: [] },
+    { id: "extras", nombre: "Otras características", base: [] },
+  ],
+  impresora: [
+    { id: "arranque", nombre: "Enciende y arranca",
+      base: [["Enciende y completa el arranque", 1], ["Panel o luces responden", 0]] },
+    { id: "impresion", nombre: "Impresión",
+      base: [["Imprime página de prueba", 1], ["Sin manchas ni líneas", 1], ["Sin atascos de papel", 1]] },
+    { id: "insumos", nombre: "Insumos",
+      base: [["Cartucho, tóner o cinta incluido", 0], ["Nivel de insumo anotado", 0], ["Contador de páginas anotado", 0]] },
+    { id: "conexion", nombre: "Conexión",
+      base: [["Puerto de datos responde", 1], ["Wi-Fi o red conecta", 0]] },
+    { id: "conectividad", nombre: "Conectividad", base: [] },
+    { id: "puertos", nombre: "Puertos", base: [] },
+    { id: "extras", nombre: "Otras características", base: [] },
+    { id: "accesorios", nombre: "Accesorios",
+      base: [["Cable de poder incluido", 0], ["Cable de datos incluido", 0]] },
+  ],
+  red: [
+    { id: "arranque", nombre: "Enciende y arranca",
+      base: [["Enciende con su fuente", 1], ["Fuente incluida", 0]] },
+    { id: "reseteo", nombre: "Reseteo y bloqueos",
+      base: [["Restaurado de fábrica", 1], ["Sin bloqueo de operador", 0]] },
+    { id: "wifi", nombre: "Wi-Fi",
+      base: [["Emite red Wi-Fi", 1], ["Alcance razonable", 0], ["Entra al panel de administración", 0]] },
+    { id: "puertos", nombre: "Puertos de red", base: [["Puertos LAN y WAN responden", 1]] },
+    { id: "conectividad", nombre: "Conectividad", base: [] },
+    { id: "extras", nombre: "Otras características", base: [] },
+  ],
+  camara: [
+    { id: "arranque", nombre: "Enciende y arranca",
+      base: [["Enciende con su fuente", 1], ["Fuente o batería incluida", 0]] },
+    { id: "cuentas", nombre: "Cuentas y reseteo",
+      base: [["Desvinculada de la cuenta anterior", 1], ["Restaurada de fábrica", 1]] },
+    { id: "imagen", nombre: "Imagen",
+      base: [["Da imagen nítida", 1], ["Visión nocturna funciona", 0], ["Lente sin rayas ni empañamiento", 0]] },
+    { id: "conexion", nombre: "Conexión",
+      base: [["Conecta a Wi-Fi o red", 1], ["Se ve desde la app", 1]] },
+    { id: "sensores", nombre: "Audio y sensores",
+      base: [["Micrófono y altavoz", 0], ["Detección de movimiento", 0], ["Ranura de memoria", 0]] },
+    { id: "conectividad", nombre: "Conectividad", base: [] },
+    { id: "puertos", nombre: "Puertos", base: [] },
+    { id: "extras", nombre: "Otras características", base: [] },
+    { id: "accesorios", nombre: "Accesorios",
+      base: [["Soportes y tornillos incluidos", 0]] },
+  ],
+  energia: [
+    { id: "funcionamiento", nombre: "Funcionamiento",
+      base: [["Entrega corriente en todas las tomas", 1], ["Interruptores y luces responden", 0]] },
+    { id: "proteccion", nombre: "Protección",
+      base: [["Protección o fusible sin quemar", 1], ["Sin olor a quemado", 1]] },
+    { id: "bateria", nombre: "Batería",
+      base: [["Mantiene carga sin enchufe", 1], ["Autonomía anotada", 0], ["Sin hinchazón (seguridad)", 1]] },
+    { id: "cable", nombre: "Cable y enchufe",
+      base: [["Cable sin cortes ni empalmes", 1], ["Enchufe sin quemaduras ni pines flojos", 1]] },
+  ],
+  adaptador: [
+    { id: "funcionamiento", nombre: "Funcionamiento",
+      base: [["Se reconoce al conectarlo", 1], ["Transfiere datos o da imagen", 1], ["Todas las salidas y ranuras responden", 1]] },
+    { id: "conectores", nombre: "Conectores",
+      base: [["Conectores sin daño ni pines doblados", 1], ["Cable sin cortes ni empalmes", 0]] },
+    { id: "accesorios", nombre: "Accesorios",
+      base: [["Fuente incluida si la necesita", 0], ["Cables incluidos", 0]] },
+    { id: "conectividad", nombre: "Conectividad", base: [] },
+    { id: "puertos", nombre: "Puertos", base: [] },
+    { id: "extras", nombre: "Otras características", base: [] },
+  ],
+  insumo: [
+    { id: "recepcion", nombre: "Recepción",
+      base: [
+        ["Cantidad recibida coincide", 1],
+        ["Empaque sellado y sin daño", 1],
+        ["Sin derrames ni resecamiento", 1],
+        ["Fecha de vencimiento anotada", 0],
+      ],
+    },
+  ],
   generico: [
     { id: "funciona", nombre: "Funcionamiento", base: [["Funciona como debe", 1], ["Completo, sin piezas faltantes", 0],
       ["Cantidad recibida coincide", 0], ["Sin daños visibles", 0]] },
@@ -485,6 +639,33 @@ export function construirZonasRevision(
       critica: puntos.some((p) => p.critico),
       captura: def.captura ?? [],
     });
+  }
+
+  // Rescate: un punto generado para una zona que este perfil NO tiene se
+  // perdía en silencio. Pasaba en todos los perfiles de una sola zona (RAM,
+  // disco, genérico…): declarar "Bluetooth" en un parlante creaba su punto en
+  // la zona "conectividad", que ahí no existe, y desaparecía.
+  //
+  // Esto contradice la regla que sostiene el módulo —declarar crea la
+  // obligación de probar—, así que lo suelto termina en una zona propia.
+  const idsUsados = new Set(defs.map((d) => d.id));
+  const huerfanos = [...generados.entries()]
+    .filter(([zonaId]) => !idsUsados.has(zonaId))
+    .flatMap(([, puntos]) => puntos);
+
+  if (huerfanos.length) {
+    const vistos = new Set(zonas.flatMap((z) => z.puntos.map((p) => p.id)));
+    const puntos = huerfanos.filter((p) => !vistos.has(p.id));
+    if (puntos.length) {
+      zonas.push({
+        id: "declarado",
+        numero: numero + 1,
+        nombre: "Otras características",
+        puntos,
+        critica: puntos.some((p) => p.critico),
+        captura: [],
+      });
+    }
   }
 
   return zonas;

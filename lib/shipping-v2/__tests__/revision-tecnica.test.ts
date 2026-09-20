@@ -260,12 +260,38 @@ assert(cable[0].puntos.length >= 3, "Pero igual tiene sus puntos: nada queda sin
 // "Disco externo" usa el perfil de disco. Las demás todavía no tienen perfil
 // propio y caen en genérico — y NINGUNA puede caer por accidente en otro perfil
 // por el atajo de "el nombre contiene la palabra" (p. ej. "cámara" y "ram").
-assert(getPerfilRevision("Disco externo") === "disco", "Disco externo se inspecciona como disco");
-for (const categoria of [
-  "Smart Home", "Audio", "Adaptador / Dock / Lector", "Insumo", "Impresora",
-  "Energía / Protección", "Red / Wi-Fi", "Cámara / Seguridad", "Celular",
-]) {
-  assert(getPerfilRevision(categoria) === "generico", `${categoria} usa el perfil genérico por ahora`);
+// Cada categoría nueva tiene ya su perfil propio (2026-09-20).
+for (const [categoria, perfil] of [
+  ["Disco externo", "disco-externo"], ["Smart Home", "smarthome"], ["Audio", "audio"],
+  ["Adaptador / Dock / Lector", "adaptador"], ["Insumo", "insumo"], ["Impresora", "impresora"],
+  ["Energía / Protección", "energia"], ["Red / Wi-Fi", "red"], ["Cámara / Seguridad", "camara"],
+  ["Celular", "celular"],
+] as [string, string][]) {
+  assert(getPerfilRevision(categoria) === perfil, `${categoria} usa el perfil ${perfil}`);
+  const zonas = construirZonasRevision(categoria, []);
+  assert(zonas.length > 0, `${categoria} tiene zonas de inspección`);
+  assert(zonas.every((z) => z.puntos.length > 0), `${categoria}: ninguna zona queda vacía sin nada declarado`);
+  assert(zonas.some((z) => z.critica), `${categoria} tiene al menos un punto crítico`);
+}
+
+// Puntos que definen a cada categoría: si desaparecen, algo se rompió.
+const buscaTexto = (categoria: string, texto: string) =>
+  construirZonasRevision(categoria, []).flatMap((z) => z.puntos).some((p) => p.texto === texto);
+assert(buscaTexto("Celular", "IMEI sin reporte"), "Un celular se revisa contra reporte de IMEI");
+assert(buscaTexto("Impresora", "Imprime página de prueba"), "Una impresora imprime una página de prueba");
+assert(buscaTexto("Disco externo", "Borrado seguro de datos del dueño anterior"),
+  "Un disco externo también se borra: se lleva los datos del dueño anterior");
+assert(buscaTexto("Insumo", "Empaque sellado y sin daño"), "Un insumo se revisa por empaque, no por funcionamiento");
+
+// El rescate de puntos declarados: un perfil sin zona "conectividad" no puede
+// tragarse el punto de un Bluetooth declarado.
+{
+  const conBluetooth = construirZonasRevision("RAM", [{ nombre: "Bluetooth", grupo: "conectividad" }]);
+  const textos = conBluetooth.flatMap((z) => z.puntos).map((p) => p.texto);
+  assert(
+    textos.some((t) => /bluetooth/i.test(t)),
+    `Lo declarado nunca se pierde, aunque el perfil no tenga esa zona (vino: ${textos.join(", ")})`
+  );
 }
 
 // ── El caso de LAP-000048 (2026-09-20) ─────────────────────────────────────

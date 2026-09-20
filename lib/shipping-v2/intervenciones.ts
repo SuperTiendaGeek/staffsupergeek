@@ -117,6 +117,61 @@ const MANTENIMIENTOS: Record<PerfilRevision, string[]> = {
   cargador: ["Limpieza de contactos", "Reparación o refuerzo del cable", ...MANT_COMUN],
   "pantalla-repuesto": ["Limpieza de pantalla", "Limpieza del conector o flex", ...MANT_COMUN],
   "teclado-repuesto": ["Limpieza de teclado", "Reemplazo de teclas", "Limpieza del conector o flex", ...MANT_COMUN],
+  celular: [
+    "Limpieza de puertos",
+    "Restauración de fábrica",
+    "Recalibración de batería",
+    ...MANT_COMUN,
+  ],
+  "disco-externo": [
+    "Borrado seguro de datos",
+    "Formateo",
+    "Limpieza de contactos",
+    "Reparación o refuerzo del cable",
+    ...MANT_COMUN,
+  ],
+  smarthome: [
+    "Restauración de fábrica",
+    "Actualización de BIOS / firmware",
+    "Limpieza de contactos",
+    ...MANT_COMUN,
+  ],
+  audio: [
+    "Limpieza de contactos",
+    "Reparación o refuerzo del cable",
+    "Cambio de almohadillas",
+    ...MANT_COMUN,
+  ],
+  impresora: [
+    "Limpieza interna",
+    "Limpieza de cabezales",
+    "Limpieza de rodillos",
+    "Actualización de BIOS / firmware",
+    ...MANT_COMUN,
+  ],
+  red: [
+    "Restauración de fábrica",
+    "Actualización de BIOS / firmware",
+    ...MANT_COMUN,
+  ],
+  camara: [
+    "Limpieza de lente",
+    "Restauración de fábrica",
+    "Actualización de BIOS / firmware",
+    ...MANT_COMUN,
+  ],
+  energia: [
+    "Limpieza interna",
+    "Reparación o refuerzo del cable",
+    ...MANT_COMUN,
+  ],
+  adaptador: [
+    "Limpieza de contactos",
+    "Reparación o refuerzo del cable",
+    ...MANT_COMUN,
+  ],
+  // Un insumo se consume, no se le hace mantenimiento.
+  insumo: [...MANT_COMUN],
   generico: [
     "Prueba de funcionamiento",
     "Limpieza de contactos",
@@ -173,6 +228,16 @@ const MEJORAS: Record<PerfilRevision, string[]> = {
   cargador: ["Cambio de cable de poder", "Cambio de punta o conector", ...MEJORA_COMUN],
   "pantalla-repuesto": [...MEJORA_COMUN],
   "teclado-repuesto": [...MEJORA_COMUN],
+  celular: ["Cambio de batería", "Cambio de pantalla", "Cambio de cargador", ...MEJORA_COMUN],
+  "disco-externo": ["Cambio de carcasa o adaptador", "Cambio de cable de poder", ...MEJORA_COMUN],
+  smarthome: ["Cambio de fuente o adaptador", ...MEJORA_COMUN],
+  audio: ["Cambio de cable de poder", "Cambio de almohadillas", "Cambio de fuente o adaptador", ...MEJORA_COMUN],
+  impresora: ["Cambio de cartucho o tóner", "Cambio de rodillos", "Cambio de cable de poder", ...MEJORA_COMUN],
+  red: ["Cambio de fuente o adaptador", "Cambio de antenas", ...MEJORA_COMUN],
+  camara: ["Cambio de fuente o adaptador", "Cambio de base o soporte", ...MEJORA_COMUN],
+  energia: ["Cambio de batería", "Cambio de cable de poder", ...MEJORA_COMUN],
+  adaptador: ["Cambio de cable de poder", ...MEJORA_COMUN],
+  insumo: [...MEJORA_COMUN],
   generico: ["Cambio de accesorio incluido", ...MEJORA_COMUN],
 };
 
