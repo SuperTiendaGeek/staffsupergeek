@@ -77,11 +77,14 @@ export async function crearProforma(input: CrearProformaInput): Promise<{ record
     "Subtotal":       totales.totalSinImpuestos,
     "IVA":            totales.iva,
     "Total":          totales.importeTotal,
-    "Líneas JSON":    JSON.stringify({ version: 1, cliente: input.cliente, lineas: input.lineas, nota: input.nota ?? "", validezDias: input.validezDias ?? null }),
+    "Líneas JSON":    JSON.stringify({ version: 2, cliente: input.cliente, lineas: input.lineas, nota: input.nota ?? "", validezDias: input.validezDias ?? null, origen: input.origen ?? null }),
   };
   if (input.cliente.correo)    fields["Cliente Correo"] = input.cliente.correo;
   if (input.cliente.airtableId) fields["Cliente"] = [input.cliente.airtableId];
   if (input.nota)              fields["Nota"] = input.nota;
+  // Gancho: vinculo al origen, para que la orden liste sus proformas.
+  if (input.origen?.tipo === "orden")     fields["Orden"]     = [input.origen.recordId];
+  if (input.origen?.tipo === "operacion") fields["Operación"] = [input.origen.recordId];
 
   const data = await airtableRequest<{ id: string }>(
     `${client.baseUrl}/${encodeURIComponent(TABLE)}`,

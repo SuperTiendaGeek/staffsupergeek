@@ -41,6 +41,7 @@ function mov(overrides: Partial<Movimiento>): Movimiento {
     comision: null,
     abonoIds: [],
     facturaElectronicaIds: [],
+    reciboIds: [],
     horariosPagoIds: [],
     clienteIds: [],
     proveedorIds: [],

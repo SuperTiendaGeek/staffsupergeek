@@ -589,7 +589,14 @@ export function FacturacionForm({
             descripcion:     d.descripcion,
             unidadMedida:    d.unidadMedida ?? "UNIDAD",
             cantidad:        d.cantidad,
-            precioUnitario:  round2(d.precioUnitario + (d.impuestos[0]?.valor ?? 0)),
+            // El IVA que manda el backend es el de TODA la línea, no el de
+            // una unidad — se divide por la cantidad antes de sumarlo. Solo
+            // cambia algo en los repuestos históricos, la única línea que
+            // puede traer cantidad > 1 (construirLineaRepuestoHistorico);
+            // ahí, sumarlo entero inflaba el precio unitario y la factura
+            // salía por más que la cuenta de la orden. Para cantidad 1 el
+            // resultado es idéntico al de antes.
+            precioUnitario:  round2(d.precioUnitario + (d.impuestos[0]?.valor ?? 0) / (d.cantidad > 0 ? d.cantidad : 1)),
             descuento:       d.descuento,
             tarifaIva:       (d.impuestos[0]?.codigoPorcentaje ?? "4") as TarifaCodigo,
             tipo:            d.tipo,
@@ -1643,6 +1650,30 @@ function PreFacturaBloqueadaBanner({ resultado }: { resultado: Extract<Resultado
           className="mt-4 inline-block rounded-full border border-[#3A3A36] px-4 py-2 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]"
         >
           Ver historial de facturas
+        </a>
+      </div>
+    );
+  }
+
+  // Bloqueo cruzado: la orden ya se cerró con un recibo interno. Tiene el
+  // mismo efecto que una factura (descontó stock y registró el ingreso), así
+  // que no se puede facturar encima sin anularlo primero.
+  if (resultado.motivo === "RECIBO_EXISTENTE" && resultado.reciboExistente) {
+    const r = resultado.reciboExistente;
+    return (
+      <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">
+        <p className="text-[#F0C75E] font-bold text-lg mb-1">Ya existe un recibo para este origen</p>
+        <p className="text-[#F5F5F5] text-sm">
+          {r.numero} — estado <strong>{r.estado}</strong> — ${r.total.toFixed(2)}
+        </p>
+        <p className="text-[#A7A7A7] text-xs mt-2">
+          El recibo ya cerró esta cuenta. Para emitir una factura, primero hay que anularlo.
+        </p>
+        <a
+          href="/facturacion/recibos"
+          className="mt-4 inline-block rounded-full border border-[#3A3A36] px-4 py-2 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5]"
+        >
+          Ver recibos
         </a>
       </div>
     );

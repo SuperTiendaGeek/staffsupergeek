@@ -17,6 +17,10 @@ export type LineaRecibo = {
   /** Record id del Shipping Item, si la línea salió del buscador de inventario
    *  (descuenta stock al generar el recibo, como una factura). */
   shippingItemId?: string;
+  /** Record id del Producto Digital, cuando la línea viene de una orden que
+   *  entrega una licencia/clave. Se marca "Usado" al generar el recibo, igual
+   *  que hace postEmision() con la factura. */
+  productoDigitalId?: string;
 };
 
 export type ReciboCliente = {
@@ -26,12 +30,21 @@ export type ReciboCliente = {
   airtableId?:     string;
 };
 
+/** Orden/operación de la que salió el recibo (gancho de cuenta unificada). */
+export type OrigenRecibo = { tipo: "orden" | "operacion"; recordId: string };
+
 export type CrearReciboInput = {
   cliente:   ReciboCliente;
   lineas:    LineaRecibo[];
-  /** Código SRI de forma de pago (mismo catálogo del formulario de facturas). */
+  /** Código SRI de forma de pago (mismo catálogo del formulario de facturas).
+   *  Cuando el recibo viene de un origen con abonos, es la forma de pago del
+   *  SALDO — los abonos previos conservan la suya. */
   formaPago: string;
   nota?:     string;
+  /** Presente solo cuando el recibo se emite desde una orden/operación. El
+   *  servidor lo usa para vincular el recibo, re-verificar idempotencia y
+   *  repartir el asiento contable sin doble conteo. */
+  origen?:   OrigenRecibo;
 };
 
 export type EstadoRecibo = "Vigente" | "Anulado";

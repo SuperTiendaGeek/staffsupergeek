@@ -15,6 +15,7 @@ const RESERVAS_TABLE  = "Reservas";
 const CLIENTES_TABLE  = "Clientes";
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 const FACTURAS_TABLE  = "Facturas Electrónicas";
+const RECIBOS_TABLE   = "Recibos";
 
 export type AirtableRecord = {
   id: string;
@@ -95,6 +96,9 @@ export type ItemDetalleGancho = {
   sku: string;
   reservado: boolean;
   tieneFacturaPrevia: boolean;
+  // Igual que tieneFacturaPrevia, pero para el recibo interno: un item ya
+  // vendido con recibo tampoco puede volver a venderse.
+  tieneReciboPrevio: boolean;
   tarifaIva: string; // "15%" | "0%" | "Exento" | "No objeto" | "" (vacío)
   // Fase 17.b (inventario por cantidad): unidades en stock según el campo
   // "Cantidad" de Shipping Items. Campo vacío/ausente → 0, fail-closed:
@@ -123,6 +127,7 @@ export async function fetchDetalleItems(itemIds: string[]): Promise<Map<string, 
       sku: firstString(r.fields["SKU"]),
       reservado: r.fields["Reservado"] === true,
       tieneFacturaPrevia: linkedIds(r.fields["Factura"]).length > 0,
+      tieneReciboPrevio:  linkedIds(r.fields["Recibo"]).length > 0,
       tarifaIva: firstString(r.fields["Tarifa IVA"]),
       cantidad: numberOrZero(r.fields["Cantidad"]),
       cantidadReservada: numberOrZero(r.fields["Cantidad Reservada"]),
@@ -145,5 +150,29 @@ export async function fetchFacturasVinculadas(facturaIds: string[]): Promise<Fac
     numeroFactura: firstString(r.fields["Número de Factura"]),
     estado:        firstString(r.fields["Estado"]),
     claveAcceso:   firstString(r.fields["Clave de Acceso"]),
+  }));
+}
+
+// ─── Recibos vinculados al origen (idempotencia no tributaria) ───────────────
+// El recibo interno tiene el mismo efecto real que una factura sobre la cuenta
+// (descuenta inventario y registra el ingreso), así que para decidir si una
+// orden ya está cerrada hay que mirar los dos. Mismo patrón que
+// fetchFacturasVinculadas: los IDs salen del campo inverso "Recibos" que ya
+// trae el registro de la orden/operación.
+
+export type ReciboVinculadoGancho = {
+  recordId: string;
+  numero:   string;
+  estado:   string;
+  total:    number;
+};
+
+export async function fetchRecibosVinculados(reciboIds: string[]): Promise<ReciboVinculadoGancho[]> {
+  const records = await fetchRecordsByIds(RECIBOS_TABLE, reciboIds);
+  return records.map((r) => ({
+    recordId: r.id,
+    numero:   firstString(r.fields["Número"]),
+    estado:   firstString(r.fields["Estado"]),
+    total:    numberOrZero(r.fields["Total"]),
   }));
 }

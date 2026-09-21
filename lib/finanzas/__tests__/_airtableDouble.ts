@@ -135,6 +135,15 @@ function sincronizarInversos(state: AirtableDoubleState, movimiento: DoubleRecor
     for (const facturaId of facturaIds) agregarAInverso(facturasStore, facturaId, "Movimientos Financieros (Facturación)", movimiento.id);
   }
 
+  // Recibo interno: mismo inverso que la factura, en la tabla "Recibos". Lo
+  // usa la anulación de un recibo con origen para saber qué movimientos creó
+  // de verdad (ver revertirPuenteRecibo).
+  const reciboIds = (movimiento.fields[MOVIMIENTOS_FIELDS.recibo] as string[] | undefined) ?? [];
+  const recibosStore = state.otras.get("Recibos");
+  if (recibosStore) {
+    for (const reciboId of reciboIds) agregarAInverso(recibosStore, reciboId, "Movimientos Financieros", movimiento.id);
+  }
+
   // Fase 20.3 — self-link "Reversa a" → inverso "Compensado Por", DENTRO de
   // la misma tabla de movimientos (no una "otra tabla" — Airtable mantiene
   // este inverso igual que cualquier otro link, solo que apunta a un

@@ -108,6 +108,8 @@ export type Movimiento = {
   comision: number | null;
   abonoIds: string[];
   facturaElectronicaIds: string[];
+  // Recibos internos (no tributarios) vinculados a este movimiento.
+  reciboIds: string[];
   horariosPagoIds: string[];
   clienteIds: string[];
   proveedorIds: string[];
@@ -149,6 +151,9 @@ export type CrearMovimientoInput = {
   notaCreditoId?: string;
   abonoId?: string;
   facturaElectronicaId?: string;
+  // Recibo interno que respalda el movimiento (alternativa no tributaria a
+  // facturaElectronicaId — nunca se usan los dos a la vez).
+  reciboId?: string;
   horariosPagoId?: string;
   clienteId?: string;
   proveedorId?: string;

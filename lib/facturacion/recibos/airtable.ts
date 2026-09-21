@@ -3,7 +3,7 @@ import "server-only";
 // Persistencia de recibos en Airtable — tabla "Recibos" (base SUPER GEEK ADM).
 // Documento interno; se referencia POR NOMBRE.
 
-import type { CrearReciboInput, ReciboRegistro, EstadoRecibo, LineaRecibo } from "./types";
+import type { CrearReciboInput, ReciboRegistro, EstadoRecibo, LineaRecibo, OrigenRecibo } from "./types";
 import { totalRecibo } from "./calculos";
 
 const TABLE = "Recibos";
@@ -71,12 +71,19 @@ export async function crearRecibo(input: CrearReciboInput): Promise<ReciboCreado
     "Cliente Nombre": input.cliente.razonSocial,
     "Total":          total,
     "Forma de Pago":  input.formaPago,
-    "Líneas JSON":    JSON.stringify({ version: 1, cliente: input.cliente, lineas: input.lineas, nota: input.nota ?? "", formaPago: input.formaPago }),
+    // version 2: agrega "origen". Un recibo version 1 (mostrador) sigue
+    // leyéndose igual — origen simplemente llega undefined.
+    "Líneas JSON":    JSON.stringify({ version: 2, cliente: input.cliente, lineas: input.lineas, nota: input.nota ?? "", formaPago: input.formaPago, origen: input.origen ?? null }),
   };
   if (input.cliente.identificacion) fields["Cliente Identificación"] = input.cliente.identificacion;
   if (input.cliente.correo)         fields["Cliente Correo"] = input.cliente.correo;
   if (input.cliente.airtableId)     fields["Cliente"] = [input.cliente.airtableId];
   if (input.nota)                   fields["Nota"] = input.nota;
+  // Gancho: vínculo al origen. Es lo que hace que la orden "sepa" que ya
+  // tiene un documento de venta (campo inverso "Recibos") — base del bloqueo
+  // cruzado en lib/facturacion/gancho/idempotencia.ts.
+  if (input.origen?.tipo === "orden")     fields["Orden"]     = [input.origen.recordId];
+  if (input.origen?.tipo === "operacion") fields["Operación"] = [input.origen.recordId];
 
   const data = await airtableRequest<{ id: string }>(
     `${client.baseUrl}/${encodeURIComponent(TABLE)}`,
@@ -150,6 +157,11 @@ export type ReciboCompleto = {
   recordId: string; numero: string; fecha: string; estado: string; total: number;
   formaPago: string; clienteRecordId?: string; lineas: LineaRecibo[]; pdfUrl?: string;
   clienteNombre: string; clienteIdentificacion: string; nota: string;
+  /** Orden/operación de la que salió (null en recibos de mostrador). */
+  origen: OrigenRecibo | null;
+  /** Inverso "Movimientos Financieros" — lo usa la anulación para revertir
+   *  exactamente lo que este recibo registró, ni un centavo más. */
+  movimientoIds: string[];
 };
 
 export async function obtenerReciboPorId(recordId: string): Promise<ReciboCompleto | null> {
@@ -168,6 +180,7 @@ export async function obtenerReciboPorId(recordId: string): Promise<ReciboComple
   let clienteNombre = "";
   let clienteIdentificacion = "";
   let nota = "";
+  let origen: OrigenRecibo | null = null;
   try {
     const parsed = JSON.parse(str(data.fields["Líneas JSON"]) || "{}");
     lineas = Array.isArray(parsed?.lineas) ? parsed.lineas : [];
@@ -176,11 +189,26 @@ export async function obtenerReciboPorId(recordId: string): Promise<ReciboComple
       clienteIdentificacion = typeof parsed.cliente.identificacion === "string" ? parsed.cliente.identificacion : "";
     }
     nota = typeof parsed?.nota === "string" ? parsed.nota : "";
+    if (parsed?.origen && (parsed.origen.tipo === "orden" || parsed.origen.tipo === "operacion") && typeof parsed.origen.recordId === "string") {
+      origen = { tipo: parsed.origen.tipo, recordId: parsed.origen.recordId };
+    }
   } catch { /* ignore */ }
+
+  // Respaldo: si el JSON viniera sin origen (recibo version 1 creado antes de
+  // este cambio, o JSON corrupto), los campos de link siguen siendo la verdad.
+  if (!origen) {
+    const ordenLink = data.fields["Orden"];
+    const operacionLink = data.fields["Operación"];
+    if (Array.isArray(ordenLink) && typeof ordenLink[0] === "string") origen = { tipo: "orden", recordId: ordenLink[0] };
+    else if (Array.isArray(operacionLink) && typeof operacionLink[0] === "string") origen = { tipo: "operacion", recordId: operacionLink[0] };
+  }
+
+  const movs = data.fields["Movimientos Financieros"];
+  const movimientoIds = Array.isArray(movs) ? movs.filter((m): m is string => typeof m === "string") : [];
   return {
     recordId, numero: str(data.fields["Número"]), fecha: str(data.fields["Fecha"]),
     estado: str(data.fields["Estado"]), total: num(data.fields["Total"]),
     formaPago: str(data.fields["Forma de Pago"]) || "01", clienteRecordId, lineas, pdfUrl,
-    clienteNombre, clienteIdentificacion, nota,
+    clienteNombre, clienteIdentificacion, nota, origen, movimientoIds,
   };
 }

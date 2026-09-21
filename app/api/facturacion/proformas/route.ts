@@ -40,6 +40,9 @@ export async function POST(request: Request) {
   if (!Array.isArray(body.lineas) || body.lineas.length === 0) return NextResponse.json({ success: false, error: "Agrega al menos una línea" }, { status: 400 });
   if (body.lineas.some((l) => !l.descripcion?.trim())) return NextResponse.json({ success: false, error: "Todas las líneas deben tener descripción" }, { status: 400 });
   if (body.lineas.some((l) => !(l.cantidad > 0) || l.precioUnitario < 0)) return NextResponse.json({ success: false, error: "Cantidad > 0 y precio ≥ 0 en todas las líneas" }, { status: 400 });
+  if (body.origen && (body.origen.tipo !== "orden" && body.origen.tipo !== "operacion" || !body.origen.recordId?.trim())) {
+    return NextResponse.json({ success: false, error: "Origen inválido" }, { status: 400 });
+  }
 
   try {
     const errorShippingItems = await validarLineasProformaShippingItems(body.lineas);

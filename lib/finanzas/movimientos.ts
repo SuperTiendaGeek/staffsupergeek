@@ -102,6 +102,7 @@ export async function crearMovimiento(input: CrearMovimientoInput, options: Crea
     [F.fechaCreacion]: new Date().toISOString(),
     [F.abono]: input.abonoId ? [input.abonoId] : undefined,
     [F.facturaElectronica]: input.facturaElectronicaId ? [input.facturaElectronicaId] : undefined,
+    [F.recibo]:             input.reciboId ? [input.reciboId] : undefined,
     [F.notaCredito]:        input.notaCreditoId ? [input.notaCreditoId] : undefined,
     [F.horariosPago]: input.horariosPagoId ? [input.horariosPagoId] : undefined,
     [F.cliente]: input.clienteId ? [input.clienteId] : undefined,
@@ -251,7 +252,7 @@ export async function acreditarMovimientoPendiente(id: string, cambios: { montoN
  */
 export async function actualizarMovimiento(
   id: string,
-  cambios: { facturaElectronicaId?: string; estadoDistribucion?: "Pendiente de clasificar" }
+  cambios: { facturaElectronicaId?: string; reciboId?: string; estadoDistribucion?: "Pendiente de clasificar" }
 ): Promise<Movimiento> {
   const recordId = cleanString(id);
   if (!recordId) throw new Error("Record ID de movimiento inválido.");
@@ -269,6 +270,15 @@ export async function actualizarMovimiento(
     }
   }
 
+  if (cambios.reciboId) {
+    const yaTieneOtro = actual.reciboIds.some((rid) => rid !== cambios.reciboId);
+    if (yaTieneOtro) {
+      throw new Error(
+        `El movimiento ${recordId} ya está vinculado a otro Recibo (${actual.reciboIds.join(", ")}) — no se puede reasignar.`
+      );
+    }
+  }
+
   if (cambios.estadoDistribucion && actual.estadoDistribucion !== "Sin distribuir") {
     throw new Error(
       `Solo se permite la transición "Sin distribuir" → "Pendiente de clasificar" (estado actual: "${actual.estadoDistribucion}").`
@@ -278,6 +288,7 @@ export async function actualizarMovimiento(
   const F = MOVIMIENTOS_FIELDS;
   const fields = compactFields({
     [F.facturaElectronica]: cambios.facturaElectronicaId ? [cambios.facturaElectronicaId] : undefined,
+    [F.recibo]:             cambios.reciboId ? [cambios.reciboId] : undefined,
     [F.estadoDistribucion]: cambios.estadoDistribucion,
   });
   if (Object.keys(fields).length === 0) return actual;

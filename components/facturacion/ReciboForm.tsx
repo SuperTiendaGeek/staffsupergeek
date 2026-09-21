@@ -8,9 +8,14 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { totalRecibo, totalLinea } from "@/lib/facturacion/recibos/calculos";
-import type { LineaRecibo } from "@/lib/facturacion/recibos/types";
+import type { LineaRecibo, OrigenRecibo } from "@/lib/facturacion/recibos/types";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { ClienteCard, CLIENTE_VACIO, type ClienteDoc } from "@/components/facturacion/ClienteCard";
+import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
+import {
+  clienteDesdePrefactura, lineasReciboDesdePrefactura,
+  abonosDesdePrefactura, formaPagoSaldoDesdePrefactura, type AbonoPrefill,
+} from "@/lib/facturacion/gancho/prefill";
 
 const FORMAS_PAGO = [
   { codigo: "01", label: "Efectivo" },
@@ -29,12 +34,29 @@ const CARD  = "rounded-xl border border-[#3A3A36] bg-[#1A1B18] p-5 mb-4";
 const LABEL = "block mb-1 text-[10px] font-bold uppercase tracking-wider text-[#A7A7A7]";
 const INPUT = "w-full rounded-lg bg-[#252622] border border-[#3A3A36] px-3 py-2 text-sm text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/40";
 
-export function ReciboForm() {
-  const [cliente, setCliente] = useState<ClienteDoc>(CLIENTE_VACIO);
-  const [lineas, setLineas] = useState<Linea[]>([]);
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+// `prefactura` llega solo cuando el recibo se emite desde una orden/operación
+// (gancho). Es la MISMA pre-factura que consume el formulario de facturas, así
+// que el cliente, las líneas y los abonos son idénticos: cambiar de pestaña no
+// pierde nada de lo que venía de la orden.
+export function ReciboForm({ prefactura, origen, bannerOrigen }: {
+  prefactura?:   DatosVenta | null;
+  origen?:       OrigenRecibo;
+  bannerOrigen?: { ordenIdVisible: string | null; operacionCodigo: string | null } | null;
+} = {}) {
+  const [cliente, setCliente] = useState<ClienteDoc>(() =>
+    prefactura ? clienteDesdePrefactura(prefactura) : CLIENTE_VACIO
+  );
+  const [lineas, setLineas] = useState<Linea[]>(() =>
+    prefactura
+      ? lineasReciboDesdePrefactura(prefactura).map((l) => ({ ...l, _id: crypto.randomUUID() }))
+      : []
+  );
   const [queryProd, setQueryProd] = useState("");
   const [prodSug, setProdSug] = useState<Producto[]>([]);
-  const [formaPago, setFormaPago] = useState("01");
+  const [abonos] = useState<AbonoPrefill[]>(() => (prefactura ? abonosDesdePrefactura(prefactura) : []));
+  const [formaPago, setFormaPago] = useState(() => (prefactura ? formaPagoSaldoDesdePrefactura(prefactura) : "01"));
   const [nota, setNota] = useState("");
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +71,11 @@ export function ReciboForm() {
   }, [queryProd]);
 
   const total = totalRecibo(lineas);
+  // Con origen, el total del recibo NO es lo que se cobra hoy: parte ya se
+  // cobró en abonos y está registrada en /finanzas. Lo que se cobra ahora —y
+  // lo único que el servidor registrará como ingreso nuevo— es el saldo.
+  const sumaAbonos = round2(abonos.reduce((s, a) => s + a.total, 0));
+  const saldo = round2(total - sumaAbonos);
 
   function agregarProducto(p: Producto) {
     setLineas((prev) => [...prev, { _id: crypto.randomUUID(), codigo: p.sku || p.id, descripcion: p.nombre, unidadMedida: p.unidad, cantidad: 1, precioUnitario: p.precioVenta, descuento: 0, shippingItemId: p.id, stockDisponible: p.cantidadDisponible }]);
@@ -67,6 +94,7 @@ export function ReciboForm() {
     if (lineas.some((l) => l.precioUnitario < 0)) { setError("El precio no puede ser negativo"); return; }
     const errPrecioShipping = mensajePrecioShippingItemInvalido(lineas);
     if (errPrecioShipping) { setError(errPrecioShipping); return; }
+    if (saldo < -0.01) { setError(`Los abonos ya cobrados ($${sumaAbonos.toFixed(2)}) superan el total del recibo ($${total.toFixed(2)}). Revisa las líneas antes de emitir.`); return; }
     const sinStock = lineas.filter((l) => l.shippingItemId && l.stockDisponible !== undefined && l.cantidad > l.stockDisponible);
     if (sinStock.length > 0) { setError(`Sin stock: ${sinStock.map((l) => `"${l.descripcion}" (pide ${l.cantidad}, hay ${l.stockDisponible})`).join("; ")}`); return; }
 
@@ -78,6 +106,7 @@ export function ReciboForm() {
           cliente: { identificacion: cliente.identificacion || undefined, razonSocial: cliente.razonSocial, correo: cliente.correo || undefined, airtableId: cliente.airtableId },
           lineas: lineas.map(({ _id, stockDisponible, ...l }) => { void _id; void stockDisponible; return l; }),
           formaPago, nota: nota.trim() || undefined,
+          origen,
         }),
       });
       const j = await r.json();
@@ -94,15 +123,35 @@ export function ReciboForm() {
         <p className="text-sm text-[#A7A7A7] mb-4">Documento interno no tributario. Descontó inventario y registró el ingreso (en producción).</p>
         <div className="flex flex-wrap gap-3">
           <a href={`/api/facturacion/recibos/${resultado.recordId}/pdf`} target="_blank" rel="noopener" className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-4 py-2 text-xs font-bold hover:brightness-105">Ver / Descargar PDF</a>
+          {origen?.tipo === "orden" && (
+            <Link href={`/tecnicos/ordenes/${origen.recordId}`} className="rounded-full border border-[#3A3A36] px-4 py-2 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5] self-center">← Volver a la orden</Link>
+          )}
           <Link href="/facturacion/recibos" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5] self-center">Ver todos los recibos</Link>
-          <button onClick={() => { setResultado(null); setLineas([]); setCliente(CLIENTE_VACIO); setNota(""); }} className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Nuevo recibo</button>
+          {!origen && (
+            <button onClick={() => { setResultado(null); setLineas([]); setCliente(CLIENTE_VACIO); setNota(""); }} className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Nuevo recibo</button>
+          )}
         </div>
       </div>
     );
   }
 
+  const etiquetaOrigen = bannerOrigen?.ordenIdVisible ?? bannerOrigen?.operacionCodigo ?? null;
+
   return (
     <div className="w-full max-w-5xl">
+      {origen && (
+        <div className="mb-4 rounded-xl border border-[#D7FF4F]/30 bg-[#D7FF4F]/5 px-4 py-3">
+          <p className="text-[#D7FF4F] text-sm font-bold">
+            Recibo desde {origen.tipo === "orden" ? "la orden" : "la operación"}
+            {etiquetaOrigen ? ` ${etiquetaOrigen}` : ""}
+          </p>
+          <p className="text-[11px] text-[#A7A7A7] mt-0.5">
+            Cliente, líneas y abonos vienen precargados de la cuenta. El recibo no desglosa IVA: cada precio
+            es el precio final, así que el total coincide con el de la orden. Al emitirlo, la orden queda cerrada
+            y ya no se le podrá emitir factura.
+          </p>
+        </div>
+      )}
       <ClienteCard value={cliente} onChange={setCliente} conConsumidorFinal />
 
       <div className={CARD}>
@@ -142,13 +191,38 @@ export function ReciboForm() {
         <h2 className="text-[#D7FF4F] font-bold text-sm mb-3">3. Pago y total</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
           <div>
-            <label className={LABEL}>Forma de pago</label>
+            <label className={LABEL}>{abonos.length > 0 ? "Forma de pago del saldo" : "Forma de pago"}</label>
             <select value={formaPago} onChange={(e) => setFormaPago(e.target.value)} className={INPUT}>{FORMAS_PAGO.map((fp) => <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>)}</select>
           </div>
           <div className="md:col-span-2"><label className={LABEL}>Nota (opcional, se imprime)</label><input value={nota} onChange={(e) => setNota(e.target.value)} className={INPUT} maxLength={300} /></div>
         </div>
+        {abonos.length > 0 && (
+          <div className="mt-4 rounded-lg border border-[#3A3A36] bg-[#252622] px-4 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#A7A7A7] mb-2">Abonos ya cobrados</p>
+            <ul className="flex flex-col gap-1">
+              {abonos.map((a, i) => (
+                <li key={i} className="flex justify-between text-xs text-[#C7C7C7]">
+                  <span>{FORMAS_PAGO.find((fp) => fp.codigo === a.formaPago)?.label ?? a.formaPago}{a.fecha ? ` · ${a.fecha.slice(0, 10).split("-").reverse().join("/")}` : ""}</span>
+                  <span className="text-[#F5F5F5]">${a.total.toFixed(2)}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-[10px] text-[#666]">Ya están registrados en Finanzas. El recibo no los vuelve a cobrar: solo se registra el saldo.</p>
+          </div>
+        )}
+
         <div className="flex justify-end mt-4">
-          <table className="text-sm"><tbody><tr><td className="pr-6 font-bold text-[#F5F5F5]">Total</td><td className="text-right font-bold text-[#D7FF4F]">${total.toFixed(2)}</td></tr></tbody></table>
+          <table className="text-sm">
+            <tbody>
+              <tr><td className="pr-6 font-bold text-[#F5F5F5]">Total</td><td className="text-right font-bold text-[#D7FF4F]">${total.toFixed(2)}</td></tr>
+              {abonos.length > 0 && (
+                <>
+                  <tr><td className="pr-6 text-[#A7A7A7]">Abonos</td><td className="text-right text-[#A7A7A7]">− ${sumaAbonos.toFixed(2)}</td></tr>
+                  <tr><td className="pr-6 font-bold text-[#F5F5F5]">Saldo a cobrar ahora</td><td className={`text-right font-bold ${saldo < -0.01 ? "text-red-300" : "text-[#D7FF4F]"}`}>${saldo.toFixed(2)}</td></tr>
+                </>
+              )}
+            </tbody>
+          </table>
         </div>
         <p className="mt-3 text-[10px] text-[#666]">El recibo descuenta inventario y registra el ingreso en caja, igual que una factura, pero sin enviarse al SRI. El efecto real solo ocurre en producción.</p>
       </div>

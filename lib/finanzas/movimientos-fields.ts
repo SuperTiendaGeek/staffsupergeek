@@ -41,6 +41,11 @@ export const MOVIMIENTOS_FIELDS = {
   motivoAnulacion: "Motivo de anulación",
   abono: "Abono",
   facturaElectronica: "Factura Electrónica",
+  // Equivalente no tributario de "Factura Electrónica": el recibo interno
+  // que respalda este movimiento. Sin él, cerrar con recibo una orden que ya
+  // tenía abonos no tendría forma de marcar esos abonos como documentados y
+  // el ingreso se contaría dos veces. Ver lib/finanzas/puentes/recibo.ts.
+  recibo: "Recibo",
   // Creado a mano en Airtable el 14-ago-2026 para los asientos de la nota de
   // crédito: la reversa del ingreso al autorizarla y el ingreso por el crédito
   // que caduca sin usarse. Ver docs/DISENO_NC_REVERSA_Y_CADUCIDAD.md.
@@ -94,6 +99,7 @@ export function mapMovimiento(record: AirtableRecord): Movimiento {
     comision: firstNumber(f[F.comision]),
     abonoIds: linkedIds(f[F.abono]),
     facturaElectronicaIds: linkedIds(f[F.facturaElectronica]),
+    reciboIds: linkedIds(f[F.recibo]),
     horariosPagoIds: linkedIds(f[F.horariosPago]),
     clienteIds: linkedIds(f[F.cliente]),
     proveedorIds: linkedIds(f[F.proveedor]),

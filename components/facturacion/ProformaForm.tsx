@@ -7,8 +7,10 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { calcularTotalesProforma } from "@/lib/facturacion/proformas/calculos";
-import type { LineaProforma } from "@/lib/facturacion/proformas/types";
+import type { LineaProforma, OrigenProforma } from "@/lib/facturacion/proformas/types";
 import { ClienteCard, CLIENTE_VACIO, type ClienteDoc } from "@/components/facturacion/ClienteCard";
+import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
+import { clienteDesdePrefactura, lineasProformaDesdePrefactura } from "@/lib/facturacion/gancho/prefill";
 
 const TARIFAS = [
   { codigo: "4", label: "15%" },
@@ -25,9 +27,21 @@ const LABEL = "block mb-1 text-[10px] font-bold uppercase tracking-wider text-[#
 const INPUT = "w-full rounded-lg bg-[#252622] border border-[#3A3A36] px-3 py-2 text-sm text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/40";
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-export function ProformaForm() {
-  const [cliente, setCliente] = useState<ClienteDoc>(CLIENTE_VACIO);
-  const [lineas, setLineas] = useState<Linea[]>([]);
+// `prefactura` llega solo cuando la proforma se emite desde una orden/operación
+// (gancho). Misma pre-factura que consume el formulario de facturas.
+export function ProformaForm({ prefactura, origen, bannerOrigen }: {
+  prefactura?:   DatosVenta | null;
+  origen?:       OrigenProforma;
+  bannerOrigen?: { ordenIdVisible: string | null; operacionCodigo: string | null } | null;
+} = {}) {
+  const [cliente, setCliente] = useState<ClienteDoc>(() =>
+    prefactura ? clienteDesdePrefactura(prefactura) : CLIENTE_VACIO
+  );
+  const [lineas, setLineas] = useState<Linea[]>(() =>
+    prefactura
+      ? lineasProformaDesdePrefactura(prefactura).map((l) => ({ ...l, _id: crypto.randomUUID() }))
+      : []
+  );
   const [queryProd, setQueryProd] = useState("");
   const [prodSug, setProdSug] = useState<Producto[]>([]);
   const [nota, setNota] = useState("");
@@ -72,7 +86,14 @@ export function ProformaForm() {
 
   async function generar() {
     setError(null);
-    if (!cliente.airtableId) { setError("Elige un cliente existente o crea uno nuevo"); return; }
+    if (!cliente.airtableId) {
+      setError(
+        origen
+          ? "La proforma necesita un cliente con ficha. Esta orden está a nombre de Consumidor Final: elige o crea el cliente antes de generarla."
+          : "Elige un cliente existente o crea uno nuevo"
+      );
+      return;
+    }
     if (lineas.length === 0) { setError("Agrega al menos un producto o servicio"); return; }
     if (lineas.some((l) => !l.descripcion.trim())) { setError("Todas las líneas deben tener descripción"); return; }
     if (lineas.some((l) => !(l.cantidad > 0) || l.precioUnitario < 0)) { setError("Cantidad > 0 y precio ≥ 0 en todas las líneas"); return; }
@@ -87,6 +108,7 @@ export function ProformaForm() {
           lineas: lineas.map(({ _id, ...l }) => { void _id; return l; }),
           nota: nota.trim() || undefined,
           validezDias: validez ? parseInt(validez, 10) : undefined,
+          origen,
         }),
       });
       const j = await r.json();
@@ -104,16 +126,35 @@ export function ProformaForm() {
         <div className="flex flex-wrap gap-3">
           <a href={`/api/facturacion/proformas/${resultado.recordId}/pdf`} target="_blank" rel="noopener"
             className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] px-4 py-2 text-xs font-bold hover:brightness-105">Ver / Descargar PDF</a>
+          {origen?.tipo === "orden" && (
+            <Link href={`/tecnicos/ordenes/${origen.recordId}`} className="rounded-full border border-[#3A3A36] px-4 py-2 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#F5F5F5] self-center">← Volver a la orden</Link>
+          )}
           <Link href="/facturacion/proformas" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5] self-center">Ver todas las proformas</Link>
-          <button onClick={() => { setResultado(null); setLineas([]); setCliente(CLIENTE_VACIO); setNota(""); }}
-            className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Nueva proforma</button>
+          {!origen && (
+            <button onClick={() => { setResultado(null); setLineas([]); setCliente(CLIENTE_VACIO); setNota(""); }}
+              className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Nueva proforma</button>
+          )}
         </div>
       </div>
     );
   }
 
+  const etiquetaOrigen = bannerOrigen?.ordenIdVisible ?? bannerOrigen?.operacionCodigo ?? null;
+
   return (
     <div className="w-full max-w-5xl">
+      {origen && (
+        <div className="mb-4 rounded-xl border border-blue-500/30 bg-blue-500/5 px-4 py-3">
+          <p className="text-blue-300 text-sm font-bold">
+            Proforma desde {origen.tipo === "orden" ? "la orden" : "la operación"}
+            {etiquetaOrigen ? ` ${etiquetaOrigen}` : ""}
+          </p>
+          <p className="text-[11px] text-[#A7A7A7] mt-0.5">
+            Es un presupuesto: no descuenta inventario, no registra ingresos y NO cierra la orden.
+            Después podrás emitir la factura o el recibo normalmente.
+          </p>
+        </div>
+      )}
       <ClienteCard value={cliente} onChange={setCliente} />
 
       {/* Productos */}
