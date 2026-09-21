@@ -7,6 +7,7 @@ import { StatusFilterDropdown } from "@/components/tecnicos/ui/StatusFilterDropd
 import { Button, FieldShell, Input, Textarea } from "@/components/tecnicos/ui";
 import { ESTADOS_ORDEN } from "@/types/tecnicos";
 import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
+import { PanelCobros } from "@/components/tecnicos/ordenes/PanelCobros";
 
 type OrdenListado = {
   recordId: string;
@@ -162,6 +163,9 @@ export function OrdenesPageClient() {
   const [nextOffset, setNextOffset] = useState<string | null>(null);
   const [offsetHistory, setOffsetHistory] = useState<(string | null)[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Con un contador de "Cobros y documentos" activo, la lista de esa
+  // categoría reemplaza a la lista paginada (ver PanelCobros).
+  const [cobrosActivo, setCobrosActivo] = useState(false);
   const [openNuevaOrdenModal, setOpenNuevaOrdenModal] = useState(false);
   const [clienteSearch, setClienteSearch] = useState("");
   const [clienteResults, setClienteResults] = useState<ClienteBusqueda[]>([]);
@@ -422,7 +426,9 @@ export function OrdenesPageClient() {
     <div className={styles.theme}>
       <div className="grid gap-2.5 xl:grid-cols-[minmax(0,4fr)_minmax(280px,0.9fr)]">
         <div className="w-full space-y-2.5">
-          <section className="w-full space-y-2.5 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-3 shadow-xl shadow-black/20">
+          <PanelCobros onFiltroActivo={setCobrosActivo} />
+
+          <section className={`w-full space-y-2.5 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-3 shadow-xl shadow-black/20 ${cobrosActivo ? "hidden" : ""}`}>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3 px-1">
                 <h2 className="text-sm font-extrabold uppercase tracking-[0.14em] text-white">
