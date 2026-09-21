@@ -7,7 +7,7 @@ import type { GetCuentaUnificadaInput } from "@/types/cuenta-unificada";
 import type { DatosVenta, OrigenGancho } from "../emitirFactura";
 import type { DetalleFactura } from "../types/factura";
 import {
-  fetchOrden, fetchOperacion, fetchCliente, fetchDetalleItems,
+  fetchOrden, fetchOperacion, fetchCliente, fetchDetalleItems, fetchRecordsByIds,
   linkedIds, firstString,
 } from "./airtableGancho";
 import { buscarDocumentoBloqueante } from "./idempotencia";
@@ -27,7 +27,7 @@ export type PreFacturaInput = { ordenId: string } | { operacionId: string };
 
 export type PreFacturaBloqueada = {
   bloqueado:        true;
-  motivo:           "FACTURA_EXISTENTE" | "RECIBO_EXISTENTE" | "ITEMS_NO_LISTOS" | "PRODUCTOS_DIGITALES_SIN_PRECIO";
+  motivo:           "FACTURA_EXISTENTE" | "RECIBO_EXISTENTE" | "ITEMS_NO_LISTOS" | "PRODUCTOS_DIGITALES_SIN_PRECIO" | "PRESUPUESTO_PENDIENTE";
   facturaExistente?: FacturaVinculadaGancho;
   // Bloqueo cruzado: el recibo interno cierra la cuenta igual que una
   // factura (descuenta inventario y registra el ingreso), así que uno
@@ -40,6 +40,10 @@ export type PreFacturaBloqueada = {
   // esta venta ni el del catálogo) — ver evaluarProductoDigitalNoListo() en
   // construccion.ts.
   productosDigitalesNoListos?: ProductoDigitalNoListo[];
+  // Líneas del presupuesto que el cliente aprobó pero todavía no están en la
+  // cuenta (repuesto sin stock o bajo pedido aún sin pedir). Facturar ahora
+  // dejaría fuera algo que el cliente aceptó pagar.
+  presupuestoPendiente?: Array<{ id: string; descripcion: string }>;
 };
 
 export type PreFacturaLista = {
@@ -111,6 +115,18 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
   }
   if (productosDigitalesNoListos.length > 0) {
     return { bloqueado: true, motivo: "PRODUCTOS_DIGITALES_SIN_PRECIO", productosDigitalesNoListos };
+  }
+
+  // ── 3c. Presupuesto aprobado sin cargar ─────────────────────────────────────
+  const lineaIds = linkedIds(ordenRecord?.fields["Presupuesto por Orden"]);
+  if (lineaIds.length > 0) {
+    const lineas = await fetchRecordsByIds("Presupuesto por Orden", lineaIds);
+    const pendientes = lineas
+      .filter((r) => firstString(r.fields["Estado"]) === "Aprobada")
+      .map((r) => ({ id: r.id, descripcion: firstString(r.fields["Descripción"]) || "Línea sin descripción" }));
+    if (pendientes.length > 0) {
+      return { bloqueado: true, motivo: "PRESUPUESTO_PENDIENTE", presupuestoPendiente: pendientes };
+    }
   }
 
   // ── 4. Cliente (link real de la orden/operación) ────────────────────────────

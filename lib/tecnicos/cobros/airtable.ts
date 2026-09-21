@@ -129,7 +129,7 @@ export async function cargarOrdenesCobro(filtro: FiltroCobros = {}): Promise<Ord
     porIds(T_ABONOS, [...abonoIdsPorOrden.values()].flat(), ["Monto", "Estado del Abono"]),
     porIds(T_FACTURAS, ordenes.flatMap((o) => ids(o.fields["Facturas Electrónicas"])), ["Número de Factura", "Estado"]),
     porIds(T_RECIBOS, ordenes.flatMap((o) => ids(o.fields["Recibos"])), ["Número", "Estado"]),
-    porIds(T_PRESUPUESTO, ordenes.flatMap((o) => ids(o.fields[T_PRESUPUESTO])), ["Estado"]),
+    porIds(T_PRESUPUESTO, ordenes.flatMap((o) => ids(o.fields[T_PRESUPUESTO])), ["Estado", "Precio unitario", "Cantidad"]),
   ]);
 
   const docFactura = (id: string): DocumentoOrigen | null => {
@@ -162,6 +162,10 @@ export async function cargarOrdenesCobro(filtro: FiltroCobros = {}): Promise<Ord
           .filter((l): l is Registro => !!l)
           .map((l) => ({ estado: (texto(l.fields["Estado"]) || "Propuesta") as "Propuesta" | "Aprobada" | "Cargada" | "Rechazada" }))
       ),
+      comprometidoPresupuesto: ids(o.fields[T_PRESUPUESTO])
+        .map((id) => lineasPresupuesto.get(id))
+        .filter((l): l is Registro => !!l && texto(l.fields["Estado"]) === "Aprobada")
+        .reduce((s, l) => s + numero(l.fields["Precio unitario"]) * (numero(l.fields["Cantidad"]) || 1), 0),
     }))
     .sort((a, b) => b.fechaIngreso.localeCompare(a.fechaIngreso));
 }

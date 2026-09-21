@@ -99,6 +99,11 @@ export type ItemDetalleGancho = {
   // Igual que tieneFacturaPrevia, pero para el recibo interno: un item ya
   // vendido con recibo tampoco puede volver a venderse.
   tieneReciboPrevio: boolean;
+  // Repuesto BAJO PEDIDO (nació del presupuesto de una orden, vía Operación
+  // Comercial) que todavía no llegó a la tienda: nadie marcó "Recibido" en
+  // /shipping-v2/recepcion. No se puede facturar ni emitir recibo por algo
+  // que no se ha entregado (decisión del 21-sep-2026).
+  bajoPedidoSinLlegar: boolean;
   tarifaIva: string; // "15%" | "0%" | "Exento" | "No objeto" | "" (vacío)
   // Fase 17.b (inventario por cantidad): unidades en stock según el campo
   // "Cantidad" de Shipping Items. Campo vacío/ausente → 0, fail-closed:
@@ -128,6 +133,10 @@ export async function fetchDetalleItems(itemIds: string[]): Promise<Map<string, 
       reservado: r.fields["Reservado"] === true,
       tieneFacturaPrevia: linkedIds(r.fields["Factura"]).length > 0,
       tieneReciboPrevio:  linkedIds(r.fields["Recibo"]).length > 0,
+      bajoPedidoSinLlegar:
+        linkedIds(r.fields["Presupuesto por Orden"]).length > 0 &&
+        linkedIds(r.fields["Operación Comercial"]).length > 0 &&
+        r.fields["Recibido"] !== true,
       tarifaIva: firstString(r.fields["Tarifa IVA"]),
       cantidad: numberOrZero(r.fields["Cantidad"]),
       cantidadReservada: numberOrZero(r.fields["Cantidad Reservada"]),

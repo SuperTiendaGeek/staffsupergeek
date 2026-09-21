@@ -8,7 +8,7 @@ import "server-only";
 // por RECORD_ID().
 
 import { loadAirtableEnv } from "../config/airtable";
-import type { EstadoLinea, LineaPresupuesto, NuevaLineaInput, TipoLinea } from "./reglas";
+import type { EstadoLinea, InfoPedido, LineaPresupuesto, NuevaLineaInput, TipoLinea } from "./reglas";
 
 export const T_PRESUPUESTO = "Presupuesto por Orden";
 const T_ORDENES = "Órdenes de Reparación";
@@ -29,6 +29,7 @@ const F = {
   productoCat:  "Producto digital del catálogo",
   cargoServicio: "Cargo: Servicio por Orden",
   cargoDigital: "Cargo: Producto digital",
+  operacion:    "Operación Comercial",
 } as const;
 
 type Registro = { id: string; fields: Record<string, unknown> };
@@ -74,6 +75,7 @@ function mapLinea(r: Registro): LineaPresupuesto {
     productoCatalogoId: ids(f[F.productoCat])[0] ?? null,
     cargoServicioId: ids(f[F.cargoServicio])[0] ?? null,
     cargoProductoDigitalId: ids(f[F.cargoDigital])[0] ?? null,
+    operacionId: ids(f[F.operacion])[0] ?? null,
     aprobadoPor: texto(f[F.aprobadoPor]),
     fechaAprobacion: texto(f[F.fechaAprob]),
     creadoPor: texto(f[F.creadoPor]),
@@ -112,7 +114,12 @@ export async function leerLinea(lineaId: string): Promise<(LineaPresupuesto & { 
   }
 }
 
-export async function crearLinea(ordenId: string, l: NuevaLineaInput, creadoPor: string): Promise<LineaPresupuesto> {
+export async function crearLinea(
+  ordenId: string,
+  l: NuevaLineaInput,
+  creadoPor: string,
+  extra: { operacionId?: string } = {}
+): Promise<LineaPresupuesto> {
   const fields: Record<string, unknown> = {
     [F.orden]: [ordenId],
     [F.tipo]: l.tipo,
@@ -125,6 +132,7 @@ export async function crearLinea(ordenId: string, l: NuevaLineaInput, creadoPor:
   if (l.tipo === "Servicio" && l.servicioCatalogoId) fields[F.servicio] = [l.servicioCatalogoId];
   if (l.tipo === "Repuesto" && l.itemId) fields[F.item] = [l.itemId];
   if (l.tipo === "Producto digital" && l.productoCatalogoId) fields[F.productoCat] = [l.productoCatalogoId];
+  if (extra.operacionId) fields[F.operacion] = [extra.operacionId];
   const r = await pedir<Registro>(url(T_PRESUPUESTO), { method: "POST", body: JSON.stringify({ fields }) });
   return mapLinea(r);
 }
@@ -161,4 +169,49 @@ export async function borrarLinea(lineaId: string): Promise<void> {
 export async function estadosLineasPorId(lineaIds: string[]): Promise<Map<string, EstadoLinea>> {
   const registros = await porIds(T_PRESUPUESTO, lineaIds);
   return new Map(registros.map((r) => [r.id, (texto(r.fields[F.estado]) || "Propuesta") as EstadoLinea]));
+}
+
+// ─── Repuestos bajo pedido: estado real de sus operaciones ───────────────────
+
+const T_OPERACIONES = "Operación Comercial";
+const T_OPCIONES = "Opciones";
+const T_PROVEEDORES = "Shipping Proveedores";
+const T_ITEMS = "Shipping Items";
+
+export async function cargarInfoPedidos(operacionIds: string[]): Promise<Map<string, InfoPedido>> {
+  const out = new Map<string, InfoPedido>();
+  if (operacionIds.length === 0) return out;
+
+  const operaciones = await porIds(T_OPERACIONES, operacionIds);
+  const opcionIds = operaciones.map((o) => ids(o.fields["Opción Elegida"])[0]).filter((x): x is string => !!x);
+  const itemIds = operaciones.flatMap((o) => ids(o.fields["Artículo físico"]).slice(0, 1));
+  const [opciones, items] = await Promise.all([porIds(T_OPCIONES, opcionIds), porIds(T_ITEMS, itemIds)]);
+  const opcionPorId = new Map(opciones.map((r) => [r.id, r]));
+  const itemPorId = new Map(items.map((r) => [r.id, r]));
+  const proveedores = await porIds(T_PROVEEDORES, opciones.map((o) => ids(o.fields["Proveedor"])[0]).filter((x): x is string => !!x));
+  const proveedorPorId = new Map(proveedores.map((r) => [r.id, texto(r.fields["Nombre proveedor"])]));
+
+  for (const op of operaciones) {
+    const opcion = opcionPorId.get(ids(op.fields["Opción Elegida"])[0] ?? "");
+    const item = itemPorId.get(ids(op.fields["Artículo físico"])[0] ?? "");
+    const numOrNull = (v: unknown) => (v === undefined || v === null || v === "" ? null : num(v));
+    out.set(op.id, {
+      operacionId: op.id,
+      codigo: texto(op.fields["Código Operación"]) || op.id,
+      estadoOperacion: texto(op.fields["Estado"]),
+      opcionElegidaId: opcion?.id ?? null,
+      proveedorNombre: opcion ? proveedorPorId.get(ids(opcion.fields["Proveedor"])[0] ?? "") ?? "" : "",
+      urlProveedor: opcion ? texto(opcion.fields["URL Proveedor"]) : "",
+      costoProveedor: opcion ? numOrNull(opcion.fields["Costo Proveedor"]) : null,
+      precioCliente: opcion ? numOrNull(opcion.fields["Precio Venta Cliente"]) : null,
+      tiempoEstimado: opcion ? texto(opcion.fields["Tiempo Estimado"]) : "",
+      item: item ? { id: item.id, sku: texto(item.fields["SKU"]) || item.id, recibido: item.fields["Recibido"] === true } : null,
+    });
+  }
+  return out;
+}
+
+export async function clienteDeOrden(ordenId: string): Promise<{ clienteId: string | null; idVisible: string }> {
+  const orden = await pedir<Registro>(url(T_ORDENES, ordenId));
+  return { clienteId: ids(orden.fields["Cliente"])[0] ?? null, idVisible: texto(orden.fields["ID"]) || ordenId };
 }

@@ -3,7 +3,7 @@ import { requireOperacionesSession } from "@/lib/operaciones/auth";
 import {
   actualizarEstadoOperacion,
   fetchOperacionDetalle,
-  crearShippingItemDesdeOpcion,
+  pasarOperacionAPedido,
 } from "@/lib/operaciones/airtable";
 import { ESTADOS_OPERACION } from "@/types/operaciones";
 
@@ -43,7 +43,22 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     );
   }
 
-  // Update estado
+  // "Pedido" tiene efecto secundario (crea el artículo en inventario): pasa
+  // por el camino compartido, el mismo que usa la tarjeta Presupuesto.
+  if (estado === "Pedido") {
+    try {
+      const r = await pasarOperacionAPedido(id, op.opcionElegidaId, session.user.nombre);
+      if (r.itemCreado) return NextResponse.json({ success: true, itemCreado: true, itemId: r.itemId });
+      return NextResponse.json({ success: true, itemCreado: false, itemId: r.itemId, ...(r.aviso ? { itemWarning: r.aviso } : {}) });
+    } catch (err) {
+      console.error("[api/operaciones/[id]/estado] PATCH error:", err);
+      return NextResponse.json(
+        { success: false, error: err instanceof Error ? err.message : "Error al actualizar estado." },
+        { status: 500 }
+      );
+    }
+  }
+
   try {
     await actualizarEstadoOperacion(id, estado);
   } catch (err) {
@@ -52,30 +67,6 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       { success: false, error: err instanceof Error ? err.message : "Error al actualizar estado." },
       { status: 500 }
     );
-  }
-
-  // Side effect: create Shipping Item when transitioning to "Pedido" with an Opción Elegida
-  if (estado === "Pedido" && op.opcionElegidaId) {
-    try {
-      const result = await crearShippingItemDesdeOpcion(
-        id,
-        op.opcionElegidaId,
-        session.user.nombre
-      );
-      if (result.created) {
-        return NextResponse.json({ success: true, itemCreado: true, itemId: result.id });
-      } else {
-        return NextResponse.json({ success: true, itemCreado: false, itemId: result.existingId });
-      }
-    } catch (err) {
-      // Item creation failure is non-fatal: the estado was already updated
-      console.error("[api/operaciones/[id]/estado] Shipping Item creation error:", err);
-      return NextResponse.json({
-        success: true,
-        itemCreado: false,
-        itemWarning: err instanceof Error ? err.message : "No se pudo crear el artículo en inventario.",
-      });
-    }
   }
 
   return NextResponse.json({ success: true });

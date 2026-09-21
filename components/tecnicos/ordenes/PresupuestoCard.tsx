@@ -11,16 +11,27 @@
 // a la cuenta y a la factura o recibo.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
-  subtotalLinea, esEditable, aceptaVincularArticulo,
-  type LineaPresupuesto, type TipoLinea, type EstadoPresupuesto, type PasoCarga,
+  subtotalLinea, esEditable, aceptaVincularArticulo, fasePedido,
+  type LineaPresupuesto, type TipoLinea, type EstadoPresupuesto, type PasoCarga, type InfoPedido, type FasePedido,
 } from "@/lib/tecnicos/presupuesto/reglas";
 
 type CatServicio = { id: string; nombre: string; descripcion: string | null; costoSugerido: number | null; activo: boolean };
 type ItemStock   = { id: string; sku: string; nombre: string; precioVentaFinal: number | null };
 type CatDigital  = { id: string; productoBase: string; marca: string | null; precioVentaCatalogo: number | null };
 type Totales     = { propuesto: number; aprobado: number; pendienteDeCargar: number; rechazado: number };
-type Resultado   = PasoCarga & { cargada: boolean; error?: string };
+type Resultado   = PasoCarga & { cargada: boolean; esperandoPedido?: boolean; error?: string };
+type OpcionesPedido = { proveedores: Array<{ id: string; nombre: string }>; tiempos: string[]; categorias: string[] };
+
+const FASE_PEDIDO: Record<FasePedido, { texto: string; clase: string }> = {
+  cotizado:         { texto: "Cotizado al cliente",          clase: "text-[var(--sg-text-secondary)]" },
+  vencido:          { texto: "Cotización rechazada o vencida", clase: "text-[var(--sg-danger)]" },
+  esperando_pedido: { texto: "Aprobado · falta pedirlo al proveedor", clase: "text-[var(--sg-warning)]" },
+  en_camino:        { texto: "Pedido · en camino",            clase: "text-[var(--sg-info)]" },
+  recibido:         { texto: "Llegó a la tienda",             clase: "text-[var(--sg-success)]" },
+  sin_articulo:     { texto: "En Pedido sin artículo (revisar en Operaciones)", clase: "text-[var(--sg-danger)]" },
+};
 
 const mon = (n: number) => `$${(n || 0).toFixed(2)}`;
 
@@ -44,6 +55,8 @@ const INPUT = "w-full rounded-[var(--sg-radius-sm)] border border-[var(--sg-bord
 
 function describirAccion(p: PasoCarga): { texto: string; ok: boolean } {
   const a = p.accion;
+  if (a.tipo === "aprobar_pedido") return { ok: true, texto: `La operación ${a.codigo} pasa a Aprobado. El SKU nace cuando se le pida al proveedor.` };
+  if (a.tipo === "ya_en_inventario") return { ok: true, texto: `Ya está en inventario (${a.sku}); queda cargada.` };
   if (a.tipo === "crear_servicio") return { ok: true, texto: `Se agrega a Servicios por ${mon(a.costo)}` };
   if (a.tipo === "reservar_repuesto") {
     const difiere = a.precioInventario !== null && Math.abs(a.precioInventario - p.subtotal) > 0.009;
@@ -103,12 +116,18 @@ function BuscadorRepuesto({ ordenId, onElegir }: { ordenId: string; onElegir: (i
 type Borrador = {
   tipo: TipoLinea; descripcion: string; cantidad: string; precio: string;
   servicioCatalogoId: string | null; itemId: string | null; itemSku: string | null; productoCatalogoId: string | null;
+  // Bajo pedido
+  proveedorId: string; categoria: string; costo: string; url: string; tiempo: string;
 };
-const BORRADOR_VACIO = (tipo: TipoLinea): Borrador => ({ tipo, descripcion: "", cantidad: "1", precio: "", servicioCatalogoId: null, itemId: null, itemSku: null, productoCatalogoId: null });
+const BORRADOR_VACIO = (tipo: TipoLinea): Borrador => ({
+  tipo, descripcion: "", cantidad: "1", precio: "", servicioCatalogoId: null, itemId: null, itemSku: null, productoCatalogoId: null,
+  proveedorId: "", categoria: "Repuesto", costo: "", url: "", tiempo: "",
+});
 
 function FormLinea({ ordenId, onCreada, onCancelar }: { ordenId: string; onCreada: () => void; onCancelar: () => void }) {
   const [b, setB] = useState<Borrador>(BORRADOR_VACIO("Servicio"));
-  const [modoRepuesto, setModoRepuesto] = useState<"inventario" | "libre">("inventario");
+  const [modoRepuesto, setModoRepuesto] = useState<"inventario" | "pedido">("inventario");
+  const [opcionesPedido, setOpcionesPedido] = useState<OpcionesPedido | null>(null);
   const [servicios, setServicios] = useState<CatServicio[]>([]);
   const [digitales, setDigitales] = useState<CatDigital[]>([]);
   const [q, setQ] = useState("");
@@ -119,10 +138,13 @@ function FormLinea({ ordenId, onCreada, onCancelar }: { ordenId: string; onCread
     if (b.tipo === "Servicio" && servicios.length === 0) {
       fetch("/api/tecnicos/catalogo/servicios").then((r) => r.json()).then((j) => j.success && setServicios((j.data as CatServicio[]).filter((s) => s.activo !== false))).catch(() => {});
     }
+    if (b.tipo === "Repuesto" && modoRepuesto === "pedido" && !opcionesPedido) {
+      fetch("/api/tecnicos/presupuesto/opciones-pedido").then((r) => r.json()).then((j) => j.success && setOpcionesPedido(j.data)).catch(() => {});
+    }
     if (b.tipo === "Producto digital" && digitales.length === 0) {
       fetch("/api/tecnicos/catalogo-productos-digitales").then((r) => r.json()).then((j) => j.success && setDigitales(j.data)).catch(() => {});
     }
-  }, [b.tipo, servicios.length, digitales.length]);
+  }, [b.tipo, modoRepuesto, opcionesPedido, servicios.length, digitales.length]);
 
   const sugerencias = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -131,8 +153,9 @@ function FormLinea({ ordenId, onCreada, onCancelar }: { ordenId: string; onCread
     return [];
   }, [q, b.tipo, servicios, digitales]);
 
-  const elegido = b.servicioCatalogoId || b.itemId || b.productoCatalogoId || (b.tipo === "Repuesto" && modoRepuesto === "libre");
-  const cantidadFija = (b.tipo === "Repuesto" && !!b.itemId) || b.tipo === "Producto digital";
+  const esPedido = b.tipo === "Repuesto" && modoRepuesto === "pedido";
+  const elegido = b.servicioCatalogoId || b.itemId || b.productoCatalogoId || esPedido;
+  const cantidadFija = (b.tipo === "Repuesto" && (!!b.itemId || esPedido)) || b.tipo === "Producto digital";
 
   function cambiarTipo(t: TipoLinea) { setB(BORRADOR_VACIO(t)); setQ(""); setError(null); setModoRepuesto("inventario"); }
 
@@ -147,6 +170,12 @@ function FormLinea({ ordenId, onCreada, onCancelar }: { ordenId: string; onCread
           cantidad: parseInt(b.cantidad, 10) || 0,
           precioUnitario: parseFloat(b.precio.replace(",", ".")) || 0,
           servicioCatalogoId: b.servicioCatalogoId, itemId: b.itemId, productoCatalogoId: b.productoCatalogoId,
+          bajoPedido: esPedido
+            ? {
+                proveedorId: b.proveedorId, categoria: b.categoria, urlProveedor: b.url.trim(), tiempoEstimado: b.tiempo,
+                costoProveedor: b.costo.trim() ? parseFloat(b.costo.replace(",", ".")) : null,
+              }
+            : null,
         }),
       });
       const j = await r.json();
@@ -170,7 +199,7 @@ function FormLinea({ ordenId, onCreada, onCancelar }: { ordenId: string; onCread
           <span className="ml-auto flex gap-1 text-[11px]">
             <button type="button" onClick={() => { setModoRepuesto("inventario"); setB(BORRADOR_VACIO("Repuesto")); }} className={modoRepuesto === "inventario" ? "font-bold text-[var(--sg-lime)]" : "text-[var(--sg-text-muted)] hover:text-[var(--sg-text-primary)]"}>Del inventario</button>
             <span className="text-[var(--sg-text-muted)]">·</span>
-            <button type="button" onClick={() => { setModoRepuesto("libre"); setB(BORRADOR_VACIO("Repuesto")); }} className={modoRepuesto === "libre" ? "font-bold text-[var(--sg-lime)]" : "text-[var(--sg-text-muted)] hover:text-[var(--sg-text-primary)]"}>No está en stock</button>
+            <button type="button" onClick={() => { setModoRepuesto("pedido"); setB(BORRADOR_VACIO("Repuesto")); }} className={modoRepuesto === "pedido" ? "font-bold text-[var(--sg-lime)]" : "text-[var(--sg-text-muted)] hover:text-[var(--sg-text-primary)]"}>Bajo pedido</button>
           </span>
         )}
       </div>
@@ -205,12 +234,38 @@ function FormLinea({ ordenId, onCreada, onCancelar }: { ordenId: string; onCread
       {elegido && (
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_80px_110px]">
           <div>
-            <input value={b.descripcion} onChange={(e) => setB({ ...b, descripcion: e.target.value })} placeholder={b.tipo === "Repuesto" ? "Repuesto a conseguir (ej. Pantalla 15.6 FHD 30 pines)" : "Descripción"} className={INPUT} />
+            <input value={b.descripcion} onChange={(e) => setB({ ...b, descripcion: e.target.value })} placeholder={esPedido ? "Repuesto a pedir (ej. Pantalla 15.6 FHD 30 pines)" : "Descripción"} className={INPUT} />
             {b.itemSku && <p className="mt-0.5 text-[10px] text-[var(--sg-text-muted)]">Inventario: {b.itemSku} — solo referencia, NO se reserva todavía</p>}
-            {b.tipo === "Repuesto" && modoRepuesto === "libre" && <p className="mt-0.5 text-[10px] text-[var(--sg-text-muted)]">Al aprobar quedará pendiente hasta vincular el artículo cuando llegue.</p>}
           </div>
           <input value={b.cantidad} disabled={cantidadFija} onChange={(e) => setB({ ...b, cantidad: e.target.value.replace(/\D/g, "") })} inputMode="numeric" placeholder="Cant." className={`${INPUT} text-right`} title={cantidadFija ? "Va de a una unidad por línea" : ""} />
           <input value={b.precio} onChange={(e) => setB({ ...b, precio: e.target.value })} inputMode="decimal" placeholder="Precio c/IVA" className={`${INPUT} text-right`} />
+        </div>
+      )}
+
+      {/* Bajo pedido: se vuelve la opción elegida de una Operación Comercial */}
+      {esPedido && (
+        <div className="space-y-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] p-2.5">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <select value={b.proveedorId} onChange={(e) => setB({ ...b, proveedorId: e.target.value })} className={INPUT}>
+              <option value="">{opcionesPedido ? "Proveedor…" : "Cargando proveedores…"}</option>
+              {opcionesPedido?.proveedores.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+            <select value={b.categoria} onChange={(e) => setB({ ...b, categoria: e.target.value })} className={INPUT}>
+              {(opcionesPedido?.categorias ?? ["Repuesto"]).map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={b.tiempo} onChange={(e) => setB({ ...b, tiempo: e.target.value })} className={INPUT}>
+              <option value="">Tiempo estimado…</option>
+              {opcionesPedido?.tiempos.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_140px]">
+            <input value={b.url} onChange={(e) => setB({ ...b, url: e.target.value })} placeholder="URL del repuesto (opcional)" className={INPUT} />
+            <input value={b.costo} onChange={(e) => setB({ ...b, costo: e.target.value })} inputMode="decimal" placeholder="Costo proveedor *" className={`${INPUT} text-right`} />
+          </div>
+          <p className="text-[10px] text-[var(--sg-text-muted)]">
+            Se crea una cotización en Operaciones Comerciales vinculada a esta orden. Proveedor, URL y costo son internos: el
+            cliente solo ve la descripción y el precio. El SKU nace cuando se le pide al proveedor.
+          </p>
         </div>
       )}
 
@@ -232,6 +287,7 @@ function FormLinea({ ordenId, onCreada, onCancelar }: { ordenId: string; onCread
 
 export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCargado: () => void | Promise<void> }) {
   const [lineas, setLineas] = useState<LineaPresupuesto[]>([]);
+  const [pedidos, setPedidos] = useState<Record<string, InfoPedido>>({});
   const [estado, setEstado] = useState<EstadoPresupuesto>("sin_presupuesto");
   const [totales, setTotales] = useState<Totales | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -251,7 +307,7 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
       const j = await r.json();
       if (!montado.current) return;
       if (!j.success) { setError(j.error ?? "No se pudo cargar el presupuesto"); return; }
-      setLineas(j.data.lineas); setEstado(j.data.estado); setTotales(j.data.totales); setError(null);
+      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setError(null);
       setSeleccion((prev) => new Set([...prev].filter((id) => (j.data.lineas as LineaPresupuesto[]).some((l) => l.id === id && (l.estado === "Propuesta" || l.estado === "Aprobada")))));
     } catch { if (montado.current) setError("Error de red al cargar el presupuesto"); }
     finally { if (montado.current) setCargando(false); }
@@ -275,6 +331,19 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
       const j = await r.json();
       if (!j.success) setError(j.error ?? "No se pudo actualizar la línea");
       await recargar();
+    } catch { setError("Error de red"); }
+    finally { setOcupado(null); }
+  }
+
+  async function pedirAlProveedor(l: LineaPresupuesto) {
+    setOcupado(l.id); setError(null);
+    try {
+      const r = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/presupuesto/${encodeURIComponent(l.id)}/pedido`, { method: "POST" });
+      const j = await r.json();
+      if (!j.success) setError(j.error ?? "No se pudo registrar el pedido");
+      else if (j.data?.aviso) setError(j.data.aviso);
+      await recargar();
+      await onCargado();
     } catch { setError("Error de red"); }
     finally { setOcupado(null); }
   }
@@ -376,10 +445,38 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
                     </td>
                     <td className="px-2 py-1.5 align-top">
                       <span className="block text-[var(--sg-text-primary)]">{l.descripcion}</span>
-                      <span className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">
-                        {l.tipo}{l.tipo === "Repuesto" ? (l.itemId ? " · del inventario" : " · por conseguir") : ""}
-                      </span>
-                      {l.notaCarga && l.estado === "Aprobada" && <span className="mt-0.5 block text-[11px] text-[var(--sg-warning)]">{l.notaCarga}</span>}
+                      {(() => {
+                        const p = l.operacionId ? pedidos[l.operacionId] : undefined;
+                        if (!l.operacionId) {
+                          return (
+                            <span className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">
+                              {l.tipo}{l.tipo === "Repuesto" ? (l.itemId ? " · del inventario" : " · por conseguir") : ""}
+                            </span>
+                          );
+                        }
+                        const fase = p ? fasePedido(p) : null;
+                        return (
+                          <span className="block text-[11px] leading-snug">
+                            <span className="uppercase tracking-wide text-[10px] text-[var(--sg-text-muted)]">Repuesto · bajo pedido</span>
+                            {p && (
+                              <span className="block text-[var(--sg-text-muted)]">
+                                {p.proveedorNombre || "Sin proveedor"}{p.tiempoEstimado ? ` · ${p.tiempoEstimado}` : ""}
+                                {p.costoProveedor !== null ? ` · costo ${mon(p.costoProveedor)}` : ""}
+                                {" · "}<Link href={`/operaciones/${encodeURIComponent(p.operacionId)}`} className="text-[var(--sg-lime)] hover:underline">{p.codigo}</Link>
+                                {p.urlProveedor && <> {" · "}<a href={p.urlProveedor} target="_blank" rel="noopener noreferrer" className="text-[var(--sg-lime)] hover:underline">ver repuesto</a></>}
+                              </span>
+                            )}
+                            {fase && (
+                              <span className={`block font-semibold ${FASE_PEDIDO[fase].clase}`}>
+                                {FASE_PEDIDO[fase].texto}
+                                {p?.item && <> · <span className="font-mono">{p.item.sku}</span></>}
+                                {fase === "en_camino" && <> · <Link href="/shipping-v2/recepcion" className="underline">márcalo Recibido al llegar</Link></>}
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })()}
+                      {l.notaCarga && l.estado === "Aprobada" && !(l.operacionId && l.notaCarga.startsWith("Esperando pedido")) && <span className="mt-0.5 block text-[11px] text-[var(--sg-warning)]">{l.notaCarga}</span>}
                       {vinculando === l.id && (
                         <div className="mt-1.5">
                           <BuscadorRepuesto ordenId={ordenId} onElegir={(i) => { setVinculando(null); void accionLinea(l, "PATCH", { itemId: i.id }); }} />
@@ -393,7 +490,18 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
                       <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${ESTADO_BADGE[l.estado]}`}>{ESTADO_TEXTO[l.estado]}</span>
                     </td>
                     <td className="whitespace-nowrap px-2 py-1.5 text-right align-top text-[11px]">
-                      {aceptaVincularArticulo(l) && !l.itemId && (
+                      {l.operacionId && pedidos[l.operacionId] && fasePedido(pedidos[l.operacionId]) === "vencido" && (l.estado === "Propuesta" || l.estado === "Aprobada") && (
+                        <button type="button" disabled={ocupado === l.id} onClick={() => accionLinea(l, "PATCH", { accion: "reactivar" })} className="mr-2 text-[var(--sg-lime)] hover:underline">Reactivar cotización</button>
+                      )}
+                      {l.operacionId && l.estado === "Aprobada" && pedidos[l.operacionId] && fasePedido(pedidos[l.operacionId]) === "esperando_pedido" && (
+                        <button type="button" disabled={ocupado === l.id} onClick={() => pedirAlProveedor(l)} className="mr-2 font-semibold text-[var(--sg-lime)] hover:underline">
+                          {ocupado === l.id ? "Registrando…" : "Ya se pidió al proveedor"}
+                        </button>
+                      )}
+                      {l.estado === "Aprobada" && (
+                        <button type="button" disabled={ocupado === l.id} onClick={() => accionLinea(l, "PATCH", { accion: "cancelar" })} className="mr-2 text-[var(--sg-text-muted)] hover:text-[var(--sg-danger)]" title="El cliente se arrepintió o el repuesto no se consiguió">Cancelar</button>
+                      )}
+                      {aceptaVincularArticulo(l) && !l.itemId && !l.operacionId && (
                         <button type="button" disabled={ocupado === l.id} onClick={() => setVinculando(vinculando === l.id ? null : l.id)} className="mr-2 text-[var(--sg-lime)] hover:underline">Vincular artículo</button>
                       )}
                       {esEditable(l) && (
@@ -474,7 +582,7 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
             {resultados.map((r) => (
               <li key={r.lineaId} className={r.cargada ? "text-[var(--sg-success)]" : "text-[var(--sg-warning)]"}>
                 {r.cargada ? "✓" : "•"} {r.descripcion}
-                {!r.cargada && ` — ${r.error ?? (r.accion.tipo === "pendiente" ? r.accion.motivo : "pendiente")}`}
+                {!r.cargada && ` — ${r.error ?? (r.esperandoPedido ? "aprobado, falta pedirlo al proveedor" : r.accion.tipo === "pendiente" ? r.accion.motivo : "pendiente")}`}
               </li>
             ))}
           </ul>
