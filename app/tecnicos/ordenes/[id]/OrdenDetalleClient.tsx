@@ -14,6 +14,8 @@ import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
 import { buildAbandonmentWhatsAppMessage } from "@/lib/tecnicos/orders/abandonmentWhatsApp";
 import { buildWhatsAppUrl } from "@/lib/tecnicos/whatsapp";
 import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnificadaPanel";
+import type { OrdenCobro } from "@/lib/tecnicos/cobros/reglas";
+import { PresupuestoCard } from "@/components/tecnicos/ordenes/PresupuestoCard";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
 import { METODOS_PAGO_ABONO, esMetodoPagoAbonoValido, requiereNumeroTransaccion } from "@/types/abonos";
 import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
@@ -708,6 +710,10 @@ export function OrdenDetalleClient() {
   const [cuentaUnificada, setCuentaUnificada] = useState<CuentaUnificada | null>(null);
   const [cuentaUnificadaLoading, setCuentaUnificadaLoading] = useState(false);
   const [cuentaUnificadaError, setCuentaUnificadaError] = useState<string | null>(null);
+  // Estado de cobro/documento con la MISMA regla del panel de /tecnicos/ordenes
+  // (lib/tecnicos/cobros/reglas.ts). Sirve para no mostrar "Saldo pendiente"
+  // en una orden que ya se cobró al facturarla.
+  const [cobro, setCobro] = useState<OrdenCobro | null>(null);
   const [showRepuestosHistoricos, setShowRepuestosHistoricos] = useState(false);
   const [showRepuestoV2Modal, setShowRepuestoV2Modal] = useState(false);
   const [showMantenimientoModal, setShowMantenimientoModal] = useState(false);
@@ -1045,6 +1051,11 @@ export function OrdenDetalleClient() {
     } finally {
       setCuentaUnificadaLoading(false);
     }
+    // Aparte y sin bloquear: si falla, la tarjeta sigue como antes.
+    fetch(`/api/tecnicos/ordenes/cobros?orden=${encodeURIComponent(id)}`)
+      .then((r) => r.json())
+      .then((j) => setCobro(j?.success ? ((j.data?.ordenes?.[0] as OrdenCobro | undefined) ?? null) : null))
+      .catch(() => setCobro(null));
   };
 
   const handleBuscarRepuestosV2 = async (q: string) => {
@@ -2563,6 +2574,16 @@ export function OrdenDetalleClient() {
               )}
             </section>
 
+            {/* Presupuesto: se arma sin comprometer inventario; al aprobarse,
+                sus líneas pasan a las tarjetas de abajo. */}
+            <PresupuestoCard
+              ordenId={orden.recordId}
+              onCargado={async () => {
+                await fetchData({ showLoading: false, preserveError: true });
+                await loadCuentaUnificada();
+              }}
+            />
+
             <div className="grid items-start gap-4 overflow-visible xl:grid-cols-2">
               <div className="relative z-10 min-w-0">
                 <section className="relative isolate h-full space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
@@ -3283,14 +3304,41 @@ export function OrdenDetalleClient() {
               {/* Saldo hero — sale de la cuenta unificada (una sola fuente,
                   Fase 11 etapa 3). Mientras carga, usa el rollup NV de la
                   orden como fallback visual para no mostrar un hueco. */}
-              <div className="mb-3 rounded-xl border border-[var(--sg-lime)]/20 bg-[var(--sg-lime)]/5 px-3 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]/60">
-                  {(cuentaUnificada?.saldo ?? 0) < 0 ? "Saldo a favor del cliente" : "Saldo pendiente"}
-                </p>
-                <p className="mt-1 text-[1.75rem] font-black leading-none tabular-nums text-[var(--sg-lime)]">
-                  {formatCurrency(Math.abs(cuentaUnificada?.saldo ?? orden.saldoNV ?? 0))}
-                </p>
-              </div>
+              {cobro?.documento ? (
+                // Con documento emitido la cuenta está cobrada: el saldo que
+                // faltaba se cobró al emitir (queda en el movimiento del
+                // documento, no como abono). Mostrar "Saldo pendiente" aquí
+                // era falso — ver lib/tecnicos/cobros/reglas.ts.
+                <div className="mb-3 rounded-xl border border-[var(--sg-success)]/40 bg-[var(--sg-success-soft)] px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-success)]">
+                    Cobrada y documentada
+                  </p>
+                  <p className="mt-1 text-[1.75rem] font-black leading-none tabular-nums text-[var(--sg-success)]">
+                    {formatCurrency(0)}
+                  </p>
+                  <p className="mt-1.5 text-xs text-[var(--sg-text-secondary)]">
+                    {cobro.documento.tipo === "factura" ? "Factura" : "Recibo"}{" "}
+                    <span className="font-semibold text-[var(--sg-text-primary)]">{cobro.documento.numero || "—"}</span>
+                    {" · "}{cobro.documento.estado}
+                  </p>
+                </div>
+              ) : (
+                <div className="mb-3 rounded-xl border border-[var(--sg-lime)]/20 bg-[var(--sg-lime)]/5 px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]/60">
+                    {(cuentaUnificada?.saldo ?? 0) < 0 ? "Saldo a favor del cliente" : "Saldo pendiente"}
+                  </p>
+                  <p className="mt-1 text-[1.75rem] font-black leading-none tabular-nums text-[var(--sg-lime)]">
+                    {formatCurrency(Math.abs(cuentaUnificada?.saldo ?? orden.saldoNV ?? 0))}
+                  </p>
+                  {cobro?.conCargos && (
+                    <p className="mt-1.5 text-xs text-[var(--sg-warning)]">
+                      {cobro.documentoNoEmitido
+                        ? `Factura en ${cobro.documentoNoEmitido.estado.toLowerCase()} — aún sin documento emitido`
+                        : "Sin documento emitido"}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Breakdown grid */}
               <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-divider)]">
