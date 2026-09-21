@@ -62,23 +62,6 @@ const BTN_SEC = `${BTN} border-[var(--sg-border)] bg-[var(--sg-card)] text-[var(
 const BTN_PRI = `${BTN} border-[var(--sg-lime)] bg-[var(--sg-lime)] text-[var(--sg-text-on-accent)] hover:brightness-105`;
 const INPUT = "w-full rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2.5 py-1.5 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] focus:border-[var(--sg-lime)] focus:outline-none";
 
-function describirAccion(p: PasoCarga): { texto: string; ok: boolean } {
-  const a = p.accion;
-  if (a.tipo === "crear_pedido_aprobado") return { ok: true, texto: "Se crea el pedido en Operaciones Comerciales (ya aprobado). El SKU nace cuando se le pida al proveedor." };
-  if (a.tipo === "aprobar_pedido") return { ok: true, texto: `La operación ${a.codigo} pasa a Aprobado. El SKU nace cuando se le pida al proveedor.` };
-  if (a.tipo === "ya_en_inventario") return { ok: true, texto: `Ya está en inventario (${a.sku}); queda cargada.` };
-  if (a.tipo === "crear_servicio") return { ok: true, texto: `Se agrega a Servicios por ${mon(a.costo)}` };
-  if (a.tipo === "reservar_repuesto") {
-    const difiere = a.precioInventario !== null && Math.abs(a.precioInventario - p.subtotal) > 0.009;
-    return {
-      ok: true,
-      texto: `Se reserva ${a.sku} en Repuestos${difiere ? ` — ojo: la cuenta usará el precio del inventario, ${mon(a.precioInventario!)}` : ""}`,
-    };
-  }
-  if (a.tipo === "asignar_producto_digital") return { ok: true, texto: `Se asigna la unidad ${a.etiqueta}` };
-  return { ok: false, texto: `Queda pendiente: ${a.motivo}` };
-}
-
 // ─── Buscadores (reutilizan los endpoints de las tarjetas existentes) ────────
 
 function useDebounced(valor: string, ms = 300) {
@@ -316,7 +299,6 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [vinculando, setVinculando] = useState<string | null>(null);
-  const [preview, setPreview] = useState<PasoCarga[] | null>(null);
   const [resultados, setResultados] = useState<Resultado[] | null>(null);
   const montado = useRef(true);
   useEffect(() => { montado.current = true; return () => { montado.current = false; }; }, []);
@@ -407,31 +389,19 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
     setSeleccion(new Set());
   }
 
-  async function pedirVistaPrevia(ids: string[]) {
+  // "Cliente aprobó" carga directo: el botón ya es la confirmación. El
+  // resultado (qué se cargó y qué quedó pendiente) se muestra debajo.
+  async function cargarAprobadas(ids: string[]) {
+    if (ids.length === 0) return;
     setOcupado("carga"); setError(null); setResultados(null);
     try {
       const r = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/presupuesto/cargar`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lineaIds: ids }),
-      });
-      const j = await r.json();
-      if (!j.success) { setError(j.error ?? "No se pudo preparar la carga"); return; }
-      setPreview(j.data.vistaPrevia);
-    } catch { setError("Error de red"); }
-    finally { setOcupado(null); }
-  }
-
-  async function confirmarCarga() {
-    if (!preview) return;
-    setOcupado("carga"); setError(null);
-    try {
-      const r = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/presupuesto/cargar`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lineaIds: preview.map((p) => p.lineaId), confirmar: true }),
+        body: JSON.stringify({ lineaIds: ids, confirmar: true }),
       });
       const j = await r.json();
       if (!j.success) { setError(j.error ?? "No se pudo cargar el presupuesto"); return; }
       setResultados(j.data.resultados);
-      setPreview(null);
       setSeleccion(new Set());
       await recargar();
       await onCargado();
@@ -648,42 +618,12 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
               <button type="button" disabled={!!ocupado} onClick={rechazarSeleccion} className={BTN_SEC}>Cliente rechazó ({propuestasSel.length})</button>
             )}
             {aprobadasPendientes.length > 0 && seleccion.size === 0 && (
-              <button type="button" disabled={!!ocupado} onClick={() => pedirVistaPrevia(aprobadasPendientes.map((l) => l.id))} className={BTN_SEC}>
+              <button type="button" disabled={!!ocupado} onClick={() => cargarAprobadas(aprobadasPendientes.map((l) => l.id))} className={BTN_SEC}>
                 Reintentar pendientes ({aprobadasPendientes.length})
               </button>
             )}
-            <button type="button" disabled={seleccion.size === 0 || !!ocupado} onClick={() => pedirVistaPrevia([...seleccion])} className={BTN_PRI}>
-              {ocupado === "carga" ? "Preparando…" : `Cliente aprobó → Cargar a la orden${seleccion.size ? ` (${seleccion.size})` : ""}`}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Vista previa: nada se escribió todavía */}
-      {preview && (
-        <div className="space-y-2 rounded-[var(--sg-radius-md)] border border-[var(--sg-lime)]/40 bg-[var(--sg-lime-soft)] p-3">
-          <p className="text-sm font-bold text-[var(--sg-text-primary)]">Vista previa — esto es lo que pasará al confirmar</p>
-          <ul className="space-y-1">
-            {preview.map((p) => {
-              const d = describirAccion(p);
-              return (
-                <li key={p.lineaId} className="flex items-start justify-between gap-3 text-xs">
-                  <span className="min-w-0">
-                    <span className="font-semibold text-[var(--sg-text-primary)]">{p.descripcion}</span>
-                    <span className={`block ${d.ok ? "text-[var(--sg-text-secondary)]" : "text-[var(--sg-warning)]"}`}>{d.texto}</span>
-                  </span>
-                  <span className="shrink-0 font-semibold tabular-nums">{mon(p.subtotal)}</span>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="text-[11px] text-[var(--sg-text-muted)]">
-            Las líneas marcadas como pendientes quedan aprobadas y se cargan después, sin frenar al resto.
-          </p>
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setPreview(null)} disabled={ocupado === "carga"} className={BTN_SEC}>Cancelar</button>
-            <button type="button" onClick={confirmarCarga} disabled={ocupado === "carga"} className={BTN_PRI}>
-              {ocupado === "carga" ? "Cargando…" : "Confirmar: el cliente aprobó"}
+            <button type="button" disabled={seleccion.size === 0 || !!ocupado} onClick={() => cargarAprobadas([...seleccion])} className={BTN_PRI}>
+              {ocupado === "carga" ? "Cargando…" : `Cliente aprobó → Cargar a la orden${seleccion.size ? ` (${seleccion.size})` : ""}`}
             </button>
           </div>
         </div>
