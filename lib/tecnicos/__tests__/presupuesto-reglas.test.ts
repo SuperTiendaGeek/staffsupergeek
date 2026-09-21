@@ -27,6 +27,7 @@ function assert(cond: boolean, msg: string): void {
 const linea = (o: Partial<LineaPresupuesto>): LineaPresupuesto => ({
   id: "recL", tipo: "Servicio", descripcion: "x", cantidad: 1, precioUnitario: 10, estado: "Propuesta", notaCarga: "",
   servicioCatalogoId: null, itemId: null, productoCatalogoId: null, cargoServicioId: null, cargoProductoDigitalId: null, operacionId: null,
+  bajoPedido: false, proveedorId: null, urlProveedor: "", costoProveedor: null, tiempoEstimado: "", categoria: "", historial: "",
   aprobadoPor: "", fechaAprobacion: "", creadoPor: "", ...o,
 });
 

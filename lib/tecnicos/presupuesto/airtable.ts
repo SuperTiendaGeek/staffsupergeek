@@ -30,6 +30,13 @@ const F = {
   cargoServicio: "Cargo: Servicio por Orden",
   cargoDigital: "Cargo: Producto digital",
   operacion:    "Operación Comercial",
+  bajoPedido:   "Bajo pedido",
+  proveedor:    "Proveedor",
+  urlProveedor: "URL proveedor",
+  costoProveedor: "Costo proveedor",
+  tiempo:       "Tiempo estimado",
+  categoria:    "Categoría",
+  historial:    "Historial",
 } as const;
 
 type Registro = { id: string; fields: Record<string, unknown> };
@@ -76,6 +83,15 @@ function mapLinea(r: Registro): LineaPresupuesto {
     cargoServicioId: ids(f[F.cargoServicio])[0] ?? null,
     cargoProductoDigitalId: ids(f[F.cargoDigital])[0] ?? null,
     operacionId: ids(f[F.operacion])[0] ?? null,
+    // Una línea creada con el flujo anterior (operación desde la cotización)
+    // no tiene la casilla, pero sí la operación: también es bajo pedido.
+    bajoPedido: f[F.bajoPedido] === true || ids(f[F.operacion]).length > 0,
+    proveedorId: ids(f[F.proveedor])[0] ?? null,
+    urlProveedor: texto(f[F.urlProveedor]),
+    costoProveedor: f[F.costoProveedor] === undefined || f[F.costoProveedor] === null ? null : num(f[F.costoProveedor]),
+    tiempoEstimado: texto(f[F.tiempo]),
+    categoria: texto(f[F.categoria]),
+    historial: texto(f[F.historial]),
     aprobadoPor: texto(f[F.aprobadoPor]),
     fechaAprobacion: texto(f[F.fechaAprob]),
     creadoPor: texto(f[F.creadoPor]),
@@ -133,6 +149,14 @@ export async function crearLinea(
   if (l.tipo === "Repuesto" && l.itemId) fields[F.item] = [l.itemId];
   if (l.tipo === "Producto digital" && l.productoCatalogoId) fields[F.productoCat] = [l.productoCatalogoId];
   if (extra.operacionId) fields[F.operacion] = [extra.operacionId];
+  if (l.bajoPedido) {
+    fields[F.bajoPedido] = true;
+    fields[F.proveedor] = [l.bajoPedido.proveedorId];
+    fields[F.categoria] = l.bajoPedido.categoria;
+    if (l.bajoPedido.costoProveedor != null) fields[F.costoProveedor] = l.bajoPedido.costoProveedor;
+    if (l.bajoPedido.urlProveedor) fields[F.urlProveedor] = l.bajoPedido.urlProveedor;
+    if (l.bajoPedido.tiempoEstimado) fields[F.tiempo] = l.bajoPedido.tiempoEstimado;
+  }
   const r = await pedir<Registro>(url(T_PRESUPUESTO), { method: "POST", body: JSON.stringify({ fields }) });
   return mapLinea(r);
 }
@@ -142,6 +166,10 @@ export type CambiosLinea = Partial<{
   itemId: string | null; estado: EstadoLinea; notaCarga: string;
   aprobadoPor: string; fechaAprobacion: string;
   cargoServicioId: string; cargoProductoDigitalId: string;
+  /** string → vincula; null → suelta la operación (recotizar/cancelar). */
+  operacionId: string | null;
+  /** Se AGREGA al historial existente (nunca se reescribe). */
+  agregarHistorial: { anterior: string; entrada: string };
 }>;
 
 export async function actualizarLinea(lineaId: string, c: CambiosLinea): Promise<LineaPresupuesto> {
@@ -156,6 +184,8 @@ export async function actualizarLinea(lineaId: string, c: CambiosLinea): Promise
   if (c.fechaAprobacion !== undefined) fields[F.fechaAprob] = c.fechaAprobacion;
   if (c.cargoServicioId)              fields[F.cargoServicio] = [c.cargoServicioId];
   if (c.cargoProductoDigitalId)       fields[F.cargoDigital] = [c.cargoProductoDigitalId];
+  if (c.operacionId !== undefined)    fields[F.operacion] = c.operacionId ? [c.operacionId] : [];
+  if (c.agregarHistorial)             fields[F.historial] = [c.agregarHistorial.anterior, c.agregarHistorial.entrada].filter(Boolean).join("\n");
   const r = await pedir<Registro>(url(T_PRESUPUESTO, lineaId), { method: "PATCH", body: JSON.stringify({ fields }) });
   return mapLinea(r);
 }
@@ -191,6 +221,10 @@ export async function cargarInfoPedidos(operacionIds: string[]): Promise<Map<str
   const proveedores = await porIds(T_PROVEEDORES, opciones.map((o) => ids(o.fields["Proveedor"])[0]).filter((x): x is string => !!x));
   const proveedorPorId = new Map(proveedores.map((r) => [r.id, texto(r.fields["Nombre proveedor"])]));
 
+  const T_PAGOS = "Shipping Pagos";
+  const pagos = await porIds(T_PAGOS, items.flatMap((i) => ids(i.fields["Shipping Pagos (Items relacionados)"])));
+  const pagoPorId = new Map(pagos.map((r) => [r.id, r]));
+
   for (const op of operaciones) {
     const opcion = opcionPorId.get(ids(op.fields["Opción Elegida"])[0] ?? "");
     const item = itemPorId.get(ids(op.fields["Artículo físico"])[0] ?? "");
@@ -205,7 +239,19 @@ export async function cargarInfoPedidos(operacionIds: string[]): Promise<Map<str
       costoProveedor: opcion ? numOrNull(opcion.fields["Costo Proveedor"]) : null,
       precioCliente: opcion ? numOrNull(opcion.fields["Precio Venta Cliente"]) : null,
       tiempoEstimado: opcion ? texto(opcion.fields["Tiempo Estimado"]) : "",
-      item: item ? { id: item.id, sku: texto(item.fields["SKU"]) || item.id, recibido: item.fields["Recibido"] === true } : null,
+      item: item
+        ? {
+            id: item.id,
+            sku: texto(item.fields["SKU"]) || item.id,
+            recibido: item.fields["Recibido"] === true,
+            estado: texto(item.fields["Estado Item"]),
+            // Solo los pagos no anulados comprometen dinero con el proveedor.
+            pagos: ids(item.fields["Shipping Pagos (Items relacionados)"])
+              .map((pid) => pagoPorId.get(pid))
+              .filter((r): r is Registro => !!r && texto(r.fields["Estado Pago"]).toLowerCase() !== "anulado")
+              .map((r) => ({ id: r.id, codigo: texto(r.fields["Pago ID"]) || r.id, estado: texto(r.fields["Estado Pago"]) })),
+          }
+        : null,
     });
   }
   return out;
@@ -214,4 +260,9 @@ export async function cargarInfoPedidos(operacionIds: string[]): Promise<Map<str
 export async function clienteDeOrden(ordenId: string): Promise<{ clienteId: string | null; idVisible: string }> {
   const orden = await pedir<Registro>(url(T_ORDENES, ordenId));
   return { clienteId: ids(orden.fields["Cliente"])[0] ?? null, idVisible: texto(orden.fields["ID"]) || ordenId };
+}
+
+export async function nombresProveedores(idsProv: string[]): Promise<Record<string, string>> {
+  const registros = await porIds(T_PROVEEDORES, idsProv);
+  return Object.fromEntries(registros.map((r) => [r.id, texto(r.fields["Nombre proveedor"])]));
 }

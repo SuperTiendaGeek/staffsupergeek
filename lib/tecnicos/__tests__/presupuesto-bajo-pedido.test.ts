@@ -17,7 +17,7 @@
 import fs from "fs";
 import path from "path";
 import {
-  validarLinea, fasePedido, sincronizarConPedido, planDeCarga,
+  validarLinea, fasePedido, sincronizarConPedido, planDeCarga, reversasDisponibles,
   type InfoPedido, type LineaPresupuesto,
 } from "../presupuesto/reglas";
 import { evaluarItemNoListo } from "../../facturacion/gancho/construccion";
@@ -31,7 +31,8 @@ function assert(cond: boolean, msg: string): void {
 const linea = (o: Partial<LineaPresupuesto>): LineaPresupuesto => ({
   id: "recL", tipo: "Repuesto", descripcion: "Pantalla 15.6 FHD", cantidad: 1, precioUnitario: 90, estado: "Propuesta", notaCarga: "",
   servicioCatalogoId: null, itemId: null, productoCatalogoId: null, cargoServicioId: null, cargoProductoDigitalId: null,
-  operacionId: "recOP", aprobadoPor: "", fechaAprobacion: "", creadoPor: "", ...o,
+  operacionId: "recOP", bajoPedido: true, proveedorId: "recPROV", urlProveedor: "", costoProveedor: 40, tiempoEstimado: "", categoria: "Pantalla", historial: "",
+  aprobadoPor: "", fechaAprobacion: "", creadoPor: "", ...o,
 });
 const pedido = (o: Partial<InfoPedido>): InfoPedido => ({
   operacionId: "recOP", codigo: "OP-2026-000120", estadoOperacion: "Cotizado", opcionElegidaId: "recOPC",
@@ -104,6 +105,50 @@ assert(rutaEstado.includes("pasarOperacionAPedido(") && cargar.includes("pasarOp
 const opsAirtable = fs.readFileSync(path.join(raiz, "lib", "operaciones", "airtable.ts"), "utf8");
 assert(opsAirtable.includes('opRec.fields["Presupuesto por Orden"]'),
   "El artículo nace como compra pendiente de pago cuando la operación viene del presupuesto, sin importar desde dónde se pidió");
+
+// ─── La operación NO existe hasta que el cliente aprueba ─────────────────────
+const soloPresupuesto = linea({ operacionId: null });
+assert(planDeCarga([soloPresupuesto], { items: new Map(), unidadesDigitales: new Map(), pedidos: new Map() })[0].accion.tipo === "crear_pedido_aprobado",
+  "Bajo pedido sin operación → al aprobar se CREA la operación (antes no existe)");
+assert(planDeCarga([linea({ operacionId: null, proveedorId: null })], { items: new Map(), unidadesDigitales: new Map() })[0].accion.tipo === "pendiente",
+  "Sin proveedor no se crea nada: queda pendiente");
+const rutaPost = fs.readFileSync(path.join(__dirname, "..", "..", "..", "app", "api", "tecnicos", "ordenes", "[id]", "presupuesto", "route.ts"), "utf8");
+assert(!rutaPost.includes("crearOperacion("), "Agregar la línea al presupuesto NO crea la operación comercial (no consume código)");
+
+// ─── Reversas: ningún escenario sin salida ───────────────────────────────────
+const en = (o: Partial<InfoPedido>) => pedido({ estadoOperacion: "Pedido", ...o });
+const art = (o: Partial<NonNullable<InfoPedido["item"]>>) => ({ id: "recI", sku: "REP-000300", recibido: false, estado: "Pendiente de pago", pagos: [], ...o });
+
+let r = reversasDisponibles(linea({ estado: "Propuesta", operacionId: null }), undefined);
+assert(!r.cancelar.permitido && !r.recotizar.permitido, "Propuesta: se borra o se rechaza, no hay nada que revertir");
+
+r = reversasDisponibles(linea({ estado: "Aprobada" }), pedido({ estadoOperacion: "Aprobado" }));
+assert(r.cancelar.permitido && r.recotizar.permitido, "Aprobado sin pedir: el cliente puede desistir y se puede recotizar");
+
+r = reversasDisponibles(linea({ estado: "Cargada" }), en({ item: art({}) }));
+assert(r.cancelar.permitido && r.recotizar.permitido && !r.liberar.permitido, "Pedido en camino sin pago al proveedor: se cancela o recotiza");
+
+r = reversasDisponibles(linea({ estado: "Cargada" }), en({ item: art({ pagos: [{ id: "p", codigo: "PAG-000050", estado: "Pendiente" }] }) }));
+assert(!r.cancelar.permitido && (r.cancelar.motivo ?? "").includes("PAG-000050"), "Incluido en un pago pendiente → dice cuál pago y dónde quitarlo");
+
+r = reversasDisponibles(linea({ estado: "Cargada" }), en({ item: art({ pagos: [{ id: "p", codigo: "PAG-000051", estado: "Pagado" }] }) }));
+assert(!r.cancelar.permitido && (r.cancelar.motivo ?? "").includes("reembolso"), "Ya pagado al proveedor → explica el camino (liberar al llegar o reembolso)");
+
+r = reversasDisponibles(linea({ estado: "Cargada" }), en({ item: art({ recibido: true, estado: "Recibido" }) }));
+assert(r.liberar.permitido && !r.cancelar.permitido, "Ya llegó y el cliente desiste → liberar a inventario");
+
+r = reversasDisponibles(linea({ estado: "Cargada" }), en({ item: art({ estado: "Cancelado" }) }));
+assert(r.recotizar.permitido && r.cancelar.permitido, "Artículo cancelado en Shipping (el proveedor no lo tenía) → recotizar");
+
+r = reversasDisponibles(linea({ estado: "Cargada" }), en({ item: art({ estado: "Vendido", recibido: true }) }));
+assert(!r.cancelar.permitido && (r.cancelar.motivo ?? "").includes("nota de crédito"), "Ya facturado → el camino es la nota de crédito");
+
+r = reversasDisponibles(linea({ estado: "Cargada", bajoPedido: false, operacionId: null, tipo: "Servicio" }), undefined);
+assert(!r.cancelar.permitido && (r.cancelar.motivo ?? "").includes("tarjeta"), "Servicio ya cargado → se quita desde su tarjeta");
+
+assert(fasePedido(en({ item: art({ estado: "Cancelado" }) })) === "articulo_cancelado", "Artículo cancelado se reconoce como tal");
+assert(sincronizarConPedido(linea({ estado: "Cargada", itemId: "recI" }), en({ item: art({ estado: "Cancelado" }) }))?.notaCarga?.includes("canceló") === true,
+  "Si se cancela en Shipping, la línea avisa (no se queda 'Cargada' en silencio)");
 
 if (fallos > 0) { console.error(`\n${fallos} fallo(s).`); process.exit(1); }
 console.log("\nOK — repuesto bajo pedido.");

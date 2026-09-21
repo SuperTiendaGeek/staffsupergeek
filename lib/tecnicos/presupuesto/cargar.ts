@@ -27,9 +27,16 @@ import {
 import { agregarRepuestoStockAOrden } from "../repuestos-v2";
 import { unidadesLibres, unidadesReservadas } from "@/lib/shipping-v2/unidades";
 import { SHIPPING_V2_ITEM_FIELDS } from "@/lib/shipping-v2/schema.generated";
-import { actualizarEstadoOperacion, pasarOperacionAPedido } from "@/lib/operaciones/airtable";
-import { listarLineas, actualizarLinea, cargarInfoPedidos } from "./airtable";
-import { planDeCarga, fasePedido, type ContextoCarga, type LineaPresupuesto, type PasoCarga } from "./reglas";
+import {
+  actualizarEstadoOperacion, pasarOperacionAPedido,
+  crearOperacion, crearOpcion, setOpcionElegida, eliminarOperacionConOpciones,
+} from "@/lib/operaciones/airtable";
+import { soltarArticuloDePedido } from "@/lib/shipping-v2/airtable";
+import { listarLineas, actualizarLinea, cargarInfoPedidos, clienteDeOrden } from "./airtable";
+import {
+  planDeCarga, fasePedido, reversasDisponibles, entradaHistorial,
+  type ContextoCarga, type LineaPresupuesto, type PasoCarga, type AccionReversa,
+} from "./reglas";
 
 const T_ITEMS = "Shipping Items";
 const LINK_ORDEN_STOCK = "Orden de Reparación (Stock)";
@@ -139,11 +146,21 @@ export async function aprobarYCargar(opts: {
     for (const paso of plan) {
       const linea = elegidas.find((l) => l.id === paso.lineaId)!;
       const aprobacion = linea.estado === "Propuesta"
-        ? { estado: "Aprobada" as const, aprobadoPor: opts.usuario.nombre, fechaAprobacion: ahora }
+        ? {
+            estado: "Aprobada" as const, aprobadoPor: opts.usuario.nombre, fechaAprobacion: ahora,
+            agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial("Aprobada por el cliente.", opts.usuario.nombre) },
+          }
         : {};
 
       try {
-        if (paso.accion.tipo === "aprobar_pedido") {
+        if (paso.accion.tipo === "crear_pedido_aprobado") {
+          // Recién ahora nace la operación comercial, directamente "Aprobado":
+          // no consume código ni aparece en el tablero mientras el cliente
+          // todavía no responde.
+          const operacionId = await crearOperacionAprobada(opts.ordenId, linea, opts.usuario.nombre);
+          await actualizarLinea(linea.id, { ...aprobacion, operacionId, notaCarga: "Esperando pedido al proveedor." });
+          resultados.push({ ...paso, cargada: false, esperandoPedido: true });
+        } else if (paso.accion.tipo === "aprobar_pedido") {
           // La operación pasa a "Aprobado" en el tablero de Operaciones. El
           // artículo todavía no existe: nace cuando se le pide al proveedor
           // ("Ya se pidió al proveedor"), igual que desde Operaciones.
@@ -227,8 +244,90 @@ export async function marcarPedidoAlProveedor(opts: {
       await actualizarLinea(linea.id, { notaCarga: aviso ?? "La operación pasó a Pedido pero no se creó el artículo. Revísala en Operaciones." });
       return { sku: null, aviso };
     }
-    await actualizarLinea(linea.id, { estado: "Cargada", itemId, notaCarga: "" });
     const actualizado = (await cargarInfoPedidos([linea.operacionId])).get(linea.operacionId);
-    return { sku: actualizado?.item?.sku ?? null, aviso };
+    const sku = actualizado?.item?.sku ?? null;
+    await actualizarLinea(linea.id, {
+      estado: "Cargada", itemId, notaCarga: "",
+      agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(`Pedido al proveedor${sku ? ` (${sku})` : ""}.`, opts.usuario.nombre) },
+    });
+    return { sku, aviso };
+  });
+}
+
+// ─── Crear la operación comercial al aprobar ─────────────────────────────────
+
+async function crearOperacionAprobada(ordenId: string, l: LineaPresupuesto, usuario: string): Promise<string> {
+  const { clienteId, idVisible } = await clienteDeOrden(ordenId);
+  if (!clienteId) throw new Error("La orden no tiene cliente vinculado: no se puede crear el pedido.");
+  const operacionId = (await crearOperacion({
+    clienteId,
+    productoSolicitado: l.descripcion.trim(),
+    categoria: l.categoria || "Repuesto",
+    descripcionRequerimiento: `Repuesto bajo pedido para la orden ${idVisible}, aprobado por el cliente en el presupuesto.`,
+    equipoEnTienda: true,
+    ordenId,
+  })).id;
+  try {
+    const opcion = await crearOpcion(operacionId, {
+      productoDescripcion: l.descripcion.trim(),
+      proveedorId: l.proveedorId,
+      tiempoEstimado: l.tiempoEstimado || undefined,
+      costoProveedor: l.costoProveedor,
+      precioVentaCliente: l.precioUnitario,
+      urlProveedor: l.urlProveedor || undefined,
+      notaInterna: `Aprobado por el cliente en el presupuesto de ${idVisible} (registró ${usuario}).`,
+    });
+    await setOpcionElegida(operacionId, opcion.id);
+    await actualizarEstadoOperacion(operacionId, "Aprobado");
+    return operacionId;
+  } catch (e) {
+    // Sin operaciones a medio crear.
+    await eliminarOperacionConOpciones(operacionId).catch((err) => console.error("[crearOperacionAprobada] limpieza:", err));
+    throw e;
+  }
+}
+
+// ─── Reversas ────────────────────────────────────────────────────────────────
+// Qué se deshace en cada caso lo decide reversasDisponibles() (reglas.ts);
+// aquí solo se ejecuta. El dinero abonado NO se mueve: queda a favor en la
+// orden para aplicarlo a la alternativa o anularlo si se devuelve.
+
+export async function revertirLinea(opts: {
+  ordenId: string;
+  lineaId: string;
+  accion: AccionReversa;
+  motivo: string;
+  usuario: { nombre: string };
+}): Promise<void> {
+  return withLock(`presupuesto:${opts.ordenId}`, async () => {
+    const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
+    if (!linea) throw new Error("Línea no encontrada en esta orden.");
+    const info = linea.operacionId ? (await cargarInfoPedidos([linea.operacionId])).get(linea.operacionId) : undefined;
+    const r = reversasDisponibles(linea, info)[opts.accion];
+    if (!r.permitido) throw new Error(r.motivo ?? "No se puede hacer esta acción ahora.");
+
+    const motivo = opts.motivo.trim() || (opts.accion === "recotizar" ? "Proveedor sin disponibilidad." : opts.accion === "liberar" ? "El cliente desistió." : "El cliente desistió.");
+
+    if (info?.item) {
+      await soltarArticuloDePedido(info.item.id, {
+        modo: opts.accion === "liberar" ? "liberar" : "cancelar",
+        motivo,
+        registradoPor: opts.usuario.nombre,
+      });
+    }
+    // La operación queda cerrada (Rechazado) como constancia de lo que pasó:
+    // el cliente sí la aprobó. No se borra.
+    if (linea.operacionId && info && info.estadoOperacion !== "Rechazado") {
+      await actualizarEstadoOperacion(linea.operacionId, "Rechazado");
+    }
+
+    const texto = opts.accion === "recotizar" ? `Recotizada: ${motivo}`
+      : opts.accion === "liberar" ? `Liberada a inventario (${info?.item?.sku ?? ""}): ${motivo}`
+      : `Cancelada después de aprobada: ${motivo}`;
+    await actualizarLinea(linea.id, {
+      estado: "Rechazada",
+      notaCarga: texto,
+      agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(texto, opts.usuario.nombre) },
+    });
   });
 }

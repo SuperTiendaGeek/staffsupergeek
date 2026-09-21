@@ -15,6 +15,7 @@ import Link from "next/link";
 import {
   subtotalLinea, esEditable, aceptaVincularArticulo, fasePedido,
   type LineaPresupuesto, type TipoLinea, type EstadoPresupuesto, type PasoCarga, type InfoPedido, type FasePedido,
+  type ReversasLinea, type AccionReversa,
 } from "@/lib/tecnicos/presupuesto/reglas";
 
 type CatServicio = { id: string; nombre: string; descripcion: string | null; costoSugerido: number | null; activo: boolean };
@@ -31,6 +32,14 @@ const FASE_PEDIDO: Record<FasePedido, { texto: string; clase: string }> = {
   en_camino:        { texto: "Pedido · en camino",            clase: "text-[var(--sg-info)]" },
   recibido:         { texto: "Llegó a la tienda",             clase: "text-[var(--sg-success)]" },
   sin_articulo:     { texto: "En Pedido sin artículo (revisar en Operaciones)", clase: "text-[var(--sg-danger)]" },
+  articulo_cancelado: { texto: "Artículo cancelado en Shipping", clase: "text-[var(--sg-danger)]" },
+  vendido:          { texto: "Facturado / con recibo",         clase: "text-[var(--sg-success)]" },
+};
+
+const REVERSA_TEXTO: Record<AccionReversa, { boton: string; ayuda: string; placeholder: string }> = {
+  cancelar:  { boton: "El cliente desiste", ayuda: "La línea queda rechazada; si ya se pidió, el artículo se cancela y deja de cobrarse.", placeholder: "Motivo (ej. el cliente decidió no reparar)" },
+  recotizar: { boton: "Recotizar",          ayuda: "El proveedor no lo tiene o hay otra alternativa: esta línea queda como constancia y se abre una propuesta nueva para volver a aprobar.", placeholder: "Motivo (ej. eBay sin stock)" },
+  liberar:   { boton: "Liberar a inventario", ayuda: "Ya llegó y el cliente no lo quiere: queda como inventario de la tienda y deja de cobrársele.", placeholder: "Motivo" },
 };
 
 const mon = (n: number) => `$${(n || 0).toFixed(2)}`;
@@ -55,6 +64,7 @@ const INPUT = "w-full rounded-[var(--sg-radius-sm)] border border-[var(--sg-bord
 
 function describirAccion(p: PasoCarga): { texto: string; ok: boolean } {
   const a = p.accion;
+  if (a.tipo === "crear_pedido_aprobado") return { ok: true, texto: "Se crea el pedido en Operaciones Comerciales (ya aprobado). El SKU nace cuando se le pida al proveedor." };
   if (a.tipo === "aprobar_pedido") return { ok: true, texto: `La operación ${a.codigo} pasa a Aprobado. El SKU nace cuando se le pida al proveedor.` };
   if (a.tipo === "ya_en_inventario") return { ok: true, texto: `Ya está en inventario (${a.sku}); queda cargada.` };
   if (a.tipo === "crear_servicio") return { ok: true, texto: `Se agrega a Servicios por ${mon(a.costo)}` };
@@ -124,9 +134,13 @@ const BORRADOR_VACIO = (tipo: TipoLinea): Borrador => ({
   proveedorId: "", categoria: "Repuesto", costo: "", url: "", tiempo: "",
 });
 
-function FormLinea({ ordenId, onCreada, onCancelar }: { ordenId: string; onCreada: () => void; onCancelar: () => void }) {
-  const [b, setB] = useState<Borrador>(BORRADOR_VACIO("Servicio"));
-  const [modoRepuesto, setModoRepuesto] = useState<"inventario" | "pedido">("inventario");
+function FormLinea({ ordenId, onCreada, onCancelar, inicial }: {
+  ordenId: string; onCreada: () => void; onCancelar: () => void;
+  /** Recotizar: arranca con los datos del repuesto que se reemplaza. */
+  inicial?: Borrador | null;
+}) {
+  const [b, setB] = useState<Borrador>(inicial ?? BORRADOR_VACIO("Servicio"));
+  const [modoRepuesto, setModoRepuesto] = useState<"inventario" | "pedido">(inicial ? "pedido" : "inventario");
   const [opcionesPedido, setOpcionesPedido] = useState<OpcionesPedido | null>(null);
   const [servicios, setServicios] = useState<CatServicio[]>([]);
   const [digitales, setDigitales] = useState<CatDigital[]>([]);
@@ -288,6 +302,12 @@ function FormLinea({ ordenId, onCreada, onCancelar }: { ordenId: string; onCread
 export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCargado: () => void | Promise<void> }) {
   const [lineas, setLineas] = useState<LineaPresupuesto[]>([]);
   const [pedidos, setPedidos] = useState<Record<string, InfoPedido>>({});
+  const [reversas, setReversas] = useState<Record<string, ReversasLinea>>({});
+  const [proveedores, setProveedores] = useState<Record<string, string>>({});
+  const [revirtiendo, setRevirtiendo] = useState<{ lineaId: string; accion: AccionReversa; motivo: string } | null>(null);
+  const [inicialForm, setInicialForm] = useState<Borrador | null>(null);
+  const [avisoDinero, setAvisoDinero] = useState(false);
+  const [verHistorial, setVerHistorial] = useState<string | null>(null);
   const [estado, setEstado] = useState<EstadoPresupuesto>("sin_presupuesto");
   const [totales, setTotales] = useState<Totales | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -307,7 +327,7 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
       const j = await r.json();
       if (!montado.current) return;
       if (!j.success) { setError(j.error ?? "No se pudo cargar el presupuesto"); return; }
-      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setError(null);
+      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setReversas(j.data.reversas ?? {}); setProveedores(j.data.proveedores ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setError(null);
       setSeleccion((prev) => new Set([...prev].filter((id) => (j.data.lineas as LineaPresupuesto[]).some((l) => l.id === id && (l.estado === "Propuesta" || l.estado === "Aprobada")))));
     } catch { if (montado.current) setError("Error de red al cargar el presupuesto"); }
     finally { if (montado.current) setCargando(false); }
@@ -331,6 +351,37 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
       const j = await r.json();
       if (!j.success) setError(j.error ?? "No se pudo actualizar la línea");
       await recargar();
+    } catch { setError("Error de red"); }
+    finally { setOcupado(null); }
+  }
+
+  async function confirmarReversa() {
+    if (!revirtiendo) return;
+    const l = lineas.find((x) => x.id === revirtiendo.lineaId);
+    if (!l) return;
+    const { accion, motivo } = revirtiendo;
+    setOcupado(l.id); setError(null);
+    try {
+      const r = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/presupuesto/${encodeURIComponent(l.id)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accion, motivo }),
+      });
+      const j = await r.json();
+      if (!j.success) { setError(j.error ?? "No se pudo completar"); return; }
+      setRevirtiendo(null);
+      setAvisoDinero(true);
+      if (accion === "recotizar") {
+        // Propuesta nueva con los mismos datos, para cambiar proveedor, costo
+        // o precio y volver a pedirle aprobación al cliente.
+        setInicialForm({
+          ...BORRADOR_VACIO("Repuesto"),
+          descripcion: l.descripcion, precio: String(l.precioUnitario),
+          proveedorId: l.proveedorId ?? "", categoria: l.categoria || "Repuesto",
+          costo: l.costoProveedor !== null ? String(l.costoProveedor) : "", url: l.urlProveedor, tiempo: l.tiempoEstimado,
+        });
+        setAgregando(true);
+      }
+      await recargar();
+      await onCargado();
     } catch { setError("Error de red"); }
     finally { setOcupado(null); }
   }
@@ -409,7 +460,26 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
         </div>
       </div>
 
-      {agregando && <FormLinea ordenId={ordenId} onCreada={() => void recargar()} onCancelar={() => setAgregando(false)} />}
+      {agregando && (
+        <FormLinea
+          key={inicialForm ? "recotizar" : "nueva"}
+          ordenId={ordenId}
+          inicial={inicialForm}
+          onCreada={() => { setInicialForm(null); void recargar(); }}
+          onCancelar={() => { setAgregando(false); setInicialForm(null); }}
+        />
+      )}
+
+      {avisoDinero && (
+        <div className="flex items-start justify-between gap-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-info)]/40 bg-[var(--sg-info-soft)] px-3 py-2 text-xs text-[var(--sg-text-secondary)]">
+          <span>
+            Si el cliente ya había abonado, ese dinero <strong>queda a favor en la orden</strong>: se aplica a la alternativa que
+            apruebe o, si se le devuelve, se anula el abono en la tarjeta Abonos. El panel de cobros lo marca en “Abonos de más”
+            mientras tanto.
+          </span>
+          <button type="button" onClick={() => setAvisoDinero(false)} className="shrink-0 text-[var(--sg-text-muted)] hover:text-[var(--sg-text-primary)]">✕</button>
+        </div>
+      )}
 
       {error && <p className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/40 bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-danger)]">{error}</p>}
 
@@ -447,6 +517,19 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
                       <span className="block text-[var(--sg-text-primary)]">{l.descripcion}</span>
                       {(() => {
                         const p = l.operacionId ? pedidos[l.operacionId] : undefined;
+                        if (l.bajoPedido && !l.operacionId) {
+                          return (
+                            <span className="block text-[11px] leading-snug">
+                              <span className="uppercase tracking-wide text-[10px] text-[var(--sg-text-muted)]">Repuesto · bajo pedido</span>
+                              <span className="block text-[var(--sg-text-muted)]">
+                                {(l.proveedorId && proveedores[l.proveedorId]) || "Sin proveedor"}{l.tiempoEstimado ? ` · ${l.tiempoEstimado}` : ""}
+                                {l.costoProveedor !== null ? ` · costo ${mon(l.costoProveedor)}` : ""}
+                                {l.urlProveedor && <> {" · "}<a href={l.urlProveedor} target="_blank" rel="noopener noreferrer" className="text-[var(--sg-lime)] hover:underline">ver repuesto</a></>}
+                              </span>
+                              {l.estado === "Propuesta" && <span className="block text-[var(--sg-text-muted)]">Solo presupuesto: el pedido se crea cuando el cliente apruebe.</span>}
+                            </span>
+                          );
+                        }
                         if (!l.operacionId) {
                           return (
                             <span className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">
@@ -477,6 +560,24 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
                         );
                       })()}
                       {l.notaCarga && l.estado === "Aprobada" && !(l.operacionId && l.notaCarga.startsWith("Esperando pedido")) && <span className="mt-0.5 block text-[11px] text-[var(--sg-warning)]">{l.notaCarga}</span>}
+                      {l.historial && (
+                        <button type="button" onClick={() => setVerHistorial(verHistorial === l.id ? null : l.id)} className="mt-0.5 block text-[10px] text-[var(--sg-text-muted)] hover:text-[var(--sg-text-primary)]">
+                          {verHistorial === l.id ? "Ocultar historial" : "Ver historial"}
+                        </button>
+                      )}
+                      {verHistorial === l.id && (
+                        <pre className="mt-1 whitespace-pre-wrap rounded border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-1 font-sans text-[10px] text-[var(--sg-text-secondary)]">{l.historial}</pre>
+                      )}
+                      {revirtiendo?.lineaId === l.id && (
+                        <div className="mt-1.5 space-y-1.5 rounded-[var(--sg-radius-sm)] border border-[var(--sg-warning)]/50 bg-[var(--sg-warning-soft)] p-2">
+                          <p className="text-[11px] text-[var(--sg-text-secondary)]">{REVERSA_TEXTO[revirtiendo.accion].ayuda}</p>
+                          <input autoFocus value={revirtiendo.motivo} onChange={(e) => setRevirtiendo({ ...revirtiendo, motivo: e.target.value })} placeholder={REVERSA_TEXTO[revirtiendo.accion].placeholder} className={INPUT} />
+                          <div className="flex justify-end gap-2">
+                            <button type="button" onClick={() => setRevirtiendo(null)} className={BTN_SEC}>Volver</button>
+                            <button type="button" disabled={ocupado === l.id} onClick={confirmarReversa} className={BTN_PRI}>{ocupado === l.id ? "Aplicando…" : `Confirmar: ${REVERSA_TEXTO[revirtiendo.accion].boton.toLowerCase()}`}</button>
+                          </div>
+                        </div>
+                      )}
                       {vinculando === l.id && (
                         <div className="mt-1.5">
                           <BuscadorRepuesto ordenId={ordenId} onElegir={(i) => { setVinculando(null); void accionLinea(l, "PATCH", { itemId: i.id }); }} />
@@ -498,9 +599,24 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
                           {ocupado === l.id ? "Registrando…" : "Ya se pidió al proveedor"}
                         </button>
                       )}
-                      {l.estado === "Aprobada" && (
-                        <button type="button" disabled={ocupado === l.id} onClick={() => accionLinea(l, "PATCH", { accion: "cancelar" })} className="mr-2 text-[var(--sg-text-muted)] hover:text-[var(--sg-danger)]" title="El cliente se arrepintió o el repuesto no se consiguió">Cancelar</button>
-                      )}
+                      {(l.estado === "Aprobada" || l.estado === "Cargada") && (() => {
+                        const rv = reversas[l.id];
+                        if (!rv) return null;
+                        const permitidas = (["recotizar", "cancelar", "liberar"] as AccionReversa[]).filter((a) => rv[a].permitido);
+                        if (permitidas.length === 0) {
+                          // Nada se puede deshacer aquí: se dice por qué y dónde, en vez de esconderlo.
+                          const motivo = rv.cancelar.motivo ?? rv.liberar.motivo;
+                          return l.bajoPedido || l.estado === "Aprobada"
+                            ? <span className="mr-2 cursor-help text-[var(--sg-text-muted)] underline decoration-dotted" title={motivo}>¿Deshacer?</span>
+                            : null;
+                        }
+                        return permitidas.map((a) => (
+                          <button key={a} type="button" disabled={ocupado === l.id} onClick={() => setRevirtiendo({ lineaId: l.id, accion: a, motivo: "" })}
+                            className={`mr-2 ${a === "cancelar" ? "text-[var(--sg-text-muted)] hover:text-[var(--sg-danger)]" : "text-[var(--sg-text-muted)] hover:text-[var(--sg-lime)]"}`}>
+                            {REVERSA_TEXTO[a].boton}
+                          </button>
+                        ));
+                      })()}
                       {aceptaVincularArticulo(l) && !l.itemId && !l.operacionId && (
                         <button type="button" disabled={ocupado === l.id} onClick={() => setVinculando(vinculando === l.id ? null : l.id)} className="mr-2 text-[var(--sg-lime)] hover:underline">Vincular artículo</button>
                       )}
