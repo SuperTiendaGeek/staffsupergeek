@@ -20,6 +20,7 @@ import {
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Pago, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2ItemHeaderNavigation } from "./ShippingV2ItemHeaderNavigation";
+import { EliminarItemAdmin } from "./EliminarItemAdmin";
 import { ShippingV2ItemDetailView, type ResolvedItem } from "../ShippingV2ItemsClient";
 
 export const dynamic = "force-dynamic";
@@ -158,6 +159,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
             }
           />
           <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} esAdmin={esAdmin} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} permissions={permissions} />
+          {esAdmin && <EliminarItemAdmin itemId={item.id} />}
         </div>
       )}
     </StaffAppShell>

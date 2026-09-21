@@ -144,6 +144,7 @@ import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, S
 import { calculateShippingV2BatteryState, shippingV2CategoryDoesNotUseScreenOrBattery, shippingV2CategoryHasBattery } from "@/lib/shipping-v2/technical-sheet";
 import { fetchCuentaPorNombre, fetchCuentaPorNombreNormalizado } from "@/lib/finanzas/cuentas";
 import { crearMovimiento } from "@/lib/finanzas/movimientos";
+import { CAMPOS_ITEM, confirmacionValida, detectarVinculosDesconocidos, evaluarEliminacion, type ContextoEliminacion, type EvaluacionEliminacion } from "@/lib/shipping-v2/eliminar-item";
 
 type AirtableRecord = {
   id: string;
@@ -7201,4 +7202,125 @@ export async function soltarArticuloDePedido(
     estadoNuevo: opts.modo === "cancelar" ? "Cancelado" : estadoAnterior,
   });
   invalidateShippingV2ItemSearchIndexCache();
+}
+
+// ─── Eliminar item (solo Administrador) ──────────────────────────────────────
+// Reglas en lib/shipping-v2/eliminar-item.ts. Se lee el item por ID de campo
+// (returnFieldsByFieldId) para que un campo renombrado no deje ciega la
+// verificación. Antes de borrar se registra un evento con la copia completa
+// de los datos; si ese evento no se puede escribir, NO se borra.
+
+const TABLA_PRESUPUESTO_ORDEN = "Presupuesto por Orden";
+const SNAPSHOT_MAX = 90_000;
+
+function idsDeCampo(fields: Record<string, unknown>, fieldId: string): string[] {
+  const v = fields[fieldId];
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+async function leerItemPorIdDeCampo(itemId: string) {
+  const url = new URL(`${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(itemId)}`);
+  url.searchParams.set("returnFieldsByFieldId", "true");
+  return airtableRequest<AirtableRecordResponse>(url.toString());
+}
+
+async function contextoEliminacion(itemId: string): Promise<{ ctx: ContextoEliminacion; fields: Record<string, unknown> }> {
+  const record = await leerItemPorIdDeCampo(itemId);
+  const fields = record.fields ?? {};
+  const C = CAMPOS_ITEM;
+
+  const pagoIds = [...idsDeCampo(fields, C.pagos), ...idsDeCampo(fields, C.pagosRegalo)];
+  const presupuestoIds = idsDeCampo(fields, C.presupuesto);
+  const [pagos, lineas] = await Promise.all([
+    pagoIds.length ? listRecordsByIds(SHIPPING_V2_TABLES.pagos, pagoIds) : Promise.resolve([] as AirtableRecord[]),
+    presupuestoIds.length ? listRecordsByIds(TABLA_PRESUPUESTO_ORDEN, presupuestoIds) : Promise.resolve([] as AirtableRecord[]),
+  ]);
+  // Si un vínculo no se pudo leer completo, se asume lo peor (activo).
+  const pagosCtx = pagoIds.map((id) => {
+    const r = pagos.find((x) => x.id === id);
+    return { codigo: firstString(r?.fields["Pago ID"], id), estado: r ? firstString(r.fields["Estado Pago"]) : "desconocido" };
+  });
+  const presupuestoCtx = presupuestoIds.map((id) => {
+    const r = lineas.find((x) => x.id === id);
+    return { descripcion: firstString(r?.fields["Descripción"]), estado: r ? firstString(r.fields["Estado"]) : "desconocido" };
+  });
+
+  const conteo: Record<string, number> = {};
+  for (const id of Object.values(C)) {
+    const v = fields[id];
+    if (Array.isArray(v) && v.length > 0) conteo[id] = v.length;
+  }
+  const fotos = (conteo[C.fotos] ?? 0) + (conteo[C.evidencias] ?? 0);
+
+  return {
+    fields,
+    ctx: {
+      sku: firstString(fields[C.sku]).trim(),
+      nombre: firstString(fields[C.nombre]).trim(),
+      estado: firstString(fields[C.estado]).trim(),
+      pagos: pagosCtx,
+      presupuesto: presupuestoCtx,
+      conteo,
+      vinculosDesconocidos: detectarVinculosDesconocidos(fields),
+      fotos,
+    },
+  };
+}
+
+export async function evaluarEliminacionShippingItem(itemId: string): Promise<EvaluacionEliminacion & { sku: string; nombre: string }> {
+  assertShippingV2GeneratedSchema();
+  const id = cleanString(itemId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  const { ctx } = await contextoEliminacion(id);
+  return { ...evaluarEliminacion(ctx), sku: ctx.sku, nombre: ctx.nombre };
+}
+
+export class EliminacionBloqueadaError extends Error {
+  constructor(public evaluacion: EvaluacionEliminacion) {
+    super(evaluacion.bloqueos[0] ?? "No se puede eliminar este item.");
+  }
+}
+
+export async function eliminarShippingItem(itemId: string, opts: { confirmacion: unknown; motivo: string; registradoPor: string }) {
+  assertShippingV2GeneratedSchema();
+  const id = cleanString(itemId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  const motivo = cleanString(opts.motivo);
+  if (motivo.length < 5) throw new Error("Escribe el motivo de la eliminación (mínimo 5 caracteres).");
+
+  // Se vuelve a evaluar aquí: entre la vista previa y la confirmación alguien
+  // pudo agregarlo a un pago o a un packing.
+  const { ctx, fields } = await contextoEliminacion(id);
+  const evaluacion = evaluarEliminacion(ctx);
+  if (!evaluacion.permitido) throw new EliminacionBloqueadaError(evaluacion);
+  if (!confirmacionValida(evaluacion.confirmacion, opts.confirmacion)) {
+    throw new Error(`Para confirmar escribe exactamente: ${evaluacion.confirmacion}`);
+  }
+
+  const copia = JSON.stringify({ recordId: id, eliminadoEn: new Date().toISOString(), campos: fields });
+  // 1) Evento de auditoría (obligatorio). Sin enlace al item: el item va a desaparecer.
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.eventos), {
+    method: "POST",
+    body: JSON.stringify({
+      records: [{
+        fields: {
+          "Tipo de entidad": "Shipping Item",
+          "Acción": "Corrección administrativa",
+          "Estado anterior": ctx.estado || undefined,
+          "Estado nuevo": "Eliminado",
+          "Descripción del evento": `Item eliminado por administrador: ${ctx.sku || "(sin SKU)"} — ${ctx.nombre || "(sin nombre)"}. Record ${id}.`,
+          "Observación": motivo,
+          "Registrado por": opts.registradoPor,
+          "Fecha del evento": new Date().toISOString(),
+          "Datos relevantes": copia.length > SNAPSHOT_MAX ? `${copia.slice(0, SNAPSHOT_MAX)}…(recortado)` : copia,
+        },
+      }],
+      typecast: false,
+    }),
+  });
+
+  // 2) Borrado.
+  await airtableMutation(`${tableUrl(SHIPPING_V2_TABLES.items)}?records[]=${encodeURIComponent(id)}`, { method: "DELETE" });
+  invalidateShippingV2ItemSearchIndexCache();
+  return { sku: ctx.sku, nombre: ctx.nombre, avisos: evaluacion.avisos };
 }
