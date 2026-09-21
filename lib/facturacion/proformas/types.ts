@@ -29,9 +29,17 @@ export type ProformaCliente = {
   airtableId?:        string;   // link real a Clientes, si se eligió uno existente
 };
 
+/** Orden/operacion de la que salio la proforma (gancho de cuenta unificada). */
+export type OrigenProforma = { tipo: "orden" | "operacion"; recordId: string };
+
 export type CrearProformaInput = {
   cliente:  ProformaCliente;
   lineas:   LineaProforma[];
+  /** Presente solo cuando la proforma se emite desde una orden/operacion. La
+   *  proforma NO tiene efectos reales (no toca inventario ni el libro), asi
+   *  que el origen solo sirve para dejarla vinculada y encontrable desde la
+   *  orden. Por lo mismo, NO bloquea emitir factura o recibo despues. */
+  origen?:  OrigenProforma;
   /** Nota/observación opcional que se imprime en la proforma. */
   nota?:    string;
   /** Días de validez de la proforma (informativo, se imprime). */

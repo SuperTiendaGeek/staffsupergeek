@@ -216,8 +216,8 @@ function factura(fields: Record<string, unknown>, minutos: number): RecordDoble 
     "La guarda existente de body.origen sigue corriendo antes que la guarda general de duplicados"
   );
   assert(
-    rutaEmitir.includes("buscarFacturaBloqueante(body.origen)"),
-    "Una factura desde una orden/operacion con factura previa sigue usando la guarda de origen"
+    rutaEmitir.includes("buscarDocumentoBloqueante(body.origen)"),
+    "Una factura desde una orden/operacion con documento previo (factura o recibo) sigue usando la guarda de origen"
   );
 
   assert(

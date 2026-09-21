@@ -26,8 +26,12 @@ function formatFecha(fecha: string | null) {
 }
 
 // origenTipo: qué pantalla monta el panel (orden u operación) — determina
-// a qué record id apunta el botón "Emitir factura" cuando ambos existen
+// a qué record id apunta el botón "Emitir documento" cuando ambos existen
 // (par vinculado). Fase 16 PR2 (gancho cuenta unificada → facturación).
+//
+// El botón dice "documento", no "factura": la pantalla de destino ofrece
+// factura, recibo (interno, sin IVA) y proforma, todos con los datos de la
+// cuenta ya precargados.
 export function CuentaUnificadaPanel({
   cuenta,
   origenTipo,
@@ -36,7 +40,7 @@ export function CuentaUnificadaPanel({
   origenTipo?: "orden" | "operacion";
 }) {
   const origenRecordId = origenTipo === "operacion" ? cuenta.operacionId : cuenta.ordenId;
-  const hrefEmitirFactura =
+  const hrefEmitirDocumento =
     origenTipo && origenRecordId
       ? `/facturacion/nueva?origen=${origenTipo}&recordId=${encodeURIComponent(origenRecordId)}`
       : null;
@@ -218,10 +222,10 @@ export function CuentaUnificadaPanel({
         </span>
       </div>
 
-      {hrefEmitirFactura && (
+      {hrefEmitirDocumento && (
         <div style={{ margin: "0 14px 14px" }}>
           <Link
-            href={hrefEmitirFactura}
+            href={hrefEmitirDocumento}
             style={{
               display: "block",
               textAlign: "center",
@@ -234,8 +238,11 @@ export function CuentaUnificadaPanel({
               textDecoration: "none",
             }}
           >
-            Emitir factura →
+            Emitir documento →
           </Link>
+          <p style={{ margin: "6px 0 0", textAlign: "center", fontSize: "11px", color: "#A7A7A7" }}>
+            Factura, recibo o proforma — con los datos de esta cuenta
+          </p>
         </div>
       )}
     </section>

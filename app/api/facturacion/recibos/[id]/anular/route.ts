@@ -1,7 +1,8 @@
 import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { obtenerReciboPorId, marcarReciboAnulado } from "@/lib/facturacion/recibos/airtable";
-import { revertirInventarioRecibo, revertirIngresoRecibo } from "@/lib/facturacion/recibos/efectos";
+import { revertirInventarioRecibo, revertirIngresoRecibo, revertirProductosDigitalesRecibo } from "@/lib/facturacion/recibos/efectos";
+import { revertirPuenteRecibo } from "@/lib/finanzas/puentes/recibo";
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
 
 export const dynamic = "force-dynamic";
@@ -21,14 +22,31 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const cfg = getFacturacionConfig();
 
   try {
+    const registradoPor = session.user.nombre || session.user.email || "Portal";
+
     await marcarReciboAnulado(id);
     // Reverso de inventario: devuelve el stock.
     await revertirInventarioRecibo({ reciboRecordId: id, lineas: recibo.lineas, ambiente: cfg.ambiente }).catch((e) => console.error("[anular recibo] inventario:", e));
-    // Reverso contable: Egreso categoría "Devolución" con la forma de pago original.
-    await revertirIngresoRecibo({
-      numeroRecibo: recibo.numero, total: recibo.total, formaPago: recibo.formaPago,
-      clienteRecordId: recibo.clienteRecordId, registradoPor: session.user.nombre || session.user.email || "Portal", ambiente: cfg.ambiente,
-    }).catch((e) => console.error("[anular recibo] contable:", e));
+    // Productos digitales: vuelven a Disponible y sueltan el enlace.
+    await revertirProductosDigitalesRecibo({ reciboRecordId: id, lineas: recibo.lineas, ambiente: cfg.ambiente }).catch((e) => console.error("[anular recibo] productos digitales:", e));
+
+    if (recibo.origen) {
+      // Recibo con origen: NUNCA revertir el total. Los abonos previos ya
+      // estaban registrados antes de emitirlo y ese dinero no regresa al
+      // cliente por anular el documento — solo se devuelve el saldo que este
+      // recibo llegó a registrar (ver revertirPuenteRecibo).
+      await revertirPuenteRecibo({
+        reciboRecordId: id, numeroRecibo: recibo.numero, movimientoIds: recibo.movimientoIds,
+        clienteRecordId: recibo.clienteRecordId, registradoPor, ambiente: cfg.ambiente,
+      }).catch((e) => console.error("[anular recibo] contable (origen):", e));
+    } else {
+      // Mostrador: Egreso categoría "Devolución" por el total, con la forma
+      // de pago original.
+      await revertirIngresoRecibo({
+        numeroRecibo: recibo.numero, total: recibo.total, formaPago: recibo.formaPago,
+        clienteRecordId: recibo.clienteRecordId, registradoPor, ambiente: cfg.ambiente,
+      }).catch((e) => console.error("[anular recibo] contable:", e));
+    }
 
     return NextResponse.json({ success: true, data: { numero: recibo.numero } });
   } catch (e) {

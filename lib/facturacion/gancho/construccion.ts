@@ -235,11 +235,14 @@ export type ItemNoListo = { id: string; nombre: string; motivo: "NO_RESERVADO" |
 
 export function evaluarItemNoListo(
   item: Pick<CuentaUnificadaItem, "id" | "nombre" | "precio">,
-  detalle: Pick<ItemDetalleGancho, "reservado" | "tieneFacturaPrevia" | "cantidad" | "cantidadReservada"> | undefined
+  detalle: Pick<ItemDetalleGancho, "reservado" | "tieneFacturaPrevia" | "cantidad" | "cantidadReservada"> & Partial<Pick<ItemDetalleGancho, "tieneReciboPrevio">> | undefined
 ): ItemNoListo | null {
   if (!detalle) return null; // fetch inconsistente — se ignora en vez de bloquear (ver traductor.ts)
   if (detalle.cantidad < 1) {
-    if (detalle.tieneFacturaPrevia) return { id: item.id, nombre: item.nombre, motivo: "YA_FACTURADO" };
+    // "YA_FACTURADO" cubre también el recibo interno: para el usuario el
+    // mensaje es el mismo ("ya tiene un documento de venta"), y el recibo
+    // descuenta stock exactamente igual que la factura.
+    if (detalle.tieneFacturaPrevia || detalle.tieneReciboPrevio) return { id: item.id, nombre: item.nombre, motivo: "YA_FACTURADO" };
     return { id: item.id, nombre: item.nombre, motivo: "SIN_STOCK" };
   }
   // F-42 — "apartado" ya no se lee solo de la bandera. En un registro

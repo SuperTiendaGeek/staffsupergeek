@@ -1,7 +1,10 @@
 import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { crearRecibo, adjuntarPdfRecibo, listarRecibos } from "@/lib/facturacion/recibos/airtable";
-import { descontarInventarioRecibo, registrarIngresoRecibo } from "@/lib/facturacion/recibos/efectos";
+import { descontarInventarioRecibo, registrarIngresoRecibo, marcarProductosDigitalesRecibo } from "@/lib/facturacion/recibos/efectos";
+import { actualizarEfectosRecibo } from "@/lib/facturacion/recibos/airtable";
+import { buscarDocumentoBloqueante } from "@/lib/facturacion/gancho/idempotencia";
+import { procesarPuenteRecibo } from "@/lib/finanzas/puentes/recibo";
 import { generarReciboPdf }          from "@/lib/facturacion/recibos/pdf";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
@@ -43,6 +46,28 @@ export async function POST(request: Request) {
   if (errorPrecioShipping) return NextResponse.json({ success: false, error: errorPrecioShipping }, { status: 400 });
   if (!body.formaPago?.trim()) return NextResponse.json({ success: false, error: "Elige una forma de pago" }, { status: 400 });
 
+  // Gancho: recibo emitido desde una orden/operación. El origen decide tres
+  // cosas — el vínculo del recibo, el bloqueo cruzado y el reparto contable.
+  if (body.origen) {
+    if (body.origen.tipo !== "orden" && body.origen.tipo !== "operacion" || !body.origen.recordId?.trim()) {
+      return NextResponse.json({ success: false, error: "Origen inválido" }, { status: 400 });
+    }
+    // Re-verificación server-side: la UI ya bloqueó antes (vía
+    // /api/facturacion/prefactura), pero la regla no puede ser saltable con
+    // un request directo al API — mismo criterio que /api/facturacion/emitir.
+    const bloqueante = await buscarDocumentoBloqueante(body.origen).catch((e) => {
+      console.error("[recibos POST] error verificando idempotencia:", e);
+      return null;
+    });
+    if (bloqueante) {
+      const etiqueta = body.origen.tipo === "orden" ? "orden" : "operación";
+      const detalle = bloqueante.tipo === "factura"
+        ? `una factura ${bloqueante.factura.estado} (${bloqueante.factura.numeroFactura || bloqueante.factura.claveAcceso})`
+        : `un recibo ${bloqueante.recibo.estado} (${bloqueante.recibo.numero})`;
+      return NextResponse.json({ success: false, error: `Esta ${etiqueta} ya tiene ${detalle}.` }, { status: 409 });
+    }
+  }
+
   // Verificar stock (como una factura) — bloquea antes de crear el recibo.
   const detallesParaStock: DetalleFactura[] = body.lineas
     .filter((l) => !!l.shippingItemId)
@@ -64,10 +89,40 @@ export async function POST(request: Request) {
       await adjuntarPdfRecibo(recordId, `${numero}.pdf`, Buffer.from(pdf).toString("base64"));
     } catch (e) { console.error("[recibos POST] PDF no generado:", e); }
 
-    // Efectos (guardados a producción por su ambiente). Best-effort cada uno.
+    // Efectos (guardados a producción por su ambiente). Best-effort cada uno:
+    // el recibo y su PDF ya existen, un fallo aquí no los deshace.
     try { await descontarInventarioRecibo({ reciboRecordId: recordId, numeroRecibo: numero, lineas: body.lineas, ambiente: cfg.ambiente }); }
     catch (e) { console.error("[recibos POST] inventario:", e); }
-    try { await registrarIngresoRecibo({ reciboRecordId: recordId, numeroRecibo: numero, total, formaPago: body.formaPago, clienteRecordId: body.cliente.airtableId, registradoPor: session.user.nombre || session.user.email || "Portal", ambiente: cfg.ambiente }); }
+
+    // Productos digitales (solo aparecen en recibos con origen, hoy): se
+    // marcan Usado y se enlazan, igual que hace postEmision() con la factura.
+    try {
+      const pd = await marcarProductosDigitalesRecibo({ reciboRecordId: recordId, lineas: body.lineas, ambiente: cfg.ambiente });
+      if (pd.estado === "ERROR") console.error("[recibos POST] productos digitales:", pd.detalle);
+    } catch (e) { console.error("[recibos POST] productos digitales:", e); }
+
+    const registradoPor = session.user.nombre || session.user.email || "Portal";
+    try {
+      if (body.origen) {
+        // Con origen NO se registra el total: los abonos previos ya están en
+        // /finanzas. Se marcan como documentados y solo se crea el asiento
+        // del saldo (ver lib/finanzas/puentes/recibo.ts).
+        await actualizarEfectosRecibo(recordId, "Movimiento Contable", "PENDIENTE").catch(() => {});
+        const puente = await procesarPuenteRecibo({
+          reciboRecordId: recordId, numeroRecibo: numero, origen: body.origen,
+          total, formaPagoSaldo: body.formaPago, clienteRecordId: body.cliente.airtableId,
+          registradoPor, ambiente: cfg.ambiente,
+        });
+        await actualizarEfectosRecibo(
+          recordId,
+          "Movimiento Contable",
+          puente.estado === "ERROR" ? "ERROR" : puente.estado === "OMITIDO" ? "N/A" : "OK",
+          puente.detalle
+        ).catch(() => {});
+      } else {
+        await registrarIngresoRecibo({ reciboRecordId: recordId, numeroRecibo: numero, total, formaPago: body.formaPago, clienteRecordId: body.cliente.airtableId, registradoPor, ambiente: cfg.ambiente });
+      }
+    }
     catch (e) { console.error("[recibos POST] contable:", e); }
 
     return NextResponse.json({ success: true, data: { recordId, numero, total } });

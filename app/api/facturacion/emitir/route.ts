@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitirFactura";
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
-import { buscarFacturaBloqueante } from "@/lib/facturacion/gancho/idempotencia";
+import { buscarDocumentoBloqueante } from "@/lib/facturacion/gancho/idempotencia";
 import { postEmision, debeIntentarPostEmision } from "@/lib/facturacion/gancho/postEmision";
 import {
   agregarNotaAuditoriaFactura,
@@ -118,17 +118,20 @@ export async function POST(request: Request) {
   // (en /api/facturacion/prefactura), pero la regla no puede ser saltable
   // con un request directo al API.
   if (body.origen) {
-    const bloqueante = await buscarFacturaBloqueante(body.origen).catch((e) => {
+    const bloqueante = await buscarDocumentoBloqueante(body.origen).catch((e) => {
       console.error("[/api/facturacion/emitir POST] error verificando idempotencia:", e);
       return null;
     });
     if (bloqueante) {
+      const etiquetaOrigen = body.origen.tipo === "orden" ? "orden" : "operación";
+      // El recibo interno bloquea igual que una factura: cierra la cuenta y
+      // ya descontó inventario y registró el ingreso.
+      const detalle =
+        bloqueante.tipo === "factura"
+          ? `una factura ${bloqueante.factura.estado} (${bloqueante.factura.numeroFactura || bloqueante.factura.claveAcceso})`
+          : `un recibo ${bloqueante.recibo.estado} (${bloqueante.recibo.numero})`;
       return NextResponse.json(
-        {
-          success: false,
-          error: `Esta ${body.origen.tipo === "orden" ? "orden" : "operación"} ya tiene una factura ` +
-                 `${bloqueante.estado} (${bloqueante.numeroFactura || bloqueante.claveAcceso}).`,
-        },
+        { success: false, error: `Esta ${etiquetaOrigen} ya tiene ${detalle}.` },
         { status: 409 }
       );
     }

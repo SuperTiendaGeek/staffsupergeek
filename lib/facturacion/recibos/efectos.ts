@@ -7,6 +7,7 @@ import "server-only";
 // El recibo (registro + PDF) sí se crea siempre; estos efectos son aparte.
 
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero } from "../gancho/airtableGancho";
+import { ahoraEnEcuador } from "../fechaEcuador";
 import { crearMovimiento } from "@/lib/finanzas/movimientos";
 import { fetchCuentaPorNombre } from "@/lib/finanzas/cuentas";
 import { actualizarEfectosRecibo } from "./airtable";
@@ -14,6 +15,7 @@ import type { LineaRecibo } from "./types";
 import type { EstadoMovimiento, MetodoMovimiento } from "@/types/finanzas";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
+const PRODUCTOS_DIGITALES_TABLE = "Productos Digitales";
 const AMBIENTE_PRODUCCION = "2";
 
 // ─── Inventario: descuenta Cantidad, mismo criterio que la factura ───────────
@@ -112,10 +114,14 @@ export async function revertirInventarioRecibo(input: { reciboRecordId: string; 
 }
 
 async function patchItem(itemId: string, fields: Record<string, unknown>): Promise<void> {
+  return patchTabla(SHIPPING_ITEMS_TABLE, itemId, fields);
+}
+
+async function patchTabla(tabla: string, itemId: string, fields: Record<string, unknown>): Promise<void> {
   const token = process.env.AIRTABLE_API_KEY?.trim();
   const baseId = process.env.AIRTABLE_BASE_ID?.trim();
   if (!token || !baseId) throw new Error("Falta AIRTABLE_API_KEY/BASE_ID.");
-  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(SHIPPING_ITEMS_TABLE)}/${encodeURIComponent(itemId)}`;
+  const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tabla)}/${encodeURIComponent(itemId)}`;
   const retryable = new Set([429, 502, 503, 504]);
   let res: Response | null = null;
   for (let i = 0; i < 3; i++) {
@@ -123,7 +129,7 @@ async function patchItem(itemId: string, fields: Record<string, unknown>): Promi
     if (res.ok || !retryable.has(res.status) || i === 2) break;
     await new Promise((r) => setTimeout(r, 400 * (i + 1)));
   }
-  if (!res || !res.ok) throw new Error(`PATCH Shipping Items ${itemId} → ${res?.status ?? "?"}: ${res ? await res.text() : "sin respuesta"}`);
+  if (!res || !res.ok) throw new Error(`PATCH ${tabla} ${itemId} → ${res?.status ?? "?"}: ${res ? await res.text() : "sin respuesta"}`);
 }
 
 // ─── Contable: Ingreso en el Sistema Contable SG ─────────────────────────────
@@ -162,6 +168,7 @@ export async function registrarIngresoRecibo(input: {
         estado: mapeo?.estado ?? "Confirmado", estadoDistribucion: "Pendiente de clasificar",
         metodo: mapeo?.metodo, fecha: new Date().toISOString(), registradoPor: input.registradoPor,
         clienteId: input.clienteRecordId,
+        reciboId: input.reciboRecordId,
         observacion: `Recibo interno ${input.numeroRecibo} (documento no tributario, sin IVA)`,
       },
       { permitirCuentaFaltante: cuenta === null }
@@ -196,5 +203,88 @@ export async function revertirIngresoRecibo(input: {
     );
   } catch (e) {
     console.error("[revertirIngresoRecibo]", e);
+  }
+}
+
+// ─── Productos digitales: marcar Usado y enlazar el recibo ───────────────────
+// Espejo no tributario de postEmisionProductosDigitales() (gancho/postEmision.ts).
+// Un producto digital es siempre una unidad: no hay cantidad que descontar,
+// solo se marca Usado y se enlaza el recibo. Idempotente por el link: si este
+// recibo ya está enlazado, no se vuelve a escribir.
+
+export async function marcarProductosDigitalesRecibo(input: {
+  reciboRecordId: string;
+  lineas:         LineaRecibo[];
+  ambiente?:      string;
+}): Promise<{ estado: "OK" | "ERROR"; detalle?: string }> {
+  if (input.ambiente !== AMBIENTE_PRODUCCION) return { estado: "OK" };
+
+  const ids = [...new Set(
+    input.lineas
+      .filter((l): l is LineaRecibo & { productoDigitalId: string } => !!l.productoDigitalId)
+      .map((l) => l.productoDigitalId)
+  )];
+  if (ids.length === 0) return { estado: "OK" };
+
+  const records = await fetchRecordsByIds(PRODUCTOS_DIGITALES_TABLE, ids);
+  const actual = new Map(records.map((r) => [r.id, {
+    reciboIds:  linkedIds(r.fields["Recibo"]),
+    facturaIds: linkedIds(r.fields["Factura"]),
+    tieneOrden: linkedIds(r.fields["Orden de Reparación"]).length > 0,
+  }]));
+
+  // Fecha local de Ecuador, no UTC: en Vercel new Date() escribiría "mañana"
+  // entre las 19:00 y medianoche (mismo motivo que documenta postEmision.ts).
+  const ahora = ahoraEnEcuador();
+  const hoy = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}-${String(ahora.getDate()).padStart(2, "0")}`;
+
+  const fallidos: string[] = [];
+  for (const id of ids) {
+    const est = actual.get(id);
+    if (est && est.reciboIds.includes(input.reciboRecordId)) continue; // idempotente
+
+    const fields: Record<string, unknown> = {
+      "Estado":               "Usado",
+      "Recibo":               [...(est?.reciboIds ?? []), input.reciboRecordId],
+      "Fecha de Uso / Venta": hoy,
+    };
+    // Igual que en la factura: "Tipo de Uso" solo se escribe cuando el
+    // producto no vino de una orden (una venta de mostrador nunca pasó por
+    // asignarProductoDigitalAOrden y el campo quedaría vacío).
+    if (!est?.tieneOrden) fields["Tipo de Uso"] = "Venta directa";
+
+    try { await patchTabla(PRODUCTOS_DIGITALES_TABLE, id, fields); }
+    catch (e) { fallidos.push(`${id}: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+
+  if (fallidos.length === 0) return { estado: "OK" };
+  return { estado: "ERROR", detalle: `Productos digitales sin marcar: ${fallidos.join("; ")}` };
+}
+
+// Reverso al anular: devuelve el producto digital a Disponible y suelta el
+// enlace, para que pueda volver a venderse.
+export async function revertirProductosDigitalesRecibo(input: {
+  reciboRecordId: string;
+  lineas:         LineaRecibo[];
+  ambiente?:      string;
+}): Promise<void> {
+  if (input.ambiente !== AMBIENTE_PRODUCCION) return;
+  const ids = [...new Set(
+    input.lineas
+      .filter((l): l is LineaRecibo & { productoDigitalId: string } => !!l.productoDigitalId)
+      .map((l) => l.productoDigitalId)
+  )];
+  if (ids.length === 0) return;
+
+  const records = await fetchRecordsByIds(PRODUCTOS_DIGITALES_TABLE, ids);
+  for (const r of records) {
+    const reciboIds = linkedIds(r.fields["Recibo"]);
+    if (!reciboIds.includes(input.reciboRecordId)) continue; // evita revertir dos veces
+    const fields: Record<string, unknown> = {
+      "Estado": "Disponible",
+      "Recibo": reciboIds.filter((id) => id !== input.reciboRecordId),
+    };
+    await patchTabla(PRODUCTOS_DIGITALES_TABLE, r.id, fields)
+      .catch((e) => console.error("[revertirProductosDigitalesRecibo]", e));
   }
 }

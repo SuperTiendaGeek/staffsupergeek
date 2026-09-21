@@ -10,8 +10,8 @@ import {
   fetchOrden, fetchOperacion, fetchCliente, fetchDetalleItems,
   linkedIds, firstString,
 } from "./airtableGancho";
-import { buscarFacturaBloqueante } from "./idempotencia";
-import type { FacturaVinculadaGancho } from "./airtableGancho";
+import { buscarDocumentoBloqueante } from "./idempotencia";
+import type { FacturaVinculadaGancho, ReciboVinculadoGancho } from "./airtableGancho";
 import {
   derivarTipoIdentificacion, construirLineaProducto, construirLineaServicio, construirLineaRepuestoHistorico,
   construirLineaProductoDigital, agruparTotalConImpuestos, evaluarItemNoListo, evaluarProductoDigitalNoListo,
@@ -27,8 +27,13 @@ export type PreFacturaInput = { ordenId: string } | { operacionId: string };
 
 export type PreFacturaBloqueada = {
   bloqueado:        true;
-  motivo:           "FACTURA_EXISTENTE" | "ITEMS_NO_LISTOS" | "PRODUCTOS_DIGITALES_SIN_PRECIO";
+  motivo:           "FACTURA_EXISTENTE" | "RECIBO_EXISTENTE" | "ITEMS_NO_LISTOS" | "PRODUCTOS_DIGITALES_SIN_PRECIO";
   facturaExistente?: FacturaVinculadaGancho;
+  // Bloqueo cruzado: el recibo interno cierra la cuenta igual que una
+  // factura (descuenta inventario y registra el ingreso), así que uno
+  // vigente impide emitir cualquier otro documento de venta sobre el
+  // mismo origen — ver buscarDocumentoBloqueante() en idempotencia.ts.
+  reciboExistente?:  ReciboVinculadoGancho;
   itemsNoListos?:    ItemNoListo[];
   // Motivo análogo a itemsNoListos, propio de "Productos Digitales": un
   // producto vinculado a la orden sin precio utilizable (ni el fijado para
@@ -62,10 +67,13 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
       ? { tipo: "orden", recordId: input.ordenId }
       : { tipo: "operacion", recordId: input.operacionId };
 
-  // ── 1. Idempotencia ─────────────────────────────────────────────────────────
-  const facturaBloqueante = await buscarFacturaBloqueante(origen);
-  if (facturaBloqueante) {
-    return { bloqueado: true, motivo: "FACTURA_EXISTENTE", facturaExistente: facturaBloqueante };
+  // ── 1. Idempotencia (factura O recibo vigente) ──────────────────────────────
+  const documentoBloqueante = await buscarDocumentoBloqueante(origen);
+  if (documentoBloqueante?.tipo === "factura") {
+    return { bloqueado: true, motivo: "FACTURA_EXISTENTE", facturaExistente: documentoBloqueante.factura };
+  }
+  if (documentoBloqueante?.tipo === "recibo") {
+    return { bloqueado: true, motivo: "RECIBO_EXISTENTE", reciboExistente: documentoBloqueante.recibo };
   }
 
   // ── 2. Cuenta unificada ──────────────────────────────────────────────────────
