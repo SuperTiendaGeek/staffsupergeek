@@ -27,8 +27,9 @@ import {
 import { agregarRepuestoStockAOrden } from "../repuestos-v2";
 import { unidadesLibres, unidadesReservadas } from "@/lib/shipping-v2/unidades";
 import { SHIPPING_V2_ITEM_FIELDS } from "@/lib/shipping-v2/schema.generated";
-import { listarLineas, actualizarLinea } from "./airtable";
-import { planDeCarga, type ContextoCarga, type LineaPresupuesto, type PasoCarga } from "./reglas";
+import { actualizarEstadoOperacion, pasarOperacionAPedido } from "@/lib/operaciones/airtable";
+import { listarLineas, actualizarLinea, cargarInfoPedidos } from "./airtable";
+import { planDeCarga, fasePedido, type ContextoCarga, type LineaPresupuesto, type PasoCarga } from "./reglas";
 
 const T_ITEMS = "Shipping Items";
 const LINK_ORDEN_STOCK = "Orden de Reparación (Stock)";
@@ -95,7 +96,9 @@ async function construirContexto(ordenId: string, lineas: LineaPresupuesto[]): P
     }
   }
 
-  return { items, unidadesDigitales };
+  const pedidos = await cargarInfoPedidos(activas.map((l) => l.operacionId).filter((x): x is string => !!x));
+
+  return { items, unidadesDigitales, pedidos };
 }
 
 export async function vistaPrevia(ordenId: string, lineaIds: string[]): Promise<PasoCarga[]> {
@@ -103,7 +106,12 @@ export async function vistaPrevia(ordenId: string, lineaIds: string[]): Promise<
   return planDeCarga(lineas, await construirContexto(ordenId, lineas));
 }
 
-export type ResultadoCarga = PasoCarga & { cargada: boolean; error?: string };
+export type ResultadoCarga = PasoCarga & {
+  cargada: boolean;
+  /** Repuesto bajo pedido: el cliente aprobó, falta comprarlo (no es un error). */
+  esperandoPedido?: boolean;
+  error?: string;
+};
 
 export async function aprobarYCargar(opts: {
   ordenId: string;
@@ -135,7 +143,17 @@ export async function aprobarYCargar(opts: {
         : {};
 
       try {
-        if (paso.accion.tipo === "crear_servicio") {
+        if (paso.accion.tipo === "aprobar_pedido") {
+          // La operación pasa a "Aprobado" en el tablero de Operaciones. El
+          // artículo todavía no existe: nace cuando se le pide al proveedor
+          // ("Ya se pidió al proveedor"), igual que desde Operaciones.
+          await actualizarEstadoOperacion(paso.accion.operacionId, "Aprobado");
+          await actualizarLinea(linea.id, { ...aprobacion, notaCarga: "Esperando pedido al proveedor." });
+          resultados.push({ ...paso, cargada: false, esperandoPedido: true });
+        } else if (paso.accion.tipo === "ya_en_inventario") {
+          await actualizarLinea(linea.id, { ...aprobacion, estado: "Cargada", notaCarga: "" });
+          resultados.push({ ...paso, cargada: true });
+        } else if (paso.accion.tipo === "crear_servicio") {
           const creado = await createServicioPorOrden({
             ordenRecordId: opts.ordenId,
             catalogoServicioId: linea.servicioCatalogoId!,
@@ -159,7 +177,7 @@ export async function aprobarYCargar(opts: {
           });
           await actualizarLinea(linea.id, { ...aprobacion, estado: "Cargada", notaCarga: "", cargoProductoDigitalId: paso.accion.productoId });
           resultados.push({ ...paso, cargada: true });
-        } else {
+        } else if (paso.accion.tipo === "pendiente") {
           await actualizarLinea(linea.id, { ...aprobacion, notaCarga: paso.accion.motivo });
           resultados.push({ ...paso, cargada: false });
         }
@@ -172,5 +190,45 @@ export async function aprobarYCargar(opts: {
       }
     }
     return resultados;
+  });
+}
+
+// ─── "Ya se pidió al proveedor" ──────────────────────────────────────────────
+// Pasa la operación a "Pedido" por el MISMO camino que el tablero de
+// Operaciones (pasarOperacionAPedido): ahí nace el artículo en Shipping Items
+// —compra pendiente de pago y de recepción— y queda en la cuenta de la orden
+// por el vínculo orden↔operación. La línea pasa a Cargada con ese SKU.
+
+export async function marcarPedidoAlProveedor(opts: {
+  ordenId: string;
+  lineaId: string;
+  usuario: { nombre: string };
+}): Promise<{ sku: string | null; aviso?: string }> {
+  return withLock(`presupuesto:${opts.ordenId}`, async () => {
+    const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
+    if (!linea) throw new Error("Línea no encontrada en esta orden.");
+    if (!linea.operacionId) throw new Error("Esta línea no es un repuesto bajo pedido.");
+    if (linea.estado !== "Aprobada" && linea.estado !== "Cargada") {
+      throw new Error("Primero el cliente tiene que aprobar el presupuesto.");
+    }
+    const info = (await cargarInfoPedidos([linea.operacionId])).get(linea.operacionId);
+    if (!info) throw new Error("No se encontró la operación comercial de este repuesto.");
+    const fase = fasePedido(info);
+    if (fase === "vencido") throw new Error(`La operación ${info.codigo} está rechazada. Reactívala primero.`);
+
+    let itemId = info.item?.id ?? null;
+    let aviso: string | undefined;
+    if (!itemId) {
+      const r = await pasarOperacionAPedido(linea.operacionId, info.opcionElegidaId, opts.usuario.nombre);
+      itemId = r.itemId ?? null;
+      aviso = r.itemCreado ? undefined : r.aviso;
+    }
+    if (!itemId) {
+      await actualizarLinea(linea.id, { notaCarga: aviso ?? "La operación pasó a Pedido pero no se creó el artículo. Revísala en Operaciones." });
+      return { sku: null, aviso };
+    }
+    await actualizarLinea(linea.id, { estado: "Cargada", itemId, notaCarga: "" });
+    const actualizado = (await cargarInfoPedidos([linea.operacionId])).get(linea.operacionId);
+    return { sku: actualizado?.item?.sku ?? null, aviso };
   });
 }

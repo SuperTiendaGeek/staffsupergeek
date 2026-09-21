@@ -57,6 +57,10 @@ export type OrdenCobroInput = {
    *  aprobación: así se trabajó siempre, los cargos se agregan cuando el
    *  cliente acepta. */
   estadoPresupuesto?: "sin_presupuesto" | "propuesto" | "aprobado" | "rechazado";
+  /** Lo que el cliente aprobó en el presupuesto y todavía NO está en la
+   *  cuenta (repuesto bajo pedido aún sin pedir, repuesto sin stock). Un
+   *  abono adelantado por eso no es "dinero de más". */
+  comprometidoPresupuesto?: number;
 };
 
 export type EstadoCobro =
@@ -88,6 +92,7 @@ export type OrdenCobro = {
   /** Borrador o factura rechazada por el SRI: se intentó pero no salió. */
   documentoNoEmitido: DocumentoOrigen | null;
   estadoCobro:   EstadoCobro;
+  comprometido:  number;
 };
 
 export function documentoEmitido(facturas: DocumentoOrigen[], recibos: DocumentoOrigen[]): DocumentoOrigen | null {
@@ -132,6 +137,7 @@ export function clasificarOrden(o: OrdenCobroInput): OrdenCobro {
     estadoPresupuesto: o.estadoPresupuesto ?? "sin_presupuesto",
     entregada: o.estado === ESTADO_ENTREGADA,
     documento, documentoNoEmitido, estadoCobro,
+    comprometido: round2(o.comprometidoPresupuesto ?? 0),
   };
 }
 
@@ -189,7 +195,7 @@ export const CATEGORIAS: Record<CategoriaCobro, { titulo: string; ayuda: string;
   abonos_sin_respaldo: {
     titulo: "Abonos sin cargos o de más",
     ayuda: "Lo abonado supera lo cargado: falta cargar el trabajo, o hay que devolver o reasignar dinero.",
-    pertenece: (o) => o.totalAbonado > o.totalCuenta + TOLERANCIA,
+    pertenece: (o) => o.totalAbonado > o.totalCuenta + o.comprometido + TOLERANCIA,
   },
   presupuesto_sin_respuesta: {
     titulo: "Presupuestos sin respuesta",
@@ -214,7 +220,7 @@ export function resumirCobros(ordenes: OrdenCobro[]): ResumenCobros {
     const monto = clave.startsWith("por_cobrar") || clave === "entregadas_por_cobrar"
       ? miembros.reduce((s, o) => s + o.porCobrar, 0)
       : clave === "abonos_sin_respaldo"
-      ? miembros.reduce((s, o) => s + (o.totalAbonado - o.totalCuenta), 0)
+      ? miembros.reduce((s, o) => s + (o.totalAbonado - o.totalCuenta - o.comprometido), 0)
       : miembros.reduce((s, o) => s + o.totalCuenta, 0);
     categorias[clave] = { cantidad: miembros.length, monto: round2(monto) };
   }

@@ -40,9 +40,21 @@ export type LineaPresupuesto = {
   productoCatalogoId: string | null;
   cargoServicioId:    string | null;
   cargoProductoDigitalId: string | null;
+  /** Repuesto BAJO PEDIDO: la operación comercial que lo cotiza. */
+  operacionId:        string | null;
   aprobadoPor:        string;
   fechaAprobacion:    string;
   creadoPor:          string;
+};
+
+/** Datos de un repuesto que se trae BAJO PEDIDO (se vuelven la opción
+ *  elegida de una Operación Comercial). */
+export type DatosBajoPedido = {
+  proveedorId:     string;
+  categoria:       string;
+  costoProveedor?: number | null;
+  urlProveedor?:   string;
+  tiempoEstimado?: string;
 };
 
 export type NuevaLineaInput = {
@@ -53,7 +65,17 @@ export type NuevaLineaInput = {
   servicioCatalogoId?: string | null;
   itemId?:            string | null;
   productoCatalogoId?: string | null;
+  bajoPedido?:        DatosBajoPedido | null;
 };
+
+// Categorías de la Operación Comercial que tiene sentido pedir como repuesto.
+// Es la misma lista de opciones que "Categoría" de Operación Comercial y de
+// Shipping Items (el artículo la copia tal cual al nacer); se dejan fuera los
+// equipos completos (Laptop, Desktop, All in One, Monitor, Consola).
+export const CATEGORIAS_REPUESTO_PEDIDO = [
+  "Repuesto", "Pantalla", "Batería", "Teclado", "Cargador", "RAM", "SSD", "HDD",
+  "Mainboard", "Tarjeta gráfica", "Fuente de poder", "Cable", "Accesorio", "Otro",
+] as const;
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -81,6 +103,21 @@ export function validarLinea(l: NuevaLineaInput): string | null {
   }
   if (l.tipo === "Producto digital" && l.cantidad !== 1) {
     return "Cada producto digital es una unidad (una licencia). Agrega otra línea para otra.";
+  }
+  if (l.bajoPedido) {
+    if (l.tipo !== "Repuesto") return "Solo un repuesto se puede traer bajo pedido.";
+    if (l.itemId) return "Un repuesto bajo pedido todavía no está en inventario: no lleva artículo.";
+    if (!l.bajoPedido.proveedorId) return "Elige el proveedor al que se le va a pedir (así queda su pago pendiente en Shipping).";
+    if (!(CATEGORIAS_REPUESTO_PEDIDO as readonly string[]).includes(l.bajoPedido.categoria)) return "Elige la categoría del repuesto.";
+    if (!(l.precioUnitario > 0)) return "Falta el precio de venta al cliente.";
+    // El costo es lo que se le va a pagar al proveedor: sin él, el pago
+    // pendiente en /shipping-v2/pagos queda en $0 y marcado como incompleto.
+    const costo = l.bajoPedido.costoProveedor;
+    if (costo == null || !Number.isFinite(costo)) return "Falta el costo del proveedor (es lo que queda pendiente de pago en Shipping).";
+    if (costo < 0) return "El costo del proveedor no puede ser negativo.";
+    // Una operación genera un solo artículo (ver crearShippingItemDesdeOpcion),
+    // así que cada repuesto bajo pedido es una unidad por línea.
+    if (l.cantidad !== 1) return "Un repuesto bajo pedido va de a una unidad por línea. Agrega otra línea para otra unidad.";
   }
   return null;
 }
@@ -122,12 +159,50 @@ export function totalesPresupuesto(lineas: LineaPresupuesto[]) {
   };
 }
 
+// ─── Repuesto bajo pedido: estado derivado de la operación ───────────────────
+// La tarjeta NO guarda una copia del estado de la operación: lo lee siempre
+// del registro real, porque la operación también se mueve desde el tablero de
+// Operaciones (y el cron diario auto-rechaza las cotizaciones sin gestión).
+
+export type InfoPedido = {
+  operacionId:     string;
+  codigo:          string;
+  estadoOperacion: string;          // Requerimiento | Cotizado | Aprobado | Pedido | Entregado | Rechazado
+  opcionElegidaId: string | null;
+  proveedorNombre: string;
+  urlProveedor:    string;
+  costoProveedor:  number | null;
+  precioCliente:   number | null;
+  tiempoEstimado:  string;
+  /** Artículo en Shipping Items (existe desde que la operación pasó a Pedido). */
+  item: { id: string; sku: string; recibido: boolean } | null;
+};
+
+export type FasePedido =
+  | "cotizado"             // propuesta al cliente, esperando respuesta
+  | "vencido"              // rechazado (por el cliente o por el cron de 15 días)
+  | "esperando_pedido"     // el cliente aprobó; falta comprarlo
+  | "en_camino"            // ya se pidió: tiene SKU, falta que llegue
+  | "recibido"             // llegó a la tienda
+  | "sin_articulo";        // en Pedido pero el artículo no se pudo crear (revisar)
+
+export function fasePedido(p: InfoPedido): FasePedido {
+  if (p.item) return p.item.recibido ? "recibido" : "en_camino";
+  const e = p.estadoOperacion;
+  if (e === "Rechazado") return "vencido";
+  if (e === "Aprobado") return "esperando_pedido";
+  if (e === "Pedido" || e === "Entregado") return "sin_articulo";
+  return "cotizado";
+}
+
 // ─── Plan de carga ───────────────────────────────────────────────────────────
 // Qué va a pasar con cada línea al aprobar. Se calcula ANTES de escribir nada
 // y se muestra como vista previa; al confirmar, el servidor lo recalcula con
 // datos frescos (el stock pudo cambiar entre la vista previa y el clic).
 
 export type AccionCarga =
+  | { tipo: "aprobar_pedido"; operacionId: string; codigo: string }
+  | { tipo: "ya_en_inventario"; sku: string }
   | { tipo: "crear_servicio"; costo: number }
   | { tipo: "reservar_repuesto"; itemId: string; sku: string; precioInventario: number | null }
   | { tipo: "asignar_producto_digital"; productoId: string; etiqueta: string }
@@ -140,6 +215,8 @@ export type ContextoCarga = {
   items: Map<string, { sku: string; disponible: boolean; motivoNoDisponible?: string; precio: number | null }>;
   /** Unidades libres por producto del catálogo, en el orden en que se asignan. */
   unidadesDigitales: Map<string, Array<{ productoId: string; etiqueta: string }>>;
+  /** Estado real de la operación de cada repuesto bajo pedido, por operacionId. */
+  pedidos?: Map<string, InfoPedido>;
 };
 
 export function planDeCarga(lineas: LineaPresupuesto[], ctx: ContextoCarga): PasoCarga[] {
@@ -155,6 +232,18 @@ export function planDeCarga(lineas: LineaPresupuesto[], ctx: ContextoCarga): Pas
       if (l.tipo === "Servicio") {
         if (!l.servicioCatalogoId) return { ...base, accion: { tipo: "pendiente", motivo: "Falta elegir el servicio del catálogo." } };
         return { ...base, accion: { tipo: "crear_servicio", costo: subtotalLinea(l) } };
+      }
+
+      if (l.tipo === "Repuesto" && l.operacionId) {
+        const p = ctx.pedidos?.get(l.operacionId);
+        if (!p) return { ...base, accion: { tipo: "pendiente", motivo: "No se encontró la operación comercial de este repuesto." } };
+        const fase = fasePedido(p);
+        if (fase === "vencido") {
+          return { ...base, accion: { tipo: "pendiente", motivo: `La cotización ${p.codigo} está rechazada o venció. Reactívala antes de aprobar.` } };
+        }
+        if (fase === "en_camino" || fase === "recibido") return { ...base, accion: { tipo: "ya_en_inventario", sku: p.item!.sku } };
+        if (!p.opcionElegidaId) return { ...base, accion: { tipo: "pendiente", motivo: `La operación ${p.codigo} no tiene opción elegida.` } };
+        return { ...base, accion: { tipo: "aprobar_pedido", operacionId: p.operacionId, codigo: p.codigo } };
       }
 
       if (l.tipo === "Repuesto") {
@@ -176,4 +265,41 @@ export function planDeCarga(lineas: LineaPresupuesto[], ctx: ContextoCarga): Pas
       if (!unidad) return { ...base, accion: { tipo: "pendiente", motivo: "No hay unidades disponibles de este producto digital." } };
       return { ...base, accion: { tipo: "asignar_producto_digital", productoId: unidad.productoId, etiqueta: unidad.etiqueta } };
     });
+}
+
+// ─── Sincronizar la línea con su operación ───────────────────────────────────
+// La operación puede avanzar sin pasar por la tarjeta (alguien la aprueba o la
+// pide desde el tablero de Operaciones). Para que no queden dos verdades, la
+// línea se pone al día con lo que diga la operación. Devuelve solo lo que hay
+// que escribir; null si ya está al día.
+
+export type CambioSincronizacion = Partial<Pick<LineaPresupuesto, "estado" | "itemId" | "notaCarga">> & {
+  aprobadoPor?: string;
+};
+
+export function sincronizarConPedido(l: LineaPresupuesto, p: InfoPedido | undefined): CambioSincronizacion | null {
+  if (!l.operacionId || !p) return null;
+  if (l.estado === "Rechazada") return null; // lo decidió la tarjeta: se respeta
+  const fase = fasePedido(p);
+
+  // Ya existe el artículo: el repuesto está en la cuenta de la orden por el
+  // vínculo orden↔operación. La línea queda Cargada apuntando a ese SKU.
+  if (p.item && (l.estado !== "Cargada" || l.itemId !== p.item.id)) {
+    return {
+      estado: "Cargada",
+      itemId: p.item.id,
+      notaCarga: "",
+      ...(l.estado === "Propuesta" ? { aprobadoPor: "Operaciones" } : {}),
+    };
+  }
+  // Aprobada desde Operaciones sin pasar por la tarjeta.
+  if (l.estado === "Propuesta" && (fase === "esperando_pedido" || fase === "sin_articulo")) {
+    return { estado: "Aprobada", aprobadoPor: "Operaciones", notaCarga: "Esperando pedido al proveedor." };
+  }
+  // Rechazada en Operaciones después de que el cliente aprobó: se avisa, no se
+  // borra nada — alguien tiene que decidir qué pasó.
+  if (l.estado === "Aprobada" && fase === "vencido" && !l.notaCarga.includes("rechazada en Operaciones")) {
+    return { notaCarga: `La operación ${p.codigo} fue rechazada en Operaciones. Reactívala o rechaza esta línea.` };
+  }
+  return null;
 }

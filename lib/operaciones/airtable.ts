@@ -1022,10 +1022,18 @@ export async function crearShippingItemDesdeOpcion(
     type: foto.type ?? undefined,
   }));
 
+  // Si la operación nació del presupuesto de una orden de reparación, el
+  // artículo es un repuesto bajo pedido: compra pendiente de pago y de
+  // recepción (ver createShippingV2ItemFromOperacion). Se decide por el
+  // registro, no por quién pulsa el botón: pasar a "Pedido" desde el tablero
+  // de Operaciones o desde la tarjeta de la orden produce el MISMO artículo.
+  const desdePresupuesto = linkedIds(opRec.fields["Presupuesto por Orden"]).length > 0;
+
   const item = await createShippingV2ItemFromOperacion(
     {
       operacionId,
       opcionId,
+      desdePresupuesto,
       nombre,
       descripcion: nombre,
       // La operación ya sabe qué es (Laptop, Batería, SSD…) y Shipping Items
@@ -1058,4 +1066,31 @@ export async function actualizarEstadoOperacion(
     }
   );
   if (!res.ok) throw new Error(`Airtable error ${res.status}: ${await res.text()}`);
+}
+
+// ─── Pasar a "Pedido" (un solo camino) ───────────────────────────────────────
+// Lo usan el tablero de Operaciones (PATCH /api/operaciones/[id]/estado) y la
+// tarjeta Presupuesto de la orden ("Ya se pidió al proveedor"). Antes el
+// efecto secundario —crear el artículo en Shipping Items— vivía dentro de la
+// ruta; si la orden tuviera su propio camino, los dos podrían divergir.
+
+export type ResultadoPedido =
+  | { itemCreado: true; itemId: string }
+  | { itemCreado: false; itemId?: string; aviso?: string };
+
+export async function pasarOperacionAPedido(
+  operacionId: string,
+  opcionElegidaId: string | null,
+  registradoPor: string
+): Promise<ResultadoPedido> {
+  await actualizarEstadoOperacion(operacionId, "Pedido");
+  if (!opcionElegidaId) return { itemCreado: false, aviso: "La operación no tiene opción elegida: no se creó artículo." };
+  try {
+    const r = await crearShippingItemDesdeOpcion(operacionId, opcionElegidaId, registradoPor);
+    return r.created ? { itemCreado: true, itemId: r.id } : { itemCreado: false, itemId: r.existingId };
+  } catch (err) {
+    // No fatal: el estado ya quedó en "Pedido" (mismo criterio de siempre).
+    console.error("[pasarOperacionAPedido] creación del artículo:", err);
+    return { itemCreado: false, aviso: err instanceof Error ? err.message : "No se pudo crear el artículo en inventario." };
+  }
 }

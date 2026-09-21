@@ -201,6 +201,17 @@ function BloqueoBanner({ resultado }: { resultado: Extract<ResultadoPreFactura, 
       </div>
     );
   }
+  if (resultado.motivo === "PRESUPUESTO_PENDIENTE") {
+    return (
+      <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">
+        <p className="text-[#F0C75E] font-bold text-lg mb-2">No se puede emitir todavía</p>
+        <p className="text-[#A7A7A7] text-sm mb-3">El cliente aprobó estas líneas del presupuesto y aún no están cargadas a la orden:</p>
+        <ul className="flex flex-col gap-1">
+          {(resultado.presupuestoPendiente ?? []).map((l) => <li key={l.id} className="text-sm text-[#F5F5F5]">{l.descripcion}</li>)}
+        </ul>
+      </div>
+    );
+  }
   return (
     <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">
       <p className="text-[#F0C75E] font-bold text-lg mb-2">No se puede emitir todavía</p>
@@ -212,6 +223,7 @@ function BloqueoBanner({ resultado }: { resultado: Extract<ResultadoPreFactura, 
               {item.motivo === "NO_RESERVADO" ? "no está Reservado"
                 : item.motivo === "SIN_STOCK" ? "no tiene stock disponible"
                 : item.motivo === "SIN_PRECIO_FINAL" ? "no tiene Precio venta final"
+                : item.motivo === "NO_RECIBIDO" ? "es un repuesto bajo pedido que todavía no llega"
                 : "ya tiene un documento de venta"}
             </span>
           </li>

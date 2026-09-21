@@ -2863,6 +2863,16 @@ export async function createShippingV2ItemFromOperacion(
      *  misma lista de opciones (Laptop, RAM, SSD, Batería, Pantalla…), así que
      *  se copia tal cual. */
     categoria?: string | null;
+    /**
+     * Repuesto BAJO PEDIDO cotizado desde el presupuesto de una orden de
+     * reparación. A diferencia del pedido clásico de Operaciones (que nace
+     * como "Compra ya pagada"), este nace como compra PENDIENTE de pago al
+     * proveedor —aparece en /shipping-v2/pagos— y pendiente de recepción —
+     * aparece en /shipping-v2/recepcion hasta que alguien marque "Recibido".
+     * Mientras no llegue, la orden no se puede facturar (ver
+     * evaluarItemNoListo en lib/facturacion/gancho/construccion.ts).
+     */
+    desdePresupuesto?: boolean;
   },
   options: { registradoPor: string }
 ) {
@@ -2893,16 +2903,18 @@ export async function createShippingV2ItemFromOperacion(
   const itemInput: ShippingV2ItemWriteInput = {
     nombre,
     descripcion: cleanString(input.descripcion) || nombre,
-    tipoOperacion: "Compra ya pagada",
+    tipoOperacion: input.desdePresupuesto ? "Compra a proveedor" : "Compra ya pagada",
     // "Rol general" describe qué es la pieza dentro de un equipo, no cómo se
     // vende. Un pedido especial para un cliente es un artículo por derecho
     // propio, no una parte: "Equipo completo" es lo correcto salvo que la
-    // categoría diga que es un repuesto.
-    tipoItem: categoria === "Repuesto" ? "Repuesto" : "Equipo completo",
+    // categoría diga que es un repuesto. Lo que viene del presupuesto de una
+    // orden de reparación es, por definición, una pieza para ese equipo.
+    tipoItem: input.desdePresupuesto || categoria === "Repuesto" ? "Repuesto" : "Equipo completo",
     categoria,
-    estado: "Pagado",
+    estado: input.desdePresupuesto ? "Pendiente de pago" : "Pagado",
+    ...(input.desdePresupuesto ? { estadoRevision: "Pendiente de recepción" } : {}),
     proveedorId,
-    requierePago: false,
+    requierePago: input.desdePresupuesto === true,
     requierePacking: false,
     afectaInventario: true,
     disponibleVenta: false,
