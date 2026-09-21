@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { leerLinea, actualizarLinea, borrarLinea, cargarInfoPedidos, type CambiosLinea } from "@/lib/tecnicos/presupuesto/airtable";
 import { actualizarEstadoOperacion, actualizarOpcion, eliminarOperacionConOpciones } from "@/lib/operaciones/airtable";
+import { revertirLinea } from "@/lib/tecnicos/presupuesto/cargar";
 import { esEditable, aceptaVincularArticulo, validarLinea } from "@/lib/tecnicos/presupuesto/reglas";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ async function lineaDeLaOrden(ordenId: string, lineaId: string) {
 }
 
 export async function PATCH(request: Request, { params }: Params) {
-  const { response } = await requireTecnicosSession();
+  const { response, session } = await requireTecnicosSession();
   if (response) return response;
   const { id, lineaId } = await params;
 
@@ -27,7 +28,8 @@ export async function PATCH(request: Request, { params }: Params) {
   if (!linea) return NextResponse.json({ success: false, error: "Línea no encontrada en esta orden" }, { status: 404 });
 
   const body = (await request.json().catch(() => ({}))) as {
-    accion?: "rechazar" | "reabrir" | "reactivar" | "cancelar";
+    accion?: "rechazar" | "reabrir" | "reactivar" | "cancelar" | "recotizar" | "liberar";
+    motivo?: string;
     descripcion?: string; cantidad?: number; precioUnitario?: number; itemId?: string | null;
   };
 
@@ -42,21 +44,30 @@ export async function PATCH(request: Request, { params }: Params) {
     }
     if (body.accion === "reabrir") {
       if (linea.estado !== "Rechazada") return NextResponse.json({ success: false, error: "Solo se reabre una línea Rechazada." }, { status: 409 });
+      // Una línea que llegó a aprobarse y después se canceló/recotizó ya tiene
+      // su operación CERRADA (y quizá un artículo cancelado): reabrirla es una
+      // propuesta nueva, sin esa operación — si el cliente vuelve a aprobar,
+      // nace una operación nueva. Solo una cotización del flujo anterior
+      // (operación creada en Cotizado, nunca aprobada) se reactiva tal cual.
+      if (linea.operacionId && linea.aprobadoPor) {
+        return NextResponse.json({ success: true, data: await actualizarLinea(lineaId, { estado: "Propuesta", operacionId: null, itemId: null, notaCarga: "" }) });
+      }
       if (linea.operacionId) await actualizarEstadoOperacion(linea.operacionId, "Cotizado");
       return NextResponse.json({ success: true, data: await actualizarLinea(lineaId, { estado: "Propuesta" }) });
     }
-    if (body.accion === "cancelar") {
-      // Salida para una línea aprobada que nunca se pudo cargar (el repuesto
-      // no llegó, el cliente se arrepintió). Sin esto quedaría Aprobada para
-      // siempre y bloquearía la factura de la orden. Lo ya cargado NO se
-      // cancela aquí: se quita desde su tarjeta.
-      if (linea.estado !== "Aprobada") return NextResponse.json({ success: false, error: "Solo se cancela una línea aprobada que todavía no se cargó." }, { status: 409 });
-      if (linea.operacionId) {
-        const info = (await cargarInfoPedidos([linea.operacionId])).get(linea.operacionId);
-        if (info?.item) return NextResponse.json({ success: false, error: `El repuesto ya se pidió (${info.item.sku}). Gestiona la devolución o el cambio desde Shipping V2.` }, { status: 409 });
-        await actualizarEstadoOperacion(linea.operacionId, "Rechazado");
+    // Reversas de algo ya aprobado (el cliente desiste, el proveedor no lo
+    // tiene, llegó y ya no lo quieren). Las reglas de qué se permite y por
+    // qué no viven en reversasDisponibles(); revertirLinea() las verifica.
+    if (body.accion === "cancelar" || body.accion === "recotizar" || body.accion === "liberar") {
+      try {
+        await revertirLinea({
+          ordenId: id, lineaId, accion: body.accion, motivo: String(body.motivo ?? ""),
+          usuario: { nombre: session?.user.nombre || session?.user.email || "Portal" },
+        });
+      } catch (e) {
+        return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "No se pudo revertir" }, { status: 409 });
       }
-      return NextResponse.json({ success: true, data: await actualizarLinea(lineaId, { estado: "Rechazada", notaCarga: "Cancelada después de aprobada." }) });
+      return NextResponse.json({ success: true, data: await leerLinea(lineaId) });
     }
     if (body.accion === "reactivar") {
       // Cotización rechazada en Operaciones o auto-rechazada por el cron de

@@ -7148,3 +7148,57 @@ async function registrarIntervencionSinTurno(
     throw error;
   }
 }
+
+// ─── Soltar el artículo de un repuesto bajo pedido ───────────────────────────
+// Reversa del pedido que nació desde el presupuesto de una orden (ver
+// lib/tecnicos/presupuesto/cargar.ts → revertirLinea). Mientras el artículo
+// esté vinculado a la Operación Comercial, la cuenta unificada se lo cobra al
+// cliente (itemsPedido); por eso la reversa SIEMPRE suelta ese vínculo.
+//
+//   "cancelar" → el proveedor no lo tenía o el cliente desistió antes de que
+//                llegue: el artículo queda Cancelado (sale de Pagos pendientes
+//                y de Recepción).
+//   "liberar"  → ya llegó y el cliente desistió: el artículo sigue siendo de
+//                la tienda, sin reserva; Recepción decide si se vende.
+//
+// La guarda de pagos (no se cancela algo ya pagado o incluido en un pago)
+// vive en reversasDisponibles() y se verifica antes de llamar aquí.
+export async function soltarArticuloDePedido(
+  itemId: string,
+  opts: { modo: "cancelar" | "liberar"; motivo: string; registradoPor: string }
+) {
+  assertShippingV2GeneratedSchema();
+  const id = cleanString(itemId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  const existing = await airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`);
+  const estadoAnterior = firstString(existing.fields[SHIPPING_V2_ITEM_FIELDS.estadoItem]);
+
+  const fields: Record<string, unknown> = {
+    [SHIPPING_V2_ITEM_SOURCE_FIELDS.operacionComercial]: [],
+    [SHIPPING_V2_ITEM_FIELDS.reservado]: false,
+    [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: 0,
+    [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: false,
+    [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+    [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: opts.registradoPor,
+  };
+  if (opts.modo === "cancelar") fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = "Cancelado";
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id, fields }] }),
+  });
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
+  await createShippingV2Event({
+    action: opts.modo === "cancelar" ? "Cambio de estado" : "Actualizado",
+    itemRecordId: id,
+    itemName: firstString(updated.fields[SHIPPING_V2_ITEM_FIELDS.nombre]),
+    registradoPor: opts.registradoPor,
+    descripcion: opts.modo === "cancelar"
+      ? `Pedido cancelado desde el presupuesto de la orden. ${opts.motivo}`
+      : `Liberado a inventario: el cliente desistió después de que llegó. ${opts.motivo}`,
+    estadoAnterior,
+    estadoNuevo: opts.modo === "cancelar" ? "Cancelado" : estadoAnterior,
+  });
+  invalidateShippingV2ItemSearchIndexCache();
+}

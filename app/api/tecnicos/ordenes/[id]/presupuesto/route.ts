@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import {
-  listarLineas, crearLinea, actualizarLinea, cargarInfoPedidos, clienteDeOrden,
+  listarLineas, crearLinea, actualizarLinea, cargarInfoPedidos, nombresProveedores,
 } from "@/lib/tecnicos/presupuesto/airtable";
 import {
-  validarLinea, estadoPresupuesto, totalesPresupuesto, sincronizarConPedido,
-  type NuevaLineaInput, type InfoPedido,
+  validarLinea, estadoPresupuesto, totalesPresupuesto, sincronizarConPedido, reversasDisponibles,
+  type NuevaLineaInput, type InfoPedido, type ReversasLinea,
 } from "@/lib/tecnicos/presupuesto/reglas";
-import {
-  crearOperacion, crearOpcion, setOpcionElegida, actualizarEstadoOperacion, eliminarOperacionConOpciones,
-} from "@/lib/operaciones/airtable";
 
 export const dynamic = "force-dynamic";
 
@@ -47,9 +44,15 @@ export async function GET(_req: Request, { params }: Params) {
     if (cambio) lineas = await listarLineas(id);
 
     const pedidosObj: Record<string, InfoPedido> = Object.fromEntries(pedidos);
+    // Qué se puede deshacer en cada línea y por qué no, calculado aquí con
+    // datos frescos (pagos al proveedor, recepción) — la tarjeta solo lo pinta.
+    const reversas: Record<string, ReversasLinea> = Object.fromEntries(
+      lineas.map((l) => [l.id, reversasDisponibles(l, l.operacionId ? pedidos.get(l.operacionId) : undefined)])
+    );
+    const proveedores = await nombresProveedores(lineas.map((l) => l.proveedorId).filter((x): x is string => !!x));
     return NextResponse.json({
       success: true,
-      data: { lineas, pedidos: pedidosObj, estado: estadoPresupuesto(lineas), totales: totalesPresupuesto(lineas) },
+      data: { lineas, pedidos: pedidosObj, reversas, proveedores, estado: estadoPresupuesto(lineas), totales: totalesPresupuesto(lineas) },
     });
   } catch (e) {
     console.error("[presupuesto GET]", e);
@@ -90,45 +93,11 @@ export async function POST(request: Request, { params }: Params) {
 
   const creadoPor = session.user.nombre || session.user.email || "Portal";
 
-  // Repuesto bajo pedido → Operación Comercial vinculada a la orden, con su
-  // opción ya elegida y en "Cotizado". Aparece así en el tablero de
-  // Operaciones para quien hace las compras.
-  if (input.bajoPedido) {
-    const { clienteId, idVisible } = await clienteDeOrden(id);
-    if (!clienteId) {
-      return NextResponse.json({ success: false, error: "La orden no tiene cliente vinculado: no se puede cotizar un pedido." }, { status: 400 });
-    }
-    let operacionId: string | null = null;
-    try {
-      operacionId = (await crearOperacion({
-        clienteId,
-        productoSolicitado: input.descripcion.trim(),
-        categoria: input.bajoPedido.categoria,
-        descripcionRequerimiento: `Repuesto bajo pedido para la orden ${idVisible} (cotizado desde el presupuesto).`,
-        equipoEnTienda: true,
-        ordenId: id,
-      })).id;
-      const opcion = await crearOpcion(operacionId, {
-        productoDescripcion: input.descripcion.trim(),
-        proveedorId: input.bajoPedido.proveedorId,
-        tiempoEstimado: input.bajoPedido.tiempoEstimado || undefined,
-        costoProveedor: input.bajoPedido.costoProveedor ?? null,
-        precioVentaCliente: input.precioUnitario,
-        urlProveedor: input.bajoPedido.urlProveedor || undefined,
-        notaInterna: `Cotizado por ${creadoPor} desde el presupuesto de ${idVisible}.`,
-      });
-      await setOpcionElegida(operacionId, opcion.id);
-      await actualizarEstadoOperacion(operacionId, "Cotizado");
-      const linea = await crearLinea(id, input, creadoPor, { operacionId });
-      return NextResponse.json({ success: true, data: linea }, { status: 201 });
-    } catch (e) {
-      // No dejar una operación huérfana si falló a mitad de camino.
-      if (operacionId) await eliminarOperacionConOpciones(operacionId).catch((err) => console.error("[presupuesto POST] limpieza:", err));
-      console.error("[presupuesto POST bajo pedido]", e);
-      return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "No se pudo cotizar el repuesto" }, { status: 500 });
-    }
-  }
-
+  // Repuesto bajo pedido: por ahora es SOLO presupuesto. Sus datos
+  // (proveedor, URL, costo, tiempo) quedan en la línea; la Operación
+  // Comercial se crea recién cuando el cliente aprueba (ver cargar.ts). Así
+  // una cotización que el cliente nunca acepta no consume el código de
+  // operación ni llena el tablero de Operaciones.
   try {
     const linea = await crearLinea(id, input, creadoPor);
     return NextResponse.json({ success: true, data: linea }, { status: 201 });

@@ -40,8 +40,18 @@ export type LineaPresupuesto = {
   productoCatalogoId: string | null;
   cargoServicioId:    string | null;
   cargoProductoDigitalId: string | null;
-  /** Repuesto BAJO PEDIDO: la operación comercial que lo cotiza. */
+  /** Repuesto BAJO PEDIDO. Mientras es presupuesto, sus datos viven en la
+   *  línea; la operación comercial se crea recién cuando el cliente aprueba. */
+  bajoPedido:         boolean;
+  proveedorId:        string | null;
+  urlProveedor:       string;
+  costoProveedor:     number | null;
+  tiempoEstimado:     string;
+  categoria:          string;
+  /** La operación comercial (existe desde que el cliente aprobó). */
   operacionId:        string | null;
+  /** Bitácora: aprobaciones, recotizaciones, cancelaciones. */
+  historial:          string;
   aprobadoPor:        string;
   fechaAprobacion:    string;
   creadoPor:          string;
@@ -175,10 +185,17 @@ export type InfoPedido = {
   precioCliente:   number | null;
   tiempoEstimado:  string;
   /** Artículo en Shipping Items (existe desde que la operación pasó a Pedido). */
-  item: { id: string; sku: string; recibido: boolean } | null;
+  item: {
+    id: string; sku: string; recibido: boolean;
+    estado?: string;
+    /** Pagos a proveedor vinculados que no están anulados. */
+    pagos?: Array<{ id: string; codigo: string; estado: string }>;
+  } | null;
 };
 
 export type FasePedido =
+  | "articulo_cancelado"   // el artículo se canceló en Shipping (el proveedor no lo tenía)
+  | "vendido"              // ya se facturó o se emitió recibo
   | "cotizado"             // propuesta al cliente, esperando respuesta
   | "vencido"              // rechazado (por el cliente o por el cron de 15 días)
   | "esperando_pedido"     // el cliente aprobó; falta comprarlo
@@ -186,8 +203,15 @@ export type FasePedido =
   | "recibido"             // llegó a la tienda
   | "sin_articulo";        // en Pedido pero el artículo no se pudo crear (revisar)
 
+const norm = (v?: string) => String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
 export function fasePedido(p: InfoPedido): FasePedido {
-  if (p.item) return p.item.recibido ? "recibido" : "en_camino";
+  if (p.item) {
+    const e = norm(p.item.estado);
+    if (e === "cancelado" || e === "archivado") return "articulo_cancelado";
+    if (e === "vendido") return "vendido";
+    return p.item.recibido ? "recibido" : "en_camino";
+  }
   const e = p.estadoOperacion;
   if (e === "Rechazado") return "vencido";
   if (e === "Aprobado") return "esperando_pedido";
@@ -201,6 +225,7 @@ export function fasePedido(p: InfoPedido): FasePedido {
 // datos frescos (el stock pudo cambiar entre la vista previa y el clic).
 
 export type AccionCarga =
+  | { tipo: "crear_pedido_aprobado" }
   | { tipo: "aprobar_pedido"; operacionId: string; codigo: string }
   | { tipo: "ya_en_inventario"; sku: string }
   | { tipo: "crear_servicio"; costo: number }
@@ -234,6 +259,16 @@ export function planDeCarga(lineas: LineaPresupuesto[], ctx: ContextoCarga): Pas
         return { ...base, accion: { tipo: "crear_servicio", costo: subtotalLinea(l) } };
       }
 
+      // Bajo pedido que todavía es solo presupuesto: al aprobar se crea la
+      // operación comercial directamente en "Aprobado". Antes de eso no existe
+      // (no consume código ni llena el tablero con cotizaciones muertas).
+      if (l.tipo === "Repuesto" && l.bajoPedido && !l.operacionId) {
+        if (!l.proveedorId || l.costoProveedor === null || !(l.precioUnitario > 0)) {
+          return { ...base, accion: { tipo: "pendiente", motivo: "Faltan datos del pedido (proveedor, costo o precio)." } };
+        }
+        return { ...base, accion: { tipo: "crear_pedido_aprobado" } };
+      }
+
       if (l.tipo === "Repuesto" && l.operacionId) {
         const p = ctx.pedidos?.get(l.operacionId);
         if (!p) return { ...base, accion: { tipo: "pendiente", motivo: "No se encontró la operación comercial de este repuesto." } };
@@ -241,7 +276,8 @@ export function planDeCarga(lineas: LineaPresupuesto[], ctx: ContextoCarga): Pas
         if (fase === "vencido") {
           return { ...base, accion: { tipo: "pendiente", motivo: `La cotización ${p.codigo} está rechazada o venció. Reactívala antes de aprobar.` } };
         }
-        if (fase === "en_camino" || fase === "recibido") return { ...base, accion: { tipo: "ya_en_inventario", sku: p.item!.sku } };
+        if (fase === "en_camino" || fase === "recibido" || fase === "vendido") return { ...base, accion: { tipo: "ya_en_inventario", sku: p.item!.sku } };
+        if (fase === "articulo_cancelado") return { ...base, accion: { tipo: "pendiente", motivo: "El artículo se canceló en Shipping. Recotiza este repuesto." } };
         if (!p.opcionElegidaId) return { ...base, accion: { tipo: "pendiente", motivo: `La operación ${p.codigo} no tiene opción elegida.` } };
         return { ...base, accion: { tipo: "aprobar_pedido", operacionId: p.operacionId, codigo: p.codigo } };
       }
@@ -284,6 +320,10 @@ export function sincronizarConPedido(l: LineaPresupuesto, p: InfoPedido | undefi
 
   // Ya existe el artículo: el repuesto está en la cuenta de la orden por el
   // vínculo orden↔operación. La línea queda Cargada apuntando a ese SKU.
+  if (fase === "articulo_cancelado") {
+    return l.notaCarga.includes("se canceló en Shipping") ? null
+      : { notaCarga: `El artículo ${p.item!.sku} se canceló en Shipping. Recotiza o cancela esta línea.` };
+  }
   if (p.item && (l.estado !== "Cargada" || l.itemId !== p.item.id)) {
     return {
       estado: "Cargada",
@@ -302,4 +342,80 @@ export function sincronizarConPedido(l: LineaPresupuesto, p: InfoPedido | undefi
     return { notaCarga: `La operación ${p.codigo} fue rechazada en Operaciones. Reactívala o rechaza esta línea.` };
   }
   return null;
+}
+
+// ─── Reversas: qué se puede deshacer en cada momento ─────────────────────────
+// Cada situación tiene un camino. Cuando algo NO se puede deshacer desde aquí
+// (ya se pagó al proveedor, ya se facturó), se dice por qué y dónde se hace,
+// en vez de dejar el botón muerto.
+//
+//   cancelar   → el cliente desiste. La línea queda Rechazada.
+//   recotizar  → el proveedor no lo tiene / hay otra alternativa. La línea
+//                queda Rechazada (constancia) y se abre una nueva propuesta
+//                con los mismos datos para editar y volver a aprobar.
+//   liberar    → el repuesto YA LLEGÓ y el cliente desiste: queda como
+//                inventario de la tienda, sin cobrárselo al cliente.
+//
+// El dinero abonado no se toca: queda a favor en la orden (el panel de cobros
+// lo marca como "Abonos de más") para aplicarlo a la alternativa o, si se le
+// devuelve al cliente, anular el abono en la tarjeta Abonos.
+
+export type AccionReversa = "cancelar" | "recotizar" | "liberar";
+export type Reversa = { permitido: boolean; motivo?: string };
+export type ReversasLinea = Record<AccionReversa, Reversa>;
+
+const NO = (motivo: string): Reversa => ({ permitido: false, motivo });
+const SI: Reversa = { permitido: true };
+
+export function reversasDisponibles(l: LineaPresupuesto, p: InfoPedido | undefined): ReversasLinea {
+  const ninguna = { cancelar: NO("No aplica."), recotizar: NO("No aplica."), liberar: NO("No aplica.") };
+  if (l.estado === "Propuesta" || l.estado === "Rechazada") return ninguna;
+  const esPedido = l.bajoPedido || !!l.operacionId;
+
+  // Aprobada sin cargar: todavía no se compró ni se reservó nada.
+  if (l.estado === "Aprobada" && !p?.item) {
+    return {
+      cancelar: SI,
+      recotizar: esPedido ? SI : NO("Solo un repuesto bajo pedido se recotiza. Cancela y agrega otra línea."),
+      liberar: NO("Todavía no hay artículo."),
+    };
+  }
+
+  // Cargada: servicio, repuesto de stock o producto digital se quitan desde
+  // su tarjeta, como siempre. Aquí solo se gestiona lo bajo pedido.
+  if (!esPedido || !p?.item) {
+    const msg = "Ya está cargado a la orden: quítalo desde su tarjeta (Servicios, Repuestos o Productos digitales).";
+    return { cancelar: NO(msg), recotizar: NO(msg), liberar: NO(msg) };
+  }
+
+  const fase = fasePedido(p);
+  if (fase === "vendido") {
+    const msg = "Ya se facturó o se emitió recibo: corresponde una nota de crédito o la anulación del recibo.";
+    return { cancelar: NO(msg), recotizar: NO(msg), liberar: NO(msg) };
+  }
+  if (fase === "articulo_cancelado") {
+    return { cancelar: SI, recotizar: SI, liberar: NO("El artículo está cancelado.") };
+  }
+  if (fase === "recibido") {
+    const msg = "El repuesto ya llegó. Si el cliente no lo quiere, usa \"Liberar a inventario\"; si llegó dañado, regístralo como novedad en Recepción.";
+    return { cancelar: NO(msg), recotizar: NO(msg), liberar: SI };
+  }
+
+  // En camino: se puede deshacer solo si todavía no hay dinero comprometido
+  // con el proveedor.
+  const pago = (p.item.pagos ?? [])[0];
+  if (pago) {
+    const pagado = norm(pago.estado) === "pagado";
+    const msg = pagado
+      ? `Ya se le pagó al proveedor (${pago.codigo}). Cuando llegue, usa "Liberar a inventario"; si no va a llegar, registra el reembolso como novedad en Shipping V2 y anula el pago antes de cancelar.`
+      : `Está incluido en el pago ${pago.codigo} (${pago.estado}). Quítalo de ese pago o anúlalo en /shipping-v2/pagos y vuelve a intentar.`;
+    return { cancelar: NO(msg), recotizar: NO(msg), liberar: NO("Todavía no llega.") };
+  }
+  return { cancelar: SI, recotizar: SI, liberar: NO("Todavía no llega.") };
+}
+
+/** Línea de bitácora con fecha (Ecuador) y usuario. */
+export function entradaHistorial(texto: string, usuario: string, ahora: Date = new Date()): string {
+  const f = new Date(ahora.getTime() - 5 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+  return `[${f}] ${usuario}: ${texto}`;
 }
