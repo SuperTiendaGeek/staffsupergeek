@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
-import { leerLinea, actualizarLinea, borrarLinea, cargarInfoPedidos, type CambiosLinea } from "@/lib/tecnicos/presupuesto/airtable";
+import { leerLinea, actualizarLinea, borrarLinea, cargarInfoPedidos, listarLineas, type CambiosLinea } from "@/lib/tecnicos/presupuesto/airtable";
 import { actualizarEstadoOperacion, actualizarOpcion, eliminarOperacionConOpciones } from "@/lib/operaciones/airtable";
 import { revertirLinea } from "@/lib/tecnicos/presupuesto/cargar";
-import { esEditable, aceptaVincularArticulo, validarLinea } from "@/lib/tecnicos/presupuesto/reglas";
+import { esEditable, aceptaVincularArticulo, validarLinea, normalizarPrioridad, nuevoGrupoAlternativas, NOTA_CLIENTE_MAX } from "@/lib/tecnicos/presupuesto/reglas";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +28,8 @@ export async function PATCH(request: Request, { params }: Params) {
   if (!linea) return NextResponse.json({ success: false, error: "Línea no encontrada en esta orden" }, { status: 404 });
 
   const body = (await request.json().catch(() => ({}))) as {
-    accion?: "rechazar" | "reabrir" | "reactivar" | "cancelar" | "recotizar" | "liberar";
+    accion?: "rechazar" | "reabrir" | "reactivar" | "cancelar" | "recotizar" | "liberar" | "detalle";
+    prioridad?: string; notaCliente?: string; alternativaDe?: string | null; quitarAlternativa?: boolean;
     motivo?: string;
     descripcion?: string; cantidad?: number; precioUnitario?: number; itemId?: string | null;
   };
@@ -37,6 +38,35 @@ export async function PATCH(request: Request, { params }: Params) {
     // Repuesto bajo pedido: la operación comercial acompaña a la línea, para
     // que el tablero de Operaciones nunca muestre algo que la orden ya
     // descartó (o al revés).
+    // Prioridad, nota para el cliente y grupo de alternativas (solo Propuesta:
+    // lo que el cliente ya aprobó no cambia de condiciones por debajo).
+    if (body.accion === "detalle") {
+      if (!esEditable(linea)) return NextResponse.json({ success: false, error: "Solo se ajusta una línea Propuesta." }, { status: 409 });
+      const nota = typeof body.notaCliente === "string" ? body.notaCliente : undefined;
+      if (nota !== undefined && nota.length > NOTA_CLIENTE_MAX) return NextResponse.json({ success: false, error: `La nota admite hasta ${NOTA_CLIENTE_MAX} caracteres.` }, { status: 400 });
+      const cambios: CambiosLinea = {};
+      if (nota !== undefined) cambios.notaCliente = nota;
+      const todas = await listarLineas(id);
+      let grupo = linea.grupoAlternativas ?? "";
+      if (body.quitarAlternativa) { cambios.grupoAlternativas = ""; grupo = ""; }
+      else if (body.alternativaDe) {
+        const base = todas.find((l) => l.id === body.alternativaDe);
+        if (!base || base.id === linea.id || base.estado !== "Propuesta") return NextResponse.json({ success: false, error: "Solo se agrupa con otra línea Propuesta de esta orden." }, { status: 409 });
+        grupo = base.grupoAlternativas || nuevoGrupoAlternativas();
+        if (!base.grupoAlternativas) await actualizarLinea(base.id, { grupoAlternativas: grupo });
+        cambios.grupoAlternativas = grupo;
+        if (body.prioridad === undefined) cambios.prioridad = normalizarPrioridad(base.prioridad);
+      }
+      if (body.prioridad !== undefined) cambios.prioridad = normalizarPrioridad(body.prioridad);
+      const actualizada = await actualizarLinea(lineaId, cambios);
+      // Todas las alternativas de un grupo comparten la prioridad.
+      if (grupo && cambios.prioridad) {
+        for (const h of todas.filter((l) => l.id !== lineaId && l.grupoAlternativas === grupo && l.estado === "Propuesta" && l.prioridad !== cambios.prioridad)) {
+          await actualizarLinea(h.id, { prioridad: cambios.prioridad });
+        }
+      }
+      return NextResponse.json({ success: true, data: actualizada });
+    }
     if (body.accion === "rechazar") {
       if (!esEditable(linea)) return NextResponse.json({ success: false, error: "Solo se rechaza una línea Propuesta." }, { status: 409 });
       if (linea.operacionId) await actualizarEstadoOperacion(linea.operacionId, "Rechazado");

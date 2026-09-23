@@ -365,7 +365,7 @@ export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Sta
       </div>
 
       <div className={cn("transition-[padding] duration-200 ease-out", sidebarPinned ? "xl:pl-64 2xl:pl-72" : "xl:pl-20")}>
-        <header className="sticky top-0 z-20 border-b border-[#272824] bg-[#0B0C0E]/86 backdrop-blur-xl">
+        <header className="sticky top-0 z-40 border-b border-[#272824] bg-[#0B0C0E]/86 backdrop-blur-xl">
           <div className="flex h-12 items-center justify-between gap-2 px-3 sm:px-4 lg:px-5 xl:px-5 2xl:px-6">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <Sheet>

@@ -3,7 +3,9 @@ import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import {
   listarLineas, crearLinea, actualizarLinea, cargarInfoPedidos, nombresProveedores,
 } from "@/lib/tecnicos/presupuesto/airtable";
+import { sincronizarConLasTarjetas } from "@/lib/tecnicos/presupuesto/cargar";
 import {
+  normalizarPrioridad, nuevoGrupoAlternativas,
   validarLinea, estadoPresupuesto, totalesPresupuesto, sincronizarConPedido, reversasDisponibles,
   type NuevaLineaInput, type InfoPedido, type ReversasLinea,
 } from "@/lib/tecnicos/presupuesto/reglas";
@@ -20,7 +22,7 @@ type Params = { params: Promise<{ id: string }> };
 // líneas son solo una propuesta hasta que se aprueban y cargan (ver
 // lib/tecnicos/presupuesto/cargar.ts).
 export async function GET(_req: Request, { params }: Params) {
-  const { response } = await requireTecnicosSession();
+  const { response, session } = await requireTecnicosSession();
   if (response) return response;
   const { id } = await params;
   try {
@@ -43,6 +45,12 @@ export async function GET(_req: Request, { params }: Params) {
     }
     if (cambio) lineas = await listarLineas(id);
 
+    // El cargo pudo quitarse desde su tarjeta (Servicios, Repuestos, Productos
+    // digitales): entonces la línea vuelve a "Aprobada". También se cuenta lo
+    // que se agregó directo a la orden sin pasar por el presupuesto.
+    const sinc = await sincronizarConLasTarjetas(id, lineas, session?.user.nombre || "Portal");
+    lineas = sinc.hubo ? await listarLineas(id) : sinc.lineas;
+
     const pedidosObj: Record<string, InfoPedido> = Object.fromEntries(pedidos);
     // Qué se puede deshacer en cada línea y por qué no, calculado aquí con
     // datos frescos (pagos al proveedor, recepción) — la tarjeta solo lo pinta.
@@ -52,7 +60,11 @@ export async function GET(_req: Request, { params }: Params) {
     const proveedores = await nombresProveedores(lineas.map((l) => l.proveedorId).filter((x): x is string => !!x));
     return NextResponse.json({
       success: true,
-      data: { lineas, pedidos: pedidosObj, reversas, proveedores, estado: estadoPresupuesto(lineas), totales: totalesPresupuesto(lineas) },
+      data: {
+        lineas, pedidos: pedidosObj, reversas, proveedores,
+        estado: estadoPresupuesto(lineas), totales: totalesPresupuesto(lineas),
+        cargosSinPresupuesto: sinc.cargosSinPresupuesto,
+      },
     });
   } catch (e) {
     console.error("[presupuesto GET]", e);
@@ -65,8 +77,8 @@ export async function POST(request: Request, { params }: Params) {
   if (response || !session) return response ?? NextResponse.json({ success: false, error: "Sin sesión" }, { status: 401 });
   const { id } = await params;
 
-  let body: NuevaLineaInput;
-  try { body = (await request.json()) as NuevaLineaInput; }
+  let body: NuevaLineaInput & { alternativaDe?: string | null };
+  try { body = (await request.json()) as NuevaLineaInput & { alternativaDe?: string | null }; }
   catch { return NextResponse.json({ success: false, error: "JSON inválido" }, { status: 400 }); }
 
   const bp = body.bajoPedido;
@@ -78,6 +90,8 @@ export async function POST(request: Request, { params }: Params) {
     servicioCatalogoId: body.servicioCatalogoId || null,
     itemId: body.itemId || null,
     productoCatalogoId: body.productoCatalogoId || null,
+    prioridad: body.prioridad ? normalizarPrioridad(body.prioridad) : "Recomendada",
+    notaCliente: typeof body.notaCliente === "string" ? body.notaCliente : "",
     bajoPedido: bp
       ? {
           proveedorId: String(bp.proveedorId ?? ""),
@@ -99,7 +113,19 @@ export async function POST(request: Request, { params }: Params) {
   // una cotización que el cliente nunca acepta no consume el código de
   // operación ni llena el tablero de Operaciones.
   try {
-    const linea = await crearLinea(id, input, creadoPor);
+    // Alternativa de otra línea: comparten grupo (y prioridad, la del grupo).
+    let grupoAlternativas: string | undefined;
+    if (body.alternativaDe) {
+      const todas = await listarLineas(id);
+      const base = todas.find((l) => l.id === body.alternativaDe);
+      if (!base || base.estado !== "Propuesta") {
+        return NextResponse.json({ success: false, error: "Solo se agrega una alternativa a una línea Propuesta de esta orden." }, { status: 409 });
+      }
+      grupoAlternativas = base.grupoAlternativas || nuevoGrupoAlternativas();
+      if (!base.grupoAlternativas) await actualizarLinea(base.id, { grupoAlternativas });
+      input.prioridad = normalizarPrioridad(base.prioridad);
+    }
+    const linea = await crearLinea(id, input, creadoPor, { grupoAlternativas });
     return NextResponse.json({ success: true, data: linea }, { status: 201 });
   } catch (e) {
     console.error("[presupuesto POST]", e);

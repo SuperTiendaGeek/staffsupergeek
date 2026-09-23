@@ -813,6 +813,8 @@ export function OrdenDetalleClient() {
     preserveError?: boolean;
   };
 
+  const [datosVersion, setDatosVersion] = useState(0);
+
   const fetchData = async ({
     showLoading = true,
     preserveError = false,
@@ -830,6 +832,9 @@ export function OrdenDetalleClient() {
       }
       setOrden(json.data);
       setEstadoSeleccionado(json.data?.estadoActual ?? ESTADOS_ORDEN[0]);
+      // El presupuesto se entera de lo que cambió en las tarjetas (un servicio
+      // quitado, un repuesto liberado) volviendo a leerse con este contador.
+      setDatosVersion((v) => v + 1);
       const notaValue = json.data?.notaInterna;
       return true;
     } catch (err) {
@@ -2578,6 +2583,7 @@ export function OrdenDetalleClient() {
                 sus líneas pasan a las tarjetas de abajo. */}
             <PresupuestoCard
               ordenId={orden.recordId}
+              refrescar={datosVersion}
               onCargado={async () => {
                 await fetchData({ showLoading: false, preserveError: true });
                 await loadCuentaUnificada();

@@ -23,6 +23,18 @@ export const TIPOS_LINEA = ["Servicio", "Repuesto", "Producto digital"] as const
 export type TipoLinea = (typeof TIPOS_LINEA)[number];
 
 export const ESTADOS_LINEA = ["Propuesta", "Aprobada", "Cargada", "Rechazada"] as const;
+
+/** Qué tan indispensable es la línea para la reparación.
+ *   Necesaria   → sin esto no se puede reparar.
+ *   Recomendada → el técnico lo aconseja, pero la reparación sigue sin ello.
+ *   Opcional    → mejora sugerida.
+ *  Una línea sin valor (creada antes de existir el campo) cuenta como Recomendada. */
+export const PRIORIDADES = ["Necesaria", "Recomendada", "Opcional"] as const;
+export type Prioridad = (typeof PRIORIDADES)[number];
+export const NOTA_CLIENTE_MAX = 500;
+export function normalizarPrioridad(v: unknown): Prioridad {
+  return (PRIORIDADES as readonly string[]).includes(String(v)) ? (v as Prioridad) : "Recomendada";
+}
 export type EstadoLinea = (typeof ESTADOS_LINEA)[number];
 
 export type LineaPresupuesto = {
@@ -55,6 +67,16 @@ export type LineaPresupuesto = {
   aprobadoPor:        string;
   fechaAprobacion:    string;
   creadoPor:          string;
+  prioridad?:         Prioridad;
+  /** Explicación para el cliente (enlace y PDF). */
+  notaCliente?:       string;
+  /** Líneas con el mismo grupo son alternativas: el cliente elige solo una. */
+  grupoAlternativas?: string;
+  /** Última respuesta del cliente desde el enlace público (si hubo). */
+  respuestaCliente?:  "Aprobó" | "No aprobó" | "";
+  /** Huella de lo que vio al responder (ver enlace-reglas.ts). */
+  huellaRespondida?:  string;
+  fechaRespuestaCliente?: string;
 };
 
 /** Datos de un repuesto que se trae BAJO PEDIDO (se vuelven la opción
@@ -76,6 +98,8 @@ export type NuevaLineaInput = {
   itemId?:            string | null;
   productoCatalogoId?: string | null;
   bajoPedido?:        DatosBajoPedido | null;
+  prioridad?:         Prioridad;
+  notaCliente?:       string;
 };
 
 // Categorías de la Operación Comercial que tiene sentido pedir como repuesto.
@@ -98,6 +122,8 @@ export const subtotalLinea = (l: Pick<LineaPresupuesto, "cantidad" | "precioUnit
  */
 export function validarLinea(l: NuevaLineaInput): string | null {
   if (!TIPOS_LINEA.includes(l.tipo)) return "Tipo de línea inválido.";
+  if (l.prioridad !== undefined && !(PRIORIDADES as readonly string[]).includes(l.prioridad)) return "Prioridad inválida.";
+  if ((l.notaCliente ?? "").length > NOTA_CLIENTE_MAX) return `La nota para el cliente admite hasta ${NOTA_CLIENTE_MAX} caracteres.`;
   if (!l.descripcion?.trim()) return "La línea necesita una descripción.";
   if (!Number.isInteger(l.cantidad) || l.cantidad < 1) return "La cantidad debe ser un número entero mayor a 0.";
   if (!(l.precioUnitario >= 0)) return "El precio no puede ser negativo.";
@@ -418,4 +444,98 @@ export function reversasDisponibles(l: LineaPresupuesto, p: InfoPedido | undefin
 export function entradaHistorial(texto: string, usuario: string, ahora: Date = new Date()): string {
   const f = new Date(ahora.getTime() - 5 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
   return `[${f}] ${usuario}: ${texto}`;
+}
+
+
+// ─── Alternativas ────────────────────────────────────────────────────────────
+// Varias líneas con el mismo "Grupo de alternativas" son opciones excluyentes
+// (p. ej. pantalla original o genérica): se aprueba como máximo UNA.
+
+/** Prioridad de un grupo: la más exigente de sus líneas. */
+export function prioridadDeGrupo(lineas: Array<Pick<LineaPresupuesto, "prioridad">>): Prioridad {
+  const ps = lineas.map((l) => normalizarPrioridad(l.prioridad));
+  return ps.includes("Necesaria") ? "Necesaria" : ps.includes("Recomendada") ? "Recomendada" : "Opcional";
+}
+
+/**
+ * Antes de aprobar/cargar: impide aprobar dos alternativas del mismo grupo,
+ * o una alternativa cuando ya hay otra aprobada. Devuelve el motivo o null.
+ */
+export function conflictoAlternativas(todas: LineaPresupuesto[], elegidas: string[]): string | null {
+  const set = new Set(elegidas);
+  const porGrupo = new Map<string, LineaPresupuesto[]>();
+  for (const l of todas) if (l.grupoAlternativas) porGrupo.set(l.grupoAlternativas, [...(porGrupo.get(l.grupoAlternativas) ?? []), l]);
+  for (const miembros of porGrupo.values()) {
+    const sel = miembros.filter((l) => set.has(l.id));
+    if (sel.length > 1) return `"${sel.map((l) => l.descripcion).join('" y "')}" son alternativas: el cliente elige solo una.`;
+    if (sel.length === 1) {
+      const otra = miembros.find((l) => !set.has(l.id) && (l.estado === "Aprobada" || l.estado === "Cargada"));
+      if (otra) return `Ya está aprobada la alternativa "${otra.descripcion}". Cancélala antes de aprobar "${sel[0].descripcion}".`;
+    }
+  }
+  return null;
+}
+
+/** Otras alternativas del grupo que siguen en Propuesta (se rechazan al elegir una). */
+export function hermanasPropuestas(todas: LineaPresupuesto[], elegida: LineaPresupuesto): LineaPresupuesto[] {
+  if (!elegida.grupoAlternativas) return [];
+  return todas.filter((l) => l.id !== elegida.id && l.grupoAlternativas === elegida.grupoAlternativas && l.estado === "Propuesta");
+}
+
+/** Clave corta para un grupo nuevo de alternativas. */
+export function nuevoGrupoAlternativas(): string {
+  return `ALT-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, "0")}`;
+}
+
+
+// ─── El presupuesto y las tarjetas de la orden van juntos ────────────────────
+// Un cargo creado desde el presupuesto se puede quitar después desde SU
+// tarjeta (Servicios, Repuestos, Productos digitales) — es el camino natural
+// cuando el cliente se arrepiente. Si eso pasa, la línea NO puede quedar
+// "Cargada": vuelve a "Aprobada" (aprobada por el cliente, pendiente de
+// cargar) para que el técnico decida si la vuelve a cargar o la rechaza.
+
+// null = no se pudo leer esa fuente; entonces no se revisa (no se toca nada).
+export type CargosPresentes = {
+  /** Record ids de "Servicios por Orden" vigentes en la orden. */
+  servicios: ReadonlySet<string> | null;
+  /** Record ids de productos digitales asignados a la orden. */
+  digitales: ReadonlySet<string> | null;
+  /** Record ids de Shipping Items reservados a la orden (repuestos de stock). */
+  itemsEnOrden: ReadonlySet<string> | null;
+};
+
+export type CargaPerdida = { lineaId: string; nota: string };
+
+/** Líneas Cargadas cuyo cargo ya no existe en la orden. */
+export function cargasPerdidas(lineas: LineaPresupuesto[], p: CargosPresentes): CargaPerdida[] {
+  const out: CargaPerdida[] = [];
+  for (const l of lineas) {
+    if (l.estado !== "Cargada") continue;
+    // Bajo pedido: su estado lo gobierna la operación (ver sincronizarConPedido).
+    if (l.operacionId) continue;
+    if (l.tipo === "Servicio" && l.cargoServicioId && p.servicios && !p.servicios.has(l.cargoServicioId)) {
+      out.push({ lineaId: l.id, nota: "Se quitó el servicio desde la tarjeta Servicios. Vuelve a cargarla o recházala." });
+    } else if (l.tipo === "Producto digital" && l.cargoProductoDigitalId && p.digitales && !p.digitales.has(l.cargoProductoDigitalId)) {
+      out.push({ lineaId: l.id, nota: "Se quitó la licencia desde la tarjeta Productos digitales. Vuelve a cargarla o recházala." });
+    } else if (l.tipo === "Repuesto" && l.itemId && p.itemsEnOrden && !p.itemsEnOrden.has(l.itemId)) {
+      out.push({ lineaId: l.id, nota: "Se quitó el repuesto desde la tarjeta Repuestos. Vuelve a cargarla o recházala." });
+    }
+  }
+  return out;
+}
+
+/** Cargos de la orden que NO salieron de una línea del presupuesto. */
+export function cargosSinPresupuesto(lineas: LineaPresupuesto[], p: CargosPresentes) {
+  const deLineas = new Set<string>();
+  for (const l of lineas) {
+    if (l.cargoServicioId) deLineas.add(l.cargoServicioId);
+    if (l.cargoProductoDigitalId) deLineas.add(l.cargoProductoDigitalId);
+    if (l.itemId && (l.estado === "Cargada" || l.estado === "Aprobada")) deLineas.add(l.itemId);
+  }
+  const contar = (ids: ReadonlySet<string> | null) => (ids ? [...ids].filter((x) => !deLineas.has(x)).length : 0);
+  const servicios = contar(p.servicios);
+  const repuestos = contar(p.itemsEnOrden);
+  const digitales = contar(p.digitales);
+  return { servicios, repuestos, digitales, total: servicios + repuestos + digitales };
 }

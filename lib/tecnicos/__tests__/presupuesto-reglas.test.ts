@@ -16,6 +16,7 @@ import fs from "fs";
 import path from "path";
 import {
   validarLinea, estadoPresupuesto, totalesPresupuesto, planDeCarga, esEditable, aceptaVincularArticulo,
+  cargasPerdidas, cargosSinPresupuesto,
   type LineaPresupuesto, type ContextoCarga,
 } from "../presupuesto/reglas";
 
@@ -107,6 +108,48 @@ assert(!/repuestos-v2"\s*,\s*\{\s*method:\s*"POST"/.test(card) && !card.includes
   "La tarjeta de presupuesto no reserva ni asigna nada por su cuenta");
 assert(card.includes("/presupuesto/cargar") && card.includes("confirmar: true"),
   "Cargar a la orden pasa siempre por vista previa + confirmación");
+
+// La revisión lee los MISMOS registros que las tarjetas: los inversos de la
+// orden ("Servicios por Orden" y Shipping Items de stock), no la tabla legacy
+// "Servicios" (ese fue el bug del 22-sep: la tarjeta agregaba y el
+// presupuesto no se enteraba).
+{
+  const cargar = fs.readFileSync("lib/tecnicos/presupuesto/cargar.ts", "utf8");
+  assert(cargar.includes('FID_ORDEN_SERVICIOS = "fldGH4Fdn7bDYrsTA"'), "servicios se leen del inverso de la orden");
+  assert(cargar.includes('FID_ORDEN_ITEMS_STOCK = "fldP4ThobFEWvT1uA"'), "repuestos de stock se leen del inverso de la orden");
+  assert(!cargar.includes("fetchServiciosByOrden"), "no se usa la tabla legacy \"Servicios\"");
+}
+
+// ─── El presupuesto se entera de lo que pasa en las tarjetas (22-sep) ───────
+// Caso real: el cliente aprobó, el técnico cargó el servicio y después lo
+// quitó desde la tarjeta Servicios. La línea no puede seguir "Cargada".
+{
+  const servicio = linea({ id: "recS1", estado: "Cargada", tipo: "Servicio", servicioCatalogoId: "recCat", cargoServicioId: "recCargo" });
+  const digital  = linea({ id: "recD1", estado: "Cargada", tipo: "Producto digital", productoCatalogoId: "recCatD", cargoProductoDigitalId: "recProd" });
+  const repuesto = linea({ id: "recR1", estado: "Cargada", tipo: "Repuesto", itemId: "recItem" });
+  const pedido   = linea({ id: "recP1", estado: "Cargada", tipo: "Repuesto", itemId: "recItem2", operacionId: "recOp", bajoPedido: true });
+  const todas = [servicio, digital, repuesto, pedido];
+  const vacio = { servicios: new Set<string>(), digitales: new Set<string>(), itemsEnOrden: new Set<string>() };
+
+  // Si una fuente no se pudo leer (null) no se toca nada de ese tipo.
+  const sinLeer = { servicios: null, digitales: null, itemsEnOrden: null };
+  assert(cargasPerdidas(todas, sinLeer).length === 0, "si Airtable falla no se cambia ninguna línea");
+
+  const perdidas = cargasPerdidas(todas, vacio);
+  assert(perdidas.length === 3, "servicio, licencia y repuesto quitados desde su tarjeta se detectan");
+  assert(!perdidas.some((p) => p.lineaId === "recP1"), "un repuesto bajo pedido lo gobierna su operación, no esta revisión");
+  assert(perdidas.every((p) => /tarjeta/i.test(p.nota)), "cada aviso dice desde dónde se quitó");
+
+  const completo = { servicios: new Set(["recCargo"]), digitales: new Set(["recProd"]), itemsEnOrden: new Set(["recItem"]) };
+  assert(cargasPerdidas(todas, completo).length === 0, "si los cargos siguen en la orden no se toca nada");
+  assert(cargasPerdidas([linea({ id: "recX", estado: "Propuesta" })], vacio).length === 0, "una línea sin cargar no se revisa");
+
+  // Cargos agregados directo desde las tarjetas (sin pasar por el presupuesto).
+  const conExtras = { servicios: new Set(["recCargo", "recSuelto"]), digitales: new Set(["recProd"]), itemsEnOrden: new Set(["recItem", "recItemSuelto"]) };
+  const sueltos = cargosSinPresupuesto(todas, conExtras);
+  assert(sueltos.servicios === 1 && sueltos.repuestos === 1 && sueltos.digitales === 0 && sueltos.total === 2,
+    "cuenta los cargos que no salieron del presupuesto");
+}
 
 if (fallos > 0) { console.error(`\n${fallos} fallo(s).`); process.exit(1); }
 console.log("\nOK — presupuesto de la orden.");

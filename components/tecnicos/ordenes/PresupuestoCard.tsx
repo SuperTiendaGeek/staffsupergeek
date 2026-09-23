@@ -13,7 +13,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  subtotalLinea, esEditable, aceptaVincularArticulo, fasePedido,
+  subtotalLinea, esEditable, aceptaVincularArticulo, fasePedido, normalizarPrioridad, PRIORIDADES, NOTA_CLIENTE_MAX,
+  type Prioridad,
   type LineaPresupuesto, type TipoLinea, type EstadoPresupuesto, type PasoCarga, type InfoPedido, type FasePedido,
   type ReversasLinea, type AccionReversa,
 } from "@/lib/tecnicos/presupuesto/reglas";
@@ -62,7 +63,98 @@ const BTN_SEC = `${BTN} border-[var(--sg-border)] bg-[var(--sg-card)] text-[var(
 const BTN_PRI = `${BTN} border-[var(--sg-lime)] bg-[var(--sg-lime)] text-[var(--sg-text-on-accent)] hover:brightness-105`;
 const INPUT = "w-full rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2.5 py-1.5 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] focus:border-[var(--sg-lime)] focus:outline-none";
 
+// ─── Enlace para el cliente (aprobación en línea + PDF) ──────────────────────
+
+type InfoEnlaceUI = { token: string; vence: string; estado: "vigente" | "vencido" | "bloqueado" | "sin_enlace"; url: string; whatsapp: string | null };
+
+function fechaCortaEc(iso: string) {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? new Intl.DateTimeFormat("es-EC", { timeZone: "America/Guayaquil", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(t)) : "";
+}
+
+function EnlaceCliente({ ordenId, hayLineas }: { ordenId: string; hayLineas: boolean }) {
+  const [info, setInfo] = useState<InfoEnlaceUI | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const base = `/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/presupuesto`;
+
+  useEffect(() => {
+    let vivo = true;
+    fetch(`${base}/enlace`, { cache: "no-store" }).then((r) => r.json()).then((j) => { if (vivo && j.success) setInfo(j.data); }).catch(() => {});
+    return () => { vivo = false; };
+  }, [base]);
+
+  async function crear(renovar: boolean) {
+    setOcupado(true); setError(null);
+    try {
+      const r = await fetch(`${base}/enlace`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ renovar }) });
+      const j = await r.json();
+      if (!j.success) { setError(j.error ?? "No se pudo crear el enlace"); return; }
+      setInfo(j.data);
+    } catch { setError("Error de red"); }
+    finally { setOcupado(false); }
+  }
+
+  async function copiar() {
+    if (!info?.url) return;
+    try { await navigator.clipboard.writeText(info.url); setCopiado(true); setTimeout(() => setCopiado(false), 2000); } catch { setError("No se pudo copiar; selecciona el enlace a mano."); }
+  }
+
+  if (!hayLineas) return null;
+  const vigente = info?.estado === "vigente";
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-xs">
+      <div className="min-w-0">
+        <p className="font-semibold text-[var(--sg-text-primary)]">Enlace para el cliente</p>
+        <p className="text-[11px] text-[var(--sg-text-muted)]">
+          {!info || info.estado === "sin_enlace"
+            ? "El cliente revisa y aprueba desde su celular, sin cuenta. Si cambias algo, el mismo enlace le pide aprobar solo el cambio."
+            : info.estado === "vencido" ? "Venció: renuévalo antes de volver a enviarlo (es el mismo enlace)."
+            : info.estado === "bloqueado" ? "Bloqueado 30 min por intentos fallidos de cédula."
+            : `Vigente hasta ${fechaCortaEc(info.vence)}.`}
+        </p>
+        {error && <p className="text-[11px] text-[var(--sg-danger)]">{error}</p>}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {info?.url ? (
+          <>
+            <button type="button" onClick={copiar} className={BTN_SEC}>{copiado ? "¡Copiado!" : "Copiar enlace"}</button>
+            {info.whatsapp && vigente && <a href={info.whatsapp} target="_blank" rel="noopener noreferrer" className={BTN_SEC}>WhatsApp</a>}
+            <a href={info.url} target="_blank" rel="noopener noreferrer" className={BTN_SEC}>Ver como cliente</a>
+            {!vigente && <button type="button" disabled={ocupado} onClick={() => crear(true)} className={BTN_PRI}>{ocupado ? "Renovando…" : "Renovar 7 días"}</button>}
+          </>
+        ) : (
+          <button type="button" disabled={ocupado} onClick={() => crear(false)} className={BTN_PRI}>{ocupado ? "Creando…" : "Crear enlace"}</button>
+        )}
+        <a href={`${base}/pdf`} target="_blank" rel="noopener noreferrer" className={BTN_SEC} title="Incluye el enlace y su código QR al pie">PDF</a>
+      </div>
+    </div>
+  );
+}
+
 // ─── Buscadores (reutilizan los endpoints de las tarjetas existentes) ────────
+
+/** Cierra un desplegable al hacer clic fuera o con Escape. */
+function useCerrarFuera(onCerrar: () => void, activo: boolean) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!activo) return;
+    const fuera = (e: MouseEvent | TouchEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onCerrar();
+    };
+    const tecla = (e: KeyboardEvent) => { if (e.key === "Escape") onCerrar(); };
+    document.addEventListener("mousedown", fuera);
+    document.addEventListener("touchstart", fuera);
+    document.addEventListener("keydown", tecla);
+    return () => {
+      document.removeEventListener("mousedown", fuera);
+      document.removeEventListener("touchstart", fuera);
+      document.removeEventListener("keydown", tecla);
+    };
+  }, [activo, onCerrar]);
+  return ref;
+}
 
 function useDebounced(valor: string, ms = 300) {
   const [v, setV] = useState(valor);
@@ -75,29 +167,44 @@ function BuscadorRepuesto({ ordenId, onElegir }: { ordenId: string; onElegir: (i
   const dq = useDebounced(q);
   const [res, setRes] = useState<ItemStock[]>([]);
   const [cargando, setCargando] = useState(false);
+  const [abierto, setAbierto] = useState(true);
+  const ref = useCerrarFuera(useCallback(() => setAbierto(false), []), abierto);
+
+  // Sin texto trae los repuestos de stock disponibles (así se ve qué hay);
+  // con texto, busca por nombre o SKU.
   useEffect(() => {
-    if (dq.trim().length < 2) { setRes([]); return; }
     let cancel = false;
     setCargando(true);
-    fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/repuestos-v2/buscar?q=${encodeURIComponent(dq.trim())}`)
+    const t = dq.trim();
+    fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/repuestos-v2/buscar${t ? `?q=${encodeURIComponent(t)}` : ""}`)
       .then((r) => r.json()).then((j) => { if (!cancel) setRes(j.success ? j.data : []); })
-      .catch(() => {}).finally(() => { if (!cancel) setCargando(false); });
+      .catch(() => { if (!cancel) setRes([]); }).finally(() => { if (!cancel) setCargando(false); });
     return () => { cancel = true; };
   }, [dq, ordenId]);
+
   return (
-    <div className="relative">
-      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar repuesto en inventario (nombre o SKU)…" className={INPUT} />
-      {(res.length > 0 || cargando) && (
-        <ul className="absolute left-0 right-0 top-full z-[120] mt-1 max-h-64 overflow-auto rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-bg)] shadow-2xl">
+    <div className="relative" ref={ref}>
+      <input autoFocus value={q} onFocus={() => setAbierto(true)} onChange={(e) => { setQ(e.target.value); setAbierto(true); }}
+        placeholder="Buscar repuesto en inventario (nombre o SKU)…" className={INPUT} />
+      {abierto && (
+        <ul className="absolute left-0 right-0 top-full z-[120] mt-1 max-h-72 overflow-auto rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-bg)] shadow-2xl">
           {cargando && <li className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Buscando…</li>}
+          {!cargando && res.length === 0 && (
+            <li className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">
+              {q.trim() ? "Ningún repuesto disponible con ese nombre o SKU." : "No hay repuestos de stock disponibles ahora mismo. Usa “Bajo pedido”."}
+            </li>
+          )}
           {res.map((i) => (
             <li key={i.id}>
-              <button type="button" onClick={() => { onElegir(i); setQ(""); setRes([]); }} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[var(--sg-card)]">
+              <button type="button" onClick={() => { onElegir(i); setQ(""); setAbierto(false); }} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[var(--sg-card)]">
                 <span className="min-w-0"><span className="block truncate text-[var(--sg-text-primary)]">{i.nombre}</span><span className="text-[10px] text-[var(--sg-text-muted)]">{i.sku}</span></span>
                 <span className="shrink-0 text-xs font-semibold text-[var(--sg-lime)]">{i.precioVentaFinal !== null ? mon(i.precioVentaFinal) : "sin precio"}</span>
               </button>
             </li>
           ))}
+          {!cargando && res.length > 0 && (
+            <li className="border-t border-[var(--sg-divider)] px-3 py-1.5 text-[10px] text-[var(--sg-text-muted)]">{res.length} repuesto(s) disponibles{q.trim() ? " con ese texto" : ""}</li>
+          )}
         </ul>
       )}
     </div>
@@ -111,14 +218,70 @@ type Borrador = {
   servicioCatalogoId: string | null; itemId: string | null; itemSku: string | null; productoCatalogoId: string | null;
   // Bajo pedido
   proveedorId: string; categoria: string; costo: string; url: string; tiempo: string;
+  prioridad: Prioridad; notaCliente: string; alternativaDe: string;
 };
 const BORRADOR_VACIO = (tipo: TipoLinea): Borrador => ({
   tipo, descripcion: "", cantidad: "1", precio: "", servicioCatalogoId: null, itemId: null, itemSku: null, productoCatalogoId: null,
   proveedorId: "", categoria: "Repuesto", costo: "", url: "", tiempo: "",
+  prioridad: "Recomendada", notaCliente: "", alternativaDe: "",
 });
 
-function FormLinea({ ordenId, onCreada, onCancelar, inicial }: {
+// ─── Prioridad y alternativas ────────────────────────────────────────────────
+
+const PRIORIDAD_ESTILO: Record<Prioridad, { clase: string; ayuda: string }> = {
+  Necesaria:   { clase: "border-[var(--sg-danger)]/60 text-[var(--sg-danger)]",   ayuda: "Sin esto no se puede reparar." },
+  Recomendada: { clase: "border-[var(--sg-warning)]/60 text-[var(--sg-warning)]", ayuda: "El técnico lo aconseja; la reparación sigue sin esto." },
+  Opcional:    { clase: "border-[var(--sg-info)]/60 text-[var(--sg-info)]",       ayuda: "Mejora sugerida." },
+};
+
+function InsigniaPrioridad({ p }: { p: Prioridad | undefined }) {
+  const v = normalizarPrioridad(p);
+  return <span title={PRIORIDAD_ESTILO[v].ayuda} className={`mr-1 inline-block rounded-full border px-1.5 py-px text-[9px] font-bold uppercase tracking-wide ${PRIORIDAD_ESTILO[v].clase}`}>{v}</span>;
+}
+
+function SelectorPrioridad({ valor, onCambio }: { valor: Prioridad; onCambio: (p: Prioridad) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {PRIORIDADES.map((p) => (
+        <button key={p} type="button" onClick={() => onCambio(p)} title={PRIORIDAD_ESTILO[p].ayuda}
+          className={`h-7 rounded-full border px-3 text-[11px] font-semibold transition ${valor === p ? `${PRIORIDAD_ESTILO[p].clase} bg-[var(--sg-card)]` : "border-[var(--sg-border)] text-[var(--sg-text-muted)] hover:text-[var(--sg-text-primary)]"}`}>
+          {p}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Nota para el cliente + "es alternativa de…" (lo comparten el alta y el ajuste). */
+function CamposCliente({ prioridad, nota, alternativaDe, propuestas, onCambio, mostrarAlternativa = true }: {
+  prioridad: Prioridad; nota: string; alternativaDe: string;
+  propuestas: LineaPresupuesto[]; mostrarAlternativa?: boolean;
+  onCambio: (c: Partial<{ prioridad: Prioridad; notaCliente: string; alternativaDe: string }>) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] p-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold text-[var(--sg-text-secondary)]">¿Qué tan necesaria es?</span>
+        <SelectorPrioridad valor={prioridad} onCambio={(p) => onCambio({ prioridad: p })} />
+      </div>
+      {mostrarAlternativa && propuestas.length > 0 && (
+        <select value={alternativaDe} onChange={(e) => onCambio({ alternativaDe: e.target.value })} className={INPUT}>
+          <option value="">No es alternativa de otra línea</option>
+          {propuestas.map((l) => <option key={l.id} value={l.id}>Alternativa de: {l.descripcion} ({mon(l.precioUnitario)})</option>)}
+        </select>
+      )}
+      <textarea value={nota} onChange={(e) => onCambio({ notaCliente: e.target.value.slice(0, NOTA_CLIENTE_MAX) })} rows={2}
+        placeholder="Nota para el cliente (opcional): por qué es necesaria o qué gana si la aprueba. La ve en el enlace y en el PDF."
+        className={`${INPUT} resize-y`} />
+      {alternativaDe && <p className="text-[10px] text-[var(--sg-text-muted)]">El cliente elige solo una de las alternativas. Comparten la prioridad.</p>}
+    </div>
+  );
+}
+
+function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
   ordenId: string; onCreada: () => void; onCancelar: () => void;
+  /** Líneas Propuesta de la orden (para marcar "alternativa de"). */
+  propuestas: LineaPresupuesto[];
   /** Recotizar: arranca con los datos del repuesto que se reemplaza. */
   inicial?: Borrador | null;
 }) {
@@ -130,6 +293,9 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial }: {
   const [q, setQ] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [listaAbierta, setListaAbierta] = useState(true);
+  const refLista = useCerrarFuera(useCallback(() => setListaAbierta(false), []), listaAbierta);
+  const totalCatalogo = b.tipo === "Servicio" ? servicios.length : b.tipo === "Producto digital" ? digitales.length : 0;
 
   useEffect(() => {
     if (b.tipo === "Servicio" && servicios.length === 0) {
@@ -145,8 +311,8 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial }: {
 
   const sugerencias = useMemo(() => {
     const t = q.trim().toLowerCase();
-    if (b.tipo === "Servicio") return servicios.filter((s) => !t || s.nombre.toLowerCase().includes(t)).slice(0, 8);
-    if (b.tipo === "Producto digital") return digitales.filter((d) => !t || `${d.productoBase} ${d.marca ?? ""}`.toLowerCase().includes(t)).slice(0, 8);
+    if (b.tipo === "Servicio") return servicios.filter((s) => !t || s.nombre.toLowerCase().includes(t)).slice(0, 60);
+    if (b.tipo === "Producto digital") return digitales.filter((d) => !t || `${d.productoBase} ${d.marca ?? ""}`.toLowerCase().includes(t)).slice(0, 60);
     return [];
   }, [q, b.tipo, servicios, digitales]);
 
@@ -154,7 +320,7 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial }: {
   const elegido = b.servicioCatalogoId || b.itemId || b.productoCatalogoId || esPedido;
   const cantidadFija = (b.tipo === "Repuesto" && (!!b.itemId || esPedido)) || b.tipo === "Producto digital";
 
-  function cambiarTipo(t: TipoLinea) { setB(BORRADOR_VACIO(t)); setQ(""); setError(null); setModoRepuesto("inventario"); }
+  function cambiarTipo(t: TipoLinea) { setListaAbierta(true); setB({ ...BORRADOR_VACIO(t), prioridad: b.prioridad, notaCliente: b.notaCliente, alternativaDe: b.alternativaDe }); setQ(""); setError(null); setModoRepuesto("inventario"); }
 
   async function guardar() {
     setError(null);
@@ -167,6 +333,7 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial }: {
           cantidad: parseInt(b.cantidad, 10) || 0,
           precioUnitario: parseFloat(b.precio.replace(",", ".")) || 0,
           servicioCatalogoId: b.servicioCatalogoId, itemId: b.itemId, productoCatalogoId: b.productoCatalogoId,
+          prioridad: b.prioridad, notaCliente: b.notaCliente, alternativaDe: b.alternativaDe || null,
           bajoPedido: esPedido
             ? {
                 proveedorId: b.proveedorId, categoria: b.categoria, urlProveedor: b.url.trim(), tiempoEstimado: b.tiempo,
@@ -177,7 +344,7 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial }: {
       });
       const j = await r.json();
       if (!j.success) { setError(j.error ?? "No se pudo agregar la línea"); return; }
-      setB(BORRADOR_VACIO(b.tipo)); setQ("");
+      setB({ ...BORRADOR_VACIO(b.tipo), prioridad: b.prioridad }); setQ("");
       onCreada();
     } catch { setError("Error de red"); }
     finally { setGuardando(false); }
@@ -206,22 +373,30 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial }: {
         <BuscadorRepuesto ordenId={ordenId} onElegir={(i) => setB({ ...b, itemId: i.id, itemSku: i.sku, descripcion: i.nombre, precio: i.precioVentaFinal !== null ? String(i.precioVentaFinal) : "", cantidad: "1" })} />
       )}
       {!elegido && b.tipo !== "Repuesto" && (
-        <div className="relative">
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={b.tipo === "Servicio" ? "Buscar servicio del catálogo…" : "Buscar producto digital del catálogo…"} className={INPUT} />
-          {sugerencias.length > 0 && (
-            <ul className="absolute left-0 right-0 top-full z-[120] mt-1 max-h-64 overflow-auto rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-bg)] shadow-2xl">
+        <div className="relative" ref={refLista}>
+          <input autoFocus value={q} onFocus={() => setListaAbierta(true)} onChange={(e) => { setQ(e.target.value); setListaAbierta(true); }}
+            placeholder={b.tipo === "Servicio" ? `Buscar entre ${totalCatalogo || "…"} servicios del catálogo…` : `Buscar entre ${totalCatalogo || "…"} productos digitales…`} className={INPUT} />
+          {listaAbierta && (
+            <ul className="absolute left-0 right-0 top-full z-[120] mt-1 max-h-72 overflow-auto rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-bg)] shadow-2xl">
+              {totalCatalogo === 0 && <li className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Cargando catálogo…</li>}
+              {totalCatalogo > 0 && sugerencias.length === 0 && <li className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Nada coincide con “{q}”.</li>}
               {b.tipo === "Servicio" && (sugerencias as CatServicio[]).map((s) => (
-                <li key={s.id}><button type="button" onClick={() => setB({ ...b, servicioCatalogoId: s.id, descripcion: s.nombre, precio: s.costoSugerido !== null ? String(s.costoSugerido) : "" })} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[var(--sg-card)]">
+                <li key={s.id}><button type="button" onClick={() => { setListaAbierta(false); setB({ ...b, servicioCatalogoId: s.id, descripcion: s.nombre, precio: s.costoSugerido !== null ? String(s.costoSugerido) : "" }); }} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[var(--sg-card)]">
                   <span className="truncate text-[var(--sg-text-primary)]">{s.nombre}</span>
                   <span className="shrink-0 text-xs text-[var(--sg-lime)]">{s.costoSugerido !== null ? mon(s.costoSugerido) : ""}</span>
                 </button></li>
               ))}
               {b.tipo === "Producto digital" && (sugerencias as CatDigital[]).map((d) => (
-                <li key={d.id}><button type="button" onClick={() => setB({ ...b, productoCatalogoId: d.id, descripcion: [d.marca, d.productoBase].filter(Boolean).join(" "), precio: d.precioVentaCatalogo !== null ? String(d.precioVentaCatalogo) : "", cantidad: "1" })} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[var(--sg-card)]">
+                <li key={d.id}><button type="button" onClick={() => { setListaAbierta(false); setB({ ...b, productoCatalogoId: d.id, descripcion: [d.marca, d.productoBase].filter(Boolean).join(" "), precio: d.precioVentaCatalogo !== null ? String(d.precioVentaCatalogo) : "", cantidad: "1" }); }} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[var(--sg-card)]">
                   <span className="truncate text-[var(--sg-text-primary)]">{[d.marca, d.productoBase].filter(Boolean).join(" ")}</span>
                   <span className="shrink-0 text-xs text-[var(--sg-lime)]">{d.precioVentaCatalogo !== null ? mon(d.precioVentaCatalogo) : ""}</span>
                 </button></li>
               ))}
+              {sugerencias.length > 0 && (
+                <li className="border-t border-[var(--sg-divider)] px-3 py-1.5 text-[10px] text-[var(--sg-text-muted)]">
+                  Mostrando {sugerencias.length} de {totalCatalogo}{sugerencias.length < totalCatalogo ? " — escribe para filtrar" : ""}
+                </li>
+              )}
             </ul>
           )}
         </div>
@@ -266,6 +441,11 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial }: {
         </div>
       )}
 
+      {elegido && (
+        <CamposCliente prioridad={b.prioridad} nota={b.notaCliente} alternativaDe={b.alternativaDe} propuestas={propuestas}
+          onCambio={(c) => setB({ ...b, ...c })} />
+      )}
+
       {error && <p className="text-xs text-[var(--sg-danger)]">{error}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onCancelar} className={BTN_SEC}>Cerrar</button>
@@ -282,7 +462,13 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial }: {
 
 // ─── Tarjeta ─────────────────────────────────────────────────────────────────
 
-export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCargado: () => void | Promise<void> }) {
+export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
+  ordenId: string;
+  onCargado: () => void | Promise<void>;
+  /** Sube cada vez que la orden se relee: el presupuesto se pone al día con
+   *  lo que cambió en las tarjetas (un servicio quitado, un repuesto liberado). */
+  refrescar?: number;
+}) {
   const [lineas, setLineas] = useState<LineaPresupuesto[]>([]);
   const [pedidos, setPedidos] = useState<Record<string, InfoPedido>>({});
   const [reversas, setReversas] = useState<Record<string, ReversasLinea>>({});
@@ -293,6 +479,7 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
   const [verHistorial, setVerHistorial] = useState<string | null>(null);
   const [estado, setEstado] = useState<EstadoPresupuesto>("sin_presupuesto");
   const [totales, setTotales] = useState<Totales | null>(null);
+  const [cargosSueltos, setCargosSueltos] = useState<{ servicios: number; repuestos: number; digitales: number; total: number } | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [agregando, setAgregando] = useState(false);
@@ -300,6 +487,7 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [vinculando, setVinculando] = useState<string | null>(null);
   const [resultados, setResultados] = useState<Resultado[] | null>(null);
+  const [detalle, setDetalle] = useState<{ lineaId: string; prioridad: Prioridad; notaCliente: string; alternativaDe: string } | null>(null);
   const montado = useRef(true);
   useEffect(() => { montado.current = true; return () => { montado.current = false; }; }, []);
 
@@ -309,15 +497,23 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
       const j = await r.json();
       if (!montado.current) return;
       if (!j.success) { setError(j.error ?? "No se pudo cargar el presupuesto"); return; }
-      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setReversas(j.data.reversas ?? {}); setProveedores(j.data.proveedores ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setError(null);
+      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setReversas(j.data.reversas ?? {}); setProveedores(j.data.proveedores ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setCargosSueltos(j.data.cargosSinPresupuesto ?? null); setError(null);
       setSeleccion((prev) => new Set([...prev].filter((id) => (j.data.lineas as LineaPresupuesto[]).some((l) => l.id === id && (l.estado === "Propuesta" || l.estado === "Aprobada")))));
     } catch { if (montado.current) setError("Error de red al cargar el presupuesto"); }
     finally { if (montado.current) setCargando(false); }
   }, [ordenId]);
 
-  useEffect(() => { void recargar(); }, [recargar]);
+  useEffect(() => { void recargar(); }, [recargar, refrescar]);
 
   const seleccionables = lineas.filter((l) => l.estado === "Propuesta" || l.estado === "Aprobada");
+  // Letra por grupo de alternativas (solo grupos con 2+ líneas).
+  const letraGrupo = useMemo(() => {
+    const cuenta = new Map<string, number>();
+    for (const l of lineas) if (l.grupoAlternativas) cuenta.set(l.grupoAlternativas, (cuenta.get(l.grupoAlternativas) ?? 0) + 1);
+    const out = new Map<string, string>();
+    for (const l of lineas) if (l.grupoAlternativas && (cuenta.get(l.grupoAlternativas) ?? 0) > 1 && !out.has(l.grupoAlternativas)) out.set(l.grupoAlternativas, String.fromCharCode(65 + out.size));
+    return out;
+  }, [lineas]);
   const propuestasSel = [...seleccion].filter((id) => lineas.find((l) => l.id === id)?.estado === "Propuesta");
 
   function alternar(id: string) {
@@ -359,6 +555,7 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
           descripcion: l.descripcion, precio: String(l.precioUnitario),
           proveedorId: l.proveedorId ?? "", categoria: l.categoria || "Repuesto",
           costo: l.costoProveedor !== null ? String(l.costoProveedor) : "", url: l.urlProveedor, tiempo: l.tiempoEstimado,
+          prioridad: normalizarPrioridad(l.prioridad), notaCliente: l.notaCliente ?? "",
         });
         setAgregando(true);
       }
@@ -430,11 +627,24 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
         </div>
       </div>
 
+      {!cargando && <EnlaceCliente ordenId={ordenId} hayLineas={lineas.length > 0} />}
+
+      {!cargando && cargosSueltos && cargosSueltos.total > 0 && (
+        <p className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[11px] text-[var(--sg-text-muted)]">
+          La orden además tiene {[
+            cargosSueltos.servicios ? `${cargosSueltos.servicios} servicio(s)` : "",
+            cargosSueltos.repuestos ? `${cargosSueltos.repuestos} repuesto(s)` : "",
+            cargosSueltos.digitales ? `${cargosSueltos.digitales} producto(s) digital(es)` : "",
+          ].filter(Boolean).join(", ")} agregados directo desde sus tarjetas (sin pasar por el presupuesto). Se cobran igual; simplemente no tienen constancia de aprobación del cliente.
+        </p>
+      )}
+
       {agregando && (
         <FormLinea
           key={inicialForm ? "recotizar" : "nueva"}
           ordenId={ordenId}
           inicial={inicialForm}
+          propuestas={lineas.filter((x) => x.estado === "Propuesta")}
           onCreada={() => { setInicialForm(null); void recargar(); }}
           onCancelar={() => { setAgregando(false); setInicialForm(null); }}
         />
@@ -484,7 +694,26 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
                       {puedeSel && <input type="checkbox" checked={seleccion.has(l.id)} onChange={() => alternar(l.id)} className="mt-1 accent-[#D7FF4F]" aria-label={`Seleccionar ${l.descripcion}`} />}
                     </td>
                     <td className="px-2 py-1.5 align-top">
-                      <span className="block text-[var(--sg-text-primary)]">{l.descripcion}</span>
+                      <span className="block text-[var(--sg-text-primary)]">
+                        <InsigniaPrioridad p={l.prioridad} />
+                        {l.grupoAlternativas && letraGrupo.get(l.grupoAlternativas) && (
+                          <span title="El cliente elige solo una de las alternativas" className="mr-1 inline-block rounded-full border border-[var(--sg-border)] px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-[var(--sg-text-secondary)]">Alt. {letraGrupo.get(l.grupoAlternativas)}</span>
+                        )}
+                        {l.descripcion}
+                      </span>
+                      {l.notaCliente && <span className="block text-[11px] italic text-[var(--sg-text-secondary)]">“{l.notaCliente}”</span>}
+                      {detalle?.lineaId === l.id && (
+                        <div className="mt-1.5 space-y-1.5">
+                          <CamposCliente prioridad={detalle.prioridad} nota={detalle.notaCliente} alternativaDe={detalle.alternativaDe}
+                            propuestas={lineas.filter((x) => x.estado === "Propuesta" && x.id !== l.id)}
+                            onCambio={(c) => setDetalle({ ...detalle, ...c })} />
+                          <div className="flex justify-end gap-2">
+                            {l.grupoAlternativas && <button type="button" onClick={() => { void accionLinea(l, "PATCH", { accion: "detalle", quitarAlternativa: true }); setDetalle(null); }} className={BTN_SEC}>Quitar de alternativas</button>}
+                            <button type="button" onClick={() => setDetalle(null)} className={BTN_SEC}>Cancelar</button>
+                            <button type="button" disabled={ocupado === l.id} onClick={() => { void accionLinea(l, "PATCH", { accion: "detalle", prioridad: detalle.prioridad, notaCliente: detalle.notaCliente, alternativaDe: detalle.alternativaDe || null }); setDetalle(null); }} className={BTN_PRI}>Guardar</button>
+                          </div>
+                        </div>
+                      )}
                       {(() => {
                         const p = l.operacionId ? pedidos[l.operacionId] : undefined;
                         if (l.bajoPedido && !l.operacionId) {
@@ -529,6 +758,15 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
                           </span>
                         );
                       })()}
+                      {l.respuestaCliente && (
+                        <span className={`mt-0.5 block text-[11px] font-semibold ${l.respuestaCliente === "Aprobó" ? "text-[var(--sg-success)]" : normalizarPrioridad(l.prioridad) === "Necesaria" && !l.grupoAlternativas ? "text-[var(--sg-danger)]" : "text-[var(--sg-text-muted)]"}`}>
+                          {l.respuestaCliente === "Aprobó" ? "✓ El cliente aprobó por el enlace"
+                            : normalizarPrioridad(l.prioridad) === "Necesaria" && !l.grupoAlternativas ? "⚠ El cliente NO aprobó algo NECESARIO por el enlace — sin esto no se puede reparar"
+                            : "✕ El cliente no aprobó por el enlace"}
+                          {l.fechaRespuestaCliente ? ` · ${fechaCortaEc(l.fechaRespuestaCliente)}` : ""}
+                          {l.estado === "Propuesta" ? " — cambió después: espera su nueva respuesta" : ""}
+                        </span>
+                      )}
                       {l.notaCarga && l.estado === "Aprobada" && !(l.operacionId && l.notaCarga.startsWith("Esperando pedido")) && <span className="mt-0.5 block text-[11px] text-[var(--sg-warning)]">{l.notaCarga}</span>}
                       {l.historial && (
                         <button type="button" onClick={() => setVerHistorial(verHistorial === l.id ? null : l.id)} className="mt-0.5 block text-[10px] text-[var(--sg-text-muted)] hover:text-[var(--sg-text-primary)]">
@@ -592,6 +830,7 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
                       )}
                       {esEditable(l) && (
                         <>
+                          <button type="button" disabled={ocupado === l.id} onClick={() => setDetalle(detalle?.lineaId === l.id ? null : { lineaId: l.id, prioridad: normalizarPrioridad(l.prioridad), notaCliente: l.notaCliente ?? "", alternativaDe: "" })} className="mr-2 text-[var(--sg-text-muted)] hover:text-[var(--sg-lime)]">Ajustar</button>
                           <button type="button" disabled={ocupado === l.id} onClick={() => accionLinea(l, "PATCH", { accion: "rechazar" })} className="mr-2 text-[var(--sg-text-muted)] hover:text-[var(--sg-warning)]">Rechazar</button>
                           <button type="button" disabled={ocupado === l.id} onClick={() => accionLinea(l, "DELETE")} className="text-[var(--sg-text-muted)] hover:text-[var(--sg-danger)]" aria-label="Borrar línea">✕</button>
                         </>
@@ -619,7 +858,7 @@ export function PresupuestoCard({ ordenId, onCargado }: { ordenId: string; onCar
             )}
             {aprobadasPendientes.length > 0 && seleccion.size === 0 && (
               <button type="button" disabled={!!ocupado} onClick={() => cargarAprobadas(aprobadasPendientes.map((l) => l.id))} className={BTN_SEC}>
-                Reintentar pendientes ({aprobadasPendientes.length})
+                Cargar aprobadas ({aprobadasPendientes.length})
               </button>
             )}
             <button type="button" disabled={seleccion.size === 0 || !!ocupado} onClick={() => cargarAprobadas([...seleccion])} className={BTN_PRI}>

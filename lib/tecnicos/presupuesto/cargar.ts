@@ -23,6 +23,7 @@ import {
   createServicioPorOrden,
   asignarProductoDigitalAOrden,
   fetchProductosDigitalesDisponibles,
+  fetchProductosDigitalesPorOrden,
 } from "../airtable";
 import { agregarRepuestoStockAOrden } from "../repuestos-v2";
 import { unidadesLibres, unidadesReservadas } from "@/lib/shipping-v2/unidades";
@@ -35,10 +36,11 @@ import { soltarArticuloDePedido } from "@/lib/shipping-v2/airtable";
 import { listarLineas, actualizarLinea, cargarInfoPedidos, clienteDeOrden } from "./airtable";
 import {
   planDeCarga, fasePedido, reversasDisponibles, entradaHistorial,
-  type ContextoCarga, type LineaPresupuesto, type PasoCarga, type AccionReversa,
-} from "./reglas";
+  cargasPerdidas, cargosSinPresupuesto, conflictoAlternativas, hermanasPropuestas,
+  type ContextoCarga, type LineaPresupuesto, type PasoCarga, type AccionReversa, type CargosPresentes } from "./reglas";
 
 const T_ITEMS = "Shipping Items";
+const T_ORDENES_TABLA = "Órdenes de Reparación";
 const LINK_ORDEN_STOCK = "Orden de Reparación (Stock)";
 
 type Registro = { id: string; fields: Record<string, unknown> };
@@ -129,6 +131,20 @@ export async function aprobarYCargar(opts: {
   return withLock(`presupuesto:${opts.ordenId}`, async () => {
     const todas = await listarLineas(opts.ordenId);
     const elegidas = todas.filter((l) => opts.lineaIds.includes(l.id));
+
+    // Alternativas: se aprueba una sola por grupo; las demás que seguían
+    // propuestas quedan rechazadas ("el cliente eligió otra").
+    const conflicto = conflictoAlternativas(todas, elegidas.map((l) => l.id));
+    if (conflicto) throw new Error(conflicto);
+    for (const l of elegidas) {
+      for (const h of hermanasPropuestas(todas, l)) {
+        await actualizarLinea(h.id, {
+          estado: "Rechazada",
+          notaCarga: `El cliente eligió la alternativa "${l.descripcion}".`,
+          agregarHistorial: { anterior: h.historial, entrada: entradaHistorial(`Descartada: el cliente eligió "${l.descripcion}".`, opts.usuario.nombre) },
+        });
+      }
+    }
 
     // Una línea con cargo ya creado pero estado sin actualizar (se cortó a
     // mitad de camino) se da por cargada, nunca se vuelve a cargar.
@@ -330,4 +346,75 @@ export async function revertirLinea(opts: {
       agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(texto, opts.usuario.nombre) },
     });
   });
+}
+
+// ─── Sincronizar con las tarjetas de la orden ────────────────────────────────
+// El presupuesto y las tarjetas (Servicios, Repuestos, Productos digitales)
+// son dos vistas de lo mismo. Un cargo se puede quitar desde su tarjeta —es lo
+// natural cuando el cliente se arrepiente— y entonces la línea no puede
+// seguir diciendo "Cargada". Esto se revisa al abrir el presupuesto y deja la
+// línea en "Aprobada" con el motivo, sin tocar nada más.
+
+export type ResumenCargos = ReturnType<typeof cargosSinPresupuesto>;
+
+// Campos de la orden leídos POR ID (regla de la casa: nunca filtrar por campo
+// de link; se leen los inversos que ya trae el registro de la orden).
+const FID_ORDEN_SERVICIOS = "fldGH4Fdn7bDYrsTA";   // → "Servicios por Orden"
+const FID_ORDEN_ITEMS_STOCK = "fldP4ThobFEWvT1uA"; // → Shipping Items (repuestos de stock)
+
+async function cargosDeLaOrden(ordenId: string): Promise<CargosPresentes> {
+  // Las MISMAS fuentes que las tarjetas de la orden. Si una falla, queda en
+  // null y esa parte NO se revisa: mejor no enterarse que cambiarle el estado
+  // a una línea por un error de red.
+  const [orden, digitales] = await Promise.all([
+    inversosDeLaOrden(ordenId).catch(() => null),
+    fetchProductosDigitalesPorOrden(ordenId).then((r) => new Set(r.map((d) => d.id))).catch(() => null),
+  ]);
+  return {
+    servicios: orden ? new Set(orden.servicios) : null,
+    digitales,
+    itemsEnOrden: orden ? new Set(orden.items) : null,
+  };
+}
+
+async function inversosDeLaOrden(ordenId: string): Promise<{ servicios: string[]; items: string[] }> {
+  const { token, baseId } = loadAirtableEnv();
+  const u = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(T_ORDENES_TABLA)}/${encodeURIComponent(ordenId)}`);
+  u.searchParams.set("returnFieldsByFieldId", "true");
+  const res = await fetch(u.toString(), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+  if (!res.ok) throw new Error(`Airtable ${res.status}`);
+  const data = (await res.json()) as { fields?: Record<string, unknown> };
+  const ids = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  return { servicios: ids(data.fields?.[FID_ORDEN_SERVICIOS]), items: ids(data.fields?.[FID_ORDEN_ITEMS_STOCK]) };
+}
+
+/**
+ * Pone al día las líneas Cargadas cuyo cargo ya no está en la orden y cuenta
+ * los cargos que nunca pasaron por el presupuesto (se agregaron directo desde
+ * su tarjeta). Devuelve las líneas al día.
+ */
+export async function sincronizarConLasTarjetas(
+  ordenId: string,
+  lineas: LineaPresupuesto[],
+  usuario = "Portal"
+): Promise<{ lineas: LineaPresupuesto[]; cargosSinPresupuesto: ResumenCargos; hubo: boolean }> {
+  const presentes = await cargosDeLaOrden(ordenId);
+  const perdidas = cargasPerdidas(lineas, presentes);
+
+  for (const p of perdidas) {
+    const l = lineas.find((x) => x.id === p.lineaId)!;
+    await actualizarLinea(l.id, {
+      estado: "Aprobada",
+      notaCarga: p.nota,
+      cargoServicioId: null,
+      cargoProductoDigitalId: null,
+      agregarHistorial: { anterior: l.historial, entrada: entradaHistorial(p.nota, usuario) },
+    });
+    l.estado = "Aprobada";
+    l.notaCarga = p.nota;
+    l.cargoServicioId = null;
+    l.cargoProductoDigitalId = null;
+  }
+
+  return { lineas, cargosSinPresupuesto: cargosSinPresupuesto(lineas, presentes), hubo: perdidas.length > 0 };
 }
