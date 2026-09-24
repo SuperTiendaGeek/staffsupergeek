@@ -12,6 +12,7 @@
  */
 
 import type { CampoAdicional, Pago } from "../types/factura";
+import { aplicarRucProveedor, sinRucProveedor } from "./rucProveedor";
 
 // ─── Obligatoriedad por forma de pago ────────────────────────────────────────
 
@@ -122,13 +123,26 @@ export function construirCamposReferenciaPago(pagos: Pago[], limiteCampos: numbe
 export function construirInfoAdicionalFactura(
   vendedor: string | undefined,
   infoAdicionalExtra: CampoAdicional[] | undefined,
-  pagos: Pago[]
+  pagos: Pago[],
+  /**
+   * RUC del proveedor del sistema (Res. NAC-DGERCGC26-00000027, Anexo 26).
+   * Ausente → comportamiento idéntico al anterior. Presente → se le reserva
+   * su espacio ANTES de repartir el resto entre las referencias de pago, así
+   * nunca queda fuera por el tope de 15, y cualquier "RUC Proveedor" que ya
+   * viniera en infoAdicionalExtra se actualiza en vez de duplicarse.
+   */
+  rucProveedor?: string
 ): CampoAdicional[] {
-  const base: CampoAdicional[] = [
-    ...(vendedor?.trim() ? [{ nombre: "Vendedor", valor: vendedor.trim() }] : []),
-    ...(infoAdicionalExtra ?? []),
-  ];
-  const espacioParaReferencias = Math.max(0, MAX_CAMPOS_INFO_ADICIONAL - base.length);
+  const ruc = rucProveedor?.trim();
+  const vendedorCampo: CampoAdicional[] = vendedor?.trim() ? [{ nombre: "Vendedor", valor: vendedor.trim() }] : [];
+  const base: CampoAdicional[] = [...vendedorCampo, ...(infoAdicionalExtra ?? [])];
+  // Espacio ya ocupado: lo fijo, sin contar un "RUC Proveedor" previo, más
+  // el lugar reservado para el RUC Proveedor definitivo.
+  const reservados = ruc ? [...vendedorCampo, ...sinRucProveedor(infoAdicionalExtra)].length + 1 : base.length;
+  const espacioParaReferencias = Math.max(0, MAX_CAMPOS_INFO_ADICIONAL - reservados);
   const camposReferenciaPago = construirCamposReferenciaPago(pagos, espacioParaReferencias);
-  return [...base, ...camposReferenciaPago];
+  const resultado = [...base, ...camposReferenciaPago];
+  // aplicarRucProveedor actualiza uno existente en su misma posición (y
+  // descarta repeticiones) o lo agrega al final.
+  return ruc ? aplicarRucProveedor(resultado, ruc) : resultado;
 }

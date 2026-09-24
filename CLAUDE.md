@@ -107,3 +107,5 @@ The middleware logic lives in `proxy.ts` (root) and is re-exported from `middlew
 
 ### Facturación (SRI Electronic Invoicing)
 Before working on `lib/facturacion/` or its hook into orders/operations, read `docs/AUDITORIA_FACTURACION_FASE16.md` (read-only audit of the existing module: architecture, data model, test-vs-production config, existing connections) and `docs/DISENO_FASE16_GANCHO_FACTURACION.md` (design for connecting cuenta unificada → facturación, built across three PRs).
+
+Every electronic document carries `<campoAdicional nombre="RUC Proveedor">` (Res. NAC-DGERCGC26-00000027, ficha técnica v2.34 Anexo 26), configured with `SRI_PROVEEDOR_SISTEMA_RUC` (falls back to `SRI_RUC`) — see `docs/RUC_PROVEEDOR_ANEXO26.md` and `lib/facturacion/reglas/rucProveedor.ts`. Any new comprobante emitter must pass its infoAdicional through `infoAdicionalConRucProveedor()`.

@@ -221,6 +221,19 @@ function desglosaRTotales(input: RideInput): FilaTotales[] {
   return rows;
 }
 
+// ─── Información adicional ───────────────────────────────────────────────────
+
+/**
+ * Filas [nombre, valor] del bloque "INFORMACIÓN ADICIONAL", en el mismo orden
+ * del XML. Aislada para poder probarla sin renderizar el PDF: el texto dentro
+ * del PDF va codificado por glifos (Roboto embebida) y no se puede buscar.
+ * Así sale, p. ej., "RUC Proveedor | 1003710272001" — el formato del
+ * Ejemplo 2 del Anexo 26 de la ficha técnica v2.34.
+ */
+export function filasInfoAdicionalRide(campos: CampoAdicional[] | undefined): Array<[string, string]> {
+  return (campos ?? []).map((c) => [c.nombre, c.valor]);
+}
+
 // ─── Generación del PDF ───────────────────────────────────────────────────────
 
 export async function generarRide(input: RideInput): Promise<Uint8Array> {
@@ -438,9 +451,9 @@ export async function generarRide(input: RideInput): Promise<Uint8Array> {
             {
               table: {
                 widths: [130, "*"],
-                body: input.infoAdicional.map((c) => [
-                  { text: c.nombre, bold: true },
-                  { text: c.valor },
+                body: filasInfoAdicionalRide(input.infoAdicional).map(([nombre, valor]) => [
+                  { text: nombre, bold: true },
+                  { text: valor },
                 ]),
               },
               layout: "lightHorizontalLines",

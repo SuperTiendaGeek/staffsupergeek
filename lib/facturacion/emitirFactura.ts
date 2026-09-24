@@ -39,6 +39,7 @@ import { ahoraEnEcuador }         from "./fechaEcuador";
 import { assertXmlValidoSri }     from "./reglas/validacionXsd";
 import { assertPagosCuadranConTotal } from "./reglas/pagos";
 import { construirInfoAdicionalFactura } from "./reglas/referenciaPago";
+import { resolverRucProveedor }     from "./reglas/rucProveedor";
 
 import type { FacturaInput,
               DetalleFactura,
@@ -178,6 +179,13 @@ export async function emitirFactura(
   // haberlo impedido antes de llegar aquí.
   const fechaEmision = existente?.fechaEmision ?? ahoraEnEcuador();
 
+  // RUC del proveedor del sistema (Res. NAC-DGERCGC26-00000027, Anexo 26
+  // de la ficha técnica v2.34). Se resuelve y valida AQUÍ, antes de la firma
+  // y del secuencial: una variable mal escrita aborta sin quemar número ni
+  // contactar al SRI. Ver lib/facturacion/reglas/rucProveedor.ts.
+  const rucProveedor = resolverRucProveedor(cfg.ruc);
+  if (rucProveedor.aviso) console.warn(`[emitirFactura] RUC Proveedor: ${rucProveedor.aviso}`);
+
   // Firma: viene de Airtable si el administrador cargó una en
   // /facturacion/firma; si no, de las variables de entorno de siempre.
   // Se resuelve una sola vez, fuera del bucle de reintentos.
@@ -229,10 +237,13 @@ export async function emitirFactura(
     // todo dentro del tope de 15 del XSD. Lógica de composición aislada en
     // construirInfoAdicionalFactura() (reglas/referenciaPago.ts) para poder
     // probarla sin levantar todo este pipeline.
+    // "RUC Proveedor" (Anexo 26) se agrega al final, o actualiza uno que
+    // ya viniera, sin duplicarlo y con su espacio reservado dentro de los 15.
     const infoAdicionalFinal: CampoAdicional[] = construirInfoAdicionalFactura(
       datos.vendedor,
       datos.infoAdicional,
-      datos.pagos
+      datos.pagos,
+      rucProveedor.ruc
     );
 
     const facturaInput: FacturaInput = {

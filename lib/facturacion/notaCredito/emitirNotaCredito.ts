@@ -26,6 +26,7 @@ import { enviarRide }              from "../correo/enviarRide";
 import { construirNotaCreditoXml } from "./construirNotaCreditoXml";
 import { calcularTotalesNotaCredito, round2 } from "./calculos";
 import { assertNotaCreditoValida } from "./validarNotaCredito";
+import { infoAdicionalConRucProveedor } from "../reglas/rucProveedor";
 import {
   maxSecuencialNotaCreditoUsado,
   crearRegistroNotaCredito,
@@ -149,6 +150,13 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
   const firma = await obtenerFirmaActiva();
   assertFirmaVigente(firma, fechaEmision);
 
+  // RUC del proveedor del sistema (Res. NAC-DGERCGC26-00000027, Anexo 26):
+  // va en todos los comprobantes que emite el sistema, no solo en facturas
+  // (ver docs/RUC_PROVEEDOR_ANEXO26.md). Se resuelve
+  // antes del secuencial para que una variable mal escrita aborte sin quemar
+  // número. Hasta hoy la NC no llevaba infoAdicional; este es su único campo.
+  const infoAdicional = infoAdicionalConRucProveedor(undefined, cfg.ruc);
+
   const base = await siguienteSecuencialNotaCredito(cfg.establecimiento, cfg.puntoEmision, cfg.ambiente);
 
   for (let intento = 0; intento < MAX_REINTENTOS; intento++) {
@@ -191,6 +199,7 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
       totalConImpuestos:           totales.totalConImpuestos,
       motivo:                      datos.motivo,
       detalles:                    datos.detalles,
+      infoAdicional,
     });
 
     // Validar ANTES de firmar y antes de contactar al SRI (hallazgo NC-1).
@@ -325,6 +334,7 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
           descuento:      d.descuento,
           total:          d.precioTotalSinImpuesto,
         })),
+        infoAdicional,
         tipoDocumento:       "NOTA DE CRÉDITO",
         documentoModificado: { numero: datos.numeroFacturaModificada, fechaEmision: datos.fechaEmisionFactura },
         motivo:              datos.motivo,
