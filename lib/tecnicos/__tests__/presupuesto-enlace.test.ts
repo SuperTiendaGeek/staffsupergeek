@@ -150,7 +150,9 @@ assert(!/require\w*Session/.test(api), "la API pública no pide sesión (la prot
 const tallerEnlace = fs.readFileSync("app/api/tecnicos/ordenes/[id]/presupuesto/enlace/route.ts", "utf8");
 assert((tallerEnlace.match(/requireTecnicosSession\(\)/g) ?? []).length === 2, "crear/ver el enlace exige sesión de Técnicos");
 const enlaceSrv = fs.readFileSync("lib/tecnicos/presupuesto/enlace.ts", "utf8");
-assert(!enlaceSrv.includes("aprobarYCargar"), "la respuesta del cliente NO carga a la orden: lo hace el técnico");
+// Regla cambiada el 27-sep (fase 1 del presupuesto único): aprobado = cargado.
+// El detalle se prueba en presupuesto-carga-automatica.test.ts.
+assert(enlaceSrv.includes("aprobarYCargarSinTurno(") && !/aprobarYCargar\(/.test(enlaceSrv), "la respuesta del cliente carga lo aprobado (versión sin turno)");
 assert(enlaceSrv.includes("randomBytes(24)"), "token aleatorio de 24 bytes");
 
 // ─── Prioridad, nota y alternativas (22-sep) ────────────────────────────────

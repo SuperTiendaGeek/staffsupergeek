@@ -504,7 +504,7 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
                 <ul className="mt-1 space-y-0.5 text-emerald-100/80">{listo.noAprobadas.map((t) => <li key={t}>✕ {t}</li>)}</ul>
               </div>
             )}
-            <p className="mt-2 text-xs text-emerald-100/80">El técnico de SUPER GEEK ya fue notificado. Si necesitas cambiar algo, comunícate con la tienda.</p>
+            <p className="mt-2 text-xs text-emerald-100/80">El técnico de SUPER GEEK ya fue notificado y lo que aprobaste ya quedó apartado para tu equipo. Si necesitas cambiar algo, comunícate con la tienda.</p>
           </section>
         )}
 
@@ -594,7 +594,7 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
             ))}
             <label className="flex items-start gap-2 text-xs text-[#C9C9C4]">
               <input type="checkbox" checked={acepta} onChange={(e) => setAcepta(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#D7FF4F]" />
-              <span>Autorizo a SUPER GEEK a realizar los trabajos y pedir los repuestos que apruebo, por los valores indicados. Entiendo que esta respuesta queda registrada con fecha, hora y dispositivo.</span>
+              <span>Autorizo a SUPER GEEK a realizar los trabajos y pedir los repuestos que apruebo, por los valores indicados. Entiendo que lo que apruebo se aparta de inmediato para mi equipo y se suma a mi cuenta, que para cambiarlo después debo comunicarme con la tienda, y que esta respuesta queda registrada con fecha, hora y dispositivo.</span>
             </label>
             {calculo.sinResponder.length > 0 && (
               <p className="text-xs text-amber-200">Falta responder {contar(calculo.sinResponder.map((l) => l.tipo))}.</p>

@@ -122,108 +122,120 @@ export type ResultadoCarga = PasoCarga & {
   error?: string;
 };
 
-export async function aprobarYCargar(opts: {
+export type OpcionesCarga = {
   ordenId: string;
   lineaIds: string[];
   usuario: { nombre: string; id?: string | null };
-}): Promise<ResultadoCarga[]> {
+};
+
+export async function aprobarYCargar(opts: OpcionesCarga): Promise<ResultadoCarga[]> {
   // Turno por orden: un doble clic no puede crear el mismo servicio dos veces.
-  return withLock(`presupuesto:${opts.ordenId}`, async () => {
-    const todas = await listarLineas(opts.ordenId);
-    const elegidas = todas.filter((l) => opts.lineaIds.includes(l.id));
+  return withLock(`presupuesto:${opts.ordenId}`, () => aprobarYCargarSinTurno(opts));
+}
 
-    // Alternativas: se aprueba una sola por grupo; las demás que seguían
-    // propuestas quedan rechazadas ("el cliente eligió otra").
-    const conflicto = conflictoAlternativas(todas, elegidas.map((l) => l.id));
-    if (conflicto) throw new Error(conflicto);
-    for (const l of elegidas) {
-      for (const h of hermanasPropuestas(todas, l)) {
-        await actualizarLinea(h.id, {
-          estado: "Rechazada",
-          notaCarga: `El cliente eligió la alternativa "${l.descripcion}".`,
-          agregarHistorial: { anterior: h.historial, entrada: entradaHistorial(`Descartada: el cliente eligió "${l.descripcion}".`, opts.usuario.nombre) },
-        });
-      }
+/**
+ * Lo mismo que aprobarYCargar, pero SIN pedir el turno de la orden.
+ *
+ * Solo para quien YA tiene el turno `presupuesto:<orden>` — hoy, la respuesta
+ * del cliente desde el enlace (enlace.ts), que aprueba y carga en un solo paso.
+ * withLock NO es reentrante: pedir el mismo turno dos veces deja la segunda
+ * llamada esperando a la primera para siempre.
+ */
+export async function aprobarYCargarSinTurno(opts: OpcionesCarga): Promise<ResultadoCarga[]> {
+  const todas = await listarLineas(opts.ordenId);
+  const elegidas = todas.filter((l) => opts.lineaIds.includes(l.id));
+
+  // Alternativas: se aprueba una sola por grupo; las demás que seguían
+  // propuestas quedan rechazadas ("el cliente eligió otra").
+  const conflicto = conflictoAlternativas(todas, elegidas.map((l) => l.id));
+  if (conflicto) throw new Error(conflicto);
+  for (const l of elegidas) {
+    for (const h of hermanasPropuestas(todas, l)) {
+      await actualizarLinea(h.id, {
+        estado: "Rechazada",
+        notaCarga: `El cliente eligió la alternativa "${l.descripcion}".`,
+        agregarHistorial: { anterior: h.historial, entrada: entradaHistorial(`Descartada: el cliente eligió "${l.descripcion}".`, opts.usuario.nombre) },
+      });
     }
+  }
 
-    // Una línea con cargo ya creado pero estado sin actualizar (se cortó a
-    // mitad de camino) se da por cargada, nunca se vuelve a cargar.
-    for (const l of elegidas) {
-      if ((l.cargoServicioId || l.cargoProductoDigitalId) && l.estado !== "Cargada") {
-        await actualizarLinea(l.id, { estado: "Cargada", notaCarga: "" });
-        l.estado = "Cargada";
-      }
+  // Una línea con cargo ya creado pero estado sin actualizar (se cortó a
+  // mitad de camino) se da por cargada, nunca se vuelve a cargar.
+  for (const l of elegidas) {
+    if ((l.cargoServicioId || l.cargoProductoDigitalId) && l.estado !== "Cargada") {
+      await actualizarLinea(l.id, { estado: "Cargada", notaCarga: "" });
+      l.estado = "Cargada";
     }
+  }
 
-    const plan = planDeCarga(elegidas, await construirContexto(opts.ordenId, elegidas));
-    const ahora = new Date().toISOString();
-    const resultados: ResultadoCarga[] = [];
+  const plan = planDeCarga(elegidas, await construirContexto(opts.ordenId, elegidas));
+  const ahora = new Date().toISOString();
+  const resultados: ResultadoCarga[] = [];
 
-    for (const paso of plan) {
-      const linea = elegidas.find((l) => l.id === paso.lineaId)!;
-      const aprobacion = linea.estado === "Propuesta"
-        ? {
-            estado: "Aprobada" as const, aprobadoPor: opts.usuario.nombre, fechaAprobacion: ahora,
-            agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial("Aprobada por el cliente.", opts.usuario.nombre) },
-          }
-        : {};
-
-      try {
-        if (paso.accion.tipo === "crear_pedido_aprobado") {
-          // Recién ahora nace la operación comercial, directamente "Aprobado":
-          // no consume código ni aparece en el tablero mientras el cliente
-          // todavía no responde.
-          const operacionId = await crearOperacionAprobada(opts.ordenId, linea, opts.usuario.nombre);
-          await actualizarLinea(linea.id, { ...aprobacion, operacionId, notaCarga: "Esperando pedido al proveedor." });
-          resultados.push({ ...paso, cargada: false, esperandoPedido: true });
-        } else if (paso.accion.tipo === "aprobar_pedido") {
-          // La operación pasa a "Aprobado" en el tablero de Operaciones. El
-          // artículo todavía no existe: nace cuando se le pide al proveedor
-          // ("Ya se pidió al proveedor"), igual que desde Operaciones.
-          await actualizarEstadoOperacion(paso.accion.operacionId, "Aprobado");
-          await actualizarLinea(linea.id, { ...aprobacion, notaCarga: "Esperando pedido al proveedor." });
-          resultados.push({ ...paso, cargada: false, esperandoPedido: true });
-        } else if (paso.accion.tipo === "ya_en_inventario") {
-          await actualizarLinea(linea.id, { ...aprobacion, estado: "Cargada", notaCarga: "" });
-          resultados.push({ ...paso, cargada: true });
-        } else if (paso.accion.tipo === "crear_servicio") {
-          const creado = await createServicioPorOrden({
-            ordenRecordId: opts.ordenId,
-            catalogoServicioId: linea.servicioCatalogoId!,
-            nombreSnapshot: linea.cantidad > 1 ? `${linea.descripcion} ×${linea.cantidad}` : linea.descripcion,
-            costo: paso.accion.costo,
-            observacion: "Cargado desde el presupuesto aprobado",
-          });
-          await actualizarLinea(linea.id, { ...aprobacion, estado: "Cargada", notaCarga: "", cargoServicioId: creado.id });
-          resultados.push({ ...paso, cargada: true });
-        } else if (paso.accion.tipo === "reservar_repuesto") {
-          await agregarRepuestoStockAOrden({ ordenRecordId: opts.ordenId, itemId: paso.accion.itemId, registradoPor: opts.usuario.nombre });
-          await actualizarLinea(linea.id, { ...aprobacion, estado: "Cargada", notaCarga: "" });
-          resultados.push({ ...paso, cargada: true });
-        } else if (paso.accion.tipo === "asignar_producto_digital") {
-          await asignarProductoDigitalAOrden({
-            productoId: paso.accion.productoId,
-            ordenRecordId: opts.ordenId,
-            precioVenta: linea.precioUnitario,
-            usadoPorNombre: opts.usuario.nombre,
-            usadoPorId: opts.usuario.id ?? null,
-          });
-          await actualizarLinea(linea.id, { ...aprobacion, estado: "Cargada", notaCarga: "", cargoProductoDigitalId: paso.accion.productoId });
-          resultados.push({ ...paso, cargada: true });
-        } else if (paso.accion.tipo === "pendiente") {
-          await actualizarLinea(linea.id, { ...aprobacion, notaCarga: paso.accion.motivo });
-          resultados.push({ ...paso, cargada: false });
+  for (const paso of plan) {
+    const linea = elegidas.find((l) => l.id === paso.lineaId)!;
+    const aprobacion = linea.estado === "Propuesta"
+      ? {
+          estado: "Aprobada" as const, aprobadoPor: opts.usuario.nombre, fechaAprobacion: ahora,
+          agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial("Aprobada por el cliente.", opts.usuario.nombre) },
         }
-      } catch (e) {
-        // Falló la carga real (p. ej. otro empleado reservó la unidad entre la
-        // vista previa y el clic): la línea queda aprobada con el motivo.
-        const msg = e instanceof Error ? e.message : String(e);
-        await actualizarLinea(linea.id, { ...aprobacion, notaCarga: msg }).catch(() => {});
-        resultados.push({ ...paso, cargada: false, error: msg });
+      : {};
+
+    try {
+      if (paso.accion.tipo === "crear_pedido_aprobado") {
+        // Recién ahora nace la operación comercial, directamente "Aprobado":
+        // no consume código ni aparece en el tablero mientras el cliente
+        // todavía no responde.
+        const operacionId = await crearOperacionAprobada(opts.ordenId, linea, opts.usuario.nombre);
+        await actualizarLinea(linea.id, { ...aprobacion, operacionId, notaCarga: "Esperando pedido al proveedor." });
+        resultados.push({ ...paso, cargada: false, esperandoPedido: true });
+      } else if (paso.accion.tipo === "aprobar_pedido") {
+        // La operación pasa a "Aprobado" en el tablero de Operaciones. El
+        // artículo todavía no existe: nace cuando se le pide al proveedor
+        // ("Ya se pidió al proveedor"), igual que desde Operaciones.
+        await actualizarEstadoOperacion(paso.accion.operacionId, "Aprobado");
+        await actualizarLinea(linea.id, { ...aprobacion, notaCarga: "Esperando pedido al proveedor." });
+        resultados.push({ ...paso, cargada: false, esperandoPedido: true });
+      } else if (paso.accion.tipo === "ya_en_inventario") {
+        await actualizarLinea(linea.id, { ...aprobacion, estado: "Cargada", notaCarga: "" });
+        resultados.push({ ...paso, cargada: true });
+      } else if (paso.accion.tipo === "crear_servicio") {
+        const creado = await createServicioPorOrden({
+          ordenRecordId: opts.ordenId,
+          catalogoServicioId: linea.servicioCatalogoId!,
+          nombreSnapshot: linea.cantidad > 1 ? `${linea.descripcion} ×${linea.cantidad}` : linea.descripcion,
+          costo: paso.accion.costo,
+          observacion: "Cargado desde el presupuesto aprobado",
+        });
+        await actualizarLinea(linea.id, { ...aprobacion, estado: "Cargada", notaCarga: "", cargoServicioId: creado.id });
+        resultados.push({ ...paso, cargada: true });
+      } else if (paso.accion.tipo === "reservar_repuesto") {
+        await agregarRepuestoStockAOrden({ ordenRecordId: opts.ordenId, itemId: paso.accion.itemId, registradoPor: opts.usuario.nombre });
+        await actualizarLinea(linea.id, { ...aprobacion, estado: "Cargada", notaCarga: "" });
+        resultados.push({ ...paso, cargada: true });
+      } else if (paso.accion.tipo === "asignar_producto_digital") {
+        await asignarProductoDigitalAOrden({
+          productoId: paso.accion.productoId,
+          ordenRecordId: opts.ordenId,
+          precioVenta: linea.precioUnitario,
+          usadoPorNombre: opts.usuario.nombre,
+          usadoPorId: opts.usuario.id ?? null,
+        });
+        await actualizarLinea(linea.id, { ...aprobacion, estado: "Cargada", notaCarga: "", cargoProductoDigitalId: paso.accion.productoId });
+        resultados.push({ ...paso, cargada: true });
+      } else if (paso.accion.tipo === "pendiente") {
+        await actualizarLinea(linea.id, { ...aprobacion, notaCarga: paso.accion.motivo });
+        resultados.push({ ...paso, cargada: false });
       }
+    } catch (e) {
+      // Falló la carga real (p. ej. otro empleado reservó la unidad entre la
+      // vista previa y el clic): la línea queda aprobada con el motivo.
+      const msg = e instanceof Error ? e.message : String(e);
+      await actualizarLinea(linea.id, { ...aprobacion, notaCarga: msg }).catch(() => {});
+      resultados.push({ ...paso, cargada: false, error: msg });
     }
-    return resultados;
-  });
+  }
+  return resultados;
 }
 
 // ─── "Ya se pidió al proveedor" ──────────────────────────────────────────────

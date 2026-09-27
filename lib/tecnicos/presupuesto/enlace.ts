@@ -22,9 +22,11 @@ import {
 } from "./airtable";
 import {
   TOKEN_REGEX, construirVista, estadoEnlace, nuevaVigencia, primerNombre, registrarIntentoFallido, validarEnvio,
-  type DetalleRespondido, type EnvioRespuesta, type EstadoEnlace,
+  resumirCargaAutomatica, textoCargaAutomatica,
+  type DetalleRespondido, type EnvioRespuesta, type EstadoEnlace, type ResumenCargaAutomatica,
 } from "./enlace-reglas";
 import { entradaHistorial } from "./reglas";
+import { aprobarYCargarSinTurno } from "./cargar";
 import { cartelesDeServicios, listarAlertasGenerales } from "@/lib/tecnicos/carteles/airtable";
 import {
   alertaAPublica, aPublico, cartelVisible, huellaCartel, textoCompletoAlerta, textoCompletoCartel,
@@ -187,7 +189,7 @@ export async function responderPresupuesto(
       const aprobar = c.decision === "aprobar";
       await actualizarLinea(l.id, {
         estado: c.nuevoEstado,
-        notaCarga: aprobar ? "Aprobada por el cliente desde el enlace. Falta cargarla a la orden." : "No aprobada por el cliente desde el enlace.",
+        notaCarga: aprobar ? "Aprobada por el cliente desde el enlace." : "No aprobada por el cliente desde el enlace.",
         ...(aprobar ? { aprobadoPor: firma, fechaAprobacion: ahora } : {}),
         respuestaCliente: { valor: aprobar ? "Aprobó" : "No aprobó", huella: c.vista.huella, fecha: ahora },
         agregarHistorial: {
@@ -253,14 +255,44 @@ export async function responderPresupuesto(
     });
     if (orden.intentos > 0) await guardarIntentosEnlace(orden.id, 0, null).catch(() => {});
 
-    await avisarAlTaller(orden, nombre, aprobadas.length, v.cambios.length - aprobadas.length, v.necesariasRechazadas).catch((e) =>
+    // Aprobado = cargado: lo aprobado se reserva/crea/asigna AHORA, en el mismo
+    // turno de la orden (por eso la versión SinTurno: withLock no es
+    // reentrante). La respuesta del cliente ya quedó guardada arriba; si la
+    // carga falla, las líneas quedan "Aprobada" con el motivo y el técnico usa
+    // "Reintentar carga". Nunca se le devuelve un error al cliente por esto.
+    let carga: ResumenCargaAutomatica | null = null;
+    if (aprobadas.length) {
+      try {
+        carga = resumirCargaAutomatica(await aprobarYCargarSinTurno({
+          ordenId: orden.id,
+          lineaIds: aprobadas.map((c) => c.lineaId),
+          usuario: { nombre: firma },
+        }));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[presupuesto enlace] carga automática:", e);
+        for (const c of aprobadas) {
+          await actualizarLinea(c.lineaId, { notaCarga: `Aprobada por el cliente, pero no se pudo cargar: ${msg}` }).catch(() => {});
+        }
+      }
+    }
+
+    await avisarAlTaller(orden, nombre, aprobadas.length, v.cambios.length - aprobadas.length, v.necesariasRechazadas, carga).catch((e) =>
       console.warn("[presupuesto enlace] no se pudo notificar:", e)
     );
     return { ok: true, aprobadas: aprobadas.length, noAprobadas: v.cambios.length - aprobadas.length, totalAprobado };
   });
 }
 
-async function avisarAlTaller(orden: OrdenEnlace, nombre: string, aprobadas: number, noAprobadas: number, necesariasRechazadas: string[]) {
+async function avisarAlTaller(
+  orden: OrdenEnlace,
+  nombre: string,
+  aprobadas: number,
+  noAprobadas: number,
+  necesariasRechazadas: string[],
+  carga: ResumenCargaAutomatica | null,
+) {
+  const faltoCargar = aprobadas > 0 && (!carga || carga.sinCargar.length > 0);
   const usuarios = (await listPortalUsers()).filter((u) => u.activo && (isAdministratorRole(u.rol) || canAccessApp({ rol: u.rol, appsPermitidas: u.appsPermitidas } as never, "Técnicos")));
   const partes = [aprobadas ? `aprobó ${aprobadas}` : "", noAprobadas ? `no aprobó ${noAprobadas}` : ""].filter(Boolean).join(" y ");
   await Promise.allSettled(usuarios.map((u) => crearNotificacion({
@@ -271,8 +303,8 @@ async function avisarAlTaller(orden: OrdenEnlace, nombre: string, aprobadas: num
       : `Respuesta al presupuesto ${orden.idVisible}`,
     mensaje: `${nombre} ${partes} ${aprobadas + noAprobadas === 1 ? "línea" : "líneas"} desde el enlace.`
       + (necesariasRechazadas.length ? ` Rechazó lo NECESARIO: ${necesariasRechazadas.join("; ")}. Sin eso no se puede reparar: comunícate con el cliente.` : "")
-      + (aprobadas ? " Falta cargar lo aprobado a la orden." : ""),
-    prioridad: necesariasRechazadas.length ? "Crítica" : aprobadas ? "Alta" : "Normal",
+      + textoCargaAutomatica(carga, aprobadas),
+    prioridad: necesariasRechazadas.length ? "Crítica" : faltoCargar || aprobadas ? "Alta" : "Normal",
     urlAccion: `/tecnicos/ordenes/${orden.id}`,
     entidadTipo: "Orden Reparación",
     entidadId: orden.id,
