@@ -398,11 +398,18 @@ export function reversasDisponibles(l: LineaPresupuesto, p: InfoPedido | undefin
   if (l.estado === "Propuesta" || l.estado === "Rechazada") return ninguna;
   const esPedido = l.bajoPedido || !!l.operacionId;
 
+  // Servicio, repuesto de stock o producto digital: se quitan o se modifican
+  // desde la línea (planRetiro), no con estas reversas de compra.
+  if (!esPedido) {
+    const msg = "Usa \"Quitar\" o \"Modificar\" en la línea.";
+    return { cancelar: NO(msg), recotizar: NO(msg), liberar: NO(msg) };
+  }
+
   // Aprobada sin cargar: todavía no se compró ni se reservó nada.
   if (l.estado === "Aprobada" && !p?.item) {
     return {
       cancelar: SI,
-      recotizar: esPedido ? SI : NO("Solo un repuesto bajo pedido se recotiza. Cancela y agrega otra línea."),
+      recotizar: SI,
       liberar: NO("Todavía no hay artículo."),
     };
   }
@@ -410,7 +417,7 @@ export function reversasDisponibles(l: LineaPresupuesto, p: InfoPedido | undefin
   // Cargada: servicio, repuesto de stock o producto digital se quitan desde
   // su tarjeta, como siempre. Aquí solo se gestiona lo bajo pedido.
   if (!esPedido || !p?.item) {
-    const msg = "Ya está cargado a la orden: quítalo desde su tarjeta (Servicios, Repuestos o Productos digitales).";
+    const msg = "Ya está cargado a la orden: usa \"Quitar\" o \"Modificar\" en la línea.";
     return { cancelar: NO(msg), recotizar: NO(msg), liberar: NO(msg) };
   }
 
@@ -538,4 +545,96 @@ export function cargosSinPresupuesto(lineas: LineaPresupuesto[], p: CargosPresen
   const repuestos = contar(p.itemsEnOrden);
   const digitales = contar(p.digitales);
   return { servicios, repuestos, digitales, total: servicios + repuestos + digitales };
+}
+
+// ─── Quitar o modificar lo que ya se aprobó ──────────────────────────────────
+// Presupuesto único (fase 2): el técnico ya no quita cargos desde las tarjetas
+// Servicios / Repuestos / Productos digitales, sino desde la línea.
+//
+//   · Quitar     → se deshace el cargo y la línea queda Rechazada, marcada como
+//                  quitada por la tienda: en el enlace sale "Anulado por el
+//                  taller" y el cliente NO puede volver a aprobarla por su cuenta.
+//   · Modificar  → se deshace el cargo y la línea vuelve a Propuesta. El técnico
+//                  la edita como cualquier propuesta y el cliente vuelve a
+//                  aprobar (el enlace la muestra como "cambió" o "propuesto de
+//                  nuevo"). Mientras tanto no cuenta en la cuenta.
+//
+// Con factura o recibo emitido no se quita ni se modifica nada: eso es una nota
+// de crédito o la anulación del recibo. Un repuesto bajo pedido sigue con sus
+// reversas propias (cancelar / recotizar / liberar), que miran la compra.
+
+/** Prefijo de "Nota de carga" que marca una línea quitada por la tienda. */
+export const NOTA_QUITADA = "Quitada de la orden";
+
+export const fueQuitadaPorLaTienda = (l: Pick<LineaPresupuesto, "estado" | "notaCarga">) =>
+  l.estado === "Rechazada" && (l.notaCarga ?? "").startsWith(NOTA_QUITADA);
+
+export type AccionRetiro = "quitar" | "modificar";
+
+/** Qué hay que deshacer en la orden antes de cambiar la línea. */
+export type DeshacerCargo =
+  | { tipo: "borrar_servicio"; servicioPorOrdenId: string }
+  | { tipo: "soltar_repuesto"; itemId: string }
+  | { tipo: "desasignar_digital"; productoId: string }
+  | { tipo: "nada" };
+
+export type DocumentoBloqueante = { tipo: "factura" | "recibo"; numero: string } | null;
+
+/**
+ * ¿Se puede quitar o modificar esta línea ahora? Y si sí, qué cargo deshacer.
+ * `presentes` = cargos que de verdad están en la orden (null = no se pudo
+ * leer esa parte; entonces no se asume nada y se deshace igual).
+ */
+export function planRetiro(
+  l: LineaPresupuesto,
+  documento: DocumentoBloqueante,
+  presentes: CargosPresentes,
+): { permitido: true; deshacer: DeshacerCargo } | { permitido: false; motivo: string } {
+  if (l.estado !== "Cargada" && l.estado !== "Aprobada") {
+    return { permitido: false, motivo: l.estado === "Propuesta" ? "Una propuesta se edita o se borra directamente." : "La línea ya no está aprobada." };
+  }
+  if (documento) {
+    const num = documento.numero ? ` ${documento.numero}` : "";
+    return {
+      permitido: false,
+      motivo: documento.tipo === "factura"
+        ? `La orden ya tiene la factura${num} emitida: para quitar o cambiar algo corresponde una nota de crédito.`
+        : `La orden ya tiene el recibo${num} vigente: anúlalo primero para quitar o cambiar algo.`,
+    };
+  }
+  if (l.operacionId || l.bajoPedido) {
+    return { permitido: false, motivo: "Es un repuesto bajo pedido: usa \"El cliente desiste\", \"Recotizar\" o \"Liberar a inventario\"." };
+  }
+
+  // Aprobada sin cargar (no había stock, no había licencia): no hay nada que deshacer.
+  if (l.estado === "Aprobada") return { permitido: true, deshacer: { tipo: "nada" } };
+
+  const sigue = (ids: ReadonlySet<string> | null, id: string) => ids === null || ids.has(id);
+  if (l.tipo === "Servicio") {
+    if (!l.cargoServicioId) return { permitido: false, motivo: "No se encuentra el servicio cargado de esta línea. Revísalo con el administrador." };
+    return { permitido: true, deshacer: sigue(presentes.servicios, l.cargoServicioId) ? { tipo: "borrar_servicio", servicioPorOrdenId: l.cargoServicioId } : { tipo: "nada" } };
+  }
+  if (l.tipo === "Producto digital") {
+    if (!l.cargoProductoDigitalId) return { permitido: false, motivo: "No se encuentra el producto digital asignado de esta línea. Revísalo con el administrador." };
+    return { permitido: true, deshacer: sigue(presentes.digitales, l.cargoProductoDigitalId) ? { tipo: "desasignar_digital", productoId: l.cargoProductoDigitalId } : { tipo: "nada" } };
+  }
+  // Repuesto de stock
+  if (!l.itemId) return { permitido: false, motivo: "No se encuentra el repuesto reservado de esta línea. Revísalo con el administrador." };
+  return { permitido: true, deshacer: sigue(presentes.itemsEnOrden, l.itemId) ? { tipo: "soltar_repuesto", itemId: l.itemId } : { tipo: "nada" } };
+}
+
+/** Cómo queda la línea después de deshacer el cargo. */
+export function lineaTrasRetiro(accion: AccionRetiro, motivo: string): {
+  estado: "Rechazada" | "Propuesta"; notaCarga: string; historial: string;
+} {
+  const m = motivo.trim();
+  if (accion === "quitar") {
+    const nota = `${NOTA_QUITADA}${m ? `: ${m}` : "."}`;
+    return { estado: "Rechazada", notaCarga: nota, historial: nota };
+  }
+  return {
+    estado: "Propuesta",
+    notaCarga: "",
+    historial: `Se quitó de la orden para modificarla; el cliente debe volver a aprobar${m ? ` (${m})` : ""}.`,
+  };
 }

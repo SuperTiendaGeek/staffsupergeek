@@ -17,7 +17,7 @@
 // la tienda (el técnico usa las reversas de la tarjeta).
 
 import type { FaltaConsentimiento } from "../carteles/reglas";
-import { normalizarPrioridad, prioridadDeGrupo, type LineaPresupuesto, type Prioridad } from "./reglas";
+import { fueQuitadaPorLaTienda, normalizarPrioridad, prioridadDeGrupo, type LineaPresupuesto, type Prioridad } from "./reglas";
 import { faltantesDeConsentimiento, type Aceptacion, type RequisitosConsentimiento } from "../carteles/reglas";
 
 export const VIGENCIA_DIAS = 7;
@@ -118,7 +118,9 @@ export function clasificarLinea(l: LineaPresupuesto, visto: DetalleRespondido | 
   } else if (l.estado === "Aprobada") {
     situacion = conEfectos ? "en_proceso" : "aprobada";
   } else {
-    situacion = l.operacionId ? "anulada" : "no_aprobada";
+    // Anulada = la cerró el taller (bajo pedido cancelado, o quitada de la orden
+    // después de aprobada): el cliente no puede volver a aprobarla por su cuenta.
+    situacion = l.operacionId || fueQuitadaPorLaTienda(l) ? "anulada" : "no_aprobada";
   }
 
   const pendiente = SITUACIONES_PENDIENTES.has(situacion);
