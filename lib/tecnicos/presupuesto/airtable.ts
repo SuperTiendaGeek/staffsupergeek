@@ -55,9 +55,15 @@ function cliente() {
   };
 }
 
-async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
+// Reintentos: 429 = Airtable rechazó la petición sin procesarla, reintentar es
+// seguro siempre. 502/503/504 = no se sabe si se procesó: reintentar un GET o
+// un PATCH no hace daño, pero un POST podría crear el registro dos veces.
+const REINTENTO_SEGURO = new Set([429]);
+const REINTENTO_NORMAL = new Set([429, 502, 503, 504]);
+
+async function pedir<T>(url: string, init?: RequestInit, reintentarEn: ReadonlySet<number> = REINTENTO_NORMAL): Promise<T> {
   const c = cliente();
-  const retry = new Set([429, 502, 503, 504]);
+  const retry = reintentarEn;
   let res: Response | null = null;
   for (let i = 0; i < 3; i++) {
     res = await fetch(url, { ...init, headers: { ...c.headers, ...(init?.headers ?? {}) }, cache: "no-store" });
@@ -140,6 +146,65 @@ export async function leerLinea(lineaId: string): Promise<(LineaPresupuesto & { 
   } catch {
     return null;
   }
+}
+
+// ─── Mudanza de órdenes viejas (scripts/mudanza-presupuesto.ts) ─────────────
+
+/** Todas las líneas de todas las órdenes, en bloque (solo para la mudanza). */
+export async function listarTodasLasLineas(): Promise<(LineaPresupuesto & { ordenId: string | null })[]> {
+  const out: (LineaPresupuesto & { ordenId: string | null })[] = [];
+  let offset: string | undefined;
+  do {
+    const u = new URL(url(T_PRESUPUESTO));
+    u.searchParams.set("pageSize", "100");
+    if (offset) u.searchParams.set("offset", offset);
+    const data = await pedir<{ records?: Registro[]; offset?: string }>(u.toString());
+    for (const r of data.records ?? []) out.push({ ...mapLinea(r), ordenId: ids(r.fields[F.orden])[0] ?? null });
+    offset = data.offset;
+    if (offset) await new Promise((r) => setTimeout(r, 220));
+  } while (offset);
+  return out;
+}
+
+/**
+ * Crea UNA línea ya "Cargada" que apunta a un cargo que existe en la orden.
+ * Un solo POST con todo: si se corta, no queda una línea a medias sin vínculo.
+ * No crea ni toca el cargo.
+ *
+ * Solo reintenta ante 429. Ante 502/503/504 NO reintenta: Airtable pudo haber
+ * creado la línea igual, y un reintento la duplicaría (revisión de Claude
+ * Code, 27-sep). El script se detiene en esa orden; la siguiente vuelta la
+ * completa sin duplicar, porque la línea que sí se creó ya reclama su cargo.
+ */
+export async function crearLineaMudanza(
+  ordenId: string,
+  l: {
+    tipo: TipoLinea; descripcion: string; precioUnitario: number;
+    servicioCatalogoId?: string; productoCatalogoId?: string; itemId?: string;
+    cargoServicioId?: string; cargoProductoDigitalId?: string; operacionId?: string;
+  },
+  meta: { creadoPor: string; aprobadoPor: string; historial: string },
+): Promise<LineaPresupuesto> {
+  const fields: Record<string, unknown> = {
+    [F.orden]: [ordenId],
+    [F.tipo]: l.tipo,
+    [F.descripcion]: l.descripcion.trim(),
+    [F.cantidad]: 1,
+    [F.precio]: l.precioUnitario,
+    [F.estado]: "Cargada",
+    [F.creadoPor]: meta.creadoPor,
+    [F.aprobadoPor]: meta.aprobadoPor,
+    [F.historial]: meta.historial,
+    [F.prioridad]: normalizarPrioridad(""),
+  };
+  if (l.servicioCatalogoId) fields[F.servicio] = [l.servicioCatalogoId];
+  if (l.productoCatalogoId) fields[F.productoCat] = [l.productoCatalogoId];
+  if (l.itemId) fields[F.item] = [l.itemId];
+  if (l.cargoServicioId) fields[F.cargoServicio] = [l.cargoServicioId];
+  if (l.cargoProductoDigitalId) fields[F.cargoDigital] = [l.cargoProductoDigitalId];
+  if (l.operacionId) { fields[F.operacion] = [l.operacionId]; fields[F.bajoPedido] = true; }
+  const r = await pedir<Registro>(url(T_PRESUPUESTO), { method: "POST", body: JSON.stringify({ fields }) }, REINTENTO_SEGURO);
+  return mapLinea(r);
 }
 
 export async function crearLinea(

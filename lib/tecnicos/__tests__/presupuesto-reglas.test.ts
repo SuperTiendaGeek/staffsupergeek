@@ -19,6 +19,7 @@ import {
   cargasPerdidas, cargosSinPresupuesto,
   type LineaPresupuesto, type ContextoCarga,
 } from "../presupuesto/reglas";
+import { estadoVisible, NOTA_QUITADA } from "../presupuesto/reglas";
 
 let fallos = 0;
 function assert(cond: boolean, msg: string): void {
@@ -149,6 +150,17 @@ assert(card.includes("/presupuesto/cargar") && card.includes("confirmar: true"),
   const sueltos = cargosSinPresupuesto(todas, conExtras);
   assert(sueltos.servicios === 1 && sueltos.repuestos === 1 && sueltos.digitales === 0 && sueltos.total === 2,
     "cuenta los cargos que no salieron del presupuesto");
+}
+
+// ─── Lo que ve el técnico: "Cargada" ya no se muestra (27-sep) ─────────────
+{
+  assert(estadoVisible(linea({ estado: "Cargada" })).texto === "Aprobada", "Cargada se muestra como \"Aprobada\" (ya suma al Resumen financiero)");
+  const sinStock = estadoVisible(linea({ estado: "Aprobada", operacionId: null }));
+  assert(sinStock.texto.startsWith("Aprobada") && sinStock.tono === "aviso", "aprobada que no se pudo cargar: sigue diciendo Aprobada, con aviso");
+  assert(estadoVisible(linea({ estado: "Aprobada", operacionId: "recOP" })).texto === "Aprobada · falta pedirla", "bajo pedido sin pedir: aviso propio");
+  assert(estadoVisible(linea({ estado: "Rechazada", notaCarga: `${NOTA_QUITADA}: x` })).texto === "Quitada", "quitada por la tienda se distingue de rechazada por el cliente");
+  const tarjeta = fs.readFileSync(path.join("components", "tecnicos", "ordenes", "PresupuestoCard.tsx"), "utf8");
+  assert(!/>\s*Cargada\s*</.test(tarjeta) && !/"Cargada"\s*[,}]/.test(tarjeta.replace(/estado === "Cargada"|estado !== "Cargada"/g, "")), "la tarjeta no muestra la palabra \"Cargada\"");
 }
 
 if (fallos > 0) { console.error(`\n${fallos} fallo(s).`); process.exit(1); }

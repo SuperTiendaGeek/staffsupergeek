@@ -17,7 +17,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  subtotalLinea, esEditable, aceptaVincularArticulo, fasePedido, normalizarPrioridad, PRIORIDADES, NOTA_CLIENTE_MAX,
+  subtotalLinea, esEditable, aceptaVincularArticulo, fasePedido, normalizarPrioridad, PRIORIDADES, NOTA_CLIENTE_MAX, estadoVisible,
+  type TonoEstado,
   type Prioridad,
   type LineaPresupuesto, type TipoLinea, type EstadoPresupuesto, type PasoCarga, type InfoPedido, type FasePedido,
   type ReversasLinea, type AccionReversa, type AccionRetiro,
@@ -51,14 +52,12 @@ const REVERSA_TEXTO: Record<AccionReversa | AccionRetiro, { boton: string; ayuda
 
 const mon = (n: number) => `$${(n || 0).toFixed(2)}`;
 
-const ESTADO_BADGE: Record<LineaPresupuesto["estado"], string> = {
-  Propuesta: "border-[var(--sg-border)] text-[var(--sg-text-secondary)]",
-  Aprobada:  "border-[var(--sg-warning)] text-[var(--sg-warning)] bg-[var(--sg-warning-soft)]",
-  Cargada:   "border-[var(--sg-success)] text-[var(--sg-success)] bg-[var(--sg-success-soft)]",
-  Rechazada: "border-[var(--sg-danger)]/60 text-[var(--sg-danger)]",
-};
-const ESTADO_TEXTO: Record<LineaPresupuesto["estado"], string> = {
-  Propuesta: "Propuesta", Aprobada: "Aprobada · por cargar", Cargada: "Cargada", Rechazada: "Rechazada",
+// El texto sale de estadoVisible() (reglas.ts): "Cargada" ya no se muestra.
+const TONO_BADGE: Record<TonoEstado, string> = {
+  neutro:  "border-[var(--sg-border)] text-[var(--sg-text-secondary)]",
+  aviso:   "border-[var(--sg-warning)] text-[var(--sg-warning)] bg-[var(--sg-warning-soft)]",
+  exito:   "border-[var(--sg-success)] text-[var(--sg-success)] bg-[var(--sg-success-soft)]",
+  peligro: "border-[var(--sg-danger)]/60 text-[var(--sg-danger)]",
 };
 const PRESUPUESTO_TEXTO: Record<EstadoPresupuesto, string> = {
   sin_presupuesto: "Sin presupuesto", propuesto: "Esperando respuesta del cliente", aprobado: "Aprobado", rechazado: "Rechazado",
@@ -622,13 +621,14 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Presupuesto</p>
           <p className="mt-0.5 text-sm font-semibold text-[var(--sg-text-primary)]">{PRESUPUESTO_TEXTO[estado]}</p>
-          <p className="text-[11px] text-[var(--sg-text-muted)]">Armar el presupuesto no reserva repuestos ni afecta la cuenta. Lo que el cliente aprueba (por el enlace o en tienda) se carga solo a la orden.</p>
+          <p className="text-[11px] text-[var(--sg-text-muted)]">Armar el presupuesto no reserva repuestos ni afecta la cuenta. Lo que el cliente aprueba (por el enlace o en tienda) suma solo al Resumen financiero.</p>
         </div>
         <div className="flex items-start gap-2">
           {totales && (totales.propuesto > 0 || totales.aprobado > 0) && (
             <div className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-1.5 text-right text-xs">
               {totales.propuesto > 0 && <p className="text-[var(--sg-text-secondary)]">Propuesto <span className="font-bold tabular-nums text-[var(--sg-text-primary)]">{mon(totales.propuesto)}</span></p>}
               {totales.aprobado > 0 && <p className="text-[var(--sg-text-secondary)]">Aprobado <span className="font-bold tabular-nums text-[var(--sg-success)]">{mon(totales.aprobado)}</span></p>}
+              {totales.pendienteDeCargar > 0 && <p className="text-[11px] text-[var(--sg-warning)]">{mon(totales.pendienteDeCargar)} aún no suma</p>}
             </div>
           )}
           {!agregando && <button type="button" onClick={() => setAgregando(true)} className={BTN_SEC}>+ Línea</button>}
@@ -804,7 +804,7 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
                     <td className="px-2 py-1.5 text-right align-top tabular-nums">{mon(l.precioUnitario)}</td>
                     <td className="px-2 py-1.5 text-right align-top font-semibold tabular-nums text-[var(--sg-text-primary)]">{mon(subtotalLinea(l))}</td>
                     <td className="px-2 py-1.5 align-top">
-                      <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${ESTADO_BADGE[l.estado]}`}>{ESTADO_TEXTO[l.estado]}</span>
+                      {(() => { const e = estadoVisible(l); return <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${TONO_BADGE[e.tono]}`}>{e.texto}</span>; })()}
                     </td>
                     <td className="whitespace-nowrap px-2 py-1.5 text-right align-top text-[11px]">
                       {l.operacionId && pedidos[l.operacionId] && fasePedido(pedidos[l.operacionId]) === "vencido" && (l.estado === "Propuesta" || l.estado === "Aprobada") && (
@@ -885,7 +885,7 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
       {resultados && (
         <div className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] p-3 text-xs">
           <p className="mb-1 font-bold text-[var(--sg-text-primary)]">
-            {resultados.filter((r) => r.cargada).length} de {resultados.length} líneas cargadas a la orden
+            {resultados.filter((r) => r.cargada).length} de {resultados.length} líneas ya suman al Resumen financiero
           </p>
           <ul className="space-y-0.5">
             {resultados.map((r) => (

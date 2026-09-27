@@ -539,7 +539,11 @@ function presentesDe(p: CargosPresentes, tipo: TipoCargo): ReadonlySet<string> |
 export function cargosSinDueno(lineas: LineaPresupuesto[], p: CargosPresentes, tipo: TipoCargo): number | null {
   const presentes = presentesDe(p, tipo);
   if (!presentes) return null;
-  const reclamados = new Set(lineas.filter((l) => l.tipo === tipo && !l.operacionId).map(idCargo).filter((x): x is string => !!x));
+  // Solo las líneas vigentes son dueñas: una Rechazada o Propuesta que conserva
+  // su itemId no tiene reservado nada (observación de la revisión del #119).
+  const reclamados = new Set(lineas
+    .filter((l) => l.tipo === tipo && !l.operacionId && (l.estado === "Cargada" || l.estado === "Aprobada"))
+    .map(idCargo).filter((x): x is string => !!x));
   return [...presentes].filter((id) => !reclamados.has(id)).length;
 }
 
@@ -682,4 +686,28 @@ export function lineaTrasRetiro(accion: AccionRetiro, motivo: string): {
     notaCarga: "",
     historial: `Se quitó de la orden para modificarla; el cliente debe volver a aprobar${m ? ` (${m})` : ""}.`,
   };
+}
+
+// ─── Estado que ve el técnico ────────────────────────────────────────────────
+// Desde el presupuesto único, "aprobado" y "cargado" son lo mismo para quien
+// usa la pantalla: lo aprobado suma solo al Resumen financiero. La palabra
+// "Cargada" ya no se muestra (venía de cuando lo aprobado se pasaba a las
+// tarjetas Servicios / Repuestos / Productos digitales).
+//
+// En Airtable los valores internos NO cambian: "Cargada" = aprobada y ya suma;
+// "Aprobada" = aprobada pero TODAVÍA NO suma, que solo pasa en dos casos:
+// no había stock o código libre al aprobar, o es un repuesto bajo pedido que
+// falta pedir al proveedor. Esos dos se muestran como aprobados con aviso.
+
+export type TonoEstado = "neutro" | "exito" | "aviso" | "peligro";
+
+export function estadoVisible(l: Pick<LineaPresupuesto, "estado" | "notaCarga" | "operacionId">): { texto: string; tono: TonoEstado } {
+  if (l.estado === "Cargada") return { texto: "Aprobada", tono: "exito" };
+  if (l.estado === "Aprobada") {
+    return l.operacionId
+      ? { texto: "Aprobada · falta pedirla", tono: "aviso" }
+      : { texto: "Aprobada · aún no suma", tono: "aviso" };
+  }
+  if (l.estado === "Rechazada") return fueQuitadaPorLaTienda(l) ? { texto: "Quitada", tono: "peligro" } : { texto: "Rechazada", tono: "peligro" };
+  return { texto: "Propuesta", tono: "neutro" };
 }
