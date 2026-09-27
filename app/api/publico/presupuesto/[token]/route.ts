@@ -36,6 +36,9 @@ export async function POST(request: Request, { params }: Params) {
     cedula4: String(body.cedula4 ?? "").slice(0, 10),
     acepta: body.acepta === true,
     entiendeNecesarias: body.entiendeNecesarias === true,
+    aceptaciones: Array.isArray(body.aceptaciones)
+      ? body.aceptaciones.slice(0, 200).map((a) => ({ clave: String(a?.clave ?? "").slice(0, 80), huella: String(a?.huella ?? "").slice(0, 80) }))
+      : [],
   };
   const ip = (request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || request.headers.get("x-real-ip") || "";
   try {

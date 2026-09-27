@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import type { Decision, GrupoVista, LineaRetirada, Situacion, TotalesPrioridad, VistaLinea } from "@/lib/tecnicos/presupuesto/enlace-reglas";
+import type { AlertaPublica, CartelPublico } from "@/lib/tecnicos/carteles/reglas";
 
 // Vista del cliente. Toda la lógica de qué se puede responder vive en el
 // servidor (enlace-reglas.ts); aquí solo se muestra y se arma el envío.
@@ -14,6 +15,8 @@ type Vista = {
   pideCedula: boolean;
   ultimaRespuesta: { fecha: string; nombre: string } | null;
   lineas: VistaLinea[];
+  carteles: Record<string, CartelPublico>;
+  alertasGenerales: AlertaPublica[];
   grupos: GrupoVista[];
   porPrioridad: TotalesPrioridad;
   retiradas: LineaRetirada[];
@@ -23,6 +26,21 @@ type Vista = {
 };
 
 const mon = (n: number) => `$${n.toFixed(2)}`;
+
+// Al cliente se le habla de servicios, repuestos y licencias — nunca de "puntos".
+const PALABRA: Record<string, [string, string]> = {
+  "Servicio": ["servicio", "servicios"],
+  "Repuesto": ["repuesto", "repuestos"],
+  "Producto digital": ["licencia", "licencias"],
+};
+function contar(tipos: string[]): string {
+  const n = tipos.length;
+  if (n === 0) return "";
+  const unicos = [...new Set(tipos)];
+  const par = unicos.length === 1 ? PALABRA[unicos[0]] : null;
+  if (!par) return `${n} ${n === 1 ? "cosa" : "cosas"}`;
+  return `${n} ${n === 1 ? par[0] : par[1]}`;
+}
 const FMT = new Intl.DateTimeFormat("es-EC", { timeZone: "America/Guayaquil", day: "2-digit", month: "long", year: "numeric" });
 function fecha(iso: string) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "");
@@ -97,8 +115,73 @@ function Selector({ valor, onCambio, disabled }: { valor: Decision | null; onCam
   );
 }
 
-function TarjetaLinea({ l, decision, onDecidir, abierta, onAbrir }: {
+/** Cartel de consentimiento: el cliente lo lee entero y acepta para aprobar. */
+function ModalCartel({ cartel, linea, onAceptar, onCerrar }: {
+  cartel: CartelPublico; linea: string; onAceptar: () => void; onCerrar: () => void;
+}) {
+  const [alFinal, setAlFinal] = useState(false);
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onCerrar(); };
+    document.addEventListener("keydown", esc);
+    const previo = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", esc); document.body.style.overflow = previo; };
+  }, [onCerrar]);
+
+  const Lista = ({ titulo, items, icono, clase }: { titulo: string; items: string[]; icono: string; clase: string }) =>
+    items.length === 0 ? null : (
+      <section className="rounded-xl border border-[#3A3A36] bg-[#1F1F1D] p-3">
+        <h3 className={`text-xs font-bold uppercase tracking-wide ${clase}`}>{titulo}</h3>
+        <ul className="mt-2 space-y-1.5">
+          {items.map((t, i) => (
+            <li key={i} className="flex gap-2 text-sm leading-snug text-[#E5E5E0]"><span className={clase}>{icono}</span><span>{t}</span></li>
+          ))}
+        </ul>
+      </section>
+    );
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label={cartel.titulo}
+      className="fixed inset-0 z-[200] flex items-end justify-center bg-black/75 px-0 backdrop-blur-sm sm:items-center sm:px-4">
+      <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border border-[#3A3A36] bg-[#242422] shadow-2xl sm:rounded-3xl">
+        <header className="border-b border-[#3A3A36] bg-[#2A2A28] px-5 py-4">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[#D7FF4F]">Antes de aprobar</p>
+          <h2 className="mt-1 text-lg font-black leading-tight text-[#F5F5F5]">{cartel.titulo}</h2>
+          <p className="mt-1 text-xs text-[#A7A7A7]">{linea}</p>
+        </header>
+
+        <div
+          onScroll={(e) => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 40) setAlFinal(true); }}
+          className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+          {cartel.intro && <p className="whitespace-pre-line text-sm leading-relaxed text-[#E5E5E0]">{cartel.intro}</p>}
+          <Lista titulo="Qué sí incluye" items={cartel.incluye} icono="✓" clase="text-emerald-300" />
+          <Lista titulo="Qué no incluye" items={cartel.noIncluye} icono="✕" clase="text-red-300" />
+          <Lista titulo="Ten en cuenta" items={cartel.avisos} icono="•" clase="text-amber-300" />
+          <section className="rounded-xl border border-[#D7FF4F]/35 bg-[#D7FF4F]/5 p-3">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-[#D7FF4F]">Tu consentimiento</h3>
+            <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-[#F5F5F5]">{cartel.consentimiento}</p>
+          </section>
+        </div>
+
+        <footer className="space-y-2 border-t border-[#3A3A36] bg-[#2A2A28] px-5 py-4">
+          {!alFinal && <p className="text-center text-[11px] text-[#8A8A80]">Desliza para leer todo</p>}
+          <button type="button" onClick={onAceptar}
+            className="w-full rounded-2xl bg-[#D7FF4F] px-4 py-3.5 text-base font-black text-[#151515] transition hover:brightness-105">
+            {cartel.boton}
+          </button>
+          <button type="button" onClick={onCerrar}
+            className="w-full rounded-2xl border border-[#3A3A36] px-4 py-2.5 text-sm font-semibold text-[#A7A7A7] transition hover:text-[#F5F5F5]">
+            Todavía no
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function TarjetaLinea({ l, decision, onDecidir, abierta, onAbrir, cartel, aceptado, onVerCartel }: {
   l: VistaLinea; decision: Decision | null; onDecidir: (d: Decision) => void; abierta: boolean; onAbrir: () => void;
+  cartel?: CartelPublico; aceptado?: boolean; onVerCartel?: () => void;
 }) {
   const e = ETIQUETA[l.situacion];
   const tachada = (!l.pendiente && decision === "no") || l.situacion === "anulada";
@@ -133,6 +216,14 @@ function TarjetaLinea({ l, decision, onDecidir, abierta, onAbrir }: {
         abierta
           ? <div className="mt-3"><Selector valor={decision} onCambio={onDecidir} /></div>
           : <button type="button" onClick={onAbrir} className="mt-2 text-xs font-semibold text-[#A7A7A7] underline underline-offset-2 hover:text-[#F5F5F5]">Cambiar mi respuesta</button>
+      )}
+      {cartel && (
+        <p className="mt-2 text-[11px] text-[#A7A7A7]">
+          {aceptado && decision === "aprobar"
+            ? <span className="text-emerald-300">✓ Aceptaste las condiciones de este servicio · </span>
+            : <span className="text-amber-200">Este servicio tiene condiciones que debes leer · </span>}
+          <button type="button" onClick={onVerCartel} className="underline underline-offset-2 hover:text-[#F5F5F5]">ver condiciones</button>
+        </p>
       )}
       {l.prioridad === "Necesaria" && l.puedeResponder && decision === "no" && <AvisoNecesaria />}
       {l.situacion === "en_proceso" && <p className="mt-2 text-[11px] text-[#8A8A80]">Ya estamos trabajando en esto. Para cambiarlo, comunícate con la tienda.</p>}
@@ -199,9 +290,15 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
   const [cedula4, setCedula4] = useState("");
   const [acepta, setAcepta] = useState(false);
   const [entiende, setEntiende] = useState(false);
+  // clave → huella aceptada. Clave: lineaId, o "general:<id>" para los avisos.
+  const [aceptaciones, setAceptaciones] = useState<Record<string, string>>({});
+  const [cartelAbierto, setCartelAbierto] = useState<{ lineaId: string; soloLectura: boolean } | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [errorEnvio, setErrorEnvio] = useState<string | null>(null);
-  const [listo, setListo] = useState<{ aprobadas: number; noAprobadas: number; totalAprobado: number } | null>(null);
+  const [listo, setListo] = useState<{ aprobadas: string[]; noAprobadas: string[]; totalAprobado: number } | null>(null);
+  const refConfirmar = useRef<HTMLElement | null>(null);
+  const refArriba = useRef<HTMLDivElement | null>(null);
+  const yaLlevado = useRef(false);
 
   const api = `/api/publico/presupuesto/${encodeURIComponent(token)}`;
 
@@ -214,6 +311,7 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
       setVista(v);
       setDecisiones(Object.fromEntries(v.lineas.map((l) => [l.id, l.pendiente ? null : l.decisionActual])));
       setAbiertas(new Set());
+      setAceptaciones({});
       setError(null);
     } catch { setError({ status: 0, texto: "Sin conexión. Revisa tu internet e intenta de nuevo." }); }
   }, [api]);
@@ -236,6 +334,20 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
     return { pendientes, sinResponder, cambios, necesariasNo, total: Math.round(total * 100) / 100, apruebaAlgo: cambios.some((l) => decisiones[l.id] === "aprobar") };
   }, [vista, decisiones]);
 
+  // Cuando ya no queda nada por responder, se lleva al cliente al bloque de
+  // firma: ahí se entiende que el siguiente paso es enviar. (Este efecto va
+  // antes de cualquier return: los hooks siempre se ejecutan en el mismo orden.)
+  const faltanPorResponder = calculo?.sinResponder.length ?? 0;
+  const cambiosListos = calculo?.cambios.length ?? 0;
+  const puedeFirmar = !!vista && vista.estado === "vigente" && cambiosListos > 0 && faltanPorResponder === 0 && !listo;
+  useEffect(() => {
+    if (!puedeFirmar) { yaLlevado.current = false; return; }
+    if (yaLlevado.current) return;
+    yaLlevado.current = true;
+    const t = setTimeout(() => refConfirmar.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 150);
+    return () => clearTimeout(t);
+  }, [puedeFirmar]);
+
   async function enviar() {
     if (!vista || !calculo) return;
     setEnviando(true); setErrorEnvio(null);
@@ -245,6 +357,7 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
         body: JSON.stringify({
           decisiones: calculo.cambios.map((l) => ({ lineaId: l.id, decision: decisiones[l.id], huella: l.huella })),
           nombre, cedula4, acepta, entiendeNecesarias: entiende,
+          aceptaciones: Object.entries(aceptaciones).map(([clave, huella]) => ({ clave, huella })),
         }),
       });
       const j = await r.json();
@@ -253,7 +366,15 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
         if (j.codigo === "CAMBIO") await cargar();
         return;
       }
-      setListo(j.data);
+      // El resumen se arma con lo que el cliente acaba de responder, con sus
+      // nombres: "aprobaste el respaldo…", no "1 punto".
+      setListo({
+        aprobadas: calculo.cambios.filter((l) => decisiones[l.id] === "aprobar").map((l) => `${l.descripcion} (${mon(l.subtotal)})`),
+        noAprobadas: calculo.cambios.filter((l) => decisiones[l.id] === "no").map((l) => l.descripcion),
+        totalAprobado: j.data?.totalAprobado ?? 0,
+      });
+      // Que lo vea: el mensaje queda arriba de todo.
+      window.scrollTo({ top: 0, behavior: "smooth" });
       setEntiende(false);
       await cargar();
     } catch { setErrorEnvio("Sin conexión. Tu respuesta no se envió; intenta de nuevo."); }
@@ -275,8 +396,10 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
 
   const o = vista.orden;
   const bloqueadoEnvio = vista.estado !== "vigente";
+  const generalesPendientes = vista.alertasGenerales.filter((a) => aceptaciones[`general:${a.id}`] !== a.huella);
   const datosOk = nombre.trim().length >= 3 && acepta && (!vista.pideCedula || cedula4.replace(/\D/g, "").length === 4)
-    && (calculo.necesariasNo.length === 0 || entiende);
+    && (calculo.necesariasNo.length === 0 || entiende)
+    && generalesPendientes.length === 0;
   const puedeEnviar = !bloqueadoEnvio && calculo.cambios.length > 0 && calculo.sinResponder.length === 0 && datosOk && !enviando;
   const hayQueResponder = calculo.pendientes.length > 0;
 
@@ -292,19 +415,50 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
   }
   const pendientes = bloques.filter((b) => (b.tipo === "linea" ? b.l.pendiente : b.g.pendiente));
   const resto = bloques.filter((b) => !(b.tipo === "linea" ? b.l.pendiente : b.g.pendiente));
-  const elegirEnGrupo = (ls: VistaLinea[], id: string | null) =>
+  // Aceptar el cartel: queda registrada la aceptación y recién ahí se aprueba.
+  const aceptarCartel = (lineaId: string) => {
+    const cartel = vista.carteles[lineaId];
+    if (!cartel) return;
+    setAceptaciones((p) => ({ ...p, [lineaId]: cartel.huella }));
+    const linea = vista.lineas.find((x) => x.id === lineaId);
+    const grupo = linea?.grupo ? vista.lineas.filter((x) => x.grupo === linea.grupo) : null;
+    setDecisiones((p) => grupo
+      ? { ...p, ...Object.fromEntries(grupo.filter((x) => x.puedeResponder).map((x) => [x.id, x.id === lineaId ? "aprobar" : "no"])) }
+      : { ...p, [lineaId]: "aprobar" });
+    setCartelAbierto(null);
+  };
+
+  // Aprobar una línea con cartel abre primero el cartel; sin cartel, decide directo.
+  const decidirLinea = (l: VistaLinea, d: Decision) => {
+    const cartel = vista.carteles[l.id];
+    if (d === "aprobar" && cartel && aceptaciones[l.id] !== cartel.huella) {
+      setCartelAbierto({ lineaId: l.id, soloLectura: false });
+      return;
+    }
+    setDecisiones((p) => ({ ...p, [l.id]: d }));
+  };
+  const elegirEnGrupo = (ls: VistaLinea[], id: string | null) => {
+    const elegida = id ? ls.find((x) => x.id === id) : null;
+    const cartel = elegida ? vista.carteles[elegida.id] : undefined;
+    if (elegida && cartel && aceptaciones[elegida.id] !== cartel.huella) {
+      setCartelAbierto({ lineaId: elegida.id, soloLectura: false });
+      return;
+    }
     setDecisiones((p) => ({ ...p, ...Object.fromEntries(ls.filter((x) => x.puedeResponder).map((x) => [x.id, x.id === id ? "aprobar" : "no"])) }));
+  };
   const pintar = (b: Bloque) => b.tipo === "linea"
     ? <TarjetaLinea key={b.l.id} l={b.l} decision={decisiones[b.l.id] ?? null} abierta={b.l.pendiente || abiertas.has(b.l.id)}
+        cartel={vista.carteles[b.l.id]} aceptado={aceptaciones[b.l.id] === vista.carteles[b.l.id]?.huella}
+        onVerCartel={() => setCartelAbierto({ lineaId: b.l.id, soloLectura: decisiones[b.l.id] === "aprobar" && aceptaciones[b.l.id] === vista.carteles[b.l.id]?.huella })}
         onAbrir={() => setAbiertas((p) => new Set(p).add(b.l.id))}
-        onDecidir={(d) => setDecisiones((p) => ({ ...p, [b.l.id]: d }))} />
+        onDecidir={(d) => decidirLinea(b.l, d)} />
     : <TarjetaGrupo key={b.g.id} g={b.g} lineas={b.ls} decisiones={decisiones} abierta={abiertas.has(b.g.id)}
         onAbrir={() => setAbiertas((p) => new Set(p).add(b.g.id))}
         onElegir={(id) => elegirEnGrupo(b.ls, id)} />;
 
   return (
     <main className="min-h-screen bg-[#1B1B1B] px-4 pb-16 pt-6 text-[#F5F5F5]">
-      <div className="mx-auto max-w-xl space-y-5">
+      <div ref={refArriba} className="mx-auto max-w-xl space-y-5">
         <Encabezado />
 
         <section className="rounded-2xl border border-[#3A3A36] bg-[#2A2A28] p-5">
@@ -312,7 +466,7 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
           <h1 className="mt-1 text-xl font-black">{o.cliente ? `Hola, ${o.cliente}` : "Hola"}</h1>
           <p className="mt-1 text-sm text-[#A7A7A7]">
             {hayQueResponder
-              ? `Revisa tu presupuesto y dinos qué apruebas. ${pendientes.length === 1 ? "Hay 1 punto" : `Hay ${pendientes.length} puntos`} esperando tu respuesta.`
+              ? `Revisa tu presupuesto y dinos qué apruebas. Hay ${contar(pendientes.map((b) => (b.tipo === "linea" ? b.l.tipo : b.ls[0]?.tipo ?? "Servicio")))} esperando tu respuesta.`
               : "Tu presupuesto está al día: no hay nada nuevo por responder."}
           </p>
           <dl className="mt-4 grid gap-2 text-sm">
@@ -335,9 +489,23 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
           <p className="rounded-xl border border-red-300/40 bg-red-400/10 p-3 text-sm text-red-100">Por seguridad, el enlace está bloqueado unos minutos por varios intentos fallidos. Intenta más tarde o comunícate con la tienda.</p>
         )}
         {listo && (
-          <p className="rounded-xl border border-emerald-300/40 bg-emerald-300/10 p-3 text-sm text-emerald-100">
-            ¡Gracias! Recibimos tu respuesta{listo.aprobadas ? `: aprobaste ${listo.aprobadas} ${listo.aprobadas === 1 ? "punto" : "puntos"} por ${mon(listo.totalAprobado)}` : ""}. El técnico ya fue notificado.
-          </p>
+          <section className="rounded-2xl border border-emerald-300/40 bg-emerald-300/10 p-4 text-sm text-emerald-50">
+            <p className="text-base font-black">¡Gracias! Recibimos tu respuesta</p>
+            {listo.aprobadas.length > 0 && (
+              <div className="mt-2">
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-200">Aprobaste</p>
+                <ul className="mt-1 space-y-0.5">{listo.aprobadas.map((t) => <li key={t}>✓ {t}</li>)}</ul>
+                <p className="mt-1 font-bold">Total aprobado: {mon(listo.totalAprobado)}</p>
+              </div>
+            )}
+            {listo.noAprobadas.length > 0 && (
+              <div className="mt-2">
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-200/80">No aprobaste</p>
+                <ul className="mt-1 space-y-0.5 text-emerald-100/80">{listo.noAprobadas.map((t) => <li key={t}>✕ {t}</li>)}</ul>
+              </div>
+            )}
+            <p className="mt-2 text-xs text-emerald-100/80">El técnico de SUPER GEEK ya fue notificado. Si necesitas cambiar algo, comunícate con la tienda.</p>
+          </section>
         )}
 
         {pendientes.length > 0 && (
@@ -386,7 +554,7 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
         </section>
 
         {calculo.cambios.length > 0 && !bloqueadoEnvio && (
-          <section className="space-y-3 rounded-2xl border border-[#D7FF4F]/30 bg-[#2A2A28] p-4">
+          <section ref={refConfirmar} className="space-y-3 rounded-2xl border border-[#D7FF4F]/30 bg-[#2A2A28] p-4">
             <h2 className="text-sm font-bold">Confirma tu respuesta</h2>
             <label className="block">
               <span className="text-xs text-[#A7A7A7]">Tu nombre completo</span>
@@ -406,12 +574,30 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
                 <span>Entiendo que sin <b>{calculo.necesariasNo.join(", ")}</b> SUPER GEEK no puede continuar con la reparación de mi equipo.</span>
               </label>
             )}
+            {vista.alertasGenerales.map((a) => (
+              <div key={a.id} className="rounded-xl border border-[#3A3A36] bg-[#1F1F1D] p-3">
+                <label className="flex items-start gap-2 text-xs text-[#C9C9C4]">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#D7FF4F]"
+                    checked={aceptaciones[`general:${a.id}`] === a.huella}
+                    onChange={(e) => setAceptaciones((p) => {
+                      const n = { ...p };
+                      if (e.target.checked) n[`general:${a.id}`] = a.huella; else delete n[`general:${a.id}`];
+                      return n;
+                    })} />
+                  <span><b className="text-[#F5F5F5]">{a.titulo}.</b> {a.casilla}</span>
+                </label>
+                <details className="mt-1.5">
+                  <summary className="cursor-pointer text-[11px] text-[#8A8A80] hover:text-[#F5F5F5]">Leer el aviso completo</summary>
+                  <p className="mt-1 whitespace-pre-line text-xs leading-relaxed text-[#D6D6D0]">{a.contenido}</p>
+                </details>
+              </div>
+            ))}
             <label className="flex items-start gap-2 text-xs text-[#C9C9C4]">
               <input type="checkbox" checked={acepta} onChange={(e) => setAcepta(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#D7FF4F]" />
               <span>Autorizo a SUPER GEEK a realizar los trabajos y pedir los repuestos que apruebo, por los valores indicados. Entiendo que esta respuesta queda registrada con fecha, hora y dispositivo.</span>
             </label>
             {calculo.sinResponder.length > 0 && (
-              <p className="text-xs text-amber-200">Falta responder {calculo.sinResponder.length === 1 ? "1 punto" : `${calculo.sinResponder.length} puntos`}.</p>
+              <p className="text-xs text-amber-200">Falta responder {contar(calculo.sinResponder.map((l) => l.tipo))}.</p>
             )}
             {errorEnvio && <p className="text-sm text-red-200">{errorEnvio}</p>}
             <button type="button" onClick={enviar} disabled={!puedeEnviar}
@@ -424,6 +610,15 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
         {vista.ultimaRespuesta && (
           <p className="text-center text-[11px] text-[#8A8A80]">Última respuesta: {vista.ultimaRespuesta.nombre} · {fecha(vista.ultimaRespuesta.fecha)}</p>
         )}
+        {cartelAbierto && vista.carteles[cartelAbierto.lineaId] && (
+          <ModalCartel
+            cartel={vista.carteles[cartelAbierto.lineaId]}
+            linea={vista.lineas.find((l) => l.id === cartelAbierto.lineaId)?.descripcion ?? ""}
+            onAceptar={() => aceptarCartel(cartelAbierto.lineaId)}
+            onCerrar={() => setCartelAbierto(null)}
+          />
+        )}
+
         <p className="text-center text-[11px] text-[#6E6E68]">¿Dudas? Escríbenos por WhatsApp o visítanos en la tienda. Este enlace es personal: no lo compartas.</p>
       </div>
     </main>

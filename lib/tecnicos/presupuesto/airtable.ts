@@ -385,11 +385,21 @@ export async function guardarIntentosEnlace(ordenId: string, intentos: number, b
   });
 }
 
+/** Cartel de consentimiento aceptado, tal como lo leyó el cliente. */
+export type ConsentimientoFirmado = {
+  tipo: "servicio" | "general";
+  titulo: string;
+  linea: string;
+  texto: string;
+  fecha: string;
+};
+
 export type RespuestaFirmada = {
   id: string;
   fecha: string;
   nombre: string;
   detalle: import("./enlace-reglas").DetalleRespondido[];
+  consentimientos: ConsentimientoFirmado[];
 };
 
 /** Respuestas firmadas de la orden, de la más nueva a la más vieja. */
@@ -402,11 +412,15 @@ export async function leerRespuestasOrden(ordenId: string): Promise<RespuestaFir
   return registros
     .map((r) => {
       let detalle: RespuestaFirmada["detalle"] = [];
+      let consentimientos: ConsentimientoFirmado[] = [];
       try {
-        const j = JSON.parse(texto(r.fields["Detalle"]) || "{}") as { lineas?: RespuestaFirmada["detalle"] };
+        const j = JSON.parse(texto(r.fields["Detalle"]) || "{}") as {
+          lineas?: RespuestaFirmada["detalle"]; consentimientos?: ConsentimientoFirmado[];
+        };
         detalle = Array.isArray(j.lineas) ? j.lineas : [];
+        consentimientos = Array.isArray(j.consentimientos) ? j.consentimientos : [];
       } catch { /* detalle ilegible: se ignora, no rompe la vista */ }
-      return { id: r.id, fecha: texto(r.fields["Fecha"]), nombre: texto(r.fields["Nombre firmante"]), detalle };
+      return { id: r.id, fecha: texto(r.fields["Fecha"]), nombre: texto(r.fields["Nombre firmante"]), detalle, consentimientos };
     })
     .sort((a, b) => b.fecha.localeCompare(a.fecha));
 }
