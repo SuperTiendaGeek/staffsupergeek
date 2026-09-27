@@ -369,3 +369,55 @@ export function registrarIntentoFallido(intentos: number, ahora: Date = new Date
 export function primerNombre(nombre: string): string {
   return (nombre ?? "").trim().split(/\s+/)[0] ?? "";
 }
+
+// ─── Carga automática al aprobar ─────────────────────────────────────────────
+// Lo que el cliente aprueba desde el enlace se carga a la orden en la misma
+// respuesta (enlace.ts → aprobarYCargarSinTurno). Aquí solo se resume el
+// resultado para el aviso al taller: qué quedó cargado, qué espera pedido al
+// proveedor y qué no se pudo cargar y por qué (para "Reintentar carga").
+
+/** Lo mínimo de un resultado de carga (ResultadoCarga en cargar.ts). */
+export type ResultadoCargaResumible = {
+  descripcion: string;
+  cargada: boolean;
+  esperandoPedido?: boolean;
+  error?: string;
+  accion: { tipo: string; motivo?: string };
+};
+
+export type ResumenCargaAutomatica = {
+  cargadas: number;
+  esperandoPedido: number;
+  sinCargar: { descripcion: string; motivo: string }[];
+};
+
+export function resumirCargaAutomatica(resultados: ResultadoCargaResumible[]): ResumenCargaAutomatica {
+  const r: ResumenCargaAutomatica = { cargadas: 0, esperandoPedido: 0, sinCargar: [] };
+  for (const x of resultados) {
+    if (x.cargada) r.cargadas++;
+    else if (x.esperandoPedido && !x.error) r.esperandoPedido++;
+    else r.sinCargar.push({
+      descripcion: x.descripcion,
+      motivo: (x.error || (x.accion.tipo === "pendiente" ? x.accion.motivo : "") || "No se pudo cargar.").trim(),
+    });
+  }
+  return r;
+}
+
+/**
+ * Frase para la notificación al taller. `resumen === null` = la carga falló
+ * entera (la aprobación del cliente igual quedó guardada).
+ */
+export function textoCargaAutomatica(resumen: ResumenCargaAutomatica | null, aprobadas: number): string {
+  if (aprobadas <= 0) return "";
+  if (!resumen) return " La aprobación quedó guardada, pero NO se pudo cargar a la orden: usa \"Reintentar carga\" en el presupuesto.";
+  const partes: string[] = [];
+  if (resumen.cargadas) partes.push(`Se cargó a la orden: ${resumen.cargadas} ${resumen.cargadas === 1 ? "línea" : "líneas"}.`);
+  if (resumen.esperandoPedido) {
+    partes.push(`${resumen.esperandoPedido} ${resumen.esperandoPedido === 1 ? "repuesto bajo pedido" : "repuestos bajo pedido"}: falta pedirlo al proveedor.`);
+  }
+  if (resumen.sinCargar.length) {
+    partes.push(`No se pudo cargar: ${resumen.sinCargar.map((s) => `${s.descripcion} (${s.motivo})`).join("; ")}. Revisa y usa "Reintentar carga".`);
+  }
+  return partes.length ? ` ${partes.join(" ")}` : "";
+}

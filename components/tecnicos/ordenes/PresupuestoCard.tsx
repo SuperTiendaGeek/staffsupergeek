@@ -5,10 +5,14 @@
 // El técnico arma aquí lo que le va a proponer al cliente —servicios,
 // repuestos y productos digitales— SIN comprometer nada: no se reserva ningún
 // repuesto, no se asigna ninguna licencia y el Resumen financiero no cambia.
-// Cuando el cliente acepta, "Cliente aprobó → Cargar a la orden" muestra una
-// vista previa y, al confirmar, pasa cada línea a su tarjeta real (ver
+//
+// Aprobado = cargado. Cuando el cliente aprueba desde el enlace, lo aprobado se
+// carga solo a la orden en la misma respuesta (enlace.ts). Si aprueba en la
+// tienda o por teléfono, "Aprobado en tienda" hace lo mismo (ver
 // lib/tecnicos/presupuesto/cargar.ts). Desde ese momento afecta al inventario,
-// a la cuenta y a la factura o recibo.
+// a la cuenta y a la factura o recibo. Lo que no se pudo cargar (sin stock, sin
+// licencia libre) queda "Aprobada" con su motivo y se reintenta con
+// "Reintentar carga".
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -586,7 +590,7 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
     setSeleccion(new Set());
   }
 
-  // "Cliente aprobó" carga directo: el botón ya es la confirmación. El
+  // "Aprobado en tienda" / "Reintentar carga" cargan directo: el botón ya es la confirmación. El
   // resultado (qué se cargó y qué quedó pendiente) se muestra debajo.
   async function cargarAprobadas(ids: string[]) {
     if (ids.length === 0) return;
@@ -606,7 +610,9 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
     finally { setOcupado(null); }
   }
 
-  const aprobadasPendientes = lineas.filter((l) => l.estado === "Aprobada");
+  // Aprobadas que no se pudieron cargar. Un repuesto bajo pedido con operación
+  // ya creada NO cuenta: su siguiente paso es "Ya se pidió al proveedor".
+  const aprobadasPendientes = lineas.filter((l) => l.estado === "Aprobada" && !l.operacionId);
 
   return (
     <section className="relative isolate z-20 space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
@@ -614,7 +620,7 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Presupuesto</p>
           <p className="mt-0.5 text-sm font-semibold text-[var(--sg-text-primary)]">{PRESUPUESTO_TEXTO[estado]}</p>
-          <p className="text-[11px] text-[var(--sg-text-muted)]">Armar el presupuesto no reserva repuestos ni afecta la cuenta hasta que el cliente lo apruebe.</p>
+          <p className="text-[11px] text-[var(--sg-text-muted)]">Armar el presupuesto no reserva repuestos ni afecta la cuenta. Lo que el cliente aprueba (por el enlace o en tienda) se carga solo a la orden.</p>
         </div>
         <div className="flex items-start gap-2">
           {totales && (totales.propuesto > 0 || totales.aprobado > 0) && (
@@ -858,11 +864,11 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
             )}
             {aprobadasPendientes.length > 0 && seleccion.size === 0 && (
               <button type="button" disabled={!!ocupado} onClick={() => cargarAprobadas(aprobadasPendientes.map((l) => l.id))} className={BTN_SEC}>
-                Cargar aprobadas ({aprobadasPendientes.length})
+                Reintentar carga ({aprobadasPendientes.length})
               </button>
             )}
             <button type="button" disabled={seleccion.size === 0 || !!ocupado} onClick={() => cargarAprobadas([...seleccion])} className={BTN_PRI}>
-              {ocupado === "carga" ? "Cargando…" : `Cliente aprobó → Cargar a la orden${seleccion.size ? ` (${seleccion.size})` : ""}`}
+              {ocupado === "carga" ? "Cargando…" : `${propuestasSel.length > 0 ? "Aprobado en tienda" : "Reintentar carga"}${seleccion.size ? ` (${seleccion.size})` : ""}`}
             </button>
           </div>
         </div>
