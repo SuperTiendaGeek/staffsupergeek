@@ -40,3 +40,6 @@ scripts/migracion-items/revision.csv
 
 # Carpeta de salidas locales de Claude Code, no es parte del proyecto.
 Claude outputs/
+
+# Reportes de la mudanza de órdenes al presupuesto (datos del negocio).
+.tmp-mudanza/
