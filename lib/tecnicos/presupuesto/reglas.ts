@@ -514,6 +514,41 @@ export type CargosPresentes = {
 
 export type CargaPerdida = { lineaId: string; nota: string };
 
+// ─── Líneas "Cargada" sin vínculo a su cargo ─────────────────────────────────
+// Cuando se borra un registro, Airtable vacía los vínculos que apuntaban a él:
+// la línea queda "Cargada" sin cargo (OR000368, 27-sep). Pero también hay
+// líneas viejas que NUNCA guardaron el vínculo aunque su cargo sí existe
+// (OR000486: "Desmontaje de pantalla" sigue cobrado). Distinguirlas importa:
+// darla por perdida y "Reintentar carga" cobraría DOS veces.
+//
+// Regla: sin vínculo, la línea solo se da por perdida si en la orden NO queda
+// ningún cargo de ese tipo sin dueño (sin otra línea que lo reclame). Si queda
+// alguno, es ambiguo: no se toca, y la mudanza (fase 3) los empareja.
+
+type TipoCargo = "Servicio" | "Producto digital" | "Repuesto";
+
+function idCargo(l: LineaPresupuesto): string | null {
+  return l.tipo === "Servicio" ? l.cargoServicioId : l.tipo === "Producto digital" ? l.cargoProductoDigitalId : l.itemId;
+}
+
+function presentesDe(p: CargosPresentes, tipo: TipoCargo): ReadonlySet<string> | null {
+  return tipo === "Servicio" ? p.servicios : tipo === "Producto digital" ? p.digitales : p.itemsEnOrden;
+}
+
+/** Cargos de ese tipo en la orden que ninguna línea reclama. null = no se pudo leer. */
+export function cargosSinDueno(lineas: LineaPresupuesto[], p: CargosPresentes, tipo: TipoCargo): number | null {
+  const presentes = presentesDe(p, tipo);
+  if (!presentes) return null;
+  const reclamados = new Set(lineas.filter((l) => l.tipo === tipo && !l.operacionId).map(idCargo).filter((x): x is string => !!x));
+  return [...presentes].filter((id) => !reclamados.has(id)).length;
+}
+
+const NOTA_PERDIDA: Record<TipoCargo, string> = {
+  "Servicio": "Se quitó el servicio desde la tarjeta Servicios. Vuelve a cargarla o recházala.",
+  "Producto digital": "Se quitó la licencia desde la tarjeta Productos digitales. Vuelve a cargarla o recházala.",
+  "Repuesto": "Se quitó el repuesto desde la tarjeta Repuestos. Vuelve a cargarla o recházala.",
+};
+
 /** Líneas Cargadas cuyo cargo ya no existe en la orden. */
 export function cargasPerdidas(lineas: LineaPresupuesto[], p: CargosPresentes): CargaPerdida[] {
   const out: CargaPerdida[] = [];
@@ -521,13 +556,12 @@ export function cargasPerdidas(lineas: LineaPresupuesto[], p: CargosPresentes): 
     if (l.estado !== "Cargada") continue;
     // Bajo pedido: su estado lo gobierna la operación (ver sincronizarConPedido).
     if (l.operacionId) continue;
-    if (l.tipo === "Servicio" && l.cargoServicioId && p.servicios && !p.servicios.has(l.cargoServicioId)) {
-      out.push({ lineaId: l.id, nota: "Se quitó el servicio desde la tarjeta Servicios. Vuelve a cargarla o recházala." });
-    } else if (l.tipo === "Producto digital" && l.cargoProductoDigitalId && p.digitales && !p.digitales.has(l.cargoProductoDigitalId)) {
-      out.push({ lineaId: l.id, nota: "Se quitó la licencia desde la tarjeta Productos digitales. Vuelve a cargarla o recházala." });
-    } else if (l.tipo === "Repuesto" && l.itemId && p.itemsEnOrden && !p.itemsEnOrden.has(l.itemId)) {
-      out.push({ lineaId: l.id, nota: "Se quitó el repuesto desde la tarjeta Repuestos. Vuelve a cargarla o recházala." });
-    }
+    const tipo = l.tipo as TipoCargo;
+    const presentes = presentesDe(p, tipo);
+    if (!presentes) continue; // no se pudo leer: no se toca nada
+    const id = idCargo(l);
+    const perdida = id ? !presentes.has(id) : cargosSinDueno(lineas, p, tipo) === 0;
+    if (perdida) out.push({ lineaId: l.id, nota: NOTA_PERDIDA[tipo] });
   }
   return out;
 }
@@ -589,6 +623,8 @@ export function planRetiro(
   l: LineaPresupuesto,
   documento: DocumentoBloqueante,
   presentes: CargosPresentes,
+  /** Todas las líneas de la orden (para saber si hay cargos sin dueño). */
+  lineas: LineaPresupuesto[] = [l],
 ): { permitido: true; deshacer: DeshacerCargo } | { permitido: false; motivo: string } {
   if (l.estado !== "Cargada" && l.estado !== "Aprobada") {
     return { permitido: false, motivo: l.estado === "Propuesta" ? "Una propuesta se edita o se borra directamente." : "La línea ya no está aprobada." };
@@ -609,18 +645,27 @@ export function planRetiro(
   // Aprobada sin cargar (no había stock, no había licencia): no hay nada que deshacer.
   if (l.estado === "Aprobada") return { permitido: true, deshacer: { tipo: "nada" } };
 
+  // Sin referencia al cargo: si en la orden no queda ningún cargo de ese tipo
+  // sin dueño, el cargo ya no existe (Airtable vació el vínculo al borrarlo,
+  // OR000368) y quitar la línea no mueve dinero. Si queda alguno, puede ser el
+  // de esta línea (OR000486): no se adivina cuál borrar.
+  if (!idCargo(l)) {
+    const sueltos = cargosSinDueno(lineas, presentes, l.tipo as TipoCargo);
+    if (sueltos === null) return { permitido: false, motivo: "No se pudo leer la orden. Intenta de nuevo." };
+    if (sueltos > 0) {
+      return { permitido: false, motivo: "Esta línea no guardó a qué cargo de la orden corresponde y en la orden hay cargos de ese tipo sin línea. Para no quitar el equivocado, avisa al administrador (se corrige con la mudanza de órdenes viejas)." };
+    }
+    return { permitido: true, deshacer: { tipo: "nada" } };
+  }
   const sigue = (ids: ReadonlySet<string> | null, id: string) => ids === null || ids.has(id);
   if (l.tipo === "Servicio") {
-    if (!l.cargoServicioId) return { permitido: false, motivo: "No se encuentra el servicio cargado de esta línea. Revísalo con el administrador." };
-    return { permitido: true, deshacer: sigue(presentes.servicios, l.cargoServicioId) ? { tipo: "borrar_servicio", servicioPorOrdenId: l.cargoServicioId } : { tipo: "nada" } };
+    return { permitido: true, deshacer: l.cargoServicioId && sigue(presentes.servicios, l.cargoServicioId) ? { tipo: "borrar_servicio", servicioPorOrdenId: l.cargoServicioId } : { tipo: "nada" } };
   }
   if (l.tipo === "Producto digital") {
-    if (!l.cargoProductoDigitalId) return { permitido: false, motivo: "No se encuentra el producto digital asignado de esta línea. Revísalo con el administrador." };
-    return { permitido: true, deshacer: sigue(presentes.digitales, l.cargoProductoDigitalId) ? { tipo: "desasignar_digital", productoId: l.cargoProductoDigitalId } : { tipo: "nada" } };
+    return { permitido: true, deshacer: l.cargoProductoDigitalId && sigue(presentes.digitales, l.cargoProductoDigitalId) ? { tipo: "desasignar_digital", productoId: l.cargoProductoDigitalId } : { tipo: "nada" } };
   }
   // Repuesto de stock
-  if (!l.itemId) return { permitido: false, motivo: "No se encuentra el repuesto reservado de esta línea. Revísalo con el administrador." };
-  return { permitido: true, deshacer: sigue(presentes.itemsEnOrden, l.itemId) ? { tipo: "soltar_repuesto", itemId: l.itemId } : { tipo: "nada" } };
+  return { permitido: true, deshacer: l.itemId && sigue(presentes.itemsEnOrden, l.itemId) ? { tipo: "soltar_repuesto", itemId: l.itemId } : { tipo: "nada" } };
 }
 
 /** Cómo queda la línea después de deshacer el cargo. */
