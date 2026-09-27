@@ -59,6 +59,8 @@ export type PresupuestoPdfInput = {
   porPrioridad?: TotalesPrioridad;
   fecha: Date;
   enlace: { url: string; vence: string } | null;
+  /** Carteles de consentimiento que el cliente aceptó (constancia). */
+  consentimientos?: Array<{ titulo: string; linea: string; texto: string; fecha: string; nombre: string }>;
 };
 
 export const ESTADO_PDF: Record<Situacion, string> = {
@@ -216,6 +218,20 @@ export async function generarPresupuestoPdf(input: PresupuestoPdfInput): Promise
       margin: [0, 0, 0, 14],
     },
   ];
+
+  if (input.consentimientos?.length) {
+    content.push({ text: "CONSENTIMIENTOS ACEPTADOS POR EL CLIENTE", bold: true, fontSize: 9, margin: [0, 4, 0, 4] });
+    for (const c of input.consentimientos) {
+      content.push({
+        table: { widths: ["*"], body: [[{ stack: [
+          { text: c.titulo, bold: true, fontSize: 9 },
+          { text: `${c.linea ? `${c.linea} · ` : ""}Aceptado por ${c.nombre} el ${fechaCorta(c.fecha)}`, fontSize: 7, color: "#666", margin: [0, 1, 0, 4] },
+          { text: c.texto, fontSize: 7.5, color: "#333", lineHeight: 1.15 },
+        ], fillColor: "#f7f7f4" }]] },
+        layout: "noBorders", margin: [0, 0, 0, 8], unbreakable: false,
+      });
+    }
+  }
 
   if (input.enlace) {
     content.push({

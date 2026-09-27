@@ -25,6 +25,11 @@ import {
   type DetalleRespondido, type EnvioRespuesta, type EstadoEnlace,
 } from "./enlace-reglas";
 import { entradaHistorial } from "./reglas";
+import { cartelesDeServicios, listarAlertasGenerales } from "@/lib/tecnicos/carteles/airtable";
+import {
+  alertaAPublica, aPublico, cartelVisible, huellaCartel, textoCompletoAlerta, textoCompletoCartel,
+  type AlertaPublica, type CartelPublico, type CartelServicio, type RequisitosConsentimiento,
+} from "@/lib/tecnicos/carteles/reglas";
 import { getFacturacionConfig } from "@/lib/facturacion/config";
 import { enmascararCedula, generarPresupuestoPdf } from "./pdf";
 
@@ -75,6 +80,27 @@ async function ordenDelToken(token: string): Promise<OrdenEnlace | null> {
   return buscarOrdenPorToken(token);
 }
 
+/** Carteles que aplican a las líneas de una orden + avisos generales. */
+async function consentimientosDeLaOrden(lineas: Awaited<ReturnType<typeof listarLineas>>) {
+  const servicioIds = lineas.map((l) => l.servicioCatalogoId).filter((x): x is string => !!x);
+  const [carteles, generales] = await Promise.all([
+    servicioIds.length ? cartelesDeServicios(servicioIds).catch(() => new Map<string, CartelServicio>()) : Promise.resolve(new Map<string, CartelServicio>()),
+    listarAlertasGenerales({ soloActivas: true }).catch(() => []),
+  ]);
+  // Solo las líneas que el cliente todavía puede aprobar necesitan cartel.
+  const porLinea = new Map<string, CartelPublico>();
+  for (const l of lineas) {
+    const c = l.servicioCatalogoId ? carteles.get(l.servicioCatalogoId) : undefined;
+    if (cartelVisible(c)) porLinea.set(l.id, aPublico(c));
+  }
+  const alertas: AlertaPublica[] = generales.map(alertaAPublica);
+  const requisitos: RequisitosConsentimiento = {
+    porLinea: new Map([...porLinea].map(([id, c]) => [id, c.huella])),
+    generales: alertas,
+  };
+  return { porLinea, alertas, requisitos, carteles, generales };
+}
+
 export type VistaPublica = {
   estado: EstadoEnlace;
   orden: {
@@ -88,6 +114,10 @@ export type VistaPublica = {
   vence: string;
   pideCedula: boolean;
   ultimaRespuesta: { fecha: string; nombre: string } | null;
+  /** lineaId → cartel que debe aceptar para aprobar esa línea. */
+  carteles: Record<string, CartelPublico>;
+  /** Avisos de toda la orden que se aceptan al enviar. */
+  alertasGenerales: AlertaPublica[];
 } & ReturnType<typeof construirVista>;
 
 export async function vistaPublica(token: string): Promise<VistaPublica | null> {
@@ -95,8 +125,11 @@ export async function vistaPublica(token: string): Promise<VistaPublica | null> 
   if (!o) return null;
   const [lineas, resps] = await Promise.all([listarLineas(o.id), leerRespuestasOrden(o.id)]);
   const vista = construirVista(lineas, detalleDeRespuestas(resps));
+  const cons = await consentimientosDeLaOrden(lineas);
   return {
     estado: estadoEnlace(o.vence, o.bloqueadoHasta),
+    carteles: Object.fromEntries(cons.porLinea),
+    alertasGenerales: cons.alertas,
     orden: {
       idVisible: o.idVisible,
       fechaIngreso: o.fechaIngreso,
@@ -133,7 +166,8 @@ export async function responderPresupuesto(
 
     const [lineas, resps] = await Promise.all([listarLineas(orden.id), leerRespuestasOrden(orden.id)]);
     const vista = construirVista(lineas, detalleDeRespuestas(resps));
-    const v = validarEnvio(vista.lineas, envio, orden.cedula);
+    const cons = await consentimientosDeLaOrden(lineas);
+    const v = validarEnvio(vista.lineas, envio, orden.cedula, cons.requisitos);
     if (!v.ok) {
       if (v.codigo === "CEDULA") {
         const r = registrarIntentoFallido(orden.intentos);
@@ -184,7 +218,38 @@ export async function responderPresupuesto(
       aprobadas: aprobadas.length,
       noAprobadas: v.cambios.length - aprobadas.length,
       totalAprobado,
-      detalle: { version: 1, cambios: v.cambios.map((c) => ({ lineaId: c.lineaId, decision: c.decision })), lineas: detalle },
+      detalle: {
+        version: 2,
+        cambios: v.cambios.map((c) => ({ lineaId: c.lineaId, decision: c.decision })),
+        lineas: detalle,
+        // Constancia: el texto COMPLETO que el cliente leyó y aceptó.
+        consentimientos: [
+          ...aprobadas
+            .filter((c) => cons.porLinea.has(c.lineaId))
+            .map((c) => {
+              const servicio = lineas.find((l) => l.id === c.lineaId);
+              const cartel = servicio?.servicioCatalogoId ? cons.carteles.get(servicio.servicioCatalogoId) : undefined;
+              return {
+                tipo: "servicio" as const,
+                lineaId: c.lineaId,
+                titulo: cartel ? cartel.titulo : cons.porLinea.get(c.lineaId)?.titulo ?? "",
+                linea: c.vista.descripcion,
+                huella: cartel ? huellaCartel(cartel) : cons.porLinea.get(c.lineaId)?.huella ?? "",
+                texto: cartel ? textoCompletoCartel(cartel) : "",
+                fecha: ahora,
+              };
+            }),
+          ...cons.generales.map((a) => ({
+            tipo: "general" as const,
+            lineaId: "",
+            titulo: a.titulo,
+            linea: "",
+            huella: alertaAPublica(a).huella,
+            texto: textoCompletoAlerta(a),
+            fecha: ahora,
+          })),
+        ],
+      },
     });
     if (orden.intentos > 0) await guardarIntentosEnlace(orden.id, 0, null).catch(() => {});
 
@@ -245,6 +310,11 @@ async function pdfDeOrden(o: OrdenEnlace, origin: string, enlace: { token: strin
     totalAprobado: vista.totalAprobado,
     totalPendiente: vista.totalPendiente,
     porPrioridad: vista.porPrioridad,
+    // Constancia: lo aceptado en la respuesta más reciente que traiga carteles.
+    consentimientos: (resps.find((r) => r.consentimientos.length > 0)?.consentimientos ?? []).map((c) => ({
+      titulo: c.titulo, linea: c.linea, texto: c.texto, fecha: c.fecha,
+      nombre: resps.find((r) => r.consentimientos.some((x) => x.fecha === c.fecha))?.nombre ?? "",
+    })),
     fecha: new Date(),
     enlace: enlace ? { url: urlEnlace(origin, enlace.token), vence: enlace.vence } : null,
   });

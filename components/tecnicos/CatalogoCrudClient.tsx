@@ -2,6 +2,11 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { CatalogoRepuesto, CatalogoServicio } from "@/types/tecnicos";
+import {
+  EditorCartel, aBorradorCartel, aCartelServicio, cartelEnBlanco, validarBorradorCartel,
+  type BorradorCartel,
+} from "@/components/tecnicos/CartelEditor";
+import { cartelVisible, type CartelServicio } from "@/lib/tecnicos/carteles/reglas";
 
 type StatusFilter = "todos" | "activos" | "inactivos";
 type CatalogoMode = "repuestos" | "servicios";
@@ -10,6 +15,8 @@ type CatalogoItem = CatalogoRepuesto | CatalogoServicio;
 type Props = {
   mode: CatalogoMode;
   initialItems: CatalogoItem[];
+  /** Solo en modo servicios: carteles de consentimiento ya guardados. */
+  carteles?: CartelServicio[];
 };
 
 type ApiResponse = {
@@ -76,7 +83,7 @@ async function parseApiResponse(response: Response): Promise<ApiResponse | null>
   }
 }
 
-export function CatalogoCrudClient({ mode, initialItems }: Props) {
+export function CatalogoCrudClient({ mode, initialItems, carteles = [] }: Props) {
   const isRepuestosMode = mode === "repuestos";
   const endpoint = isRepuestosMode ? "/api/tecnicos/catalogo-repuestos" : "/api/tecnicos/catalogo-servicios";
   const singular = isRepuestosMode ? "repuesto" : "servicio";
@@ -91,6 +98,12 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  // Cartel de consentimiento del servicio que se está editando (vive en este mismo modal).
+  const [cartelesPorServicio, setCartelesPorServicio] = useState<Record<string, CartelServicio>>(
+    () => Object.fromEntries(carteles.map((c) => [c.servicioId, c]))
+  );
+  const [cartel, setCartel] = useState<BorradorCartel>(() => aBorradorCartel(undefined));
+  const [teniaCartel, setTeniaCartel] = useState(false);
 
   const filteredItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -135,6 +148,8 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
   function openCreateModal() {
     setEditingItem(null);
     setForm(emptyForm);
+    setCartel(aBorradorCartel(undefined));
+    setTeniaCartel(false);
     setFormError(null);
     setModalOpen(true);
   }
@@ -152,6 +167,9 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
       costoSugerido: !isRepuesto(item) && item.costoSugerido !== null ? String(item.costoSugerido) : "",
       activo: item.activo,
     });
+    const guardado = isRepuesto(item) ? undefined : cartelesPorServicio[item.id];
+    setCartel(aBorradorCartel(guardado));
+    setTeniaCartel(!!guardado);
     setFormError(null);
     setModalOpen(true);
   }
@@ -171,6 +189,18 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
     if (!form.nombre.trim()) {
       setFormError(`El nombre del ${singular} es obligatorio.`);
       return;
+    }
+
+    // El cartel se valida antes de tocar el catálogo: así no queda el servicio
+    // guardado y el cartel a medias.
+    const editaCartel = !isRepuestosMode;
+    const cartelHayTexto = editaCartel && !cartelEnBlanco(cartel);
+    if (cartelHayTexto) {
+      const errorCartel = validarBorradorCartel(editingItem?.id || "nuevo", cartel);
+      if (errorCartel) {
+        setFormError(errorCartel);
+        return;
+      }
     }
 
     const payload = isRepuestosMode
@@ -203,15 +233,64 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
         throw new Error(apiPayload?.error || "No se pudo guardar");
       }
 
-      upsertItem(apiPayload.data as CatalogoItem);
+      const guardadoItem = apiPayload.data as CatalogoItem;
+      upsertItem(guardadoItem);
+
+      if (editaCartel && (cartelHayTexto || teniaCartel)) {
+        await guardarCartelDelServicio(guardadoItem.id, cartelHayTexto);
+      }
+
       setModalOpen(false);
       setEditingItem(null);
       setForm(emptyForm);
+      setCartel(aBorradorCartel(undefined));
+      setTeniaCartel(false);
     } catch (saveError) {
       setFormError(saveError instanceof Error ? saveError.message : "Error desconocido");
     } finally {
       setSaving(false);
     }
+  }
+
+  /** Guarda (o borra) el cartel del servicio. Todo pasa por el servidor. */
+  async function guardarCartelDelServicio(servicioId: string, hayTexto: boolean) {
+    const url = `/api/tecnicos/catalogo/servicios/${encodeURIComponent(servicioId)}/cartel`;
+    if (!hayTexto) {
+      const response = await fetch(url, { method: "DELETE" });
+      const payload = await parseApiResponse(response);
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || "No se pudo borrar el cartel");
+      setCartelesPorServicio((current) => {
+        const next = { ...current };
+        for (const id of [servicioId, ...cartel.aplicarA]) delete next[id];
+        return next;
+      });
+      return;
+    }
+
+    const response = await fetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        activo: cartel.activo,
+        titulo: cartel.titulo,
+        intro: cartel.intro,
+        incluye: cartel.incluye,
+        noIncluye: cartel.noIncluye,
+        avisos: cartel.avisos,
+        consentimiento: cartel.consentimiento,
+        textoBoton: cartel.textoBoton,
+        aplicarA: cartel.aplicarA,
+      }),
+    });
+    const payload = await parseApiResponse(response);
+    if (!response.ok || !payload?.success) throw new Error(payload?.error || "No se pudo guardar el cartel");
+
+    const nuevo = aCartelServicio(servicioId, cartel);
+    setCartelesPorServicio((current) => {
+      const next = { ...current, [servicioId]: nuevo };
+      for (const otroId of cartel.aplicarA) next[otroId] = { ...nuevo, servicioId: otroId };
+      return next;
+    });
   }
 
   async function toggleActivo(item: CatalogoItem) {
@@ -295,6 +374,7 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
                     <th className="px-4 py-3">Servicio</th>
                     <th className="px-4 py-3">Descripción</th>
                     <th className="px-4 py-3">Costo sugerido</th>
+                    <th className="px-4 py-3">Cartel</th>
                     <th className="px-4 py-3">Estado</th>
                     <th className="px-4 py-3 text-right">Acciones</th>
                   </tr>
@@ -303,7 +383,7 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
               <tbody className="divide-y divide-[#3A3A36] bg-[#252622]">
                 {loading ? (
                   <tr>
-                    <td colSpan={isRepuestosMode ? 7 : 5} className="px-4 py-8 text-center text-[#A7A7A7]">
+                    <td colSpan={isRepuestosMode ? 7 : 6} className="px-4 py-8 text-center text-[#A7A7A7]">
                       Cargando catálogo...
                     </td>
                   </tr>
@@ -334,6 +414,9 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
                         </td>
                         <td className="px-4 py-4 font-semibold text-[#F5F5F5]">{formatMoney(item.costoSugerido)}</td>
                         <td className="px-4 py-4">
+                          <CartelBadge cartel={cartelesPorServicio[item.id]} />
+                        </td>
+                        <td className="px-4 py-4">
                           <StatusBadge activo={item.activo} />
                         </td>
                         <td className="px-4 py-4">
@@ -344,7 +427,7 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
                   )
                 ) : (
                   <tr>
-                    <td colSpan={isRepuestosMode ? 7 : 5} className="px-4 py-8 text-center text-[#A7A7A7]">
+                    <td colSpan={isRepuestosMode ? 7 : 6} className="px-4 py-8 text-center text-[#A7A7A7]">
                       No hay registros para mostrar.
                     </td>
                   </tr>
@@ -357,13 +440,15 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
 
       {modalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6">
-          <form onSubmit={handleSubmit} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl">
+          <form onSubmit={handleSubmit} className={`max-h-[92vh] w-full overflow-y-auto ${isRepuestosMode ? "max-w-2xl" : "max-w-4xl"} rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-5 shadow-2xl`}>
             <div className="flex items-start justify-between gap-4 border-b border-[#3A3A36] pb-4">
               <div>
                 <h3 className="text-xl font-bold text-[#F5F5F5]">
                   {editingItem ? `Editar ${singular}` : `Nuevo ${singular}`}
                 </h3>
-                <p className="mt-1 text-sm text-[#A7A7A7]">Completa los datos del catálogo.</p>
+                <p className="mt-1 text-sm text-[#A7A7A7]">
+                  {isRepuestosMode ? "Completa los datos del catálogo." : "Nombre, costo y el cartel que el cliente debe aceptar."}
+                </p>
               </div>
               <button type="button" onClick={() => setModalOpen(false)} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-sm font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#F5F5F5]">
                 Cerrar
@@ -397,6 +482,20 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
               </label>
             </div>
 
+            {!isRepuestosMode ? (
+              <div className="mt-5 border-t border-[#3A3A36] pt-5">
+                <EditorCartel
+                  servicioId={editingItem?.id || "nuevo"}
+                  b={cartel}
+                  onCambio={setCartel}
+                  otrosServicios={items
+                    .filter((otro) => !isRepuesto(otro) && otro.id !== editingItem?.id)
+                    .map((otro) => ({ id: otro.id, nombre: otro.nombre }))}
+                  cartelesExistentes={Object.fromEntries(Object.keys(cartelesPorServicio).map((id) => [id, true]))}
+                />
+              </div>
+            ) : null}
+
             {formError ? <p className="mt-4 text-sm text-red-300">{formError}</p> : null}
 
             <div className="mt-6 flex justify-end gap-3">
@@ -412,6 +511,24 @@ export function CatalogoCrudClient({ mode, initialItems }: Props) {
       ) : null}
     </>
   );
+}
+
+function CartelBadge({ cartel }: { cartel: CartelServicio | undefined }) {
+  if (cartelVisible(cartel)) {
+    return (
+      <span className="inline-flex rounded-full border border-emerald-400/40 bg-emerald-400/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+        Con cartel
+      </span>
+    );
+  }
+  if (cartel) {
+    return (
+      <span className="inline-flex rounded-full border border-amber-400/40 bg-amber-400/10 px-2.5 py-1 text-xs font-semibold text-amber-200">
+        Borrador
+      </span>
+    );
+  }
+  return <span className="text-xs text-[#A7A7A7]">—</span>;
 }
 
 function StatusBadge({ activo }: { activo: boolean }) {

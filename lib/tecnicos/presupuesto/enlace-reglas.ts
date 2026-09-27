@@ -16,7 +16,9 @@
 // que ya tiene operación, queda "en proceso": para cambiarla debe hablar con
 // la tienda (el técnico usa las reversas de la tarjeta).
 
+import type { FaltaConsentimiento } from "../carteles/reglas";
 import { normalizarPrioridad, prioridadDeGrupo, type LineaPresupuesto, type Prioridad } from "./reglas";
+import { faltantesDeConsentimiento, type Aceptacion, type RequisitosConsentimiento } from "../carteles/reglas";
 
 export const VIGENCIA_DIAS = 7;
 export const MAX_INTENTOS_CEDULA = 5;
@@ -240,6 +242,8 @@ export type EnvioRespuesta = {
   acepta: boolean;
   /** Confirma que entiende que sin lo Necesario no se puede reparar. */
   entiendeNecesarias?: boolean;
+  /** Carteles aceptados: clave = lineaId, o "general:<id>" para los avisos de la orden. */
+  aceptaciones?: Aceptacion[];
 };
 
 export type CambioLinea = {
@@ -251,7 +255,7 @@ export type CambioLinea = {
 
 export type ResultadoValidacion =
   | { ok: true; cambios: CambioLinea[]; cedulaVerificada: boolean; necesariasRechazadas: string[] }
-  | { ok: false; error: string; codigo: "DATOS" | "CEDULA" | "CAMBIO" | "PENDIENTES" | "ALTERNATIVAS" | "NECESARIA" };
+  | { ok: false; error: string; codigo: "DATOS" | "CEDULA" | "CAMBIO" | "PENDIENTES" | "ALTERNATIVAS" | "NECESARIA" | "CONSENTIMIENTO"; falta?: FaltaConsentimiento[] };
 
 /** Dígitos de una cédula/RUC; "" si no hay al menos 4. */
 export function digitosCedula(cedula: string): string {
@@ -259,7 +263,12 @@ export function digitosCedula(cedula: string): string {
   return d.length >= 4 ? d : "";
 }
 
-export function validarEnvio(vistas: VistaLinea[], envio: EnvioRespuesta, cedulaOrden: string): ResultadoValidacion {
+export function validarEnvio(
+  vistas: VistaLinea[],
+  envio: EnvioRespuesta,
+  cedulaOrden: string,
+  requisitos: RequisitosConsentimiento = { porLinea: new Map(), generales: [] }
+): ResultadoValidacion {
   const nombre = (envio.nombre ?? "").trim();
   if (nombre.length < 3) return { ok: false, codigo: "DATOS", error: "Escribe tu nombre completo." };
   if (envio.acepta !== true) return { ok: false, codigo: "DATOS", error: "Debes aceptar los términos para enviar tu respuesta." };
@@ -319,6 +328,14 @@ export function validarEnvio(vistas: VistaLinea[], envio: EnvioRespuesta, cedula
     if (vs[0].prioridad !== "Necesaria" || !vs.some((v) => tocadas.has(v.id))) continue;
     if (!vs.some((v) => final(v) === "aprobar")) necesariasRechazadas.push(vs.map((v) => v.descripcion).join(" / "));
   }
+  // Carteles de consentimiento: lo que se aprueba con cartel necesita su
+  // aceptación, y los avisos de la orden se aceptan en cada envío.
+  const aprobadasFinal = vistas.filter((v) => final(v) === "aprobar").map((v) => v.id);
+  const falta = faltantesDeConsentimiento(aprobadasFinal, requisitos, envio.aceptaciones ?? [], cambios.length > 0);
+  if (falta.length > 0) {
+    return { ok: false, codigo: "CONSENTIMIENTO", error: falta[0].motivo, falta };
+  }
+
   if (necesariasRechazadas.length > 0 && envio.entiendeNecesarias !== true) {
     return { ok: false, codigo: "NECESARIA", error: `Sin "${necesariasRechazadas.join('", "')}" no podemos continuar con la reparación. Confirma que lo entiendes para enviar tu respuesta.` };
   }
