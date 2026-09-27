@@ -377,7 +377,8 @@ export async function retirarLinea(opts: {
   usuario: { nombre: string };
 }): Promise<void> {
   return withLock(`presupuesto:${opts.ordenId}`, async () => {
-    const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
+    const lineas = await listarLineas(opts.ordenId);
+    const linea = lineas.find((l) => l.id === opts.lineaId);
     if (!linea) throw new Error("Línea no encontrada en esta orden.");
 
     // Documento emitido: la misma lectura que usa el panel de cobros. Si no se
@@ -386,7 +387,7 @@ export async function retirarLinea(opts: {
     if (!cobro) throw new Error("No se pudo verificar si la orden tiene factura o recibo. Intenta de nuevo.");
     const documento = cobro.documento ? { tipo: cobro.documento.tipo, numero: cobro.documento.numero } : null;
 
-    const plan = planRetiro(linea, documento, await cargosDeLaOrden(opts.ordenId));
+    const plan = planRetiro(linea, documento, await cargosDeLaOrden(opts.ordenId), lineas);
     if (!plan.permitido) throw new Error(plan.motivo);
 
     const d = plan.deshacer;
