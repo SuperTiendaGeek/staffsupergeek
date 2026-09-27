@@ -179,7 +179,7 @@ function reporte(planes: PlanMudanza[]): string {
     partes.push(`## ${p.idVisible}${p.bloqueada ? " — BLOQUEADA" : ""}`);
     if (p.bloqueada) partes.push(`- ⛔ ${p.bloqueada}`);
     for (const c of p.crear) partes.push(`- ➕ ${c.tipo}${c.operacionId ? " (bajo pedido)" : ""}: ${c.descripcion} — ${mon(c.precioUnitario)}`);
-    for (const v of p.vincular) partes.push(`- 🔗 Vincular "${v.descripcion}" a su cargo (${v.cargoId})`);
+    for (const v of p.vincular) partes.push(`- 🔗 Vincular "${v.descripcion}" a su cargo (${v.cargoId})${v.marcarAprobada ? " y marcarla aprobada" : ""}`);
     for (const a of p.avisos) partes.push(`- ⚠️ ${a}`);
     if (p.resumen.historicos) partes.push(`- 📜 ${p.resumen.historicos} repuesto(s) del sistema antiguo (${mon(p.resumen.totalHistoricos)}) siguen en el Resumen financiero como "Histórico".`);
     partes.push("");
@@ -194,10 +194,16 @@ async function aplicar(planes: PlanMudanza[]): Promise<{ ok: number; errores: st
     if (p.bloqueada || (!p.crear.length && !p.vincular.length)) continue;
     try {
       for (const v of p.vincular) {
-        const agregarHistorial = { anterior: v.historialAnterior, entrada: entradaHistorial("Mudanza: se vinculó la línea a su cargo en la orden.", CREADO_POR_MUDANZA) };
-        if (v.campo === "cargoServicioId") await actualizarLinea(v.lineaId, { cargoServicioId: v.cargoId, agregarHistorial });
-        else if (v.campo === "cargoProductoDigitalId") await actualizarLinea(v.lineaId, { cargoProductoDigitalId: v.cargoId, agregarHistorial });
-        else await actualizarLinea(v.lineaId, { itemId: v.cargoId, agregarHistorial });
+        const texto = v.marcarAprobada
+          ? "Mudanza: ya se cobraba en la orden (desde la tarjeta); se marca aprobada y se vincula a su cargo."
+          : "Mudanza: se vinculó la línea a su cargo en la orden.";
+        const agregarHistorial = { anterior: v.historialAnterior, entrada: entradaHistorial(texto, CREADO_POR_MUDANZA) };
+        const aprobar = v.marcarAprobada
+          ? { estado: "Cargada" as const, notaCarga: "", ...(v.aprobadoPorActual ? {} : { aprobadoPor: APROBADO_POR_MUDANZA }) }
+          : {};
+        if (v.campo === "cargoServicioId") await actualizarLinea(v.lineaId, { cargoServicioId: v.cargoId, agregarHistorial, ...aprobar });
+        else if (v.campo === "cargoProductoDigitalId") await actualizarLinea(v.lineaId, { cargoProductoDigitalId: v.cargoId, agregarHistorial, ...aprobar });
+        else await actualizarLinea(v.lineaId, { itemId: v.cargoId, agregarHistorial, ...aprobar });
         await esperar(PAUSA_MS);
       }
       for (const c of p.crear) {

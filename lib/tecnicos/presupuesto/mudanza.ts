@@ -57,6 +57,10 @@ export type Vinculo = {
   descripcion: string;
   /** Historial actual de la línea: la mudanza AGREGA una entrada, no lo reemplaza. */
   historialAnterior: string;
+  /** La línea estaba Aprobada/Propuesta y su cargo ya se cobraba: pasa a aprobada con su cargo. */
+  marcarAprobada: boolean;
+  /** Quién figura hoy como aprobador (si ya hay alguien, no se sobrescribe). */
+  aprobadoPorActual: string;
   campo: "cargoServicioId" | "cargoProductoDigitalId" | "itemId";
   cargoId: string;
 };
@@ -81,8 +85,6 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 const iguales = (a: number, b: number) => Math.abs(a - b) < 0.011;
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
-/** Líneas que "son dueñas" de un cargo: solo las vigentes (Cargada / Aprobada). */
-const vigente = (l: LineaPresupuesto) => l.estado === "Cargada" || l.estado === "Aprobada";
 
 export function planMudanza(o: OrdenMudanza): PlanMudanza {
   const plan: PlanMudanza = {
@@ -112,11 +114,13 @@ export function planMudanza(o: OrdenMudanza): PlanMudanza {
     return plan;
   }
 
-  // 2) Qué cargos ya tienen dueño.
-  const vivas = o.lineas.filter(vigente);
-  const servConDueno = new Set(vivas.map((l) => l.cargoServicioId).filter((x): x is string => !!x));
-  const digConDueno = new Set(vivas.map((l) => l.cargoProductoDigitalId).filter((x): x is string => !!x));
-  const itemConDueno = new Set(vivas.filter((l) => l.tipo === "Repuesto" && !l.operacionId).map((l) => l.itemId).filter((x): x is string => !!x));
+  // 2) Qué cargos ya tienen dueño: solo las líneas "Cargada" con su vínculo.
+  //    (Una línea Aprobada o Propuesta que apunta a un cargo presente se
+  //    "adopta" en el paso 3: se marca aprobada, no se crea otra.)
+  const cargadas = o.lineas.filter((l) => l.estado === "Cargada");
+  const servConDueno = new Set(cargadas.map((l) => l.cargoServicioId).filter((x): x is string => !!x));
+  const digConDueno = new Set(cargadas.map((l) => l.cargoProductoDigitalId).filter((x): x is string => !!x));
+  const itemConDueno = new Set(cargadas.filter((l) => l.tipo === "Repuesto" && !l.operacionId).map((l) => l.itemId).filter((x): x is string => !!x));
   // Una operación que el presupuesto ya conoce (en cualquier estado) es suya:
   // no se crea otra línea para ella.
   const opsConocidas = new Set(o.lineas.map((l) => l.operacionId).filter((x): x is string => !!x));
@@ -125,26 +129,42 @@ export function planMudanza(o: OrdenMudanza): PlanMudanza {
   const digSueltos = o.digitales.filter((d) => !digConDueno.has(d.id));
   const itemSueltos = o.itemsStock.filter((i) => !itemConDueno.has(i.id));
 
-  // 3) Líneas "Cargada" sin vínculo: se intenta emparejarlas con UN cargo suelto.
-  const huerfanas = o.lineas.filter((l) => l.estado === "Cargada" && !l.operacionId && !(
-    l.tipo === "Servicio" ? l.cargoServicioId : l.tipo === "Producto digital" ? l.cargoProductoDigitalId : l.itemId
-  ));
+  // 3) Líneas que deberían apuntar a un cargo suelto y no lo hacen:
+  //    · "Cargada" sin vínculo (OR000486) → se vincula.
+  //    · "Aprobada" o "Propuesta" cuyo cargo YA está cobrado en la orden (el
+  //      técnico armó el presupuesto y además lo cargó desde la tarjeta,
+  //      OR000469) → se vincula y se marca aprobada. Crear otra línea
+  //      duplicaría el cargo, y aprobar la propuesta lo cobraría dos veces.
+  //    Prioridad: primero las Cargada, luego Aprobada, luego Propuesta.
+  const prioridad: Record<string, number> = { Cargada: 0, Aprobada: 1, Propuesta: 2 };
+  const candidatasAVincular = o.lineas
+    .filter((l) => (l.estado === "Cargada" || l.estado === "Aprobada" || l.estado === "Propuesta") && !l.operacionId)
+    .filter((l) => {
+      const id = l.tipo === "Servicio" ? l.cargoServicioId : l.tipo === "Producto digital" ? l.cargoProductoDigitalId : l.itemId;
+      if (l.estado === "Cargada") return !id; // Cargada con vínculo: ya es dueña
+      return true; // Aprobada / Propuesta: con o sin id, se revisa si su cargo ya está cobrado
+    })
+    .sort((a, b) => prioridad[a.estado] - prioridad[b.estado]);
   const tiposAmbiguos = new Set<TipoLinea>();
   const tomados = new Set<string>();
 
-  for (const l of huerfanas) {
+  for (const l of candidatasAVincular) {
     const subtotal = r2(l.cantidad * l.precioUnitario);
+    const idPropio = l.tipo === "Servicio" ? l.cargoServicioId : l.tipo === "Producto digital" ? l.cargoProductoDigitalId : l.itemId;
     let candidatos: { id: string; nombre: string; valor: number }[] = [];
     if (l.tipo === "Servicio") {
       candidatos = servSueltos
-        .filter((s) => (l.servicioCatalogoId && s.catalogoId ? s.catalogoId === l.servicioCatalogoId : norm(s.nombre).startsWith(norm(l.descripcion))))
+        .filter((s) => (idPropio ? s.id === idPropio : l.servicioCatalogoId && s.catalogoId ? s.catalogoId === l.servicioCatalogoId : norm(s.nombre).startsWith(norm(l.descripcion))))
         .map((s) => ({ id: s.id, nombre: s.nombre, valor: s.costo }));
     } else if (l.tipo === "Producto digital") {
       candidatos = digSueltos
-        .filter((d) => (l.productoCatalogoId && d.catalogoId ? d.catalogoId === l.productoCatalogoId : norm(d.nombre) === norm(l.descripcion)))
+        .filter((d) => (idPropio ? d.id === idPropio : l.productoCatalogoId && d.catalogoId ? d.catalogoId === l.productoCatalogoId : norm(d.nombre) === norm(l.descripcion)))
         .map((d) => ({ id: d.id, nombre: d.nombre, valor: d.precio }));
     } else {
-      candidatos = itemSueltos.filter((i) => norm(i.nombre) === norm(l.descripcion)).map((i) => ({ id: i.id, nombre: i.nombre, valor: i.precio }));
+      // Repuesto de stock: si la línea ya nombra su artículo, SOLO ese cuenta.
+      candidatos = itemSueltos
+        .filter((i) => (idPropio ? i.id === idPropio : norm(i.nombre) === norm(l.descripcion)))
+        .map((i) => ({ id: i.id, nombre: i.nombre, valor: i.precio }));
     }
     candidatos = candidatos.filter((c) => !tomados.has(c.id));
     // Si hay varios, el precio desempata.
@@ -155,13 +175,19 @@ export function planMudanza(o: OrdenMudanza): PlanMudanza {
     if (candidatos.length === 1) {
       const c = candidatos[0];
       tomados.add(c.id);
+      const marcarAprobada = l.estado !== "Cargada";
       plan.vincular.push({
         lineaId: l.id,
         descripcion: l.descripcion,
         historialAnterior: l.historial,
         campo: l.tipo === "Servicio" ? "cargoServicioId" : l.tipo === "Producto digital" ? "cargoProductoDigitalId" : "itemId",
         cargoId: c.id,
+        marcarAprobada,
+        aprobadoPorActual: l.aprobadoPor,
       });
+      if (marcarAprobada) {
+        plan.avisos.push(`"${l.descripcion}": estaba ${l.estado} pero ya se cobraba en la orden → se marca aprobada y se vincula (no se crea otra línea).`);
+      }
       if (!iguales(c.valor, subtotal)) {
         plan.avisos.push(`"${l.descripcion}": la línea dice $${subtotal.toFixed(2)} y el cargo $${c.valor.toFixed(2)} (se vincula igual; manda el cargo).`);
       }
@@ -169,8 +195,8 @@ export function planMudanza(o: OrdenMudanza): PlanMudanza {
       tiposAmbiguos.add(l.tipo);
       plan.avisos.push(`"${l.descripcion}": hay ${candidatos.length} cargos que podrían ser el suyo. Esa parte de la orden no se toca.`);
     }
-    // 0 candidatos: el cargo ya no existe; al abrir la orden la línea pasa a
-    // "Aprobada" sola (cargasPerdidas). No es trabajo de la mudanza.
+    // 0 candidatos: nada que hacer. Una Cargada sin cargo se pone al día sola
+    // al abrir la orden (cargasPerdidas); una Propuesta es una propuesta real.
   }
 
   // 4) Cargos sueltos que nadie reclama → línea nueva "Cargada".

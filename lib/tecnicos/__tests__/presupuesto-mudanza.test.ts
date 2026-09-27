@@ -67,6 +67,54 @@ const O = (o: Partial<OrdenMudanza>): OrdenMudanza => ({
   assert(p.vincular[0].historialAnterior.includes("Aprobada."), "el vínculo conserva el historial anterior de la línea (se agrega, no se reemplaza)");
 }
 
+// ─── OR000469: Propuestas que ya se cobraban desde la tarjeta ──────────────
+// El técnico armó el presupuesto (3 Propuesta) y además cargó los mismos 3
+// servicios desde la tarjeta. Crear 3 líneas más las duplicaría, y aprobar
+// las propuestas cobraría $120 en vez de $60.
+{
+  const p = planMudanza(O({
+    servicios: [
+      { id: "recFOR", catalogoId: "recCFOR", nombre: "Formateo & Instalación S.O. PC", costo: 10 },
+      { id: "recRES", catalogoId: "recCRES", nombre: "Respaldo de información Windows", costo: 15 },
+      { id: "recDES", catalogoId: "recCDES", nombre: "Desktop Limpieza y Cambio de Pasta Térmica - NO GPU", costo: 35 },
+    ],
+    lineas: [
+      L({ id: "recP1", estado: "Propuesta", descripcion: "Respaldo de información Windows", servicioCatalogoId: "recCRES", precioUnitario: 15 }),
+      L({ id: "recP2", estado: "Propuesta", descripcion: "Desktop Limpieza y Cambio de Pasta Térmica - NO GPU", servicioCatalogoId: "recCDES", precioUnitario: 35 }),
+      L({ id: "recP3", estado: "Propuesta", descripcion: "Formateo & Instalación S.O. PC", servicioCatalogoId: "recCFOR", precioUnitario: 10 }),
+    ],
+    rollups: { servicios: 60, digitales: 0 },
+  }));
+  assert(p.crear.length === 0, "OR000469: NO se crean líneas nuevas (serían duplicadas)");
+  assert(p.vincular.length === 3 && p.vincular.every((v) => v.marcarAprobada), "OR000469: las 3 propuestas se vinculan a su servicio y se marcan aprobadas");
+  const res = p.vincular.find((v) => v.lineaId === "recP1")!;
+  assert(res.cargoId === "recRES" && res.campo === "cargoServicioId", "cada propuesta queda con SU servicio (por catálogo)");
+  assert(p.avisos.some((a) => a.includes("estaba Propuesta")), "el reporte lo avisa para revisarlo antes de aplicar");
+}
+{
+  // Propuesta real, sin cargo cobrado: no se toca.
+  const p = planMudanza(O({ lineas: [L({ id: "recP", estado: "Propuesta" })], rollups: { servicios: 0, digitales: 0 } }));
+  assert(p.vincular.length === 0 && p.crear.length === 0, "una propuesta sin cargo cobrado sigue siendo propuesta");
+}
+{
+  // Propuesta de repuesto con su artículo, y ese artículo ya está reservado a la orden.
+  const p = planMudanza(O({
+    itemsStock: [{ id: "recIT", nombre: "SSD 512", precio: 45 }, { id: "recOTRO", nombre: "SSD 512", precio: 45 }],
+    lineas: [L({ id: "recPR", tipo: "Repuesto", estado: "Propuesta", descripcion: "SSD 512", itemId: "recIT", cargoServicioId: null, precioUnitario: 45 })],
+  }));
+  assert(p.vincular.length === 1 && p.vincular[0].cargoId === "recIT" && p.vincular[0].marcarAprobada, "propuesta de repuesto: se adopta SU artículo (no otro igual)");
+  assert(p.crear.length === 1 && p.crear[0].itemId === "recOTRO", "el otro artículo igual recibe su propia línea");
+}
+{
+  // Idempotencia tras aplicar: la propuesta adoptada ya es Cargada con vínculo.
+  const p = planMudanza(O({
+    servicios: [{ id: "recRES", catalogoId: "recCRES", nombre: "Respaldo", costo: 15 }],
+    lineas: [L({ id: "recP1", estado: "Cargada", cargoServicioId: "recRES", servicioCatalogoId: "recCRES", precioUnitario: 15 })],
+    rollups: { servicios: 15, digitales: 0 },
+  }));
+  assert(p.vincular.length === 0 && p.crear.length === 0, "después de aplicar, la segunda vuelta da 0 y 0");
+}
+
 // ─── Huérfana ambigua: dos servicios iguales sin dueño ─────────────────────
 {
   const p = planMudanza(O({
