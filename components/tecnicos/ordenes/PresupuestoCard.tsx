@@ -20,7 +20,7 @@ import {
   subtotalLinea, esEditable, aceptaVincularArticulo, fasePedido, normalizarPrioridad, PRIORIDADES, NOTA_CLIENTE_MAX,
   type Prioridad,
   type LineaPresupuesto, type TipoLinea, type EstadoPresupuesto, type PasoCarga, type InfoPedido, type FasePedido,
-  type ReversasLinea, type AccionReversa,
+  type ReversasLinea, type AccionReversa, type AccionRetiro,
 } from "@/lib/tecnicos/presupuesto/reglas";
 
 type CatServicio = { id: string; nombre: string; descripcion: string | null; costoSugerido: number | null; activo: boolean };
@@ -41,7 +41,9 @@ const FASE_PEDIDO: Record<FasePedido, { texto: string; clase: string }> = {
   vendido:          { texto: "Facturado / con recibo",         clase: "text-[var(--sg-success)]" },
 };
 
-const REVERSA_TEXTO: Record<AccionReversa, { boton: string; ayuda: string; placeholder: string }> = {
+const REVERSA_TEXTO: Record<AccionReversa | AccionRetiro, { boton: string; ayuda: string; placeholder: string }> = {
+  quitar:    { boton: "Quitar",    ayuda: "Se quita de la orden y deja de cobrarse: el repuesto vuelve al inventario, el servicio se borra o el código digital queda libre. La línea queda como constancia y el cliente la verá anulada.", placeholder: "Motivo (ej. el cliente cambió de opinión)" },
+  modificar: { boton: "Modificar", ayuda: "Se quita de la orden y vuelve a Propuesta para que la edites. El cliente debe volver a aprobarla; mientras tanto no se cobra y un repuesto queda libre (otra orden podría tomarlo).", placeholder: "Qué cambia (ej. precio acordado con el cliente)" },
   cancelar:  { boton: "El cliente desiste", ayuda: "La línea queda rechazada; si ya se pidió, el artículo se cancela y deja de cobrarse.", placeholder: "Motivo (ej. el cliente decidió no reparar)" },
   recotizar: { boton: "Recotizar",          ayuda: "El proveedor no lo tiene o hay otra alternativa: esta línea queda como constancia y se abre una propuesta nueva para volver a aprobar.", placeholder: "Motivo (ej. eBay sin stock)" },
   liberar:   { boton: "Liberar a inventario", ayuda: "Ya llegó y el cliente no lo quiere: queda como inventario de la tienda y deja de cobrársele.", placeholder: "Motivo" },
@@ -477,7 +479,7 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
   const [pedidos, setPedidos] = useState<Record<string, InfoPedido>>({});
   const [reversas, setReversas] = useState<Record<string, ReversasLinea>>({});
   const [proveedores, setProveedores] = useState<Record<string, string>>({});
-  const [revirtiendo, setRevirtiendo] = useState<{ lineaId: string; accion: AccionReversa; motivo: string } | null>(null);
+  const [revirtiendo, setRevirtiendo] = useState<{ lineaId: string; accion: AccionReversa | AccionRetiro; motivo: string } | null>(null);
   const [inicialForm, setInicialForm] = useState<Borrador | null>(null);
   const [avisoDinero, setAvisoDinero] = useState(false);
   const [verHistorial, setVerHistorial] = useState<string | null>(null);
@@ -820,7 +822,7 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
                         if (permitidas.length === 0) {
                           // Nada se puede deshacer aquí: se dice por qué y dónde, en vez de esconderlo.
                           const motivo = rv.cancelar.motivo ?? rv.liberar.motivo;
-                          return l.bajoPedido || l.estado === "Aprobada"
+                          return l.bajoPedido || l.operacionId
                             ? <span className="mr-2 cursor-help text-[var(--sg-text-muted)] underline decoration-dotted" title={motivo}>¿Deshacer?</span>
                             : null;
                         }
@@ -831,6 +833,12 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
                           </button>
                         ));
                       })()}
+                      {(l.estado === "Aprobada" || l.estado === "Cargada") && !l.operacionId && !l.bajoPedido && (["modificar", "quitar"] as AccionRetiro[]).map((a) => (
+                        <button key={a} type="button" disabled={ocupado === l.id} onClick={() => setRevirtiendo({ lineaId: l.id, accion: a, motivo: "" })}
+                          className={`mr-2 text-[var(--sg-text-muted)] ${a === "quitar" ? "hover:text-[var(--sg-danger)]" : "hover:text-[var(--sg-lime)]"}`}>
+                          {REVERSA_TEXTO[a].boton}
+                        </button>
+                      ))}
                       {aceptaVincularArticulo(l) && !l.itemId && !l.operacionId && (
                         <button type="button" disabled={ocupado === l.id} onClick={() => setVinculando(vinculando === l.id ? null : l.id)} className="mr-2 text-[var(--sg-lime)] hover:underline">Vincular artículo</button>
                       )}

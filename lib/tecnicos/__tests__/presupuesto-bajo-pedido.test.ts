@@ -144,7 +144,9 @@ r = reversasDisponibles(linea({ estado: "Cargada" }), en({ item: art({ estado: "
 assert(!r.cancelar.permitido && (r.cancelar.motivo ?? "").includes("nota de crédito"), "Ya facturado → el camino es la nota de crédito");
 
 r = reversasDisponibles(linea({ estado: "Cargada", bajoPedido: false, operacionId: null, tipo: "Servicio" }), undefined);
-assert(!r.cancelar.permitido && (r.cancelar.motivo ?? "").includes("tarjeta"), "Servicio ya cargado → se quita desde su tarjeta");
+assert(!r.cancelar.permitido && (r.cancelar.motivo ?? "").includes("Quitar"), "Servicio ya cargado → se quita con \"Quitar\" en la línea (fase 2)");
+r = reversasDisponibles(linea({ estado: "Aprobada", bajoPedido: false, operacionId: null, tipo: "Servicio" }), undefined);
+assert(!r.cancelar.permitido && !r.recotizar.permitido, "Servicio aprobado sin cargar → tampoco usa reversas de compra (usa Quitar/Modificar)");
 
 assert(fasePedido(en({ item: art({ estado: "Cancelado" }) })) === "articulo_cancelado", "Artículo cancelado se reconoce como tal");
 assert(sincronizarConPedido(linea({ estado: "Cargada", itemId: "recI" }), en({ item: art({ estado: "Cancelado" }) }))?.notaCarga?.includes("canceló") === true,

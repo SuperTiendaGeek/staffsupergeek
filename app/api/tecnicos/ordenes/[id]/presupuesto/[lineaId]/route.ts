@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { leerLinea, actualizarLinea, borrarLinea, cargarInfoPedidos, listarLineas, type CambiosLinea } from "@/lib/tecnicos/presupuesto/airtable";
 import { actualizarEstadoOperacion, actualizarOpcion, eliminarOperacionConOpciones } from "@/lib/operaciones/airtable";
-import { revertirLinea } from "@/lib/tecnicos/presupuesto/cargar";
+import { retirarLinea, revertirLinea } from "@/lib/tecnicos/presupuesto/cargar";
 import { esEditable, aceptaVincularArticulo, validarLinea, normalizarPrioridad, nuevoGrupoAlternativas, NOTA_CLIENTE_MAX } from "@/lib/tecnicos/presupuesto/reglas";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,8 @@ type Params = { params: Promise<{ id: string; lineaId: string }> };
 
 // PATCH  — editar una línea Propuesta, rechazarla, o vincular el artículo de
 //          inventario a un repuesto (también si ya está Aprobada y esperando
-//          stock). Lo Cargado no se toca desde aquí: se ajusta en su tarjeta.
+//          stock). Lo ya aprobado se QUITA ("quitar") o se vuelve a proponer
+//          para cambiarlo ("modificar"); ver retirarLinea() en cargar.ts.
 // DELETE — borrar una línea Propuesta.
 async function lineaDeLaOrden(ordenId: string, lineaId: string) {
   const linea = await leerLinea(lineaId);
@@ -28,7 +29,7 @@ export async function PATCH(request: Request, { params }: Params) {
   if (!linea) return NextResponse.json({ success: false, error: "Línea no encontrada en esta orden" }, { status: 404 });
 
   const body = (await request.json().catch(() => ({}))) as {
-    accion?: "rechazar" | "reabrir" | "reactivar" | "cancelar" | "recotizar" | "liberar" | "detalle";
+    accion?: "rechazar" | "reabrir" | "reactivar" | "cancelar" | "recotizar" | "liberar" | "detalle" | "quitar" | "modificar";
     prioridad?: string; notaCliente?: string; alternativaDe?: string | null; quitarAlternativa?: boolean;
     motivo?: string;
     descripcion?: string; cantidad?: number; precioUnitario?: number; itemId?: string | null;
@@ -83,7 +84,22 @@ export async function PATCH(request: Request, { params }: Params) {
         return NextResponse.json({ success: true, data: await actualizarLinea(lineaId, { estado: "Propuesta", operacionId: null, itemId: null, notaCarga: "" }) });
       }
       if (linea.operacionId) await actualizarEstadoOperacion(linea.operacionId, "Cotizado");
-      return NextResponse.json({ success: true, data: await actualizarLinea(lineaId, { estado: "Propuesta" }) });
+      // La nota se limpia: una línea "Quitada de la orden" que se reabre deja de
+      // estar anulada para el cliente.
+      return NextResponse.json({ success: true, data: await actualizarLinea(lineaId, { estado: "Propuesta", notaCarga: "" }) });
+    }
+    // Quitar de la orden / volver a proponer para modificar (servicio, repuesto
+    // de stock o producto digital ya aprobado). Frena si hay factura o recibo.
+    if (body.accion === "quitar" || body.accion === "modificar") {
+      try {
+        await retirarLinea({
+          ordenId: id, lineaId, accion: body.accion, motivo: String(body.motivo ?? "").slice(0, 300),
+          usuario: { nombre: session?.user.nombre || session?.user.email || "Portal" },
+        });
+      } catch (e) {
+        return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "No se pudo quitar la línea" }, { status: 409 });
+      }
+      return NextResponse.json({ success: true, data: await leerLinea(lineaId) });
     }
     // Reversas de algo ya aprobado (el cliente desiste, el proveedor no lo
     // tiene, llegó y ya no lo quieren). Las reglas de qué se permite y por
@@ -115,7 +131,7 @@ export async function PATCH(request: Request, { params }: Params) {
       if (linea.operacionId) return NextResponse.json({ success: false, error: "Un repuesto bajo pedido recibe su artículo solo, cuando se le pide al proveedor." }, { status: 409 });
       if (!aceptaVincularArticulo(linea)) return NextResponse.json({ success: false, error: "Esta línea ya no acepta cambios de artículo." }, { status: 409 });
     } else if (!esEditable(linea)) {
-      return NextResponse.json({ success: false, error: "Solo se edita una línea Propuesta. Lo aprobado se ajusta en su tarjeta." }, { status: 409 });
+      return NextResponse.json({ success: false, error: "Solo se edita una línea Propuesta. Si ya está aprobada, usa \"Modificar\" (vuelve a pedir aprobación)." }, { status: 409 });
     }
 
     const propuesta = {
@@ -161,7 +177,7 @@ export async function DELETE(_req: Request, { params }: Params) {
   const linea = await lineaDeLaOrden(id, lineaId);
   if (!linea) return NextResponse.json({ success: false, error: "Línea no encontrada en esta orden" }, { status: 404 });
   if (!esEditable(linea)) {
-    return NextResponse.json({ success: false, error: "Solo se borra una línea Propuesta. Una línea aprobada queda como constancia." }, { status: 409 });
+    return NextResponse.json({ success: false, error: "Solo se borra una línea Propuesta. Una línea aprobada se quita con \"Quitar\" y queda como constancia." }, { status: 409 });
   }
   try {
     // Borrar un repuesto bajo pedido borra su cotización. Si la operación ya

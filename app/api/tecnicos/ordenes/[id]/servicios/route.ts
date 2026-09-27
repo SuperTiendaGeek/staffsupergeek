@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { createServicioPorOrden } from "@/lib/tecnicos/airtable";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,9 @@ const toNumber = (value: unknown): number | null => {
 };
 
 export async function POST(request: Request, { params }: Params) {
+  const { response } = await requireTecnicosSession();
+  if (response) return response;
+
   const { id: ordenRecordId } = await params;
 
   if (!ordenRecordId) {

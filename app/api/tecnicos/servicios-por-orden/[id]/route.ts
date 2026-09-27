@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { deleteServicioPorOrdenById } from "@/lib/tecnicos/airtable";
 
 export const dynamic = "force-dynamic";
@@ -6,6 +7,9 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ id: string }> };
 
 export async function DELETE(_: Request, { params }: Params) {
+  const { response } = await requireTecnicosSession();
+  if (response) return response;
+
   const { id } = await params;
 
   if (!id) {

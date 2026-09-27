@@ -21,11 +21,14 @@ import { withLock } from "@/lib/concurrencia";
 import { loadAirtableEnv } from "../config/airtable";
 import {
   createServicioPorOrden,
+  deleteServicioPorOrdenById,
   asignarProductoDigitalAOrden,
+  desasignarProductoDigitalDeOrden,
   fetchProductosDigitalesDisponibles,
   fetchProductosDigitalesPorOrden,
 } from "../airtable";
-import { agregarRepuestoStockAOrden } from "../repuestos-v2";
+import { agregarRepuestoStockAOrden, quitarRepuestoStockDeOrden } from "../repuestos-v2";
+import { cargarOrdenesCobro } from "../cobros/airtable";
 import { unidadesLibres, unidadesReservadas } from "@/lib/shipping-v2/unidades";
 import { SHIPPING_V2_ITEM_FIELDS } from "@/lib/shipping-v2/schema.generated";
 import {
@@ -37,6 +40,7 @@ import { listarLineas, actualizarLinea, cargarInfoPedidos, clienteDeOrden } from
 import {
   planDeCarga, fasePedido, reversasDisponibles, entradaHistorial,
   cargasPerdidas, cargosSinPresupuesto, conflictoAlternativas, hermanasPropuestas,
+  planRetiro, lineaTrasRetiro, type AccionRetiro,
   type ContextoCarga, type LineaPresupuesto, type PasoCarga, type AccionReversa, type CargosPresentes } from "./reglas";
 
 const T_ITEMS = "Shipping Items";
@@ -356,6 +360,51 @@ export async function revertirLinea(opts: {
       estado: "Rechazada",
       notaCarga: texto,
       agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(texto, opts.usuario.nombre) },
+    });
+  });
+}
+
+// ─── Quitar o modificar una línea ya aprobada ────────────────────────────────
+// Qué se permite y qué se deshace lo decide planRetiro() (reglas.ts); aquí solo
+// se ejecuta, con el mismo turno que la carga. Primero se deshace el cargo y
+// SOLO si eso salió bien se cambia la línea: si falla, todo queda como estaba.
+
+export async function retirarLinea(opts: {
+  ordenId: string;
+  lineaId: string;
+  accion: AccionRetiro;
+  motivo: string;
+  usuario: { nombre: string };
+}): Promise<void> {
+  return withLock(`presupuesto:${opts.ordenId}`, async () => {
+    const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
+    if (!linea) throw new Error("Línea no encontrada en esta orden.");
+
+    // Documento emitido: la misma lectura que usa el panel de cobros. Si no se
+    // puede leer, NO se asume que no hay documento: se frena.
+    const cobro = (await cargarOrdenesCobro({ ordenId: opts.ordenId }))[0];
+    if (!cobro) throw new Error("No se pudo verificar si la orden tiene factura o recibo. Intenta de nuevo.");
+    const documento = cobro.documento ? { tipo: cobro.documento.tipo, numero: cobro.documento.numero } : null;
+
+    const plan = planRetiro(linea, documento, await cargosDeLaOrden(opts.ordenId));
+    if (!plan.permitido) throw new Error(plan.motivo);
+
+    const d = plan.deshacer;
+    if (d.tipo === "borrar_servicio") {
+      await deleteServicioPorOrdenById({ servicioPorOrdenRecordId: d.servicioPorOrdenId });
+    } else if (d.tipo === "soltar_repuesto") {
+      await quitarRepuestoStockDeOrden({ ordenRecordId: opts.ordenId, itemId: d.itemId, registradoPor: opts.usuario.nombre });
+    } else if (d.tipo === "desasignar_digital") {
+      await desasignarProductoDigitalDeOrden({ productoId: d.productoId, ordenRecordId: opts.ordenId });
+    }
+
+    const tras = lineaTrasRetiro(opts.accion, opts.motivo);
+    await actualizarLinea(linea.id, {
+      estado: tras.estado,
+      notaCarga: tras.notaCarga,
+      cargoServicioId: null,
+      cargoProductoDigitalId: null,
+      agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(tras.historial, opts.usuario.nombre) },
     });
   });
 }
