@@ -120,10 +120,20 @@ export async function POST(request: Request) {
   // (en /api/facturacion/prefactura), pero la regla no puede ser saltable
   // con un request directo al API.
   if (body.origen) {
-    const bloqueante = await buscarDocumentoBloqueante(body.origen).catch((e) => {
+    // Fail-closed: si no se puede confirmar que la orden NO tiene ya una
+    // factura o recibo, no se emite. Antes el error se tomaba como "no hay"
+    // y un 503 de Airtable en este instante podía producir una segunda
+    // factura real ante el SRI.
+    let bloqueante: Awaited<ReturnType<typeof buscarDocumentoBloqueante>>;
+    try {
+      bloqueante = await buscarDocumentoBloqueante(body.origen);
+    } catch (e) {
       console.error("[/api/facturacion/emitir POST] error verificando idempotencia:", e);
-      return null;
-    });
+      return NextResponse.json(
+        { success: false, error: "No se pudo verificar si esta cuenta ya tiene una factura o un recibo. No se emitió nada; intenta de nuevo." },
+        { status: 503 }
+      );
+    }
     if (bloqueante) {
       const etiquetaOrigen = body.origen.tipo === "orden" ? "orden" : "operación";
       // El recibo interno bloquea igual que una factura: cierra la cuenta y

@@ -42,7 +42,8 @@ function fetchDoble(
   return (url: string | URL) => {
     const urlStr = String(url);
     if (!urlStr.includes("filterByFormula")) {
-      if (!registroOrigen) return Promise.resolve({ ok: false } as Response);
+      // 404 = el registro no existe (cualquier otro error ya no se lee como "no existe").
+      if (!registroOrigen) return Promise.resolve({ ok: false, status: 404 } as Response);
       return Promise.resolve({ ok: true, json: async () => ({ id: "recORIGEN", fields: registroOrigen.fields }) } as Response);
     }
     const tabla = decodeURIComponent(urlStr.split("/").pop()!.split("?")[0]);

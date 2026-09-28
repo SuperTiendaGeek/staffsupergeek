@@ -20,7 +20,7 @@ import "server-only";
 // paralelo porque son tablas distintas sin relación entre sí; sus fallos se
 // combinan en un solo resultado, pero uno no puede hacer fallar al otro.
 
-import { fetchRecordsByIds, linkedIds, firstString, numberOrZero } from "./airtableGancho";
+import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "./airtableGancho";
 import { actualizarSincronizacionInventario } from "../airtable/facturas";
 import { ahoraEnEcuador } from "../fechaEcuador";
 import type { DetalleFactura } from "../types/factura";
@@ -221,7 +221,21 @@ async function postEmisionShippingItems(input: PostEmisionInput): Promise<Result
   // Releído AQUÍ, justo antes de escribir — no se confía en la cantidad que
   // haya visto el formulario/pre-chequeo minutos antes (mitiga la ventana de
   // carrera entre dos facturas simultáneas sobre el mismo item).
-  const estadoActual  = await fetchEstadoActualItems(itemIds);
+  //
+  // Si la lectura falla, NO se escribe nada. Antes un error de lectura se
+  // tomaba como "el artículo tiene 0": la Cantidad quedaba en 0, se marcaba
+  // Vendido y se pisaba su lista de facturas. Ahora queda ERROR con el motivo
+  // y el botón "Reintentar sincronización" del historial lo vuelve a correr.
+  let estadoActual: Map<string, EstadoItemActual>;
+  try {
+    estadoActual = await fetchEstadoActualItems(itemIds);
+  } catch (e) {
+    const detalle = textoLecturaFallida(e, "No se descontó inventario; usa \"Reintentar sincronización\".");
+    await actualizarSincronizacionInventario(input.facturaRecordId, "ERROR", detalle).catch((err) => {
+      console.error("[postEmision] no se pudo marcar ERROR tras la lectura fallida:", err);
+    });
+    return { estado: "ERROR", detalle };
+  }
   const fallidos: Array<{ id: string; descripcion: string; error: string }> = [];
   const advertencias: string[] = [];
   let yaHechos  = 0;
@@ -239,7 +253,18 @@ async function postEmisionShippingItems(input: PostEmisionInput): Promise<Result
       continue;
     }
 
-    const disponible = actual?.cantidad ?? 0;
+    // Nunca se escribe sobre un artículo que no se pudo leer: sin su estado
+    // real se descontaría desde 0 y se borrarían sus facturas anteriores.
+    if (!actual) {
+      fallidos.push({
+        id:          itemId,
+        descripcion: venta.descripcion,
+        error:       "no se encontró en Shipping Items; no se tocó",
+      });
+      continue;
+    }
+
+    const disponible = actual.cantidad;
     const nueva      = disponible - venta.cantidad;
     const nuevaFinal = Math.max(0, nueva);
 
@@ -256,7 +281,7 @@ async function postEmisionShippingItems(input: PostEmisionInput): Promise<Result
       "Cantidad": nuevaFinal,
       // APPEND, nunca reemplazo: con ventas parciales un mismo item puede
       // acumular varias facturas a lo largo de su stock.
-      "Factura":  [...(actual?.facturaIds ?? []), input.facturaRecordId],
+      "Factura":  [...actual.facturaIds, input.facturaRecordId],
     };
     // Solo cuando el stock se agota, el registro se cierra como Vendido y
     // deja de estar disponible para venta. Con stock restante, el registro
@@ -339,7 +364,16 @@ async function postEmisionProductosDigitales(input: PostEmisionInput): Promise<R
   }
 
   const ids          = [...productosPorId.keys()];
-  const estadoActual = await fetchEstadoActualProductosDigitales(ids);
+  // Misma regla que Shipping Items: si no se puede leer, no se escribe nada.
+  let estadoActual: Map<string, EstadoProductoDigitalActual>;
+  try {
+    estadoActual = await fetchEstadoActualProductosDigitales(ids);
+  } catch (e) {
+    return {
+      estado:  "ERROR",
+      detalle: textoLecturaFallida(e, "No se marcaron los productos digitales; usa \"Reintentar sincronización\"."),
+    };
+  }
   const fallidos: Array<{ id: string; descripcion: string; error: string }> = [];
   let yaHechos = 0;
   let marcados = 0;
@@ -365,12 +399,19 @@ async function postEmisionProductosDigitales(input: PostEmisionInput): Promise<R
       continue;
     }
 
+    // Sin su estado real se pisaría la lista de facturas y se escribiría
+    // "Venta directa" a un producto que sí venía de una orden.
+    if (!actual) {
+      fallidos.push({ id, descripcion: producto.descripcion, error: "no se encontró en Productos Digitales; no se tocó" });
+      continue;
+    }
+
     // Sin typecast: si "Usado" (o "Venta directa") no existiera como opción
     // en el desplegable, esto debe fallar y verse — no crear la opción sola
     // (bitácora §6).
     const fields: Record<string, unknown> = {
       "Estado":              "Usado",
-      "Factura":             [...(actual?.facturaIds ?? []), input.facturaRecordId],
+      "Factura":             [...actual.facturaIds, input.facturaRecordId],
       "Fecha de Uso / Venta": hoy,
     };
     // "Tipo de Uso" SOLO si el producto no tiene orden vinculada — una
@@ -378,7 +419,7 @@ async function postEmisionProductosDigitales(input: PostEmisionInput): Promise<R
     // que ese campo quedaría vacío si no se escribe aquí. Si SÍ tiene
     // orden, no se toca: ya dice "Orden de reparación" (lo puso
     // asignarProductoDigitalAOrden() al vincular).
-    if (!actual?.tieneOrden) {
+    if (!actual.tieneOrden) {
       fields["Tipo de Uso"] = "Venta directa";
     }
 

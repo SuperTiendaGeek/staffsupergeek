@@ -31,6 +31,10 @@ async function fetchRegistroOrigen(origen: OrigenGancho) {
  * inverso ya presente en el registro y se hace fetch por RECORD_ID()).
  *
  * Devuelve la factura bloqueante, o `null` si no hay ninguna.
+ *
+ * Si Airtable no responde, LANZA (ErrorLecturaAirtable): "no pude leer" nunca
+ * significa "no hay factura". Los llamadores deben tratar el error como
+ * bloqueo (ver /api/facturacion/emitir y /api/facturacion/recibos).
  */
 export async function buscarFacturaBloqueante(
   origen: OrigenGancho

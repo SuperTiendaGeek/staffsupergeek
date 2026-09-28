@@ -8,6 +8,18 @@ import "server-only";
 //
 // Regla de la casa: nunca filtrar por campo de link — se leen los IDs del
 // campo inverso ya presentes en el registro y se hace fetch por RECORD_ID().
+//
+// ─── Las lecturas fallan en voz alta ─────────────────────────────────────────
+// Hasta sep-2026, cualquier error de Airtable (un 429 por ráfaga, un 503) se
+// leía como "no existe" o "no hay nada". En facturación eso era peligroso:
+//   - Idempotencia: "no pude leer la orden" = "la orden no tiene factura" →
+//     se podía emitir una segunda factura real.
+//   - Inventario tras vender: "no pude leer el artículo" = "había 0" → la
+//     Cantidad quedaba en 0 y se pisaba la lista de facturas del artículo.
+//   - Pre-factura: "no pude leer el cliente" = Consumidor Final.
+// Ahora un GET que falla se reintenta (es seguro: leer no cambia nada) y, si
+// sigue fallando, LANZA ErrorLecturaAirtable. Solo un 404 de un registro
+// puntual significa "no existe" (fetchRecord → null).
 
 const ORDENES_TABLE   = "Órdenes de Reparación";
 const OPERACIONES_TABLE = "Operación Comercial";
@@ -38,30 +50,104 @@ function getClient(): AirtableClient {
   };
 }
 
+export class ErrorLecturaAirtable extends Error {
+  readonly tabla: string;
+  readonly status: number | null;
+  constructor(tabla: string, status: number | null, detalle?: string) {
+    super(
+      `No se pudo leer "${tabla}" en Airtable (${status ?? "sin respuesta"}${detalle ? `: ${detalle}` : ""}). Intenta de nuevo en un momento.`
+    );
+    this.name = "ErrorLecturaAirtable";
+    this.tabla = tabla;
+    this.status = status;
+  }
+}
+
+// Texto para dejar constancia en un campo de estado ("Sincronización
+// Inventario", "Reverso Inventario"…) cuando la lectura previa falló y por eso
+// NO se escribió nada. Siempre dice qué quedó sin hacer, para que se reintente.
+export function textoLecturaFallida(e: unknown, queNoSeHizo: string): string {
+  const causa = e instanceof Error ? e.message : String(e);
+  return `${causa} ${queNoSeHizo}`;
+}
+
+const STATUS_REINTENTABLES = new Set([429, 500, 502, 503, 504]);
+const ESPERAS_REINTENTO_MS = [400, 1200];
+
+function esperar(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// GET con reintento. Un GET no cambia nada en Airtable, así que reintentar es
+// seguro (a diferencia de un POST, que podría crear dos veces).
+async function getConReintento(url: string, headers: HeadersInit, tabla: string): Promise<Response> {
+  for (let intento = 0; ; intento++) {
+    const ultimo = intento >= ESPERAS_REINTENTO_MS.length;
+    let res: Response;
+    try {
+      res = await fetch(url, { headers, cache: "no-store" });
+    } catch (e) {
+      if (ultimo) throw new ErrorLecturaAirtable(tabla, null, e instanceof Error ? e.message : String(e));
+      await esperar(ESPERAS_REINTENTO_MS[intento]);
+      continue;
+    }
+    if (res.ok || ultimo || !STATUS_REINTENTABLES.has(res.status)) return res;
+    await esperar(ESPERAS_REINTENTO_MS[intento]);
+  }
+}
+
+// Un id de Airtable es "rec" + letras/números. Cualquier otra cosa (comillas
+// incluidas) no se mete en la fórmula: no existe ningún registro con ese id,
+// así que se trata como "no encontrado".
+const PATRON_RECORD_ID = /^rec[A-Za-z0-9]+$/;
+
+/** Un registro por id. 404 → null ("no existe"). Cualquier otro error → lanza. */
 export async function fetchRecord(table: string, id: string): Promise<AirtableRecord | null> {
   const client = getClient();
-  const res = await fetch(`${client.baseUrl}/${encodeURIComponent(table)}/${encodeURIComponent(id)}`, {
-    headers: client.headers,
-    cache: "no-store",
-  });
-  if (!res.ok) return null;
+  const res = await getConReintento(
+    `${client.baseUrl}/${encodeURIComponent(table)}/${encodeURIComponent(id)}`,
+    client.headers,
+    table
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new ErrorLecturaAirtable(table, res.status);
   return (await res.json()) as AirtableRecord;
 }
 
+// Lotes de 50 ids por consulta para que la fórmula no crezca sin límite, y se
+// sigue el "offset" de Airtable por si una página no alcanza.
+const IDS_POR_CONSULTA = 50;
+
+/**
+ * Registros por id. Los que no existen simplemente no vienen en el resultado.
+ * Si Airtable falla (después de reintentar) → lanza ErrorLecturaAirtable.
+ * NUNCA devuelve [] por un error.
+ */
 export async function fetchRecordsByIds(table: string, ids: string[]): Promise<AirtableRecord[]> {
-  if (ids.length === 0) return [];
-  const formula =
-    ids.length === 1
-      ? `RECORD_ID()='${ids[0]}'`
-      : `OR(${ids.map((id) => `RECORD_ID()='${id}'`).join(",")})`;
+  const unicos = [...new Set(ids.filter((id) => typeof id === "string" && PATRON_RECORD_ID.test(id)))];
+  if (unicos.length === 0) return [];
   const client = getClient();
-  const url = new URL(`${client.baseUrl}/${encodeURIComponent(table)}`);
-  url.searchParams.set("filterByFormula", formula);
-  url.searchParams.set("pageSize", "100");
-  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
-  if (!res.ok) return [];
-  const data = (await res.json()) as { records?: AirtableRecord[] };
-  return data.records ?? [];
+  const registros: AirtableRecord[] = [];
+  for (let i = 0; i < unicos.length; i += IDS_POR_CONSULTA) {
+    const lote = unicos.slice(i, i + IDS_POR_CONSULTA);
+    const formula =
+      lote.length === 1
+        ? `RECORD_ID()='${lote[0]}'`
+        : `OR(${lote.map((id) => `RECORD_ID()='${id}'`).join(",")})`;
+    let offset: string | undefined;
+    do {
+      const url = new URL(`${client.baseUrl}/${encodeURIComponent(table)}`);
+      url.searchParams.set("filterByFormula", formula);
+      url.searchParams.set("pageSize", "100");
+      if (offset) url.searchParams.set("offset", offset);
+      const res = await getConReintento(url.toString(), client.headers, table);
+      if (!res.ok) throw new ErrorLecturaAirtable(table, res.status);
+      const data = (await res.json()) as { records?: AirtableRecord[]; offset?: string };
+      registros.push(...(data.records ?? []));
+      offset = typeof data.offset === "string" && data.offset ? data.offset : undefined;
+    } while (offset);
+  }
+  return registros;
 }
 
 export function linkedIds(value: unknown): string[] {

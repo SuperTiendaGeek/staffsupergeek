@@ -57,10 +57,18 @@ export async function POST(request: Request) {
     // Re-verificación server-side: la UI ya bloqueó antes (vía
     // /api/facturacion/prefactura), pero la regla no puede ser saltable con
     // un request directo al API — mismo criterio que /api/facturacion/emitir.
-    const bloqueante = await buscarDocumentoBloqueante(body.origen).catch((e) => {
+    // Fail-closed, igual que /api/facturacion/emitir: sin confirmar que no
+    // hay documento previo, no se crea el recibo.
+    let bloqueante: Awaited<ReturnType<typeof buscarDocumentoBloqueante>>;
+    try {
+      bloqueante = await buscarDocumentoBloqueante(body.origen);
+    } catch (e) {
       console.error("[recibos POST] error verificando idempotencia:", e);
-      return null;
-    });
+      return NextResponse.json(
+        { success: false, error: "No se pudo verificar si esta cuenta ya tiene una factura o un recibo. No se creó el recibo; intenta de nuevo." },
+        { status: 503 }
+      );
+    }
     if (bloqueante) {
       const etiqueta = body.origen.tipo === "orden" ? "orden" : "operación";
       const detalle = bloqueante.tipo === "factura"

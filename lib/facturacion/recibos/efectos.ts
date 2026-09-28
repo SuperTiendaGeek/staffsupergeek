@@ -6,7 +6,7 @@ import "server-only";
 // no se tocan (el recibo se usa solo tras el go-live, cuando SRI_AMBIENTE=2).
 // El recibo (registro + PDF) sí se crea siempre; estos efectos son aparte.
 
-import { fetchRecordsByIds, linkedIds, firstString, numberOrZero } from "../gancho/airtableGancho";
+import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "../gancho/airtableGancho";
 import { ahoraEnEcuador } from "../fechaEcuador";
 import { crearMovimiento } from "@/lib/finanzas/movimientos";
 import { fetchCuentaPorNombre } from "@/lib/finanzas/cuentas";
@@ -46,7 +46,16 @@ export async function descontarInventarioRecibo(input: {
   }
 
   const ids = [...porItem.keys()];
-  const records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, ids);
+  // Si no se puede leer el inventario, no se escribe nada (antes se tomaba
+  // como "había 0": Cantidad en 0, Vendido y lista de recibos pisada).
+  let records: Awaited<ReturnType<typeof fetchRecordsByIds>>;
+  try {
+    records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, ids);
+  } catch (e) {
+    const detalle = textoLecturaFallida(e, "No se descontó inventario; hay que descontarlo a mano en Shipping Items.");
+    await actualizarEfectosRecibo(input.reciboRecordId, "Sincronización Inventario", "ERROR", detalle).catch(() => {});
+    return { estado: "ERROR", detalle };
+  }
   const actual = new Map(records.map((r) => [r.id, {
     cantidad: numberOrZero(r.fields["Cantidad"]),
     reciboIds: linkedIds(r.fields["Recibo"]),
@@ -58,15 +67,17 @@ export async function descontarInventarioRecibo(input: {
   for (const [itemId, venta] of porItem) {
     const est = actual.get(itemId);
     if (est && est.reciboIds.includes(input.reciboRecordId)) continue; // idempotente
+    // Nunca se escribe sobre un artículo que no se pudo leer.
+    if (!est) { fallidos.push(`${venta.descripcion}: no se encontró en Shipping Items; no se tocó`); continue; }
 
-    const disponible = est?.cantidad ?? 0;
+    const disponible = est.cantidad;
     const nueva = disponible - venta.cantidad;
     if (nueva < 0) advertencias.push(`${venta.descripcion}: stock insuficiente (había ${disponible}, se vendieron ${venta.cantidad}). Cantidad dejada en 0.`);
     const nuevaFinal = Math.max(0, nueva);
 
     const fields: Record<string, unknown> = {
       "Cantidad": nuevaFinal,
-      "Recibo": [...(est?.reciboIds ?? []), input.reciboRecordId],
+      "Recibo": [...est.reciboIds, input.reciboRecordId],
     };
     if (nuevaFinal === 0) { fields["Estado Item"] = "Vendido"; fields["Disponible para venta"] = false; }
 
@@ -92,7 +103,17 @@ export async function revertirInventarioRecibo(input: { reciboRecordId: string; 
   const porItem = new Map<string, number>();
   for (const l of conItem) porItem.set(l.shippingItemId, (porItem.get(l.shippingItemId) ?? 0) + (l.cantidad > 0 ? l.cantidad : 0));
 
-  const records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, [...porItem.keys()]);
+  // Si no se puede leer, antes se saltaba todo en silencio (el stock nunca
+  // volvía). Ahora queda constancia en el recibo para corregirlo a mano.
+  let records: Awaited<ReturnType<typeof fetchRecordsByIds>>;
+  try {
+    records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, [...porItem.keys()]);
+  } catch (e) {
+    const detalle = textoLecturaFallida(e, "Anulación: no se devolvió el stock; hay que sumarlo a mano en Shipping Items.");
+    await actualizarEfectosRecibo(input.reciboRecordId, "Sincronización Inventario", "ERROR", detalle).catch(() => {});
+    console.error("[revertirInventarioRecibo]", detalle);
+    return;
+  }
   const actual = new Map(records.map((r) => [r.id, {
     cantidad: numberOrZero(r.fields["Cantidad"]),
     reciboIds: linkedIds(r.fields["Recibo"]),
@@ -226,7 +247,12 @@ export async function marcarProductosDigitalesRecibo(input: {
   )];
   if (ids.length === 0) return { estado: "OK" };
 
-  const records = await fetchRecordsByIds(PRODUCTOS_DIGITALES_TABLE, ids);
+  let records: Awaited<ReturnType<typeof fetchRecordsByIds>>;
+  try {
+    records = await fetchRecordsByIds(PRODUCTOS_DIGITALES_TABLE, ids);
+  } catch (e) {
+    return { estado: "ERROR", detalle: textoLecturaFallida(e, "No se marcaron los productos digitales; hay que marcarlos a mano.") };
+  }
   const actual = new Map(records.map((r) => [r.id, {
     reciboIds:  linkedIds(r.fields["Recibo"]),
     facturaIds: linkedIds(r.fields["Factura"]),
@@ -242,16 +268,17 @@ export async function marcarProductosDigitalesRecibo(input: {
   for (const id of ids) {
     const est = actual.get(id);
     if (est && est.reciboIds.includes(input.reciboRecordId)) continue; // idempotente
+    if (!est) { fallidos.push(`${id}: no se encontró en Productos Digitales; no se tocó`); continue; }
 
     const fields: Record<string, unknown> = {
       "Estado":               "Usado",
-      "Recibo":               [...(est?.reciboIds ?? []), input.reciboRecordId],
+      "Recibo":               [...est.reciboIds, input.reciboRecordId],
       "Fecha de Uso / Venta": hoy,
     };
     // Igual que en la factura: "Tipo de Uso" solo se escribe cuando el
     // producto no vino de una orden (una venta de mostrador nunca pasó por
     // asignarProductoDigitalAOrden y el campo quedaría vacío).
-    if (!est?.tieneOrden) fields["Tipo de Uso"] = "Venta directa";
+    if (!est.tieneOrden) fields["Tipo de Uso"] = "Venta directa";
 
     try { await patchTabla(PRODUCTOS_DIGITALES_TABLE, id, fields); }
     catch (e) { fallidos.push(`${id}: ${e instanceof Error ? e.message : String(e)}`); }
