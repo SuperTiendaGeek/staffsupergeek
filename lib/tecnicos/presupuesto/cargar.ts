@@ -415,7 +415,8 @@ export async function retirarLinea(opts: {
 // son dos vistas de lo mismo. Un cargo se puede quitar desde su tarjeta —es lo
 // natural cuando el cliente se arrepiente— y entonces la línea no puede
 // seguir diciendo "Cargada". Esto se revisa al abrir el presupuesto y deja la
-// línea en "Aprobada" con el motivo, sin tocar nada más.
+// línea como "Quitada" con el motivo, sin tocar nada más (fase 3b: dejarla
+// "Aprobada" la convertiría en deuda del cliente).
 
 export type ResumenCargos = ReturnType<typeof cargosSinPresupuesto>;
 
@@ -465,14 +466,16 @@ export async function sincronizarConLasTarjetas(
 
   for (const p of perdidas) {
     const l = lineas.find((x) => x.id === p.lineaId)!;
+    // "Quitada" (Rechazada con NOTA_QUITADA), no "Aprobada": ver NOTA_PERDIDA
+    // en reglas.ts — lo aprobado suma al Resumen financiero (fase 3b).
     await actualizarLinea(l.id, {
-      estado: "Aprobada",
+      estado: "Rechazada",
       notaCarga: p.nota,
       cargoServicioId: null,
       cargoProductoDigitalId: null,
       agregarHistorial: { anterior: l.historial, entrada: entradaHistorial(p.nota, usuario) },
     });
-    l.estado = "Aprobada";
+    l.estado = "Rechazada";
     l.notaCarga = p.nota;
     l.cargoServicioId = null;
     l.cargoProductoDigitalId = null;

@@ -3372,6 +3372,14 @@ export function OrdenDetalleClient() {
                     {formatCurrency(cuentaUnificada?.totalServicios ?? orden.costoTotalServiciosNV)}
                   </p>
                 </div>
+                {(cuentaUnificada?.totalAprobadoSinArticulo ?? 0) > 0 && (
+                  <div className="col-span-2 bg-[var(--sg-panel)] px-3 py-2" title="Aprobado por el cliente: ya suma. La factura o el recibo esperan a que exista el artículo.">
+                    <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-warning)]">Aprobado sin artículo · no facturable aún</p>
+                    <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
+                      {formatCurrency(cuentaUnificada?.totalAprobadoSinArticulo ?? 0)}
+                    </p>
+                  </div>
+                )}
                 {(cuentaUnificada?.totalProductosDigitales ?? orden.totalProductosDigitalesNV ?? 0) > 0 && (
                   <div className="col-span-2 bg-[var(--sg-panel)] px-3 py-2">
                     <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Productos Digitales</p>
@@ -3400,6 +3408,8 @@ export function OrdenDetalleClient() {
                       totalRepuestos: 0,
                       totalServicios: 0,
                       totalProductosDigitales: 0,
+                      aprobadoSinArticulo: [],
+                      totalAprobadoSinArticulo: 0,
                       totalCuenta: 0,
                       totalAbonado: 0,
                       saldo: 0,

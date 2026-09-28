@@ -17,6 +17,9 @@ import type {
 } from "@/types/cuenta-unificada";
 import { esAbonoVigente } from "@/types/cuenta-unificada";
 import type { ProductoDigital } from "@/lib/tecnicos/airtable";
+import { lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
+import { aprobadoSinArticulo } from "@/lib/tecnicos/presupuesto/reglas";
+import type { CuentaUnificadaAprobadoSinArticulo } from "@/types/cuenta-unificada";
 
 // ─── Gates de repuestos (extraído para poder testearlo sin mockear todo el
 // árbol de fetches de getCuentaUnificada) ────────────────────────────────────
@@ -97,7 +100,12 @@ async function fetchRecord(
     headers: client.headers,
     cache: "no-store",
   });
-  if (!res.ok) return null;
+  // Solo "no existe" (404) es null. Cualquier otro error (503, 429, red) se
+  // lanza: una cuenta leída a medias da totales falsos y, peor, dejaba pasar
+  // la factura/recibo con líneas aprobadas sin artículo (revisión de Claude
+  // Code, fase 3b). Quien llama decide; el gancho de facturación falla cerrado.
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Airtable ${tableName}/${id}: HTTP ${res.status}`);
   return (await res.json()) as AirtableRecord;
 }
 
@@ -117,7 +125,9 @@ async function fetchRecordsByIds(
   url.searchParams.set("filterByFormula", formula);
   url.searchParams.set("pageSize", "100");
   const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
-  if (!res.ok) return [];
+  // Antes devolvía [] ante cualquier error: un 503 hacía desaparecer en
+  // silencio operaciones, artículos o abonos de la cuenta. Ahora se lanza.
+  if (!res.ok) throw new Error(`Airtable ${tableName} (${ids.length} ids): HTTP ${res.status}`);
   const data = (await res.json()) as { records?: AirtableRecord[] };
   return data.records ?? [];
 }
@@ -300,7 +310,12 @@ export async function getCuentaUnificada(
     operacionRecord = await fetchRecord(client, OPERACIONES_TABLE, input.operacionId);
     if (!operacionRecord) throw new Error(`Operación ${input.operacionId} no encontrada.`);
     const ordenId = linkedIds(operacionRecord.fields["Orden de Reparación"])[0] ?? null;
-    if (ordenId) ordenRecord = await fetchRecord(client, ORDENES_TABLE, ordenId);
+    if (ordenId) {
+      ordenRecord = await fetchRecord(client, ORDENES_TABLE, ordenId);
+      // La operación dice que tiene orden: si no se puede leer, NO se sigue como
+      // si no la tuviera (se perderían sus servicios, abonos y lo aprobado).
+      if (!ordenRecord) throw new Error(`No se pudo leer la orden ${ordenId} vinculada a la operación ${input.operacionId}.`);
+    }
     if (ordenRecord) {
       const operacionIds = linkedIds(ordenRecord.fields["Operaciones Comerciales"]);
       const ids = operacionIds.includes(operacionRecord.id)
@@ -409,7 +424,24 @@ export async function getCuentaUnificada(
   const totalRepuestos =
     items.reduce((sum, item) => sum + item.precio, 0) +
     (repuestosLegacyCuentanParaTotal ? totalRepuestosHistoricos : 0);
-  const totalCuenta = totalRepuestos + totalServicios + totalProductosDigitales;
+  // Fase 3b: lo aprobado en el presupuesto que todavía no tiene su artículo
+  // también suma (regla del dueño: basta que el cliente apruebe). Lo que ya
+  // tiene su cargo se cuenta por el cargo y queda fuera de esta lista — ver
+  // aprobadoSinArticulo() en lib/tecnicos/presupuesto/reglas.ts.
+  // Solo se lee si la orden tiene líneas (las órdenes sin presupuesto no hacen
+  // ninguna petición extra).
+  const lineaIdsPresupuesto = ordenRecord ? linkedIds(ordenRecord.fields["Presupuesto por Orden"]) : [];
+  const aprobadoPendiente: CuentaUnificadaAprobadoSinArticulo[] = lineaIdsPresupuesto.length
+    ? aprobadoSinArticulo(await lineasPorIds(lineaIdsPresupuesto), {
+        servicios: new Set(servicios.map((s) => s.id)),
+        digitales: new Set(productosDigitalesRaw.map((p) => p.id)),
+        itemsStock: new Set(repuestosStockV2.map((i) => i.id)),
+        operacionesConArticulo: new Set(operacionRecords.filter((r) => linkedIds(r.fields["Artículo físico"]).length > 0).map((r) => r.id)),
+      }).map((p) => ({ id: p.lineaId, nombre: p.descripcion, tipo: p.tipo, monto: p.monto, motivo: p.motivo }))
+    : [];
+  const totalAprobadoSinArticulo = Math.round(aprobadoPendiente.reduce((s, p) => s + p.monto, 0) * 100) / 100;
+
+  const totalCuenta = totalRepuestos + totalServicios + totalProductosDigitales + totalAprobadoSinArticulo;
 
   // Los dos rollups ("Total Abonado NV" en la Orden y "Total Abonado" en la
   // Operación) NO son sumables entre sí: un abono con ambos links está dentro
@@ -439,6 +471,8 @@ export async function getCuentaUnificada(
     totalRepuestos,
     totalServicios,
     totalProductosDigitales,
+    aprobadoSinArticulo: aprobadoPendiente,
+    totalAprobadoSinArticulo,
     totalCuenta,
     totalAbonado,
     saldo,

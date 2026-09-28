@@ -93,6 +93,18 @@ export interface CuentaUnificadaAbono {
   numeroTransaccion: string | null;
 }
 
+// Línea del presupuesto que el cliente APROBÓ y todavía no tiene su artículo
+// (bajo pedido sin pedir, repuesto sin stock, sin código digital libre).
+// Regla del dueño (fase 3b): suma al total desde la aprobación. La factura y
+// el recibo esperan a que el artículo exista (PRESUPUESTO_PENDIENTE).
+export interface CuentaUnificadaAprobadoSinArticulo {
+  id: string;
+  nombre: string;
+  tipo: "Servicio" | "Repuesto" | "Producto digital";
+  monto: number;
+  motivo: "falta_pedir" | "sin_stock" | "sin_codigo" | "pendiente";
+}
+
 export interface CuentaUnificada {
   ordenId: string | null;
   ordenIdVisible: string | null;
@@ -123,6 +135,10 @@ export interface CuentaUnificada {
   totalRepuestos: number;
   totalServicios: number;
   totalProductosDigitales: number;
+  // Aprobado por el cliente y todavía sin artículo (ver el tipo de arriba).
+  // Ya está DENTRO de totalCuenta; nunca se cuenta dos veces con su cargo.
+  aprobadoSinArticulo: CuentaUnificadaAprobadoSinArticulo[];
+  totalAprobadoSinArticulo: number;
   totalCuenta: number;
   totalAbonado: number;
   // Positivo = saldo pendiente. Negativo = saldo a favor del cliente.

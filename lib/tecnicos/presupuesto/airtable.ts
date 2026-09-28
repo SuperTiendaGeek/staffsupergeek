@@ -139,6 +139,12 @@ export async function listarLineas(ordenId: string): Promise<LineaPresupuesto[]>
   return registros.map(mapLinea).sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
 }
 
+/** Líneas por sus ids (el inverso "Presupuesto por Orden" que ya trae la orden). */
+export async function lineasPorIds(lineaIds: string[]): Promise<LineaPresupuesto[]> {
+  if (lineaIds.length === 0) return [];
+  return (await porIds(T_PRESUPUESTO, lineaIds)).map(mapLinea);
+}
+
 export async function leerLinea(lineaId: string): Promise<(LineaPresupuesto & { ordenId: string | null }) | null> {
   try {
     const r = await pedir<Registro>(url(T_PRESUPUESTO, lineaId));

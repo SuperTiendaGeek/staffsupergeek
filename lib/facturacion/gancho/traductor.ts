@@ -7,7 +7,7 @@ import type { GetCuentaUnificadaInput } from "@/types/cuenta-unificada";
 import type { DatosVenta, OrigenGancho } from "../emitirFactura";
 import type { DetalleFactura } from "../types/factura";
 import {
-  fetchOrden, fetchOperacion, fetchCliente, fetchDetalleItems, fetchRecordsByIds,
+  fetchOrden, fetchOperacion, fetchCliente, fetchDetalleItems,
   linkedIds, firstString,
 } from "./airtableGancho";
 import { buscarDocumentoBloqueante } from "./idempotencia";
@@ -40,9 +40,9 @@ export type PreFacturaBloqueada = {
   // esta venta ni el del catálogo) — ver evaluarProductoDigitalNoListo() en
   // construccion.ts.
   productosDigitalesNoListos?: ProductoDigitalNoListo[];
-  // Líneas del presupuesto que el cliente aprobó pero todavía no están en la
-  // cuenta (repuesto sin stock o bajo pedido aún sin pedir). Facturar ahora
-  // dejaría fuera algo que el cliente aceptó pagar.
+  // Líneas del presupuesto que el cliente aprobó y todavía no tienen su
+  // artículo (repuesto sin stock o bajo pedido aún sin pedir). Ya suman a la
+  // cuenta (fase 3b); la factura/recibo espera a que el artículo exista.
   presupuestoPendiente?: Array<{ id: string; descripcion: string }>;
 };
 
@@ -117,16 +117,18 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
     return { bloqueado: true, motivo: "PRODUCTOS_DIGITALES_SIN_PRECIO", productosDigitalesNoListos };
   }
 
-  // ── 3c. Presupuesto aprobado sin cargar ─────────────────────────────────────
-  const lineaIds = linkedIds(ordenRecord?.fields["Presupuesto por Orden"]);
-  if (lineaIds.length > 0) {
-    const lineas = await fetchRecordsByIds("Presupuesto por Orden", lineaIds);
-    const pendientes = lineas
-      .filter((r) => firstString(r.fields["Estado"]) === "Aprobada")
-      .map((r) => ({ id: r.id, descripcion: firstString(r.fields["Descripción"]) || "Línea sin descripción" }));
-    if (pendientes.length > 0) {
-      return { bloqueado: true, motivo: "PRESUPUESTO_PENDIENTE", presupuestoPendiente: pendientes };
-    }
+  // ── 3c. Aprobado sin artículo ───────────────────────────────────────────────
+  // Regla del dueño (fase 3b): lo aprobado suma a la cuenta desde la
+  // aprobación, pero la factura y el recibo ESPERAN a que el artículo exista.
+  // Se usa la MISMA lista que la cuenta (cuenta.aprobadoSinArticulo), así el
+  // bloqueo y el total nunca discrepan. Mientras haya algo aquí, la garantía
+  // importeTotal === cuenta.totalCuenta no se pone a prueba: no se factura.
+  if (cuenta.aprobadoSinArticulo.length > 0) {
+    return {
+      bloqueado: true,
+      motivo: "PRESUPUESTO_PENDIENTE",
+      presupuestoPendiente: cuenta.aprobadoSinArticulo.map((p) => ({ id: p.id, descripcion: p.nombre || "Línea sin descripción" })),
+    };
   }
 
   // ── 4. Cliente (link real de la orden/operación) ────────────────────────────

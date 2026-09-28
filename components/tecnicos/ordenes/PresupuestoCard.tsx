@@ -628,7 +628,7 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
             <div className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-1.5 text-right text-xs">
               {totales.propuesto > 0 && <p className="text-[var(--sg-text-secondary)]">Propuesto <span className="font-bold tabular-nums text-[var(--sg-text-primary)]">{mon(totales.propuesto)}</span></p>}
               {totales.aprobado > 0 && <p className="text-[var(--sg-text-secondary)]">Aprobado <span className="font-bold tabular-nums text-[var(--sg-success)]">{mon(totales.aprobado)}</span></p>}
-              {totales.pendienteDeCargar > 0 && <p className="text-[11px] text-[var(--sg-warning)]">{mon(totales.pendienteDeCargar)} aún no suma</p>}
+              {totales.pendienteDeCargar > 0 && <p className="text-[11px] text-[var(--sg-warning)]" title="Ya suma al Resumen financiero. La factura o el recibo esperan a que exista el artículo.">{mon(totales.pendienteDeCargar)} sin artículo · no facturable aún</p>}
             </div>
           )}
           {!agregando && <button type="button" onClick={() => setAgregando(true)} className={BTN_SEC}>+ Línea</button>}
@@ -885,7 +885,7 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
       {resultados && (
         <div className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] p-3 text-xs">
           <p className="mb-1 font-bold text-[var(--sg-text-primary)]">
-            {resultados.filter((r) => r.cargada).length} de {resultados.length} líneas ya suman al Resumen financiero
+            {resultados.filter((r) => r.cargada).length} de {resultados.length} líneas con su artículo o servicio listo (todas suman al Resumen financiero)
           </p>
           <ul className="space-y-0.5">
             {resultados.map((r) => (
