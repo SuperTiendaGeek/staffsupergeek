@@ -76,21 +76,6 @@ type AbonoAdjuntoItem = AbonoItem["comprobantes"][number];
 
 type OrdenDocumentoItem = AbonoAdjuntoItem;
 
-type RepuestoStockResumen = {
-  id: string;
-  sku: string;
-  nombre: string;
-  precioVentaFinal: number | null;
-};
-
-type CatalogoServicioItem = {
-  id: string;
-  nombre: string;
-  descripcion: string | null;
-  costoSugerido: number | null;
-  activo: boolean;
-};
-
 type ProductoDigitalItem = {
   id: string;
   catalogoId: string | null;
@@ -200,8 +185,6 @@ const parseApiResponseSafely = async (res: Response): Promise<ApiResponsePayload
   }
 };
 
-const INITIAL_SEARCH_SUGGESTIONS = 5;
-const MAX_SEARCH_RESULTS = 12;
 
 const formatTimelineDate = (value?: string | null) => {
   if (!value) return "â€“";
@@ -693,7 +676,6 @@ export function OrdenDetalleClient() {
   const pollingRefs = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const inlineInputRef = useRef<HTMLTextAreaElement | null>(null);
   const editInlineRef = useRef<HTMLTextAreaElement | null>(null);
-  const servicioComposerRef = useRef<HTMLDivElement | null>(null);
   const submitLocked = useRef(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
@@ -703,9 +685,6 @@ export function OrdenDetalleClient() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [repuestoDeleteConfirmId, setRepuestoDeleteConfirmId] = useState<string | null>(null);
-  const [repuestoDeletingId, setRepuestoDeletingId] = useState<string | null>(null);
-  const [repuestoDeleteError, setRepuestoDeleteError] = useState<string | null>(null);
   // Cuenta unificada de repuestos (Fase 11 — Etapa 2).
   const [cuentaUnificada, setCuentaUnificada] = useState<CuentaUnificada | null>(null);
   const [cuentaUnificadaLoading, setCuentaUnificadaLoading] = useState(false);
@@ -715,18 +694,7 @@ export function OrdenDetalleClient() {
   // en una orden que ya se cobró al facturarla.
   const [cobro, setCobro] = useState<OrdenCobro | null>(null);
   const [showRepuestosHistoricos, setShowRepuestosHistoricos] = useState(false);
-  const [showRepuestoV2Modal, setShowRepuestoV2Modal] = useState(false);
   const [showMantenimientoModal, setShowMantenimientoModal] = useState(false);
-  const [repuestoV2Search, setRepuestoV2Search] = useState("");
-  const [repuestoV2Resultados, setRepuestoV2Resultados] = useState<RepuestoStockResumen[]>([]);
-  const [repuestoV2SearchLoading, setRepuestoV2SearchLoading] = useState(false);
-  const [repuestoV2SearchError, setRepuestoV2SearchError] = useState<string | null>(null);
-  const [selectedRepuestoV2, setSelectedRepuestoV2] = useState<RepuestoStockResumen | null>(null);
-  const [repuestoV2Saving, setRepuestoV2Saving] = useState(false);
-  const [repuestoV2Error, setRepuestoV2Error] = useState<string | null>(null);
-  const [servicioDeleteConfirmId, setServicioDeleteConfirmId] = useState<string | null>(null);
-  const [servicioDeletingId, setServicioDeletingId] = useState<string | null>(null);
-  const [servicioDeleteError, setServicioDeleteError] = useState<string | null>(null);
   const [abonoDeleteConfirmId, setAbonoDeleteConfirmId] = useState<string | null>(null);
   const [abonoDeletingId, setAbonoDeletingId] = useState<string | null>(null);
   const [abonoDeleteError, setAbonoDeleteError] = useState<string | null>(null);
@@ -741,22 +709,6 @@ export function OrdenDetalleClient() {
   const [comprobanteViewerError, setComprobanteViewerError] = useState<string | null>(null);
   const [comprobanteViewerResolvedUrl, setComprobanteViewerResolvedUrl] = useState<string | null>(null);
   const [whatsappError, setWhatsappError] = useState<Record<string, string | null>>({});
-  const [catalogoServicios, setCatalogoServicios] = useState<CatalogoServicioItem[]>([]);
-  const [catalogoServiciosLoading, setCatalogoServiciosLoading] = useState(false);
-  const [catalogoServiciosError, setCatalogoServiciosError] = useState<string | null>(null);
-  const [servicioSearch, setServicioSearch] = useState("");
-  const [selectedServicio, setSelectedServicio] = useState<CatalogoServicioItem | null>(null);
-  const [showServicioResults, setShowServicioResults] = useState(false);
-  const [servicioPlacement, setServicioPlacement] = useState<"top" | "bottom">("bottom");
-  const [servicioCosto, setServicioCosto] = useState("");
-  const [servicioObservacion, setServicioObservacion] = useState("");
-  const [servicioSaving, setServicioSaving] = useState(false);
-  const [servicioError, setServicioError] = useState<string | null>(null);
-  const [openCreateServicioModal, setOpenCreateServicioModal] = useState(false);
-  const [nuevoServicioNombre, setNuevoServicioNombre] = useState("");
-  const [nuevoServicioCostoSugerido, setNuevoServicioCostoSugerido] = useState("");
-  const [nuevoServicioSaving, setNuevoServicioSaving] = useState(false);
-  const [nuevoServicioError, setNuevoServicioError] = useState<string | null>(null);
   const [openAbonoModal, setOpenAbonoModal] = useState(false);
   const [abonoFecha, setAbonoFecha] = useState(todayDateInputValue);
   const [abonoMonto, setAbonoMonto] = useState("");
@@ -770,26 +722,6 @@ export function OrdenDetalleClient() {
   const [bajaModalOpen, setBajaModalOpen] = useState(false);
   const [bajaSaving, setBajaSaving] = useState(false);
   const [bajaError, setBajaError] = useState<string | null>(null);
-  const [showProductoDigitalModal, setShowProductoDigitalModal] = useState(false);
-  const [pdSearch, setPdSearch] = useState("");
-  const [productosDisponibles, setProductosDisponibles] = useState<ProductoDigitalItem[]>([]);
-  const [pdSearchLoading, setPdSearchLoading] = useState(false);
-  const [pdSearchError, setPdSearchError] = useState<string | null>(null);
-  const [selectedPd, setSelectedPd] = useState<ProductoDigitalItem | null>(null);
-  const [pdPrecioVenta, setPdPrecioVenta] = useState("");
-  const [pdSaving, setPdSaving] = useState(false);
-  const [pdError, setPdError] = useState<string | null>(null);
-  const [pdDeleteConfirmId, setPdDeleteConfirmId] = useState<string | null>(null);
-  const [pdDeletingId, setPdDeletingId] = useState<string | null>(null);
-  const [pdDeleteError, setPdDeleteError] = useState<string | null>(null);
-  const [pdCredencialesVisible, setPdCredencialesVisible] = useState<Record<string, boolean>>({});
-  const [pdCredencialesData, setPdCredencialesData] = useState<Record<string, { claveActivacion?: string | null; usuarioCorreo?: string | null; contraseña?: string | null }>>({});
-  const [pdCredencialesLoading, setPdCredencialesLoading] = useState<Record<string, boolean>>({});
-  const [pdCredencialesError, setPdCredencialesError] = useState<Record<string, string | null>>({});
-  const [pdPdfLoading, setPdPdfLoading] = useState<Record<string, boolean>>({});
-  const [pdPdfError, setPdPdfError] = useState<Record<string, string | null>>({});
-  const [pdPdfDeleteConfirmId, setPdPdfDeleteConfirmId] = useState<string | null>(null);
-  const [pdPdfDeleteLoading, setPdPdfDeleteLoading] = useState<Record<string, boolean>>({});
   const [userRol, setUserRol] = useState("");
   const [userNombre, setUserNombre] = useState("");
   const lineDeleteActionButtonClass =
@@ -832,8 +764,8 @@ export function OrdenDetalleClient() {
       }
       setOrden(json.data);
       setEstadoSeleccionado(json.data?.estadoActual ?? ESTADOS_ORDEN[0]);
-      // El presupuesto se entera de lo que cambió en las tarjetas (un servicio
-      // quitado, un repuesto liberado) volviendo a leerse con este contador.
+      // El presupuesto se vuelve a leer con este contador cada vez que la orden
+      // se relee (p. ej. tras un abono o un cambio hecho fuera del presupuesto).
       setDatosVersion((v) => v + 1);
       const notaValue = json.data?.notaInterna;
       return true;
@@ -855,29 +787,6 @@ export function OrdenDetalleClient() {
     await loadCuentaUnificada();
   };
 
-  const resetRepuestoV2Modal = () => {
-    setRepuestoV2Search("");
-    setRepuestoV2Resultados([]);
-    setRepuestoV2SearchError(null);
-    setSelectedRepuestoV2(null);
-    setRepuestoV2Error(null);
-  };
-
-  const resetServicioComposer = () => {
-    setServicioSearch("");
-    setSelectedServicio(null);
-    setServicioCosto("");
-    setServicioObservacion("");
-    setServicioError(null);
-    setShowServicioResults(false);
-  };
-
-  const resetCrearServicioForm = () => {
-    setNuevoServicioNombre("");
-    setNuevoServicioCostoSugerido("");
-    setNuevoServicioError(null);
-  };
-
   const resetAbonoForm = () => {
     setAbonoFecha(todayDateInputValue());
     setAbonoMonto("");
@@ -886,158 +795,6 @@ export function OrdenDetalleClient() {
     setAbonoObservacion("");
     setAbonoComprobanteFile(null);
     setAbonoError(null);
-  };
-
-  const resetProductoDigitalModal = () => {
-    setPdSearch("");
-    setProductosDisponibles([]);
-    setSelectedPd(null);
-    setPdPrecioVenta("");
-    setPdError(null);
-    setPdSearchError(null);
-  };
-
-  const handleBuscarProductosDigitales = async (q: string) => {
-    setPdSearchLoading(true);
-    setPdSearchError(null);
-    try {
-      const params = new URLSearchParams({ estado: "Disponible" });
-      if (q.trim()) params.set("q", q.trim());
-      const res = await fetch(`/api/tecnicos/productos-digitales?${params.toString()}`);
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error ?? "Error al buscar");
-      setProductosDisponibles((json.data ?? []) as ProductoDigitalItem[]);
-    } catch (err) {
-      setPdSearchError(err instanceof Error ? err.message : "Error al buscar");
-    } finally {
-      setPdSearchLoading(false);
-    }
-  };
-
-  const handleAsignarProductoDigital = async () => {
-    if (!selectedPd || !orden) return;
-    setPdSaving(true);
-    setPdError(null);
-    try {
-      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(orden.recordId)}/productos-digitales`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productoId: selectedPd.id,
-          precioVenta: parseNumberInput(pdPrecioVenta),
-        }),
-      });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error ?? "Error al asignar");
-      setShowProductoDigitalModal(false);
-      resetProductoDigitalModal();
-      await refreshOrdenDetalleFinanzas();
-    } catch (err) {
-      setPdError(err instanceof Error ? err.message : "Error al asignar");
-    } finally {
-      setPdSaving(false);
-    }
-  };
-
-  const handleDesasignarProductoDigital = async (productoId: string) => {
-    if (!orden) return;
-    setPdDeletingId(productoId);
-    setPdDeleteError(null);
-    try {
-      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(orden.recordId)}/productos-digitales`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productoId }),
-      });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error ?? "Error al desasignar");
-      setPdDeleteConfirmId(null);
-      await refreshOrdenDetalleFinanzas();
-    } catch (err) {
-      setPdDeleteError(err instanceof Error ? err.message : "Error al desasignar");
-    } finally {
-      setPdDeletingId(null);
-    }
-  };
-
-  const handleVerCredenciales = async (productoId: string) => {
-    if (pdCredencialesVisible[productoId]) {
-      setPdCredencialesVisible((prev) => ({ ...prev, [productoId]: false }));
-      return;
-    }
-    if (pdCredencialesData[productoId]) {
-      setPdCredencialesVisible((prev) => ({ ...prev, [productoId]: true }));
-      return;
-    }
-    setPdCredencialesLoading((prev) => ({ ...prev, [productoId]: true }));
-    setPdCredencialesError((prev) => ({ ...prev, [productoId]: null }));
-    try {
-      const res = await fetch(`/api/tecnicos/productos-digitales/${encodeURIComponent(productoId)}/credenciales`);
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error ?? "Error al obtener credenciales");
-      setPdCredencialesData((prev) => ({ ...prev, [productoId]: json.data }));
-      setPdCredencialesVisible((prev) => ({ ...prev, [productoId]: true }));
-    } catch (err) {
-      setPdCredencialesError((prev) => ({ ...prev, [productoId]: err instanceof Error ? err.message : "Error" }));
-    } finally {
-      setPdCredencialesLoading((prev) => ({ ...prev, [productoId]: false }));
-    }
-  };
-
-  const handlePdfAction = async (productoId: string, method: "POST" | "GET", nombre: string) => {
-    setPdPdfLoading((prev) => ({ ...prev, [productoId]: true }));
-    setPdPdfError((prev) => ({ ...prev, [productoId]: null }));
-    try {
-      const res = await fetch(`/api/tecnicos/productos-digitales/${encodeURIComponent(productoId)}/pdf`, { method });
-      if (!res.ok) {
-        let msg = "Error al procesar PDF";
-        try { const j = await res.json(); msg = j.error ?? msg; } catch { /* empty */ }
-        throw new Error(msg);
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `SUPER-GEEK-${nombre.replace(/[^a-zA-Z0-9]/g, "-")}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-      // Refresh order to update documentoPdfUrl
-      if (method === "POST") await fetchData({ showLoading: false, preserveError: true });
-    } catch (err) {
-      setPdPdfError((prev) => ({ ...prev, [productoId]: err instanceof Error ? err.message : "Error" }));
-    } finally {
-      setPdPdfLoading((prev) => ({ ...prev, [productoId]: false }));
-    }
-  };
-
-  const handlePdfDelete = async (productoId: string) => {
-    setPdPdfDeleteLoading((prev) => ({ ...prev, [productoId]: true }));
-    setPdPdfError((prev) => ({ ...prev, [productoId]: null }));
-    try {
-      const res = await fetch(`/api/tecnicos/productos-digitales/${encodeURIComponent(productoId)}/pdf`, { method: "DELETE" });
-      if (!res.ok) {
-        let msg = "Error al eliminar PDF";
-        try { const j = await res.json(); msg = j.error ?? msg; } catch { /* empty */ }
-        throw new Error(msg);
-      }
-      setPdPdfDeleteConfirmId(null);
-      await fetchData({ showLoading: false, preserveError: true });
-    } catch (err) {
-      setPdPdfError((prev) => ({ ...prev, [productoId]: err instanceof Error ? err.message : "Error al eliminar PDF" }));
-    } finally {
-      setPdPdfDeleteLoading((prev) => ({ ...prev, [productoId]: false }));
-    }
-  };
-
-  const selectServicio = (item: CatalogoServicioItem) => {
-    setSelectedServicio(item);
-    setServicioSearch("");
-    setShowServicioResults(false);
-    setServicioCosto(
-      item.costoSugerido !== null && item.costoSugerido !== undefined
-        ? String(item.costoSugerido)
-        : ""
-    );
   };
 
   const loadCuentaUnificada = async () => {
@@ -1061,191 +818,6 @@ export function OrdenDetalleClient() {
       .then((r) => r.json())
       .then((j) => setCobro(j?.success ? ((j.data?.ordenes?.[0] as OrdenCobro | undefined) ?? null) : null))
       .catch(() => setCobro(null));
-  };
-
-  const handleBuscarRepuestosV2 = async (q: string) => {
-    if (!id) return;
-    setRepuestoV2SearchLoading(true);
-    setRepuestoV2SearchError(null);
-    try {
-      const params = new URLSearchParams();
-      if (q.trim()) params.set("q", q.trim());
-      const res = await fetch(
-        `/api/tecnicos/ordenes/${encodeURIComponent(id)}/repuestos-v2/buscar?${params.toString()}`
-      );
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error ?? "Error al buscar");
-      setRepuestoV2Resultados((json.data ?? []) as RepuestoStockResumen[]);
-    } catch (err) {
-      setRepuestoV2SearchError(err instanceof Error ? err.message : "Error al buscar");
-    } finally {
-      setRepuestoV2SearchLoading(false);
-    }
-  };
-
-  const handleAgregarRepuestoV2 = async () => {
-    if (!id || !selectedRepuestoV2) return;
-    setRepuestoV2Saving(true);
-    setRepuestoV2Error(null);
-    try {
-      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id)}/repuestos-v2`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId: selectedRepuestoV2.id }),
-      });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error ?? "Error al agregar el repuesto");
-      setShowRepuestoV2Modal(false);
-      resetRepuestoV2Modal();
-      await loadCuentaUnificada();
-    } catch (err) {
-      setRepuestoV2Error(err instanceof Error ? err.message : "Error al agregar el repuesto");
-    } finally {
-      setRepuestoV2Saving(false);
-    }
-  };
-
-  const handleQuitarRepuestoV2 = async (itemId: string) => {
-    if (!id) return;
-    setRepuestoDeletingId(itemId);
-    setRepuestoDeleteError(null);
-    try {
-      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id)}/repuestos-v2`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId }),
-      });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error ?? "No se pudo quitar el repuesto");
-      setRepuestoDeleteConfirmId(null);
-      await loadCuentaUnificada();
-    } catch (err) {
-      setRepuestoDeleteError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setRepuestoDeletingId(null);
-    }
-  };
-
-  const loadCatalogoServicios = async () => {
-    if (catalogoServiciosLoading) return;
-    setCatalogoServiciosLoading(true);
-    setCatalogoServiciosError(null);
-
-    try {
-      const res = await fetch("/api/tecnicos/catalogo/servicios");
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo cargar el catÃ¡logo de servicios");
-      }
-
-      const data = (json.data ?? []) as CatalogoServicioItem[];
-      setCatalogoServicios(data);
-    } catch (err) {
-      setCatalogoServiciosError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setCatalogoServiciosLoading(false);
-    }
-  };
-
-  const filteredCatalogoServicios = useMemo(() => {
-    const query = servicioSearch.trim().toLowerCase();
-    if (!query) return catalogoServicios.slice(0, INITIAL_SEARCH_SUGGESTIONS);
-
-    return catalogoServicios
-      .filter((item) => {
-        const byName = item.nombre.toLowerCase().includes(query);
-        const byDescripcion = item.descripcion?.toLowerCase().includes(query);
-        return byName || byDescripcion;
-      })
-      .slice(0, MAX_SEARCH_RESULTS);
-  }, [catalogoServicios, servicioSearch]);
-
-  const handleCrearServicioCatalogo = async () => {
-    if (nuevoServicioSaving) return;
-    const nombre = nuevoServicioNombre.trim();
-    const costoSugerido = parseNumberInput(nuevoServicioCostoSugerido);
-
-    if (!nombre) {
-      setNuevoServicioError("El nombre del servicio es obligatorio.");
-      return;
-    }
-
-    setNuevoServicioSaving(true);
-    setNuevoServicioError(null);
-    try {
-      const res = await fetch("/api/tecnicos/catalogo/servicios", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombre, costoSugerido }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo crear el servicio");
-      }
-
-      const created = json.data as CatalogoServicioItem;
-      setCatalogoServicios((prev) =>
-        [...prev, created].sort((a, b) =>
-          a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" })
-        )
-      );
-      selectServicio(created);
-      setOpenCreateServicioModal(false);
-      resetCrearServicioForm();
-    } catch (err) {
-      setNuevoServicioError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setNuevoServicioSaving(false);
-    }
-  };
-
-  const handleGuardarServicio = async () => {
-    if (!id || servicioSaving) return;
-    setServicioError(null);
-
-    const costo = parseNumberInput(servicioCosto);
-    if (!selectedServicio) {
-      setServicioError("Selecciona un servicio del catÃ¡logo.");
-      return;
-    }
-    if (costo === null || costo < 0) {
-      setServicioError("Ingresa el costo real.");
-      return;
-    }
-
-    setServicioSaving(true);
-    try {
-      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id)}/servicios`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          catalogoServicioId: selectedServicio.id,
-          nombreSnapshot: selectedServicio.nombre,
-          costo,
-          observacion: servicioObservacion.trim() || null,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo agregar el servicio");
-      }
-
-      const nuevo = json.data as ServicioItem;
-      setOrden((prev) =>
-        prev
-          ? {
-              ...prev,
-              serviciosPorOrden: [...(prev.serviciosPorOrden ?? []), nuevo],
-            }
-          : prev
-      );
-      resetServicioComposer();
-      await refreshOrdenDetalleFinanzas();
-    } catch (err) {
-      setServicioError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setServicioSaving(false);
-    }
   };
 
   const handleGuardarAbono = async () => {
@@ -1313,40 +885,6 @@ export function OrdenDetalleClient() {
       setAbonoError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
       setAbonoSaving(false);
-    }
-  };
-
-  const handleDeleteServicioConfirm = async (servicioPorOrdenId: string) => {
-    setServicioDeleteError(null);
-    setServicioDeletingId(servicioPorOrdenId);
-    try {
-      const res = await fetch(
-        `/api/tecnicos/servicios-por-orden/${encodeURIComponent(servicioPorOrdenId)}`,
-        {
-          method: "DELETE",
-        }
-      );
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo eliminar el servicio");
-      }
-
-      setOrden((prev) =>
-        prev
-          ? {
-              ...prev,
-              serviciosPorOrden: (prev.serviciosPorOrden ?? []).filter(
-                (item) => item.id !== servicioPorOrdenId
-              ),
-            }
-          : prev
-      );
-      setServicioDeleteConfirmId(null);
-      await refreshOrdenDetalleFinanzas();
-    } catch (err) {
-      setServicioDeleteError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setServicioDeletingId(null);
     }
   };
 
@@ -1940,31 +1478,6 @@ export function OrdenDetalleClient() {
         }
       } catch { /* ignore */ }
     })();
-  }, []);
-
-  useEffect(() => {
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-
-      if (servicioComposerRef.current && !servicioComposerRef.current.contains(target)) {
-        setShowServicioResults(false);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setShowServicioResults(false);
-      setServicioSearch("");
-    };
-
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
   }, []);
 
   useEffect(() => {
@@ -2579,698 +2092,21 @@ export function OrdenDetalleClient() {
               )}
             </section>
 
-            {/* Presupuesto: se arma sin comprometer inventario; al aprobarse,
-                sus líneas pasan a las tarjetas de abajo. */}
+            {/* Presupuesto: el único lugar para agregar, aprobar, quitar y modificar
+                cargos (fase 4: ya no hay tarjetas Repuestos/Servicios/Digitales). */}
             <PresupuestoCard
               ordenId={orden.recordId}
               refrescar={datosVersion}
+              productosDigitales={orden.productosDigitales ?? []}
+              esAdmin={userRol === "admin" || userRol === "administrador"}
+              onProductoDigitalCambiado={async () => {
+                await fetchData({ showLoading: false, preserveError: true });
+              }}
               onCargado={async () => {
                 await fetchData({ showLoading: false, preserveError: true });
                 await loadCuentaUnificada();
               }}
             />
-
-            <div className="grid items-start gap-4 overflow-visible xl:grid-cols-2">
-              <div className="relative z-10 min-w-0">
-                <section className="relative isolate h-full space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
-                  <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] pb-3">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
-                        Repuestos
-                      </p>
-                      <p className="mt-0.5 text-xs text-[var(--sg-text-muted)]">
-                        {cuentaUnificada?.items.length ?? 0} línea(s) · fuente: Shipping Items
-                      </p>
-                    </div>
-                    <div className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-right">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
-                        Cobra la orden
-                      </p>
-                      <p className="mt-1 text-base font-extrabold text-[var(--sg-lime)]">
-                        {formatCurrency(
-                          (cuentaUnificada?.items ?? []).reduce((acc, item) => acc + item.precio, 0) +
-                            (cuentaUnificada?.repuestosHistoricosCuentanParaTotal
-                              ? (cuentaUnificada?.repuestosHistoricos ?? []).reduce((acc, r) => acc + r.subtotal, 0)
-                              : 0)
-                        )}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Antes esto solo se mostraba si la orden era "V2". Con el
-                      inventario único todas las órdenes agregan repuestos desde
-                      Shipping Items, así que el botón está siempre. */}
-                  {cuentaUnificada && (
-                    <div className="flex items-center justify-end">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          resetRepuestoV2Modal();
-                          setShowRepuestoV2Modal(true);
-                          void handleBuscarRepuestosV2("");
-                        }}
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)] bg-[var(--sg-lime-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--sg-lime)] transition hover:brightness-110"
-                      >
-                        + Agregar repuesto de stock
-                      </button>
-                    </div>
-                  )}
-
-                  {cuentaUnificadaLoading ? (
-                    <p className="text-xs text-[var(--sg-text-muted)]">Cargando repuestos...</p>
-                  ) : cuentaUnificadaError ? (
-                    <p className="text-xs text-red-400">{cuentaUnificadaError}</p>
-                  ) : (cuentaUnificada?.items.length ?? 0) === 0 ? (
-                    <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-sm text-[var(--sg-text-secondary)]">
-                      Aún no se han registrado repuestos en esta orden.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {(cuentaUnificada?.items ?? []).map((item) => {
-                        const isDeleting = repuestoDeletingId === item.id;
-                        const isConfirming = repuestoDeleteConfirmId === item.id;
-
-                        return (
-                          <div
-                            key={item.id}
-                            className="relative flex flex-col gap-2 overflow-hidden rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-3 text-sm"
-                          >
-                            <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-[var(--sg-lime)]" />
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="space-y-1.5">
-                                <p className="font-semibold leading-5 text-[var(--sg-text-primary)]">{item.nombre}</p>
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--sg-text-secondary)]">
-                                    {item.origen === "pedido"
-                                      ? `Pedido${cuentaUnificada?.operacionCodigo ? ` · ${cuentaUnificada.operacionCodigo}` : ""}`
-                                      : "Stock"}
-                                  </span>
-                                  <span className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--sg-text-secondary)]">
-                                    Reservado
-                                  </span>
-                                  {/* Sin badge Saldado/Pendiente: el pago no se
-                                      imputa por renglón, solo a la cuenta. El
-                                      saldo real vive en el panel de Cuenta
-                                      Unificada. */}
-                                </div>
-                                <p className="text-xs text-[var(--sg-text-muted)]">
-                                  Precio {formatCurrency(item.precio)}
-                                </p>
-                              </div>
-                              <div className="flex shrink-0 flex-col items-end gap-2">
-                                {item.origen === "stock" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setRepuestoDeleteError(null);
-                                      setRepuestoDeleteConfirmId((prev) => (prev === item.id ? null : item.id));
-                                    }}
-                                    className={lineDeleteActionButtonClass}
-                                    title="Quitar repuesto"
-                                    aria-label="Quitar repuesto"
-                                    disabled={isDeleting}
-                                  >
-                                    {isDeleting ? (
-                                      <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
-                                    ) : (
-                                      <TrashIcon className="h-4 w-4" />
-                                    )}
-                                  </button>
-                                )}
-                                <div className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-1 text-right text-sm font-semibold text-[var(--sg-text-primary)]">
-                                  {formatCurrency(item.precio)}
-                                </div>
-                              </div>
-                            </div>
-                            {isConfirming && (
-                              <div className="mt-1 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
-                                <span className="text-[var(--sg-text-muted)]">¿Quitar este repuesto de la orden?</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setRepuestoDeleteConfirmId(null)}
-                                  className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] px-2 py-1 text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
-                                  disabled={isDeleting}
-                                >
-                                  Cancelar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleQuitarRepuestoV2(item.id)}
-                                  className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2 py-1 text-[var(--sg-danger)] transition hover:brightness-110 disabled:opacity-60"
-                                  disabled={isDeleting}
-                                >
-                                  Quitar
-                                </button>
-                                {repuestoDeleteError && <span className="text-red-400">{repuestoDeleteError}</span>}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {(cuentaUnificada?.repuestosHistoricos.length ?? 0) > 0 && (
-                    <div className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)]">
-                      <button
-                        type="button"
-                        onClick={() => setShowRepuestosHistoricos((prev) => !prev)}
-                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-[var(--sg-text-secondary)]"
-                      >
-                        <span>Repuestos históricos (sistema anterior)</span>
-                        <span className="text-[var(--sg-text-muted)]">{showRepuestosHistoricos ? "▲" : "▼"}</span>
-                      </button>
-                      {showRepuestosHistoricos && (
-                        <div className="space-y-2 border-t border-dashed border-[var(--sg-border)] px-3 py-3">
-                          <p
-                            className={`text-[11px] font-semibold uppercase tracking-wide ${
-                              cuentaUnificada?.repuestosHistoricosCuentanParaTotal
-                                ? "text-[var(--sg-lime)]"
-                                : "text-[var(--sg-text-muted)]"
-                            }`}
-                          >
-                            {cuentaUnificada?.repuestosHistoricosCuentanParaTotal
-                              ? "Incluidos en el total de la orden"
-                              : "Solo referencia histórica — no suman"}
-                          </p>
-                          {(cuentaUnificada?.repuestosHistoricos ?? []).map((r) => (
-                            <div
-                              key={r.id}
-                              className="flex items-center justify-between gap-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-xs"
-                            >
-                              <div>
-                                <p className="font-medium text-[var(--sg-text-primary)]">{r.nombre}</p>
-                                <p className="text-[var(--sg-text-muted)]">
-                                  Cantidad {r.cantidad ?? 1} · Precio cliente {formatCurrency(r.precioCliente)}
-                                </p>
-                              </div>
-                              <p className="font-semibold text-[var(--sg-text-primary)]">{formatCurrency(r.subtotal)}</p>
-                            </div>
-                          ))}
-                          <div className="flex items-center justify-between border-t border-dashed border-[var(--sg-border)] pt-2 text-xs font-semibold text-[var(--sg-text-primary)]">
-                            <span>Subtotal histórico</span>
-                            <span>
-                              {formatCurrency(
-                                (cuentaUnificada?.repuestosHistoricos ?? []).reduce((acc, r) => acc + r.subtotal, 0)
-                              )}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </section>
-              </div>
-
-              <div
-                className={`relative min-w-0 ${
-                  showServicioResults ? "z-[80]" : "z-10"
-                }`}
-              >
-                <section className="relative isolate h-full space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
-              <div className="flex items-start justify-between gap-4 border-b border-[var(--sg-divider)] pb-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
-                    Servicios
-                  </p>
-                  <p className="mt-0.5 text-xs text-[var(--sg-text-muted)]">
-                    {orden.serviciosPorOrden?.length ?? 0} líneas registradas
-                  </p>
-                </div>
-                <div className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-right">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">Total</p>
-                  <p className="mt-1 text-base font-extrabold text-[var(--sg-lime)]">
-                    {formatCurrency(
-                      (orden.serviciosPorOrden ?? []).reduce((acc, item) => acc + (item.costo ?? 0), 0)
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              <div
-                ref={servicioComposerRef}
-                className="relative z-30 isolate space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card-elevated)] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-              >
-                <div className="relative z-30">
-                  <input
-                    type="text"
-                    value={servicioSearch}
-                    onChange={(e) => {
-                      setServicioSearch(e.target.value);
-                      if (servicioComposerRef.current) {
-                        const rect = servicioComposerRef.current.getBoundingClientRect();
-                        setServicioPlacement(window.innerHeight - rect.bottom < 280 && rect.top > 280 ? "top" : "bottom");
-                      }
-                      setShowServicioResults(true);
-                      if (catalogoServicios.length === 0 && !catalogoServiciosLoading) {
-                        loadCatalogoServicios();
-                      }
-                    }}
-                    onFocus={() => {
-                      if (servicioComposerRef.current) {
-                        const rect = servicioComposerRef.current.getBoundingClientRect();
-                        setServicioPlacement(window.innerHeight - rect.bottom < 280 && rect.top > 280 ? "top" : "bottom");
-                      }
-                      setShowServicioResults(true);
-                      if (catalogoServicios.length === 0) {
-                        loadCatalogoServicios();
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        setShowServicioResults(false);
-                        setServicioSearch("");
-                      }
-                    }}
-                    placeholder="Buscar servicio..."
-                    className="w-full rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                  />
-                  {showServicioResults && (
-                    <div className={`absolute left-0 right-0 z-[120] flex rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-bg)] shadow-2xl ring-1 ring-black/40 ${servicioPlacement === "top" ? "bottom-full mb-2 flex-col-reverse" : "top-full mt-2 flex-col"}`}>
-                      {catalogoServiciosLoading ? (
-                        <p className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Cargando servicios...</p>
-                      ) : catalogoServiciosError ? (
-                        <p className="px-3 py-2 text-xs text-red-400">{catalogoServiciosError}</p>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOpenCreateServicioModal(true);
-                              setShowServicioResults(false);
-                            }}
-                            className={`flex w-full flex-none items-center gap-1.5 px-3 py-2 text-left text-sm font-semibold text-[var(--sg-lime)] transition hover:bg-[var(--sg-card)] border-[var(--sg-border)] ${servicioPlacement === "top" ? "border-t" : "border-b"}`}
-                          >
-                            + Crear servicio nuevo
-                          </button>
-                          <div className="max-h-52 overflow-auto overscroll-contain">
-                            {filteredCatalogoServicios.length === 0 && (
-                              <p className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Sin coincidencias.</p>
-                            )}
-                            {filteredCatalogoServicios.map((item) => (
-                              <button
-                                key={item.id}
-                                type="button"
-                                onClick={() => selectServicio(item)}
-                                className="flex w-full flex-col items-start gap-1 border-b border-[var(--sg-border)] px-3 py-2 text-left transition hover:bg-[var(--sg-card)]"
-                              >
-                                <span className="text-sm font-semibold text-[var(--sg-text-primary)]">{item.nombre}</span>
-                                <span className="text-[11px] text-[var(--sg-text-muted)]">Costo sugerido: {formatCurrency(item.costoSugerido)}</span>
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {selectedServicio && (
-                  <div className="space-y-3 rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{selectedServicio.nombre}</p>
-                        <p className="text-[11px] text-[var(--sg-text-muted)]">
-                          Costo sugerido: {formatCurrency(selectedServicio.costoSugerido)}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedServicio(null)}
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] px-2 py-1 text-[11px] text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
-                      >
-                        Cambiar
-                      </button>
-                    </div>
-
-                    <div className="grid gap-2 md:grid-cols-2">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={servicioCosto}
-                        onChange={(e) => setServicioCosto(e.target.value)}
-                        placeholder="Costo real"
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                      />
-                      <input
-                        type="text"
-                        value={servicioObservacion}
-                        onChange={(e) => setServicioObservacion(e.target.value)}
-                        placeholder="Observación"
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                      />
-                    </div>
-
-                    {servicioError && <p className="text-xs text-red-400">{servicioError}</p>}
-
-                    <div className="flex items-center justify-end">
-                      <button
-                        type="button"
-                        onClick={handleGuardarServicio}
-                        disabled={servicioSaving}
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)] bg-[var(--sg-lime-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--sg-lime)] transition hover:brightness-110 disabled:opacity-60"
-                      >
-                        {servicioSaving ? "Guardando..." : "Guardar servicio"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {(orden.serviciosPorOrden ?? []).length === 0 ? (
-                <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-sm text-[var(--sg-text-secondary)]">
-                  Aun no se han registrado servicios en esta orden.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {(orden.serviciosPorOrden ?? []).map((item) => {
-                    const isDeleting = servicioDeletingId === item.id;
-                    const isConfirming = servicioDeleteConfirmId === item.id;
-
-                    return (
-                      <div
-                        key={item.id}
-                        className="relative flex flex-col gap-2 overflow-hidden rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-3 text-sm"
-                      >
-                        <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-[var(--sg-lime)]" />
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <p className="font-semibold leading-5 text-[var(--sg-text-primary)]">{item.servicioNombre}</p>
-                            {item.observacion && <p className="text-xs text-[var(--sg-text-muted)]">Obs: {item.observacion}</p>}
-                          </div>
-                          <div className="flex shrink-0 flex-col items-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setServicioDeleteError(null);
-                                setServicioDeleteConfirmId((prev) => (prev === item.id ? null : item.id));
-                              }}
-                              className={lineDeleteActionButtonClass}
-                              title="Eliminar servicio"
-                              aria-label="Eliminar servicio"
-                              disabled={isDeleting}
-                            >
-                              {isDeleting ? (
-                                <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
-                              ) : (
-                                <TrashIcon className="h-4 w-4" />
-                              )}
-                            </button>
-                            <div className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-1 text-right text-sm font-semibold text-[var(--sg-text-primary)]">
-                              {formatCurrency(item.costo)}
-                            </div>
-                          </div>
-                        </div>
-                        {isConfirming && (
-                          <div className="mt-1 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
-                            <span className="text-[var(--sg-text-muted)]">¿Eliminar este servicio de la orden?</span>
-                            <button
-                              type="button"
-                              onClick={() => setServicioDeleteConfirmId(null)}
-                              className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] px-2 py-1 text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
-                              disabled={isDeleting}
-                            >
-                              Cancelar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteServicioConfirm(item.id)}
-                              className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2 py-1 text-[var(--sg-danger)] transition hover:brightness-110 disabled:opacity-60"
-                              disabled={isDeleting}
-                            >
-                              Eliminar
-                            </button>
-                            {servicioDeleteError && <span className="text-red-400">{servicioDeleteError}</span>}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-                </section>
-              </div>
-            </div>
-
-            {/* ─── Productos Digitales ──────────────────────────────────────── */}
-            <section className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
-              <div className="mb-3 flex items-center justify-between border-b border-[var(--sg-divider)] pb-3">
-                <div className="flex items-center gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
-                    Productos Digitales
-                  </p>
-                  <span className="rounded-full bg-[var(--sg-panel)] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--sg-text-secondary)]">
-                    {(orden.productosDigitales ?? []).length}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetProductoDigitalModal();
-                    void handleBuscarProductosDigitales("");
-                    setShowProductoDigitalModal(true);
-                  }}
-                  className="inline-flex items-center gap-1 rounded-full border border-[var(--sg-lime)]/40 px-2.5 py-0.5 text-[11px] font-semibold text-[var(--sg-lime)] transition hover:border-[var(--sg-lime)] hover:bg-[var(--sg-lime-soft)]"
-                >
-                  <span aria-hidden>+</span> Añadir
-                </button>
-              </div>
-
-              {(orden.productosDigitales ?? []).length === 0 ? (
-                <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3 text-sm text-[var(--sg-text-secondary)]">
-                  Sin productos digitales asignados.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {(orden.productosDigitales ?? []).map((pd) => {
-                    const isConfirming = pdDeleteConfirmId === pd.id;
-                    const isDeleting = pdDeletingId === pd.id;
-                    const credVisible = pdCredencialesVisible[pd.id] ?? false;
-                    const credData = pdCredencialesData[pd.id];
-                    const credLoading = pdCredencialesLoading[pd.id] ?? false;
-                    const credError = pdCredencialesError[pd.id];
-                    return (
-                      <div
-                        key={pd.id}
-                        className="relative rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3"
-                      >
-                        <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-[var(--sg-lime)]" />
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 space-y-1">
-                            <p className="font-semibold leading-5 text-[var(--sg-text-primary)]">
-                              {pd.softwareProducto}
-                            </p>
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--sg-text-muted)]">
-                              {pd.marcaProducto && <span>{pd.marcaProducto}</span>}
-                              {pd.tipoProducto && <span>{pd.tipoProducto}</span>}
-                              {pd.duracion && (
-                                <span>
-                                  {pd.duracion === "Perpetua" ? "Licencia perpetua" : pd.duracion}
-                                </span>
-                              )}
-                              {pd.duracion !== "Perpetua" && pd.expira && (
-                                <span className="text-[var(--sg-warning)]">
-                                  Expira: {formatDate(pd.expira)}
-                                </span>
-                              )}
-                              {pd.duracion === "Perpetua" && (
-                                <span className="text-[var(--sg-success)]">No expira</span>
-                              )}
-                              {pd.claveTruncada && (
-                                <span className="font-mono text-[var(--sg-text-secondary)]">
-                                  {pd.claveTruncada}
-                                </span>
-                              )}
-                            </div>
-                            {pd.portalActivacionCatalogo && (
-                              <a
-                                href={pd.portalActivacionCatalogo}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-xs text-[var(--sg-lime)] underline underline-offset-2 transition hover:brightness-110"
-                              >
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                                {pd.portalActivacionCatalogo.replace(/^https?:\/\//i, "").slice(0, 40)}{pd.portalActivacionCatalogo.length > 47 ? "…" : ""}
-                              </a>
-                            )}
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            {pd.precioVenta !== null && (
-                              <span className="rounded-full border border-[var(--sg-border)] bg-[var(--sg-card)] px-2.5 py-1 text-xs font-semibold tabular-nums text-[var(--sg-text-primary)]">
-                                {formatCurrency(pd.precioVenta)}
-                              </span>
-                            )}
-                            {/* PDF buttons */}
-                            {(() => {
-                              const isPdfLoading = pdPdfLoading[pd.id] ?? false;
-                              const isDeleteLoading = pdPdfDeleteLoading[pd.id] ?? false;
-                              const hasPdf = Boolean(pd.documentoPdfUrl);
-                              const isAdmin = userRol === "admin" || userRol === "administrador";
-                              return (
-                                <>
-                                  {!hasPdf ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => void handlePdfAction(pd.id, "POST", pd.softwareProducto)}
-                                      disabled={isPdfLoading}
-                                      title="Generar PDF del producto"
-                                      className="inline-flex h-8 items-center gap-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 text-[10px] font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)]/60 hover:text-[var(--sg-lime)] focus:outline-none disabled:opacity-50"
-                                    >
-                                      {isPdfLoading ? (
-                                        <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                                      ) : (
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                                      )}
-                                      Generar PDF
-                                    </button>
-                                  ) : (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() => void handlePdfAction(pd.id, "GET", pd.softwareProducto)}
-                                        disabled={isPdfLoading || isDeleteLoading}
-                                        title={`Descargar PDF${pd.fechaUltimoPdf ? ` (${formatDate(pd.fechaUltimoPdf)})` : ""}`}
-                                        className="inline-flex h-8 items-center gap-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)]/40 bg-[var(--sg-lime)]/8 px-2 text-[10px] font-semibold text-[var(--sg-lime)] transition hover:brightness-110 focus:outline-none disabled:opacity-50"
-                                      >
-                                        {isPdfLoading ? (
-                                          <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                                        ) : (
-                                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                        )}
-                                        Descargar PDF
-                                      </button>
-                                      {isAdmin && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setPdPdfDeleteConfirmId(pdPdfDeleteConfirmId === pd.id ? null : pd.id)}
-                                          disabled={isPdfLoading || isDeleteLoading}
-                                          title="Eliminar PDF generado"
-                                          className="inline-flex h-8 items-center gap-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/40 bg-[var(--sg-danger-soft)] px-2 text-[10px] font-semibold text-[var(--sg-danger)] transition hover:brightness-110 focus:outline-none disabled:opacity-50"
-                                        >
-                                          {isDeleteLoading ? (
-                                            <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                                          ) : (
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-                                          )}
-                                          Eliminar PDF
-                                        </button>
-                                      )}
-                                    </>
-                                  )}
-                                </>
-                              );
-                            })()}
-                            <button
-                              type="button"
-                              onClick={() => void handleVerCredenciales(pd.id)}
-                              disabled={credLoading}
-                              title={credVisible ? "Ocultar credenciales" : "Ver credenciales"}
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)]/50 hover:text-[var(--sg-lime)] focus:outline-none disabled:opacity-50"
-                            >
-                              {credLoading ? (
-                                <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                              ) : (
-                                <EyeIcon className="h-4 w-4" off={credVisible} />
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPdDeleteError(null);
-                                setPdDeleteConfirmId((prev) => (prev === pd.id ? null : pd.id));
-                              }}
-                              className={lineDeleteActionButtonClass}
-                              title="Desasignar producto"
-                              disabled={isDeleting}
-                            >
-                              {isDeleting ? (
-                                <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
-                              ) : (
-                                <TrashIcon className="h-4 w-4" />
-                              )}
-                            </button>
-                          </div>
-                        </div>
-
-                        {credVisible && credData && (
-                          <div className="mt-2 space-y-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)]/20 bg-[var(--sg-lime)]/5 px-3 py-2 text-xs">
-                            {credData.claveActivacion && (
-                              <div className="flex items-center gap-2">
-                                <span className="w-24 shrink-0 text-[var(--sg-text-muted)]">Clave:</span>
-                                <span className="font-mono font-semibold text-[var(--sg-lime)] break-all">{credData.claveActivacion}</span>
-                              </div>
-                            )}
-                            {credData.usuarioCorreo && (
-                              <div className="flex items-center gap-2">
-                                <span className="w-24 shrink-0 text-[var(--sg-text-muted)]">Usuario:</span>
-                                <span className="font-mono text-[var(--sg-text-primary)]">{credData.usuarioCorreo}</span>
-                              </div>
-                            )}
-                            {credData.contraseña && (
-                              <div className="flex items-center gap-2">
-                                <span className="w-24 shrink-0 text-[var(--sg-text-muted)]">Contraseña:</span>
-                                <span className="font-mono text-[var(--sg-text-primary)]">{credData.contraseña}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {credError && (
-                          <p className="mt-1 text-xs text-[var(--sg-danger)]">{credError}</p>
-                        )}
-                        {pdPdfError[pd.id] && (
-                          <p className="mt-1 text-xs text-[var(--sg-danger)]">{pdPdfError[pd.id]}</p>
-                        )}
-
-                        {pdPdfDeleteConfirmId === pd.id && (
-                          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/30 bg-[var(--sg-danger-soft)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
-                            <span>¿Seguro que deseas eliminar el PDF generado? Podrás generarlo nuevamente después.</span>
-                            <button
-                              type="button"
-                              onClick={() => void handlePdfDelete(pd.id)}
-                              disabled={pdPdfDeleteLoading[pd.id] ?? false}
-                              className="rounded-full border border-[var(--sg-danger)] px-3 py-0.5 text-[11px] font-semibold text-[var(--sg-danger)] transition hover:bg-[var(--sg-danger)] hover:text-white disabled:opacity-60"
-                            >
-                              {pdPdfDeleteLoading[pd.id] ? "Eliminando..." : "Eliminar"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setPdPdfDeleteConfirmId(null)}
-                              className="rounded-full border border-[var(--sg-border)] px-3 py-0.5 text-[11px] text-[var(--sg-text-muted)] transition hover:border-[var(--sg-text-muted)]"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        )}
-
-                        {isConfirming && (
-                          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/30 bg-[var(--sg-danger-soft)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
-                            <span>¿Desasignar este producto de la orden?</span>
-                            <button
-                              type="button"
-                              onClick={() => void handleDesasignarProductoDigital(pd.id)}
-                              disabled={isDeleting}
-                              className="rounded-full border border-[var(--sg-danger)] px-3 py-0.5 text-[11px] font-semibold text-[var(--sg-danger)] transition hover:bg-[var(--sg-danger)] hover:text-white disabled:opacity-60"
-                            >
-                              Desasignar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setPdDeleteConfirmId(null)}
-                              className="rounded-full border border-[var(--sg-border)] px-3 py-0.5 text-[11px] text-[var(--sg-text-muted)] transition hover:border-[var(--sg-text-muted)]"
-                            >
-                              Cancelar
-                            </button>
-                            {pdDeleteError && <span className="text-[var(--sg-danger)]">{pdDeleteError}</span>}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
           </div>
 
           <aside className="min-w-0 flex flex-col gap-2.5 xl:sticky xl:top-20">
@@ -3292,9 +2128,19 @@ export function OrdenDetalleClient() {
             </div>
 
             <section className="order-1 rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
-              <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
-                Resumen financiero
+              <p className="mb-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
+                <span>Resumen financiero</span>
+                {cuentaUnificadaLoading && <span className="normal-case tracking-normal font-normal">Actualizando…</span>}
               </p>
+
+              {/* Antes el error de la cuenta se veía en la tarjeta Repuestos (fase 4
+                  la quitó). Sin la cuenta, los totales de abajo caen al rollup de
+                  la orden, que NO incluye lo aprobado sin artículo: hay que avisarlo. */}
+              {cuentaUnificadaError && (
+                <p className="mb-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/40 bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-danger)]">
+                  No se pudo cargar la cuenta ({cuentaUnificadaError}). Los totales pueden estar incompletos; recarga la página.
+                </p>
+              )}
 
               {abonoMessage && (
                 <div className="mb-3 flex items-center gap-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-success)] bg-[var(--sg-success-soft)] px-3 py-2 text-sm text-[var(--sg-text-primary)]">
@@ -3418,6 +2264,58 @@ export function OrdenDetalleClient() {
                   origenTipo="orden"
                 />
               </div>
+
+              {/* Repuestos del sistema anterior (no se mudaron al presupuesto). Antes
+                  vivían en la tarjeta Repuestos, que ya no existe (fase 4). */}
+              {(cuentaUnificada?.repuestosHistoricos.length ?? 0) > 0 && (
+                <div className="mt-3 rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)]">
+                  <button
+                    type="button"
+                    onClick={() => setShowRepuestosHistoricos((prev) => !prev)}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-[var(--sg-text-secondary)]"
+                  >
+                    <span>Repuestos históricos (sistema anterior)</span>
+                    <span className="text-[var(--sg-text-muted)]">{showRepuestosHistoricos ? "▲" : "▼"}</span>
+                  </button>
+                  {showRepuestosHistoricos && (
+                    <div className="space-y-2 border-t border-dashed border-[var(--sg-border)] px-3 py-3">
+                      <p
+                        className={`text-[11px] font-semibold uppercase tracking-wide ${
+                          cuentaUnificada?.repuestosHistoricosCuentanParaTotal
+                            ? "text-[var(--sg-lime)]"
+                            : "text-[var(--sg-text-muted)]"
+                        }`}
+                      >
+                        {cuentaUnificada?.repuestosHistoricosCuentanParaTotal
+                          ? "Incluidos en el total de la orden"
+                          : "Solo referencia histórica — no suman"}
+                      </p>
+                      {(cuentaUnificada?.repuestosHistoricos ?? []).map((r) => (
+                        <div
+                          key={r.id}
+                          className="flex items-center justify-between gap-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-xs"
+                        >
+                          <div>
+                            <p className="font-medium text-[var(--sg-text-primary)]">{r.nombre}</p>
+                            <p className="text-[var(--sg-text-muted)]">
+                              Cantidad {r.cantidad ?? 1} · Precio cliente {formatCurrency(r.precioCliente)}
+                            </p>
+                          </div>
+                          <p className="font-semibold text-[var(--sg-text-primary)]">{formatCurrency(r.subtotal)}</p>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between border-t border-dashed border-[var(--sg-border)] pt-2 text-xs font-semibold text-[var(--sg-text-primary)]">
+                        <span>Subtotal histórico</span>
+                        <span>
+                          {formatCurrency(
+                            (cuentaUnificada?.repuestosHistoricos ?? []).reduce((acc, r) => acc + r.subtotal, 0)
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="mt-4 space-y-2">
                 <div className="flex items-center justify-between">
@@ -3920,319 +2818,11 @@ export function OrdenDetalleClient() {
               </div>
             )}
 
-            {showRepuestoV2Modal && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
-                <div className="w-full max-w-lg rounded-[1rem] border border-[var(--sg-border)] bg-[var(--sg-card)] p-5 shadow-2xl space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-semibold text-[var(--sg-text-primary)]">Agregar repuesto de stock</h4>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowRepuestoV2Modal(false);
-                        resetRepuestoV2Modal();
-                      }}
-                      className="text-[var(--sg-text-muted)] transition hover:text-[var(--sg-text-primary)]"
-                      aria-label="Cerrar"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
-                        <path d="M18 6 6 18M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  <p className="text-[11px] text-[var(--sg-text-muted)]">
-                    Solo se muestran items categoría Repuesto, disponibles y sin reservar.
-                  </p>
-
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={repuestoV2Search}
-                      onChange={(e) => {
-                        setRepuestoV2Search(e.target.value);
-                        setSelectedRepuestoV2(null);
-                        void handleBuscarRepuestosV2(e.target.value);
-                      }}
-                      placeholder="Buscar por nombre o SKU..."
-                      className="w-full rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)]/60 focus:border-[var(--sg-lime)]/70 focus:outline-none"
-                    />
-                    {repuestoV2SearchLoading && (
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2">
-                        <span className="h-3 w-3 animate-spin rounded-full border border-[var(--sg-lime)] border-t-transparent block" />
-                      </span>
-                    )}
-                  </div>
-
-                  {repuestoV2SearchError && <p className="text-xs text-red-400">{repuestoV2SearchError}</p>}
-
-                  {!selectedRepuestoV2 && !repuestoV2SearchLoading && repuestoV2Resultados.length === 0 && (
-                    <p className="rounded-lg border border-dashed border-[var(--sg-border)] px-3 py-3 text-xs text-[var(--sg-text-muted)]">
-                      {repuestoV2Search.trim() ? "Sin coincidencias." : "Sin items disponibles."}
-                    </p>
-                  )}
-
-                  {!selectedRepuestoV2 && repuestoV2Resultados.length > 0 && (
-                    <div className="max-h-52 overflow-auto overscroll-contain rounded-lg border border-[var(--sg-border)]">
-                      {repuestoV2Resultados.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => setSelectedRepuestoV2(item)}
-                          className="flex w-full flex-col items-start gap-1 border-b border-[var(--sg-border)] px-3 py-2 text-left transition last:border-b-0 hover:bg-[var(--sg-panel)]"
-                        >
-                          <span className="text-sm font-semibold text-[var(--sg-text-primary)]">{item.nombre}</span>
-                          <span className="text-[11px] text-[var(--sg-text-muted)]">
-                            {item.sku} · {formatCurrency(item.precioVentaFinal)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {selectedRepuestoV2 && (
-                    <div className="flex items-center justify-between gap-2 rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2">
-                      <div>
-                        <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{selectedRepuestoV2.nombre}</p>
-                        <p className="text-[11px] text-[var(--sg-text-muted)]">
-                          {selectedRepuestoV2.sku} · {formatCurrency(selectedRepuestoV2.precioVentaFinal)}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRepuestoV2(null)}
-                        className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] px-2 py-1 text-[11px] text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
-                      >
-                        Cambiar
-                      </button>
-                    </div>
-                  )}
-
-                  {repuestoV2Error && <p className="text-xs text-red-400">{repuestoV2Error}</p>}
-
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowRepuestoV2Modal(false);
-                        resetRepuestoV2Modal();
-                      }}
-                      className="rounded-full border border-[var(--sg-border)] px-3 py-1.5 text-xs font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAgregarRepuestoV2}
-                      disabled={!selectedRepuestoV2 || repuestoV2Saving}
-                      className="rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60"
-                    >
-                      {repuestoV2Saving ? "Agregando..." : "Agregar"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {showMantenimientoModal && (
               <ImprimirEtiquetaMantenimientoModal
                 ordenId={id}
                 onClose={() => setShowMantenimientoModal(false)}
               />
-            )}
-
-            {showProductoDigitalModal && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
-                <div className="w-full max-w-lg rounded-[1rem] border border-[var(--sg-border)] bg-[var(--sg-card)] p-5 shadow-2xl space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-semibold text-[var(--sg-text-primary)]">Asignar producto digital</h4>
-                    <button
-                      type="button"
-                      onClick={() => { setShowProductoDigitalModal(false); resetProductoDigitalModal(); }}
-                      className="text-[var(--sg-text-muted)] transition hover:text-[var(--sg-text-primary)]"
-                      aria-label="Cerrar"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
-                        <path d="M18 6 6 18M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  <p className="text-[11px] text-[var(--sg-text-muted)]">
-                    Solo se muestran productos con estado <strong>Disponible</strong>.
-                  </p>
-
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={pdSearch}
-                      onChange={(e) => {
-                        setPdSearch(e.target.value);
-                        setSelectedPd(null);
-                        void handleBuscarProductosDigitales(e.target.value);
-                      }}
-                      placeholder="Buscar por nombre, tipo o proveedor..."
-                      className="w-full rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)]/60 focus:border-[var(--sg-lime)]/70 focus:outline-none"
-                    />
-                    {pdSearchLoading && (
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2">
-                        <span className="h-3 w-3 animate-spin rounded-full border border-[var(--sg-lime)] border-t-transparent block" />
-                      </span>
-                    )}
-                  </div>
-
-                  {pdSearchError && <p className="text-xs text-[var(--sg-danger)]">{pdSearchError}</p>}
-
-                  {!selectedPd && productosDisponibles.length > 0 && (
-                    <div className="max-h-60 overflow-y-auto rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)]">
-                      {productosDisponibles.map((pd) => (
-                        <button
-                          key={pd.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedPd(pd);
-                            setPdPrecioVenta(pd.precioVenta !== null ? String(pd.precioVenta) : "");
-                          }}
-                          className="flex w-full items-start gap-3 border-b border-[var(--sg-border)] px-3 py-2.5 text-left last:border-0 transition hover:bg-[var(--sg-card)]"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{pd.softwareProducto}</p>
-                            <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-[var(--sg-text-muted)]">
-                              {pd.marcaProducto && <span>{pd.marcaProducto}</span>}
-                              {pd.tipoProducto && <span>{pd.tipoProducto}</span>}
-                              {pd.duracion && <span>{pd.duracion}</span>}
-                              {pd.claveTruncada && <span className="font-mono">{pd.claveTruncada}</span>}
-                            </div>
-                          </div>
-                          {pd.precioVenta !== null && (
-                            <span className="shrink-0 text-xs font-semibold tabular-nums text-[var(--sg-lime)]">
-                              {formatCurrency(pd.precioVenta)}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {!selectedPd && !pdSearchLoading && productosDisponibles.length === 0 && (
-                    <div className="rounded-lg border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-4 py-4 text-center">
-                      <p className="text-xs text-[var(--sg-text-secondary)]">
-                        {pdSearch.trim()
-                          ? "No encontramos productos digitales disponibles con esa búsqueda."
-                          : "No hay productos digitales disponibles para asignar."}
-                      </p>
-                      <a
-                        href="/tecnicos/productos-digitales"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[var(--sg-lime)] underline underline-offset-2 transition hover:brightness-110"
-                      >
-                        Ir a Productos Digitales para crear uno
-                      </a>
-                    </div>
-                  )}
-
-                  {selectedPd && (
-                    <div className="space-y-3 rounded-lg border border-[var(--sg-lime)]/20 bg-[var(--sg-lime)]/5 px-3 py-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{selectedPd.softwareProducto}</p>
-                          <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-[var(--sg-text-muted)]">
-                            {selectedPd.marcaProducto && <span>{selectedPd.marcaProducto}</span>}
-                            {selectedPd.tipoProducto && <span>{selectedPd.tipoProducto}</span>}
-                            {selectedPd.duracion && <span>{selectedPd.duracion}</span>}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedPd(null)}
-                          className="shrink-0 text-[10px] font-semibold text-[var(--sg-text-muted)] underline underline-offset-2 transition hover:text-[var(--sg-text-primary)]"
-                        >
-                          Cambiar
-                        </button>
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
-                          Precio de venta (opcional)
-                        </label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={pdPrecioVenta}
-                          onChange={(e) => setPdPrecioVenta(e.target.value)}
-                          placeholder="Dejar vacío para usar precio del catálogo"
-                          className="w-full rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)]/50 focus:border-[var(--sg-lime)]/70 focus:outline-none"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {pdError && <p className="text-xs text-[var(--sg-danger)]">{pdError}</p>}
-
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { setShowProductoDigitalModal(false); resetProductoDigitalModal(); }}
-                      className="rounded-full border border-[var(--sg-border)] px-3 py-1.5 text-xs font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)]/50 hover:text-[var(--sg-lime)]"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleAsignarProductoDigital()}
-                      disabled={!selectedPd || pdSaving}
-                      className="rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-50"
-                    >
-                      {pdSaving ? "Asignando..." : "Asignar producto"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {openCreateServicioModal && (
-              <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
-                <div className="w-full max-w-md rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-2xl space-y-3">
-                  <h4 className="text-sm font-semibold text-white">Crear servicio nuevo</h4>
-                  <input
-                    type="text"
-                    value={nuevoServicioNombre}
-                    onChange={(e) => setNuevoServicioNombre(e.target.value)}
-                    placeholder="Nombre del servicio"
-                    className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
-                  />
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={nuevoServicioCostoSugerido}
-                    onChange={(e) => setNuevoServicioCostoSugerido(e.target.value)}
-                    placeholder="Costo sugerido"
-                    className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none"
-                  />
-                  {nuevoServicioError && <p className="text-xs text-red-400">{nuevoServicioError}</p>}
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOpenCreateServicioModal(false);
-                        resetCrearServicioForm();
-                      }}
-                      className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleCrearServicioCatalogo}
-                      disabled={nuevoServicioSaving}
-                      className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-60"
-                    >
-                      {nuevoServicioSaving ? "Guardando..." : "Crear servicio"}
-                    </button>
-                  </div>
-                </div>
-              </div>
             )}
           </div>
         )}

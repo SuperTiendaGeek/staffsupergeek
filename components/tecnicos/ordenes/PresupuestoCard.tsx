@@ -23,6 +23,7 @@ import {
   type LineaPresupuesto, type TipoLinea, type EstadoPresupuesto, type PasoCarga, type InfoPedido, type FasePedido,
   type ReversasLinea, type AccionReversa, type AccionRetiro,
 } from "@/lib/tecnicos/presupuesto/reglas";
+import { EntregaProductoDigital, type ProductoDigitalEntrega } from "./EntregaProductoDigital";
 
 type CatServicio = { id: string; nombre: string; descripcion: string | null; costoSugerido: number | null; activo: boolean };
 type ItemStock   = { id: string; sku: string; nombre: string; precioVentaFinal: number | null };
@@ -138,7 +139,7 @@ function EnlaceCliente({ ordenId, hayLineas }: { ordenId: string; hayLineas: boo
   );
 }
 
-// ─── Buscadores (reutilizan los endpoints de las tarjetas existentes) ────────
+// ─── Buscadores (solo leen: catálogos e inventario disponible) ─────────────
 
 /** Cierra un desplegable al hacer clic fuera o con Escape. */
 function useCerrarFuera(onCerrar: () => void, activo: boolean) {
@@ -299,6 +300,9 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [listaAbierta, setListaAbierta] = useState(true);
+  // "+ Crear servicio nuevo": antes solo existía en la tarjeta Servicios (fase 4
+  // la quitó). Crea el servicio en el catálogo y lo deja elegido en la línea.
+  const [nuevoServicio, setNuevoServicio] = useState<{ nombre: string; costo: string; guardando: boolean; error: string | null } | null>(null);
   const refLista = useCerrarFuera(useCallback(() => setListaAbierta(false), []), listaAbierta);
   const totalCatalogo = b.tipo === "Servicio" ? servicios.length : b.tipo === "Producto digital" ? digitales.length : 0;
 
@@ -325,7 +329,37 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
   const elegido = b.servicioCatalogoId || b.itemId || b.productoCatalogoId || esPedido;
   const cantidadFija = (b.tipo === "Repuesto" && (!!b.itemId || esPedido)) || b.tipo === "Producto digital";
 
-  function cambiarTipo(t: TipoLinea) { setListaAbierta(true); setB({ ...BORRADOR_VACIO(t), prioridad: b.prioridad, notaCliente: b.notaCliente, alternativaDe: b.alternativaDe }); setQ(""); setError(null); setModoRepuesto("inventario"); }
+  function cambiarTipo(t: TipoLinea) { setListaAbierta(true); setNuevoServicio(null); setB({ ...BORRADOR_VACIO(t), prioridad: b.prioridad, notaCliente: b.notaCliente, alternativaDe: b.alternativaDe }); setQ(""); setError(null); setModoRepuesto("inventario"); }
+
+  async function crearServicioCatalogo() {
+    if (!nuevoServicio || nuevoServicio.guardando) return;
+    const nombre = nuevoServicio.nombre.trim();
+    const costoTxt = nuevoServicio.costo.trim();
+    const costoSugerido = costoTxt ? parseFloat(costoTxt.replace(",", ".")) : null;
+    if (!nombre) { setNuevoServicio({ ...nuevoServicio, error: "Escribe el nombre del servicio." }); return; }
+    if (costoSugerido !== null && (!Number.isFinite(costoSugerido) || costoSugerido < 0)) {
+      setNuevoServicio({ ...nuevoServicio, error: "El costo sugerido debe ser un número de 0 en adelante." });
+      return;
+    }
+    setNuevoServicio({ ...nuevoServicio, guardando: true, error: null });
+    try {
+      const r = await fetch("/api/tecnicos/catalogo/servicios", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre, costoSugerido }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.success) {
+        setNuevoServicio((n) => n && { ...n, guardando: false, error: j.error ?? "No se pudo crear el servicio" });
+        return;
+      }
+      const s = j.data as CatServicio;
+      setServicios((prev) => [...prev, s].sort((x, y) => x.nombre.localeCompare(y.nombre, "es", { sensitivity: "base" })));
+      setNuevoServicio(null);
+      setB({ ...b, servicioCatalogoId: s.id, descripcion: s.nombre, precio: s.costoSugerido !== null && s.costoSugerido !== undefined ? String(s.costoSugerido) : "" });
+    } catch {
+      setNuevoServicio((n) => n && { ...n, guardando: false, error: "Error de red" });
+    }
+  }
 
   async function guardar() {
     setError(null);
@@ -377,12 +411,39 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
       {!elegido && b.tipo === "Repuesto" && modoRepuesto === "inventario" && (
         <BuscadorRepuesto ordenId={ordenId} onElegir={(i) => setB({ ...b, itemId: i.id, itemSku: i.sku, descripcion: i.nombre, precio: i.precioVentaFinal !== null ? String(i.precioVentaFinal) : "", cantidad: "1" })} />
       )}
-      {!elegido && b.tipo !== "Repuesto" && (
+      {!elegido && b.tipo === "Servicio" && nuevoServicio && (
+        <div className="space-y-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] p-2.5">
+          <p className="text-xs font-semibold text-[var(--sg-text-primary)]">Servicio nuevo en el catálogo</p>
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_140px]">
+            <input autoFocus value={nuevoServicio.nombre} onChange={(e) => setNuevoServicio({ ...nuevoServicio, nombre: e.target.value, error: null })}
+              placeholder="Nombre del servicio" className={INPUT} />
+            <input value={nuevoServicio.costo} onChange={(e) => setNuevoServicio({ ...nuevoServicio, costo: e.target.value, error: null })}
+              inputMode="decimal" placeholder="Costo sugerido" className={`${INPUT} text-right`} />
+          </div>
+          <p className="text-[10px] text-[var(--sg-text-muted)]">Queda guardado en el catálogo para las próximas órdenes. El precio de esta línea lo ajustas en el paso siguiente.</p>
+          {nuevoServicio.error && <p className="text-xs text-[var(--sg-danger)]">{nuevoServicio.error}</p>}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => { setNuevoServicio(null); setListaAbierta(true); }} className={BTN_SEC}>Volver</button>
+            <button type="button" disabled={nuevoServicio.guardando} onClick={() => void crearServicioCatalogo()} className={BTN_PRI}>
+              {nuevoServicio.guardando ? "Guardando…" : "Crear y usar"}
+            </button>
+          </div>
+        </div>
+      )}
+      {!elegido && b.tipo !== "Repuesto" && !nuevoServicio && (
         <div className="relative" ref={refLista}>
           <input autoFocus value={q} onFocus={() => setListaAbierta(true)} onChange={(e) => { setQ(e.target.value); setListaAbierta(true); }}
             placeholder={b.tipo === "Servicio" ? `Buscar entre ${totalCatalogo || "…"} servicios del catálogo…` : `Buscar entre ${totalCatalogo || "…"} productos digitales…`} className={INPUT} />
           {listaAbierta && (
             <ul className="absolute left-0 right-0 top-full z-[120] mt-1 max-h-72 overflow-auto rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-bg)] shadow-2xl">
+              {b.tipo === "Servicio" && (
+                <li className="border-b border-[var(--sg-divider)]">
+                  <button type="button" onClick={() => { setListaAbierta(false); setNuevoServicio({ nombre: q.trim(), costo: "", guardando: false, error: null }); }}
+                    className="flex w-full px-3 py-2 text-left text-xs font-semibold text-[var(--sg-lime)] hover:bg-[var(--sg-card)]">
+                    + Crear servicio nuevo en el catálogo{q.trim() ? `: “${q.trim()}”` : ""}
+                  </button>
+                </li>
+              )}
               {totalCatalogo === 0 && <li className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Cargando catálogo…</li>}
               {totalCatalogo > 0 && sugerencias.length === 0 && <li className="px-3 py-2 text-xs text-[var(--sg-text-muted)]">Nada coincide con “{q}”.</li>}
               {b.tipo === "Servicio" && (sugerencias as CatServicio[]).map((s) => (
@@ -467,12 +528,22 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
 
 // ─── Tarjeta ─────────────────────────────────────────────────────────────────
 
-export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
+export function PresupuestoCard({
+  ordenId, onCargado, refrescar = 0, productosDigitales = [], esAdmin = false, onProductoDigitalCambiado,
+}: {
   ordenId: string;
   onCargado: () => void | Promise<void>;
   /** Sube cada vez que la orden se relee: el presupuesto se pone al día con
-   *  lo que cambió en las tarjetas (un servicio quitado, un repuesto liberado). */
+   *  lo que cambió fuera de él (p. ej. un cargo que alguien borró en Airtable). */
   refrescar?: number;
+  /** Productos digitales ya asignados a la orden (de la orden, no del
+   *  presupuesto): su entrega —credenciales, PDF, portal— se muestra en la
+   *  línea aprobada que los cargó. */
+  productosDigitales?: ProductoDigitalEntrega[];
+  /** Solo el admin puede borrar el PDF generado de un producto digital. */
+  esAdmin?: boolean;
+  /** Se generó o borró el PDF de un producto digital: releer la orden. */
+  onProductoDigitalCambiado?: () => void | Promise<void>;
 }) {
   const [lineas, setLineas] = useState<LineaPresupuesto[]>([]);
   const [pedidos, setPedidos] = useState<Record<string, InfoPedido>>({});
@@ -509,6 +580,14 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
   }, [ordenId]);
 
   useEffect(() => { void recargar(); }, [recargar, refrescar]);
+
+  const digitalesPorId = useMemo(() => new Map(productosDigitales.map((p) => [p.id, p])), [productosDigitales]);
+  // Productos digitales de la orden que ninguna línea cargó (cargados por fuera
+  // del presupuesto): su entrega no puede perderse, se muestran aparte.
+  const digitalesSinLinea = useMemo(
+    () => productosDigitales.filter((p) => !lineas.some((l) => l.cargoProductoDigitalId === p.id)),
+    [productosDigitales, lineas]
+  );
 
   const seleccionables = lineas.filter((l) => l.estado === "Propuesta" || l.estado === "Aprobada");
   // Letra por grupo de alternativas (solo grupos con 2+ líneas).
@@ -643,8 +722,21 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
             cargosSueltos.servicios ? `${cargosSueltos.servicios} servicio(s)` : "",
             cargosSueltos.repuestos ? `${cargosSueltos.repuestos} repuesto(s)` : "",
             cargosSueltos.digitales ? `${cargosSueltos.digitales} producto(s) digital(es)` : "",
-          ].filter(Boolean).join(", ")} agregados directo desde sus tarjetas (sin pasar por el presupuesto). Se cobran igual; simplemente no tienen constancia de aprobación del cliente.
+          ].filter(Boolean).join(", ")} sin línea en el presupuesto (se cargaron por fuera de él). Suman al Resumen financiero, pero no se
+          pueden quitar desde aquí: pídele al administrador que los pase al presupuesto.
         </p>
+      )}
+
+      {!cargando && digitalesSinLinea.length > 0 && (
+        <div className="space-y-1.5 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">Productos digitales sin línea</p>
+          {digitalesSinLinea.map((p) => (
+            <div key={p.id}>
+              <p className="text-xs font-semibold text-[var(--sg-text-primary)]">{p.softwareProducto}</p>
+              <EntregaProductoDigital producto={p} esAdmin={esAdmin} onPdfCambiado={onProductoDigitalCambiado} />
+            </div>
+          ))}
+        </div>
       )}
 
       {agregando && (
@@ -776,6 +868,9 @@ export function PresupuestoCard({ ordenId, onCargado, refrescar = 0 }: {
                         </span>
                       )}
                       {l.notaCarga && l.estado === "Aprobada" && !(l.operacionId && l.notaCarga.startsWith("Esperando pedido")) && <span className="mt-0.5 block text-[11px] text-[var(--sg-warning)]">{l.notaCarga}</span>}
+                      {l.tipo === "Producto digital" && l.estado === "Cargada" && l.cargoProductoDigitalId && digitalesPorId.get(l.cargoProductoDigitalId) && (
+                        <EntregaProductoDigital producto={digitalesPorId.get(l.cargoProductoDigitalId)!} esAdmin={esAdmin} onPdfCambiado={onProductoDigitalCambiado} />
+                      )}
                       {l.historial && (
                         <button type="button" onClick={() => setVerHistorial(verHistorial === l.id ? null : l.id)} className="mt-0.5 block text-[10px] text-[var(--sg-text-muted)] hover:text-[var(--sg-text-primary)]">
                           {verHistorial === l.id ? "Ocultar historial" : "Ver historial"}
