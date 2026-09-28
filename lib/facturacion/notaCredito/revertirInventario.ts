@@ -28,7 +28,7 @@ import "server-only";
 // porque son tablas distintas sin relación entre sí; sus fallos se combinan
 // en un solo resultado, pero uno no puede hacer fallar al otro.
 
-import { fetchRecordsByIds, linkedIds, firstString, numberOrZero } from "../gancho/airtableGancho";
+import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "../gancho/airtableGancho";
 import { actualizarReversoInventario } from "./airtable";
 import type { DetalleNotaCredito } from "./types";
 
@@ -147,7 +147,19 @@ async function revertirInventarioShippingItemsNotaCredito(input: ReversoInput): 
   }
 
   const itemIds = [...devueltoPorItem.keys()];
-  const actual  = await fetchEstadoActual(itemIds);
+  // Si la lectura falla, no se escribe nada. Antes un error se tomaba como
+  // "había 0": la Cantidad quedaba en lo devuelto (se perdía el stock que ya
+  // había) y se pisaba la lista de notas de crédito del artículo.
+  let actual: Map<string, EstadoItemActual>;
+  try {
+    actual = await fetchEstadoActual(itemIds);
+  } catch (e) {
+    const detalle = textoLecturaFallida(e, "No se devolvió el stock; hay que reintentar o sumarlo a mano.");
+    await actualizarReversoInventario(input.notaCreditoRecordId, "ERROR", detalle).catch((err) =>
+      console.error("[revertirInventario] no se pudo marcar ERROR tras la lectura fallida:", err)
+    );
+    return { estado: "ERROR", detalle };
+  }
   const fallidos: Array<{ id: string; descripcion: string; error: string }> = [];
   let yaHechos = 0;
   let revertidos = 0;
@@ -161,16 +173,22 @@ async function revertirInventarioShippingItemsNotaCredito(input: ReversoInput): 
       continue;
     }
 
-    const cantidadActual = est?.cantidad ?? 0;
+    // Nunca se escribe sobre un artículo que no se pudo leer.
+    if (!est) {
+      fallidos.push({ id: itemId, descripcion: dev.descripcion, error: "no se encontró en Shipping Items; no se tocó" });
+      continue;
+    }
+
+    const cantidadActual = est.cantidad;
     const nuevaCantidad  = cantidadActual + dev.cantidad;
 
     const fields: Record<string, unknown> = {
       "Cantidad": nuevaCantidad,
-      "Nota de Crédito": [...(est?.notaCreditoIds ?? []), input.notaCreditoRecordId],
+      "Nota de Crédito": [...est.notaCreditoIds, input.notaCreditoRecordId],
     };
     // Si el item estaba agotado/vendido y vuelve a tener stock, se reactiva
     // como disponible (espejo del cierre que hace postEmision al llegar a 0).
-    if (nuevaCantidad > 0 && est && !est.disponibleVenta) {
+    if (nuevaCantidad > 0 && !est.disponibleVenta) {
       fields["Disponible para venta"] = true;
       fields["Estado Item"] = input.estadoItemRestaurado ?? "Disponible";
     }
@@ -254,7 +272,12 @@ async function revertirProductosDigitalesNotaCredito(input: ReversoInput): Promi
   }
 
   const ids          = [...productosPorId.keys()];
-  const estadoActual = await fetchEstadoActualProductosDigitales(ids);
+  let estadoActual: Map<string, EstadoProductoDigitalActual>;
+  try {
+    estadoActual = await fetchEstadoActualProductosDigitales(ids);
+  } catch (e) {
+    return { estado: "ERROR", detalle: textoLecturaFallida(e, "No se marcaron Anulado los productos digitales.") };
+  }
   const fallidos: Array<{ id: string; descripcion: string; error: string }> = [];
   let yaHechos = 0;
   let marcados = 0;
@@ -267,12 +290,16 @@ async function revertirProductosDigitalesNotaCredito(input: ReversoInput): Promi
       yaHechos++;
       continue;
     }
+    if (!actual) {
+      fallidos.push({ id, descripcion: producto.descripcion, error: "no se encontró en Productos Digitales; no se tocó" });
+      continue;
+    }
 
     // Sin typecast: si "Anulado" no existiera como opción en el desplegable,
     // esto debe fallar y verse — no crear la opción sola (bitácora §6).
     const fields: Record<string, unknown> = {
       "Estado":          "Anulado",
-      "Nota de Crédito": [...(actual?.notaCreditoIds ?? []), input.notaCreditoRecordId],
+      "Nota de Crédito": [...actual.notaCreditoIds, input.notaCreditoRecordId],
     };
 
     try {

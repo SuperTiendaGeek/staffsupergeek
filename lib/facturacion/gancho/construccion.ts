@@ -237,7 +237,10 @@ export function evaluarItemNoListo(
   item: Pick<CuentaUnificadaItem, "id" | "nombre" | "precio">,
   detalle: Pick<ItemDetalleGancho, "reservado" | "tieneFacturaPrevia" | "cantidad" | "cantidadReservada"> & Partial<Pick<ItemDetalleGancho, "tieneReciboPrevio" | "bajoPedidoSinLlegar">> | undefined
 ): ItemNoListo | null {
-  if (!detalle) return null; // fetch inconsistente — se ignora en vez de bloquear (ver traductor.ts)
+  // Sin detalle = el artículo ya no está en Shipping Items (un error de
+  // lectura ya no llega aquí: fetchDetalleItems lanza). No se puede confirmar
+  // que no esté vendido, así que se bloquea en vez de dejarlo pasar.
+  if (!detalle) return { id: item.id, nombre: item.nombre, motivo: "SIN_STOCK" };
   if (detalle.cantidad < 1) {
     // "YA_FACTURADO" cubre también el recibo interno: para el usuario el
     // mensaje es el mismo ("ya tiene un documento de venta"), y el recibo

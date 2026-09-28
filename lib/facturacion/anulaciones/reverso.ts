@@ -16,7 +16,7 @@ import "server-only";
 // revertirProductosDigitalesFacturaAnulada() más abajo. Corren en paralelo
 // porque son tablas distintas sin relación entre sí.
 
-import { fetchRecordsByIds, linkedIds, firstString, numberOrZero } from "../gancho/airtableGancho";
+import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "../gancho/airtableGancho";
 import { crearMovimiento, fetchMovimientoById } from "@/lib/finanzas/movimientos";
 import type { EstadoMovimiento, Movimiento } from "@/types/finanzas";
 
@@ -66,7 +66,14 @@ async function revertirShippingItemsFacturaAnulada(input: {
   const porItem = new Map<string, number>();
   for (const d of conItem) porItem.set(d.shippingItemId, (porItem.get(d.shippingItemId) ?? 0) + (d.cantidad && d.cantidad > 0 ? d.cantidad : 0));
 
-  const records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, [...porItem.keys()]);
+  // Antes, si la lectura fallaba, no se devolvía nada y el resultado salía
+  // "OK". Ahora sale ERROR con el motivo.
+  let records: Awaited<ReturnType<typeof fetchRecordsByIds>>;
+  try {
+    records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, [...porItem.keys()]);
+  } catch (e) {
+    return { estado: "ERROR", detalle: textoLecturaFallida(e, "No se devolvió el stock de los artículos.") };
+  }
   const actual = new Map(records.map((r) => [r.id, {
     cantidad: numberOrZero(r.fields["Cantidad"]),
     facturaIds: linkedIds(r.fields["Factura"]),
@@ -139,7 +146,12 @@ async function revertirProductosDigitalesFacturaAnulada(input: {
   if (conProducto.length === 0) return { estado: "OK" };
 
   const ids = [...new Set(conProducto.map((d) => d.productoDigitalId))];
-  const records = await fetchRecordsByIds(PRODUCTOS_DIGITALES_TABLE, ids);
+  let records: Awaited<ReturnType<typeof fetchRecordsByIds>>;
+  try {
+    records = await fetchRecordsByIds(PRODUCTOS_DIGITALES_TABLE, ids);
+  } catch (e) {
+    return { estado: "ERROR", detalle: textoLecturaFallida(e, "No se devolvieron los productos digitales a Disponible.") };
+  }
   const actual = new Map(records.map((r) => [r.id, { facturaIds: linkedIds(r.fields["Factura"]) }]));
 
   const fallidos: string[] = [];

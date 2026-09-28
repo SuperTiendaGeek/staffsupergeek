@@ -40,7 +40,8 @@ function fetchDoble(registroOrigen: { fields: Record<string, unknown> } | null, 
     const urlStr = String(url);
     // fetchOrden/fetchOperacion: GET a .../{table}/{recordId} (sin filterByFormula)
     if (!urlStr.includes("filterByFormula")) {
-      if (!registroOrigen) return Promise.resolve({ ok: false } as Response);
+      // 404 = el registro no existe (cualquier otro error ya no se lee como "no existe").
+      if (!registroOrigen) return Promise.resolve({ ok: false, status: 404 } as Response);
       return Promise.resolve({ ok: true, json: async () => ({ id: "recORIGEN", fields: registroOrigen.fields }) } as Response);
     }
     // fetchFacturasVinculadas: GET con filterByFormula OR(RECORD_ID()=...)
@@ -114,6 +115,28 @@ function fetchDoble(registroOrigen: { fields: Record<string, unknown> } | null, 
     global.fetch = fetchDoble(null, []) as unknown as typeof fetch;
     const bloqueante = await buscarFacturaBloqueante(origen);
     assert(bloqueante === null, "Origen inexistente no debe bloquear (no revienta)");
+  }
+
+  // 6. Airtable falla al leer la orden (503 aun tras reintentar): NUNCA se
+  //    toma como "no hay factura" — antes devolvía null y dejaba emitir.
+  {
+    global.fetch = (() => Promise.resolve({ ok: false, status: 503 } as Response)) as unknown as typeof fetch;
+    let lanzo = false;
+    try { await buscarFacturaBloqueante(origen); } catch { lanzo = true; }
+    assert(lanzo, "Si no se puede leer la orden, buscarFacturaBloqueante lanza (nunca 'no hay factura')");
+  }
+
+  // 7. La orden se lee, pero sus facturas vinculadas no (503).
+  {
+    global.fetch = ((url: string | URL) => {
+      if (!String(url).includes("filterByFormula")) {
+        return Promise.resolve({ ok: true, json: async () => ({ id: "recORIGEN", fields: { "Facturas Electrónicas": ["recFACT0009"] } }) } as Response);
+      }
+      return Promise.resolve({ ok: false, status: 503 } as Response);
+    }) as unknown as typeof fetch;
+    let lanzo = false;
+    try { await buscarFacturaBloqueante(origen); } catch { lanzo = true; }
+    assert(lanzo, "Si no se pueden leer las facturas vinculadas, buscarFacturaBloqueante lanza");
   }
 
   global.fetch = fetchOriginal;
