@@ -101,7 +101,7 @@ assert(paso("d3").accion.tipo === "pendiente", "La tercera, sin unidades libres,
 const raiz = path.join(__dirname, "..", "..", "..");
 const cargar = fs.readFileSync(path.join(raiz, "lib", "tecnicos", "presupuesto", "cargar.ts"), "utf8");
 assert(cargar.includes("createServicioPorOrden(") && cargar.includes("agregarRepuestoStockAOrden(") && cargar.includes("asignarProductoDigitalAOrden("),
-  "La carga usa las mismas funciones que las tarjetas de la orden (un solo camino)");
+  "La carga usa las funciones que crean servicio, reservan repuesto y asignan licencia (un solo camino)");
 assert(cargar.includes("withLock(`presupuesto:"), "La carga toma turno por orden (un doble clic no duplica servicios)");
 
 const card = fs.readFileSync(path.join(raiz, "components", "tecnicos", "ordenes", "PresupuestoCard.tsx"), "utf8");

@@ -2,12 +2,13 @@ import "server-only";
 
 // Aprobar un presupuesto y CARGARLO a la orden.
 //
-// Es el único punto donde el presupuesto toca algo real, y lo hace con las
-// mismas funciones que usan las tarjetas de la orden — no hay una segunda
-// forma de crear un servicio, reservar un repuesto o asignar una licencia:
-//   · Servicio         → createServicioPorOrden()        (tarjeta Servicios)
-//   · Repuesto         → agregarRepuestoStockAOrden()    (tarjeta Repuestos V2)
-//   · Producto digital → asignarProductoDigitalAOrden()  (tarjeta Productos digitales)
+// Es el único punto donde el presupuesto toca algo real. Desde la fase 4 (sin
+// tarjetas Servicios / Repuestos / Productos digitales en la orden) es también
+// el ÚNICO lugar del portal que carga o quita cargos de una orden — una prueba
+// lo vigila (presupuesto-fase4-sin-tarjetas.test.ts):
+//   · Servicio         → createServicioPorOrden()
+//   · Repuesto         → agregarRepuestoStockAOrden()
+//   · Producto digital → asignarProductoDigitalAOrden()
 //
 // Dos pasos, siempre: vista previa (no escribe nada) y confirmación. Al
 // confirmar se recalcula todo con datos frescos, porque el stock pudo cambiar
