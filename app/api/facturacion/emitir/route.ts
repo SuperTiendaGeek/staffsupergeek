@@ -3,6 +3,8 @@ import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitirFactura";
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { buscarDocumentoBloqueante } from "@/lib/facturacion/gancho/idempotencia";
+import { getCuentaUnificada } from "@/lib/cuenta-unificada";
+import { mensajeAprobadoSinArticulo, MENSAJE_NO_SE_PUDO_VERIFICAR } from "@/lib/facturacion/reglas/aprobadoSinArticulo";
 import { postEmision, debeIntentarPostEmision } from "@/lib/facturacion/gancho/postEmision";
 import {
   agregarNotaAuditoriaFactura,
@@ -134,6 +136,16 @@ export async function POST(request: Request) {
         { success: false, error: `Esta ${etiquetaOrigen} ya tiene ${detalle}.` },
         { status: 409 }
       );
+    }
+    // Fase 3b: la factura espera a que exista el artículo de todo lo aprobado.
+    const pendientesArticulo = await getCuentaUnificada(body.origen.tipo === "orden" ? { ordenId: body.origen.recordId } : { operacionId: body.origen.recordId })
+      .then((c) => mensajeAprobadoSinArticulo(c.aprobadoSinArticulo, "factura"))
+      .catch((e) => {
+        console.error("[/api/facturacion/emitir POST] error verificando aprobado sin artículo:", e);
+        return MENSAJE_NO_SE_PUDO_VERIFICAR;
+      });
+    if (pendientesArticulo) {
+      return NextResponse.json({ success: false, error: pendientesArticulo }, { status: 409 });
     }
   }
 

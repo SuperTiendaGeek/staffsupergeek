@@ -547,10 +547,14 @@ export function cargosSinDueno(lineas: LineaPresupuesto[], p: CargosPresentes, t
   return [...presentes].filter((id) => !reclamados.has(id)).length;
 }
 
+// Un cargo que desapareció de la orden lo quitó alguien a propósito (desde las
+// tarjetas viejas). La línea pasa a "Quitada", NO a "Aprobada": con la fase 3b
+// lo aprobado suma al Resumen financiero, y volver a "Aprobada" lo convertiría
+// en deuda del cliente. Si hay que volver a cobrarlo: "Reabrir" y aprobar.
 const NOTA_PERDIDA: Record<TipoCargo, string> = {
-  "Servicio": "Se quitó el servicio desde la tarjeta Servicios. Vuelve a cargarla o recházala.",
-  "Producto digital": "Se quitó la licencia desde la tarjeta Productos digitales. Vuelve a cargarla o recházala.",
-  "Repuesto": "Se quitó el repuesto desde la tarjeta Repuestos. Vuelve a cargarla o recházala.",
+  "Servicio": "se quitó el servicio desde la tarjeta Servicios.",
+  "Producto digital": "se quitó la licencia desde la tarjeta Productos digitales.",
+  "Repuesto": "se quitó el repuesto desde la tarjeta Repuestos.",
 };
 
 /** Líneas Cargadas cuyo cargo ya no existe en la orden. */
@@ -565,7 +569,7 @@ export function cargasPerdidas(lineas: LineaPresupuesto[], p: CargosPresentes): 
     if (!presentes) continue; // no se pudo leer: no se toca nada
     const id = idCargo(l);
     const perdida = id ? !presentes.has(id) : cargosSinDueno(lineas, p, tipo) === 0;
-    if (perdida) out.push({ lineaId: l.id, nota: NOTA_PERDIDA[tipo] });
+    if (perdida) out.push({ lineaId: l.id, nota: `${NOTA_QUITADA}: ${NOTA_PERDIDA[tipo]}` });
   }
   return out;
 }
@@ -694,20 +698,92 @@ export function lineaTrasRetiro(accion: AccionRetiro, motivo: string): {
 // "Cargada" ya no se muestra (venía de cuando lo aprobado se pasaba a las
 // tarjetas Servicios / Repuestos / Productos digitales).
 //
-// En Airtable los valores internos NO cambian: "Cargada" = aprobada y ya suma;
-// "Aprobada" = aprobada pero TODAVÍA NO suma, que solo pasa en dos casos:
-// no había stock o código libre al aprobar, o es un repuesto bajo pedido que
-// falta pedir al proveedor. Esos dos se muestran como aprobados con aviso.
+// En Airtable los valores internos NO cambian: "Cargada" = aprobada y con su
+// cargo real; "Aprobada" = aprobada y TODAVÍA sin su artículo (no había stock o
+// código libre al aprobar, o es un repuesto bajo pedido que falta pedir). Las
+// dos SUMAN al Resumen financiero (fase 3b); la segunda lleva un aviso de
+// logística y bloquea la factura/recibo hasta que el artículo exista.
 
 export type TonoEstado = "neutro" | "exito" | "aviso" | "peligro";
 
-export function estadoVisible(l: Pick<LineaPresupuesto, "estado" | "notaCarga" | "operacionId">): { texto: string; tono: TonoEstado } {
+export function estadoVisible(l: Pick<LineaPresupuesto, "estado" | "notaCarga" | "operacionId" | "tipo"> & { bajoPedido?: boolean }): { texto: string; tono: TonoEstado } {
   if (l.estado === "Cargada") return { texto: "Aprobada", tono: "exito" };
   if (l.estado === "Aprobada") {
-    return l.operacionId
-      ? { texto: "Aprobada · falta pedirla", tono: "aviso" }
-      : { texto: "Aprobada · aún no suma", tono: "aviso" };
+    if (l.operacionId || l.bajoPedido) return { texto: "Aprobada · falta pedirla", tono: "aviso" };
+    if (l.tipo === "Repuesto") return { texto: "Aprobada · sin stock", tono: "aviso" };
+    if (l.tipo === "Producto digital") return { texto: "Aprobada · sin código libre", tono: "aviso" };
+    return { texto: "Aprobada · pendiente", tono: "aviso" };
   }
   if (l.estado === "Rechazada") return fueQuitadaPorLaTienda(l) ? { texto: "Quitada", tono: "peligro" } : { texto: "Rechazada", tono: "peligro" };
   return { texto: "Propuesta", tono: "neutro" };
 }
+
+// ─── Aprobado sin artículo (presupuesto único, fase 3b) ──────────────────────
+// Regla del dueño (27-sep): basta que el cliente apruebe para que la línea sume
+// al Resumen financiero — repuesto de stock o bajo pedido, servicio o digital.
+// El Resumen NUNCA espera a que el repuesto se pida, llegue o haya stock.
+//
+// Lo que ya tiene su cargo real (servicio registrado, código asignado, artículo
+// reservado o artículo del pedido) se cuenta por ese cargo. Aquí solo salen las
+// líneas aprobadas que TODAVÍA no lo tienen (valor interno "Aprobada"), con el
+// precio aprobado. Si el cargo ya apareció (p. ej. el pedido ya tiene su
+// artículo pero la línea no se puso al día), la línea NO se cuenta: nunca dos
+// veces lo mismo.
+//
+// La factura y el recibo esperan a que exista el artículo: mientras esta lista
+// no esté vacía, la pre-factura se bloquea (PRESUPUESTO_PENDIENTE).
+
+export type MotivoSinArticulo = "falta_pedir" | "sin_stock" | "sin_codigo" | "pendiente";
+
+export type AprobadoSinArticulo = {
+  lineaId: string;
+  descripcion: string;
+  tipo: TipoLinea;
+  monto: number;
+  motivo: MotivoSinArticulo;
+};
+
+export type CargosDeLaCuenta = {
+  servicios: ReadonlySet<string>;
+  digitales: ReadonlySet<string>;
+  /** Repuestos de stock reservados a la orden. */
+  itemsStock: ReadonlySet<string>;
+  /** Operaciones de la orden que YA tienen su artículo en Shipping. */
+  operacionesConArticulo: ReadonlySet<string>;
+};
+
+/** Lo mínimo de una línea que necesita la regla (Cobros la arma desde Airtable). */
+export type LineaParaCuenta = Pick<LineaPresupuesto,
+  "id" | "descripcion" | "tipo" | "estado" | "cantidad" | "precioUnitario" |
+  "operacionId" | "bajoPedido" | "itemId" | "cargoServicioId" | "cargoProductoDigitalId">;
+
+export function aprobadoSinArticulo(lineas: LineaParaCuenta[], c: CargosDeLaCuenta): AprobadoSinArticulo[] {
+  const out: AprobadoSinArticulo[] = [];
+  for (const l of lineas) {
+    if (l.estado !== "Aprobada") continue;
+    let yaTieneCargo = false;
+    let motivo: MotivoSinArticulo = "pendiente";
+    if (l.operacionId || l.bajoPedido) {
+      yaTieneCargo = !!l.operacionId && c.operacionesConArticulo.has(l.operacionId);
+      motivo = "falta_pedir";
+    } else if (l.tipo === "Repuesto") {
+      yaTieneCargo = !!l.itemId && c.itemsStock.has(l.itemId);
+      motivo = "sin_stock";
+    } else if (l.tipo === "Producto digital") {
+      yaTieneCargo = !!l.cargoProductoDigitalId && c.digitales.has(l.cargoProductoDigitalId);
+      motivo = "sin_codigo";
+    } else {
+      yaTieneCargo = !!l.cargoServicioId && c.servicios.has(l.cargoServicioId);
+    }
+    if (yaTieneCargo) continue;
+    out.push({ lineaId: l.id, descripcion: l.descripcion, tipo: l.tipo, monto: round2(l.cantidad * l.precioUnitario), motivo });
+  }
+  return out;
+}
+
+export const TEXTO_SIN_ARTICULO: Record<MotivoSinArticulo, string> = {
+  falta_pedir: "falta pedirlo",
+  sin_stock: "sin stock",
+  sin_codigo: "sin código libre",
+  pendiente: "pendiente",
+};

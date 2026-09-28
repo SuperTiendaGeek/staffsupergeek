@@ -4,6 +4,8 @@ import { crearRecibo, adjuntarPdfRecibo, listarRecibos } from "@/lib/facturacion
 import { descontarInventarioRecibo, registrarIngresoRecibo, marcarProductosDigitalesRecibo } from "@/lib/facturacion/recibos/efectos";
 import { actualizarEfectosRecibo } from "@/lib/facturacion/recibos/airtable";
 import { buscarDocumentoBloqueante } from "@/lib/facturacion/gancho/idempotencia";
+import { getCuentaUnificada } from "@/lib/cuenta-unificada";
+import { mensajeAprobadoSinArticulo, MENSAJE_NO_SE_PUDO_VERIFICAR } from "@/lib/facturacion/reglas/aprobadoSinArticulo";
 import { procesarPuenteRecibo } from "@/lib/finanzas/puentes/recibo";
 import { generarReciboPdf }          from "@/lib/facturacion/recibos/pdf";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
@@ -65,6 +67,16 @@ export async function POST(request: Request) {
         ? `una factura ${bloqueante.factura.estado} (${bloqueante.factura.numeroFactura || bloqueante.factura.claveAcceso})`
         : `un recibo ${bloqueante.recibo.estado} (${bloqueante.recibo.numero})`;
       return NextResponse.json({ success: false, error: `Esta ${etiqueta} ya tiene ${detalle}.` }, { status: 409 });
+    }
+    // Fase 3b: el recibo espera a que exista el artículo de todo lo aprobado.
+    const pendientesArticulo = await getCuentaUnificada(body.origen.tipo === "orden" ? { ordenId: body.origen.recordId } : { operacionId: body.origen.recordId })
+      .then((c) => mensajeAprobadoSinArticulo(c.aprobadoSinArticulo, "recibo"))
+      .catch((e) => {
+        console.error("[recibos POST] error verificando aprobado sin artículo:", e);
+        return MENSAJE_NO_SE_PUDO_VERIFICAR;
+      });
+    if (pendientesArticulo) {
+      return NextResponse.json({ success: false, error: pendientesArticulo }, { status: 409 });
     }
   }
 

@@ -155,8 +155,9 @@ assert(card.includes("/presupuesto/cargar") && card.includes("confirmar: true"),
 // ─── Lo que ve el técnico: "Cargada" ya no se muestra (27-sep) ─────────────
 {
   assert(estadoVisible(linea({ estado: "Cargada" })).texto === "Aprobada", "Cargada se muestra como \"Aprobada\" (ya suma al Resumen financiero)");
-  const sinStock = estadoVisible(linea({ estado: "Aprobada", operacionId: null }));
-  assert(sinStock.texto.startsWith("Aprobada") && sinStock.tono === "aviso", "aprobada que no se pudo cargar: sigue diciendo Aprobada, con aviso");
+  const sinStock = estadoVisible(linea({ estado: "Aprobada", operacionId: null, bajoPedido: false, tipo: "Repuesto" }));
+  assert(sinStock.texto === "Aprobada · sin stock" && sinStock.tono === "aviso", "repuesto aprobado sin stock: Aprobada con aviso de logística");
+  assert(!/no suma/.test(estadoVisible(linea({ estado: "Aprobada", operacionId: null, bajoPedido: false, tipo: "Servicio" })).texto), "fase 3b: ninguna etiqueta dice que no suma (todo lo aprobado suma)");
   assert(estadoVisible(linea({ estado: "Aprobada", operacionId: "recOP" })).texto === "Aprobada · falta pedirla", "bajo pedido sin pedir: aviso propio");
   assert(estadoVisible(linea({ estado: "Rechazada", notaCarga: `${NOTA_QUITADA}: x` })).texto === "Quitada", "quitada por la tienda se distingue de rechazada por el cliente");
   const tarjeta = fs.readFileSync(path.join("components", "tecnicos", "ordenes", "PresupuestoCard.tsx"), "utf8");

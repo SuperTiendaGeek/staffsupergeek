@@ -205,7 +205,7 @@ function BloqueoBanner({ resultado }: { resultado: Extract<ResultadoPreFactura, 
     return (
       <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">
         <p className="text-[#F0C75E] font-bold text-lg mb-2">No se puede emitir todavía</p>
-        <p className="text-[#A7A7A7] text-sm mb-3">El cliente aprobó estas líneas del presupuesto y aún no están cargadas a la orden:</p>
+        <p className="text-[#A7A7A7] text-sm mb-3">El cliente aprobó estas líneas y ya suman a la cuenta, pero todavía no tienen su artículo (repuesto por pedir o sin stock). La factura o el recibo esperan a que exista:</p>
         <ul className="flex flex-col gap-1">
           {(resultado.presupuestoPendiente ?? []).map((l) => <li key={l.id} className="text-sm text-[#F5F5F5]">{l.descripcion}</li>)}
         </ul>

@@ -1679,14 +1679,15 @@ function PreFacturaBloqueadaBanner({ resultado }: { resultado: Extract<Resultado
     );
   }
 
-  // Presupuesto aprobado con líneas que todavía no están en la cuenta.
+  // Presupuesto aprobado con líneas que todavía no tienen su artículo.
   if (resultado.motivo === "PRESUPUESTO_PENDIENTE") {
     return (
       <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">
         <p className="text-[#F0C75E] font-bold text-lg mb-2">No se puede facturar todavía</p>
         <p className="text-[#A7A7A7] text-sm mb-3">
-          El cliente aprobó estas líneas del presupuesto y aún no están cargadas a la orden. Cárgalas (o cancélalas)
-          en la tarjeta Presupuesto de la orden:
+          El cliente aprobó estas líneas y ya suman a la cuenta, pero todavía no tienen su artículo (repuesto por
+          pedir o sin stock). Cuando exista el artículo se podrá facturar; si el cliente desistió, quítalas en la
+          tarjeta Presupuesto de la orden:
         </p>
         <ul className="flex flex-col gap-1">
           {(resultado.presupuestoPendiente ?? []).map((l) => (

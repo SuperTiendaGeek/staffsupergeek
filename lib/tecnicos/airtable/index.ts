@@ -1858,7 +1858,10 @@ const fetchRecordsByIds = async (
   url.searchParams.set("filterByFormula", formula);
   url.searchParams.set("pageSize", "100");
   const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
-  if (!res.ok) return [];
+  // Antes devolvía [] ante cualquier error: un 429/503 al leer los abonos hacía
+  // que la cuenta los diera por inexistentes (saldo inflado, y la factura/recibo
+  // se armaban con esa cuenta parcial). Solo la usa fetchAbonosPorOrden.
+  if (!res.ok) throw new Error(`Airtable error ${res.status} al leer ${tableName} (${ids.length} ids)`);
   const data = (await res.json()) as { records?: AirtableGenericRecord[] };
   return data.records ?? [];
 };

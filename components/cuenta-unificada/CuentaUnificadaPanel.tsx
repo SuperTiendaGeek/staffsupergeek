@@ -102,6 +102,14 @@ export function CuentaUnificadaPanel({
         {cuenta.servicios.map((s) => (
           <LedgerRow key={s.id} label={s.nombre} origen="Servicio" value={formatCurrency(s.costo)} />
         ))}
+        {(cuenta.aprobadoSinArticulo ?? []).map((p) => (
+          <LedgerRow
+            key={p.id}
+            label={p.nombre}
+            origen={`Aprobado · ${p.motivo === "falta_pedir" ? "falta pedirlo" : p.motivo === "sin_stock" ? "sin stock" : p.motivo === "sin_codigo" ? "sin código libre" : "pendiente"}`}
+            value={formatCurrency(p.monto)}
+          />
+        ))}
         {cuenta.totalProductosDigitales > 0 && (
           <LedgerRow
             label="Productos digitales"
@@ -111,6 +119,7 @@ export function CuentaUnificadaPanel({
         )}
         {cuenta.items.length === 0 &&
           cuenta.servicios.length === 0 &&
+          (cuenta.aprobadoSinArticulo ?? []).length === 0 &&
           !(cuenta.repuestosHistoricosCuentanParaTotal && cuenta.repuestosHistoricos.length > 0) &&
           cuenta.totalProductosDigitales === 0 && (
             <p style={{ color: "#A7A7A7", fontSize: "13px", padding: "8px 0" }}>Sin cargos registrados.</p>

@@ -20,7 +20,43 @@
 // factura exige que sus formas de pago sumen el total (reglas/pagos.ts), y el
 // recibo registra el saldo al emitirse.
 
+import { aprobadoSinArticulo, type LineaParaCuenta } from "../presupuesto/reglas";
+
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+// ─── Lo aprobado sin artículo de una orden (fase 3b) ─────────────────────────
+// MISMA regla que el Resumen financiero (aprobadoSinArticulo en
+// presupuesto/reglas.ts): una línea aprobada cuyo cargo real ya está en la
+// orden NO se suma otra vez. Antes Cobros solo reconocía el pedido con
+// artículo y duplicaba, p. ej., un servicio ya cobrado cuya línea seguía
+// "Aprobada" ($25 → $50; revisión de Claude Code).
+//
+//  · servicio: si la línea apunta a su Servicio por Orden, ese registro existe
+//    (Airtable vacía el vínculo cuando se borra el registro) → ya está cobrado.
+//  · digital / repuesto de stock: cuenta solo si el código / artículo está
+//    vinculado a ESTA orden.
+//  · pedido: si su operación ya tiene artículo.
+export function comprometidoDeOrden(
+  ordenId: string,
+  lineas: LineaParaCuenta[],
+  ctx: {
+    /** artículo → órdenes a las que está reservado ("Orden de Reparación (Stock)"). */
+    ordenesDeItem: ReadonlyMap<string, readonly string[]>;
+    /** código digital → órdenes a las que está asignado. */
+    ordenesDeDigital: ReadonlyMap<string, readonly string[]>;
+    operacionesConArticulo: ReadonlySet<string>;
+  },
+): number {
+  const deEstaOrden = (m: ReadonlyMap<string, readonly string[]>) =>
+    new Set([...m].filter(([, ords]) => ords.includes(ordenId)).map(([id]) => id));
+  const pendientes = aprobadoSinArticulo(lineas, {
+    servicios: new Set(lineas.map((l) => l.cargoServicioId).filter((x): x is string => !!x)),
+    digitales: deEstaOrden(ctx.ordenesDeDigital),
+    itemsStock: deEstaOrden(ctx.ordenesDeItem),
+    operacionesConArticulo: ctx.operacionesConArticulo,
+  });
+  return round2(pendientes.reduce((s, p) => s + p.monto, 0));
+}
 const TOLERANCIA = 0.01;
 
 export const ESTADO_ENTREGADA = "Finalizado Entregado";
@@ -106,7 +142,9 @@ export function documentoEmitido(facturas: DocumentoOrigen[], recibos: Documento
 }
 
 export function clasificarOrden(o: OrdenCobroInput): OrdenCobro {
-  const totalCuenta  = round2(o.totalCuenta || 0);
+  // Fase 3b (regla del dueño): lo aprobado sin artículo suma al total desde la
+  // aprobación, igual que en el Resumen financiero de la orden.
+  const totalCuenta  = round2((o.totalCuenta || 0) + (o.comprometidoPresupuesto ?? 0));
   const totalAbonado = round2(o.abonos.filter((a) => a.estado !== "Anulado").reduce((s, a) => s + (a.monto || 0), 0));
   const saldo        = round2(totalCuenta - totalAbonado);
   const conCargos    = totalCuenta > TOLERANCIA;
@@ -195,7 +233,7 @@ export const CATEGORIAS: Record<CategoriaCobro, { titulo: string; ayuda: string;
   abonos_sin_respaldo: {
     titulo: "Abonos sin cargos o de más",
     ayuda: "Lo abonado supera lo cargado: falta cargar el trabajo, o hay que devolver o reasignar dinero.",
-    pertenece: (o) => o.totalAbonado > o.totalCuenta + o.comprometido + TOLERANCIA,
+    pertenece: (o) => o.totalAbonado > o.totalCuenta + TOLERANCIA, // totalCuenta ya incluye lo comprometido (3b)
   },
   presupuesto_sin_respuesta: {
     titulo: "Presupuestos sin respuesta",
@@ -220,7 +258,7 @@ export function resumirCobros(ordenes: OrdenCobro[]): ResumenCobros {
     const monto = clave.startsWith("por_cobrar") || clave === "entregadas_por_cobrar"
       ? miembros.reduce((s, o) => s + o.porCobrar, 0)
       : clave === "abonos_sin_respaldo"
-      ? miembros.reduce((s, o) => s + (o.totalAbonado - o.totalCuenta - o.comprometido), 0)
+      ? miembros.reduce((s, o) => s + (o.totalAbonado - o.totalCuenta), 0)
       : miembros.reduce((s, o) => s + o.totalCuenta, 0);
     categorias[clave] = { cantidad: miembros.length, monto: round2(monto) };
   }

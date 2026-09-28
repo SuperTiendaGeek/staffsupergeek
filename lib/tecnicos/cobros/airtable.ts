@@ -23,8 +23,8 @@ import "server-only";
 // campos inversos y se busca por RECORD_ID().
 
 import { loadAirtableEnv } from "../config/airtable";
-import { clasificarOrden, type DocumentoOrigen, type OrdenCobro } from "./reglas";
-import { estadoPresupuesto } from "../presupuesto/reglas";
+import { clasificarOrden, comprometidoDeOrden, type DocumentoOrigen, type OrdenCobro } from "./reglas";
+import { estadoPresupuesto, type LineaParaCuenta, type TipoLinea, type EstadoLinea } from "../presupuesto/reglas";
 
 type Registro = { id: string; fields: Record<string, unknown> };
 
@@ -114,7 +114,7 @@ export async function cargarOrdenesCobro(filtro: FiltroCobros = {}): Promise<Ord
     "Facturas Electrónicas", "Recibos", T_PRESUPUESTO,
   ], formula);
 
-  const operaciones = await porIds(T_OPERACIONES, ordenes.flatMap((o) => ids(o.fields["Operaciones Comerciales"])), ["Abonos"]);
+  const operaciones = await porIds(T_OPERACIONES, ordenes.flatMap((o) => ids(o.fields["Operaciones Comerciales"])), ["Abonos", "Artículo físico"]);
 
   const abonoIdsPorOrden = new Map<string, string[]>();
   for (const o of ordenes) {
@@ -129,8 +129,37 @@ export async function cargarOrdenesCobro(filtro: FiltroCobros = {}): Promise<Ord
     porIds(T_ABONOS, [...abonoIdsPorOrden.values()].flat(), ["Monto", "Estado del Abono"]),
     porIds(T_FACTURAS, ordenes.flatMap((o) => ids(o.fields["Facturas Electrónicas"])), ["Número de Factura", "Estado"]),
     porIds(T_RECIBOS, ordenes.flatMap((o) => ids(o.fields["Recibos"])), ["Número", "Estado"]),
-    porIds(T_PRESUPUESTO, ordenes.flatMap((o) => ids(o.fields[T_PRESUPUESTO])), ["Estado", "Precio unitario", "Cantidad"]),
+    porIds(T_PRESUPUESTO, ordenes.flatMap((o) => ids(o.fields[T_PRESUPUESTO])), [
+      "Estado", "Tipo", "Descripción", "Precio unitario", "Cantidad", "Operación Comercial", "Bajo pedido",
+      "Artículo de inventario", "Cargo: Servicio por Orden", "Cargo: Producto digital",
+    ]),
   ]);
+
+  // Para lo aprobado sin artículo (fase 3b): a qué orden está reservado cada
+  // artículo y asignado cada código de las líneas aprobadas. Solo de esas.
+  const aprobadas = [...lineasPresupuesto.values()].filter((l) => texto(l.fields["Estado"]) === "Aprobada");
+  const [itemsAprobados, digitalesAprobados] = await Promise.all([
+    porIds("Shipping Items", aprobadas.flatMap((l) => ids(l.fields["Artículo de inventario"])), ["Orden de Reparación (Stock)"]),
+    porIds("Productos Digitales", aprobadas.flatMap((l) => ids(l.fields["Cargo: Producto digital"])), ["Orden de Reparación"]),
+  ]);
+  const ctxComprometido = {
+    ordenesDeItem: new Map([...itemsAprobados].map(([id, r]) => [id, ids(r.fields["Orden de Reparación (Stock)"])])),
+    ordenesDeDigital: new Map([...digitalesAprobados].map(([id, r]) => [id, ids(r.fields["Orden de Reparación"])])),
+    operacionesConArticulo: new Set([...operaciones].filter(([, r]) => ids(r.fields["Artículo físico"]).length > 0).map(([id]) => id)),
+  };
+  const lineaParaCuenta = (r: Registro): LineaParaCuenta => ({
+    id: r.id,
+    descripcion: texto(r.fields["Descripción"]),
+    tipo: (texto(r.fields["Tipo"]) || "Servicio") as TipoLinea,
+    estado: (texto(r.fields["Estado"]) || "Propuesta") as EstadoLinea,
+    cantidad: numero(r.fields["Cantidad"]) || 1,
+    precioUnitario: numero(r.fields["Precio unitario"]),
+    operacionId: ids(r.fields["Operación Comercial"])[0] ?? null,
+    bajoPedido: r.fields["Bajo pedido"] === true || ids(r.fields["Operación Comercial"]).length > 0,
+    itemId: ids(r.fields["Artículo de inventario"])[0] ?? null,
+    cargoServicioId: ids(r.fields["Cargo: Servicio por Orden"])[0] ?? null,
+    cargoProductoDigitalId: ids(r.fields["Cargo: Producto digital"])[0] ?? null,
+  });
 
   const docFactura = (id: string): DocumentoOrigen | null => {
     const r = facturas.get(id);
@@ -162,10 +191,13 @@ export async function cargarOrdenesCobro(filtro: FiltroCobros = {}): Promise<Ord
           .filter((l): l is Registro => !!l)
           .map((l) => ({ estado: (texto(l.fields["Estado"]) || "Propuesta") as "Propuesta" | "Aprobada" | "Cargada" | "Rechazada" }))
       ),
-      comprometidoPresupuesto: ids(o.fields[T_PRESUPUESTO])
-        .map((id) => lineasPresupuesto.get(id))
-        .filter((l): l is Registro => !!l && texto(l.fields["Estado"]) === "Aprobada")
-        .reduce((s, l) => s + numero(l.fields["Precio unitario"]) * (numero(l.fields["Cantidad"]) || 1), 0),
+      // Aprobado sin artículo (fase 3b: suma al total), con la MISMA regla que
+      // el Resumen financiero: lo que ya tiene su cargo real no se suma otra vez.
+      comprometidoPresupuesto: comprometidoDeOrden(
+        o.id,
+        ids(o.fields[T_PRESUPUESTO]).map((id) => lineasPresupuesto.get(id)).filter((l): l is Registro => !!l).map(lineaParaCuenta),
+        ctxComprometido,
+      ),
     }))
     .sort((a, b) => b.fechaIngreso.localeCompare(a.fechaIngreso));
 }
