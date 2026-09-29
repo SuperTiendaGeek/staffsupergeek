@@ -56,6 +56,7 @@ import { SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_FIELD
 import { getShippingV2FacebookPublicationBlockReason, getShippingV2FacebookTextGenerationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
 import { validarReglaDistribucion } from "@/lib/shipping-v2/packing-costos";
+import { calcularRepartoPacking, type ResultadoReparto } from "@/lib/shipping-v2/packing-reparto";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
 import {
   isPositiveShippingV2Price,
@@ -714,6 +715,9 @@ function sanitizeShippingV2ItemForAccess(item: ShippingV2Item, access?: Shipping
     costoAsignadoDespiece: null,
     costoLogisticoAsignado: null,
     costoTotalUnidad: null,
+    fleteAsignadoRegistro: null,
+    arancelAsignadoRegistro: null,
+    otrosCostosAsignadosRegistro: null,
     costoTotalEstimado: null,
     precioVentaSugerido: null,
     precioVenta: null,
@@ -1406,6 +1410,10 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     costoAsignadoDespiece: firstNumber(f["Costo asignado por despiece"] ?? f["Costo Asignado Despiece"]),
     costoLogisticoAsignado: firstNumber(f[F.costoLogisticoAsignado] ?? f["Costo logístico asignado"] ?? f["Costo logistico asignado"] ?? f["Costo Logistico Asignado"]),
     costoTotalUnidad: firstNumber(f[F.costoTotalUnidad]),
+    unidadesEnPacking: firstNumber(f[F.unidadesEnPacking]),
+    fleteAsignadoRegistro: firstNumber(f[F.fleteAsignadoRegistro]),
+    arancelAsignadoRegistro: firstNumber(f[F.arancelAsignadoRegistro]),
+    otrosCostosAsignadosRegistro: firstNumber(f[F.otrosCostosAsignadosRegistro]),
     costoTotalEstimado: firstNumber(f["Costo total estimado"] ?? f["Costo Total Estimado"]),
     precioVentaSugerido: firstNumber(f[F.precioVentaSugerido]),
     precioVenta: firstNumber(f[F.precioVentaFinal]),
@@ -2772,7 +2780,11 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
   const updated = response.records?.[0];
   if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
 
-  const item = mapItem(updated);
+  let item = mapItem(updated);
+  if (existing.packingId && ITEM_FIELDS_QUE_MUEVEN_REPARTO.has(field)) {
+    const reparto = await repartirCostosPackingTrasCambio(existing.packingId, options.actualizadoPor, `Cambio de "${config.label}" en ${item.sku}.`);
+    if (reparto?.estado === "aplicado") item = await releerItemRecord(id);
+  }
   const visibleItem = sanitizeShippingV2ItemForAccess(item, options.access);
   if (shouldLogShippingV2ItemFieldEvent(config)) {
     // Las correcciones que solo puede hacer administración se marcan como tales
@@ -3122,7 +3134,7 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   const updated = response.records?.[0];
   if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
 
-  const item = mapItem(updated);
+  let item = mapItem(updated);
   await createShippingV2Event({
     action: "Actualizado",
     itemRecordId: item.id,
@@ -3130,6 +3142,16 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
     registradoPor: options.actualizadoPor,
     descripcion: `Item ${item.sku} actualizado desde Portal Staff.`,
   });
+
+  if (
+    existing.packingId &&
+    (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) ||
+      nullableNumberChanged(normalizedInput.costoProveedor, existing.costoProveedor) ||
+      item.esRegalo !== existing.esRegalo)
+  ) {
+    const reparto = await repartirCostosPackingTrasCambio(existing.packingId, options.actualizadoPor, `Cambio de cantidad/costo en ${item.sku}.`);
+    if (reparto?.estado === "aplicado") item = await releerItemRecord(id);
+  }
 
   invalidateShippingV2ItemSearchIndexCache();
   return item;
@@ -4337,6 +4359,9 @@ export async function updateShippingV2Packing(recordId: string, input: ShippingV
     registradoPor: options.actualizadoPor,
     descripcion: `Packing ${packing.packingId} actualizado desde Portal Staff.`,
   });
+  if (COSTOS_PACKING_INPUT_KEYS.some((key) => hasOwnInput(input, key))) {
+    await repartirCostosPackingTrasCambio(id, options.actualizadoPor, "Cambio de costos o regla del packing.");
+  }
   return getShippingV2PackingById(id, options.access, { includeAiName: false });
 }
 
@@ -4453,6 +4478,7 @@ export async function addItemsToShippingV2Packing(packingId: string, itemIds: st
     registradoPor: options.registradoPor,
     descripcion: `${uniqueItemIds.length} item(s) agregado(s) al packing.`,
   });
+  await repartirCostosPackingTrasCambio(id, options.registradoPor, "Items agregados al packing.");
   return {
     packing: {
       id,
@@ -4509,6 +4535,11 @@ export async function removeItemFromShippingV2Packing(packingId: string, itemId:
           [SHIPPING_V2_ITEM_FIELDS.modoLogistico]: "Pendiente de packing",
           [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
           [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
+          // Fuera del packing ya no carga flete/arancel/otros de esa caja.
+          [SHIPPING_V2_ITEM_FIELDS.unidadesEnPacking]: null,
+          [SHIPPING_V2_ITEM_FIELDS.fleteAsignadoRegistro]: null,
+          [SHIPPING_V2_ITEM_FIELDS.arancelAsignadoRegistro]: null,
+          [SHIPPING_V2_ITEM_FIELDS.otrosCostosAsignadosRegistro]: null,
         },
       }],
     }),
@@ -4521,6 +4552,7 @@ export async function removeItemFromShippingV2Packing(packingId: string, itemId:
     registradoPor: options.registradoPor,
     descripcion: "Item removido del packing.",
   });
+  await repartirCostosPackingTrasCambio(id, options.registradoPor, "Item removido del packing.");
   return {
     packing: {
       id,
@@ -4535,6 +4567,181 @@ export async function removeItemFromShippingV2Packing(packingId: string, itemId:
       packingId: "",
     },
   };
+}
+
+// ─── Reparto de costos del packing (flete, arancel, otros) ───────────────────
+//
+// El cálculo vive en packing-reparto.ts (puro, con pruebas). Aquí solo se lee
+// el packing, se llama a calcularRepartoPacking() y se guardan en cada Item el
+// monto de su REGISTRO y sus "Unidades en packing". Las fórmulas de Airtable
+// ("Costo flete asignado" y hermanas) dividen ese monto entre las unidades, de
+// modo que Airtable y el portal muestran el mismo número.
+
+export type ShippingV2RecalculoCostosPacking =
+  | {
+      estado: "aplicado" | "vista-previa" | "sin-cambios";
+      packingRecordId: string;
+      packingId: string;
+      reparto: Extract<ResultadoReparto, { ok: true }>;
+      /** Registros cuyo valor guardado cambia (o cambiaría en vista previa). */
+      cambios: Array<{
+        id: string;
+        sku: string;
+        antes: { unidades: number | null; flete: number | null; arancel: number | null; otros: number | null; fletePorUnidad: number | null; totalUnidad: number | null };
+        despues: { unidades: number; flete: number; arancel: number; otros: number; fletePorUnidad: number; totalUnidad: number };
+      }>;
+    }
+  | { estado: "omitido"; packingRecordId: string; packingId: string; motivo: string };
+
+const enCentavos = (valor: number | null | undefined) => (typeof valor === "number" && Number.isFinite(valor) ? Math.round(valor * 100) : null);
+
+export async function recalcularCostosShippingV2Packing(
+  packingRecordId: string,
+  options: { registradoPor: string; vistaPrevia?: boolean; access?: ShippingV2AccessContext; motivo?: string }
+): Promise<ShippingV2RecalculoCostosPacking> {
+  assertShippingV2GeneratedSchema();
+  const id = cleanString(packingRecordId);
+  if (!id) throw new Error("Record ID de packing inválido.");
+  // Valida acceso con el contexto de quien llama, pero los items se leen SIN
+  // sanear: el reparto necesita el costo proveedor real aunque quien dispara
+  // el recálculo no pueda verlo.
+  const packing = await getShippingV2PackingById(id, options.access, { includeItems: false, includeAiName: false });
+  const records = await listRecordsByIds(SHIPPING_V2_TABLES.items, packing.itemIds);
+  const items = records.map((record) => mapItem(record, { includeAiName: false }));
+
+  const reparto = calcularRepartoPacking(
+    {
+      estado: packing.estado,
+      regla: packing.reglaDistribucionCostos,
+      flete: packing.flete,
+      arancel: packing.arancel,
+      otrosCostos: packing.otrosCostos,
+    },
+    items.map((item) => ({
+      id: item.id,
+      sku: item.sku,
+      cantidad: item.cantidad,
+      unidadesEnPacking: item.unidadesEnPacking,
+      costoProveedor: item.costoProveedor,
+      esRegalo: item.esRegalo,
+    }))
+  );
+  if (!reparto.ok) {
+    return { estado: "omitido", packingRecordId: id, packingId: packing.packingId, motivo: reparto.motivo };
+  }
+
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  const cambios = reparto.registros
+    .map((registro) => {
+      const item = itemsById.get(registro.id)!;
+      const igual =
+        item.unidadesEnPacking === registro.unidades &&
+        enCentavos(item.fleteAsignadoRegistro) === enCentavos(registro.fleteRegistro) &&
+        enCentavos(item.arancelAsignadoRegistro) === enCentavos(registro.arancelRegistro) &&
+        enCentavos(item.otrosCostosAsignadosRegistro) === enCentavos(registro.otrosRegistro);
+      if (igual) return null;
+      return {
+        id: registro.id,
+        sku: registro.sku,
+        antes: {
+          unidades: item.unidadesEnPacking,
+          flete: item.fleteAsignadoRegistro,
+          arancel: item.arancelAsignadoRegistro,
+          otros: item.otrosCostosAsignadosRegistro,
+          fletePorUnidad: item.costoFleteAsignado,
+          totalUnidad: item.costoTotalUnidad,
+        },
+        despues: {
+          unidades: registro.unidades,
+          flete: registro.fleteRegistro,
+          arancel: registro.arancelRegistro,
+          otros: registro.otrosRegistro,
+          fletePorUnidad: registro.fletePorUnidad,
+          totalUnidad: registro.totalUnidad,
+        },
+      };
+    })
+    .filter((cambio): cambio is NonNullable<typeof cambio> => cambio !== null);
+
+  const base = { packingRecordId: id, packingId: packing.packingId, reparto, cambios };
+  if (options.vistaPrevia) return { estado: "vista-previa", ...base };
+  if (!cambios.length) return { estado: "sin-cambios", ...base };
+
+  await patchAirtableRecords(SHIPPING_V2_TABLES.items, cambios.map((cambio) => ({
+    id: cambio.id,
+    fields: {
+      [SHIPPING_V2_ITEM_FIELDS.unidadesEnPacking]: cambio.despues.unidades,
+      [SHIPPING_V2_ITEM_FIELDS.fleteAsignadoRegistro]: cambio.despues.flete,
+      [SHIPPING_V2_ITEM_FIELDS.arancelAsignadoRegistro]: cambio.despues.arancel,
+      [SHIPPING_V2_ITEM_FIELDS.otrosCostosAsignadosRegistro]: cambio.despues.otros,
+    },
+  })));
+
+  const t = reparto.totales;
+  await createShippingV2Event({
+    action: "Actualizado",
+    entity: "Shipping Packing",
+    packingRecordId: id,
+    registradoPor: options.registradoPor,
+    descripcion:
+      `Costos del packing repartidos (${packing.reglaDistribucionCostos || "sin regla"}) en ${cambios.length} registro(s): ` +
+      `flete ${formatMoneyForEvent(t.flete)}, arancel ${formatMoneyForEvent(t.arancel)}, otros ${formatMoneyForEvent(t.otros)} ` +
+      `sobre ${t.unidades} unidad(es) y subtotal proveedor ${formatMoneyForEvent(t.subtotalProveedor)}.`,
+    observacion: [options.motivo, ...reparto.advertencias].filter(Boolean).join(" ") || undefined,
+  });
+  invalidateShippingV2ItemSearchIndexCache();
+  return { estado: "aplicado", ...base };
+}
+
+function formatMoneyForEvent(valor: number) {
+  return `$${valor.toFixed(2)}`;
+}
+
+/**
+ * Recalcula después de una escritura que ya se hizo (editar flete, agregar o
+ * quitar items, cambiar costo o cantidad). No lanza: la escritura original ya
+ * quedó guardada y deshacerla sería peor. Si el reparto no se puede hacer o
+ * falla, queda registrado para revisión.
+ */
+async function repartirCostosPackingTrasCambio(packingRecordId: string, registradoPor: string, motivo: string) {
+  try {
+    const resultado = await recalcularCostosShippingV2Packing(packingRecordId, {
+      registradoPor,
+      access: systemShippingV2Access(),
+      motivo,
+    });
+    if (resultado.estado === "omitido") {
+      console.warn("[Shipping V2 reparto costos] omitido", { packingRecordId, motivo: resultado.motivo });
+    }
+    return resultado;
+  } catch (error) {
+    console.error("[Shipping V2 reparto costos] error", { packingRecordId, error });
+    await createShippingV2Event({
+      action: "Otro",
+      entity: "Shipping Packing",
+      packingRecordId,
+      registradoPor,
+      descripcion: "No se pudieron repartir los costos del packing. Revisa flete/arancel/otros de sus artículos.",
+      observacion: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+const COSTOS_PACKING_INPUT_KEYS = ["flete", "arancel", "otrosCostos", "reglaDistribucionCostos"] as const;
+
+/** Campos del item cuyo cambio mueve el reparto de su packing. */
+const ITEM_FIELDS_QUE_MUEVEN_REPARTO: ReadonlySet<string> = new Set([
+  SHIPPING_V2_ITEM_FIELDS.cantidad,
+  SHIPPING_V2_ITEM_FIELDS.costoProveedor,
+  SHIPPING_V2_ITEM_FIELDS.esRegalo,
+  SHIPPING_V2_ITEM_FIELDS.tipoOperacion,
+]);
+
+/** Vuelve a leer el item para devolver los costos por unidad ya recalculados. */
+async function releerItemRecord(recordId: string) {
+  const record = await airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(recordId)}`);
+  return mapItem(record);
 }
 
 export async function closeShippingV2Packing(packingId: string, options: { cerradoPor: string; access?: ShippingV2AccessContext }) {
@@ -5383,6 +5590,10 @@ export async function transitionShippingV2PackingStatus(
 
   if (input.action === "mark-received") {
     if (currentStatus !== "en transito") throw new Error("Solo puedes marcar recibido un packing en tránsito.");
+    // Último momento en que "Cantidad" todavía es lo que viajó: se guardan
+    // las "Unidades en packing" y el reparto antes de que el packing pase a
+    // Recibido y las ventas empiecen a bajar el stock.
+    await repartirCostosPackingTrasCambio(id, input.actor, "Unidades fijadas al recibir el packing.");
     const planRecibido = await updatePackingItemsForStatus(packing, "Recibido", {
       [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Recibido",
       [SHIPPING_V2_ITEM_FIELDS.estadoRevision]: "Pendiente de recepción",

@@ -296,6 +296,16 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   costoAsignadoDespiece: number | null;
   costoLogisticoAsignado: number | null;
   costoTotalUnidad: number | null;
+  /**
+   * Reparto de costos del packing guardado por el portal (packing-reparto.ts).
+   * Montos del REGISTRO completo (todas sus unidades); los campos
+   * costoFleteAsignado/costoArancelAsignado/otrosCostosAsignados son POR UNIDAD.
+   * null = el packing aún usa las fórmulas heredadas de Airtable.
+   */
+  unidadesEnPacking: number | null;
+  fleteAsignadoRegistro: number | null;
+  arancelAsignadoRegistro: number | null;
+  otrosCostosAsignadosRegistro: number | null;
   costoTotalEstimado: number | null;
   subtotalProveedorPacking?: number | null;
   /** Packings que el sistema cerró solo al guardar esta casilla. Solo de respuesta. */

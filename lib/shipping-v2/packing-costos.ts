@@ -3,7 +3,12 @@
 //
 // ─── Por qué existe este archivo ─────────────────────────────────────────────
 //
-// El reparto NO se calcula aquí: lo hacen tres fórmulas de Airtable en Shipping
+// NOTA (sept-2026): el reparto ahora lo calcula el portal en
+// packing-reparto.ts y lo guarda en cada Item; las fórmulas de abajo quedan
+// solo como respaldo para packings recibidos antes de ese cambio. Este archivo
+// sigue validando qué reglas se pueden elegir.
+//
+// El reparto NO se calcula aquí: lo hacían tres fórmulas de Airtable en Shipping
 // Items ("Costo flete asignado", "Costo arancel asignado", "Otros costos
 // asignados"). Cada una decide leyendo el nombre de la regla del packing:
 //

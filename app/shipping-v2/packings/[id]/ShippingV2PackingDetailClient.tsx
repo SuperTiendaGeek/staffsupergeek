@@ -130,10 +130,22 @@ function ProviderCostRows({ item, includeAssignedCosts = false }: { item: Shippi
     },
     ...(item.esRegalo ? [{ label: "Regalo", value: "No suma" }] : []),
     ...(includeAssignedCosts ? [
-      { label: "Flete", value: formatCurrencyZero(item.costoFleteAsignado) },
-      { label: "Arancel", value: formatCurrencyZero(item.costoArancelAsignado) },
-      { label: "Otros", value: formatCurrencyZero(item.otrosCostosAsignados) },
-      { label: "Logístico", value: formatCurrencyZero(item.costoLogisticoAsignado) },
+      // Monto del registro completo (todas sus unidades) y su valor por
+      // unidad. Los del registro solo existen cuando el portal ya repartió el
+      // packing (lib/shipping-v2/packing-reparto.ts).
+      ...(item.unidadesEnPacking !== null ? [
+        { label: "Flete asignado (registro)", value: formatCurrencyZero(item.fleteAsignadoRegistro) },
+      ] : []),
+      { label: "Flete por unidad", value: formatCurrencyZero(item.costoFleteAsignado) },
+      ...(item.unidadesEnPacking !== null && item.arancelAsignadoRegistro ? [
+        { label: "Arancel asignado (registro)", value: formatCurrencyZero(item.arancelAsignadoRegistro) },
+      ] : []),
+      { label: "Arancel por unidad", value: formatCurrencyZero(item.costoArancelAsignado) },
+      ...(item.unidadesEnPacking !== null && item.otrosCostosAsignadosRegistro ? [
+        { label: "Otros (registro)", value: formatCurrencyZero(item.otrosCostosAsignadosRegistro) },
+      ] : []),
+      { label: "Otros por unidad", value: formatCurrencyZero(item.otrosCostosAsignados) },
+      { label: "Logístico por unidad", value: formatCurrencyZero(item.costoLogisticoAsignado) },
       { label: "Total unidad", value: formatCurrencyZero(item.costoTotalUnidad), accent: true },
     ] : []),
   ];

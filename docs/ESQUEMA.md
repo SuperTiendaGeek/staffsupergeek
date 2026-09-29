@@ -62,9 +62,24 @@ una vista, no son la fuente de verdad:
 | `Shipping Items."Total Cubierto"` / `"Saldo Item"` | Repartían el abono completo de la operación a cada artículo, sin prorratear |
 | `Operación Comercial."Total Cotizado"` / `"Saldo Pendiente"` | El campo era manual y se quedó sin escritor; el total se deriva de la opción elegida |
 | `Órdenes."Abonos"` → `Abonos por Orden` | Espejo pre-migración; el total sale de la tabla `Abonos` |
+| `Shipping Packings."Costo Total Items Proveedor"` / `Shipping Items."Total costo proveedor Packing"` | Suman el costo UNITARIO de cada registro, sin multiplicar por la cantidad. Solo los usa la fórmula heredada de reparto de packings ya recibidos antes de sept-2026. El subtotal real lo calcula `lib/shipping-v2/packing-reparto.ts` |
 
 ## Campos calculados que el código SÍ usa
 
 `Órdenes."Total a Pagar NV"` y `"Saldo NV"` deben coincidir siempre con lo que
 muestran las pantallas. Si no coinciden, algo se rompió. Su fórmula está
 documentada en `AUDITORIA_INTEGRAL_ITEMS_ORDENES_COTIZACIONES.md`.
+
+### Reparto de costos de packing (flete, arancel, otros)
+
+Lo calcula el portal (`lib/shipping-v2/packing-reparto.ts`) y lo guarda en
+Shipping Items: `"Unidades en packing"`, `"Flete asignado registro"`,
+`"Arancel asignado registro"` y `"Otros costos asignados registro"` (montos
+del registro completo, que cuadran al centavo con el packing). Las fórmulas
+`"Costo flete asignado"`, `"Costo arancel asignado"` y `"Otros costos
+asignados"` son **por unidad** (= monto del registro ÷ unidades) y alimentan
+`"Costo logístico asignado"` y `"Costo total unidad"`. Si `"Unidades en
+packing"` está vacío, esas fórmulas caen a la regla heredada (packings
+recibidos antes de sept-2026). No editar los montos guardados a mano: se
+recalculan al cambiar flete/arancel/otros/regla, al agregar o quitar items y
+al recibir el packing.

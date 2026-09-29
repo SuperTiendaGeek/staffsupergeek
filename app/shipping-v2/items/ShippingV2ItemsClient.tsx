@@ -1668,10 +1668,19 @@ export function ShippingV2ItemDetailView({
       accent: "lime",
       rows: [
         { label: C.costoProveedor.label, value: item.costoProveedor, displayValue: formatCurrency(item.costoProveedor), config: C.costoProveedor },
-        { label: "Costo flete asignado", value: item.costoFleteAsignado, displayValue: formatCurrency(item.costoFleteAsignado), readOnly: true },
-        { label: "Costo arancel asignado", value: item.costoArancelAsignado, displayValue: formatCurrency(item.costoArancelAsignado), readOnly: true },
-        { label: "Otros costos asignados", value: item.otrosCostosAsignados, displayValue: formatCurrency(item.otrosCostosAsignados), readOnly: true },
-        { label: "Costo logístico asignado", value: item.costoLogisticoAsignado, displayValue: formatCurrency(item.costoLogisticoAsignado), readOnly: true },
+        // Montos del REGISTRO (todas sus unidades), guardados por el portal al
+        // repartir el packing. Solo existen cuando el packing ya se repartió
+        // con la regla nueva (lib/shipping-v2/packing-reparto.ts).
+        ...(item.unidadesEnPacking !== null ? [
+          { label: "Unidades en packing", value: item.unidadesEnPacking, displayValue: String(item.unidadesEnPacking), readOnly: true },
+          { label: "Flete asignado al registro", value: item.fleteAsignadoRegistro, displayValue: formatCurrency(item.fleteAsignadoRegistro), readOnly: true },
+          { label: "Arancel asignado al registro", value: item.arancelAsignadoRegistro, displayValue: formatCurrency(item.arancelAsignadoRegistro), readOnly: true },
+          { label: "Otros costos asignados al registro", value: item.otrosCostosAsignadosRegistro, displayValue: formatCurrency(item.otrosCostosAsignadosRegistro), readOnly: true },
+        ] : []),
+        { label: "Flete por unidad", value: item.costoFleteAsignado, displayValue: formatCurrency(item.costoFleteAsignado), readOnly: true },
+        { label: "Arancel por unidad", value: item.costoArancelAsignado, displayValue: formatCurrency(item.costoArancelAsignado), readOnly: true },
+        { label: "Otros costos por unidad", value: item.otrosCostosAsignados, displayValue: formatCurrency(item.otrosCostosAsignados), readOnly: true },
+        { label: "Costo logístico por unidad", value: item.costoLogisticoAsignado, displayValue: formatCurrency(item.costoLogisticoAsignado), readOnly: true },
         { label: "Costo total unitario", value: item.costoTotalUnidad, displayValue: formatCurrency(item.costoTotalUnidad), readOnly: true },
         { label: "Costo total del stock", value: costoStock, displayValue: formatCurrency(costoStock), readOnly: true },
         { label: "Costo asignado despiece", value: item.costoAsignadoDespiece, displayValue: formatCurrency(item.costoAsignadoDespiece), readOnly: true },
