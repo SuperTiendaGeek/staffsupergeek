@@ -33,7 +33,7 @@ import { cargarOrdenesCobro } from "../cobros/airtable";
 import { unidadesLibres, unidadesReservadas } from "@/lib/shipping-v2/unidades";
 import { SHIPPING_V2_ITEM_FIELDS } from "@/lib/shipping-v2/schema.generated";
 import {
-  actualizarEstadoOperacion, pasarOperacionAPedido,
+  actualizarEstadoOperacion, pasarOperacionAPedido, type OpcionesPedido,
   crearOperacion, crearOpcion, setOpcionElegida, eliminarOperacionConOpciones,
 } from "@/lib/operaciones/airtable";
 import { soltarArticuloDePedido } from "@/lib/shipping-v2/airtable";
@@ -253,6 +253,8 @@ export async function marcarPedidoAlProveedor(opts: {
   ordenId: string;
   lineaId: string;
   usuario: { nombre: string };
+  /** Unidades compradas y cómo llegan (mismo diálogo que en Operaciones). */
+  pedido?: OpcionesPedido;
 }): Promise<{ sku: string | null; aviso?: string }> {
   return withLock(`presupuesto:${opts.ordenId}`, async () => {
     const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
@@ -269,7 +271,7 @@ export async function marcarPedidoAlProveedor(opts: {
     let itemId = info.item?.id ?? null;
     let aviso: string | undefined;
     if (!itemId) {
-      const r = await pasarOperacionAPedido(linea.operacionId, info.opcionElegidaId, opts.usuario.nombre);
+      const r = await pasarOperacionAPedido(linea.operacionId, info.opcionElegidaId, opts.usuario.nombre, opts.pedido ?? {});
       itemId = r.itemId ?? null;
       aviso = r.itemCreado ? undefined : r.aviso;
     }
@@ -306,7 +308,11 @@ async function crearOperacionAprobada(ordenId: string, l: LineaPresupuesto, usua
       proveedorId: l.proveedorId,
       tiempoEstimado: l.tiempoEstimado || undefined,
       costoProveedor: l.costoProveedor,
-      precioVentaCliente: l.precioUnitario,
+      // La línea del presupuesto trae cantidad y precio unitario: la opción
+      // guarda los dos y calcula el total (antes el total era el unitario y
+      // una línea ×2 se cobraba como ×1).
+      cantidad: l.cantidad,
+      precioUnitarioCliente: l.precioUnitario,
       urlProveedor: l.urlProveedor || undefined,
       notaInterna: `Aprobado por el cliente en el presupuesto de ${idVisible} (registró ${usuario}).`,
     });

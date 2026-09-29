@@ -32,6 +32,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
   const costoProveedor = costoRaw !== null && costoRaw !== "" ? parseFloat(costoRaw as string) : null;
   const precioRaw = formData.get("precioVentaCliente");
   const precioVentaCliente = precioRaw !== null && precioRaw !== "" ? parseFloat(precioRaw as string) : null;
+  const precioUnitarioRaw = formData.get("precioUnitarioCliente");
+  const precioUnitarioCliente = precioUnitarioRaw !== null && precioUnitarioRaw !== "" ? parseFloat(precioUnitarioRaw as string) : null;
+  const cantidadRaw = formData.get("cantidad");
+  const cantidad = cantidadRaw !== null && cantidadRaw !== "" ? Number(cantidadRaw) : null;
 
   const fotos = formData.getAll("fotos").filter((f) => f instanceof File && f.size > 0) as File[];
 
@@ -41,7 +45,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       proveedorId,
       tiempoEstimado,
       costoProveedor: Number.isFinite(costoProveedor ?? NaN) ? costoProveedor : null,
-      precioVentaCliente: Number.isFinite(precioVentaCliente ?? NaN) ? precioVentaCliente : null,
+      // La pantalla manda cantidad + precio UNITARIO; el total lo calcula el
+      // servidor. precioVentaCliente (total) queda solo para clientes viejos.
+      ...(precioUnitarioRaw !== null
+        ? { precioUnitarioCliente: Number.isFinite(precioUnitarioCliente ?? NaN) ? precioUnitarioCliente : null }
+        : { precioVentaCliente: Number.isFinite(precioVentaCliente ?? NaN) ? precioVentaCliente : null }),
+      ...(cantidadRaw !== null ? { cantidad } : {}),
       urlProveedor,
       notaParaCliente,
       notaInterna,

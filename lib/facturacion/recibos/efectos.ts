@@ -8,6 +8,7 @@ import "server-only";
 
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "../gancho/airtableGancho";
 import { ahoraEnEcuador } from "../fechaEcuador";
+import { aplicarVentaUnidades } from "@/lib/shipping-v2/unidades";
 import { crearMovimiento } from "@/lib/finanzas/movimientos";
 import { fetchCuentaPorNombre } from "@/lib/finanzas/cuentas";
 import { actualizarEfectosRecibo } from "./airtable";
@@ -25,6 +26,8 @@ export async function descontarInventarioRecibo(input: {
   numeroRecibo:   string;
   lineas:         LineaRecibo[];
   ambiente?:      string;
+  /** El recibo cumple el compromiso de una orden/operación: libera su reserva. */
+  liberaReserva?: boolean;
 }): Promise<{ estado: "OK" | "ERROR"; detalle?: string }> {
   if (input.ambiente !== AMBIENTE_PRODUCCION) return { estado: "OK" };
 
@@ -58,6 +61,8 @@ export async function descontarInventarioRecibo(input: {
   }
   const actual = new Map(records.map((r) => [r.id, {
     cantidad: numberOrZero(r.fields["Cantidad"]),
+    cantidadReservada: numberOrZero(r.fields["Cantidad Reservada"]),
+    reservado: r.fields["Reservado"] === true,
     reciboIds: linkedIds(r.fields["Recibo"]),
     estadoItem: firstString(r.fields["Estado Item"]),
   }]));
@@ -73,12 +78,20 @@ export async function descontarInventarioRecibo(input: {
     const disponible = est.cantidad;
     const nueva = disponible - venta.cantidad;
     if (nueva < 0) advertencias.push(`${venta.descripcion}: stock insuficiente (había ${disponible}, se vendieron ${venta.cantidad}). Cantidad dejada en 0.`);
-    const nuevaFinal = Math.max(0, nueva);
+    const tras = aplicarVentaUnidades(
+      { cantidad: est.cantidad, cantidadReservada: est.cantidadReservada, reservado: est.reservado },
+      venta.cantidad,
+      { liberaReserva: input.liberaReserva === true }
+    );
+    const nuevaFinal = tras.cantidad;
 
     const fields: Record<string, unknown> = {
       "Cantidad": nuevaFinal,
       "Recibo": [...est.reciboIds, input.reciboRecordId],
     };
+    // La reserva que este recibo cumple se libera (antes quedaba colgada).
+    if (tras.cantidadReservada !== est.cantidadReservada) fields["Cantidad Reservada"] = tras.cantidadReservada;
+    if (tras.reservado !== est.reservado) fields["Reservado"] = tras.reservado;
     if (nuevaFinal === 0) { fields["Estado Item"] = "Vendido"; fields["Disponible para venta"] = false; }
 
     try { await patchItem(itemId, fields); }

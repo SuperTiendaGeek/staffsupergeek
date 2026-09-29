@@ -76,6 +76,8 @@ export async function POST(_req: Request, { params }: Params) {
       facturaRecordId: recordId,
       detalles:        payload.detalles,
       ambiente:        factura.ambiente === "PRODUCCIÓN" ? "2" : "1",
+      // Solo se sincronizan facturas con origen (ver arriba): cumplen su reserva.
+      liberaReserva:   true,
     });
     return NextResponse.json({ success: true, data: resultado });
   } catch (e) {

@@ -23,6 +23,7 @@ import "server-only";
 
 import { fetchRecordsByIds, numberOrZero } from "../gancho/airtableGancho";
 import type { DetalleFactura } from "../types/factura";
+import { unidadesLibres } from "@/lib/shipping-v2/unidades";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 
@@ -64,7 +65,14 @@ export function calcularFaltantes(
   return faltantes;
 }
 
-export async function verificarStockDisponible(detalles: DetalleFactura[]): Promise<FaltanteStock[]> {
+// `soloUnidadesLibres` (mostrador): una venta sin origen no puede llevarse
+// unidades comprometidas con un cliente, una orden o una reserva — solo las
+// libres (Cantidad − Cantidad Reservada, ver lib/shipping-v2/unidades.ts).
+// Con origen, el documento CUMPLE ese compromiso y puede usar todo el stock.
+export async function verificarStockDisponible(
+  detalles: DetalleFactura[],
+  opts: { soloUnidadesLibres?: boolean } = {}
+): Promise<FaltanteStock[]> {
   const itemIds = [
     ...new Set(
       detalles
@@ -77,7 +85,16 @@ export async function verificarStockDisponible(detalles: DetalleFactura[]): Prom
   const records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, itemIds);
   const disponiblePorItem = new Map<string, number>();
   for (const r of records) {
-    disponiblePorItem.set(r.id, numberOrZero(r.fields["Cantidad"]));
+    disponiblePorItem.set(
+      r.id,
+      opts.soloUnidadesLibres
+        ? unidadesLibres({
+            cantidad: numberOrZero(r.fields["Cantidad"]),
+            cantidadReservada: numberOrZero(r.fields["Cantidad Reservada"]),
+            reservado: r.fields["Reservado"] === true,
+          })
+        : numberOrZero(r.fields["Cantidad"])
+    );
   }
 
   return calcularFaltantes(detalles, disponiblePorItem);

@@ -1,3 +1,5 @@
+import { unidadesLibres } from "@/lib/shipping-v2/unidades";
+
 // "fuente" es obligatorio a propósito, no opcional: cada sitio que consume
 // un ProductoCatalogo (agregarProducto en el formulario, hoy; cualquier
 // otro futuro) tiene que decidir explícitamente qué hacer con cada fuente
@@ -70,7 +72,13 @@ export function mapShippingItemProductRecord(record: ProductoRecord): ProductoCa
     descripcion: firstStr(fields["Descripción"] ?? fields["Descripcion"]),
     precioVenta,
     unidad: firstStr(fields["Unidad"]) || "UNIDAD",
-    cantidadDisponible: firstNum(fields["Cantidad"] ?? 0),
+    // Unidades LIBRES: las comprometidas con un cliente/orden/reserva no se
+    // venden en mostrador (ver verificarStockDisponible).
+    cantidadDisponible: unidadesLibres({
+      cantidad: firstNum(fields["Cantidad"] ?? 0),
+      cantidadReservada: firstNum(fields["Cantidad Reservada"] ?? 0),
+      reservado: fields["Reservado"] === true,
+    }),
     fuente: "shippingItem",
   };
 }

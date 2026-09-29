@@ -90,7 +90,9 @@ export function CuentaUnificadaPanel({
         {cuenta.items.map((item) => (
           <LedgerRow
             key={item.id}
-            label={item.nombre}
+            label={item.cantidad && item.cantidad > 1
+              ? `${item.nombre} · ${item.cantidad} × ${formatCurrency(item.precioUnitario ?? 0)}`
+              : item.nombre}
             origen={item.origen === "pedido" ? "Pedido" : "Stock"}
             value={formatCurrency(item.precio)}
           />

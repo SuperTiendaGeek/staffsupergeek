@@ -2886,6 +2886,15 @@ export async function createShippingV2ItemFromOperacion(
      * evaluarItemNoListo en lib/facturacion/gancho/construccion.ts).
      */
     desdePresupuesto?: boolean;
+    /**
+     * Unidades compradas al proveedor y cuántas son del cliente
+     * (lib/operaciones/pedido.ts). Vacío = 1 y 1 (comportamiento anterior).
+     * Las que sobran quedan libres para stock.
+     */
+    cantidad?: number;
+    cantidadReservada?: number;
+    /** true = viaja en un packing ("Pendiente de packing"); false = tracking directo. */
+    requierePacking?: boolean;
   },
   options: { registradoPor: string }
 ) {
@@ -2899,6 +2908,11 @@ export async function createShippingV2ItemFromOperacion(
 
   const nombre = cleanString(input.nombre) || "Artículo sin nombre";
   const precioVenta = input.precioVenta ?? null;
+  const cantidad = Number.isInteger(input.cantidad) && (input.cantidad ?? 0) > 0 ? (input.cantidad as number) : 1;
+  const cantidadReservada = Math.min(
+    cantidad,
+    Number.isInteger(input.cantidadReservada) && (input.cantidadReservada ?? 0) > 0 ? (input.cantidadReservada as number) : cantidad
+  );
 
   // La categoría sale de la Operación Comercial. Antes se forzaba "Repuesto" a
   // TODO lo que naciera por aquí, y como el buscador de repuestos de stock
@@ -2928,12 +2942,16 @@ export async function createShippingV2ItemFromOperacion(
     ...(input.desdePresupuesto ? { estadoRevision: "Pendiente de recepción" } : {}),
     proveedorId,
     requierePago: input.desdePresupuesto === true,
-    requierePacking: false,
+    requierePacking: input.requierePacking === true,
     afectaInventario: true,
+    // Todavía no llega: nada está a la venta. Las unidades libres (stock) se
+    // habilitan con la recepción, como cualquier otro artículo.
     disponibleVenta: false,
-    reservado: true,
-    modoLogistico: "Tracking directo",
-    cantidad: 1,
+    // "Reservado" (bandera vieja) solo si TODAS las unidades son del cliente;
+    // la cuenta real va en "Cantidad Reservada" (unidades.ts).
+    reservado: cantidadReservada >= cantidad,
+    modoLogistico: input.requierePacking === true ? "Pendiente de packing" : "Tracking directo",
+    cantidad,
     unidad: "Unidad",
     costoProveedor: input.costoProveedor ?? null,
     precioVentaSugerido: precioVenta,
@@ -2949,9 +2967,13 @@ export async function createShippingV2ItemFromOperacion(
 
   return createShippingV2ItemRecord(normalizedItemInput, {
     registradoPor: options.registradoPor,
-    eventDescription: `Item creado desde Operaciones Comerciales para opción ${opcionId}.`,
+    eventDescription:
+      `Item creado desde Operaciones Comerciales para opción ${opcionId}: ` +
+      `${cantidad} unidad(es) compradas, ${cantidadReservada} reservadas para el cliente` +
+      `${input.requierePacking ? ", llega en packing" : ", tracking directo"}.`,
     extraFields: {
       [SHIPPING_V2_ITEM_FIELDS.metodoAsignacionSku]: "Generado automáticamente",
+      [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: cantidadReservada,
     },
   });
 }

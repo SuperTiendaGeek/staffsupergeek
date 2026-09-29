@@ -24,13 +24,20 @@ import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFa
 import { actualizarSincronizacionInventario } from "../airtable/facturas";
 import { ahoraEnEcuador } from "../fechaEcuador";
 import type { DetalleFactura } from "../types/factura";
+import { aplicarVentaUnidades } from "@/lib/shipping-v2/unidades";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 const PRODUCTOS_DIGITALES_TABLE = "Productos Digitales";
 
 // ─── Estado actual del item (para decidir si ya está hecho) ─────────────────
 
-type EstadoItemActual = { estadoItem: string; facturaIds: string[]; cantidad: number };
+type EstadoItemActual = {
+  estadoItem: string;
+  facturaIds: string[];
+  cantidad: number;
+  cantidadReservada: number;
+  reservado: boolean;
+};
 
 async function fetchEstadoActualItems(itemIds: string[]): Promise<Map<string, EstadoItemActual>> {
   const records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, itemIds);
@@ -40,6 +47,8 @@ async function fetchEstadoActualItems(itemIds: string[]): Promise<Map<string, Es
       estadoItem: firstString(r.fields["Estado Item"]),
       facturaIds: linkedIds(r.fields["Factura"]),
       cantidad:   numberOrZero(r.fields["Cantidad"]),
+      cantidadReservada: numberOrZero(r.fields["Cantidad Reservada"]),
+      reservado:  r.fields["Reservado"] === true,
     });
   }
   return map;
@@ -129,6 +138,11 @@ export type PostEmisionInput = {
   // ResultadoEmision.ambiente (string | undefined); en la práctica todo
   // llamador real debe mandarlo.
   ambiente?:       string;
+  // true cuando la factura CUMPLE un compromiso (viene de una orden, una
+  // operación o una reserva): las unidades vendidas salen de "Cantidad
+  // Reservada". Mostrador = false. Ver aplicarVentaUnidades() en
+  // lib/shipping-v2/unidades.ts. Vacío = false (comportamiento anterior).
+  liberaReserva?:  boolean;
 };
 
 // Guard de ambiente (Fase 17 — hardening pre-producción). Shipping Items es
@@ -266,7 +280,12 @@ async function postEmisionShippingItems(input: PostEmisionInput): Promise<Result
 
     const disponible = actual.cantidad;
     const nueva      = disponible - venta.cantidad;
-    const nuevaFinal = Math.max(0, nueva);
+    const tras       = aplicarVentaUnidades(
+      { cantidad: actual.cantidad, cantidadReservada: actual.cantidadReservada, reservado: actual.reservado },
+      venta.cantidad,
+      { liberaReserva: input.liberaReserva === true }
+    );
+    const nuevaFinal = tras.cantidad;
 
     if (nueva < 0) {
       // La factura ya es real ante el SRI — no se puede rechazar la venta.
@@ -283,6 +302,10 @@ async function postEmisionShippingItems(input: PostEmisionInput): Promise<Result
       // acumular varias facturas a lo largo de su stock.
       "Factura":  [...actual.facturaIds, input.facturaRecordId],
     };
+    // La reserva que esta venta cumple se libera (antes quedaba colgada).
+    // Solo se escribe si cambia, para no tocar artículos sin reserva.
+    if (tras.cantidadReservada !== actual.cantidadReservada) fields["Cantidad Reservada"] = tras.cantidadReservada;
+    if (tras.reservado !== actual.reservado) fields["Reservado"] = tras.reservado;
     // Solo cuando el stock se agota, el registro se cierra como Vendido y
     // deja de estar disponible para venta. Con stock restante, el registro
     // sigue vivo tal como está (su Estado Item logístico no cambia).

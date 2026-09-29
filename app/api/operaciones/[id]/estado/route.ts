@@ -6,6 +6,7 @@ import {
   pasarOperacionAPedido,
 } from "@/lib/operaciones/airtable";
 import { ESTADOS_OPERACION } from "@/types/operaciones";
+import { esLlegadaPedido } from "@/lib/operaciones/pedido";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -46,8 +47,17 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   // "Pedido" tiene efecto secundario (crea el artículo en inventario): pasa
   // por el camino compartido, el mismo que usa la tarjeta Presupuesto.
   if (estado === "Pedido") {
+    // Unidades compradas al proveedor y cómo llegan (ver lib/operaciones/pedido.ts).
+    const unidadesCompradas =
+      body.unidadesCompradas === undefined || body.unidadesCompradas === null || body.unidadesCompradas === ""
+        ? null
+        : Number(body.unidadesCompradas);
+    if (body.llegada !== undefined && body.llegada !== null && !esLlegadaPedido(body.llegada)) {
+      return NextResponse.json({ success: false, error: "Llegada inválida: debe ser tracking o packing." }, { status: 400 });
+    }
+    const llegada = esLlegadaPedido(body.llegada) ? body.llegada : null;
     try {
-      const r = await pasarOperacionAPedido(id, op.opcionElegidaId, session.user.nombre);
+      const r = await pasarOperacionAPedido(id, op.opcionElegidaId, session.user.nombre, { unidadesCompradas, llegada });
       if (r.itemCreado) return NextResponse.json({ success: true, itemCreado: true, itemId: r.itemId });
       return NextResponse.json({ success: true, itemCreado: false, itemId: r.itemId, ...(r.aviso ? { itemWarning: r.aviso } : {}) });
     } catch (err) {

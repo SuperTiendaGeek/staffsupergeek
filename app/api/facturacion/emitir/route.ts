@@ -204,7 +204,7 @@ export async function POST(request: Request) {
   // si no se puede confirmar el stock, no se emite (una factura real sobre
   // stock no verificado es peor que pedir reintentar).
   try {
-    const faltantes = await verificarStockDisponible(body.detalles);
+    const faltantes = await verificarStockDisponible(body.detalles, { soloUnidadesLibres: !body.origen });
     if (faltantes.length > 0) {
       return NextResponse.json({ success: false, error: mensajeFaltantes(faltantes) }, { status: 400 });
     }
@@ -274,7 +274,13 @@ export async function POST(request: Request) {
     // el mostrador también descuenta inventario desde la Fase 17.b.
     if (debeIntentarPostEmision(resultado)) {
       try {
-        await postEmision({ facturaRecordId: resultado.recordId, detalles: body.detalles, ambiente: resultado.ambiente });
+        await postEmision({
+          facturaRecordId: resultado.recordId,
+          detalles: body.detalles,
+          ambiente: resultado.ambiente,
+          // Con origen (orden/operación/reserva) la factura cumple la reserva.
+          liberaReserva: !!body.origen,
+        });
       } catch (e) {
         console.error("[/api/facturacion/emitir POST] postEmision falló:", e);
       }

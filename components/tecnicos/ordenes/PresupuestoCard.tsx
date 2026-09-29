@@ -550,6 +550,9 @@ export function PresupuestoCard({
   const [reversas, setReversas] = useState<Record<string, ReversasLinea>>({});
   const [proveedores, setProveedores] = useState<Record<string, string>>({});
   const [revirtiendo, setRevirtiendo] = useState<{ lineaId: string; accion: AccionReversa | AccionRetiro; motivo: string } | null>(null);
+  // "Ya se pidió al proveedor": cuántas unidades se compraron y cómo llegan
+  // (mismo diálogo que Operaciones → Pedido; ver lib/operaciones/pedido.ts).
+  const [pidiendo, setPidiendo] = useState<{ lineaId: string; unidades: string; llegada: "" | "tracking" | "packing" } | null>(null);
   const [inicialForm, setInicialForm] = useState<Borrador | null>(null);
   const [avisoDinero, setAvisoDinero] = useState(false);
   const [verHistorial, setVerHistorial] = useState<string | null>(null);
@@ -650,9 +653,21 @@ export function PresupuestoCard({
   }
 
   async function pedirAlProveedor(l: LineaPresupuesto) {
+    if (!pidiendo || pidiendo.lineaId !== l.id) {
+      setPidiendo({ lineaId: l.id, unidades: String(l.cantidad), llegada: "" });
+      return;
+    }
+    const unidades = Number(pidiendo.unidades);
+    if (!Number.isInteger(unidades) || unidades < l.cantidad) { setError(`Deben ser al menos ${l.cantidad} unidad(es): las que aprobó el cliente.`); return; }
+    if (!pidiendo.llegada) { setError("Indica cómo llega el repuesto: directo a la tienda o en un packing."); return; }
     setOcupado(l.id); setError(null);
     try {
-      const r = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/presupuesto/${encodeURIComponent(l.id)}/pedido`, { method: "POST" });
+      const r = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/presupuesto/${encodeURIComponent(l.id)}/pedido`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unidadesCompradas: unidades, llegada: pidiendo.llegada }),
+      });
+      setPidiendo(null);
       const j = await r.json();
       if (!j.success) setError(j.error ?? "No se pudo registrar el pedido");
       else if (j.data?.aviso) setError(j.data.aviso);
@@ -886,6 +901,29 @@ export function PresupuestoCard({
                           <div className="flex justify-end gap-2">
                             <button type="button" onClick={() => setRevirtiendo(null)} className={BTN_SEC}>Volver</button>
                             <button type="button" disabled={ocupado === l.id} onClick={confirmarReversa} className={BTN_PRI}>{ocupado === l.id ? "Aplicando…" : `Confirmar: ${REVERSA_TEXTO[revirtiendo.accion].boton.toLowerCase()}`}</button>
+                          </div>
+                        </div>
+                      )}
+                      {pidiendo?.lineaId === l.id && (
+                        <div className="mt-1.5 space-y-1.5 rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)]/40 bg-[var(--sg-panel)] p-2">
+                          <p className="text-[11px] text-[var(--sg-text-secondary)]">Registrar el pedido al proveedor</p>
+                          <label className="flex items-center gap-2 text-[11px] text-[var(--sg-text-secondary)]">
+                            Unidades compradas
+                            <input type="number" min={l.cantidad} step={1} value={pidiendo.unidades}
+                              onChange={(e) => setPidiendo({ ...pidiendo, unidades: e.target.value })} className={`${INPUT} w-20`} />
+                            <span className="text-[var(--sg-text-muted)]">{l.cantidad} para esta orden{Number(pidiendo.unidades) > l.cantidad ? ` + ${Number(pidiendo.unidades) - l.cantidad} para stock` : ""}</span>
+                          </label>
+                          <div className="flex flex-wrap gap-2 text-[11px]">
+                            {(["tracking", "packing"] as const).map((v) => (
+                              <button key={v} type="button" onClick={() => setPidiendo({ ...pidiendo, llegada: v })}
+                                className={`rounded-full border px-2.5 py-1 ${pidiendo.llegada === v ? "border-[var(--sg-lime)] text-[var(--sg-lime)]" : "border-[var(--sg-border)] text-[var(--sg-text-muted)]"}`}>
+                                {v === "tracking" ? "Directo a la tienda" : "En un packing"}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <button type="button" onClick={() => setPidiendo(null)} className={BTN_SEC}>Volver</button>
+                            <button type="button" disabled={ocupado === l.id} onClick={() => pedirAlProveedor(l)} className={BTN_PRI}>{ocupado === l.id ? "Registrando…" : "Confirmar pedido"}</button>
                           </div>
                         </div>
                       )}

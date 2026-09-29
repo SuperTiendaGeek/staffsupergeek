@@ -104,6 +104,24 @@ type Props = {
   onSuccess: () => void;
 };
 
+// Total visible mientras se escribe: evita volver a cotizar "4 cámaras" como
+// un solo artículo (caso OP-2026-000060). El servidor recalcula lo mismo.
+function ResumenTotalOpcion({ cantidad, precioUnitario, costoUnitario }: { cantidad: string; precioUnitario: string; costoUnitario: string }) {
+  const n = Number(cantidad);
+  const p = parseFloat(precioUnitario);
+  const c = parseFloat(costoUnitario);
+  if (!Number.isInteger(n) || n < 1 || !Number.isFinite(p)) return null;
+  const total = Math.round(n * p * 100) / 100;
+  const ganancia = Number.isFinite(c) ? Math.round((total - n * c) * 100) / 100 : null;
+  return (
+    <p className="-mt-1 text-xs text-[#8A8A80]">
+      Total al cliente: <span className="font-semibold text-[#D7FF4F]">${total.toFixed(2)}</span>
+      {n > 1 ? <> ({n} × ${p.toFixed(2)})</> : null}
+      {ganancia !== null ? <> · Ganancia estimada ${ganancia.toFixed(2)}</> : null}
+    </p>
+  );
+}
+
 export function OpcionModal({ operacionId, opcion, onClose, onSuccess }: Props) {
   const isEdit = !!opcion;
 
@@ -114,7 +132,11 @@ export function OpcionModal({ operacionId, opcion, onClose, onSuccess }: Props) 
   );
   const [tiempoEstimado, setTiempoEstimado] = useState(opcion?.tiempoEstimado ?? "");
   const [costoProveedor, setCostoProveedor] = useState(opcion?.costoProveedor != null ? String(opcion.costoProveedor) : "");
-  const [precioVentaCliente, setPrecioVentaCliente] = useState(opcion?.precioVentaCliente != null ? String(opcion.precioVentaCliente) : "");
+  // Cantidad + precio UNITARIO; el total se calcula (y lo recalcula el servidor).
+  const [cantidad, setCantidad] = useState(String(opcion?.cantidad ?? 1));
+  const [precioUnitario, setPrecioUnitario] = useState(
+    opcion?.precioUnitarioCliente != null ? String(opcion.precioUnitarioCliente) : ""
+  );
   const [urlProveedor, setUrlProveedor] = useState(opcion?.urlProveedor ?? "");
   const [notaParaCliente, setNotaParaCliente] = useState(opcion?.notaParaCliente ?? "");
   const [notaInterna, setNotaInterna] = useState(opcion?.notaInterna ?? "");
@@ -140,6 +162,8 @@ export function OpcionModal({ operacionId, opcion, onClose, onSuccess }: Props) 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!productoDescripcion.trim()) { setError("El campo Producto / Descripción es obligatorio."); return; }
+    const cantidadNum = Number(cantidad);
+    if (!Number.isInteger(cantidadNum) || cantidadNum < 1) { setError("La cantidad debe ser un número entero, al menos 1."); return; }
 
     setLoading(true);
     setError("");
@@ -149,7 +173,8 @@ export function OpcionModal({ operacionId, opcion, onClose, onSuccess }: Props) 
     fd.set("proveedorId", proveedor?.id ?? "");
     fd.set("tiempoEstimado", tiempoEstimado.trim());
     fd.set("costoProveedor", costoProveedor.trim());
-    fd.set("precioVentaCliente", precioVentaCliente.trim());
+    fd.set("cantidad", cantidad.trim());
+    fd.set("precioUnitarioCliente", precioUnitario.trim());
     fd.set("urlProveedor", urlProveedor.trim());
     fd.set("notaParaCliente", notaParaCliente.trim());
     fd.set("notaInterna", notaInterna.trim());
@@ -228,10 +253,17 @@ export function OpcionModal({ operacionId, opcion, onClose, onSuccess }: Props) 
             )}
           </div>
 
-          {/* Precios */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Cantidad y precios — precio y costo son POR UNIDAD */}
+          <div className="grid grid-cols-3 gap-3">
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="op-costo" className="text-xs font-medium text-[#8A8A80]">Costo Proveedor</label>
+              <label htmlFor="op-cantidad" className="text-xs font-medium text-[#8A8A80]">Cantidad</label>
+              <input id="op-cantidad" type="number" step="1" min="1" value={cantidad}
+                onChange={(e) => setCantidad(e.target.value)} disabled={loading} placeholder="1"
+                className="w-full rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2.5 text-sm text-[#F0F0EC] placeholder-[#4A4A46] outline-none transition focus:border-[#D7FF4F]/60 focus:ring-1 focus:ring-[#D7FF4F]/20 disabled:opacity-50"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="op-costo" className="text-xs font-medium text-[#8A8A80]">Costo proveedor c/u</label>
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#6B6B66]">$</span>
                 <input id="op-costo" type="number" step="0.01" min="0" value={costoProveedor}
@@ -241,16 +273,17 @@ export function OpcionModal({ operacionId, opcion, onClose, onSuccess }: Props) 
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="op-precio" className="text-xs font-medium text-[#8A8A80]">Precio al Cliente</label>
+              <label htmlFor="op-precio" className="text-xs font-medium text-[#8A8A80]">Precio al cliente c/u</label>
               <div className="relative">
                 <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#6B6B66]">$</span>
-                <input id="op-precio" type="number" step="0.01" min="0" value={precioVentaCliente}
-                  onChange={(e) => setPrecioVentaCliente(e.target.value)} disabled={loading} placeholder="0.00"
+                <input id="op-precio" type="number" step="0.01" min="0" value={precioUnitario}
+                  onChange={(e) => setPrecioUnitario(e.target.value)} disabled={loading} placeholder="0.00"
                   className="w-full rounded-lg border border-[#3A3A36] bg-[#252622] py-2.5 pl-7 pr-3 text-sm text-[#F0F0EC] placeholder-[#4A4A46] outline-none transition focus:border-[#D7FF4F]/60 focus:ring-1 focus:ring-[#D7FF4F]/20 disabled:opacity-50"
                 />
               </div>
             </div>
           </div>
+          <ResumenTotalOpcion cantidad={cantidad} precioUnitario={precioUnitario} costoUnitario={costoProveedor} />
 
           {/* URL Proveedor */}
           <div className="flex flex-col gap-1.5">

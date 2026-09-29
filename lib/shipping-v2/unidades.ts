@@ -123,3 +123,44 @@ export function liberarUnidades(item: UnidadesItem, unidades = 1): {
     disponibleVenta: quedanLibres > 0,
   };
 }
+
+export type ResultadoVentaUnidades = {
+  cantidad: number;
+  cantidadReservada: number;
+  /** Bandera vieja: solo si quedan unidades y todas están comprometidas. */
+  reservado: boolean;
+};
+
+/**
+ * Estado del item después de VENDER `vendidas` unidades (factura o recibo).
+ *
+ * Hasta sept-2026 la venta solo bajaba `Cantidad`: la reserva quedaba viva
+ * para siempre. Con OTR-000187 (8 unidades, 4 del pedido de un cliente)
+ * facturar el pedido dejaba 4 en stock... y las 4 seguían "reservadas".
+ * Pasaba igual con el repuesto de stock de una orden y con las reservas.
+ *
+ * `liberaReserva` = la venta CUMPLE un compromiso (viene de una orden, una
+ * operación o una reserva): las unidades vendidas salen de las reservadas.
+ * Una venta de mostrador no cumple ningún compromiso: solo puede vender
+ * unidades libres, y la reserva ajena queda intacta (nunca más reservadas
+ * que las que existen).
+ */
+export function aplicarVentaUnidades(
+  item: UnidadesItem,
+  vendidas: number,
+  opts: { liberaReserva: boolean }
+): ResultadoVentaUnidades {
+  const total = normalizarUnidades(item.cantidad);
+  const v = normalizarUnidades(vendidas);
+  const cantidad = Math.max(0, total - v);
+  const reservadasAntes = unidadesReservadas(item);
+  const reservadas = Math.min(
+    cantidad,
+    opts.liberaReserva ? Math.max(0, reservadasAntes - v) : reservadasAntes
+  );
+  return {
+    cantidad,
+    cantidadReservada: reservadas,
+    reservado: cantidad > 0 && reservadas >= cantidad,
+  };
+}

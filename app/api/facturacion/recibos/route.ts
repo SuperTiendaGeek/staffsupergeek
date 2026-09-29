@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     .filter((l) => !!l.shippingItemId)
     .map((l) => ({ descripcion: l.descripcion, cantidad: l.cantidad, precioUnitario: l.precioUnitario, descuento: l.descuento, precioTotalSinImpuesto: 0, impuestos: [], tipo: "producto", shippingItemId: l.shippingItemId }));
   try {
-    const faltantes = await verificarStockDisponible(detallesParaStock);
+    const faltantes = await verificarStockDisponible(detallesParaStock, { soloUnidadesLibres: !body.origen });
     if (faltantes.length > 0) return NextResponse.json({ success: false, error: mensajeFaltantes(faltantes) }, { status: 400 });
   } catch {
     return NextResponse.json({ success: false, error: "No se pudo verificar el stock. Intenta de nuevo." }, { status: 503 });
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
 
     // Efectos (guardados a producción por su ambiente). Best-effort cada uno:
     // el recibo y su PDF ya existen, un fallo aquí no los deshace.
-    try { await descontarInventarioRecibo({ reciboRecordId: recordId, numeroRecibo: numero, lineas: body.lineas, ambiente: cfg.ambiente }); }
+    try { await descontarInventarioRecibo({ reciboRecordId: recordId, numeroRecibo: numero, lineas: body.lineas, ambiente: cfg.ambiente, liberaReserva: !!body.origen }); }
     catch (e) { console.error("[recibos POST] inventario:", e); }
 
     // Productos digitales (solo aparecen en recibos con origen, hoy): se

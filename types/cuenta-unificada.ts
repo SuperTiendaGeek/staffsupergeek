@@ -22,7 +22,15 @@ export interface CuentaUnificadaItem {
   id: string;
   nombre: string;
   origen: CuentaUnificadaItemOrigen;
+  /** Total del renglón = precioUnitario × cantidad (lo que se suma a la cuenta). */
   precio: number;
+  /**
+   * Unidades que se cobran en esta cuenta. Artículo de un pedido: las de la
+   * opción elegida (el cliente pidió 4 de 8 compradas). Vacío = 1.
+   */
+  cantidad?: number;
+  /** Precio de una unidad ("Precio venta final" del artículo). */
+  precioUnitario?: number;
 }
 
 export interface CuentaUnificadaServicio {

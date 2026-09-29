@@ -63,6 +63,8 @@ async function buscarEnShippingItems(query: string, pageSize: number): Promise<P
   params.append("fields[]", "Unidad");
   params.append("fields[]", "Disponible para venta");
   params.append("fields[]", "Cantidad");
+  params.append("fields[]", "Cantidad Reservada");
+  params.append("fields[]", "Reservado");
 
   const url = `${client.baseUrl}/${encodeURIComponent(TABLE)}?${params}`;
   const res = await fetch(url, { headers: client.headers, cache: "no-store" });

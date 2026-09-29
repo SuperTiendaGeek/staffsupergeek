@@ -34,17 +34,23 @@ export function derivarTipoIdentificacion(cedula: string): "04" | "05" | "07" {
 // se desglosa hacia adentro, precioUnitario/precioTotalSinImpuesto quedan
 // en base (sin impuestos), igual que en cualquier otra línea de factura.
 export function construirLineaProducto(
-  item: Pick<CuentaUnificadaItem, "id" | "nombre" | "precio">,
+  item: Pick<CuentaUnificadaItem, "id" | "nombre" | "precio" | "cantidad">,
   detalle: Pick<ItemDetalleGancho, "sku" | "tarifaIva"> | undefined
 ): DetalleFactura {
   const tarifaKey = detalle?.tarifaIva || "15%";
   const { codigoPorcentaje, tarifa } = TARIFA_IVA_SRI[tarifaKey] ?? TARIFA_IVA_ITEM_DEFAULT;
+  // item.precio es el TOTAL del renglón (unitario × cantidad). Con varias
+  // unidades —pedido de 4 cámaras— la línea sale con su cantidad real, así
+  // postEmision descuenta 4 del inventario y no 1. Mismo criterio que la
+  // línea de repuesto histórico: la base es la del renglón y el unitario se
+  // deriva (el formulario ajusta el centavo de redondeo en `descuento`).
+  const cantidad = item.cantidad && item.cantidad > 0 ? item.cantidad : 1;
   const { base, valorIva } = desglosarPrecioConIvaIncluido(item.precio, tarifa);
   return {
     codigoPrincipal: detalle?.sku || undefined,
     descripcion:     item.nombre,
-    cantidad:        1,
-    precioUnitario:  base,
+    cantidad,
+    precioUnitario:  round2(base / cantidad),
     descuento:       0,
     precioTotalSinImpuesto: base,
     impuestos: [{ codigo: "2", codigoPorcentaje, tarifa, baseImponible: base, valor: valorIva }],
@@ -234,13 +240,17 @@ export function agruparTotalConImpuestos(detalles: DetalleFactura[]): TotalImpue
 export type ItemNoListo = { id: string; nombre: string; motivo: "NO_RESERVADO" | "YA_FACTURADO" | "SIN_STOCK" | "SIN_PRECIO_FINAL" | "NO_RECIBIDO" };
 
 export function evaluarItemNoListo(
-  item: Pick<CuentaUnificadaItem, "id" | "nombre" | "precio">,
+  item: Pick<CuentaUnificadaItem, "id" | "nombre" | "precio" | "cantidad">,
   detalle: Pick<ItemDetalleGancho, "reservado" | "tieneFacturaPrevia" | "cantidad" | "cantidadReservada"> & Partial<Pick<ItemDetalleGancho, "tieneReciboPrevio" | "bajoPedidoSinLlegar">> | undefined
 ): ItemNoListo | null {
   // Sin detalle = el artículo ya no está en Shipping Items (un error de
   // lectura ya no llega aquí: fetchDetalleItems lanza). No se puede confirmar
   // que no esté vendido, así que se bloquea en vez de dejarlo pasar.
   if (!detalle) return { id: item.id, nombre: item.nombre, motivo: "SIN_STOCK" };
+  // Pedido de varias unidades: tiene que haber en stock las que se cobran.
+  if (detalle.cantidad >= 1 && detalle.cantidad < (item.cantidad ?? 1)) {
+    return { id: item.id, nombre: item.nombre, motivo: "SIN_STOCK" };
+  }
   if (detalle.cantidad < 1) {
     // "YA_FACTURADO" cubre también el recibo interno: para el usuario el
     // mensaje es el mismo ("ya tiene un documento de venta"), y el recibo

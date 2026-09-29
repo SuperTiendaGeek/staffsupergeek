@@ -62,7 +62,13 @@ export type CrearOpcionInput = {
   productoDescripcion: string;
   proveedorId?: string | null;
   tiempoEstimado?: string;
+  /** Costo del proveedor por UNIDAD. */
   costoProveedor?: number | null;
+  /** Unidades cotizadas al cliente (vacío = 1). */
+  cantidad?: number | null;
+  /** Precio de UNA unidad al cliente. Si viene, el total se calcula: cantidad × unitario. */
+  precioUnitarioCliente?: number | null;
+  /** TOTAL de la opción. Solo por compatibilidad: si llega precioUnitarioCliente, se ignora. */
   precioVentaCliente?: number | null;
   urlProveedor?: string;
   notaParaCliente?: string;
@@ -80,6 +86,11 @@ export type OpcionDetalle = {
   arancel: number | null;
   otrosCostos: number | null;
   costoRealTotal: number | null;
+  /** Unidades cotizadas (1 en opciones anteriores al campo). */
+  cantidad: number;
+  /** Precio de una unidad (derivado del total en opciones anteriores). */
+  precioUnitarioCliente: number | null;
+  /** TOTAL de la opción = cantidad × unitario. */
   precioVentaCliente: number | null;
   gananciaEstimada: number | null;
   urlProveedor: string;

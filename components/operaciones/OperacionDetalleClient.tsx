@@ -121,13 +121,90 @@ type CambiarEstadoBarProps = {
   operacionId: string;
   estado: string;
   opcionElegidaId: string | null;
+  /** Unidades de la opción elegida (lo que compra el cliente). */
+  cantidadCliente: number;
+  /** Si ya existe el artículo en inventario, pasar a Pedido no crea otro: no se pregunta nada. */
+  yaTieneArticulo: boolean;
   onSuccess: () => void;
 };
 
-function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, onSuccess }: CambiarEstadoBarProps) {
+// Al pasar a "Pedido" nace el artículo en inventario. Antes nacía siempre con
+// 1 unidad y sin packing (caso OP-2026-000060): ahora se pregunta cuántas se
+// compran al proveedor (las del cliente + las que van a stock) y cómo llegan.
+function DatosPedidoPanel({
+  cantidadCliente,
+  loading,
+  onConfirmar,
+  onCancelar,
+}: {
+  cantidadCliente: number;
+  loading: boolean;
+  onConfirmar: (datos: { unidadesCompradas: number; llegada: "tracking" | "packing" }) => void;
+  onCancelar: () => void;
+}) {
+  const [unidades, setUnidades] = useState(String(cantidadCliente));
+  const [llegada, setLlegada] = useState<"tracking" | "packing" | "">("");
+  const [error, setError] = useState("");
+  const n = Number(unidades);
+  const paraStock = Number.isInteger(n) && n > cantidadCliente ? n - cantidadCliente : 0;
+
+  function confirmar() {
+    if (!Number.isInteger(n) || n < cantidadCliente) {
+      setError(`Deben ser al menos ${cantidadCliente} (las que compró el cliente).`);
+      return;
+    }
+    if (!llegada) { setError("Indica cómo llega el pedido."); return; }
+    setError("");
+    onConfirmar({ unidadesCompradas: n, llegada });
+  }
+
+  const opcionCls = (activa: boolean) =>
+    `flex-1 rounded-lg border px-3 py-2 text-left text-xs transition ${activa ? "border-[#D7FF4F] bg-[#D7FF4F]/10 text-[#F0F0EC]" : "border-[#3A3A36] text-[#8A8A80] hover:border-[#5A5A56]"}`;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-[#D7FF4F]/30 bg-[#252622] p-3">
+      <p className="text-xs font-semibold text-[#F0F0EC]">Registrar el pedido al proveedor</p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-[11px] text-[#8A8A80]">
+          Unidades compradas al proveedor
+          <input type="number" min={cantidadCliente} step={1} value={unidades} disabled={loading}
+            onChange={(e) => setUnidades(e.target.value)}
+            className="w-28 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F0F0EC] outline-none focus:border-[#D7FF4F]/60" />
+        </label>
+        <p className="pb-2 text-[11px] text-[#8A8A80]">
+          {cantidadCliente} para el cliente{paraStock > 0 ? ` + ${paraStock} para stock` : ""}
+        </p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[11px] text-[#8A8A80]">¿Cómo llega?</span>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={loading} onClick={() => setLlegada("tracking")} className={opcionCls(llegada === "tracking")}>
+            <span className="block font-semibold">Directo a la tienda</span>
+            <span className="block text-[10px] opacity-80">Con su propio tracking, sin packing</span>
+          </button>
+          <button type="button" disabled={loading} onClick={() => setLlegada("packing")} className={opcionCls(llegada === "packing")}>
+            <span className="block font-semibold">En un packing</span>
+            <span className="block text-[10px] opacity-80">Viaja en una caja con otros artículos</span>
+          </button>
+        </div>
+      </div>
+      {error && <p className="text-[11px] text-amber-300">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancelar} disabled={loading} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#8A8A80] hover:text-[#F0F0EC]">Cancelar</button>
+        <button type="button" onClick={confirmar} disabled={loading}
+          className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F]/10 px-3 py-1.5 text-xs font-semibold text-[#D7FF4F] hover:bg-[#D7FF4F]/20 disabled:opacity-40">
+          {loading ? "Registrando…" : "Pasar a Pedido"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadCliente, yaTieneArticulo, onSuccess }: CambiarEstadoBarProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showReactivar, setShowReactivar] = useState(false);
+  const [pidiendoDatosPedido, setPidiendoDatosPedido] = useState(false);
 
   const isRechazado = estado === "Rechazado";
   const currentIdx = ESTADOS_TABLERO.indexOf(estado as (typeof ESTADOS_TABLERO)[number]);
@@ -138,9 +215,15 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, onSuccess }: C
   const nextIsAprobado = nextEstado === "Aprobado";
   const canAdvance = !!nextEstado && !(nextIsAprobado && !opcionElegidaId);
 
-  async function cambiarEstado(nuevoEstado: string) {
+  async function cambiarEstado(nuevoEstado: string, datosPedido?: { unidadesCompradas: number; llegada: "tracking" | "packing" }) {
     if (nuevoEstado === "Aprobado" && !opcionElegidaId) {
       setError("Selecciona una Opción Elegida antes de pasar a Aprobado.");
+      return;
+    }
+    // Pasar a Pedido crea el artículo: primero se preguntan unidades y llegada.
+    if (nuevoEstado === "Pedido" && opcionElegidaId && !yaTieneArticulo && !datosPedido) {
+      setError("");
+      setPidiendoDatosPedido(true);
       return;
     }
     setLoading(true);
@@ -149,11 +232,14 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, onSuccess }: C
       const res = await fetch(`/api/operaciones/${operacionId}/estado`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estado: nuevoEstado }),
+        body: JSON.stringify({ estado: nuevoEstado, ...(datosPedido ?? {}) }),
       });
-      const d = (await res.json()) as { success: boolean; error?: string };
+      const d = (await res.json()) as { success: boolean; error?: string; itemWarning?: string };
       if (!res.ok || !d.success) { setError(d.error ?? "Error al cambiar estado."); return; }
+      setPidiendoDatosPedido(false);
       setShowReactivar(false);
+      // El estado ya cambió; si el artículo no se pudo crear, que se vea.
+      if (d.itemWarning) setError(`La operación pasó a Pedido, pero el artículo no se creó: ${d.itemWarning}`);
       onSuccess();
     } catch {
       setError("Error de conexión.");
@@ -170,7 +256,14 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, onSuccess }: C
         </div>
       )}
 
-      {isRechazado ? (
+      {pidiendoDatosPedido ? (
+        <DatosPedidoPanel
+          cantidadCliente={cantidadCliente}
+          loading={loading}
+          onCancelar={() => setPidiendoDatosPedido(false)}
+          onConfirmar={(datos) => cambiarEstado("Pedido", datos)}
+        />
+      ) : isRechazado ? (
         /* Reactivar desde Rechazado */
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-[#6B6B66]">Operación rechazada.</span>
@@ -322,13 +415,18 @@ function OpcionCard({ opcion, opcionElegidaId, whatsappUrl, onEditar, onElegir, 
       )}
 
       {/* Pricing */}
+      {opcion.cantidad > 1 && (
+        <p className="text-xs text-[#C0C0BC]">
+          <span className="font-semibold text-[#F0F0EC]">{opcion.cantidad} unidades</span> × ${fmt(opcion.precioUnitarioCliente)} c/u
+        </p>
+      )}
       <div className="grid grid-cols-3 gap-1 rounded-lg bg-[#252622] px-3 py-2 text-center">
         <div>
-          <p className="text-[10px] text-[#6B6B66]">Costo</p>
+          <p className="text-[10px] text-[#6B6B66]">{opcion.cantidad > 1 ? "Costo c/u" : "Costo"}</p>
           <p className="text-xs font-semibold text-[#F0F0EC]">${fmt(opcion.costoRealTotal ?? opcion.costoProveedor)}</p>
         </div>
         <div>
-          <p className="text-[10px] text-[#6B6B66]">Precio</p>
+          <p className="text-[10px] text-[#6B6B66]">{opcion.cantidad > 1 ? "Precio total" : "Precio"}</p>
           <p className="text-xs font-bold text-[#D7FF4F]">${fmt(opcion.precioVentaCliente)}</p>
         </div>
         <div>
@@ -590,6 +688,8 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
           operacionId={operacion.id}
           estado={operacion.estado}
           opcionElegidaId={operacion.opcionElegidaId}
+          cantidadCliente={operacion.opciones.find((o) => o.id === operacion.opcionElegidaId)?.cantidad ?? 1}
+          yaTieneArticulo={operacion.articulosFisicos.length > 0}
           onSuccess={handleEstadoSuccess}
         />
 
@@ -843,14 +943,17 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
             <DollarSign size={13} />
             Registrar abono
           </button>
-          <button
-            disabled
-            className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#6B6B66]/60 opacity-60"
-            title="Próximamente"
+          {/* Antes este botón estaba desactivado ("Próximamente") y el camino
+              real quedaba escondido dentro de la cuenta del cliente. Lleva a
+              la misma pantalla: factura, recibo o proforma con las unidades
+              del pedido ya cargadas. */}
+          <Link
+            href={`/facturacion/nueva?origen=operacion&recordId=${encodeURIComponent(operacion.id)}`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#F0F0EC] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
           >
-            <XCircle size={13} />
-            Facturar
-          </button>
+            <CheckCircle size={13} />
+            Facturar / emitir recibo
+          </Link>
         </div>
       </section>
 

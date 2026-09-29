@@ -16,7 +16,8 @@ import type {
 import { createShippingV2ItemFromOperacion } from "@/lib/shipping-v2/airtable";
 import { normalizeCedula } from "@/lib/clientes/normalizeCedula";
 import { calcularTotalCotizado } from "@/lib/operaciones/cobro";
-import { validarOpcion } from "@/lib/operaciones/opciones";
+import { cantidadDeOpcion, precioUnitarioDeOpcion, resolverPreciosOpcion, validarCantidadOpcion, validarOpcion } from "@/lib/operaciones/opciones";
+import { planArticuloDePedido, type LlegadaPedido } from "@/lib/operaciones/pedido";
 import { elegirSiguienteIdAbono } from "@/lib/operaciones/id-abono";
 
 type AirtableRecord = {
@@ -264,6 +265,12 @@ function mapOpcion(
     arancel: firstNumber(f["Arancel / Impuestos"]),
     otrosCostos: firstNumber(f["Otros Costos"]),
     costoRealTotal: firstNumber(f["Costo Real Total"]),
+    cantidad: cantidadDeOpcion(f["Cantidad"]),
+    precioUnitarioCliente: precioUnitarioDeOpcion({
+      cantidad: f["Cantidad"],
+      precioUnitarioCliente: typeof f["Precio unitario cliente"] === "number" ? (f["Precio unitario cliente"] as number) : null,
+      precioVentaCliente: typeof f["Precio Venta Cliente"] === "number" ? (f["Precio Venta Cliente"] as number) : null,
+    }),
     precioVentaCliente: firstNumber(f["Precio Venta Cliente"]),
     gananciaEstimada: firstNumber(f["Ganancia Estimada"]),
     urlProveedor: firstString(f["URL Proveedor"]),
@@ -836,17 +843,24 @@ export async function crearOpcion(
   // "NO ELEGIBLE (ELIMINAR)" y otra sin precio. Y como el Total Cotizado de la
   // operación sale de la opción elegida, una opción sin precio hace que el
   // tablero diga "Sin cotizar" aunque ya se le pasó propuesta al cliente.
-  const error = validarOpcion(input);
+  const errorCantidad = validarCantidadOpcion(input.cantidad);
+  if (errorCantidad) throw new Error(errorCantidad);
+  const precios = resolverPreciosOpcion(input);
+  const error = validarOpcion({ ...input, precioVentaCliente: precios.total });
   if (error) throw new Error(error);
 
   const fields: Record<string, unknown> = {
     "Producto / Descripción": input.productoDescripcion.trim(),
     "Operación": [operacionId],
+    "Cantidad": precios.cantidad,
   };
   if (input.proveedorId) fields["Proveedor"] = [input.proveedorId];
   if (input.tiempoEstimado?.trim()) fields["Tiempo Estimado"] = input.tiempoEstimado.trim();
   if (input.costoProveedor != null) fields["Costo Proveedor"] = input.costoProveedor;
-  if (input.precioVentaCliente != null) fields["Precio Venta Cliente"] = input.precioVentaCliente;
+  if (precios.total != null) {
+    fields["Precio Venta Cliente"] = precios.total;
+    fields["Precio unitario cliente"] = precios.precioUnitario;
+  }
   if (input.urlProveedor?.trim()) fields["URL Proveedor"] = input.urlProveedor.trim();
   if (input.notaParaCliente?.trim()) fields["Nota para Cliente"] = input.notaParaCliente.trim();
   if (input.notaInterna?.trim()) fields["Nota Interna"] = input.notaInterna.trim();
@@ -867,6 +881,8 @@ async function fetchOpcionParaValidar(opcionId: string): Promise<{
   productoDescripcion: string;
   precioVentaCliente: number | null;
   costoProveedor: number | null;
+  cantidad: number;
+  precioUnitarioCliente: number | null;
 }> {
   const client = getClient();
   const res = await fetch(
@@ -879,6 +895,12 @@ async function fetchOpcionParaValidar(opcionId: string): Promise<{
     productoDescripcion: firstString(rec.fields["Producto / Descripción"]),
     precioVentaCliente: firstNumber(rec.fields["Precio Venta Cliente"]),
     costoProveedor: firstNumber(rec.fields["Costo Proveedor"]),
+    cantidad: cantidadDeOpcion(rec.fields["Cantidad"]),
+    precioUnitarioCliente: precioUnitarioDeOpcion({
+      cantidad: rec.fields["Cantidad"],
+      precioUnitarioCliente: typeof rec.fields["Precio unitario cliente"] === "number" ? (rec.fields["Precio unitario cliente"] as number) : null,
+      precioVentaCliente: typeof rec.fields["Precio Venta Cliente"] === "number" ? (rec.fields["Precio Venta Cliente"] as number) : null,
+    }),
   };
 }
 
@@ -890,11 +912,27 @@ export async function actualizarOpcion(
 
   // Es una edición parcial: solo se valida lo que viene en el payload, para no
   // exigir el precio a quien solo está corrigiendo una nota.
-  if (input.productoDescripcion !== undefined || input.precioVentaCliente !== undefined || input.costoProveedor !== undefined) {
+  const tocaPrecio =
+    input.precioVentaCliente !== undefined || input.precioUnitarioCliente !== undefined || input.cantidad !== undefined;
+  // Cantidad, unitario y total se guardan SIEMPRE juntos: cambiar uno sin los
+  // otros dejaría "4 × $30 = $30".
+  let precios: ReturnType<typeof resolverPreciosOpcion> | null = null;
+  if (input.productoDescripcion !== undefined || tocaPrecio || input.costoProveedor !== undefined) {
+    const errorCantidad = validarCantidadOpcion(input.cantidad);
+    if (errorCantidad) throw new Error(errorCantidad);
     const actual = await fetchOpcionParaValidar(opcionId);
+    if (tocaPrecio) {
+      const cantidad = input.cantidad !== undefined ? input.cantidad : actual.cantidad;
+      precios = input.precioUnitarioCliente !== undefined
+        ? resolverPreciosOpcion({ cantidad, precioUnitarioCliente: input.precioUnitarioCliente })
+        : input.precioVentaCliente !== undefined
+          ? resolverPreciosOpcion({ cantidad, precioVentaCliente: input.precioVentaCliente })
+          // Solo cambió la cantidad: se conserva el precio UNITARIO.
+          : resolverPreciosOpcion({ cantidad, precioUnitarioCliente: actual.precioUnitarioCliente });
+    }
     const error = validarOpcion({
       productoDescripcion: input.productoDescripcion ?? actual.productoDescripcion,
-      precioVentaCliente: input.precioVentaCliente !== undefined ? input.precioVentaCliente : actual.precioVentaCliente,
+      precioVentaCliente: precios ? precios.total : actual.precioVentaCliente,
       costoProveedor: input.costoProveedor !== undefined ? input.costoProveedor : actual.costoProveedor,
     });
     if (error) throw new Error(error);
@@ -905,7 +943,11 @@ export async function actualizarOpcion(
   if (input.proveedorId !== undefined) fields["Proveedor"] = input.proveedorId ? [input.proveedorId] : [];
   if (input.tiempoEstimado !== undefined) fields["Tiempo Estimado"] = input.tiempoEstimado?.trim() ?? "";
   if (input.costoProveedor !== undefined) fields["Costo Proveedor"] = input.costoProveedor ?? null;
-  if (input.precioVentaCliente !== undefined) fields["Precio Venta Cliente"] = input.precioVentaCliente ?? null;
+  if (precios) {
+    fields["Cantidad"] = precios.cantidad;
+    fields["Precio Venta Cliente"] = precios.total;
+    fields["Precio unitario cliente"] = precios.precioUnitario;
+  }
   if (input.urlProveedor !== undefined) fields["URL Proveedor"] = input.urlProveedor?.trim() ?? "";
   if (input.notaParaCliente !== undefined) fields["Nota para Cliente"] = input.notaParaCliente?.trim() ?? "";
   if (input.notaInterna !== undefined) fields["Nota Interna"] = input.notaInterna?.trim() ?? "";
@@ -987,7 +1029,8 @@ export type CrearShippingItemResult =
 export async function crearShippingItemDesdeOpcion(
   operacionId: string,
   opcionId: string,
-  registradoPor: string
+  registradoPor: string,
+  pedido: OpcionesPedido = {}
 ): Promise<CrearShippingItemResult> {
   const client = getClient();
 
@@ -1013,8 +1056,17 @@ export async function crearShippingItemDesdeOpcion(
   const of = opcionRec.fields;
 
   const nombre = firstString(of["Producto / Descripción"]) || "Artículo sin nombre";
+  // Costo y precio POR UNIDAD: el artículo de inventario guarda valores por
+  // unidad y "Precio Venta Cliente" es el total de la opción.
   const costoProveedor = firstNumber(of["Costo Proveedor"]);
-  const precioVenta = firstNumber(of["Precio Venta Cliente"]);
+  const cantidadCliente = cantidadDeOpcion(of["Cantidad"]);
+  const precioVenta = precioUnitarioDeOpcion({
+    cantidad: of["Cantidad"],
+    precioUnitarioCliente: typeof of["Precio unitario cliente"] === "number" ? (of["Precio unitario cliente"] as number) : null,
+    precioVentaCliente: typeof of["Precio Venta Cliente"] === "number" ? (of["Precio Venta Cliente"] as number) : null,
+  }) ?? 0;
+  const plan = planArticuloDePedido({ cantidadCliente, unidadesCompradas: pedido.unidadesCompradas, llegada: pedido.llegada });
+  if (!plan.ok) throw new Error(plan.motivo);
   const proveedorIds = linkedIds(of["Proveedor"]);
   const fotos = attachmentList(of["Fotos"]).map((foto) => ({
     url: foto.url,
@@ -1044,6 +1096,9 @@ export async function crearShippingItemDesdeOpcion(
       costoProveedor,
       precioVenta,
       fotos,
+      cantidad: plan.cantidad,
+      cantidadReservada: plan.cantidadReservada,
+      requierePacking: plan.requierePacking,
     },
     { registradoPor }
   );
@@ -1078,15 +1133,41 @@ export type ResultadoPedido =
   | { itemCreado: true; itemId: string }
   | { itemCreado: false; itemId?: string; aviso?: string };
 
+export type OpcionesPedido = {
+  /** Unidades compradas al proveedor (≥ las del cliente). Vacío = las del cliente. */
+  unidadesCompradas?: number | null;
+  /** Cómo llega. Vacío = tracking directo. */
+  llegada?: LlegadaPedido | null;
+};
+
 export async function pasarOperacionAPedido(
   operacionId: string,
   opcionElegidaId: string | null,
-  registradoPor: string
+  registradoPor: string,
+  pedido: OpcionesPedido = {}
 ): Promise<ResultadoPedido> {
+  // Se valida ANTES de mover el estado: si el usuario pidió menos unidades de
+  // las que compró el cliente, no debe quedar una operación en "Pedido" sin
+  // artículo. (Los errores de Airtable al crear siguen siendo no fatales.)
+  if (opcionElegidaId && (pedido.unidadesCompradas != null || pedido.llegada != null)) {
+    const client = getClient();
+    const res = await fetch(`${client.baseUrl}/${encodeURIComponent(OPCIONES_TABLE)}/${encodeURIComponent(opcionElegidaId)}`, {
+      headers: client.headers,
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`Airtable error leyendo la opción elegida ${res.status}`);
+    const rec = (await res.json()) as AirtableRecord;
+    const plan = planArticuloDePedido({
+      cantidadCliente: cantidadDeOpcion(rec.fields["Cantidad"]),
+      unidadesCompradas: pedido.unidadesCompradas,
+      llegada: pedido.llegada,
+    });
+    if (!plan.ok) throw new Error(plan.motivo);
+  }
   await actualizarEstadoOperacion(operacionId, "Pedido");
   if (!opcionElegidaId) return { itemCreado: false, aviso: "La operación no tiene opción elegida: no se creó artículo." };
   try {
-    const r = await crearShippingItemDesdeOpcion(operacionId, opcionElegidaId, registradoPor);
+    const r = await crearShippingItemDesdeOpcion(operacionId, opcionElegidaId, registradoPor, pedido);
     return r.created ? { itemCreado: true, itemId: r.id } : { itemCreado: false, itemId: r.existingId };
   } catch (err) {
     // No fatal: el estado ya quedó en "Pedido" (mismo criterio de siempre).

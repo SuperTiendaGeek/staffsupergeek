@@ -8,7 +8,7 @@ type OperacionCotizacionWhatsapp = Pick<
 type OpcionCotizacionWhatsapp = Pick<
   OpcionDetalle,
   "productoDescripcion" | "tiempoEstimado" | "precioVentaCliente" | "notaParaCliente"
->;
+> & Partial<Pick<OpcionDetalle, "cantidad" | "precioUnitarioCliente">>;
 
 const CIERRE_COTIZACION = "Quedamos atentos a su confirmación para proceder con el pedido.";
 
@@ -42,11 +42,20 @@ function construirBloqueOpcion(opcion: OpcionCotizacionWhatsapp, titulo?: string
   const tiempo = textoLimpio(opcion.tiempoEstimado);
   const precio = formatearDinero(opcion.precioVentaCliente);
   const notaCliente = textoLimpio(opcion.notaParaCliente);
+  // Con varias unidades el cliente ve cuántas son y el precio de cada una,
+  // además del total que va a pagar.
+  const cantidad = opcion.cantidad && opcion.cantidad > 1 ? opcion.cantidad : 1;
+  const unitario = cantidad > 1 ? formatearDinero(opcion.precioUnitarioCliente) : null;
 
   const lineas = [
     titulo,
     `*Artículo:* ${producto}`,
-    precio ? `*Precio:* $${precio}` : null,
+    cantidad > 1 ? `*Cantidad:* ${cantidad} unidades` : null,
+    precio
+      ? cantidad > 1 && unitario
+        ? `*Precio:* $${unitario} c/u — *Total:* $${precio}`
+        : `*Precio:* $${precio}`
+      : null,
     tiempo ? `*Entrega estimada:* ${tiempo}` : null,
     notaCliente ? `*Nota para el cliente:*\n${notaCliente}` : null,
   ].filter((linea): linea is string => Boolean(linea));

@@ -16,6 +16,7 @@ import type {
   ModoRepuestos,
 } from "@/types/cuenta-unificada";
 import { esAbonoVigente } from "@/types/cuenta-unificada";
+import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import type { ProductoDigital } from "@/lib/tecnicos/airtable";
 import { lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
 import { aprobadoSinArticulo } from "@/lib/tecnicos/presupuesto/reglas";
@@ -49,6 +50,7 @@ const REPUESTOS_STOCK_FIELD = "Repuestos de Stock (V2)";
 const ORDENES_TABLE = "Órdenes de Reparación";
 const OPERACIONES_TABLE = "Operación Comercial";
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
+const OPCIONES_TABLE = "Opciones";
 const ABONOS_TABLE = "Abonos";
 const CATALOGO_PRODUCTOS_DIGITALES_TABLE = "Catálogo Productos Digitales";
 
@@ -134,14 +136,19 @@ async function fetchRecordsByIds(
 
 function mapShippingItemToCuentaItem(
   record: AirtableRecord,
-  origen: "pedido" | "stock"
+  origen: "pedido" | "stock",
+  cantidad = 1
 ): CuentaUnificadaItem {
   const f = record.fields;
+  const precioUnitario = firstNumber(f["Precio venta final"]);
+  const unidades = Number.isInteger(cantidad) && cantidad > 0 ? cantidad : 1;
   return {
     id: record.id,
     nombre: firstString(f["Nombre del item"], "Artículo sin nombre"),
     origen,
-    precio: firstNumber(f["Precio venta final"]),
+    precio: Math.round(precioUnitario * unidades * 100) / 100,
+    cantidad: unidades,
+    precioUnitario,
   };
 }
 
@@ -260,7 +267,20 @@ async function fetchItemsPedido(
   // "Artículo físico" es el inverso de Shipping Items."Operación Comercial".
   const itemIds = linkedIds(operacionRecord.fields["Artículo físico"]);
   const records = await fetchRecordsByIds(client, SHIPPING_ITEMS_TABLE, itemIds);
-  return records.map((r) => mapShippingItemToCuentaItem(r, "pedido"));
+  // Unidades del cliente = "Cantidad" de la opción de la que nació el
+  // artículo (su "Opción origen"; si no la tiene, la opción elegida de la
+  // operación). El artículo puede tener más unidades —las que se compraron
+  // para stock— y esas NO se le cobran al cliente. Opciones anteriores al
+  // campo valen 1 (cantidadDeOpcion).
+  const opcionElegida = linkedIds(operacionRecord.fields["Opción Elegida"])[0] ?? null;
+  const opcionPorItem = new Map(records.map((r) => [r.id, linkedIds(r.fields["Opción origen"])[0] ?? opcionElegida]));
+  const opcionIds = [...new Set([...opcionPorItem.values()].filter((id): id is string => !!id))];
+  const opciones = await fetchRecordsByIds(client, OPCIONES_TABLE, opcionIds);
+  const cantidadPorOpcion = new Map(opciones.map((o) => [o.id, cantidadDeOpcion(o.fields["Cantidad"])]));
+  return records.map((r) => {
+    const opcionId = opcionPorItem.get(r.id);
+    return mapShippingItemToCuentaItem(r, "pedido", (opcionId && cantidadPorOpcion.get(opcionId)) || 1);
+  });
 }
 
 async function fetchAbonosOperacion(
