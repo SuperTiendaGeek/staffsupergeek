@@ -326,6 +326,8 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   esRegalo: boolean | null;
   conNovedad: boolean | null;
   recibido: boolean | null;
+  /** Operación Comercial de la que nació (pedido de cliente). Vacío = compra propia. */
+  operacionComercialId?: string;
   revisadoFisicamente: boolean | null;
   revisadoPor?: string;
   fechaRevision?: string;

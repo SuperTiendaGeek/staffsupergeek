@@ -1426,6 +1426,7 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     esRegalo: firstBoolean(f[F.esRegalo]),
     conNovedad: firstBoolean(f["Con novedad"] ?? f.Novedad ?? f.Novedades),
     recibido: firstBoolean(f[F.recibido]),
+    operacionComercialId: linkedRecordIds(f[SHIPPING_V2_ITEM_SOURCE_FIELDS.operacionComercial])[0] || undefined,
     revisadoFisicamente: firstBoolean(f["Revisado física/técnicamente"]),
     revisadoPor: firstString(f["Revisado por"]),
     fechaRevision: firstString(f["Fecha revisión"]),
@@ -2939,7 +2940,13 @@ export async function createShippingV2ItemFromOperacion(
     tipoItem: input.desdePresupuesto || categoria === "Repuesto" ? "Repuesto" : "Equipo completo",
     categoria,
     estado: input.desdePresupuesto ? "Pendiente de pago" : "Pagado",
-    ...(input.desdePresupuesto ? { estadoRevision: "Pendiente de recepción" } : {}),
+    // Todo pedido que llega DIRECTO (sin packing) nace "Pendiente de
+    // recepción" para aparecer en /shipping-v2/recepcion: ahí se marca
+    // Recibido. Antes solo los del presupuesto de una orden lo hacían, y los
+    // pedidos "Compra ya pagada" nunca aparecían para recibirse (REP-000020,
+    // REP-000022, REP-000026 quedaron atascados sin poder facturarse). Los que
+    // llegan en packing reciben ese estado al recibirse el packing.
+    ...(input.desdePresupuesto || input.requierePacking !== true ? { estadoRevision: "Pendiente de recepción" } : {}),
     proveedorId,
     requierePago: input.desdePresupuesto === true,
     requierePacking: input.requierePacking === true,

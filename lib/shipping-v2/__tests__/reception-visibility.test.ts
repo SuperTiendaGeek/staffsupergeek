@@ -45,6 +45,15 @@ visible("Disponible con publicación pendiente sigue en Recepción", { estado: "
 visible("Disponible sin Facebook Super Geek sigue en Recepción", { estado: "Disponible", facebookSuperGeek: false });
 oculto("Disponible completamente publicado sale de Recepción", { estado: "Disponible" });
 
+// Pedidos de clientes que llegan directo (caso REP-000020 / REP-000022 / REP-000026):
+// "Compra ya pagada" en estado "Pagado", sin estado de revisión.
+const pedidoDirecto = { estado: "Pagado", estadoRevision: "", operacionComercialId: "recOP", modoLogistico: "Tracking directo", recibido: false };
+visible("Pedido de operación con tracking directo sin recibir aparece para recibirse", pedidoDirecto);
+oculto("El mismo pedido ya recibido y vendido no reaparece", { ...pedidoDirecto, estado: "Vendido", recibido: true });
+oculto("Pedido vendido (aunque nunca se marcó recibido) no reaparece", { ...pedidoDirecto, estado: "Vendido" });
+oculto("Compra propia (sin operación) en Pagado no se mete en Recepción", { ...pedidoDirecto, operacionComercialId: undefined });
+oculto("Pedido que llega en packing espera a su packing", { ...pedidoDirecto, modoLogistico: "Pendiente de packing" });
+
 if (fallos > 0) {
   console.error(`\n${fallos} assert(s) fallaron.`);
   process.exit(1);
