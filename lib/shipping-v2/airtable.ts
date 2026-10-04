@@ -54,7 +54,7 @@ import type { StaffSession } from "@/lib/session";
 import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
 import { SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD, getShippingV2ItemEditField, getShippingV2ItemEditFieldByKey } from "@/lib/shipping-v2/item-edit-config";
 import { getShippingV2FacebookPublicationBlockReason, getShippingV2FacebookTextGenerationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
-import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
+import { estadoSegunLlegada, requiereInspeccionPorDefecto } from "@/lib/shipping-v2/item-venta";
 import { validarReglaDistribucion } from "@/lib/shipping-v2/packing-costos";
 import { calcularRepartoPacking, type ResultadoReparto } from "@/lib/shipping-v2/packing-reparto";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
@@ -836,7 +836,7 @@ function validateItemInput(input: ShippingV2ItemWriteInput) {
  *                que ya avanzó lo mandaría hacia atrás: uno "Disponible" o
  *                "Vendido" volvería a "Pendiente de pago" solo por corregirle
  *                el nombre. El ciclo de vida lo mueven los pasos del flujo
- *                (pago, packing, recepción, "Listo para vender"), no una
+ *                (pago, packing, recepción, firma de inspección), no una
  *                edición de datos.
  */
 function applyCalculatedItemFlow(
@@ -925,6 +925,7 @@ function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, un
     [F.afectaInventario]: Boolean(input.afectaInventario),
     [F.disponibleVenta]: Boolean(input.disponibleVenta),
     [F.reservado]: Boolean(input.reservado),
+    [F.requiereInspeccion]: Boolean(input.requiereInspeccion),
     [F.skuProveedor]: normalizeSku(cleanString(input.skuProveedor)),
     [F.modelo]: cleanString(input.modelo),
     [F.marca]: cleanString(input.marca),
@@ -1195,7 +1196,9 @@ function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
   const proveedorId = firstString(f[F.proveedorId]);
   const nombre = firstString(f[F.nombre] ?? f["Nombre Proveedor"] ?? f.Nombre ?? f.Proveedor);
   const label = proveedorId || nombre || record.id;
-  const tipoProveedor = firstString(f[F.tipoProveedor]);
+  // Selección múltiple desde el 4-oct-2026 (Software, Hardware, Logístico, Otro).
+  const tiposProveedor = stringArray(f[F.tipoProveedor]);
+  const tipoProveedor = tiposProveedor.join(", ");
 
   return {
     id: record.id,
@@ -1205,6 +1208,7 @@ function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
     nombre: nombre || label,
     estado: firstString(f[F.estado] ?? f.Estado, "Activo"),
     tipoProveedor,
+    tiposProveedor,
     requierePagoAntesEnvio: firstBoolean(f["Requiere pago antes de envío"]),
     plazoSugeridoPagoDias: firstNumber(f["Plazo sugerido de pago en días"]),
     metodoPagoPreferido: firstString(f["Método de pago preferido"]),
@@ -1218,7 +1222,8 @@ function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
     contacto: firstString(f.Contacto),
     email: firstString(f["Email proveedor"] ?? f.Email ?? f["Email de contacto"]),
     telefono: firstString(f.Telefono ?? f["Teléfono"] ?? f["Teléfono / WhatsApp"]),
-    pais: firstString(f.Pais ?? f["País"] ?? tipoProveedor),
+    // El origen ya no sale de "Tipo de proveedor" (que dejó de tener USA/Local).
+    pais: firstString(f.Pais ?? f["País"] ?? f[F.paisZonaLogistica]),
     paisZonaLogistica: firstString(f[F.paisZonaLogistica] ?? f["País / zona logística"]),
     urlRastreo: firstString(f[F.urlRastreo] ?? f["URL rastreo"]),
     plantillaUrlRastreo: firstString(f[F.plantillaUrlRastreo] ?? f["Plantilla URL rastreo"]),
@@ -1426,6 +1431,7 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     esRegalo: firstBoolean(f[F.esRegalo]),
     conNovedad: firstBoolean(f["Con novedad"] ?? f.Novedad ?? f.Novedades),
     recibido: firstBoolean(f[F.recibido]),
+    requiereInspeccion: firstBoolean(f[F.requiereInspeccion]),
     operacionComercialId: linkedRecordIds(f[SHIPPING_V2_ITEM_SOURCE_FIELDS.operacionComercial])[0] || undefined,
     revisadoFisicamente: firstBoolean(f["Revisado física/técnicamente"]),
     revisadoPor: firstString(f["Revisado por"]),
@@ -2017,7 +2023,7 @@ async function getShippingV2PackingSearchInfoById() {
 
 function searchEntryAvailability(input: { disponibleVenta: boolean | null; reservado: boolean | null }) {
   if (input.reservado) return "Reservado";
-  if (input.disponibleVenta) return "Disponible para venta";
+  if (input.disponibleVenta) return "Reservable";
   return "No disponible";
 }
 
@@ -2690,12 +2696,12 @@ async function validateInlineItemFieldChange(input: {
     }
   }
 
-  // Pasar un item a "Disponible" es la publicación del artículo: el camino
-  // normal es el botón "Listo para vender" de Recepción, que además valida
-  // revisión y novedades (marcarShippingV2ItemDisponible). Aquí solo se permite
-  // como corrección manual de administración, y queda en el historial del item.
+  // "Disponible" es una etiqueta que pone el sistema al llegar el artículo
+  // (y al firmarse su inspección, si la requiere): ver item-venta.ts. Ya no
+  // decide la venta. Aquí solo se permite como corrección manual de
+  // administración, y queda en el historial del item.
   if (input.field === SHIPPING_V2_ITEM_FIELDS.estadoItem && cleanString(input.normalizedValue) === "Disponible" && !input.esAdmin) {
-    throw new Error('Para poner un artículo disponible usa "Listo para vender" en Recepción. La corrección manual es solo para administradores.');
+    throw new Error("El estado “Disponible” lo pone el sistema cuando el artículo llega a la tienda (y se firma su inspección, si la requiere). La corrección manual es solo para administradores.");
   }
 
   if (input.field === SHIPPING_V2_ITEM_FIELDS.tipoOperacion && (input.item.pagoId || input.item.packingId)) {
@@ -2766,9 +2772,25 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
     }
     : {};
 
+  // Cambiar "Requiere inspección" en un artículo que ya llegó mueve su
+  // etiqueta igual que en Recepción: si ahora la requiere y no está firmada
+  // vuelve a "En revisión"; si ya no la requiere queda "Disponible".
+  const inspeccionFlowFields: Record<string, unknown> = {};
+  if (field === SHIPPING_V2_ITEM_FIELDS.requiereInspeccion && existing.recibido === true) {
+    const requiere = normalizedValue === true;
+    const firmada = existing.revisadoFisicamente === true;
+    const estadoNuevo = estadoSegunLlegada({ estado: existing.estado, recibido: true, requiereInspeccion: requiere, inspeccionFirmada: firmada });
+    if (estadoNuevo) inspeccionFlowFields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = estadoNuevo;
+    const pendientes = new Set(["recibido pendiente de revision", "recibido correctamente", "pendiente de recepcion", "no aplica", ""]);
+    if (pendientes.has(normalizeStatus(existing.estadoRevision || ""))) {
+      inspeccionFlowFields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = requiere && !firmada ? "Recibido pendiente de revisión" : "Recibido correctamente";
+    }
+  }
+
   const fields: Record<string, unknown> = {
     [field]: field === getOfficialSkuField() ? normalizeSku(cleanString(normalizedValue)) : normalizedValue,
     ...logisticsFlowFields,
+    ...inspeccionFlowFields,
     [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
     [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.actualizadoPor,
   };
@@ -2855,12 +2877,53 @@ async function createShippingV2ItemRecord(
 }
 
 export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string }) {
-  const calculatedInput = applyCalculatedItemFlow(input);
-  const normalizedInput = normalizeShippingV2ItemMoneyQuantityInput(calculatedInput, { mode: "create" });
+  const calculatedInput = completarAltaSegunLlegada(applyCalculatedItemFlow(input));
+  const normalizedInput = normalizeShippingV2ItemMoneyQuantityInput(calculatedInput.input, { mode: "create" });
   validateItemInput(normalizedInput);
   await validateItemProviderRules(normalizedInput);
 
-  return createShippingV2ItemRecord(normalizedInput, options);
+  return createShippingV2ItemRecord(normalizedInput, { ...options, extraFields: calculatedInput.extraFields });
+}
+
+/**
+ * Auditoría Shipping V2, punto 1 (oct-2026) — tres cosas al dar de alta:
+ *
+ *  1. "Requiere inspección": lo que eligió quien registra, o el valor por
+ *     defecto de la categoría.
+ *  2. Lo que no viaja (modo logístico "No aplica": reajuste, uso local,
+ *     despiece…) ya está en la tienda: nace con "Recibido" marcado y su
+ *     etiqueta sale de la misma regla que en Recepción. Esto es provisional
+ *     hasta que el formulario pregunte "¿Dónde está el artículo?" (etapa 2).
+ *  3. "Disponible para venta" (= se puede reservar) lo calcula el sistema:
+ *     todo artículo es reservable desde que nace, salvo que esté bloqueado.
+ */
+function completarAltaSegunLlegada(input: ShippingV2ItemWriteInput): {
+  input: ShippingV2ItemWriteInput;
+  extraFields: Record<string, unknown>;
+} {
+  const requiereInspeccion = typeof input.requiereInspeccion === "boolean"
+    ? input.requiereInspeccion
+    : requiereInspeccionPorDefecto({ categoria: input.categoria, tipoOperacion: input.tipoOperacion });
+  const yaEnTienda = cleanString(input.modoLogistico) === "No aplica";
+  const extraFields: Record<string, unknown> = {};
+  let estado = input.estado;
+  let estadoRevision = input.estadoRevision;
+  if (yaEnTienda) {
+    extraFields[SHIPPING_V2_ITEM_FIELDS.recibido] = true;
+    estadoRevision = requiereInspeccion ? "Recibido pendiente de revisión" : "Recibido correctamente";
+    estado = estadoSegunLlegada({ estado, recibido: true, requiereInspeccion, inspeccionFirmada: false }) ?? estado;
+  }
+  const cantidad = typeof input.cantidad === "number" && input.cantidad > 0 ? input.cantidad : 1;
+  const disponibleVenta = calcularDisponibleVenta({
+    estado,
+    estadoRevision,
+    usoLocal: input.usoLocal,
+    unidadesLibres: input.reservado === true ? 0 : cantidad,
+  });
+  return {
+    input: { ...input, requiereInspeccion, estado, estadoRevision, disponibleVenta },
+    extraFields,
+  };
 }
 
 export async function createShippingV2ItemFromOperacion(
@@ -2951,9 +3014,15 @@ export async function createShippingV2ItemFromOperacion(
     requierePago: input.desdePresupuesto === true,
     requierePacking: input.requierePacking === true,
     afectaInventario: true,
-    // Todavía no llega: nada está a la venta. Las unidades libres (stock) se
-    // habilitan con la recepción, como cualquier otro artículo.
-    disponibleVenta: false,
+    // Auditoría Shipping V2, punto 1: todo artículo se puede reservar desde
+    // que nace. Las unidades que sobran para stock quedan reservables ya; se
+    // VENDEN cuando el artículo llega (item-venta.ts). Antes nacían apagadas
+    // y no había camino para publicarlas (C-1).
+    disponibleVenta: calcularDisponibleVenta({
+      estado: input.desdePresupuesto ? "Pendiente de pago" : "Pagado",
+      unidadesLibres: cantidad - cantidadReservada,
+    }),
+    requiereInspeccion: requiereInspeccionPorDefecto({ categoria }),
     // "Reservado" (bandera vieja) solo si TODAS las unidades son del cliente;
     // la cuenta real va en "Cantidad Reservada" (unidades.ts).
     reservado: cantidadReservada >= cantidad,
@@ -4044,6 +4113,7 @@ export async function getShippingV2PackingsReviewProgress(
       F.sku,
       F.estadoItem,
       F.recibido,
+      F.requiereInspeccion,
       "Revisado física/técnicamente",
       "Fotos tomadas",
       "Shopify publicado",
@@ -4065,6 +4135,7 @@ export async function getShippingV2PackingsReviewProgress(
       sku: firstString(record.fields[F.sku]),
       estado: firstString(record.fields[F.estadoItem]),
       recibido: firstBoolean(record.fields[F.recibido]),
+      requiereInspeccion: firstBoolean(record.fields[F.requiereInspeccion]),
       revisadoFisicamente: firstBoolean(record.fields["Revisado física/técnicamente"]),
       fotosTomadas: firstBoolean(record.fields["Fotos tomadas"]),
       shopifyPublicado: firstBoolean(record.fields["Shopify publicado"]),
@@ -4857,10 +4928,22 @@ const RECEPTION_CHECKLIST_FIELDS: Record<ShippingV2RecepcionChecklistAction, Rec
 export async function updateShippingV2ReceptionChecklistItem(
   recordId: string,
   input: { action: ShippingV2RecepcionChecklistAction; value: boolean; note?: string },
-  options: { actualizadoPor: string }
+  options: {
+    actualizadoPor: string;
+    /**
+     * Solo firmarShippingV2InspeccionTecnica lo pasa. "Revisado" tiene UNA
+     * sola forma de marcarse: firmar la ficha de inspección técnica (decisión
+     * del dueño, 4-oct-2026). Desmarcarlo (reabrir la inspección) sí se puede
+     * desde la pantalla de inspección.
+     */
+    desdeFirmaInspeccion?: boolean;
+  }
 ) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
+  if (input.action === "reviewed" && input.value === true && options.desdeFirmaInspeccion !== true) {
+    throw new Error("“Revisado” se marca solo al firmar la ficha de inspección técnica.");
+  }
   const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
   const now = new Date().toISOString();
   const note = cleanString(input.note);
@@ -4887,18 +4970,34 @@ export async function updateShippingV2ReceptionChecklistItem(
   }
   if (note) fields["Observación recepción"] = `${item.observacionRecepcion ? `${item.observacionRecepcion}\n` : ""}[${now}] ${options.actualizadoPor}: ${note}`;
 
+  // La etiqueta "Estado Item" ya no la mueve un botón: la pone el sistema
+  // cuando el artículo llega y, si requiere inspección, cuando se firma
+  // (lib/shipping-v2/item-venta.ts → estadoSegunLlegada). Esto también saca
+  // de "Pagado"/"Pendiente de pago" a lo que llega directo sin packing (C-1).
+  const requiereInspeccion = item.requiereInspeccion === true;
+  let estadoNuevo: string | null = null;
+
   if (input.action === "received") {
     if (input.value) {
       const currentReviewStatus = normalizeStatus(item.estadoRevision || "");
       if (!currentReviewStatus || currentReviewStatus === "pendiente de recepcion" || currentReviewStatus === "pendiente de recepción" || currentReviewStatus === "no aplica") {
-        fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = "Recibido pendiente de revisión";
+        // Sin inspección pendiente (no la requiere o ya está firmada) no queda
+        // nada que revisar: "Recibido correctamente".
+        fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = requiereInspeccion && item.revisadoFisicamente !== true
+          ? "Recibido pendiente de revisión"
+          : "Recibido correctamente";
       }
-      if (normalizeStatus(item.estado) === "en transito" || normalizeStatus(item.estado) === "en tránsito") {
-        fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = "Recibido";
-      }
+      estadoNuevo = estadoSegunLlegada({
+        estado: item.estado,
+        recibido: true,
+        requiereInspeccion,
+        inspeccionFirmada: item.revisadoFisicamente === true,
+      });
     } else {
       fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = "Pendiente de recepción";
-      fields[SHIPPING_V2_ITEM_FIELDS.disponibleVenta] = false;
+      // "Disponible para venta" (= se puede reservar) NO se apaga: reservar
+      // no depende de que el artículo esté en la tienda. Lo que deja de poder
+      // hacerse es VENDERLO, y eso ya lo impide la regla de item-venta.ts.
       if (["recibido", "en revision", "en revisión", "disponible"].includes(normalizeStatus(item.estado))) {
         fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = "Recibido";
       }
@@ -4908,8 +5007,15 @@ export async function updateShippingV2ReceptionChecklistItem(
     }
   } else if (input.action === "reviewed") {
     fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = input.value ? "Recibido correctamente" : "Recibido pendiente de revisión";
-    if (input.value && normalizeStatus(item.estado) === "recibido") fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = "En revisión";
+    // Firmar → "Disponible". Reabrir → vuelve a "En revisión".
+    estadoNuevo = estadoSegunLlegada({
+      estado: item.estado,
+      recibido: item.recibido === true,
+      requiereInspeccion,
+      inspeccionFirmada: input.value,
+    });
   }
+  if (estadoNuevo) fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = estadoNuevo;
 
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
     method: "PATCH",
@@ -4923,9 +5029,11 @@ export async function updateShippingV2ReceptionChecklistItem(
     itemRecordId: id,
     itemName: updatedItem.nombre,
     registradoPor: options.actualizadoPor,
-    descripcion: `Recepción: ${checklistFields.label} = ${input.value ? "sí" : "no"}.`,
+    descripcion: `Recepción: ${checklistFields.label} = ${input.value ? "sí" : "no"}.` +
+      (estadoNuevo ? ` Estado: ${item.estado || "—"} → ${estadoNuevo}.` : ""),
     observacion: note,
   });
+  if (estadoNuevo) invalidateShippingV2ItemSearchIndexCache();
 
   // Cierre automático del ciclo del packing. Va después del evento para que el
   // historial conserve el orden real: primero la casilla, luego el cierre que
@@ -5117,7 +5225,16 @@ async function recalcularDisponibilidadItem(itemRecordId: string, actor: string)
   // Saca al artículo del estado "Con novedad" cuando ya no queda ninguna.
   const estadoActual = normalizeStatus(item.estado);
   if (estadoActual === "con novedad" && bloqueantes === 0) {
-    fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = item.recibido === true ? "En revisión" : "Recibido";
+    // Llegó: la etiqueta la decide la misma regla que en Recepción (Disponible
+    // si no requiere inspección o ya está firmada; si no, En revisión).
+    fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = item.recibido === true
+      ? estadoSegunLlegada({
+        estado: "En revisión",
+        recibido: true,
+        requiereInspeccion: item.requiereInspeccion === true,
+        inspeccionFirmada: item.revisadoFisicamente === true,
+      }) ?? "En revisión"
+      : "Recibido";
   }
 
   // Un veredicto bloqueante sin novedades abiertas dejaría el artículo
@@ -5919,79 +6036,6 @@ export async function getShippingV2NovedadesForItem(itemRecordId: string, access
     });
 }
 
-/**
- * Marca un item como listo para vender: Estado Item → "Disponible" y
- * "Disponible para venta" → true. Es la "acción controlada" que exigía el guard
- * de validateInlineItemFieldChange y que hasta ahora no existía, por lo que el
- * ciclo de vida se estancaba en "En revisión" (ver lib/shipping-v2/item-availability.ts).
- *
- * Idempotente: si el item ya está Disponible se devuelve tal cual, sin error.
- */
-export async function marcarShippingV2ItemDisponible(
-  recordId: string,
-  options: { actualizadoPor: string }
-) {
-  assertShippingV2GeneratedSchema();
-  const id = cleanString(recordId);
-  if (!id) throw new Error("Record ID de item inválido.");
-
-  const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
-  if (item.recibido !== true) throw new Error("Marca primero Recibido antes de dejar el item listo para vender.");
-
-  const novedades = await getShippingV2NovedadesForItem(id);
-  // Solo las bloqueantes impiden publicar: una "Observación menor" abierta no
-  // debe frenar la venta, para eso existe ese tipo.
-  const novedadesAbiertas = novedades.filter((n) => esNovedadBloqueante(n)).length;
-
-  const evaluacion = evaluarPublicacionItem({
-    estado: item.estado,
-    estadoRevision: item.estadoRevision,
-    revisadoFisicamente: item.revisadoFisicamente,
-    novedadesAbiertas,
-  });
-
-  if (!evaluacion.puede) {
-    if (evaluacion.motivo === "ya-disponible") return item; // idempotente
-    throw new Error(evaluacion.detalle);
-  }
-
-  const estadoAnterior = item.estado;
-  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
-    method: "PATCH",
-    body: JSON.stringify({
-      records: [
-        {
-          id,
-          fields: {
-            [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Disponible",
-            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: true,
-            [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
-            [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.actualizadoPor,
-          },
-        },
-      ],
-    }),
-  });
-
-  const updated = response.records?.[0];
-  if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
-  const itemActualizado = mapItem(updated);
-
-  await createShippingV2Event({
-    action: "Cambio de estado",
-    entity: "Shipping Item",
-    itemRecordId: id,
-    itemName: itemActualizado.nombre,
-    registradoPor: options.actualizadoPor,
-    descripcion: "Publicado como listo para vender desde Recepción.",
-    estadoAnterior,
-    estadoNuevo: "Disponible",
-  });
-
-  invalidateShippingV2ItemSearchIndexCache();
-  return itemActualizado;
-}
-
 export async function getShippingV2DashboardSummary(access?: ShippingV2AccessContext): Promise<ShippingV2DashboardSummary> {
   const [items, pagos, packings, novedades] = await Promise.all([
     getShippingV2Items({ access }),
@@ -6451,7 +6495,8 @@ export async function crearPiezaDespiece(
   const pieza = await createShippingV2ItemRecord(itemInput as ShippingV2ItemWriteInput, {
     registradoPor: options.registradoPor,
     eventDescription: `Pieza recuperada del despiece de ${firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.sku])}.`,
-    extraFields: { [CAMPO_ITEM_PADRE]: [padreId], "Es parte recuperada": true },
+    // La pieza sale de un equipo que ya está en la tienda: nace recibida.
+    extraFields: { [CAMPO_ITEM_PADRE]: [padreId], "Es parte recuperada": true, [SHIPPING_V2_ITEM_FIELDS.recibido]: true },
   });
 
   // El equipo entra en "Despiece en proceso" en cuanto nace la primera pieza.
@@ -6955,6 +7000,12 @@ export type ShippingV2InspeccionCambios = {
   especificaciones?: Record<string, string>;
 };
 
+// Los artículos que no requieren inspección no pasan por la pantalla de
+// Inspección (decisión del dueño, 4-oct-2026). Si alguno sí la necesita, se
+// marca "Requiere inspección" en su ficha y vuelve a aparecer.
+const MENSAJE_NO_REQUIERE_INSPECCION =
+  "Este artículo no requiere inspección técnica. Si la necesita, marca “Requiere inspección” en su ficha.";
+
 /**
  * Guarda la inspección. Pensada para llamarse seguido (autoguardado): siempre
  * relee el estado actual y escribe el respaldo completo, así dos pestañas
@@ -6972,6 +7023,9 @@ export async function guardarShippingV2InspeccionTecnica(
   let item = await getShippingV2ItemById(id, { includeAiName: false, access: options.access });
   if (item.recibido !== true) {
     throw new Error("Marca primero el item como Recibido antes de inspeccionarlo.");
+  }
+  if (item.requiereInspeccion !== true) {
+    throw new Error(MENSAJE_NO_REQUIERE_INSPECCION);
   }
   // Una inspección firmada no se edita a escondidas. Sin esta guarda, desmarcar
   // una característica borraría resultados y tumbaría la firma del snapshot,
@@ -7086,6 +7140,9 @@ export async function firmarShippingV2InspeccionTecnica(
   if (!id) throw new Error("Record ID de item inválido.");
 
   const inspeccion = await getShippingV2InspeccionTecnica(id, { access: options.access });
+  if (inspeccion.item.requiereInspeccion !== true) {
+    throw new Error(MENSAJE_NO_REQUIERE_INSPECCION);
+  }
   if (!inspeccion.estado.completa) {
     throw new Error(inspeccion.estado.motivo);
   }
@@ -7097,7 +7154,7 @@ export async function firmarShippingV2InspeccionTecnica(
   const item = await updateShippingV2ReceptionChecklistItem(
     id,
     { action: "reviewed", value: true, note: resumen },
-    { actualizadoPor: options.actor }
+    { actualizadoPor: options.actor, desdeFirmaInspeccion: true }
   );
 
   return { item, estado: inspeccion.estado };
@@ -7418,11 +7475,33 @@ export async function soltarArticuloDePedido(
     [SHIPPING_V2_ITEM_SOURCE_FIELDS.operacionComercial]: [],
     [SHIPPING_V2_ITEM_FIELDS.reservado]: false,
     [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: 0,
-    [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: false,
     [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
     [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: opts.registradoPor,
   };
-  if (opts.modo === "cancelar") fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = "Cancelado";
+  if (opts.modo === "cancelar") {
+    fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = "Cancelado";
+    fields[SHIPPING_V2_ITEM_FIELDS.disponibleVenta] = false;
+  } else {
+    // "Liberar": el artículo vuelve a ser stock de la tienda, reservable como
+    // cualquier otro (C-8 de la auditoría). Antes quedaba con "Disponible para
+    // venta" apagada y sin camino para volver a ofrecerse. Si ya llegó, su
+    // etiqueta sale de la misma regla que en Recepción.
+    const estadoActual = firstString(existing.fields[SHIPPING_V2_ITEM_FIELDS.estadoItem]);
+    const recibido = existing.fields[SHIPPING_V2_ITEM_FIELDS.recibido] === true;
+    const estadoNuevo = estadoSegunLlegada({
+      estado: estadoActual,
+      recibido,
+      requiereInspeccion: existing.fields[SHIPPING_V2_ITEM_FIELDS.requiereInspeccion] === true,
+      inspeccionFirmada: existing.fields["Revisado física/técnicamente"] === true,
+    });
+    if (estadoNuevo) fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = estadoNuevo;
+    fields[SHIPPING_V2_ITEM_FIELDS.disponibleVenta] = calcularDisponibleVenta({
+      estado: estadoNuevo ?? estadoActual,
+      estadoRevision: firstString(existing.fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision]),
+      usoLocal: existing.fields[SHIPPING_V2_ITEM_FIELDS.esUsoLocal] === true,
+      unidadesLibres: Number(existing.fields[SHIPPING_V2_ITEM_FIELDS.cantidad] ?? 0),
+    });
+  }
 
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
     method: "PATCH",
@@ -7439,7 +7518,7 @@ export async function soltarArticuloDePedido(
       ? `Pedido cancelado desde el presupuesto de la orden. ${opts.motivo}`
       : `Liberado a inventario: el cliente desistió después de que llegó. ${opts.motivo}`,
     estadoAnterior,
-    estadoNuevo: opts.modo === "cancelar" ? "Cancelado" : estadoAnterior,
+    estadoNuevo: opts.modo === "cancelar" ? "Cancelado" : firstString(fields[SHIPPING_V2_ITEM_FIELDS.estadoItem]) || estadoAnterior,
   });
   invalidateShippingV2ItemSearchIndexCache();
 }

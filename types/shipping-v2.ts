@@ -165,7 +165,10 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   label: string;
   nombre: string;
   estado: ShippingV2ProveedorEstado | string;
+  /** Texto para mostrar: los tipos separados por coma ("Hardware, Software"). */
   tipoProveedor?: string;
+  /** "Tipo de proveedor" es de selección múltiple desde el 4-oct-2026. Ver provider-types.ts. */
+  tiposProveedor?: string[];
   requierePagoAntesEnvio: boolean | null;
   plazoSugeridoPagoDias: number | null;
   metodoPagoPreferido?: string;
@@ -326,6 +329,11 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   esRegalo: boolean | null;
   conNovedad: boolean | null;
   recibido: boolean | null;
+  /**
+   * Si está marcada, el artículo solo se vende con la ficha de inspección
+   * técnica firmada. Ver lib/shipping-v2/item-venta.ts.
+   */
+  requiereInspeccion: boolean | null;
   /** Operación Comercial de la que nació (pedido de cliente). Vacío = compra propia. */
   operacionComercialId?: string;
   revisadoFisicamente: boolean | null;
@@ -439,6 +447,8 @@ export type ShippingV2ItemWriteInput = {
   afectaInventario?: boolean;
   disponibleVenta?: boolean;
   reservado?: boolean;
+  /** Vacío = el valor por defecto según categoría (requiereInspeccionPorDefecto). */
+  requiereInspeccion?: boolean;
   sku?: string;
   skuProveedor?: string;
   modelo?: string;

@@ -316,7 +316,7 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
       {editable && resumen.piezas.length > 0 && !borrador ? (
         <p className="text-xs leading-5 text-[#696A64]">
           Al completar el despiece se descuenta del inventario la unidad desarmada y el equipo sale de la venta.
-          Las piezas quedan en revisión: para publicarlas usa el botón “Listo para vender” de cada una.
+          Las piezas nacen en la tienda: se venden directo, salvo las que requieren inspección técnica, que se venden al firmar su ficha en Recepción.
         </p>
       ) : null}
     </div>

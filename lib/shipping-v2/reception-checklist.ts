@@ -39,7 +39,9 @@
 //
 // Para esos, los 4 pasos de publicación cuentan como "no aplica", no como
 // "hecho": la pantalla lo dice explícitamente para que nadie crea que se
-// publicaron. Los 3 pasos de bodega se exigen SIEMPRE, sin excepción.
+// publicaron. Los 3 pasos de bodega se exigen siempre, con UNA excepción
+// (oct-2026): "Revisado" no aplica a los artículos que no requieren
+// inspección técnica (casilla "Requiere inspección" apagada).
 
 export type ShippingV2ChecklistKey =
   | "recibido"
@@ -81,6 +83,8 @@ export type ShippingV2ReceptionChecklistItemLike = {
   sku?: string;
   estado?: string | null;
   recibido?: boolean | null;
+  /** false = no pasa por inspección: el paso "Revisado" cuenta como "no aplica". */
+  requiereInspeccion?: boolean | null;
   revisadoFisicamente?: boolean | null;
   fotosTomadas?: boolean | null;
   shopifyPublicado?: boolean | null;
@@ -163,6 +167,12 @@ export function calculateShippingV2ItemChecklist(
     // Una publicación ya marcada se muestra como hecha aunque hoy no aplique:
     // el trabajo se hizo y ocultarlo sería mentir.
     if (paso.grupo === "publicacion" && !publicacion.aplica && !hecho) {
+      return { ...paso, estado: "no-aplica" as ShippingV2ChecklistStepState };
+    }
+    // Auditoría Shipping V2, punto 1: un artículo que no requiere inspección
+    // técnica (un cable, un cargador) no tiene nada que firmar. Exigirle
+    // "Revisado" dejaría su packing imposible de cerrar.
+    if (paso.key === "revisado" && item.requiereInspeccion === false && !hecho) {
       return { ...paso, estado: "no-aplica" as ShippingV2ChecklistStepState };
     }
     return { ...paso, estado: (hecho ? "hecho" : "pendiente") as ShippingV2ChecklistStepState };

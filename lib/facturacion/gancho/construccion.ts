@@ -237,11 +237,11 @@ export function agruparTotalConImpuestos(detalles: DetalleFactura[]): TotalImpue
 // informativo para el caso clásico (registro de 1 unidad ya vendido:
 // factura previa + cantidad 0); sin factura previa, cantidad 0 reporta
 // "SIN_STOCK".
-export type ItemNoListo = { id: string; nombre: string; motivo: "NO_RESERVADO" | "YA_FACTURADO" | "SIN_STOCK" | "SIN_PRECIO_FINAL" | "NO_RECIBIDO" };
+export type ItemNoListo = { id: string; nombre: string; motivo: "NO_RESERVADO" | "YA_FACTURADO" | "SIN_STOCK" | "SIN_PRECIO_FINAL" | "NO_RECIBIDO" | "SIN_INSPECCION" };
 
 export function evaluarItemNoListo(
   item: Pick<CuentaUnificadaItem, "id" | "nombre" | "precio" | "cantidad">,
-  detalle: Pick<ItemDetalleGancho, "reservado" | "tieneFacturaPrevia" | "cantidad" | "cantidadReservada"> & Partial<Pick<ItemDetalleGancho, "tieneReciboPrevio" | "bajoPedidoSinLlegar">> | undefined
+  detalle: Pick<ItemDetalleGancho, "reservado" | "tieneFacturaPrevia" | "cantidad" | "cantidadReservada"> & Partial<Pick<ItemDetalleGancho, "tieneReciboPrevio" | "bajoPedidoSinLlegar" | "pendienteDeEntrega">> | undefined
 ): ItemNoListo | null {
   // Sin detalle = el artículo ya no está en Shipping Items (un error de
   // lectura ya no llega aquí: fetchDetalleItems lanza). No se puede confirmar
@@ -265,6 +265,11 @@ export function evaluarItemNoListo(
   // al menos una unidad comprometida, por cualquiera de las dos vías.
   // Repuesto bajo pedido que todavía no llegó: se cobra cuando se entrega.
   if (detalle.bajoPedidoSinLlegar) return { id: item.id, nombre: item.nombre, motivo: "NO_RECIBIDO" };
+  // Auditoría Shipping V2, punto 1: lo mismo para TODO artículo (también el
+  // repuesto de stock que se cargó a la orden cuando aún venía en camino, y
+  // el pedido de una Operación Comercial). Se factura al llegar y entregarse.
+  if (detalle.pendienteDeEntrega === "no-llego") return { id: item.id, nombre: item.nombre, motivo: "NO_RECIBIDO" };
+  if (detalle.pendienteDeEntrega === "falta-inspeccion") return { id: item.id, nombre: item.nombre, motivo: "SIN_INSPECCION" };
   const hayUnidadApartada = detalle.reservado || (detalle.cantidadReservada ?? 0) >= 1;
   if (!hayUnidadApartada) return { id: item.id, nombre: item.nombre, motivo: "NO_RESERVADO" };
   if (!(item.precio > 0)) return { id: item.id, nombre: item.nombre, motivo: "SIN_PRECIO_FINAL" };

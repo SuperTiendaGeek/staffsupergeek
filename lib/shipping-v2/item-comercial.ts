@@ -75,7 +75,7 @@ const ESTADOS_TERMINALES = new Set([
 
 /**
  * Veredictos de revisión que impiden prometer el artículo a un cliente.
- * Son los mismos que ya usaba item-availability.ts para publicar.
+ * Son los que bloquean reservar y vender (ver también item-venta.ts).
  */
 export const VEREDICTOS_BLOQUEANTES = [
   "Faltante",

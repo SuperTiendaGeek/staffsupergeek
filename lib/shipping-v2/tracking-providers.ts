@@ -1,4 +1,5 @@
 import { getShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
+import { esProveedorLogistico } from "@/lib/shipping-v2/provider-types";
 import type { ShippingV2Packing, ShippingV2PackingWriteInput, ShippingV2Proveedor } from "@/types/shipping-v2";
 
 const USA_ZONES = new Set(["usa", "internacional", "otro"]);
@@ -19,7 +20,7 @@ function zone(provider: ShippingV2Proveedor) {
 }
 
 export function isActiveLogisticsProvider(provider: ShippingV2Proveedor) {
-  return normalizeProviderText(provider.estado) === "activo" && normalizeProviderText(provider.tipoProveedor) === "logistico";
+  return normalizeProviderText(provider.estado) === "activo" && esProveedorLogistico(provider);
 }
 
 export function canBeUsaTransportProvider(provider: ShippingV2Proveedor) {

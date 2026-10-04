@@ -46,7 +46,7 @@ function availabilityLabel(item: FallbackItem) {
   if (item.reservado) return "Reservado";
   if (item.usoLocal) return "Uso local";
   if (item.esRepuesto) return "Repuesto";
-  if (item.disponibleVenta) return "Disponible para venta";
+  if (item.disponibleVenta) return "Reservable";
   return "No disponible";
 }
 

@@ -132,6 +132,27 @@ assert(calculateShippingV2ItemChecklist(disponibleSinPublicar).pendientes.length
 // Campos vacíos: nada se da por hecho.
 assert(!isShippingV2ItemCicloCompleto({ sku: "VACIO", estado: "Recibido" }), "Un artículo sin ninguna casilla no está completo");
 
+// Auditoría Shipping V2, punto 1: lo que no requiere inspección no tiene nada
+// que firmar. "Revisado" cuenta como "no aplica" y no traba el packing.
+const cableCompleto = {
+  sku: "CAB-1",
+  estado: "Disponible",
+  recibido: true,
+  requiereInspeccion: false,
+  revisadoFisicamente: false,
+  fotosTomadas: true,
+  shopifyPublicado: true,
+  marketplacePublicado: true,
+  mercadoLibrePublicado: true,
+};
+const checklistCable = calculateShippingV2ItemChecklist(cableCompleto);
+assert(checklistCable.pasos.find((paso) => paso.key === "revisado")?.estado === "no-aplica", "Cable sin inspección: 'Revisado' no aplica");
+assert(checklistCable.completo, "Cable sin inspección con el resto del checklist → ciclo completo");
+assert(
+  !isShippingV2ItemCicloCompleto({ ...cableCompleto, sku: "LAP-1", requiereInspeccion: true }),
+  "Laptop que requiere inspección sin firmar → ciclo incompleto"
+);
+
 if (fallos > 0) {
   console.error(`Fallaron ${fallos} comprobaciones.`);
   process.exit(1);

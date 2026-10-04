@@ -46,7 +46,14 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   packingRelacionado: { key: "packingId", field: F.packingRelacionado, label: "Packing relacionado", category: "readOnly", type: "readOnly" },
   modoLogistico: { key: "modoLogistico", field: F.modoLogistico, label: "Modo logístico", category: "special", type: "singleSelect", options: O.modoLogistico },
   afectaInventario: { key: "afectaInventario", field: F.afectaInventario, label: "Afecta inventario", category: "readOnly", type: "readOnly" },
-  disponibleVenta: { key: "disponibleVenta", field: F.disponibleVenta, label: "Disponible para venta/reserva", category: "special", type: "checkbox", adminOnly: true },
+  // Auditoría Shipping V2, punto 1 (oct-2026): "Disponible para venta" ahora
+  // significa "se puede reservar" y la calcula SIEMPRE el sistema (unidades
+  // libres y que no esté bloqueado: item-comercial.ts). Venderlo exige además
+  // que haya llegado (item-venta.ts). Ya no se edita a mano.
+  disponibleVenta: { key: "disponibleVenta", field: F.disponibleVenta, label: "Se puede reservar", category: "readOnly", type: "readOnly" },
+  // Se propone al registrar según la categoría y se puede cambiar por
+  // artículo. Si está marcada, solo se vende con la ficha de inspección firmada.
+  requiereInspeccion: { key: "requiereInspeccion", field: F.requiereInspeccion, label: "Requiere inspección técnica", category: "normal", type: "checkbox" },
   reservado: { key: "reservado", field: F.reservado, label: "Reservado", category: "normal", type: "checkbox" },
   textoFacebook: { key: "textoFacebook", field: SHIPPING_V2_TEXTO_FACEBOOK_FIELD, label: "Texto Facebook", category: "special", type: "textarea" },
   facebookSuperGeek: { key: "facebookSuperGeek", field: SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, label: "Facebook Super Geek", category: "special", type: "checkbox" },

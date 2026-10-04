@@ -18,6 +18,7 @@ import {
   VENTANA_DUPLICADO_FACTURA_MINUTOS,
 } from "@/lib/facturacion/airtable/facturas";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
+import { verificarArticulosEntregables, mensajeNoEntregables } from "@/lib/facturacion/reglas/entregables";
 import { verificarProductosDigitalesDisponibles, mensajeProductosDigitalesNoDisponibles } from "@/lib/facturacion/reglas/productosDigitalesDisponibles";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { mensajeReferenciaPagoFaltante } from "@/lib/facturacion/reglas/referenciaPago";
@@ -212,6 +213,23 @@ export async function POST(request: Request) {
     console.error("[/api/facturacion/emitir POST] error verificando stock:", e);
     return NextResponse.json(
       { success: false, error: "No se pudo verificar el stock disponible. Intente de nuevo." },
+      { status: 503 }
+    );
+  }
+
+  // Auditoría Shipping V2, punto 1 — solo se factura lo que ya está en la
+  // tienda (Recibido + inspección firmada si la requiere), venga de donde
+  // venga la factura. Reservar algo en camino sí se puede; facturarlo no.
+  // Misma puerta y mismo fail-closed que el stock de arriba.
+  try {
+    const noEntregables = await verificarArticulosEntregables(body.detalles);
+    if (noEntregables.length > 0) {
+      return NextResponse.json({ success: false, error: mensajeNoEntregables(noEntregables) }, { status: 409 });
+    }
+  } catch (e) {
+    console.error("[/api/facturacion/emitir POST] error verificando que los artículos estén en tienda:", e);
+    return NextResponse.json(
+      { success: false, error: "No se pudo verificar que los artículos ya estén en la tienda. Intente de nuevo." },
       { status: 503 }
     );
   }

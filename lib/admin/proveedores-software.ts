@@ -16,7 +16,10 @@ export async function fetchProveedoresSoftware(): Promise<ProveedorSoftware[]> {
   const url = new URL(
     `https://api.airtable.com/v0/${baseId}/${encodeURIComponent("Shipping Proveedores")}`
   );
-  url.searchParams.set("filterByFormula", `{Tipo de proveedor} = 'Software'`);
+  // "Tipo de proveedor" es de selección múltiple (4-oct-2026): un proveedor
+  // puede ser Hardware y Software a la vez (Mercado Libre). Con "=" solo
+  // aparecían los que tenían Software como ÚNICO tipo.
+  url.searchParams.set("filterByFormula", `FIND('Software', {Tipo de proveedor} & '') > 0`);
   url.searchParams.set("sort[0][field]", "Nombre proveedor");
   url.searchParams.set("sort[0][direction]", "asc");
 

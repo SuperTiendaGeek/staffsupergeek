@@ -257,7 +257,7 @@ export function ShippingV2InspeccionClient({
       const payload = await respuesta.json().catch(() => ({}));
       if (!respuesta.ok || !payload.success) throw new Error(String(payload.error || "No se pudo firmar."));
       setDatos((d) => ({ ...d, item: payload.data }));
-      setAviso("Inspección firmada. El equipo ya puede publicarse si no quedan novedades bloqueantes.");
+      setAviso("Inspección firmada. Si no tiene novedades abiertas, el artículo ya quedó a la venta.");
     } catch (error) {
       setMensaje(error instanceof Error ? error.message : "Error inesperado.");
     } finally {

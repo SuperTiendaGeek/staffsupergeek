@@ -87,6 +87,13 @@ assert(evaluarItemNoListo({ id: "i", nombre: "Pantalla", precio: 90 }, { ...deta
   "Repuesto bajo pedido sin llegar → la pre-factura se bloquea");
 assert(evaluarItemNoListo({ id: "i", nombre: "Pantalla", precio: 90 }, { ...detalleBase, bajoPedidoSinLlegar: false }) === null,
   "Cuando llega (Recibido) se puede facturar");
+// Auditoría Shipping V2, punto 1: vale para todo artículo, no solo bajo pedido.
+assert(evaluarItemNoListo({ id: "i", nombre: "RAM", precio: 40 }, { ...detalleBase, pendienteDeEntrega: "no-llego" })?.motivo === "NO_RECIBIDO",
+  "Repuesto de stock cargado en camino → no se factura hasta que llegue");
+assert(evaluarItemNoListo({ id: "i", nombre: "SSD", precio: 40 }, { ...detalleBase, pendienteDeEntrega: "falta-inspeccion" })?.motivo === "SIN_INSPECCION",
+  "Llegó pero falta firmar la inspección → no se factura todavía");
+assert(evaluarItemNoListo({ id: "i", nombre: "SSD", precio: 40 }, { ...detalleBase, pendienteDeEntrega: null }) === null,
+  "En tienda e inspeccionado → se factura");
 
 // ─── Cobros: el anticipo por un repuesto aprobado no es dinero de más ────────
 const conAnticipo = clasificarOrden({

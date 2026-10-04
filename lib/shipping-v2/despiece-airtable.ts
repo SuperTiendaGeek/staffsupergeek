@@ -1,4 +1,5 @@
 import "server-only";
+import { requiereInspeccionPorDefecto } from "./item-venta";
 
 // Despiece — escrituras contra Airtable. Las reglas y la aritmética viven en
 // ./despiece.ts, sin red y con pruebas. Ver docs/DISENO_DESPIECE.md.
@@ -72,18 +73,18 @@ export type NuevaPiezaInput = {
  *
  * - **El proveedor de compra**, para que el historial siga cuadrando: esa
  *   pieza sigue viniendo, en última instancia, de esa compra.
- * - **Nace fuera de la venta y "En revisión"**, no disponible. Para publicarla
- *   se usa el botón "Listo para vender" que ya existe, de modo que una pieza
- *   recuperada pasa por el mismo control que cualquier otro artículo en vez de
- *   aparecer vendible sin que nadie la haya probado.
+ * - **Nace en la tienda (Recibido) y sigue la misma regla que cualquier
+ *   artículo** (auditoría Shipping V2, punto 1, oct-2026): se puede reservar
+ *   desde que existe; se vende directo si su categoría no requiere inspección
+ *   técnica, y si la requiere ("En revisión") se vende recién al firmar su
+ *   ficha de inspección. Antes nacía fuera de la venta y dependía del botón
+ *   "Listo para vender", que se eliminó.
  * - **`Condición` = "No probado"** por omisión: es la verdad hasta que alguien
  *   la pruebe. Ese campo es el que responde "¿funciona?", no `Estado Item`.
  */
 export const VALORES_PIEZA_NUEVA = {
-  estadoItem: "En revisión",
   condicionPorDefecto: "No probado",
   tipoItem: "Parte",
-  disponibleVenta: false,
 } as const;
 
 export function construirInputPiezaDespiece(
@@ -97,6 +98,7 @@ export function construirInputPiezaDespiece(
 
   const cantidad = Number.isInteger(entrada.cantidad) && entrada.cantidad > 0 ? entrada.cantidad : 1;
   const precio = typeof entrada.precioVenta === "number" && entrada.precioVenta > 0 ? entrada.precioVenta : null;
+  const requiereInspeccion = requiereInspeccionPorDefecto({ categoria });
 
   return {
     nombre,
@@ -106,13 +108,16 @@ export function construirInputPiezaDespiece(
     tipoOperacion: padre.tipoOperacion || "Compra ya pagada",
     tipoItem: VALORES_PIEZA_NUEVA.tipoItem,
     categoria,
-    estado: VALORES_PIEZA_NUEVA.estadoItem,
+    estado: requiereInspeccion ? "En revisión" : "Disponible",
+    estadoRevision: requiereInspeccion ? "Recibido pendiente de revisión" : "Recibido correctamente",
+    requiereInspeccion,
     condicion: (entrada.condicion ?? "").trim() || VALORES_PIEZA_NUEVA.condicionPorDefecto,
     proveedorId: (padre.proveedorCompraId ?? "") || undefined,
     requierePago: false,
     requierePacking: false,
     afectaInventario: true,
-    disponibleVenta: VALORES_PIEZA_NUEVA.disponibleVenta,
+    // Reservable desde que nace, como todo artículo. Venderla es otra regla.
+    disponibleVenta: true,
     reservado: false,
     modoLogistico: "No aplica",
     cantidad,

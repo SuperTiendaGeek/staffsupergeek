@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHIPPING_V2_ITEM_EDIT_FIELDS, type ShippingV2ItemEditFieldConfig } from "@/lib/shipping-v2/item-edit-config";
+import { evaluarVentaItem } from "@/lib/shipping-v2/item-venta";
 import {
   SHIPPING_V2_ALL_FILTER,
   filterShippingV2Items,
@@ -357,8 +358,30 @@ function availabilityLabel(item: ResolvedItem) {
   if (item.usoLocal) return "Uso local";
   // Manda Categoría, no la vieja casilla "Es repuesto" (ver item-edit-config).
   if (item.categoria === "Repuesto") return "Repuesto";
-  if (item.disponibleVenta) return "Disponible para venta";
+  if (sePuedeVender(item)) return "Se puede vender";
+  if (item.disponibleVenta) return "Solo reservar";
   return "No disponible";
+}
+
+// Auditoría Shipping V2, punto 1: reservar ≠ vender. Ver item-venta.ts.
+function evaluarVenta(item: ResolvedItem) {
+  return evaluarVentaItem({
+    estado: item.estado,
+    estadoRevision: item.estadoRevision,
+    usoLocal: item.usoLocal,
+    recibido: item.recibido,
+    requiereInspeccion: item.requiereInspeccion,
+    inspeccionFirmada: item.revisadoFisicamente,
+  });
+}
+
+function sePuedeVender(item: ResolvedItem) {
+  return evaluarVenta(item).vendible;
+}
+
+function motivoNoVenta(item: ResolvedItem) {
+  const r = evaluarVenta(item);
+  return r.vendible ? "" : r.detalle;
 }
 
 function notesLabel(item: ResolvedItem) {
@@ -593,9 +616,12 @@ function AvailabilityBadge({ item }: { item: ResolvedItem }) {
   } else if (item.categoria === "Repuesto") {
     label = "Repuesto";
     tone = "border-[#8B73FF]/35 bg-[#8B73FF]/12 text-[#C9BFFF]";
-  } else if (item.disponibleVenta) {
-    label = "Disponible para venta";
+  } else if (sePuedeVender(item)) {
+    label = "Se puede vender";
     tone = "border-[#D7FF4F]/35 bg-[#D7FF4F]/12 text-[#D7FF4F]";
+  } else if (item.disponibleVenta) {
+    label = "Solo reservar";
+    tone = "border-[#F4C95B]/35 bg-[#F4C95B]/10 text-[#F4C95B]";
   }
 
   return <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${tone}`}>{label}</span>;
@@ -1654,7 +1680,9 @@ export function ShippingV2ItemDetailView({
         { label: C.estadoItem.label, value: item.estado, displayValue: <EstadoBadge estado={item.estado} />, config: C.estadoItem },
         { label: C.estadoRevision.label, value: item.estadoRevision, config: C.estadoRevision },
         { label: C.afectaInventario.label, value: item.afectaInventario, displayValue: displayBoolean(item.afectaInventario), config: C.afectaInventario },
+        { label: C.requiereInspeccion.label, value: item.requiereInspeccion, config: C.requiereInspeccion },
         { label: C.disponibleVenta.label, value: item.disponibleVenta, displayValue: displayBoolean(item.disponibleVenta), config: C.disponibleVenta },
+        { label: "Se puede vender", value: sePuedeVender(item), displayValue: sePuedeVender(item) ? "Sí" : `No: ${motivoNoVenta(item)}`, readOnly: true },
         { label: C.reservado.label, value: item.reservado, config: C.reservado },
         { label: C.facebookSuperGeek.label, value: item.facebookSuperGeek, displayValue: displayBoolean(item.facebookSuperGeek), readOnly: true },
         { label: C.ubicacionActual.label, value: item.ubicacionActual, config: C.ubicacionActual },

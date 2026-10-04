@@ -14,6 +14,7 @@ import {
 } from "@/types/shipping-v2";
 import { normalizeItemNameFast } from "@/lib/shipping-v2/item-name-normalizer";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
+import { requiereInspeccionPorDefecto } from "@/lib/shipping-v2/item-venta";
 import { isShippingV2GiftOperation, isShippingV2PurchaseOperation } from "@/lib/shipping-v2/item-money-quantity";
 import { getShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
@@ -57,6 +58,8 @@ type FormState = {
   precioVentaFinal: string;
   ubicacionActual: string;
   observacionesInternas: string;
+  /** null = sigue el valor por defecto de la categoría. */
+  requiereInspeccion: boolean | null;
 };
 
 function firstOption(options: readonly string[]) {
@@ -87,6 +90,7 @@ const initialState: FormState = {
   precioVentaFinal: "",
   ubicacionActual: "",
   observacionesInternas: "",
+  requiereInspeccion: null,
 };
 
 function Field({ label, children, required, error }: { label: string; children: ReactNode; required?: boolean; error?: string }) {
@@ -238,6 +242,10 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
   const selectedModeUsesDirectTracking = form.modoLogistico === "Tracking directo";
   const effectiveRequiresPacking = selectedModeUsesDirectTracking ? false : selectedModeUsesPacking ? true : calculatedFlow.requierePacking;
   const modeHelpText = LOGISTICS_MODE_HELP[form.modoLogistico] ?? "";
+  // Auditoría Shipping V2, punto 1: se propone según la categoría y quien
+  // registra puede cambiarlo para este artículo.
+  const requiereInspeccionPorCategoria = requiereInspeccionPorDefecto({ categoria: form.categoria, tipoOperacion: form.tipoOperacion });
+  const requiereInspeccion = form.requiereInspeccion ?? requiereInspeccionPorCategoria;
   const cantidadNormalizada = parsePositiveIntegerInput(form.cantidad);
   const costoProveedorUnitario = parseNonNegativeMoneyInput(form.costoProveedor);
   const precioVentaFinalDecimal = parseDecimalInput(form.precioVentaFinal);
@@ -286,7 +294,13 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
   }, []);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => ({
+      ...current,
+      [key]: value,
+      // Al cambiar la categoría o el tipo de operación se vuelve a proponer
+      // "Requiere inspección" según la nueva categoría.
+      ...(key === "categoria" || key === "tipoOperacion" ? { requiereInspeccion: null } : {}),
+    }));
   }
 
   function addPhotos(files: File[]) {
@@ -363,6 +377,7 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
     formData.set("requierePacking", String(effectiveRequiresPacking));
     formData.set("afectaInventario", String(calculatedFlow.afectaInventario));
     formData.set("disponibleVenta", String(calculatedFlow.disponibleParaVenta));
+    formData.set("requiereInspeccion", String(requiereInspeccion));
     formData.set("modoLogistico", form.modoLogistico);
     formData.set("trackingDirecto", selectedModeUsesDirectTracking ? form.trackingDirecto : "");
     formData.set("estado", calculatedFlow.estadoItemSugerido);
@@ -466,6 +481,24 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
                   {SHIPPING_V2_CONDICIONES.map((option) => <option key={option}>{option}</option>)}
                 </SelectInput>
               </Field>
+              <label className="flex min-w-0 cursor-pointer items-start gap-2.5 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2.5 sm:col-span-2">
+                <input
+                  id="requiereInspeccion"
+                  type="checkbox"
+                  checked={requiereInspeccion}
+                  onChange={(event) => update("requiereInspeccion", event.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#D7FF4F]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-[#F5F5F5]">Requiere inspección técnica</span>
+                  <span className="block text-xs leading-5 text-[#A7A7A7]">
+                    {requiereInspeccion
+                      ? "Se vende recién cuando llegue y se firme su ficha de inspección."
+                      : "Se vende apenas llegue a la tienda. No pasa por Inspección."}
+                    {form.requiereInspeccion === null && form.categoria ? " (Propuesto por la categoría.)" : ""}
+                  </span>
+                </span>
+              </label>
             </div>
           </FormCard>
 
@@ -608,7 +641,7 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
               <FlowBadge label="Requiere pago" active={calculatedFlow.requierePago} />
               <FlowBadge label="Requiere packing" active={effectiveRequiresPacking} />
               <FlowBadge label="Afecta inventario" active={calculatedFlow.afectaInventario} />
-              <FlowBadge label="Disponible venta" active={calculatedFlow.disponibleParaVenta} />
+              <FlowBadge label="Requiere inspección" active={requiereInspeccion} />
             </div>
             <div className="mt-3 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Modo logístico</p>
