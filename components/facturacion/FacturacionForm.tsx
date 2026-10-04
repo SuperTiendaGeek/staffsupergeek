@@ -1737,7 +1737,9 @@ function PreFacturaBloqueadaBanner({ resultado }: { resultado: Extract<Resultado
                 : item.motivo === "SIN_PRECIO_FINAL"
                 ? "no tiene Precio venta final"
                 : item.motivo === "NO_RECIBIDO"
-                ? "es un repuesto bajo pedido que todavía no llega (márcalo Recibido en Shipping V2 → Recepción)"
+                ? "todavía no llega a la tienda (márcalo Recibido en Shipping V2 → Recepción)"
+                : item.motivo === "SIN_INSPECCION"
+                ? "llegó, pero falta firmar su inspección técnica (Shipping V2 → Recepción)"
                 : "ya tiene una factura vinculada"}
             </span>
           </li>

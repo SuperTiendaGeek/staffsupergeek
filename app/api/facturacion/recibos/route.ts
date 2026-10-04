@@ -9,6 +9,7 @@ import { mensajeAprobadoSinArticulo, MENSAJE_NO_SE_PUDO_VERIFICAR } from "@/lib/
 import { procesarPuenteRecibo } from "@/lib/finanzas/puentes/recibo";
 import { generarReciboPdf }          from "@/lib/facturacion/recibos/pdf";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
+import { verificarArticulosEntregables, mensajeNoEntregables } from "@/lib/facturacion/reglas/entregables";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
@@ -97,6 +98,15 @@ export async function POST(request: Request) {
     if (faltantes.length > 0) return NextResponse.json({ success: false, error: mensajeFaltantes(faltantes) }, { status: 400 });
   } catch {
     return NextResponse.json({ success: false, error: "No se pudo verificar el stock. Intenta de nuevo." }, { status: 503 });
+  }
+
+  // Auditoría Shipping V2, punto 1 — igual que la factura: solo lo que ya
+  // está en la tienda (Recibido + inspección firmada si la requiere).
+  try {
+    const noEntregables = await verificarArticulosEntregables(detallesParaStock);
+    if (noEntregables.length > 0) return NextResponse.json({ success: false, error: mensajeNoEntregables(noEntregables) }, { status: 409 });
+  } catch {
+    return NextResponse.json({ success: false, error: "No se pudo verificar que los artículos ya estén en la tienda. Intenta de nuevo." }, { status: 503 });
   }
 
   try {

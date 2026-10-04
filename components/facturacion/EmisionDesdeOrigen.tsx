@@ -223,7 +223,8 @@ function BloqueoBanner({ resultado }: { resultado: Extract<ResultadoPreFactura, 
               {item.motivo === "NO_RESERVADO" ? "no está Reservado"
                 : item.motivo === "SIN_STOCK" ? "no tiene stock disponible"
                 : item.motivo === "SIN_PRECIO_FINAL" ? "no tiene Precio venta final"
-                : item.motivo === "NO_RECIBIDO" ? "es un repuesto bajo pedido que todavía no llega"
+                : item.motivo === "NO_RECIBIDO" ? "todavía no llega a la tienda (márcalo Recibido en Shipping V2 → Recepción)"
+                : item.motivo === "SIN_INSPECCION" ? "llegó, pero falta firmar su inspección técnica (Shipping V2 → Recepción)"
                 : "ya tiene un documento de venta"}
             </span>
           </li>

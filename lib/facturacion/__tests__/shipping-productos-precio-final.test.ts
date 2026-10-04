@@ -19,6 +19,11 @@ function assert(cond: boolean, msg: string): void {
 const formula = buildShippingItemsProductFilterFormula("laptop");
 assert(formula.includes("{Precio venta final}>0"), "El catálogo facturable exige Precio venta final > 0");
 assert(!formula.includes("Precio venta sugerido"), "El catálogo facturable no usa Precio venta sugerido en el filtro");
+assert(formula.includes("{Recibido}"), "Punto 1: el mostrador solo ofrece artículos que ya llegaron (Recibido)");
+assert(
+  formula.includes("OR(NOT({Requiere inspección}),{Revisado física/técnicamente})"),
+  "Punto 1: si requiere inspección, solo aparece con la ficha firmada"
+);
 
 const sinPrecioFinal = mapShippingItemProductRecord({
   id: "recSINFINAL",

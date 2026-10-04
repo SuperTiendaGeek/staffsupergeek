@@ -1,4 +1,5 @@
 import "server-only";
+import { evaluarVentaItem } from "@/lib/shipping-v2/item-venta";
 
 // Lecturas de Airtable propias del gancho — deliberadamente separadas de
 // lib/cuenta-unificada/index.ts (que no expone cliente, ni los campos de
@@ -190,6 +191,11 @@ export type ItemDetalleGancho = {
   // /shipping-v2/recepcion. No se puede facturar ni emitir recibo por algo
   // que no se ha entregado (decisión del 21-sep-2026).
   bajoPedidoSinLlegar: boolean;
+  // Auditoría Shipping V2, punto 1 — generaliza lo anterior a TODO artículo:
+  // solo se factura lo que ya está en la tienda (Recibido) y, si requiere
+  // inspección, con la ficha firmada. null = se puede entregar.
+  // Regla: lib/shipping-v2/item-venta.ts (evaluarVentaItem).
+  pendienteDeEntrega: "no-llego" | "falta-inspeccion" | null;
   tarifaIva: string; // "15%" | "0%" | "Exento" | "No objeto" | "" (vacío)
   // Fase 17.b (inventario por cantidad): unidades en stock según el campo
   // "Cantidad" de Shipping Items. Campo vacío/ausente → 0, fail-closed:
@@ -209,6 +215,20 @@ export function numberOrZero(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function pendienteDeEntregaDe(fields: Record<string, unknown>): ItemDetalleGancho["pendienteDeEntrega"] {
+  // Solo las dos condiciones de LLEGADA. Los bloqueos comerciales (vendido,
+  // con novedad…) ya tienen su propio motivo más arriba en
+  // evaluarItemNoListo, y la verificación final al emitir
+  // (reglas/entregables.ts) los vuelve a mirar todos.
+  const evaluacion = evaluarVentaItem({
+    recibido: fields["Recibido"] === true,
+    requiereInspeccion: fields["Requiere inspección"] === true,
+    inspeccionFirmada: fields["Revisado física/técnicamente"] === true,
+  });
+  if (evaluacion.vendible || evaluacion.motivo === "bloqueado") return null;
+  return evaluacion.motivo;
+}
+
 export async function fetchDetalleItems(itemIds: string[]): Promise<Map<string, ItemDetalleGancho>> {
   const records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, itemIds);
   const map = new Map<string, ItemDetalleGancho>();
@@ -223,6 +243,7 @@ export async function fetchDetalleItems(itemIds: string[]): Promise<Map<string, 
         linkedIds(r.fields["Presupuesto por Orden"]).length > 0 &&
         linkedIds(r.fields["Operación Comercial"]).length > 0 &&
         r.fields["Recibido"] !== true,
+      pendienteDeEntrega: pendienteDeEntregaDe(r.fields),
       tarifaIva: firstString(r.fields["Tarifa IVA"]),
       cantidad: numberOrZero(r.fields["Cantidad"]),
       cantidadReservada: numberOrZero(r.fields["Cantidad Reservada"]),

@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
-import { evaluarPublicacionItem } from "@/lib/shipping-v2/item-availability";
+import { evaluarVentaItem } from "@/lib/shipping-v2/item-venta";
 import { evaluarDisponibilidadComercial } from "@/lib/shipping-v2/item-comercial";
 import { esNovedadBloqueante } from "@/lib/shipping-v2/novedades";
 import { unidadesLibres } from "@/lib/shipping-v2/unidades";
@@ -211,6 +211,23 @@ function isReviewed(item: ShippingV2Item) {
   return item.revisadoFisicamente === true;
 }
 
+/** Inspección pendiente: la requiere y todavía no está firmada. */
+function needsInspection(item: ShippingV2Item) {
+  return item.requiereInspeccion === true && !isReviewed(item);
+}
+
+function evaluarVentaRecepcion(item: ReceptionItem) {
+  return evaluarVentaItem({
+    estado: item.estado,
+    estadoRevision: item.estadoRevision,
+    usoLocal: item.usoLocal,
+    novedadesAbiertas: novedadesBloqueantes(item),
+    recibido: item.recibido,
+    requiereInspeccion: item.requiereInspeccion,
+    inspeccionFirmada: item.revisadoFisicamente,
+  });
+}
+
 function isReceived(item: ShippingV2Item) {
   return item.recibido === true;
 }
@@ -368,8 +385,8 @@ function sanitizeStoredColumnWidths(value: unknown, current = createDefaultColum
 }
 
 function matchesReceptionFilter(item: ReceptionItem, filter: ReceptionFilterKey) {
-  if (filter === "pending-review") return !isReceived(item) || !isReviewed(item);
-  if (filter === "reviewed-no-photos") return isReviewed(item) && item.fotosTomadas !== true;
+  if (filter === "pending-review") return !isReceived(item) || needsInspection(item);
+  if (filter === "reviewed-no-photos") return isReceived(item) && !needsInspection(item) && item.fotosTomadas !== true;
   if (filter === "unpublished") {
     return (
       item.shopifyPublicado !== true ||
@@ -380,7 +397,8 @@ function matchesReceptionFilter(item: ReceptionItem, filter: ReceptionFilterKey)
     );
   }
   if (filter === "with-issue") return item.openNovedades.length > 0 || normalize(item.estado).includes("novedad") || hasBlockingReview(item);
-  if (filter === "available") return normalize(item.estado) === "disponible" || item.disponibleVenta === true;
+  // "Disponibles" = se pueden vender hoy (llegaron y, si aplica, inspeccionados).
+  if (filter === "available") return evaluarVentaRecepcion(item).vendible;
   return true;
 }
 
@@ -502,16 +520,32 @@ function ChecklistToggle({
 function BotonInspeccion({
   avance,
   recibido,
+  requiere,
   revisadoPor,
   fechaRevision,
   onClick,
 }: {
   avance: "firmada" | "en-proceso" | "sin-empezar";
   recibido: boolean;
+  /** false = el artículo no pasa por Inspección (un cable, un cargador). */
+  requiere: boolean;
   revisadoPor?: string;
   fechaRevision?: string;
   onClick: () => void;
 }) {
+  if (!requiere && avance !== "firmada") {
+    const ayudaNoAplica = "No requiere inspección técnica. Si la necesita, marca “Requiere inspección” en la ficha del artículo.";
+    return (
+      <span
+        title={ayudaNoAplica}
+        aria-label={ayudaNoAplica}
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-dashed border-[#2A2A28] text-[11px] font-bold text-[#6E6F68]"
+      >
+        N/A
+      </span>
+    );
+  }
+
   const tono = !recibido
     ? "border-[#2A2A28] bg-[#121310] text-[#6E6F68]"
     : avance === "firmada"
@@ -906,7 +940,6 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
   onOpenDetail,
   onOpenPhotos,
   onChecklistChange,
-  onPublish,
   onNovedad,
   onSkuLabel,
   onPrepareSheet,
@@ -922,7 +955,6 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
   onOpenDetail: (item: ReceptionItem) => void;
   onOpenPhotos: (item: ReceptionItem) => void;
   onChecklistChange: (item: ReceptionItem, action: ShippingV2RecepcionChecklistAction, value: boolean) => void;
-  onPublish: (item: ReceptionItem) => void;
   onNovedad: (item: ReceptionItem) => void;
   onSkuLabel: (itemId: string) => void;
   onPrepareSheet: (itemId: string) => void;
@@ -932,15 +964,10 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
   const received = isReceived(item);
   const reviewed = isReviewed(item);
   const avanceInspeccion = avanceDeInspeccion(item.revisionTecnicaDetalle, reviewed);
-  const publicacion = evaluarPublicacionItem({
-    estado: item.estado,
-    estadoRevision: item.estadoRevision,
-    revisadoFisicamente: item.revisadoFisicamente,
-    novedadesAbiertas: novedadesBloqueantes(item),
-  });
-  const publicationBlock = publicacion.puede ? null : publicacion;
-  const canPublish = received && publicacion.puede;
-  const publishBusy = busyKey === `${item.id}:disponible`;
+  // Ya no hay botón "Listo para vender": el sistema deja el artículo a la
+  // venta solo cuando llega (y se firma su inspección, si la requiere). Aquí
+  // solo se MUESTRA si hoy se puede vender y, si no, por qué.
+  const venta = evaluarVentaRecepcion(item);
   const receivedGateHelp = "Marca primero Recibido.";
   const receivedHelp = received ? "Item recibido físicamente" : "Confirmar que el item llegó físicamente";
   const facebookSuperGeekBlockReason = item.facebookSuperGeek === true
@@ -1051,6 +1078,7 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
                   <BotonInspeccion
                     avance={avanceInspeccion}
                     recibido={received}
+                    requiere={item.requiereInspeccion === true}
                     revisadoPor={item.revisadoPor}
                     fechaRevision={item.fechaRevision}
                     onClick={() => onInspeccion(item.id)}
@@ -1065,18 +1093,22 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
 
     return (
       <div className="flex min-w-0 items-center gap-1">
-        {canPublish ? (
-          <ActionButton tone="lime" title={publishBusy ? "Publicando..." : "Listo para vender"} disabled={publishBusy} onClick={() => onPublish(item)}>
-            {publishBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <PackageCheck className="h-3.5 w-3.5" aria-hidden="true" />}
-          </ActionButton>
-        ) : publicationBlock?.motivo === "ya-disponible" ? (
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]" title="Disponible">
+        {venta.vendible ? (
+          <span
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]"
+            title="En la tienda: se puede vender"
+            aria-label="En la tienda: se puede vender"
+          >
             <PackageCheck className="h-3.5 w-3.5" aria-hidden="true" />
           </span>
         ) : (
-          <ActionButton tone="neutral" title={received ? publicationBlock?.detalle || receivedGateHelp : receivedGateHelp} disabled>
+          <span
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#2A2A28] bg-[#121310] text-[#6E6F68]"
+            title={`Todavía no se vende: ${venta.detalle}`}
+            aria-label={`Todavía no se vende: ${venta.detalle}`}
+          >
             <PackageCheck className="h-3.5 w-3.5" aria-hidden="true" />
-          </ActionButton>
+          </span>
         )}
         <ActionButton tone="orange" title="Registrar novedad" onClick={() => onNovedad(item)}>
           <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1392,29 +1424,6 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
     }
   }
 
-  // Publica el item como listo para vender. Las condiciones se evalúan también
-  // en el servidor; acá se usan solo para deshabilitar el botón y explicar por qué.
-  async function publicarItem(item: ReceptionItem) {
-    const key = `${item.id}:disponible`;
-    setBusyKey(key);
-    setMessage("");
-    try {
-      const response = await fetch(`/api/shipping-v2/recepcion/items/${item.id}/disponible`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo publicar el artículo."));
-      const updated = payload.data as ShippingV2Item;
-      setItems((current) => current.map((currentItem) => (currentItem.id === updated.id ? updated : currentItem)));
-      setMessage(`${updated.sku || updated.nombre} quedó disponible para la venta.`);
-    } catch (mutationError) {
-      setMessage(mutationError instanceof Error ? mutationError.message : "Error inesperado.");
-    } finally {
-      setBusyKey("");
-    }
-  }
-
   // Referencias ESTABLES para las filas memoizadas.
   //
   // Si se pasaran funciones en línea, cada render crearía funciones nuevas, las
@@ -1425,9 +1434,7 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   // congelaría el valor de la primera render, rompiendo la sincronización del
   // modal de detalle. El ref siempre apunta a la versión actual.
   const updateChecklistRef = useRef(updateChecklist);
-  const publicarItemRef = useRef(publicarItem);
   updateChecklistRef.current = updateChecklist;
-  publicarItemRef.current = publicarItem;
 
   const handleChecklistChange = useCallback(
     (item: ReceptionItem, action: ShippingV2RecepcionChecklistAction, value: boolean) => {
@@ -1435,9 +1442,6 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
     },
     []
   );
-  const handlePublish = useCallback((item: ReceptionItem) => {
-    void publicarItemRef.current(item);
-  }, []);
 
   async function saveNovedad(form: { tipo: string; descripcion: string; responsable: string; archivos: File[] }) {
     if (!novedadItem) return;
@@ -1699,7 +1703,6 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
                     onOpenDetail={handleOpenDetail}
                     onOpenPhotos={setPhotoItem}
                     onChecklistChange={handleChecklistChange}
-                    onPublish={handlePublish}
                     onNovedad={setNovedadItem}
                     onSkuLabel={openSkuLabel}
                     onPrepareSheet={openTechnicalSheetEditor}

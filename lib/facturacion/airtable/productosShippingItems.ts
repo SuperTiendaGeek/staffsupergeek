@@ -50,6 +50,14 @@ export function buildShippingItemsProductFilterFormula(query: string) {
 
   return (
     `AND({Disponible para venta},` +
+    // Punto 1 de la auditoría Shipping V2: el mostrador solo vende lo que YA
+    // ESTÁ en la tienda. "Disponible para venta" dice que se puede reservar
+    // (aunque venga en camino); para venderlo además tiene que haber llegado
+    // y, si requiere inspección, tener la ficha firmada. Misma regla que
+    // lib/shipping-v2/item-venta.ts (evaluarVentaItem), que es la que de
+    // verdad bloquea al emitir (reglas/entregables.ts).
+    `{Recibido},` +
+    `OR(NOT({Requiere inspección}),{Revisado física/técnicamente}),` +
     `{Cantidad}>=1,` +
     `{Precio venta final}>0,` +
     `OR(` +

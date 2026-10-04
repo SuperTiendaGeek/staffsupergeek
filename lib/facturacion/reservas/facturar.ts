@@ -58,6 +58,14 @@ export async function construirPreFacturaReserva(
   const detalleItems = await fetchDetalleItems([reserva.shippingItemId]);
   const detalleItem = detalleItems.get(reserva.shippingItemId);
   if (!detalleItem) return { bloqueado: true, motivo: "El ítem reservado ya no existe en inventario." };
+  // Auditoría Shipping V2, punto 1: reservar algo en camino sí; facturarlo
+  // solo cuando llegó y se entrega al cliente.
+  if (detalleItem.pendienteDeEntrega === "no-llego") {
+    return { bloqueado: true, motivo: "El artículo reservado todavía no llega a la tienda. Se factura cuando llegue y se entregue al cliente." };
+  }
+  if (detalleItem.pendienteDeEntrega === "falta-inspeccion") {
+    return { bloqueado: true, motivo: "El artículo reservado ya llegó, pero falta firmar su inspección técnica (Shipping V2 → Recepción)." };
+  }
 
   // Línea de producto (precio de la reserva = precio final CON IVA incluido).
   const linea: DetalleFactura = construirLineaProducto(

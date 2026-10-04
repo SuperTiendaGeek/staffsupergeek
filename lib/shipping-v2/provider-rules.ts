@@ -1,5 +1,6 @@
 import type { ShippingV2Proveedor } from "@/types/shipping-v2";
 import { getActiveLogisticsProviders, isActiveLogisticsProvider } from "@/lib/shipping-v2/tracking-providers";
+import { esProveedorLogistico, proveeMercaderia } from "@/lib/shipping-v2/provider-types";
 
 function normalizeRuleText(value?: string | null) {
   return (value ?? "")
@@ -10,12 +11,12 @@ function normalizeRuleText(value?: string | null) {
 }
 
 function isLogisticsProvider(provider: ShippingV2Proveedor) {
-  return normalizeRuleText(provider.tipoProveedor) === "logistico";
+  return esProveedorLogistico(provider);
 }
 
 export function canBePurchaseProvider(provider: ShippingV2Proveedor) {
   if (normalizeRuleText(provider.estado) !== "activo") return false;
-  return normalizeRuleText(provider.tipoProveedor) !== "logistico";
+  return proveeMercaderia(provider);
 }
 
 export function canBeItemLogisticsProvider(provider: ShippingV2Proveedor) {

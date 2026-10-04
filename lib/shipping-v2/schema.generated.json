@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-28T22:27:08.879Z",
+  "generatedAt": "2026-10-04T23:07:02.724Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -25,15 +25,12 @@
         },
         "Tipo de proveedor": {
           "id": "fldH1sbCWC1p9ilEe",
-          "type": "singleSelect",
+          "type": "multipleSelects",
           "options": [
-            "USA",
-            "Local",
-            "Marketplace",
-            "Interno",
             "Logístico",
             "Otro",
-            "Software"
+            "Software",
+            "Hardware"
           ]
         },
         "Requiere pago antes de envío": {
@@ -242,7 +239,6 @@
             "Ecuador",
             "Miami / Casillero",
             "Internacional",
-            "Local",
             "Otro"
           ]
         },
@@ -1390,6 +1386,11 @@
           "id": "fldBu0fqdmyfn5xTI",
           "type": "currency",
           "kind": "currency"
+        },
+        "Requiere inspección": {
+          "id": "fldFfXxmTh1CclZ59",
+          "type": "checkbox",
+          "checkbox": true
         }
       }
     },

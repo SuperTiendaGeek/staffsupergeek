@@ -28,8 +28,10 @@ function main(): void {
     { nombre: "Teclado retroiluminado", categoria: "Teclado", cantidad: 1, precioVenta: 20 },
     padre
   );
-  assert(p.estado === "En revisión", "Nace 'En revisión', no disponible");
-  assert(p.disponibleVenta === false, "Nace FUERA de la venta: debe pasar por 'Listo para vender'");
+  // Punto 1 (oct-2026): una pieza sigue la regla de cualquier artículo.
+  assert(p.estado === "Disponible", "Un teclado (no requiere inspección) nace 'Disponible'");
+  assert(p.requiereInspeccion === false && p.estadoRevision === "Recibido correctamente", "Teclado: sin inspección pendiente");
+  assert(p.disponibleVenta === true, "Nace reservable, como todo artículo");
   assert(p.condicion === "No probado", "Nace como 'No probado': es la verdad hasta que alguien la pruebe");
   assert(p.tipoItem === "Parte", "Se marca como parte, no como equipo completo");
   assert(p.proveedorId === "recPROV1", "Hereda el proveedor del equipo padre: el historial de compra sigue cuadrando");
@@ -42,6 +44,7 @@ function main(): void {
     { nombre: "Disco", categoria: "SSD", cantidad: 1, condicion: "Dañado" }, padre
   );
   assert(conCondicion.condicion === "Dañado", "Si se indica la condición, se respeta");
+  assert(conCondicion.estado === "En revisión" && conCondicion.requiereInspeccion === true, "Un SSD requiere inspección: nace 'En revisión' hasta firmar su ficha");
   assert(conCondicion.precioVenta === null, "Sin precio queda en null: 'sin precio asignado'");
 
   // ── Validaciones ───────────────────────────────────────────────────────────

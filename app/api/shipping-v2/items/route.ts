@@ -24,6 +24,12 @@ function parseInput(body: Record<string, unknown>): ShippingV2ItemWriteInput {
     requierePacking: toBoolean(body.requierePacking),
     afectaInventario: toBoolean(body.afectaInventario),
     disponibleVenta: toBoolean(body.disponibleVenta),
+    // Vacío = el servidor usa el valor por defecto de la categoría.
+    requiereInspeccion: body.requiereInspeccion === "true" || body.requiereInspeccion === true
+      ? true
+      : body.requiereInspeccion === "false" || body.requiereInspeccion === false
+        ? false
+        : undefined,
     sku: String(body.sku ?? ""),
     skuProveedor: String(body.skuProveedor ?? ""),
     modelo: String(body.modelo ?? ""),
