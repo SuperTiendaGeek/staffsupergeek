@@ -36,7 +36,7 @@ export function ReservaForm() {
   useEffect(() => {
     const q = queryProd.trim(); if (q.length < 2) { setProdSug([]); return; }
     let cancel = false;
-    const t = setTimeout(async () => { try { const r = await fetch(`/api/facturacion/productos?q=${encodeURIComponent(q)}`); const j = await r.json(); if (!cancel && j.success) setProdSug(j.data); } catch { /* */ } }, 300);
+    const t = setTimeout(async () => { try { const r = await fetch(`/api/facturacion/productos?incluirEnCamino=1&q=${encodeURIComponent(q)}`); const j = await r.json(); if (!cancel && j.success) setProdSug(j.data); } catch { /* */ } }, 300);
     return () => { cancel = true; clearTimeout(t); };
   }, [queryProd]);
 

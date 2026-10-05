@@ -10,9 +10,12 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q")?.trim() ?? "";
+  // Reserva y Proforma piden `incluirEnCamino=1`: se puede apartar o cotizar
+  // lo que todavía no llega. Factura y Recibo no lo piden: solo en tienda.
+  const incluirEnCamino = searchParams.get("incluirEnCamino") === "1";
 
   try {
-    const data = await buscarProductos(q);
+    const data = await buscarProductos(q, 8, { incluirEnCamino });
     return NextResponse.json({ success: true, data });
   } catch (e) {
     console.error("[/api/facturacion/productos GET]", e);

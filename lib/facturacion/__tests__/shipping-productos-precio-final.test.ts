@@ -24,6 +24,9 @@ assert(
   formula.includes("OR(NOT({Requiere inspección}),{Revisado física/técnicamente})"),
   "Punto 1: si requiere inspección, solo aparece con la ficha firmada"
 );
+const formulaReserva = buildShippingItemsProductFilterFormula("laptop", { incluirEnCamino: true });
+assert(!formulaReserva.includes("{Recibido}"), "Reserva/Proforma: también ofrecen lo que viene en camino");
+assert(formulaReserva.includes("{Disponible para venta}"), "Reserva/Proforma: siguen exigiendo que se pueda reservar");
 
 const sinPrecioFinal = mapShippingItemProductRecord({
   id: "recSINFINAL",
