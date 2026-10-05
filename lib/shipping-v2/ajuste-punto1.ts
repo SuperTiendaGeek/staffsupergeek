@@ -83,7 +83,11 @@ export function planAjustePunto1(r: RegistroAjuste): CambioAjuste | null {
 
   if (yaALaVenta) {
     grupo = estado === "disponible" || estado === "reservado" ? "a-la-venta" : "llego-directo";
-    const requiereFinal = r.revisado ? porCategoria : false;
+    // Con la inspección ya firmada se vende igual con cualquier valor: no se
+    // toca. Antes se forzaba el valor de la categoría y chocaba con lo que el
+    // grupo "En revisión" acababa de escribir (en la 2.ª corrida un cable
+    // inspeccionado que pasó a "Disponible" volvía a cambiar: 63 casos).
+    const requiereFinal = r.revisado ? requiere : false;
     if (!recibido) {
       recibido = true;
       fields["Recibido"] = true;

@@ -45,8 +45,14 @@ export function escapeShippingItemsProductFormula(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-export function buildShippingItemsProductFilterFormula(query: string) {
+/**
+ * `incluirEnCamino`: Reserva y Proforma también ofrecen lo que todavía no
+ * llega (se puede apartar o cotizar desde que existe). Factura y Recibo NO:
+ * solo venden lo que ya está en la tienda. Por omisión, solo en tienda.
+ */
+export function buildShippingItemsProductFilterFormula(query: string, opts: { incluirEnCamino?: boolean } = {}) {
   const escaped = escapeShippingItemsProductFormula(query.trim().toLowerCase());
+  const soloEnTienda = opts.incluirEnCamino !== true;
 
   return (
     `AND({Disponible para venta},` +
@@ -56,8 +62,7 @@ export function buildShippingItemsProductFilterFormula(query: string) {
     // y, si requiere inspección, tener la ficha firmada. Misma regla que
     // lib/shipping-v2/item-venta.ts (evaluarVentaItem), que es la que de
     // verdad bloquea al emitir (reglas/entregables.ts).
-    `{Recibido},` +
-    `OR(NOT({Requiere inspección}),{Revisado física/técnicamente}),` +
+    (soloEnTienda ? `{Recibido},OR(NOT({Requiere inspección}),{Revisado física/técnicamente}),` : ``) +
     `{Cantidad}>=1,` +
     `{Precio venta final}>0,` +
     `OR(` +

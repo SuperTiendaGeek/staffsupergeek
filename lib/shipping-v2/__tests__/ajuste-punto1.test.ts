@@ -23,6 +23,14 @@ const r = (p: Partial<RegistroAjuste>) => planAjustePunto1({ ...base, ...p });
   assert(c?.fields["Estado Item"] === undefined, "…y la etiqueta sigue 'Disponible'");
 }
 {
+  // Idempotencia real: un cable "En revisión" con Revisado pasa en la 1.ª
+  // corrida a requiere = sí y Disponible; la 2.ª no debe volver a tocarlo.
+  const primera = r({ estado: "En revisión", categoria: "Cable", recibido: true, revisado: true });
+  assert(primera?.fields["Estado Item"] === "Disponible", "Cable En revisión con Revisado → Disponible (1.ª corrida)");
+  const segunda = r({ estado: "Disponible", categoria: "Cable", recibido: true, revisado: true, requiereInspeccion: true });
+  assert(segunda === null, "2.ª corrida sobre el mismo cable → sin cambios");
+}
+{
   const c = r({ recibido: true, observacionesInternas: "" });
   assert(c === null, "Disponible ya recibido y sin inspección → sin cambios (idempotente)");
 }

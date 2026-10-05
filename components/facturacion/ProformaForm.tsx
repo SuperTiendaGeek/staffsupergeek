@@ -58,7 +58,7 @@ export function ProformaForm({ prefactura, origen, bannerOrigen }: {
     let cancel = false;
     const t = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/facturacion/productos?q=${encodeURIComponent(q)}`);
+        const r = await fetch(`/api/facturacion/productos?incluirEnCamino=1&q=${encodeURIComponent(q)}`);
         const j = await r.json();
         if (!cancel && j.success) setProdSug(j.data);
       } catch { /* ignore */ }

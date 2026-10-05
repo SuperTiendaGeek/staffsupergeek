@@ -41,7 +41,7 @@ function getClient() {
 
 export type { ProductoCatalogo };
 
-async function buscarEnShippingItems(query: string, pageSize: number): Promise<ProductoCatalogo[]> {
+async function buscarEnShippingItems(query: string, pageSize: number, incluirEnCamino: boolean): Promise<ProductoCatalogo[]> {
   const client  = getClient();
   // Pre-lowercase the term in code; search in lowercased field for case-insensitive match.
   // Campos buscados: "Nombre del item" y "SKU".
@@ -50,7 +50,7 @@ async function buscarEnShippingItems(query: string, pageSize: number): Promise<P
   // regla del dueño: Cantidad 0 = no se puede cargar ni facturar.
   // {Precio venta final}>0: el precio sugerido no es fuente autorizada para facturar.
   // AND necesita coma entre argumentos — no .join("") sobre múltiples piezas.
-  const formula = buildShippingItemsProductFilterFormula(query);
+  const formula = buildShippingItemsProductFilterFormula(query, { incluirEnCamino });
 
   const params = new URLSearchParams({
     filterByFormula: formula,
@@ -78,12 +78,16 @@ async function buscarEnShippingItems(query: string, pageSize: number): Promise<P
   return (data.records ?? []).map(mapShippingItemProductRecord).filter((producto): producto is ProductoCatalogo => producto !== null);
 }
 
-export async function buscarProductos(q: string, pageSize = 8): Promise<ProductoCatalogo[]> {
+export async function buscarProductos(
+  q: string,
+  pageSize = 8,
+  opts: { incluirEnCamino?: boolean } = {}
+): Promise<ProductoCatalogo[]> {
   const query = q.trim();
   if (query.length < 2) return [];
 
   const [shippingItems, productosDigitales] = await Promise.all([
-    buscarEnShippingItems(query, pageSize),
+    buscarEnShippingItems(query, pageSize, opts.incluirEnCamino === true),
     buscarProductosDigitales(query, pageSize),
   ]);
 
