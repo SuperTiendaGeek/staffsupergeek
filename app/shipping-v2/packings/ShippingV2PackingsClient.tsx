@@ -19,6 +19,8 @@ type Props = {
   permissions: ShippingV2AccessPermissions | null;
   providerName?: string;
   reviewSummaries?: Record<string, ShippingV2PackingReviewSummary>;
+  /** Artículos que viajan solos (se listan debajo de las cajas). */
+  sueltosCount?: number;
 };
 
 const ALL = "Todos";
@@ -104,7 +106,7 @@ function ReviewCell({ summary }: { summary?: ShippingV2PackingReviewSummary }) {
   );
 }
 
-export function ShippingV2PackingsClient({ packings, proveedores, error, permissions, providerName, reviewSummaries = {} }: Props) {
+export function ShippingV2PackingsClient({ packings, proveedores, error, permissions, providerName, reviewSummaries = {}, sueltosCount = 0 }: Props) {
   const [fase, setFase] = useState<ShippingV2PackingFase | typeof ALL>(ALL);
   const [estado, setEstado] = useState(ALL);
   const [tipo, setTipo] = useState(ALL);
@@ -156,18 +158,17 @@ export function ShippingV2PackingsClient({ packings, proveedores, error, permiss
     <div className="w-full space-y-2.5">
       <section className="flex flex-col gap-2 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 lg:flex-row lg:items-center lg:justify-between 2xl:px-4 2xl:py-3">
         <div>
-          <h2 className="text-lg font-semibold text-[#F5F5F5]">Packings</h2>
-          <p className="mt-0.5 text-sm text-[#A7A7A7]">{isProviderPortal ? `Cajas asignadas a ${providerName}.` : "Cajas, paquetes y grupos físicos de Shipping V2"}</p>
+          <h2 className="text-lg font-semibold text-[#F5F5F5]">Logística</h2>
+          <p className="mt-0.5 text-sm text-[#A7A7A7]">{isProviderPortal ? `Cajas asignadas a ${providerName}.` : "Todo lo que viene en camino: cajas y artículos que viajan solos, con sus rastreos, costos y lo que falta."}</p>
         </div>
         <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
-          <Link
-            href="/shipping-v2"
-            className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-center text-sm font-bold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
-          >
-            Volver a Shipping
-          </Link>
+          {sueltosCount > 0 ? (
+            <a href="#sueltos" className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-center text-sm font-bold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]">
+              {sueltosCount} viajando solos ↓
+            </a>
+          ) : null}
           {canCreatePacking ? (
-            <Link href="/shipping-v2/packings/nuevo" className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-center text-sm font-bold text-[#151515] transition hover:brightness-105">Nuevo Packing</Link>
+            <Link href="/shipping-v2/packings/nuevo" className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-center text-sm font-bold text-[#151515] transition hover:brightness-105">Nueva caja</Link>
           ) : null}
         </div>
       </section>
@@ -175,7 +176,7 @@ export function ShippingV2PackingsClient({ packings, proveedores, error, permiss
       {error ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{error}</div> : null}
 
       <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <Kpi label="Total packings" value={kpis.total} />
+        <Kpi label="Total cajas" value={kpis.total} />
         <Kpi label="En preparación / camino" value={kpis.enCamino} hint="Todavía no llegan" />
         <Kpi label="Revisión pendiente" value={kpis.revisionPendiente} hint="Trabajo real en bodega" />
         <Kpi label="Listos para cerrar" value={kpis.listosParaCerrar} hint="Solo falta el botón" accent />
@@ -245,7 +246,7 @@ export function ShippingV2PackingsClient({ packings, proveedores, error, permiss
                 </tr>
               ))}
               {filtered.length === 0 ? (
-                <tr><td colSpan={11} className="px-3 py-6 text-center text-sm text-[#8F908A]">No hay packings con estos filtros.</td></tr>
+                <tr><td colSpan={11} className="px-3 py-6 text-center text-sm text-[#8F908A]">No hay cajas con estos filtros.</td></tr>
               ) : null}
             </tbody>
           </table>

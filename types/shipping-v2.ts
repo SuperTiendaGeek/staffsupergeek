@@ -165,6 +165,8 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   label: string;
   nombre: string;
   estado: ShippingV2ProveedorEstado | string;
+  /** Casillero en el exterior (ej. Laarbox, Doral). El formulario propone el primero activo. */
+  esCasillero?: boolean | null;
   /** Texto para mostrar: los tipos separados por coma ("Hardware, Software"). */
   tipoProveedor?: string;
   /** "Tipo de proveedor" es de selección múltiple desde el 4-oct-2026. Ver provider-types.ts. */
@@ -375,6 +377,12 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   trackingDesdeIntermediario?: string;
   trackingUsa?: string;
   trackingEc?: string;
+  /** "Ya está en la tienda" | "Proveedor extranjero" | "Proveedor local". Ver item-origen.ts. */
+  origenArticulo?: string;
+  /** Transportista del rastreo individual en origen (proveedor → casillero). */
+  transportistaOrigenId?: string;
+  /** Transportista del rastreo individual en Ecuador (casillero o proveedor local → tienda). */
+  transportistaEcuadorId?: string;
   requierePacking: boolean | null;
   pagoV2ItemIds: string[];
   pagoV2RegaloIds: string[];
@@ -470,6 +478,13 @@ export type ShippingV2ItemWriteInput = {
   estadoTriangulacion?: string;
   estadoDespiece?: string;
   modoLogistico?: ShippingV2ModoLogistico | string;
+  origenArticulo?: string;
+  trackingHaciaIntermediario?: string;
+  trackingDesdeIntermediario?: string;
+  transportistaOrigenId?: string;
+  transportistaEcuadorId?: string;
+  /** Al registrar: caja (packing "En Proceso") a la que se agrega el artículo. */
+  packingDestinoId?: string;
   trackingDirecto?: string;
   operacionComercialId?: string;
   opcionOrigenId?: string;

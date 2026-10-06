@@ -1,3 +1,4 @@
+import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
@@ -139,6 +140,8 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
 
   return (
     <StaffAppShell activeHref="/shipping-v2/items" sectionLabel="Shipping V2">
+      <div className="w-full max-w-none space-y-3">
+      <ShippingV2Pestanas />
       {notFound ? (
         <DetailUnavailable title="Item no encontrado" message="No existe un item de Shipping V2 con ese ID." />
       ) : error || !item ? (
@@ -162,6 +165,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
           {esAdmin && <EliminarItemAdmin itemId={item.id} />}
         </div>
       )}
+    </div>
     </StaffAppShell>
   );
 }

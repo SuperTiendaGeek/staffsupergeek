@@ -1,3 +1,4 @@
+import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2PagosWorkspace } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
@@ -57,7 +58,10 @@ export default async function ShippingV2PagosPage() {
 
   return (
     <StaffAppShell activeHref="/shipping-v2/pagos" sectionLabel="Shipping V2">
+      <div className="w-full max-w-none space-y-3">
+      <ShippingV2Pestanas />
       <ShippingV2PagosClient initialWorkspace={workspace} error={error} permissions={permissions} providerName={providerName} />
+    </div>
     </StaffAppShell>
   );
 }

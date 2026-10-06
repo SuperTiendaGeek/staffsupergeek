@@ -1,3 +1,4 @@
+import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { especificacionesDeItem, getShippingV2AccessContextForSession, getShippingV2ItemById, getShippingV2TechnicalOptionSets } from "@/lib/shipping-v2/airtable";
@@ -29,7 +30,10 @@ export default async function ShippingV2FichaTecnicaPage({ params }: Props) {
 
   return (
     <StaffAppShell activeHref="/shipping-v2/recepcion" sectionLabel="Shipping V2">
+      <div className="w-full max-w-none space-y-3">
+      <ShippingV2Pestanas />
       <ShippingV2FichaTecnicaClient item={item} technicalOptions={technicalOptions} especificaciones={especificacionesDeItem(item)} />
+    </div>
     </StaffAppShell>
   );
 }

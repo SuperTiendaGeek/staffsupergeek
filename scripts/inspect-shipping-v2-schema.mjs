@@ -51,6 +51,9 @@ const EXPECTED_ITEM_FIELDS = [
   "Afecta inventario",
   "Recibido",
   "Requiere inspección",
+  "Origen del artículo",
+  "Transportista origen",
+  "Transportista Ecuador",
   "Disponible para venta",
   "Costo proveedor",
   "Flete Packing",
@@ -248,6 +251,9 @@ const ITEM_FIELD_KEYS = {
   afectaInventario: "Afecta inventario",
   recibido: "Recibido",
   requiereInspeccion: "Requiere inspección",
+  origenArticulo: "Origen del artículo",
+  transportistaOrigen: "Transportista origen",
+  transportistaEcuador: "Transportista Ecuador",
   disponibleVenta: "Disponible para venta",
   reservado: "Reservado",
   costoProveedor: "Costo proveedor",
@@ -342,6 +348,7 @@ const PROVIDER_FIELD_KEYS = {
   plantillaUrlRastreo: "Plantilla URL rastreo",
   permiteRastreoWeb: "Permite rastreo web",
   notasRastreo: "Notas de rastreo",
+  esCasillero: "Es casillero",
 };
 
 const PAYMENT_FIELD_KEYS = {

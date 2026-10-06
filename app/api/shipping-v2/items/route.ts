@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addFotosToShippingV2Item, canShippingV2, createShippingV2Item, getShippingV2AccessContextForSession, getShippingV2Items, type ShippingV2AttachmentUpload } from "@/lib/shipping-v2/airtable";
+import { addFotosToShippingV2Item, addItemsToShippingV2Packing, canShippingV2, createShippingV2Item, getShippingV2AccessContextForSession, getShippingV2Items, type ShippingV2AttachmentUpload } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ShippingV2ItemWriteInput } from "@/types/shipping-v2";
 import { validarFotosItem } from "@/lib/shipping-v2/fotos-item";
@@ -49,6 +49,13 @@ function parseInput(body: Record<string, unknown>): ShippingV2ItemWriteInput {
     estadoDespiece: String(body.estadoDespiece ?? ""),
     modoLogistico: String(body.modoLogistico ?? ""),
     trackingDirecto: String(body.trackingDirecto ?? ""),
+    // Punto 2 (oct-2026): "¿Dónde está el artículo?" y la llegada.
+    origenArticulo: String(body.origenArticulo ?? ""),
+    trackingHaciaIntermediario: String(body.trackingHaciaIntermediario ?? ""),
+    trackingDesdeIntermediario: String(body.trackingDesdeIntermediario ?? ""),
+    transportistaOrigenId: String(body.transportistaOrigenId ?? ""),
+    transportistaEcuadorId: String(body.transportistaEcuadorId ?? ""),
+    packingDestinoId: String(body.packingDestinoId ?? ""),
   };
 }
 
@@ -131,11 +138,28 @@ export async function POST(request: Request) {
       body = await request.json().catch(() => ({}));
     }
 
-    const item = await createShippingV2Item(parseInput(body), {
+    const input = parseInput(body);
+    const item = await createShippingV2Item(input, {
       registradoPor: getShippingV2SessionName(session),
     });
 
     let responseItem = item;
+    // Registro en una sola pantalla: si se eligió una caja, se agrega ahí
+    // mismo. Con los permisos de quien registra. Si falla, el artículo ya
+    // quedó creado y se avisa: se puede agregar después desde Logística.
+    let packingWarning = "";
+    if (input.packingDestinoId) {
+      try {
+        await addItemsToShippingV2Packing(input.packingDestinoId, [item.id], {
+          registradoPor: getShippingV2SessionName(session),
+          access,
+        });
+      } catch (packingError) {
+        packingWarning = `El artículo se creó, pero no se pudo agregar a la caja: ${
+          packingError instanceof Error ? packingError.message : "error inesperado"
+        }. Agrégalo desde Logística.`;
+      }
+    }
     let photoUploadStatus: "none" | "complete" | "partial" | "failed" = fotos.length > 0 ? "complete" : "none";
     let photoWarning = "";
     let uploadedFotos = 0;
@@ -168,7 +192,8 @@ export async function POST(request: Request) {
       failedFotos,
       photoUploadStatus,
       photoWarning,
-      warning: photoWarning || undefined,
+      packingWarning: packingWarning || undefined,
+      warning: [photoWarning, packingWarning].filter(Boolean).join(" ") || undefined,
     }, { status: 201 });
   } catch (error) {
     console.error("Error al crear item Shipping V2:", error);

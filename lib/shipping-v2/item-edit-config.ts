@@ -26,17 +26,21 @@ export const SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD = "Facebook Super Geek";
 export const SHIPPING_V2_TEXTO_FACEBOOK_FIELD = "Texto Facebook";
 export const SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD = "Texto Facebook fórmula legacy";
 
+// Punto 2 (oct-2026): "Rol general", "Modo logístico", "Ubicación actual" y
+// "Estado de triangulación" ya no se usan (se borrarán de Airtable cuando se
+// confirme que nada los lee). El rastreo se edita en la pestaña Logística,
+// donde escribir un rastreo pasa el artículo a "En tránsito".
 export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   itemId: { key: "itemId", field: F.itemId, label: "SKU", category: "hidden", type: "readOnly" },
   nombre: { key: "nombre", field: F.nombre, label: "Nombre del item", category: "normal", type: "text" },
   aiNombre: { key: "aiNombre", field: F.aiNombre, label: "AI Nombre del item", category: "readOnly", type: "readOnly" },
   descripcion: { key: "descripcion", field: F.descripcion, label: "Descripción", category: "normal", type: "textarea" },
   tipoOperacion: { key: "tipoOperacion", field: F.tipoOperacion, label: "Tipo de operación", category: "special", type: "singleSelect", options: O.tipoOperacion },
-  tipoItem: { key: "tipoItem", field: F.tipoItem, label: "Rol general del item", category: "normal", type: "singleSelect", options: O.tipoItem },
+  tipoItem: { key: "tipoItem", field: F.tipoItem, label: "Rol general del item", category: "hidden", type: "readOnly" },
   categoria: { key: "categoria", field: F.categoria, label: "Categoría técnica/comercial", category: "normal", type: "singleSelect", options: O.categoria },
   estadoItem: { key: "estado", field: F.estadoItem, label: "Estado Item", category: "special", type: "singleSelect", options: O.estadoItem },
   estadoRevision: { key: "estadoRevision", field: F.estadoRevision, label: "Estado de revisión", category: "normal", type: "singleSelect", options: O.estadoRevision },
-  estadoTriangulacion: { key: "estadoTriangulacion", field: F.estadoTriangulacion, label: "Estado de triangulación", category: "normal", type: "singleSelect", options: O.estadoTriangulacion },
+  estadoTriangulacion: { key: "estadoTriangulacion", field: F.estadoTriangulacion, label: "Estado de triangulación", category: "hidden", type: "readOnly" },
   estadoDespiece: { key: "estadoDespiece", field: F.estadoDespiece, label: "Estado de despiece", category: "normal", type: "singleSelect", options: O.estadoDespiece },
   proveedorCompra: { key: "proveedorId", field: F.proveedorCompra, label: "Proveedor de compra", category: "special", type: "linkedRecord" },
   proveedorLogistico: { key: "proveedorLogisticoId", field: F.proveedorLogistico, label: "Proveedor logístico / intermediario", category: "special", type: "linkedRecord" },
@@ -44,7 +48,7 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   pagoRelacionado: { key: "pagoId", field: "Shipping Pagos (Items relacionados)", label: "Pago Shipping V2", category: "readOnly", type: "readOnly" },
   requierePacking: { key: "requierePacking", field: F.requierePacking, label: "Requiere packing", category: "readOnly", type: "readOnly" },
   packingRelacionado: { key: "packingId", field: F.packingRelacionado, label: "Packing relacionado", category: "readOnly", type: "readOnly" },
-  modoLogistico: { key: "modoLogistico", field: F.modoLogistico, label: "Modo logístico", category: "special", type: "singleSelect", options: O.modoLogistico },
+  modoLogistico: { key: "modoLogistico", field: F.modoLogistico, label: "Modo logístico", category: "hidden", type: "readOnly" },
   afectaInventario: { key: "afectaInventario", field: F.afectaInventario, label: "Afecta inventario", category: "readOnly", type: "readOnly" },
   // Auditoría Shipping V2, punto 1 (oct-2026): "Disponible para venta" ahora
   // significa "se puede reservar" y la calcula SIEMPRE el sistema (unidades
@@ -72,8 +76,8 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   marca: { key: "marca", field: F.marca, label: "Marca", category: "normal", type: "text" },
   numeroSerie: { key: "numeroSerie", field: F.numeroSerie, label: "Número de serie", category: "normal", type: "text" },
   condicion: { key: "condicion", field: F.condicion, label: "Condición", category: "normal", type: "singleSelect", options: O.condicion },
-  ubicacionActual: { key: "ubicacionActual", field: F.ubicacionActual, label: "Ubicación actual", category: "normal", type: "text" },
-  trackingDirecto: { key: "trackingDirecto", field: F.trackingDirecto, label: "Tracking directo", category: "normal", type: "text" },
+  ubicacionActual: { key: "ubicacionActual", field: F.ubicacionActual, label: "Ubicación actual", category: "hidden", type: "readOnly" },
+  trackingDirecto: { key: "trackingDirecto", field: F.trackingDirecto, label: "Rastreo local", category: "readOnly", type: "readOnly" },
   observacionesInternas: { key: "observacionesInternas", field: F.observacionesInternas, label: "Observaciones internas", category: "normal", type: "textarea" },
   observacionVenta: { key: "observacionVenta", field: F.observacionVenta, label: "Observación para venta", category: "normal", type: "textarea" },
   metodoAsignacionSku: { key: "metodoAsignacionSku", field: F.metodoAsignacionSku, label: "Método de asignación SKU", category: "readOnly", type: "readOnly" },

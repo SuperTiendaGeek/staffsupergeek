@@ -48,7 +48,11 @@ oculto("Disponible completamente publicado sale de Recepción", { estado: "Dispo
 // Pedidos de clientes que llegan directo (caso REP-000020 / REP-000022 / REP-000026):
 // "Compra ya pagada" en estado "Pagado", sin estado de revisión.
 const pedidoDirecto = { estado: "Pagado", estadoRevision: "", operacionComercialId: "recOP", modoLogistico: "Tracking directo", recibido: false };
-visible("Pedido de operación con tracking directo sin recibir aparece para recibirse", pedidoDirecto);
+// Desde oct-2026 (punto 2) lo que todavía no llega vive en Recepción → "Por
+// llegar" (item-origen.ts → esSueltoPorLlegar), no en la lista de bodega.
+oculto("Pedido directo sin recibir ya no está en la lista de bodega: está en Por llegar", pedidoDirecto);
+oculto("Artículo en tránsito con revisión Pendiente de recepción espera en Por llegar", { estado: "En tránsito", estadoRevision: "Pendiente de recepción", recibido: false });
+visible("Caja recibida: sus artículos aparecen para confirmarse uno por uno", { estado: "Recibido", estadoRevision: "Pendiente de recepción", recibido: false });
 oculto("El mismo pedido ya recibido y vendido no reaparece", { ...pedidoDirecto, estado: "Vendido", recibido: true });
 oculto("Pedido vendido (aunque nunca se marcó recibido) no reaparece", { ...pedidoDirecto, estado: "Vendido" });
 oculto("Compra propia (sin operación) en Pagado no se mete en Recepción", { ...pedidoDirecto, operacionComercialId: undefined });

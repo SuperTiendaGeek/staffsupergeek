@@ -46,8 +46,25 @@ function normalize(value?: string) {
     .trim();
 }
 
+/**
+ * Etapas en las que el artículo todavía NO llegó. Desde oct-2026 (auditoría,
+ * punto 2) eso se ve en Recepción → "Por llegar" (cajas en tránsito y
+ * artículos sueltos), no en la lista de trabajo de bodega. Cuando una caja
+ * llega, sus artículos pasan a "Recibido" y recién ahí aparecen aquí para
+ * confirmarlos uno por uno.
+ */
+const ETAPAS_ANTES_DE_LLEGAR = new Set([
+  "registrado",
+  "pendiente de pago",
+  "pagado",
+  "pendiente de packing",
+  "en packing",
+  "en transito",
+]);
+
 export function shouldShowShippingV2ReceptionItem(item: ReceptionVisibilityItem) {
   const state = normalize(item.estado);
+  if (item.recibido !== true && ETAPAS_ANTES_DE_LLEGAR.has(state)) return false;
   const review = normalize(item.estadoRevision);
   const allowedStates = new Set(["recibido", "en revision", "con novedad", "repuesto"]);
   const allowedReviewStates = new Set([
