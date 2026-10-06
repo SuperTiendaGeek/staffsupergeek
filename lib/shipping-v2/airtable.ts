@@ -1902,10 +1902,21 @@ function getShippingV2ItemsListSort(sortBy: ShippingV2ItemsListSortKey = "newest
 }
 
 export async function getShippingV2Items(options: MapItemOptions = {}) {
+  return loadShippingV2Items(options, 200);
+}
+
+// Pagos necesita todos los artículos: limitar por antigüedad antes de filtrar
+// pendientes puede ocultar compras y generar pagos incompletos de un packing.
+// Sin maxRecords, listRecords recorre todas las páginas de Airtable.
+async function getShippingV2PaymentItems(options: MapItemOptions = {}) {
+  return loadShippingV2Items(options);
+}
+
+async function loadShippingV2Items(options: MapItemOptions, maxRecords?: number) {
   const proveedoresPromise = options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores();
   const [records, proveedores] = await Promise.all([
     listRecords(SHIPPING_V2_TABLES.items, {
-      maxRecords: 200,
+      maxRecords,
       sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro,
       sortDirection: "desc",
     }),
@@ -3503,9 +3514,9 @@ export async function updateShippingV2ItemTechnicalSheet(
 export async function getShippingV2Pagos(access?: ShippingV2AccessContext) {
   assertShippingV2Permission(access, "canViewPayments", "No tienes permiso para ver pagos de Shipping.");
   const [records, proveedores, items] = await Promise.all([
-    listRecords(SHIPPING_V2_TABLES.pagos, { maxRecords: 200, sortField: SHIPPING_V2_PAYMENT_FIELDS.fechaCreacion, sortDirection: "desc" }),
+    listRecords(SHIPPING_V2_TABLES.pagos, { sortField: SHIPPING_V2_PAYMENT_FIELDS.fechaCreacion, sortDirection: "desc" }),
     getShippingV2Proveedores(),
-    getShippingV2Items({ includeAiName: false, access, sanitizeForAccess: false }),
+    getShippingV2PaymentItems({ includeAiName: false, access, sanitizeForAccess: false }),
   ]);
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
   const itemsById = new Map(items.map((item) => [item.id, item]));
@@ -3521,7 +3532,7 @@ export async function getShippingV2PagoById(recordId: string, access?: ShippingV
   const [record, proveedores, items] = await Promise.all([
     airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.pagos)}/${encodeURIComponent(id)}`),
     getShippingV2Proveedores(),
-    getShippingV2Items({ includeAiName: false, access, sanitizeForAccess: false }),
+    getShippingV2PaymentItems({ includeAiName: false, access, sanitizeForAccess: false }),
   ]);
   const pago = mapPago(record, {
     labelsById: createShippingV2ProveedorLabelMap(proveedores),
@@ -3685,7 +3696,7 @@ export function computePagosSummary(porPagar: ShippingV2PagoPendingItem[], pagos
 export async function getShippingV2PendingPaymentItems(context?: { pagos?: ShippingV2Pago[]; items?: ShippingV2Item[]; packings?: ShippingV2Packing[]; access?: ShippingV2AccessContext }) {
   const [pagos, items, packings] = await Promise.all([
     context?.pagos ? Promise.resolve(context.pagos) : getShippingV2Pagos(context?.access),
-    context?.items ? Promise.resolve(context.items) : getShippingV2Items({ includeAiName: false, access: context?.access }),
+    context?.items ? Promise.resolve(context.items) : getShippingV2PaymentItems({ includeAiName: false, access: context?.access }),
     context?.packings ? Promise.resolve(context.packings) : getShippingV2Packings(context?.access),
   ]);
   const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
@@ -3734,7 +3745,7 @@ export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessConte
   const [pagos, proveedores, items, packings] = await Promise.all([
     getShippingV2Pagos(access),
     getShippingV2Proveedores(),
-    getShippingV2Items({ includeAiName: false, access }),
+    getShippingV2PaymentItems({ includeAiName: false, access }),
     // La relación item → packing ya existe (ShippingV2Item.packingId); acá
     // solo se resuelve el packing en sí para poder agrupar por él en la
     // pantalla de Pagos, sin inventar una relación paralela.

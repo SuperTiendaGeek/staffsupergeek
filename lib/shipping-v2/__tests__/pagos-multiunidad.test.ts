@@ -7,6 +7,7 @@ import { systemShippingV2Access } from "../access";
 import {
   computePagosSummary,
   createShippingV2Pago,
+  getShippingV2PagosWorkspace,
   markShippingV2PagoAsPaid,
   updateShippingV2Item,
   updateShippingV2ItemField,
@@ -19,6 +20,7 @@ import {
 import {
   SHIPPING_V2_ITEM_FIELDS,
   SHIPPING_V2_PAYMENT_FIELDS,
+  SHIPPING_V2_PACKING_FIELDS,
   SHIPPING_V2_PROVIDER_FIELDS,
   SHIPPING_V2_TABLES,
 } from "../schema.generated";
@@ -342,6 +344,92 @@ await assertRejects(
   "Cantidad inválida",
   "Cantidad decimal no es pagable"
 );
+
+await withFixture(async (fixture) => {
+  registrarTablaDouble(fixture.state, SHIPPING_V2_TABLES.packings);
+  const packingId = crearRegistroDouble(fixture.state, SHIPPING_V2_TABLES.packings, {
+    [SHIPPING_V2_PACKING_FIELDS.packingId]: "PK-REGRESION-200",
+    [SHIPPING_V2_PACKING_FIELDS.estado]: "En tránsito",
+  });
+  for (let i = 0; i < 205; i++) {
+    createItemRecord(fixture, {
+      [F_ITEM.requierePago]: false,
+      [F_ITEM.fechaRegistro]: "2026-10-06T00:00:00.000Z",
+    });
+  }
+  const packingItems: string[] = [];
+  for (let i = 0; i < 26; i++) {
+    packingItems.push(createItemRecord(fixture, {
+      [F_ITEM.fechaRegistro]: "2026-09-03T00:00:00.000Z",
+      [F_ITEM.costoProveedor]: i === 0 ? 541.98 : 1,
+      "Shipping Packings": [packingId],
+    }));
+  }
+  const missingItem = createItemRecord(fixture, {
+    [F_ITEM.sku]: "OTR-000204",
+    [F_ITEM.fechaRegistro]: "2026-09-02T13:23:30.017Z",
+    [F_ITEM.costoProveedor]: 8,
+    "Shipping Packings": [packingId],
+  });
+  const alreadyLinkedItem = createItemRecord(fixture, {
+    [F_ITEM.sku]: "PAY-OLD-ACTIVE",
+    [F_ITEM.fechaRegistro]: "2026-09-01T00:00:00.000Z",
+  });
+  for (let i = 0; i < 205; i++) {
+    createPagoRecord(fixture, {
+      [F_PAGO.estadoPago]: "Anulado",
+      [F_PAGO.fechaCreacion]: "2026-10-06T00:00:00.000Z",
+    });
+  }
+  const oldPayment = createPagoRecord(fixture, {
+    [F_PAGO.itemsRelacionados]: [alreadyLinkedItem],
+    [F_PAGO.totalAPagar]: 100,
+    [F_PAGO.fechaCreacion]: "2026-09-01T00:00:00.000Z",
+  });
+  const itemRecord = fixture.state.otras.get(SHIPPING_V2_TABLES.items)!.get(alreadyLinkedItem)!;
+  itemRecord.fields["Shipping Pagos (Items relacionados)"] = [oldPayment];
+
+  // El doble habitual devuelve toda la tabla. Aquí se simulan páginas reales
+  // y maxRecords para detectar el recorte ANTES del filtro de pendientes.
+  const baseFetch = global.fetch;
+  const pages = new Set<string>();
+  global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await baseFetch(input, init);
+    const url = new URL(String(input));
+    const table = decodeURIComponent(url.pathname.split("/")[3] ?? "");
+    if ((init?.method ?? "GET") !== "GET" || url.pathname.split("/")[4] ||
+        (table !== SHIPPING_V2_TABLES.items && table !== SHIPPING_V2_TABLES.pagos)) return response;
+    const data = await response.json() as { records: Array<{ id: string; fields: Record<string, unknown> }> };
+    const sortField = url.searchParams.get("sort[0][field]");
+    if (sortField) data.records.sort((a, b) => String(b.fields[sortField] ?? "").localeCompare(String(a.fields[sortField] ?? "")));
+    const max = Number(url.searchParams.get("maxRecords")) || data.records.length;
+    const records = data.records.slice(0, max);
+    const offset = Number(url.searchParams.get("offset")) || 0;
+    const size = Number(url.searchParams.get("pageSize")) || 100;
+    pages.add(`${table}:${offset}`);
+    return new Response(JSON.stringify({
+      records: records.slice(offset, offset + size),
+      ...(offset + size < records.length ? { offset: String(offset + size) } : {}),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+
+  const access = systemShippingV2Access();
+  const workspace = await getShippingV2PagosWorkspace(access);
+  const pending = workspace.pendientes.itemsSinPago.filter((item) => item.packingId === packingId);
+  assert(pages.has(`${SHIPPING_V2_TABLES.items}:200`), "Pagos recorre la tercera página de artículos");
+  assert(pages.has(`${SHIPPING_V2_TABLES.pagos}:200`), "Pagos recorre también pagos anteriores a los primeros 200");
+  assert(pending.some((item) => item.id === missingItem), "OTR-000204 antiguo aparece en pendientes");
+  assert(pending.length === packingItems.length + 1, "El packing ofrece sus 27 referencias pagables");
+  assertMoney(calculateShippingV2PaymentItemsTotal(pending), 574.98, "El grupo incluye los $8 antes ocultos");
+  assert(!workspace.pendientes.itemsSinPago.some((item) => item.id === alreadyLinkedItem), "Un pago antiguo activo sigue excluyendo su artículo de pendientes");
+  const payment = workspace.pagos.find((pago) => pago.id === oldPayment);
+  assert(payment?.itemsResumen.some((item) => item.id === alreadyLinkedItem) === true, "Resumen de pago conserva sus artículos antiguos");
+  await assertRejects(
+    () => createShippingV2Pago({ proveedorId: fixture.providerId, itemIds: [alreadyLinkedItem] }, { registradoPor: "Test", access }),
+    "ya está en el pago activo",
+    "El servidor impide duplicar un artículo de un pago antiguo activo"
+  );
+});
 
 await withFixture(async (fixture) => {
   const itemA = createItemRecord(fixture, {
