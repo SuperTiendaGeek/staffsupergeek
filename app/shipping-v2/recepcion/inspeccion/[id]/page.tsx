@@ -4,7 +4,6 @@ import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import {
   getShippingV2AccessContextForSession,
   getShippingV2InspeccionTecnica,
-  getShippingV2RepuestosDisponibles,
 } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
@@ -29,18 +28,12 @@ export default async function ShippingV2InspeccionPage({ params }: Params) {
   // Recepción en vez de mostrar una pantalla que no va a poder guardar nada.
   if (inspeccion.item.recibido !== true) redirect("/shipping-v2/recepcion");
 
-  // Repuestos con unidades libres, para la pestaña de Mejoras. Se leen en el
-  // servidor: el token de Airtable no sale de aquí.
-  const repuestos = (await getShippingV2RepuestosDisponibles(access))
-    .filter((repuesto) => repuesto.id !== inspeccion.item.id);
-
   return (
     <StaffAppShell activeHref="/shipping-v2/recepcion" sectionLabel="Shipping V2">
       <div className="w-full max-w-none space-y-3">
       <ShippingV2Pestanas />
       <ShippingV2InspeccionClient
         inicial={inspeccion}
-        repuestos={repuestos}
         usuario={session?.user.nombre || session?.user.email || "Portal Staff"}
         puedeEditarItems={access.permissions.canEditItems}
         puedeCrearNovedades={access.permissions.canCreateNovedades}

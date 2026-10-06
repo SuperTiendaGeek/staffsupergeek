@@ -43,6 +43,7 @@ const ITEM_FLOW_RANK: Record<string, number> = {
   // Ya salió de recepción: intocable por una transición de packing
   disponible: 5,
   reservado: 5,
+  // Etiqueta retirada en el punto 3; se conserva el rango por datos viejos.
   repuesto: 5,
   "uso local": 5,
   "destinado a partes": 5,
@@ -50,6 +51,7 @@ const ITEM_FLOW_RANK: Record<string, number> = {
   "desarmado completamente": 5,
   vendido: 6,
   "usado en reparacion": 6,
+  agotado: 6,
   migrado: 6,
   cancelado: 6,
   archivado: 6,

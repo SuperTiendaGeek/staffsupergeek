@@ -66,7 +66,8 @@ export function shouldShowShippingV2ReceptionItem(item: ReceptionVisibilityItem)
   const state = normalize(item.estado);
   if (item.recibido !== true && ETAPAS_ANTES_DE_LLEGAR.has(state)) return false;
   const review = normalize(item.estadoRevision);
-  const allowedStates = new Set(["recibido", "en revision", "con novedad", "repuesto"]);
+  // "Repuesto" dejó de ser un estado (punto 3, 6-oct): es una categoría.
+  const allowedStates = new Set(["recibido", "en revision", "con novedad"]);
   const allowedReviewStates = new Set([
     "pendiente de recepcion",
     "recibido pendiente de revision",
@@ -78,7 +79,7 @@ export function shouldShowShippingV2ReceptionItem(item: ReceptionVisibilityItem)
     "diferente al comprado",
     "en garantia con proveedor",
   ]);
-  if (allowedStates.has(state) || allowedReviewStates.has(review) || item.esRepuesto) return true;
+  if (allowedStates.has(state) || allowedReviewStates.has(review)) return true;
   if (esPedidoDirectoPorRecibir(item)) return true;
   return state === "disponible" && (
     item.fotosTomadas !== true ||

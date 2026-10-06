@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T13:14:32.762Z",
+  "generatedAt": "2026-10-06T23:20:34.291Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -468,7 +468,8 @@
             "Desarmado completamente",
             "Migrado",
             "Cancelado",
-            "Archivado"
+            "Archivado",
+            "Agotado"
           ]
         },
         "Estado de revisión": {
@@ -1429,6 +1430,17 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblHy141rHAHyXt5W",
           "linkedTableName": "Shipping Proveedores"
+        },
+        "Costo de mejoras": {
+          "id": "fld8IHGe9GavHLwht",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Intervenciones (pieza retirada)": {
+          "id": "fldYs8AX9v1kpFq8Q",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tble8yjShlubBnTmn",
+          "linkedTableName": "Shipping Intervenciones"
         }
       }
     },
@@ -2592,6 +2604,22 @@
           "id": "fld9RTd5AvcNjidDt",
           "type": "singleLineText",
           "kind": "singleLineText"
+        },
+        "Costo sumado al equipo": {
+          "id": "fldaXddG0zI2h3aeH",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Valor pieza retirada": {
+          "id": "fldetAxLKgSbu9sLB",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Pieza retirada": {
+          "id": "fldTD8SenncNXghsm",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
         }
       }
     },

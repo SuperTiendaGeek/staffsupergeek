@@ -64,6 +64,8 @@ function normalize(value?: string | null) {
 const ESTADOS_TERMINALES = new Set([
   "vendido",
   "usado en reparacion",
+  // Punto 3 (6-oct): la última unidad se consumió en una mejora.
+  "agotado",
   "destinado a partes",
   "desarmado parcialmente",
   "desarmado completamente",

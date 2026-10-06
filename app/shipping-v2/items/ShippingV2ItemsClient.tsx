@@ -39,6 +39,7 @@ import {
 import { createShippingV2ProveedorLabelMap, getShippingV2ProveedorLabel, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { ShippingV2DespieceTab } from "./ShippingV2DespieceTab";
+import { ShippingV2IntervencionesTab } from "./ShippingV2IntervencionesTab";
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
 import { ShippingV2ItemsPredictiveSearch } from "./ShippingV2ItemsPredictiveSearch";
 import {
@@ -86,7 +87,7 @@ type DetailRow = {
   options?: readonly string[] | readonly { value: string; label: string }[];
 };
 
-type ItemDetailTabKey = "general" | "costos" | "logistica" | "pago" | "packing" | "observaciones" | "despiece";
+type ItemDetailTabKey = "general" | "costos" | "logistica" | "pago" | "packing" | "observaciones" | "despiece" | "intervenciones";
 
 const ALL = SHIPPING_V2_ALL_FILTER;
 const groupOptions = shippingV2ItemGroupOptions;
@@ -1798,6 +1799,17 @@ export function ShippingV2ItemDetailView({
       accent: "purple",
       rows: [],
     },
+    // Punto 3 (6-oct-2026): mantenimientos y mejoras se registran aquí, no en
+    // la Inspección. Un proveedor no la ve (no usa Recepción ni edita).
+    ...(canUseRecepcion || canEditItems
+      ? [{
+        key: "intervenciones" as const,
+        label: "Mantenimientos y mejoras",
+        title: "Mantenimientos y mejoras",
+        accent: "purple" as const,
+        rows: [],
+      }]
+      : []),
   ];
   const activeSection = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
   const fichaGenerada = isFichaGenerada(item);
@@ -2018,6 +2030,8 @@ export function ShippingV2ItemDetailView({
                 // El despiece no es una lista de campos sino una tabla donde se
                 // van creando artículos hijos, así que no usa DetailSection.
                 <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} esAdmin={esAdmin} />
+              ) : activeTab === "intervenciones" ? (
+                <ShippingV2IntervencionesTab itemId={item.id} />
               ) : (
                 <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} />
               )}

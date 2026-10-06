@@ -108,7 +108,7 @@ export function estadoAlPonerRastreo(item: {
 }
 
 const ESTADOS_FINALES = new Set([
-  "vendido", "cancelado", "archivado", "usado en reparacion", "destinado a partes",
+  "vendido", "cancelado", "archivado", "usado en reparacion", "agotado", "destinado a partes",
   "desarmado parcialmente", "desarmado completamente", "migrado",
 ]);
 

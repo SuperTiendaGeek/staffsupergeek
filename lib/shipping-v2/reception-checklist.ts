@@ -120,8 +120,8 @@ function normalize(value?: string | null) {
 const ESTADOS_FUERA_DE_VENTA = new Set([
   "vendido",
   "usado en reparacion",
+  "agotado",
   "uso local",
-  "repuesto",
   "destinado a partes",
   "desarmado parcialmente",
   "desarmado completamente",

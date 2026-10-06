@@ -70,6 +70,18 @@ import { validarReglaDistribucion } from "@/lib/shipping-v2/packing-costos";
 import { calcularRepartoPacking, type ResultadoReparto } from "@/lib/shipping-v2/packing-reparto";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
 import {
+  CATEGORIAS_REPUESTO_STOCK,
+  ESTADO_AGOTADO,
+  cambiosPiezaTrasConsumo,
+  costoSugeridoMejora,
+  decidirCostoMejora,
+  evaluarEquipoParaIntervencion,
+  evaluarPiezaParaMejora,
+  validarPiezaRetirada,
+  type DecisionCostoMejora,
+  type PiezaRetiradaInput,
+} from "@/lib/shipping-v2/mejoras";
+import {
   isPositiveShippingV2Price,
   isShippingV2GiftOperation,
   isShippingV2PurchaseOperation,
@@ -961,7 +973,6 @@ function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, un
     [F.estadoRevision]: cleanString(input.estadoRevision),
     [F.estadoTriangulacion]: cleanString(input.estadoTriangulacion),
     [F.estadoDespiece]: cleanString(input.estadoDespiece),
-    [F.esRepuesto]: Boolean(input.esRepuesto),
     [F.esUsoLocal]: Boolean(input.usoLocal),
     [F.esRegalo]: tipoOperacion === "Regalo de proveedor",
     [SHIPPING_V2_ITEM_SOURCE_FIELDS.operacionComercial]: cleanString(input.operacionComercialId) ? [cleanString(input.operacionComercialId)] : undefined,
@@ -4216,7 +4227,6 @@ export async function getShippingV2PackingsReviewProgress(
       "Marketplace publicado",
       "Mercado Libre publicado",
       "Grupos Facebook publicado",
-      F.esRepuesto,
       F.esUsoLocal,
       "Shipping Packings",
     ],
@@ -4238,7 +4248,6 @@ export async function getShippingV2PackingsReviewProgress(
       marketplacePublicado: firstBoolean(record.fields["Marketplace publicado"]),
       mercadoLibrePublicado: firstBoolean(record.fields["Mercado Libre publicado"]),
       gruposFacebookPublicado: firstBoolean(record.fields["Grupos Facebook publicado"]),
-      esRepuesto: firstBoolean(record.fields[F.esRepuesto]),
       usoLocal: firstBoolean(record.fields[F.esUsoLocal]),
     };
     for (const packingId of packingIds) {
@@ -6193,21 +6202,7 @@ function mapRepuestoStockResumen(record: AirtableRecord): ShippingV2RepuestoStoc
 // terminaron marcados como Repuesto una impresora Epson, un disco externo
 // Seagate y unos audífonos Plantronics. Ahora la categoría dice la verdad y es
 // el buscador el que sabe qué categorías son montables.
-const CATEGORIAS_REPUESTO_STOCK = [
-  "Repuesto",
-  "RAM",
-  "SSD",
-  "HDD",
-  "Pantalla",
-  "Teclado",
-  "Batería",
-  "Cargador",
-  "Mainboard",
-  "Tarjeta gráfica",
-  "Fuente de poder",
-  "Cable",
-  "Accesorio",
-] as const;
+// La lista vive en mejoras.ts: la usan también las Mejoras (punto 3).
 
 function escapeAirtableSearchTerm(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -6947,6 +6942,12 @@ export type ShippingV2Intervencion = {
   repuestoId?: string;
   cantidadUsada: number | null;
   costoRepuesto: number | null;
+  /** Punto 3: lo que la mejora sumó al costo del equipo. */
+  costoSumado: number | null;
+  /** Punto 3: valor de la pieza retirada que se restó del equipo. */
+  valorPiezaRetirada: number | null;
+  /** Punto 3: artículo creado con la pieza que salió. */
+  piezaRetiradaId?: string;
   realizadoPor?: string;
   fecha?: string;
 };
@@ -6967,6 +6968,9 @@ function mapIntervencion(record: AirtableRecord): ShippingV2Intervencion {
     repuestoId: repuestoIds[0],
     cantidadUsada: firstNumber(f["Cantidad usada"]),
     costoRepuesto: firstNumber(f["Costo repuesto"]),
+    costoSumado: firstNumber(f["Costo sumado al equipo"]),
+    valorPiezaRetirada: firstNumber(f["Valor pieza retirada"]),
+    piezaRetiradaId: linkedRecordIds(f["Pieza retirada"])[0],
     realizadoPor: firstString(f["Realizado por"]),
     fecha: firstString(f.Fecha, record.createdTime),
   };
@@ -7290,41 +7294,115 @@ export async function getShippingV2IntervencionesDeItem(itemRecordId: string): P
 }
 
 /**
- * Repuestos con unidades libres, para el selector de Mejoras.
+ * Piezas que se pueden usar en una mejora (punto 3, 6-oct-2026): las mismas
+ * categorías del buscador de repuestos de los técnicos, en la tienda, sin
+ * problema abierto y con unidades libres. Ya no depende de "Es repuesto".
  *
- * No se usa `getShippingV2Items()`: tiene un tope de 200 ordenado por fecha, y
- * con 570 artículos eso deja fuera todo lo anterior a hace dos meses — el mismo
- * agujero que ya se corrigió en Recepción. Aquí se leen solo los campos que el
- * selector necesita.
+ * No se usa `getShippingV2Items()`: tiene un tope de 200 ordenado por fecha y
+ * dejaría fuera las piezas antiguas. Aquí se leen solo los campos necesarios.
  */
-export async function getShippingV2RepuestosDisponibles(access?: ShippingV2AccessContext) {
-  assertShippingV2Permission(access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+export async function getShippingV2RepuestosDisponibles(
+  access?: ShippingV2AccessContext,
+  equipoId = ""
+) {
+  assertShippingV2Permission(access, "canViewItems", "No tienes acceso a los artículos.");
   const F = SHIPPING_V2_ITEM_FIELDS;
+  const categoriasOr = CATEGORIAS_REPUESTO_STOCK.map((c) => `{${F.categoria}}="${c}"`).join(",");
   const records = await listRecords(SHIPPING_V2_TABLES.items, {
     maxRecords: 5000,
     pageSize: 100,
-    filterByFormula: `{${F.esRepuesto}} = 1`,
-    fields: [F.sku, F.nombre, F.cantidad, F.cantidadReservada, F.reservado, F.costoProveedor, F.esRepuesto],
+    filterByFormula: `AND(OR(${categoriasOr}),{${F.recibido}}=1,{${F.cantidad}}>0)`,
+    fields: [
+      F.sku, F.nombre, F.categoria, F.recibido, F.estadoItem, F.estadoRevision, F.esUsoLocal,
+      F.cantidad, F.cantidadReservada, F.reservado, F.costoProveedor, F.costoTotalUnidad,
+    ],
   });
 
   return records
     .map((record) => {
       const f = record.fields;
-      const libres = unidadesLibres({
-        cantidad: firstNumber(f[F.cantidad]),
-        cantidadReservada: firstNumber(f[F.cantidadReservada]),
-        reservado: firstBoolean(f[F.reservado]),
-      });
-      return {
+      const pieza = {
         id: record.id,
         sku: firstString(f[F.sku]),
         nombre: firstString(f[F.nombre]),
-        stock: libres,
-        costo: firstNumber(f[F.costoProveedor]) ?? 0,
+        categoria: firstString(f[F.categoria]),
+        recibido: firstBoolean(f[F.recibido]),
+        estado: firstString(f[F.estadoItem]),
+        estadoRevision: firstString(f[F.estadoRevision]),
+        usoLocal: firstBoolean(f[F.esUsoLocal]),
+        cantidad: firstNumber(f[F.cantidad]),
+        cantidadReservada: firstNumber(f[F.cantidadReservada]),
+        reservado: firstBoolean(f[F.reservado]),
+      };
+      const evaluacion = evaluarPiezaParaMejora(pieza, { equipoId: cleanString(equipoId) });
+      return {
+        id: record.id,
+        sku: pieza.sku,
+        nombre: pieza.nombre,
+        categoria: pieza.categoria,
+        stock: evaluacion.ok ? evaluacion.libres : 0,
+        // Costo por unidad que se sugiere sumar al equipo: el costo total de la
+        // pieza (proveedor + logística); si no está, el del proveedor.
+        costo: firstNumber(f[F.costoTotalUnidad]) ?? firstNumber(f[F.costoProveedor]) ?? 0,
+        ok: evaluacion.ok,
       };
     })
-    .filter((repuesto) => repuesto.stock > 0)
+    .filter((repuesto) => repuesto.ok && repuesto.stock > 0)
+    .map(({ ok: _ok, ...repuesto }) => repuesto)
     .sort((a, b) => a.sku.localeCompare(b.sku));
+}
+
+export type ShippingV2PanelIntervenciones = {
+  itemId: string;
+  sku: string;
+  categoria: string;
+  cantidad: number;
+  puedeRegistrar: boolean;
+  motivoBloqueo?: string;
+  /** Quien no ve costos no recibe montos (null) y no puede cambiar el sugerido. */
+  puedeVerCostos: boolean;
+  costoMejoras: number | null;
+  trabajos: { mantenimientos: string[]; mejoras: string[] };
+  intervenciones: ShippingV2Intervencion[];
+  repuestos: Awaited<ReturnType<typeof getShippingV2RepuestosDisponibles>>;
+};
+
+/**
+ * Todo lo que necesita la pestaña "Mantenimientos y mejoras" de la ficha del
+ * artículo (punto 3, 6-oct-2026: único lugar para registrarlos).
+ */
+export async function getShippingV2PanelIntervenciones(
+  itemRecordId: string,
+  access?: ShippingV2AccessContext
+): Promise<ShippingV2PanelIntervenciones> {
+  assertShippingV2Permission(access, "canViewItems", "No tienes acceso a este artículo.");
+  const id = cleanString(itemRecordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  const item = await getShippingV2ItemById(id, { includeAiName: false, access });
+  const evaluacion = evaluarEquipoParaIntervencion(item);
+  const puedeVerCostos = canShippingV2(access, "canViewCosts");
+  const [intervenciones, repuestosCrudos, equipo] = await Promise.all([
+    getShippingV2IntervencionesDeItem(id),
+    evaluacion.ok ? getShippingV2RepuestosDisponibles(access, id) : Promise.resolve([]),
+    leerRegistroItem(id),
+  ]);
+  const repuestos = puedeVerCostos ? repuestosCrudos : repuestosCrudos.map((r) => ({ ...r, costo: 0 }));
+  const historial = puedeVerCostos
+    ? intervenciones
+    : intervenciones.map((i) => ({ ...i, costoRepuesto: null, costoSumado: null, valorPiezaRetirada: null }));
+  return {
+    itemId: id,
+    sku: item.sku,
+    categoria: item.categoria ?? "",
+    cantidad: normalizarUnidades(item.cantidad),
+    puedeRegistrar: evaluacion.ok,
+    motivoBloqueo: evaluacion.ok ? undefined : evaluacion.motivo,
+    puedeVerCostos,
+    costoMejoras: puedeVerCostos ? firstNumber(equipo.fields[CAMPO_COSTO_MEJORAS]) ?? 0 : null,
+    trabajos: getIntervencionesPorCategoria(item.categoria),
+    intervenciones: historial,
+    repuestos,
+  };
 }
 
 export type ShippingV2IntervencionInput = {
@@ -7333,7 +7411,14 @@ export type ShippingV2IntervencionInput = {
   nota?: string;
   repuestoId?: string;
   cantidadUsada?: number;
+  /** Lo que se suma al costo del equipo (punto 3). Vacío = el sugerido. */
+  costoSumado?: number | null;
+  /** La pieza que salió del equipo y vuelve al inventario como artículo nuevo. */
+  piezaRetirada?: PiezaRetiradaInput | null;
 };
+
+/** Campo del equipo donde se acumula el costo neto de sus mejoras. */
+const CAMPO_COSTO_MEJORAS = "Costo de mejoras";
 
 /**
  * Registra un mantenimiento o una mejora.
@@ -7383,7 +7468,11 @@ async function registrarIntervencionSinTurno(
   input: ShippingV2IntervencionInput,
   options: { actor: string; access?: ShippingV2AccessContext }
 ) {
-  assertShippingV2Permission(options.access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+  // Desde el punto 3 (6-oct) se registra en la ficha del artículo: basta con
+  // poder usar Recepción o editar artículos. Un proveedor no tiene ninguno.
+  if (!canShippingV2(options.access, "canUseRecepcion") && !canShippingV2(options.access, "canEditItems")) {
+    throw new Error("No tienes permiso para registrar mantenimientos ni mejoras.");
+  }
   const id = cleanString(itemRecordId);
   if (!id) throw new Error("Record ID de item inválido.");
 
@@ -7398,6 +7487,9 @@ async function registrarIntervencionSinTurno(
   // solo lo válido, pero el endpoint acepta cualquier JSON de quien tenga
   // sesión: sin esto se podría guardar "Ajuste o refuerzo de bisagras" en un
   // disco NVMe, o texto libre que ensucie el catálogo de Airtable.
+  const equipoOk = evaluarEquipoParaIntervencion(item);
+  if (!equipoOk.ok) throw new Error(equipoOk.motivo);
+
   const perfilItem = getPerfilRevision(item.categoria);
   if (!intervencionAplica(perfilItem, tipo as TipoIntervencion, detalle)) {
     throw new Error(`"${detalle}" no es un trabajo válido para ${item.categoria || "este tipo de item"}.`);
@@ -7406,43 +7498,73 @@ async function registrarIntervencionSinTurno(
 
   let repuesto: ShippingV2Item | null = null;
   let cantidadUsada = 0;
+  let piezaAgotada = false;
+  let estadoPiezaAntes = "";
+  let decisionCosto: DecisionCostoMejora | null = null;
+  let piezaRetirada: ReturnType<typeof validarPiezaRetirada> | null = null;
 
   if (tipo === "Mejora") {
     const repuestoId = cleanString(input.repuestoId);
     if (!repuestoId) throw new Error("Una mejora necesita el repuesto que se usó.");
     if (repuestoId === id) throw new Error("Un item no puede consumirse a sí mismo como repuesto.");
 
-    repuesto = await getShippingV2ItemById(repuestoId, { includeAiName: false, access: options.access });
-    cantidadUsada = Math.max(1, Math.trunc(input.cantidadUsada ?? 1));
+    repuesto = await getShippingV2ItemById(repuestoId, { includeAiName: false, access: systemShippingV2Access() });
+    const pedida = Number(input.cantidadUsada ?? 1);
+    if (!Number.isInteger(pedida) || pedida < 1) throw new Error("La cantidad usada debe ser un número entero mayor a 0.");
+    cantidadUsada = pedida;
 
     // El cliente ya filtra la lista, pero el endpoint es público para quien
     // tenga sesión: sin esta validación se podría bajar la cantidad de
-    // cualquier artículo del inventario pasando su record ID.
-    if (repuesto.esRepuesto !== true) {
-      throw new Error(`${repuesto.sku || repuesto.nombre} no está marcado como repuesto.`);
-    }
+    // cualquier artículo del inventario pasando su record ID. Misma regla que
+    // el selector (mejoras.ts): categoría de repuesto, en la tienda, sin
+    // problema abierto y con unidades LIBRES (lo apartado no se consume).
+    const evaluacion = evaluarPiezaParaMejora(
+      {
+        id: repuesto.id,
+        sku: repuesto.sku,
+        nombre: repuesto.nombre,
+        categoria: repuesto.categoria,
+        recibido: repuesto.recibido,
+        estado: repuesto.estado,
+        estadoRevision: repuesto.estadoRevision,
+        usoLocal: repuesto.usoLocal,
+        cantidad: repuesto.cantidad,
+        cantidadReservada: repuesto.cantidadReservada,
+        reservado: repuesto.reservado,
+      },
+      { equipoId: id, cantidad: cantidadUsada }
+    );
+    if (!evaluacion.ok) throw new Error(evaluacion.motivo);
 
-    // Unidades LIBRES, no la cantidad total: una unidad apartada para un
-    // cliente no se puede consumir en una mejora.
-    const libres = unidadesLibres({
-      cantidad: repuesto.cantidad,
-      cantidadReservada: repuesto.cantidadReservada,
-      reservado: repuesto.reservado,
+    // Costo (punto 3): se valida TODO antes de descontar, para no tener que
+    // devolver unidades por un dato mal escrito. Quien no ve costos no puede
+    // cambiar el sugerido.
+    const sugerido = costoSugeridoMejora(repuesto.costoTotalUnidad ?? repuesto.costoProveedor, cantidadUsada);
+    const puedeVerCostos = canShippingV2(options.access, "canViewCosts");
+    piezaRetirada = input.piezaRetirada ? validarPiezaRetirada(input.piezaRetirada, item, ahora) : null;
+    decisionCosto = decidirCostoMejora({
+      cantidadEquipo: normalizarUnidades(item.cantidad),
+      costoSumado: puedeVerCostos && input.costoSumado != null ? input.costoSumado : sugerido,
+      valorPiezaRetirada: puedeVerCostos ? piezaRetirada?.valor ?? 0 : 0,
     });
-    if (libres < cantidadUsada) {
-      throw new Error(
-        `No hay unidades libres de ${repuesto.sku || repuesto.nombre}: hay ${libres} sin apartar y se piden ${cantidadUsada}.`
-      );
-    }
-    const disponibles = normalizarUnidades(repuesto.cantidad);
+    if (piezaRetirada && !puedeVerCostos) piezaRetirada = { ...piezaRetirada, valor: 0 };
+
+    const tras = cambiosPiezaTrasConsumo(normalizarUnidades(repuesto.cantidad), cantidadUsada);
+    piezaAgotada = tras.agotada;
+    estadoPiezaAntes = repuesto.estado || "";
 
     await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
       method: "PATCH",
       body: JSON.stringify({
+        // typecast: crea la opción "Agotado" si todavía no existe en Airtable.
+        typecast: true,
         records: [{
           id: repuesto.id,
           fields: {
-            [SHIPPING_V2_ITEM_FIELDS.cantidad]: disponibles - cantidadUsada,
+            [SHIPPING_V2_ITEM_FIELDS.cantidad]: tras.cantidad,
+            ...(tras.agotada
+              ? { [SHIPPING_V2_ITEM_FIELDS.estadoItem]: ESTADO_AGOTADO, [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: false }
+              : {}),
             "Última actualización": ahora,
             "Actualizado por": options.actor,
           },
@@ -7477,6 +7599,8 @@ async function registrarIntervencionSinTurno(
             Nota: cleanString(input.nota) || undefined,
             "Cantidad usada": repuesto ? cantidadUsada : undefined,
             "Costo repuesto": repuesto ? repuesto.costoProveedor ?? undefined : undefined,
+            "Costo sumado al equipo": decisionCosto ? decisionCosto.costoSumado : undefined,
+            "Valor pieza retirada": decisionCosto && piezaRetirada ? decisionCosto.valorRestado : undefined,
             "Realizado por": options.actor,
             Fecha: ahora,
           }),
@@ -7489,7 +7613,59 @@ async function registrarIntervencionSinTurno(
 
     // Desde aquí YA NO se devuelve el stock: la intervención existe y el
     // descuento tiene respaldo. Lo que sigue son efectos secundarios, y un
-    // fallo en ellos no puede disparar el rollback.
+    // fallo en ellos no puede disparar el rollback: se devuelve como aviso.
+    const avisos: string[] = [];
+    if (decisionCosto?.aviso) avisos.push(decisionCosto.aviso);
+    let piezaRetiradaSku = "";
+
+    // Costo del equipo (punto 3): se relee y se SUMA el ajuste.
+    if (decisionCosto && decisionCosto.ajuste !== 0) {
+      try {
+        const equipo = await leerRegistroItem(id);
+        const actual = firstNumber(equipo.fields[CAMPO_COSTO_MEJORAS]) ?? 0;
+        await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+          method: "PATCH",
+          body: JSON.stringify({
+            records: [{ id, fields: { [CAMPO_COSTO_MEJORAS]: Math.round((actual + decisionCosto.ajuste) * 100) / 100 } }],
+          }),
+        });
+      } catch (error) {
+        console.error("Mejora registrada, pero no se pudo actualizar el costo del equipo:", error);
+        avisos.push(`La mejora quedó registrada, pero no se pudo actualizar el costo del equipo (ajuste ${decisionCosto.ajuste}). Corrígelo a mano.`);
+      }
+    }
+
+    // La pieza que salió vuelve al inventario como artículo nuevo, en la
+    // tienda. No se enlaza como "Item padre" a propósito: eso la metería en la
+    // pestaña Despiece y marcaría el equipo "en despiece". El vínculo queda en
+    // la intervención ("Pieza retirada") y en su nota.
+    if (piezaRetirada) {
+      try {
+        const itemInput = construirInputPiezaDespiece(
+          { nombre: piezaRetirada.nombre, categoria: piezaRetirada.categoria, cantidad: piezaRetirada.cantidad, observaciones: piezaRetirada.nota },
+          { proveedorCompraId: item.proveedorId, tipoOperacion: item.tipoOperacion }
+        );
+        const pieza = await createShippingV2ItemRecord(itemInput as ShippingV2ItemWriteInput, {
+          registradoPor: options.actor,
+          eventDescription: piezaRetirada.nota,
+          extraFields: {
+            "Es parte recuperada": true,
+            [SHIPPING_V2_ITEM_FIELDS.recibido]: true,
+            [SHIPPING_V2_ITEM_FIELDS.origenArticulo]: "Ya está en la tienda",
+            ...(piezaRetirada.valor > 0 ? { [CAMPO_COSTO_ASIGNADO_DESPIECE]: piezaRetirada.valor } : {}),
+          },
+        });
+        piezaRetiradaSku = pieza.sku;
+        await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.intervenciones), {
+          method: "PATCH",
+          body: JSON.stringify({ records: [{ id: creado.id, fields: { "Pieza retirada": [pieza.id] } }] }),
+        });
+      } catch (error) {
+        console.error("Mejora registrada, pero no se pudo crear la pieza retirada:", error);
+        avisos.push(`La mejora quedó registrada, pero no se pudo crear la pieza retirada "${piezaRetirada.nombre}". Regístrala a mano.`);
+      }
+    }
+
     void (async () => {
       try {
         await createShippingV2Event({
@@ -7514,7 +7690,7 @@ async function registrarIntervencionSinTurno(
       }
     })();
 
-    return { intervencion: mapIntervencion(creado), repuestoDescontado: repuesto?.sku || "" };
+    return { intervencion: mapIntervencion(creado), repuestoDescontado: repuesto?.sku || "", piezaRetiradaSku, avisos };
   } catch (error) {
     // Devolver la unidad: sin el registro, el descuento no tiene respaldo.
     //
@@ -7533,7 +7709,11 @@ async function registrarIntervencionSinTurno(
           body: JSON.stringify({
             records: [{
               id: repuesto.id,
-              fields: { [SHIPPING_V2_ITEM_FIELDS.cantidad]: normalizarUnidades(actual.cantidad) + cantidadUsada },
+              fields: {
+                [SHIPPING_V2_ITEM_FIELDS.cantidad]: normalizarUnidades(actual.cantidad) + cantidadUsada,
+                // Si la mejora la había dejado "Agotado", vuelve a su etiqueta.
+                ...(piezaAgotada && estadoPiezaAntes ? { [SHIPPING_V2_ITEM_FIELDS.estadoItem]: estadoPiezaAntes } : {}),
+              },
             }],
           }),
         });
@@ -7563,7 +7743,7 @@ function formulaSueltosEnCamino() {
     `OR({${F.origenArticulo}}='Proveedor extranjero',{${F.origenArticulo}}='Proveedor local'),` +
     `LEN(ARRAYJOIN({Shipping Packings}))=0,` +
     `{${F.cantidad}}>0,` +
-    `NOT(OR({${F.estadoItem}}='Vendido',{${F.estadoItem}}='Cancelado',{${F.estadoItem}}='Archivado',{${F.estadoItem}}='Usado en reparación')))`
+    `NOT(OR({${F.estadoItem}}='Vendido',{${F.estadoItem}}='Cancelado',{${F.estadoItem}}='Archivado',{${F.estadoItem}}='Usado en reparación',{${F.estadoItem}}='Agotado')))`
   );
 }
 
