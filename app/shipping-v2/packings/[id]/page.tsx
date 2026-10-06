@@ -1,3 +1,4 @@
+import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import { notFound } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2Destinatarios, getShippingV2Novedades, getShippingV2PackingById, getShippingV2PackingCandidateItems, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
@@ -58,6 +59,8 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
 
   return (
     <StaffAppShell activeHref="/shipping-v2/packings" sectionLabel="Shipping V2">
+      <div className="w-full max-w-none space-y-3">
+      <ShippingV2Pestanas />
       {error || !packing ? (
         <section className="rounded-[1rem] border border-orange-300/25 bg-orange-300/10 p-4 text-orange-100">
           <p className="text-sm font-semibold uppercase tracking-normal">Packing no disponible</p>
@@ -66,6 +69,7 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
       ) : (
         <ShippingV2PackingDetailClient packing={packing} candidates={candidates} proveedores={proveedores} novedades={novedades} destinatarios={destinatarios} isAdmin={isAdmin} isSiteAdmin={isSiteAdmin} permissions={permissions} providerName={providerName} />
       )}
+    </div>
     </StaffAppShell>
   );
 }

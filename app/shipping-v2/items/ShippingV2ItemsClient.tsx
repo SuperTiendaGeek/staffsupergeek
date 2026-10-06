@@ -1673,7 +1673,6 @@ export function ShippingV2ItemDetailView({
         { label: C.marca.label, value: item.marca, config: C.marca },
         { label: C.modelo.label, value: item.modelo, config: C.modelo },
         { label: C.categoria.label, value: item.categoria, config: C.categoria },
-        { label: C.tipoItem.label, value: item.tipoItem, config: C.tipoItem },
         { label: C.condicion.label, value: item.condicion, config: C.condicion },
         { label: C.cantidad.label, value: item.cantidad ?? item.qty, config: C.cantidad },
         { label: C.unidad.label, value: item.unidad, config: C.unidad },
@@ -1685,8 +1684,6 @@ export function ShippingV2ItemDetailView({
         { label: "Se puede vender", value: sePuedeVender(item), displayValue: sePuedeVender(item) ? "Sí" : `No: ${motivoNoVenta(item)}`, readOnly: true },
         { label: C.reservado.label, value: item.reservado, config: C.reservado },
         { label: C.facebookSuperGeek.label, value: item.facebookSuperGeek, displayValue: displayBoolean(item.facebookSuperGeek), readOnly: true },
-        { label: C.ubicacionActual.label, value: item.ubicacionActual, config: C.ubicacionActual },
-        { label: "Origen físico actual", value: item.origenFisicoActual, readOnly: true },
       ],
     },
     ...(canViewCosts ? [{
@@ -1726,11 +1723,23 @@ export function ShippingV2ItemDetailView({
       accent: "orange",
       rows: [
         { label: C.proveedorCompra.label, value: item.proveedorId, displayValue: displayValue(item.proveedorCompraDisplay), config: C.proveedorCompra, options: purchaseProviderOptions },
-        { label: C.proveedorLogistico.label, value: item.proveedorLogisticoId, displayValue: displayValue(item.proveedorLogisticoDisplay), config: C.proveedorLogistico, options: itemLogisticsProviderOptions },
-        { label: C.modoLogistico.label, value: item.modoLogistico, config: C.modoLogistico, readOnly: Boolean(item.packingId) },
-        { label: "Tracking hacia intermediario", value: item.trackingHaciaIntermediario, readOnly: true },
-        { label: "Tracking desde intermediario", value: item.trackingDesdeIntermediario, readOnly: true },
-        { label: C.estadoTriangulacion.label, value: item.estadoTriangulacion, config: C.estadoTriangulacion },
+        // Punto 2 (oct-2026): origen, casillero y rastreos se gestionan en la
+        // pestaña Logística (un solo lugar para todo lo que viene en camino).
+        { label: "¿Dónde está / de dónde viene?", value: item.origenArticulo, displayValue: item.origenArticulo || "Sin indicar", readOnly: true },
+        { label: "Casillero", value: item.proveedorLogisticoId, displayValue: displayValue(item.proveedorLogisticoDisplay), readOnly: true },
+        { label: "Rastreo al casillero", value: item.trackingHaciaIntermediario, readOnly: true },
+        { label: "Rastreo a Ecuador", value: item.trackingDesdeIntermediario, readOnly: true },
+        { label: "Rastreo local", value: item.trackingDirecto, readOnly: true },
+        {
+          label: "Dónde se gestiona",
+          value: "",
+          displayValue: item.packingId
+            ? "En su caja (pestaña Logística → la caja)"
+            : item.recibido === true
+              ? "Ya llegó"
+              : <Link href="/shipping-v2/packings#sueltos" className="font-semibold text-[#D7FF4F] hover:underline">Pestaña Logística</Link>,
+          readOnly: true,
+        },
         { label: C.estadoDespiece.label, value: item.estadoDespiece, config: C.estadoDespiece },
       ],
     },
@@ -1754,10 +1763,8 @@ export function ShippingV2ItemDetailView({
       title: "Packing y tracking",
       accent: "purple",
       rows: [
-        { label: C.requierePacking.label, value: item.requierePacking, displayValue: displayBoolean(item.requierePacking), config: C.requierePacking },
         { label: C.packingRelacionado.label, value: item.packingId, displayValue: packing?.packingId || item.packingId || "—", config: C.packingRelacionado },
         { label: "Estado packing", value: packing?.estado, displayValue: packing?.estado ? <EstadoBadge estado={packing.estado} /> : "—", readOnly: true },
-        { label: C.trackingDirecto.label, value: item.trackingDirecto, config: C.trackingDirecto, readOnly: item.modoLogistico !== "Tracking directo" },
         { label: "Tracking USA", value: packing?.trackingUsa || item.trackingUsa, readOnly: true },
         { label: "Tracking EC", value: packing?.trackingEc || item.trackingEc, readOnly: true },
         { label: "Peso", value: packing?.peso, displayValue: packing?.peso === null || packing?.peso === undefined ? "—" : `${packing.peso} kg`, readOnly: true },

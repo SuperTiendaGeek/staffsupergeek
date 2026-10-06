@@ -1,3 +1,4 @@
+import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import {
@@ -35,6 +36,8 @@ export default async function ShippingV2InspeccionPage({ params }: Params) {
 
   return (
     <StaffAppShell activeHref="/shipping-v2/recepcion" sectionLabel="Shipping V2">
+      <div className="w-full max-w-none space-y-3">
+      <ShippingV2Pestanas />
       <ShippingV2InspeccionClient
         inicial={inspeccion}
         repuestos={repuestos}
@@ -42,6 +45,7 @@ export default async function ShippingV2InspeccionPage({ params }: Params) {
         puedeEditarItems={access.permissions.canEditItems}
         puedeCrearNovedades={access.permissions.canCreateNovedades}
       />
+    </div>
     </StaffAppShell>
   );
 }

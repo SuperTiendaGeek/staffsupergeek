@@ -1,3 +1,4 @@
+import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2ItemsPage, getShippingV2Proveedores, type ShippingV2ItemsListSortKey } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
@@ -147,6 +148,8 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
 
   return (
     <StaffAppShell activeHref="/shipping-v2/items" sectionLabel="Shipping V2">
+      <div className="w-full max-w-none space-y-3">
+      <ShippingV2Pestanas />
       <ShippingV2ItemsClient
         items={items}
         proveedores={proveedores}
@@ -165,6 +168,7 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
           hasNextPage: Boolean(nextHref),
         }}
       />
+    </div>
     </StaffAppShell>
   );
 }

@@ -1,3 +1,4 @@
+import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
@@ -28,6 +29,8 @@ export default async function ShippingV2NewPackingPage() {
 
   return (
     <StaffAppShell activeHref="/shipping-v2/packings" sectionLabel="Shipping V2">
+      <div className="w-full max-w-none space-y-3">
+      <ShippingV2Pestanas />
       {error ? (
         <section className="mb-4 rounded-[1rem] border border-orange-300/25 bg-orange-300/10 p-4 text-orange-100">
           <p className="text-sm font-semibold uppercase tracking-normal">Airtable V2 no disponible</p>
@@ -35,6 +38,7 @@ export default async function ShippingV2NewPackingPage() {
         </section>
       ) : null}
       <ShippingV2NewPackingForm proveedores={proveedores} />
+    </div>
     </StaffAppShell>
   );
 }

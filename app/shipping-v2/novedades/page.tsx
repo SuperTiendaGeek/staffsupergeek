@@ -1,3 +1,4 @@
+import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession, getShippingV2NovedadesPanel, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
@@ -34,6 +35,8 @@ export default async function ShippingV2NovedadesPage() {
 
   return (
     <StaffAppShell activeHref="/shipping-v2/novedades" sectionLabel="Shipping V2">
+      <div className="w-full max-w-none space-y-3">
+      <ShippingV2Pestanas />
       <ShippingV2NovedadesClient
         novedades={novedades}
         proveedores={proveedores}
@@ -41,6 +44,7 @@ export default async function ShippingV2NovedadesPage() {
         isSiteAdmin={access.isSiteAdmin}
         canRespond={access.permissions.canRespondNovedades}
       />
+    </div>
     </StaffAppShell>
   );
 }

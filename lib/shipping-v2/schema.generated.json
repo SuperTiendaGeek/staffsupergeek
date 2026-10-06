@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-04T23:07:02.724Z",
+  "generatedAt": "2026-10-06T13:14:32.762Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -335,6 +335,23 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblIWRxUiXN1QLycY",
           "linkedTableName": "Presupuesto por Orden"
+        },
+        "Items (como transportista origen)": {
+          "id": "fldroB2SkuUsyl12N",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Items (como transportista Ecuador)": {
+          "id": "fldxTQm20udmbbuCp",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Es casillero": {
+          "id": "fldgO7xyHKrTu8SLP",
+          "type": "checkbox",
+          "checkbox": true
         }
       }
     },
@@ -1391,6 +1408,27 @@
           "id": "fldFfXxmTh1CclZ59",
           "type": "checkbox",
           "checkbox": true
+        },
+        "Origen del artículo": {
+          "id": "fldNwXzTUFuY2rYkQ",
+          "type": "singleSelect",
+          "options": [
+            "Ya está en la tienda",
+            "Proveedor extranjero",
+            "Proveedor local"
+          ]
+        },
+        "Transportista origen": {
+          "id": "fldRDyeMo2pyAcvOQ",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Transportista Ecuador": {
+          "id": "fldzZFxs8CBqUfgVS",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
         }
       }
     },

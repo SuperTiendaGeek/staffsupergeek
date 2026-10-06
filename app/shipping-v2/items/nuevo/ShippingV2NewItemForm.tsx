@@ -1,29 +1,54 @@
 "use client";
 
+// Registro de un artículo en UNA sola pantalla (auditoría Shipping V2, punto 2).
+//
+// Arriba las tres preguntas que ordenan todo lo demás: ¿Dónde está el
+// artículo?, proveedor y categoría. Si viene de afuera, la sección "Llegada"
+// recoge en el mismo lugar el casillero, los rastreos y si viaja en una caja.
+// Al guardar no hace falta ir a otra pantalla. Ya no se preguntan: Rol general,
+// Estado sugerido, Modo logístico, Ubicación actual ni Origen físico.
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import {
   SHIPPING_V2_CATEGORIAS,
   SHIPPING_V2_CONDICIONES,
-  SHIPPING_V2_MODOS_LOGISTICOS,
-  SHIPPING_V2_TIPOS_ITEM,
-  SHIPPING_V2_TIPOS_OPERACION,
   SHIPPING_V2_UNIDADES,
   type ShippingV2Proveedor,
 } from "@/types/shipping-v2";
 import { normalizeItemNameFast } from "@/lib/shipping-v2/item-name-normalizer";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
 import { requiereInspeccionPorDefecto } from "@/lib/shipping-v2/item-venta";
+import {
+  ORIGEN_EXTRANJERO,
+  ORIGEN_LOCAL,
+  ORIGEN_TIENDA,
+  ORIGENES_ARTICULO,
+  TIPOS_OPERACION_POR_ORIGEN,
+  origenSegunZona,
+  type OrigenArticulo,
+} from "@/lib/shipping-v2/item-origen";
+import { esProveedorLogistico } from "@/lib/shipping-v2/provider-types";
 import { isShippingV2GiftOperation, isShippingV2PurchaseOperation } from "@/lib/shipping-v2/item-money-quantity";
 import { getShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
-import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
+import { canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { requisitosFaltantesItem } from "@/lib/shipping-v2/item-requisitos";
 import { ACCEPT_FOTOS_ITEM, validarSeleccionFotosItem } from "@/lib/shipping-v2/fotos-item";
 import { FotosInvalidasError, subirFotosItem } from "@/lib/shipping-v2/subir-fotos-item";
 
+/** Caja (packing "En Proceso") a la que se puede agregar el artículo al registrarlo. */
+export type ShippingV2CajaAbierta = {
+  id: string;
+  codigo: string;
+  nombre: string;
+  proveedorResponsableId?: string;
+  proveedorLogisticoEcId?: string;
+};
+
 type Props = {
   proveedores: ShippingV2Proveedor[];
+  cajasAbiertas: ShippingV2CajaAbierta[];
 };
 
 type SelectedPhoto = {
@@ -32,34 +57,38 @@ type SelectedPhoto = {
   previewUrl: string;
 };
 
+type ViajeOpcion = "solo" | "caja" | "nose";
+
 type FormState = {
-  nombre: string;
-  descripcion: string;
-  tipoOperacion: string;
-  tipoItem: string;
-  categoria: string;
-  // Solo alimenta el cálculo del flujo (getDefaultItemFlowByOperation lo usa
-  // como estado actual). Lo que se guarda es calculatedFlow.estadoItemSugerido.
-  estado: string;
+  origen: OrigenArticulo | "";
   proveedorId: string;
-  proveedorLogisticoId: string;
-  modoLogistico: string;
-  trackingDirecto: string;
+  categoria: string;
+  tipoOperacion: string;
+  nombre: string;
   sku: string;
   skuProveedor: string;
-  modelo: string;
   marca: string;
+  modelo: string;
   numeroSerie: string;
   condicion: string;
+  /** null = sigue el valor por defecto de la categoría. */
+  requiereInspeccion: boolean | null;
   cantidad: string;
   unidad: string;
   costoProveedor: string;
   precioVentaSugerido: string;
   precioVentaFinal: string;
-  ubicacionActual: string;
+  descripcion: string;
   observacionesInternas: string;
-  /** null = sigue el valor por defecto de la categoría. */
-  requiereInspeccion: boolean | null;
+  // Llegada (solo si viene de afuera)
+  casilleroId: string;
+  trackingOrigen: string;
+  transportistaOrigenId: string;
+  trackingEcuador: string;
+  transportistaEcuadorId: string;
+  trackingLocal: string;
+  viaje: ViajeOpcion;
+  packingDestinoId: string;
 };
 
 function firstOption(options: readonly string[]) {
@@ -67,31 +96,54 @@ function firstOption(options: readonly string[]) {
 }
 
 const initialState: FormState = {
-  nombre: "",
-  descripcion: "",
-  tipoOperacion: firstOption(SHIPPING_V2_TIPOS_OPERACION),
-  tipoItem: firstOption(SHIPPING_V2_TIPOS_ITEM),
-  categoria: "",
-  estado: "Registrado",
+  origen: "",
   proveedorId: "",
-  proveedorLogisticoId: "",
-  modoLogistico: "Pendiente de packing",
-  trackingDirecto: "",
+  categoria: "",
+  tipoOperacion: "",
+  nombre: "",
   sku: "",
   skuProveedor: "",
-  modelo: "",
   marca: "",
+  modelo: "",
   numeroSerie: "",
   condicion: firstOption(SHIPPING_V2_CONDICIONES),
+  requiereInspeccion: null,
   cantidad: "1",
   unidad: "Unidad",
   costoProveedor: "",
   precioVentaSugerido: "",
   precioVentaFinal: "",
-  ubicacionActual: "",
+  descripcion: "",
   observacionesInternas: "",
-  requiereInspeccion: null,
+  casilleroId: "",
+  trackingOrigen: "",
+  transportistaOrigenId: "",
+  trackingEcuador: "",
+  transportistaEcuadorId: "",
+  trackingLocal: "",
+  viaje: "nose",
+  packingDestinoId: "",
 };
+
+const ORIGEN_AYUDA: Record<OrigenArticulo, string> = {
+  [ORIGEN_TIENDA]: "Ya lo tenemos aquí. Nace recibido: no pide rastreo ni caja.",
+  [ORIGEN_EXTRANJERO]: "Viene de fuera del país, normalmente por el casillero. Aparecerá en Recepción → Por llegar.",
+  [ORIGEN_LOCAL]: "Viene de un proveedor dentro de Ecuador. Aparecerá en Recepción → Por llegar.",
+};
+
+function OrigenBoton({ origen, activo, onClick }: { origen: OrigenArticulo; activo: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={activo}
+      className={`min-w-0 rounded-xl border px-3 py-2.5 text-left transition ${activo ? "border-[#D7FF4F] bg-[#D7FF4F]/12" : "border-[#3A3A36] bg-[#151515] hover:border-[#D7FF4F]/50"}`}
+    >
+      <span className={`block text-sm font-bold ${activo ? "text-[#D7FF4F]" : "text-[#F5F5F5]"}`}>{origen}</span>
+      <span className="mt-0.5 block text-xs leading-5 text-[#A7A7A7]">{ORIGEN_AYUDA[origen]}</span>
+    </button>
+  );
+}
 
 function Field({ label, children, required, error }: { label: string; children: ReactNode; required?: boolean; error?: string }) {
   return (
@@ -123,15 +175,6 @@ function SelectInput(props: SelectHTMLAttributes<HTMLSelectElement>) {
       {...props}
       className={`h-9 w-full rounded-lg border bg-[#151515] px-3 text-sm font-semibold text-[#F5F5F5] outline-none transition ${invalid ? "border-[#FF914D]/70 focus:border-[#FF914D]" : "border-[#3A3A36] focus:border-[#D7FF4F]/70"}`}
     />
-  );
-}
-
-function FlowBadge({ label, active }: { label: string; active: boolean }) {
-  return (
-    <div className={`rounded-lg border px-3 py-2 ${active ? "border-[#D7FF4F]/55 bg-[#D7FF4F]/12" : "border-[#3A3A36] bg-[#151515]"}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</p>
-      <p className={`mt-0.5 text-sm font-bold ${active ? "text-[#D7FF4F]" : "text-[#A7A7A7]"}`}>{active ? "Sí" : "No"}</p>
-    </div>
   );
 }
 
@@ -168,17 +211,6 @@ function TextArea({
   );
 }
 
-const PACKING_LOGISTICS_OPTIONS = ["Pendiente de packing", "Crear packing individual", "Asignar a packing existente"];
-const SIMPLE_LOGISTICS_OPTIONS = ["No aplica", "Tracking directo"];
-
-const LOGISTICS_MODE_HELP: Record<string, string> = {
-  "No aplica": "Este item no requiere gestión logística.",
-  "Tracking directo": "Usar para compras locales o envíos simples sin packing.",
-  "Pendiente de packing": "El item quedará pendiente para ser agregado luego a un packing.",
-  "Crear packing individual": "Usar cuando este item viajará solo en su propio paquete. La creación automática del packing se implementará después.",
-  "Asignar a packing existente": "Usar cuando el item debe agregarse a un packing ya creado. La selección de packing se implementará después.",
-};
-
 function formatFileSize(bytes: number) {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -211,7 +243,7 @@ function formatMoneyPreview(value: number | null) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
 
-export function ShippingV2NewItemForm({ proveedores }: Props) {
+export function ShippingV2NewItemForm({ proveedores, cajasAbiertas }: Props) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(initialState);
   const [error, setError] = useState("");
@@ -219,71 +251,89 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [photos, setPhotos] = useState<SelectedPhoto[]>([]);
   const photosRef = useRef<SelectedPhoto[]>([]);
-  const purchaseProviders = proveedores.filter(canBePurchaseProvider);
-  const itemLogisticsProviders = proveedores.filter(canBeItemLogisticsProvider);
+
+  const origen = form.origen || null;
+  const vieneDeAfuera = origen === ORIGEN_EXTRANJERO || origen === ORIGEN_LOCAL;
+  const activos = proveedores.filter((p) => (p.estado || "").toLowerCase() === "activo");
+
+  // Proveedores de compra según el origen: Ecuador = local; el resto, extranjero.
+  const proveedoresCompra = useMemo(() => {
+    const compra = proveedores.filter(canBePurchaseProvider);
+    if (origen === ORIGEN_EXTRANJERO || origen === ORIGEN_LOCAL) {
+      return compra.filter((p) => origenSegunZona(p.paisZonaLogistica) === origen);
+    }
+    return compra;
+  }, [proveedores, origen]);
+  const casilleros = activos.filter((p) => p.esCasillero === true);
+  const logisticos = activos.filter((p) => esProveedorLogistico(p));
+  const transportistasOrigen = logisticos.filter((p) => p.esCasillero !== true && origenSegunZona(p.paisZonaLogistica) === ORIGEN_EXTRANJERO);
+  const transportistasEcuador = logisticos.filter((p) => p.esCasillero === true || origenSegunZona(p.paisZonaLogistica) === ORIGEN_LOCAL);
+  const tiposOperacion = origen ? TIPOS_OPERACION_POR_ORIGEN[origen] : [];
+
+  // Cajas abiertas donde puede entrar: del mismo proveedor o del mismo casillero.
+  const cajasCompatibles = cajasAbiertas.filter((caja) => {
+    const ids = new Set([caja.proveedorResponsableId, caja.proveedorLogisticoEcId].filter(Boolean));
+    if (!ids.size) return true;
+    return (form.proveedorId && ids.has(form.proveedorId)) || (form.casilleroId && ids.has(form.casilleroId));
+  });
+
+  const calculatedFlow = useMemo(
+    () => getDefaultItemFlowByOperation({ tipoOperacion: form.tipoOperacion, categoria: form.categoria, proveedorCompra: form.proveedorId }),
+    [form.categoria, form.proveedorId, form.tipoOperacion]
+  );
   const fastNameSuggestion = useMemo(() => normalizeItemNameFast(form.nombre), [form.nombre]);
   const showFastNameSuggestion = Boolean(fastNameSuggestion && fastNameSuggestion !== form.nombre.trim());
-  const calculatedFlow = useMemo(
-    () => getDefaultItemFlowByOperation({
-      tipoOperacion: form.tipoOperacion,
-      categoria: form.categoria,
-      tipoItem: form.tipoItem,
-      proveedorCompra: form.proveedorId,
-      proveedorLogistico: form.proveedorLogisticoId,
-      estadoItem: form.estado,
-    }),
-    [form.categoria, form.estado, form.proveedorId, form.proveedorLogisticoId, form.tipoItem, form.tipoOperacion]
-  );
-  const logisticsOptions = useMemo(() => {
-    const allowed = calculatedFlow.requierePacking ? [...PACKING_LOGISTICS_OPTIONS, "Tracking directo"] : SIMPLE_LOGISTICS_OPTIONS;
-    return SHIPPING_V2_MODOS_LOGISTICOS.filter((option) => allowed.includes(option));
-  }, [calculatedFlow.requierePacking]);
-  const selectedModeUsesPacking = PACKING_LOGISTICS_OPTIONS.includes(form.modoLogistico);
-  const selectedModeUsesDirectTracking = form.modoLogistico === "Tracking directo";
-  const effectiveRequiresPacking = selectedModeUsesDirectTracking ? false : selectedModeUsesPacking ? true : calculatedFlow.requierePacking;
-  const modeHelpText = LOGISTICS_MODE_HELP[form.modoLogistico] ?? "";
-  // Auditoría Shipping V2, punto 1: se propone según la categoría y quien
-  // registra puede cambiarlo para este artículo.
-  const requiereInspeccionPorCategoria = requiereInspeccionPorDefecto({ categoria: form.categoria, tipoOperacion: form.tipoOperacion });
-  const requiereInspeccion = form.requiereInspeccion ?? requiereInspeccionPorCategoria;
+  const requiereInspeccion = form.requiereInspeccion ?? requiereInspeccionPorDefecto({ categoria: form.categoria, tipoOperacion: form.tipoOperacion });
   const cantidadNormalizada = parsePositiveIntegerInput(form.cantidad);
   const costoProveedorUnitario = parseNonNegativeMoneyInput(form.costoProveedor);
   const precioVentaFinalDecimal = parseDecimalInput(form.precioVentaFinal);
   const precioVentaFinalUnitario = parsePositiveMoneyInput(form.precioVentaFinal);
   const isPurchaseOperation = isShippingV2PurchaseOperation(form.tipoOperacion);
   const isGiftOperation = isShippingV2GiftOperation(form.tipoOperacion);
-  const subtotalProveedor = cantidadNormalizada !== null && costoProveedorUnitario !== null
-    ? cantidadNormalizada * costoProveedorUnitario
-    : null;
-  const valorPotencialVenta = cantidadNormalizada !== null && precioVentaFinalUnitario !== null
-    ? cantidadNormalizada * precioVentaFinalUnitario
-    : null;
-  const showProviderWarning = calculatedFlow.requierePago && !form.proveedorId;
+  const subtotalProveedor = cantidadNormalizada !== null && costoProveedorUnitario !== null ? cantidadNormalizada * costoProveedorUnitario : null;
+  const valorPotencialVenta = cantidadNormalizada !== null && precioVentaFinalUnitario !== null ? cantidadNormalizada * precioVentaFinalUnitario : null;
   const showQuantityWarning = submitAttempted && cantidadNormalizada === null;
   const showCostWarning = isPurchaseOperation && !parsePositiveMoneyInput(form.costoProveedor);
   const showGiftCostWarning = isGiftOperation && costoProveedorUnitario !== null && costoProveedorUnitario > 0;
   const finalPriceProvided = form.precioVentaFinal.trim() !== "";
   const showFinalPriceWarning = submitAttempted && finalPriceProvided && (precioVentaFinalDecimal === null || precioVentaFinalDecimal < 0);
   const showCategoryWarning = submitAttempted && !form.categoria;
+  const showOrigenWarning = submitAttempted && !form.origen;
 
-  // F-30 — una sola fuente para "qué le falta a este item". Antes las mismas
-  // reglas vivían aquí como avisos y otra vez en el servidor, y no coincidían:
-  // el aviso de proveedor se mostraba pero no impedía enviar.
-  const requisitosFaltantes = requisitosFaltantesItem({
-    categoria: form.categoria,
-    cantidad: cantidadNormalizada,
-    requierePago: calculatedFlow.requierePago,
-    esCompraProveedor: isPurchaseOperation,
-    esRegaloProveedor: isGiftOperation,
-    proveedorId: form.proveedorId,
-    costoProveedor: costoProveedorUnitario,
-    precioVentaFinal: finalPriceProvided ? precioVentaFinalDecimal : null,
-  });
+  const requisitosFaltantes = [
+    ...(form.origen ? [] : [{ mensaje: "Elige dónde está el artículo." }]),
+    ...(form.viaje === "caja" && !form.packingDestinoId ? [{ mensaje: "Elige la caja en la que viaja, o marca que viaja solo." }] : []),
+    ...requisitosFaltantesItem({
+      categoria: form.categoria,
+      cantidad: cantidadNormalizada,
+      requierePago: calculatedFlow.requierePago,
+      esCompraProveedor: isPurchaseOperation,
+      esRegaloProveedor: isGiftOperation,
+      proveedorId: form.proveedorId,
+      costoProveedor: costoProveedorUnitario,
+      precioVentaFinal: finalPriceProvided ? precioVentaFinalDecimal : null,
+    }),
+  ];
+
+  // Al cambiar el origen: el proveedor y el tipo de operación deben seguir
+  // siendo válidos, y lo extranjero propone el primer casillero activo.
+  useEffect(() => {
+    setForm((current) => {
+      const next = { ...current };
+      if (current.proveedorId && !proveedoresCompra.some((p) => p.id === current.proveedorId)) next.proveedorId = "";
+      if (!tiposOperacion.includes(current.tipoOperacion)) next.tipoOperacion = tiposOperacion[0] ?? "";
+      if (current.origen === ORIGEN_EXTRANJERO && !current.casilleroId && casilleros[0]) next.casilleroId = casilleros[0].id;
+      if (current.origen !== ORIGEN_EXTRANJERO && current.casilleroId) next.casilleroId = "";
+      const changed = (Object.keys(next) as Array<keyof FormState>).some((k) => next[k] !== current[k]);
+      return changed ? next : current;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.origen, proveedoresCompra.length]);
 
   useEffect(() => {
-    if (logisticsOptions.some((option) => option === form.modoLogistico)) return;
-    update("modoLogistico", logisticsOptions[0] ?? "No aplica");
-  }, [form.modoLogistico, logisticsOptions]);
+    if (form.packingDestinoId && !cajasCompatibles.some((c) => c.id === form.packingDestinoId)) update("packingDestinoId", "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.proveedorId, form.casilleroId]);
 
   useEffect(() => {
     photosRef.current = photos;
@@ -306,12 +356,8 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
   function addPhotos(files: File[]) {
     setError("");
     if (!files.length) return;
-
     const nextPhotos: SelectedPhoto[] = [];
     const currentKeys = new Set(photos.map((photo) => `${photo.file.name}:${photo.file.size}:${photo.file.lastModified}`));
-
-    // Mismas reglas que el visor de fotos y que el servidor. Al ELEGIR se
-    // admite una foto grande: se comprime antes de subirla.
     const validacion = validarSeleccionFotosItem(
       files.map((file) => ({ name: file.name, type: file.type, size: file.size })),
       { yaSubidas: photos.length }
@@ -320,21 +366,13 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
       setError(validacion.motivo);
       return;
     }
-
     for (const file of files) {
       const key = `${file.name}:${file.size}:${file.lastModified}`;
       if (currentKeys.has(key)) continue;
       currentKeys.add(key);
-      nextPhotos.push({
-        id: `${key}:${crypto.randomUUID()}`,
-        file,
-        previewUrl: URL.createObjectURL(file),
-      });
+      nextPhotos.push({ id: `${key}:${crypto.randomUUID()}`, file, previewUrl: URL.createObjectURL(file) });
     }
-
-    if (nextPhotos.length > 0) {
-      setPhotos((current) => [...current, ...nextPhotos]);
-    }
+    if (nextPhotos.length > 0) setPhotos((current) => [...current, ...nextPhotos]);
   }
 
   function handlePhotoInput(event: ChangeEvent<HTMLInputElement>) {
@@ -359,55 +397,60 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
     event.preventDefault();
     setError("");
     setSubmitAttempted(true);
-
-    // F-30 — se informan TODOS los faltantes de una vez. Antes se devolvía el
-    // primero, así que con tres campos mal había que enviar tres veces; y el
-    // proveedor no se comprobaba aquí, de modo que ese error solo aparecía
-    // después del viaje al servidor.
     if (requisitosFaltantes.length > 0) {
       setError(requisitosFaltantes.map((r) => `· ${r.mensaje}`).join("\n"));
       return;
     }
-
     setSaving(true);
 
+    const extranjero = form.origen === ORIGEN_EXTRANJERO;
+    const local = form.origen === ORIGEN_LOCAL;
+    const enCaja = vieneDeAfuera && form.viaje === "caja";
+    const campos: Record<string, string> = {
+      origenArticulo: form.origen,
+      proveedorId: form.proveedorId,
+      categoria: form.categoria,
+      tipoOperacion: form.tipoOperacion,
+      nombre: form.nombre,
+      sku: form.sku,
+      skuProveedor: form.skuProveedor,
+      marca: form.marca,
+      modelo: form.modelo,
+      numeroSerie: form.numeroSerie,
+      condicion: form.condicion,
+      requiereInspeccion: String(requiereInspeccion),
+      cantidad: form.cantidad,
+      unidad: form.unidad,
+      costoProveedor: form.costoProveedor,
+      precioVentaSugerido: form.precioVentaSugerido,
+      precioVentaFinal: form.precioVentaFinal,
+      descripcion: form.descripcion,
+      observacionesInternas: form.observacionesInternas,
+      proveedorLogisticoId: extranjero ? form.casilleroId : "",
+      trackingHaciaIntermediario: extranjero ? form.trackingOrigen : "",
+      transportistaOrigenId: extranjero ? form.transportistaOrigenId : "",
+      // Si viaja en una caja, el tramo a Ecuador lo gobierna la caja.
+      trackingDesdeIntermediario: extranjero && !enCaja ? form.trackingEcuador : "",
+      trackingDirecto: local && !enCaja ? form.trackingLocal : "",
+      transportistaEcuadorId: (extranjero || local) && !enCaja ? form.transportistaEcuadorId : "",
+      packingDestinoId: enCaja ? form.packingDestinoId : "",
+    };
     const formData = new FormData();
-    Object.entries(form).forEach(([key, value]) => formData.set(key, String(value)));
-    formData.set("requierePago", String(calculatedFlow.requierePago));
-    formData.set("requierePacking", String(effectiveRequiresPacking));
-    formData.set("afectaInventario", String(calculatedFlow.afectaInventario));
-    formData.set("disponibleVenta", String(calculatedFlow.disponibleParaVenta));
-    formData.set("requiereInspeccion", String(requiereInspeccion));
-    formData.set("modoLogistico", form.modoLogistico);
-    formData.set("trackingDirecto", selectedModeUsesDirectTracking ? form.trackingDirecto : "");
-    formData.set("estado", calculatedFlow.estadoItemSugerido);
-    formData.set("estadoRevision", calculatedFlow.estadoRevisionSugerido);
-    // Las fotos NO van aquí: el formulario entero más diez fotos pasaba el
-    // tope de 4.5 MB que Vercel le da al cuerpo de una petición, y el 413 ni
-    // llegaba al servidor. Se suben después, de a una y ya comprimidas.
+    Object.entries(campos).forEach(([key, value]) => formData.set(key, value));
+    // Las fotos NO van aquí (tope de 4.5 MB de Vercel): se suben después.
 
-    const response = await fetch("/api/shipping-v2/items", {
-      method: "POST",
-      body: formData,
-    });
-
+    const response = await fetch("/api/shipping-v2/items", { method: "POST", body: formData });
     const payload = await response.json().catch(() => ({}));
-
     if (!response.ok || !payload.success) {
-      setError(String(payload.error || "No se pudo crear el item."));
+      setError(String(payload.error || "No se pudo crear el artículo."));
       setSaving(false);
       return;
     }
 
-    // El item YA existe. De aquí en adelante nada puede hacer que se pierda:
-    // si una foto falla, se avisa cuál, pero el item queda creado igual.
-    const creado = payload.data as { id?: string } | undefined;
+    const creado = payload.data as { id?: string; sku?: string } | undefined;
     let avisoFotos = "";
-
     if (photos.length && !creado?.id) {
-      // No debería pasar, pero callarlo sería peor: el empleado se iría
-      // creyendo que las fotos quedaron guardadas.
-      avisoFotos = "Las fotos no se subieron: el servidor no devolvió el item creado. Agrégalas desde la ficha del item.";
+      avisoFotos = "Las fotos no se subieron: el servidor no devolvió el artículo creado. Agrégalas desde su ficha.";
     } else if (photos.length && creado?.id) {
       try {
         const resultado = await subirFotosItem(creado.id, photos.map((photo) => photo.file));
@@ -419,12 +462,8 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
       }
     }
 
-    const notice = avisoFotos
-      ? `Item creado. ${avisoFotos}`
-      : photos.length
-        ? "Item creado correctamente con fotos. La sugerencia IA se generará en segundo plano."
-        : "Item creado correctamente. La sugerencia IA se generará en segundo plano.";
-
+    const avisos = [payload.packingWarning, avisoFotos].filter(Boolean).join(" ");
+    const notice = `Artículo ${creado?.sku || ""} creado.${avisos ? ` ${avisos}` : ""}`;
     window.sessionStorage.setItem("shipping-v2:notice", notice);
     router.push("/shipping-v2/items");
     router.refresh();
@@ -438,10 +477,39 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
 
       <div className="grid gap-3 lg:grid-cols-12 lg:items-start">
         <div className="space-y-3 lg:col-span-8">
-          <FormCard title="Datos principales" description="Alta manual en Shipping Items. No crea pagos, packings ni movimientos financieros.">
+          <FormCard title="1. ¿Dónde está el artículo?" description="Esto ordena todo lo demás: qué proveedores aparecen, qué tipos de operación aplican y si hace falta seguir su llegada.">
+            <div className="grid gap-2 sm:grid-cols-3">
+              {ORIGENES_ARTICULO.map((o) => (
+                <OrigenBoton key={o} origen={o} activo={form.origen === o} onClick={() => update("origen", o)} />
+              ))}
+            </div>
+            {showOrigenWarning ? <p className="mt-2 text-xs leading-5 text-[#FFB07A]">Elige una opción.</p> : null}
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <Field label="Proveedor" required={calculatedFlow.requierePago}>
+                <SelectInput value={form.proveedorId} onChange={(event) => update("proveedorId", event.target.value)} disabled={!origen}>
+                  <option value="">{origen ? "Sin proveedor" : "Primero elige dónde está"}</option>
+                  {proveedoresCompra.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
+                </SelectInput>
+              </Field>
+              <Field label="Categoría" required={showCategoryWarning} error={showCategoryWarning ? "Campo obligatorio." : undefined}>
+                <SelectInput value={form.categoria} aria-invalid={showCategoryWarning} onChange={(event) => update("categoria", event.target.value)}>
+                  <option value="">Selecciona una categoría</option>
+                  {SHIPPING_V2_CATEGORIAS.map((option) => <option key={option}>{option}</option>)}
+                </SelectInput>
+              </Field>
+              <Field label="Tipo de operación">
+                <SelectInput value={form.tipoOperacion} onChange={(event) => update("tipoOperacion", event.target.value)} disabled={!origen}>
+                  {!origen ? <option value="">Primero elige dónde está</option> : null}
+                  {tiposOperacion.map((option) => <option key={option}>{option}</option>)}
+                </SelectInput>
+              </Field>
+            </div>
+          </FormCard>
+
+          <FormCard title="2. Datos del artículo">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               <div className="md:col-span-2 xl:col-span-3">
-                <Field label="Nombre del item">
+                <Field label="Nombre del artículo">
                   <TextInput value={form.nombre} onChange={(event) => update("nombre", event.target.value)} placeholder="Sin nombre si se deja vacío" />
                   {showFastNameSuggestion ? (
                     <div className="mt-2 rounded-lg border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-3 py-2">
@@ -454,26 +522,14 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
                   ) : null}
                 </Field>
               </div>
-              <Field label="Tipo de operación">
-                <SelectInput value={form.tipoOperacion} onChange={(event) => update("tipoOperacion", event.target.value)}>
-                  {SHIPPING_V2_TIPOS_OPERACION.map((option) => <option key={option}>{option}</option>)}
-                </SelectInput>
+              <Field label="Marca">
+                <TextInput value={form.marca} onChange={(event) => update("marca", event.target.value)} />
               </Field>
-              <Field label="Rol general del item">
-                <SelectInput value={form.tipoItem} onChange={(event) => update("tipoItem", event.target.value)}>
-                  {SHIPPING_V2_TIPOS_ITEM.map((option) => <option key={option}>{option}</option>)}
-                </SelectInput>
+              <Field label="Modelo">
+                <TextInput value={form.modelo} onChange={(event) => update("modelo", event.target.value)} />
               </Field>
-              <Field label="Estado item sugerido">
-                <div className="flex h-9 items-center rounded-lg border border-[#3A3A36] bg-[#151515] px-3 text-sm font-semibold text-[#F5F5F5]">
-                  {calculatedFlow.estadoItemSugerido}
-                </div>
-              </Field>
-              <Field label="Categoría técnica/comercial" required={showCategoryWarning} error={showCategoryWarning ? "Campo obligatorio." : undefined}>
-                <SelectInput value={form.categoria} aria-invalid={showCategoryWarning} onChange={(event) => update("categoria", event.target.value)}>
-                  <option value="">Selecciona una categoría</option>
-                  {SHIPPING_V2_CATEGORIAS.map((option) => <option key={option}>{option}</option>)}
-                </SelectInput>
+              <Field label="Número de serie">
+                <TextInput value={form.numeroSerie} onChange={(event) => update("numeroSerie", event.target.value)} />
               </Field>
               <Field label="Condición">
                 <SelectInput value={form.condicion} onChange={(event) => update("condicion", event.target.value)}>
@@ -481,7 +537,13 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
                   {SHIPPING_V2_CONDICIONES.map((option) => <option key={option}>{option}</option>)}
                 </SelectInput>
               </Field>
-              <label className="flex min-w-0 cursor-pointer items-start gap-2.5 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2.5 sm:col-span-2">
+              <Field label="SKU">
+                <TextInput value={form.sku} onChange={(event) => update("sku", event.target.value)} placeholder="Se genera solo si se deja vacío" />
+              </Field>
+              <Field label="SKU proveedor">
+                <TextInput value={form.skuProveedor} onChange={(event) => update("skuProveedor", event.target.value)} />
+              </Field>
+              <label className="flex min-w-0 cursor-pointer items-start gap-2.5 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2.5 md:col-span-2 xl:col-span-3">
                 <input
                   id="requiereInspeccion"
                   type="checkbox"
@@ -493,8 +555,8 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
                   <span className="block text-sm font-semibold text-[#F5F5F5]">Requiere inspección técnica</span>
                   <span className="block text-xs leading-5 text-[#A7A7A7]">
                     {requiereInspeccion
-                      ? "Se vende recién cuando llegue y se firme su ficha de inspección."
-                      : "Se vende apenas llegue a la tienda. No pasa por Inspección."}
+                      ? "Se vende cuando esté en la tienda y se firme su ficha de inspección."
+                      : "Se vende apenas esté en la tienda. No pasa por Inspección."}
                     {form.requiereInspeccion === null && form.categoria ? " (Propuesto por la categoría.)" : ""}
                   </span>
                 </span>
@@ -502,72 +564,10 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
             </div>
           </FormCard>
 
-          <FormCard title="Proveedor y logística">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <Field label="Proveedor de compra">
-                <SelectInput value={form.proveedorId} onChange={(event) => update("proveedorId", event.target.value)}>
-                  <option value="">Sin proveedor</option>
-                  {purchaseProviders.map((proveedor) => <option key={proveedor.id} value={proveedor.id}>{getShippingV2ProveedorLabel(proveedor)}</option>)}
-                </SelectInput>
-                {showProviderWarning ? <p className="text-xs leading-5 text-[#FFB07A]">Este flujo requiere proveedor de compra.</p> : null}
-              </Field>
-              <Field label="Proveedor logístico / intermediario">
-                <SelectInput value={form.proveedorLogisticoId} onChange={(event) => update("proveedorLogisticoId", event.target.value)}>
-                  <option value="">Sin proveedor logístico</option>
-                  {itemLogisticsProviders.map((proveedor) => <option key={proveedor.id} value={proveedor.id}>{getShippingV2ProveedorLabel(proveedor)}</option>)}
-                </SelectInput>
-              </Field>
-              <Field label="Modo logístico">
-                <SelectInput value={form.modoLogistico} onChange={(event) => update("modoLogistico", event.target.value)}>
-                  {logisticsOptions.map((option) => <option key={option}>{option}</option>)}
-                </SelectInput>
-              </Field>
-              <Field label="Ubicación actual">
-                <TextInput value={form.ubicacionActual} onChange={(event) => update("ubicacionActual", event.target.value)} />
-              </Field>
-              {selectedModeUsesDirectTracking ? (
-                <div className="md:col-span-2">
-                  <Field label="Tracking directo">
-                    <TextInput value={form.trackingDirecto} onChange={(event) => update("trackingDirecto", event.target.value)} placeholder="Número o URL de tracking simple" />
-                  </Field>
-                </div>
-              ) : null}
-            </div>
-            {modeHelpText ? <p className="mt-2 text-xs leading-5 text-[#A7A7A7]">{modeHelpText}</p> : null}
-          </FormCard>
-
-          <FormCard title="Identificación técnica">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <Field label="SKU">
-                <TextInput value={form.sku} onChange={(event) => update("sku", event.target.value.toUpperCase())} placeholder="Opcional" />
-                {!form.sku ? <p className="text-xs leading-5 text-[#D7FF4F]">Se generará automáticamente si lo dejas vacío.</p> : null}
-              </Field>
-              <Field label="SKU proveedor">
-                <TextInput value={form.skuProveedor} onChange={(event) => update("skuProveedor", event.target.value)} placeholder="Opcional" />
-              </Field>
-              <Field label="Marca">
-                <TextInput value={form.marca} onChange={(event) => update("marca", event.target.value)} />
-              </Field>
-              <Field label="Modelo">
-                <TextInput value={form.modelo} onChange={(event) => update("modelo", event.target.value)} />
-              </Field>
-              <Field label="Número de serie">
-                <TextInput value={form.numeroSerie} onChange={(event) => update("numeroSerie", event.target.value)} />
-              </Field>
-            </div>
-          </FormCard>
-
-          <FormCard title="Cantidad, costos y venta" description="Flete, arancel y costo total unitario se calculan luego desde Packing.">
+          <FormCard title="3. Cantidad, costo y precio">
             <div className="grid gap-3 md:grid-cols-3">
               <Field label="Cantidad" required error={showQuantityWarning ? "Entero mayor a 0." : undefined}>
-                <TextInput
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={form.cantidad}
-                  aria-invalid={showQuantityWarning}
-                  onChange={(event) => update("cantidad", event.target.value)}
-                />
+                <TextInput type="number" min="1" step="1" value={form.cantidad} aria-invalid={showQuantityWarning} onChange={(event) => update("cantidad", event.target.value)} />
               </Field>
               <Field label="Unidad">
                 <SelectInput value={form.unidad} onChange={(event) => update("unidad", event.target.value)}>
@@ -575,31 +575,15 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
                 </SelectInput>
               </Field>
               <Field label="Costo proveedor por unidad">
-                <TextInput
-                  type="number"
-                  min={isPurchaseOperation ? "0.01" : "0"}
-                  step="0.01"
-                  value={form.costoProveedor}
-                  aria-invalid={showCostWarning || showGiftCostWarning}
-                  onChange={(event) => update("costoProveedor", event.target.value)}
-                />
-                {showCostWarning ? <p className="text-xs leading-5 text-[#FFB07A]">Este flujo requiere costo proveedor.</p> : null}
+                <TextInput type="number" min="0" step="0.01" value={form.costoProveedor} onChange={(event) => update("costoProveedor", event.target.value)} />
+                {showCostWarning ? <p className="text-xs leading-5 text-[#FFB07A]">Una compra a proveedor requiere costo.</p> : null}
                 {showGiftCostWarning ? <p className="text-xs leading-5 text-[#FFB07A]">En regalos debe estar vacío o en 0.</p> : null}
               </Field>
-            </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
               <Field label="Precio venta sugerido por unidad">
                 <TextInput type="number" min="0.01" step="0.01" value={form.precioVentaSugerido} onChange={(event) => update("precioVentaSugerido", event.target.value)} />
               </Field>
               <Field label="Precio venta final por unidad" error={showFinalPriceWarning ? "No puede ser negativo." : undefined}>
-                <TextInput
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.precioVentaFinal}
-                  aria-invalid={showFinalPriceWarning}
-                  onChange={(event) => update("precioVentaFinal", event.target.value)}
-                />
+                <TextInput type="number" min="0" step="0.01" value={form.precioVentaFinal} aria-invalid={showFinalPriceWarning} onChange={(event) => update("precioVentaFinal", event.target.value)} />
               </Field>
             </div>
             <div className="mt-3 grid gap-2 border-t border-[#30312D] pt-3 sm:grid-cols-2">
@@ -614,7 +598,92 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
             </div>
           </FormCard>
 
-          <FormCard title="Descripción y observaciones">
+          {vieneDeAfuera ? (
+            <FormCard
+              title="4. Llegada"
+              description="Nada aquí es obligatorio. Si escribes un número de rastreo, el artículo pasa solo a “En tránsito”. Todo esto también se puede completar después en Logística."
+            >
+              <div className="space-y-3">
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {([
+                    ["solo", "Viaja solo"],
+                    ["caja", "Va en una caja"],
+                    ["nose", "Todavía no sé"],
+                  ] as const).map(([valor, texto]) => (
+                    <button
+                      key={valor}
+                      type="button"
+                      onClick={() => update("viaje", valor)}
+                      aria-pressed={form.viaje === valor}
+                      className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${form.viaje === valor ? "border-[#D7FF4F] bg-[#D7FF4F]/12 text-[#D7FF4F]" : "border-[#3A3A36] bg-[#151515] text-[#F5F5F5] hover:border-[#D7FF4F]/50"}`}
+                    >
+                      {texto}
+                    </button>
+                  ))}
+                </div>
+
+                {form.viaje === "caja" ? (
+                  <Field label="Caja en la que viaja">
+                    <SelectInput value={form.packingDestinoId} onChange={(event) => update("packingDestinoId", event.target.value)}>
+                      <option value="">{cajasCompatibles.length ? "Elige una caja abierta" : "No hay cajas abiertas de este proveedor o casillero"}</option>
+                      {cajasCompatibles.map((c) => <option key={c.id} value={c.id}>{c.codigo}{c.nombre ? ` · ${c.nombre}` : ""}</option>)}
+                    </SelectInput>
+                    <p className="text-xs leading-5 text-[#A7A7A7]">Desde que entra a la caja, el rastreo de la caja lo gobierna. Si no está la caja, créala en Logística y agrégalo ahí.</p>
+                  </Field>
+                ) : null}
+
+                {origen === ORIGEN_EXTRANJERO ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Field label="Casillero">
+                      <SelectInput value={form.casilleroId} onChange={(event) => update("casilleroId", event.target.value)}>
+                        <option value="">Sin casillero</option>
+                        {casilleros.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
+                      </SelectInput>
+                    </Field>
+                    <div className="hidden md:block" />
+                    <Field label="Rastreo hasta el casillero">
+                      <TextInput value={form.trackingOrigen} onChange={(event) => update("trackingOrigen", event.target.value)} placeholder="Ej. 9400 1000 0000…" />
+                    </Field>
+                    <Field label="Transportista hasta el casillero">
+                      <SelectInput value={form.transportistaOrigenId} onChange={(event) => update("transportistaOrigenId", event.target.value)}>
+                        <option value="">—</option>
+                        {(transportistasOrigen.length ? transportistasOrigen : logisticos).map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
+                      </SelectInput>
+                    </Field>
+                    {form.viaje !== "caja" ? (
+                      <>
+                        <Field label="Rastreo casillero → Ecuador">
+                          <TextInput value={form.trackingEcuador} onChange={(event) => update("trackingEcuador", event.target.value)} />
+                        </Field>
+                        <Field label="Transportista en Ecuador">
+                          <SelectInput value={form.transportistaEcuadorId} onChange={(event) => update("transportistaEcuadorId", event.target.value)}>
+                            <option value="">—</option>
+                            {(transportistasEcuador.length ? transportistasEcuador : logisticos).map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
+                          </SelectInput>
+                        </Field>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {origen === ORIGEN_LOCAL && form.viaje !== "caja" ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Field label="Rastreo">
+                      <TextInput value={form.trackingLocal} onChange={(event) => update("trackingLocal", event.target.value)} />
+                    </Field>
+                    <Field label="Transportista">
+                      <SelectInput value={form.transportistaEcuadorId} onChange={(event) => update("transportistaEcuadorId", event.target.value)}>
+                        <option value="">—</option>
+                        {(transportistasEcuador.length ? transportistasEcuador : logisticos).map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
+                      </SelectInput>
+                    </Field>
+                  </div>
+                ) : null}
+              </div>
+            </FormCard>
+          ) : null}
+
+          <FormCard title={vieneDeAfuera ? "5. Descripción y observaciones" : "4. Descripción y observaciones"}>
             <div className="grid gap-3 md:grid-cols-2">
               <Field label="Descripción">
                 <TextArea value={form.descripcion} onChange={(event) => update("descripcion", event.target.value)} />
@@ -627,37 +696,7 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
         </div>
 
         <aside className="space-y-3 lg:col-span-4">
-          {/* Estos cuatro valores NO se editan aquí: los decide el tipo de
-              operación (ver lib/shipping-v2/item-operation-rules.ts) y el
-              servidor los recalcula al guardar. El único que el usuario mueve
-              es el modo logístico, y solo afecta a "Requiere packing". El texto
-              anterior decía "puedes ajustar algunos valores si el formulario lo
-              permite", que invitaba a buscar dónde. */}
-          <FormCard
-            title="Flujo calculado"
-            description="Lo decide el tipo de operación, no se edita a mano. Cambia el tipo de operación o el modo logístico para que cambien."
-          >
-            <div className="grid grid-cols-2 gap-2">
-              <FlowBadge label="Requiere pago" active={calculatedFlow.requierePago} />
-              <FlowBadge label="Requiere packing" active={effectiveRequiresPacking} />
-              <FlowBadge label="Afecta inventario" active={calculatedFlow.afectaInventario} />
-              <FlowBadge label="Requiere inspección" active={requiereInspeccion} />
-            </div>
-            <div className="mt-3 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Modo logístico</p>
-              <p className="mt-0.5 text-sm font-semibold text-[#F5F5F5]">{form.modoLogistico}</p>
-            </div>
-            {selectedModeUsesPacking ? (
-              <p className="mt-2 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2 text-xs leading-5 text-[#A7A7A7]">La logística principal se gestionará desde Packings.</p>
-            ) : null}
-            {calculatedFlow.notas.length > 0 ? (
-              <div className="mt-2 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2 text-xs leading-5 text-[#A7A7A7]">
-                {calculatedFlow.notas.map((nota) => <p key={nota}>{nota}</p>)}
-              </div>
-            ) : null}
-          </FormCard>
-
-          <FormCard title="Fotos del item" description="Hasta 10 imágenes JPG, PNG o WebP.">
+          <FormCard title="Fotos del artículo" description="Hasta 10 imágenes JPG, PNG o WebP.">
             <label onDragOver={(event) => event.preventDefault()} onDrop={handleDrop} className="grid min-h-28 cursor-pointer place-items-center rounded-xl border border-dashed border-[#D7FF4F]/35 bg-[#151515] px-4 py-5 text-center transition hover:border-[#D7FF4F]/70 hover:bg-[#1E1F1C]">
               <input type="file" accept={ACCEPT_FOTOS_ITEM} multiple className="sr-only" onChange={handlePhotoInput} />
               <span className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-xs font-bold uppercase tracking-normal text-[#151515]">Seleccionar fotos</span>
@@ -683,13 +722,27 @@ export function ShippingV2NewItemForm({ proveedores }: Props) {
             ) : null}
           </FormCard>
 
+          <FormCard title="Qué pasará al guardar">
+            <ul className="space-y-1.5 text-xs leading-5 text-[#A7A7A7]">
+              {!origen ? <li>Elige dónde está el artículo.</li> : null}
+              {origen === ORIGEN_TIENDA ? <li>Queda <b className="text-[#F5F5F5]">recibido</b> en la tienda.</li> : null}
+              {vieneDeAfuera ? <li>Aparece en <b className="text-[#F5F5F5]">Recepción → Por llegar</b> hasta que alguien marque que llegó.</li> : null}
+              {vieneDeAfuera && form.viaje === "caja" && form.packingDestinoId ? <li>Se agrega a la caja elegida.</li> : null}
+              {vieneDeAfuera && form.viaje !== "caja" && (form.trackingOrigen || form.trackingEcuador || form.trackingLocal) ? <li>Como tiene rastreo, pasa a <b className="text-[#F5F5F5]">En tránsito</b>.</li> : null}
+              {origen ? (
+                <li>{requiereInspeccion ? "Se vende cuando esté en la tienda y se firme su inspección." : "Se vende apenas esté en la tienda."}</li>
+              ) : null}
+              {calculatedFlow.requierePago ? <li>Aparece en <b className="text-[#F5F5F5]">Pagos → Por pagar</b> hasta registrar el pago al proveedor.</li> : null}
+            </ul>
+          </FormCard>
+
           <section className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
               <Link href="/shipping-v2/items" className="rounded-lg border border-[#3A3A36] bg-[#252622] px-4 py-2.5 text-center text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]">
                 Cancelar
               </Link>
               <button type="submit" disabled={saving} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2.5 text-sm font-black text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60">
-                {saving ? "Guardando..." : "Crear item"}
+                {saving ? "Guardando..." : "Registrar artículo"}
               </button>
             </div>
           </section>

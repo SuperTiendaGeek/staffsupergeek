@@ -55,6 +55,17 @@ import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
 import { SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD, getShippingV2ItemEditField, getShippingV2ItemEditFieldByKey } from "@/lib/shipping-v2/item-edit-config";
 import { getShippingV2FacebookPublicationBlockReason, getShippingV2FacebookTextGenerationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import { estadoSegunLlegada, requiereInspeccionPorDefecto } from "@/lib/shipping-v2/item-venta";
+import type { ResumenPestanas } from "@/lib/shipping-v2/pestanas";
+import {
+  estadoAlPonerRastreo,
+  modoLogisticoSegunOrigen,
+  normalizarOrigen,
+  ORIGEN_TIENDA,
+  origenSegunZona,
+  puedeEntrarACaja,
+  tipoOperacionPermitido,
+  vieneDeAfuera,
+} from "@/lib/shipping-v2/item-origen";
 import { validarReglaDistribucion } from "@/lib/shipping-v2/packing-costos";
 import { calcularRepartoPacking, type ResultadoReparto } from "@/lib/shipping-v2/packing-reparto";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
@@ -794,7 +805,8 @@ function validateItemInput(input: ShippingV2ItemWriteInput) {
   const costoProveedor = input.costoProveedor;
 
   if (!tipoOperacion) throw new Error("Tipo de operación es obligatorio.");
-  if (!tipoItem) throw new Error("Tipo de item es obligatorio.");
+  // "Rol general del item" (tipoItem) ya no se pregunta (punto 2, oct-2026).
+  void tipoItem;
   if (!estado) throw new Error("Estado Item es obligatorio.");
   if (input.requierePago && !proveedorId) throw new Error("Proveedor de compra es obligatorio cuando el item requiere pago.");
 
@@ -938,6 +950,11 @@ function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, un
     [F.precioVentaFinal]: input.precioVenta ?? undefined,
     [F.ubicacionActual]: cleanString(input.ubicacionActual),
     [F.trackingDirecto]: cleanString(input.trackingDirecto),
+    [F.trackingHaciaIntermediario]: cleanString(input.trackingHaciaIntermediario),
+    [F.trackingDesdeIntermediario]: cleanString(input.trackingDesdeIntermediario),
+    [F.origenArticulo]: cleanString(input.origenArticulo),
+    [F.transportistaOrigen]: cleanString(input.transportistaOrigenId) ? [cleanString(input.transportistaOrigenId)] : undefined,
+    [F.transportistaEcuador]: cleanString(input.transportistaEcuadorId) ? [cleanString(input.transportistaEcuadorId)] : undefined,
     [F.fotos]: input.fotos?.map(keptAttachmentPayload),
     [F.observacionesInternas]: cleanString(input.observacionesInternas),
     [F.observacionVenta]: cleanString(input.observacionVenta),
@@ -1232,6 +1249,7 @@ function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
     logoProveedor: mapAttachments(f["Logo proveedor"] ?? f.Logo),
     permiteRastreoWeb: firstBoolean(f[F.permiteRastreoWeb] ?? f["Permite rastreo web"]),
     notasRastreo: firstString(f[F.notasRastreo] ?? f["Notas de rastreo"]),
+    esCasillero: firstBoolean(f[F.esCasillero]),
     disenoFactura: firstString(f["Diseño de factura"]),
     nombreComercialFactura: firstString(f["Nombre comercial (factura)"]),
     esloganFactura: firstString(f["Eslogan (factura)"]),
@@ -1503,6 +1521,9 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     trackingDesdeIntermediario: firstString(f[F.trackingDesdeIntermediario]),
     trackingUsa: firstString(f["USA Tracking"] ?? f.TrackingUSA),
     trackingEc: firstString(f["EC Tracking"] ?? f.TrackingEC),
+    origenArticulo: firstString(f[F.origenArticulo]) || undefined,
+    transportistaOrigenId: linkedRecordIds(f[F.transportistaOrigen])[0] || undefined,
+    transportistaEcuadorId: linkedRecordIds(f[F.transportistaEcuador])[0] || undefined,
     requierePacking: firstBoolean(f[F.requierePacking]),
     pagoV2ItemIds,
     pagoV2RegaloIds,
@@ -2877,12 +2898,45 @@ async function createShippingV2ItemRecord(
 }
 
 export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string }) {
-  const calculatedInput = completarAltaSegunLlegada(applyCalculatedItemFlow(input));
+  const calculatedInput = completarAltaSegunLlegada(applyCalculatedItemFlow(prepararAltaSegunOrigen(input)));
   const normalizedInput = normalizeShippingV2ItemMoneyQuantityInput(calculatedInput.input, { mode: "create" });
   validateItemInput(normalizedInput);
   await validateItemProviderRules(normalizedInput);
 
   return createShippingV2ItemRecord(normalizedInput, { ...options, extraFields: calculatedInput.extraFields });
+}
+
+/**
+ * Auditoría Shipping V2, punto 2 (oct-2026) — "¿Dónde está el artículo?".
+ *
+ * Si el formulario manda el origen, los campos heredados "Modo logístico" y
+ * "Requiere packing" salen de él (ya no se preguntan), el tipo de operación
+ * se valida contra la tabla del dueño y se limpian los rastreos que no
+ * corresponden al origen. Sin origen (otros llamadores) no cambia nada.
+ */
+function prepararAltaSegunOrigen(input: ShippingV2ItemWriteInput): ShippingV2ItemWriteInput {
+  const origen = normalizarOrigen(input.origenArticulo);
+  if (!origen) return input;
+  if (!tipoOperacionPermitido(origen, input.tipoOperacion)) {
+    throw new Error(`"${cleanString(input.tipoOperacion) || "Sin tipo"}" no aplica a un artículo con origen "${origen}".`);
+  }
+  const { modoLogistico, requierePacking } = modoLogisticoSegunOrigen(origen, Boolean(cleanString(input.packingDestinoId)));
+  const extranjero = origen === "Proveedor extranjero";
+  const local = origen === "Proveedor local";
+  return {
+    ...input,
+    origenArticulo: origen,
+    modoLogistico,
+    requierePacking,
+    // Casillero solo para lo extranjero.
+    proveedorLogisticoId: extranjero ? input.proveedorLogisticoId : "",
+    // Extranjero: tramo origen (→ casillero) y tramo Ecuador. Local: un solo rastreo.
+    trackingHaciaIntermediario: extranjero ? input.trackingHaciaIntermediario : "",
+    trackingDesdeIntermediario: extranjero ? input.trackingDesdeIntermediario : "",
+    transportistaOrigenId: extranjero ? input.transportistaOrigenId : "",
+    trackingDirecto: local ? input.trackingDirecto : "",
+    transportistaEcuadorId: extranjero || local ? input.transportistaEcuadorId : "",
+  };
 }
 
 /**
@@ -2904,14 +2958,32 @@ function completarAltaSegunLlegada(input: ShippingV2ItemWriteInput): {
   const requiereInspeccion = typeof input.requiereInspeccion === "boolean"
     ? input.requiereInspeccion
     : requiereInspeccionPorDefecto({ categoria: input.categoria, tipoOperacion: input.tipoOperacion });
-  const yaEnTienda = cleanString(input.modoLogistico) === "No aplica";
+  const origen = normalizarOrigen(input.origenArticulo);
+  const yaEnTienda = origen ? origen === ORIGEN_TIENDA : cleanString(input.modoLogistico) === "No aplica";
   const extraFields: Record<string, unknown> = {};
   let estado = input.estado;
   let estadoRevision = input.estadoRevision;
+  let requierePacking = input.requierePacking;
+  let modoLogistico = input.modoLogistico;
+  if (origen) {
+    // El origen manda sobre lo que calculó el tipo de operación (una "Compra a
+    // proveedor" que ya está en la tienda no requiere packing).
+    ({ modoLogistico, requierePacking } = modoLogisticoSegunOrigen(origen, Boolean(cleanString(input.packingDestinoId))));
+  }
   if (yaEnTienda) {
     extraFields[SHIPPING_V2_ITEM_FIELDS.recibido] = true;
     estadoRevision = requiereInspeccion ? "Recibido pendiente de revisión" : "Recibido correctamente";
     estado = estadoSegunLlegada({ estado, recibido: true, requiereInspeccion, inspeccionFirmada: false }) ?? estado;
+  } else if (origen && vieneDeAfuera(origen)) {
+    // Viene en camino: espera recepción (Recepción → "Por llegar"). Antes
+    // nacía "No aplica" y nunca aparecía en Recepción (C-2: LAP-000110).
+    estadoRevision = "Pendiente de recepción";
+    const tieneRastreo = Boolean(
+      cleanString(input.trackingHaciaIntermediario) || cleanString(input.trackingDesdeIntermediario) || cleanString(input.trackingDirecto)
+    );
+    if (tieneRastreo && !cleanString(input.packingDestinoId)) {
+      estado = estadoAlPonerRastreo({ estado, recibido: false }) ?? estado;
+    }
   }
   const cantidad = typeof input.cantidad === "number" && input.cantidad > 0 ? input.cantidad : 1;
   const disponibleVenta = calcularDisponibleVenta({
@@ -2921,7 +2993,7 @@ function completarAltaSegunLlegada(input: ShippingV2ItemWriteInput): {
     unidadesLibres: input.reservado === true ? 0 : cantidad,
   });
   return {
-    input: { ...input, requiereInspeccion, estado, estadoRevision, disponibleVenta },
+    input: { ...input, requiereInspeccion, estado, estadoRevision, disponibleVenta, requierePacking, modoLogistico },
     extraFields,
   };
 }
@@ -2970,6 +3042,13 @@ export async function createShippingV2ItemFromOperacion(
   const proveedorId = cleanString(input.proveedorId);
   if (proveedorId) await validateItemProviderRules({ proveedorId });
 
+  // Punto 2 (oct-2026): el pedido viene en camino; local o extranjero según el
+  // país del proveedor, y lo extranjero llega por el casillero por defecto.
+  const proveedoresTodos = await getShippingV2Proveedores();
+  const proveedorPedido = proveedoresTodos.find((p) => p.id === proveedorId);
+  const origenPedido = origenSegunZona(proveedorPedido?.paisZonaLogistica);
+  const casilleroPorDefecto = proveedoresTodos.find((p) => p.esCasillero === true && normalizeStatus(p.estado || "") === "activo");
+
   const nombre = cleanString(input.nombre) || "Artículo sin nombre";
   const precioVenta = input.precioVenta ?? null;
   const cantidad = Number.isInteger(input.cantidad) && (input.cantidad ?? 0) > 0 ? (input.cantidad as number) : 1;
@@ -2994,7 +3073,13 @@ export async function createShippingV2ItemFromOperacion(
   const itemInput: ShippingV2ItemWriteInput = {
     nombre,
     descripcion: cleanString(input.descripcion) || nombre,
-    tipoOperacion: input.desdePresupuesto ? "Compra a proveedor" : "Compra ya pagada",
+    // Punto 2 (oct-2026, aprobado por el dueño): todo pedido nace "Compra a
+    // proveedor" pendiente de pago, para que el pago al proveedor se registre
+    // en Pagos. Antes los pedidos de Operaciones nacían "Compra ya pagada" y
+    // ese pago nunca quedaba registrado en Shipping V2.
+    tipoOperacion: "Compra a proveedor",
+    origenArticulo: origenPedido,
+    proveedorLogisticoId: origenPedido === "Proveedor extranjero" ? casilleroPorDefecto?.id : undefined,
     // "Rol general" describe qué es la pieza dentro de un equipo, no cómo se
     // vende. Un pedido especial para un cliente es un artículo por derecho
     // propio, no una parte: "Equipo completo" es lo correcto salvo que la
@@ -3002,7 +3087,7 @@ export async function createShippingV2ItemFromOperacion(
     // orden de reparación es, por definición, una pieza para ese equipo.
     tipoItem: input.desdePresupuesto || categoria === "Repuesto" ? "Repuesto" : "Equipo completo",
     categoria,
-    estado: input.desdePresupuesto ? "Pendiente de pago" : "Pagado",
+    estado: "Pendiente de pago",
     // Todo pedido que llega DIRECTO (sin packing) nace "Pendiente de
     // recepción" para aparecer en /shipping-v2/recepcion: ahí se marca
     // Recibido. Antes solo los del presupuesto de una orden lo hacían, y los
@@ -3011,7 +3096,7 @@ export async function createShippingV2ItemFromOperacion(
     // llegan en packing reciben ese estado al recibirse el packing.
     ...(input.desdePresupuesto || input.requierePacking !== true ? { estadoRevision: "Pendiente de recepción" } : {}),
     proveedorId,
-    requierePago: input.desdePresupuesto === true,
+    requierePago: true,
     requierePacking: input.requierePacking === true,
     afectaInventario: true,
     // Auditoría Shipping V2, punto 1: todo artículo se puede reservar desde
@@ -3019,7 +3104,7 @@ export async function createShippingV2ItemFromOperacion(
     // VENDEN cuando el artículo llega (item-venta.ts). Antes nacían apagadas
     // y no había camino para publicarlas (C-1).
     disponibleVenta: calcularDisponibleVenta({
-      estado: input.desdePresupuesto ? "Pendiente de pago" : "Pagado",
+      estado: "Pendiente de pago",
       unidadesLibres: cantidad - cantidadReservada,
     }),
     requiereInspeccion: requiereInspeccionPorDefecto({ categoria }),
@@ -4466,6 +4551,11 @@ export async function updateShippingV2Packing(recordId: string, input: ShippingV
 }
 
 function isPackingCandidate(item: ShippingV2Item) {
+  // Punto 2 (oct-2026): si el artículo ya sabe de dónde viene, cualquier cosa
+  // que venga de afuera y no haya llegado puede ir en una caja, local o
+  // extranjera, aunque haya viajado solo hasta el casillero ("En tránsito").
+  // Ya no depende de "Modo logístico" ni de "Requiere packing".
+  if (normalizarOrigen(item.origenArticulo)) return puedeEntrarACaja(item);
   const normalizedState = normalizeStatus(String(item.estado));
   return Boolean(
     item.requierePacking &&
@@ -4535,7 +4625,7 @@ export async function addItemsToShippingV2Packing(packingId: string, itemIds: st
   for (const item of items) {
     if (!canAccessItem(item, options.access)) throw new Error(`No tienes acceso al item ${item.sku}.`);
     if (item.packingId && item.packingId !== id) throw new Error(`El item ${item.sku} ya está asignado a otro packing.`);
-    if (!item.requierePacking) throw new Error(`El item ${item.sku} no requiere packing.`);
+    if (!item.requierePacking && !normalizarOrigen(item.origenArticulo)) throw new Error(`El item ${item.sku} no requiere packing.`);
     if ((!isPackingCandidate(item) || !isItemCompatibleWithPackingProvider(item, packing)) && item.packingId !== id) {
       throw new Error("Este Item no puede agregarse a este packing porque no cumple los criterios logísticos.");
     }
@@ -7445,6 +7535,187 @@ async function registrarIntervencionSinTurno(
     }
     throw error;
   }
+}
+
+// ─── Resumen de pendientes para la barra de pestañas (punto 2) ──────────────
+// Consultas livianas (solo los campos necesarios). A un usuario proveedor no
+// se le muestran conteos: verían cifras de artículos que no son suyos.
+/**
+ * Fórmula de Airtable para "artículo suelto en camino": viene de afuera, no
+ * llegó, no va en una caja y tiene unidades. Misma regla que
+ * esSueltoPorLlegar() en item-origen.ts.
+ */
+function formulaSueltosEnCamino() {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  return (
+    `AND(NOT({${F.recibido}}),` +
+    `OR({${F.origenArticulo}}='Proveedor extranjero',{${F.origenArticulo}}='Proveedor local'),` +
+    `LEN(ARRAYJOIN({Shipping Packings}))=0,` +
+    `{${F.cantidad}}>0,` +
+    `NOT(OR({${F.estadoItem}}='Vendido',{${F.estadoItem}}='Cancelado',{${F.estadoItem}}='Archivado',{${F.estadoItem}}='Usado en reparación')))`
+  );
+}
+
+/** Pestaña Logística y Recepción → Por llegar: artículos que viajan solos. */
+export async function getShippingV2ArticulosSueltosEnCamino(access?: ShippingV2AccessContext) {
+  const [records, proveedores] = await Promise.all([
+    listRecords(SHIPPING_V2_TABLES.items, { filterByFormula: formulaSueltosEnCamino(), sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro, sortDirection: "desc" }),
+    getShippingV2Proveedores(),
+  ]);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+  return records
+    .map((record) => mapItem(record, { includeAiName: false }))
+    .map((item) => applyItemProviderLabels(item, labelsById))
+    .filter((item) => canAccessItem(item, access))
+    .map((item) => sanitizeShippingV2ItemForAccess(item, access));
+}
+
+export async function getShippingV2ResumenPestanas(access?: ShippingV2AccessContext): Promise<ResumenPestanas | null> {
+  if (access?.providerId) return null;
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const [sueltos, packings, novedades] = await Promise.all([
+    listRecords(SHIPPING_V2_TABLES.items, {
+      filterByFormula: formulaSueltosEnCamino(),
+      fields: [F.sku, F.trackingHaciaIntermediario, F.trackingDesdeIntermediario, F.trackingDirecto],
+    }),
+    listRecords(SHIPPING_V2_TABLES.packings, { fields: [SHIPPING_V2_PACKING_FIELDS.estado] }),
+    listRecords(SHIPPING_V2_TABLES.novedades, { fields: ["Estado Novedad"] }).catch(() => [] as AirtableRecord[]),
+  ]);
+  const estadoPacking = (r: AirtableRecord) => normalizeStatus(firstString(r.fields[SHIPPING_V2_PACKING_FIELDS.estado]));
+  // "Por llegar" = cajas ya despachadas (en tránsito) + artículos sueltos.
+  const cajasEnCamino = packings.filter((r) => estadoPacking(r) === "en transito").length;
+  const sinRastreo = sueltos.filter((r) =>
+    ![F.trackingHaciaIntermediario, F.trackingDesdeIntermediario, F.trackingDirecto].some((campo) => firstString(r.fields[campo]).trim())
+  ).length;
+  return {
+    porLlegar: sueltos.length + cajasEnCamino,
+    sinRastreo,
+    cajasAbiertas: packings.filter((r) => estadoPacking(r) === "en proceso").length,
+    novedadesAbiertas: novedades.filter((r) => isNovedadAbierta(firstString(r.fields["Estado Novedad"], "Abierta"))).length,
+  };
+}
+
+// ─── Llegada de un artículo suelto (auditoría Shipping V2, punto 2) ─────────
+// Un solo lugar (pestaña Logística) para lo logístico de un artículo que viaja
+// FUERA de una caja: rastreos con su transportista, casillero, costos y su
+// origen. Si el artículo va en una caja, manda la caja: esto se rechaza.
+
+export type ShippingV2LlegadaInput = {
+  origenArticulo?: string;
+  proveedorLogisticoId?: string;
+  trackingHaciaIntermediario?: string;
+  transportistaOrigenId?: string;
+  trackingDesdeIntermediario?: string;
+  transportistaEcuadorId?: string;
+  trackingDirecto?: string;
+  /** Costos TOTALES del envío del artículo (no por unidad). null = borrar. */
+  flete?: number | null;
+  arancel?: number | null;
+  otrosCostos?: number | null;
+};
+
+function tieneCampo(input: object, key: string) {
+  return Object.prototype.hasOwnProperty.call(input, key);
+}
+
+function linkOrEmpty(value: string | undefined) {
+  const id = cleanString(value);
+  return id ? [id] : [];
+}
+
+export async function actualizarLlegadaShippingV2Item(
+  recordId: string,
+  input: ShippingV2LlegadaInput,
+  options: { actualizadoPor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2GeneratedSchema();
+  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para editar artículos.");
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  const item = await getShippingV2ItemById(id, { includeAiName: false, access: options.access, sanitizeForAccess: false });
+  if (item.packingId) {
+    throw new Error("Este artículo viaja en una caja: sus rastreos y costos los gobierna la caja.");
+  }
+  if (item.recibido === true && tieneCampo(input, "origenArticulo")) {
+    throw new Error("El artículo ya llegó: su origen ya no se puede cambiar.");
+  }
+
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const fields: Record<string, unknown> = {};
+  const origen = tieneCampo(input, "origenArticulo")
+    ? normalizarOrigen(input.origenArticulo)
+    : normalizarOrigen(item.origenArticulo);
+  if (tieneCampo(input, "origenArticulo")) {
+    if (!origen) throw new Error("Origen inválido.");
+    if (origen === ORIGEN_TIENDA) {
+      throw new Error("Para dar por llegado un artículo, márcalo “Recibido” en Recepción.");
+    }
+    if (!tipoOperacionPermitido(origen, item.tipoOperacion)) {
+      throw new Error(`"${item.tipoOperacion}" no aplica a un artículo con origen "${origen}".`);
+    }
+    fields[F.origenArticulo] = origen;
+  }
+  const extranjero = origen === "Proveedor extranjero";
+  const local = origen === "Proveedor local";
+
+  if (tieneCampo(input, "proveedorLogisticoId")) {
+    if (!extranjero) throw new Error("El casillero solo aplica a artículos de proveedor extranjero.");
+    await validateItemProviderRules({ proveedorLogisticoId: input.proveedorLogisticoId });
+    fields[F.proveedorLogistico] = linkOrEmpty(input.proveedorLogisticoId);
+  }
+  if (tieneCampo(input, "trackingHaciaIntermediario") || tieneCampo(input, "transportistaOrigenId") || tieneCampo(input, "trackingDesdeIntermediario")) {
+    if (!extranjero) throw new Error("Los rastreos de origen y de Ecuador son para artículos de proveedor extranjero.");
+  }
+  if (tieneCampo(input, "trackingDirecto") && !local) {
+    throw new Error("El rastreo local es para artículos de proveedor local.");
+  }
+  if (tieneCampo(input, "trackingHaciaIntermediario")) fields[F.trackingHaciaIntermediario] = cleanString(input.trackingHaciaIntermediario);
+  if (tieneCampo(input, "transportistaOrigenId")) fields[F.transportistaOrigen] = linkOrEmpty(input.transportistaOrigenId);
+  if (tieneCampo(input, "trackingDesdeIntermediario")) fields[F.trackingDesdeIntermediario] = cleanString(input.trackingDesdeIntermediario);
+  if (tieneCampo(input, "transportistaEcuadorId")) fields[F.transportistaEcuador] = linkOrEmpty(input.transportistaEcuadorId);
+  if (tieneCampo(input, "trackingDirecto")) fields[F.trackingDirecto] = cleanString(input.trackingDirecto);
+
+  // Costos del envío suelto. Las fórmulas de Airtable ("Costo flete
+  // asignado"…) dividen estos totales por "Unidades en packing" cuando es > 0:
+  // es el mismo camino que usa el reparto de una caja (packing-reparto.ts).
+  const tocaCostos = ["flete", "arancel", "otrosCostos"].some((k) => tieneCampo(input, k));
+  if (tocaCostos) {
+    for (const [key, label] of [["flete", "Flete"], ["arancel", "Arancel"], ["otrosCostos", "Otros costos"]] as const) {
+      if (tieneCampo(input, key)) validateOptionalMoney(input[key] ?? null, label);
+    }
+    if (tieneCampo(input, "flete")) fields[F.fleteAsignadoRegistro] = input.flete ?? null;
+    if (tieneCampo(input, "arancel")) fields[F.arancelAsignadoRegistro] = input.arancel ?? null;
+    if (tieneCampo(input, "otrosCostos")) fields[F.otrosCostosAsignadosRegistro] = input.otrosCostos ?? null;
+    fields[F.unidadesEnPacking] = item.cantidad && item.cantidad > 0 ? item.cantidad : 1;
+  }
+
+  // Un número de rastreo ya afirma el despacho: pasa solo a "En tránsito".
+  const rastreoNuevo = [input.trackingHaciaIntermediario, input.trackingDesdeIntermediario, input.trackingDirecto]
+    .some((t) => Boolean(cleanString(t)));
+  const estadoNuevo = rastreoNuevo ? estadoAlPonerRastreo(item) : null;
+  if (estadoNuevo) fields[F.estadoItem] = estadoNuevo;
+
+  if (!Object.keys(fields).length) return item;
+  fields[F.ultimaActualizacion] = new Date().toISOString();
+  fields[F.actualizadoPor] = options.actualizadoPor;
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id, fields }], typecast: true }),
+  });
+  const updated = response.records?.[0];
+  if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
+  const actualizado = mapItem(updated);
+  await createShippingV2Event({
+    action: estadoNuevo ? "Cambio de estado" : "Actualizado",
+    itemRecordId: id,
+    itemName: actualizado.nombre,
+    registradoPor: options.actualizadoPor,
+    descripcion: `Logística del artículo actualizada (${Object.keys(fields).filter((k) => k !== F.ultimaActualizacion && k !== F.actualizadoPor).join(", ")}).`,
+    ...(estadoNuevo ? { estadoAnterior: item.estado, estadoNuevo } : {}),
+  });
+  invalidateShippingV2ItemSearchIndexCache();
+  return actualizado;
 }
 
 // ─── Soltar el artículo de un repuesto bajo pedido ───────────────────────────
