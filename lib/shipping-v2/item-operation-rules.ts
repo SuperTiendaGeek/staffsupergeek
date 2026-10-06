@@ -40,8 +40,8 @@ const SALE_ELIGIBLE_STATES = new Set([
 
 const SALE_BLOCKED_STATES = new Set([
   "uso local",
-  "repuesto",
   "usado en reparacion",
+  "agotado",
   "con novedad critica",
   "en garantia con proveedor",
   "destinado a partes",
@@ -124,16 +124,6 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       modoLogistico: "No aplica",
       estadoItemSugerido: "Uso local",
     });
-  } else if (operation === "repuesto") {
-    Object.assign(base, {
-      requierePago: false,
-      requierePacking: false,
-      afectaInventario: true,
-      disponibleParaVenta: false,
-      modoLogistico: "No aplica",
-      estadoItemSugerido: "Repuesto",
-    });
-    base.notas.push("Un repuesto puede venderse en algunos casos, pero por defecto queda reservado para uso técnico.");
   } else if (operation === "parte / componente") {
     Object.assign(base, {
       requierePago: false,

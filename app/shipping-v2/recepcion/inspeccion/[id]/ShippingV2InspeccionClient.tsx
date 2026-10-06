@@ -18,24 +18,22 @@ import { SHIPPING_V2_ITEM_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.genera
 import type {
   ShippingV2InspeccionGrupo,
   ShippingV2InspeccionTecnica,
-  ShippingV2Intervencion,
 } from "@/lib/shipping-v2/airtable";
 import type { ResultadoPunto, ZonaRevision } from "@/lib/shipping-v2/revision-tecnica";
 import { getPerfilRevision } from "@/lib/shipping-v2/revision-tecnica";
 import type { SnapshotRevision } from "@/lib/shipping-v2/revision-tecnica-snapshot";
 import { DibujoEquipo } from "./DibujoEquipo";
 
-type RepuestoDisponible = { id: string; sku: string; nombre: string; stock: number; costo: number };
-
 type Props = {
   inicial: ShippingV2InspeccionTecnica;
-  repuestos: RepuestoDisponible[];
   usuario: string;
   puedeEditarItems: boolean;
   puedeCrearNovedades: boolean;
 };
 
-type Pestana = "equipo" | "inspeccion" | "mantenimientos" | "mejoras";
+// Mantenimientos y mejoras ya NO viven aquí (punto 3, 6-oct-2026): se
+// registran en la ficha del artículo, pestaña "Mantenimientos y mejoras".
+type Pestana = "equipo" | "inspeccion";
 
 // Los trabajos que se ofrecen salen del servidor (`inicial.trabajos`), no de
 // una lista fija aquí: a un disco NVMe no se le ajustan las bisagras y a un
@@ -70,7 +68,7 @@ function fecha(iso?: string) {
 }
 
 export function ShippingV2InspeccionClient({
-  inicial, repuestos, usuario, puedeEditarItems, puedeCrearNovedades,
+  inicial, usuario, puedeEditarItems, puedeCrearNovedades,
 }: Props) {
   const [datos, setDatos] = useState(inicial);
   const [pestana, setPestana] = useState<Pestana>(
@@ -81,7 +79,7 @@ export function ShippingV2InspeccionClient({
   const [mensaje, setMensaje] = useState("");
   const [aviso, setAviso] = useState("");
 
-  const { item, zonas, snapshot, estado, grupos, intervenciones, novedadesAbiertas, especificaciones } = datos;
+  const { item, zonas, snapshot, estado, grupos, novedadesAbiertas, especificaciones } = datos;
   // Los datos técnicos se cargan en la PRIMERA zona: es la que el técnico abre
   // con el equipo recién sacado de la caja.
   const zonaEspec = especificaciones.campos.length ? zonas[0]?.id ?? "" : "";
@@ -311,39 +309,6 @@ export function ShippingV2InspeccionClient({
     }
   }
 
-  // ── Intervenciones ──
-  const MANTENIMIENTOS = inicial.trabajos.mantenimientos;
-  const MEJORAS = inicial.trabajos.mejoras;
-  const [mantTipo, setMantTipo] = useState(MANTENIMIENTOS[0]);
-  const [mantNota, setMantNota] = useState("");
-  const [mejTipo, setMejTipo] = useState(MEJORAS[0]);
-  const [mejRepuesto, setMejRepuesto] = useState(repuestos[0]?.id ?? "");
-  const [mejNota, setMejNota] = useState("");
-
-  async function registrarIntervencion(cuerpo: Record<string, unknown>, limpiar: () => void) {
-    setGuardando(true);
-    setMensaje("");
-    try {
-      const respuesta = await fetch(`/api/shipping-v2/recepcion/inspeccion/${item.id}/intervenciones`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(cuerpo),
-      });
-      const payload = await respuesta.json().catch(() => ({}));
-      if (!respuesta.ok || !payload.success) throw new Error(String(payload.error || "No se pudo registrar."));
-      setDatos((d) => ({ ...d, intervenciones: payload.intervenciones as ShippingV2Intervencion[] }));
-      limpiar();
-      setAviso(payload.repuestoDescontado
-        ? `Registrado. Se descontó 1 unidad de ${payload.repuestoDescontado}.`
-        : "Mantenimiento registrado.");
-    } catch (error) {
-      setMensaje(error instanceof Error ? error.message : "Error inesperado.");
-    } finally {
-      setGuardando(false);
-    }
-  }
-
-  const repuestoElegido = repuestos.find((r) => r.id === mejRepuesto);
   const conteos = useMemo(() => {
     let ok = 0, falla = 0, na = 0;
     for (const z of zonas) {
@@ -412,8 +377,6 @@ export function ShippingV2InspeccionClient({
         {([
           ["equipo", "1", "Qué trae el equipo", grupos.reduce((s, g) => s + g.opciones.filter((o) => o.declarada).length, 0)],
           ["inspeccion", "2", "Inspección", `${conteos.resueltas}/${zonas.length}`],
-          ["mantenimientos", "", "Mantenimientos", intervenciones.filter((i) => i.tipo === "Mantenimiento").length],
-          ["mejoras", "", "Mejoras", intervenciones.filter((i) => i.tipo === "Mejora").length],
         ] as const).map(([clave, paso, titulo, badge]) => {
           const activa = pestana === clave;
           const listo = clave === "equipo"
@@ -762,101 +725,13 @@ export function ShippingV2InspeccionClient({
         </div>
       ) : null}
 
-      {/* ══ MANTENIMIENTOS ══ */}
-      {pestana === "mantenimientos" ? (
-        <div className="grid gap-3.5 lg:grid-cols-[minmax(280px,420px)_minmax(0,1fr)]">
-          <section className="rounded-xl border border-[#2E2F28] bg-[#1B1C17] p-3.5">
-            <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[#F5F5F5]">Registrar mantenimiento</h3>
-            <p className="mb-2 text-[11.5px] text-[#7E7F76]">Conserva lo que el equipo ya es. No cambia sus características.</p>
-            <label className="block">
-              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[#7E7F76]">Tipo de trabajo</span>
-              <select value={mantTipo} onChange={(e) => setMantTipo(e.target.value)}
-                className="w-full rounded-lg border border-[#3A3A36] bg-[#141510] px-2.5 py-2 text-[13px] text-[#F5F5F5] outline-none focus:border-[#A8C93B]">
-                {MANTENIMIENTOS.map((t) => <option key={t}>{t}</option>)}
-              </select>
-            </label>
-            <label className="mt-2.5 block">
-              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[#7E7F76]">Qué se hizo</span>
-              <textarea value={mantNota} onChange={(e) => setMantNota(e.target.value)}
-                placeholder="Ej: se retiró polvo del disipador y se cambió la pasta térmica del CPU."
-                className="min-h-[58px] w-full resize-y rounded-lg border border-[#3A3A36] bg-[#141510] px-2.5 py-2 text-[13px] text-[#F5F5F5] outline-none focus:border-[#A8C93B]" />
-            </label>
-            <button type="button" disabled={guardando}
-              onClick={() => void registrarIntervencion(
-                { tipo: "Mantenimiento", detalle: mantTipo, nota: mantNota.trim() },
-                () => setMantNota(""))}
-              className="mt-3 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-sm font-bold text-[#141510] transition hover:brightness-105 disabled:opacity-50">
-              Registrar mantenimiento
-            </button>
-            <p className="mt-3 rounded-lg border border-[#2E2F28] bg-[#22231C] px-3 py-2 text-[11.5px] text-[#B4B5AC]">
-              Firmado por <b className="font-semibold text-[#D7FF4F]">{usuario}</b>, con fecha y hora automáticas.
-            </p>
-          </section>
-          <ListaIntervenciones titulo="Historial" registros={intervenciones.filter((i) => i.tipo === "Mantenimiento")} />
-        </div>
-      ) : null}
-
-      {/* ══ MEJORAS ══ */}
-      {pestana === "mejoras" ? (
-        <div className="grid gap-3.5 lg:grid-cols-[minmax(280px,420px)_minmax(0,1fr)]">
-          <section className="rounded-xl border border-[#2E2F28] bg-[#1B1C17] p-3.5">
-            <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[#F5F5F5]">Registrar mejora</h3>
-            <p className="mb-2 text-[11.5px] text-[#7E7F76]">Cambia lo que el equipo es, y consume una pieza del inventario.</p>
-            {!repuestos.length ? (
-              <p className="rounded-lg border border-[#2E2F28] bg-[#22231C] px-3 py-2.5 text-[12.5px] text-[#B4B5AC]">
-                No hay repuestos con stock en el inventario. Registra primero el repuesto como item.
-              </p>
-            ) : !puedeEditarItems ? (
-              <p className="rounded-lg border border-[#FF7A6B]/40 bg-[#FF7A6B]/8 px-3 py-2.5 text-[12.5px] text-[#FFB3A9]">
-                Registrar una mejora descuenta stock del inventario, y tu usuario no tiene permiso para editar items.
-              </p>
-            ) : (
-              <>
-                <label className="block">
-                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[#7E7F76]">Tipo de mejora</span>
-                  <select value={mejTipo} onChange={(e) => setMejTipo(e.target.value)}
-                    className="w-full rounded-lg border border-[#3A3A36] bg-[#141510] px-2.5 py-2 text-[13px] text-[#F5F5F5] outline-none focus:border-[#A8C93B]">
-                    {MEJORAS.map((t) => <option key={t}>{t}</option>)}
-                  </select>
-                </label>
-                <label className="mt-2.5 block">
-                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[#7E7F76]">Repuesto del inventario</span>
-                  <select value={mejRepuesto} onChange={(e) => setMejRepuesto(e.target.value)}
-                    className="w-full rounded-lg border border-[#3A3A36] bg-[#141510] px-2.5 py-2 text-[13px] text-[#F5F5F5] outline-none focus:border-[#A8C93B]">
-                    {repuestos.map((r) => (
-                      <option key={r.id} value={r.id}>{r.sku} · {r.nombre} — stock {r.stock}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="mt-2.5 block">
-                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-[#7E7F76]">Nota</span>
-                  <input type="text" value={mejNota} onChange={(e) => setMejNota(e.target.value)}
-                    placeholder="Ej: se pasó de 8 GB a 16 GB en el slot libre."
-                    className="w-full rounded-lg border border-[#3A3A36] bg-[#141510] px-2.5 py-2 text-[13px] text-[#F5F5F5] outline-none focus:border-[#A8C93B]" />
-                </label>
-                {repuestoElegido ? (
-                  <div className="mt-2.5 rounded-lg border border-dashed border-[#3A3A36] bg-[#22231C] px-3 py-2.5 text-[12px] text-[#B4B5AC]">
-                    <div>En stock: <b className="text-[#F5F5F5]">{repuestoElegido.stock}</b> · Costo unitario:{" "}
-                      <b className="text-[#F5F5F5]">${repuestoElegido.costo.toFixed(2)}</b></div>
-                    <div className="mt-1.5 border-t border-[#2E2F28] pt-1.5 text-[#D7FF4F]">
-                      Al registrar se descuenta <b>1 unidad</b> de {repuestoElegido.sku}. El costo del equipo no cambia;
-                      queda guardado qué repuesto se usó y cuánto costaba.
-                    </div>
-                  </div>
-                ) : null}
-                <button type="button" disabled={guardando}
-                  onClick={() => void registrarIntervencion(
-                    { tipo: "Mejora", detalle: mejTipo, nota: mejNota.trim(), repuestoId: mejRepuesto, cantidadUsada: 1 },
-                    () => setMejNota(""))}
-                  className="mt-3 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-sm font-bold text-[#141510] transition hover:brightness-105 disabled:opacity-50">
-                  Registrar mejora
-                </button>
-              </>
-            )}
-          </section>
-          <ListaIntervenciones titulo="Mejoras aplicadas" registros={intervenciones.filter((i) => i.tipo === "Mejora")} />
-        </div>
-      ) : null}
+      {/* Mantenimientos y mejoras: un solo camino, la ficha del artículo. */}
+      <p className="text-[12px] text-[#7E7F76]">
+        ¿Le hiciste un mantenimiento o le pusiste una pieza?{" "}
+        <Link href={`/shipping-v2/items/${item.id}`} className="font-semibold text-[#D7FF4F] hover:underline">
+          Regístralo en la ficha del artículo → Mantenimientos y mejoras
+        </Link>
+      </p>
 
       {/* ── Barra de cierre ── */}
       <footer className="sticky bottom-0 mt-auto flex flex-wrap items-center gap-3 rounded-t-xl border border-[#2E2F28] bg-[#1B1C17] px-3.5 py-2.5"
@@ -922,37 +797,5 @@ export function ShippingV2InspeccionClient({
         </div>
       </footer>
     </div>
-  );
-}
-
-function ListaIntervenciones({ titulo, registros }: { titulo: string; registros: ShippingV2Intervencion[] }) {
-  return (
-    <section className="rounded-xl border border-[#2E2F28] bg-[#1B1C17]">
-      <div className="flex items-baseline gap-2 px-3.5 pb-2 pt-3">
-        <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[#F5F5F5]">{titulo}</h3>
-        <span className="ml-auto font-mono text-[13px] text-[#B4B5AC]">{registros.length}</span>
-      </div>
-      <div className="px-3.5 pb-3.5">
-        {!registros.length ? (
-          <p className="py-7 text-center text-[13px] text-[#7E7F76]">Todavía no se registró nada.</p>
-        ) : registros.map((r) => (
-          <div key={r.id} className="flex gap-2.5 border-b border-[#2E2F28] py-2.5 last:border-b-0">
-            <span aria-hidden="true" className={`grid h-7 w-7 flex-none place-items-center rounded-lg text-[13px] ${
-              r.tipo === "Mejora" ? "bg-[#C99BFF]/16 text-[#C99BFF]" : "bg-[#5BC8F5]/16 text-[#5BC8F5]"}`}>
-              {r.tipo === "Mejora" ? "⬆" : "🛠"}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-semibold text-[#F5F5F5]">{r.detalle || r.tipo}</div>
-              {r.nota ? <div className="mt-0.5 text-[12px] text-[#B4B5AC]">{r.nota}</div> : null}
-              <div className="mt-1 flex flex-wrap gap-x-2.5 gap-y-1 text-[11px] text-[#7E7F76]">
-                <span>Por <b className="text-[#B4B5AC]">{r.realizadoPor || "—"}</b></span>
-                <span>{fecha(r.fecha)}</span>
-                {r.cantidadUsada ? <span className="font-mono text-[#D7FF4F]">−{r.cantidadUsada} unidad(es)</span> : null}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }

@@ -38,7 +38,9 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   tipoOperacion: { key: "tipoOperacion", field: F.tipoOperacion, label: "Tipo de operación", category: "special", type: "singleSelect", options: O.tipoOperacion },
   tipoItem: { key: "tipoItem", field: F.tipoItem, label: "Rol general del item", category: "hidden", type: "readOnly" },
   categoria: { key: "categoria", field: F.categoria, label: "Categoría técnica/comercial", category: "normal", type: "singleSelect", options: O.categoria },
-  estadoItem: { key: "estado", field: F.estadoItem, label: "Estado Item", category: "special", type: "singleSelect", options: O.estadoItem },
+  // "Repuesto" ya no es un estado (punto 3, 6-oct): es una categoría. Se deja
+  // de ofrecer aunque la opción siga existiendo en Airtable.
+  estadoItem: { key: "estado", field: F.estadoItem, label: "Estado Item", category: "special", type: "singleSelect", options: O.estadoItem.filter((o) => o !== "Repuesto") },
   estadoRevision: { key: "estadoRevision", field: F.estadoRevision, label: "Estado de revisión", category: "normal", type: "singleSelect", options: O.estadoRevision },
   estadoTriangulacion: { key: "estadoTriangulacion", field: F.estadoTriangulacion, label: "Estado de triangulación", category: "hidden", type: "readOnly" },
   estadoDespiece: { key: "estadoDespiece", field: F.estadoDespiece, label: "Estado de despiece", category: "normal", type: "singleSelect", options: O.estadoDespiece },
