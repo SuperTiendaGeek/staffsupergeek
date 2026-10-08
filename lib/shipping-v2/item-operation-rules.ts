@@ -42,6 +42,7 @@ const SALE_BLOCKED_STATES = new Set([
   "uso local",
   "usado en reparacion",
   "agotado",
+  "dado de baja",
   "con novedad critica",
   "en garantia con proveedor",
   "destinado a partes",
@@ -114,15 +115,6 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       disponibleParaVenta: true,
       modoLogistico: "No aplica",
       estadoItemSugerido: "Disponible",
-    });
-  } else if (operation === "uso local") {
-    Object.assign(base, {
-      requierePago: false,
-      requierePacking: false,
-      afectaInventario: true,
-      disponibleParaVenta: false,
-      modoLogistico: "No aplica",
-      estadoItemSugerido: "Uso local",
     });
   } else if (operation === "parte / componente") {
     Object.assign(base, {

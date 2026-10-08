@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-08T13:47:13.307Z",
+  "generatedAt": "2026-10-08T20:42:13.039Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -1441,6 +1441,11 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tble8yjShlubBnTmn",
           "linkedTableName": "Shipping Intervenciones"
+        },
+        "Unidades dadas de baja": {
+          "id": "fldoWPjNdKSFyZh99",
+          "type": "number",
+          "kind": "number"
         }
       }
     },

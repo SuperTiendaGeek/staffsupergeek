@@ -55,9 +55,12 @@ export function vieneDeAfuera(origen?: string | null): boolean {
  * proveedor" ya no se ofrecen.
  */
 export const TIPOS_OPERACION_POR_ORIGEN: Record<OrigenArticulo, readonly string[]> = {
-  [ORIGEN_TIENDA]: ["Compra a proveedor", "Regalo de proveedor", "Reajuste de inventario", "Despiece de equipo", "Uso local"],
-  [ORIGEN_EXTRANJERO]: ["Compra a proveedor", "Regalo de proveedor", "Uso local"],
-  [ORIGEN_LOCAL]: ["Compra a proveedor", "Uso local"],
+  // "Uso local" dejó de ser un tipo de operación (punto 4, 8-oct): un activo
+  // de la tienda se compra, se regala o ya se tenía como cualquier otro
+  // artículo; lo que lo hace activo es la casilla "Es uso local".
+  [ORIGEN_TIENDA]: ["Compra a proveedor", "Regalo de proveedor", "Reajuste de inventario", "Despiece de equipo"],
+  [ORIGEN_EXTRANJERO]: ["Compra a proveedor", "Regalo de proveedor"],
+  [ORIGEN_LOCAL]: ["Compra a proveedor"],
 };
 
 export function tipoOperacionPermitido(origen: string | null | undefined, tipoOperacion: string | null | undefined): boolean {
@@ -108,7 +111,7 @@ export function estadoAlPonerRastreo(item: {
 }
 
 const ESTADOS_FINALES = new Set([
-  "vendido", "cancelado", "archivado", "usado en reparacion", "agotado", "destinado a partes",
+  "vendido", "cancelado", "archivado", "usado en reparacion", "agotado", "dado de baja", "destinado a partes",
   "desarmado parcialmente", "desarmado completamente", "migrado",
 ]);
 

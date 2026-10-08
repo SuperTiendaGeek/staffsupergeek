@@ -15,7 +15,7 @@ export async function ShippingV2Pestanas() {
   const restringidas = session?.user.pantallasRestringidas ?? {};
   const access = await getShippingV2AccessContextForSession(session);
   const pestanas = PESTANAS_SHIPPING_V2.filter(
-    (p) => puedeVerPantalla(restringidas, "shipping-v2", p.key) && access.permissions[p.permiso] === true
+    (p) => puedeVerPantalla(restringidas, "shipping-v2", p.key) && access.permissions[p.permiso] === true && (!p.soloStaff || access.isAdmin)
   );
   const puedeRegistrar = access.permissions.canEditItems === true && puedeVerPantalla(restringidas, "shipping-v2", "items");
   return <ShippingV2PestanasBarra pestanas={[...pestanas]} puedeRegistrar={puedeRegistrar} />;

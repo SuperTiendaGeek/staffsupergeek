@@ -6,7 +6,7 @@
 
 import type { ShippingV2AccessPermissions } from "@/types/shipping-v2";
 
-export type PestanaShippingKey = "items" | "packings" | "recepcion" | "pagos" | "novedades";
+export type PestanaShippingKey = "items" | "activos" | "packings" | "recepcion" | "pagos" | "novedades";
 
 export type PestanaShipping = {
   key: PestanaShippingKey;
@@ -14,10 +14,14 @@ export type PestanaShipping = {
   href: string;
   /** Permiso de Shipping V2 que además hace falta para verla. */
   permiso: keyof ShippingV2AccessPermissions;
+  /** Solo personal de la tienda (un proveedor externo no la ve). */
+  soloStaff?: boolean;
 };
 
 export const PESTANAS_SHIPPING_V2: readonly PestanaShipping[] = [
   { key: "items", label: "Artículos", href: "/shipping-v2/items", permiso: "canViewItems" },
+  // Punto 4 (8-oct): los activos fijos de la tienda, aparte de la mercadería.
+  { key: "activos", label: "Activos de la tienda", href: "/shipping-v2/activos", permiso: "canViewItems", soloStaff: true },
   // La pantalla de Packings pasa a llamarse Logística: cajas y artículos que
   // viajan solos, en una sola lista. La ruta se conserva.
   { key: "packings", label: "Logística", href: "/shipping-v2/packings", permiso: "canViewPackings" },
