@@ -38,6 +38,10 @@ export const CAMPOS_ITEM = {
   reservas: "fldhKY3r1dDGKyEfh",
   intervenciones1: "fldeb9JVRMuyW4rR6",
   intervenciones2: "fldv5udAghxzATfHo",
+  // "Intervenciones (pieza retirada)": la pieza salió de un equipo en una
+  // mejora (punto 3, oct-2026). Sin esta línea el vínculo era "desconocido" y
+  // la pieza no se podía eliminar nunca.
+  intervencionesPiezaRetirada: "fldYs8AX9v1kpFq8Q",
   presupuesto: "fld56ubP1rQcohqdk",
   // No bloquean (se pierden sin daño o son catálogos)
   eventos: "fld6a0wcWWooYAezr",
@@ -74,6 +78,8 @@ export type ContextoEliminacion = {
   /** Campos link no reconocidos que tienen algo (bloquean por prudencia). */
   vinculosDesconocidos: string[];
   fotos: number;
+  /** Mantenimientos o mejoras ANULADOS vinculados: ya no bloquean (se avisa). */
+  intervencionesAnuladas?: number;
 };
 
 export type EvaluacionEliminacion = {
@@ -128,7 +134,8 @@ export function evaluarEliminacion(ctx: ContextoEliminacion): EvaluacionEliminac
   if (n(ctx, C.recepciones) > 0) bloqueos.push("Tiene una recepción registrada. La recepción es el respaldo de lo que llegó.");
   if (n(ctx, C.novedades) > 0) bloqueos.push("Tiene novedades registradas (garantía, daño, faltante). Son el respaldo del reclamo al proveedor.");
   if (n(ctx, C.migraciones) > 0) bloqueos.push("Viene de una migración: su registro de migración lo necesita.");
-  if (n(ctx, C.intervenciones1) + n(ctx, C.intervenciones2) > 0) bloqueos.push("Tiene intervenciones técnicas registradas.");
+  if (n(ctx, C.intervenciones1) + n(ctx, C.intervenciones2) > 0) bloqueos.push("Tiene mantenimientos o mejoras registrados. Si fueron un error, un Administrador puede anularlos desde la pestaña \"Mantenimientos y mejoras\".");
+  if (n(ctx, C.intervencionesPiezaRetirada) > 0) bloqueos.push("Es una pieza que salió de un equipo en una mejora. Para quitarla, un Administrador anula esa mejora desde la ficha del equipo (así el costo y las unidades vuelven a cuadrar).");
   if (n(ctx, C.itemPadre) > 0) bloqueos.push("Es una pieza de un despiece. Quítala desde el despiece del equipo padre.");
   if (n(ctx, C.itemsHijos) > 0) bloqueos.push("Tiene piezas de despiece. Borrarlo dejaría esas piezas huérfanas.");
 
@@ -137,6 +144,9 @@ export function evaluarEliminacion(ctx: ContextoEliminacion): EvaluacionEliminac
   }
 
   // Lo que se pierde sin daño
+  if ((ctx.intervencionesAnuladas ?? 0) > 0) {
+    avisos.push(`Tiene ${plural(ctx.intervencionesAnuladas ?? 0, "mantenimiento o mejora anulado", "mantenimientos o mejoras anulados")}: quedan guardados, pero sin enlace al item.`);
+  }
   const eventos = n(ctx, C.eventos);
   if (eventos > 0) avisos.push(`Su historial (${plural(eventos, "evento", "eventos")}) queda guardado, pero sin enlace al item. Se registra un evento final con una copia de sus datos.`);
   if (n(ctx, C.opcionOrigen) > 0) avisos.push("La opción de la Operación Comercial de origen quedará sin artículo (la operación ya no lo usa).");

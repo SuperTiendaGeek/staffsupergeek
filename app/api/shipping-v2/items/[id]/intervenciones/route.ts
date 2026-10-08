@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  anularShippingV2Intervencion,
   canShippingV2,
   getShippingV2AccessContextForSession,
   getShippingV2PanelIntervenciones,
@@ -55,6 +56,26 @@ export async function POST(request: Request, { params }: Params) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const tipo = typeof body.tipo === "string" ? body.tipo.trim() : "";
 
+    // Anular (8-oct): SOLO el Administrador del sistema. La función lo vuelve
+    // a comprobar por su cuenta.
+    if (body.accion === "anular") {
+      if (access.isSiteAdmin !== true) {
+        return NextResponse.json({ success: false, error: "Solo un Administrador puede anular mantenimientos y mejoras." }, { status: 403 });
+      }
+      const anulacion = await anularShippingV2Intervencion(
+        id,
+        typeof body.intervencionId === "string" ? body.intervencionId : "",
+        { motivo: typeof body.motivo === "string" ? body.motivo : "" },
+        { actor: getShippingV2SessionName(session), access }
+      );
+      const panel = await getShippingV2PanelIntervenciones(id, access);
+      return NextResponse.json({
+        success: true,
+        data: { ...panel, puedeMejorar: canShippingV2(access, "canEditItems") },
+        anulacion,
+      });
+    }
+
     if (!puedeRegistrar(access)) {
       return NextResponse.json({ success: false, error: "No tienes permiso para registrar mantenimientos ni mejoras." }, { status: 403 });
     }
@@ -84,6 +105,7 @@ export async function POST(request: Request, { params }: Params) {
                   categoria: typeof p.categoria === "string" ? p.categoria : "",
                   cantidad: numero(p.cantidad),
                   valor: numero(p.valor) ?? 0,
+                  precioVenta: numero(p.precioVenta) ?? null,
                 };
               })()
             : null,

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T23:20:34.291Z",
+  "generatedAt": "2026-10-08T13:47:13.307Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -2620,6 +2620,35 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tbliTKAI8dAWwr1nh",
           "linkedTableName": "Shipping Items"
+        },
+        "Anulada": {
+          "id": "fldqW34JIs5fFWqW4",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Anulada por": {
+          "id": "fldLWCTQdIzXdix4S",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha de anulación": {
+          "id": "fld1sediizqY0szJD",
+          "type": "dateTime"
+        },
+        "Motivo de anulación": {
+          "id": "fldYLwN2nvvmw9YOK",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Resultado de anulación": {
+          "id": "fld34QdthFWujdKKT",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Estado previo del repuesto": {
+          "id": "fldMQhK7acx8QzI51",
+          "type": "singleLineText",
+          "kind": "singleLineText"
         }
       }
     },

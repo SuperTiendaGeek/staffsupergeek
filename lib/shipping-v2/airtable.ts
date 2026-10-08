@@ -73,8 +73,11 @@ import {
   CATEGORIAS_REPUESTO_STOCK,
   ESTADO_AGOTADO,
   cambiosPiezaTrasConsumo,
+  costoMejorasTrasAnular,
   costoSugeridoMejora,
   decidirCostoMejora,
+  estadoPiezaTrasDevolver,
+  evaluarAnulacion,
   evaluarEquipoParaIntervencion,
   evaluarPiezaParaMejora,
   validarPiezaRetirada,
@@ -738,6 +741,7 @@ function sanitizeShippingV2ItemForAccess(item: ShippingV2Item, access?: Shipping
     costoAsignadoDespiece: null,
     costoLogisticoAsignado: null,
     costoTotalUnidad: null,
+    costoMejoras: null,
     fleteAsignadoRegistro: null,
     arancelAsignadoRegistro: null,
     otrosCostosAsignadosRegistro: null,
@@ -1444,6 +1448,7 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     costoAsignadoDespiece: firstNumber(f["Costo asignado por despiece"] ?? f["Costo Asignado Despiece"]),
     costoLogisticoAsignado: firstNumber(f[F.costoLogisticoAsignado] ?? f["Costo logístico asignado"] ?? f["Costo logistico asignado"] ?? f["Costo Logistico Asignado"]),
     costoTotalUnidad: firstNumber(f[F.costoTotalUnidad]),
+    costoMejoras: firstNumber(f["Costo de mejoras"]),
     unidadesEnPacking: firstNumber(f[F.unidadesEnPacking]),
     fleteAsignadoRegistro: firstNumber(f[F.fleteAsignadoRegistro]),
     arancelAsignadoRegistro: firstNumber(f[F.arancelAsignadoRegistro]),
@@ -6948,6 +6953,12 @@ export type ShippingV2Intervencion = {
   valorPiezaRetirada: number | null;
   /** Punto 3: artículo creado con la pieza que salió. */
   piezaRetiradaId?: string;
+  /** Punto 3 (8-oct): anulada por un Administrador (no se borra). */
+  anulada: boolean;
+  anuladaPor?: string;
+  fechaAnulacion?: string;
+  motivoAnulacion?: string;
+  resultadoAnulacion?: string;
   realizadoPor?: string;
   fecha?: string;
 };
@@ -6971,6 +6982,11 @@ function mapIntervencion(record: AirtableRecord): ShippingV2Intervencion {
     costoSumado: firstNumber(f["Costo sumado al equipo"]),
     valorPiezaRetirada: firstNumber(f["Valor pieza retirada"]),
     piezaRetiradaId: linkedRecordIds(f["Pieza retirada"])[0],
+    anulada: firstBoolean(f["Anulada"]) === true,
+    anuladaPor: firstString(f["Anulada por"]) || undefined,
+    fechaAnulacion: firstString(f["Fecha de anulación"]) || undefined,
+    motivoAnulacion: firstString(f["Motivo de anulación"]) || undefined,
+    resultadoAnulacion: firstString(f["Resultado de anulación"]) || undefined,
     realizadoPor: firstString(f["Realizado por"]),
     fecha: firstString(f.Fecha, record.createdTime),
   };
@@ -7361,6 +7377,8 @@ export type ShippingV2PanelIntervenciones = {
   motivoBloqueo?: string;
   /** Quien no ve costos no recibe montos (null) y no puede cambiar el sugerido. */
   puedeVerCostos: boolean;
+  /** Solo el Administrador del sistema anula (8-oct). */
+  puedeAnular: boolean;
   costoMejoras: number | null;
   trabajos: { mantenimientos: string[]; mejoras: string[] };
   intervenciones: ShippingV2Intervencion[];
@@ -7398,6 +7416,7 @@ export async function getShippingV2PanelIntervenciones(
     puedeRegistrar: evaluacion.ok,
     motivoBloqueo: evaluacion.ok ? undefined : evaluacion.motivo,
     puedeVerCostos,
+    puedeAnular: access?.isSiteAdmin === true,
     costoMejoras: puedeVerCostos ? firstNumber(equipo.fields[CAMPO_COSTO_MEJORAS]) ?? 0 : null,
     trabajos: getIntervencionesPorCategoria(item.categoria),
     intervenciones: historial,
@@ -7545,9 +7564,9 @@ async function registrarIntervencionSinTurno(
     decisionCosto = decidirCostoMejora({
       cantidadEquipo: normalizarUnidades(item.cantidad),
       costoSumado: puedeVerCostos && input.costoSumado != null ? input.costoSumado : sugerido,
-      valorPiezaRetirada: puedeVerCostos ? piezaRetirada?.valor ?? 0 : 0,
+      valorPiezaRetirada: puedeVerCostos ? piezaRetirada?.valorTotal ?? 0 : 0,
     });
-    if (piezaRetirada && !puedeVerCostos) piezaRetirada = { ...piezaRetirada, valor: 0 };
+    if (piezaRetirada && !puedeVerCostos) piezaRetirada = { ...piezaRetirada, valor: 0, valorTotal: 0 };
 
     const tras = cambiosPiezaTrasConsumo(normalizarUnidades(repuesto.cantidad), cantidadUsada);
     piezaAgotada = tras.agotada;
@@ -7601,6 +7620,8 @@ async function registrarIntervencionSinTurno(
             "Costo repuesto": repuesto ? repuesto.costoProveedor ?? undefined : undefined,
             "Costo sumado al equipo": decisionCosto ? decisionCosto.costoSumado : undefined,
             "Valor pieza retirada": decisionCosto && piezaRetirada ? decisionCosto.valorRestado : undefined,
+            // Para poder restaurarla si la mejora se anula y la pieza quedó Agotado.
+            "Estado previo del repuesto": repuesto ? estadoPiezaAntes || undefined : undefined,
             "Realizado por": options.actor,
             Fecha: ahora,
           }),
@@ -7632,6 +7653,16 @@ async function registrarIntervencionSinTurno(
       } catch (error) {
         console.error("Mejora registrada, pero no se pudo actualizar el costo del equipo:", error);
         avisos.push(`La mejora quedó registrada, pero no se pudo actualizar el costo del equipo (ajuste ${decisionCosto.ajuste}). Corrígelo a mano.`);
+        // Lo guardado en la mejora debe decir lo que de verdad se aplicó: si
+        // luego se anula, no puede restar un costo que nunca se sumó.
+        try {
+          await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.intervenciones), {
+            method: "PATCH",
+            body: JSON.stringify({ records: [{ id: creado.id, fields: { "Costo sumado al equipo": 0, "Valor pieza retirada": 0 } }] }),
+          });
+        } catch (errorMarca) {
+          console.error("CRÍTICO: la mejora dice un costo que no se aplicó. Revisar a mano:", creado.id, errorMarca);
+        }
       }
     }
 
@@ -7642,24 +7673,43 @@ async function registrarIntervencionSinTurno(
     if (piezaRetirada) {
       try {
         const itemInput = construirInputPiezaDespiece(
-          { nombre: piezaRetirada.nombre, categoria: piezaRetirada.categoria, cantidad: piezaRetirada.cantidad, observaciones: piezaRetirada.nota },
+          {
+            nombre: piezaRetirada.nombre,
+            categoria: piezaRetirada.categoria,
+            cantidad: piezaRetirada.cantidad,
+            observaciones: piezaRetirada.nota,
+            precioVenta: piezaRetirada.precioVenta,
+          },
           { proveedorCompraId: item.proveedorId, tipoOperacion: item.tipoOperacion }
         );
-        const pieza = await createShippingV2ItemRecord(itemInput as ShippingV2ItemWriteInput, {
-          registradoPor: options.actor,
-          eventDescription: piezaRetirada.nota,
-          extraFields: {
-            "Es parte recuperada": true,
-            [SHIPPING_V2_ITEM_FIELDS.recibido]: true,
-            [SHIPPING_V2_ITEM_FIELDS.origenArticulo]: "Ya está en la tienda",
-            ...(piezaRetirada.valor > 0 ? { [CAMPO_COSTO_ASIGNADO_DESPIECE]: piezaRetirada.valor } : {}),
-          },
-        });
+        const pieza = await createShippingV2ItemRecord(
+          {
+            ...itemInput,
+            // 8-oct: el valor es el costo POR UNIDAD de la pieza y se ve en
+            // "Costo total unitario" y en la ganancia. No genera pago: la
+            // pieza nace con "Requiere pago" apagado.
+            costoProveedor: piezaRetirada.valor > 0 ? piezaRetirada.valor : null,
+          } as ShippingV2ItemWriteInput,
+          {
+            registradoPor: options.actor,
+            eventDescription: piezaRetirada.nota,
+            extraFields: {
+              "Es parte recuperada": true,
+              [SHIPPING_V2_ITEM_FIELDS.recibido]: true,
+              [SHIPPING_V2_ITEM_FIELDS.origenArticulo]: "Ya está en la tienda",
+            },
+          }
+        );
         piezaRetiradaSku = pieza.sku;
-        await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.intervenciones), {
-          method: "PATCH",
-          body: JSON.stringify({ records: [{ id: creado.id, fields: { "Pieza retirada": [pieza.id] } }] }),
-        });
+        try {
+          await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.intervenciones), {
+            method: "PATCH",
+            body: JSON.stringify({ records: [{ id: creado.id, fields: { "Pieza retirada": [pieza.id] } }] }),
+          });
+        } catch (error) {
+          console.error("Pieza retirada creada pero sin enlazar a la mejora:", error);
+          avisos.push(`La pieza retirada se creó como ${pieza.sku}, pero no quedó enlazada a la mejora: si anulas la mejora, elimina ${pieza.sku} a mano.`);
+        }
       } catch (error) {
         console.error("Mejora registrada, pero no se pudo crear la pieza retirada:", error);
         avisos.push(`La mejora quedó registrada, pero no se pudo crear la pieza retirada "${piezaRetirada.nombre}". Regístrala a mano.`);
@@ -7726,6 +7776,206 @@ async function registrarIntervencionSinTurno(
     }
     throw error;
   }
+}
+
+// ─── Anular un mantenimiento o una mejora (punto 3, 8-oct-2026) ─────────────
+// Reglas en mejoras.ts (evaluarAnulacion). Solo Administrador del sistema.
+// La intervención NO se borra: queda "Anulada" con quién, cuándo, por qué y
+// qué se revirtió.
+//
+// Orden y por qué:
+//  1. Se valida TODO antes de tocar nada (equipo en la tienda, pieza retirada
+//     eliminable). Si algo bloquea, no cambia nada.
+//  2. Se marca "Anulada" PRIMERO. Así un segundo clic (u otra pestaña) no puede
+//     revertir dos veces: la marca es la llave.
+//  3. Se devuelven las unidades a la pieza usada (releyendo y SUMANDO).
+//  4. Se quita del costo del equipo lo que la mejora aplicó (releyendo).
+//  5. Se elimina la pieza retirada (con copia en Shipping Eventos).
+//  Si 3–5 fallan, la mejora ya está anulada y el paso pendiente queda escrito
+//  en "Resultado de anulación" para hacerlo a mano.
+
+export async function anularShippingV2Intervencion(
+  itemRecordId: string,
+  intervencionId: string,
+  input: { motivo: string },
+  options: { actor: string; access?: ShippingV2AccessContext }
+) {
+  const id = cleanString(intervencionId);
+  if (!id) throw new Error("Intervención inválida.");
+  return withLock(`intervencion:${id}`, () => anularIntervencionSinTurno(itemRecordId, id, input, options));
+}
+
+async function anularIntervencionSinTurno(
+  itemRecordId: string,
+  intervencionId: string,
+  input: { motivo: string },
+  options: { actor: string; access?: ShippingV2AccessContext }
+) {
+  const itemId = cleanString(itemRecordId);
+  const motivo = cleanString(input.motivo);
+  const registro = await airtableRequest<AirtableRecordResponse>(
+    `${tableUrl(SHIPPING_V2_TABLES.intervenciones)}/${encodeURIComponent(intervencionId)}`
+  );
+  const f = registro.fields ?? {};
+  // La intervención tiene que ser de ESTE artículo (el endpoint recibe ambos ids).
+  if (firstString(f["Item ID"]) !== itemId && !linkedRecordIds(f.Item).includes(itemId)) {
+    throw new Error("Esa intervención no pertenece a este artículo.");
+  }
+  const intervencion = {
+    tipo: firstString(f.Tipo, "Mantenimiento"),
+    anulada: firstBoolean(f["Anulada"]),
+    repuestoId: (linkedRecordIds(f["Repuesto usado"])[0] ?? null) as string | null,
+    cantidadUsada: firstNumber(f["Cantidad usada"]),
+    costoSumado: firstNumber(f["Costo sumado al equipo"]),
+    valorPiezaRetirada: firstNumber(f["Valor pieza retirada"]),
+    piezaRetiradaId: (linkedRecordIds(f["Pieza retirada"])[0] ?? null) as string | null,
+  };
+  const esMejora = intervencion.tipo === "Mejora";
+
+  // 1) Validar todo antes de tocar nada.
+  const equipo = esMejora
+    ? await getShippingV2ItemById(itemId, { includeAiName: false, access: systemShippingV2Access() })
+    : null;
+  let bloqueosPiezaRetirada: string[] = [];
+  let skuPiezaRetirada = "";
+  if (esMejora && intervencion.piezaRetiradaId) {
+    try {
+      const { ctx } = await contextoEliminacion(intervencion.piezaRetiradaId, { ignorarIntervencionIds: [intervencionId] });
+      skuPiezaRetirada = ctx.sku;
+      bloqueosPiezaRetirada = evaluarEliminacion(ctx).bloqueos;
+    } catch (error) {
+      // Si la pieza ya no existe (alguien la borró en Airtable), no hay nada que eliminar.
+      if (!(error instanceof Error && error.message.includes("404"))) throw error;
+      intervencion.piezaRetiradaId = null;
+    }
+  }
+  const evaluacion = evaluarAnulacion(intervencion, {
+    esAdministrador: options.access?.isSiteAdmin === true,
+    motivo,
+    equipo,
+    bloqueosPiezaRetirada,
+  });
+  if (!evaluacion.ok) throw new Error(evaluacion.motivo);
+
+  // 2) Marcar "Anulada" primero (es la llave contra una doble anulación).
+  const ahora = new Date().toISOString();
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.intervenciones), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{
+        id: intervencionId,
+        fields: { "Anulada": true, "Anulada por": options.actor, "Fecha de anulación": ahora, "Motivo de anulación": motivo },
+      }],
+    }),
+  });
+
+  const hecho: string[] = [];
+  const pendiente: string[] = [];
+
+  if (esMejora) {
+    // 3) Devolver las unidades a la pieza usada.
+    const unidades = normalizarUnidades(intervencion.cantidadUsada);
+    if (intervencion.repuestoId && unidades > 0) {
+      const repuestoId = intervencion.repuestoId;
+      try {
+        await withLock(`shipping-item:${repuestoId}`, async () => {
+          const pieza = await getShippingV2ItemById(repuestoId, { includeAiName: false, access: systemShippingV2Access() });
+          const estadoNuevo = estadoPiezaTrasDevolver({
+            estadoActual: pieza.estado,
+            estadoPrevio: firstString(f["Estado previo del repuesto"]),
+            requiereInspeccion: pieza.requiereInspeccion,
+            inspeccionFirmada: pieza.revisadoFisicamente,
+          });
+          await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+            method: "PATCH",
+            body: JSON.stringify({
+              typecast: true,
+              records: [{
+                id: repuestoId,
+                fields: {
+                  [SHIPPING_V2_ITEM_FIELDS.cantidad]: normalizarUnidades(pieza.cantidad) + unidades,
+                  ...(estadoNuevo ? { [SHIPPING_V2_ITEM_FIELDS.estadoItem]: estadoNuevo } : {}),
+                  "Última actualización": ahora,
+                  "Actualizado por": options.actor,
+                },
+              }],
+            }),
+          });
+          hecho.push(`Se devolvieron ${unidades} unidad(es) a ${pieza.sku || pieza.nombre}${estadoNuevo ? ` (vuelve a "${estadoNuevo}")` : ""}.`);
+          await createShippingV2Event({
+            action: "Actualizado",
+            itemRecordId: repuestoId,
+            itemName: pieza.nombre,
+            registradoPor: options.actor,
+            descripcion: `Mejora anulada en ${equipo?.sku || "el equipo"}: vuelven ${unidades} unidad(es). Motivo: ${motivo}`,
+            estadoAnterior: pieza.estado,
+            estadoNuevo: estadoNuevo ?? pieza.estado,
+          }).catch((error) => console.error("No se pudo escribir el evento de la pieza:", error));
+        });
+        // Banderas de venta según las unidades devueltas.
+        await recalcularDisponibilidadItem(repuestoId, options.actor).catch((error) =>
+          console.error("No se pudo recalcular la disponibilidad de la pieza:", error)
+        );
+      } catch (error) {
+        console.error("Anulación: no se pudieron devolver las unidades:", error);
+        pendiente.push(`Devolver a mano ${unidades} unidad(es) a la pieza usada (record ${repuestoId}) y revisar su etiqueta.`);
+      }
+    }
+
+    // 4) Costo del equipo: quitar lo que la mejora aplicó.
+    const neto = (intervencion.costoSumado ?? 0) - (intervencion.valorPiezaRetirada ?? 0);
+    if (neto !== 0) {
+      try {
+        const registroEquipo = await leerRegistroItem(itemId);
+        const actual = firstNumber(registroEquipo.fields[CAMPO_COSTO_MEJORAS]) ?? 0;
+        const nuevo = costoMejorasTrasAnular(actual, intervencion);
+        await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+          method: "PATCH",
+          body: JSON.stringify({ records: [{ id: itemId, fields: { [CAMPO_COSTO_MEJORAS]: nuevo } }] }),
+        });
+        hecho.push(`Costo de mejoras del equipo: de $${actual.toFixed(2)} a $${nuevo.toFixed(2)}.`);
+      } catch (error) {
+        console.error("Anulación: no se pudo corregir el costo del equipo:", error);
+        pendiente.push(`Restar a mano $${neto.toFixed(2)} del "Costo de mejoras" del equipo.`);
+      }
+    }
+
+    // 5) Eliminar la pieza retirada (con copia en Shipping Eventos).
+    if (intervencion.piezaRetiradaId) {
+      try {
+        await eliminarShippingItemInterno(intervencion.piezaRetiradaId, {
+          motivo: `Mejora anulada en ${equipo?.sku || "el equipo"}: la pieza retirada vuelve a no existir. ${motivo}`,
+          registradoPor: options.actor,
+          exigirConfirmacion: false,
+        });
+        hecho.push(`Se eliminó la pieza retirada ${skuPiezaRetirada || intervencion.piezaRetiradaId}.`);
+      } catch (error) {
+        console.error("Anulación: no se pudo eliminar la pieza retirada:", error);
+        pendiente.push(`Eliminar a mano la pieza retirada ${skuPiezaRetirada || intervencion.piezaRetiradaId} (${error instanceof Error ? error.message : "error"}).`);
+      }
+    }
+  }
+
+  const resultado = [
+    esMejora ? "Mejora anulada." : "Mantenimiento anulado (no movía inventario).",
+    ...hecho,
+    ...(pendiente.length ? ["PENDIENTE A MANO:", ...pendiente] : []),
+  ].join("\n");
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.intervenciones), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id: intervencionId, fields: { "Resultado de anulación": resultado } }] }),
+  }).catch((error) => console.error("No se pudo guardar el resultado de la anulación:", error));
+
+  await createShippingV2Event({
+    action: "Actualizado",
+    itemRecordId: itemId,
+    itemName: equipo?.nombre || "",
+    registradoPor: options.actor,
+    descripcion: `${intervencion.tipo} anulado(a) por Administrador. Motivo: ${motivo}. ${hecho.join(" ")}`,
+  }).catch((error) => console.error("No se pudo escribir el evento del equipo:", error));
+
+  invalidateShippingV2ItemSearchIndexCache();
+  return { resultado, pendiente };
 }
 
 // ─── Resumen de pendientes para la barra de pestañas (punto 2) ──────────────
@@ -8005,7 +8255,10 @@ async function leerItemPorIdDeCampo(itemId: string) {
   return airtableRequest<AirtableRecordResponse>(url.toString());
 }
 
-async function contextoEliminacion(itemId: string): Promise<{ ctx: ContextoEliminacion; fields: Record<string, unknown> }> {
+async function contextoEliminacion(
+  itemId: string,
+  opciones: { ignorarIntervencionIds?: string[] } = {}
+): Promise<{ ctx: ContextoEliminacion; fields: Record<string, unknown> }> {
   const record = await leerItemPorIdDeCampo(itemId);
   const fields = record.fields ?? {};
   const C = CAMPOS_ITEM;
@@ -8033,9 +8286,29 @@ async function contextoEliminacion(itemId: string): Promise<{ ctx: ContextoElimi
   }
   const fotos = (conteo[C.fotos] ?? 0) + (conteo[C.evidencias] ?? 0);
 
+  // Mantenimientos y mejoras: los ANULADOS ya no bloquean (punto 3, 8-oct).
+  // Si un vínculo no se pudo leer, cuenta como activo (fail-closed).
+  const camposIntervencion = [C.intervenciones1, C.intervenciones2, C.intervencionesPiezaRetirada];
+  const idsIntervencion = [...new Set(camposIntervencion.flatMap((campo) => idsDeCampo(fields, campo)))];
+  let intervencionesAnuladas = 0;
+  if (idsIntervencion.length) {
+    const registros = await listRecordsByIds(SHIPPING_V2_TABLES.intervenciones, idsIntervencion);
+    const ignorar = new Set(opciones.ignorarIntervencionIds ?? []);
+    const anuladas = new Set(registros.filter((r) => firstBoolean(r.fields["Anulada"]) === true).map((r) => r.id));
+    for (const campo of camposIntervencion) {
+      const ids = idsDeCampo(fields, campo);
+      if (!ids.length) continue;
+      const activas = ids.filter((rid) => !anuladas.has(rid) && !ignorar.has(rid)).length;
+      if (activas > 0) conteo[campo] = activas;
+      else delete conteo[campo];
+    }
+    intervencionesAnuladas = idsIntervencion.filter((rid) => anuladas.has(rid)).length;
+  }
+
   return {
     fields,
     ctx: {
+      intervencionesAnuladas,
       sku: firstString(fields[C.sku]).trim(),
       nombre: firstString(fields[C.nombre]).trim(),
       estado: firstString(fields[C.estado]).trim(),
@@ -8063,6 +8336,18 @@ export class EliminacionBloqueadaError extends Error {
 }
 
 export async function eliminarShippingItem(itemId: string, opts: { confirmacion: unknown; motivo: string; registradoPor: string }) {
+  return eliminarShippingItemInterno(itemId, { ...opts, exigirConfirmacion: true });
+}
+
+/**
+ * Misma eliminación, pero sin pedir que se escriba el SKU: la usa la anulación
+ * de una mejora para quitar la pieza retirada (el Administrador ya confirmó al
+ * anular). Las MISMAS reglas de bloqueo aplican.
+ */
+async function eliminarShippingItemInterno(
+  itemId: string,
+  opts: { confirmacion?: unknown; motivo: string; registradoPor: string; exigirConfirmacion: boolean }
+) {
   assertShippingV2GeneratedSchema();
   const id = cleanString(itemId);
   if (!id) throw new Error("Record ID de item inválido.");
@@ -8074,7 +8359,7 @@ export async function eliminarShippingItem(itemId: string, opts: { confirmacion:
   const { ctx, fields } = await contextoEliminacion(id);
   const evaluacion = evaluarEliminacion(ctx);
   if (!evaluacion.permitido) throw new EliminacionBloqueadaError(evaluacion);
-  if (!confirmacionValida(evaluacion.confirmacion, opts.confirmacion)) {
+  if (opts.exigirConfirmacion && !confirmacionValida(evaluacion.confirmacion, opts.confirmacion)) {
     throw new Error(`Para confirmar escribe exactamente: ${evaluacion.confirmacion}`);
   }
 

@@ -5,10 +5,13 @@
 import {
   CATEGORIAS_REPUESTO_STOCK,
   cambiosPiezaTrasConsumo,
+  costoMejorasTrasAnular,
   costoSugeridoMejora,
   decidirCostoMejora,
   esCategoriaDeRepuesto,
   evaluarEquipoParaIntervencion,
+  estadoPiezaTrasDevolver,
+  evaluarAnulacion,
   evaluarPiezaParaMejora,
   validarPiezaRetirada,
 } from "../mejoras";
@@ -63,10 +66,28 @@ assert(lanzo, "Costo negativo: error");
 
 console.log("\n— Pieza retirada —");
 const pr = validarPiezaRetirada({ nombre: "RAM 4GB DDR4", categoria: "RAM" }, { sku: "LAP-000013" }, "2026-10-06T23:00:00.000Z");
-assert(pr.cantidad === 1 && pr.valor === 0, "Por defecto 1 unidad y valor $0");
+assert(pr.cantidad === 1 && pr.valor === 0 && pr.precioVenta === null, "Por defecto 1 unidad, valor $0 y sin precio");
+const pr2 = validarPiezaRetirada({ nombre: "RAM 4GB", categoria: "RAM", cantidad: 2, valor: 10, precioVenta: 25 }, { sku: "LAP-1" }, "2026-10-08");
+assert(pr2.valorTotal === 20 && pr2.precioVenta === 25, "2 módulos de $10 c/u: se restan $20 del equipo; precio $25");
 assert(pr.nota === "Retirada de LAP-000013 en una mejora (2026-10-06).", "La nota dice de dónde salió");
 lanzo = false; try { validarPiezaRetirada({ nombre: "", categoria: "RAM" }, { sku: "LAP-1" }, "2026-10-06"); } catch { lanzo = true; }
 assert(lanzo, "Sin nombre: error");
+
+console.log("\n— Anular —");
+const mejora = { tipo: "Mejora", repuestoId: "recREP", cantidadUsada: 1, costoSumado: 25, valorPiezaRetirada: 8, piezaRetiradaId: "recRET" };
+const enTienda = { recibido: true, estado: "Disponible", cantidad: 1 };
+assert(!evaluarAnulacion(mejora, { esAdministrador: false, motivo: "prueba de anulación", equipo: enTienda }).ok, "Solo Administrador");
+assert(!evaluarAnulacion(mejora, { esAdministrador: true, motivo: "x", equipo: enTienda }).ok, "Pide motivo");
+assert(evaluarAnulacion(mejora, { esAdministrador: true, motivo: "era una prueba", equipo: enTienda }).ok, "Admin con motivo y equipo en la tienda: sí");
+assert(!evaluarAnulacion({ ...mejora, anulada: true }, { esAdministrador: true, motivo: "era una prueba", equipo: enTienda }).ok, "No se anula dos veces");
+assert(!evaluarAnulacion(mejora, { esAdministrador: true, motivo: "era una prueba", equipo: { recibido: true, estado: "Vendido", cantidad: 0 } }).ok, "Equipo vendido: la pieza se fue con él");
+assert(!evaluarAnulacion(mejora, { esAdministrador: true, motivo: "era una prueba", equipo: enTienda, bloqueosPiezaRetirada: ["Tiene recibo vinculado."] }).ok, "Pieza retirada vendida: bloquea");
+assert(evaluarAnulacion({ tipo: "Mantenimiento" }, { esAdministrador: true, motivo: "registro duplicado" }).ok, "Mantenimiento: solo se marca");
+assert(estadoPiezaTrasDevolver({ estadoActual: "Agotado", estadoPrevio: "Disponible" }) === "Disponible", "Agotado → vuelve a su etiqueta previa");
+assert(estadoPiezaTrasDevolver({ estadoActual: "Agotado", requiereInspeccion: true, inspeccionFirmada: false }) === "En revisión", "Sin etiqueta previa: por la regla de llegada");
+assert(estadoPiezaTrasDevolver({ estadoActual: "Disponible" }) === null, "Si no quedó Agotado, no se toca la etiqueta");
+assert(costoMejorasTrasAnular(17, mejora) === 0, "Costo: 17 − (25 − 8) = 0");
+assert(costoMejorasTrasAnular(0, { tipo: "Mejora", costoSumado: 0, valorPiezaRetirada: 0 }) === 0, "Mejora sin costo aplicado (varias unidades): no cambia");
 
 if (fallos > 0) { console.error(`\n${fallos} assert(s) fallaron.`); process.exit(1); }
 console.log("\n✅ mejoras.test.ts — todos los asserts pasaron");

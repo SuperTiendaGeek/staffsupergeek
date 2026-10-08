@@ -25,6 +25,7 @@ type Panel = {
   motivoBloqueo?: string;
   puedeMejorar: boolean;
   puedeVerCostos: boolean;
+  puedeAnular: boolean;
   costoMejoras: number | null;
   trabajos: { mantenimientos: string[]; mejoras: string[] };
   intervenciones: ShippingV2Intervencion[];
@@ -80,6 +81,10 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
   const [retCategoria, setRetCategoria] = useState("");
   const [retCantidad, setRetCantidad] = useState("1");
   const [retValor, setRetValor] = useState("0");
+  const [retPrecio, setRetPrecio] = useState("");
+  // Anular (solo Administrador): qué registro se está anulando y por qué.
+  const [anulandoId, setAnulandoId] = useState("");
+  const [motivoAnulacion, setMotivoAnulacion] = useState("");
 
   const aplicarPanel = useCallback((data: Panel) => {
     setPanel(data);
@@ -126,11 +131,34 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
   const costoValido = costoTexto.trim() !== "" && Number.isFinite(costoNum) && costoNum >= 0;
   const retCantidadNum = Number(retCantidad);
   const retValorNum = Number(retValor || 0);
+  const retPrecioNum = retPrecio.trim() === "" ? null : Number(retPrecio);
   const retiradaValida = !conRetirada || (
     retNombre.trim() !== "" && retCategoria !== "" &&
     Number.isInteger(retCantidadNum) && retCantidadNum >= 1 &&
-    Number.isFinite(retValorNum) && retValorNum >= 0
+    Number.isFinite(retValorNum) && retValorNum >= 0 &&
+    (retPrecioNum === null || (Number.isFinite(retPrecioNum) && retPrecioNum >= 0))
   );
+
+  async function anular(intervencionId: string) {
+    setGuardando(true); setError(""); setAviso("");
+    try {
+      const res = await fetch(`/api/shipping-v2/items/${itemId}/intervenciones`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accion: "anular", intervencionId, motivo: motivoAnulacion.trim() }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "No se pudo anular.");
+      aplicarPanel(json.data);
+      setAnulandoId(""); setMotivoAnulacion("");
+      const pendiente: string[] = json.anulacion?.pendiente ?? [];
+      setAviso(String(json.anulacion?.resultado ?? "Anulado.").replace(/\n?PENDIENTE A MANO:[\s\S]*$/, "").replace(/\n/g, " "));
+      if (pendiente.length) setError(`Quedó pendiente a mano:\n${pendiente.join("\n")}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error inesperado");
+    } finally {
+      setGuardando(false);
+    }
+  }
 
   async function registrar(cuerpo: Record<string, unknown>, limpiar: () => void) {
     setGuardando(true); setError(""); setAviso("");
@@ -270,13 +298,16 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
                       </Campo>
                     </div>
                     {panel.puedeVerCostos ? (
-                      <Campo label="Valor de la pieza retirada"
+                      <Campo label="Costo por unidad de la pieza retirada"
                         hint={variasUnidades
-                          ? "Queda como costo de la pieza nueva. El equipo no cambia (tiene varias unidades)."
-                          : "Queda como costo de la pieza nueva y se RESTA del costo del equipo. Déjalo en 0 si no quieres cambiarlo."}>
+                          ? "Es el costo de la pieza nueva (se ve en su Costo total unitario). El equipo no cambia: tiene varias unidades."
+                          : "Es el costo de la pieza nueva (se ve en su Costo total unitario) y se RESTA del costo del equipo (× cantidad). Déjalo en 0 si no quieres cambiarlo."}>
                         <input type="number" min={0} step="0.01" value={retValor} onChange={(e) => setRetValor(e.target.value)} className={inputCls} />
                       </Campo>
                     ) : null}
+                    <Campo label="Precio de venta por unidad (opcional)" hint="Si lo dejas vacío, la pieza nace sin precio y no aparece en el mostrador hasta que se lo pongas.">
+                      <input type="number" min={0} step="0.01" value={retPrecio} onChange={(e) => setRetPrecio(e.target.value)} className={inputCls} />
+                    </Campo>
                   </div>
                 ) : null}
 
@@ -294,12 +325,12 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
                       tipo: "Mejora", detalle: mejTipo, nota: mejNota.trim(), repuestoId: piezaId, cantidadUsada: cantidadNum,
                       ...(panel.puedeVerCostos && !variasUnidades ? { costoSumado: costoNum } : {}),
                       ...(conRetirada
-                        ? { piezaRetirada: { nombre: retNombre.trim(), categoria: retCategoria, cantidad: retCantidadNum, valor: panel.puedeVerCostos ? retValorNum : 0 } }
+                        ? { piezaRetirada: { nombre: retNombre.trim(), categoria: retCategoria, cantidad: retCantidadNum, valor: panel.puedeVerCostos ? retValorNum : 0, precioVenta: retPrecioNum } }
                         : {}),
                     },
                     () => {
                       setMejNota(""); setPiezaId(""); setCantidad("1"); setBuscar("");
-                      setCostoEditado(false); setConRetirada(false); setRetNombre(""); setRetCategoria(""); setRetCantidad("1"); setRetValor("0");
+                      setCostoEditado(false); setConRetirada(false); setRetNombre(""); setRetCategoria(""); setRetCantidad("1"); setRetValor("0"); setRetPrecio("");
                     })}
                   className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">
                   Registrar mejora
@@ -319,13 +350,18 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
             {!panel.intervenciones.length ? (
               <p className="py-6 text-center text-sm text-[#696A64]">Todavía no se registró nada.</p>
             ) : panel.intervenciones.map((r) => (
-              <div key={r.id} className="flex gap-2.5 border-b border-[#30312D] py-2.5 last:border-b-0">
+              <div key={r.id} className={`flex gap-2.5 border-b border-[#30312D] py-2.5 last:border-b-0 ${r.anulada ? "opacity-60" : ""}`}>
                 <span aria-hidden="true" className={`grid h-7 w-7 flex-none place-items-center rounded-lg text-[13px] ${
                   r.tipo === "Mejora" ? "bg-[#C99BFF]/16 text-[#C99BFF]" : "bg-[#5BC8F5]/16 text-[#5BC8F5]"}`}>
                   {r.tipo === "Mejora" ? "⬆" : "🛠"}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-[#F5F5F5]">{r.tipo} · {r.detalle || "—"}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`text-sm font-semibold text-[#F5F5F5] ${r.anulada ? "line-through" : ""}`}>{r.tipo} · {r.detalle || "—"}</span>
+                    {r.anulada ? (
+                      <span className="rounded-full border border-[#FF7A6B]/45 bg-[#FF7A6B]/10 px-2 py-0.5 text-[10px] font-bold uppercase text-[#FFB3A9]">Anulada</span>
+                    ) : null}
+                  </div>
                   {r.nota ? <div className="mt-0.5 text-[12px] text-[#B4B5AC]">{r.nota}</div> : null}
                   <div className="mt-1 flex flex-wrap gap-x-2.5 gap-y-1 text-[11px] text-[#7E7F76]">
                     <span>Por <b className="text-[#B4B5AC]">{r.realizadoPor || "—"}</b></span>
@@ -337,6 +373,40 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
                       <a href={`/shipping-v2/items/${r.piezaRetiradaId}`} className="font-semibold text-[#D7FF4F] hover:underline">Ver pieza retirada</a>
                     ) : null}
                   </div>
+                  {r.anulada ? (
+                    <div className="mt-1.5 rounded-md border border-[#FF7A6B]/30 bg-[#FF7A6B]/5 px-2 py-1.5 text-[11px] text-[#FFB3A9]">
+                      Anulada por <b>{r.anuladaPor || "—"}</b> · {fecha(r.fechaAnulacion)}
+                      {r.motivoAnulacion ? <> · Motivo: {r.motivoAnulacion}</> : null}
+                      {r.resultadoAnulacion ? <div className="mt-1 whitespace-pre-line text-[#B4B5AC]">{r.resultadoAnulacion}</div> : null}
+                    </div>
+                  ) : panel.puedeAnular ? (
+                    anulandoId === r.id ? (
+                      <div className="mt-2 space-y-2 rounded-md border border-[#FF7A6B]/35 bg-[#FF7A6B]/5 p-2">
+                        <p className="text-[11.5px] text-[#FFB3A9]">
+                          {r.tipo === "Mejora"
+                            ? "Se devolverán las unidades a la pieza usada, el costo del equipo volverá a como estaba y se eliminará la pieza retirada. Queda registrado como anulado."
+                            : "El mantenimiento quedará marcado como anulado (no mueve inventario)."}
+                        </p>
+                        <input type="text" value={motivoAnulacion} onChange={(e) => setMotivoAnulacion(e.target.value)}
+                          placeholder="Motivo (obligatorio). Ej: era una prueba." className={inputCls} />
+                        <div className="flex gap-2">
+                          <button type="button" disabled={guardando || motivoAnulacion.trim().length < 5} onClick={() => void anular(r.id)}
+                            className="rounded-lg border border-[#FF7A6B] bg-[#FF7A6B] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">
+                            Confirmar anulación
+                          </button>
+                          <button type="button" disabled={guardando} onClick={() => { setAnulandoId(""); setMotivoAnulacion(""); }}
+                            className="rounded-lg border border-[#3A3A36] px-3 py-1.5 text-sm font-semibold text-[#A7A7A7]">
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" disabled={guardando} onClick={() => { setAnulandoId(r.id); setMotivoAnulacion(""); setError(""); setAviso(""); }}
+                        className="mt-1.5 text-[11px] font-semibold text-[#FFB3A9] hover:underline">
+                        Anular (Administrador)
+                      </button>
+                    )
+                  ) : null}
                 </div>
               </div>
             ))}

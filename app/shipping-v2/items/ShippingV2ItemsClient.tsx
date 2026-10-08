@@ -1708,6 +1708,8 @@ export function ShippingV2ItemDetailView({
         { label: "Otros costos por unidad", value: item.otrosCostosAsignados, displayValue: formatCurrency(item.otrosCostosAsignados), readOnly: true },
         { label: "Costo logístico por unidad", value: item.costoLogisticoAsignado, displayValue: formatCurrency(item.costoLogisticoAsignado), readOnly: true },
         { label: "Costo total unitario", value: item.costoTotalUnidad, displayValue: formatCurrency(item.costoTotalUnidad), readOnly: true },
+        // Punto 3: lo que sumaron (o restaron) las mejoras; ya está dentro del costo total unitario.
+        { label: "Costo de mejoras", value: item.costoMejoras ?? null, displayValue: formatCurrency(item.costoMejoras ?? null), readOnly: true },
         { label: "Costo total del stock", value: costoStock, displayValue: formatCurrency(costoStock), readOnly: true },
         { label: "Costo asignado despiece", value: item.costoAsignadoDespiece, displayValue: formatCurrency(item.costoAsignadoDespiece), readOnly: true },
         { label: "Costo total estimado", value: item.costoTotalEstimado, displayValue: formatCurrency(item.costoTotalEstimado), readOnly: true },
