@@ -26,6 +26,11 @@ const bloquea = (p: Partial<ContextoEliminacion>, texto: string, msg: string) =>
   assert(!e.permitido && e.bloqueos.some((b) => b.includes(texto)), msg);
 };
 bloquea({ estado: "Vendido" }, "Vendido", "vendido bloquea");
+// Punto 3 (oct-2026): la pieza retirada en una mejora ya no es un "vínculo desconocido".
+bloquea({ conteo: { [C.intervencionesPiezaRetirada]: 1 } }, "anula esa mejora", "pieza retirada de una mejora activa: se quita anulando la mejora");
+assert(detectarVinculosDesconocidos({ [C.intervencionesPiezaRetirada]: ["recAAAAAAAAAAAAAA"] }).length === 0, "el vínculo de pieza retirada es conocido");
+const conAnuladas = evaluarEliminacion(ctx({ intervencionesAnuladas: 1 }));
+assert(conAnuladas.permitido && conAnuladas.avisos.some((a) => a.includes("anulado")), "mejoras anuladas no bloquean, solo avisan");
 bloquea({ conteo: { [C.factura]: 1 } }, "factura", "factura bloquea");
 bloquea({ conteo: { [C.notaCredito]: 1 } }, "nota de crédito", "nota de crédito bloquea");
 bloquea({ conteo: { [C.recibo]: 1 } }, "recibo", "recibo bloquea");
@@ -40,7 +45,7 @@ bloquea({ conteo: { [C.packings]: 1 } }, "packing", "packing bloquea");
 bloquea({ conteo: { [C.recepciones]: 1 } }, "recepción", "recepción bloquea");
 bloquea({ conteo: { [C.novedades]: 2 } }, "novedades", "novedad bloquea");
 bloquea({ conteo: { [C.migraciones]: 1 } }, "migración", "migración bloquea");
-bloquea({ conteo: { [C.intervenciones2]: 1 } }, "intervenciones", "intervención bloquea");
+bloquea({ conteo: { [C.intervenciones2]: 1 } }, "mantenimientos o mejoras", "intervención activa bloquea");
 bloquea({ conteo: { [C.itemPadre]: 1 } }, "despiece", "pieza de despiece bloquea");
 bloquea({ conteo: { [C.itemsHijos]: 4 } }, "huérfanas", "equipo con piezas bloquea");
 bloquea({ vinculosDesconocidos: ["fldNUEVO123456789"] }, "no reconoce", "vínculo desconocido bloquea");

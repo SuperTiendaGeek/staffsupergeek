@@ -146,8 +146,9 @@ export function evaluarEquipoParaIntervencion(equipo: {
 //   (costo por unidad de la pieza × unidades usadas) y quien registra puede
 //   cambiarlo.
 // · La pieza que SALE del equipo puede entrar al inventario como artículo
-//   nuevo. Su valor sugerido es $0; si se escribe un valor, se RESTA del costo
-//   del equipo para que la suma siga cuadrando.
+//   nuevo. Su valor (costo POR UNIDAD) sugerido es $0; si se escribe un valor,
+//   queda como su costo y se RESTA del costo del equipo (× cantidad) para que
+//   la suma siga cuadrando. Se le puede poner precio de venta (8-oct).
 // · Si el registro del equipo tiene VARIAS unidades (p. ej. 9 laptops iguales)
 //   la mejora se registra pero el costo del equipo no se toca: cambiaría el de
 //   las 9 y solo se mejoró una. Se avisa que conviene separar esa unidad
@@ -197,7 +198,10 @@ export type PiezaRetiradaInput = {
   nombre: string;
   categoria: string;
   cantidad?: number;
+  /** Costo POR UNIDAD de la pieza (8-oct): queda como su costo y se resta del equipo × cantidad. */
   valor?: number | null;
+  /** Precio de venta por unidad, opcional (8-oct). */
+  precioVenta?: number | null;
 };
 
 /** Valida la pieza retirada y devuelve la nota que llevará el artículo nuevo. */
@@ -205,7 +209,7 @@ export function validarPiezaRetirada(
   pieza: PiezaRetiradaInput,
   equipo: { sku?: string | null; nombre?: string | null },
   fechaIso: string
-): { nombre: string; categoria: string; cantidad: number; valor: number; nota: string } {
+): { nombre: string; categoria: string; cantidad: number; valor: number; valorTotal: number; precioVenta: number | null; nota: string } {
   const nombre = (pieza.nombre ?? "").trim();
   const categoria = (pieza.categoria ?? "").trim();
   if (!nombre) throw new Error("La pieza retirada necesita un nombre.");
@@ -214,12 +218,88 @@ export function validarPiezaRetirada(
   if (!Number.isInteger(cantidad) || cantidad < 1) throw new Error("La cantidad de la pieza retirada debe ser un entero mayor a 0.");
   const valor = Number(pieza.valor ?? 0);
   if (!Number.isFinite(valor) || valor < 0) throw new Error("El valor de la pieza retirada no puede ser negativo.");
+  const precio = pieza.precioVenta == null || String(pieza.precioVenta) === "" ? null : Number(pieza.precioVenta);
+  if (precio !== null && (!Number.isFinite(precio) || precio < 0)) throw new Error("El precio de venta de la pieza retirada no puede ser negativo.");
   const origen = equipo.sku || equipo.nombre || "otro equipo";
   return {
     nombre,
     categoria,
     cantidad,
     valor: redondear(valor),
+    valorTotal: redondear(valor * cantidad),
+    precioVenta: precio && precio > 0 ? redondear(precio) : null,
     nota: `Retirada de ${origen} en una mejora (${fechaIso.slice(0, 10)}).`,
   };
+}
+
+// ─── Anular un mantenimiento o una mejora (dueño, 8-oct-2026) ────────────────
+// · Solo un Administrador. Pide motivo.
+// · No se borra: queda marcada "Anulada" (quién, cuándo, por qué y qué se
+//   revirtió) para conservar la trazabilidad del movimiento.
+// · Mantenimiento: solo se marca.
+// · Mejora: la pieza usada recupera sus unidades (y su etiqueta si quedó
+//   "Agotado"), el costo del equipo vuelve a como estaba y la pieza retirada
+//   se elimina.
+// · Se BLOQUEA si el equipo ya salió de la tienda (la pieza se fue con él) o
+//   si la pieza retirada ya no se puede eliminar (vendida, reservada,
+//   facturada, en un pago…). El sistema dice por qué.
+
+export type IntervencionParaAnular = {
+  tipo: string;
+  anulada?: boolean | null;
+  repuestoId?: string | null;
+  cantidadUsada?: number | null;
+  costoSumado?: number | null;
+  valorPiezaRetirada?: number | null;
+  piezaRetiradaId?: string | null;
+};
+
+export function evaluarAnulacion(
+  intervencion: IntervencionParaAnular,
+  contexto: {
+    esAdministrador: boolean;
+    motivo: string;
+    equipo?: { recibido?: boolean | null; estado?: string | null; cantidad?: number | null } | null;
+    /** Bloqueos para eliminar la pieza retirada (vacío = se puede). */
+    bloqueosPiezaRetirada?: string[];
+  }
+): { ok: true } | { ok: false; motivo: string } {
+  if (!contexto.esAdministrador) return { ok: false, motivo: "Solo un Administrador puede anular mantenimientos y mejoras." };
+  if (intervencion.anulada === true) return { ok: false, motivo: "Ya está anulada." };
+  if ((contexto.motivo ?? "").trim().length < 5) return { ok: false, motivo: "Escribe el motivo de la anulación (mínimo 5 caracteres)." };
+  if (intervencion.tipo !== "Mejora") return { ok: true };
+
+  if (!contexto.equipo) return { ok: false, motivo: "No se encontró el equipo de esta mejora." };
+  const equipoOk = evaluarEquipoParaIntervencion(contexto.equipo);
+  if (!equipoOk.ok) {
+    return { ok: false, motivo: `No se puede anular: ${equipoOk.motivo.replace(/^El artículo/, "el equipo")} La pieza salió con él.` };
+  }
+  const bloqueos = contexto.bloqueosPiezaRetirada ?? [];
+  if (bloqueos.length) {
+    return { ok: false, motivo: `No se puede anular porque la pieza retirada ya no se puede eliminar: ${bloqueos.join(" ")}` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Etiqueta de la pieza usada después de devolverle las unidades. Solo cambia
+ * si quedó "Agotado": vuelve a la que tenía antes de la mejora o, si no se
+ * guardó, a la que le toca por la regla de llegada.
+ */
+export function estadoPiezaTrasDevolver(pieza: {
+  estadoActual?: string | null;
+  estadoPrevio?: string | null;
+  requiereInspeccion?: boolean | null;
+  inspeccionFirmada?: boolean | null;
+}): string | null {
+  if (normalize(pieza.estadoActual) !== normalize(ESTADO_AGOTADO)) return null;
+  const previo = (pieza.estadoPrevio ?? "").trim();
+  if (previo && normalize(previo) !== normalize(ESTADO_AGOTADO)) return previo;
+  return pieza.requiereInspeccion === true && pieza.inspeccionFirmada !== true ? "En revisión" : "Disponible";
+}
+
+/** Nuevo "Costo de mejoras" del equipo al anular: se quita lo que la mejora aplicó. */
+export function costoMejorasTrasAnular(actual: number | null | undefined, intervencion: IntervencionParaAnular): number {
+  const neto = (Number(intervencion.costoSumado) || 0) - (Number(intervencion.valorPiezaRetirada) || 0);
+  return redondear((Number(actual) || 0) - neto);
 }
