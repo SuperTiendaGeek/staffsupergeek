@@ -386,11 +386,19 @@ function lineaManual(descripcion = "Producto de mostrador"): DetalleFactura {
   // Por eso ahora se busca la llamada concreta y se mira SU condición, no el
   // archivo completo. El comportamiento de la regla en sí se prueba aparte, sin
   // regex, en mostrador.descuentaStock.test.ts.
+  //
+  // Desde el arreglo de la factura 755 el endpoint ya no llama a postEmision()
+  // directamente: llama a ejecutarEfectosPostAutorizacion(), el mismo punto de
+  // entrada que usan "Consultar estado", recuperar y reintentar. La condición
+  // se verifica ahora ahí.
   const rutaEmitir   = path.join(__dirname, "..", "..", "..", "app", "api", "facturacion", "emitir", "route.ts");
-  const codigoEmitir = fs.readFileSync(rutaEmitir, "utf8");
+  const rutaEfectos  = path.join(__dirname, "..", "gancho", "efectosPostAutorizacion.ts");
+  const fuenteRuta   = fs.readFileSync(rutaEmitir, "utf8");
+  const codigoEmitir = fs.readFileSync(rutaEfectos, "utf8");
 
+  assert(fuenteRuta.includes("await ejecutarEfectosPostAutorizacion("), "El endpoint de emisión debe invocar ejecutarEfectosPostAutorizacion()");
   const iLlamada = codigoEmitir.indexOf("await postEmision(");
-  assert(iLlamada > 0, "El endpoint de emisión debe invocar postEmision()");
+  assert(iLlamada > 0, "ejecutarEfectosPostAutorizacion() debe invocar postEmision()");
 
   // La condición que gobierna esa llamada: el if inmediatamente anterior.
   const antes       = codigoEmitir.slice(0, iLlamada);

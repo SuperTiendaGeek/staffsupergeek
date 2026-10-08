@@ -5,8 +5,12 @@ import "server-only";
 //   autorización SRI → persistir (Airtable + disco) → RIDE PDF → enviar correo
 //
 // INVENTARIO: este flujo es de SOLO EMISIÓN al SRI. No modifica ningún campo
-// de "Shipping Items" ni ninguna otra tabla de inventario. El descuento de stock
-// se implementará en un flujo separado cuando se defina esa lógica de negocio.
+// de "Shipping Items" ni ninguna otra tabla de inventario. El descargo, el
+// ingreso en Finanzas y el cierre de reserva viven en
+// gancho/efectosPostAutorizacion.ts, que llaman TODOS los caminos que dejan
+// una factura AUTORIZADA (emitir, consultar estado, recuperar, reintentar).
+// Para que eso funcione aunque la autorización llegue tarde, las líneas se
+// guardan ya en la fila RECIBIDA (paso 5.5) — ver reglas/lineasFactura.ts.
 //
 // Manejo de errores:
 //   - Si el SRI devuelve "clave de acceso ya registrada" (error 43),
@@ -40,6 +44,7 @@ import { assertXmlValidoSri }     from "./reglas/validacionXsd";
 import { assertPagosCuadranConTotal } from "./reglas/pagos";
 import { construirInfoAdicionalFactura } from "./reglas/referenciaPago";
 import { resolverRucProveedor }     from "./reglas/rucProveedor";
+import { serializarLineasFactura } from "./reglas/lineasFactura";
 
 import type { FacturaInput,
               DetalleFactura,
@@ -246,6 +251,22 @@ export async function emitirFactura(
       rucProveedor.ruc
     );
 
+    // Líneas de la venta (con el record id de cada Shipping Item, el origen y
+    // los pagos completos). Se arman UNA vez aquí, antes de hablar con el SRI,
+    // porque se guardan también en la fila RECIBIDA (paso 5.5): si la
+    // autorización no llega dentro de esta petición, "Consultar estado" las
+    // necesita después para descargar el inventario. Ver
+    // reglas/lineasFactura.ts (factura 001-002-000000755).
+    // version 3 (Fase 16 PR2): "origen" y el "tipo" por línea. Fase 20.2:
+    // `pagos` completo (con `origenPago`) además de `formaPago` suelto.
+    const lineasJson = serializarLineasFactura({
+      detalles:        datos.detalles,
+      pagos:           datos.pagos,
+      infoAdicional:   infoAdicionalFinal,
+      origen:          datos.origen,
+      clienteRecordId: datos.clienteRecordId,
+    });
+
     const facturaInput: FacturaInput = {
       ambiente:        cfg.ambiente,
       razonSocial:     cfg.razonSocial,
@@ -378,6 +399,7 @@ export async function emitirFactura(
       iva:         calcularIva(datos.totalConImpuestos),
       total:       datos.importeTotal,
       mensajesSri: [],
+      lineasJson,
     }, existente?.recordId).catch((e) => {
       console.error("[emitirFactura] no se pudo pre-registrar el comprobante RECIBIDO:", e);
       return existente?.recordId;
@@ -486,25 +508,8 @@ export async function emitirFactura(
     }
 
     // ── 8. Persistir (Airtable + disco) ────────────────────────────────────
-    // version 3 (Fase 16 PR2): agrega "origen" y el "tipo" por línea (ya
-    // dentro de cada objeto de "detalles", ver types/factura.ts). version 2
-    // (sin estos dos) sigue siendo válida de leer — los campos nuevos son
-    // opcionales. El XML del SRI no cambia con ninguna de las dos versiones.
-    // Fase 20.2 — fix del bug de reintento: antes solo se guardaba
-    // `formaPago` (string suelto, primer pago) y el array completo se
-    // perdía. Se agrega `pagos` (el array `Pago[]` completo, con
-    // `origenPago` intacto) sin quitar `formaPago` — compatibilidad con
-    // lectores viejos que ya lo esperan. `reintentar/route.ts` lee `pagos`
-    // primero y solo cae al hardcode legacy si una factura vieja no lo tiene.
-    const lineasJson = JSON.stringify({
-      version:       3,
-      detalles:      datos.detalles,
-      formaPago:     datos.pagos[0]?.formaPago,
-      pagos:         datos.pagos,
-      infoAdicional: infoAdicionalFinal.length ? infoAdicionalFinal : undefined,
-      origen:        datos.origen,
-    });
-
+    // `lineasJson` ya se armó antes de enviar al SRI (ver arriba) y es el
+    // mismo que quedó en la fila RECIBIDA.
     const recordId = await persistirAutorizado({
       claveAcceso,
       numeroFactura,

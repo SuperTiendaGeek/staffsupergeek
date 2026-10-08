@@ -883,3 +883,47 @@ export async function eliminarRegistroFactura(recordId: string): Promise<void> {
     throw new Error(`Airtable DELETE ${url} → ${res.status}: ${text}`);
   }
 }
+
+// ─── Completar una factura autorizada fuera de la petición de emisión ───────
+// Usados por gancho/efectosPostAutorizacion.ts (completarFacturaAutorizada).
+
+export type VinculosFactura = { orden: string[]; operacion: string[]; cliente: string[] };
+
+/** Vínculos actuales de la factura a su orden, operación y cliente. */
+export async function leerVinculosFactura(recordId: string): Promise<VinculosFactura> {
+  const data = await airtableRequest<{ id: string; fields: Record<string, unknown> }>(tableUrl(recordId));
+  return {
+    orden:     linkedIdsFactura(data.fields["Orden"]),
+    operacion: linkedIdsFactura(data.fields["Operación"]),
+    cliente:   linkedIdsFactura(data.fields["Cliente"]),
+  };
+}
+
+/**
+ * Agrega (sin quitar los existentes) los vínculos de origen y cliente. Es lo
+ * que hace que la orden/operación "sepa" que ya tiene factura — base de la
+ * idempotencia de gancho/idempotencia.ts.
+ */
+export async function vincularFacturaAOrigen(
+  recordId: string,
+  actuales: VinculosFactura,
+  nuevos: { ordenId?: string; operacionId?: string; clienteId?: string }
+): Promise<void> {
+  const fields: Record<string, unknown> = {};
+  if (nuevos.ordenId && !actuales.orden.includes(nuevos.ordenId)) fields["Orden"] = [...actuales.orden, nuevos.ordenId];
+  if (nuevos.operacionId && !actuales.operacion.includes(nuevos.operacionId)) fields["Operación"] = [...actuales.operacion, nuevos.operacionId];
+  if (nuevos.clienteId && !actuales.cliente.includes(nuevos.clienteId)) fields["Cliente"] = [...actuales.cliente, nuevos.clienteId];
+  if (Object.keys(fields).length === 0) return;
+  await airtableRequest(tableUrl(recordId), { method: "PATCH", body: JSON.stringify({ fields }) });
+}
+
+/** Escribe "Líneas JSON" solo si hoy está vacío (nunca pisa unas existentes). */
+export async function guardarLineasSiFaltan(recordId: string, lineasJson: string): Promise<boolean> {
+  const data = await airtableRequest<{ id: string; fields: Record<string, unknown> }>(tableUrl(recordId));
+  if (safeStr(data.fields["Líneas JSON"]).trim()) return false;
+  await airtableRequest(tableUrl(recordId), {
+    method: "PATCH",
+    body: JSON.stringify({ fields: { "Líneas JSON": lineasJson } }),
+  });
+  return true;
+}

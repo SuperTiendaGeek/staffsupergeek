@@ -5,7 +5,7 @@ import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { buscarDocumentoBloqueante } from "@/lib/facturacion/gancho/idempotencia";
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
 import { mensajeAprobadoSinArticulo, MENSAJE_NO_SE_PUDO_VERIFICAR } from "@/lib/facturacion/reglas/aprobadoSinArticulo";
-import { postEmision, debeIntentarPostEmision } from "@/lib/facturacion/gancho/postEmision";
+import { ejecutarEfectosPostAutorizacion } from "@/lib/facturacion/gancho/efectosPostAutorizacion";
 import {
   agregarNotaAuditoriaFactura,
   assertBorradorDisponibleParaEmision,
@@ -22,10 +22,7 @@ import { verificarArticulosEntregables, mensajeNoEntregables } from "@/lib/factu
 import { verificarProductosDigitalesDisponibles, mensajeProductosDigitalesNoDisponibles } from "@/lib/facturacion/reglas/productosDigitalesDisponibles";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { mensajeReferenciaPagoFaltante } from "@/lib/facturacion/reglas/referenciaPago";
-import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
-import { marcarReservaFacturada } from "@/lib/facturacion/reservas/airtable";
 
-const AMBIENTE_PRODUCCION = "2";
 const CODIGO_DUPLICADO_RECIENTE = "POSIBLE_FACTURA_DUPLICADA_RECIENTE";
 
 type BodyEmitirFactura = DatosVenta & {
@@ -283,48 +280,20 @@ export async function POST(request: Request) {
       }
     }
 
-    // Fase 16 PR3: post-emisión — SIEMPRE fuera de emitirFactura() (que se
-    // mantiene puro) y SIEMPRE detrás de su propio try/catch: si esto falla,
-    // la respuesta de la emisión no cambia — la factura ya es AUTORIZADA
-    // ante el SRI. Se espera (no fire-and-forget) porque el runtime
-    // serverless puede congelar la función apenas se envía la respuesta.
-    // La condición vive en debeIntentarPostEmision() y NO mira body.origen:
-    // el mostrador también descuenta inventario desde la Fase 17.b.
-    if (debeIntentarPostEmision(resultado)) {
-      try {
-        await postEmision({
-          facturaRecordId: resultado.recordId,
-          detalles: body.detalles,
-          ambiente: resultado.ambiente,
-          // Con origen (orden/operación/reserva) la factura cumple la reserva.
-          liberaReserva: !!body.origen,
-        });
-      } catch (e) {
-        console.error("[/api/facturacion/emitir POST] postEmision falló:", e);
-      }
-    }
-
-    // Fase 20.2 — puente de ingresos, en paralelo/independiente de
-    // postEmision (un fallo de inventario no debe bloquear el de finanzas
-    // ni viceversa). Nunca lanza — ver lib/finanzas/puentes/facturacion.ts.
-    await procesarPuenteFacturacion(resultado, body, session.user.nombre || session.user.email || "Portal");
-
-    // Reservas — cerrar la reserva (Estado Facturada + link a la factura) solo
-    // tras una emisión AUTORIZADA real (ambiente producción). En pruebas la
-    // reserva NO se toca: nunca cerrar una reserva real con una factura de
-    // prueba. Best-effort: un fallo aquí no altera la emisión ya autorizada.
-    if (
-      resultado.estado === "AUTORIZADO" &&
-      resultado.recordId &&
-      resultado.ambiente === AMBIENTE_PRODUCCION &&
-      body.origen?.tipo === "reserva"
-    ) {
-      try {
-        await marcarReservaFacturada(body.origen.recordId, resultado.recordId);
-      } catch (e) {
-        console.error("[/api/facturacion/emitir POST] marcar reserva facturada falló:", e);
-      }
-    }
+    // Efectos posteriores a la autorización (inventario, Finanzas, reserva).
+    // SIEMPRE fuera de emitirFactura() (que se mantiene puro) y nunca lanzan:
+    // la factura ya es AUTORIZADA ante el SRI aunque esto falle. Se espera
+    // (no fire-and-forget) porque el runtime serverless puede congelar la
+    // función apenas se envía la respuesta. Es el MISMO punto de entrada que
+    // usan "Consultar estado", recuperar y reintentar (ver
+    // lib/facturacion/gancho/efectosPostAutorizacion.ts): antes estos pasos
+    // vivían solo aquí y una factura autorizada por otro camino quedaba sin
+    // descargar inventario (factura 001-002-000000755).
+    await ejecutarEfectosPostAutorizacion({
+      resultado,
+      datos:         body,
+      registradoPor: session.user.nombre || session.user.email || "Portal",
+    });
 
     return NextResponse.json({ success: true, data: resultado });
   } catch (e) {

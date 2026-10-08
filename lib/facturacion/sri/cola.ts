@@ -1,7 +1,12 @@
 import "server-only";
 
 import type { FacturacionConfig } from "../config";
-import { consultarAutorizacion, type ResultadoAutorizacion } from "./autorizacion";
+import { consultarAutorizacion, ErrorTransitorioSri, type ResultadoAutorizacion } from "./autorizacion";
+
+/** Tope de una consulta individual (igual al de autorizacion.ts). */
+const TIMEOUT_CONSULTA_MS = 30_000;
+/** Nunca menos que esto por consulta, aunque quede poco presupuesto. */
+const TIMEOUT_CONSULTA_MINIMO_MS = 5_000;
 
 // ─── Backoff con polling ──────────────────────────────────────────────────────
 
@@ -47,11 +52,29 @@ export async function esperarAutorizacion(
   const { maxEsperaMs = 60_000, intervaloBase = 2_000 } = opts;
   const inicio = Date.now();
   let intento = 0;
+  let ultimoErrorTransitorio: Error | null = null;
 
   while (true) {
-    const resultado = await consultarAutorizacion(claveAcceso, config);
+    // Cada consulta se acota a lo que queda del presupuesto: un reintento tras
+    // un fallo de red no puede llevar la emisión más allá del maxDuration de
+    // la función (si Vercel la corta, la fila se queda RECIBIDA y depende de
+    // "Consultar estado").
+    const restante = maxEsperaMs - (Date.now() - inicio);
+    const timeoutMs = Math.max(TIMEOUT_CONSULTA_MINIMO_MS, Math.min(TIMEOUT_CONSULTA_MS, restante));
 
-    if (esResultadoDefinitivo(resultado)) {
+    let resultado: ResultadoAutorizacion | null = null;
+    try {
+      resultado = await consultarAutorizacion(claveAcceso, config, { timeoutMs });
+    } catch (e) {
+      // Un fallo de red/espera no es una respuesta del SRI: antes cortaba la
+      // espera en el PRIMER intento (con el SRI ya habiendo autorizado), la
+      // factura quedaba "EN PROCESAMIENTO" y sin descargo. Ahora se vuelve a
+      // preguntar mientras quede tiempo. Cualquier otro error se lanza igual.
+      if (!(e instanceof ErrorTransitorioSri)) throw e;
+      ultimoErrorTransitorio = e;
+    }
+
+    if (resultado && esResultadoDefinitivo(resultado)) {
       return resultado;
     }
 
@@ -61,6 +84,7 @@ export async function esperarAutorizacion(
     const espera = Math.min(intervaloBase * 2 ** (intento - 1), 8_000);
 
     if (transcurrido + espera >= maxEsperaMs) {
+      if (ultimoErrorTransitorio && !resultado) throw ultimoErrorTransitorio;
       throw new Error(
         `Autorización SRI no resuelta en ${maxEsperaMs / 1000}s ` +
         `(clave: ${claveAcceso}). Reintentar más tarde.`

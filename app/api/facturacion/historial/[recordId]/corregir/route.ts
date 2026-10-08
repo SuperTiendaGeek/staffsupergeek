@@ -7,7 +7,8 @@ import { evaluarCorreccion, describirCambios } from "@/lib/facturacion/reglas/co
 import { agregarIntento, recortarSiHaceFalta } from "@/lib/facturacion/historialIntentos";
 import { explicarMensajesSri }       from "@/lib/facturacion/sri/errores";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
-import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
+import { ejecutarEfectosPostAutorizacion } from "@/lib/facturacion/gancho/efectosPostAutorizacion";
+import { leerLineasFactura } from "@/lib/facturacion/reglas/lineasFactura";
 import { totalesDesdeDetalles } from "@/lib/facturacion/reglas/totales";
 
 export const dynamic     = "force-dynamic";
@@ -143,6 +144,12 @@ export async function POST(request: Request, { params }: Params) {
     ? body.detalles
     : detallesGuardados;
 
+  // Pagos y cliente guardados (desde el arreglo de la factura 755 también en
+  // las filas RECIBIDA/NO AUTORIZADO). Antes, si la pantalla no mandaba pagos,
+  // se reenviaba TODO como efectivo ("01"): una venta con tarjeta quedaba en
+  // el XML y en Finanzas como efectivo.
+  const lineasGuardadas = leerLineasFactura(factura.lineasJson);
+
   if (detalles.length === 0) {
     return NextResponse.json(
       {
@@ -172,9 +179,11 @@ export async function POST(request: Request, { params }: Params) {
     totalDescuento:              totalesRecalculados.totalDescuento,
     totalConImpuestos:           totalesRecalculados.totalConImpuestos,
     importeTotal:                totalesRecalculados.importeTotal,
-    pagos:                       body.pagos ?? [{ formaPago: "01", total: totalesRecalculados.importeTotal }],
+    pagos:                       body.pagos ?? pagosGuardadosSiCuadran(lineasGuardadas?.pagos, totalesRecalculados.importeTotal)
+                                   ?? [{ formaPago: "01", total: totalesRecalculados.importeTotal }],
     vendedor:                    session.user.nombre,
     origen,
+    clienteRecordId:             lineasGuardadas?.clienteRecordId,
   };
 
   try {
@@ -216,9 +225,15 @@ export async function POST(request: Request, { params }: Params) {
       console.error("[corregir] no se pudo guardar el historial de intentos:", e);
     });
 
-    // El puente contable solo actúa sobre una emisión autorizada y en
-    // producción; tiene sus propios guards.
-    await procesarPuenteFacturacion(resultado, datosVenta, session.user.nombre || session.user.email || "Portal");
+    // Mismos efectos que una emisión normal (inventario, Finanzas, reserva).
+    // Antes aquí solo corría el puente contable: una factura corregida que
+    // quedaba AUTORIZADA no descargaba inventario. Cada efecto tiene sus
+    // propios guards (solo AUTORIZADO y producción).
+    await ejecutarEfectosPostAutorizacion({
+      resultado,
+      datos:         datosVenta,
+      registradoPor: session.user.nombre || session.user.email || "Portal",
+    });
 
     return NextResponse.json({
       success: true,
@@ -238,4 +253,14 @@ export async function POST(request: Request, { params }: Params) {
       { status: 500 }
     );
   }
+}
+
+/** Los pagos guardados solo se reutilizan si siguen sumando el total recalculado. */
+function pagosGuardadosSiCuadran(
+  pagos: DatosVenta["pagos"] | undefined,
+  total: number
+): DatosVenta["pagos"] | undefined {
+  if (!pagos || pagos.length === 0) return undefined;
+  const suma = pagos.reduce((acc, p) => acc + (Number.isFinite(p.total) ? p.total : 0), 0);
+  return Math.abs(suma - total) < 0.01 ? pagos : undefined;
 }

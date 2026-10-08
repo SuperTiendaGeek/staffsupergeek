@@ -89,8 +89,21 @@ function esErrorRedFetch(err: unknown): boolean {
   return err.name === "TypeError" || /fetch failed|network|dns|tls|socket/i.test(err.message);
 }
 
+/**
+ * Falla de red o de espera al hablar con el WS de autorización: el SRI no
+ * respondió, NO dijo que no. Quien espera una autorización (cola.ts) puede
+ * volver a preguntar dentro de su presupuesto de tiempo; un SOAP Fault o un
+ * HTTP 4xx no son transitorios y se lanzan como Error normal.
+ */
+export class ErrorTransitorioSri extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ErrorTransitorioSri";
+  }
+}
+
 function errorAutorizacionSriNoRespondio(): Error {
-  return new Error(
+  return new ErrorTransitorioSri(
     "El SRI no responde en este momento. La factura YA fue enviada al SRI y " +
     "NO se ha perdido; NO debes emitir otra factura por esta venta. Usa " +
     "\"⟳ Consultar estado\" en el historial más tarde."
@@ -98,7 +111,7 @@ function errorAutorizacionSriNoRespondio(): Error {
 }
 
 function errorTimeoutAutorizacion(): Error {
-  return new Error(
+  return new ErrorTransitorioSri(
     "Timeout (30s) al conectar con AutorizacionComprobantesOffline del SRI. " +
     "La factura YA fue enviada al SRI y NO se ha perdido; NO debes emitir otra " +
     "factura por esta venta. Usa \"⟳ Consultar estado\" en el historial más tarde."
@@ -138,7 +151,14 @@ function buildEnvelope(claveAcceso: string): string {
  */
 export async function consultarAutorizacion(
   claveAcceso: string,
-  config: Pick<FacturacionConfig, "endpointAutorizacion">
+  config: Pick<FacturacionConfig, "endpointAutorizacion">,
+  /**
+   * Tope de espera de ESTA consulta (por defecto 30 s). esperarAutorizacion()
+   * lo acota a lo que le queda de su propio presupuesto, para que un reintento
+   * tras un fallo de red no empuje la emisión más allá del maxDuration de la
+   * función.
+   */
+  opts: { timeoutMs?: number } = {}
 ): Promise<ResultadoAutorizacion> {
   const endpoint = config.endpointAutorizacion.replace(/\?wsdl$/i, "");
   const envelope = buildEnvelope(claveAcceso);
@@ -152,11 +172,15 @@ export async function consultarAutorizacion(
         SOAPAction: '""',
       },
       body: envelope,
-      signal: AbortSignal.timeout(TIMEOUT_AUTORIZACION_MS),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? TIMEOUT_AUTORIZACION_MS),
     });
     body = await res.text();
 
     if (!res.ok && res.status !== 500) {
+      // 502/503/504: el SRI (o su balanceador) no respondió — transitorio.
+      if (res.status === 502 || res.status === 503 || res.status === 504) {
+        throw new ErrorTransitorioSri(`HTTP ${res.status}: ${body.slice(0, 300)}`);
+      }
       throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
     }
   } catch (err: unknown) {

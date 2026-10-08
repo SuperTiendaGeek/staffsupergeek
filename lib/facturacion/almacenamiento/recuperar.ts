@@ -20,6 +20,7 @@ import {
   actualizarEstadoFactura,
   buscarFacturaPorClave,
   crearRegistroFactura,
+  guardarLineasSiFaltan,
   marcarAdjuntosPendientes,
   obtenerNombresAdjuntosFactura,
   subirAdjunto,
@@ -308,8 +309,12 @@ export async function recuperarFacturaAutorizadaPorClave(
   const enAirtable = !!existente;
   let recordId     = existente?.recordId ?? "";
 
+  // fuente "xml-sri": estas líneas salen del XML y NO llevan el record id de
+  // cada Shipping Item — sirven para mostrar la factura, no para descargar
+  // inventario (ver reglas/lineasFactura.ts).
   const lineasJson = JSON.stringify({
     version:       2,
+    fuente:        "xml-sri",
     detalles:      datos.detalles.map((d) => ({
       codigoPrincipal:        d.codigo || undefined,
       descripcion:            d.descripcion,
@@ -347,6 +352,13 @@ export async function recuperarFacturaAutorizadaPorClave(
     await actualizarEstadoFactura(recordId, "AUTORIZADO", {
       "Número de Autorización": autorizacion.numeroAutorizacion,
       "Fecha de Autorización":  autorizacion.fechaAutorizacion,
+    });
+    // Una fila RECIBIDA de antes de que se guardaran las líneas desde el
+    // inicio queda sin detalle ("Detalle de ítems no disponible"). Se rellena
+    // desde el XML solo si está vacío: nunca pisa las líneas v3 de la emisión,
+    // que sí traen el vínculo a inventario.
+    await guardarLineasSiFaltan(recordId, lineasJson).catch((e) => {
+      console.error("[recuperar] no se pudieron guardar las líneas desde el XML:", e);
     });
   }
 

@@ -4,17 +4,22 @@ import { obtenerFactura }            from "@/lib/facturacion/airtable/facturas";
 import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitirFactura";
 import type { DatosVenta, OrigenGancho } from "@/lib/facturacion/emitirFactura";
 import type { DetalleFactura, Pago } from "@/lib/facturacion/types/factura";
-import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
+import { ejecutarEfectosPostAutorizacion } from "@/lib/facturacion/gancho/efectosPostAutorizacion";
 import { inferirTipoSugerido } from "@/lib/facturacion/reglas/identificacion";
+import { leerLineasFactura } from "@/lib/facturacion/reglas/lineasFactura";
 
 export const dynamic    = "force-dynamic";
 export const maxDuration = 90;
 
 type Params = { params: Promise<{ recordId: string }> };
 
-// Reintentar solo está permitido para facturas PENDIENTE, RECIBIDA o DEVUELTA.
-// Para AUTORIZADO no tiene sentido y podría crear duplicados.
-const ESTADOS_REINTENTABLES = new Set(["PENDIENTE", "RECIBIDA", "DEVUELTA"]);
+// Reintentar (emitir de nuevo, con número NUEVO) solo para PENDIENTE o
+// DEVUELTA: el SRI no tiene ese comprobante. RECIBIDA quedó fuera a
+// propósito: el SRI YA lo tiene y lo va a autorizar; reemitir crearía una
+// segunda factura real por la misma venta. Para RECIBIDA el camino es
+// "⟳ Consultar estado". (Hasta ahora no se notaba porque las filas RECIBIDA
+// no guardaban líneas y el botón no aparecía; desde que las guardan, sí.)
+const ESTADOS_REINTENTABLES = new Set(["PENDIENTE", "DEVUELTA"]);
 
 export async function POST(req: Request, { params }: Params) {
   const { response, session } = await requireFacturacionSession();
@@ -115,14 +120,21 @@ export async function POST(req: Request, { params }: Params) {
     pagos: payload.pagos && payload.pagos.length > 0 ? payload.pagos : [{ formaPago: "01", total: importeTotal }],
     vendedor: session.user.nombre,
     origen,
+    // Cliente vinculado, si la emisión original lo guardó (para el vínculo y
+    // el movimiento de Finanzas de la factura nueva).
+    clienteRecordId: leerLineasFactura(factura.lineasJson)?.clienteRecordId,
   };
 
   try {
     const resultado = await emitirFactura(datosVenta);
-    // Fase 20.2 — mismo puente que /api/facturacion/emitir; sin esto, un
-    // reintento exitoso de una factura con abonos nunca los marcaría como
-    // facturados (el `origen` reconstruido arriba es justamente para esto).
-    await procesarPuenteFacturacion(resultado, datosVenta, session.user.nombre || session.user.email || "Portal");
+    // Mismos efectos que /api/facturacion/emitir (inventario, Finanzas,
+    // reserva). Antes aquí solo corría el puente contable: un reintento
+    // exitoso dejaba la factura AUTORIZADA sin descargar inventario.
+    await ejecutarEfectosPostAutorizacion({
+      resultado,
+      datos:         datosVenta,
+      registradoPor: session.user.nombre || session.user.email || "Portal",
+    });
     return NextResponse.json({ success: true, data: resultado });
   } catch (e) {
     console.error("[reintentar POST]", e);

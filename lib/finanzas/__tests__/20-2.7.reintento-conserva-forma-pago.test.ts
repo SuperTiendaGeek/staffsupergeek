@@ -32,10 +32,17 @@ function assert(cond: boolean, msg: string): void {
 
 const RUTA_ARCHIVO = path.join(process.cwd(), "app/api/facturacion/historial/[recordId]/reintentar/route.ts");
 const RUTA_EMITIR_FACTURA = path.join(process.cwd(), "lib/facturacion/emitirFactura.ts");
+// Desde el arreglo de la factura 755 las líneas se arman en un solo lugar
+// (reglas/lineasFactura.ts), que emitirFactura.ts llama antes del SRI.
+const RUTA_LINEAS = path.join(process.cwd(), "lib/facturacion/reglas/lineasFactura.ts");
+// Y los efectos tras autorizar (inventario + puente + reserva) también.
+const RUTA_EFECTOS = path.join(process.cwd(), "lib/facturacion/gancho/efectosPostAutorizacion.ts");
 
 function main() {
   const fuente = fs.readFileSync(RUTA_ARCHIVO, "utf8");
   const fuenteEmitir = fs.readFileSync(RUTA_EMITIR_FACTURA, "utf8");
+  const fuenteLineas = fs.readFileSync(RUTA_LINEAS, "utf8");
+  const fuenteEfectos = fs.readFileSync(RUTA_EFECTOS, "utf8");
 
   // El bug viejo: `JSON.parse(factura.lineasJson) as DetalleFactura[]` — ya no debe estar.
   assert(
@@ -52,12 +59,17 @@ function main() {
   assert(fuente.includes("parsed.detalles"), "El reintento valida que `detalles` sea el array real, no el envoltorio completo");
   // origen se reconstruye para que el puente de abonos se dispare en un reintento exitoso.
   assert(fuente.includes("parsed.origen") && fuente.includes("origen,"), "El reintento reconstruye `origen` desde el payload guardado");
-  // procesarPuenteFacturacion se invoca tras un reintento exitoso.
-  assert(fuente.includes("procesarPuenteFacturacion"), "El reintento dispara el puente de facturación igual que la emisión normal");
+  // El puente (y el descargo) se invocan tras un reintento exitoso, por el
+  // mismo punto de entrada que la emisión normal.
+  assert(
+    fuente.includes("ejecutarEfectosPostAutorizacion") && fuenteEfectos.includes("procesarPuenteFacturacion"),
+    "El reintento dispara el puente de facturación igual que la emisión normal"
+  );
 
-  // emitirFactura.ts debe guardar el array `pagos` completo, no solo el primero.
-  assert(fuenteEmitir.includes("pagos:         datos.pagos,") || fuenteEmitir.includes("pagos: datos.pagos,"), "emitirFactura.ts guarda el array `pagos` completo en Líneas JSON");
-  assert(fuenteEmitir.includes("formaPago:     datos.pagos[0]?.formaPago,"), "Se conserva `formaPago` (compatibilidad con lectores viejos), sin quitarlo");
+  // Las líneas guardan el array `pagos` completo, no solo el primero.
+  assert(fuenteEmitir.includes("serializarLineasFactura(") && fuenteEmitir.includes("pagos:           datos.pagos,"), "emitirFactura.ts pasa el array `pagos` completo a las Líneas JSON");
+  assert(fuenteLineas.includes("pagos:           input.pagos,"), "Líneas JSON guarda el array `pagos` completo");
+  assert(fuenteLineas.includes("formaPago:       input.pagos[0]?.formaPago,"), "Se conserva `formaPago` (compatibilidad con lectores viejos), sin quitarlo");
 
   if (fallos > 0) {
     console.error(`\n${fallos} fallo(s).`);

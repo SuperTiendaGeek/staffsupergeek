@@ -62,6 +62,15 @@ export type DatosComprobanteError = {
   iva:            number;
   total:          number;
   mensajesSri:    MensajeSRI[];
+  /**
+   * Líneas de la venta (mismo envoltorio v3 que persistirAutorizado). Se
+   * guardan YA en la fila RECIBIDA: si la espera del SRI se agota o el
+   * proceso se corta, la factura se autoriza después por "Consultar estado"
+   * y sin estas líneas no habría forma de saber qué Shipping Items descontar
+   * (el XML del SRI no lleva el record id del artículo). Ver
+   * lib/facturacion/gancho/efectosPostAutorizacion.ts.
+   */
+  lineasJson?:    string;
 };
 
 // ─── Directorio de respaldo en disco ─────────────────────────────────────────
@@ -215,5 +224,6 @@ export async function registrarIntento(
     iva:                   datos.iva,
     total:                 datos.total,
     mensajesSri:           datos.mensajesSri,
+    lineasJson:            datos.lineasJson,
   }, recordIdExistente);
 }

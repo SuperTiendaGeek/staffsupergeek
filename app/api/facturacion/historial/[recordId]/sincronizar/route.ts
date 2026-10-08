@@ -1,32 +1,28 @@
 import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { obtenerFactura }            from "@/lib/facturacion/airtable/facturas";
-import { postEmision }               from "@/lib/facturacion/gancho/postEmision";
-import type { DetalleFactura }       from "@/lib/facturacion/types/factura";
-import type { OrigenGancho }         from "@/lib/facturacion/emitirFactura";
+import { completarFacturaAutorizada } from "@/lib/facturacion/gancho/efectosPostAutorizacion";
 
 export const dynamic    = "force-dynamic";
 export const maxDuration = 60;
 
 type Params = { params: Promise<{ recordId: string }> };
 
-// lineasJson version >= 3 (emitirFactura.ts) es un OBJETO envoltorio
-// {version, detalles, formaPago, infoAdicional, origen} — nunca un array
-// bare. (El endpoint /reintentar tiene un bug preexistente que lo trata como
-// array; ver docs/DISENO_FASE16_GANCHO_FACTURACION.md — no reproducido aquí.)
-type LineasJsonEnvoltorio = {
-  version:   number;
-  detalles?: DetalleFactura[];
-  origen?:   OrigenGancho;
-};
-
-// Reintentar sincronización tiene sentido para cualquier factura ya AUTORIZADA
-// que traiga líneas de inventario, venga del gancho o del mostrador. (Hasta
-// agosto de 2026 este comentario decía "mostrador nunca dispara postEmision":
-// era cierto, pero por un bug del endpoint de emisión, no por diseño.)
+// "↺ Reintentar sincronización" / "Completar descargo" del historial.
+//
+// Completa lo que falte de una factura AUTORIZADA (descargo de inventario,
+// vínculo a su orden/operación, ingreso en Finanzas si no tiene ninguno,
+// cierre de reserva) con el mismo punto de entrada que usa "Consultar estado"
+// — ver lib/facturacion/gancho/efectosPostAutorizacion.ts. Idempotente.
+//
+// Antes este endpoint rechazaba las facturas de mostrador ("sin origen —
+// nada que sincronizar"), aunque el mostrador descuenta inventario desde la
+// Fase 17.b, y forzaba liberaReserva=true. Ambas cosas se corrigieron: ahora
+// cualquier factura AUTORIZADA con líneas se puede completar, y la reserva
+// solo se libera si la factura viene de un origen.
 export async function POST(_req: Request, { params }: Params) {
-  const { response } = await requireFacturacionSession();
-  if (response) return response;
+  const { response, session } = await requireFacturacionSession();
+  if (response || !session) return response ?? NextResponse.json({ success: false, error: "Sin sesión" }, { status: 401 });
 
   const { recordId } = await params;
   const factura = await obtenerFactura(recordId);
@@ -40,46 +36,18 @@ export async function POST(_req: Request, { params }: Params) {
       { status: 400 }
     );
   }
-  if (!factura.lineasJson) {
-    return NextResponse.json(
-      { success: false, error: "Esta factura no tiene líneas guardadas; no puede sincronizarse" },
-      { status: 400 }
-    );
-  }
 
-  let payload: LineasJsonEnvoltorio;
   try {
-    const raw: unknown = JSON.parse(factura.lineasJson);
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      return NextResponse.json(
-        { success: false, error: "Esta factura es de mostrador o de una versión anterior (sin origen) — nada que sincronizar" },
-        { status: 400 }
-      );
+    const resultado = await completarFacturaAutorizada(recordId, session.user.nombre || session.user.email || "Portal");
+    if (resultado.accion === "sin-lineas" || resultado.accion === "en-curso") {
+      return NextResponse.json({ success: false, error: resultado.motivo }, { status: 409 });
     }
-    payload = raw as LineasJsonEnvoltorio;
-  } catch {
-    return NextResponse.json({ success: false, error: "Líneas JSON inválidas en el registro" }, { status: 400 });
-  }
-
-  if (!payload.origen) {
-    return NextResponse.json(
-      { success: false, error: "Esta factura es de mostrador (sin origen) — no dispara sincronización de inventario" },
-      { status: 400 }
-    );
-  }
-  if (!Array.isArray(payload.detalles)) {
-    return NextResponse.json({ success: false, error: "Líneas JSON sin detalles" }, { status: 400 });
-  }
-
-  try {
-    const resultado = await postEmision({
-      facturaRecordId: recordId,
-      detalles:        payload.detalles,
-      ambiente:        factura.ambiente === "PRODUCCIÓN" ? "2" : "1",
-      // Solo se sincronizan facturas con origen (ver arriba): cumplen su reserva.
-      liberaReserva:   true,
-    });
-    return NextResponse.json({ success: true, data: resultado });
+    const avisos: string[] = [];
+    if (resultado.accion === "nada" && resultado.motivo) avisos.push(resultado.motivo);
+    if (resultado.efectos?.inventario?.estado === "ERROR") {
+      avisos.push(`El descargo quedó con errores: ${resultado.efectos.inventario.detalle ?? "revisa el detalle en la factura"}`);
+    }
+    return NextResponse.json({ success: true, data: { ...resultado, avisos } });
   } catch (e) {
     console.error("[/sincronizar POST]", e);
     return NextResponse.json(
