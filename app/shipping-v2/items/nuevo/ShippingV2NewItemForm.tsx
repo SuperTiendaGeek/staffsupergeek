@@ -49,7 +49,12 @@ export type ShippingV2CajaAbierta = {
 type Props = {
   proveedores: ShippingV2Proveedor[];
   cajasAbiertas: ShippingV2CajaAbierta[];
+  /** Punto 4: llega desde "Registrar activo" (pestaña Activos de la tienda). */
+  esActivoInicial?: boolean;
 };
+
+/** Punto 4 (8-oct): ¿es mercadería para vender o un activo de la tienda? */
+type Destino = "mercaderia" | "activo";
 
 type SelectedPhoto = {
   id: string;
@@ -60,6 +65,7 @@ type SelectedPhoto = {
 type ViajeOpcion = "solo" | "caja" | "nose";
 
 type FormState = {
+  destino: Destino;
   origen: OrigenArticulo | "";
   proveedorId: string;
   categoria: string;
@@ -96,6 +102,7 @@ function firstOption(options: readonly string[]) {
 }
 
 const initialState: FormState = {
+  destino: "mercaderia",
   origen: "",
   proveedorId: "",
   categoria: "",
@@ -125,95 +132,84 @@ const initialState: FormState = {
   packingDestinoId: "",
 };
 
-const ORIGEN_AYUDA: Record<OrigenArticulo, string> = {
-  [ORIGEN_TIENDA]: "Ya lo tenemos aquí. Nace recibido: no pide rastreo ni caja.",
-  [ORIGEN_EXTRANJERO]: "Viene de fuera del país, normalmente por el casillero. Aparecerá en Recepción → Por llegar.",
-  [ORIGEN_LOCAL]: "Viene de un proveedor dentro de Ecuador. Aparecerá en Recepción → Por llegar.",
+// Diseño (8-oct): pantalla de uso diario. Etiquetas cortas, controles
+// segmentados en vez de tarjetas, ayuda solo en tooltips. Regla del dueño:
+// optimizar para el uso número 100, no para el primero.
+
+const ORIGEN_CORTO: Record<OrigenArticulo, string> = {
+  [ORIGEN_TIENDA]: "En tienda",
+  [ORIGEN_EXTRANJERO]: "Extranjero",
+  [ORIGEN_LOCAL]: "Local",
 };
 
-function OrigenBoton({ origen, activo, onClick }: { origen: OrigenArticulo; activo: boolean; onClick: () => void }) {
+const ORIGEN_AYUDA: Record<OrigenArticulo, string> = {
+  [ORIGEN_TIENDA]: "Ya está aquí: nace recibido.",
+  [ORIGEN_EXTRANJERO]: "Viene de fuera del país (casillero). Va a Recepción → Por llegar.",
+  [ORIGEN_LOCAL]: "Proveedor en Ecuador. Va a Recepción → Por llegar.",
+};
+
+const inputBase = "h-8 w-full rounded-md border bg-[#151515] px-2.5 text-sm text-[#F5F5F5] outline-none placeholder:text-[#5E5F59] transition";
+
+/** Control segmentado compacto. */
+function Seg<T extends string>({ value, options, onChange, invalid }: {
+  value: T | "";
+  options: ReadonlyArray<{ value: T; label: string; title?: string }>;
+  onChange: (value: T) => void;
+  invalid?: boolean;
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={activo}
-      className={`min-w-0 rounded-xl border px-3 py-2.5 text-left transition ${activo ? "border-[#D7FF4F] bg-[#D7FF4F]/12" : "border-[#3A3A36] bg-[#151515] hover:border-[#D7FF4F]/50"}`}
-    >
-      <span className={`block text-sm font-bold ${activo ? "text-[#D7FF4F]" : "text-[#F5F5F5]"}`}>{origen}</span>
-      <span className="mt-0.5 block text-xs leading-5 text-[#A7A7A7]">{ORIGEN_AYUDA[origen]}</span>
-    </button>
+    <div role="radiogroup" className={`inline-flex w-full overflow-hidden rounded-md border ${invalid ? "border-[#FF914D]/70" : "border-[#3A3A36]"}`}>
+      {options.map((o) => {
+        const on = value === o.value;
+        return (
+          <button key={o.value} type="button" role="radio" aria-checked={on} title={o.title} onClick={() => onChange(o.value)}
+            className={`h-8 flex-1 whitespace-nowrap border-r border-[#3A3A36] px-2.5 text-[13px] font-semibold transition last:border-r-0 ${on ? "bg-[#D7FF4F] text-[#151515]" : "bg-[#151515] text-[#B4B5AC] hover:text-[#D7FF4F]"}`}>
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-function Field({ label, children, required, error }: { label: string; children: ReactNode; required?: boolean; error?: string }) {
+function Field({ label, children, required, error, className = "", grupo = false }: {
+  label: string; children: ReactNode; required?: boolean; error?: string; className?: string;
+  /** true para botones o casillas: no se envuelve en <label> (tocar el título no activa la primera opción). */
+  grupo?: boolean;
+}) {
+  const Tag = grupo ? "div" : "label";
   return (
-    <label className="block min-w-0 space-y-1.5">
-      <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">
+    <Tag className={`block min-w-0 ${className}`}>
+      <span className="mb-1 block text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
         {label}
-        {required ? <span className="ml-1 text-[#FF914D]">*</span> : null}
+        {required ? <span className="ml-0.5 text-[#FF914D]">*</span> : null}
+        {error ? <span className="ml-1.5 normal-case tracking-normal text-[#FFB07A]">{error}</span> : null}
       </span>
       {children}
-      {error ? <p className="text-xs leading-5 text-[#FFB07A]">{error}</p> : null}
-    </label>
+    </Tag>
   );
 }
 
 function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className="h-9 w-full rounded-lg border border-[#3A3A36] bg-[#151515] px-3 text-sm text-[#F5F5F5] outline-none placeholder:text-[#696A64] transition focus:border-[#D7FF4F]/70"
-    />
-  );
+  const invalid = props["aria-invalid"] === true || props["aria-invalid"] === "true";
+  return <input {...props} className={`${inputBase} ${invalid ? "border-[#FF914D]/70" : "border-[#3A3A36] focus:border-[#D7FF4F]/70"}`} />;
 }
 
 function SelectInput(props: SelectHTMLAttributes<HTMLSelectElement>) {
   const invalid = props["aria-invalid"] === true || props["aria-invalid"] === "true";
-
-  return (
-    <select
-      {...props}
-      className={`h-9 w-full rounded-lg border bg-[#151515] px-3 text-sm font-semibold text-[#F5F5F5] outline-none transition ${invalid ? "border-[#FF914D]/70 focus:border-[#FF914D]" : "border-[#3A3A36] focus:border-[#D7FF4F]/70"}`}
-    />
-  );
+  return <select {...props} className={`${inputBase} ${invalid ? "border-[#FF914D]/70" : "border-[#3A3A36] focus:border-[#D7FF4F]/70"}`} />;
 }
 
-function FormCard({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
   return (
-    <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-xl shadow-black/15">
-      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-[#F5F5F5]">{title}</h2>
-          {description ? <p className="mt-0.5 text-[13px] leading-5 text-[#A7A7A7]">{description}</p> : null}
-        </div>
+    <section className="rounded-lg border border-[#2E2F28] bg-[#171814] px-3 pb-3 pt-2">
+      <div className="mb-2 flex items-center gap-2">
+        <h2 className="text-[11px] font-bold uppercase tracking-wider text-[#D7FF4F]">{title}</h2>
+        {aside ? <div className="ml-auto text-[11px] text-[#7E7F76]">{aside}</div> : null}
       </div>
       {children}
     </section>
   );
-}
-
-function TextArea({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
-  placeholder?: string;
-}) {
-  return (
-    <textarea
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      className="min-h-20 w-full rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2 text-sm text-[#F5F5F5] outline-none placeholder:text-[#696A64] transition focus:border-[#D7FF4F]/70"
-    />
-  );
-}
-
-function formatFileSize(bytes: number) {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 function parseDecimalInput(value: string) {
@@ -243,9 +239,10 @@ function formatMoneyPreview(value: number | null) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
 
-export function ShippingV2NewItemForm({ proveedores, cajasAbiertas }: Props) {
+export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInicial = false }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>(initialState);
+  const [form, setForm] = useState<FormState>({ ...initialState, destino: esActivoInicial ? "activo" : "mercaderia" });
+  const esActivo = form.destino === "activo";
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -268,7 +265,10 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas }: Props) {
   const logisticos = activos.filter((p) => esProveedorLogistico(p));
   const transportistasOrigen = logisticos.filter((p) => p.esCasillero !== true && origenSegunZona(p.paisZonaLogistica) === ORIGEN_EXTRANJERO);
   const transportistasEcuador = logisticos.filter((p) => p.esCasillero === true || origenSegunZona(p.paisZonaLogistica) === ORIGEN_LOCAL);
-  const tiposOperacion = origen ? TIPOS_OPERACION_POR_ORIGEN[origen] : [];
+  // Un activo no se registra como despiece (eso es para sacar piezas a la venta).
+  const tiposOperacion = origen
+    ? TIPOS_OPERACION_POR_ORIGEN[origen].filter((t) => !(esActivo && t === "Despiece de equipo"))
+    : [];
 
   // Cajas abiertas donde puede entrar: del mismo proveedor o del mismo casillero.
   const cajasCompatibles = cajasAbiertas.filter((caja) => {
@@ -283,7 +283,8 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas }: Props) {
   );
   const fastNameSuggestion = useMemo(() => normalizeItemNameFast(form.nombre), [form.nombre]);
   const showFastNameSuggestion = Boolean(fastNameSuggestion && fastNameSuggestion !== form.nombre.trim());
-  const requiereInspeccion = form.requiereInspeccion ?? requiereInspeccionPorDefecto({ categoria: form.categoria, tipoOperacion: form.tipoOperacion });
+  // Un activo no pide inspección salvo que se marque (dueño, 8-oct).
+  const requiereInspeccion = form.requiereInspeccion ?? (esActivo ? false : requiereInspeccionPorDefecto({ categoria: form.categoria, tipoOperacion: form.tipoOperacion }));
   const cantidadNormalizada = parsePositiveIntegerInput(form.cantidad);
   const costoProveedorUnitario = parseNonNegativeMoneyInput(form.costoProveedor);
   const precioVentaFinalDecimal = parseDecimalInput(form.precioVentaFinal);
@@ -295,7 +296,7 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas }: Props) {
   const showQuantityWarning = submitAttempted && cantidadNormalizada === null;
   const showCostWarning = isPurchaseOperation && !parsePositiveMoneyInput(form.costoProveedor);
   const showGiftCostWarning = isGiftOperation && costoProveedorUnitario !== null && costoProveedorUnitario > 0;
-  const finalPriceProvided = form.precioVentaFinal.trim() !== "";
+  const finalPriceProvided = !esActivo && form.precioVentaFinal.trim() !== "";
   const showFinalPriceWarning = submitAttempted && finalPriceProvided && (precioVentaFinalDecimal === null || precioVentaFinalDecimal < 0);
   const showCategoryWarning = submitAttempted && !form.categoria;
   const showOrigenWarning = submitAttempted && !form.origen;
@@ -328,7 +329,7 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas }: Props) {
       return changed ? next : current;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.origen, proveedoresCompra.length]);
+  }, [form.origen, form.destino, proveedoresCompra.length]);
 
   useEffect(() => {
     if (form.packingDestinoId && !cajasCompatibles.some((c) => c.id === form.packingDestinoId)) update("packingDestinoId", "");
@@ -347,9 +348,9 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas }: Props) {
     setForm((current) => ({
       ...current,
       [key]: value,
-      // Al cambiar la categoría o el tipo de operación se vuelve a proponer
-      // "Requiere inspección" según la nueva categoría.
-      ...(key === "categoria" || key === "tipoOperacion" ? { requiereInspeccion: null } : {}),
+      // Al cambiar la categoría, el tipo de operación o el destino se vuelve a
+      // proponer "Requiere inspección".
+      ...(key === "categoria" || key === "tipoOperacion" || key === "destino" ? { requiereInspeccion: null } : {}),
     }));
   }
 
@@ -422,8 +423,10 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas }: Props) {
       cantidad: form.cantidad,
       unidad: form.unidad,
       costoProveedor: form.costoProveedor,
-      precioVentaSugerido: form.precioVentaSugerido,
-      precioVentaFinal: form.precioVentaFinal,
+      // Un activo no se vende: no lleva precio.
+      precioVentaSugerido: esActivo ? "" : form.precioVentaSugerido,
+      precioVentaFinal: esActivo ? "" : form.precioVentaFinal,
+      usoLocal: esActivo ? "true" : "false",
       descripcion: form.descripcion,
       observacionesInternas: form.observacionesInternas,
       proveedorLogisticoId: extranjero ? form.casilleroId : "",
@@ -463,110 +466,129 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas }: Props) {
     }
 
     const avisos = [payload.packingWarning, avisoFotos].filter(Boolean).join(" ");
-    const notice = `Artículo ${creado?.sku || ""} creado.${avisos ? ` ${avisos}` : ""}`;
+    const notice = `${esActivo ? "Activo" : "Artículo"} ${creado?.sku || ""} creado.${avisos ? ` ${avisos}` : ""}`;
     window.sessionStorage.setItem("shipping-v2:notice", notice);
-    router.push("/shipping-v2/items");
+    router.push(esActivo ? "/shipping-v2/activos" : "/shipping-v2/items");
     router.refresh();
   }
 
+  // Lo que pasará al guardar, en chips (sin frases largas).
+  const resumen = [
+    esActivo ? "Activo de la tienda" : null,
+    origen === ORIGEN_TIENDA ? "Recibido" : null,
+    vieneDeAfuera ? "Por llegar" : null,
+    vieneDeAfuera && form.viaje !== "caja" && (form.trackingOrigen || form.trackingEcuador || form.trackingLocal) ? "En tránsito" : null,
+    vieneDeAfuera && form.viaje === "caja" && form.packingDestinoId ? "En caja" : null,
+    origen && requiereInspeccion ? "Con inspección" : null,
+    calculatedFlow.requierePago ? "Por pagar" : null,
+  ].filter(Boolean) as string[];
+
+  const transportistasEc = transportistasEcuador.length ? transportistasEcuador : logisticos;
+
   return (
-    <form onSubmit={handleSubmit} noValidate className="w-full max-w-none space-y-3">
+    <form onSubmit={handleSubmit} noValidate className="w-full max-w-none space-y-2 pb-16">
       {error ? (
-        <div className="whitespace-pre-line rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{error}</div>
+        <div className="whitespace-pre-line rounded-md border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">{error}</div>
       ) : null}
 
-      <div className="grid gap-3 lg:grid-cols-12 lg:items-start">
-        <div className="space-y-3 lg:col-span-8">
-          <FormCard title="1. ¿Dónde está el artículo?" description="Esto ordena todo lo demás: qué proveedores aparecen, qué tipos de operación aplican y si hace falta seguir su llegada.">
-            <div className="grid gap-2 sm:grid-cols-3">
-              {ORIGENES_ARTICULO.map((o) => (
-                <OrigenBoton key={o} origen={o} activo={form.origen === o} onClick={() => update("origen", o)} />
-              ))}
-            </div>
-            {showOrigenWarning ? <p className="mt-2 text-xs leading-5 text-[#FFB07A]">Elige una opción.</p> : null}
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <Field label="Proveedor" required={calculatedFlow.requierePago}>
-                <SelectInput value={form.proveedorId} onChange={(event) => update("proveedorId", event.target.value)} disabled={!origen}>
-                  <option value="">{origen ? "Sin proveedor" : "Primero elige dónde está"}</option>
-                  {proveedoresCompra.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
-                </SelectInput>
+      <div className="grid gap-2 lg:grid-cols-12 lg:items-start">
+        <div className="space-y-2 lg:col-span-9">
+          <Section
+            title="Artículo"
+            aside={
+              // Casi todo es mercadería: "Uso local" queda discreto y solo se
+              // marca para un activo de la tienda (decisión del dueño, 8-oct).
+              <label title="Activo de la tienda: no se vende y aparece en Activos de la tienda."
+                className={`flex cursor-pointer items-center gap-1.5 ${esActivo ? "font-semibold text-[#C9BFFF]" : ""}`}>
+                <input type="checkbox" checked={esActivo} onChange={(event) => update("destino", event.target.checked ? "activo" : "mercaderia")}
+                  className="h-3.5 w-3.5 accent-[#8B73FF]" />
+                Uso local
+              </label>
+            }
+          >
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
+              <Field label="Origen" grupo required error={showOrigenWarning ? "Elige uno" : undefined} className="xl:col-span-5">
+                <Seg<OrigenArticulo>
+                  value={form.origen}
+                  invalid={showOrigenWarning}
+                  onChange={(v) => update("origen", v)}
+                  options={ORIGENES_ARTICULO.map((o) => ({ value: o, label: ORIGEN_CORTO[o], title: ORIGEN_AYUDA[o] }))}
+                />
               </Field>
-              <Field label="Categoría" required={showCategoryWarning} error={showCategoryWarning ? "Campo obligatorio." : undefined}>
-                <SelectInput value={form.categoria} aria-invalid={showCategoryWarning} onChange={(event) => update("categoria", event.target.value)}>
-                  <option value="">Selecciona una categoría</option>
-                  {SHIPPING_V2_CATEGORIAS.map((option) => <option key={option}>{option}</option>)}
-                </SelectInput>
-              </Field>
-              <Field label="Tipo de operación">
+              <Field label="Operación" className="xl:col-span-3">
                 <SelectInput value={form.tipoOperacion} onChange={(event) => update("tipoOperacion", event.target.value)} disabled={!origen}>
-                  {!origen ? <option value="">Primero elige dónde está</option> : null}
+                  {!origen ? <option value="">—</option> : null}
                   {tiposOperacion.map((option) => <option key={option}>{option}</option>)}
                 </SelectInput>
               </Field>
-            </div>
-          </FormCard>
 
-          <FormCard title="2. Datos del artículo">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <div className="md:col-span-2 xl:col-span-3">
-                <Field label="Nombre del artículo">
-                  <TextInput value={form.nombre} onChange={(event) => update("nombre", event.target.value)} placeholder="Sin nombre si se deja vacío" />
-                  {showFastNameSuggestion ? (
-                    <div className="mt-2 rounded-lg border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-3 py-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Versión rápida sugerida</p>
-                      <p className="mt-1 text-sm text-[#F5F5F5]">{fastNameSuggestion}</p>
-                      <button type="button" onClick={() => update("nombre", fastNameSuggestion)} className="mt-2 rounded-lg border border-[#D7FF4F] px-3 py-1.5 text-xs font-bold uppercase tracking-normal text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515]">
-                        Usar versión rápida
-                      </button>
-                    </div>
-                  ) : null}
-                </Field>
-              </div>
-              <Field label="Marca">
-                <TextInput value={form.marca} onChange={(event) => update("marca", event.target.value)} />
+              <Field label="Proveedor" required={calculatedFlow.requierePago} className="xl:col-span-4">
+                <SelectInput value={form.proveedorId} onChange={(event) => update("proveedorId", event.target.value)} disabled={!origen}>
+                  <option value="">{origen ? "Sin proveedor" : "—"}</option>
+                  {proveedoresCompra.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
+                </SelectInput>
               </Field>
-              <Field label="Modelo">
-                <TextInput value={form.modelo} onChange={(event) => update("modelo", event.target.value)} />
+              <Field label="Categoría" required error={showCategoryWarning ? "Obligatorio" : undefined} className="xl:col-span-4">
+                <SelectInput value={form.categoria} aria-invalid={showCategoryWarning} onChange={(event) => update("categoria", event.target.value)}>
+                  <option value="">—</option>
+                  {SHIPPING_V2_CATEGORIAS.map((option) => <option key={option}>{option}</option>)}
+                </SelectInput>
               </Field>
-              <Field label="Número de serie">
-                <TextInput value={form.numeroSerie} onChange={(event) => update("numeroSerie", event.target.value)} />
-              </Field>
-              <Field label="Condición">
+              <Field label="Condición" className="xl:col-span-3">
                 <SelectInput value={form.condicion} onChange={(event) => update("condicion", event.target.value)}>
                   <option value="">—</option>
                   {SHIPPING_V2_CONDICIONES.map((option) => <option key={option}>{option}</option>)}
                 </SelectInput>
               </Field>
-              <Field label="SKU">
-                <TextInput value={form.sku} onChange={(event) => update("sku", event.target.value)} placeholder="Se genera solo si se deja vacío" />
+              <Field label="Inspección" grupo className="xl:col-span-5">
+                <label
+                  title={requiereInspeccion ? "Se vende (o entra en uso) al firmar su ficha de inspección." : "No pasa por Inspección."}
+                  className="flex h-8 cursor-pointer items-center gap-2 rounded-md border border-[#3A3A36] bg-[#151515] px-2.5 text-[13px] text-[#F5F5F5]"
+                >
+                  <input type="checkbox" checked={requiereInspeccion} onChange={(event) => update("requiereInspeccion", event.target.checked)} className="h-3.5 w-3.5 accent-[#D7FF4F]" />
+                  Requiere inspección
+                  {form.requiereInspeccion === null && form.categoria && !esActivo ? <span className="ml-auto text-[10.5px] text-[#7E7F76]">por categoría</span> : null}
+                </label>
               </Field>
-              <Field label="SKU proveedor">
+
+              <Field label="Nombre" grupo className="sm:col-span-2 xl:col-span-12">
+                <TextInput value={form.nombre} onChange={(event) => update("nombre", event.target.value)} />
+                {showFastNameSuggestion ? (
+                  <button type="button" onClick={() => update("nombre", fastNameSuggestion)}
+                    className="mt-1 max-w-full truncate text-left text-[11.5px] text-[#D7FF4F] hover:underline" title="Usar este nombre">
+                    Usar: {fastNameSuggestion}
+                  </button>
+                ) : null}
+              </Field>
+              <Field label="Marca" className="xl:col-span-3">
+                <TextInput value={form.marca} onChange={(event) => update("marca", event.target.value)} />
+              </Field>
+              <Field label="Modelo" className="xl:col-span-3">
+                <TextInput value={form.modelo} onChange={(event) => update("modelo", event.target.value)} />
+              </Field>
+              <Field label="Nº de serie" className="xl:col-span-2">
+                <TextInput value={form.numeroSerie} onChange={(event) => update("numeroSerie", event.target.value)} />
+              </Field>
+              <Field label="SKU" className="xl:col-span-2">
+                <TextInput value={form.sku} onChange={(event) => update("sku", event.target.value)} placeholder="Automático" />
+              </Field>
+              <Field label="SKU proveedor" className="xl:col-span-2">
                 <TextInput value={form.skuProveedor} onChange={(event) => update("skuProveedor", event.target.value)} />
               </Field>
-              <label className="flex min-w-0 cursor-pointer items-start gap-2.5 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 py-2.5 md:col-span-2 xl:col-span-3">
-                <input
-                  id="requiereInspeccion"
-                  type="checkbox"
-                  checked={requiereInspeccion}
-                  onChange={(event) => update("requiereInspeccion", event.target.checked)}
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#D7FF4F]"
-                />
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-[#F5F5F5]">Requiere inspección técnica</span>
-                  <span className="block text-xs leading-5 text-[#A7A7A7]">
-                    {requiereInspeccion
-                      ? "Se vende cuando esté en la tienda y se firme su ficha de inspección."
-                      : "Se vende apenas esté en la tienda. No pasa por Inspección."}
-                    {form.requiereInspeccion === null && form.categoria ? " (Propuesto por la categoría.)" : ""}
-                  </span>
-                </span>
-              </label>
             </div>
-          </FormCard>
+          </Section>
 
-          <FormCard title="3. Cantidad, costo y precio">
-            <div className="grid gap-3 md:grid-cols-3">
-              <Field label="Cantidad" required error={showQuantityWarning ? "Entero mayor a 0." : undefined}>
+          <Section
+            title={esActivo ? "Cantidad y costo" : "Cantidad y precio"}
+            aside={
+              <span className="tabular-nums">
+                Subtotal <b className="text-[#F5F5F5]">{formatMoneyPreview(subtotalProveedor)}</b>
+                {!esActivo ? <> · Venta <b className="text-[#D7FF4F]">{formatMoneyPreview(valorPotencialVenta)}</b></> : null}
+              </span>
+            }
+          >
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+              <Field label="Cantidad" required error={showQuantityWarning ? "Entero > 0" : undefined}>
                 <TextInput type="number" min="1" step="1" value={form.cantidad} aria-invalid={showQuantityWarning} onChange={(event) => update("cantidad", event.target.value)} />
               </Field>
               <Field label="Unidad">
@@ -574,179 +596,155 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas }: Props) {
                   {SHIPPING_V2_UNIDADES.map((option) => <option key={option}>{option}</option>)}
                 </SelectInput>
               </Field>
-              <Field label="Costo proveedor por unidad">
-                <TextInput type="number" min="0" step="0.01" value={form.costoProveedor} onChange={(event) => update("costoProveedor", event.target.value)} />
-                {showCostWarning ? <p className="text-xs leading-5 text-[#FFB07A]">Una compra a proveedor requiere costo.</p> : null}
-                {showGiftCostWarning ? <p className="text-xs leading-5 text-[#FFB07A]">En regalos debe estar vacío o en 0.</p> : null}
+              <Field
+                label="Costo unitario"
+                required={isPurchaseOperation}
+                error={showCostWarning ? "Obligatorio" : showGiftCostWarning ? "Regalo: vacío o 0" : undefined}
+              >
+                <TextInput type="number" min="0" step="0.01" value={form.costoProveedor} aria-invalid={showCostWarning || showGiftCostWarning} onChange={(event) => update("costoProveedor", event.target.value)} />
               </Field>
-              <Field label="Precio venta sugerido por unidad">
-                <TextInput type="number" min="0.01" step="0.01" value={form.precioVentaSugerido} onChange={(event) => update("precioVentaSugerido", event.target.value)} />
-              </Field>
-              <Field label="Precio venta final por unidad" error={showFinalPriceWarning ? "No puede ser negativo." : undefined}>
-                <TextInput type="number" min="0" step="0.01" value={form.precioVentaFinal} aria-invalid={showFinalPriceWarning} onChange={(event) => update("precioVentaFinal", event.target.value)} />
-              </Field>
+              {!esActivo ? (
+                <>
+                  <Field label="Precio sugerido">
+                    <TextInput type="number" min="0.01" step="0.01" value={form.precioVentaSugerido} onChange={(event) => update("precioVentaSugerido", event.target.value)} />
+                  </Field>
+                  <Field label="Precio final" error={showFinalPriceWarning ? "No negativo" : undefined}>
+                    <TextInput type="number" min="0" step="0.01" value={form.precioVentaFinal} aria-invalid={showFinalPriceWarning} onChange={(event) => update("precioVentaFinal", event.target.value)} />
+                  </Field>
+                </>
+              ) : null}
             </div>
-            <div className="mt-3 grid gap-2 border-t border-[#30312D] pt-3 sm:grid-cols-2">
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Subtotal proveedor</p>
-                <p className="mt-1 text-lg font-semibold tabular-nums text-[#F5F5F5]">{formatMoneyPreview(subtotalProveedor)}</p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Valor potencial de venta</p>
-                <p className="mt-1 text-lg font-semibold tabular-nums text-[#D7FF4F]">{formatMoneyPreview(valorPotencialVenta)}</p>
-              </div>
-            </div>
-          </FormCard>
+          </Section>
 
           {vieneDeAfuera ? (
-            <FormCard
-              title="4. Llegada"
-              description="Nada aquí es obligatorio. Si escribes un número de rastreo, el artículo pasa solo a “En tránsito”. Todo esto también se puede completar después en Logística."
-            >
-              <div className="space-y-3">
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {([
-                    ["solo", "Viaja solo"],
-                    ["caja", "Va en una caja"],
-                    ["nose", "Todavía no sé"],
-                  ] as const).map(([valor, texto]) => (
-                    <button
-                      key={valor}
-                      type="button"
-                      onClick={() => update("viaje", valor)}
-                      aria-pressed={form.viaje === valor}
-                      className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${form.viaje === valor ? "border-[#D7FF4F] bg-[#D7FF4F]/12 text-[#D7FF4F]" : "border-[#3A3A36] bg-[#151515] text-[#F5F5F5] hover:border-[#D7FF4F]/50"}`}
-                    >
-                      {texto}
-                    </button>
-                  ))}
-                </div>
-
+            <Section title="Llegada" aside="Opcional · también en Logística">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
+                <Field label="Viaja" grupo className="xl:col-span-4">
+                  <Seg<ViajeOpcion>
+                    value={form.viaje}
+                    onChange={(v) => update("viaje", v)}
+                    options={[
+                      { value: "solo", label: "Solo" },
+                      { value: "caja", label: "En caja", title: "El rastreo de la caja lo gobierna desde que entra." },
+                      { value: "nose", label: "Por definir" },
+                    ]}
+                  />
+                </Field>
                 {form.viaje === "caja" ? (
-                  <Field label="Caja en la que viaja">
+                  <Field label="Caja" className="xl:col-span-4" error={!cajasCompatibles.length ? "Sin cajas abiertas: créala en Logística" : undefined}>
                     <SelectInput value={form.packingDestinoId} onChange={(event) => update("packingDestinoId", event.target.value)}>
-                      <option value="">{cajasCompatibles.length ? "Elige una caja abierta" : "No hay cajas abiertas de este proveedor o casillero"}</option>
+                      <option value="">—</option>
                       {cajasCompatibles.map((c) => <option key={c.id} value={c.id}>{c.codigo}{c.nombre ? ` · ${c.nombre}` : ""}</option>)}
                     </SelectInput>
-                    <p className="text-xs leading-5 text-[#A7A7A7]">Desde que entra a la caja, el rastreo de la caja lo gobierna. Si no está la caja, créala en Logística y agrégalo ahí.</p>
                   </Field>
                 ) : null}
-
                 {origen === ORIGEN_EXTRANJERO ? (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <Field label="Casillero">
-                      <SelectInput value={form.casilleroId} onChange={(event) => update("casilleroId", event.target.value)}>
-                        <option value="">Sin casillero</option>
-                        {casilleros.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
-                      </SelectInput>
-                    </Field>
-                    <div className="hidden md:block" />
-                    <Field label="Rastreo hasta el casillero">
-                      <TextInput value={form.trackingOrigen} onChange={(event) => update("trackingOrigen", event.target.value)} placeholder="Ej. 9400 1000 0000…" />
-                    </Field>
-                    <Field label="Transportista hasta el casillero">
-                      <SelectInput value={form.transportistaOrigenId} onChange={(event) => update("transportistaOrigenId", event.target.value)}>
-                        <option value="">—</option>
-                        {(transportistasOrigen.length ? transportistasOrigen : logisticos).map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
-                      </SelectInput>
-                    </Field>
-                    {form.viaje !== "caja" ? (
-                      <>
-                        <Field label="Rastreo casillero → Ecuador">
-                          <TextInput value={form.trackingEcuador} onChange={(event) => update("trackingEcuador", event.target.value)} />
-                        </Field>
-                        <Field label="Transportista en Ecuador">
-                          <SelectInput value={form.transportistaEcuadorId} onChange={(event) => update("transportistaEcuadorId", event.target.value)}>
-                            <option value="">—</option>
-                            {(transportistasEcuador.length ? transportistasEcuador : logisticos).map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
-                          </SelectInput>
-                        </Field>
-                      </>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                {origen === ORIGEN_LOCAL && form.viaje !== "caja" ? (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <Field label="Rastreo">
-                      <TextInput value={form.trackingLocal} onChange={(event) => update("trackingLocal", event.target.value)} />
-                    </Field>
-                    <Field label="Transportista">
-                      <SelectInput value={form.transportistaEcuadorId} onChange={(event) => update("transportistaEcuadorId", event.target.value)}>
-                        <option value="">—</option>
-                        {(transportistasEcuador.length ? transportistasEcuador : logisticos).map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
-                      </SelectInput>
-                    </Field>
-                  </div>
+                  <Field label="Casillero" className="xl:col-span-4">
+                    <SelectInput value={form.casilleroId} onChange={(event) => update("casilleroId", event.target.value)}>
+                      <option value="">Sin casillero</option>
+                      {casilleros.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
+                    </SelectInput>
+                  </Field>
                 ) : null}
               </div>
-            </FormCard>
+              {origen === ORIGEN_EXTRANJERO ? (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" title="Un rastreo pasa el artículo a En tránsito.">
+                  <Field label="Rastreo → casillero">
+                    <TextInput value={form.trackingOrigen} onChange={(event) => update("trackingOrigen", event.target.value)} />
+                  </Field>
+                  <Field label="Transportista origen">
+                    <SelectInput value={form.transportistaOrigenId} onChange={(event) => update("transportistaOrigenId", event.target.value)}>
+                      <option value="">—</option>
+                      {(transportistasOrigen.length ? transportistasOrigen : logisticos).map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
+                    </SelectInput>
+                  </Field>
+                  {form.viaje !== "caja" ? (
+                    <>
+                      <Field label="Rastreo → Ecuador">
+                        <TextInput value={form.trackingEcuador} onChange={(event) => update("trackingEcuador", event.target.value)} />
+                      </Field>
+                      <Field label="Transportista Ecuador">
+                        <SelectInput value={form.transportistaEcuadorId} onChange={(event) => update("transportistaEcuadorId", event.target.value)}>
+                          <option value="">—</option>
+                          {transportistasEc.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
+                        </SelectInput>
+                      </Field>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+              {origen === ORIGEN_LOCAL && form.viaje !== "caja" ? (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" title="Un rastreo pasa el artículo a En tránsito.">
+                  <Field label="Rastreo">
+                    <TextInput value={form.trackingLocal} onChange={(event) => update("trackingLocal", event.target.value)} />
+                  </Field>
+                  <Field label="Transportista">
+                    <SelectInput value={form.transportistaEcuadorId} onChange={(event) => update("transportistaEcuadorId", event.target.value)}>
+                      <option value="">—</option>
+                      {transportistasEc.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
+                    </SelectInput>
+                  </Field>
+                </div>
+              ) : null}
+            </Section>
           ) : null}
 
-          <FormCard title={vieneDeAfuera ? "5. Descripción y observaciones" : "4. Descripción y observaciones"}>
-            <div className="grid gap-3 md:grid-cols-2">
+          <details className="group rounded-lg border border-[#2E2F28] bg-[#171814] px-3 py-2" open={Boolean(form.descripcion || form.observacionesInternas)}>
+            <summary className="cursor-pointer list-none text-[11px] font-bold uppercase tracking-wider text-[#D7FF4F]">
+              <span className="mr-1 inline-block transition group-open:rotate-90">›</span> Descripción y observaciones
+            </summary>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
               <Field label="Descripción">
-                <TextArea value={form.descripcion} onChange={(event) => update("descripcion", event.target.value)} />
+                <textarea value={form.descripcion} onChange={(event) => update("descripcion", event.target.value)} rows={2}
+                  className="w-full rounded-md border border-[#3A3A36] bg-[#151515] px-2.5 py-1.5 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
               </Field>
               <Field label="Observaciones internas">
-                <TextArea value={form.observacionesInternas} onChange={(event) => update("observacionesInternas", event.target.value)} />
+                <textarea value={form.observacionesInternas} onChange={(event) => update("observacionesInternas", event.target.value)} rows={2}
+                  className="w-full rounded-md border border-[#3A3A36] bg-[#151515] px-2.5 py-1.5 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
               </Field>
             </div>
-          </FormCard>
+          </details>
         </div>
 
-        <aside className="space-y-3 lg:col-span-4">
-          <FormCard title="Fotos del artículo" description="Hasta 10 imágenes JPG, PNG o WebP.">
-            <label onDragOver={(event) => event.preventDefault()} onDrop={handleDrop} className="grid min-h-28 cursor-pointer place-items-center rounded-xl border border-dashed border-[#D7FF4F]/35 bg-[#151515] px-4 py-5 text-center transition hover:border-[#D7FF4F]/70 hover:bg-[#1E1F1C]">
+        <aside className="lg:col-span-3">
+          <Section title="Fotos" aside={`${photos.length}/10`}>
+            <label onDragOver={(event) => event.preventDefault()} onDrop={handleDrop} title="JPG, PNG o WebP. También puedes arrastrarlas."
+              className="flex h-9 cursor-pointer items-center justify-center rounded-md border border-dashed border-[#D7FF4F]/40 bg-[#151515] text-[13px] font-semibold text-[#D7FF4F] transition hover:border-[#D7FF4F]/80">
               <input type="file" accept={ACCEPT_FOTOS_ITEM} multiple className="sr-only" onChange={handlePhotoInput} />
-              <span className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-xs font-bold uppercase tracking-normal text-[#151515]">Seleccionar fotos</span>
-              <span className="mt-2 block text-xs text-[#A7A7A7]">También puedes arrastrarlas aquí</span>
+              + Agregar fotos
             </label>
             {photos.length > 0 ? (
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
+              <div className="mt-2 grid grid-cols-4 gap-1.5 lg:grid-cols-3">
                 {photos.map((photo) => (
-                  <div key={photo.id} className="overflow-hidden rounded-xl border border-[#3A3A36] bg-[#151515]">
-                    <img src={photo.previewUrl} alt={photo.file.name} className="h-24 w-full object-cover" />
-                    <div className="space-y-2 p-2">
-                      <div>
-                        <p className="truncate text-xs font-semibold text-[#F5F5F5]" title={photo.file.name}>{photo.file.name}</p>
-                        <p className="mt-0.5 text-[11px] text-[#A7A7A7]">{formatFileSize(photo.file.size)}</p>
-                      </div>
-                      <button type="button" onClick={() => removePhoto(photo.id)} className="w-full rounded-lg border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#F5F5F5] transition hover:border-[#FF914D]/60 hover:text-[#FFB07A]">
-                        Quitar
-                      </button>
-                    </div>
+                  <div key={photo.id} className="group relative overflow-hidden rounded-md border border-[#3A3A36]">
+                    <img src={photo.previewUrl} alt={photo.file.name} title={photo.file.name} className="aspect-square w-full object-cover" />
+                    <button type="button" onClick={() => removePhoto(photo.id)} aria-label={`Quitar ${photo.file.name}`}
+                      className="absolute right-0.5 top-0.5 grid h-5 w-5 place-items-center rounded bg-black/70 text-xs text-[#F5F5F5] hover:text-[#FFB07A]">
+                      ×
+                    </button>
                   </div>
                 ))}
               </div>
             ) : null}
-          </FormCard>
-
-          <FormCard title="Qué pasará al guardar">
-            <ul className="space-y-1.5 text-xs leading-5 text-[#A7A7A7]">
-              {!origen ? <li>Elige dónde está el artículo.</li> : null}
-              {origen === ORIGEN_TIENDA ? <li>Queda <b className="text-[#F5F5F5]">recibido</b> en la tienda.</li> : null}
-              {vieneDeAfuera ? <li>Aparece en <b className="text-[#F5F5F5]">Recepción → Por llegar</b> hasta que alguien marque que llegó.</li> : null}
-              {vieneDeAfuera && form.viaje === "caja" && form.packingDestinoId ? <li>Se agrega a la caja elegida.</li> : null}
-              {vieneDeAfuera && form.viaje !== "caja" && (form.trackingOrigen || form.trackingEcuador || form.trackingLocal) ? <li>Como tiene rastreo, pasa a <b className="text-[#F5F5F5]">En tránsito</b>.</li> : null}
-              {origen ? (
-                <li>{requiereInspeccion ? "Se vende cuando esté en la tienda y se firme su inspección." : "Se vende apenas esté en la tienda."}</li>
-              ) : null}
-              {calculatedFlow.requierePago ? <li>Aparece en <b className="text-[#F5F5F5]">Pagos → Por pagar</b> hasta registrar el pago al proveedor.</li> : null}
-            </ul>
-          </FormCard>
-
-          <section className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-              <Link href="/shipping-v2/items" className="rounded-lg border border-[#3A3A36] bg-[#252622] px-4 py-2.5 text-center text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]">
-                Cancelar
-              </Link>
-              <button type="submit" disabled={saving} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2.5 text-sm font-black text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60">
-                {saving ? "Guardando..." : "Registrar artículo"}
-              </button>
-            </div>
-          </section>
+          </Section>
         </aside>
+      </div>
+
+      {/* Barra fija: lo que pasará al guardar (chips) y las acciones. */}
+      <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-2 rounded-lg border border-[#2E2F28] bg-[#11120F]/95 px-3 py-2 backdrop-blur">
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+          {resumen.map((r) => (
+            <span key={r} className="rounded-full border border-[#3A3A36] bg-[#1B1C17] px-2 py-0.5 text-[11px] font-semibold text-[#B4B5AC]">{r}</span>
+          ))}
+        </div>
+        <Link href={esActivo ? "/shipping-v2/activos" : "/shipping-v2/items"}
+          className="rounded-md border border-[#3A3A36] px-3 py-1.5 text-sm font-semibold text-[#B4B5AC] transition hover:text-[#F5F5F5]">
+          Cancelar
+        </Link>
+        <button type="submit" disabled={saving}
+          className="rounded-md border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-1.5 text-sm font-black text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60">
+          {saving ? "Guardando…" : esActivo ? "Registrar activo" : "Registrar artículo"}
+        </button>
       </div>
     </form>
   );

@@ -70,6 +70,18 @@ import { validarReglaDistribucion } from "@/lib/shipping-v2/packing-costos";
 import { calcularRepartoPacking, type ResultadoReparto } from "@/lib/shipping-v2/packing-reparto";
 import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
 import {
+  ESTADO_DADO_DE_BAJA,
+  etiquetaComoActivo,
+  evaluarDarDeBaja,
+  evaluarPasarALaVenta,
+  evaluarPasarAUsoLocal,
+  evaluarRevertirBaja,
+  requierePagoParteSeparada,
+  situacionPago,
+  valoresComoMercaderia,
+  type ArticuloParaMovimiento,
+} from "@/lib/shipping-v2/activos";
+import {
   CATEGORIAS_REPUESTO_STOCK,
   ESTADO_AGOTADO,
   cambiosPiezaTrasConsumo,
@@ -1449,6 +1461,7 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     costoLogisticoAsignado: firstNumber(f[F.costoLogisticoAsignado] ?? f["Costo logístico asignado"] ?? f["Costo logistico asignado"] ?? f["Costo Logistico Asignado"]),
     costoTotalUnidad: firstNumber(f[F.costoTotalUnidad]),
     costoMejoras: firstNumber(f["Costo de mejoras"]),
+    unidadesDadasDeBaja: firstNumber(f["Unidades dadas de baja"]),
     unidadesEnPacking: firstNumber(f[F.unidadesEnPacking]),
     fleteAsignadoRegistro: firstNumber(f[F.fleteAsignadoRegistro]),
     arancelAsignadoRegistro: firstNumber(f[F.arancelAsignadoRegistro]),
@@ -1985,6 +1998,33 @@ export async function getShippingV2ReceptionItems(options: MapItemOptions = {}) 
     .sort(compareShippingV2ItemListOrder);
 }
 
+/**
+ * Punto 4 (8-oct): la pestaña Artículos es solo mercadería. Los activos de la
+ * tienda ("Es uso local") tienen su propia pestaña.
+ */
+const FORMULA_SOLO_MERCADERIA = `NOT({${SHIPPING_V2_ITEM_FIELDS.esUsoLocal}})`;
+
+/** Pestaña "Activos de la tienda": todos los activos (sin tope de 200). */
+export async function getShippingV2Activos(access?: ShippingV2AccessContext): Promise<ShippingV2Item[]> {
+  assertShippingV2Permission(access, "canViewItems", "No tienes acceso a los artículos.");
+  if (access && !access.isAdmin) return []; // un proveedor externo no ve activos de la tienda
+  const [records, proveedores] = await Promise.all([
+    listRecords(SHIPPING_V2_TABLES.items, {
+      pageSize: 100,
+      maxRecords: 5000,
+      filterByFormula: `{${SHIPPING_V2_ITEM_FIELDS.esUsoLocal}}`,
+      sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro,
+      sortDirection: "desc",
+    }),
+    getShippingV2Proveedores(),
+  ]);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+  return records
+    .map((record) => mapItem(record, { includeAiName: false }))
+    .map((item) => applyItemProviderLabels(item, labelsById))
+    .map((item) => sanitizeShippingV2ItemForAccess(item, access));
+}
+
 export async function getShippingV2ItemsPage(options: MapItemOptions & {
   pageSize?: number;
   offset?: string | null;
@@ -2000,6 +2040,7 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
         maxRecords: 200,
         sortField: sort.sortField,
         sortDirection: sort.sortDirection,
+        filterByFormula: FORMULA_SOLO_MERCADERIA,
       }),
       proveedoresPromise,
     ]);
@@ -2022,6 +2063,7 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
       offset: options.offset,
       sortField: sort.sortField,
       sortDirection: sort.sortDirection,
+      filterByFormula: FORMULA_SOLO_MERCADERIA,
     }),
     options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores(),
   ]);
@@ -2168,6 +2210,8 @@ export async function getShippingV2ItemSearchIndex(access?: ShippingV2AccessCont
         sortField: F.fechaRegistro,
         sortDirection: "desc",
         fields,
+        // El buscador es de Artículos (mercadería): los activos van aparte.
+        filterByFormula: FORMULA_SOLO_MERCADERIA,
       }),
       getShippingV2ProviderSearchLabels(),
       getShippingV2PackingSearchInfoById(),
@@ -2827,7 +2871,7 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
   if (field === SHIPPING_V2_ITEM_FIELDS.requiereInspeccion && existing.recibido === true) {
     const requiere = normalizedValue === true;
     const firmada = existing.revisadoFisicamente === true;
-    const estadoNuevo = estadoSegunLlegada({ estado: existing.estado, recibido: true, requiereInspeccion: requiere, inspeccionFirmada: firmada });
+    const estadoNuevo = estadoSegunLlegada({ estado: existing.estado, recibido: true, requiereInspeccion: requiere, inspeccionFirmada: firmada, usoLocal: existing.usoLocal });
     if (estadoNuevo) inspeccionFlowFields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = estadoNuevo;
     const pendientes = new Set(["recibido pendiente de revision", "recibido correctamente", "pendiente de recepcion", "no aplica", ""]);
     if (pendientes.has(normalizeStatus(existing.estadoRevision || ""))) {
@@ -2982,9 +3026,12 @@ function completarAltaSegunLlegada(input: ShippingV2ItemWriteInput): {
   input: ShippingV2ItemWriteInput;
   extraFields: Record<string, unknown>;
 } {
+  // Un activo de la tienda no pide inspección salvo que se marque (punto 4).
   const requiereInspeccion = typeof input.requiereInspeccion === "boolean"
     ? input.requiereInspeccion
-    : requiereInspeccionPorDefecto({ categoria: input.categoria, tipoOperacion: input.tipoOperacion });
+    : input.usoLocal === true
+      ? false
+      : requiereInspeccionPorDefecto({ categoria: input.categoria, tipoOperacion: input.tipoOperacion });
   const origen = normalizarOrigen(input.origenArticulo);
   const yaEnTienda = origen ? origen === ORIGEN_TIENDA : cleanString(input.modoLogistico) === "No aplica";
   const extraFields: Record<string, unknown> = {};
@@ -3000,7 +3047,7 @@ function completarAltaSegunLlegada(input: ShippingV2ItemWriteInput): {
   if (yaEnTienda) {
     extraFields[SHIPPING_V2_ITEM_FIELDS.recibido] = true;
     estadoRevision = requiereInspeccion ? "Recibido pendiente de revisión" : "Recibido correctamente";
-    estado = estadoSegunLlegada({ estado, recibido: true, requiereInspeccion, inspeccionFirmada: false }) ?? estado;
+    estado = estadoSegunLlegada({ estado, recibido: true, requiereInspeccion, inspeccionFirmada: false, usoLocal: input.usoLocal }) ?? estado;
   } else if (origen && vieneDeAfuera(origen)) {
     // Viene en camino: espera recepción (Recepción → "Por llegar"). Antes
     // nacía "No aplica" y nunca aparecía en Recepción (C-2: LAP-000110).
@@ -3285,6 +3332,9 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   await validateItemProviderRules(normalizedInput);
 
   const existing = await getShippingV2ItemById(id, { access: systemShippingV2Access() });
+  // Punto 4 (8-oct): "Es uso local" no se cambia editando el artículo; solo
+  // con las acciones de administrador. La edición conserva lo que había.
+  normalizedInput.usoLocal = existing.usoLocal === true;
 
   // Mismo candado que el editor de campo individual (ver adminOnly en
   // item-edit-config.ts): este es el otro camino de escritura del mismo
@@ -5107,6 +5157,7 @@ export async function updateShippingV2ReceptionChecklistItem(
         recibido: true,
         requiereInspeccion,
         inspeccionFirmada: item.revisadoFisicamente === true,
+        usoLocal: item.usoLocal,
       });
     } else {
       fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = "Pendiente de recepción";
@@ -5128,6 +5179,7 @@ export async function updateShippingV2ReceptionChecklistItem(
       recibido: item.recibido === true,
       requiereInspeccion,
       inspeccionFirmada: input.value,
+      usoLocal: item.usoLocal,
     });
   }
   if (estadoNuevo) fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = estadoNuevo;
@@ -5348,6 +5400,7 @@ async function recalcularDisponibilidadItem(itemRecordId: string, actor: string)
         recibido: true,
         requiereInspeccion: item.requiereInspeccion === true,
         inspeccionFirmada: item.revisadoFisicamente === true,
+        usoLocal: item.usoLocal,
       }) ?? "En revisión"
       : "Recibido";
   }
@@ -7778,6 +7831,254 @@ async function registrarIntervencionSinTurno(
   }
 }
 
+// ─── Activos de la tienda: movimientos de Administrador (punto 4, 8-oct) ────
+// Reglas en activos.ts. Tres acciones, solo Administrador del sistema, con
+// cantidad y motivo:
+//   "uso-local" → mercadería pasa a ser activo de la tienda.
+//   "venta"     → un activo vuelve a ser mercadería (con inspección si su
+//                 categoría la pide).
+//   "baja"      → baja la cantidad de un activo; con 0 queda "Dado de baja".
+// Si se mueve solo una parte, esa parte se SEPARA en un artículo nuevo (SKU
+// propio) y el resto se queda donde estaba. El artículo nuevo se lleva su
+// costo por unidad, incluida su parte de flete y arancel, y solo aparece en
+// Pagos si la compra todavía se debía (así la suma de lo que se debe no cambia).
+
+export type AccionActivo = "uso-local" | "venta" | "baja" | "revertir-baja";
+
+export type ResultadoMovimientoActivo = {
+  mensaje: string;
+  nuevoId?: string;
+  nuevoSku?: string;
+};
+
+const CAMPO_UNIDADES_EN_PACKING = "Unidades en packing";
+const CAMPO_UNIDADES_DADAS_DE_BAJA = "Unidades dadas de baja";
+const CAMPO_OTROS_COSTOS_REGISTRO = "Otros costos asignados registro";
+
+async function situacionPagoDeItem(item: ShippingV2Item) {
+  const ids = [...item.pagoV2ItemIds, ...item.pagoV2RegaloIds].map(cleanString).filter(Boolean);
+  const pagos = ids.length ? await listRecordsByIds(SHIPPING_V2_TABLES.pagos, ids) : [];
+  // Un pago que no se pudo leer cuenta como "en curso" (fail-closed).
+  const estados = ids.map((pid) => {
+    const r = pagos.find((x) => x.id === pid);
+    return { estado: r ? firstString(r.fields[SHIPPING_V2_PAYMENT_FIELDS.estadoPago]) : "desconocido" };
+  });
+  return situacionPago({ requierePago: item.requierePago, esRegalo: item.esRegalo, pagos: estados });
+}
+
+export async function moverActivoShippingV2(
+  itemRecordId: string,
+  input: { accion: AccionActivo; cantidad: number; motivo: string; precioVenta?: number | null },
+  options: { actor: string; access?: ShippingV2AccessContext }
+): Promise<ResultadoMovimientoActivo> {
+  const id = cleanString(itemRecordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  return withLock(`shipping-item:${id}`, () => moverActivoSinTurno(id, input, options));
+}
+
+async function moverActivoSinTurno(
+  id: string,
+  input: { accion: AccionActivo; cantidad: number; motivo: string; precioVenta?: number | null },
+  options: { actor: string; access?: ShippingV2AccessContext }
+): Promise<ResultadoMovimientoActivo> {
+  const esAdministrador = options.access?.isSiteAdmin === true;
+  const motivo = cleanString(input.motivo);
+  const cantidad = Number(input.cantidad);
+  const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
+  const pago = await situacionPagoDeItem(item);
+  const articulo: ArticuloParaMovimiento = {
+    sku: item.sku,
+    usoLocal: item.usoLocal,
+    recibido: item.recibido,
+    estado: item.estado,
+    cantidad: item.cantidad,
+    cantidadReservada: item.cantidadReservada,
+    reservado: item.reservado,
+    enPacking: Boolean(cleanString(item.packingId)),
+    pago,
+  };
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const ahora = new Date().toISOString();
+  const total = normalizarUnidades(item.cantidad);
+  const precio = typeof input.precioVenta === "number" && Number.isFinite(input.precioVenta) && input.precioVenta > 0
+    ? Math.round(input.precioVenta * 100) / 100
+    : null;
+  const comun = { [F.ultimaActualizacion]: ahora, [F.actualizadoPor]: options.actor };
+  const patch = async (recordId: string, fields: Record<string, unknown>) =>
+    airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      // typecast: crea la opción "Dado de baja" si todavía no existe.
+      body: JSON.stringify({ typecast: true, records: [{ id: recordId, fields: { ...fields, ...comun } }] }),
+    });
+  const evento = (descripcion: string, estadoNuevo?: string, recordId = id, nombre = item.nombre) =>
+    createShippingV2Event({
+      action: "Cambio de estado",
+      itemRecordId: recordId,
+      itemName: nombre,
+      registradoPor: options.actor,
+      descripcion,
+      estadoAnterior: recordId === id ? item.estado : undefined,
+      estadoNuevo,
+    }).catch((error) => console.error("No se pudo registrar el evento del activo:", error));
+
+  // ── Dar de baja ──
+  if (input.accion === "baja") {
+    const ev = evaluarDarDeBaja(articulo, { cantidad, esAdministrador, motivo });
+    if (!ev.ok) throw new Error(ev.motivo);
+    const registro = await leerRegistroItem(id);
+    const bajasPrevias = firstNumber(registro.fields[CAMPO_UNIDADES_DADAS_DE_BAJA]) ?? 0;
+    await patch(id, {
+      [F.cantidad]: ev.quedan,
+      [CAMPO_UNIDADES_DADAS_DE_BAJA]: bajasPrevias + cantidad,
+      ...(ev.dadoDeBaja ? { [F.estadoItem]: ESTADO_DADO_DE_BAJA, [F.disponibleVenta]: false } : {}),
+    });
+    await evento(
+      `Activo dado de baja: ${cantidad} de ${total} unidad(es). Motivo: ${motivo}`,
+      ev.dadoDeBaja ? ESTADO_DADO_DE_BAJA : item.estado
+    );
+    invalidateShippingV2ItemSearchIndexCache();
+    return {
+      mensaje: ev.dadoDeBaja
+        ? `${item.sku} quedó "Dado de baja" (0 unidades). Sigue en el historial.`
+        : `Se dieron de baja ${cantidad} unidad(es) de ${item.sku}. Quedan ${ev.quedan} en uso.`,
+    };
+  }
+
+  // ── Revertir una baja hecha por error ──
+  if (input.accion === "revertir-baja") {
+    const registro = await leerRegistroItem(id);
+    const bajas = firstNumber(registro.fields[CAMPO_UNIDADES_DADAS_DE_BAJA]) ?? 0;
+    const evR = evaluarRevertirBaja({ usoLocal: item.usoLocal, unidadesDadasDeBaja: bajas }, { cantidad, esAdministrador, motivo });
+    if (!evR.ok) throw new Error(evR.motivo);
+    const estadoNuevo = item.estado && item.estado.trim().toLowerCase() === "dado de baja"
+      ? etiquetaComoActivo({ recibido: item.recibido, estado: item.estado, requiereInspeccion: item.requiereInspeccion, inspeccionFirmada: item.revisadoFisicamente })
+      : null;
+    await patch(id, {
+      [F.cantidad]: total + cantidad,
+      [CAMPO_UNIDADES_DADAS_DE_BAJA]: bajas - cantidad,
+      ...(estadoNuevo ? { [F.estadoItem]: estadoNuevo } : {}),
+    });
+    await evento(`Baja revertida: vuelven ${cantidad} unidad(es). Motivo: ${motivo}`, estadoNuevo ?? item.estado);
+    invalidateShippingV2ItemSearchIndexCache();
+    return { mensaje: `Se devolvieron ${cantidad} unidad(es) a ${item.sku}${estadoNuevo ? ` (vuelve a "${estadoNuevo}")` : ""}.` };
+  }
+
+  const aActivo = input.accion === "uso-local";
+  if (!aActivo && input.accion !== "venta") throw new Error("Acción no válida.");
+  const ev = aActivo
+    ? evaluarPasarAUsoLocal(articulo, { cantidad, esAdministrador, motivo })
+    : evaluarPasarALaVenta(articulo, { cantidad, esAdministrador, motivo });
+  if (!ev.ok) throw new Error(ev.motivo);
+
+  // Valores de destino (los mismos para "todo" y para la parte separada).
+  const venta = valoresComoMercaderia({ recibido: item.recibido, estado: item.estado, categoria: item.categoria });
+  const camposDestino = (recibido: boolean, estadoActual: string | undefined): Record<string, unknown> => aActivo
+    ? {
+      [F.esUsoLocal]: true,
+      [F.disponibleVenta]: false,
+      [F.estadoItem]: etiquetaComoActivo({
+        recibido,
+        estado: estadoActual,
+        requiereInspeccion: item.requiereInspeccion,
+        inspeccionFirmada: item.revisadoFisicamente,
+      }),
+    }
+    : {
+      [F.esUsoLocal]: false,
+      [F.requiereInspeccion]: venta.requiereInspeccion,
+      ...(recibido
+        ? {
+          [F.estadoItem]: venta.estado,
+          ...(venta.estadoRevision ? { [F.estadoRevision]: venta.estadoRevision } : {}),
+          // Estuvo en uso: si su categoría pide inspección, se firma de nuevo.
+          ...(venta.reabrirInspeccion ? { "Revisado física/técnicamente": false, "Revisado por": "", "Fecha revisión": null } : {}),
+        }
+        : {}),
+      ...(precio ? { [F.precioVentaFinal]: precio } : {}),
+    };
+
+  const destinoTexto = aActivo ? "activo de la tienda" : "mercadería a la venta";
+
+  // ── Todo el artículo cambia (mismo SKU) ──
+  if (ev.modo === "todo") {
+    const campos = camposDestino(item.recibido === true, item.estado);
+    await patch(id, campos);
+    // Banderas de venta según la nueva situación.
+    await recalcularDisponibilidadItem(id, options.actor).catch((error) =>
+      console.error("No se pudo recalcular la disponibilidad:", error)
+    );
+    await evento(`Pasa a ${destinoTexto} (${total} unidad(es)). Motivo: ${motivo}`, String(campos[F.estadoItem] ?? item.estado));
+    invalidateShippingV2ItemSearchIndexCache();
+    const avisoVenta = !aActivo
+      ? venta.reabrirInspeccion
+        ? " Pasa por Inspección antes de poder venderse."
+        : precio || item.precioVenta ? "" : " Ponle precio de venta para que aparezca en el mostrador."
+      : "";
+    return { mensaje: `${item.sku} ahora es ${destinoTexto}.${avisoVenta}` };
+  }
+
+  // ── Solo una parte: se separa en un artículo nuevo ──
+  const nota = `Separado de ${item.sku} (${cantidad} de ${total} unidades) como ${destinoTexto}. Motivo: ${motivo}`;
+  const logisticoUnidad = item.costoLogisticoAsignado ?? 0;
+  const camposNuevo = camposDestino(true, aActivo ? "Disponible" : "Uso local");
+  const nuevoInput: ShippingV2ItemWriteInput = {
+    nombre: item.nombre,
+    descripcion: item.descripcion,
+    tipoOperacion: item.tipoOperacion || "Reajuste de inventario",
+    tipoItem: item.tipoItem,
+    categoria: item.categoria,
+    estado: String(camposNuevo[F.estadoItem] ?? ""),
+    estadoRevision: aActivo ? item.estadoRevision : venta.estadoRevision ?? item.estadoRevision,
+    requiereInspeccion: aActivo ? item.requiereInspeccion === true && item.revisadoFisicamente !== true : venta.requiereInspeccion,
+    condicion: item.condicion,
+    proveedorId: item.proveedorId,
+    requierePago: requierePagoParteSeparada(pago),
+    requierePacking: false,
+    afectaInventario: true,
+    disponibleVenta: false,
+    reservado: false,
+    modoLogistico: "No aplica",
+    cantidad,
+    unidad: item.unidad,
+    costoProveedor: item.costoProveedor,
+    precioVenta: aActivo ? null : precio ?? item.precioVenta ?? null,
+    marca: item.marca,
+    modelo: item.modelo,
+    observacionesInternas: nota,
+    origenArticulo: "Ya está en la tienda",
+    usoLocal: aActivo,
+  } as ShippingV2ItemWriteInput;
+
+  // Primero se crea la parte nueva y DESPUÉS se descuenta del original: si la
+  // creación falla, no se pierde ninguna unidad.
+  const nuevo = await createShippingV2ItemRecord(nuevoInput, {
+    registradoPor: options.actor,
+    eventDescription: nota,
+    extraFields: {
+      [F.recibido]: true,
+      // Su parte de flete y arancel viaja con ella (ver fórmulas de costo).
+      ...(logisticoUnidad > 0
+        ? { [CAMPO_UNIDADES_EN_PACKING]: cantidad, [CAMPO_OTROS_COSTOS_REGISTRO]: Math.round(logisticoUnidad * cantidad * 100) / 100 }
+        : {}),
+    },
+  });
+  try {
+    await patch(id, { [F.cantidad]: total - cantidad });
+  } catch (error) {
+    console.error("CRÍTICO: se creó la parte separada pero no se descontó del original:", { original: item.sku, nuevo: nuevo.sku }, error);
+    throw new Error(`Se creó ${nuevo.sku}, pero no se pudo descontar ${cantidad} unidad(es) de ${item.sku}. Corrige la cantidad de ${item.sku} a mano.`);
+  }
+  await recalcularDisponibilidadItem(id, options.actor).catch((error) => console.error("No se pudo recalcular el original:", error));
+  await recalcularDisponibilidadItem(nuevo.id, options.actor).catch((error) => console.error("No se pudo recalcular la parte nueva:", error));
+  await evento(`Se separaron ${cantidad} de ${total} unidad(es) como ${destinoTexto} en ${nuevo.sku}. Motivo: ${motivo}`, item.estado);
+  invalidateShippingV2ItemSearchIndexCache();
+  return {
+    mensaje: `Se separaron ${cantidad} unidad(es) en ${nuevo.sku} como ${destinoTexto}. ${item.sku} queda con ${total - cantidad}.`,
+    nuevoId: nuevo.id,
+    nuevoSku: nuevo.sku,
+  };
+}
+
 // ─── Anular un mantenimiento o una mejora (punto 3, 8-oct-2026) ─────────────
 // Reglas en mejoras.ts (evaluarAnulacion). Solo Administrador del sistema.
 // La intervención NO se borra: queda "Anulada" con quién, cuándo, por qué y
@@ -7993,7 +8294,7 @@ function formulaSueltosEnCamino() {
     `OR({${F.origenArticulo}}='Proveedor extranjero',{${F.origenArticulo}}='Proveedor local'),` +
     `LEN(ARRAYJOIN({Shipping Packings}))=0,` +
     `{${F.cantidad}}>0,` +
-    `NOT(OR({${F.estadoItem}}='Vendido',{${F.estadoItem}}='Cancelado',{${F.estadoItem}}='Archivado',{${F.estadoItem}}='Usado en reparación',{${F.estadoItem}}='Agotado')))`
+    `NOT(OR({${F.estadoItem}}='Vendido',{${F.estadoItem}}='Cancelado',{${F.estadoItem}}='Archivado',{${F.estadoItem}}='Usado en reparación',{${F.estadoItem}}='Agotado',{${F.estadoItem}}='Dado de baja')))`
   );
 }
 
@@ -8205,6 +8506,7 @@ export async function soltarArticuloDePedido(
       recibido,
       requiereInspeccion: existing.fields[SHIPPING_V2_ITEM_FIELDS.requiereInspeccion] === true,
       inspeccionFirmada: existing.fields["Revisado física/técnicamente"] === true,
+      usoLocal: existing.fields[SHIPPING_V2_ITEM_FIELDS.esUsoLocal] === true,
     });
     if (estadoNuevo) fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = estadoNuevo;
     fields[SHIPPING_V2_ITEM_FIELDS.disponibleVenta] = calcularDisponibleVenta({

@@ -356,7 +356,7 @@ function supplierSkuLabel(item: ResolvedItem) {
 function availabilityLabel(item: ResolvedItem) {
   if (item.conNovedad) return "Con novedad";
   if (item.reservado) return "Reservado";
-  if (item.usoLocal) return "Uso local";
+  if (item.usoLocal) return "Activo de la tienda";
   // Manda Categoría, no la vieja casilla "Es repuesto" (ver item-edit-config).
   if (item.categoria === "Repuesto") return "Repuesto";
   if (sePuedeVender(item)) return "Se puede vender";
@@ -612,7 +612,7 @@ function AvailabilityBadge({ item }: { item: ResolvedItem }) {
     label = "Reservado";
     tone = "border-[#F4E85B]/35 bg-[#F4E85B]/12 text-[#F4E85B]";
   } else if (item.usoLocal) {
-    label = "Uso local";
+    label = "Activo de la tienda";
     tone = "border-[#8B73FF]/35 bg-[#8B73FF]/12 text-[#C9BFFF]";
   } else if (item.categoria === "Repuesto") {
     label = "Repuesto";

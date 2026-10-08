@@ -26,6 +26,23 @@ export const SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD = "Facebook Super Geek";
 export const SHIPPING_V2_TEXTO_FACEBOOK_FIELD = "Texto Facebook";
 export const SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD = "Texto Facebook fórmula legacy";
 
+/**
+ * Tipos de operación que ya no existen (puntos 2, 3 y 4 de la auditoría):
+ * se borrarán de Airtable cuando nada los use; mientras tanto no se ofrecen.
+ */
+const TIPOS_RETIRADOS = new Set([
+  "Compra ya pagada", "Parte / componente", "Repuesto", "Uso local",
+  "Migración histórica", "Corrección administrativa",
+]);
+
+/**
+ * Etiquetas que pone SOLO el sistema (no se eligen a mano):
+ *  · "Repuesto" ya no es un estado (punto 3).
+ *  · "Uso local" sale de la casilla "Es uso local" (punto 4).
+ *  · "Dado de baja" y "Agotado" salen de sus acciones (puntos 3 y 4).
+ */
+const ESTADOS_SOLO_DEL_SISTEMA = new Set(["Repuesto", "Uso local", "Dado de baja", "Agotado"]);
+
 // Punto 2 (oct-2026): "Rol general", "Modo logístico", "Ubicación actual" y
 // "Estado de triangulación" ya no se usan (se borrarán de Airtable cuando se
 // confirme que nada los lee). El rastreo se edita en la pestaña Logística,
@@ -35,12 +52,13 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   nombre: { key: "nombre", field: F.nombre, label: "Nombre del item", category: "normal", type: "text" },
   aiNombre: { key: "aiNombre", field: F.aiNombre, label: "AI Nombre del item", category: "readOnly", type: "readOnly" },
   descripcion: { key: "descripcion", field: F.descripcion, label: "Descripción", category: "normal", type: "textarea" },
-  tipoOperacion: { key: "tipoOperacion", field: F.tipoOperacion, label: "Tipo de operación", category: "special", type: "singleSelect", options: O.tipoOperacion },
+  // Tipos retirados (puntos 2, 3 y 4) ya no se ofrecen al corregir a mano.
+  tipoOperacion: { key: "tipoOperacion", field: F.tipoOperacion, label: "Tipo de operación", category: "special", type: "singleSelect", options: O.tipoOperacion.filter((o) => !TIPOS_RETIRADOS.has(o)) },
   tipoItem: { key: "tipoItem", field: F.tipoItem, label: "Rol general del item", category: "hidden", type: "readOnly" },
   categoria: { key: "categoria", field: F.categoria, label: "Categoría técnica/comercial", category: "normal", type: "singleSelect", options: O.categoria },
   // "Repuesto" ya no es un estado (punto 3, 6-oct): es una categoría. Se deja
   // de ofrecer aunque la opción siga existiendo en Airtable.
-  estadoItem: { key: "estado", field: F.estadoItem, label: "Estado Item", category: "special", type: "singleSelect", options: O.estadoItem.filter((o) => o !== "Repuesto") },
+  estadoItem: { key: "estado", field: F.estadoItem, label: "Estado Item", category: "special", type: "singleSelect", options: O.estadoItem.filter((o) => !ESTADOS_SOLO_DEL_SISTEMA.has(o)) },
   estadoRevision: { key: "estadoRevision", field: F.estadoRevision, label: "Estado de revisión", category: "normal", type: "singleSelect", options: O.estadoRevision },
   estadoTriangulacion: { key: "estadoTriangulacion", field: F.estadoTriangulacion, label: "Estado de triangulación", category: "hidden", type: "readOnly" },
   estadoDespiece: { key: "estadoDespiece", field: F.estadoDespiece, label: "Estado de despiece", category: "normal", type: "singleSelect", options: O.estadoDespiece },
@@ -92,7 +110,10 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   // repuestos de stock. Esta se oculta y ya no se escribe; el dato viejo sigue
   // en Airtable por si hace falta consultarlo.
   esRepuesto: { key: "esRepuesto", field: F.esRepuesto, label: "Es repuesto", category: "hidden", type: "readOnly" },
-  esUsoLocal: { key: "usoLocal", field: F.esUsoLocal, label: "Es uso local", category: "normal", type: "checkbox" },
+  // Punto 4 (8-oct): ÚNICO dato que hace a un artículo "activo de la tienda".
+  // No se edita a mano: lo ponen el registro y las acciones de administrador
+  // (Pasar a uso local / Pasar a la venta).
+  esUsoLocal: { key: "usoLocal", field: F.esUsoLocal, label: "Activo de la tienda (uso local)", category: "readOnly", type: "readOnly" },
   fechaRegistro: { key: "fechaRegistro", field: F.fechaRegistro, label: "Fecha de registro", category: "readOnly", type: "readOnly" },
   registradoPor: { key: "registradoPor", field: F.registradoPor, label: "Registrado por", category: "readOnly", type: "readOnly" },
   ultimaActualizacion: { key: "ultimaActualizacion", field: F.ultimaActualizacion, label: "Última actualización", category: "readOnly", type: "readOnly" },

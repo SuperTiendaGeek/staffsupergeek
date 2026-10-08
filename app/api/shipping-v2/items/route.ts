@@ -56,6 +56,8 @@ function parseInput(body: Record<string, unknown>): ShippingV2ItemWriteInput {
     transportistaOrigenId: String(body.transportistaOrigenId ?? ""),
     transportistaEcuadorId: String(body.transportistaEcuadorId ?? ""),
     packingDestinoId: String(body.packingDestinoId ?? ""),
+    // Punto 4 (8-oct): "¿Para qué es?" → activo de la tienda.
+    usoLocal: toBoolean(body.usoLocal),
   };
 }
 

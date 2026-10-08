@@ -118,7 +118,7 @@ export function cambiosPiezaTrasConsumo(cantidadActual: number, cantidadUsada: n
 
 /** Etiquetas con las que el equipo ya salió de la tienda: no se le registra nada. */
 const ESTADOS_EQUIPO_FUERA = new Set([
-  "vendido", "usado en reparacion", "agotado", "cancelado", "archivado",
+  "vendido", "usado en reparacion", "agotado", "dado de baja", "cancelado", "archivado",
   "desarmado completamente", "migrado",
 ]);
 

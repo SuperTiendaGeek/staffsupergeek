@@ -66,6 +66,8 @@ const ESTADOS_TERMINALES = new Set([
   "usado en reparacion",
   // Punto 3 (6-oct): la última unidad se consumió en una mejora.
   "agotado",
+  // Punto 4 (8-oct): activo dado de baja.
+  "dado de baja",
   "destinado a partes",
   "desarmado parcialmente",
   "desarmado completamente",

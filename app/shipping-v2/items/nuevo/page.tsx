@@ -12,7 +12,10 @@ import { ShippingV2NewItemForm, type ShippingV2CajaAbierta } from "./ShippingV2N
 
 export const dynamic = "force-dynamic";
 
-export default async function ShippingV2NewItemPage() {
+export default async function ShippingV2NewItemPage({ searchParams }: { searchParams?: Promise<{ activo?: string | string[] }> }) {
+  const params = searchParams ? await searchParams : {};
+  const activoParam = Array.isArray(params.activo) ? params.activo[0] : params.activo;
+  const esActivo = activoParam === "1";
   let proveedores: ShippingV2Proveedor[] = [];
   let cajasAbiertas: ShippingV2CajaAbierta[] = [];
   let error = "";
@@ -48,11 +51,11 @@ export default async function ShippingV2NewItemPage() {
       <div className="w-full max-w-none space-y-3">
         <StaffPageHeader
           eyebrow={<StaffBadge tone="lime">SHIPPING V2</StaffBadge>}
-          title="Registrar artículo"
-          description="Todo en una sola pantalla: origen, datos, precio y llegada."
+          title={esActivo ? "Registrar activo de la tienda" : "Registrar artículo"}
+          density="compact"
           actions={
             <Button asChild className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
-              <Link href="/shipping-v2/items">Volver a Items</Link>
+              <Link href={esActivo ? "/shipping-v2/activos" : "/shipping-v2/items"}>{esActivo ? "Volver a Activos" : "Volver a Items"}</Link>
             </Button>
           }
         />
@@ -62,7 +65,7 @@ export default async function ShippingV2NewItemPage() {
             <p className="mt-2 text-sm leading-6 text-orange-100/85">{error}</p>
           </section>
         ) : null}
-        <ShippingV2NewItemForm proveedores={proveedores} cajasAbiertas={cajasAbiertas} />
+        <ShippingV2NewItemForm proveedores={proveedores} cajasAbiertas={cajasAbiertas} esActivoInicial={esActivo} />
       </div>
     </div>
     </StaffAppShell>

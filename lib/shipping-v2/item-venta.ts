@@ -131,6 +131,8 @@ const ESTADOS_DEL_CAMINO = new Set([
   "recibido",
   "en revision",
   "disponible",
+  // Punto 4 (8-oct): la etiqueta de un activo también la pone esta regla.
+  "uso local",
 ]);
 
 /**
@@ -150,10 +152,16 @@ export function estadoSegunLlegada(item: {
   recibido?: boolean | null;
   requiereInspeccion?: boolean | null;
   inspeccionFirmada?: boolean | null;
-}): "Disponible" | "En revisión" | null {
+  /**
+   * Activo de la tienda (casilla "Es uso local", punto 4): en vez de
+   * "Disponible" su etiqueta es "Uso local". Es el ÚNICO dato que lo decide.
+   */
+  usoLocal?: boolean | null;
+}): "Disponible" | "En revisión" | "Uso local" | null {
   if (item.recibido !== true) return null;
   const actual = normalize(item.estado);
   if (!ESTADOS_DEL_CAMINO.has(actual)) return null;
-  const destino = item.requiereInspeccion === true && item.inspeccionFirmada !== true ? "En revisión" : "Disponible";
+  const listo = item.usoLocal === true ? "Uso local" : "Disponible";
+  const destino = item.requiereInspeccion === true && item.inspeccionFirmada !== true ? "En revisión" : listo;
   return normalize(destino) === actual ? null : destino;
 }

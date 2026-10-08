@@ -52,6 +52,7 @@ const ITEM_FLOW_RANK: Record<string, number> = {
   vendido: 6,
   "usado en reparacion": 6,
   agotado: 6,
+  "dado de baja": 6,
   migrado: 6,
   cancelado: 6,
   archivado: 6,

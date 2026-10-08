@@ -121,6 +121,7 @@ const ESTADOS_FUERA_DE_VENTA = new Set([
   "vendido",
   "usado en reparacion",
   "agotado",
+  "dado de baja",
   "uso local",
   "destinado a partes",
   "desarmado parcialmente",

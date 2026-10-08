@@ -303,6 +303,8 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   costoTotalUnidad: number | null;
   /** Punto 3: costo neto de las mejoras (ya incluido en costoTotalUnidad). */
   costoMejoras?: number | null;
+  /** Punto 4: unidades de un activo dadas de baja (para poder revertir). */
+  unidadesDadasDeBaja?: number | null;
   /**
    * Reparto de costos del packing guardado por el portal (packing-reparto.ts).
    * Montos del REGISTRO completo (todas sus unidades); los campos

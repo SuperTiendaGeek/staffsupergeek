@@ -22,6 +22,7 @@ import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } fr
 import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Pago, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2ItemHeaderNavigation } from "./ShippingV2ItemHeaderNavigation";
 import { EliminarItemAdmin } from "./EliminarItemAdmin";
+import { ShippingV2ActivoAcciones } from "./ShippingV2ActivoAcciones";
 import { ShippingV2ItemDetailView, type ResolvedItem } from "../ShippingV2ItemsClient";
 
 export const dynamic = "force-dynamic";
@@ -156,11 +157,22 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
               <>
                 <ShippingV2ItemHeaderNavigation currentItemId={item.id} navigation={navigation} />
                 <Button asChild className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
-                  <Link href="/shipping-v2/items">Volver a Items</Link>
+                  <Link href={item.usoLocal ? "/shipping-v2/activos" : "/shipping-v2/items"}>{item.usoLocal ? "Volver a Activos" : "Volver a Items"}</Link>
                 </Button>
               </>
             }
           />
+          {/* Punto 4: movimientos de activos (solo Administrador). */}
+          {esAdmin && (
+            <ShippingV2ActivoAcciones
+              itemId={item.id}
+              sku={item.sku}
+              esActivo={item.usoLocal === true}
+              cantidad={item.cantidad ?? 0}
+              estado={item.estado ?? ""}
+              unidadesDadasDeBaja={item.unidadesDadasDeBaja ?? 0}
+            />
+          )}
           <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} esAdmin={esAdmin} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} permissions={permissions} />
           {esAdmin && <EliminarItemAdmin itemId={item.id} />}
         </div>

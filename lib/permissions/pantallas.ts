@@ -47,6 +47,7 @@ export const MODULO_POR_APP_PERMITIDA: Partial<Record<string, ModuloConPantallas
 export const PANTALLAS_POR_MODULO: Record<ModuloConPantallas, readonly PantallaDef[]> = {
   "shipping-v2": [
     { key: "items", label: "Items" },
+    { key: "activos", label: "Activos de la tienda" },
     { key: "recepcion", label: "Recepción" },
     { key: "packings", label: "Packings" },
     { key: "pagos", label: "Pagos" },
