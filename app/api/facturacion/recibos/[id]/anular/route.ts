@@ -4,6 +4,7 @@ import { obtenerReciboPorId, marcarReciboAnulado } from "@/lib/facturacion/recib
 import { revertirInventarioRecibo, revertirIngresoRecibo, revertirProductosDigitalesRecibo } from "@/lib/facturacion/recibos/efectos";
 import { revertirPuenteRecibo } from "@/lib/finanzas/puentes/recibo";
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
+import { reabrirOrigenTrasAnulacion } from "@/lib/facturacion/anulaciones/origen";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,13 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
     await marcarReciboAnulado(id);
     // Reverso de inventario: devuelve el stock.
-    await revertirInventarioRecibo({ reciboRecordId: id, lineas: recibo.lineas, ambiente: cfg.ambiente }).catch((e) => console.error("[anular recibo] inventario:", e));
+    // Punto 7 (9-oct-2026): si venía de una orden o un pedido, la unidad
+    // vuelve a quedar apartada para ese origen y una operación "Entregado"
+    // vuelve a "Pedido".
+    await revertirInventarioRecibo({ reciboRecordId: id, lineas: recibo.lineas, ambiente: cfg.ambiente, reapartar: !!recibo.origen }).catch((e) => console.error("[anular recibo] inventario:", e));
+    if (cfg.ambiente === "2" && recibo.origen) {
+      await reabrirOrigenTrasAnulacion(recibo.origen, `el recibo ${recibo.numero}`, registradoPor);
+    }
     // Productos digitales: vuelven a Disponible y sueltan el enlace.
     await revertirProductosDigitalesRecibo({ reciboRecordId: id, lineas: recibo.lineas, ambiente: cfg.ambiente }).catch((e) => console.error("[anular recibo] productos digitales:", e));
 

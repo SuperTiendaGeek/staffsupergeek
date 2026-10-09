@@ -48,6 +48,10 @@ export type DetalleNotaCredito = {
    *  devolver, así que revertirInventarioNotaCredito() la ignora por
    *  completo para esas líneas — ver el comentario ahí. */
   devolucionFisica?: boolean;
+  /** Punto 7 (9-oct-2026): cómo vuelve el artículo. "falla" lo deja en
+   *  revisión con la nota; "buena" sigue la regla de su categoría. */
+  condicionDevolucion?: "buena" | "falla";
+  notaFalla?: string;
 };
 
 // ─── Total de impuesto en NC (más acotado que en factura) ────────────────────

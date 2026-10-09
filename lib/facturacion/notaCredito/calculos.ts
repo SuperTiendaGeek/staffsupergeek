@@ -30,12 +30,16 @@ export type SeleccionLinea = {
   cantidadAcreditada: number;
   /** ¿El cliente devolvió físicamente el item? (suma de vuelta al stock) */
   devolucionFisica: boolean;
+  /** Punto 7: ¿vuelve en buen estado o con falla? (solo si devolucionFisica) */
+  condicion?: "buena" | "falla";
+  notaFalla?: string;
 };
 
 export function construirLineaNotaCredito(
   original: DetalleFactura,
   cantidadAcreditada: number,
-  devolucionFisica: boolean
+  devolucionFisica: boolean,
+  devolucion?: { condicion?: "buena" | "falla"; notaFalla?: string }
 ): DetalleNotaCredito {
   const cantidadOriginal = original.cantidad > 0 ? original.cantidad : 1;
   const proporcion = cantidadAcreditada / cantidadOriginal;
@@ -66,6 +70,9 @@ export function construirLineaNotaCredito(
     shippingItemId: original.shippingItemId,
     productoDigitalId: original.productoDigitalId,
     devolucionFisica,
+    // Punto 7: solo tiene sentido si vuelve físicamente.
+    ...(devolucionFisica && devolucion?.condicion ? { condicionDevolucion: devolucion.condicion } : {}),
+    ...(devolucionFisica && devolucion?.condicion === "falla" && devolucion.notaFalla?.trim() ? { notaFalla: devolucion.notaFalla.trim().slice(0, 300) } : {}),
   };
 }
 

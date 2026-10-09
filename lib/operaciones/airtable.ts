@@ -1037,6 +1037,18 @@ export async function marcarOperacionEntregadaPorDocumento(operacionId: string):
   await actualizarEstadoOperacion(operacionId, "Entregado");
 }
 
+/** Punto 7 (9-oct): al anular su factura o recibo, una operación "Entregado" vuelve a "Pedido". */
+export async function reabrirOperacionTrasAnulacion(operacionId: string): Promise<void> {
+  const client = getClient();
+  const url = new URL(`${client.baseUrl}/${encodeURIComponent(OPERACIONES_TABLE)}/${encodeURIComponent(operacionId)}`);
+  url.searchParams.append("fields[]", "Estado");
+  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+  if (!res.ok) throw new Error(`No se pudo leer la operación: ${res.status}`);
+  const rec = (await res.json()) as AirtableRecord;
+  if (firstString(rec.fields?.["Estado"]) !== "Entregado") return;
+  await actualizarEstadoOperacion(operacionId, "Pedido");
+}
+
 export async function anularOperacion(operacionId: string): Promise<void> {
   await actualizarEstadoOperacion(operacionId, "Rechazado");
 }
