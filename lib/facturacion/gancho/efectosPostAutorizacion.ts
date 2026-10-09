@@ -34,6 +34,7 @@ import {
 } from "../airtable/facturas";
 import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
 import { marcarReservaFacturada } from "../reservas/airtable";
+import { marcarOperacionEntregadaPorDocumento } from "@/lib/operaciones/airtable";
 import { leerLineasFactura, planificarCompletarFactura, type LineasFacturaGuardadas } from "../reglas/lineasFactura";
 import type { DatosVenta, ResultadoEmision } from "../emitirFactura";
 
@@ -44,6 +45,8 @@ export type ResumenEfectos = {
   finanzas?:   "ejecutado" | "omitido";
   reserva?:    "cerrada" | "error" | "omitido";
   vinculos?:   "ok" | "error" | "omitido";
+  /** Punto 6: la operación de origen pasa sola a "Entregado". */
+  operacion?:  "entregada" | "error";
 };
 
 /**
@@ -93,6 +96,22 @@ export async function ejecutarEfectosPostAutorizacion(input: {
     } catch (e) {
       console.error("[efectosPostAutorizacion] marcar reserva facturada falló:", e);
       resumen.reserva = "error";
+    }
+  }
+
+  // Operación de origen → "Entregado" (punto 6): mismo criterio que la reserva.
+  if (
+    resultado.estado === "AUTORIZADO" &&
+    resultado.recordId &&
+    resultado.ambiente === AMBIENTE_PRODUCCION &&
+    datos.origen?.tipo === "operacion"
+  ) {
+    try {
+      await marcarOperacionEntregadaPorDocumento(datos.origen.recordId);
+      resumen.operacion = "entregada";
+    } catch (e) {
+      console.error("[efectosPostAutorizacion] marcar operación entregada falló:", e);
+      resumen.operacion = "error";
     }
   }
 
@@ -213,6 +232,17 @@ export async function completarFacturaAutorizada(recordId: string, registradoPor
     } catch (e) {
       console.error("[completarFacturaAutorizada] marcar reserva facturada falló:", e);
       efectos.reserva = "error";
+    }
+  }
+
+  // Operación de origen → "Entregado" (punto 6). Idempotente.
+  if (l.origen?.tipo === "operacion") {
+    try {
+      await marcarOperacionEntregadaPorDocumento(l.origen.recordId);
+      efectos.operacion = "entregada";
+    } catch (e) {
+      console.error("[completarFacturaAutorizada] marcar operación entregada falló:", e);
+      efectos.operacion = "error";
     }
   }
 

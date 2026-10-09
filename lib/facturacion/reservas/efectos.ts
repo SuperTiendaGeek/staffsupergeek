@@ -34,6 +34,7 @@ import { fetchRecordsByIds, firstString } from "../gancho/airtableGancho";
 import { reservarSiguienteIdAbono } from "@/lib/operaciones/airtable";
 import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
 import { evaluarDisponibilidadComercial } from "@/lib/shipping-v2/item-comercial";
+import { estadoSegunLlegada } from "@/lib/shipping-v2/item-venta";
 import { comprometerUnidades, liberarUnidades, unidadesReservadas } from "@/lib/shipping-v2/unidades";
 import { verificarEscrituraUnica, withLock } from "@/lib/concurrencia";
 
@@ -65,6 +66,24 @@ async function patchItem(itemId: string, fields: Record<string, unknown>): Promi
     await new Promise((r) => setTimeout(r, 400 * (i + 1)));
   }
   if (!res || !res.ok) throw new Error(`PATCH Shipping Items ${itemId} → ${res?.status ?? "?"}: ${res ? await res.text() : "sin respuesta"}`);
+}
+
+/**
+ * Punto 6 (9-oct): la etiqueta tras apartar o liberar sale de la MISMA regla
+ * de llegada que usa Recepción. Así un artículo que todavía no llega conserva
+ * su etapa (En tránsito, Pagado…) aunque esté todo apartado, y al liberar uno
+ * que ya llegó vuelve a Disponible o a En revisión, nunca a "Disponible" a
+ * ciegas. Devuelve null si no hay que cambiarla.
+ */
+function etiquetaTrasCompromiso(fields: Record<string, unknown>, todasApartadas: boolean): string | null {
+  return estadoSegunLlegada({
+    estado: firstString(fields["Estado Item"]),
+    recibido: fields["Recibido"] === true,
+    requiereInspeccion: fields["Requiere inspección"] === true,
+    inspeccionFirmada: fields["Revisado física/técnicamente"] === true,
+    usoLocal: fields["Es uso local"] === true,
+    todasReservadas: todasApartadas,
+  });
 }
 
 /**
@@ -117,12 +136,14 @@ async function apartarItemSinTurno(shippingItemId: string, unidades: number): Pr
   if (!resultado.ok) throw new Error(resultado.motivo);
 
   // "Estado Item" solo pasa a "Reservado" cuando se agotan las unidades
-  // libres; con stock restante el registro conserva su estado logístico.
+  // libres Y el artículo ya llegó; si viene en camino conserva su etapa
+  // (punto 6). Con stock restante no cambia.
+  const etiqueta = etiquetaTrasCompromiso(rec.fields, resultado.reservado);
   await patchItem(shippingItemId, {
     "Cantidad Reservada": resultado.cantidadReservada,
     "Reservado": resultado.reservado,
     "Disponible para venta": resultado.disponibleVenta,
-    ...(resultado.reservado ? { "Estado Item": "Reservado" } : {}),
+    ...(etiqueta ? { "Estado Item": etiqueta } : {}),
   });
 
   // F-26 — se relee para confirmar que nuestro incremento sobrevivió. Si otra
@@ -138,8 +159,8 @@ async function apartarItemSinTurno(shippingItemId: string, unidades: number): Pr
 }
 
 /**
- * Devuelve el ítem a la venta al liberar una reserva. Idempotente: si ya está
- * disponible no hace nada.
+ * Devuelve UNA unidad a la venta al liberar una reserva. Idempotente: si ya
+ * está disponible no hace nada.
  *
  * Solo revierte cuando el ítem sigue en "Reservado". Si entre medias pasó a
  * otro estado (Vendido, Con novedad, Destinado a partes…) NO lo toca: liberar
@@ -176,17 +197,30 @@ export async function liberarItem(shippingItemId: string, unidades = 1): Promise
   // Si el ítem avanzó a otro estado (Vendido, Con novedad, Destinado a
   // partes…), soltar la reserva devuelve las unidades al contador pero NO lo
   // resucita a la venta: ese camino ya lo decidió otra cosa.
-  const siguioOtroCamino = estado !== "Reservado" && estado !== "Disponible";
+  //
+  // Punto 6: "otro camino" = una SALIDA o un problema (lo que decide
+  // item-comercial.ts), no cualquier etapa. Un artículo apartado mientras
+  // venía en camino conserva su etapa ("En tránsito") y al soltarlo debe
+  // volver a poder reservarse.
+  const siguioOtroCamino = !evaluarDisponibilidadComercial({
+    estado,
+    estadoRevision: firstString(rec.fields["Estado de revisión"]),
+    usoLocal: rec.fields["Es uso local"] === true,
+  }).apartable;
   if (siguioOtroCamino) {
     await patchItem(shippingItemId, { "Cantidad Reservada": nuevo.cantidadReservada, "Reservado": nuevo.reservado });
     return;
   }
 
+  // Punto 6: la etiqueta sale de la regla de llegada (Disponible / En
+  // revisión / Reservado si aún queda todo apartado). Antes ponía
+  // "Disponible" aunque el artículo no hubiera llegado.
+  const etiqueta = etiquetaTrasCompromiso(rec.fields, nuevo.reservado);
   await patchItem(shippingItemId, {
     "Cantidad Reservada": nuevo.cantidadReservada,
     "Reservado": nuevo.reservado,
     "Disponible para venta": nuevo.disponibleVenta,
-    ...(nuevo.disponibleVenta && estado === "Reservado" ? { "Estado Item": "Disponible" } : {}),
+    ...(etiqueta ? { "Estado Item": etiqueta } : {}),
   });
 }
 

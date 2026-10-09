@@ -1,4 +1,5 @@
 import { NextResponse }              from "next/server";
+import { marcarOperacionEntregadaPorDocumento } from "@/lib/operaciones/airtable";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { crearRecibo, adjuntarPdfRecibo, listarRecibos } from "@/lib/facturacion/recibos/airtable";
 import { descontarInventarioRecibo, registrarIngresoRecibo, marcarProductosDigitalesRecibo } from "@/lib/facturacion/recibos/efectos";
@@ -9,6 +10,7 @@ import { mensajeAprobadoSinArticulo, MENSAJE_NO_SE_PUDO_VERIFICAR } from "@/lib/
 import { procesarPuenteRecibo } from "@/lib/finanzas/puentes/recibo";
 import { generarReciboPdf }          from "@/lib/facturacion/recibos/pdf";
 import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/reglas/stock";
+import { verificarProductosDigitalesDisponibles, mensajeProductosDigitalesNoDisponibles } from "@/lib/facturacion/reglas/productosDigitalesDisponibles";
 import { verificarArticulosEntregables, mensajeNoEntregables } from "@/lib/facturacion/reglas/entregables";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
@@ -100,6 +102,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: "No se pudo verificar el stock. Intenta de nuevo." }, { status: 503 });
   }
 
+  // Productos digitales — MISMA puerta que la factura (auditoría Shipping V2,
+  // punto 6, 9-oct-2026). Antes el recibo no verificaba nada: una clave ya
+  // vendida o vinculada a otra orden podía cobrarse otra vez por recibo.
+  try {
+    const detallesDigitales: DetalleFactura[] = body.lineas
+      .filter((l) => !!l.productoDigitalId)
+      .map((l) => ({ descripcion: l.descripcion, cantidad: l.cantidad, precioUnitario: l.precioUnitario, descuento: l.descuento, precioTotalSinImpuesto: 0, impuestos: [], tipo: "productoDigital", productoDigitalId: l.productoDigitalId }));
+    const ordenOrigenId = body.origen?.tipo === "orden" ? body.origen.recordId : null;
+    const noDisponibles = await verificarProductosDigitalesDisponibles(detallesDigitales, ordenOrigenId);
+    if (noDisponibles.length > 0) {
+      return NextResponse.json({ success: false, error: mensajeProductosDigitalesNoDisponibles(noDisponibles).replace("No se puede facturar", "No se puede emitir el recibo") }, { status: 400 });
+    }
+  } catch (e) {
+    console.error("[recibos POST] error verificando productos digitales:", e);
+    return NextResponse.json({ success: false, error: "No se pudo verificar los productos digitales. Intenta de nuevo." }, { status: 503 });
+  }
+
   // Auditoría Shipping V2, punto 1 — igual que la factura: solo lo que ya
   // está en la tienda (Recibido + inspección firmada si la requiere).
   try {
@@ -123,6 +142,13 @@ export async function POST(request: Request) {
     // el recibo y su PDF ya existen, un fallo aquí no los deshace.
     try { await descontarInventarioRecibo({ reciboRecordId: recordId, numeroRecibo: numero, lineas: body.lineas, ambiente: cfg.ambiente, liberaReserva: !!body.origen }); }
     catch (e) { console.error("[recibos POST] inventario:", e); }
+
+    // Punto 6 (9-oct): la operación de origen pasa sola a "Entregado"
+    // (mismo guardado de ambiente que el inventario).
+    if (body.origen?.tipo === "operacion" && cfg.ambiente === "2") {
+      try { await marcarOperacionEntregadaPorDocumento(body.origen.recordId); }
+      catch (e) { console.error("[recibos POST] operación entregada:", e); }
+    }
 
     // Productos digitales (solo aparecen en recibos con origen, hoy): se
     // marcan Usado y se enlazan, igual que hace postEmision() con la factura.

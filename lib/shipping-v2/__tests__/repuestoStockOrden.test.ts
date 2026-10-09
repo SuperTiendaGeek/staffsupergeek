@@ -119,7 +119,7 @@ async function main(): Promise<void> {
 
     // ── El registro se cierra solo al agotarse las unidades ──────────────────
     prepararItem("recSSD", {
-      Categoría: "SSD", "Estado Item": "Disponible", "Disponible para venta": true,
+      Categoría: "SSD", "Estado Item": "Disponible", "Disponible para venta": true, Recibido: true,
       Reservado: false, Cantidad: 1, "Cantidad Reservada": 0,
     });
     await reservarShippingItemComoRepuestoDeOrdenStock(opciones);
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
     assert(items["recSSD"]["Estado Item"] === "Reservado", "…y ahí sí pasa a 'Reservado'");
 
     // ── Categorías montables ─────────────────────────────────────────────────
-    prepararItem("recSSD", { Categoría: "RAM", "Estado Item": "Disponible", "Disponible para venta": true, Reservado: false, Cantidad: 1 });
+    prepararItem("recSSD", { Categoría: "RAM", "Estado Item": "Disponible", "Disponible para venta": true, Recibido: true, Reservado: false, Cantidad: 1 });
     await reservarShippingItemComoRepuestoDeOrdenStock(opciones);
     assert(items["recSSD"]["Estado Item"] === "Reservado", "Una RAM también se puede montar como repuesto");
 
@@ -153,6 +153,7 @@ async function main(): Promise<void> {
     prepararItem("recSSD", {
       Categoría: "SSD",
       "Estado Item": "Reservado",
+      Recibido: true,
       "Disponible para venta": false,
       Reservado: true,
       Cantidad: 1,

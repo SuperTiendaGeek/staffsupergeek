@@ -7,6 +7,7 @@ import {
 } from "@/lib/operaciones/airtable";
 import { ESTADOS_OPERACION } from "@/types/operaciones";
 import { esLlegadaPedido } from "@/lib/operaciones/pedido";
+import { evaluarCambioEstadoOperacion } from "@/lib/operaciones/cierre";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -34,6 +35,19 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
   const op = await fetchOperacionDetalle(id).catch(() => null);
   if (!op) {
     return NextResponse.json({ success: false, error: "Operación no encontrada." }, { status: 404 });
+  }
+
+  // Punto 6 (9-oct): "Entregado" no se marca a mano, y una operación que ya
+  // tiene artículo no se regresa ni se rechaza por aquí (se anula eligiendo
+  // qué pasa con el artículo). Ver lib/operaciones/cierre.ts.
+  const articulo = op.articulosFisicos[0];
+  const permiso = evaluarCambioEstadoOperacion({
+    estadoActual: op.estado,
+    estadoNuevo: estado,
+    articuloSku: articulo ? articulo.sku || articulo.nombre || articulo.id : null,
+  });
+  if (!permiso.ok) {
+    return NextResponse.json({ success: false, error: permiso.motivo }, { status: 409 });
   }
 
   // Rule: Aprobado requires an Opción Elegida

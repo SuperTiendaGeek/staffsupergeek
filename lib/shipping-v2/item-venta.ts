@@ -118,8 +118,9 @@ export function evaluarVentaItem(item: ShippingV2ItemVentaLike): EvaluacionVenta
 
 /**
  * Etapas del camino de llegada. Solo dentro de ellas el sistema mueve la
- * etiqueta "Estado Item" por su cuenta. Reservado, Vendido, Con novedad, Uso
- * local, Repuesto y los estados finales no se tocan aquí.
+ * etiqueta "Estado Item" por su cuenta. Vendido, Con novedad, Repuesto y los
+ * estados finales no se tocan aquí. (Uso local desde el punto 4 y Reservado
+ * desde el punto 6 sí.)
  */
 const ESTADOS_DEL_CAMINO = new Set([
   "registrado",
@@ -133,6 +134,10 @@ const ESTADOS_DEL_CAMINO = new Set([
   "disponible",
   // Punto 4 (8-oct): la etiqueta de un activo también la pone esta regla.
   "uso local",
+  // Punto 6 (9-oct): "Reservado" también. Al apartar o liberar unidades de un
+  // artículo que YA llegó, la etiqueta sale de aquí (con `todasReservadas`):
+  // Reservado si todo está apartado; si no, Disponible / En revisión.
+  "reservado",
 ]);
 
 /**

@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { reservaVencida, diasRestantesReserva, validarAbono, saldoPendiente, pagoCompleto } from "@/lib/facturacion/reservas/reglas";
+import { reservaVencida, diasRestantesReserva, validarAbono, saldoPendiente, pagoCompleto, fechaLiberacionAutomatica, DIAS_GRACIA_VENCIDA } from "@/lib/facturacion/reservas/reglas";
 
 const FORMAS_PAGO = [
   { codigo: "01", label: "Efectivo" }, { codigo: "16", label: "Tarjeta de débito" }, { codigo: "19", label: "Tarjeta de crédito" },
@@ -21,7 +21,8 @@ const dLimite = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`);
 
 type Registro = { recordId: string; numero: string; fecha: string; estado: string; clienteNombre: string; clienteIdentificacion: string; descripcionItem: string; precio: number; totalAbonado: number; fechaLimite: string; tienePdf: boolean };
 type Abono = { monto: number; fecha: string; formaPago: string; registradoPor: string };
-type Detalle = Registro & { cliente: { razonSocial: string; identificacion?: string; correo?: string; telefono?: string }; abonos: Abono[]; plazoDias: number; saldoAFavor: number; facturaRecordId?: string };
+type Detalle = Registro & { cliente: { razonSocial: string; identificacion?: string; correo?: string; telefono?: string }; abonos: Abono[]; plazoDias: number; saldoAFavor: number; facturaRecordId?: string; historial?: string };
+const fmtFecha = (d: Date) => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
 
 function estadoVisual(r: { estado: string; fechaLimite: string }): { label: string; cls: string } {
   if (r.estado === "Activa" && reservaVencida(dLimite(r.fechaLimite), hoy())) return { label: "Vencida", cls: "text-red-400" };
@@ -85,7 +86,7 @@ export function ReservasPanel() {
       {/* Alertas */}
       {(vencidas > 0 || porVencer > 0) && (
         <div className="mb-4 flex flex-wrap gap-3">
-          {vencidas > 0 && <div className="rounded-xl border border-red-700/50 bg-red-900/20 px-4 py-2 text-sm text-red-300"><b>{vencidas}</b> reserva(s) <b>vencida(s)</b> — libera el ítem para devolverlo a inventario.</div>}
+          {vencidas > 0 && <div className="rounded-xl border border-red-700/50 bg-red-900/20 px-4 py-2 text-sm text-red-300"><b>{vencidas}</b> reserva(s) <b>vencida(s)</b> — extiende el plazo o libérala; si no, se libera sola a los {DIAS_GRACIA_VENCIDA} días de vencida.</div>}
           {porVencer > 0 && <div className="rounded-xl border border-yellow-700/50 bg-yellow-900/20 px-4 py-2 text-sm text-yellow-300"><b>{porVencer}</b> por vencer en ≤ 3 días.</div>}
         </div>
       )}
@@ -177,6 +178,16 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
     } catch { setErr("Error de red"); } finally { setAccion(null); }
   }
 
+  async function extender(dias: number) {
+    setAccion("extender"); setErr(null); setMsg(null);
+    try {
+      const r = await fetch(`/api/facturacion/reservas/${reserva.recordId}/extender`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dias }) });
+      const d = await r.json();
+      if (!d.success) setErr(d.error ?? "Error");
+      else { setMsg(`Plazo extendido · vence ${fmt(d.data.fechaLimite)}`); onCambio(); }
+    } catch { setErr("Error de red"); } finally { setAccion(null); }
+  }
+
   const btn = "rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] transition";
 
   return (
@@ -190,7 +201,7 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
           <div>
             <p className="text-xs text-[#666]">Reserva</p>
             <p className="text-lg font-bold font-mono text-[#F5F5F5]">{reserva.numero}</p>
-            <p className={`text-xs ${venc ? "text-red-400" : "text-[#888]"}`}>{venc ? "VENCIDA · " : ""}{reserva.estado} · vence {fmt(reserva.fechaLimite)}</p>
+            <p className={`text-xs ${venc ? "text-red-400" : "text-[#888]"}`}>{venc ? "VENCIDA · " : ""}{reserva.estado} · vence {fmt(reserva.fechaLimite)}{venc ? ` · se libera sola el ${fmtFecha(fechaLiberacionAutomatica(dLimite(reserva.fechaLimite)))}` : ""}</p>
           </div>
           <button onClick={onClose} className="text-[#666] hover:text-[#F5F5F5] text-xl leading-none">✕</button>
         </div>
@@ -229,6 +240,13 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
         )}
         {completa && activa && <p className="rounded-lg bg-emerald-900/20 border border-emerald-700/40 px-3 py-2 text-xs text-emerald-300">Pago completo — lista para facturar.</p>}
 
+        {reserva.historial ? (
+          <details className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-xs">
+            <summary className="cursor-pointer text-[10px] uppercase tracking-wider text-[#666]">Historial</summary>
+            <pre className="mt-2 whitespace-pre-wrap font-sans text-[#A7A7A7]">{reserva.historial}</pre>
+          </details>
+        ) : null}
+
         {msg && <p className="rounded-lg bg-emerald-900/30 border border-emerald-700/40 px-3 py-2 text-sm text-emerald-300">{msg}</p>}
         {err && <p className="rounded-lg bg-red-900/30 border border-red-700/40 px-3 py-2 text-sm text-red-300">{err}</p>}
 
@@ -237,6 +255,14 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
           {activa && <button onClick={() => { setErr(null); setMsg(null); setFacturarOpen(true); }} className="rounded-full bg-[#D7FF4F] text-[#151515] px-4 py-1.5 text-xs font-bold hover:brightness-105">🧾 Facturar</button>}
           <a href={`/facturacion/imprimir/reserva/${reserva.recordId}`} target="_blank" rel="noopener" className={btn}>🖨 Imprimir 2 tickets</a>
           <a href={`/api/facturacion/reservas/${reserva.recordId}/pdf`} target="_blank" rel="noopener" className={btn}>↓ PDF</a>
+          {activa && (
+            <select value="" disabled={accion === "extender"} onChange={(e) => { const d = Number(e.target.value); if (d) void extender(d); }}
+              title="Nuevo plazo contado desde hoy (o desde la fecha límite si todavía no vence)"
+              className="rounded-full border border-[#3A3A36] bg-transparent px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 disabled:opacity-40">
+              <option value="">{accion === "extender" ? "Extendiendo…" : "⏱ Extender plazo"}</option>
+              <option value="7">+7 días</option><option value="15">+15 días</option><option value="30">+30 días</option>
+            </select>
+          )}
           {activa && <button disabled={accion === "liberar"} onClick={liberar} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-red-500/60 hover:text-red-300 disabled:opacity-40">{accion === "liberar" ? "Liberando…" : "⊘ Liberar (saldo a favor)"}</button>}
         </div>
       </div>

@@ -83,7 +83,7 @@ async function main(): Promise<void> {
 
   try {
     // ── Apartar: camino feliz, con el SRI en pruebas ──────────────────────────
-    prepararItem("recITEM1", { "Estado Item": "Disponible", "Disponible para venta": true, Reservado: false, Cantidad: 1, "Cantidad Reservada": 0 });
+    prepararItem("recITEM1", { "Estado Item": "Disponible", Recibido: true, "Disponible para venta": true, Reservado: false, Cantidad: 1, "Cantidad Reservada": 0 });
     await apartarItemParaReserva("recITEM1");
     assert(
       items["recITEM1"]["Estado Item"] === "Reservado",
@@ -129,12 +129,19 @@ async function main(): Promise<void> {
     await apartarItemParaReserva("recITEM5");
     assert(items["recITEM5"]["Reservado"] === true, "Ítem en tránsito SÍ se puede apartar (el cliente lo encarga antes de que llegue)");
     assert(items["recITEM5"]["Cantidad Reservada"] === 1, "El apartado del ítem en tránsito compromete la unidad");
+    // Punto 6 (9-oct): lo que viene en camino conserva su etapa; al liberarlo
+    // no queda "Disponible" a ciegas (antes pasaba a "Reservado" y luego a
+    // "Disponible" aunque no hubiera llegado).
+    assert(items["recITEM5"]["Estado Item"] === "En tránsito", "Punto 6: apartado en camino conserva su etapa");
+    await liberarItem("recITEM5");
+    assert(items["recITEM5"]["Estado Item"] === "En tránsito" && items["recITEM5"]["Cantidad Reservada"] === 0, "Punto 6: liberarlo en camino suelta la unidad y no lo marca Disponible");
+    assert(items["recITEM5"]["Disponible para venta"] === true, "Punto 6: …y vuelve a poder reservarse");
 
     items = {};
     await esperaError(() => apartarItemParaReserva("recNOEXISTE"), "no existe", "Ítem inexistente");
 
     // ── Liberar ───────────────────────────────────────────────────────────────
-    prepararItem("recITEM6", { "Estado Item": "Reservado", "Disponible para venta": false, Reservado: true, Cantidad: 1, "Cantidad Reservada": 1 });
+    prepararItem("recITEM6", { "Estado Item": "Reservado", Recibido: true, "Disponible para venta": false, Reservado: true, Cantidad: 1, "Cantidad Reservada": 1 });
     await liberarItem("recITEM6");
     assert(items["recITEM6"]["Estado Item"] === "Disponible", "Liberar devuelve el ítem a Disponible");
     assert(items["recITEM6"]["Disponible para venta"] === true, "Liberar lo devuelve a la venta");

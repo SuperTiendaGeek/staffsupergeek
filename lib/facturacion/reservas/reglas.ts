@@ -59,3 +59,32 @@ export function validarAbono(monto: number, precioVenta: number, totalAbonadoPre
   }
   return null;
 }
+
+// ─── Reservas vencidas (auditoría Shipping V2, punto 6 · 9-oct-2026) ─────────
+// Decisión del dueño: una reserva vencida aparece en "Vencidas" con Extender
+// plazo o Liberar. Si nadie hace nada, a los DIAS_GRACIA_VENCIDA días de
+// vencida se libera sola (proceso diario) y lo abonado queda como saldo a
+// favor del cliente, igual que al liberarla a mano.
+
+export const DIAS_GRACIA_VENCIDA = 3;
+
+/** ¿Ya pasó la gracia y la reserva debe liberarse sola? */
+export function debeLiberarseSola(fechaLimite: Date, hoy: Date): boolean {
+  return diasRestantesReserva(fechaLimite, hoy) <= -DIAS_GRACIA_VENCIDA;
+}
+
+/** Fecha en que una reserva vencida se libera sola (fecha límite + gracia). */
+export function fechaLiberacionAutomatica(fechaLimite: Date): Date {
+  const d = new Date(fechaLimite.getFullYear(), fechaLimite.getMonth(), fechaLimite.getDate());
+  d.setDate(d.getDate() + DIAS_GRACIA_VENCIDA);
+  return d;
+}
+
+/**
+ * Nueva fecha límite al extender el plazo: se cuenta desde HOY (o desde la
+ * fecha límite actual si todavía no vence, para no acortarla).
+ */
+export function fechaLimiteExtendida(fechaLimiteActual: Date, hoy: Date, dias: PlazoReserva): Date {
+  const base = diasRestantesReserva(fechaLimiteActual, hoy) > 0 ? fechaLimiteActual : hoy;
+  return fechaLimiteReserva(base, dias);
+}

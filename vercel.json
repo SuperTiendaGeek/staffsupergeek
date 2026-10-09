@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/operaciones-depurar-cotizaciones",
       "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/reservas-vencidas",
+      "schedule": "0 12 * * *"
     }
   ]
 }
