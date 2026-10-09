@@ -18,6 +18,7 @@ import "server-only";
 
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "../gancho/airtableGancho";
 import { crearMovimiento, fetchMovimientoById } from "@/lib/finanzas/movimientos";
+import { camposRetornoItem } from "@/lib/shipping-v2/devoluciones";
 import type { EstadoMovimiento, Movimiento } from "@/types/finanzas";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
@@ -58,7 +59,7 @@ async function patchItem(itemId: string, fields: Record<string, unknown>): Promi
 // guardián de ambiente, que ahora vive una sola vez en el orquestador
 // revertirInventarioFacturaAnulada() de más abajo).
 async function revertirShippingItemsFacturaAnulada(input: {
-  facturaRecordId: string; detalles: DetalleFacturaMin[];
+  facturaRecordId: string; detalles: DetalleFacturaMin[]; reapartar?: boolean;
 }): Promise<{ estado: "OK" | "ERROR"; detalle?: string }> {
   const conItem = input.detalles.filter((d): d is DetalleFacturaMin & { shippingItemId: string } => d.tipo === "producto" && !!d.shippingItemId);
   if (conItem.length === 0) return { estado: "OK" };
@@ -75,10 +76,8 @@ async function revertirShippingItemsFacturaAnulada(input: {
     return { estado: "ERROR", detalle: textoLecturaFallida(e, "No se devolvió el stock de los artículos.") };
   }
   const actual = new Map(records.map((r) => [r.id, {
-    cantidad: numberOrZero(r.fields["Cantidad"]),
+    fields: r.fields,
     facturaIds: linkedIds(r.fields["Factura"]),
-    disponible: r.fields["Disponible para venta"] === true,
-    estadoItem: firstString(r.fields["Estado Item"]),
   }]));
 
   const fallidos: string[] = [];
@@ -86,12 +85,15 @@ async function revertirShippingItemsFacturaAnulada(input: {
     const est = actual.get(itemId);
     // Idempotente: solo revierte si esta factura sigue enlazada al item.
     if (!est || !est.facturaIds.includes(input.facturaRecordId)) continue;
-    const nueva = (est.cantidad ?? 0) + qty;
+    // Auditoría Shipping V2, punto 7 (9-oct-2026): regla única de retorno
+    // (lib/shipping-v2/devoluciones.ts). Vuelve como estaba, respetando
+    // bloqueos; si la factura venía de una orden, pedido o reserva, la unidad
+    // vuelve a quedar apartada para ese origen. Antes: "Disponible" a ciegas
+    // y sin reserva (F-4).
     const fields: Record<string, unknown> = {
-      "Cantidad": nueva,
+      ...camposRetornoItem(est.fields, { cantidad: qty, tipo: "anulacion", reapartar: input.reapartar === true }),
       "Factura": est.facturaIds.filter((id) => id !== input.facturaRecordId),
     };
-    if (nueva > 0 && !est.disponible) { fields["Disponible para venta"] = true; fields["Estado Item"] = "Disponible"; }
     try { await patchItem(itemId, fields); }
     catch (e) { fallidos.push(`${itemId}: ${e instanceof Error ? e.message : String(e)}`); }
   }
@@ -180,6 +182,8 @@ async function revertirProductosDigitalesFacturaAnulada(input: {
 // guardián de ambiente vive UNA sola vez aquí y gobierna las dos ramas.
 export async function revertirInventarioFacturaAnulada(input: {
   facturaRecordId: string; detalles: DetalleFacturaMin[]; ambiente?: string;
+  /** Punto 7: la factura venía de una orden, pedido o reserva → la unidad vuelve apartada. */
+  reapartar?: boolean;
 }): Promise<{ estado: "OK" | "ERROR"; detalle?: string }> {
   if (input.ambiente !== AMBIENTE_PRODUCCION) return { estado: "OK" };
 

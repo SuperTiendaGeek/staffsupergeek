@@ -193,6 +193,19 @@ async function historialConEntrada(recordId: string, entrada: string): Promise<s
   return previo ? `${previo}\n${entrada}` : entrada;
 }
 
+/**
+ * Punto 7 (9-oct-2026): al ANULARSE la factura de una reserva, la reserva
+ * vuelve a "Activa" (el cliente sigue con su apartado y sus abonos) y se
+ * quita el vínculo a la factura anulada. Queda en el historial.
+ */
+export async function reabrirReservaTrasAnulacion(recordId: string, entradaHistorial: string): Promise<void> {
+  const c = getClient();
+  const historial = await historialConEntrada(recordId, entradaHistorial);
+  await req(`${c.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(recordId)}`, {
+    method: "PATCH", body: JSON.stringify({ fields: { "Estado": "Activa" as ReservaEstado, "Factura": [], "Historial": historial }, typecast: true }),
+  });
+}
+
 export async function extenderPlazoReserva(recordId: string, nuevaFechaLimite: string, entradaHistorial: string): Promise<void> {
   const c = getClient();
   const historial = await historialConEntrada(recordId, entradaHistorial);

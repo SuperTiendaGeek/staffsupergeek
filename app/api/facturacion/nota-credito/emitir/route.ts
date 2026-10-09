@@ -97,7 +97,13 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    detallesNC.push(construirLineaNotaCredito(original, sel.cantidadAcreditada, !!sel.devolucionFisica));
+    if (sel.devolucionFisica && sel.condicion !== "buena" && sel.condicion !== "falla" && original.tipo === "producto") {
+      return NextResponse.json({ success: false, error: `Indica si "${original.descripcion}" vuelve en buen estado o con falla.` }, { status: 400 });
+    }
+    detallesNC.push(construirLineaNotaCredito(original, sel.cantidadAcreditada, !!sel.devolucionFisica, {
+      condicion: sel.condicion === "falla" ? "falla" : sel.condicion === "buena" ? "buena" : undefined,
+      notaFalla: typeof sel.notaFalla === "string" ? sel.notaFalla : undefined,
+    }));
   }
 
   const totales = calcularTotalesNotaCredito(detallesNC);

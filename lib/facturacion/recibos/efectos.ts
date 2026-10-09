@@ -6,6 +6,7 @@ import "server-only";
 // no se tocan (el recibo se usa solo tras el go-live, cuando SRI_AMBIENTE=2).
 // El recibo (registro + PDF) sí se crea siempre; estos efectos son aparte.
 
+import { camposRetornoItem } from "@/lib/shipping-v2/devoluciones";
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "../gancho/airtableGancho";
 import { ahoraEnEcuador } from "../fechaEcuador";
 import { aplicarVentaUnidades } from "@/lib/shipping-v2/unidades";
@@ -108,7 +109,7 @@ export async function descontarInventarioRecibo(input: {
 }
 
 // Reverso de inventario al anular un recibo: suma de vuelta el stock.
-export async function revertirInventarioRecibo(input: { reciboRecordId: string; lineas: LineaRecibo[]; ambiente?: string }): Promise<void> {
+export async function revertirInventarioRecibo(input: { reciboRecordId: string; lineas: LineaRecibo[]; ambiente?: string; reapartar?: boolean }): Promise<void> {
   if (input.ambiente !== AMBIENTE_PRODUCCION) return;
   const conItem = input.lineas.filter((l): l is LineaRecibo & { shippingItemId: string } => !!l.shippingItemId);
   if (conItem.length === 0) return;
@@ -128,21 +129,20 @@ export async function revertirInventarioRecibo(input: { reciboRecordId: string; 
     return;
   }
   const actual = new Map(records.map((r) => [r.id, {
-    cantidad: numberOrZero(r.fields["Cantidad"]),
+    fields: r.fields,
     reciboIds: linkedIds(r.fields["Recibo"]),
-    disponible: r.fields["Disponible para venta"] === true,
   }]));
 
   for (const [itemId, qty] of porItem) {
     const est = actual.get(itemId);
     // Solo revierte si este recibo está enlazado (evita revertir dos veces).
     if (!est || !est.reciboIds.includes(input.reciboRecordId)) continue;
-    const nueva = (est.cantidad ?? 0) + qty;
+    // Punto 7 (9-oct-2026): regla única de retorno (shipping-v2/devoluciones.ts):
+    // vuelve como estaba, respeta bloqueos y, con origen, vuelve apartada.
     const fields: Record<string, unknown> = {
-      "Cantidad": nueva,
+      ...camposRetornoItem(est.fields, { cantidad: qty, tipo: "anulacion", reapartar: input.reapartar === true }),
       "Recibo": est.reciboIds.filter((id) => id !== input.reciboRecordId),
     };
-    if (nueva > 0 && !est.disponible) { fields["Disponible para venta"] = true; fields["Estado Item"] = "Disponible"; }
     await patchItem(itemId, fields).catch((e) => console.error("[revertirInventarioRecibo]", e));
   }
 }

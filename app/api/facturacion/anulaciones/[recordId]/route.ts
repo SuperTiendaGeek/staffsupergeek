@@ -7,6 +7,7 @@ import { revertirInventarioFacturaAnulada, revertirContableFacturaAnulada } from
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import type { DetalleFactura }        from "@/lib/facturacion/types/factura";
+import { leerOrigenDeLineas, reabrirOrigenTrasAnulacion, type OrigenDocumento } from "@/lib/facturacion/anulaciones/origen";
 
 export const dynamic = "force-dynamic";
 
@@ -65,8 +66,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ rec
     const cfg = getFacturacionConfig();
 
     let detalles: DetalleFactura[] = [];
+    let origen: OrigenDocumento | null = null;
     try {
       const raw: unknown = JSON.parse(factura.lineasJson || "{}");
+      origen = leerOrigenDeLineas(raw);
       if (raw && typeof raw === "object" && !Array.isArray(raw)) {
         const posiblesDetalles = (raw as LineasEnvoltorio).detalles;
         detalles = Array.isArray(posiblesDetalles) ? posiblesDetalles : [];
@@ -85,11 +88,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ rec
       facturaRecordId: recordId,
       detalles,
       ambiente: cfg.ambiente,
+      // Punto 7: si venía de una orden, pedido o reserva, la unidad vuelve apartada.
+      reapartar: !!origen,
     }).catch((e): { estado: "ERROR"; detalle: string } => {
       const detalle = e instanceof Error ? e.message : String(e);
       console.error("[anulación] inventario:", e);
       return { estado: "ERROR", detalle };
     });
+    if (cfg.ambiente === "2") {
+      const avisoOrigen = await reabrirOrigenTrasAnulacion(origen, `la factura ${factura.numeroFactura}`, session.user.nombre || session.user.email || "Portal");
+      if (avisoOrigen) avisos.push(avisoOrigen);
+    }
     if (resultadoInventario.estado === "ERROR") {
       avisos.push(`Reverso de inventario pendiente: ${resultadoInventario.detalle ?? "falló sin detalle"}. La factura ya quedó ANULADA; revisa el inventario manualmente.`);
     }

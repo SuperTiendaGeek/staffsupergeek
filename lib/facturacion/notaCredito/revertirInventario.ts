@@ -28,6 +28,7 @@ import "server-only";
 // porque son tablas distintas sin relación entre sí; sus fallos se combinan
 // en un solo resultado, pero uno no puede hacer fallar al otro.
 
+import { camposRetornoItem } from "@/lib/shipping-v2/devoluciones";
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "../gancho/airtableGancho";
 import { actualizarReversoInventario } from "./airtable";
 import type { DetalleNotaCredito } from "./types";
@@ -36,7 +37,7 @@ const SHIPPING_ITEMS_TABLE = "Shipping Items";
 const PRODUCTOS_DIGITALES_TABLE = "Productos Digitales";
 const AMBIENTE_PRODUCCION = "2";
 
-type EstadoItemActual = { estadoItem: string; notaCreditoIds: string[]; cantidad: number; disponibleVenta: boolean };
+type EstadoItemActual = { estadoItem: string; notaCreditoIds: string[]; cantidad: number; disponibleVenta: boolean; fields: Record<string, unknown> };
 
 async function fetchEstadoActual(itemIds: string[]): Promise<Map<string, EstadoItemActual>> {
   const records = await fetchRecordsByIds(SHIPPING_ITEMS_TABLE, itemIds);
@@ -47,6 +48,7 @@ async function fetchEstadoActual(itemIds: string[]): Promise<Map<string, EstadoI
       notaCreditoIds:  linkedIds(r.fields["Nota de Crédito"]),
       cantidad:        numberOrZero(r.fields["Cantidad"]),
       disponibleVenta: r.fields["Disponible para venta"] === true,
+      fields:          r.fields,
     });
   }
   return map;
@@ -137,12 +139,15 @@ async function revertirInventarioShippingItemsNotaCredito(input: ReversoInput): 
   );
 
   // Agrupar por item (varias líneas de la NC podrían apuntar al mismo item).
-  const devueltoPorItem = new Map<string, { cantidad: number; descripcion: string }>();
+  const devueltoPorItem = new Map<string, { cantidad: number; descripcion: string; conFalla: boolean; notas: string[] }>();
   for (const d of aDevolver) {
     const prev = devueltoPorItem.get(d.shippingItemId);
     devueltoPorItem.set(d.shippingItemId, {
       cantidad:    (prev?.cantidad ?? 0) + (Number.isFinite(d.cantidad) && d.cantidad > 0 ? d.cantidad : 0),
       descripcion: prev?.descripcion ?? d.descripcion,
+      // Si alguna línea del mismo artículo vuelve con falla, manda la falla.
+      conFalla:    (prev?.conFalla ?? false) || d.condicionDevolucion === "falla",
+      notas:       [...(prev?.notas ?? []), ...(d.notaFalla ? [d.notaFalla] : [])],
     });
   }
 
@@ -179,19 +184,22 @@ async function revertirInventarioShippingItemsNotaCredito(input: ReversoInput): 
       continue;
     }
 
-    const cantidadActual = est.cantidad;
-    const nuevaCantidad  = cantidadActual + dev.cantidad;
-
+    // Auditoría Shipping V2, punto 7 (9-oct-2026): regla única de retorno
+    // (lib/shipping-v2/devoluciones.ts). La unidad devuelta queda libre; si
+    // su categoría pide inspección o vuelve CON FALLA, queda "En revisión"
+    // con la inspección reabierta. Se respetan los bloqueos (novedad, activo).
+    // Antes volvía a "Disponible" a ciegas (F-4).
+    const hoy = new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10);
     const fields: Record<string, unknown> = {
-      "Cantidad": nuevaCantidad,
+      ...camposRetornoItem(est.fields, {
+        cantidad:  dev.cantidad,
+        tipo:      "devolucion",
+        condicion: dev.conFalla ? "falla" : "buena",
+        notaFalla: dev.notas.join(" / "),
+        fecha:     hoy,
+      }),
       "Nota de Crédito": [...est.notaCreditoIds, input.notaCreditoRecordId],
     };
-    // Si el item estaba agotado/vendido y vuelve a tener stock, se reactiva
-    // como disponible (espejo del cierre que hace postEmision al llegar a 0).
-    if (nuevaCantidad > 0 && !est.disponibleVenta) {
-      fields["Disponible para venta"] = true;
-      fields["Estado Item"] = input.estadoItemRestaurado ?? "Disponible";
-    }
 
     try {
       await patchItemConReintento(itemId, fields);

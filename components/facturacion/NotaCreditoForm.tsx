@@ -37,7 +37,8 @@ type FacturaOrigen = {
   disponibleAcreditar:   number;
 };
 
-type Seleccion = { incluida: boolean; cantidad: number; devolucionFisica: boolean };
+// Punto 7 (9-oct-2026): condición con que vuelve el artículo (se elige siempre).
+type Seleccion = { incluida: boolean; cantidad: number; devolucionFisica: boolean; condicion: "" | "buena" | "falla"; notaFalla: string };
 
 type ResultadoNC = {
   estado:            "AUTORIZADO" | "DEVUELTA" | "NO AUTORIZADO";
@@ -83,6 +84,8 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
           incluida: true,
           cantidad: d.cantidad,
           devolucionFisica: d.tipo === "producto",
+          condicion: "",
+          notaFalla: "",
         })));
       })
       .catch(() => setBloqueo("Error de red al cargar la factura"))
@@ -111,11 +114,12 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
   async function emitir() {
     setError(null);
     const lineas = sel
-      .map((s, indice) => ({ indice, cantidadAcreditada: s.cantidad, devolucionFisica: s.devolucionFisica, incluida: s.incluida }))
+      .map((s, indice) => ({ indice, cantidadAcreditada: s.cantidad, devolucionFisica: s.devolucionFisica, incluida: s.incluida, condicion: s.condicion, notaFalla: s.notaFalla, esProducto: detalles[indice]?.tipo === "producto" }))
       .filter((l) => l.incluida && l.cantidadAcreditada > 0)
-      .map(({ indice, cantidadAcreditada, devolucionFisica }) => ({ indice, cantidadAcreditada, devolucionFisica }));
+      .map(({ indice, cantidadAcreditada, devolucionFisica, condicion, notaFalla, esProducto }) => ({ indice, cantidadAcreditada, devolucionFisica, esProducto, ...(devolucionFisica && condicion ? { condicion } : {}), ...(devolucionFisica && condicion === "falla" && notaFalla.trim() ? { notaFalla: notaFalla.trim() } : {}) }));
 
     if (lineas.length === 0) { setError("Selecciona al menos una línea a acreditar"); return; }
+    if (lineas.some((l) => l.devolucionFisica && l.esProducto && !l.condicion)) { setError("Indica si cada artículo devuelto vuelve en buen estado o con falla"); return; }
     if (motivo.trim().length < 10) { setError("El motivo debe ser específico (mínimo 10 caracteres)"); return; }
     if (excedeDisponible) { setError(`El total excede lo disponible para acreditar ($${factura?.disponibleAcreditar.toFixed(2)})`); return; }
 
@@ -252,8 +256,26 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
                   </td>
                   <td className="py-2 pr-2 text-center">
                     {d.tipo === "producto" ? (
-                      <input type="checkbox" checked={s?.devolucionFisica ?? false} disabled={!s?.incluida}
-                        onChange={(e) => actualizar(i, { devolucionFisica: e.target.checked })} className="accent-[#D7FF4F] disabled:opacity-40" />
+                      <div className="flex flex-col items-center gap-1">
+                        <input type="checkbox" checked={s?.devolucionFisica ?? false} disabled={!s?.incluida}
+                          onChange={(e) => actualizar(i, { devolucionFisica: e.target.checked })} className="accent-[#D7FF4F] disabled:opacity-40" />
+                        {s?.incluida && s.devolucionFisica ? (
+                          <>
+                            <div className="flex overflow-hidden rounded border border-[#3A3A36]" title="Buen estado: vuelve a la venta (o a revisión si su categoría la pide). Con falla: queda en revisión hasta firmar la inspección.">
+                              {(["buena", "falla"] as const).map((c) => (
+                                <button key={c} type="button" onClick={() => actualizar(i, { condicion: c })}
+                                  className={`px-2 py-0.5 text-[10px] font-semibold ${s.condicion === c ? (c === "falla" ? "bg-[#FF914D] text-[#151515]" : "bg-[#D7FF4F] text-[#151515]") : "text-[#A7A7A7]"}`}>
+                                  {c === "buena" ? "Buen estado" : "Con falla"}
+                                </button>
+                              ))}
+                            </div>
+                            {s.condicion === "falla" ? (
+                              <input value={s.notaFalla} onChange={(e) => actualizar(i, { notaFalla: e.target.value })} placeholder="¿Qué falla?"
+                                className="w-32 rounded bg-[#252622] border border-[#3A3A36] px-2 py-0.5 text-[11px] text-[#F5F5F5]" />
+                            ) : null}
+                          </>
+                        ) : null}
+                      </div>
                     ) : d.tipo === "productoDigital" ? (
                       // Sin casilla a propósito: "¿Devuelve el item?" no
                       // aplica a un producto digital (no hay nada físico que
