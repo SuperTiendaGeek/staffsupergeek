@@ -55,6 +55,8 @@ import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
 import { SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD, getShippingV2ItemEditField, getShippingV2ItemEditFieldByKey } from "@/lib/shipping-v2/item-edit-config";
 import { getShippingV2FacebookPublicationBlockReason, getShippingV2FacebookTextGenerationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import { estadoSegunLlegada, requiereInspeccionPorDefecto } from "@/lib/shipping-v2/item-venta";
+import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
+import type { ArticuloDelPedido } from "@/lib/operaciones/cierre";
 import { evaluarCorreccionEstado, todasReservadas, type CampoCorregible } from "@/lib/shipping-v2/correccion-estado";
 import type { ResumenPestanas } from "@/lib/shipping-v2/pestanas";
 import {
@@ -6389,6 +6391,7 @@ async function reservarRepuestoDeOrdenSinTurno({
   // estuviera ("Repuesto", "En revisión", "Pagado"…), así que el semáforo del
   // inventario no reflejaba que la pieza estaba comprometida con una orden.
   const estadoAnterior = firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoItem], "Disponible");
+  const etiquetaReserva = etiquetaTrasCompromisoItem(f, compromiso.reservado);
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
     method: "PATCH",
     body: JSON.stringify({
@@ -6399,8 +6402,9 @@ async function reservarRepuestoDeOrdenSinTurno({
             [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: compromiso.cantidadReservada,
             [SHIPPING_V2_ITEM_FIELDS.reservado]: compromiso.reservado,
             [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: compromiso.disponibleVenta,
-            // Solo se cierra el estado cuando ya no quedan unidades libres.
-            ...(compromiso.reservado ? { [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Reservado" } : {}),
+            // Solo se cierra el estado cuando ya no quedan unidades libres
+            // y el artículo ya llegó (punto 6).
+            ...(etiquetaReserva ? { [SHIPPING_V2_ITEM_FIELDS.estadoItem]: etiquetaReserva } : {}),
             // APPEND, no reemplazo: con varias unidades el mismo registro
             // puede estar montado en más de una orden a la vez. Antes se
             // escribía [ordenRecordId], lo que desvinculaba en silencio la
@@ -6440,10 +6444,26 @@ async function reservarRepuestoDeOrdenSinTurno({
     registradoPor,
     descripcion: `Reservado como repuesto de stock para la orden ${ordenIdVisible}. Sigue en inventario hasta que se facture.`,
     estadoAnterior,
-    estadoNuevo: "Reservado",
+    estadoNuevo: etiquetaReserva ?? estadoAnterior,
   });
 
   return resumen;
+}
+
+/**
+ * Punto 6 (9-oct): etiqueta tras apartar o soltar unidades, con la MISMA regla
+ * de llegada que Recepción. Lo que viene en camino conserva su etapa; lo que
+ * ya llegó queda Reservado (todo apartado), Disponible o En revisión.
+ */
+function etiquetaTrasCompromisoItem(f: Record<string, unknown>, todasApartadas: boolean): string | null {
+  return estadoSegunLlegada({
+    estado: firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoItem]),
+    recibido: f[SHIPPING_V2_ITEM_FIELDS.recibido] === true,
+    requiereInspeccion: f[SHIPPING_V2_ITEM_FIELDS.requiereInspeccion] === true,
+    inspeccionFirmada: f["Revisado física/técnicamente"] === true,
+    usoLocal: f[SHIPPING_V2_ITEM_FIELDS.esUsoLocal] === true,
+    todasReservadas: todasApartadas,
+  });
 }
 
 // Libera un item previamente reservado como stock de una orden: revierte
@@ -6472,10 +6492,10 @@ export async function liberarShippingItemDeOrdenStock({
     throw new Error("Este item no está reservado como stock de esta orden.");
   }
 
-  // Solo se devuelve a "Disponible" si sigue en "Reservado". Si entre medias
-  // pasó a otro estado (Vendido, Con novedad…), quitar el repuesto de la orden
-  // no puede resucitarlo a la venta — mismo criterio que liberarItem() de
-  // reservas.
+  // La etiqueta solo se mueve dentro del camino de llegada (estadoSegunLlegada):
+  // si entre medias pasó a otro estado (Vendido, Con novedad…), quitar el
+  // repuesto de la orden no puede resucitarlo a la venta — mismo criterio que
+  // liberarItem() de reservas.
   const estadoActual = firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoItem]);
 
   // F-42 — se devuelve UNA unidad al stock libre, y se desvincula SOLO esta
@@ -6489,7 +6509,8 @@ export async function liberarShippingItemDeOrdenStock({
     1
   );
   const ordenesRestantes = linkedOrdenIds.filter((x) => x !== ordenRecordId);
-  const vuelveADisponible = estadoActual === "Reservado" && liberacion.disponibleVenta;
+  // Punto 6: la etiqueta sale de la regla de llegada (no "Disponible" a ciegas).
+  const etiquetaLiberada = etiquetaTrasCompromisoItem(f, liberacion.reservado);
 
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
     method: "PATCH",
@@ -6498,7 +6519,7 @@ export async function liberarShippingItemDeOrdenStock({
         {
           id,
           fields: {
-            ...(vuelveADisponible ? { [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Disponible" } : {}),
+            ...(etiquetaLiberada ? { [SHIPPING_V2_ITEM_FIELDS.estadoItem]: etiquetaLiberada } : {}),
             [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: liberacion.cantidadReservada,
             [SHIPPING_V2_ITEM_FIELDS.reservado]: liberacion.reservado,
             [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: liberacion.disponibleVenta,
@@ -6522,7 +6543,7 @@ export async function liberarShippingItemDeOrdenStock({
     registradoPor,
     descripcion: `Liberado de la orden ${ordenIdVisible} (quitado como repuesto de stock).`,
     estadoAnterior: estadoActual || "Reservado",
-    estadoNuevo: vuelveADisponible ? "Disponible" : estadoActual,
+    estadoNuevo: etiquetaLiberada ?? estadoActual,
   });
 
   return resumen;
@@ -7939,6 +7960,34 @@ async function situacionPagoDeItem(item: ShippingV2Item) {
   return situacionPago({ requierePago: item.requierePago, esRegalo: item.esRegalo, pagos: estados });
 }
 
+/**
+ * Punto 6 (9-oct): lo que hace falta saber del artículo de un pedido de
+ * cliente para decidir si se puede anular y cómo (lib/operaciones/cierre.ts).
+ */
+export async function leerArticuloDePedido(itemRecordId: string): Promise<ArticuloDelPedido> {
+  const item = await getShippingV2ItemById(cleanString(itemRecordId), { includeAiName: false, access: systemShippingV2Access() });
+  const registro = await leerRegistroItem(item.id);
+  const ids = [...item.pagoV2ItemIds, ...item.pagoV2RegaloIds].map(cleanString).filter(Boolean);
+  const pagos = ids.length ? await listRecordsByIds(SHIPPING_V2_TABLES.pagos, ids) : [];
+  return {
+    sku: item.sku || item.id,
+    estado: item.estado,
+    recibido: item.recibido === true,
+    enPacking: Boolean(cleanString(item.packingId)),
+    // Un pago que no se pudo leer cuenta como vivo (fail-closed).
+    pagos: ids
+      .map((pid) => {
+        const r = pagos.find((x) => x.id === pid);
+        return {
+          codigo: r ? firstString(r.fields[SHIPPING_V2_PAYMENT_FIELDS.pagoId]) || pid : pid,
+          estado: r ? firstString(r.fields[SHIPPING_V2_PAYMENT_FIELDS.estadoPago]) : "desconocido",
+        };
+      })
+      .filter((p) => normalizeStatus(p.estado) !== "anulado"),
+    vendido: linkedRecordIds(registro.fields["Factura"]).length > 0 || linkedRecordIds(registro.fields["Recibo"]).length > 0,
+  };
+}
+
 export async function moverActivoShippingV2(
   itemRecordId: string,
   input: { accion: AccionActivo; cantidad: number; motivo: string; precioVenta?: number | null },
@@ -8562,7 +8611,7 @@ export async function actualizarLlegadaShippingV2Item(
 // vive en reversasDisponibles() y se verifica antes de llamar aquí.
 export async function soltarArticuloDePedido(
   itemId: string,
-  opts: { modo: "cancelar" | "liberar"; motivo: string; registradoPor: string }
+  opts: { modo: "cancelar" | "liberar"; motivo: string; registradoPor: string; descripcion?: string }
 ) {
   assertShippingV2GeneratedSchema();
   const id = cleanString(itemId);
@@ -8570,10 +8619,31 @@ export async function soltarArticuloDePedido(
   const existing = await airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`);
   const estadoAnterior = firstString(existing.fields[SHIPPING_V2_ITEM_FIELDS.estadoItem]);
 
+  // Punto 6 (9-oct): se sueltan SOLO las unidades del cliente de este pedido
+  // (la cantidad de su opción). Antes se ponía "Cantidad Reservada" en 0 y se
+  // soltaban también las de otras reservas u órdenes sobre las unidades de
+  // stock del mismo artículo.
+  const unidadesItem = {
+    cantidad: firstNumber(existing.fields[SHIPPING_V2_ITEM_FIELDS.cantidad]) ?? 0,
+    cantidadReservada: firstNumber(existing.fields[SHIPPING_V2_ITEM_FIELDS.cantidadReservada]) ?? 0,
+    reservado: firstBoolean(existing.fields[SHIPPING_V2_ITEM_FIELDS.reservado]),
+  };
+  const apartadas = unidadesReservadas(unidadesItem);
+  const opcionId = linkedRecordIds(existing.fields[SHIPPING_V2_ITEM_SOURCE_FIELDS.opcionOrigen])[0];
+  let delCliente = apartadas;
+  if (opcionId) {
+    const opcion = await airtableRequest<AirtableRecordResponse>(`${tableUrl("Opciones")}/${encodeURIComponent(opcionId)}`).catch(() => null);
+    if (opcion) delCliente = Math.min(apartadas, cantidadDeOpcion(opcion.fields["Cantidad"]));
+  }
+  const liberacion = liberarUnidades(unidadesItem, delCliente);
+  if (opts.modo === "cancelar" && liberacion.cantidadReservada > 0) {
+    throw new Error(`Hay ${liberacion.cantidadReservada} unidad(es) de este artículo apartadas para otros clientes: no se puede cancelar la compra. Usa "Queda como stock".`);
+  }
+
   const fields: Record<string, unknown> = {
     [SHIPPING_V2_ITEM_SOURCE_FIELDS.operacionComercial]: [],
-    [SHIPPING_V2_ITEM_FIELDS.reservado]: false,
-    [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: 0,
+    [SHIPPING_V2_ITEM_FIELDS.reservado]: liberacion.reservado,
+    [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: liberacion.cantidadReservada,
     [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
     [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: opts.registradoPor,
   };
@@ -8593,13 +8663,14 @@ export async function soltarArticuloDePedido(
       requiereInspeccion: existing.fields[SHIPPING_V2_ITEM_FIELDS.requiereInspeccion] === true,
       inspeccionFirmada: existing.fields["Revisado física/técnicamente"] === true,
       usoLocal: existing.fields[SHIPPING_V2_ITEM_FIELDS.esUsoLocal] === true,
+      todasReservadas: liberacion.reservado,
     });
     if (estadoNuevo) fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = estadoNuevo;
     fields[SHIPPING_V2_ITEM_FIELDS.disponibleVenta] = calcularDisponibleVenta({
       estado: estadoNuevo ?? estadoActual,
       estadoRevision: firstString(existing.fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision]),
       usoLocal: existing.fields[SHIPPING_V2_ITEM_FIELDS.esUsoLocal] === true,
-      unidadesLibres: Number(existing.fields[SHIPPING_V2_ITEM_FIELDS.cantidad] ?? 0),
+      unidadesLibres: unidadesLibres({ ...unidadesItem, cantidadReservada: liberacion.cantidadReservada, reservado: liberacion.reservado }),
     });
   }
 
@@ -8614,7 +8685,7 @@ export async function soltarArticuloDePedido(
     itemRecordId: id,
     itemName: firstString(updated.fields[SHIPPING_V2_ITEM_FIELDS.nombre]),
     registradoPor: opts.registradoPor,
-    descripcion: opts.modo === "cancelar"
+    descripcion: opts.descripcion ? `${opts.descripcion} ${opts.motivo}` : opts.modo === "cancelar"
       ? `Pedido cancelado desde el presupuesto de la orden. ${opts.motivo}`
       : `Liberado a inventario: el cliente desistió después de que llegó. ${opts.motivo}`,
     estadoAnterior,

@@ -95,13 +95,23 @@ function lineaProductoDigital(productoDigitalId: string, descripcion = "Windows 
 
 // (e) — en los DOS caminos, Estado distinto de Disponible bloquea.
 {
-  // Desde una orden, sin ningún problema de vinculación (vinculado a la
-  // propia X), pero ya no Disponible — por ejemplo, ya se facturó.
-  const estadoActual = new Map([["recPD1", { estado: "Usado", ordenIds: ["recORDX"] }]]);
+  // Desde una orden, vinculado a la propia X, pero ya no Disponible porque
+  // YA SE FACTURÓ (tiene documento) → bloquea.
+  const estadoActual = new Map([["recPD1", { estado: "Usado", ordenIds: ["recORDX"], yaDocumentado: true }]]);
   const noDisponibles = calcularProductosDigitalesNoDisponibles(
     [lineaProductoDigital("recPD1")], estadoActual, "recORDX"
   );
-  assert(noDisponibles[0]?.motivo === "NO_DISPONIBLE", "(e) Desde su orden, ya no Disponible → bloquea con NO_DISPONIBLE");
+  assert(noDisponibles[0]?.motivo === "NO_DISPONIBLE", "(e) Desde su orden, ya facturado → bloquea con NO_DISPONIBLE");
+}
+{
+  // Punto 6 (9-oct-2026), caso OR000418: "Usado" porque antes vincular lo
+  // marcaba así, de ESTA orden y sin factura ni recibo → se permite (antes la
+  // factura lo rechazaba y el recibo no).
+  const estadoActual = new Map([["recPD1", { estado: "Usado", ordenIds: ["recORDX"], yaDocumentado: false }]]);
+  const noDisponibles = calcularProductosDigitalesNoDisponibles(
+    [lineaProductoDigital("recPD1")], estadoActual, "recORDX"
+  );
+  assert(noDisponibles.length === 0, "Punto 6: Usado de ESTA orden y sin documento → se puede facturar o emitir recibo");
 }
 {
   // Mostrador, sin orden, pero ya no Disponible.

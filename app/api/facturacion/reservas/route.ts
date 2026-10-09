@@ -1,6 +1,6 @@
 import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
-import { buscarReservaActivaPorItem, crearReserva, listarReservas } from "@/lib/facturacion/reservas/airtable";
+import { crearReserva, listarReservas } from "@/lib/facturacion/reservas/airtable";
 import { apartarItemParaReserva, liberarItem, registrarAbonoReserva } from "@/lib/facturacion/reservas/efectos";
 import { abonoMinimo, fechaLimiteReserva, PLAZOS_VALIDOS, validarAbono } from "@/lib/facturacion/reservas/reglas";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
   if (!PLAZOS_VALIDOS.includes(plazoDias as PlazoReserva)) return NextResponse.json({ success: false, error: "El plazo debe ser 7, 15 o 30 días" }, { status: 400 });
   if (!formaPago) return NextResponse.json({ success: false, error: "Elige una forma de pago para el abono" }, { status: 400 });
 
-  // El ítem debe estar disponible para venta y sin otra reserva activa encima.
+  // El ítem debe poder reservarse (le quedan unidades libres y no está bloqueado).
   // Esto es solo el aviso temprano con buen mensaje: la barrera dura es
   // apartarItemParaReserva(), más abajo, que falla si el ítem ya está apartado.
   let datosItemReserva: { descripcionItem: string; precioVenta: number } | null = null;
@@ -66,13 +66,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "El ítem ya no está disponible (vendido o reservado)" }, { status: 400 });
     }
     datosItemReserva = resolverDatosShippingItemParaReserva(rec, { descripcionItem: body.descripcionItem });
-    const reservaActiva = await buscarReservaActivaPorItem(shippingItemId);
-    if (reservaActiva) {
-      return NextResponse.json(
-        { success: false, error: `Este ítem ya está apartado en la reserva ${reservaActiva}.` },
-        { status: 409 }
-      );
-    }
+    // Punto 6 (9-oct): ya no se rechaza por "otra reserva activa sobre el
+    // ítem". Un artículo con varias unidades admite varias reservas mientras
+    // queden unidades libres; eso lo decide apartarItemParaReserva().
   } catch (e) {
     if (e instanceof ShippingItemReservaPrecioError) {
       return NextResponse.json({ success: false, error: e.message }, { status: 400 });

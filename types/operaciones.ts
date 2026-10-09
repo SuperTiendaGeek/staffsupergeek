@@ -160,6 +160,7 @@ export type ShippingItemResumen = {
   id: string;
   nombre: string;
   estadoItem: string;
+  sku?: string;
 };
 
 export type OperacionDetalle = {
@@ -194,6 +195,8 @@ export type OperacionDetalle = {
    */
   articulosFisicos: ShippingItemResumen[];
   ordenVinculada: OrdenVinculada | null;
+  /** Nació del presupuesto de una orden (repuesto bajo pedido): se anula desde la orden. */
+  desdePresupuestoOrden?: boolean;
   opciones: OpcionDetalle[];
   abonos: AbonoDetalle[];
 };

@@ -65,7 +65,12 @@ export type ProductoDigitalNoDisponible = {
   ordenesVinculadasIds?: string[];
 };
 
-type EstadoActualProductoDigital = { estado: string; ordenIds: string[] };
+type EstadoActualProductoDigital = {
+  estado: string;
+  ordenIds: string[];
+  /** ¿Ya tiene factura o recibo? (punto 6, 9-oct-2026) */
+  yaDocumentado?: boolean;
+};
 
 // Parte pura, testeable sin red: compara lo solicitado contra el estado
 // actual ya leído. ordenOrigenId es el recordId de la orden desde la que se
@@ -108,7 +113,13 @@ export function calcularProductosDigitalesNoDisponibles(
       noDisponibles.push({ productoDigitalId: id, descripcion, motivo: "YA_VINCULADO_A_ORDEN", ordenesVinculadasIds: otrasOrdenes });
       continue;
     }
-    if (actual.estado !== ESTADO_DISPONIBLE) {
+    // Auditoría Shipping V2, punto 6 (9-oct-2026): un producto "Usado" que
+    // pertenece a ESTA orden y todavía no tiene factura ni recibo es el caso
+    // normal de las órdenes anteriores a 8a6ca33, cuando vincular lo marcaba
+    // "Usado" (OR000418: la factura lo rechazaba y el recibo no). Se permite.
+    // Si ya tiene documento, sí bloquea: se estaría cobrando dos veces.
+    const usadoEnEstaOrden = !!ordenOrigenId && actual.ordenIds.includes(ordenOrigenId) && actual.yaDocumentado !== true;
+    if (actual.estado !== ESTADO_DISPONIBLE && !usadoEnEstaOrden) {
       noDisponibles.push({ productoDigitalId: id, descripcion, motivo: "NO_DISPONIBLE" });
     }
   }
@@ -134,6 +145,7 @@ export async function verificarProductosDigitalesDisponibles(
     estadoActualPorId.set(r.id, {
       estado:    firstString(r.fields["Estado"]),
       ordenIds:  linkedIds(r.fields["Orden de Reparación"]),
+      yaDocumentado: linkedIds(r.fields["Factura"]).length > 0 || linkedIds(r.fields["Recibo"]).length > 0,
     });
   }
 

@@ -125,6 +125,8 @@ type CambiarEstadoBarProps = {
   cantidadCliente: number;
   /** Si ya existe el artículo en inventario, pasar a Pedido no crea otro: no se pregunta nada. */
   yaTieneArticulo: boolean;
+  /** Punto 6: repuesto bajo pedido de una orden (se anula desde la orden). */
+  ordenDelPresupuesto?: { id: string; codigo: string } | null;
   onSuccess: () => void;
 };
 
@@ -200,18 +202,26 @@ function DatosPedidoPanel({
   );
 }
 
-function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadCliente, yaTieneArticulo, onSuccess }: CambiarEstadoBarProps) {
+function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadCliente, yaTieneArticulo, ordenDelPresupuesto, onSuccess }: CambiarEstadoBarProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showReactivar, setShowReactivar] = useState(false);
   const [pidiendoDatosPedido, setPidiendoDatosPedido] = useState(false);
+  const [anulando, setAnulando] = useState(false);
+  const [destino, setDestino] = useState<"stock" | "cancelar">("stock");
+  const [motivoAnular, setMotivoAnular] = useState("");
 
   const isRechazado = estado === "Rechazado";
+  const isEntregado = estado === "Entregado";
   const currentIdx = ESTADOS_TABLERO.indexOf(estado as (typeof ESTADOS_TABLERO)[number]);
-  const prevEstado = !isRechazado && currentIdx > 0 ? ESTADOS_TABLERO[currentIdx - 1] : null;
-  const nextEstado = !isRechazado && currentIdx >= 0 && currentIdx < ESTADOS_TABLERO.length - 1
+  // Punto 6 (9-oct): con artículo en inventario no se retrocede, y "Entregado"
+  // no se marca a mano (se marca solo al facturar o emitir recibo).
+  const prevEstadoBase = !isRechazado && !isEntregado && currentIdx > 0 ? ESTADOS_TABLERO[currentIdx - 1] : null;
+  const prevEstado = yaTieneArticulo && prevEstadoBase !== "Pedido" ? null : prevEstadoBase;
+  const nextEstadoBase = !isRechazado && currentIdx >= 0 && currentIdx < ESTADOS_TABLERO.length - 1
     ? ESTADOS_TABLERO[currentIdx + 1]
     : null;
+  const nextEstado = nextEstadoBase === "Entregado" ? null : nextEstadoBase;
   const nextIsAprobado = nextEstado === "Aprobado";
   const canAdvance = !!nextEstado && !(nextIsAprobado && !opcionElegidaId);
 
@@ -240,6 +250,27 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadClient
       setShowReactivar(false);
       // El estado ya cambió; si el artículo no se pudo crear, que se vea.
       if (d.itemWarning) setError(`La operación pasó a Pedido, pero el artículo no se creó: ${d.itemWarning}`);
+      onSuccess();
+    } catch {
+      setError("Error de conexión.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function anularPedido() {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/operaciones/${operacionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "anular", destino, motivo: motivoAnular.trim() }),
+      });
+      const d = (await res.json()) as { success: boolean; error?: string };
+      if (!res.ok || !d.success) { setError(d.error ?? "No se pudo anular."); return; }
+      setAnulando(false);
+      setMotivoAnular("");
       onSuccess();
     } catch {
       setError("Error de conexión.");
@@ -278,7 +309,7 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadClient
             </button>
           ) : (
             <div className="flex flex-wrap gap-1.5">
-              {ESTADOS_TABLERO.map((e) => (
+              {ESTADOS_TABLERO.filter((e) => e !== "Entregado").map((e) => (
                 <button
                   key={e}
                   type="button"
@@ -321,6 +352,9 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadClient
             {nextIsAprobado && !opcionElegidaId && (
               <span className="text-[11px] text-amber-400">⚠ Elige una opción primero</span>
             )}
+            {nextEstadoBase === "Entregado" && (
+              <span className="text-[11px] text-[#6B6B66]" title="Pasa sola a Entregado al emitir la factura o el recibo desde esta operación.">Se entrega al facturar</span>
+            )}
             {nextEstado && (
               <button
                 type="button"
@@ -339,8 +373,8 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadClient
         </div>
       )}
 
-      {/* Marcar rechazado — solo en flujo activo y si no es el último */}
-      {!isRechazado && (
+      {/* Marcar rechazado / anular pedido — solo en flujo activo */}
+      {!isRechazado && !isEntregado && !yaTieneArticulo && (
         <div className="flex justify-end">
           <button
             type="button"
@@ -351,6 +385,42 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadClient
             Marcar como rechazado
           </button>
         </div>
+      )}
+      {!isRechazado && !isEntregado && yaTieneArticulo && (
+        ordenDelPresupuesto ? (
+          <p className="text-right text-[11px] text-[#6B6B66]">
+            Repuesto de la orden{" "}
+            <Link href={`/tecnicos/ordenes/${ordenDelPresupuesto.id}`} className="text-[#78B7FF] hover:underline">{ordenDelPresupuesto.codigo}</Link>
+            : se anula desde su presupuesto.
+          </p>
+        ) : !anulando ? (
+          <div className="flex justify-end">
+            <button type="button" onClick={() => { setAnulando(true); setError(""); }} disabled={loading}
+              className="text-[11px] text-[#4A4A46] transition hover:text-[#FF5A4F] disabled:opacity-40">
+              Anular pedido
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#FF5A4F]/25 bg-[#FF5A4F]/5 p-2">
+            <span className="text-[11px] font-semibold text-[#FF5A4F]/80">Anular · el artículo:</span>
+            <div className="flex overflow-hidden rounded-md border border-[#3A3A36]">
+              {([["stock", "Queda como stock"], ["cancelar", "Se cancela la compra"]] as const).map(([v, label]) => (
+                <button key={v} type="button" onClick={() => setDestino(v)}
+                  title={v === "stock" ? "Se sueltan las unidades del cliente; el artículo sigue su camino y queda para vender." : "Solo si todavía no llega y no está en un pago al proveedor."}
+                  className={`px-2.5 py-1 text-[11px] font-semibold ${destino === v ? "bg-[#C0C0BC] text-[#151515]" : "text-[#8A8A80]"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <input value={motivoAnular} onChange={(e) => setMotivoAnular(e.target.value)} placeholder="Motivo (opcional)"
+              className="h-7 min-w-[10rem] flex-1 rounded-md border border-[#3A3A36] bg-[#151515] px-2 text-xs text-[#F0F0EC] outline-none" />
+            <button type="button" onClick={() => void anularPedido()} disabled={loading}
+              className="rounded-full border border-[#FF5A4F]/60 px-3 py-1 text-[11px] font-semibold text-[#FF5A4F] disabled:opacity-40">
+              {loading ? "Anulando…" : "Anular"}
+            </button>
+            <button type="button" onClick={() => setAnulando(false)} className="text-[11px] text-[#6B6B66]">Cancelar</button>
+          </div>
+        )
       )}
     </div>
   );
@@ -690,6 +760,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
           opcionElegidaId={operacion.opcionElegidaId}
           cantidadCliente={operacion.opciones.find((o) => o.id === operacion.opcionElegidaId)?.cantidad ?? 1}
           yaTieneArticulo={operacion.articulosFisicos.length > 0}
+          ordenDelPresupuesto={operacion.desdePresupuestoOrden && operacion.ordenVinculada ? { id: operacion.ordenVinculada.id, codigo: operacion.ordenVinculada.codigoOrden } : null}
           onSuccess={handleEstadoSuccess}
         />
 
@@ -966,7 +1037,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
       )}
 
       {/* Zona peligrosa: eliminar — solo cuando no hay abonos */}
-      {operacion.abonos.length === 0 && operacion.estado !== "Rechazado" && (
+      {operacion.abonos.length === 0 && operacion.estado !== "Rechazado" && operacion.articulosFisicos.length === 0 && (
         <section className="rounded-xl border border-[#FF5A4F]/20 bg-[#FF5A4F]/5 p-4">
           <div className="mb-3 flex items-center gap-1.5">
             <AlertTriangle size={13} className="text-[#FF5A4F]/70" />

@@ -373,6 +373,7 @@ export async function fetchOperacionDetalle(id: string): Promise<OperacionDetall
       id: rec.id,
       nombre: firstString(rec.fields["Nombre del item"]),
       estadoItem: firstString(rec.fields["Estado Item"], "Registrado"),
+      sku: firstString(rec.fields["SKU"]),
     }));
   };
 
@@ -444,6 +445,8 @@ export async function fetchOperacionDetalle(id: string): Promise<OperacionDetall
     opcionElegidaId,
     articulosFisicos,
     ordenVinculada,
+    // Punto 6: un repuesto bajo pedido de una orden se anula desde la orden.
+    desdePresupuestoOrden: linkedIds(f["Presupuesto por Orden"]).length > 0,
     opciones,
     abonos,
   };
@@ -1016,6 +1019,22 @@ export async function eliminarOperacionConOpciones(operacionId: string): Promise
 
   // Delete the operation record
   await deleteRecord(client, OPERACIONES_TABLE, operacionId);
+}
+
+/**
+ * Punto 6 (9-oct): una operación pasa SOLA a "Entregado" cuando se emite su
+ * factura (autorizada en producción) o su recibo. Idempotente: si ya está
+ * Entregado no escribe nada. Best-effort para quien la llama.
+ */
+export async function marcarOperacionEntregadaPorDocumento(operacionId: string): Promise<void> {
+  const client = getClient();
+  const url = new URL(`${client.baseUrl}/${encodeURIComponent(OPERACIONES_TABLE)}/${encodeURIComponent(operacionId)}`);
+  url.searchParams.append("fields[]", "Estado");
+  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
+  if (!res.ok) throw new Error(`No se pudo leer la operación: ${res.status}`);
+  const rec = (await res.json()) as AirtableRecord;
+  if (firstString(rec.fields?.["Estado"]) === "Entregado") return;
+  await actualizarEstadoOperacion(operacionId, "Entregado");
 }
 
 export async function anularOperacion(operacionId: string): Promise<void> {

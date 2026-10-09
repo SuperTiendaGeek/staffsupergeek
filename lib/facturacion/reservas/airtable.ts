@@ -125,6 +125,8 @@ export type ReservaCompleta = {
   shippingItemId?: string; descripcionItem: string;
   precio: number; totalAbonado: number; fechaLimite: string; plazoDias: number;
   abonos: AbonoReserva[]; saldoAFavor: number; facturaRecordId?: string; tienePdf: boolean;
+  /** Bitácora: extensiones de plazo y liberaciones (punto 6). */
+  historial: string;
 };
 
 export async function obtenerReservaPorId(recordId: string): Promise<ReservaCompleta | null> {
@@ -152,6 +154,7 @@ export async function obtenerReservaPorId(recordId: string): Promise<ReservaComp
     precio: num(f["Precio"]), totalAbonado: num(f["Total Abonado"]), fechaLimite: str(f["Fecha Límite"]),
     plazoDias: num(f["Plazo Días"]), abonos, saldoAFavor: num(f["Saldo a Favor Generado"]),
     facturaRecordId: linkId(f["Factura"]), tienePdf: att(f["PDF"]),
+    historial: str(f["Historial"]),
   };
 }
 
@@ -170,11 +173,52 @@ export async function agregarAbonoReserva(recordId: string, abono: AbonoReserva,
 
 // ─── Cambios de estado ────────────────────────────────────────────────────────
 
-export async function marcarReservaLiberada(recordId: string, saldoAFavor: number): Promise<void> {
+export async function marcarReservaLiberada(recordId: string, saldoAFavor: number, entradaHistorial?: string): Promise<void> {
   const c = getClient();
+  const historial = entradaHistorial ? await historialConEntrada(recordId, entradaHistorial) : undefined;
   await req(`${c.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(recordId)}`, {
-    method: "PATCH", body: JSON.stringify({ fields: { "Estado": "Liberada" as ReservaEstado, "Saldo a Favor Generado": saldoAFavor }, typecast: true }),
+    method: "PATCH", body: JSON.stringify({ fields: { "Estado": "Liberada" as ReservaEstado, "Saldo a Favor Generado": saldoAFavor, ...(historial ? { "Historial": historial } : {}) }, typecast: true }),
   });
+}
+
+// ─── Punto 6 (9-oct): historial, extender plazo y lista para el proceso diario ─
+
+/** Lee el campo "Historial" y le agrega una línea (APPEND, nunca reemplaza). */
+async function historialConEntrada(recordId: string, entrada: string): Promise<string> {
+  const c = getClient();
+  const params = new URLSearchParams();
+  params.append("fields[]", "Historial");
+  const r = await req<{ fields: Record<string, unknown> }>(`${c.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(recordId)}?${params}`).catch(() => null);
+  const previo = str(r?.fields["Historial"]).trim();
+  return previo ? `${previo}\n${entrada}` : entrada;
+}
+
+export async function extenderPlazoReserva(recordId: string, nuevaFechaLimite: string, entradaHistorial: string): Promise<void> {
+  const c = getClient();
+  const historial = await historialConEntrada(recordId, entradaHistorial);
+  await req(`${c.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(recordId)}`, {
+    method: "PATCH", body: JSON.stringify({ fields: { "Fecha Límite": nuevaFechaLimite, "Historial": historial }, typecast: true }),
+  });
+}
+
+export type ReservaActivaResumen = { recordId: string; numero: string; fechaLimite: string; totalAbonado: number; shippingItemId?: string };
+
+/** Todas las reservas Activa (para el proceso diario de vencidas). */
+export async function listarReservasActivas(): Promise<ReservaActivaResumen[]> {
+  const c = getClient();
+  const out: ReservaActivaResumen[] = [];
+  let offset: string | undefined;
+  do {
+    const params = new URLSearchParams({ filterByFormula: `{Estado} = "Activa"`, pageSize: "100" });
+    for (const f of ["Número", "Fecha Límite", "Total Abonado", "Shipping Item"]) params.append("fields[]", f);
+    if (offset) params.set("offset", offset);
+    const data = await req<{ records: Array<{ id: string; fields: Record<string, unknown> }>; offset?: string }>(`${c.baseUrl}/${encodeURIComponent(TABLE)}?${params}`);
+    for (const r of data.records ?? []) {
+      out.push({ recordId: r.id, numero: str(r.fields["Número"]), fechaLimite: str(r.fields["Fecha Límite"]), totalAbonado: num(r.fields["Total Abonado"]), shippingItemId: linkId(r.fields["Shipping Item"]) });
+    }
+    offset = data.offset;
+  } while (offset);
+  return out;
 }
 
 export async function marcarReservaFacturada(recordId: string, facturaRecordId: string): Promise<void> {

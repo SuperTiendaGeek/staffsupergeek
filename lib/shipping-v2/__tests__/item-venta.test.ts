@@ -77,7 +77,10 @@ assert(estadoSegunLlegada({ estado: "Pagado", recibido: true, requiereInspeccion
 assert(estadoSegunLlegada({ estado: "Pendiente de pago", recibido: true, requiereInspeccion: true, inspeccionFirmada: false }) === "En revisión", "C-1: llegó directo sin pagar, falta inspección → En revisión");
 assert(estadoSegunLlegada({ estado: "Disponible", recibido: true, requiereInspeccion: true, inspeccionFirmada: false }) === "En revisión", "Se reabre la inspección → vuelve a En revisión");
 assert(estadoSegunLlegada({ estado: "Disponible", recibido: true, requiereInspeccion: false }) === null, "Ya Disponible → sin cambio");
-assert(estadoSegunLlegada({ estado: "Reservado", recibido: true, requiereInspeccion: false }) === null, "Reservado no se toca");
+// Punto 6 (9-oct): "Reservado" también es parte del camino: con todo apartado
+// no cambia; si ya hay unidades libres vuelve a Disponible.
+assert(estadoSegunLlegada({ estado: "Reservado", recibido: true, requiereInspeccion: false, todasReservadas: true }) === null, "Reservado con todo apartado no cambia");
+assert(estadoSegunLlegada({ estado: "Reservado", recibido: true, requiereInspeccion: false }) === "Disponible", "Reservado con unidades libres → Disponible");
 assert(estadoSegunLlegada({ estado: "Vendido", recibido: true, requiereInspeccion: false }) === null, "Vendido no se toca");
 assert(estadoSegunLlegada({ estado: "Con novedad", recibido: true, requiereInspeccion: false }) === null, "Con novedad no se toca");
 
