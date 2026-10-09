@@ -162,7 +162,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
               </>
             }
           />
-          {/* Punto 4: movimientos de activos (solo Administrador). */}
+          {/* Puntos 4 y 5: acciones de Administrador (activos, dar de baja, corregir estado). */}
           {esAdmin && (
             <ShippingV2ActivoAcciones
               itemId={item.id}
@@ -170,6 +170,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
               esActivo={item.usoLocal === true}
               cantidad={item.cantidad ?? 0}
               estado={item.estado ?? ""}
+              estadoRevision={item.estadoRevision ?? ""}
               unidadesDadasDeBaja={item.unidadesDadasDeBaja ?? 0}
             />
           )}

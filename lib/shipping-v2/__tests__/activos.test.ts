@@ -55,7 +55,15 @@ const baja = evaluarDarDeBaja(pcCaja, { ...admin, cantidad: 1, motivo: "se quem�
 assert(baja.ok && baja.dadoDeBaja && baja.quedan === 0, "PC de la caja: queda Dado de baja con 0");
 const bajaParcial = evaluarDarDeBaja(sillas, { ...admin, cantidad: 1, motivo: "se rompió una" });
 assert(bajaParcial.ok && !bajaParcial.dadoDeBaja && bajaParcial.quedan === 3, "1 de 4 sillas: quedan 3 en uso");
-assert(!ok(evaluarDarDeBaja(cables, { ...admin, cantidad: 1 })), "Mercadería no se da de baja");
+// Punto 5 (8-oct): la mercadería que sale sin venderse también se da de baja.
+const bajaCable = evaluarDarDeBaja(cables, { ...admin, cantidad: 2, motivo: "se dañaron sin arreglo" });
+assert(bajaCable.ok && !bajaCable.dadoDeBaja && bajaCable.quedan === 3, "Mercadería: 2 de 5 cables dados de baja, quedan 3");
+const bajaLaptop = evaluarDarDeBaja(laptop, { ...admin, cantidad: 1, motivo: "se regaló en un sorteo" });
+assert(bajaLaptop.ok && bajaLaptop.dadoDeBaja, "Mercadería: la única unidad queda Dado de baja");
+assert(!ok(evaluarDarDeBaja({ ...cables, cantidadReservada: 4 }, { ...admin, cantidad: 2, motivo: "se perdieron" })), "Mercadería: lo reservado para un cliente no se da de baja");
+assert(ok(evaluarDarDeBaja({ ...cables, cantidadReservada: 4 }, { ...admin, cantidad: 1, motivo: "se perdió uno" })), "Mercadería: sí la unidad libre");
+assert(!ok(evaluarDarDeBaja({ ...cables, recibido: false, estado: "En tránsito" }, { ...admin, cantidad: 1, motivo: "se perdió" })), "Mercadería en camino: novedad, no baja");
+assert(!ok(evaluarDarDeBaja({ ...cables, estado: "Vendido", cantidad: 0 }, { ...admin, cantidad: 1, motivo: "se perdió" })), "Mercadería vendida: no se da de baja");
 assert(!ok(evaluarDarDeBaja({ ...pcCaja, pago: "por-pagar" }, { ...admin, cantidad: 1 })), "Si todavía se debe, primero el pago");
 assert(!ok(evaluarDarDeBaja({ ...pcCaja, pago: "pago-en-curso" }, { ...admin, cantidad: 1 })), "Pago en curso: primero marcarlo pagado");
 assert(!ok(evaluarDarDeBaja({ ...pcCaja, recibido: false, estado: "En tránsito" }, { ...admin, cantidad: 1 })), "En camino: se registra novedad, no baja");
@@ -67,6 +75,7 @@ assert(evaluarRevertirBaja({ usoLocal: true, unidadesDadasDeBaja: 1 }, { cantida
 assert(!evaluarRevertirBaja({ usoLocal: true, unidadesDadasDeBaja: 1 }, { cantidad: 2, esAdministrador: true, motivo: "fue un error" }).ok, "No más de lo que se dio de baja");
 assert(!evaluarRevertirBaja({ usoLocal: true, unidadesDadasDeBaja: 0 }, { cantidad: 1, esAdministrador: true, motivo: "fue un error" }).ok, "Sin bajas: nada que revertir");
 assert(!evaluarRevertirBaja({ usoLocal: true, unidadesDadasDeBaja: 1 }, { cantidad: 1, esAdministrador: false, motivo: "fue un error" }).ok, "Solo Administrador");
+assert(evaluarRevertirBaja({ usoLocal: false, unidadesDadasDeBaja: 2 }, { cantidad: 1, esAdministrador: true, motivo: "fue un error" }).ok, "Mercadería: también se revierte (punto 5)");
 
 console.log("\n— Pasar a la venta —");
 assert(modo(evaluarPasarALaVenta(pcCaja, { ...admin, cantidad: 1, motivo: "cambiamos la PC" })) === "todo", "PC vieja: el mismo artículo pasa a la venta");

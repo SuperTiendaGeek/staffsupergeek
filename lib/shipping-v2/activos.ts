@@ -15,6 +15,8 @@
 //     - Pasar a uso local: mercadería → activo.
 //     - Dar de baja: el activo se dañó, se desechó, se perdió o se regaló.
 //       No se borra: baja su cantidad y, si llega a 0, queda "Dado de baja".
+//       (Punto 5, 8-oct: también sirve para MERCADERÍA que sale sin venderse,
+//       solo con sus unidades libres.)
 //     - Pasar a la venta: activo → mercadería. Si su categoría pide
 //       inspección, la debe pasar de nuevo (estuvo en uso).
 //   Si se mueve SOLO una parte de las unidades, esa parte se separa en un
@@ -80,7 +82,7 @@ export type ModoMovimiento = "todo" | "separar";
 export type EvaluacionMovimiento = { ok: true; modo: ModoMovimiento; quedan: number } | { ok: false; motivo: string };
 
 function validarBase(a: ArticuloParaMovimiento, cantidad: number, esAdministrador: boolean, motivo: string): string | null {
-  if (!esAdministrador) return "Solo un Administrador puede mover activos de la tienda.";
+  if (!esAdministrador) return "Solo un Administrador puede hacer este movimiento.";
   if ((motivo ?? "").trim().length < 5) return "Escribe el motivo (mínimo 5 caracteres).";
   if (ESTADOS_SALIDOS.has(normalize(a.estado))) return `El artículo ya no está en la tienda (${a.estado}).`;
   const total = Number(a.cantidad) || 0;
@@ -133,8 +135,11 @@ export function evaluarPasarALaVenta(
 }
 
 /**
- * Dar de baja unidades de un activo. Baja la cantidad; con 0 queda
- * "Dado de baja". Una baja NO puede borrar una deuda con el proveedor.
+ * Dar de baja unidades de un activo o de MERCADERÍA (punto 5, 8-oct: lo que
+ * sale sin venderse — se perdió, se dañó sin arreglo, se regaló). Baja la
+ * cantidad; con 0 queda "Dado de baja". Una baja NO puede borrar una deuda
+ * con el proveedor. En mercadería solo se dan de baja unidades LIBRES: lo
+ * reservado para un cliente no se toca.
  */
 export function evaluarDarDeBaja(
   a: ArticuloParaMovimiento,
@@ -142,8 +147,13 @@ export function evaluarDarDeBaja(
 ): { ok: true; quedan: number; dadoDeBaja: boolean } | { ok: false; motivo: string } {
   const base = validarBase(a, input.cantidad, input.esAdministrador, input.motivo);
   if (base) return { ok: false, motivo: base };
-  if (a.usoLocal !== true) return { ok: false, motivo: "Solo se da de baja un activo de la tienda. La mercadería sale por venta, despiece o novedad." };
   if (a.recibido !== true) return { ok: false, motivo: "Todavía no llega a la tienda. Si se perdió o llegó dañado, registra una novedad." };
+  if (a.usoLocal !== true) {
+    const libres = unidadesLibres({ cantidad: a.cantidad, cantidadReservada: a.cantidadReservada, reservado: a.reservado });
+    if (input.cantidad > libres) {
+      return { ok: false, motivo: `Hay ${libres} unidad(es) libres; las demás están reservadas para un cliente. Libera la reserva primero.` };
+    }
+  }
   if (a.pago === "por-pagar") {
     return { ok: false, motivo: "Todavía se le debe al proveedor. Registra primero el pago en Pagos: la deuda sigue aunque el activo se haya dañado o perdido." };
   }
@@ -153,8 +163,8 @@ export function evaluarDarDeBaja(
 }
 
 /**
- * Revertir una baja hecha por error: devuelve unidades al activo. Solo hasta
- * las que se dieron de baja (campo "Unidades dadas de baja").
+ * Revertir una baja hecha por error: devuelve unidades (activo o mercadería).
+ * Solo hasta las que se dieron de baja (campo "Unidades dadas de baja").
  */
 export function evaluarRevertirBaja(
   a: { usoLocal?: boolean | null; unidadesDadasDeBaja?: number | null },
@@ -162,9 +172,8 @@ export function evaluarRevertirBaja(
 ): { ok: true } | { ok: false; motivo: string } {
   if (!input.esAdministrador) return { ok: false, motivo: "Solo un Administrador puede revertir una baja." };
   if ((input.motivo ?? "").trim().length < 5) return { ok: false, motivo: "Escribe el motivo (mínimo 5 caracteres)." };
-  if (a.usoLocal !== true) return { ok: false, motivo: "Solo un activo de la tienda tiene bajas." };
   const bajas = Number(a.unidadesDadasDeBaja) || 0;
-  if (bajas < 1) return { ok: false, motivo: "Este activo no tiene unidades dadas de baja." };
+  if (bajas < 1) return { ok: false, motivo: "Este artículo no tiene unidades dadas de baja." };
   if (!Number.isInteger(input.cantidad) || input.cantidad < 1) return { ok: false, motivo: "La cantidad debe ser un número entero mayor a 0." };
   if (input.cantidad > bajas) return { ok: false, motivo: `Solo se dieron de baja ${bajas} unidad(es).` };
   return { ok: true };

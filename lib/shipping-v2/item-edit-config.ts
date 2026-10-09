@@ -35,14 +35,6 @@ const TIPOS_RETIRADOS = new Set([
   "Migración histórica", "Corrección administrativa",
 ]);
 
-/**
- * Etiquetas que pone SOLO el sistema (no se eligen a mano):
- *  · "Repuesto" ya no es un estado (punto 3).
- *  · "Uso local" sale de la casilla "Es uso local" (punto 4).
- *  · "Dado de baja" y "Agotado" salen de sus acciones (puntos 3 y 4).
- */
-const ESTADOS_SOLO_DEL_SISTEMA = new Set(["Repuesto", "Uso local", "Dado de baja", "Agotado"]);
-
 // Punto 2 (oct-2026): "Rol general", "Modo logístico", "Ubicación actual" y
 // "Estado de triangulación" ya no se usan (se borrarán de Airtable cuando se
 // confirme que nada los lee). El rastreo se edita en la pestaña Logística,
@@ -56,10 +48,12 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   tipoOperacion: { key: "tipoOperacion", field: F.tipoOperacion, label: "Tipo de operación", category: "special", type: "singleSelect", options: O.tipoOperacion.filter((o) => !TIPOS_RETIRADOS.has(o)) },
   tipoItem: { key: "tipoItem", field: F.tipoItem, label: "Rol general del item", category: "hidden", type: "readOnly" },
   categoria: { key: "categoria", field: F.categoria, label: "Categoría técnica/comercial", category: "normal", type: "singleSelect", options: O.categoria },
-  // "Repuesto" ya no es un estado (punto 3, 6-oct): es una categoría. Se deja
-  // de ofrecer aunque la opción siga existiendo en Airtable.
-  estadoItem: { key: "estado", field: F.estadoItem, label: "Estado Item", category: "special", type: "singleSelect", options: O.estadoItem.filter((o) => !ESTADOS_SOLO_DEL_SISTEMA.has(o)) },
-  estadoRevision: { key: "estadoRevision", field: F.estadoRevision, label: "Estado de revisión", category: "normal", type: "singleSelect", options: O.estadoRevision },
+  // Punto 5 (8-oct): el estado y la revisión los pone SIEMPRE el sistema
+  // (llegada, inspección, novedades, venta, despiece, activos). La única
+  // corrección manual es "Corregir estado" en la ficha: solo Administrador,
+  // con motivo (correccion-estado.ts). Aquí son de solo lectura.
+  estadoItem: { key: "estado", field: F.estadoItem, label: "Estado Item", category: "readOnly", type: "readOnly" },
+  estadoRevision: { key: "estadoRevision", field: F.estadoRevision, label: "Estado de revisión", category: "readOnly", type: "readOnly" },
   estadoTriangulacion: { key: "estadoTriangulacion", field: F.estadoTriangulacion, label: "Estado de triangulación", category: "hidden", type: "readOnly" },
   estadoDespiece: { key: "estadoDespiece", field: F.estadoDespiece, label: "Estado de despiece", category: "normal", type: "singleSelect", options: O.estadoDespiece },
   proveedorCompra: { key: "proveedorId", field: F.proveedorCompra, label: "Proveedor de compra", category: "special", type: "linkedRecord" },
@@ -78,7 +72,9 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   // Se propone al registrar según la categoría y se puede cambiar por
   // artículo. Si está marcada, solo se vende con la ficha de inspección firmada.
   requiereInspeccion: { key: "requiereInspeccion", field: F.requiereInspeccion, label: "Requiere inspección técnica", category: "normal", type: "checkbox" },
-  reservado: { key: "reservado", field: F.reservado, label: "Reservado", category: "normal", type: "checkbox" },
+  // Punto 5 (8-oct): la calcula el sistema según las unidades apartadas
+  // (unidades.ts). Marcarla a mano apartaba 1 unidad que nadie reservó.
+  reservado: { key: "reservado", field: F.reservado, label: "Reservado", category: "readOnly", type: "readOnly" },
   textoFacebook: { key: "textoFacebook", field: SHIPPING_V2_TEXTO_FACEBOOK_FIELD, label: "Texto Facebook", category: "special", type: "textarea" },
   facebookSuperGeek: { key: "facebookSuperGeek", field: SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, label: "Facebook Super Geek", category: "special", type: "checkbox" },
   costoProveedor: { key: "costoProveedor", field: F.costoProveedor, label: "Costo proveedor unitario", category: "special", type: "currency" },

@@ -1683,7 +1683,8 @@ export function ShippingV2ItemDetailView({
         { label: C.requiereInspeccion.label, value: item.requiereInspeccion, config: C.requiereInspeccion },
         { label: C.disponibleVenta.label, value: item.disponibleVenta, displayValue: displayBoolean(item.disponibleVenta), config: C.disponibleVenta },
         { label: "Se puede vender", value: sePuedeVender(item), displayValue: sePuedeVender(item) ? "Sí" : `No: ${motivoNoVenta(item)}`, readOnly: true },
-        { label: C.reservado.label, value: item.reservado, config: C.reservado },
+        // Punto 5: lo calcula el sistema; se muestra cuántas unidades están apartadas.
+        { label: "Reservadas", value: item.cantidadReservada ?? 0, displayValue: `${item.cantidadReservada ?? (item.reservado ? 1 : 0)} de ${item.cantidad ?? 0}`, readOnly: true },
         { label: C.facebookSuperGeek.label, value: item.facebookSuperGeek, displayValue: displayBoolean(item.facebookSuperGeek), readOnly: true },
       ],
     },
