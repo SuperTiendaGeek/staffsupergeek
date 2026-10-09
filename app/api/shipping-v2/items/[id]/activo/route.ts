@@ -18,7 +18,7 @@ export async function POST(request: Request, { params }: Params) {
   try {
     const access = await getShippingV2AccessContextForSession(session);
     if (access.isSiteAdmin !== true) {
-      return NextResponse.json({ success: false, error: "Solo un Administrador puede mover activos de la tienda." }, { status: 403 });
+      return NextResponse.json({ success: false, error: "Solo un Administrador puede hacer este movimiento." }, { status: 403 });
     }
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const accion = String(body.accion ?? "") as AccionActivo;

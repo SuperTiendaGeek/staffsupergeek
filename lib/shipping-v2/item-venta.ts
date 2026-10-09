@@ -157,11 +157,17 @@ export function estadoSegunLlegada(item: {
    * "Disponible" su etiqueta es "Uso local". Es el ÚNICO dato que lo decide.
    */
   usoLocal?: boolean | null;
-}): "Disponible" | "En revisión" | "Uso local" | null {
+  /**
+   * Punto 5 (8-oct): si TODAS sus unidades ya están apartadas para alguien,
+   * al quedar listo su etiqueta es "Reservado", no "Disponible" (caso
+   * PAN-000001: pedido de cliente que llegó y quedó "Disponible").
+   */
+  todasReservadas?: boolean | null;
+}): "Disponible" | "En revisión" | "Uso local" | "Reservado" | null {
   if (item.recibido !== true) return null;
   const actual = normalize(item.estado);
   if (!ESTADOS_DEL_CAMINO.has(actual)) return null;
-  const listo = item.usoLocal === true ? "Uso local" : "Disponible";
+  const listo = item.usoLocal === true ? "Uso local" : item.todasReservadas === true ? "Reservado" : "Disponible";
   const destino = item.requiereInspeccion === true && item.inspeccionFirmada !== true ? "En revisión" : listo;
   return normalize(destino) === actual ? null : destino;
 }

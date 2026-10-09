@@ -55,6 +55,7 @@ import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
 import { SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD, getShippingV2ItemEditField, getShippingV2ItemEditFieldByKey } from "@/lib/shipping-v2/item-edit-config";
 import { getShippingV2FacebookPublicationBlockReason, getShippingV2FacebookTextGenerationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import { estadoSegunLlegada, requiereInspeccionPorDefecto } from "@/lib/shipping-v2/item-venta";
+import { evaluarCorreccionEstado, todasReservadas, type CampoCorregible } from "@/lib/shipping-v2/correccion-estado";
 import type { ResumenPestanas } from "@/lib/shipping-v2/pestanas";
 import {
   estadoAlPonerRastreo,
@@ -2788,13 +2789,10 @@ async function validateInlineItemFieldChange(input: {
     }
   }
 
-  // "Disponible" es una etiqueta que pone el sistema al llegar el artículo
-  // (y al firmarse su inspección, si la requiere): ver item-venta.ts. Ya no
-  // decide la venta. Aquí solo se permite como corrección manual de
-  // administración, y queda en el historial del item.
-  if (input.field === SHIPPING_V2_ITEM_FIELDS.estadoItem && cleanString(input.normalizedValue) === "Disponible" && !input.esAdmin) {
-    throw new Error("El estado “Disponible” lo pone el sistema cuando el artículo llega a la tienda (y se firma su inspección, si la requiere). La corrección manual es solo para administradores.");
-  }
+  // Punto 5 (8-oct): "Estado Item", "Estado de revisión" y "Reservado" ya no
+  // se editan aquí (son de solo lectura en item-edit-config.ts y el chequeo de
+  // arriba los rechaza). La única forma manual es "Corregir estado"
+  // (corregirEstadoShippingV2): solo Administrador, con motivo.
 
   if (input.field === SHIPPING_V2_ITEM_FIELDS.tipoOperacion && (input.item.pagoId || input.item.packingId)) {
     throw new Error("No se puede cambiar el tipo de operación porque el Item ya tiene procesos relacionados.");
@@ -2871,7 +2869,7 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
   if (field === SHIPPING_V2_ITEM_FIELDS.requiereInspeccion && existing.recibido === true) {
     const requiere = normalizedValue === true;
     const firmada = existing.revisadoFisicamente === true;
-    const estadoNuevo = estadoSegunLlegada({ estado: existing.estado, recibido: true, requiereInspeccion: requiere, inspeccionFirmada: firmada, usoLocal: existing.usoLocal });
+    const estadoNuevo = estadoSegunLlegada({ estado: existing.estado, recibido: true, requiereInspeccion: requiere, inspeccionFirmada: firmada, usoLocal: existing.usoLocal, todasReservadas: todasReservadas(existing) });
     if (estadoNuevo) inspeccionFlowFields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = estadoNuevo;
     const pendientes = new Set(["recibido pendiente de revision", "recibido correctamente", "pendiente de recepcion", "no aplica", ""]);
     if (pendientes.has(normalizeStatus(existing.estadoRevision || ""))) {
@@ -2904,10 +2902,7 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
   if (shouldLogShippingV2ItemFieldEvent(config)) {
     // Las correcciones que solo puede hacer administración se marcan como tales
     // para poder auditarlas después: son excepciones al flujo, no operación normal.
-    const esCorreccionAdmin =
-      esAdmin &&
-      (config.adminOnly === true ||
-        (field === SHIPPING_V2_ITEM_FIELDS.estadoItem && cleanString(normalizedValue) === "Disponible"));
+    const esCorreccionAdmin = esAdmin && config.adminOnly === true;
 
     await createShippingV2Event({
       action: "Actualizado",
@@ -3335,6 +3330,14 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   // Punto 4 (8-oct): "Es uso local" no se cambia editando el artículo; solo
   // con las acciones de administrador. La edición conserva lo que había.
   normalizedInput.usoLocal = existing.usoLocal === true;
+  // Punto 5 (8-oct): tampoco se cambian editando el artículo el estado, la
+  // revisión, la casilla "Reservado" ni "Disponible para venta": los ponen
+  // los procesos (o "Corregir estado", solo Administrador). La edición
+  // completa conserva lo que había (antes podía reescribirlos — F-8).
+  normalizedInput.estado = existing.estado ?? "";
+  normalizedInput.estadoRevision = existing.estadoRevision ?? "";
+  normalizedInput.reservado = existing.reservado === true;
+  normalizedInput.disponibleVenta = existing.disponibleVenta === true;
 
   // Mismo candado que el editor de campo individual (ver adminOnly en
   // item-edit-config.ts): este es el otro camino de escritura del mismo
@@ -5158,6 +5161,7 @@ export async function updateShippingV2ReceptionChecklistItem(
         requiereInspeccion,
         inspeccionFirmada: item.revisadoFisicamente === true,
         usoLocal: item.usoLocal,
+        todasReservadas: todasReservadas(item),
       });
     } else {
       fields[SHIPPING_V2_ITEM_FIELDS.estadoRevision] = "Pendiente de recepción";
@@ -5180,6 +5184,7 @@ export async function updateShippingV2ReceptionChecklistItem(
       requiereInspeccion,
       inspeccionFirmada: input.value,
       usoLocal: item.usoLocal,
+      todasReservadas: todasReservadas(item),
     });
   }
   if (estadoNuevo) fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = estadoNuevo;
@@ -5401,6 +5406,7 @@ async function recalcularDisponibilidadItem(itemRecordId: string, actor: string)
         requiereInspeccion: item.requiereInspeccion === true,
         inspeccionFirmada: item.revisadoFisicamente === true,
         usoLocal: item.usoLocal,
+        todasReservadas: todasReservadas(item),
       }) ?? "En revisión"
       : "Recibido";
   }
@@ -7831,6 +7837,73 @@ async function registrarIntervencionSinTurno(
   }
 }
 
+// ─── Corregir estado: solo Administrador, con motivo (punto 5, 8-oct) ──────
+// Reglas en correccion-estado.ts. Es la ÚNICA forma manual de cambiar el
+// "Estado Item" o el "Estado de revisión": en el día a día los pone el
+// sistema. Queda en el historial con antes → después, quién y por qué.
+
+export async function corregirEstadoShippingV2(
+  itemRecordId: string,
+  input: { campo: CampoCorregible; valor: string; motivo: string },
+  options: { actor: string; access?: ShippingV2AccessContext }
+): Promise<{ mensaje: string }> {
+  const id = cleanString(itemRecordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  if (input.campo !== "estado" && input.campo !== "revision") throw new Error("Campo no válido.");
+  return withLock(`shipping-item:${id}`, async () => {
+    const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
+    const novedades = await getShippingV2NovedadesForItem(id, systemShippingV2Access());
+    const valor = cleanString(input.valor);
+    const motivo = cleanString(input.motivo);
+    const ev = evaluarCorreccionEstado(
+      {
+        estado: item.estado,
+        estadoRevision: item.estadoRevision,
+        recibido: item.recibido,
+        requiereInspeccion: item.requiereInspeccion,
+        inspeccionFirmada: item.revisadoFisicamente,
+        usoLocal: item.usoLocal,
+        cantidad: item.cantidad,
+        cantidadReservada: item.cantidadReservada,
+        reservado: item.reservado,
+        enPacking: Boolean(cleanString(item.packingId)),
+        novedadesAbiertas: novedades.filter((n) => esNovedadBloqueante(n)).length,
+        enPagoVivo: input.campo === "estado" && normalizeStatus(valor) === "cancelado" ? await itemHasActiveV2PaymentLink(item) : false,
+      },
+      { campo: input.campo, valor, motivo, esAdministrador: options.access?.isSiteAdmin === true }
+    );
+    if (!ev.ok) throw new Error(ev.motivo);
+
+    const F = SHIPPING_V2_ITEM_FIELDS;
+    const campo = input.campo === "estado" ? F.estadoItem : F.estadoRevision;
+    const antes = (input.campo === "estado" ? item.estado : item.estadoRevision) || "(vacío)";
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({ records: [{ id, fields: {
+        [campo]: valor,
+        [F.ultimaActualizacion]: new Date().toISOString(),
+        [F.actualizadoPor]: options.actor,
+      } }] }),
+    });
+    // "Se puede reservar" se recalcula con el estado nuevo (p. ej. Cancelado la apaga).
+    await recalcularDisponibilidadItem(id, options.actor);
+
+    const etiqueta = input.campo === "estado" ? "Estado Item" : "Estado de revisión";
+    await createShippingV2Event({
+      action: "Cambio de estado",
+      itemRecordId: id,
+      itemName: item.nombre,
+      registradoPor: options.actor,
+      descripcion: `Corrección manual de administración: "${etiqueta}" ${antes} → ${valor}.`,
+      estadoAnterior: input.campo === "estado" ? item.estado : undefined,
+      estadoNuevo: input.campo === "estado" ? valor : undefined,
+      observacion: `Motivo: ${motivo}`,
+    });
+    invalidateShippingV2ItemSearchIndexCache();
+    return { mensaje: `${item.sku}: ${etiqueta} ${antes} → ${valor}.` };
+  });
+}
+
 // ─── Activos de la tienda: movimientos de Administrador (punto 4, 8-oct) ────
 // Reglas en activos.ts. Tres acciones, solo Administrador del sistema, con
 // cantidad y motivo:
@@ -7927,20 +8000,28 @@ async function moverActivoSinTurno(
     if (!ev.ok) throw new Error(ev.motivo);
     const registro = await leerRegistroItem(id);
     const bajasPrevias = firstNumber(registro.fields[CAMPO_UNIDADES_DADAS_DE_BAJA]) ?? 0;
+    // Punto 5: en mercadería, si lo que queda está todo apartado para un
+    // cliente, su etiqueta pasa a "Reservado".
+    const quedaTodoReservado = !item.usoLocal && !ev.dadoDeBaja &&
+      todasReservadas({ cantidad: ev.quedan, cantidadReservada: item.cantidadReservada, reservado: item.reservado }) &&
+      normalizeStatus(item.estado) === "disponible";
     await patch(id, {
       [F.cantidad]: ev.quedan,
       [CAMPO_UNIDADES_DADAS_DE_BAJA]: bajasPrevias + cantidad,
       ...(ev.dadoDeBaja ? { [F.estadoItem]: ESTADO_DADO_DE_BAJA, [F.disponibleVenta]: false } : {}),
+      ...(quedaTodoReservado ? { [F.estadoItem]: "Reservado" } : {}),
     });
+    if (!item.usoLocal) await recalcularDisponibilidadItem(id, options.actor);
+    const que = item.usoLocal ? "Activo dado de baja" : "Mercadería dada de baja";
     await evento(
-      `Activo dado de baja: ${cantidad} de ${total} unidad(es). Motivo: ${motivo}`,
-      ev.dadoDeBaja ? ESTADO_DADO_DE_BAJA : item.estado
+      `${que}: ${cantidad} de ${total} unidad(es). Motivo: ${motivo}`,
+      ev.dadoDeBaja ? ESTADO_DADO_DE_BAJA : quedaTodoReservado ? "Reservado" : item.estado
     );
     invalidateShippingV2ItemSearchIndexCache();
     return {
       mensaje: ev.dadoDeBaja
         ? `${item.sku} quedó "Dado de baja" (0 unidades). Sigue en el historial.`
-        : `Se dieron de baja ${cantidad} unidad(es) de ${item.sku}. Quedan ${ev.quedan} en uso.`,
+        : `Se dieron de baja ${cantidad} unidad(es) de ${item.sku}. Quedan ${ev.quedan}.`,
     };
   }
 
@@ -7951,13 +8032,18 @@ async function moverActivoSinTurno(
     const evR = evaluarRevertirBaja({ usoLocal: item.usoLocal, unidadesDadasDeBaja: bajas }, { cantidad, esAdministrador, motivo });
     if (!evR.ok) throw new Error(evR.motivo);
     const estadoNuevo = item.estado && item.estado.trim().toLowerCase() === "dado de baja"
-      ? etiquetaComoActivo({ recibido: item.recibido, estado: item.estado, requiereInspeccion: item.requiereInspeccion, inspeccionFirmada: item.revisadoFisicamente })
-      : null;
+      ? item.usoLocal
+        ? etiquetaComoActivo({ recibido: item.recibido, estado: item.estado, requiereInspeccion: item.requiereInspeccion, inspeccionFirmada: item.revisadoFisicamente })
+        // Mercadería (punto 5): vuelve con la misma regla de llegada.
+        : estadoSegunLlegada({ estado: "Recibido", recibido: true, requiereInspeccion: item.requiereInspeccion, inspeccionFirmada: item.revisadoFisicamente, usoLocal: false }) ?? "Disponible"
+      // Mercadería "Reservado": las unidades que vuelven quedan libres.
+      : !item.usoLocal && normalizeStatus(item.estado) === "reservado" ? "Disponible" : null;
     await patch(id, {
       [F.cantidad]: total + cantidad,
       [CAMPO_UNIDADES_DADAS_DE_BAJA]: bajas - cantidad,
       ...(estadoNuevo ? { [F.estadoItem]: estadoNuevo } : {}),
     });
+    if (!item.usoLocal) await recalcularDisponibilidadItem(id, options.actor);
     await evento(`Baja revertida: vuelven ${cantidad} unidad(es). Motivo: ${motivo}`, estadoNuevo ?? item.estado);
     invalidateShippingV2ItemSearchIndexCache();
     return { mensaje: `Se devolvieron ${cantidad} unidad(es) a ${item.sku}${estadoNuevo ? ` (vuelve a "${estadoNuevo}")` : ""}.` };
