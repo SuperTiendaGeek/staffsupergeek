@@ -137,7 +137,8 @@ export type ShippingV2DecisionArticulo =
   | "Va a despiece"
   | "Pasa a activo"
   | "Devuelto al proveedor"
-  | "No procedía";
+  | "No procedía"
+  | "Vendido con novedad";
 
 export type ShippingV2DecisionConfig = {
   valor: ShippingV2DecisionArticulo;
@@ -160,8 +161,23 @@ export const SHIPPING_V2_DECISIONES_ARTICULO: readonly ShippingV2DecisionConfig[
   { valor: "No procedía", ayuda: "Error de registro: no había problema.", soloAdmin: true, mueveArticulo: false, pidePrecio: false, pideCantidad: false },
 ];
 
+/**
+ * Punto 8b (10-oct): decisión que SOLO pone el cartel al vender (factura,
+ * recibo, reserva o repuesto en una orden). No se ofrece al resolver.
+ */
+export const DECISION_VENDIDO_CON_NOVEDAD = "Vendido con novedad";
+const DECISION_VENTA_CONFIG: ShippingV2DecisionConfig = {
+  valor: DECISION_VENDIDO_CON_NOVEDAD as ShippingV2DecisionArticulo,
+  ayuda: "Se vendió sabiendo de la novedad (lo registra el cartel al vender).",
+  soloAdmin: false,
+  mueveArticulo: false,
+  pidePrecio: false,
+  pideCantidad: false,
+};
+
 export function getDecisionConfig(valor?: string | null): ShippingV2DecisionConfig | null {
   const n = normalize(valor);
+  if (n === normalize(DECISION_VENDIDO_CON_NOVEDAD)) return DECISION_VENTA_CONFIG;
   return SHIPPING_V2_DECISIONES_ARTICULO.find((d) => normalize(d.valor) === n) ?? null;
 }
 
@@ -590,4 +606,50 @@ export function validarAccionNovedad(input: {
       return { ok: true, config: cfg, estadoDestino: v.pendienteProveedor ? "En solución" : "Cerrada", decision };
     }
   }
+}
+
+// ─── Cartel al vender (punto 8b · 10-oct-2026) ──────────────────────────────
+//
+// Un artículo con una novedad ABIERTA y sin bloqueo se puede vender, pero al
+// agregarlo a una factura, recibo, reserva o al presupuesto de una orden sale
+// un cartel: hay que escribir cómo se vende. Al emitir con éxito, la novedad
+// se cierra con "Vendido con novedad" (o queda "En solución" si el reclamo con
+// el proveedor continúa).
+
+/** Mínimo de caracteres de la aclaración: "siempre con más información". */
+export const MINIMO_ACLARACION_VENTA = 10;
+
+/** ¿Esta novedad pide aclaración al vender? Abierta y sin bloqueo. */
+export function pideAclaracionAlVender(novedad: { estado?: string | null; bloqueaVenta?: boolean | null }): boolean {
+  return normalizarEstadoNovedad(novedad.estado) === "Abierta" && novedad.bloqueaVenta !== true;
+}
+
+export function validarAclaracionVenta(input: { texto?: string | null }): { ok: true } | { ok: false; motivo: string } {
+  const texto = String(input.texto || "").trim();
+  if (texto.length < MINIMO_ACLARACION_VENTA) {
+    return { ok: false, motivo: `Explica cómo se vende (mínimo ${MINIMO_ACLARACION_VENTA} caracteres).` };
+  }
+  return { ok: true };
+}
+
+export type ValidacionCierreVenta =
+  | { ok: true; estadoDestino: ShippingV2NovedadEstadoReal }
+  | { ok: false; motivo: string };
+
+/** Valida el cierre de una novedad por una venta ya emitida. */
+export function validarCierrePorVenta(input: {
+  novedad: { estado?: string | null; bloqueaVenta?: boolean | null; responsable?: string | null; itemIds?: string[] };
+  itemId: string;
+  texto?: string | null;
+  reclamoContinua?: boolean;
+}): ValidacionCierreVenta {
+  if (!input.itemId || !(input.novedad.itemIds ?? []).includes(input.itemId)) {
+    return { ok: false, motivo: "La novedad no es de ese artículo." };
+  }
+  if (input.novedad.bloqueaVenta === true) return { ok: false, motivo: "La novedad tiene la venta bloqueada." };
+  if (normalizarEstadoNovedad(input.novedad.estado) !== "Abierta") return { ok: false, motivo: "La novedad ya no está abierta." };
+  const aclaracion = validarAclaracionVenta({ texto: input.texto });
+  if (!aclaracion.ok) return aclaracion;
+  const sigue = input.reclamoContinua === true && esResponsableProveedor(input.novedad.responsable);
+  return { ok: true, estadoDestino: sigue ? "En solución" : "Cerrada" };
 }

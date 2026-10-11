@@ -9,7 +9,10 @@ import {
   estadoPrevioParaRestaurar,
   etiquetaDeBloqueo,
   etiquetaTurno,
+  DECISION_VENDIDO_CON_NOVEDAD,
   getAccionesDisponibles,
+  pideAclaracionAlVender,
+  validarCierrePorVenta,
   getDecisionesPermitidas,
   getNovedadBucket,
   getTurnoNovedad,
@@ -151,6 +154,24 @@ assert(construirHiloNovedad({}).length === 0, "Una novedad vacía no revienta el
 for (const cfg of SHIPPING_V2_NOVEDAD_ACCIONES) {
   assert(cfg.desde.every((e) => (SHIPPING_V2_NOVEDAD_ESTADOS as readonly string[]).includes(e)), `"${cfg.label}" parte de estados que existen`);
 }
+
+console.log("— Cartel al vender (8b) —");
+assert(!getDecisionesPermitidas({ tipo: "Dañado", isSiteAdmin: true }).some((d) => d.valor === DECISION_VENDIDO_CON_NOVEDAD), "«Vendido con novedad» NO se ofrece al resolver: solo lo pone el cartel");
+assert(!validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "admin", valores: { decision: DECISION_VENDIDO_CON_NOVEDAD, texto: "x" } }).ok, "…ni se acepta por la puerta de resolver");
+assert(pideAclaracionAlVender({ estado: "Abierta", bloqueaVenta: false }), "Abierta sin bloqueo → pide aclaración");
+assert(!pideAclaracionAlVender({ estado: "En solución" }) && !pideAclaracionAlVender({ estado: "Cerrada" }), "En solución o Cerrada → no (ya se decidió)");
+assert(!pideAclaracionAlVender({ estado: "Abierta", bloqueaVenta: true }), "Bloqueada → no (no se puede vender)");
+const nv = { estado: "Abierta", bloqueaVenta: false, responsable: "Proveedor", itemIds: ["recItem"] };
+let cv = validarCierrePorVenta({ novedad: nv, itemId: "recItem", texto: "Se vende con 10% de descuento por carcasa rota" });
+assert(cv.ok && cv.estadoDestino === "Cerrada", "Con aclaración → se cierra");
+cv = validarCierrePorVenta({ novedad: nv, itemId: "recItem", texto: "Se vende con 10% de descuento", reclamoContinua: true });
+assert(cv.ok && cv.estadoDestino === "En solución", "Si el reclamo con el proveedor continúa → En solución");
+cv = validarCierrePorVenta({ novedad: { ...nv, responsable: "SUPER GEEK" }, itemId: "recItem", texto: "Se vende con 10% de descuento", reclamoContinua: true });
+assert(cv.ok && cv.estadoDestino === "Cerrada", "Una interna no queda esperando al proveedor");
+assert(!validarCierrePorVenta({ novedad: nv, itemId: "recItem", texto: "corto" }).ok, "La aclaración debe tener más información");
+assert(!validarCierrePorVenta({ novedad: nv, itemId: "otro", texto: "Se vende con descuento" }).ok, "No se cierra una novedad de otro artículo");
+assert(!validarCierrePorVenta({ novedad: { ...nv, estado: "Cerrada" }, itemId: "recItem", texto: "Se vende con descuento" }).ok, "Ni una ya cerrada (no se cierra dos veces)");
+assert(!validarCierrePorVenta({ novedad: { ...nv, bloqueaVenta: true }, itemId: "recItem", texto: "Se vende con descuento" }).ok, "Ni una bloqueada");
 
 if (fallos > 0) {
   console.error(`Fallaron ${fallos} comprobaciones.`);

@@ -5,7 +5,8 @@
 // Dedicado; reutiliza los endpoints de clientes/productos, sin tocar el
 // formulario de facturas de producción.
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { AvisoNovedadVenta, cerrarNovedadesVendidas, hayAvisoPendiente, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
 import Link from "next/link";
 import { totalRecibo, totalLinea } from "@/lib/facturacion/recibos/calculos";
 import type { LineaRecibo, OrigenRecibo } from "@/lib/facturacion/recibos/types";
@@ -61,6 +62,10 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<{ recordId: string; numero: string } | null>(null);
+  // Punto 8b: aclaración de cómo se vende cada artículo con novedad abierta (por línea).
+  const [avisosNovedad, setAvisosNovedad] = useState<Record<string, EstadoAvisoNovedad>>({});
+  const avisosLineas = lineas.filter((l) => l.shippingItemId).map((l) => avisosNovedad[l._id]);
+  const novedadPendiente = hayAvisoPendiente(avisosLineas);
   const prodRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -97,6 +102,8 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
     if (saldo < -0.01) { setError(`Los abonos ya cobrados ($${sumaAbonos.toFixed(2)}) superan el total del recibo ($${total.toFixed(2)}). Revisa las líneas antes de emitir.`); return; }
     const sinStock = lineas.filter((l) => l.shippingItemId && l.stockDisponible !== undefined && l.cantidad > l.stockDisponible);
     if (sinStock.length > 0) { setError(`Sin stock: ${sinStock.map((l) => `"${l.descripcion}" (pide ${l.cantidad}, hay ${l.stockDisponible})`).join("; ")}`); return; }
+    if (novedadPendiente) { setError("Falta escribir cómo se vende el artículo con novedad (cartel amarillo)."); return; }
+    const avisosAlEmitir = avisosLineas;
 
     setGenerando(true);
     try {
@@ -111,7 +118,11 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
       });
       const j = await r.json();
       if (!j.success) setError(j.error ?? "Error al generar el recibo");
-      else setResultado(j.data);
+      else {
+        setResultado(j.data);
+        // Punto 8b: solo con el recibo emitido se cierran sus novedades.
+        void cerrarNovedadesVendidas("facturacion", avisosAlEmitir, `Recibo ${j.data?.numero ?? ""}`).then((aviso) => { if (aviso) setError(aviso); });
+      }
     } catch { setError("Error de red al conectar con el servidor"); }
     finally { setGenerando(false); }
   }
@@ -119,6 +130,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
   if (resultado) {
     return (
       <div className="rounded-xl border border-[#6EE7B7]/40 bg-[#064E3B]/40 p-6">
+        {error && <p className="mb-2 rounded-lg border border-[#F0C75E]/40 bg-[#F0C75E]/10 px-3 py-2 text-xs text-[#F0C75E]">⚠ {error}</p>}
         <p className="text-[#6EE7B7] font-bold text-lg mb-1">✓ Recibo {resultado.numero} generado</p>
         <p className="text-sm text-[#A7A7A7] mb-4">Documento interno no tributario. Descontó inventario y registró el ingreso (en producción).</p>
         <div className="flex flex-wrap gap-3">
@@ -171,7 +183,8 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
               <thead><tr className="text-[10px] text-[#666] uppercase tracking-wider border-b border-[#3A3A36]"><th className="py-2 pr-2 text-left">Descripción</th><th className="py-2 pr-2 text-right">Cant.</th><th className="py-2 pr-2 text-right">P.Unit.</th><th className="py-2 pr-2 text-right">Desc.</th><th className="py-2 pr-2 text-right">Total</th><th></th></tr></thead>
               <tbody>
                 {lineas.map((l) => (
-                  <tr key={l._id} className="border-b border-[#2A2B28]">
+                  <Fragment key={l._id}>
+                  <tr className="border-b border-[#2A2B28]">
                     <td className="py-1.5 pr-2"><input value={l.descripcion} onChange={(e) => actualizar(l._id, "descripcion", e.target.value)} className="w-full rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5]" /></td>
                     <td className="py-1.5 pr-2"><input type="number" min="1" step="1" value={l.cantidad} onChange={(e) => actualizar(l._id, "cantidad", Math.max(0, parseInt(e.target.value, 10) || 0))} className="w-14 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5]" /></td>
                     <td className="py-1.5 pr-2"><input type="number" min="0" step="0.01" value={l.precioUnitario} onChange={(e) => actualizar(l._id, "precioUnitario", parseFloat(e.target.value) || 0)} className="w-20 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5]" /></td>
@@ -179,6 +192,10 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
                     <td className="py-1.5 pr-2 text-right text-xs text-[#D7FF4F] font-semibold">${totalLinea(l).toFixed(2)}</td>
                     <td className="py-1.5"><button onClick={() => eliminar(l._id)} className="text-[#666] hover:text-red-400 text-xs">✕</button></td>
                   </tr>
+                  {l.shippingItemId ? (
+                    <AvisoNovedadVenta modulo="facturacion" itemId={l.shippingItemId} colSpan={6} onEstado={(estado) => setAvisosNovedad((a) => ({ ...a, [l._id]: estado }))} />
+                  ) : null}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -229,7 +246,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
 
       {error && <p className="mb-3 text-sm text-red-300 bg-red-950/30 border border-red-500/40 rounded-lg px-4 py-3">{error}</p>}
       <div className="flex items-center gap-3">
-        <button onClick={generar} disabled={generando || total <= 0} className="rounded-full bg-[#D7FF4F] text-[#151515] px-6 py-3 text-sm font-bold hover:brightness-105 disabled:opacity-40">{generando ? "Generando…" : "Generar Recibo →"}</button>
+        <button onClick={generar} disabled={generando || total <= 0 || novedadPendiente} title={novedadPendiente ? "Falta escribir cómo se vende el artículo con novedad" : undefined} className="rounded-full bg-[#D7FF4F] text-[#151515] px-6 py-3 text-sm font-bold hover:brightness-105 disabled:opacity-40">{generando ? "Generando…" : "Generar Recibo →"}</button>
         <Link href="/facturacion/recibos" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Ver recibos</Link>
       </div>
     </div>

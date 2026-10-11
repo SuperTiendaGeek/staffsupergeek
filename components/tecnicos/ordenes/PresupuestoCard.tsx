@@ -24,6 +24,7 @@ import {
   type ReversasLinea, type AccionReversa, type AccionRetiro,
 } from "@/lib/tecnicos/presupuesto/reglas";
 import { EntregaProductoDigital, type ProductoDigitalEntrega } from "./EntregaProductoDigital";
+import { AvisoNovedadVenta, cerrarNovedadesVendidas, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
 
 type CatServicio = { id: string; nombre: string; descripcion: string | null; costoSugerido: number | null; activo: boolean };
 type ItemStock   = { id: string; sku: string; nombre: string; precioVentaFinal: number | null };
@@ -300,6 +301,8 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [listaAbierta, setListaAbierta] = useState(true);
+  // Punto 8b: si el repuesto del inventario tiene una novedad abierta, hay que aclarar cómo se usa.
+  const [avisoNovedad, setAvisoNovedad] = useState<EstadoAvisoNovedad | null>(null);
   // "+ Crear servicio nuevo": antes solo existía en la tarjeta Servicios (fase 4
   // la quitó). Crea el servicio en el catálogo y lo deja elegido en la línea.
   const [nuevoServicio, setNuevoServicio] = useState<{ nombre: string; costo: string; guardando: boolean; error: string | null } | null>(null);
@@ -363,6 +366,10 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
 
   async function guardar() {
     setError(null);
+    const conAviso = b.tipo === "Repuesto" && Boolean(b.itemId);
+    if (conAviso && avisoNovedad?.pendiente !== false) { setError("Falta escribir cómo se usa el repuesto con novedad (cartel amarillo)."); return; }
+    const avisoAlGuardar = conAviso ? avisoNovedad : null;
+    const descripcionLinea = b.descripcion;
     setGuardando(true);
     try {
       const r = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/presupuesto`, {
@@ -383,6 +390,12 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
       });
       const j = await r.json();
       if (!j.success) { setError(j.error ?? "No se pudo agregar la línea"); return; }
+      // Punto 8b: con la línea guardada, se cierra la novedad del repuesto.
+      if (avisoAlGuardar) {
+        const aviso = await cerrarNovedadesVendidas("tecnicos", [avisoAlGuardar], `Presupuesto de una orden de reparación: "${descripcionLinea}"`);
+        if (aviso) setError(aviso);
+      }
+      setAvisoNovedad(null);
       setB({ ...BORRADOR_VACIO(b.tipo), prioridad: b.prioridad }); setQ("");
       onCreada();
     } catch { setError("Error de red"); }
@@ -512,13 +525,16 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
           onCambio={(c) => setB({ ...b, ...c })} />
       )}
 
+      {b.tipo === "Repuesto" && b.itemId ? (
+        <AvisoNovedadVenta key={b.itemId} modulo="tecnicos" itemId={b.itemId} onEstado={setAvisoNovedad} />
+      ) : null}
       {error && <p className="text-xs text-[var(--sg-danger)]">{error}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onCancelar} className={BTN_SEC}>Cerrar</button>
         {elegido && (
           <>
-            <button type="button" onClick={() => setB(BORRADOR_VACIO(b.tipo))} className={BTN_SEC}>Cambiar</button>
-            <button type="button" onClick={guardar} disabled={guardando} className={BTN_PRI}>{guardando ? "Agregando…" : "Agregar al presupuesto"}</button>
+            <button type="button" onClick={() => { setB(BORRADOR_VACIO(b.tipo)); setAvisoNovedad(null); }} className={BTN_SEC}>Cambiar</button>
+            <button type="button" onClick={guardar} disabled={guardando || (b.tipo === "Repuesto" && Boolean(b.itemId) && avisoNovedad?.pendiente !== false)} className={BTN_PRI}>{guardando ? "Agregando…" : "Agregar al presupuesto"}</button>
           </>
         )}
       </div>
@@ -565,6 +581,36 @@ export function PresupuestoCard({
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [vinculando, setVinculando] = useState<string | null>(null);
+  // Punto 8b: artículo elegido para vincular, esperando la aclaración si tiene novedad.
+  const [vinculoElegido, setVinculoElegido] = useState<{ lineaId: string; itemId: string; nombre: string } | null>(null);
+  const [avisoVinculo, setAvisoVinculo] = useState<EstadoAvisoNovedad | null>(null);
+
+  // Sin novedades que aclarar, se vincula de una vez (como antes: un solo clic).
+  useEffect(() => {
+    if (!vinculoElegido || !avisoVinculo || avisoVinculo.pendiente || avisoVinculo.cierres.length || ocupado) return;
+    const linea = lineas.find((x) => x.id === vinculoElegido.lineaId);
+    if (linea) void confirmarVinculo(linea);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [avisoVinculo, vinculoElegido]);
+
+  async function confirmarVinculo(l: LineaPresupuesto) {
+    if (!vinculoElegido || avisoVinculo?.pendiente !== false) return;
+    setOcupado(l.id); setError(null);
+    try {
+      const r = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/presupuesto/${encodeURIComponent(l.id)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: vinculoElegido.itemId }),
+      });
+      const j = await r.json();
+      if (!j.success) setError(j.error ?? "No se pudo vincular el artículo");
+      else {
+        const aviso = await cerrarNovedadesVendidas("tecnicos", [avisoVinculo], `Presupuesto de una orden de reparación: "${l.descripcion}"`);
+        if (aviso) setError(aviso);
+        setVinculoElegido(null); setAvisoVinculo(null); setVinculando(null);
+      }
+      await recargar();
+    } catch { setError("Error de red"); }
+    finally { setOcupado(null); }
+  }
   const [resultados, setResultados] = useState<Resultado[] | null>(null);
   const [detalle, setDetalle] = useState<{ lineaId: string; prioridad: Prioridad; notaCliente: string; alternativaDe: string } | null>(null);
   const montado = useRef(true);
@@ -929,7 +975,18 @@ export function PresupuestoCard({
                       )}
                       {vinculando === l.id && (
                         <div className="mt-1.5">
-                          <BuscadorRepuesto ordenId={ordenId} onElegir={(i) => { setVinculando(null); void accionLinea(l, "PATCH", { itemId: i.id }); }} />
+                          {vinculoElegido?.lineaId === l.id ? (
+                            <div className="space-y-1.5">
+                              <p className="text-xs text-[var(--sg-text-primary)]">Vincular: <b>{vinculoElegido.nombre}</b></p>
+                              <AvisoNovedadVenta key={vinculoElegido.itemId} modulo="tecnicos" itemId={vinculoElegido.itemId} onEstado={setAvisoVinculo} />
+                              <div className="flex gap-2">
+                                <button type="button" onClick={() => { setVinculoElegido(null); setAvisoVinculo(null); }} className={BTN_SEC}>Cambiar</button>
+                                <button type="button" disabled={ocupado === l.id || avisoVinculo?.pendiente !== false} onClick={() => void confirmarVinculo(l)} className={BTN_PRI}>{ocupado === l.id ? "Vinculando…" : "Vincular"}</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <BuscadorRepuesto ordenId={ordenId} onElegir={(i) => { setAvisoVinculo(null); setVinculoElegido({ lineaId: l.id, itemId: i.id, nombre: i.nombre }); }} />
+                          )}
                         </div>
                       )}
                     </td>
