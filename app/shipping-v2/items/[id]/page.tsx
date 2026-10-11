@@ -1,6 +1,7 @@
 import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { ShippingV2NovedadRol } from "@/lib/shipping-v2/novedades";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSystem";
 import { Button } from "@/components/ui/button";
@@ -101,6 +102,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
   let proveedores: ShippingV2Proveedor[] = [];
   let novedades: ShippingV2Novedad[] = [];
   let permissions: ShippingV2AccessPermissions | null = null;
+  let rolNovedades: ShippingV2NovedadRol = "ninguno";
   let navigation = emptyItemNavigation;
   let error = "";
   let notFound = false;
@@ -108,6 +110,10 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
   try {
     const access = await getShippingV2AccessContextForSession(session);
     permissions = access.permissions;
+    // Punto 8: el rol frente a las novedades se decide aquí (servidor).
+    rolNovedades = access.isAdmin
+      ? access.isSiteAdmin ? "admin" : "staff"
+      : access.providerId && access.permissions.canRespondNovedades ? "proveedor" : "ninguno";
     const [loadedItem, loadedProveedores, loadedNovedades, loadedNavigation] = await Promise.all([
       getShippingV2ItemById(id, { access }),
       getShippingV2Proveedores(),
@@ -174,7 +180,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
               unidadesDadasDeBaja={item.unidadesDadasDeBaja ?? 0}
             />
           )}
-          <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} esAdmin={esAdmin} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} permissions={permissions} />
+          <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} esAdmin={esAdmin} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} permissions={permissions} rolNovedades={rolNovedades} />
           {esAdmin && <EliminarItemAdmin itemId={item.id} />}
         </div>
       )}

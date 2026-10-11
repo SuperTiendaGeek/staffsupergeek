@@ -5,6 +5,17 @@ import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { ArrowDownAZ, ArrowLeft, BadgeCheck, Check, ChevronLeft, ChevronRight, ChevronsLeft, FileText, ListFilter, Loader2, Printer, Rows3, Sparkles, Tag, X } from "lucide-react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
+import { ejecutarAccionNovedad, NovedadAccionModal } from "@/components/shipping-v2/novedades/NovedadAccionModal";
+import { RegistrarNovedadModal } from "@/components/shipping-v2/novedades/RegistrarNovedadModal";
+import {
+  articuloSalioDelInventario,
+  etiquetaPropuesta,
+  etiquetaTurno,
+  getAccionesDisponibles,
+  type ShippingV2NovedadAccionConfig,
+  type ShippingV2NovedadRol,
+  type ValoresAccionNovedad,
+} from "@/lib/shipping-v2/novedades";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1230,67 +1241,137 @@ function DetailSection({
   );
 }
 
+/**
+ * Novedades del artículo en su ficha (punto 8). Desde aquí se registran y se
+ * gestionan igual que en la pestaña Novedades: mismas reglas, mismas ventanas.
+ */
 function NovedadesVinculadasCard({
   novedades,
   providerLabelsById,
+  item,
+  rol,
+  puedeRegistrar,
 }: {
   novedades: ShippingV2Novedad[];
   providerLabelsById: Map<string, string>;
+  item: { id: string; sku?: string; nombre?: string; cantidad?: number | null; estado?: string | null; packingId?: string };
+  rol: ShippingV2NovedadRol;
+  puedeRegistrar: boolean;
 }) {
+  const router = useRouter();
+  const [registrando, setRegistrando] = useState(false);
+  const [seleccion, setSeleccion] = useState<{ novedad: ShippingV2Novedad; accion: ShippingV2NovedadAccionConfig } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [mensaje, setMensaje] = useState("");
+  const [aviso, setAviso] = useState("");
   const openCount = novedades.filter((novedad) => isOpenNovedadStatus(novedad.estado)).length;
+  const salio = articuloSalioDelInventario({ estado: item.estado, cantidad: item.cantidad });
+  // La ventana de acciones necesita saber de qué artículo es.
+  const conArticulo = (novedad: ShippingV2Novedad): ShippingV2Novedad => ({
+    ...novedad,
+    itemSku: novedad.itemSku || item.sku,
+    itemNombre: novedad.itemNombre || item.nombre,
+    itemCantidad: novedad.itemCantidad ?? item.cantidad ?? null,
+  });
+
+  async function ejecutar(valores: ValoresAccionNovedad) {
+    if (!seleccion) return;
+    setBusy(true);
+    setMensaje("");
+    try {
+      const resultado = await ejecutarAccionNovedad(seleccion.novedad.id, seleccion.accion.accion, valores);
+      setAviso(`${seleccion.accion.label}: listo.${resultado.mensaje ? ` ${resultado.mensaje}` : ""}`);
+      setSeleccion(null);
+      router.refresh();
+    } catch (error) {
+      setMensaje(error instanceof Error ? error.message : "Error inesperado.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-lg shadow-black/10">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-[#D7FF4F]" />
-          <h3 className="text-sm font-semibold text-[#F5F5F5]">Novedades vinculadas</h3>
+          <h3 className="text-sm font-semibold text-[#F5F5F5]">Novedades</h3>
+          <span className="rounded-full border border-[#3A3A36] bg-[#11120F] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">{novedades.length}</span>
+          {openCount ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-2 py-0.5 text-[11px] font-semibold text-[#FFB07A]">{openCount} abierta{openCount === 1 ? "" : "s"}</span> : null}
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          <span className="rounded-full border border-[#3A3A36] bg-[#11120F] px-2.5 py-0.5 text-[12px] font-semibold text-[#A7A7A7]">{novedades.length} total</span>
-          {openCount ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-2.5 py-0.5 text-[12px] font-semibold text-[#FFB07A]">{openCount} abierta</span> : null}
+        <div className="flex items-center gap-1.5">
+          {novedades.length ? (
+            <Link href="/shipping-v2/novedades" className="h-7 rounded-lg border border-[#3A3A36] bg-[#20211D] px-2.5 text-[12px] font-semibold leading-7 text-[#C9C9C4] transition hover:border-[#D7FF4F]/55 hover:text-[#F5F5F5]">Ver todas</Link>
+          ) : null}
+          {puedeRegistrar ? (
+            <button
+              type="button"
+              disabled={salio}
+              title={salio ? "Ya salió del inventario. Si un cliente reclama una falla, abre una orden de reparación." : "Registrar una novedad de este artículo"}
+              onClick={() => { setAviso(""); setRegistrando(true); }}
+              className="h-7 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-2.5 text-[12px] font-bold text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Registrar novedad
+            </button>
+          ) : null}
         </div>
       </div>
 
-      {!novedades.length ? (
-        <div className="mt-3 rounded-lg border border-[#30312D] bg-[#11120F] px-3 py-4 text-sm text-[#A7A7A7]">
-          Sin novedades registradas para este item.
+      {aviso ? (
+        <div className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-[#7BE495]/30 bg-[#7BE495]/10 px-3 py-1.5 text-[12px] text-[#9FEFB3]">
+          <span>{aviso}</span>
+          <button type="button" onClick={() => setAviso("")} className="shrink-0 text-[11px] font-bold uppercase opacity-70 hover:opacity-100">Cerrar</button>
         </div>
+      ) : null}
+
+      {!novedades.length ? (
+        <p className="mt-2 text-[12px] text-[#8F908A]">Sin novedades registradas.</p>
       ) : (
-        <div className="mt-3 grid gap-2">
+        <div className="mt-2 grid gap-1.5">
           {novedades.map((novedad) => {
             const isOpen = isOpenNovedadStatus(novedad.estado);
             const providerLabel = novedad.proveedorResponsableId ? providerLabelsById.get(novedad.proveedorResponsableId) : "";
-            const description = displayValue(novedad.descripcion, "Sin descripción registrada.");
-
+            const acciones = getAccionesDisponibles(novedad, rol);
             return (
-              <article key={novedad.id} className={`rounded-lg border p-3 ${isOpen ? "border-[#FF914D]/35 bg-[#FF914D]/10" : "border-[#30312D] bg-[#11120F]"}`}>
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${novedadTypeTone(novedad.tipo || novedad.titulo)}`}>{displayValue(novedad.tipo || novedad.titulo)}</span>
-                      <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${novedadTone(novedad.estado)}`}>{displayValue(novedad.estado)}</span>
-                      {novedad.novedadId ? <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-2 py-0.5 text-[11px] font-semibold text-[#8F908A]">{novedad.novedadId}</span> : null}
-                      {novedad.bloqueaVenta ? <span className="rounded-full border border-[#FF6B6B]/45 bg-[#FF6B6B]/12 px-2 py-0.5 text-[11px] font-semibold text-[#FF9C9C]" title="Solo un Administrador la desbloquea, en la pestaña Novedades.">Venta bloqueada</span> : null}
-                      {novedad.decision ? <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-2 py-0.5 text-[11px] font-semibold text-[#C9C9C4]">{novedad.decision}</span> : null}
-                    </div>
-                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#F5F5F5]">{description}</p>
-                  </div>
-                  <div className="grid shrink-0 gap-1 text-[12px] text-[#A7A7A7] lg:min-w-64">
-                    <span>Fecha: <strong className="font-semibold text-[#F5F5F5]">{formatDate(novedad.fechaRegistro || novedad.createdTime)}</strong></span>
-                    <span>Proveedor: <strong className="font-semibold text-[#F5F5F5]">{displayValue(providerLabel)}</strong></span>
-                    <span>Registrado por: <strong className="font-semibold text-[#F5F5F5]">{displayValue(novedad.registradoPor)}</strong></span>
-                  </div>
+              <article key={novedad.id} className={`rounded-lg border px-3 py-2 ${isOpen ? "border-[#FF914D]/35 bg-[#FF914D]/8" : "border-[#30312D] bg-[#11120F]"}`}>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${novedadTypeTone(novedad.tipo || novedad.titulo)}`}>{displayValue(novedad.tipo || novedad.titulo)}</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${novedadTone(novedad.estado)}`}>{isOpen ? etiquetaTurno(novedad) : displayValue(novedad.estado)}</span>
+                  {novedad.bloqueaVenta ? <span className="rounded-full border border-[#FF6B6B]/45 bg-[#FF6B6B]/12 px-2 py-0.5 text-[11px] font-semibold text-[#FF9C9C]" title="Solo un Administrador la desbloquea.">Venta bloqueada</span> : null}
+                  {novedad.decision ? <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-2 py-0.5 text-[11px] font-semibold text-[#C9C9C4]">{novedad.decision}</span> : null}
+                  <span className="ml-auto text-[11px] text-[#6F706B]">
+                    {formatDate(novedad.fechaRegistro || novedad.createdTime)}{novedad.registradoPor ? ` · ${novedad.registradoPor}` : ""}{providerLabel ? ` · ${providerLabel}` : ""}
+                  </span>
                 </div>
-
-                {(novedad.respuestaProveedor || novedad.solucion || novedad.fechaCierre || novedad.observacionFinal || novedad.evidencias.length) ? (
-                  <div className="mt-3 grid gap-2 border-t border-[#30312D]/80 pt-3 text-[12px] text-[#A7A7A7] lg:grid-cols-2">
-                    {novedad.respuestaProveedor ? <p>Respuesta proveedor: <span className="text-[#F5F5F5]">{novedad.respuestaProveedor}</span></p> : null}
-                    {novedad.solucion ? <p>Solución: <span className="text-[#F5F5F5]">{novedad.solucion}</span></p> : null}
-                    {novedad.fechaCierre ? <p>Fecha cierre: <span className="text-[#F5F5F5]">{formatDate(novedad.fechaCierre)}</span></p> : null}
-                    {novedad.cerradoPor ? <p>Cerrado por: <span className="text-[#F5F5F5]">{novedad.cerradoPor}</span></p> : null}
-                    {novedad.observacionFinal ? <p className="lg:col-span-2">Observación final: <span className="text-[#F5F5F5]">{novedad.observacionFinal}</span></p> : null}
-                    {novedad.evidencias.length ? <div className="lg:col-span-2">{attachmentList(novedad.evidencias)}</div> : null}
+                <p className="mt-1 line-clamp-3 text-[13px] leading-5 text-[#F5F5F5]">{displayValue(novedad.descripcion, "Sin descripción registrada.")}</p>
+                {novedad.respuestaProveedor || novedad.solucion || novedad.descripcionSolucion || novedad.comoAparecio ? (
+                  <div className="mt-1 grid gap-0.5 text-[12px] text-[#A7A7A7]">
+                    {novedad.solucion ? <span>Propuesta del proveedor: <span className="text-[#F5F5F5]">{etiquetaPropuesta(novedad.solucion)}</span></span> : null}
+                    {novedad.descripcionSolucion ? <span>Lo que se hizo: <span className="text-[#F5F5F5]">{novedad.descripcionSolucion}</span></span> : null}
+                    {novedad.comoAparecio ? <span>Apareció: <span className="text-[#F5F5F5]">{novedad.comoAparecio}</span></span> : null}
+                  </div>
+                ) : null}
+                {novedad.evidencias.length ? <div className="mt-1">{attachmentList(novedad.evidencias)}</div> : null}
+                {acciones.length ? (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {acciones.map((accion) => (
+                      <button
+                        key={accion.accion}
+                        type="button"
+                        title={accion.descripcion}
+                        disabled={busy}
+                        onClick={() => { setMensaje(""); setSeleccion({ novedad: conArticulo(novedad), accion }); }}
+                        className={`h-7 rounded-lg border px-2.5 text-[12px] font-bold transition disabled:opacity-40 ${
+                          accion.tono === "principal"
+                            ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] hover:brightness-105"
+                            : accion.tono === "peligro"
+                              ? "border-[#FF914D]/45 bg-[#FF914D]/10 text-[#FFB07A] hover:border-[#FF914D]"
+                              : "border-[#3A3A36] bg-[#20211D] text-[#F5F5F5] hover:border-[#D7FF4F]/55"
+                        }`}
+                      >
+                        {accion.label}
+                      </button>
+                    ))}
                   </div>
                 ) : null}
               </article>
@@ -1298,6 +1379,34 @@ function NovedadesVinculadasCard({
           })}
         </div>
       )}
+
+      {registrando ? (
+        <RegistrarNovedadModal
+          itemId={item.id}
+          sku={item.sku}
+          nombre={item.nombre}
+          packingId={item.packingId}
+          onClose={() => setRegistrando(false)}
+          onSaved={({ aviso: avisoRegistro }) => {
+            setRegistrando(false);
+            setAviso(avisoRegistro || "Novedad registrada.");
+            router.refresh();
+          }}
+        />
+      ) : null}
+
+      {seleccion ? (
+        <NovedadAccionModal
+          novedad={seleccion.novedad}
+          accion={seleccion.accion}
+          rol={rol}
+          canEditItems={rol === "staff" || rol === "admin"}
+          busy={busy}
+          mensaje={mensaje}
+          onCancel={() => setSeleccion(null)}
+          onSubmit={(valores) => void ejecutar(valores)}
+        />
+      ) : null}
     </section>
   );
 }
@@ -1489,6 +1598,7 @@ export function ShippingV2ItemDetailView({
   camposOcultos = [],
   camposSoloLectura = [],
   permissions,
+  rolNovedades = "ninguno",
 }: {
   item: ResolvedItem;
   proveedores: ShippingV2Proveedor[];
@@ -1502,6 +1612,8 @@ export function ShippingV2ItemDetailView({
   camposOcultos?: readonly string[];
   camposSoloLectura?: readonly string[];
   permissions?: ShippingV2AccessPermissions | null;
+  /** Punto 8: qué puede hacer la sesión con las novedades (sin valor: solo ver). */
+  rolNovedades?: ShippingV2NovedadRol;
 }) {
   const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
   const [item, setItem] = useState(initialItem);
@@ -2043,7 +2155,13 @@ export function ShippingV2ItemDetailView({
             </div>
           </section>
 
-          <NovedadesVinculadasCard novedades={novedades ?? []} providerLabelsById={providerLabelsById} />
+          <NovedadesVinculadasCard
+            novedades={novedades ?? []}
+            providerLabelsById={providerLabelsById}
+            item={{ id: item.id, sku: item.sku, nombre: item.nombre, cantidad: item.cantidad, estado: item.estado, packingId: item.packingId }}
+            rol={rolNovedades}
+            puedeRegistrar={(rolNovedades === "staff" || rolNovedades === "admin") && permissions?.canCreateNovedades !== false}
+          />
         </main>
       </section>
     </div>
