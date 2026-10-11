@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useSearchParams }             from "next/navigation";
 import type { ResultadoPreFactura }    from "@/lib/facturacion/gancho/traductor";
 import type { OrigenGancho }           from "@/lib/facturacion/emitirFactura";
@@ -11,6 +11,7 @@ import { ClienteCard, type ClienteDoc } from "@/components/facturacion/ClienteCa
 import { validarIdentificacion, revisarIdentificacion } from "@/lib/facturacion/reglas/identificacion";
 import { mensajeReferenciaPagoFaltante, CODIGO_SRI_REQUIERE_REFERENCIA } from "@/lib/facturacion/reglas/referenciaPago";
 import { resolverBorradorInicial } from "@/lib/facturacion/borradores/formulario";
+import { AvisoNovedadVenta, cerrarNovedadesVendidas, hayAvisoPendiente, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
 
 // ─── Tipos locales ─────────────────────────────────────────────────────────────
 
@@ -381,6 +382,8 @@ export function FacturacionForm({
   const [ivaIncluido, setIvaIncluido] = useState(true);
   const [emitiendo, setEmitiendo] = useState(false);
   const [resultado, setResultado] = useState<ResultadoEmision | null>(null);
+  // Punto 8b: aclaración de cómo se vende cada artículo con novedad abierta (por línea).
+  const [avisosNovedad, setAvisosNovedad] = useState<Record<string, EstadoAvisoNovedad>>({});
   const [errGlobal, setErrGlobal] = useState<string | null>(null);
   const [duplicadoReciente, setDuplicadoReciente] = useState<DuplicadoRecientePayload | null>(null);
 
@@ -730,6 +733,10 @@ export function FacturacionForm({
     setResultado(null);
     setDuplicadoReciente(null);
 
+    // Punto 8b: un artículo con novedad abierta se vende solo con la aclaración escrita.
+    if (novedadPendiente) { setErrGlobal("Falta escribir cómo se vende el artículo con novedad (cartel amarillo)."); return; }
+    const avisosAlEmitir = avisosLineas;
+
     // Validaciones de cliente
     const errId = validarIdentificacion(cliente.tipoIdentificacion, cliente.identificacion);
     if (errId) { setErrGlobal(errId); return; }
@@ -952,6 +959,8 @@ export function FacturacionForm({
         }
         setResultado(j.data!);
         if (j.data.estado === "AUTORIZADO" || j.data.estado === "EN PROCESAMIENTO") {
+          // Punto 8b: solo con la venta hecha se cierran sus novedades.
+          void cerrarNovedadesVendidas("facturacion", avisosAlEmitir, `Factura ${j.data.numeroFactura}`).then((aviso) => { if (aviso) setErrGlobal(aviso); });
           setBorradorId(null);
           setMsgBorrador(null);
           onEmisionExitosa?.(j.data);
@@ -965,6 +974,10 @@ export function FacturacionForm({
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
+
+  // Punto 8b: avisos de las líneas que siguen en la factura.
+  const avisosLineas = lineas.filter((l) => l.shippingItemId).map((l) => avisosNovedad[l._id]);
+  const novedadPendiente = hayAvisoPendiente(avisosLineas);
 
   const clienteOk =
     modoCliente === "consumidor" ||
@@ -1144,12 +1157,21 @@ export function FacturacionForm({
               </thead>
               <tbody className="divide-y divide-[#2A2B28]">
                 {lineas.map((l) => (
-                  <LineaRow
-                    key={l._id}
-                    linea={l}
-                    onChange={(campo, val) => actualizarLinea(l._id, campo, val)}
-                    onDelete={() => eliminarLinea(l._id)}
-                  />
+                  <Fragment key={l._id}>
+                    <LineaRow
+                      linea={l}
+                      onChange={(campo, val) => actualizarLinea(l._id, campo, val)}
+                      onDelete={() => eliminarLinea(l._id)}
+                    />
+                    {l.shippingItemId ? (
+                      <AvisoNovedadVenta
+                        modulo="facturacion"
+                        itemId={l.shippingItemId}
+                        colSpan={9}
+                        onEstado={(estado) => setAvisosNovedad((a) => ({ ...a, [l._id]: estado }))}
+                      />
+                    ) : null}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -1317,7 +1339,8 @@ export function FacturacionForm({
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => handleEmitir()}
-              disabled={emitiendo || guardandoBorrador || !clienteOk || lineas.length === 0 || !!resultado || excedeLimiteConsumidor}
+              disabled={emitiendo || guardandoBorrador || !clienteOk || lineas.length === 0 || !!resultado || excedeLimiteConsumidor || novedadPendiente}
+              title={novedadPendiente ? "Falta escribir cómo se vende el artículo con novedad" : undefined}
               className={[
                 "rounded-full border px-6 py-2.5 text-sm font-bold transition",
                 "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] hover:brightness-105",

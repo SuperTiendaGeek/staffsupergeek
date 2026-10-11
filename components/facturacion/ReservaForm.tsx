@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { abonoMinimo, PLAZOS_VALIDOS } from "@/lib/facturacion/reservas/reglas";
 import { ClienteCard, CLIENTE_VACIO, type ClienteDoc } from "@/components/facturacion/ClienteCard";
+import { AvisoNovedadVenta, cerrarNovedadesVendidas, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
 
 const FORMAS_PAGO = [
   { codigo: "01", label: "Efectivo" }, { codigo: "16", label: "Tarjeta de débito" }, { codigo: "19", label: "Tarjeta de crédito" },
@@ -32,6 +33,9 @@ export function ReservaForm() {
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<{ recordId: string; numero: string; fechaLimite: string; advertencia?: string | null } | null>(null);
   const prodRef = useRef<HTMLInputElement>(null);
+  // Punto 8b: aclaración de cómo se vende si el ítem tiene una novedad abierta.
+  const [avisoNovedad, setAvisoNovedad] = useState<EstadoAvisoNovedad | null>(null);
+  const novedadPendiente = Boolean(item) && avisoNovedad?.pendiente !== false;
 
   useEffect(() => {
     const q = queryProd.trim(); if (q.length < 2) { setProdSug([]); return; }
@@ -49,6 +53,8 @@ export function ReservaForm() {
     if (!item) { setError("Elige el ítem a reservar"); return; }
     if (montoAbono < minimo) { setError(`El abono inicial debe ser al menos ${mon(minimo)}`); return; }
     if (montoAbono > item.precio) { setError("El abono no puede superar el precio del ítem"); return; }
+    if (novedadPendiente) { setError("Falta escribir cómo se vende el ítem con novedad (cartel amarillo)."); return; }
+    const avisoAlCrear = avisoNovedad;
 
     setGenerando(true);
     try {
@@ -62,7 +68,11 @@ export function ReservaForm() {
       });
       const j = await r.json();
       if (!j.success) setError(j.error ?? "Error al crear la reserva");
-      else setResultado(j.data);
+      else {
+        setResultado(j.data);
+        // Punto 8b: solo con la reserva creada se cierra la novedad.
+        void cerrarNovedadesVendidas("facturacion", [avisoAlCrear ?? undefined], `Reserva ${j.data?.numero ?? ""}`).then((aviso) => { if (aviso) setError(aviso); });
+      }
     } catch { setError("Error de red al conectar con el servidor"); }
     finally { setGenerando(false); }
   }
@@ -77,6 +87,7 @@ export function ReservaForm() {
     const wa = cliente.telefono.replace(/\D/g, "");
     return (
       <div className="rounded-xl border border-[#6EE7B7]/40 bg-[#064E3B]/40 p-6 w-full max-w-2xl">
+        {error && <p className="mb-2 rounded-lg border border-[#F0C75E]/40 bg-[#F0C75E]/10 px-3 py-2 text-xs text-[#F0C75E]">⚠ {error}</p>}
         <p className="text-[#6EE7B7] font-bold text-lg mb-1">✓ Reserva {resultado.numero} creada</p>
         <p className="text-sm text-[#A7A7A7] mb-4">Válida hasta <b className="text-[#F5F5F5]">{fmt(resultado.fechaLimite)}</b>. El ítem quedó apartado y fuera de la venta.</p>
         {resultado.advertencia && (
@@ -115,9 +126,10 @@ export function ReservaForm() {
               <p className="text-sm text-[#F5F5F5] truncate">{item.descripcion}</p>
               <p className="text-xs text-[#666]">SKU: {item.sku} · Precio: <span className="text-[#D7FF4F] font-semibold">{mon(item.precio)}</span></p>
             </div>
-            <button onClick={() => setItem(null)} className="text-xs text-[#A7A7A7] underline hover:text-red-300 shrink-0">Cambiar</button>
+            <button onClick={() => { setItem(null); setAvisoNovedad(null); }} className="text-xs text-[#A7A7A7] underline hover:text-red-300 shrink-0">Cambiar</button>
           </div>
         )}
+        {item ? <AvisoNovedadVenta key={item.shippingItemId} modulo="facturacion" itemId={item.shippingItemId} onEstado={setAvisoNovedad} /> : null}
       </div>
 
       {/* Plazo y abono */}
@@ -147,7 +159,7 @@ export function ReservaForm() {
       </div>
 
       {error && <p className="mb-3 text-sm text-red-300 bg-red-950/30 border border-red-500/40 rounded-lg px-4 py-3">{error}</p>}
-      <button onClick={generar} disabled={generando || !cliente.airtableId || !item || montoAbono < minimo} className="rounded-full bg-[#D7FF4F] text-[#151515] px-6 py-3 text-sm font-bold hover:brightness-105 disabled:opacity-40">
+      <button onClick={generar} disabled={generando || !cliente.airtableId || !item || montoAbono < minimo || novedadPendiente} className="rounded-full bg-[#D7FF4F] text-[#151515] px-6 py-3 text-sm font-bold hover:brightness-105 disabled:opacity-40">
         {generando ? "Creando reserva…" : "Crear reserva →"}
       </button>
     </div>

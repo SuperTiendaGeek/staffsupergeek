@@ -131,8 +131,11 @@ import {
   ETIQUETA_PERDIDO,
   etiquetaDeBloqueo,
   etiquetaPropuesta,
+  DECISION_VENDIDO_CON_NOVEDAD,
   isNovedadAbierta,
+  pideAclaracionAlVender,
   validarAccionNovedad,
+  validarCierrePorVenta,
   validarRegistroNovedad,
   type ShippingV2DecisionArticulo,
   type ShippingV2NovedadRol,
@@ -5711,6 +5714,103 @@ export async function transitionShippingV2Novedad(
   });
 }
 
+// ─── Cartel al vender (punto 8b · 10-oct-2026) ──────────────────────────────
+// Lo usan Facturación (factura, recibo, reserva) y Técnicos (repuesto en una
+// orden), cada uno con su propia sesión. Solo exponen lo mínimo de la novedad
+// y solo pueden cerrar una novedad ABIERTA, sin bloqueo, del artículo vendido.
+
+export type NovedadParaVenta = {
+  id: string;
+  novedadId: string;
+  tipo: string;
+  descripcion: string;
+  conProveedor: boolean;
+  fechaRegistro: string;
+};
+
+/** Novedades de un artículo que piden aclaración al venderlo. */
+export async function getNovedadesParaVenta(itemRecordId: string): Promise<NovedadParaVenta[]> {
+  const id = cleanString(itemRecordId);
+  if (!id) return [];
+  const novedades = await getShippingV2NovedadesForItem(id, systemShippingV2Access());
+  return novedades
+    .filter((novedad) => pideAclaracionAlVender(novedad))
+    .map((novedad) => ({
+      id: novedad.id,
+      novedadId: novedad.novedadId,
+      tipo: novedad.tipo,
+      descripcion: novedad.descripcion ?? "",
+      conProveedor: esResponsableProveedor(novedad.responsable),
+      fechaRegistro: novedad.fechaRegistro ?? "",
+    }));
+}
+
+export type CierrePorVenta = { novedadId: string; itemId: string; texto: string; reclamoContinua?: boolean };
+
+/**
+ * Cierra las novedades de lo que se acaba de vender (después de emitir con
+ * éxito). Cada una por separado: si una falla, las demás siguen. Devuelve los
+ * errores para avisar en pantalla; la venta ya está hecha y no se toca.
+ */
+export async function cerrarNovedadesPorVenta(
+  cierres: CierrePorVenta[],
+  input: { documento: string; actor: string }
+): Promise<{ cerradas: number; errores: string[] }> {
+  const errores: string[] = [];
+  let cerradas = 0;
+  const documento = cleanString(input.documento) || "documento";
+  const vistos = new Set<string>();
+  for (const cierre of cierres) {
+    const id = cleanString(cierre.novedadId);
+    if (!id || vistos.has(id)) continue;
+    vistos.add(id);
+    try {
+      await withLock(`shipping-novedad:${id}`, async () => {
+        const record = await airtableRequest<AirtableRecordResponse>(
+          `${tableUrl(SHIPPING_V2_TABLES.novedades)}/${encodeURIComponent(id)}`
+        );
+        const novedad = mapNovedad(record);
+        const v = validarCierrePorVenta({ novedad, itemId: cleanString(cierre.itemId), texto: cierre.texto, reclamoContinua: cierre.reclamoContinua });
+        if (!v.ok) throw new Error(v.motivo);
+        const now = new Date().toISOString();
+        const texto = `${cleanString(cierre.texto)} (${documento})`;
+        const fields: Record<string, unknown> = {
+          "Estado Novedad": v.estadoDestino,
+          "Decisión sobre el artículo": DECISION_VENDIDO_CON_NOVEDAD,
+          "Descripción de solución": texto,
+          "Última actualización": now,
+          "Actualizado por": input.actor,
+        };
+        if (v.estadoDestino === "Cerrada") {
+          fields["Fecha de cierre"] = now;
+          fields["Cerrado por"] = input.actor;
+          fields["Observación final"] = texto;
+        }
+        await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
+          method: "PATCH",
+          // typecast: crea la opción "Vendido con novedad" la primera vez.
+          body: JSON.stringify({ typecast: true, records: [{ id, fields }] }),
+        });
+        await createShippingV2Event({
+          action: "Cambio de estado",
+          entity: "Shipping Novedad",
+          novedadRecordId: id,
+          itemRecordId: novedad.itemId,
+          registradoPor: input.actor,
+          descripcion: `Novedad — Vendido con novedad (${novedad.estado} → ${v.estadoDestino}). ${documento}.`,
+          observacion: cleanString(cierre.texto),
+          estadoAnterior: novedad.estado,
+          estadoNuevo: v.estadoDestino,
+        }).catch((error) => console.error("No se pudo registrar el evento del cierre por venta:", error));
+      });
+      cerradas += 1;
+    } catch (error) {
+      errores.push(`${cierre.novedadId}: ${error instanceof Error ? error.message : "error inesperado"}`);
+    }
+  }
+  return { cerradas, errores };
+}
+
 /**
  * Prepara la decisión de "Resolver": valida el movimiento ANTES de escribir la
  * novedad y devuelve la función que lo ejecuta después (o null si la decisión
@@ -5740,6 +5840,10 @@ async function prepararDecisionNovedad(input: {
     case "Reparado":
     case "No procedía":
       return null;
+
+    case "Vendido con novedad":
+      // Solo lo pone el cartel al vender (cerrarNovedadesPorVenta).
+      throw new Error("“Vendido con novedad” solo se registra desde el cartel al vender.");
 
     case "Se vende con descuento": {
       if (salio) throw new Error(`El artículo ya salió del inventario (${item.estado}).`);
