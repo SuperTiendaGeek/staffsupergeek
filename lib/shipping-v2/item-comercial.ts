@@ -105,6 +105,8 @@ export function tieneVeredictoBloqueante(item: ShippingV2ItemComercialLike): boo
  */
 const ESTADOS_CON_PROBLEMA = new Set([
   "con novedad",
+  // Punto 8 (10-oct): novedad "Perdido en tienda" con la venta bloqueada.
+  "perdido en tienda",
   "en garantia con proveedor",
 ]);
 

@@ -1,53 +1,57 @@
 import { NextResponse } from "next/server";
 import { getShippingV2AccessContextForSession, transitionShippingV2Novedad } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
+import type { ValoresAccionNovedad } from "@/lib/shipping-v2/novedades";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
 
-function parseMonto(value: unknown): number | null | undefined {
+function numero(value: unknown): number | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function parseValores(value: unknown): Record<string, string> {
-  if (!value || typeof value !== "object") return {};
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([, raw]) => typeof raw === "string")
-      .map(([key, raw]) => [key, String(raw).trim()])
-  );
+function texto(value: unknown): string | undefined {
+  return typeof value === "string" ? value.trim() : undefined;
 }
 
+// Acciones sobre una novedad (punto 8). Quién puede qué —proveedor, personal,
+// Administrador— lo decide transitionShippingV2Novedad con las reglas de
+// lib/shipping-v2/novedades.ts. Aquí solo se limpia la entrada.
 export async function POST(request: Request, { params }: Params) {
   const { response, session } = await requireShippingV2Session();
   if (response) return response;
   const { id } = await params;
 
   try {
-    const body = await request.json().catch(() => ({}));
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const v = (body.valores && typeof body.valores === "object" ? body.valores : {}) as Record<string, unknown>;
     const access = await getShippingV2AccessContextForSession(session);
+    const valores: ValoresAccionNovedad = {
+      texto: texto(v.texto),
+      decision: texto(v.decision),
+      propuesta: texto(v.propuesta),
+      precio: numero(v.precio),
+      cantidad: numero(v.cantidad),
+      comoAparecio: texto(v.comoAparecio),
+      pendienteProveedor: v.pendienteProveedor === true,
+      desbloquear: v.desbloquear === true,
+      montoReclamado: numero(v.montoReclamado),
+      montoRecuperado: numero(v.montoRecuperado),
+    };
 
-    // La validación real (qué transición vale desde qué estado, qué campos
-    // exige, qué es solo de admin) vive en lib/shipping-v2/novedades.ts y la
-    // aplica transitionShippingV2Novedad. Aquí solo se limpia la entrada.
     const resultado = await transitionShippingV2Novedad(id, {
       accion: String(body.accion ?? ""),
-      valores: parseValores(body.valores),
-      solucion: typeof body.solucion === "string" ? body.solucion : undefined,
-      cerrarDirecto: body.cerrarDirecto === true,
-      montoReclamado: parseMonto(body.montoReclamado),
-      montoRecuperado: parseMonto(body.montoRecuperado),
+      valores,
       actor: getShippingV2SessionName(session),
       access,
-      isSiteAdmin: access.isSiteAdmin,
     });
 
     return NextResponse.json({ success: true, data: resultado });
   } catch (error) {
-    console.error("Error al cambiar estado de novedad Shipping V2:", error);
+    console.error("Error en una acción de novedad Shipping V2:", error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Error inesperado" },
       { status: 400 }

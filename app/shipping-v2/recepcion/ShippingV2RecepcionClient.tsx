@@ -38,7 +38,7 @@ import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
 import { evaluarVentaItem } from "@/lib/shipping-v2/item-venta";
 import { evaluarDisponibilidadComercial } from "@/lib/shipping-v2/item-comercial";
-import { esNovedadBloqueante } from "@/lib/shipping-v2/novedades";
+import { esNovedadBloqueante, isNovedadAbierta, SHIPPING_V2_TIPOS_INTERNOS, SHIPPING_V2_TIPOS_PROVEEDOR, TIPO_PERDIDO_EN_TIENDA } from "@/lib/shipping-v2/novedades";
 import { unidadesLibres } from "@/lib/shipping-v2/unidades";
 import { getShippingV2FacebookPublicationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import {
@@ -117,8 +117,6 @@ const ShippingV2ItemDetailView = dynamic<ShippingV2ItemDetailViewProps>(
 );
 
 const ALL = SHIPPING_V2_ALL_FILTER;
-const NOVEDAD_TYPES = ["Faltante", "Dañado", "Incompleto", "Diferente al comprado", "Garantía con proveedor", "Observación menor", "Otro"];
-const OPEN_NOVEDAD_STATES = new Set(["abierta", "en revision interna", "en revisión interna", "enviada a proveedor", "esperando respuesta", "respondida por proveedor", "en solucion", "en solución", "escalada"]);
 const RECEPTION_PREFS_VERSION = "v1";
 const DEFAULT_SORT_BY: ShippingV2ItemSortKey = "newest";
 const DEFAULT_GROUP_BY: ShippingV2ItemGroupKey = "none";
@@ -204,7 +202,7 @@ function formatDateTime(value?: string) {
 }
 
 function isOpenNovedad(novedad: ShippingV2Novedad) {
-  return OPEN_NOVEDAD_STATES.has(normalize(novedad.estado));
+  return isNovedadAbierta(novedad.estado);
 }
 
 function isReviewed(item: ShippingV2Item) {
@@ -784,11 +782,12 @@ function NovedadForm({
   item: ReceptionItem;
   busy: boolean;
   onCancel: () => void;
-  onSubmit: (form: { tipo: string; descripcion: string; responsable: string; archivos: File[] }) => void;
+  onSubmit: (form: { tipo: string; descripcion: string; bloquearVenta: boolean; archivos: File[] }) => void;
 }) {
-  const [tipo, setTipo] = useState<string>(NOVEDAD_TYPES[0]);
+  const [tipo, setTipo] = useState<string>("");
   const [descripcion, setDescripcion] = useState("");
-  const [responsable, setResponsable] = useState("SUPER GEEK");
+  const [bloquearVenta, setBloquearVenta] = useState(false);
+  const perdido = tipo === TIPO_PERDIDO_EN_TIENDA;
   // La evidencia real: fotos y videos cortos del celular. Se acumulan aquí y
   // se suben DESPUÉS de crear la novedad, porque Airtable solo acepta
   // adjuntos contra un registro que ya existe.
@@ -813,39 +812,39 @@ function NovedadForm({
   return (
     <ModalShell title="Registrar novedad" description={`${item.sku} · ${item.nombre}`} onClose={onCancel}>
       <div className="grid gap-3">
-        <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Tipo de novedad</span>
-          <select value={tipo} onChange={(event) => setTipo(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-sm font-semibold text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70">
-            {NOVEDAD_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-          </select>
-        </label>
-
-        <div>
-          <span className="text-[12px] font-semibold uppercase tracking-normal text-[#A7A7A7]">¿Quién la resuelve?</span>
-          {/* La novedad nace encaminada: quien la detecta ya sabe si es algo
-              nuestro o un reclamo al proveedor. De esta decisión salen las
-              opciones de solución, quién la ve y de quién es el turno. */}
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            {[
-              { valor: "SUPER GEEK", titulo: "Nosotros", detalle: "Se vende con descuento, va a despiece, se repara…" },
-              { valor: "Proveedor", titulo: "El proveedor", detalle: "Se le reclama al proveedor de compra." },
-            ].map((opcion) => (
-              <button
-                key={opcion.valor}
-                type="button"
-                onClick={() => setResponsable(opcion.valor)}
-                className={`rounded-lg border px-3 py-2 text-left transition ${
-                  responsable === opcion.valor
-                    ? "border-[#D7FF4F] bg-[#D7FF4F]/12 text-[#D7FF4F]"
-                    : "border-[#3A3A36] bg-[#101010] text-[#A7A7A7] hover:border-[#D7FF4F]/45"
-                }`}
-              >
-                <span className="block text-sm font-bold">{opcion.titulo}</span>
-                <span className="mt-0.5 block text-[11px] leading-4 opacity-80">{opcion.detalle}</span>
+        {/* El tipo decide quién la resuelve (punto 8): los de garantía van
+            al proveedor; los internos los resolvemos nosotros. */}
+        <div className="grid gap-2 sm:grid-cols-[auto_1fr] sm:items-start">
+          <span className="pt-1 text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Proveedor</span>
+          <div className="flex flex-wrap gap-1">
+            {SHIPPING_V2_TIPOS_PROVEEDOR.map((opcion) => (
+              <button key={opcion} type="button" onClick={() => setTipo(opcion)}
+                className={`rounded-lg border px-2.5 py-1 text-[12px] font-semibold transition ${tipo === opcion ? "border-[#4FC3FF] bg-[#4FC3FF]/15 text-[#BDEAFF]" : "border-[#3A3A36] bg-[#101010] text-[#A7A7A7] hover:text-[#F5F5F5]"}`}>
+                {opcion}
+              </button>
+            ))}
+          </div>
+          <span className="pt-1 text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Interno</span>
+          <div className="flex flex-wrap gap-1">
+            {SHIPPING_V2_TIPOS_INTERNOS.map((opcion) => (
+              <button key={opcion} type="button" onClick={() => setTipo(opcion)}
+                className={`rounded-lg border px-2.5 py-1 text-[12px] font-semibold transition ${tipo === opcion ? "border-[#D7FF4F] bg-[#D7FF4F]/12 text-[#D7FF4F]" : "border-[#3A3A36] bg-[#101010] text-[#A7A7A7] hover:text-[#F5F5F5]"}`}>
+                {opcion}
               </button>
             ))}
           </div>
         </div>
+        {tipo ? (
+          <p className="-mt-1 text-[11px] text-[#8F908A]">
+            {(SHIPPING_V2_TIPOS_PROVEEDOR as readonly string[]).includes(tipo) ? "Garantía del proveedor: se le notifica para resolverla con él." : "La resolvemos nosotros."}
+          </p>
+        ) : null}
+
+        <label className={`flex items-center gap-2 ${perdido ? "cursor-not-allowed" : "cursor-pointer"}`} title="Impide reservar y vender el artículo. Solo un Administrador lo desbloquea.">
+          <input type="checkbox" checked={perdido || bloquearVenta} disabled={perdido} onChange={(event) => setBloquearVenta(event.target.checked)} className="h-4 w-4 accent-[#FF6B6B]" />
+          <span className="text-[13px] font-semibold text-[#F5F5F5]">Bloquear venta</span>
+          <span className="text-[11px] text-[#8F908A]">{perdido ? "Lo perdido siempre se bloquea." : "Sin marcar, se puede vender avisando de la novedad."}</span>
+        </label>
 
         <label className="block">
           <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Descripción</span>
@@ -908,8 +907,8 @@ function NovedadForm({
         <button type="button" disabled={busy} onClick={onCancel} className="h-9 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45 disabled:opacity-50">Cancelar</button>
         <button
           type="button"
-          disabled={busy || !descripcion.trim()}
-          onClick={() => onSubmit({ tipo, descripcion, responsable, archivos })}
+          disabled={busy || !tipo || !descripcion.trim()}
+          onClick={() => onSubmit({ tipo, descripcion, bloquearVenta: perdido || bloquearVenta, archivos })}
           className="h-9 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50"
         >
           {busy ? "Guardando..." : "Guardar novedad"}
@@ -1443,7 +1442,7 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
     []
   );
 
-  async function saveNovedad(form: { tipo: string; descripcion: string; responsable: string; archivos: File[] }) {
+  async function saveNovedad(form: { tipo: string; descripcion: string; bloquearVenta: boolean; archivos: File[] }) {
     if (!novedadItem) return;
     setBusyKey(`${novedadItem.id}:novedad`);
     setMessage("");
@@ -1463,6 +1462,7 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
       // creado para recibir adjuntos. Si esta parte falla, la novedad YA
       // quedó guardada — se avisa, pero no se deshace nada ni se pierde lo
       // que el técnico escribió.
+      if (payload.aviso) setMessage(String(payload.aviso));
       let novedadCreada = payload.novedad as ShippingV2Novedad | undefined;
       let evidenciasPendientes = false;
 

@@ -748,11 +748,6 @@ export type ShippingV2PackingStatusAction =
   | "cancel"
   | "reopen";
 
-export type ShippingV2PackingNovedadInput = {
-  tipo: string;
-  descripcion: string;
-  evidenciaUrl?: string;
-};
 
 export type ShippingV2RecepcionChecklistAction =
   | "received"
@@ -767,13 +762,9 @@ export type ShippingV2RecepcionChecklistAction =
 export type ShippingV2ItemNovedadInput = {
   tipo: string;
   descripcion: string;
-  /** @deprecated Se reemplaza por subida de archivos en la Fase 2 del plan de novedades. */
-  evidenciaUrl?: string;
   packingId?: string;
-  /** Si no se envía, se deriva del proveedor DE COMPRA del artículo. */
-  proveedorResponsableId?: string;
-  /** "SUPER GEEK" (la resolvemos nosotros) o "Proveedor". Por defecto SUPER GEEK. */
-  responsable?: string;
+  /** Casilla "Bloquear venta". "Perdido en tienda" siempre bloquea. */
+  bloquearVenta?: boolean;
 };
 
 export const SHIPPING_V2_PACKING_ESTADOS = SHIPPING_V2_PACKING_SELECT_OPTIONS.estado;
@@ -827,7 +818,24 @@ export type ShippingV2Novedad = ShippingV2RecordBase & {
   /** SKU y nombre del artículo, resueltos para no abrir otra pantalla. */
   itemSku?: string;
   itemNombre?: string;
+  /** Unidades del artículo (para sugerir la cantidad al resolver). */
+  itemCantidad?: number | null;
   packingLabel?: string;
+  // ── Punto 8 (10-oct-2026) ──
+  /** La novedad impide reservar y vender. Solo el Administrador la quita. */
+  bloqueaVenta: boolean;
+  /** Qué pasó con el artículo al resolver (lo ejecuta el sistema). */
+  decision?: string;
+  ventaDesbloqueadaPor?: string;
+  fechaDesbloqueo?: string;
+  /** Etiqueta del artículo antes de bloquearse. */
+  estadoPrevioArticulo?: string;
+  /** "Perdido en tienda": dónde o cómo apareció. */
+  comoAparecio?: string;
+  cantidadAfectada?: number | null;
+  precioConDescuento?: number | null;
+  valorPerdida?: number | null;
+  perdidaPorDistribuir: boolean;
 };
 
 export type ShippingV2Migracion = ShippingV2RecordBase & {

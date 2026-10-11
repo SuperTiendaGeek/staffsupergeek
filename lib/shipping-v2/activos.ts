@@ -143,11 +143,20 @@ export function evaluarPasarALaVenta(
  */
 export function evaluarDarDeBaja(
   a: ArticuloParaMovimiento,
-  input: { cantidad: number; esAdministrador: boolean; motivo: string }
+  input: {
+    cantidad: number;
+    esAdministrador: boolean;
+    motivo: string;
+    /**
+     * Punto 8: desde una novedad se puede dar de baja algo que nunca llegó
+     * (el proveedor no lo mandó y no lo va a mandar). Fuera de Novedades, no.
+     */
+    permitirSinRecibir?: boolean;
+  }
 ): { ok: true; quedan: number; dadoDeBaja: boolean } | { ok: false; motivo: string } {
   const base = validarBase(a, input.cantidad, input.esAdministrador, input.motivo);
   if (base) return { ok: false, motivo: base };
-  if (a.recibido !== true) return { ok: false, motivo: "Todavía no llega a la tienda. Si se perdió o llegó dañado, registra una novedad." };
+  if (a.recibido !== true && input.permitirSinRecibir !== true) return { ok: false, motivo: "Todavía no llega a la tienda. Si se perdió o llegó dañado, registra una novedad." };
   if (a.usoLocal !== true) {
     const libres = unidadesLibres({ cantidad: a.cantidad, cantidadReservada: a.cantidadReservada, reservado: a.reservado });
     if (input.cantidad > libres) {
