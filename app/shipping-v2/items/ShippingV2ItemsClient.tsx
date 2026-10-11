@@ -1271,6 +1271,8 @@ function NovedadesVinculadasCard({
                       <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${novedadTypeTone(novedad.tipo || novedad.titulo)}`}>{displayValue(novedad.tipo || novedad.titulo)}</span>
                       <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${novedadTone(novedad.estado)}`}>{displayValue(novedad.estado)}</span>
                       {novedad.novedadId ? <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-2 py-0.5 text-[11px] font-semibold text-[#8F908A]">{novedad.novedadId}</span> : null}
+                      {novedad.bloqueaVenta ? <span className="rounded-full border border-[#FF6B6B]/45 bg-[#FF6B6B]/12 px-2 py-0.5 text-[11px] font-semibold text-[#FF9C9C]" title="Solo un Administrador la desbloquea, en la pestaña Novedades.">Venta bloqueada</span> : null}
+                      {novedad.decision ? <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-2 py-0.5 text-[11px] font-semibold text-[#C9C9C4]">{novedad.decision}</span> : null}
                     </div>
                     <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#F5F5F5]">{description}</p>
                   </div>

@@ -42,7 +42,9 @@ export default async function ShippingV2NovedadesPage() {
         proveedores={proveedores}
         error={error}
         isSiteAdmin={access.isSiteAdmin}
+        isStaff={access.isAdmin === true}
         canRespond={access.permissions.canRespondNovedades}
+        canEditItems={access.permissions.canEditItems === true}
       />
     </div>
     </StaffAppShell>

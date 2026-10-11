@@ -45,7 +45,6 @@ import type {
   ShippingV2Proveedor,
   ShippingV2Recepcion,
   ShippingV2PackingStatusAction,
-  ShippingV2PackingNovedadInput,
   ShippingV2RecepcionChecklistAction,
   ShippingV2ItemNovedadInput,
   ShippingV2TechnicalOption,
@@ -122,10 +121,22 @@ import {
 import { calcularDisponibleVenta, evaluarDisponibilidadComercial } from "@/lib/shipping-v2/item-comercial";
 import {
   appendEntradaHilo,
+  articuloSalioDelInventario,
+  esEtiquetaDeBloqueo,
   esNovedadBloqueante,
-  getEstadoInicialNovedad,
+  esPerdidoEnTienda,
+  esResponsableProveedor,
+  estadoPrevioParaRestaurar,
+  ETIQUETA_CON_NOVEDAD,
+  ETIQUETA_PERDIDO,
+  etiquetaDeBloqueo,
+  etiquetaPropuesta,
   isNovedadAbierta,
-  validarTransicionNovedad,
+  validarAccionNovedad,
+  validarRegistroNovedad,
+  type ShippingV2DecisionArticulo,
+  type ShippingV2NovedadRol,
+  type ValoresAccionNovedad,
 } from "@/lib/shipping-v2/novedades";
 import { validarEvidencias } from "@/lib/shipping-v2/evidencias";
 import {
@@ -772,14 +783,14 @@ function canAccessPago(pago: Pick<ShippingV2Pago, "proveedorId">, access?: Shipp
   return puedeAlcanzarProveedor(access, pago.proveedorId);
 }
 
-function canAccessNovedad(novedad: ShippingV2Novedad, access?: ShippingV2AccessContext, context?: { itemIds?: Set<string>; packingIds?: Set<string> }) {
+function canAccessNovedad(novedad: ShippingV2Novedad, access?: ShippingV2AccessContext) {
   if (!access) return false;
   if (access.isAdmin) return true;
   if (!access.providerId) return false;
-  if (novedad.proveedorResponsableIds.includes(access.providerId) || novedad.proveedorResponsableId === access.providerId) return true;
-  if (context?.itemIds && novedad.itemIds.some((itemId) => context.itemIds?.has(itemId))) return true;
-  if (context?.packingIds && novedad.packingIds.some((packingId) => context.packingIds?.has(packingId))) return true;
-  return false;
+  // Punto 8: un proveedor solo ve lo que se le RECLAMA a él. Los asuntos
+  // internos de la tienda (aunque sean de sus artículos) no se le muestran.
+  if (!esResponsableProveedor(novedad.responsable)) return false;
+  return novedad.proveedorResponsableIds.includes(access.providerId) || novedad.proveedorResponsableId === access.providerId;
 }
 
 function generatePackingId() {
@@ -1739,7 +1750,7 @@ function mapPacking(record: AirtableRecord): ShippingV2Packing {
     fechaRecepcion: firstString(f[F.fechaRecepcion]),
     cerradoPor: firstString(f[F.cerradoPor]),
     creadoPor: firstString(f[F.creadoPor]),
-    conNovedad: normalizeStatus(estado).includes("novedad"),
+    conNovedad: normalizeStatus(estado).includes("novedad") || normalizeStatus(estado) === "perdido en tienda",
   };
 }
 
@@ -1862,6 +1873,16 @@ function mapNovedad(record: AirtableRecord): ShippingV2Novedad {
     comprobanteSolucion: mapAttachments(f["Comprobante de solución"]),
     ultimaActualizacion: firstString(f["Última actualización"]),
     actualizadoPor: firstString(f["Actualizado por"]),
+    bloqueaVenta: firstBoolean(f["Bloquea venta"]) === true,
+    decision: firstString(f["Decisión sobre el artículo"]),
+    ventaDesbloqueadaPor: firstString(f["Venta desbloqueada por"]),
+    fechaDesbloqueo: firstString(f["Fecha de desbloqueo"]),
+    estadoPrevioArticulo: firstString(f["Estado previo del artículo"]),
+    comoAparecio: firstString(f["Cómo apareció"]),
+    cantidadAfectada: firstNumber(f["Cantidad afectada"]),
+    precioConDescuento: firstNumber(f["Precio con descuento"]),
+    valorPerdida: firstNumber(f["Valor de la pérdida"]),
+    perdidaPorDistribuir: firstBoolean(f["Pérdida por distribuir"]) === true,
   };
 }
 
@@ -5060,21 +5081,6 @@ function isOpenNovedadStatus(status: string) {
   return isNovedadAbierta(status);
 }
 
-function isCriticalNovedadType(type: string) {
-  const normalized = normalizeStatus(type);
-  return ["faltante", "danado", "dañado", "incompleto", "diferente al comprado", "garantia con proveedor", "garantia"].includes(normalized);
-}
-
-function revisionStateForNovedad(type: string) {
-  const normalized = normalizeStatus(type);
-  if (normalized === "faltante") return "Faltante";
-  if (normalized === "danado" || normalized === "dañado") return "Dañado";
-  if (normalized === "incompleto") return "Incompleto";
-  if (normalized === "diferente al comprado") return "Diferente al comprado";
-  if (normalized === "garantia con proveedor" || normalized === "garantia") return "En garantía con proveedor";
-  return "Aceptado con observación";
-}
-
 const RECEIVED_REQUIRED_MESSAGE = "Marca primero Recibido para continuar con la revisión de este item.";
 
 type ReceptionChecklistFieldConfig = {
@@ -5275,132 +5281,173 @@ function generateItemNovedadId(item: ShippingV2Item) {
   return `NOV-${item.sku || item.id}-${date}-${time}`;
 }
 
-export async function createShippingV2ItemNovedad(
-  recordId: string,
-  input: ShippingV2ItemNovedadInput,
-  options: { registradoPor: string }
-) {
-  const id = cleanString(recordId);
-  if (!id) throw new Error("Record ID de item inválido.");
-  const tipo = cleanString(input.tipo);
-  const descripcion = cleanString(input.descripcion);
-  const evidenciaUrl = cleanString(input.evidenciaUrl);
-  const packingId = cleanString(input.packingId);
-  if (!tipo) throw new Error("Selecciona un tipo de novedad.");
-  if (!descripcion) throw new Error("Describe la novedad del item.");
+// ─── Novedades (auditoría Shipping V2, punto 8 · 10-oct-2026) ──────────────
+// Las reglas viven en lib/shipping-v2/novedades.ts (puras, con pruebas). Aquí
+// solo se lee, se valida con esas reglas y se escribe. Resumen:
+//  · El tipo decide quién resuelve; solo 3 estados; el proveedor solo responde.
+//  · La venta se bloquea con la casilla "Bloquea venta" y SOLO el
+//    Administrador la quita. Mientras haya un bloqueo, el artículo muestra
+//    "Con novedad" (o "Perdido en tienda") y no se reserva ni se vende.
+//  · Al resolver se elige qué pasa con el artículo y el sistema lo EJECUTA.
 
-  const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
-  const critical = isCriticalNovedadType(tipo);
-  // "Proveedor responsable" es SIEMPRE el proveedor de COMPRA: a quien se le
-  // compró el artículo y por tanto a quien se le reclama. NO es el proveedor
-  // logístico: Roberto arma la caja y la envía, pero no responde por un
-  // artículo que se compró en eBay. Confundirlos haría que el reclamo le
-  // llegue a quien no vendió nada.
-  const proveedorResponsableId = cleanString(input.proveedorResponsableId)
-    || cleanString(item.proveedorId);
-  const responsable = cleanString(input.responsable) === "Proveedor" ? "Proveedor" : "SUPER GEEK";
+const CAMPOS_NOVEDAD = {
+  bloqueaVenta: "Bloquea venta",
+  decision: "Decisión sobre el artículo",
+  desbloqueadaPor: "Venta desbloqueada por",
+  fechaDesbloqueo: "Fecha de desbloqueo",
+  estadoPrevio: "Estado previo del artículo",
+  comoAparecio: "Cómo apareció",
+  cantidadAfectada: "Cantidad afectada",
+  precioConDescuento: "Precio con descuento",
+  valorPerdida: "Valor de la pérdida",
+  perdidaPorDistribuir: "Pérdida por distribuir",
+} as const;
 
-  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
-    method: "POST",
+/** Rol de la sesión frente a una novedad. El servidor nunca confía en la pantalla. */
+function rolNovedad(access?: ShippingV2AccessContext): ShippingV2NovedadRol {
+  if (!access) return "ninguno";
+  if (access.isAdmin === true) return access.isSiteAdmin === true ? "admin" : "staff";
+  if (access.providerId && access.permissions.canRespondNovedades === true) return "proveedor";
+  return "ninguno";
+}
+
+/** Pone la etiqueta de bloqueo y apaga "Disponible para venta". */
+async function aplicarBloqueoEnArticulo(item: ShippingV2Item, etiqueta: string, actor: string): Promise<ShippingV2Item> {
+  // "Perdido en tienda" manda sobre "Con novedad".
+  const destino = esPerdidoEnTienda(item.estado) ? item.estado : etiqueta;
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    // typecast: crea la opción "Perdido en tienda" la primera vez.
     body: JSON.stringify({
       typecast: true,
       records: [{
-        fields: compactFields({
-          "Novedad ID": generateItemNovedadId(item),
-          "Tipo de novedad": tipo,
-          "Item relacionado": [item.id],
-          "Packing relacionado": packingId ? [packingId] : undefined,
-          // Sin proveedor responsable la novedad no le llega a nadie: el panel
-          // no sabe a quién reclamarle y el portal del proveedor nunca la ve.
-          "Proveedor responsable": proveedorResponsableId ? [proveedorResponsableId] : undefined,
-          // La novedad NACE ENCAMINADA: quien la detecta ya sabe si la
-          // resolvemos nosotros o si hay que reclamarle al proveedor. De ahí
-          // sale también su estado inicial, para que caiga en la bandeja
-          // correcta sin que nadie tenga que moverla.
-          "Responsable de solución": responsable,
-          "Estado Novedad": getEstadoInicialNovedad(responsable),
-          "Descripción": descripcion,
-          "Evidencias": evidenciaUrl ? [{ url: evidenciaUrl }] : undefined,
-          "Fecha de registro": new Date().toISOString(),
-          "Registrado por": options.registradoPor,
-        }),
+        id: item.id,
+        fields: {
+          [SHIPPING_V2_ITEM_FIELDS.estadoItem]: destino,
+          [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: false,
+          [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+          [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: actor,
+        },
       }],
     }),
   });
-  const created = response.records?.[0];
-  if (!created) throw new Error("Airtable no devolvió la novedad creada.");
+  const updated = response.records?.[0];
+  invalidateShippingV2ItemSearchIndexCache();
+  return updated ? mapItem(updated) : item;
+}
 
-  let updatedItem = item;
-  if (critical) {
-    const itemResponse = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
-      method: "PATCH",
+export async function createShippingV2ItemNovedad(
+  recordId: string,
+  input: ShippingV2ItemNovedadInput,
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  return withLock(`shipping-item:${id}`, async () => {
+    const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
+    const validacion = validarRegistroNovedad({
+      tipo: input.tipo,
+      descripcion: input.descripcion,
+      bloquearVenta: input.bloquearVenta === true,
+      // Solo el personal de la tienda registra (un proveedor nunca).
+      esPersonalTienda: options.access?.isAdmin === true,
+      articulo: { estado: item.estado, cantidad: item.cantidad, recibido: item.recibido, proveedorCompraId: item.proveedorId },
+    });
+    if (!validacion.ok) throw new Error(validacion.motivo);
+
+    const descripcion = cleanString(input.descripcion);
+    const packingId = cleanString(input.packingId);
+    const ahora = new Date().toISOString();
+    const conProveedor = validacion.responsable === "Proveedor";
+
+    const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
+      method: "POST",
       body: JSON.stringify({
+        typecast: true,
         records: [{
-          id: item.id,
-          fields: {
-            [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Con novedad",
-            [SHIPPING_V2_ITEM_FIELDS.estadoRevision]: revisionStateForNovedad(tipo),
-            // El bloqueo comercial se marca en su propio eje, no solo en el
-            // Estado Item: así una reserva o una venta lo respetan aunque el
-            // estado logistico cambie despues. Una reserva YA existente no se
-            // libera aqui a proposito: soltarle el articulo a un cliente sin
-            // hablarlo es peor que dejar la reserva marcada para gestion.
-            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: false,
-            [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
-            [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
-          },
+          fields: compactFields({
+            "Novedad ID": generateItemNovedadId(item),
+            "Tipo de novedad": validacion.tipo,
+            "Item relacionado": [item.id],
+            "Packing relacionado": packingId ? [packingId] : undefined,
+            // Siempre el proveedor de COMPRA (a quien se le reclama), nunca el
+            // logístico.
+            "Proveedor responsable": item.proveedorId ? [item.proveedorId] : undefined,
+            "Responsable de solución": validacion.responsable,
+            "Estado Novedad": "Abierta",
+            "Descripción": descripcion,
+            "Fecha de registro": ahora,
+            "Registrado por": options.registradoPor,
+            "Fecha enviada a proveedor": conProveedor ? ahora : undefined,
+            [CAMPOS_NOVEDAD.bloqueaVenta]: validacion.bloqueaVenta ? true : undefined,
+            [CAMPOS_NOVEDAD.estadoPrevio]: validacion.bloqueaVenta ? item.estado : undefined,
+          }),
         }],
       }),
     });
-    const updated = itemResponse.records?.[0];
-    if (updated) updatedItem = mapItem(updated);
-  }
+    const created = response.records?.[0];
+    if (!created) throw new Error("Airtable no devolvió la novedad creada.");
 
-  await createShippingV2Event({
-    action: "Novedad abierta",
-    entity: "Shipping Novedad",
-    itemRecordId: item.id,
-    packingRecordId: packingId || undefined,
-    novedadRecordId: created.id,
-    registradoPor: options.registradoPor,
-    descripcion: `Novedad de item registrada: ${tipo}.`,
-    observacion: descripcion,
+    // Sin la casilla, el artículo no cambia: se puede seguir vendiendo.
+    let updatedItem = item;
+    let aviso = "";
+    if (validacion.bloqueaVenta) {
+      try {
+        updatedItem = await aplicarBloqueoEnArticulo(item, esPerdidoEnTienda(validacion.tipo) ? ETIQUETA_PERDIDO : ETIQUETA_CON_NOVEDAD, options.registradoPor);
+      } catch (error) {
+        // La novedad YA quedó guardada: no se lanza error (un reintento la
+        // duplicaría). Se avisa para bloquear de nuevo desde Novedades.
+        console.error("Novedad creada, pero no se pudo bloquear el artículo:", error);
+        aviso = "La novedad se guardó, pero el artículo no se pudo bloquear. Ábrela en Novedades y pulsa “Bloquear venta”.";
+      }
+    }
+
+    await createShippingV2Event({
+      action: "Novedad abierta",
+      entity: "Shipping Novedad",
+      itemRecordId: item.id,
+      packingRecordId: packingId || undefined,
+      novedadRecordId: created.id,
+      registradoPor: options.registradoPor,
+      descripcion: `Novedad registrada: ${validacion.tipo}${conProveedor ? " (con el proveedor)" : ""}${validacion.bloqueaVenta ? " · venta bloqueada" : ""}.`,
+      observacion: descripcion,
+      estadoAnterior: validacion.bloqueaVenta ? item.estado : undefined,
+      estadoNuevo: validacion.bloqueaVenta ? updatedItem.estado : undefined,
+    });
+
+    return { item: updatedItem, novedad: mapNovedad(created), aviso };
   });
-
-  return { item: updatedItem, novedad: mapNovedad(created) };
 }
 
 /**
- * Recalcula la disponibilidad comercial de un artículo y la escribe.
+ * Recalcula el bloqueo y la disponibilidad de un artículo según sus novedades.
  *
- * Es el CAMINO DE VUELTA que faltaba: al registrar una novedad crítica el
- * artículo queda bloqueado (`Disponible para venta` en false y Estado Item en
- * "Con novedad"), y hasta ahora nada lo devolvía. Se llama al cerrar, rechazar
- * o reabrir una novedad.
- *
- * Qué toca y qué no:
- *  · `Disponible para venta` — se deriva siempre (item-comercial.ts).
- *  · `Estado Item` — solo saca de "Con novedad"; nunca mueve otras etapas.
- *  · `Estado de revisión` — si quedó un veredicto bloqueante (Dañado,
- *    Faltante…) y ya no hay novedades abiertas, pasa a "Aceptado con
- *    observación": el problema existió y se resolvió, pero el artículo carga
- *    esa historia. Dejarlo en "Dañado" lo mantendría bloqueado para siempre.
+ *  · Con alguna novedad que bloquea: etiqueta "Con novedad" (o "Perdido en
+ *    tienda") y sin venta. Nunca toca un artículo que ya salió.
+ *  · Sin bloqueos y con etiqueta de bloqueo: vuelve a su etapa. Si llegó, con
+ *    la regla de llegada (Disponible / En revisión / Uso local / Reservado);
+ *    si no llegó, a la etapa que tenía antes de bloquearse.
+ *  · Un veredicto de problema viejo (Dañado, Faltante…) sin bloqueos pasa a
+ *    "Aceptado con observación", que no bloquea.
  */
-async function recalcularDisponibilidadItem(itemRecordId: string, actor: string) {
+async function recalcularDisponibilidadItem(itemRecordId: string, actor: string, opciones: { estadoPrevioPreferido?: string } = {}) {
   const id = cleanString(itemRecordId);
   if (!id) return null;
 
   const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
   const novedades = await getShippingV2NovedadesForItem(id, systemShippingV2Access());
   const bloqueantes = novedades.filter((novedad) => esNovedadBloqueante(novedad)).length;
+  const etiqueta = etiquetaDeBloqueo(novedades);
+  const salio = articuloSalioDelInventario({ estado: item.estado, cantidad: item.cantidad });
 
   const fields: Record<string, unknown> = {};
 
-  // Saca al artículo del estado "Con novedad" cuando ya no queda ninguna.
-  const estadoActual = normalizeStatus(item.estado);
-  if (estadoActual === "con novedad" && bloqueantes === 0) {
-    // Llegó: la etiqueta la decide la misma regla que en Recepción (Disponible
-    // si no requiere inspección o ya está firmada; si no, En revisión).
+  if (etiqueta && !salio && normalizeStatus(item.estado) !== normalizeStatus(etiqueta)) {
+    fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = etiqueta;
+  }
+  // Sin bloqueos: sale de la etiqueta de bloqueo. Con 0 unidades no se toca
+  // (nunca "resucitar" algo que ya no existe).
+  if (!etiqueta && esEtiquetaDeBloqueo(item.estado) && normalizarUnidades(item.cantidad) > 0) {
     fields[SHIPPING_V2_ITEM_FIELDS.estadoItem] = item.recibido === true
       ? estadoSegunLlegada({
         estado: "En revisión",
@@ -5410,11 +5457,10 @@ async function recalcularDisponibilidadItem(itemRecordId: string, actor: string)
         usoLocal: item.usoLocal,
         todasReservadas: todasReservadas(item),
       }) ?? "En revisión"
-      : "Recibido";
+      : (opciones.estadoPrevioPreferido && !esEtiquetaDeBloqueo(opciones.estadoPrevioPreferido) ? opciones.estadoPrevioPreferido : null)
+        ?? estadoPrevioParaRestaurar(novedades) ?? "Recibido";
   }
 
-  // Un veredicto bloqueante sin novedades abiertas dejaría el artículo
-  // invendible para siempre. Se convierte en observación, que no bloquea.
   const estadoRevisionFinal = bloqueantes === 0 &&
     !evaluarDisponibilidadComercial({ estadoRevision: item.estadoRevision }).apartable
     ? "Aceptado con observación"
@@ -5441,153 +5487,380 @@ async function recalcularDisponibilidadItem(itemRecordId: string, actor: string)
 
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
     method: "PATCH",
-    body: JSON.stringify({ records: [{ id, fields }] }),
+    body: JSON.stringify({ typecast: true, records: [{ id, fields }] }),
   });
   const updated = response.records?.[0];
+  invalidateShippingV2ItemSearchIndexCache();
+  if (fields[SHIPPING_V2_ITEM_FIELDS.estadoItem]) {
+    await createShippingV2Event({
+      action: "Cambio de estado",
+      itemRecordId: id,
+      itemName: item.nombre,
+      registradoPor: actor,
+      descripcion: etiqueta ? `Venta bloqueada por novedad (${etiqueta}).` : "Venta desbloqueada: sin novedades que la bloqueen.",
+      estadoAnterior: item.estado,
+      estadoNuevo: String(fields[SHIPPING_V2_ITEM_FIELDS.estadoItem]),
+    }).catch((error) => console.error("No se pudo registrar el evento del bloqueo:", error));
+  }
   return updated ? mapItem(updated) : item;
 }
 
 /**
- * Ejecuta una transición de novedad. Única puerta de escritura del ciclo.
+ * Ejecuta una acción sobre una novedad. Única puerta de escritura del ciclo.
  *
- * Valida SIEMPRE contra novedades.ts aunque la pantalla ya lo haya hecho: la
- * pantalla decide qué botones mostrar, no qué se puede escribir.
- *
- * Los mensajes se APENDEN al hilo en vez de pisarse, para que rechazar una
- * propuesta y recibir otra no borre lo anterior.
+ * Al resolver con una decisión que mueve el artículo, se usa el orden "la
+ * marca es la llave" (como al anular una mejora, punto 3):
+ *  1. Se valida TODO (reglas de la novedad + reglas del movimiento).
+ *  2. Se escribe la novedad (ya no está Abierta: un segundo clic no ejecuta
+ *     dos veces).
+ *  3. Se ejecuta el movimiento (baja, activo, despiece, precio).
+ *  4. Si el movimiento falla, la novedad vuelve a como estaba y se avisa.
  */
 export async function transitionShippingV2Novedad(
   novedadRecordId: string,
   input: {
     accion: string;
-    valores?: Record<string, string>;
-    solucion?: string;
-    cerrarDirecto?: boolean;
-    montoReclamado?: number | null;
-    montoRecuperado?: number | null;
+    valores?: ValoresAccionNovedad;
     actor: string;
     access?: ShippingV2AccessContext;
-    isSiteAdmin?: boolean;
   }
 ) {
-  assertShippingV2Permission(input.access, "canViewNovedades", "No tienes permiso para gestionar novedades.");
+  const rol = rolNovedad(input.access);
+  if (rol === "ninguno") throw new Error("No tienes permiso para gestionar novedades.");
   const id = cleanString(novedadRecordId);
   if (!id) throw new Error("Record ID de novedad inválido.");
 
-  const record = await airtableRequest<AirtableRecordResponse>(
-    `${tableUrl(SHIPPING_V2_TABLES.novedades)}/${encodeURIComponent(id)}`
-  );
-  const novedad = mapNovedad(record);
-  if (!canAccessNovedad(novedad, input.access)) throw new Error("No tienes acceso a esta novedad.");
+  return withLock(`shipping-novedad:${id}`, async () => {
+    const record = await airtableRequest<AirtableRecordResponse>(
+      `${tableUrl(SHIPPING_V2_TABLES.novedades)}/${encodeURIComponent(id)}`
+    );
+    const novedad = mapNovedad(record);
+    if (!canAccessNovedad(novedad, input.access)) throw new Error("No tienes acceso a esta novedad.");
 
-  const valores = input.valores ?? {};
-  const solucion = cleanString(input.solucion) || novedad.solucion || "";
-  const validacion = validarTransicionNovedad({
-    estadoActual: novedad.estado,
-    responsable: novedad.responsable,
-    accion: input.accion,
-    isSiteAdmin: input.isSiteAdmin,
-    valores,
-    solucion,
-    cerrarDirecto: input.cerrarDirecto,
-  });
-  if (!validacion.ok) throw new Error(validacion.motivo);
+    const valores = input.valores ?? {};
+    const validacion = validarAccionNovedad({
+      accion: input.accion,
+      novedad: { estado: novedad.estado, responsable: novedad.responsable, tipo: novedad.tipo, bloqueaVenta: novedad.bloqueaVenta, decision: novedad.decision },
+      rol,
+      valores,
+    });
+    if (!validacion.ok) throw new Error(validacion.motivo);
 
-  const now = new Date().toISOString();
-  const { transicion, estadoDestino } = validacion;
-  const fields: Record<string, unknown> = {
-    "Estado Novedad": estadoDestino,
-    "Última actualización": now,
-    "Actualizado por": input.actor,
-  };
-
-  switch (transicion.accion) {
-    case "responder":
-      fields["Respuesta del proveedor"] = appendEntradaHilo(novedad.respuestaProveedor, input.actor, valores.respuesta, now);
-      fields["Fecha de respuesta del proveedor"] = now;
-      fields["Solución"] = solucion;
-      break;
-    case "aceptar-propuesta":
-      fields["Mensaje enviado al proveedor"] = appendEntradaHilo(novedad.mensajeProveedor, input.actor, `Aceptamos la propuesta: ${solucion}.`, now);
-      fields["Descripción de solución"] = valores.descripcionSolucion || novedad.descripcionSolucion || solucion;
-      break;
-    case "rechazar-propuesta":
-      fields["Mensaje enviado al proveedor"] = appendEntradaHilo(novedad.mensajeProveedor, input.actor, `Rechazamos la propuesta. ${valores.motivo}`, now);
-      // La pelota vuelve a su cancha: se limpia la fecha de respuesta para que
-      // el contador de días sin contestar empiece de nuevo.
-      fields["Fecha de respuesta del proveedor"] = null;
-      break;
-    case "resolver":
-      fields["Solución"] = solucion;
-      fields["Descripción de solución"] = valores.descripcionSolucion;
-      break;
-    case "cerrar":
-      // La resolución y su descripción ya quedaron registradas al acordarla.
-      // Aquí solo se sella el cierre; la nota es opcional.
-      if (valores.observacionFinal) fields["Observación final"] = valores.observacionFinal;
-      break;
-    case "cerrar-sin-respuesta":
-    case "anular":
-      fields["Observación final"] = valores.motivo;
+    const { config, decision } = validacion;
+    const accion = config.accion;
+    const actor = input.actor;
+    const now = new Date().toISOString();
+    const texto = cleanString(valores.texto);
+    const propuesta = cleanString(valores.propuesta);
+    const fields: Record<string, unknown> = {
+      "Última actualización": now,
+      "Actualizado por": actor,
+    };
+    const cerrar = () => {
+      fields["Estado Novedad"] = "Cerrada";
       fields["Fecha de cierre"] = now;
-      fields["Cerrado por"] = input.actor;
-      break;
-    case "reabrir":
-      fields["Observación final"] = valores.motivo;
-      fields["Fecha de cierre"] = null;
-      fields["Cerrado por"] = null;
-      break;
-  }
+      fields["Cerrado por"] = actor;
+    };
+    const desbloquear = (quien: string) => {
+      fields[CAMPOS_NOVEDAD.bloqueaVenta] = false;
+      fields[CAMPOS_NOVEDAD.desbloqueadaPor] = quien;
+      fields[CAMPOS_NOVEDAD.fechaDesbloqueo] = now;
+    };
 
-  // Cierre directo: la resolución ya se cumplió en el mismo acto de acordarla
-  // ("se vende con descuento" no tiene nada que esperar). Se sella aquí sin
-  // obligar al usuario a volver a describir lo mismo en un segundo paso.
-  if (estadoDestino === "Cerrada") {
-    fields["Fecha de cierre"] = now;
-    fields["Cerrado por"] = input.actor;
-    if (!fields["Observación final"]) {
-      fields["Observación final"] = valores.observacionFinal || valores.descripcionSolucion || solucion;
+    // El artículo, cuando la acción lo necesita.
+    const necesitaArticulo = accion === "bloquear" || accion === "resolver";
+    const item = necesitaArticulo && novedad.itemId
+      ? await getShippingV2ItemById(novedad.itemId, { includeAiName: false, access: systemShippingV2Access() })
+      : null;
+    let ejecutar: null | (() => Promise<string>) = null;
+
+    switch (accion) {
+      case "responder":
+      case "registrar-respuesta": {
+        // Por los proveedores sin portal escribe alguien de la tienda: queda
+        // claro en el historial.
+        const autor = accion === "responder" ? actor : `${actor} (por el proveedor)`;
+        const cuerpo = propuesta ? `Propone: ${etiquetaPropuesta(propuesta)}. ${texto}` : texto;
+        fields["Respuesta del proveedor"] = appendEntradaHilo(novedad.respuestaProveedor, autor, cuerpo, now);
+        fields["Fecha de respuesta del proveedor"] = now;
+        if (propuesta) fields["Solución"] = propuesta;
+        break;
+      }
+      case "contestar":
+        fields["Mensaje enviado al proveedor"] = appendEntradaHilo(novedad.mensajeProveedor, actor, texto, now);
+        fields["Fecha enviada a proveedor"] = now;
+        break;
+      case "cumplida":
+        cerrar();
+        fields["Observación final"] = texto || novedad.descripcionSolucion || novedad.decision || "Cumplida";
+        if (typeof valores.montoRecuperado === "number") fields["Monto recuperado"] = valores.montoRecuperado;
+        break;
+      case "reabrir":
+        fields["Estado Novedad"] = "Abierta";
+        fields["Fecha de cierre"] = null;
+        fields["Cerrado por"] = null;
+        fields[CAMPOS_NOVEDAD.decision] = null;
+        fields["Observación final"] = `Reabierta por ${actor}: ${texto}`;
+        break;
+      case "bloquear":
+        if (!item) throw new Error("La novedad no tiene artículo.");
+        if (articuloSalioDelInventario({ estado: item.estado, cantidad: item.cantidad })) {
+          throw new Error(`El artículo ya salió del inventario (${item.estado}): no hay nada que bloquear.`);
+        }
+        fields[CAMPOS_NOVEDAD.bloqueaVenta] = true;
+        fields[CAMPOS_NOVEDAD.desbloqueadaPor] = null;
+        fields[CAMPOS_NOVEDAD.fechaDesbloqueo] = null;
+        if (!esEtiquetaDeBloqueo(item.estado)) fields[CAMPOS_NOVEDAD.estadoPrevio] = item.estado;
+        break;
+      case "desbloquear":
+        desbloquear(`${actor}: ${texto}`);
+        break;
+      case "resolver": {
+        if (!decision) throw new Error("Elige qué pasa con el artículo.");
+        // Novedades viejas de caja (sin artículo): solo se cierran.
+        if (!item && (decision.mueveArticulo || decision.pidePrecio)) throw new Error("La novedad no tiene artículo: solo se puede cerrar con “No requiere solución” o “No procedía”.");
+        fields["Estado Novedad"] = validacion.estadoDestino;
+        fields[CAMPOS_NOVEDAD.decision] = decision.valor;
+        fields["Descripción de solución"] = texto;
+        if (propuesta) fields["Solución"] = propuesta;
+        if (typeof valores.montoReclamado === "number") fields["Monto reclamado"] = valores.montoReclamado;
+        if (typeof valores.montoRecuperado === "number") fields["Monto recuperado"] = valores.montoRecuperado;
+        if (validacion.estadoDestino === "Cerrada") {
+          cerrar();
+          fields["Observación final"] = texto;
+        }
+        const comoAparecio = cleanString(valores.comoAparecio);
+        if (comoAparecio) fields[CAMPOS_NOVEDAD.comoAparecio] = comoAparecio;
+        // Solo el Administrador desbloquea; "No procedía" (también suyo)
+        // quita el bloqueo: no había problema.
+        if (novedad.bloqueaVenta && (valores.desbloquear === true || decision.valor === "No procedía")) {
+          desbloquear(`${actor}: al resolver (${decision.valor})`);
+        }
+        ejecutar = item ? await prepararDecisionNovedad({ novedad, item, decision: decision.valor, valores, texto, actor, access: input.access, fields, desbloquear }) : null;
+        break;
+      }
+    }
+
+    const escribir = async (campos: Record<string, unknown>) => {
+      const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
+        method: "PATCH",
+        // typecast: crea opciones nuevas ("Sin compensación"…) la primera vez.
+        // Los null son intencionales (limpiar campos): no pasa por compactFields.
+        body: JSON.stringify({ typecast: true, records: [{ id, fields: campos }] }),
+      });
+      const updated = response.records?.[0];
+      if (!updated) throw new Error("Airtable no devolvió la novedad actualizada.");
+      return updated;
+    };
+
+    let updated = await escribir(fields);
+    let mensaje = "";
+    if (ejecutar) {
+      try {
+        mensaje = await ejecutar();
+      } catch (error) {
+        // NO se revierte la novedad: el movimiento pudo quedar a medias (por
+        // ejemplo, la baja se escribió y falló un paso posterior) y volver a
+        // dejarla Abierta permitiría ejecutarlo dos veces. Queda resuelta, con
+        // el aviso escrito, para revisar el artículo a mano.
+        const detalle = error instanceof Error ? error.message : "error inesperado";
+        console.error("Falló el movimiento de una novedad ya resuelta:", { id, decision: decision?.valor, detalle });
+        await escribir({
+          "Observación final": `${fields["Observación final"] ?? novedad.observacionFinal ?? ""}\n⚠ El movimiento "${decision?.valor}" falló: ${detalle}. Revisar el artículo.`.trim(),
+        }).catch((e) => console.error("Tampoco se pudo anotar el fallo en la novedad:", e));
+        throw new Error(`La novedad quedó resuelta, pero "${decision?.valor}" no se completó en el artículo: ${detalle}. Revisa el artículo en su ficha antes de repetir nada.`);
+      }
+    }
+    const novedadActualizada = mapNovedad(updated);
+
+    await createShippingV2Event({
+      action: "Cambio de estado",
+      entity: "Shipping Novedad",
+      novedadRecordId: id,
+      itemRecordId: novedad.itemId,
+      packingRecordId: novedad.packingId,
+      registradoPor: actor,
+      descripcion: `Novedad — ${config.label}${decision ? `: ${decision.valor}` : ""} (${novedad.estado} → ${novedadActualizada.estado}).`,
+      observacion: [texto, propuesta ? `Propuesta: ${etiquetaPropuesta(propuesta)}` : "", mensaje].filter(Boolean).join(" · "),
+      estadoAnterior: novedad.estado,
+      estadoNuevo: novedadActualizada.estado,
+    }).catch((error) => console.error("No se pudo registrar el evento de la novedad:", error));
+
+    // El bloqueo y la disponibilidad del artículo se recalculan con lo que
+    // quedó. Si falla, la novedad igual quedó guardada.
+    let itemFinal: ShippingV2Item | null = null;
+    if (novedad.itemId && ["bloquear", "desbloquear", "resolver", "cumplida", "reabrir"].includes(accion)) {
+      const itemId = novedad.itemId;
+      // Al desbloquear, la etapa a la que vuelve es la que tenía al bloquearse ESTA novedad.
+      const seDesbloquea = fields[CAMPOS_NOVEDAD.bloqueaVenta] === false;
+      try {
+        // Con el candado del artículo: así no se cruza con el registro de otra
+        // novedad que lo está bloqueando en ese mismo momento.
+        itemFinal = await withLock(`shipping-item:${itemId}`, () =>
+          recalcularDisponibilidadItem(itemId, actor, seDesbloquea ? { estadoPrevioPreferido: novedad.estadoPrevioArticulo } : {})
+        );
+      } catch (error) {
+        console.error("No se pudo recalcular la disponibilidad del item tras la novedad:", error);
+        if (accion === "bloquear" || accion === "desbloquear") {
+          mensaje = `${mensaje} Ojo: la novedad se guardó, pero el artículo no se actualizó; vuelve a abrir su ficha para comprobarlo.`.trim();
+        }
+      }
+    }
+
+    return { novedad: novedadActualizada, item: itemFinal, mensaje };
+  });
+}
+
+/**
+ * Prepara la decisión de "Resolver": valida el movimiento ANTES de escribir la
+ * novedad y devuelve la función que lo ejecuta después (o null si la decisión
+ * no mueve nada). También completa los campos de la novedad que dependen del
+ * artículo (cantidad, valor de la pérdida, precio).
+ */
+async function prepararDecisionNovedad(input: {
+  novedad: ShippingV2Novedad;
+  item: ShippingV2Item;
+  decision: ShippingV2DecisionArticulo;
+  valores: ValoresAccionNovedad;
+  texto: string;
+  actor: string;
+  access?: ShippingV2AccessContext;
+  fields: Record<string, unknown>;
+  desbloquear: (quien: string) => void;
+}): Promise<null | (() => Promise<string>)> {
+  const { novedad, item, decision, valores, texto, actor, fields } = input;
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const ref = novedad.novedadId || novedad.id;
+  const salio = articuloSalioDelInventario({ estado: item.estado, cantidad: item.cantidad });
+  const total = normalizarUnidades(item.cantidad);
+  const cantidad = Number(valores.cantidad);
+
+  switch (decision) {
+    case "No requiere solución":
+    case "Reparado":
+    case "No procedía":
+      return null;
+
+    case "Se vende con descuento": {
+      if (salio) throw new Error(`El artículo ya salió del inventario (${item.estado}).`);
+      if (input.access?.permissions.canEditItems !== true) throw new Error("No tienes permiso para cambiar el precio del artículo.");
+      const precio = Math.round(Number(valores.precio) * 100) / 100;
+      fields[CAMPOS_NOVEDAD.precioConDescuento] = precio;
+      return async () => {
+        await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+          method: "PATCH",
+          body: JSON.stringify({ records: [{ id: item.id, fields: { [F.precioVentaFinal]: precio, [F.ultimaActualizacion]: new Date().toISOString(), [F.actualizadoPor]: actor } }] }),
+        });
+        invalidateShippingV2ItemSearchIndexCache();
+        await createShippingV2Event({
+          action: "Actualizado",
+          itemRecordId: item.id,
+          itemName: item.nombre,
+          registradoPor: actor,
+          descripcion: `Precio de venta ${item.precioVenta ?? "—"} → ${precio} por la novedad ${ref} (se vende con descuento).`,
+          observacion: texto,
+        }).catch((error) => console.error("No se pudo registrar el evento del precio:", error));
+        return `Nuevo precio de venta: $${precio.toFixed(2)}.`;
+      };
+    }
+
+    case "Dar de baja":
+    case "Devuelto al proveedor": {
+      const devuelto = decision === "Devuelto al proveedor";
+      const pago = await situacionPagoDeItem(item);
+      const ev = evaluarDarDeBaja(
+        {
+          sku: item.sku,
+          usoLocal: item.usoLocal,
+          recibido: item.recibido,
+          estado: item.estado,
+          cantidad: item.cantidad,
+          cantidadReservada: item.cantidadReservada,
+          reservado: item.reservado,
+          enPacking: Boolean(cleanString(item.packingId)),
+          pago,
+        },
+        { cantidad, esAdministrador: input.access?.isSiteAdmin === true, motivo: `Novedad ${ref}: ${texto}`, permitirSinRecibir: true }
+      );
+      if (!ev.ok) throw new Error(ev.motivo);
+      fields[CAMPOS_NOVEDAD.cantidadAfectada] = cantidad;
+      if (esPerdidoEnTienda(novedad.tipo)) {
+        // Cableado del punto 17: lo perdido queda valorado y "por distribuir".
+        fields[CAMPOS_NOVEDAD.valorPerdida] = Math.round((item.costoTotalUnidad ?? 0) * cantidad * 100) / 100;
+        fields[CAMPOS_NOVEDAD.perdidaPorDistribuir] = true;
+      }
+      if (cantidad >= total) input.desbloquear(`Sistema: el artículo salió (${decision})`);
+      const motivo = `${devuelto ? "Devuelto al proveedor" : "Baja"} por la novedad ${ref}: ${texto}`;
+      return async () => {
+        const resultado = await moverActivoShippingV2(
+          item.id,
+          { accion: "baja", cantidad, motivo, permitirSinRecibir: true },
+          { actor, access: input.access }
+        );
+        return resultado.mensaje;
+      };
+    }
+
+    case "Pasa a activo": {
+      const pago = await situacionPagoDeItem(item);
+      const ev = evaluarPasarAUsoLocal(
+        {
+          sku: item.sku,
+          usoLocal: item.usoLocal,
+          recibido: item.recibido,
+          estado: item.estado,
+          cantidad: item.cantidad,
+          cantidadReservada: item.cantidadReservada,
+          reservado: item.reservado,
+          enPacking: Boolean(cleanString(item.packingId)),
+          pago,
+        },
+        { cantidad, esAdministrador: input.access?.isSiteAdmin === true, motivo: `Novedad ${ref}: ${texto}` }
+      );
+      if (!ev.ok) throw new Error(ev.motivo);
+      fields[CAMPOS_NOVEDAD.cantidadAfectada] = cantidad;
+      if (ev.modo === "todo") input.desbloquear("Sistema: el artículo pasó a activo de la tienda");
+      return async () => {
+        const resultado = await moverActivoShippingV2(
+          item.id,
+          { accion: "uso-local", cantidad, motivo: `Pasa a activo por la novedad ${ref}: ${texto}` },
+          { actor, access: input.access }
+        );
+        return resultado.mensaje;
+      };
+    }
+
+    case "Va a despiece": {
+      if (input.access?.isSiteAdmin !== true) throw new Error("Solo un Administrador puede mandar un artículo a despiece.");
+      if (salio) throw new Error(`El artículo ya salió del inventario (${item.estado}).`);
+      if (item.recibido !== true) throw new Error("Para despiezar, el artículo tiene que estar en la tienda (Recibido).");
+      if (item.usoLocal === true) throw new Error("Es un activo de la tienda: primero pásalo a la venta.");
+      if (unidadesLibres({ cantidad: item.cantidad, cantidadReservada: item.cantidadReservada, reservado: item.reservado }) < total) {
+        throw new Error("Tiene unidades reservadas para un cliente. Libera la reserva primero.");
+      }
+      input.desbloquear("Sistema: el artículo va a despiece");
+      return async () => {
+        await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+          method: "PATCH",
+          body: JSON.stringify({
+            records: [{ id: item.id, fields: { [F.estadoItem]: "Destinado a partes", [F.disponibleVenta]: false, [F.ultimaActualizacion]: new Date().toISOString(), [F.actualizadoPor]: actor } }],
+          }),
+        });
+        invalidateShippingV2ItemSearchIndexCache();
+        await createShippingV2Event({
+          action: "Cambio de estado",
+          itemRecordId: item.id,
+          itemName: item.nombre,
+          registradoPor: actor,
+          descripcion: `Va a despiece por la novedad ${ref}.`,
+          observacion: texto,
+          estadoAnterior: item.estado,
+          estadoNuevo: "Destinado a partes",
+        }).catch((error) => console.error("No se pudo registrar el evento del despiece:", error));
+        return `${item.sku} quedó "Destinado a partes". Desármalo desde su ficha (pestaña Despiece).`;
+      };
     }
   }
-
-  if (typeof input.montoReclamado === "number") fields["Monto reclamado"] = input.montoReclamado;
-  if (typeof input.montoRecuperado === "number") fields["Monto recuperado"] = input.montoRecuperado;
-
-  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
-    method: "PATCH",
-    // Los nulls son intencionales (limpiar fecha de cierre / de respuesta), así
-    // que NO se pasa por compactFields, que los quitaría.
-    body: JSON.stringify({ records: [{ id, fields }] }),
-  });
-  const updated = response.records?.[0];
-  if (!updated) throw new Error("Airtable no devolvió la novedad actualizada.");
-  const novedadActualizada = mapNovedad(updated);
-
-  await createShippingV2Event({
-    action: "Cambio de estado",
-    entity: "Shipping Novedad",
-    novedadRecordId: id,
-    itemRecordId: novedad.itemId,
-    packingRecordId: novedad.packingId,
-    registradoPor: input.actor,
-    descripcion: `Novedad — ${transicion.label}: ${novedad.estado} → ${estadoDestino}.`,
-    observacion: Object.values(valores).filter(Boolean).join(" · "),
-    estadoAnterior: novedad.estado,
-    estadoNuevo: estadoDestino,
-  });
-
-  // El artículo recupera (o pierde) disponibilidad según cómo quedó la novedad.
-  // Es un efecto secundario: si falla, la novedad igual quedó guardada.
-  let item: ShippingV2Item | null = null;
-  if (novedad.itemId) {
-    try {
-      item = await recalcularDisponibilidadItem(novedad.itemId, input.actor);
-    } catch (error) {
-      console.error("No se pudo recalcular la disponibilidad del item tras la novedad:", error);
-    }
-  }
-
-  return { novedad: novedadActualizada, item };
 }
 
 /**
@@ -5793,7 +6066,7 @@ export async function removeEvidenciaFromShippingV2Novedad(
 }
 
 async function getOpenNovedadesForPacking(packing: ShippingV2Packing) {
-  const records = await listRecords(SHIPPING_V2_TABLES.novedades, { maxRecords: 200 });
+  const records = await listRecords(SHIPPING_V2_TABLES.novedades);
   return records
     .map(mapNovedad)
     .filter((novedad) => {
@@ -6070,91 +6343,18 @@ export async function transitionShippingV2PackingStatus(
   throw new Error("Acción de estado no soportada.");
 }
 
-function generateNovedadId(packing: ShippingV2Packing) {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const time = String(Date.now()).slice(-5);
-  return `NOV-${packing.packingId || packing.id}-${date}-${time}`;
-}
-
-export async function createShippingV2PackingNovedad(
-  packingId: string,
-  input: ShippingV2PackingNovedadInput,
-  options: { registradoPor: string; access?: ShippingV2AccessContext }
-) {
-  assertShippingV2Permission(options.access, "canCreateNovedades", "No tienes permiso para registrar novedades.");
-  const id = cleanString(packingId);
-  if (!id) throw new Error("Record ID de packing inválido.");
-  const tipo = cleanString(input.tipo);
-  const descripcion = cleanString(input.descripcion);
-  const evidenciaUrl = cleanString(input.evidenciaUrl);
-  if (!tipo) throw new Error("Selecciona un tipo de novedad.");
-  if (!descripcion) throw new Error("Describe la novedad del packing.");
-
-  const packing = await getShippingV2PackingById(id, options.access, { includeAiName: false });
-  const currentStatus = normalizeStatus(packing.estado);
-  if (currentStatus === "cancelado") {
-    throw new Error("No puedes registrar novedades en un packing cancelado.");
-  }
-  if (currentStatus === "cerrado final" && !options.access?.isAdmin) {
-    throw new Error("Solo un administrador puede registrar novedades administrativas en un packing cerrado final.");
-  }
-
-  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
-    method: "POST",
-    body: JSON.stringify({
-      typecast: true,
-      records: [{
-        fields: compactFields({
-          "Novedad ID": generateNovedadId(packing),
-          "Tipo de novedad": tipo,
-          "Estado Novedad": "Abierta",
-          "Packing relacionado": [packing.id],
-          "Proveedor responsable": packing.proveedorResponsableId ? [packing.proveedorResponsableId] : undefined,
-          "Descripción": descripcion,
-          "Evidencias": evidenciaUrl ? [{ url: evidenciaUrl }] : undefined,
-          "Fecha de registro": new Date().toISOString(),
-          "Registrado por": options.registradoPor,
-        }),
-      }],
-    }),
-  });
-  const created = response.records?.[0];
-  if (!created) throw new Error("Airtable no devolvió la novedad creada.");
-
-  await createShippingV2Event({
-    action: "Novedad abierta",
-    entity: "Shipping Novedad",
-    packingRecordId: packing.id,
-    novedadRecordId: created.id,
-    registradoPor: options.registradoPor,
-    descripcion: `Novedad de packing registrada: ${tipo}.`,
-    observacion: descripcion,
-  });
-
-  return {
-    packing,
-    novedad: mapNovedad(created),
-  };
-}
-
 export async function getShippingV2Recepciones() {
   const records = await listRecords(SHIPPING_V2_TABLES.recepciones, { maxRecords: 200 });
   return records.map(mapRecepcion);
 }
 
 export async function getShippingV2Novedades(access?: ShippingV2AccessContext) {
-  const records = await listRecords(SHIPPING_V2_TABLES.novedades, { maxRecords: 200 });
+  // Todas (antes solo las 200 primeras: las más nuevas podían quedar fuera).
+  const records = await listRecords(SHIPPING_V2_TABLES.novedades);
   const novedades = records.map(mapNovedad);
   if (!access || access.isAdmin) return novedades;
   if (!access.providerId) return [];
-  const [items, packings] = await Promise.all([
-    getShippingV2Items({ includeAiName: false, access }),
-    getShippingV2Packings(access),
-  ]);
-  return novedades.filter((novedad) => canAccessNovedad(novedad, access, {
-    itemIds: new Set(items.map((item) => item.id)),
-    packingIds: new Set(packings.map((packing) => packing.id)),
-  }));
+  return novedades.filter((novedad) => canAccessNovedad(novedad, access));
 }
 
 /**
@@ -6182,13 +6382,35 @@ export async function getShippingV2NovedadesPanel(access?: ShippingV2AccessConte
   const packingsById = new Map(packingRecords.map((record) => [record.id, record]));
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
 
-  return novedades.map((novedad) => {
+  // Punto 8: a un proveedor no le llegan los datos internos de la tienda.
+  const esProveedor = !access?.isAdmin;
+  return novedades.map((original) => {
+    const novedad: ShippingV2Novedad = esProveedor
+      ? {
+        ...original,
+        decision: "",
+        registradoPor: "",
+        cerradoPor: "",
+        actualizadoPor: "",
+        estadoPrevioArticulo: "",
+        ventaDesbloqueadaPor: "",
+        precioConDescuento: null,
+        valorPerdida: null,
+        perdidaPorDistribuir: false,
+        cantidadAfectada: null,
+        comoAparecio: "",
+        bloqueaVenta: false,
+        observacionFinal: "",
+        descripcionSolucion: "",
+      }
+      : original;
     const itemRecord = novedad.itemId ? itemsById.get(novedad.itemId) : undefined;
     const packingRecord = novedad.packingId ? packingsById.get(novedad.packingId) : undefined;
     return {
       ...novedad,
       itemSku: itemRecord ? firstString(itemRecord.fields[getOfficialSkuField()], itemRecord.id) : "",
       itemNombre: itemRecord ? firstString(itemRecord.fields[F.nombre]) : "",
+      itemCantidad: itemRecord && !esProveedor ? firstNumber(itemRecord.fields[F.cantidad]) : null,
       packingLabel: packingRecord ? firstString(packingRecord.fields[SHIPPING_V2_PACKING_FIELDS.packingId], packingRecord.id) : "",
       proveedorResponsableNombre: resolveShippingV2ProveedorLabel(novedad.proveedorResponsableId, labelsById),
     };
@@ -6200,11 +6422,12 @@ export async function getShippingV2NovedadesForItem(itemRecordId: string, access
   if (!itemId) return [];
   await getShippingV2ItemById(itemId, { includeAiName: false, access });
 
-  const records = await listRecords(SHIPPING_V2_TABLES.novedades, { maxRecords: 500 });
+  // Todas (antes tope de 500): con más novedades, las de este artículo podían quedar fuera.
+  const records = await listRecords(SHIPPING_V2_TABLES.novedades);
   return records
     .map(mapNovedad)
     .filter((novedad) => novedad.itemIds.includes(itemId))
-    .filter((novedad) => canAccessNovedad(novedad, access, { itemIds: new Set([itemId]) }))
+    .filter((novedad) => canAccessNovedad(novedad, access))
     .sort((a, b) => {
       const bTime = Date.parse(b.fechaRegistro || b.createdTime || "");
       const aTime = Date.parse(a.fechaRegistro || a.createdTime || "");
@@ -6228,7 +6451,7 @@ export async function getShippingV2DashboardSummary(access?: ShippingV2AccessCon
     pagosPendientes: pagos.filter((pago) => normalizeStatus(pago.estado).includes("pendiente")).length,
     packingsEnProceso: packings.filter((packing) => normalizeStatus(packing.estado).includes("proceso")).length,
     packingsEnTransito: packings.filter((packing) => normalizeStatus(packing.estado).includes("transito")).length,
-    novedadesAbiertas: novedades.filter((novedad) => ["abierta", "en revision"].includes(normalizeStatus(novedad.estado))).length,
+    novedadesAbiertas: novedades.filter((novedad) => isNovedadAbierta(novedad.estado)).length,
   };
 }
 
@@ -6380,6 +6603,14 @@ async function reservarRepuestoDeOrdenSinTurno({
   if (firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.disponibleVenta]) === false && unidadesReservadas(unidadesItem) === 0) {
     throw new Error("Este item no está disponible para venta.");
   }
+  // Punto 8: una novedad con la venta bloqueada (o cualquier otro bloqueo)
+  // impide montarlo aunque ya tenga unidades apartadas.
+  const comercialRepuesto = evaluarDisponibilidadComercial({
+    estado: firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoItem]),
+    estadoRevision: firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoRevision]),
+    usoLocal: firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.esUsoLocal]),
+  });
+  if (!comercialRepuesto.apartable) throw new Error(comercialRepuesto.detalle);
   const compromiso = comprometerUnidades(unidadesItem, 1);
   if (!compromiso.ok) throw new Error(compromiso.motivo);
 
@@ -6522,7 +6753,12 @@ export async function liberarShippingItemDeOrdenStock({
             ...(etiquetaLiberada ? { [SHIPPING_V2_ITEM_FIELDS.estadoItem]: etiquetaLiberada } : {}),
             [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: liberacion.cantidadReservada,
             [SHIPPING_V2_ITEM_FIELDS.reservado]: liberacion.reservado,
-            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: liberacion.disponibleVenta,
+            // Punto 8: soltar una unidad no reabre la venta de algo bloqueado.
+            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: liberacion.disponibleVenta && evaluarDisponibilidadComercial({
+              estado: etiquetaLiberada ?? estadoActual,
+              estadoRevision: firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoRevision]),
+              usoLocal: firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.esUsoLocal]),
+            }).apartable,
             // Se quita SOLO esta orden; las demás siguen montadas.
             [ORDEN_STOCK_LINK_FIELD]: ordenesRestantes,
           },
@@ -7990,7 +8226,7 @@ export async function leerArticuloDePedido(itemRecordId: string): Promise<Articu
 
 export async function moverActivoShippingV2(
   itemRecordId: string,
-  input: { accion: AccionActivo; cantidad: number; motivo: string; precioVenta?: number | null },
+  input: { accion: AccionActivo; cantidad: number; motivo: string; precioVenta?: number | null; permitirSinRecibir?: boolean },
   options: { actor: string; access?: ShippingV2AccessContext }
 ): Promise<ResultadoMovimientoActivo> {
   const id = cleanString(itemRecordId);
@@ -8000,7 +8236,7 @@ export async function moverActivoShippingV2(
 
 async function moverActivoSinTurno(
   id: string,
-  input: { accion: AccionActivo; cantidad: number; motivo: string; precioVenta?: number | null },
+  input: { accion: AccionActivo; cantidad: number; motivo: string; precioVenta?: number | null; permitirSinRecibir?: boolean },
   options: { actor: string; access?: ShippingV2AccessContext }
 ): Promise<ResultadoMovimientoActivo> {
   const esAdministrador = options.access?.isSiteAdmin === true;
@@ -8045,7 +8281,7 @@ async function moverActivoSinTurno(
 
   // ── Dar de baja ──
   if (input.accion === "baja") {
-    const ev = evaluarDarDeBaja(articulo, { cantidad, esAdministrador, motivo });
+    const ev = evaluarDarDeBaja(articulo, { cantidad, esAdministrador, motivo, permitirSinRecibir: input.permitirSinRecibir === true });
     if (!ev.ok) throw new Error(ev.motivo);
     const registro = await leerRegistroItem(id);
     const bajasPrevias = firstNumber(registro.fields[CAMPO_UNIDADES_DADAS_DE_BAJA]) ?? 0;
@@ -8060,7 +8296,9 @@ async function moverActivoSinTurno(
       ...(ev.dadoDeBaja ? { [F.estadoItem]: ESTADO_DADO_DE_BAJA, [F.disponibleVenta]: false } : {}),
       ...(quedaTodoReservado ? { [F.estadoItem]: "Reservado" } : {}),
     });
-    if (!item.usoLocal) await recalcularDisponibilidadItem(id, options.actor);
+    // Las unidades ya se escribieron: un fallo al recalcular no debe hacer
+    // creer que la baja no ocurrió (se repetiría al reintentar).
+    if (!item.usoLocal) await recalcularDisponibilidadItem(id, options.actor).catch((error) => console.error("No se pudo recalcular tras la baja:", error));
     const que = item.usoLocal ? "Activo dado de baja" : "Mercadería dada de baja";
     await evento(
       `${que}: ${cantidad} de ${total} unidad(es). Motivo: ${motivo}`,

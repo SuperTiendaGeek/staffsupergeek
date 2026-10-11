@@ -1,311 +1,159 @@
-// Contrato del ciclo de vida de una novedad.
+// Contrato de las novedades (auditoría Shipping V2, punto 8 · 10-oct-2026).
 // Ejecutar: npx tsx lib/shipping-v2/__tests__/novedades.test.ts
 
 import {
   appendEntradaHilo,
+  articuloSalioDelInventario,
   construirHiloNovedad,
   esNovedadBloqueante,
-  getEstadoInicialNovedad,
+  estadoPrevioParaRestaurar,
+  etiquetaDeBloqueo,
+  etiquetaTurno,
+  getAccionesDisponibles,
+  getDecisionesPermitidas,
   getNovedadBucket,
-  getShippingV2NovedadAccionesDisponibles,
-  getSolucionesDisponibles,
   getTurnoNovedad,
   isNovedadAbierta,
   isNovedadCerrada,
   normalizarEstadoNovedad,
+  responsableDeTipo,
+  SHIPPING_V2_DECISIONES_ARTICULO,
+  SHIPPING_V2_NOVEDAD_ACCIONES,
   SHIPPING_V2_NOVEDAD_ESTADOS,
-  SHIPPING_V2_NOVEDAD_TRANSICIONES,
-  validarTransicionNovedad,
+  validarAccionNovedad,
+  validarRegistroNovedad,
 } from "../novedades";
 
 let fallos = 0;
-
 function assert(cond: boolean, msg: string): void {
-  if (!cond) {
-    fallos++;
-    console.error("✗", msg);
-  } else {
-    console.log("✓", msg);
-  }
+  if (!cond) { fallos++; console.error("✗", msg); } else console.log("✓", msg);
 }
 
-// ─── Estados finales: el bug que arrastraba el módulo ────────────────────────
-//
-// isOpenNovedadStatus() solo reconocía "resuelta/cancelada/cerrada" exactas, así
-// que "Rechazada" y "Cerrada sin respuesta" contaban como ABIERTAS para siempre:
-// bloqueaban el cierre de ciclo del packing y la disponibilidad del artículo.
+console.log("— Estados: solo 3 —");
+assert(SHIPPING_V2_NOVEDAD_ESTADOS.length === 3, "Abierta, En solución y Cerrada");
+assert(isNovedadCerrada("Cerrada") && isNovedadAbierta("Abierta") && isNovedadAbierta("En solución"), "Cerrada es final; las otras dos siguen abiertas");
+assert(normalizarEstadoNovedad("Enviada a proveedor") === "Abierta", "Un estado viejo de proveedor se lee como Abierta");
+assert(normalizarEstadoNovedad("Rechazada") === "Cerrada" && normalizarEstadoNovedad("Cerrada sin respuesta") === "Cerrada", "Rechazada y Cerrada sin respuesta se leen como Cerrada");
+assert(isNovedadAbierta("Estado inventado"), "Un estado desconocido cuenta como abierto (fail-closed)");
 
-assert(isNovedadCerrada("Cerrada"), "Cerrada es final");
-assert(isNovedadCerrada("Rechazada"), "Rechazada es final (antes contaba como abierta)");
-assert(isNovedadCerrada("Cerrada sin respuesta"), "Cerrada sin respuesta es final (antes contaba como abierta)");
-
-assert(isNovedadAbierta("Abierta"), "Abierta sigue abierta");
-assert(isNovedadAbierta("Enviada a proveedor"), "Enviada a proveedor sigue abierta");
-assert(isNovedadAbierta("Escalada"), "Escalada sigue abierta: alguien tiene que hacer algo");
-assert(isNovedadAbierta("En solución"), "En solución sigue abierta hasta que se cumpla");
-
-// Fail-closed: un estado que Airtable traiga y no reconozcamos cuenta como abierto.
-assert(isNovedadAbierta("Estado inventado"), "Un estado desconocido se trata como abierto, nunca como cerrado");
-assert(normalizarEstadoNovedad("Estado inventado") === null, "Un estado desconocido no se normaliza");
-assert(normalizarEstadoNovedad("en revision interna") === "En revisión interna", "Tolera minúsculas y falta de tilde");
-
-for (const estado of SHIPPING_V2_NOVEDAD_ESTADOS) {
-  assert(normalizarEstadoNovedad(estado) === estado, `"${estado}" se reconoce tal cual viene de Airtable`);
+console.log("— El tipo decide quién resuelve —");
+for (const t of ["Incompleto", "Dañado", "Diferente al comprado", "Observación menor"]) {
+  assert(responsableDeTipo(t) === "Proveedor", `${t} → garantía del proveedor`);
 }
+assert(responsableDeTipo("Asunto interno") === "SUPER GEEK" && responsableDeTipo("Perdido en tienda") === "SUPER GEEK", "Asunto interno y Perdido en tienda los resolvemos nosotros");
+assert(responsableDeTipo("Faltante") === null && responsableDeTipo("Otro") === null && responsableDeTipo("Garantía") === null, "Faltante, Otro y Garantía ya no existen");
 
-// ─── Nace encaminada ─────────────────────────────────────────────────────────
+console.log("— Registrar —");
+const enTienda = { estado: "Disponible", cantidad: 1, recibido: true, proveedorCompraId: "recProv" };
+let r = validarRegistroNovedad({ tipo: "Dañado", descripcion: "Carcasa rota", esPersonalTienda: true, articulo: enTienda });
+assert(r.ok && r.responsable === "Proveedor" && r.bloqueaVenta === false, "Dañado sin marcar la casilla → va al proveedor y NO bloquea");
+r = validarRegistroNovedad({ tipo: "Dañado", descripcion: "Carcasa rota", bloquearVenta: true, esPersonalTienda: true, articulo: enTienda });
+assert(r.ok && r.bloqueaVenta === true, "Con la casilla marcada, bloquea");
+r = validarRegistroNovedad({ tipo: "Perdido en tienda", descripcion: "No aparece", esPersonalTienda: true, articulo: enTienda });
+assert(r.ok && r.bloqueaVenta === true && r.responsable === "SUPER GEEK", "Perdido en tienda SIEMPRE bloquea y es interno");
+r = validarRegistroNovedad({ tipo: "Perdido en tienda", descripcion: "x", esPersonalTienda: true, articulo: { ...enTienda, recibido: false } });
+assert(!r.ok, "Perdido en tienda exige que ya haya llegado");
+r = validarRegistroNovedad({ tipo: "Dañado", descripcion: "x", esPersonalTienda: true, articulo: { ...enTienda, estado: "Vendido", cantidad: 0 } });
+assert(!r.ok && r.motivo.includes("orden de reparación"), "F-5: sobre algo vendido no se registra; se indica la orden de reparación");
+r = validarRegistroNovedad({ tipo: "Dañado", descripcion: "x", esPersonalTienda: true, articulo: { ...enTienda, estado: "Disponible", cantidad: 0 } });
+assert(!r.ok, "Con 0 unidades tampoco");
+for (const estado of ["Agotado", "Dado de baja", "Destinado a partes"]) {
+  assert(!validarRegistroNovedad({ tipo: "Asunto interno", descripcion: "x", esPersonalTienda: true, articulo: { ...enTienda, estado } }).ok, `Tampoco en "${estado}"`);
+}
+r = validarRegistroNovedad({ tipo: "Incompleto", descripcion: "x", esPersonalTienda: true, articulo: { ...enTienda, proveedorCompraId: "" } });
+assert(!r.ok && r.motivo.includes("Asunto interno"), "Sin proveedor de compra no se puede reclamar: sugiere Asunto interno");
+assert(!validarRegistroNovedad({ tipo: "Dañado", descripcion: "x", esPersonalTienda: false, articulo: enTienda }).ok, "Un proveedor no registra novedades");
+assert(!validarRegistroNovedad({ tipo: "Faltante", descripcion: "x", esPersonalTienda: true, articulo: enTienda }).ok, "Faltante ya no se acepta");
+assert(!validarRegistroNovedad({ tipo: "Dañado", descripcion: "  ", esPersonalTienda: true, articulo: enTienda }).ok, "La descripción es obligatoria");
 
-assert(getEstadoInicialNovedad("Proveedor") === "Enviada a proveedor", "Una novedad del proveedor nace ya en su cancha");
-assert(getEstadoInicialNovedad("SUPER GEEK") === "Abierta", "Una novedad nuestra nace Abierta");
-assert(getEstadoInicialNovedad(undefined) === "Abierta", "Sin responsable, se asume que la resolvemos nosotros");
+console.log("— Bloqueo —");
+assert(esNovedadBloqueante({ bloqueaVenta: true }) && !esNovedadBloqueante({ bloqueaVenta: false }), "Solo la casilla decide el bloqueo");
+assert(etiquetaDeBloqueo([{ tipo: "Dañado", bloqueaVenta: true }]) === "Con novedad", "Bloqueado por daño → Con novedad");
+assert(etiquetaDeBloqueo([{ tipo: "Dañado", bloqueaVenta: true }, { tipo: "Perdido en tienda", bloqueaVenta: true }]) === "Perdido en tienda", "Si está perdido, manda Perdido en tienda");
+assert(etiquetaDeBloqueo([{ tipo: "Dañado", bloqueaVenta: false }]) === null, "Sin bloqueos, no hay etiqueta");
+assert(estadoPrevioParaRestaurar([
+  { estadoPrevioArticulo: "Con novedad", fechaRegistro: "2026-10-02" },
+  { estadoPrevioArticulo: "En tránsito", fechaRegistro: "2026-10-01" },
+]) === "En tránsito", "Al desbloquear vuelve a la etapa anterior (nunca a Con novedad)");
+assert(estadoPrevioParaRestaurar([
+  { estadoPrevioArticulo: "Pagado", fechaRegistro: "2026-09-01" },
+  { estadoPrevioArticulo: "En tránsito", fechaRegistro: "2026-10-01" },
+]) === "En tránsito", "Entre dos bloqueos, manda la etapa más reciente (no retrocede a Pagado)");
+assert(articuloSalioDelInventario({ estado: "Vendido", cantidad: 0 }) && !articuloSalioDelInventario({ estado: "Con novedad", cantidad: 1 }), "Vendido salió; Con novedad sigue en la tienda");
 
-// ─── Soluciones según quién resuelve ─────────────────────────────────────────
+console.log("— Turno y pestañas —");
+const base = { estado: "Abierta", responsable: "Proveedor", descripcion: "Pantalla rayada", fechaRegistro: "2026-10-01T10:00:00.000Z" };
+assert(getTurnoNovedad(base) === "proveedor" && etiquetaTurno(base) === "Esperando al proveedor", "Recién registrada: esperando al proveedor");
+const respondida = { ...base, respuestaProveedor: appendEntradaHilo(undefined, "Roberto", "Envío otra", "2026-10-02T10:00:00.000Z") };
+assert(getTurnoNovedad(respondida) === "nosotros" && etiquetaTurno(respondida) === "Respondió el proveedor", "Respondió → nuestro turno");
+const contestada = { ...respondida, mensajeProveedor: appendEntradaHilo(undefined, "Alexis", "Mejor reembolso", "2026-10-03T10:00:00.000Z") };
+assert(getTurnoNovedad(contestada) === "proveedor", "Le contestamos → vuelve a su turno");
+assert(getTurnoNovedad({ estado: "Abierta", responsable: "SUPER GEEK" }) === "nosotros", "Interna: siempre nuestro turno");
+assert(getNovedadBucket({ estado: "En solución", responsable: "Proveedor" }) === "en-solucion", "En solución tiene su pestaña");
+assert(getNovedadBucket({ estado: "Cerrada" }) === "cerradas", "Cerrada → Cerradas");
 
-const solucionesProveedor = getSolucionesDisponibles("Proveedor");
-assert(solucionesProveedor.includes("Reemplazo"), "El proveedor puede ofrecer un reemplazo");
-assert(solucionesProveedor.includes("Reembolso"), "El proveedor puede ofrecer un reembolso");
-assert(!solucionesProveedor.includes("Va a despiece"), "El despiece no es algo que ofrezca el proveedor");
+console.log("— Quién puede qué —");
+const nProv = { estado: "Abierta", responsable: "Proveedor", tipo: "Dañado", bloqueaVenta: false };
+const accProv = getAccionesDisponibles(nProv, "proveedor").map((a) => a.accion);
+assert(accProv.length === 1 && accProv[0] === "responder", "El proveedor SOLO responde");
+assert(!validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "proveedor", valores: { decision: "Reparado", texto: "x" } }).ok, "El proveedor no puede resolver (aceptar) por su cuenta");
+assert(!validarAccionNovedad({ accion: "cumplida", novedad: { ...nProv, estado: "En solución" }, rol: "proveedor" }).ok, "Ni marcar cumplida");
+assert(!validarAccionNovedad({ accion: "desbloquear", novedad: { ...nProv, bloqueaVenta: true }, rol: "proveedor", valores: { texto: "porque sí" } }).ok, "Ni desbloquear");
+const accStaff = getAccionesDisponibles(nProv, "staff").map((a) => a.accion);
+assert(accStaff.includes("resolver") && accStaff.includes("contestar") && accStaff.includes("registrar-respuesta") && accStaff.includes("bloquear"), "El personal resuelve, contesta, anota la respuesta y bloquea");
+assert(!accStaff.includes("responder") && !accStaff.includes("desbloquear") && !accStaff.includes("reabrir"), "El personal no responde por el portal ni desbloquea ni reabre");
+assert(!validarAccionNovedad({ accion: "desbloquear", novedad: { ...nProv, bloqueaVenta: true }, rol: "staff", valores: { texto: "ya está reparado" } }).ok, "Desbloquear: solo Administrador");
+assert(validarAccionNovedad({ accion: "desbloquear", novedad: { ...nProv, estado: "Cerrada", bloqueaVenta: true }, rol: "admin", valores: { texto: "ya está reparado" } }).ok, "El Administrador desbloquea aunque la novedad esté cerrada");
+assert(!validarAccionNovedad({ accion: "bloquear", novedad: { ...nProv, bloqueaVenta: true }, rol: "staff" }).ok, "No se bloquea dos veces");
+assert(!validarAccionNovedad({ accion: "bloquear", novedad: { ...nProv, estado: "Cerrada" }, rol: "staff" }).ok, "Una novedad cerrada no se bloquea");
+const nInt = { estado: "Abierta", responsable: "SUPER GEEK", tipo: "Asunto interno" };
+assert(!getAccionesDisponibles(nInt, "staff").some((a) => a.accion === "contestar"), "Una interna no tiene conversación con el proveedor");
 
-const solucionesInternas = getSolucionesDisponibles("SUPER GEEK");
-assert(solucionesInternas.includes("Va a despiece"), "Nosotros sí podemos mandarlo a despiece");
-assert(solucionesInternas.includes("Se vende con descuento"), "Nosotros podemos venderlo con descuento");
-assert(!solucionesInternas.includes("Reembolso"), "No nos reembolsamos a nosotros mismos");
+console.log("— Resolver —");
+const adminOnly = SHIPPING_V2_DECISIONES_ARTICULO.filter((d) => d.soloAdmin).map((d) => d.valor);
+assert(["Dar de baja", "Va a despiece", "Pasa a activo", "Devuelto al proveedor", "No procedía"].every((d) => adminOnly.includes(d as never)), "Baja, despiece, activo, devolución y No procedía son de Administrador");
+const staffDec = getDecisionesPermitidas({ tipo: "Dañado", isSiteAdmin: false }).map((d) => d.valor);
+assert(staffDec.join("|") === "No requiere solución|Reparado|Se vende con descuento", "Al personal solo se le ofrecen las 3 que no sacan el artículo");
+assert(!SHIPPING_V2_DECISIONES_ARTICULO.some((d) => d.valor === ("Se descarta" as never)), "“Se descarta” ya no existe");
+for (const d of adminOnly) {
+  const v = validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "staff", valores: { decision: d, texto: "x", cantidad: 1 } });
+  assert(!v.ok, `El personal NO puede elegir "${d}" aunque lo mande por detrás`);
+}
+let v = validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "staff", valores: { decision: "Reparado", texto: "Se cambió la pantalla" } });
+assert(v.ok && v.estadoDestino === "Cerrada", "Resolver sin pendientes → Cerrada");
+v = validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "staff", valores: { decision: "Reparado", texto: "x", propuesta: "Reemplazo", pendienteProveedor: true } });
+assert(v.ok && v.estadoDestino === "En solución", "Si falta que el proveedor cumpla → En solución");
+assert(!validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "staff", valores: { decision: "Se vende con descuento", texto: "x" } }).ok, "Con descuento exige el nuevo precio");
+assert(validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "staff", valores: { decision: "Se vende con descuento", texto: "x", precio: 420 } }).ok, "…con precio, pasa");
+assert(!validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "admin", valores: { decision: "Dar de baja", texto: "x" } }).ok, "Dar de baja exige cantidad");
+assert(!validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "staff", valores: { decision: "Reparado", texto: "" } }).ok, "Hay que anotar qué se hizo");
+assert(!validarAccionNovedad({ accion: "resolver", novedad: nInt, rol: "staff", valores: { decision: "Reparado", texto: "x", pendienteProveedor: true } }).ok, "Una interna no queda esperando al proveedor");
+assert(!validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "staff", valores: { decision: "Reparado", texto: "x", desbloquear: true } }).ok, "El personal no puede desbloquear al resolver");
+const nPerdido = { estado: "Abierta", responsable: "SUPER GEEK", tipo: "Perdido en tienda", bloqueaVenta: true };
+assert(getDecisionesPermitidas({ tipo: "Perdido en tienda", isSiteAdmin: true }).map((d) => d.valor).join("|") === "No requiere solución|Dar de baja|No procedía", "Perdido: apareció, se da de baja o no procedía");
+assert(!validarAccionNovedad({ accion: "resolver", novedad: nPerdido, rol: "staff", valores: { decision: "No requiere solución", texto: "apareció" } }).ok, "Si apareció, hay que anotar dónde o cómo");
+assert(validarAccionNovedad({ accion: "resolver", novedad: nPerdido, rol: "staff", valores: { decision: "No requiere solución", texto: "apareció", comoAparecio: "En la bodega" } }).ok, "…anotándolo, pasa");
 
-// ─── Pestañas y turno ────────────────────────────────────────────────────────
+console.log("— Reabrir —");
+assert(validarAccionNovedad({ accion: "reabrir", novedad: { ...nProv, estado: "Cerrada", decision: "Reparado" }, rol: "admin", valores: { texto: "se cerró por error" } }).ok, "Se reabre si no movió el artículo");
+assert(!validarAccionNovedad({ accion: "reabrir", novedad: { ...nProv, estado: "Cerrada", decision: "Dar de baja" }, rol: "admin", valores: { texto: "se cerró por error" } }).ok, "Si dio de baja, no se reabre (se usa Revertir baja)");
 
-assert(getNovedadBucket({ estado: "Abierta", responsable: "SUPER GEEK" }) === "nuestras", "Abierta nuestra va a Las resolvemos nosotros");
-assert(getNovedadBucket({ estado: "Enviada a proveedor", responsable: "Proveedor" }) === "con-proveedor", "Enviada va a Con el proveedor");
-assert(getNovedadBucket({ estado: "Respondida por proveedor", responsable: "Proveedor" }) === "con-proveedor", "Respondida sigue en Con el proveedor");
-assert(getNovedadBucket({ estado: "En solución" }) === "en-solucion", "En solución tiene su propia pestaña");
-assert(getNovedadBucket({ estado: "Rechazada" }) === "cerradas", "Rechazada va a Cerradas");
-
-assert(getTurnoNovedad({ estado: "Enviada a proveedor", responsable: "Proveedor" }) === "proveedor", "Enviada: la pelota está en el proveedor");
-assert(getTurnoNovedad({ estado: "Respondida por proveedor", responsable: "Proveedor" }) === "nosotros", "Respondida: nos toca aceptar o rechazar");
-assert(getTurnoNovedad({ estado: "Abierta", responsable: "SUPER GEEK" }) === "nosotros", "Una novedad nuestra siempre es nuestro turno");
-assert(getTurnoNovedad({ estado: "Cerrada" }) === "nadie", "Una novedad cerrada no espera a nadie");
-
-// ─── Qué bloquea la venta ────────────────────────────────────────────────────
-
-assert(esNovedadBloqueante({ tipo: "Dañado", estado: "Abierta" }), "Una novedad de daño abierta bloquea la venta");
-assert(esNovedadBloqueante({ tipo: "Faltante", estado: "Enviada a proveedor" }), "Un faltante en manos del proveedor sigue bloqueando");
-assert(!esNovedadBloqueante({ tipo: "Dañado", estado: "Cerrada" }), "Una novedad cerrada deja de bloquear");
-assert(!esNovedadBloqueante({ tipo: "Observación menor", estado: "Abierta" }), "Una observación menor NO bloquea: se vende con observación");
-assert(!esNovedadBloqueante({ tipo: "Dañado", estado: "Rechazada" }), "Una novedad anulada deja de bloquear el artículo");
-
-// ─── Acciones: solo las que corresponden ─────────────────────────────────────
-
-const nuestraAbierta = getShippingV2NovedadAccionesDisponibles({ estado: "Abierta", responsable: "SUPER GEEK" });
-assert(nuestraAbierta.some((t) => t.accion === "resolver"), "En una novedad nuestra se puede definir la resolución");
-assert(
-  !nuestraAbierta.some((t) => t.accion === "cerrar"),
-  "Cerrar ya no se ofrece desde Abierta: para eso está resolver con 'ya está hecho'"
-);
-assert(!nuestraAbierta.some((t) => t.accion === "responder"), "No se registra respuesta del proveedor en una novedad nuestra");
-assert(!nuestraAbierta.some((t) => t.accion === "anular"), "Anular no se ofrece a staff normal");
-
-const delProveedor = getShippingV2NovedadAccionesDisponibles({ estado: "Enviada a proveedor", responsable: "Proveedor" });
-assert(delProveedor.some((t) => t.accion === "responder"), "Se puede registrar lo que respondió el proveedor");
-assert(!delProveedor.some((t) => t.accion === "resolver"), "No definimos resolución interna en una novedad del proveedor");
-
-const respondida = getShippingV2NovedadAccionesDisponibles({ estado: "Respondida por proveedor", responsable: "Proveedor" });
-assert(respondida.some((t) => t.accion === "aceptar-propuesta"), "Podemos aceptar la propuesta");
-assert(respondida.some((t) => t.accion === "rechazar-propuesta"), "Podemos rechazarla");
-
-const cerrada = getShippingV2NovedadAccionesDisponibles({ estado: "Cerrada", isSiteAdmin: true });
-assert(cerrada.length === 1 && cerrada[0].accion === "reabrir", "Una novedad cerrada solo admite reabrir, y solo admin");
-assert(getShippingV2NovedadAccionesDisponibles({ estado: "Cerrada" }).length === 0, "El staff normal no toca una novedad cerrada");
-assert(getShippingV2NovedadAccionesDisponibles({ estado: "Estado inventado" }).length === 0, "Un estado desconocido no ofrece acciones");
-
-// Los botones que sobraban ya no existen.
-const ACCIONES = SHIPPING_V2_NOVEDAD_TRANSICIONES.map((t) => t.accion);
-assert(!ACCIONES.includes("escalar" as never), "Ya no existe Escalar: no hay instancia superior a SUPER GEEK y el proveedor");
-assert(!ACCIONES.includes("revisar" as never), "Ya no existe Tomar para revisión: la novedad nace encaminada");
-assert(!ACCIONES.includes("enviar-proveedor" as never), "Ya no existe Enviar al proveedor: nace ya en su cancha");
-
-// ─── Validación antes de escribir ────────────────────────────────────────────
-
-const sinRespuesta = validarTransicionNovedad({ estadoActual: "Enviada a proveedor", responsable: "Proveedor", accion: "responder" });
-assert(!sinRespuesta.ok, "Registrar respuesta sin texto se rechaza");
-
-const respuestaOk = validarTransicionNovedad({
-  estadoActual: "Enviada a proveedor",
-  responsable: "Proveedor",
-  accion: "responder",
-  valores: { respuesta: "Envío batería nueva en el próximo packing." },
-  solucion: "Reemplazo",
-});
-assert(respuestaOk.ok, "Con texto y solución sí se registra la respuesta");
-
-const solucionCruzada = validarTransicionNovedad({
-  estadoActual: "Enviada a proveedor",
-  responsable: "Proveedor",
-  accion: "responder",
-  valores: { respuesta: "Lo mandamos a despiece." },
-  solucion: "Va a despiece",
-});
-assert(!solucionCruzada.ok, "El proveedor no puede proponer una solución que es nuestra");
-
-const internaConSolucionProveedor = validarTransicionNovedad({
-  estadoActual: "Abierta",
-  responsable: "SUPER GEEK",
-  accion: "resolver",
-  valores: { descripcionSolucion: "Se vende con descuento." },
-  solucion: "Reembolso",
-});
-assert(!internaConSolucionProveedor.ok, "En una novedad nuestra no se puede elegir una solución del proveedor");
-
-const internaOk = validarTransicionNovedad({
-  estadoActual: "Abierta",
-  responsable: "SUPER GEEK",
-  accion: "resolver",
-  valores: { descripcionSolucion: "Webcam no enciende: se vende con $30 de descuento." },
-  solucion: "Se vende con descuento",
-});
-assert(internaOk.ok, "Una resolución interna válida pasa");
-assert(internaOk.ok && internaOk.estadoDestino === "En solución", "Sin marcar 'ya está hecho', queda esperando que se cumpla");
-
-// ─── Cierre directo: no preguntar dos veces lo mismo ─────────────────────────
-//
-// "Se vende con descuento" ya está decidido y hecho: no hay nada que esperar.
-// Obligar a pasar por "En solución" y volver a escribir cómo quedó resuelta era
-// pedir la misma información dos veces.
-
-const resolverYCerrar = validarTransicionNovedad({
-  estadoActual: "Abierta",
-  responsable: "SUPER GEEK",
-  accion: "resolver",
-  valores: { descripcionSolucion: "Se aplica $30 de descuento y observación en la ficha." },
-  solucion: "Se vende con descuento",
-  cerrarDirecto: true,
-});
-assert(resolverYCerrar.ok, "Se puede resolver y cerrar en un solo paso");
-assert(resolverYCerrar.ok && resolverYCerrar.estadoDestino === "Cerrada", "Con 'ya está hecho' va directo a Cerrada");
-
-const aceptarYCerrar = validarTransicionNovedad({
-  estadoActual: "Respondida por proveedor",
-  responsable: "Proveedor",
-  accion: "aceptar-propuesta",
-  cerrarDirecto: true,
-});
-assert(aceptarYCerrar.ok && aceptarYCerrar.estadoDestino === "Cerrada", "Aceptar una propuesta ya cumplida cierra de una vez");
-
-const aceptarPendiente = validarTransicionNovedad({
-  estadoActual: "Respondida por proveedor",
-  responsable: "Proveedor",
-  accion: "aceptar-propuesta",
-});
-assert(
-  aceptarPendiente.ok && aceptarPendiente.estadoDestino === "En solución",
-  "Si el reemplazo todavía no llega, queda esperando que se cumpla"
-);
-
-const cerrarSinDescripcion = validarTransicionNovedad({
-  estadoActual: "En solución",
-  responsable: "SUPER GEEK",
-  accion: "cerrar",
-});
-assert(cerrarSinDescripcion.ok, "Marcar como cumplida NO vuelve a pedir la descripción: ya se registró al acordarla");
-
-assert(
-  !validarTransicionNovedad({ estadoActual: "Abierta", responsable: "SUPER GEEK", accion: "cerrar" }).ok,
-  "No se cierra saltándose la resolución: para eso está resolver con 'ya está hecho'"
-);
-
-assert(
-  !validarTransicionNovedad({
-    estadoActual: "Enviada a proveedor",
-    responsable: "Proveedor",
-    accion: "responder",
-    valores: { respuesta: "x" },
-    solucion: "Reemplazo",
-    cerrarDirecto: true,
-  }).ok,
-  "Registrar la respuesta del proveedor no puede cerrar la novedad de golpe"
-);
-
-const resolverEnNovedadDeProveedor = validarTransicionNovedad({
-  estadoActual: "Enviada a proveedor",
-  responsable: "Proveedor",
-  accion: "resolver",
-  valores: { descripcionSolucion: "x" },
-  solucion: "Va a despiece",
-});
-assert(!resolverEnNovedadDeProveedor.ok, "No se define resolución interna en una novedad del proveedor");
-
-const anularSinAdmin = validarTransicionNovedad({
-  estadoActual: "Abierta",
-  responsable: "SUPER GEEK",
-  accion: "anular",
-  valores: { motivo: "Error de registro." },
-});
-assert(!anularSinAdmin.ok, "Anular sin ser administrador se rechaza");
-
-const reabrirProveedor = validarTransicionNovedad({
-  estadoActual: "Cerrada",
-  responsable: "Proveedor",
-  accion: "reabrir",
-  isSiteAdmin: true,
-  valores: { motivo: "El reemplazo nunca llegó." },
-});
-assert(reabrirProveedor.ok, "El administrador puede reabrir");
-assert(
-  reabrirProveedor.ok && reabrirProveedor.estadoDestino === "Enviada a proveedor",
-  "Al reabrir, una novedad del proveedor vuelve a SU cancha, no a la nuestra"
-);
-
-const reabrirInterna = validarTransicionNovedad({
-  estadoActual: "Cerrada",
-  responsable: "SUPER GEEK",
-  accion: "reabrir",
-  isSiteAdmin: true,
-  valores: { motivo: "Apareció información nueva." },
-});
-assert(reabrirInterna.ok && reabrirInterna.estadoDestino === "Abierta", "Al reabrir, una novedad nuestra vuelve a Abierta");
-
-assert(!validarTransicionNovedad({ estadoActual: "Abierta", accion: "inventada" }).ok, "Una acción que no existe se rechaza");
-assert(!validarTransicionNovedad({ estadoActual: "Estado raro", accion: "cerrar" }).ok, "Un estado desconocido no deja escribir nada");
-
-// ─── El hilo de conversación ─────────────────────────────────────────────────
-//
-// Rechazar una propuesta y recibir otra NO debe borrar lo anterior.
-
-const primera = appendEntradaHilo(undefined, "3R Technology-USA", "Ofrezco 10% de descuento.", "2026-09-15T10:00:00.000Z");
-const segunda = appendEntradaHilo(primera, "3R Technology-USA", "Está bien, envío el reemplazo.", "2026-09-17T09:00:00.000Z");
-assert(segunda.includes("10% de descuento"), "La primera respuesta sobrevive a la segunda");
-assert(segunda.includes("envío el reemplazo"), "La segunda respuesta también está");
-
+console.log("— Conversación —");
 const hilo = construirHiloNovedad({
-  descripcion: "Batería hinchada, no mantiene carga.",
-  registradoPor: "Técnico",
+  descripcion: "Batería hinchada",
   fechaRegistro: "2026-09-15T08:00:00.000Z",
-  mensajeProveedor: appendEntradaHilo(undefined, "Alexis", "Rechazamos la propuesta. El descuento no cubre el costo.", "2026-09-16T12:00:00.000Z"),
-  respuestaProveedor: segunda,
+  respuestaProveedor: appendEntradaHilo(undefined, "Roberto", "10% de descuento", "2026-09-15T10:00:00.000Z"),
+  mensajeProveedor: appendEntradaHilo(undefined, "Alexis", "No alcanza", "2026-09-16T12:00:00.000Z"),
 });
-assert(hilo.length === 4, "El hilo junta el registro inicial, lo nuestro y lo del proveedor");
-assert(hilo[0].texto.includes("Batería hinchada"), "El hilo abre con el registro del técnico");
-assert(hilo[0].lado === "super-geek", "El registro inicial es de nuestro lado");
-assert(hilo[1].texto.includes("10% de descuento") && hilo[1].lado === "proveedor", "Segunda entrada: la primera oferta del proveedor");
-assert(hilo[2].texto.includes("Rechazamos") && hilo[2].lado === "super-geek", "Tercera: nuestro rechazo");
-assert(hilo[3].texto.includes("envío el reemplazo"), "Cuarta: la nueva propuesta, en orden cronológico");
+assert(hilo.length === 3 && hilo[1].lado === "proveedor" && hilo[2].lado === "super-geek", "El hilo junta registro, respuesta y contrapropuesta en orden");
+assert(construirHiloNovedad({}).length === 0, "Una novedad vacía no revienta el hilo");
 
-const hiloVacio = construirHiloNovedad({});
-assert(hiloVacio.length === 0, "Una novedad sin nada no revienta el hilo");
-
-const hiloLegacy = construirHiloNovedad({ respuestaProveedor: "Texto viejo escrito a mano sin fecha" });
-assert(hiloLegacy.length === 1 && hiloLegacy[0].lado === "proveedor", "Un texto viejo sin formato se muestra igual, no se pierde");
-
-// Toda transición declarada debe salir de algún estado y llegar a uno válido.
-for (const transicion of SHIPPING_V2_NOVEDAD_TRANSICIONES) {
-  assert(transicion.desde.length > 0, `"${transicion.label}" declara desde qué estados aplica`);
-  assert(
-    (SHIPPING_V2_NOVEDAD_ESTADOS as readonly string[]).includes(transicion.hacia),
-    `"${transicion.label}" lleva a un estado que existe en Airtable`
-  );
+for (const cfg of SHIPPING_V2_NOVEDAD_ACCIONES) {
+  assert(cfg.desde.every((e) => (SHIPPING_V2_NOVEDAD_ESTADOS as readonly string[]).includes(e)), `"${cfg.label}" parte de estados que existen`);
 }
 
 if (fallos > 0) {
   console.error(`Fallaron ${fallos} comprobaciones.`);
   process.exit(1);
 }
-
 console.log("✅ novedades.test.ts — todos los asserts pasaron");

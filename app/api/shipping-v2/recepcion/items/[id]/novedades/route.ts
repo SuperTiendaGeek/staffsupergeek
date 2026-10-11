@@ -22,13 +22,13 @@ export async function POST(request: Request, { params }: Params) {
       {
         tipo: String(body.tipo ?? ""),
         descripcion: String(body.descripcion ?? ""),
-        evidenciaUrl: String(body.evidenciaUrl ?? ""),
         packingId: String(body.packingId ?? ""),
-        responsable: String(body.responsable ?? ""),
+        bloquearVenta: body.bloquearVenta === true,
       },
-      { registradoPor: getShippingV2SessionName(session) }
+      // Con access: solo el personal de la tienda registra (punto 8).
+      { registradoPor: getShippingV2SessionName(session), access }
     );
-    return NextResponse.json({ success: true, data: result.item, novedad: result.novedad });
+    return NextResponse.json({ success: true, data: result.item, novedad: result.novedad, aviso: result.aviso || undefined });
   } catch (error) {
     console.error("Error al registrar novedad de item Shipping V2:", error);
     return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "Error inesperado" }, { status: 400 });

@@ -59,6 +59,8 @@ const SOLO_SU_ACCION: Record<string, string> = {
   "destinado a partes": "lo maneja la pestaña Despiece",
   "desarmado parcialmente": "lo maneja la pestaña Despiece",
   "desarmado completamente": "lo maneja la pestaña Despiece",
+  // Punto 8: el bloqueo de una novedad lo quita el Administrador en Novedades.
+  "perdido en tienda": "lo pone una novedad; si apareció, resuélvela en Novedades",
 };
 
 export type ArticuloParaCorregir = {

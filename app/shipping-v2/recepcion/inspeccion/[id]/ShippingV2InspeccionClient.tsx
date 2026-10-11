@@ -78,6 +78,8 @@ export function ShippingV2InspeccionClient({
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState("");
   const [aviso, setAviso] = useState("");
+  // Punto 8: quien registra decide si la falla bloquea la venta.
+  const [bloquearVenta, setBloquearVenta] = useState(true);
 
   const { item, zonas, snapshot, estado, grupos, novedadesAbiertas, especificaciones } = datos;
   // Los datos técnicos se cargan en la PRIMERA zona: es la que el técnico abre
@@ -291,11 +293,13 @@ export function ShippingV2InspeccionClient({
       const respuesta = await fetch(`/api/shipping-v2/recepcion/items/${item.id}/novedades`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Dañado = garantía del proveedor: se le notifica (punto 8). Sin
+        // proveedor de compra a quien reclamar, queda como asunto interno.
         body: JSON.stringify({
-          tipo: "Dañado",
+          tipo: item.proveedorId ? "Dañado" : "Asunto interno",
           descripcion: `${zonaNombre} — ${puntoTexto}`,
-          responsable: "SUPER GEEK",
           packingId: "",
+          bloquearVenta,
         }),
       });
       const payload = await respuesta.json().catch(() => ({}));
@@ -580,14 +584,20 @@ export function ShippingV2InspeccionClient({
                             <p className="text-[11.5px] leading-relaxed text-[#E2A79E]">
                               {novedadHecha
                                 ? "Ya hay una novedad registrada para este punto. Agrégale la foto desde Novedades."
-                                : "Falla crítica: esto bloquea la publicación del equipo hasta resolverse. Registra la novedad para dejar el reclamo con su evidencia."}
+                                : "Falla crítica: regístrala como novedad (Dañado) para reclamarla al proveedor con su evidencia."}
                             </p>
                             {!novedadHecha ? (
-                              <button type="button" disabled={guardando}
-                                onClick={() => void crearNovedad(zona.nombre, p.texto)}
-                                className="mt-2 rounded-lg border border-[#FF7A6B]/55 px-3 py-1.5 text-[12px] font-semibold text-[#FF7A6B] transition hover:bg-[#FF7A6B]/12 disabled:opacity-50">
-                                Registrar novedad
-                              </button>
+                              <div className="mt-2 flex flex-wrap items-center gap-3">
+                                <button type="button" disabled={guardando}
+                                  onClick={() => void crearNovedad(zona.nombre, p.texto)}
+                                  className="rounded-lg border border-[#FF7A6B]/55 px-3 py-1.5 text-[12px] font-semibold text-[#FF7A6B] transition hover:bg-[#FF7A6B]/12 disabled:opacity-50">
+                                  Registrar novedad
+                                </button>
+                                <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-[#E2A79E]" title="Impide reservar y vender. Solo un Administrador lo desbloquea.">
+                                  <input type="checkbox" checked={bloquearVenta} onChange={(e) => setBloquearVenta(e.target.checked)} className="h-3.5 w-3.5 accent-[#FF7A6B]" />
+                                  Bloquear venta
+                                </label>
+                              </div>
                             ) : null}
                           </div>
                         ) : null}

@@ -453,15 +453,6 @@ type StatusModalAction = {
   fieldLabel: string;
 };
 
-const NOVEDAD_TYPES = [
-  "Demora en aduana",
-  "Tracking sin movimiento",
-  "Packing perdido",
-  "Caja golpeada",
-  "Diferencia de peso",
-  "Retenido por courier",
-  "Otro",
-];
 
 function statusToneClass(status: string) {
   const { fase } = getShippingV2PackingFaseInfo(status);
@@ -540,12 +531,10 @@ function StatusActionPanel({
   isSiteAdmin,
   canClose,
   canTransition,
-  canCreateNovedad,
   canViewNovedades,
   busy,
   actionBusy,
   onRunAction,
-  onOpenNovedad,
   onOpenNovedades,
   onOpenStatusModal,
 }: {
@@ -555,12 +544,10 @@ function StatusActionPanel({
   isSiteAdmin: boolean;
   canClose: boolean;
   canTransition: boolean;
-  canCreateNovedad: boolean;
   canViewNovedades: boolean;
   busy: boolean;
   actionBusy: ShippingV2PackingStatusAction | "";
   onRunAction: (action: ShippingV2PackingStatusAction) => void;
-  onOpenNovedad: () => void;
   onOpenNovedades: () => void;
   onOpenStatusModal: (action: StatusModalAction) => void;
 }) {
@@ -588,7 +575,6 @@ function StatusActionPanel({
     && !openNovedades.length
     && !reviewProgress.completo;
   const canCancel = isAdmin && canTransition && !["cancelado", "cerrado final"].includes(state);
-  const canRegisterNovedad = canCreateNovedad && (["en proceso", "cerrado", "en transito", "recibido", "en revision"].includes(state) || (isAdmin && state === "cerrado final"));
   const canRestoreLegacyNovedad = isAdmin && canTransition && state === "con novedad";
   // Deliberadamente MÁS estricto que canCancel/canRestoreLegacyNovedad: esos
   // usan isAdmin (cualquier staff interno). Reabrir un packing cerrado es
@@ -652,16 +638,6 @@ function StatusActionPanel({
             </button>
           ) : null}
 
-          {canRegisterNovedad ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onOpenNovedad}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] disabled:opacity-50"
-            >
-              Registrar novedad
-            </button>
-          ) : null}
 
           {novedades.length && canViewNovedades ? (
             <button
@@ -842,61 +818,6 @@ function StatusDecisionModal({
       <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button type="button" disabled={busy} onClick={onClose} className="h-9 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45 disabled:opacity-50">Cancelar</button>
         <button type="button" disabled={busy || !value.trim()} onClick={onSubmit} className="h-9 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">{busy ? "Guardando..." : modal.label}</button>
-      </div>
-    </ModalShell>
-  );
-}
-
-function NovedadModal({
-  form,
-  busy,
-  onChange,
-  onClose,
-  onSubmit,
-}: {
-  form: { tipo: string; descripcion: string; evidenciaUrl: string };
-  busy: boolean;
-  onChange: (form: { tipo: string; descripcion: string; evidenciaUrl: string }) => void;
-  onClose: () => void;
-  onSubmit: () => void;
-}) {
-  return (
-    <ModalShell title="Registrar novedad" description="La novedad quedará relacionada al packing y moverá el estado a Con novedad cuando aplique." onClose={onClose}>
-      <div className="grid gap-3">
-        <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Tipo de novedad</span>
-          <select
-            value={form.tipo}
-            disabled={busy}
-            onChange={(event) => onChange({ ...form, tipo: event.target.value })}
-            className="mt-2 h-10 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-sm font-semibold text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-60"
-          >
-            {NOVEDAD_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Descripción</span>
-          <textarea
-            value={form.descripcion}
-            disabled={busy}
-            onChange={(event) => onChange({ ...form, descripcion: event.target.value })}
-            className="mt-2 min-h-28 w-full resize-y rounded-lg border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-60"
-          />
-        </label>
-        <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Evidencia URL</span>
-          <input
-            value={form.evidenciaUrl}
-            disabled={busy}
-            onChange={(event) => onChange({ ...form, evidenciaUrl: event.target.value })}
-            placeholder="Opcional"
-            className="mt-2 h-10 w-full rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-60"
-          />
-        </label>
-      </div>
-      <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <button type="button" disabled={busy} onClick={onClose} className="h-9 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45 disabled:opacity-50">Cancelar</button>
-        <button type="button" disabled={busy || !form.descripcion.trim()} onClick={onSubmit} className="h-9 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">{busy ? "Guardando..." : "Guardar novedad"}</button>
       </div>
     </ModalShell>
   );
@@ -1219,9 +1140,7 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   const [packingNovedades, setPackingNovedades] = useState(novedades);
   const [statusModal, setStatusModal] = useState<StatusModalAction | null>(null);
   const [statusDecision, setStatusDecision] = useState("");
-  const [showNovedadModal, setShowNovedadModal] = useState(false);
   const [showNovedadesModal, setShowNovedadesModal] = useState(false);
-  const [novedadForm, setNovedadForm] = useState({ tipo: NOVEDAD_TYPES[0], descripcion: "", evidenciaUrl: "" });
   const canEditPacking = permissions?.canEditPacking !== false;
   const canEditPackingWeight = permissions?.canEditPackingWeight !== false;
   const canEditPackingShippingFields = permissions?.canEditPackingShippingFields !== false;
@@ -1232,7 +1151,6 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   const canViewInvoice = permissions?.canViewInvoice !== false;
   const canGenerateInvoice = permissions?.canGenerateInvoice !== false;
   const canLinkDestinatario = permissions?.canLinkDestinatario !== false;
-  const canCreateNovedad = permissions?.canCreateNovedades !== false;
   const canViewNovedades = permissions?.canViewNovedades !== false;
   const canClosePacking = permissions?.canClosePacking !== false;
   const canTransitionPackingStatus = permissions?.canTransitionPackingStatus !== false;
@@ -1580,31 +1498,6 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     }
   }
 
-  async function saveNovedad() {
-    if (!canCreateNovedad) return;
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/shipping-v2/packings/${packing.id}/novedades`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(novedadForm),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo registrar la novedad."));
-      setPacking(payload.data as ShippingV2Packing);
-      if (payload.novedad) setPackingNovedades((current) => [payload.novedad as ShippingV2Novedad, ...current]);
-      setNovedadForm({ tipo: NOVEDAD_TYPES[0], descripcion: "", evidenciaUrl: "" });
-      setShowNovedadModal(false);
-      router.refresh();
-    } catch (mutationError) {
-      setError(mutationError instanceof Error ? mutationError.message : "Error inesperado.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function linkDestinatario() {
     if (!canLinkDestinatario) return;
     const destinatarioId = selectedDestinatarioId.trim();
@@ -1738,12 +1631,10 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
             isSiteAdmin={isSiteAdmin}
             canClose={canClosePacking}
             canTransition={canTransitionPackingStatus}
-            canCreateNovedad={canCreateNovedad}
             canViewNovedades={canViewNovedades}
             busy={busy}
             actionBusy={actionBusy}
             onRunAction={(action) => void runStatusAction(action)}
-            onOpenNovedad={() => setShowNovedadModal(true)}
             onOpenNovedades={() => setShowNovedadesModal(true)}
             onOpenStatusModal={(modal) => {
               setStatusDecision("");
@@ -2017,18 +1908,6 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
         />
       ) : null}
 
-      {showNovedadModal ? (
-        <NovedadModal
-          form={novedadForm}
-          busy={busy}
-          onChange={setNovedadForm}
-          onClose={() => {
-            if (busy) return;
-            setShowNovedadModal(false);
-          }}
-          onSubmit={() => void saveNovedad()}
-        />
-      ) : null}
 
       {showNovedadesModal ? (
         <NovedadesModal novedades={packingNovedades} onClose={() => setShowNovedadesModal(false)} />

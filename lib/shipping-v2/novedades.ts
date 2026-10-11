@@ -1,128 +1,36 @@
-// Ciclo de vida de una novedad de Shipping V2. Puro, sin red, testeable.
+// Novedades de Shipping V2. Módulo puro: sin red, testeable.
 //
-// ─── El modelo ───────────────────────────────────────────────────────────────
+// ─── Reglas del dueño (auditoría punto 8, 9 y 10-oct-2026) ──────────────────
 //
-// Una novedad NACE ENCAMINADA: quien la detecta ya sabe si la resolvemos
-// nosotros o si hay que reclamarle al proveedor. Ese dato vive en el campo
-// `Responsable de solución` y decide todo lo demás: qué soluciones se ofrecen,
-// quién la ve y de quién es el turno.
+// · Una novedad es un problema encontrado en un artículo que TODAVÍA es de la
+//   tienda. Sobre algo vendido, agotado o dado de baja no se registra: eso es
+//   la garantía de SUPER GEEK al cliente (orden de reparación; punto 16).
 //
-//   SUPER GEEK          Proveedor
-//   ──────────          ─────────
-//   Abierta             Enviada a proveedor
-//      │                     │  el proveedor propone una solución
-//      │ elegimos            ▼
-//      │ resolución    Respondida por proveedor
-//      │                  │        │
-//      │        aceptamos │        │ rechazamos (vuelve a su cancha)
-//      ▼                  ▼        └──► Enviada a proveedor
-//   En solución ◄─────────┘
-//      │
-//      ▼
-//   Cerrada
+// · Solo 3 estados: Abierta → En solución → Cerrada. Mientras está Abierta se
+//   muestra de quién es el turno ("Esperando al proveedor" / "Respondió el
+//   proveedor"); no hacen falta más estados.
 //
-// Un diseño anterior tenía "Tomar para revisión", "Enviar al proveedor" y
-// "Escalar". Los tres sobraban: los dos primeros porque la novedad ya nace
-// encaminada, y "Escalar" porque no hay instancia por encima de SUPER GEEK y
-// el proveedor a quien acudir.
+// · El TIPO decide quién la resuelve (ya no se pregunta):
+//     Incompleto, Dañado, Diferente al comprado, Observación menor
+//       → garantía del PROVEEDOR: se le notifica y conversa con él.
+//     Asunto interno, Perdido en tienda → la resolvemos NOSOTROS.
 //
-// Los estados "En revisión interna", "Esperando respuesta" y "Escalada" siguen
-// existiendo en Airtable (puede haber datos viejos), pero el portal ya no los
-// produce. Si aparecen, se muestran y cuentan como abiertos.
-
-export const SHIPPING_V2_NOVEDAD_ESTADOS = [
-  "Abierta",
-  "En revisión interna",
-  "Enviada a proveedor",
-  "Esperando respuesta",
-  "Respondida por proveedor",
-  "En solución",
-  "Cerrada",
-  "Rechazada",
-  "Escalada",
-  "Cerrada sin respuesta",
-] as const;
-
-export type ShippingV2NovedadEstadoReal = (typeof SHIPPING_V2_NOVEDAD_ESTADOS)[number];
-
-/**
- * Estados en los que la novedad ya no pide trabajo de nadie.
- *
- * OJO — aquí había un bug real: `isOpenNovedadStatus()` consideraba cerradas
- * solo las que contuvieran "resuelta/cancelada/cerrada" exactas. "Rechazada" y
- * "Cerrada sin respuesta" NO entraban, así que seguían contando como abiertas:
- * bloqueaban el cierre de ciclo del packing y la disponibilidad del artículo
- * para siempre.
- */
-export const SHIPPING_V2_NOVEDAD_ESTADOS_FINALES = [
-  "Cerrada",
-  "Rechazada",
-  "Cerrada sin respuesta",
-] as const;
-
-// ─── Quién resuelve ──────────────────────────────────────────────────────────
-
-export const SHIPPING_V2_NOVEDAD_RESPONSABLES = ["SUPER GEEK", "Proveedor"] as const;
-export type ShippingV2NovedadResponsable = (typeof SHIPPING_V2_NOVEDAD_RESPONSABLES)[number];
-
-/** Soluciones que puede proponer el PROVEEDOR. Ya existen en Airtable. */
-export const SHIPPING_V2_SOLUCIONES_PROVEEDOR = [
-  "Reemplazo",
-  "Reembolso",
-  "Crédito",
-  "Descuento",
-  "Aceptado con observación",
-  "Aceptado sin garantía",
-  "Otro",
-] as const;
-
-/**
- * Soluciones cuando la resolvemos NOSOTROS.
- *
- * Requieren que estas opciones existan en el single select "Solución" de
- * Airtable. Si falta alguna, la escritura falla con el error de Airtable en
- * vez de crearla en silencio: crear opciones de esquema sin que nadie lo sepa
- * es justo el tipo de automatización invisible que este proyecto evita.
- */
-export const SHIPPING_V2_SOLUCIONES_INTERNAS = [
-  "Se vende con descuento",
-  "Se repara internamente",
-  "Va a despiece",
-  "Se destina a uso local",
-  "Se descarta",
-  "Aceptado con observación",
-  "Otro",
-] as const;
-
-export function getSolucionesDisponibles(responsable?: string | null): readonly string[] {
-  return normalize(responsable) === normalize("Proveedor")
-    ? SHIPPING_V2_SOLUCIONES_PROVEEDOR
-    : SHIPPING_V2_SOLUCIONES_INTERNAS;
-}
-
-/** Estado con el que nace una novedad, según quién la resuelve. */
-export function getEstadoInicialNovedad(responsable?: string | null): ShippingV2NovedadEstadoReal {
-  return normalize(responsable) === normalize("Proveedor") ? "Enviada a proveedor" : "Abierta";
-}
-
-export function esResponsableProveedor(responsable?: string | null): boolean {
-  return normalize(responsable) === normalize("Proveedor");
-}
-
-// ─── Agrupación para las pestañas ────────────────────────────────────────────
-
-export type ShippingV2NovedadBucket = "nuestras" | "con-proveedor" | "en-solucion" | "cerradas";
-
-export const SHIPPING_V2_NOVEDAD_BUCKETS: Array<{
-  key: ShippingV2NovedadBucket;
-  label: string;
-  descripcion: string;
-}> = [
-  { key: "nuestras", label: "Las resolvemos nosotros", descripcion: "Novedades nuestras sin resolución definida todavía." },
-  { key: "con-proveedor", label: "Con el proveedor", descripcion: "La pelota está en su cancha, o ya respondió y hay que aceptar o rechazar." },
-  { key: "en-solucion", label: "Esperando que se cumpla", descripcion: "Ya hay acuerdo pero falta que ocurra algo: que llegue el reemplazo, que se repare. Las resoluciones inmediatas no pasan por aquí, se cierran de una vez." },
-  { key: "cerradas", label: "Cerradas", descripcion: "Terminadas: resueltas, anuladas o cerradas sin respuesta." },
-];
+// · Conversación con el proveedor: él SOLO responde (con una propuesta);
+//   nosotros aceptamos (resolvemos) o le contestamos, con historial, hasta
+//   aceptar. Por los proveedores sin portal escribe alguien de la tienda.
+//
+// · Bloqueo de venta: lo decide quien registra (casilla "Bloquear venta");
+//   cualquiera del personal puede bloquear después; SOLO el Administrador
+//   desbloquea, aunque la novedad ya esté cerrada. El bloqueo impide reservar
+//   y vender. "Perdido en tienda" siempre bloquea.
+//
+// · Al resolver se elige QUÉ PASA CON EL ARTÍCULO y el sistema lo ejecuta.
+//   "Se descarta" desapareció: se usaba creyendo que se descartaba la
+//   novedad. Dar de baja, Va a despiece, Pasa a activo, Devuelto al proveedor
+//   y No procedía son SOLO del Administrador.
+//
+// · Lo que ofrece el proveedor (Reemplazo, Reembolso, Crédito a favor, Sin
+//   compensación) solo se registra: NO cambia el costo del artículo.
 
 function normalize(value?: string | null) {
   return String(value || "")
@@ -132,322 +40,242 @@ function normalize(value?: string | null) {
     .trim();
 }
 
+// ─── Estados ─────────────────────────────────────────────────────────────────
+
+export const SHIPPING_V2_NOVEDAD_ESTADOS = ["Abierta", "En solución", "Cerrada"] as const;
+export type ShippingV2NovedadEstadoReal = (typeof SHIPPING_V2_NOVEDAD_ESTADOS)[number];
+
+/**
+ * Estados de diseños anteriores. No hay ningún registro en ellos (10-oct), pero
+ * si apareciera uno se lee con su equivalente de 3 estados en vez de romper.
+ */
+const ESTADOS_LEGADO: Record<string, ShippingV2NovedadEstadoReal> = {
+  "en revision interna": "Abierta",
+  "enviada a proveedor": "Abierta",
+  "esperando respuesta": "Abierta",
+  "respondida por proveedor": "Abierta",
+  escalada: "Abierta",
+  rechazada: "Cerrada",
+  "cerrada sin respuesta": "Cerrada",
+};
+
 const ESTADO_POR_NORMALIZADO = new Map<string, ShippingV2NovedadEstadoReal>(
   SHIPPING_V2_NOVEDAD_ESTADOS.map((estado) => [normalize(estado), estado])
 );
 
 export function normalizarEstadoNovedad(estado?: string | null): ShippingV2NovedadEstadoReal | null {
-  return ESTADO_POR_NORMALIZADO.get(normalize(estado)) ?? null;
+  const n = normalize(estado);
+  return ESTADO_POR_NORMALIZADO.get(n) ?? ESTADOS_LEGADO[n] ?? null;
 }
 
 export function isNovedadCerrada(estado?: string | null): boolean {
-  const canonico = normalizarEstadoNovedad(estado);
-  if (!canonico) return false; // fail-closed: un estado raro cuenta como abierto
-  return (SHIPPING_V2_NOVEDAD_ESTADOS_FINALES as readonly string[]).includes(canonico);
+  // fail-closed: un estado desconocido cuenta como abierto.
+  return normalizarEstadoNovedad(estado) === "Cerrada";
 }
 
 export function isNovedadAbierta(estado?: string | null): boolean {
   return !isNovedadCerrada(estado);
 }
 
-export function getNovedadBucket(novedad: { estado?: string | null; responsable?: string | null }): ShippingV2NovedadBucket {
-  const estado = normalizarEstadoNovedad(novedad.estado);
-  if (!estado) return "nuestras";
-  if ((SHIPPING_V2_NOVEDAD_ESTADOS_FINALES as readonly string[]).includes(estado)) return "cerradas";
-  if (estado === "En solución") return "en-solucion";
-  if (estado === "Enviada a proveedor" || estado === "Esperando respuesta" || estado === "Respondida por proveedor") {
-    return "con-proveedor";
-  }
-  // Abierta / En revisión interna / Escalada: depende de quién la resuelve.
-  return esResponsableProveedor(novedad.responsable) ? "con-proveedor" : "nuestras";
+// ─── Tipos y quién resuelve ──────────────────────────────────────────────────
+
+export const SHIPPING_V2_TIPOS_PROVEEDOR = ["Incompleto", "Dañado", "Diferente al comprado", "Observación menor"] as const;
+export const SHIPPING_V2_TIPOS_INTERNOS = ["Asunto interno", "Perdido en tienda"] as const;
+export const SHIPPING_V2_TIPOS_NOVEDAD = [...SHIPPING_V2_TIPOS_PROVEEDOR, ...SHIPPING_V2_TIPOS_INTERNOS] as const;
+export type ShippingV2TipoNovedad = (typeof SHIPPING_V2_TIPOS_NOVEDAD)[number];
+export const TIPO_PERDIDO_EN_TIENDA = "Perdido en tienda";
+
+export const SHIPPING_V2_NOVEDAD_RESPONSABLES = ["SUPER GEEK", "Proveedor"] as const;
+export type ShippingV2NovedadResponsable = (typeof SHIPPING_V2_NOVEDAD_RESPONSABLES)[number];
+
+export function normalizarTipoNovedad(tipo?: string | null): ShippingV2TipoNovedad | null {
+  const n = normalize(tipo);
+  return SHIPPING_V2_TIPOS_NOVEDAD.find((t) => normalize(t) === n) ?? null;
 }
 
-/** ¿De quién es el turno de actuar? Sirve para ordenar y para avisar. */
-export function getTurnoNovedad(novedad: { estado?: string | null; responsable?: string | null }): "nosotros" | "proveedor" | "nadie" {
-  const estado = normalizarEstadoNovedad(novedad.estado);
-  if (!estado || isNovedadCerrada(estado)) return "nadie";
-  if (estado === "Enviada a proveedor" || estado === "Esperando respuesta") return "proveedor";
-  return "nosotros";
+/** Quién resuelve según el tipo. null = tipo viejo o desconocido. */
+export function responsableDeTipo(tipo?: string | null): ShippingV2NovedadResponsable | null {
+  const t = normalizarTipoNovedad(tipo);
+  if (!t) return null;
+  return (SHIPPING_V2_TIPOS_PROVEEDOR as readonly string[]).includes(t) ? "Proveedor" : "SUPER GEEK";
 }
 
-// ─── Qué novedades bloquean la venta ─────────────────────────────────────────
-//
-// No toda novedad debe sacar el artículo del inventario vendible. Una webcam
-// que no enciende se vende con observación y descuento; un artículo Faltante
-// no se vende porque no existe. El tipo "Observación menor" está en Airtable
-// exactamente para eso.
-
-export const SHIPPING_V2_TIPOS_NOVEDAD_NO_BLOQUEANTES = ["Observación menor"] as const;
-
-const TIPOS_NO_BLOQUEANTES_NORMALIZADOS = new Set(
-  SHIPPING_V2_TIPOS_NOVEDAD_NO_BLOQUEANTES.map((tipo) => normalize(tipo))
-);
-
-export function esNovedadBloqueante(novedad: { tipo?: string | null; estado?: string | null }): boolean {
-  if (isNovedadCerrada(novedad.estado)) return false;
-  return !TIPOS_NO_BLOQUEANTES_NORMALIZADOS.has(normalize(novedad.tipo));
+export function esResponsableProveedor(responsable?: string | null): boolean {
+  return normalize(responsable) === normalize("Proveedor");
 }
 
-// ─── Transiciones ────────────────────────────────────────────────────────────
+export function esPerdidoEnTienda(tipo?: string | null): boolean {
+  return normalize(tipo) === normalize(TIPO_PERDIDO_EN_TIENDA);
+}
 
-export type ShippingV2NovedadAccion =
-  | "responder"
-  | "aceptar-propuesta"
-  | "rechazar-propuesta"
-  | "resolver"
-  | "cerrar"
-  | "anular"
-  | "cerrar-sin-respuesta"
-  | "reabrir";
+// ─── Lo que propone el proveedor (solo se registra) ─────────────────────────
 
-export type ShippingV2NovedadTransicion = {
-  accion: ShippingV2NovedadAccion;
-  label: string;
-  descripcion: string;
-  desde: ShippingV2NovedadEstadoReal[];
-  hacia: ShippingV2NovedadEstadoReal;
-  /** Limita la acción a novedades de un responsable concreto. */
-  soloResponsable?: ShippingV2NovedadResponsable;
+export const SHIPPING_V2_PROPUESTAS_PROVEEDOR = [
+  { valor: "Reemplazo", label: "Reemplazo" },
+  { valor: "Reembolso", label: "Reembolso (total o parcial)" },
+  { valor: "Crédito", label: "Crédito a favor" },
+  { valor: "Sin compensación", label: "Sin compensación" },
+] as const;
+
+export function esPropuestaValida(valor?: string | null): boolean {
+  const n = normalize(valor);
+  return SHIPPING_V2_PROPUESTAS_PROVEEDOR.some((p) => normalize(p.valor) === n);
+}
+
+export function etiquetaPropuesta(valor?: string | null): string {
+  const n = normalize(valor);
+  return SHIPPING_V2_PROPUESTAS_PROVEEDOR.find((p) => normalize(p.valor) === n)?.label ?? String(valor || "");
+}
+
+// ─── Qué pasa con el artículo (lo ejecuta el sistema) ───────────────────────
+
+export type ShippingV2DecisionArticulo =
+  | "No requiere solución"
+  | "Reparado"
+  | "Se vende con descuento"
+  | "Dar de baja"
+  | "Va a despiece"
+  | "Pasa a activo"
+  | "Devuelto al proveedor"
+  | "No procedía";
+
+export type ShippingV2DecisionConfig = {
+  valor: ShippingV2DecisionArticulo;
+  ayuda: string;
   soloAdmin: boolean;
-  campoRequerido: null | { nombre: string; label: string; placeholder?: string };
-  /** Campo que se ofrece pero no se exige. */
-  campoOpcional?: null | { nombre: string; label: string; placeholder?: string };
-  /** true = además exige elegir una Solución del catálogo que corresponda. */
-  requiereSolucion: boolean;
-  /**
-   * true = la acción puede cerrar la novedad de una vez.
-   *
-   * Muchas resoluciones son instantáneas: "se vende con descuento" ya está
-   * decidido y hecho, no hay nada que esperar. Obligar a pasar por "En
-   * solución" y volver a escribir cómo quedó resuelta era pedir dos veces lo
-   * mismo. Ahora se decide en el momento: si ya está hecho, se cierra.
-   */
-  permiteCerrarDirecto?: boolean;
-  tono: "principal" | "neutral" | "peligro";
+  /** Saca unidades de la venta (baja, despiece, activo, devolución). No se puede reabrir. */
+  mueveArticulo: boolean;
+  pidePrecio: boolean;
+  pideCantidad: boolean;
 };
 
-export const SHIPPING_V2_NOVEDAD_TRANSICIONES: ShippingV2NovedadTransicion[] = [
-  {
-    accion: "responder",
-    label: "Registrar respuesta del proveedor",
-    descripcion: "Lo que el proveedor propone hacer. Si responde desde su portal, lo escribe él mismo.",
-    desde: ["Enviada a proveedor", "Esperando respuesta", "Escalada"],
-    hacia: "Respondida por proveedor",
-    soloResponsable: "Proveedor",
-    soloAdmin: false,
-    campoRequerido: { nombre: "respuesta", label: "Qué propone el proveedor", placeholder: "Envío una batería nueva en el packing de la próxima semana." },
-    requiereSolucion: true,
-    tono: "principal",
-  },
-  {
-    accion: "aceptar-propuesta",
-    label: "Aceptar propuesta",
-    descripcion: "Estamos de acuerdo con lo que ofrece el proveedor.",
-    desde: ["Respondida por proveedor"],
-    hacia: "En solución",
-    soloResponsable: "Proveedor",
-    soloAdmin: false,
-    campoRequerido: null,
-    campoOpcional: { nombre: "descripcionSolucion", label: "Nota (opcional)", placeholder: "Quedamos atentos al tracking del reemplazo." },
-    requiereSolucion: false,
-    permiteCerrarDirecto: true,
-    tono: "principal",
-  },
-  {
-    accion: "rechazar-propuesta",
-    label: "Rechazar propuesta",
-    descripcion: "No aceptamos lo que ofrece. Vuelve a su cancha con el motivo para que proponga otra cosa.",
-    desde: ["Respondida por proveedor"],
-    hacia: "Enviada a proveedor",
-    soloResponsable: "Proveedor",
-    soloAdmin: false,
-    campoRequerido: { nombre: "motivo", label: "Por qué no aceptamos", placeholder: "El descuento no cubre el costo de la batería de reemplazo." },
-    requiereSolucion: false,
-    tono: "neutral",
-  },
-  {
-    accion: "resolver",
-    label: "Resolver",
-    descripcion: "Qué hacemos con el artículo.",
-    desde: ["Abierta", "En revisión interna", "Escalada"],
-    hacia: "En solución",
-    soloResponsable: "SUPER GEEK",
-    soloAdmin: false,
-    campoRequerido: { nombre: "descripcionSolucion", label: "Qué hacemos", placeholder: "La webcam no enciende; se vende con $30 de descuento y observación en la ficha." },
-    requiereSolucion: true,
-    permiteCerrarDirecto: true,
-    tono: "principal",
-  },
-  {
-    accion: "cerrar",
-    label: "Marcar como cumplida",
-    // Solo desde "En solución": lo que faltaba ya se cumplió. La resolución y
-    // su descripción se registraron al acordarla, así que aquí NO se vuelve a
-    // pedir: sería preguntar dos veces lo mismo.
-    descripcion: "Lo acordado ya se cumplió. El artículo recupera su disponibilidad si no queda nada más bloqueándolo.",
-    desde: ["En solución", "Escalada"],
-    hacia: "Cerrada",
-    soloAdmin: false,
-    campoRequerido: null,
-    campoOpcional: { nombre: "observacionFinal", label: "Nota de cierre (opcional)", placeholder: "Llegó la batería de reemplazo y se instaló." },
-    requiereSolucion: false,
-    tono: "principal",
-  },
-  {
-    accion: "cerrar-sin-respuesta",
-    label: "Cerrar sin respuesta",
-    descripcion: "El proveedor nunca contestó. Queda registrado como pérdida asumida.",
-    desde: ["Enviada a proveedor", "Esperando respuesta", "Escalada"],
-    hacia: "Cerrada sin respuesta",
-    soloResponsable: "Proveedor",
-    soloAdmin: true,
-    campoRequerido: { nombre: "motivo", label: "Motivo del cierre sin respuesta" },
-    requiereSolucion: false,
-    tono: "peligro",
-  },
-  {
-    accion: "anular",
-    label: "Anular novedad",
-    descripcion: "No procedía: error de registro, se confundió el artículo. No hay reclamo ni resolución.",
-    desde: ["Abierta", "En revisión interna", "Enviada a proveedor", "Esperando respuesta", "Respondida por proveedor", "En solución", "Escalada"],
-    hacia: "Rechazada",
-    soloAdmin: true,
-    campoRequerido: { nombre: "motivo", label: "Motivo de la anulación" },
-    requiereSolucion: false,
-    tono: "peligro",
-  },
-  {
-    accion: "reabrir",
-    label: "Reabrir",
-    descripcion: "Vuelve a estar activa. Úsalo solo si se cerró por error o apareció información nueva.",
-    desde: ["Cerrada", "Rechazada", "Cerrada sin respuesta"],
-    hacia: "Abierta",
-    soloAdmin: true,
-    campoRequerido: { nombre: "motivo", label: "Motivo de la reapertura" },
-    requiereSolucion: false,
-    tono: "peligro",
-  },
+export const SHIPPING_V2_DECISIONES_ARTICULO: readonly ShippingV2DecisionConfig[] = [
+  { valor: "No requiere solución", ayuda: "El artículo queda igual.", soloAdmin: false, mueveArticulo: false, pidePrecio: false, pideCantidad: false },
+  { valor: "Reparado", ayuda: "Se arregló (nosotros o con lo que mandó el proveedor). El artículo queda igual.", soloAdmin: false, mueveArticulo: false, pidePrecio: false, pideCantidad: false },
+  { valor: "Se vende con descuento", ayuda: "Cambia el precio de venta del artículo.", soloAdmin: false, mueveArticulo: false, pidePrecio: true, pideCantidad: false },
+  { valor: "Dar de baja", ayuda: "Esas unidades salen del inventario (se perdió, se dañó sin arreglo).", soloAdmin: true, mueveArticulo: true, pidePrecio: false, pideCantidad: true },
+  { valor: "Va a despiece", ayuda: "Queda “Destinado a partes”; se desarma desde su ficha.", soloAdmin: true, mueveArticulo: true, pidePrecio: false, pideCantidad: false },
+  { valor: "Pasa a activo", ayuda: "Esas unidades pasan a ser activos de la tienda.", soloAdmin: true, mueveArticulo: true, pidePrecio: false, pideCantidad: true },
+  { valor: "Devuelto al proveedor", ayuda: "Esas unidades salen del inventario porque vuelven al proveedor.", soloAdmin: true, mueveArticulo: true, pidePrecio: false, pideCantidad: true },
+  { valor: "No procedía", ayuda: "Error de registro: no había problema.", soloAdmin: true, mueveArticulo: false, pidePrecio: false, pideCantidad: false },
 ];
 
-const TRANSICION_POR_ACCION = new Map(
-  SHIPPING_V2_NOVEDAD_TRANSICIONES.map((transicion) => [transicion.accion, transicion])
-);
-
-export function getShippingV2NovedadTransicion(accion: string): ShippingV2NovedadTransicion | null {
-  return TRANSICION_POR_ACCION.get(accion as ShippingV2NovedadAccion) ?? null;
+export function getDecisionConfig(valor?: string | null): ShippingV2DecisionConfig | null {
+  const n = normalize(valor);
+  return SHIPPING_V2_DECISIONES_ARTICULO.find((d) => normalize(d.valor) === n) ?? null;
 }
 
-/**
- * Al reabrir, la novedad vuelve a la cancha que le corresponde según quién la
- * resuelve: si es del proveedor, a "Enviada a proveedor"; si es nuestra, a
- * "Abierta". Sin esto, una novedad de proveedor reabierta caería en la bandeja
- * equivocada.
- */
-export function getEstadoDestino(
-  transicion: ShippingV2NovedadTransicion,
-  responsable?: string | null,
-  cerrarDirecto?: boolean
-): ShippingV2NovedadEstadoReal {
-  if (transicion.accion === "reabrir") return getEstadoInicialNovedad(responsable);
-  if (cerrarDirecto && transicion.permiteCerrarDirecto) return "Cerrada";
-  return transicion.hacia;
-}
-
-export function getShippingV2NovedadAccionesDisponibles(input: {
-  estado?: string | null;
-  responsable?: string | null;
-  isSiteAdmin?: boolean;
-}): ShippingV2NovedadTransicion[] {
-  const estado = normalizarEstadoNovedad(input.estado);
-  if (!estado) return [];
-  const esProveedor = esResponsableProveedor(input.responsable);
-  return SHIPPING_V2_NOVEDAD_TRANSICIONES.filter((transicion) => {
-    if (!transicion.desde.includes(estado)) return false;
-    if (transicion.soloAdmin && input.isSiteAdmin !== true) return false;
-    if (transicion.soloResponsable === "Proveedor" && !esProveedor) return false;
-    if (transicion.soloResponsable === "SUPER GEEK" && esProveedor) return false;
+/** Decisiones que se le ofrecen a quien resuelve. */
+export function getDecisionesPermitidas(input: { tipo?: string | null; isSiteAdmin?: boolean }): ShippingV2DecisionConfig[] {
+  const admin = input.isSiteAdmin === true;
+  const perdido = esPerdidoEnTienda(input.tipo);
+  return SHIPPING_V2_DECISIONES_ARTICULO.filter((d) => {
+    if (d.soloAdmin && !admin) return false;
+    // Lo perdido: o aparece, o se da de baja, o no procedía.
+    if (perdido) return ["No requiere solución", "Dar de baja", "No procedía"].includes(d.valor);
     return true;
   });
 }
 
-export type ValidacionTransicion =
-  | { ok: true; transicion: ShippingV2NovedadTransicion; estadoDestino: ShippingV2NovedadEstadoReal }
-  | { ok: false; motivo: string };
+// ─── Artículo: ¿sigue siendo de la tienda? ───────────────────────────────────
+
+/** Estados en los que el artículo ya salió del inventario. */
+const ESTADOS_SALIDA = new Set([
+  "vendido",
+  "agotado",
+  "dado de baja",
+  "cancelado",
+  "usado en reparacion",
+  "desarmado completamente",
+  "desarmado parcialmente",
+  "destinado a partes",
+  "migrado",
+  "archivado",
+  "devuelto",
+]);
+
+export function articuloSalioDelInventario(a: { estado?: string | null; cantidad?: number | null }): boolean {
+  if (ESTADOS_SALIDA.has(normalize(a.estado))) return true;
+  return !(Number(a.cantidad) > 0);
+}
+
+/** Etiquetas que pone el bloqueo de venta. */
+export const ETIQUETA_CON_NOVEDAD = "Con novedad";
+export const ETIQUETA_PERDIDO = "Perdido en tienda";
+export const ETIQUETAS_DE_BLOQUEO = [ETIQUETA_CON_NOVEDAD, ETIQUETA_PERDIDO] as const;
+
+export function esEtiquetaDeBloqueo(estado?: string | null): boolean {
+  const n = normalize(estado);
+  return ETIQUETAS_DE_BLOQUEO.some((e) => normalize(e) === n);
+}
+
+/** ¿Esta novedad impide reservar y vender? Solo su casilla lo decide. */
+export function esNovedadBloqueante(novedad: { bloqueaVenta?: boolean | null }): boolean {
+  return novedad.bloqueaVenta === true;
+}
+
+/** Etiqueta que debe mostrar un artículo bloqueado por estas novedades. */
+export function etiquetaDeBloqueo(novedades: Array<{ tipo?: string | null; bloqueaVenta?: boolean | null }>): string | null {
+  const bloqueantes = novedades.filter(esNovedadBloqueante);
+  if (!bloqueantes.length) return null;
+  return bloqueantes.some((n) => esPerdidoEnTienda(n.tipo)) ? ETIQUETA_PERDIDO : ETIQUETA_CON_NOVEDAD;
+}
 
 /**
- * Valida una transición ANTES de escribir en Airtable.
- *
- * Se usa igual en el servidor y en la pantalla: la UI llama a esto para
- * decidir qué botones mostrar, y la ruta de API vuelve a llamarlo antes de
- * escribir. Nunca se confía en que la pantalla ya validó.
+ * Etiqueta que tenía el artículo antes de bloquearse (la más reciente que no
+ * sea de bloqueo). Respaldo para devolverlo a su etapa si todavía no llegó; al
+ * desbloquear se usa primero la de la novedad que se desbloquea.
  */
-export function validarTransicionNovedad(input: {
-  estadoActual?: string | null;
-  responsable?: string | null;
-  accion: string;
-  isSiteAdmin?: boolean;
-  valores?: Record<string, string | undefined>;
-  solucion?: string;
-  /** El usuario marcó "ya está hecho": se cierra sin pasar por En solución. */
-  cerrarDirecto?: boolean;
-}): ValidacionTransicion {
-  const transicion = getShippingV2NovedadTransicion(input.accion);
-  if (!transicion) return { ok: false, motivo: "Acción de novedad no soportada." };
+export function estadoPrevioParaRestaurar(
+  novedades: Array<{ estadoPrevioArticulo?: string | null; fechaRegistro?: string | null }>
+): string | null {
+  // La más reciente primero: es la etapa más cercana a donde estaba.
+  const ordenadas = [...novedades].sort((a, b) => String(b.fechaRegistro || "").localeCompare(String(a.fechaRegistro || "")));
+  for (const n of ordenadas) {
+    const previo = String(n.estadoPrevioArticulo || "").trim();
+    if (previo && !esEtiquetaDeBloqueo(previo)) return previo;
+  }
+  return null;
+}
 
-  const estado = normalizarEstadoNovedad(input.estadoActual);
-  if (!estado) {
-    return { ok: false, motivo: `Estado de novedad no reconocido: "${input.estadoActual}".` };
-  }
-  if (!transicion.desde.includes(estado)) {
-    return { ok: false, motivo: `No puedes "${transicion.label}" una novedad en estado "${estado}".` };
-  }
-  if (transicion.soloAdmin && input.isSiteAdmin !== true) {
-    return { ok: false, motivo: `Solo un administrador puede ejecutar "${transicion.label}".` };
-  }
+// ─── Registrar ───────────────────────────────────────────────────────────────
 
-  const esProveedor = esResponsableProveedor(input.responsable);
-  if (transicion.soloResponsable === "Proveedor" && !esProveedor) {
-    return { ok: false, motivo: `"${transicion.label}" solo aplica a novedades que resuelve el proveedor.` };
-  }
-  if (transicion.soloResponsable === "SUPER GEEK" && esProveedor) {
-    return { ok: false, motivo: `"${transicion.label}" solo aplica a novedades que resolvemos nosotros.` };
-  }
+export type ValidacionRegistro =
+  | { ok: true; tipo: ShippingV2TipoNovedad; responsable: ShippingV2NovedadResponsable; bloqueaVenta: boolean }
+  | { ok: false; motivo: string };
 
-  if (transicion.campoRequerido) {
-    const valor = input.valores?.[transicion.campoRequerido.nombre]?.trim();
-    if (!valor) return { ok: false, motivo: `Completa "${transicion.campoRequerido.label}".` };
+export function validarRegistroNovedad(input: {
+  tipo?: string | null;
+  descripcion?: string | null;
+  bloquearVenta?: boolean;
+  esPersonalTienda: boolean;
+  articulo: { estado?: string | null; cantidad?: number | null; recibido?: boolean | null; proveedorCompraId?: string | null };
+}): ValidacionRegistro {
+  if (!input.esPersonalTienda) return { ok: false, motivo: "Solo el personal de la tienda registra novedades." };
+  const tipo = normalizarTipoNovedad(input.tipo);
+  if (!tipo) return { ok: false, motivo: "Elige un tipo de novedad válido." };
+  if (!String(input.descripcion || "").trim()) return { ok: false, motivo: "Describe la novedad." };
+  if (articuloSalioDelInventario(input.articulo)) {
+    return {
+      ok: false,
+      motivo: `Este artículo ya salió del inventario (${input.articulo.estado || "0 unidades"}). Si un cliente reclama una falla, abre una orden de reparación.`,
+    };
   }
-
-  if (transicion.requiereSolucion) {
-    const solucion = input.solucion?.trim();
-    if (!solucion) return { ok: false, motivo: "Elige una solución antes de continuar." };
-    const permitidas = getSolucionesDisponibles(input.responsable);
-    if (!permitidas.some((opcion) => normalize(opcion) === normalize(solucion))) {
-      return {
-        ok: false,
-        motivo: `"${solucion}" no es una solución válida para una novedad que resuelve ${esProveedor ? "el proveedor" : "SUPER GEEK"}.`,
-      };
-    }
+  const responsable = responsableDeTipo(tipo) ?? "SUPER GEEK";
+  if (responsable === "Proveedor" && !String(input.articulo.proveedorCompraId || "").trim()) {
+    return { ok: false, motivo: "Este artículo no tiene proveedor de compra a quien reclamar. Regístralo como “Asunto interno”." };
   }
-
-  if (input.cerrarDirecto && !transicion.permiteCerrarDirecto) {
-    return { ok: false, motivo: `"${transicion.label}" no puede cerrar la novedad directamente.` };
+  const perdido = esPerdidoEnTienda(tipo);
+  if (perdido && input.articulo.recibido !== true) {
+    return { ok: false, motivo: "“Perdido en tienda” es para lo que ya estaba en la tienda (Recibido). Si no llegó, usa “Incompleto”." };
   }
-
-  return {
-    ok: true,
-    transicion,
-    estadoDestino: getEstadoDestino(transicion, input.responsable, input.cerrarDirecto),
-  };
+  return { ok: true, tipo, responsable, bloqueaVenta: perdido || input.bloquearVenta === true };
 }
 
 // ─── El hilo de la conversación ──────────────────────────────────────────────
 //
-// Airtable guarda "Mensaje enviado al proveedor" y "Respuesta del proveedor"
-// como dos campos sueltos. Si rechazamos una propuesta y el proveedor vuelve a
-// responder, lo anterior se perdería. Para que sea una conversación de verdad,
-// cada entrada se APENDE con fecha y autor — el mismo patrón que ya usa
-// "Observación recepción" en este proyecto. Cero campos nuevos.
+// "Mensaje enviado al proveedor" (lo nuestro) y "Respuesta del proveedor" (lo
+// suyo) se APENDEN con fecha y autor, para no perder nada al ir y venir.
 
 const SEPARADOR_ENTRADA = /^\[(\d{4}-\d{2}-\d{2}T[^\]]+)\]\s*([^:]+):\s*/;
 
@@ -458,12 +286,10 @@ export type EntradaHilo = {
   lado: "super-geek" | "proveedor";
 };
 
-/** Formatea una entrada para guardarla apendida al campo. */
 export function formatEntradaHilo(autor: string, texto: string, fechaISO = new Date().toISOString()): string {
   return `[${fechaISO}] ${autor.trim() || "Sin identificar"}: ${texto.trim()}`;
 }
 
-/** Agrega una entrada al final del campo, conservando lo anterior. */
 export function appendEntradaHilo(actual: string | undefined, autor: string, texto: string, fechaISO?: string): string {
   const entrada = formatEntradaHilo(autor, texto, fechaISO);
   const previo = (actual ?? "").trim();
@@ -493,10 +319,6 @@ function parseCampoHilo(campo: string | undefined, lado: EntradaHilo["lado"]): E
   return entradas.map((entrada) => ({ ...entrada, texto: entrada.texto.trim() })).filter((entrada) => entrada.texto);
 }
 
-/**
- * Reconstruye la conversación completa en orden cronológico: el registro
- * inicial, lo que le dijimos al proveedor y lo que contestó.
- */
 export function construirHiloNovedad(novedad: {
   descripcion?: string;
   registradoPor?: string;
@@ -519,9 +341,253 @@ export function construirHiloNovedad(novedad: {
     ...parseCampoHilo(novedad.respuestaProveedor, "proveedor"),
   ];
 
-  // Las entradas sin fecha (datos viejos) se dejan donde estaban.
   return hilo.sort((a, b) => {
     if (!a.fecha || !b.fecha) return 0;
     return a.fecha.localeCompare(b.fecha);
   });
+}
+
+// ─── Turno ───────────────────────────────────────────────────────────────────
+
+export type ShippingV2NovedadTurno = "nosotros" | "proveedor" | "espera" | "nadie";
+
+type NovedadParaTurno = {
+  estado?: string | null;
+  responsable?: string | null;
+  descripcion?: string;
+  registradoPor?: string;
+  fechaRegistro?: string;
+  mensajeProveedor?: string;
+  respuestaProveedor?: string;
+};
+
+/** ¿Quién habló último? (sin contar el registro inicial) */
+function ultimoLado(novedad: NovedadParaTurno): EntradaHilo["lado"] | null {
+  const nuestras = parseCampoHilo(novedad.mensajeProveedor, "super-geek");
+  const suyas = parseCampoHilo(novedad.respuestaProveedor, "proveedor");
+  if (!suyas.length) return nuestras.length ? "super-geek" : null;
+  if (!nuestras.length) return "proveedor";
+  const ultimaNuestra = nuestras[nuestras.length - 1].fecha;
+  const ultimaSuya = suyas[suyas.length - 1].fecha;
+  // Sin fecha (dato viejo) se asume que lo nuestro es lo último.
+  if (!ultimaSuya || !ultimaNuestra) return "super-geek";
+  return ultimaSuya > ultimaNuestra ? "proveedor" : "super-geek";
+}
+
+export function getTurnoNovedad(novedad: NovedadParaTurno): ShippingV2NovedadTurno {
+  const estado = normalizarEstadoNovedad(novedad.estado);
+  if (estado === "Cerrada") return "nadie";
+  if (estado === "En solución") return "espera";
+  if (!esResponsableProveedor(novedad.responsable)) return "nosotros";
+  return ultimoLado(novedad) === "proveedor" ? "nosotros" : "proveedor";
+}
+
+export function etiquetaTurno(novedad: NovedadParaTurno): string {
+  const turno = getTurnoNovedad(novedad);
+  if (turno === "nadie") return "Cerrada";
+  if (turno === "espera") return "Esperando que se cumpla";
+  if (!esResponsableProveedor(novedad.responsable)) return "Por resolver";
+  return turno === "nosotros" ? "Respondió el proveedor" : "Esperando al proveedor";
+}
+
+// ─── Pestañas ────────────────────────────────────────────────────────────────
+
+export type ShippingV2NovedadBucket = "nuestro-turno" | "con-proveedor" | "en-solucion" | "cerradas";
+
+export const SHIPPING_V2_NOVEDAD_BUCKETS: Array<{ key: ShippingV2NovedadBucket; label: string; descripcion: string }> = [
+  { key: "nuestro-turno", label: "Nuestro turno", descripcion: "Por resolver, o el proveedor ya respondió." },
+  { key: "con-proveedor", label: "Esperando al proveedor", descripcion: "Se le notificó o se le contestó y falta su respuesta." },
+  { key: "en-solucion", label: "En solución", descripcion: "Ya se decidió; falta que el proveedor cumpla (reemplazo, reembolso…)." },
+  { key: "cerradas", label: "Cerradas", descripcion: "Terminadas." },
+];
+
+export function getNovedadBucket(novedad: NovedadParaTurno): ShippingV2NovedadBucket {
+  const turno = getTurnoNovedad(novedad);
+  if (turno === "nadie") return "cerradas";
+  if (turno === "espera") return "en-solucion";
+  if (turno === "proveedor") return "con-proveedor";
+  return "nuestro-turno";
+}
+
+// ─── Acciones ────────────────────────────────────────────────────────────────
+
+export type ShippingV2NovedadRol = "admin" | "staff" | "proveedor" | "ninguno";
+
+export type ShippingV2NovedadAccion =
+  | "responder"
+  | "registrar-respuesta"
+  | "contestar"
+  | "resolver"
+  | "cumplida"
+  | "reabrir"
+  | "bloquear"
+  | "desbloquear";
+
+export type ShippingV2NovedadAccionConfig = {
+  accion: ShippingV2NovedadAccion;
+  label: string;
+  descripcion: string;
+  quien: "proveedor" | "staff" | "admin";
+  desde: ShippingV2NovedadEstadoReal[];
+  soloConProveedor: boolean;
+  tono: "principal" | "neutral" | "peligro";
+};
+
+export const SHIPPING_V2_NOVEDAD_ACCIONES: readonly ShippingV2NovedadAccionConfig[] = [
+  { accion: "responder", label: "Responder", descripcion: "Tu respuesta y tu propuesta para resolverla.", quien: "proveedor", desde: ["Abierta"], soloConProveedor: true, tono: "principal" },
+  { accion: "resolver", label: "Resolver", descripcion: "Qué pasa con el artículo. El sistema lo ejecuta.", quien: "staff", desde: ["Abierta"], soloConProveedor: false, tono: "principal" },
+  { accion: "contestar", label: "Contestar al proveedor", descripcion: "Le escribimos (por ejemplo, una contrapropuesta). Vuelve a su turno.", quien: "staff", desde: ["Abierta"], soloConProveedor: true, tono: "neutral" },
+  { accion: "registrar-respuesta", label: "Anotar respuesta del proveedor", descripcion: "Para proveedores sin portal: lo que nos dijo por otro medio.", quien: "staff", desde: ["Abierta"], soloConProveedor: true, tono: "neutral" },
+  { accion: "cumplida", label: "Marcar cumplida", descripcion: "Lo acordado ya ocurrió. Se cierra la novedad.", quien: "staff", desde: ["En solución"], soloConProveedor: false, tono: "principal" },
+  { accion: "bloquear", label: "Bloquear venta", descripcion: "Impide reservar y vender el artículo. Solo el Administrador lo quita.", quien: "staff", desde: ["Abierta", "En solución"], soloConProveedor: false, tono: "peligro" },
+  { accion: "desbloquear", label: "Desbloquear venta", descripcion: "El artículo vuelve a poder reservarse y venderse.", quien: "admin", desde: ["Abierta", "En solución", "Cerrada"], soloConProveedor: false, tono: "peligro" },
+  { accion: "reabrir", label: "Reabrir", descripcion: "Vuelve a estar abierta. Solo si se cerró por error.", quien: "admin", desde: ["Cerrada"], soloConProveedor: false, tono: "peligro" },
+];
+
+export function getAccionConfig(accion?: string | null): ShippingV2NovedadAccionConfig | null {
+  return SHIPPING_V2_NOVEDAD_ACCIONES.find((a) => a.accion === accion) ?? null;
+}
+
+function rolAlcanza(rol: ShippingV2NovedadRol, quien: ShippingV2NovedadAccionConfig["quien"]): boolean {
+  if (quien === "proveedor") return rol === "proveedor";
+  if (quien === "staff") return rol === "staff" || rol === "admin";
+  return rol === "admin";
+}
+
+type NovedadParaAccion = {
+  estado?: string | null;
+  responsable?: string | null;
+  tipo?: string | null;
+  bloqueaVenta?: boolean | null;
+  decision?: string | null;
+};
+
+function motivoNoDisponible(cfg: ShippingV2NovedadAccionConfig, novedad: NovedadParaAccion, rol: ShippingV2NovedadRol): string | null {
+  if (!rolAlcanza(rol, cfg.quien)) {
+    return cfg.quien === "admin" ? `Solo un Administrador puede "${cfg.label}".` : `No puedes "${cfg.label}".`;
+  }
+  const estado = normalizarEstadoNovedad(novedad.estado);
+  if (!estado) return `Estado de novedad no reconocido: "${novedad.estado}".`;
+  if (!cfg.desde.includes(estado)) return `No se puede "${cfg.label}" una novedad ${estado.toLowerCase()}.`;
+  if (cfg.soloConProveedor && !esResponsableProveedor(novedad.responsable)) {
+    return `"${cfg.label}" solo aplica a novedades que se resuelven con el proveedor.`;
+  }
+  if (cfg.accion === "bloquear" && novedad.bloqueaVenta === true) return "La venta ya está bloqueada.";
+  if (cfg.accion === "desbloquear" && novedad.bloqueaVenta !== true) return "La venta no está bloqueada.";
+  if (cfg.accion === "reabrir" && getDecisionConfig(novedad.decision)?.mueveArticulo) {
+    return `Se resolvió con "${novedad.decision}" y el artículo ya se movió: no se puede reabrir. Deshazlo con su propia acción (por ejemplo, Revertir baja).`;
+  }
+  return null;
+}
+
+export function getAccionesDisponibles(novedad: NovedadParaAccion, rol: ShippingV2NovedadRol): ShippingV2NovedadAccionConfig[] {
+  return SHIPPING_V2_NOVEDAD_ACCIONES.filter((cfg) => motivoNoDisponible(cfg, novedad, rol) === null);
+}
+
+export type ValoresAccionNovedad = {
+  /** Texto principal: respuesta, mensaje, nota de lo que se hizo o motivo. */
+  texto?: string;
+  decision?: string;
+  propuesta?: string;
+  precio?: number | null;
+  cantidad?: number | null;
+  comoAparecio?: string;
+  /** Al resolver: falta que el proveedor cumpla algo → queda "En solución". */
+  pendienteProveedor?: boolean;
+  /** Al resolver (solo Administrador): quitar también el bloqueo de venta. */
+  desbloquear?: boolean;
+  montoReclamado?: number | null;
+  montoRecuperado?: number | null;
+};
+
+export type ValidacionAccion =
+  | { ok: true; config: ShippingV2NovedadAccionConfig; estadoDestino: ShippingV2NovedadEstadoReal; decision: ShippingV2DecisionConfig | null }
+  | { ok: false; motivo: string };
+
+const ESTADO_DESTINO: Record<ShippingV2NovedadAccion, ShippingV2NovedadEstadoReal | null> = {
+  responder: "Abierta",
+  "registrar-respuesta": "Abierta",
+  contestar: "Abierta",
+  resolver: null, // depende de pendienteProveedor
+  cumplida: "Cerrada",
+  reabrir: "Abierta",
+  bloquear: null, // no cambia
+  desbloquear: null, // no cambia
+};
+
+function montoValido(valor: number | null | undefined): boolean {
+  return valor === null || valor === undefined || (Number.isFinite(valor) && valor >= 0);
+}
+
+/**
+ * Valida una acción ANTES de escribir. La usan la pantalla (qué mostrar) y el
+ * servidor (qué se puede escribir). Nunca se confía en que la pantalla validó.
+ */
+export function validarAccionNovedad(input: {
+  accion: string;
+  novedad: NovedadParaAccion;
+  rol: ShippingV2NovedadRol;
+  valores?: ValoresAccionNovedad;
+}): ValidacionAccion {
+  const cfg = getAccionConfig(input.accion);
+  if (!cfg) return { ok: false, motivo: "Acción de novedad no soportada." };
+  const noDisponible = motivoNoDisponible(cfg, input.novedad, input.rol);
+  if (noDisponible) return { ok: false, motivo: noDisponible };
+
+  const v = input.valores ?? {};
+  const texto = String(v.texto || "").trim();
+  const estadoActual = normalizarEstadoNovedad(input.novedad.estado) as ShippingV2NovedadEstadoReal;
+  if (!montoValido(v.montoReclamado) || !montoValido(v.montoRecuperado)) return { ok: false, motivo: "Los montos deben ser números de 0 en adelante." };
+
+  switch (cfg.accion) {
+    case "responder":
+    case "registrar-respuesta":
+      if (!texto) return { ok: false, motivo: "Escribe la respuesta del proveedor." };
+      if (v.propuesta && !esPropuestaValida(v.propuesta)) return { ok: false, motivo: "Elige una propuesta válida." };
+      return { ok: true, config: cfg, estadoDestino: "Abierta", decision: null };
+    case "contestar":
+      if (!texto) return { ok: false, motivo: "Escribe el mensaje para el proveedor." };
+      return { ok: true, config: cfg, estadoDestino: "Abierta", decision: null };
+    case "cumplida":
+      return { ok: true, config: cfg, estadoDestino: "Cerrada", decision: null };
+    case "bloquear":
+      return { ok: true, config: cfg, estadoDestino: estadoActual, decision: null };
+    case "desbloquear":
+    case "reabrir":
+      if (texto.length < 5) return { ok: false, motivo: "Escribe el motivo (mínimo 5 caracteres)." };
+      return { ok: true, config: cfg, estadoDestino: ESTADO_DESTINO[cfg.accion] ?? estadoActual, decision: null };
+    case "resolver": {
+      const decision = getDecisionConfig(v.decision);
+      if (!decision) return { ok: false, motivo: "Elige qué pasa con el artículo." };
+      const admin = input.rol === "admin";
+      const permitidas = getDecisionesPermitidas({ tipo: input.novedad.tipo, isSiteAdmin: admin });
+      if (!permitidas.some((d) => d.valor === decision.valor)) {
+        return {
+          ok: false,
+          motivo: decision.soloAdmin && !admin
+            ? `Solo un Administrador puede elegir "${decision.valor}".`
+            : `"${decision.valor}" no aplica a una novedad de tipo "${input.novedad.tipo}".`,
+        };
+      }
+      if (!texto) return { ok: false, motivo: "Anota brevemente qué se hizo." };
+      if (decision.pidePrecio && !(typeof v.precio === "number" && Number.isFinite(v.precio) && v.precio > 0)) {
+        return { ok: false, motivo: "Escribe el nuevo precio de venta." };
+      }
+      if (decision.pideCantidad && !(typeof v.cantidad === "number" && Number.isInteger(v.cantidad) && v.cantidad >= 1)) {
+        return { ok: false, motivo: "Escribe cuántas unidades (entero mayor a 0)." };
+      }
+      if (esPerdidoEnTienda(input.novedad.tipo) && decision.valor === "No requiere solución" && !String(v.comoAparecio || "").trim()) {
+        return { ok: false, motivo: "Anota dónde o cómo apareció el artículo." };
+      }
+      const conProveedor = esResponsableProveedor(input.novedad.responsable);
+      if (v.propuesta && (!conProveedor || !esPropuestaValida(v.propuesta))) {
+        return { ok: false, motivo: "La propuesta del proveedor solo aplica a novedades con el proveedor." };
+      }
+      if (v.pendienteProveedor && !conProveedor) {
+        return { ok: false, motivo: "Solo una novedad con el proveedor puede quedar esperando que él cumpla." };
+      }
+      if (v.desbloquear && !admin) return { ok: false, motivo: "Solo un Administrador puede desbloquear la venta." };
+      return { ok: true, config: cfg, estadoDestino: v.pendienteProveedor ? "En solución" : "Cerrada", decision };
+    }
+  }
 }
