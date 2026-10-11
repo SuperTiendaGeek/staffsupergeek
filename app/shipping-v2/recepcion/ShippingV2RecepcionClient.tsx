@@ -2,12 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import {
-  ACCEPT_EVIDENCIAS,
-  clasificarEvidencia,
-  validarSeleccionEvidencias,
-} from "@/lib/shipping-v2/evidencias";
-import { EvidenciasInvalidasError, subirEvidenciasNovedad } from "@/lib/shipping-v2/subir-evidencias";
+import { RegistrarNovedadModal } from "@/components/shipping-v2/novedades/RegistrarNovedadModal";
 import { avanceDeInspeccion } from "@/lib/shipping-v2/revision-tecnica-snapshot";
 import {
   AlertTriangle,
@@ -38,7 +33,7 @@ import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
 import { evaluarVentaItem } from "@/lib/shipping-v2/item-venta";
 import { evaluarDisponibilidadComercial } from "@/lib/shipping-v2/item-comercial";
-import { esNovedadBloqueante, isNovedadAbierta, SHIPPING_V2_TIPOS_INTERNOS, SHIPPING_V2_TIPOS_PROVEEDOR, TIPO_PERDIDO_EN_TIENDA } from "@/lib/shipping-v2/novedades";
+import { esNovedadBloqueante, isNovedadAbierta } from "@/lib/shipping-v2/novedades";
 import { unidadesLibres } from "@/lib/shipping-v2/unidades";
 import { getShippingV2FacebookPublicationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import {
@@ -765,158 +760,6 @@ function ColumnHeader({
   );
 }
 
-/**
- * Formulario de novedad, con su propio estado.
- *
- * Vivía dentro de ShippingV2RecepcionClient, que renderiza la tabla entera.
- * Cada tecla disparaba un re-render de las ~175 filas con sus 8 casillas y 5
- * botones cada una, y escribir se volvía inutilizable: se notaban segundos de
- * retraso por letra. Aislarlo deja el tecleo dentro del modal.
- */
-function NovedadForm({
-  item,
-  busy,
-  onCancel,
-  onSubmit,
-}: {
-  item: ReceptionItem;
-  busy: boolean;
-  onCancel: () => void;
-  onSubmit: (form: { tipo: string; descripcion: string; bloquearVenta: boolean; archivos: File[] }) => void;
-}) {
-  const [tipo, setTipo] = useState<string>("");
-  const [descripcion, setDescripcion] = useState("");
-  const [bloquearVenta, setBloquearVenta] = useState(false);
-  const perdido = tipo === TIPO_PERDIDO_EN_TIENDA;
-  // La evidencia real: fotos y videos cortos del celular. Se acumulan aquí y
-  // se suben DESPUÉS de crear la novedad, porque Airtable solo acepta
-  // adjuntos contra un registro que ya existe.
-  const [archivos, setArchivos] = useState<File[]>([]);
-  const [errorArchivos, setErrorArchivos] = useState("");
-  const archivosInputRef = useRef<HTMLInputElement | null>(null);
-
-  function agregarArchivos(nuevos: File[]) {
-    if (!nuevos.length) return;
-    const validacion = validarSeleccionEvidencias(
-      nuevos.map((archivo) => ({ name: archivo.name, type: archivo.type, size: archivo.size })),
-      { yaSubidas: archivos.length }
-    );
-    if (!validacion.ok) {
-      setErrorArchivos(validacion.motivo);
-      return;
-    }
-    setErrorArchivos("");
-    setArchivos((actuales) => [...actuales, ...nuevos]);
-  }
-
-  return (
-    <ModalShell title="Registrar novedad" description={`${item.sku} · ${item.nombre}`} onClose={onCancel}>
-      <div className="grid gap-3">
-        {/* El tipo decide quién la resuelve (punto 8): los de garantía van
-            al proveedor; los internos los resolvemos nosotros. */}
-        <div className="grid gap-2 sm:grid-cols-[auto_1fr] sm:items-start">
-          <span className="pt-1 text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Proveedor</span>
-          <div className="flex flex-wrap gap-1">
-            {SHIPPING_V2_TIPOS_PROVEEDOR.map((opcion) => (
-              <button key={opcion} type="button" onClick={() => setTipo(opcion)}
-                className={`rounded-lg border px-2.5 py-1 text-[12px] font-semibold transition ${tipo === opcion ? "border-[#4FC3FF] bg-[#4FC3FF]/15 text-[#BDEAFF]" : "border-[#3A3A36] bg-[#101010] text-[#A7A7A7] hover:text-[#F5F5F5]"}`}>
-                {opcion}
-              </button>
-            ))}
-          </div>
-          <span className="pt-1 text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Interno</span>
-          <div className="flex flex-wrap gap-1">
-            {SHIPPING_V2_TIPOS_INTERNOS.map((opcion) => (
-              <button key={opcion} type="button" onClick={() => setTipo(opcion)}
-                className={`rounded-lg border px-2.5 py-1 text-[12px] font-semibold transition ${tipo === opcion ? "border-[#D7FF4F] bg-[#D7FF4F]/12 text-[#D7FF4F]" : "border-[#3A3A36] bg-[#101010] text-[#A7A7A7] hover:text-[#F5F5F5]"}`}>
-                {opcion}
-              </button>
-            ))}
-          </div>
-        </div>
-        {tipo ? (
-          <p className="-mt-1 text-[11px] text-[#8F908A]">
-            {(SHIPPING_V2_TIPOS_PROVEEDOR as readonly string[]).includes(tipo) ? "Garantía del proveedor: se le notifica para resolverla con él." : "La resolvemos nosotros."}
-          </p>
-        ) : null}
-
-        <label className={`flex items-center gap-2 ${perdido ? "cursor-not-allowed" : "cursor-pointer"}`} title="Impide reservar y vender el artículo. Solo un Administrador lo desbloquea.">
-          <input type="checkbox" checked={perdido || bloquearVenta} disabled={perdido} onChange={(event) => setBloquearVenta(event.target.checked)} className="h-4 w-4 accent-[#FF6B6B]" />
-          <span className="text-[13px] font-semibold text-[#F5F5F5]">Bloquear venta</span>
-          <span className="text-[11px] text-[#8F908A]">{perdido ? "Lo perdido siempre se bloquea." : "Sin marcar, se puede vender avisando de la novedad."}</span>
-        </label>
-
-        <label className="block">
-          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Descripción</span>
-          <textarea value={descripcion} onChange={(event) => setDescripcion(event.target.value)} className="mt-2 min-h-28 w-full resize-y rounded-lg border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
-        </label>
-
-        <div>
-          <span className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Evidencia</span>
-          <p className="mt-1 text-[11px] leading-4 text-[#6F706B]">
-            Fotos o un video corto del problema (video hasta 3.5 MB, unos 10 a 20 segundos). Las fotos se reducen solas, elige la que quieras. Opcional, pero una foto evita discutir después con el proveedor.
-          </p>
-
-          <input
-            ref={archivosInputRef}
-            type="file"
-            accept={ACCEPT_EVIDENCIAS}
-            multiple
-            className="hidden"
-            onChange={(event) => {
-              agregarArchivos(Array.from(event.target.files || []));
-              if (archivosInputRef.current) archivosInputRef.current.value = "";
-            }}
-          />
-
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {archivos.map((archivo, indice) => (
-              <span
-                key={`${archivo.name}-${indice}`}
-                className="inline-flex max-w-[16rem] items-center gap-1.5 rounded-lg border border-[#3A3A36] bg-[#101010] py-1 pl-2 pr-1 text-[11px] text-[#C9C9C4]"
-              >
-                <span aria-hidden="true">{clasificarEvidencia({ type: archivo.type, filename: archivo.name }) === "video" ? "\u25B6" : "\u25A3"}</span>
-                <span className="truncate" title={archivo.name}>{archivo.name}</span>
-                <span className="shrink-0 text-[#6F706B]">{(archivo.size / (1024 * 1024)).toFixed(1)} MB</span>
-                <button
-                  type="button"
-                  onClick={() => setArchivos((actuales) => actuales.filter((_, i) => i !== indice))}
-                  className="grid h-5 w-5 shrink-0 place-items-center rounded text-[#8F908A] transition hover:bg-[#FF6B6B]/15 hover:text-[#FF9C9C]"
-                  aria-label={`Quitar ${archivo.name}`}
-                >
-                  &times;
-                </button>
-              </span>
-            ))}
-
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => archivosInputRef.current?.click()}
-              className="h-8 rounded-lg border border-dashed border-[#3A3A36] px-3 text-[12px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-40"
-            >
-              + Foto o video
-            </button>
-          </div>
-
-          {errorArchivos ? <p className="mt-1 text-[11px] text-[#FF9C9C]">{errorArchivos}</p> : null}
-        </div>
-      </div>
-
-      <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <button type="button" disabled={busy} onClick={onCancel} className="h-9 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45 disabled:opacity-50">Cancelar</button>
-        <button
-          type="button"
-          disabled={busy || !tipo || !descripcion.trim()}
-          onClick={() => onSubmit({ tipo, descripcion, bloquearVenta: perdido || bloquearVenta, archivos })}
-          className="h-9 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50"
-        >
-          {busy ? "Guardando..." : "Guardar novedad"}
-        </button>
-      </div>
-    </ModalShell>
-  );
-}
 
 /**
  * Una fila de recepción. Va envuelta en memo a propósito.
@@ -1442,61 +1285,7 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
     []
   );
 
-  async function saveNovedad(form: { tipo: string; descripcion: string; bloquearVenta: boolean; archivos: File[] }) {
-    if (!novedadItem) return;
-    setBusyKey(`${novedadItem.id}:novedad`);
-    setMessage("");
-    try {
-      const { archivos, ...datos } = form;
-      const response = await fetch(`/api/shipping-v2/recepcion/items/${novedadItem.id}/novedades`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...datos, packingId: novedadItem.packing?.id || "" }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo registrar la novedad."));
-      const updated = payload.data as ShippingV2Item;
-      setItems((current) => current.map((currentItem) => currentItem.id === updated.id ? updated : currentItem));
 
-      // Las evidencias van en un segundo paso: Airtable necesita el registro
-      // creado para recibir adjuntos. Si esta parte falla, la novedad YA
-      // quedó guardada — se avisa, pero no se deshace nada ni se pierde lo
-      // que el técnico escribió.
-      if (payload.aviso) setMessage(String(payload.aviso));
-      let novedadCreada = payload.novedad as ShippingV2Novedad | undefined;
-      let evidenciasPendientes = false;
-
-      if (archivos.length && novedadCreada?.id) {
-        try {
-          const resultado = await subirEvidenciasNovedad(novedadCreada.id, archivos);
-          if (resultado.novedad) novedadCreada = resultado.novedad as ShippingV2Novedad;
-          if (resultado.aviso) setMessage(resultado.aviso);
-          evidenciasPendientes = resultado.fallidos.length > 0;
-        } catch (errorEvidencias) {
-          evidenciasPendientes = true;
-          setMessage(
-            errorEvidencias instanceof EvidenciasInvalidasError
-              ? `La novedad se guardó. Las evidencias no: ${errorEvidencias.message}`
-              : `La novedad se guardó, pero las evidencias no subieron: ${
-                  errorEvidencias instanceof Error ? errorEvidencias.message : "error inesperado"
-                }`
-          );
-        }
-      }
-
-      if (novedadCreada) setNovedades((current) => [novedadCreada as ShippingV2Novedad, ...current]);
-
-      // Si alguna evidencia no subió, el modal NO se cierra: los archivos
-      // siguen en memoria y basta con volver a pulsar Guardar. Cerrarlo
-      // obligaría al técnico a buscar o volver a tomar las fotos.
-      if (evidenciasPendientes) return;
-      setNovedadItem(null);
-    } catch (mutationError) {
-      setMessage(mutationError instanceof Error ? mutationError.message : "Error inesperado.");
-    } finally {
-      setBusyKey("");
-    }
-  }
 
   return (
     <div className="w-full space-y-2.5">
@@ -1739,11 +1528,18 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
       ) : null}
 
       {novedadItem ? (
-        <NovedadForm
-          item={novedadItem}
-          busy={Boolean(busyKey)}
-          onCancel={() => setNovedadItem(null)}
-          onSubmit={(form) => void saveNovedad(form)}
+        <RegistrarNovedadModal
+          itemId={novedadItem.id}
+          sku={novedadItem.sku}
+          nombre={novedadItem.nombre}
+          packingId={novedadItem.packing?.id}
+          onClose={() => setNovedadItem(null)}
+          onSaved={({ item: actualizado, novedad, aviso }) => {
+            setItems((current) => current.map((currentItem) => currentItem.id === actualizado.id ? actualizado : currentItem));
+            if (novedad) setNovedades((current) => [novedad, ...current]);
+            if (aviso) setMessage(aviso);
+            setNovedadItem(null);
+          }}
         />
       ) : null}
 

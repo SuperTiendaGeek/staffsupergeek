@@ -6357,6 +6357,27 @@ export async function getShippingV2Novedades(access?: ShippingV2AccessContext) {
   return novedades.filter((novedad) => canAccessNovedad(novedad, access));
 }
 
+/** Punto 8: lo que un proveedor NO debe recibir de una novedad (decisiones, notas, bloqueo, pérdidas). */
+function ocultarDatosInternosNovedad(original: ShippingV2Novedad): ShippingV2Novedad {
+  return {
+    ...original,
+    decision: "",
+    registradoPor: "",
+    cerradoPor: "",
+    actualizadoPor: "",
+    estadoPrevioArticulo: "",
+    ventaDesbloqueadaPor: "",
+    precioConDescuento: null,
+    valorPerdida: null,
+    perdidaPorDistribuir: false,
+    cantidadAfectada: null,
+    comoAparecio: "",
+    bloqueaVenta: false,
+    observacionFinal: "",
+    descripcionSolucion: "",
+  };
+}
+
 /**
  * Novedades listas para el panel: con SKU, proveedor y packing ya resueltos.
  *
@@ -6385,25 +6406,7 @@ export async function getShippingV2NovedadesPanel(access?: ShippingV2AccessConte
   // Punto 8: a un proveedor no le llegan los datos internos de la tienda.
   const esProveedor = !access?.isAdmin;
   return novedades.map((original) => {
-    const novedad: ShippingV2Novedad = esProveedor
-      ? {
-        ...original,
-        decision: "",
-        registradoPor: "",
-        cerradoPor: "",
-        actualizadoPor: "",
-        estadoPrevioArticulo: "",
-        ventaDesbloqueadaPor: "",
-        precioConDescuento: null,
-        valorPerdida: null,
-        perdidaPorDistribuir: false,
-        cantidadAfectada: null,
-        comoAparecio: "",
-        bloqueaVenta: false,
-        observacionFinal: "",
-        descripcionSolucion: "",
-      }
-      : original;
+    const novedad = esProveedor ? ocultarDatosInternosNovedad(original) : original;
     const itemRecord = novedad.itemId ? itemsById.get(novedad.itemId) : undefined;
     const packingRecord = novedad.packingId ? packingsById.get(novedad.packingId) : undefined;
     return {
@@ -6428,6 +6431,7 @@ export async function getShippingV2NovedadesForItem(itemRecordId: string, access
     .map(mapNovedad)
     .filter((novedad) => novedad.itemIds.includes(itemId))
     .filter((novedad) => canAccessNovedad(novedad, access))
+    .map((novedad) => (access && !access.isAdmin ? ocultarDatosInternosNovedad(novedad) : novedad))
     .sort((a, b) => {
       const bTime = Date.parse(b.fechaRegistro || b.createdTime || "");
       const aTime = Date.parse(a.fechaRegistro || a.createdTime || "");
