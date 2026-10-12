@@ -117,7 +117,7 @@ export type RespaldoAlRegistrar = {
   comprobanteUrl?: string | null;
 };
 
-/** Mismos requisitos que "Registrar respaldo" en Pagos. Devuelve el error o null. */
+/** Mismos requisitos que "Registrar pago" en Pagos: fecha, método y cuenta. Devuelve el error o null. */
 export function validarRespaldo(r: RespaldoAlRegistrar | null | undefined): string | null {
   if (!r) return "Faltan los datos del respaldo.";
   if (!String(r.fechaPagoReal ?? "").trim()) return "Indica la fecha del pago.";
@@ -125,8 +125,6 @@ export function validarRespaldo(r: RespaldoAlRegistrar | null | undefined): stri
   if (!metodo || metodo === "no aplica") return "Indica el método de pago.";
   const cuenta = normalize(r.cuentaOrigen);
   if (!cuenta || cuenta === "no aplica") return "Indica la cuenta de donde salió el pago.";
-  if (!String(r.transaccionId ?? "").trim() && !String(r.comprobanteUrl ?? "").trim()) {
-    return "Sube el comprobante o escribe el número de transacción.";
-  }
+  // Punto 9b: el comprobante es opcional (queda "Sin comprobante").
   return null;
 }

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-08T20:42:13.039Z",
+  "generatedAt": "2026-10-12T19:07:57.935Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -377,6 +377,11 @@
           "type": "multilineText",
           "kind": "multilineText"
         },
+        "SKU proveedor": {
+          "id": "fldbnb12bLcRmnvwS",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
         "Tipo de operación": {
           "id": "fldGfGydXE6VKHqVx",
           "type": "singleSelect",
@@ -469,7 +474,9 @@
             "Migrado",
             "Cancelado",
             "Archivado",
-            "Agotado"
+            "Agotado",
+            "Dado de baja",
+            "Perdido en tienda"
           ]
         },
         "Estado de revisión": {
@@ -631,11 +638,6 @@
             "Kit",
             "Otro"
           ]
-        },
-        "SKU proveedor": {
-          "id": "fldbnb12bLcRmnvwS",
-          "type": "singleLineText",
-          "kind": "singleLineText"
         },
         "Número de serie": {
           "id": "fld6qmqPu3eAiNX33",
@@ -1446,6 +1448,11 @@
           "id": "fldoWPjNdKSFyZh99",
           "type": "number",
           "kind": "number"
+        },
+        "Unidades compradas": {
+          "id": "fldyU8ig1YGWrDBVE",
+          "type": "number",
+          "kind": "number"
         }
       }
     },
@@ -1634,6 +1641,11 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblS0nSrZnRNHS3xI",
           "linkedTableName": "Shipping Eventos"
+        },
+        "Orden": {
+          "id": "fld4qpfmerP6mvc5m",
+          "type": "singleLineText",
+          "kind": "singleLineText"
         }
       }
     },
@@ -2361,7 +2373,10 @@
             "Tracking sin movimiento",
             "Demora en aduana",
             "Diferencia de peso",
-            "Observación menor"
+            "Observación menor",
+            "Asunto interno",
+            "Perdido en tienda",
+            "Falla de funcionamiento"
           ]
         },
         "Estado Novedad": {
@@ -2526,6 +2541,78 @@
             "SUPER GEEK",
             "Proveedor"
           ]
+        },
+        "Decisión sobre el artículo": {
+          "id": "fldUiumqXwGOHH5Ru",
+          "type": "singleSelect",
+          "options": [
+            "No requiere solución",
+            "Reparado",
+            "Se vende con descuento",
+            "Dar de baja",
+            "Va a despiece",
+            "Pasa a activo",
+            "Devuelto al proveedor",
+            "No procedía"
+          ]
+        },
+        "Bloquea venta": {
+          "id": "fldc69cd1auAvRDSK",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Venta desbloqueada por": {
+          "id": "fldxx3dHFEySl2O8M",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha de desbloqueo": {
+          "id": "fldgwIzpUIivqHGUw",
+          "type": "dateTime"
+        },
+        "Estado previo del artículo": {
+          "id": "fldKwOMf8xLSMxWei",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Cómo apareció": {
+          "id": "fld8RMCMQNbcxGG85",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Cantidad afectada": {
+          "id": "fldvyzbMCZZqxyDZF",
+          "type": "number",
+          "kind": "number"
+        },
+        "Precio con descuento": {
+          "id": "fldm9ySn2h9z02MeM",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Valor de la pérdida": {
+          "id": "fldjySY8jiV7ybiZI",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Pérdida por distribuir": {
+          "id": "fldiDcALwUzjheCHh",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Enlace proveedor (huella)": {
+          "id": "fldH1RIl0TGO2G5pt",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Enlace proveedor vence": {
+          "id": "fldLj2gbOHkSg8hO5",
+          "type": "dateTime"
+        },
+        "Último correo al proveedor": {
+          "id": "fld4rxVKGLTtbx7Wd",
+          "type": "multilineText",
+          "kind": "multilineText"
         }
       }
     },

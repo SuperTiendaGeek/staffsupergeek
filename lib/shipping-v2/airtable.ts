@@ -704,7 +704,7 @@ function normalizeAndValidatePaymentSupportInput(input: ShippingV2PagoMarkPaidIn
   if (!cuentaOrigenCanonica) {
     throw new Error("Cuenta origen no válida. Selecciona una opción existente.");
   }
-  if (!cleanString(input.transaccionId) && !cleanString(input.comprobanteUrl)) throw new Error("Ingresa comprobante o transacción ID para completar soporte.");
+  // Punto 9b: el comprobante es opcional; sin él el pago queda "Sin comprobante".
 
   return {
     ...input,
@@ -1500,6 +1500,7 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     costoMejoras: firstNumber(f["Costo de mejoras"]),
     unidadesDadasDeBaja: firstNumber(f["Unidades dadas de baja"]),
     unidadesEnPacking: firstNumber(f[F.unidadesEnPacking]),
+    unidadesCompradas: firstNumber(f[F.unidadesCompradas]),
     fleteAsignadoRegistro: firstNumber(f[F.fleteAsignadoRegistro]),
     arancelAsignadoRegistro: firstNumber(f[F.arancelAsignadoRegistro]),
     otrosCostosAsignadosRegistro: firstNumber(f[F.otrosCostosAsignadosRegistro]),
@@ -1644,6 +1645,8 @@ function summarizePaymentItem(item: ShippingV2Item) {
     costoProveedor: item.costoProveedor,
     cantidad: item.cantidad,
     esRegalo: item.esRegalo,
+    unidadesCompradas: item.unidadesCompradas ?? null,
+    unidadesEnPacking: item.unidadesEnPacking,
   };
 }
 
@@ -1684,6 +1687,7 @@ function mapPago(record: AirtableRecord, context: { labelsById?: Map<string, str
     metodoPago: firstString(f[F.metodoPago]),
     cuentaOrigen: firstString(f[F.cuentaOrigen]),
     transaccionId: firstString(f[F.transaccionId]),
+    orden: firstString(f[F.orden]),
     comprobante: mapAttachments(f[F.comprobante]),
     facturaProveedor: mapAttachments(f[F.facturaProveedor]),
     observacion: firstString(f[F.observacion]),
@@ -2860,8 +2864,11 @@ async function validateInlineItemFieldChange(input: {
     throw new Error("No se puede cambiar el proveedor de compra porque el Item ya tiene pago relacionado.");
   }
 
+  // Punto 9b: con "Unidades compradas" el pago ya no depende de la Cantidad
+  // actual, así que corregir la Cantidad (conteo de la tienda) no lo altera.
+  const cantidadAfectaPago = !(Number(input.item.unidadesCompradas) > 0);
   if (
-    (input.field === SHIPPING_V2_ITEM_FIELDS.cantidad || input.field === SHIPPING_V2_ITEM_FIELDS.costoProveedor) &&
+    ((input.field === SHIPPING_V2_ITEM_FIELDS.cantidad && cantidadAfectaPago) || input.field === SHIPPING_V2_ITEM_FIELDS.costoProveedor) &&
     await itemHasActiveV2PaymentLink(input.item, { ignorarHistoricos: true })
   ) {
     throw new Error(SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE);
@@ -2923,8 +2930,18 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
     }
   }
 
+  // Punto 9b: corregir la Cantidad de algo que todavía no está en un pago ni
+  // se vendió corrige también lo comprado (fue un error al registrar).
+  const compradasActual = Number(existing.unidadesCompradas) || 0;
+  const corrigeCompradas =
+    field === SHIPPING_V2_ITEM_FIELDS.cantidad &&
+    typeof normalizedValue === "number" &&
+    normalizedValue > 0 &&
+    !paymentLinkedIdsForItem(existing).length &&
+    (compradasActual === 0 || compradasActual === Number(existing.cantidad));
   const fields: Record<string, unknown> = {
     [field]: field === getOfficialSkuField() ? normalizeSku(cleanString(normalizedValue)) : normalizedValue,
+    ...(corrigeCompradas ? { [SHIPPING_V2_ITEM_FIELDS.unidadesCompradas]: normalizedValue } : {}),
     ...logisticsFlowFields,
     ...inspeccionFlowFields,
     [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
@@ -2979,6 +2996,8 @@ async function createShippingV2ItemRecord(
   const fields = getItemFields(input, {
     [getOfficialSkuField()]: sku,
     [SHIPPING_V2_ITEM_FIELDS.metodoAsignacionSku]: undefined,
+    // Punto 9b: lo que se compró queda fijo; el pago se calcula con esto.
+    [SHIPPING_V2_ITEM_FIELDS.unidadesCompradas]: typeof input.cantidad === "number" && input.cantidad > 0 ? input.cantidad : undefined,
     ...options.extraFields,
     [SHIPPING_V2_ITEM_FIELDS.fechaRegistro]: new Date().toISOString(),
     [SHIPPING_V2_ITEM_FIELDS.registradoPor]: options.registradoPor,
@@ -3413,7 +3432,7 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   }
 
   if (
-    (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) ||
+    ((nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) && !(Number(existing.unidadesCompradas) > 0)) ||
       nullableNumberChanged(normalizedInput.costoProveedor, existing.costoProveedor)) &&
     await itemHasActiveV2PaymentLink(existing, { ignorarHistoricos: true })
   ) {
@@ -3639,7 +3658,28 @@ export async function getShippingV2Pagos(access?: ShippingV2AccessContext) {
   const itemsById = new Map(items.map((item) => [item.id, item]));
   return records
     .map((record) => mapPago(record, { labelsById, itemsById }))
-    .filter((pago) => canAccessPago(pago, access));
+    .filter((pago) => canAccessPago(pago, access))
+    .map((pago) => sanitizePagoForAccess(pago, access));
+}
+
+/**
+ * Punto 9b (dueño, 12-oct): un proveedor con portal solo ve de sus pagos la
+ * fecha, el método, el nº de transacción, la orden y sus artículos. Nunca la
+ * cuenta o tarjeta, el comprobante, Finanzas ni quién lo registró.
+ */
+function sanitizePagoForAccess(pago: ShippingV2Pago, access?: ShippingV2AccessContext): ShippingV2Pago {
+  if (!access?.providerId) return pago;
+  return {
+    ...pago,
+    cuentaOrigen: undefined,
+    comprobante: [],
+    observacion: undefined,
+    registradoPor: undefined,
+    pagadoPor: undefined,
+    estadoIntegracionFinanzas: undefined,
+    movimientoFinanzasId: undefined,
+    movimientoFinanzasIds: [],
+  };
 }
 
 export async function getShippingV2PagoById(recordId: string, access?: ShippingV2AccessContext) {
@@ -3656,7 +3696,40 @@ export async function getShippingV2PagoById(recordId: string, access?: ShippingV
     itemsById: new Map(items.map((item) => [item.id, item])),
   });
   if (!canAccessPago(pago, access)) throw new Error("No tienes acceso a este pago.");
-  return pago;
+  return sanitizePagoForAccess(pago, access);
+}
+
+/**
+ * Punto 9b: completar un pago ya registrado con su comprobante (nº de
+ * transacción o enlace) y su orden. No toca montos, fechas ni Finanzas.
+ */
+export async function completarComprobanteShippingV2Pago(
+  recordId: string,
+  input: { transaccionId?: string; comprobanteUrl?: string; orden?: string },
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canManagePayments", "No tienes permiso para modificar pagos de Shipping.");
+  const pago = await getShippingV2PagoById(recordId, options.access);
+  if (normalizeStatus(String(pago.estadoPago)) === "anulado") throw new Error("Este pago está anulado.");
+  const transaccionId = cleanString(input.transaccionId);
+  const comprobanteUrl = cleanString(input.comprobanteUrl);
+  const orden = cleanString(input.orden);
+  if (!transaccionId && !comprobanteUrl && !orden) throw new Error("Escribe el nº de transacción, el enlace o la orden.");
+  const F = SHIPPING_V2_PAYMENT_FIELDS;
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.pagos), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{
+        id: pago.id,
+        fields: compactFields({
+          [F.transaccionId]: transaccionId || undefined,
+          [F.comprobante]: comprobanteUrl ? attachmentFromUrl(comprobanteUrl) : undefined,
+          [F.orden]: orden || undefined,
+        }),
+      }],
+    }),
+  });
+  return getShippingV2PagoById(pago.id, options.access);
 }
 
 function isCancelledItem(item: Pick<ShippingV2Item, "estado" | "estadoRevision" | "estadoTriangulacion" | "estadoDespiece">) {
@@ -3757,6 +3830,8 @@ function toPendingPaymentItem(item: ShippingV2Item, packingsById?: Map<string, S
     costoProveedor: item.costoProveedor,
     cantidad: item.cantidad,
     esRegalo: item.esRegalo,
+    unidadesCompradas: item.unidadesCompradas ?? null,
+    unidadesEnPacking: item.unidadesEnPacking,
     fechaRegistro: item.fechaRegistro,
     pagoV2ItemIds: item.pagoV2ItemIds,
     pagoV2RegaloIds: item.pagoV2RegaloIds,
@@ -3873,6 +3948,11 @@ export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessConte
   // está en "Falta respaldo" (itemsPendientes).
   const itemsPagadosSinPago: Extract<ShippingV2PagoSupportCard, { kind: "item" }>[] = [];
   const pagadosSinSoporte = [...itemsPagadosSinPago, ...pagosIncompletos];
+  const regalosEnCaja = canManagePayments
+    ? items
+      .filter((item) => item.esRegalo === true && Boolean(item.packingId) && !isCancelledItem(item) && !itemIsLinkedToActivePayment(item, pagosById))
+      .map((item) => toPendingPaymentItem(item, packingsById))
+    : [];
   return {
     pagos,
     proveedores: access?.providerId ? proveedores.filter((provider) => provider.id === access.providerId) : proveedores,
@@ -3890,6 +3970,7 @@ export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessConte
     },
     pagosCompletos,
     pagosRegistrados: pagos,
+    regalosEnCaja,
     summary: computePagosSummary(itemsPendientes, pagosPendientes, pagadosSinSoporte, pagosCompletos),
   };
 }
@@ -3967,6 +4048,7 @@ export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, opti
     [F.fechaCreacion]: new Date().toISOString(),
     [F.fechaVencimientoSugerida]: computeSuggestedDueDate(provider, input.fechaVencimientoSugerida),
     [F.observacion]: cleanString(input.observacion),
+    [F.orden]: cleanString(input.orden),
     [F.estadoIntegracionFinanzas]: estadoPago === "Pagado" ? "Pendiente de sincronizar" : "Pendiente de generar",
     [F.registradoPor]: options.registradoPor,
   });
@@ -8823,7 +8905,13 @@ async function moverActivoSinTurno(
     },
   });
   try {
-    await patch(id, { [F.cantidad]: total - cantidad });
+    // Punto 9b: si a la compra todavía le falta el respaldo, la parte separada
+    // se lleva sus unidades compradas (el total a respaldar no cambia).
+    const compradasOriginal = Number(item.unidadesCompradas) || 0;
+    await patch(id, {
+      [F.cantidad]: total - cantidad,
+      ...(requierePagoParteSeparada(pago) && compradasOriginal > 0 ? { [F.unidadesCompradas]: Math.max(compradasOriginal - cantidad, 0) } : {}),
+    });
   } catch (error) {
     console.error("CRÍTICO: se creó la parte separada pero no se descontó del original:", { original: item.sku, nuevo: nuevo.sku }, error);
     throw new Error(`Se creó ${nuevo.sku}, pero no se pudo descontar ${cantidad} unidad(es) de ${item.sku}. Corrige la cantidad de ${item.sku} a mano.`);

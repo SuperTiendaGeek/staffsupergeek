@@ -390,6 +390,8 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   requierePacking: boolean | null;
   pagoV2ItemIds: string[];
   pagoV2RegaloIds: string[];
+  /** Punto 9b: unidades compradas al proveedor (no cambia al vender). El pago = costo × esto. */
+  unidadesCompradas?: number | null;
   /**
    * Punto 9 (12-oct): situación del pago, calculada desde Shipping Pagos.
    * Solo viene en la lista de Artículos (y la ficha la calcula aparte).
@@ -524,6 +526,8 @@ export type ShippingV2Pago = ShippingV2RecordBase & {
   metodoPago?: string;
   cuentaOrigen?: string;
   transaccionId?: string;
+  /** Punto 9b: número de orden del proveedor (eBay, Amazon, factura…). */
+  orden?: string;
   comprobante: ShippingV2Attachment[];
   facturaProveedor: ShippingV2Attachment[];
   observacion?: string;
@@ -553,6 +557,8 @@ export type ShippingV2PagoItemResumen = Pick<
   | "costoProveedor"
   | "cantidad"
   | "esRegalo"
+  | "unidadesCompradas"
+  | "unidadesEnPacking"
 >;
 
 export type ShippingV2FinanzasMovimiento = ShippingV2RecordBase & {
@@ -585,6 +591,8 @@ export type ShippingV2PagoWriteInput = {
   cuentaOrigen?: string;
   transaccionId?: string;
   comprobanteUrl?: string;
+  /** Punto 9b: número de orden del proveedor. */
+  orden?: string;
 };
 
 export type ShippingV2PagoMarkPaidInput = {
@@ -891,6 +899,8 @@ export type ShippingV2PagoPendingItem = Pick<
   | "costoProveedor"
   | "cantidad"
   | "esRegalo"
+  | "unidadesCompradas"
+  | "unidadesEnPacking"
   | "fechaRegistro"
   | "pagoV2ItemIds"
   | "pagoV2RegaloIds"
@@ -949,6 +959,8 @@ export type ShippingV2PagosWorkspace = {
   };
   pagosCompletos: ShippingV2Pago[];
   pagosRegistrados: ShippingV2Pago[];
+  /** Punto 9b: regalos dentro de cajas, sin pago: se muestran en su caja y se adjuntan al pagarla. */
+  regalosEnCaja?: ShippingV2PagoPendingItem[];
   proveedores: ShippingV2Proveedor[];
   summary: ShippingV2PagosSummary;
 };
