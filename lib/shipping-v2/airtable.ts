@@ -1753,7 +1753,7 @@ function mapPacking(record: AirtableRecord): ShippingV2Packing {
     fechaRecepcion: firstString(f[F.fechaRecepcion]),
     cerradoPor: firstString(f[F.cerradoPor]),
     creadoPor: firstString(f[F.creadoPor]),
-    conNovedad: normalizeStatus(estado).includes("novedad") || normalizeStatus(estado) === "perdido en tienda",
+    conNovedad: normalizeStatus(estado).includes("novedad") || ["perdido en tienda", "extraviado"].includes(normalizeStatus(estado)),
   };
 }
 
@@ -5350,6 +5350,7 @@ export async function createShippingV2ItemNovedad(
     const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
     const validacion = validarRegistroNovedad({
       tipo: input.tipo,
+      responsable: input.responsable,
       descripcion: input.descripcion,
       bloquearVenta: input.bloquearVenta === true,
       // Solo el personal de la tienda registra (un proveedor nunca).
@@ -5889,9 +5890,11 @@ async function prepararDecisionNovedad(input: {
       if (!ev.ok) throw new Error(ev.motivo);
       fields[CAMPOS_NOVEDAD.cantidadAfectada] = cantidad;
       if (esPerdidoEnTienda(novedad.tipo)) {
-        // Cableado del punto 17: lo perdido queda valorado y "por distribuir".
+        // Cableado del punto 17: lo extraviado queda valorado. "Por
+        // distribuir" (descuento a los empleados) solo si se perdió EN LA
+        // TIENDA: ya había llegado y lo resolvemos nosotros.
         fields[CAMPOS_NOVEDAD.valorPerdida] = Math.round((item.costoTotalUnidad ?? 0) * cantidad * 100) / 100;
-        fields[CAMPOS_NOVEDAD.perdidaPorDistribuir] = true;
+        fields[CAMPOS_NOVEDAD.perdidaPorDistribuir] = item.recibido === true && !esResponsableProveedor(novedad.responsable);
       }
       if (cantidad >= total) input.desbloquear(`Sistema: el artículo salió (${decision})`);
       const motivo = `${devuelto ? "Devuelto al proveedor" : "Baja"} por la novedad ${ref}: ${texto}`;

@@ -293,10 +293,12 @@ export function ShippingV2InspeccionClient({
       const respuesta = await fetch(`/api/shipping-v2/recepcion/items/${item.id}/novedades`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Dañado = garantía del proveedor: se le notifica (punto 8). Sin
-        // proveedor de compra a quien reclamar, queda como asunto interno.
+        // Una falla de la inspección es "Falla de funcionamiento". El
+        // responsable se propone según el artículo: con proveedor de compra,
+        // el proveedor; sin él, SUPER GEEK.
         body: JSON.stringify({
-          tipo: item.proveedorId ? "Dañado" : "Asunto interno",
+          tipo: "Falla de funcionamiento",
+          responsable: item.proveedorId ? "Proveedor" : "SUPER GEEK",
           descripcion: `${zonaNombre} — ${puntoTexto}`,
           packingId: "",
           bloquearVenta,
@@ -584,7 +586,7 @@ export function ShippingV2InspeccionClient({
                             <p className="text-[11.5px] leading-relaxed text-[#E2A79E]">
                               {novedadHecha
                                 ? "Ya hay una novedad registrada para este punto. Agrégale la foto desde Novedades."
-                                : "Falla crítica: regístrala como novedad (Dañado) para reclamarla al proveedor con su evidencia."}
+                                : "Falla crítica: regístrala como novedad (Falla de funcionamiento) para resolverla con su evidencia."}
                             </p>
                             {!novedadHecha ? (
                               <div className="mt-2 flex flex-wrap items-center gap-3">

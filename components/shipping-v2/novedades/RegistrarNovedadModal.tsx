@@ -8,7 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ACCEPT_EVIDENCIAS, clasificarEvidencia, validarSeleccionEvidencias } from "@/lib/shipping-v2/evidencias";
-import { SHIPPING_V2_TIPOS_INTERNOS, SHIPPING_V2_TIPOS_PROVEEDOR, TIPO_PERDIDO_EN_TIENDA } from "@/lib/shipping-v2/novedades";
+import { esPerdidoEnTienda, responsablePorDefecto, SHIPPING_V2_TIPOS_NOVEDAD, type ShippingV2NovedadResponsable } from "@/lib/shipping-v2/novedades";
 import { EvidenciasInvalidasError, subirEvidenciasNovedad } from "@/lib/shipping-v2/subir-evidencias";
 import type { ShippingV2Item, ShippingV2Novedad } from "@/types/shipping-v2";
 
@@ -19,6 +19,8 @@ export function RegistrarNovedadModal({
   sku,
   nombre,
   packingId,
+  proveedorCompraId,
+  proveedorNombre,
   onClose,
   onSaved,
 }: {
@@ -26,9 +28,14 @@ export function RegistrarNovedadModal({
   sku?: string;
   nombre?: string;
   packingId?: string;
+  /** Proveedor de compra del artículo: decide si se puede elegir "Proveedor". */
+  proveedorCompraId?: string;
+  proveedorNombre?: string;
   onClose: () => void;
   onSaved: (resultado: NovedadRegistrada) => void;
 }) {
+  const tieneProveedor = Boolean(String(proveedorCompraId || "").trim());
+  const [responsable, setResponsable] = useState<ShippingV2NovedadResponsable>(responsablePorDefecto({ proveedorCompraId }));
   const [tipo, setTipo] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [bloquearVenta, setBloquearVenta] = useState(false);
@@ -40,7 +47,7 @@ export function RegistrarNovedadModal({
   // sube las evidencias (no se crea otra novedad).
   const [creada, setCreada] = useState<NovedadRegistrada | null>(null);
   const archivosInputRef = useRef<HTMLInputElement | null>(null);
-  const perdido = tipo === TIPO_PERDIDO_EN_TIENDA;
+  const perdido = esPerdidoEnTienda(tipo);
 
   useEffect(() => {
     const original = document.body.style.overflow;
@@ -70,7 +77,7 @@ export function RegistrarNovedadModal({
         const response = await fetch(`/api/shipping-v2/recepcion/items/${itemId}/novedades`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tipo, descripcion, bloquearVenta: perdido || bloquearVenta, packingId: packingId || "" }),
+          body: JSON.stringify({ tipo, responsable, descripcion, bloquearVenta: perdido || bloquearVenta, packingId: packingId || "" }),
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo registrar la novedad."));
@@ -108,11 +115,9 @@ export function RegistrarNovedadModal({
     }
   }
 
-  const chip = (activo: boolean, interno: boolean) =>
+  const chip = (activo: boolean) =>
     `rounded-lg border px-2.5 py-1 text-[12px] font-semibold transition disabled:opacity-50 ${
-      activo
-        ? interno ? "border-[#D7FF4F] bg-[#D7FF4F]/12 text-[#D7FF4F]" : "border-[#4FC3FF] bg-[#4FC3FF]/15 text-[#BDEAFF]"
-        : "border-[#3A3A36] bg-[#101010] text-[#A7A7A7] hover:text-[#F5F5F5]"
+      activo ? "border-[#D7FF4F] bg-[#D7FF4F]/12 text-[#D7FF4F]" : "border-[#3A3A36] bg-[#101010] text-[#A7A7A7] hover:text-[#F5F5F5]"
     }`;
 
   return (
@@ -124,32 +129,31 @@ export function RegistrarNovedadModal({
         </div>
 
         <div className="mt-3 grid gap-3">
-          {/* El tipo decide quién la resuelve: garantía del proveedor o nosotros. */}
-          <div className="grid gap-2 sm:grid-cols-[auto_1fr] sm:items-start">
-            <span className="pt-1 text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Proveedor</span>
+          {/* 1. Responsable: sale del artículo; se cambia solo si tiene proveedor. */}
+          <div className="grid grid-cols-[88px_1fr] items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Responsable</span>
             <div className="flex flex-wrap gap-1">
-              {SHIPPING_V2_TIPOS_PROVEEDOR.map((opcion) => (
-                <button key={opcion} type="button" disabled={Boolean(creada)} onClick={() => setTipo(opcion)} className={chip(tipo === opcion, false)}>{opcion}</button>
-              ))}
+              {tieneProveedor ? (
+                <button type="button" disabled={Boolean(creada)} onClick={() => setResponsable("Proveedor")} className={chip(responsable === "Proveedor")} title="Se le notifica para resolverla con él.">
+                  Proveedor{proveedorNombre ? ` · ${proveedorNombre}` : ""}
+                </button>
+              ) : null}
+              <button type="button" disabled={Boolean(creada)} onClick={() => setResponsable("SUPER GEEK")} className={chip(responsable === "SUPER GEEK")}>
+                SUPER GEEK
+              </button>
+              {!tieneProveedor ? <span className="self-center text-[11px] text-[#6F706B]">sin proveedor de compra</span> : null}
             </div>
-            <span className="pt-1 text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Interno</span>
+          </div>
+
+          {/* 2. Tipo: qué problema hay (sirve para cualquier responsable). */}
+          <div className="grid grid-cols-[88px_1fr] items-start gap-2">
+            <span className="pt-1.5 text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Tipo</span>
             <div className="flex flex-wrap gap-1">
-              {SHIPPING_V2_TIPOS_INTERNOS.map((opcion) => (
-                <button key={opcion} type="button" disabled={Boolean(creada)} onClick={() => setTipo(opcion)} className={chip(tipo === opcion, true)}>{opcion}</button>
+              {SHIPPING_V2_TIPOS_NOVEDAD.map((opcion) => (
+                <button key={opcion} type="button" disabled={Boolean(creada)} onClick={() => setTipo(opcion)} className={chip(tipo === opcion)}>{opcion}</button>
               ))}
             </div>
           </div>
-          {tipo ? (
-            <p className="-mt-1 text-[11px] text-[#8F908A]">
-              {(SHIPPING_V2_TIPOS_PROVEEDOR as readonly string[]).includes(tipo) ? "Garantía del proveedor: se le notifica para resolverla con él." : "La resolvemos nosotros."}
-            </p>
-          ) : null}
-
-          <label className={`flex items-center gap-2 ${perdido ? "cursor-not-allowed" : "cursor-pointer"}`} title="Impide reservar y vender el artículo. Solo un Administrador lo desbloquea.">
-            <input type="checkbox" checked={perdido || bloquearVenta} disabled={perdido || Boolean(creada)} onChange={(e) => setBloquearVenta(e.target.checked)} className="h-4 w-4 accent-[#FF6B6B]" />
-            <span className="text-[13px] font-semibold text-[#F5F5F5]">Bloquear venta</span>
-            <span className="text-[11px] text-[#8F908A]">{perdido ? "Lo perdido siempre se bloquea." : "Sin marcar, se puede vender avisando de la novedad."}</span>
-          </label>
 
           <label className="block">
             <span className="text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Descripción</span>
@@ -176,6 +180,13 @@ export function RegistrarNovedadModal({
               onChange={(e) => { agregarArchivos(Array.from(e.target.files || [])); if (archivosInputRef.current) archivosInputRef.current.value = ""; }} />
             {errorArchivos ? <p className="mt-1 text-[11px] text-[#FF9C9C]">{errorArchivos}</p> : null}
           </div>
+
+          {/* 4. Bloquear venta (lo extraviado siempre se bloquea). */}
+          <label className={`flex items-center gap-2 ${perdido ? "cursor-not-allowed" : "cursor-pointer"}`} title="Impide reservar y vender el artículo. Solo un Administrador lo desbloquea.">
+            <input type="checkbox" checked={perdido || bloquearVenta} disabled={perdido || Boolean(creada)} onChange={(e) => setBloquearVenta(e.target.checked)} className="h-4 w-4 accent-[#FF6B6B]" />
+            <span className="text-[13px] font-semibold text-[#F5F5F5]">Bloquear venta</span>
+            {perdido ? <span className="text-[11px] text-[#8F908A]">Lo extraviado siempre se bloquea.</span> : null}
+          </label>
         </div>
 
         {mensaje ? <p className="mt-2 text-sm font-semibold text-[#FFB07A]">{mensaje}</p> : null}

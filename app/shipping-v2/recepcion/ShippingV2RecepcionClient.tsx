@@ -1533,6 +1533,8 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
           sku={novedadItem.sku}
           nombre={novedadItem.nombre}
           packingId={novedadItem.packing?.id}
+          proveedorCompraId={novedadItem.proveedorId}
+          proveedorNombre={novedadItem.proveedorCompraDisplay || novedadItem.proveedorNombre || ""}
           onClose={() => setNovedadItem(null)}
           onSaved={({ item: actualizado, novedad, aviso }) => {
             setItems((current) => current.map((currentItem) => currentItem.id === actualizado.id ? actualizado : currentItem));

@@ -1254,7 +1254,7 @@ function NovedadesVinculadasCard({
 }: {
   novedades: ShippingV2Novedad[];
   providerLabelsById: Map<string, string>;
-  item: { id: string; sku?: string; nombre?: string; cantidad?: number | null; estado?: string | null; packingId?: string };
+  item: { id: string; sku?: string; nombre?: string; cantidad?: number | null; estado?: string | null; packingId?: string; proveedorId?: string };
   rol: ShippingV2NovedadRol;
   puedeRegistrar: boolean;
 }) {
@@ -1386,6 +1386,8 @@ function NovedadesVinculadasCard({
           sku={item.sku}
           nombre={item.nombre}
           packingId={item.packingId}
+          proveedorCompraId={item.proveedorId}
+          proveedorNombre={item.proveedorId ? providerLabelsById.get(item.proveedorId) : ""}
           onClose={() => setRegistrando(false)}
           onSaved={({ aviso: avisoRegistro }) => {
             setRegistrando(false);
@@ -2158,7 +2160,7 @@ export function ShippingV2ItemDetailView({
           <NovedadesVinculadasCard
             novedades={novedades ?? []}
             providerLabelsById={providerLabelsById}
-            item={{ id: item.id, sku: item.sku, nombre: item.nombre, cantidad: item.cantidad, estado: item.estado, packingId: item.packingId }}
+            item={{ id: item.id, sku: item.sku, nombre: item.nombre, cantidad: item.cantidad, estado: item.estado, packingId: item.packingId, proveedorId: item.proveedorId }}
             rol={rolNovedades}
             puedeRegistrar={(rolNovedades === "staff" || rolNovedades === "admin") && permissions?.canCreateNovedades !== false}
           />

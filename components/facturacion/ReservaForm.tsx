@@ -53,7 +53,7 @@ export function ReservaForm() {
     if (!item) { setError("Elige el ítem a reservar"); return; }
     if (montoAbono < minimo) { setError(`El abono inicial debe ser al menos ${mon(minimo)}`); return; }
     if (montoAbono > item.precio) { setError("El abono no puede superar el precio del ítem"); return; }
-    if (novedadPendiente) { setError("Falta escribir cómo se vende el ítem con novedad (cartel amarillo)."); return; }
+    if (novedadPendiente) { setError("Falta confirmar cómo se vende el ítem con novedad (cartel amarillo)."); return; }
     const avisoAlCrear = avisoNovedad;
 
     setGenerando(true);
@@ -162,6 +162,7 @@ export function ReservaForm() {
       <button onClick={generar} disabled={generando || !cliente.airtableId || !item || montoAbono < minimo || novedadPendiente} className="rounded-full bg-[#D7FF4F] text-[#151515] px-6 py-3 text-sm font-bold hover:brightness-105 disabled:opacity-40">
         {generando ? "Creando reserva…" : "Crear reserva →"}
       </button>
+      {item && novedadPendiente && avisoNovedad && avisoNovedad.cierres.length > 0 ? <span className="ml-3 text-xs font-semibold text-[#F0C75E]">Confirma el cartel amarillo para crear la reserva.</span> : null}
     </div>
   );
 }

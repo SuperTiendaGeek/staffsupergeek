@@ -102,7 +102,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
     if (saldo < -0.01) { setError(`Los abonos ya cobrados ($${sumaAbonos.toFixed(2)}) superan el total del recibo ($${total.toFixed(2)}). Revisa las líneas antes de emitir.`); return; }
     const sinStock = lineas.filter((l) => l.shippingItemId && l.stockDisponible !== undefined && l.cantidad > l.stockDisponible);
     if (sinStock.length > 0) { setError(`Sin stock: ${sinStock.map((l) => `"${l.descripcion}" (pide ${l.cantidad}, hay ${l.stockDisponible})`).join("; ")}`); return; }
-    if (novedadPendiente) { setError("Falta escribir cómo se vende el artículo con novedad (cartel amarillo)."); return; }
+    if (novedadPendiente) { setError("Falta confirmar cómo se vende el artículo con novedad (cartel amarillo)."); return; }
     const avisosAlEmitir = avisosLineas;
 
     setGenerando(true);
@@ -246,8 +246,9 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
 
       {error && <p className="mb-3 text-sm text-red-300 bg-red-950/30 border border-red-500/40 rounded-lg px-4 py-3">{error}</p>}
       <div className="flex items-center gap-3">
-        <button onClick={generar} disabled={generando || total <= 0 || novedadPendiente} title={novedadPendiente ? "Falta escribir cómo se vende el artículo con novedad" : undefined} className="rounded-full bg-[#D7FF4F] text-[#151515] px-6 py-3 text-sm font-bold hover:brightness-105 disabled:opacity-40">{generando ? "Generando…" : "Generar Recibo →"}</button>
-        <Link href="/facturacion/recibos" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Ver recibos</Link>
+        <button onClick={generar} disabled={generando || total <= 0 || novedadPendiente} title={novedadPendiente ? "Falta confirmar cómo se vende el artículo con novedad" : undefined} className="rounded-full bg-[#D7FF4F] text-[#151515] px-6 py-3 text-sm font-bold hover:brightness-105 disabled:opacity-40">{generando ? "Generando…" : "Generar Recibo →"}</button>
+{novedadPendiente ? <span className="text-xs font-semibold text-[#F0C75E]">Confirma el cartel amarillo para generar.</span> : null}
+                <Link href="/facturacion/recibos" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Ver recibos</Link>
       </div>
     </div>
   );
