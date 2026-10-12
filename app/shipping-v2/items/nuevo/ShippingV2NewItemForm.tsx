@@ -36,6 +36,18 @@ import { canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { requisitosFaltantesItem } from "@/lib/shipping-v2/item-requisitos";
 import { ACCEPT_FOTOS_ITEM, validarSeleccionFotosItem } from "@/lib/shipping-v2/fotos-item";
 import { FotosInvalidasError, subirFotosItem } from "@/lib/shipping-v2/subir-fotos-item";
+import { validarRespaldo } from "@/lib/shipping-v2/pagos-situacion";
+import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+
+// Punto 9 (12-oct): toda compra ya está pagada; lo que puede faltar es el
+// respaldo. Si se tiene a mano, se registra aquí mismo (crea el pago y su
+// egreso en Finanzas). Si no, queda en Pagos → "Falta respaldo".
+const METODOS_PAGO = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((m) => m !== "No aplica");
+const CUENTAS_PAGO = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((c) => c !== "No aplica");
+function hoyLocal() {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
 
 /** Caja (packing "En Proceso") a la que se puede agregar el artículo al registrarlo. */
 export type ShippingV2CajaAbierta = {
@@ -51,6 +63,8 @@ type Props = {
   cajasAbiertas: ShippingV2CajaAbierta[];
   /** Punto 4: llega desde "Registrar activo" (pestaña Activos de la tienda). */
   esActivoInicial?: boolean;
+  /** Punto 9: solo quien maneja Pagos puede registrar el respaldo al registrar. */
+  puedeRegistrarRespaldo?: boolean;
 };
 
 /** Punto 4 (8-oct): ¿es mercadería para vender o un activo de la tienda? */
@@ -63,6 +77,7 @@ type SelectedPhoto = {
 };
 
 type ViajeOpcion = "solo" | "caja" | "nose";
+type RespaldoOpcion = "despues" | "ahora";
 
 type FormState = {
   destino: Destino;
@@ -95,6 +110,13 @@ type FormState = {
   trackingLocal: string;
   viaje: ViajeOpcion;
   packingDestinoId: string;
+  // Respaldo del pago (punto 9)
+  respaldo: RespaldoOpcion;
+  respaldoFecha: string;
+  respaldoMetodo: string;
+  respaldoCuenta: string;
+  respaldoTransaccion: string;
+  respaldoComprobanteUrl: string;
 };
 
 function firstOption(options: readonly string[]) {
@@ -130,6 +152,12 @@ const initialState: FormState = {
   trackingLocal: "",
   viaje: "nose",
   packingDestinoId: "",
+  respaldo: "despues",
+  respaldoFecha: "",
+  respaldoMetodo: "Transferencia bancaria",
+  respaldoCuenta: "",
+  respaldoTransaccion: "",
+  respaldoComprobanteUrl: "",
 };
 
 // Diseño (8-oct): pantalla de uso diario. Etiquetas cortas, controles
@@ -239,7 +267,7 @@ function formatMoneyPreview(value: number | null) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
 
-export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInicial = false }: Props) {
+export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInicial = false, puedeRegistrarRespaldo = false }: Props) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>({ ...initialState, destino: esActivoInicial ? "activo" : "mercaderia" });
   const esActivo = form.destino === "activo";
@@ -301,8 +329,21 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
   const showCategoryWarning = submitAttempted && !form.categoria;
   const showOrigenWarning = submitAttempted && !form.origen;
 
+  const pideRespaldo = puedeRegistrarRespaldo && calculatedFlow.requierePago && !isGiftOperation;
+  const respaldoAhora = pideRespaldo && form.respaldo === "ahora";
+  const errorRespaldo = respaldoAhora
+    ? validarRespaldo({
+      fechaPagoReal: form.respaldoFecha,
+      metodoPago: form.respaldoMetodo,
+      cuentaOrigen: form.respaldoCuenta,
+      transaccionId: form.respaldoTransaccion,
+      comprobanteUrl: form.respaldoComprobanteUrl,
+    })
+    : null;
+
   const requisitosFaltantes = [
     ...(form.origen ? [] : [{ mensaje: "Elige dónde está el artículo." }]),
+    ...(errorRespaldo ? [{ mensaje: `Respaldo: ${errorRespaldo}` }] : []),
     ...(form.viaje === "caja" && !form.packingDestinoId ? [{ mensaje: "Elige la caja en la que viaja, o marca que viaja solo." }] : []),
     ...requisitosFaltantesItem({
       categoria: form.categoria,
@@ -437,6 +478,12 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
       trackingDirecto: local && !enCaja ? form.trackingLocal : "",
       transportistaEcuadorId: (extranjero || local) && !enCaja ? form.transportistaEcuadorId : "",
       packingDestinoId: enCaja ? form.packingDestinoId : "",
+      respaldoAhora: respaldoAhora ? "true" : "false",
+      respaldoFecha: respaldoAhora ? form.respaldoFecha : "",
+      respaldoMetodo: respaldoAhora ? form.respaldoMetodo : "",
+      respaldoCuenta: respaldoAhora ? form.respaldoCuenta : "",
+      respaldoTransaccion: respaldoAhora ? form.respaldoTransaccion : "",
+      respaldoComprobanteUrl: respaldoAhora ? form.respaldoComprobanteUrl : "",
     };
     const formData = new FormData();
     Object.entries(campos).forEach(([key, value]) => formData.set(key, value));
@@ -465,7 +512,7 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
       }
     }
 
-    const avisos = [payload.packingWarning, avisoFotos].filter(Boolean).join(" ");
+    const avisos = [payload.packingWarning, payload.respaldoWarning, avisoFotos].filter(Boolean).join(" ");
     const notice = `${esActivo ? "Activo" : "Artículo"} ${creado?.sku || ""} creado.${avisos ? ` ${avisos}` : ""}`;
     window.sessionStorage.setItem("shipping-v2:notice", notice);
     router.push(esActivo ? "/shipping-v2/activos" : "/shipping-v2/items");
@@ -480,7 +527,7 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
     vieneDeAfuera && form.viaje !== "caja" && (form.trackingOrigen || form.trackingEcuador || form.trackingLocal) ? "En tránsito" : null,
     vieneDeAfuera && form.viaje === "caja" && form.packingDestinoId ? "En caja" : null,
     origen && requiereInspeccion ? "Con inspección" : null,
-    calculatedFlow.requierePago ? "Por pagar" : null,
+    calculatedFlow.requierePago && !isGiftOperation ? (respaldoAhora ? "Con respaldo" : "Falta respaldo") : null,
   ].filter(Boolean) as string[];
 
   const transportistasEc = transportistasEcuador.length ? transportistasEcuador : logisticos;
@@ -614,6 +661,44 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
                 </>
               ) : null}
             </div>
+            {pideRespaldo ? (
+              <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
+                <Field label="Respaldo del pago" grupo className="xl:col-span-3">
+                  <Seg<RespaldoOpcion>
+                    value={form.respaldo}
+                    onChange={(v) => setForm((current) => ({ ...current, respaldo: v, respaldoFecha: current.respaldoFecha || hoyLocal() }))}
+                    options={[
+                      { value: "despues", label: "Después", title: "Queda en Pagos → Falta respaldo." },
+                      { value: "ahora", label: "Ahora", title: "Registra el pago y su egreso en Finanzas." },
+                    ]}
+                  />
+                </Field>
+                {form.respaldo === "ahora" ? (
+                  <>
+                    <Field label="Fecha" required className="xl:col-span-2">
+                      <TextInput type="date" value={form.respaldoFecha} onChange={(event) => update("respaldoFecha", event.target.value)} />
+                    </Field>
+                    <Field label="Método" className="xl:col-span-2">
+                      <SelectInput value={form.respaldoMetodo} onChange={(event) => update("respaldoMetodo", event.target.value)}>
+                        {METODOS_PAGO.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </SelectInput>
+                    </Field>
+                    <Field label="Cuenta" required className="xl:col-span-2">
+                      <SelectInput value={form.respaldoCuenta} onChange={(event) => update("respaldoCuenta", event.target.value)}>
+                        <option value="">—</option>
+                        {CUENTAS_PAGO.map((c) => <option key={c} value={c}>{c.trim()}</option>)}
+                      </SelectInput>
+                    </Field>
+                    <Field label="Nº transacción" className="xl:col-span-1">
+                      <TextInput value={form.respaldoTransaccion} onChange={(event) => update("respaldoTransaccion", event.target.value)} />
+                    </Field>
+                    <Field label="Enlace comprobante" className="xl:col-span-2">
+                      <TextInput value={form.respaldoComprobanteUrl} onChange={(event) => update("respaldoComprobanteUrl", event.target.value)} placeholder="o nº de transacción" />
+                    </Field>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
           </Section>
 
           {vieneDeAfuera ? (

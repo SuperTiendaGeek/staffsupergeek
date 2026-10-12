@@ -65,7 +65,7 @@ export default async function ShippingV2NewItemPage({ searchParams }: { searchPa
             <p className="mt-2 text-sm leading-6 text-orange-100/85">{error}</p>
           </section>
         ) : null}
-        <ShippingV2NewItemForm proveedores={proveedores} cajasAbiertas={cajasAbiertas} esActivoInicial={esActivo} />
+        <ShippingV2NewItemForm proveedores={proveedores} cajasAbiertas={cajasAbiertas} esActivoInicial={esActivo} puedeRegistrarRespaldo={access.permissions.canManagePayments === true} />
       </div>
     </div>
     </StaffAppShell>

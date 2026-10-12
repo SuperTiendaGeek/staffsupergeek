@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { addFotosToShippingV2Item, addItemsToShippingV2Packing, canShippingV2, createShippingV2Item, getShippingV2AccessContextForSession, getShippingV2Items, type ShippingV2AttachmentUpload } from "@/lib/shipping-v2/airtable";
+import { addFotosToShippingV2Item, addItemsToShippingV2Packing, canShippingV2, createShippingV2Item, createShippingV2Pago, getShippingV2AccessContextForSession, getShippingV2Items, type ShippingV2AttachmentUpload } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ShippingV2ItemWriteInput } from "@/types/shipping-v2";
 import { validarFotosItem } from "@/lib/shipping-v2/fotos-item";
+import { validarRespaldo, type RespaldoAlRegistrar } from "@/lib/shipping-v2/pagos-situacion";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,20 @@ function parseInput(body: Record<string, unknown>): ShippingV2ItemWriteInput {
     packingDestinoId: String(body.packingDestinoId ?? ""),
     // Punto 4 (8-oct): "¿Para qué es?" → activo de la tienda.
     usoLocal: toBoolean(body.usoLocal),
+  };
+}
+
+/** Punto 9: datos del respaldo del pago, solo si se eligió "Ahora". */
+function leerRespaldo(body: Record<string, unknown>): RespaldoAlRegistrar | null {
+  if (String(body.respaldoAhora ?? "") !== "true") return null;
+  const fecha = String(body.respaldoFecha ?? "").trim();
+  return {
+    // Solo la fecha: se guarda al mediodía de Ecuador para que no cambie de día.
+    fechaPagoReal: /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? `${fecha}T17:00:00.000Z` : fecha,
+    metodoPago: String(body.respaldoMetodo ?? "").trim(),
+    cuentaOrigen: String(body.respaldoCuenta ?? ""),
+    transaccionId: String(body.respaldoTransaccion ?? "").trim(),
+    comprobanteUrl: String(body.respaldoComprobanteUrl ?? "").trim(),
   };
 }
 
@@ -141,6 +156,20 @@ export async function POST(request: Request) {
     }
 
     const input = parseInput(body);
+
+    // Punto 9 (12-oct): respaldo del pago al registrar la compra (opcional).
+    // Se valida ANTES de crear el artículo para no dejar nada a medias por un
+    // dato mal escrito; si después falla el registro del pago, el artículo
+    // queda creado y aparece en Pagos → "Falta respaldo".
+    const respaldo = leerRespaldo(body);
+    if (respaldo) {
+      if (!canShippingV2(access, "canManagePayments")) {
+        return NextResponse.json({ success: false, error: "No tienes permiso para registrar el respaldo del pago. Regístralo después desde Pagos." }, { status: 403 });
+      }
+      const errorRespaldo = validarRespaldo(respaldo);
+      if (errorRespaldo) return NextResponse.json({ success: false, error: `Respaldo: ${errorRespaldo}` }, { status: 400 });
+    }
+
     const item = await createShippingV2Item(input, {
       registradoPor: getShippingV2SessionName(session),
     });
@@ -160,6 +189,34 @@ export async function POST(request: Request) {
         packingWarning = `El artículo se creó, pero no se pudo agregar a la caja: ${
           packingError instanceof Error ? packingError.message : "error inesperado"
         }. Agrégalo desde Logística.`;
+      }
+    }
+    let respaldoWarning = "";
+    if (respaldo) {
+      if (!item.requierePago || item.esRegalo || !item.proveedorId) {
+        respaldoWarning = "Este artículo no genera pago: no se registró respaldo.";
+      } else {
+        try {
+          await createShippingV2Pago(
+            {
+              proveedorId: item.proveedorId,
+              itemIds: [item.id],
+              regalosIds: [],
+              estadoPago: "Pagado",
+              fechaPagoReal: respaldo.fechaPagoReal ?? undefined,
+              metodoPago: respaldo.metodoPago ?? undefined,
+              cuentaOrigen: respaldo.cuentaOrigen ?? undefined,
+              transaccionId: respaldo.transaccionId ?? undefined,
+              comprobanteUrl: respaldo.comprobanteUrl ?? undefined,
+              observacion: `Respaldo registrado al crear ${item.sku || "el artículo"}.`,
+            },
+            { registradoPor: getShippingV2SessionName(session), access }
+          );
+        } catch (pagoError) {
+          respaldoWarning = `El artículo se creó, pero no se pudo registrar el respaldo: ${
+            pagoError instanceof Error ? pagoError.message : "error inesperado"
+          }. Regístralo desde Pagos → Falta respaldo.`;
+        }
       }
     }
     let photoUploadStatus: "none" | "complete" | "partial" | "failed" = fotos.length > 0 ? "complete" : "none";
@@ -195,7 +252,8 @@ export async function POST(request: Request) {
       photoUploadStatus,
       photoWarning,
       packingWarning: packingWarning || undefined,
-      warning: [photoWarning, packingWarning].filter(Boolean).join(" ") || undefined,
+      respaldoWarning: respaldoWarning || undefined,
+      warning: [photoWarning, packingWarning, respaldoWarning].filter(Boolean).join(" ") || undefined,
     }, { status: 201 });
   } catch (error) {
     console.error("Error al crear item Shipping V2:", error);

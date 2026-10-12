@@ -84,6 +84,12 @@ import {
   type ArticuloParaMovimiento,
 } from "@/lib/shipping-v2/activos";
 import {
+  ESTADO_INICIAL_EN_CAMINO,
+  esPagoHistorico,
+  faltaRespaldo,
+  type SituacionPago,
+} from "@/lib/shipping-v2/pagos-situacion";
+import {
   CATEGORIAS_REPUESTO_STOCK,
   ESTADO_AGOTADO,
   cambiosPiezaTrasConsumo,
@@ -901,7 +907,7 @@ function validateItemInput(input: ShippingV2ItemWriteInput) {
  * `momento` decide qué pasa con el Estado Item:
  *
  *  · "alta"    → el estado lo pone la regla. Un artículo que nace como "Compra
- *                a proveedor" arranca en "Pendiente de pago".
+ *                a proveedor" arranca en "Registrado" (punto 9: el pago se ve aparte).
  *  · "edicion" → el estado NO se toca. La regla devuelve siempre el estado
  *                INICIAL del tipo de operación, así que aplicarla a un artículo
  *                que ya avanzó lo mandaría hacia atrás: uno "Disponible" o
@@ -2088,11 +2094,11 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
     const labelsById = createShippingV2ProveedorLabelMap(proveedores);
 
     return {
-      items: records
+      items: await adjuntarSituacionPago(records
         .map((record) => mapItem(record, options))
         .map((item) => applyItemProviderLabels(item, labelsById))
         .filter((item) => canAccessItem(item, options.access))
-        .map((item) => sanitizeShippingV2ItemForAccess(item, options.access, options)),
+        .map((item) => sanitizeShippingV2ItemForAccess(item, options.access, options))),
       nextOffset: undefined,
       pageSize,
     };
@@ -2111,11 +2117,11 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
 
   return {
-    items: page.records
+    items: await adjuntarSituacionPago(page.records
       .map((record) => mapItem(record, options))
       .map((item) => applyItemProviderLabels(item, labelsById))
       .filter((item) => canAccessItem(item, options.access))
-      .map((item) => sanitizeShippingV2ItemForAccess(item, options.access, options)),
+      .map((item) => sanitizeShippingV2ItemForAccess(item, options.access, options))),
     nextOffset: page.nextOffset,
     pageSize,
   };
@@ -2856,7 +2862,7 @@ async function validateInlineItemFieldChange(input: {
 
   if (
     (input.field === SHIPPING_V2_ITEM_FIELDS.cantidad || input.field === SHIPPING_V2_ITEM_FIELDS.costoProveedor) &&
-    await itemHasActiveV2PaymentLink(input.item)
+    await itemHasActiveV2PaymentLink(input.item, { ignorarHistoricos: true })
   ) {
     throw new Error(SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE);
   }
@@ -3196,7 +3202,9 @@ export async function createShippingV2ItemFromOperacion(
     // orden de reparación es, por definición, una pieza para ese equipo.
     tipoItem: input.desdePresupuesto || categoria === "Repuesto" ? "Repuesto" : "Equipo completo",
     categoria,
-    estado: "Pendiente de pago",
+    // Punto 9 (12-oct): el pago no es una etapa del estado. Nace "Registrado"
+    // y su pago se ve aparte ("Falta respaldo" hasta subir el comprobante).
+    estado: ESTADO_INICIAL_EN_CAMINO,
     // Todo pedido que llega DIRECTO (sin packing) nace "Pendiente de
     // recepción" para aparecer en /shipping-v2/recepcion: ahí se marca
     // Recibido. Antes solo los del presupuesto de una orden lo hacían, y los
@@ -3213,7 +3221,7 @@ export async function createShippingV2ItemFromOperacion(
     // VENDEN cuando el artículo llega (item-venta.ts). Antes nacían apagadas
     // y no había camino para publicarlas (C-1).
     disponibleVenta: calcularDisponibleVenta({
-      estado: "Pendiente de pago",
+      estado: ESTADO_INICIAL_EN_CAMINO,
       unidadesLibres: cantidad - cantidadReservada,
     }),
     requiereInspeccion: requiereInspeccionPorDefecto({ categoria }),
@@ -3407,7 +3415,7 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   if (
     (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) ||
       nullableNumberChanged(normalizedInput.costoProveedor, existing.costoProveedor)) &&
-    await itemHasActiveV2PaymentLink(existing)
+    await itemHasActiveV2PaymentLink(existing, { ignorarHistoricos: true })
   ) {
     throw new Error(SHIPPING_V2_ACTIVE_PAYMENT_ITEM_LOCK_MESSAGE);
   }
@@ -3666,10 +3674,6 @@ function paymentLinkedIdsForItem(item: Pick<ShippingV2Item, "pagoV2ItemIds" | "p
   return [...item.pagoV2ItemIds, ...item.pagoV2RegaloIds].map(cleanString).filter(Boolean);
 }
 
-function isPaidItemCandidate(item: Pick<ShippingV2Item, "estado" | "tipoOperacion">) {
-  return normalizeStatus(item.estado) === "pagado" || normalizeStatus(item.tipoOperacion) === "compra ya pagada";
-}
-
 function providerRequiredForPayment(item: Pick<ShippingV2Item, "tipoOperacion" | "requierePago">) {
   if (!item.requierePago) return false;
   return ["compra a proveedor", "compra ya pagada"].includes(normalizeStatus(item.tipoOperacion));
@@ -3683,12 +3687,21 @@ function itemIsLinkedToActivePayment(item: Pick<ShippingV2Item, "pagoV2ItemIds" 
   });
 }
 
-async function itemHasActiveV2PaymentLink(item: Pick<ShippingV2Item, "pagoV2ItemIds" | "pagoV2RegaloIds">) {
+async function itemHasActiveV2PaymentLink(
+  item: Pick<ShippingV2Item, "pagoV2ItemIds" | "pagoV2RegaloIds">,
+  options: { ignorarHistoricos?: boolean } = {}
+) {
   const paymentIds = paymentLinkedIdsForItem(item);
   if (!paymentIds.length) return false;
   const pagos = await getShippingV2Pagos(systemShippingV2Access());
-  const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
-  return itemIsLinkedToActivePayment(item, pagosById);
+  // Punto 9: el pago histórico solo deja constancia (sin monto real ni egreso):
+  // no congela la cantidad ni el costo del artículo.
+  const considerados = options.ignorarHistoricos ? pagos.filter((pago) => !esPagoHistorico(pago)) : pagos;
+  const pagosById = new Map(considerados.map((pago) => [pago.id, pago]));
+  const vinculados = options.ignorarHistoricos
+    ? { pagoV2ItemIds: item.pagoV2ItemIds.filter((id) => !pagos.some((p) => p.id === id && esPagoHistorico(p))), pagoV2RegaloIds: item.pagoV2RegaloIds.filter((id) => !pagos.some((p) => p.id === id && esPagoHistorico(p))) }
+    : item;
+  return itemIsLinkedToActivePayment(vinculados, pagosById);
 }
 
 function paymentSubtotalOrZero(item: ShippingV2PaymentItemLike) {
@@ -3754,6 +3767,9 @@ function toPendingPaymentItem(item: ShippingV2Item, packingsById?: Map<string, S
 }
 
 function getPaymentSupportMissing(pago: ShippingV2Pago) {
+  // Punto 9: el pago histórico (compras pagadas antes del 12-oct) no pide
+  // soporte ni egreso, por decisión del dueño.
+  if (esPagoHistorico(pago)) return [];
   const missing: string[] = [];
   const metodo = normalizeStatus(pago.metodoPago ?? "");
   const cuenta = normalizeStatus(pago.cuentaOrigen ?? "");
@@ -3811,42 +3827,17 @@ export async function getShippingV2PendingPaymentItems(context?: { pagos?: Shipp
   const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
   const packingsById = new Map(packings.map((packing) => [packing.id, packing]));
   return items
-    .filter((item) => {
-      if (!item.requierePago) return false;
-      if (item.esRegalo) return false;
-      if (isCancelledItem(item)) return false;
-      if (providerRequiredForPayment(item) && !item.proveedorId) return false;
-      if (itemIsLinkedToActivePayment(item, pagosById)) return false;
-      if (isPaidItemCandidate(item)) return false;
-      return true;
-    })
+    // Punto 9 (12-oct): ningún proveedor da crédito. Toda compra sin un pago
+    // registrado es "Falta respaldo" (antes se separaba en "Por pagar" y
+    // "Pagados sin soporte" leyendo el Estado Item, que se perdía al viajar).
+    .filter((item) => faltaRespaldo({
+      requierePago: item.requierePago,
+      esRegalo: item.esRegalo,
+      cancelado: isCancelledItem(item),
+      faltaProveedor: providerRequiredForPayment(item) && !item.proveedorId,
+      enPagoVivo: itemIsLinkedToActivePayment(item, pagosById),
+    }))
     .map((item) => toPendingPaymentItem(item, packingsById));
-}
-
-function getPaidItemsWithoutSupport(items: ShippingV2Item[], pagosById: Map<string, ShippingV2Pago>, packingsById: Map<string, ShippingV2Packing>): ShippingV2PagoSupportCard[] {
-  return items
-    .filter((item) => {
-      if (!item.requierePago) return false;
-      if (item.esRegalo) return false;
-      if (isCancelledItem(item)) return false;
-      if (providerRequiredForPayment(item) && !item.proveedorId) return false;
-      if (itemIsLinkedToActivePayment(item, pagosById)) return false;
-      return isPaidItemCandidate(item);
-    })
-    .map((item) => {
-      const pendingItem = toPendingPaymentItem(item, packingsById);
-      const missing = ["Pago Shipping V2", "Movimiento puente"];
-      if (!item.costoProveedor) missing.push("Costo proveedor");
-      return {
-        kind: "item" as const,
-        id: item.id,
-        item: pendingItem,
-        proveedorId: item.proveedorId,
-        proveedorNombre: item.proveedorNombre,
-        total: paymentSubtotalOrZero(item),
-        missing,
-      };
-    });
 }
 
 export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessContext): Promise<ShippingV2PagosWorkspace> {
@@ -3878,9 +3869,9 @@ export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessConte
       total: pago.totalPagado ?? pago.totalAPagar,
       missing: getPaymentSupportMissing(pago),
     })) : [];
-  const itemsPagadosSinPago = canManagePayments
-    ? getPaidItemsWithoutSupport(items, pagosById, packingsById).filter((card): card is Extract<ShippingV2PagoSupportCard, { kind: "item" }> => card.kind === "item")
-    : [];
+  // Punto 9: ya no hay "items pagados sin pago": todo lo que no tiene pago
+  // está en "Falta respaldo" (itemsPendientes).
+  const itemsPagadosSinPago: Extract<ShippingV2PagoSupportCard, { kind: "item" }>[] = [];
   const pagadosSinSoporte = [...itemsPagadosSinPago, ...pagosIncompletos];
   return {
     pagos,
@@ -3964,13 +3955,8 @@ export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, opti
   const F = SHIPPING_V2_PAYMENT_FIELDS;
   const requestedStatus = cleanString(input.estadoPago);
   const estadoPago = normalizeStatus(requestedStatus) === "pagado" ? "Pagado" : requestedStatus || "Pendiente";
-  if (estadoPago === "Pagado") {
-    normalizeAndValidatePaymentSupportInput(input);
-    const notPaidSupportItem = items.find((item) => !isPaidItemCandidate(item));
-    if (notPaidSupportItem) {
-      throw new Error(`El item ${notPaidSupportItem.sku} no está marcado como Pagado ni como Compra ya pagada.`);
-    }
-  }
+  // Punto 9: registrar el respaldo de cualquier compra (todas ya están pagadas).
+  if (estadoPago === "Pagado") normalizeAndValidatePaymentSupportInput(input);
   const fields = compactFields({
     [F.pagoId]: generatePaymentId(),
     [F.estadoPago]: estadoPago,
@@ -4059,37 +4045,6 @@ async function createFinanceMovementForPago(pago: ShippingV2Pago, input: Shippin
   return movimiento.id;
 }
 
-function canMoveItemToPaidAfterPayment(item: ShippingV2Item) {
-  const estado = normalizeStatus(item.estado);
-  if (estado === "pendiente de pago") return true;
-  if (estado === "registrado" && item.requierePago) return true;
-  return false;
-}
-
-async function updateItemsToPaidAfterPayment(pago: Pick<ShippingV2Pago, "itemIds">) {
-  const uniqueItemIds = Array.from(new Set(pago.itemIds.map(cleanString).filter(Boolean)));
-  if (!uniqueItemIds.length) return;
-
-  const items = await Promise.all(uniqueItemIds.map((id) => getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() })));
-  const records = items
-    .filter(canMoveItemToPaidAfterPayment)
-    .map((item) => ({
-      id: item.id,
-      fields: {
-        [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Pagado",
-        [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
-      },
-    }));
-
-  if (!records.length) return;
-  for (let index = 0; index < records.length; index += 10) {
-    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
-      method: "PATCH",
-      body: JSON.stringify({ records: records.slice(index, index + 10) }),
-    });
-  }
-}
-
 export async function markShippingV2PagoAsPaid(recordId: string, input: ShippingV2PagoMarkPaidInput, options: { registradoPor: string; access?: ShippingV2AccessContext }) {
   assertShippingV2Permission(options.access, "canManagePayments", "No tienes permiso para marcar pagos de Shipping.");
   const pago = await getShippingV2PagoById(recordId, options.access);
@@ -4116,7 +4071,8 @@ export async function markShippingV2PagoAsPaid(recordId: string, input: Shipping
     method: "PATCH",
     body: JSON.stringify({ records: [{ id: pago.id, fields }] }),
   });
-  await updateItemsToPaidAfterPayment(pago);
+  // Punto 9: el pago ya no toca el Estado Item (antes lo ponía "Pagado" y esa
+  // marca se perdía al viajar). La situación del pago se lee de los pagos.
   return getShippingV2PagoById(pago.id, options.access);
 }
 
@@ -8589,6 +8545,42 @@ async function situacionPagoDeItem(item: ShippingV2Item) {
     return { estado: r ? firstString(r.fields[SHIPPING_V2_PAYMENT_FIELDS.estadoPago]) : "desconocido" };
   });
   return situacionPago({ requierePago: item.requierePago, esRegalo: item.esRegalo, pagos: estados });
+}
+
+/** Punto 9: situación del pago de un artículo, para la ficha. */
+export async function getShippingV2SituacionPagoDeItem(item: ShippingV2Item): Promise<SituacionPago> {
+  return situacionPagoDeItem(item);
+}
+
+/**
+ * Punto 9: agrega a cada artículo la situación de su pago (lista de
+ * Artículos). Lee solo el estado de los pagos vinculados (la tabla es chica).
+ * Si no se puede leer, el artículo queda sin dato (no se inventa nada).
+ */
+async function adjuntarSituacionPago(items: ShippingV2Item[]): Promise<ShippingV2Item[]> {
+  const ids = Array.from(new Set(items.flatMap((item) => [...item.pagoV2ItemIds, ...item.pagoV2RegaloIds]).map(cleanString).filter(Boolean)));
+  let estadoPorPago = new Map<string, string>();
+  if (ids.length) {
+    try {
+      const pagos = await listRecordsByIds(SHIPPING_V2_TABLES.pagos, ids);
+      estadoPorPago = new Map(pagos.map((r) => [r.id, firstString(r.fields[SHIPPING_V2_PAYMENT_FIELDS.estadoPago])]));
+    } catch (error) {
+      console.warn("[Shipping V2] No se pudo leer el estado de los pagos para la lista:", error);
+      return items;
+    }
+  }
+  return items.map((item) => {
+    const vinculados = [...item.pagoV2ItemIds, ...item.pagoV2RegaloIds].map(cleanString).filter(Boolean);
+    return {
+      ...item,
+      situacionPago: situacionPago({
+        requierePago: item.requierePago,
+        esRegalo: item.esRegalo,
+        // Un pago que no se pudo leer cuenta como "en curso" (fail-closed).
+        pagos: vinculados.map((pid) => ({ estado: estadoPorPago.get(pid) ?? "desconocido" })),
+      }),
+    };
+  });
 }
 
 /**

@@ -42,7 +42,8 @@ assert(!estadoSeCorrigeAMano({ estado: "Vendido" }) && estadoSeCorrigeAMano({ es
 
 console.log("\n— Coherencia con la llegada —");
 assert(!est(enTienda, "En tránsito"), "Recibido no vuelve a En tránsito (se desmarca en Recepción)");
-assert(est(enCamino, "Pagado"), "En camino: se corrige entre etapas de camino");
+assert(est(enCamino, "Pendiente de packing"), "En camino: se corrige entre etapas de camino");
+assert(!est(enCamino, "Pagado") && !est(enCamino, "Pendiente de pago"), "Punto 9: las etapas de pago ya no se eligen");
 assert(!est(enCamino, "Disponible"), "Sin Recibido no queda Disponible");
 assert(!est(enCamino, "En packing"), "En packing solo si está en una caja");
 assert(est({ ...enCamino, enPacking: true }, "En packing"), "En una caja: sí");

@@ -4,7 +4,9 @@ import Link from "next/link";
 import { Fragment, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { calculateShippingV2PaymentItemSubtotal, calculateShippingV2PaymentItemsTotal } from "@/lib/shipping-v2/payment-calculations";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
-import type { ShippingV2AccessPermissions, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagoSupportCard, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
+import type { ShippingV2AccessPermissions, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
+
+import { esPagoHistorico } from "@/lib/shipping-v2/pagos-situacion";
 
 type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string; permissions: ShippingV2AccessPermissions | null; providerName?: string };
 type TabKey = "pendientes" | "sin-soporte" | "registrados";
@@ -167,6 +169,8 @@ function workspaceFallback(): ShippingV2PagosWorkspace {
 }
 
 function paymentSupportMissing(pago: ShippingV2Pago) {
+  // Punto 9: el pago histórico (antes del 12-oct) no pide soporte.
+  if (esPagoHistorico(pago)) return [];
   const metodo = normalize(pago.metodoPago);
   const cuenta = normalize(pago.cuentaOrigen);
   const finanzas = normalize(pago.estadoIntegracionFinanzas);
@@ -430,7 +434,7 @@ function CreatePaymentModal({ selectedItems, registerPaidDefault, onClose, onCre
       <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#1B1B1B] p-4 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">{registerPaidDefault ? "Registrar pago ya realizado" : "Crear pago pendiente"}</p>
+            <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">{registerPaidDefault ? "Registrar respaldo del pago" : "Crear pago pendiente"}</p>
             <h2 className="mt-1 text-2xl font-semibold text-[#F5F5F5]">{providerName}</h2>
             <p className="mt-1 text-sm text-[#A7A7A7]">{paidItems.length} items · {money(total)}</p>
           </div>
@@ -459,7 +463,7 @@ function CreatePaymentModal({ selectedItems, registerPaidDefault, onClose, onCre
         ) : null}
         <textarea value={form.observacion} onChange={(event) => setForm((current) => ({ ...current, observacion: event.target.value }))} placeholder="Observación" className="mt-4 min-h-24 w-full rounded-[1rem] border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5]" />
         <div className="mt-5 flex justify-end">
-          <button disabled={busy || !sameProvider || !providerId || !selectedItems.length || validationErrors.length > 0} onClick={() => void createPayment()} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] disabled:opacity-50">{busy ? "Guardando..." : registerPaidDefault ? "Registrar pago" : "Crear pago pendiente"}</button>
+          <button disabled={busy || !sameProvider || !providerId || !selectedItems.length || validationErrors.length > 0} onClick={() => void createPayment()} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] disabled:opacity-50">{busy ? "Guardando..." : registerPaidDefault ? "Registrar respaldo" : "Crear pago pendiente"}</button>
         </div>
       </section>
     </div>
@@ -567,25 +571,6 @@ function PendingItemRow({ item, selected, onToggle }: { item: ShippingV2PagoPend
   );
 }
 
-function SupportItemRow({ card, selected, onToggle }: { card: Extract<ShippingV2PagoSupportCard, { kind: "item" }>; selected: boolean; onToggle: () => void }) {
-  const item = card.item;
-  const calculation = paymentItemCalculation(item);
-  return (
-    <tr className="border-t border-[#3A3A36]/70 hover:bg-[#20211F]">
-      <td className="px-4 py-3"><input aria-label={`Seleccionar ${item.sku}`} type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 accent-[#D7FF4F]" /></td>
-      <td className="px-4 py-3 font-semibold text-[#FFB4A8]">{item.sku}</td>
-      <td className="px-4 py-3 text-[#F5F5F5]">{item.nombre || "-"}</td>
-      <td className="px-4 py-3 text-[#A7A7A7]">{item.proveedorNombre || "-"}</td>
-      <td className="px-4 py-3 text-[#A7A7A7]">{item.tipoOperacion || "-"}</td>
-      <td className="px-4 py-3"><Badge tone="support">Sin pago V2</Badge></td>
-      <td className="px-4 py-3 text-[#F5F5F5]">{item.cantidad ?? "-"}</td>
-      <td className="px-4 py-3 text-[#F5F5F5]">{money(item.costoProveedor)}</td>
-      <td className="px-4 py-3 text-[#F5F5F5]">{calculation.error ? "—" : money(calculation.subtotal)}</td>
-      <td className="px-4 py-3 text-[#A7A7A7]">{dateText(item.fechaRegistro)}</td>
-    </tr>
-  );
-}
-
 function PagoRow({ pago, expanded, canManage, onToggle, onRegister, onComplete, onDetail }: { pago: ShippingV2Pago; expanded: boolean; canManage: boolean; onToggle: () => void; onRegister: () => void; onComplete: () => void; onDetail: () => void }) {
   const missing = paymentSupportMissing(pago);
   const isPaid = normalize(pago.estadoPago) === "pagado";
@@ -597,7 +582,7 @@ function PagoRow({ pago, expanded, canManage, onToggle, onRegister, onComplete, 
         <td className="px-4 py-3"><button onClick={onToggle} className="rounded-full border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5]">{expanded ? "Ocultar" : "Abrir"}</button></td>
         <td className="px-4 py-3 font-semibold text-[#D7FF4F]">{pago.pagoId}</td>
         <td className="px-4 py-3 text-[#A7A7A7]">{pago.proveedorNombre || "-"}</td>
-        <td className="px-4 py-3"><Badge tone={isPaid ? "lime" : "yellow"}>{pago.estadoPago}</Badge></td>
+        <td className="px-4 py-3"><Badge tone={isPaid ? "lime" : "yellow"}>{pago.estadoPago}</Badge>{esPagoHistorico(pago) ? <span className="ml-1"><Badge>Histórico</Badge></span> : null}</td>
         <td className="px-4 py-3 text-[#F5F5F5]">{pago.cantidadItems} / {pago.cantidadRegalos}</td>
         <td className="px-4 py-3 text-[#F5F5F5]">{money(pago.totalPagado ?? pago.totalAPagar)}</td>
         <td className="px-4 py-3 text-[#A7A7A7]">{dateText(pago.fechaCreacion)}</td>
@@ -647,7 +632,6 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
   const [activeTab, setActiveTab] = useState<TabKey>(permissions?.canManagePayments === false ? "registrados" : "pendientes");
   const [filters, setFilters] = useState<FilterState>({ query: "", proveedor: ALL, estadoPago: ALL, metodoPago: ALL, estadoFinanzas: ALL, tipoOperacion: ALL });
   const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([]);
-  const [selectedSupportIds, setSelectedSupportIds] = useState<string[]>([]);
   const [createItems, setCreateItems] = useState<ShippingV2PagoPendingItem[]>([]);
   const [createPaid, setCreatePaid] = useState(false);
   const [selectedPago, setSelectedPago] = useState<ShippingV2Pago | null>(null);
@@ -693,15 +677,11 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
     return { grupos, sueltos };
   }, [pendingItems]);
   const pendingPayments = useMemo(() => workspace.pendientes.pagosPendientes.filter((pago) => pagoMatches(pago, filters)), [filters, workspace.pendientes.pagosPendientes]);
-  const supportItems = useMemo(() => workspace.sinSoporte.itemsPagadosSinPago.filter((card) => itemMatches(card.item, filters)), [filters, workspace.sinSoporte.itemsPagadosSinPago]);
   const incompletePayments = useMemo(() => workspace.sinSoporte.pagosIncompletos.filter((card) => pagoMatches(card.pago, filters)), [filters, workspace.sinSoporte.pagosIncompletos]);
   const registeredPayments = useMemo(() => (workspace.pagosRegistrados.length ? workspace.pagosRegistrados : workspace.pagos).filter((pago) => pagoMatches(pago, filters)), [filters, workspace.pagos, workspace.pagosRegistrados]);
   const selectedPendingItems = pendingItems.filter((item) => selectedPendingIds.includes(item.id));
-  const selectedSupportItems = supportItems.map((card) => card.item).filter((item) => selectedSupportIds.includes(item.id));
   const pendingProvider = selectedPendingItems[0]?.proveedorId || "";
-  const supportProvider = selectedSupportItems[0]?.proveedorId || "";
   const canCreatePending = selectedPendingItems.length > 0 && selectedPendingItems.every((item) => item.proveedorId && item.proveedorId === pendingProvider);
-  const canCreatePaid = selectedSupportItems.length > 0 && selectedSupportItems.every((item) => item.proveedorId && item.proveedorId === supportProvider);
 
   async function refreshWorkspace() {
     const response = await fetch("/api/shipping-v2/pagos", { cache: "no-store" });
@@ -722,7 +702,6 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
       summary: payload.summary ?? fallback.summary,
     });
     setSelectedPendingIds([]);
-    setSelectedSupportIds([]);
   }
 
   function updateFilter(key: keyof FilterState, value: string) {
@@ -755,8 +734,8 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
 
   const tabs: Array<{ key: TabKey; label: string; count: number }> = canManagePayments
     ? [
-      { key: "pendientes", label: "Pendientes", count: pendingItems.length + pendingPayments.length },
-      { key: "sin-soporte", label: "Sin soporte", count: supportItems.length + incompletePayments.length },
+      { key: "pendientes", label: "Falta respaldo", count: pendingItems.length + pendingPayments.length },
+      { key: "sin-soporte", label: "Sin comprobante", count: incompletePayments.length },
       { key: "registrados", label: "Pagos registrados", count: registeredPayments.length },
     ]
     : [
@@ -782,9 +761,9 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
       {error ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{error}</div> : null}
 
       <section className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Total pendiente" value={money(workspace.summary.totalPorPagar)} tone="yellow" />
-        <Kpi label="Total sin soporte" value={money(workspace.summary.totalPagadoSinSoporte)} tone="support" />
-        <Kpi label="Total pagado registrado" value={money(workspace.summary.totalPagadoCompleto)} tone="lime" />
+        <Kpi label="Falta respaldo" value={money(workspace.summary.totalPorPagar)} tone="yellow" />
+        <Kpi label="Pagos sin comprobante" value={money(workspace.summary.totalPagadoSinSoporte)} tone="support" />
+        <Kpi label="Pagado con respaldo" value={money(workspace.summary.totalPagadoCompleto)} tone="lime" />
         <Kpi label="Pagos incompletos o en revisión" value={workspace.summary.incompletos + workspace.pagos.filter((pago) => normalize(pago.estadoPago).includes("revision")).length} tone="muted" />
       </section>
 
@@ -816,11 +795,11 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
             <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
             <div className="flex flex-col gap-2 border-b border-[#30312D] bg-[#20211D] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Items pendientes sin pago V2</h2>
+                <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Compras sin respaldo</h2>
                 <p className="mt-0.5 text-xs text-[#A7A7A7]">{selectedPendingItems.length} seleccionados · {money(paymentItemsTotal(selectedPendingItems))}</p>
               </div>
               {canManagePayments ? (
-                <button disabled={!canCreatePending} onClick={() => openCreate(selectedPendingItems, false)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Crear pago pendiente agrupado</button>
+                <button disabled={!canCreatePending} title={selectedPendingItems.length && !canCreatePending ? "Selecciona compras de un solo proveedor" : undefined} onClick={() => openCreate(selectedPendingItems, true)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Registrar respaldo</button>
               ) : null}
             </div>
             <div className="overflow-x-auto">
@@ -852,48 +831,31 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
                   ) : null}
                 </tbody>
               </table>
-              {!pendingItems.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay items pendientes con estos filtros.</p> : null}
+              {!pendingItems.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">Todas las compras tienen su respaldo.</p> : null}
             </div>
           </div>
           ) : null}
+          {pendingPayments.length || !canManagePayments ? (
           <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
             <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
-              <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Pagos reales pendientes</h2>
+              <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Respaldos en registro</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1180px] text-left text-sm">
                 <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "Pago ID", "Proveedor", "Estado", "Items/Regalos", "Total", "Creación", "Fecha real", "Método", "Finanzas", "Acciones"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
                 <tbody>{pendingPayments.map((pago) => <PagoRow key={pago.id} pago={pago} expanded={expandedPagoIds.includes(pago.id)} canManage={canManagePayments} onToggle={() => toggleId(pago.id, setExpandedPagoIds)} onRegister={() => setSelectedPago(pago)} onComplete={() => setSelectedPago(pago)} onDetail={() => setSelectedPago(pago)} />)}</tbody>
               </table>
-              {!pendingPayments.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay pagos pendientes con estos filtros.</p> : null}
             </div>
           </div>
+          ) : null}
         </section>
       ) : null}
 
       {activeTab === "sin-soporte" ? (
         <section className="space-y-2.5">
           <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
-            <div className="flex flex-col gap-2 border-b border-[#30312D] bg-[#20211D] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Items pagados sin pago V2</h2>
-                <p className="mt-0.5 text-xs text-[#A7A7A7]">{selectedSupportItems.length} seleccionados · {money(paymentItemsTotal(selectedSupportItems))}</p>
-              </div>
-              {canManagePayments ? (
-                <button disabled={!canCreatePaid} onClick={() => openCreate(selectedSupportItems, true)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Registrar pago ya realizado agrupado</button>
-              ) : null}
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1160px] text-left text-sm">
-                <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "SKU", "Nombre", "Proveedor", "Operación", "Badge", "Cantidad", "Costo unit.", "Subtotal", "Registro"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
-                <tbody>{supportItems.map((card) => <SupportItemRow key={card.id} card={card} selected={selectedSupportIds.includes(card.item.id)} onToggle={() => toggleId(card.item.id, setSelectedSupportIds)} />)}</tbody>
-              </table>
-              {!supportItems.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay items sin soporte con estos filtros.</p> : null}
-            </div>
-          </div>
-          <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
             <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
-              <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Pagos reales incompletos</h2>
+              <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Pagos sin comprobante</h2>
             </div>
             <div className="grid gap-2 p-2">
               {incompletePayments.map((card) => (
@@ -909,7 +871,7 @@ function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
                   <div className="mt-2"><MissingList missing={card.missing} /></div>
                 </article>
               ))}
-              {!incompletePayments.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay pagos incompletos con estos filtros.</p> : null}
+              {!incompletePayments.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">Todos los pagos tienen su comprobante.</p> : null}
             </div>
           </div>
         </section>

@@ -32,12 +32,16 @@ function normalize(value?: string | null) {
 export type CampoCorregible = "estado" | "revision";
 
 /** Etiquetas del camino ANTES de que el artículo llegue a la tienda. */
+// Punto 9 (12-oct): "Pendiente de pago" y "Pagado" ya no son etapas del
+// estado (el pago se ve aparte, desde Pagos); siguen contando como "antes de
+// llegar" para leer datos viejos, pero no se ofrecen.
 const ANTES_DE_LLEGAR = ["Registrado", "Pendiente de pago", "Pagado", "Pendiente de packing", "En packing", "En tránsito"] as const;
+const ETAPAS_DE_PAGO = new Set(["pendiente de pago", "pagado"]);
 /** Etiquetas de un artículo que YA está en la tienda. */
 const EN_LA_TIENDA = ["Recibido", "En revisión", "Disponible", "Reservado"] as const;
 
 /** Lo único que un Administrador puede elegir al corregir el Estado Item. */
-export const ESTADOS_CORREGIBLES: readonly string[] = [...ANTES_DE_LLEGAR, ...EN_LA_TIENDA, "Cancelado"];
+export const ESTADOS_CORREGIBLES: readonly string[] = [...ANTES_DE_LLEGAR.filter((e) => !ETAPAS_DE_PAGO.has(normalize(e))), ...EN_LA_TIENDA, "Cancelado"];
 
 /** Lo único que un Administrador puede elegir al corregir el Estado de revisión. */
 export const REVISIONES_CORREGIBLES: readonly string[] = [
@@ -48,7 +52,7 @@ export const REVISIONES_CORREGIBLES: readonly string[] = [
 ];
 
 /** Estados que ya no se usan (punto 5): no se ofrecen en ningún lado. */
-export const ESTADOS_RETIRADOS: readonly string[] = ["Usado en reparación", "En garantía con proveedor", "Archivado", "Migrado"];
+export const ESTADOS_RETIRADOS: readonly string[] = ["Usado en reparación", "En garantía con proveedor", "Archivado", "Migrado", "Pendiente de pago", "Pagado"];
 
 /** Etiquetas que solo pone (y quita) su propia acción. */
 const SOLO_SU_ACCION: Record<string, string> = {

@@ -16,6 +16,7 @@ import {
   getShippingV2NovedadesForItem,
   getShippingV2PackingById,
   getShippingV2PagoById,
+  getShippingV2SituacionPagoDeItem,
   getShippingV2Proveedores,
   type ShippingV2ItemNavigation,
 } from "@/lib/shipping-v2/airtable";
@@ -126,7 +127,12 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
     proveedores = access.providerId ? loadedProveedores.filter((provider) => provider.id === access.providerId) : loadedProveedores;
     novedades = loadedNovedades;
     navigation = loadedNavigation;
-    item = ocultarCamposDeObjeto(resolveItem(loadedItem, proveedores), camposOcultos);
+    // Punto 9: la situación del pago se calcula desde Shipping Pagos (no del estado).
+    const situacionPago = await getShippingV2SituacionPagoDeItem(loadedItem).catch((pagoError) => {
+      console.warn("No se pudo calcular la situación del pago del item Shipping V2:", pagoError);
+      return undefined;
+    });
+    item = ocultarCamposDeObjeto(resolveItem({ ...loadedItem, situacionPago }, proveedores), camposOcultos);
     const [loadedPago, loadedPacking] = await Promise.all([
       item.pagoId ? getShippingV2PagoById(item.pagoId, access).catch((relatedError) => {
         console.warn("No se pudo cargar pago relacionado del item Shipping V2:", relatedError);
