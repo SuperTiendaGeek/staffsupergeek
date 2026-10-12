@@ -40,6 +40,7 @@ const ITEM_FLOW_RANK: Record<string, number> = {
   "en revision": 4,
   "con novedad": 4,
   "perdido en tienda": 4,
+  extraviado: 4,
   "en garantia con proveedor": 4,
   // Ya salió de recepción: intocable por una transición de packing
   disponible: 5,

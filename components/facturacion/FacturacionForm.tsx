@@ -734,7 +734,7 @@ export function FacturacionForm({
     setDuplicadoReciente(null);
 
     // Punto 8b: un artículo con novedad abierta se vende solo con la aclaración escrita.
-    if (novedadPendiente) { setErrGlobal("Falta escribir cómo se vende el artículo con novedad (cartel amarillo)."); return; }
+    if (novedadPendiente) { setErrGlobal("Falta confirmar cómo se vende el artículo con novedad (cartel amarillo)."); return; }
     const avisosAlEmitir = avisosLineas;
 
     // Validaciones de cliente
@@ -1340,7 +1340,7 @@ export function FacturacionForm({
             <button
               onClick={() => handleEmitir()}
               disabled={emitiendo || guardandoBorrador || !clienteOk || lineas.length === 0 || !!resultado || excedeLimiteConsumidor || novedadPendiente}
-              title={novedadPendiente ? "Falta escribir cómo se vende el artículo con novedad" : undefined}
+              title={novedadPendiente ? "Falta confirmar cómo se vende el artículo con novedad" : undefined}
               className={[
                 "rounded-full border px-6 py-2.5 text-sm font-bold transition",
                 "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] hover:brightness-105",
@@ -1355,6 +1355,7 @@ export function FacturacionForm({
                 "Emitir Factura →"
               )}
             </button>
+            {novedadPendiente ? <span className="text-xs font-semibold text-[#F0C75E]">Confirma el cartel amarillo del artículo con novedad para emitir.</span> : null}
             <button
               onClick={handleGuardarBorrador}
               disabled={emitiendo || guardandoBorrador || lineas.length === 0}

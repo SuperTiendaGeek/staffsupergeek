@@ -19,7 +19,8 @@ import {
   isNovedadAbierta,
   isNovedadCerrada,
   normalizarEstadoNovedad,
-  responsableDeTipo,
+  responsablePorDefecto,
+  SHIPPING_V2_TIPOS_NOVEDAD,
   SHIPPING_V2_DECISIONES_ARTICULO,
   SHIPPING_V2_NOVEDAD_ACCIONES,
   SHIPPING_V2_NOVEDAD_ESTADOS,
@@ -39,40 +40,50 @@ assert(normalizarEstadoNovedad("Enviada a proveedor") === "Abierta", "Un estado 
 assert(normalizarEstadoNovedad("Rechazada") === "Cerrada" && normalizarEstadoNovedad("Cerrada sin respuesta") === "Cerrada", "Rechazada y Cerrada sin respuesta se leen como Cerrada");
 assert(isNovedadAbierta("Estado inventado"), "Un estado desconocido cuenta como abierto (fail-closed)");
 
-console.log("— El tipo decide quién resuelve —");
-for (const t of ["Incompleto", "Dañado", "Diferente al comprado", "Observación menor"]) {
-  assert(responsableDeTipo(t) === "Proveedor", `${t} → garantía del proveedor`);
-}
-assert(responsableDeTipo("Asunto interno") === "SUPER GEEK" && responsableDeTipo("Perdido en tienda") === "SUPER GEEK", "Asunto interno y Perdido en tienda los resolvemos nosotros");
-assert(responsableDeTipo("Faltante") === null && responsableDeTipo("Otro") === null && responsableDeTipo("Garantía") === null, "Faltante, Otro y Garantía ya no existen");
+console.log("— Responsable y tipo, por separado (11-oct) —");
+assert(SHIPPING_V2_TIPOS_NOVEDAD.join("|") === "Dañado|Falla de funcionamiento|Incompleto|Diferente al esperado|Extraviado|Otro", "Los 6 tipos del dueño");
+assert(responsablePorDefecto({ proveedorCompraId: "recProv" }) === "Proveedor", "Con proveedor de compra se propone Proveedor");
+assert(responsablePorDefecto({ proveedorCompraId: "" }) === "SUPER GEEK", "Sin proveedor (p. ej. pieza de despiece) → SUPER GEEK");
 
 console.log("— Registrar —");
 const enTienda = { estado: "Disponible", cantidad: 1, recibido: true, proveedorCompraId: "recProv" };
 let r = validarRegistroNovedad({ tipo: "Dañado", descripcion: "Carcasa rota", esPersonalTienda: true, articulo: enTienda });
-assert(r.ok && r.responsable === "Proveedor" && r.bloqueaVenta === false, "Dañado sin marcar la casilla → va al proveedor y NO bloquea");
+assert(r.ok && r.responsable === "Proveedor" && r.bloqueaVenta === false, "Sin elegir responsable: Proveedor (tiene proveedor) y sin bloqueo");
+r = validarRegistroNovedad({ tipo: "Dañado", responsable: "SUPER GEEK", descripcion: "Carcasa rota", esPersonalTienda: true, articulo: enTienda });
+assert(r.ok && r.responsable === "SUPER GEEK", "Se puede cambiar a SUPER GEEK aunque tenga proveedor");
+r = validarRegistroNovedad({ tipo: "Falla de funcionamiento", responsable: "Proveedor", descripcion: "No enciende", esPersonalTienda: true, articulo: { ...enTienda, proveedorCompraId: "" } });
+assert(!r.ok && r.motivo.includes("SUPER GEEK"), "Sin proveedor de compra no se puede elegir Proveedor");
+r = validarRegistroNovedad({ tipo: "Otro", descripcion: "Algo", esPersonalTienda: true, articulo: { ...enTienda, proveedorCompraId: "" } });
+assert(r.ok && r.responsable === "SUPER GEEK", "Sin proveedor y sin elegir → SUPER GEEK");
+for (const tipo of SHIPPING_V2_TIPOS_NOVEDAD) {
+  const a = validarRegistroNovedad({ tipo, responsable: "Proveedor", descripcion: "x", esPersonalTienda: true, articulo: enTienda });
+  const b = validarRegistroNovedad({ tipo, responsable: "SUPER GEEK", descripcion: "x", esPersonalTienda: true, articulo: enTienda });
+  assert(a.ok && b.ok, `"${tipo}" sirve para Proveedor y para SUPER GEEK`);
+}
 r = validarRegistroNovedad({ tipo: "Dañado", descripcion: "Carcasa rota", bloquearVenta: true, esPersonalTienda: true, articulo: enTienda });
 assert(r.ok && r.bloqueaVenta === true, "Con la casilla marcada, bloquea");
-r = validarRegistroNovedad({ tipo: "Perdido en tienda", descripcion: "No aparece", esPersonalTienda: true, articulo: enTienda });
-assert(r.ok && r.bloqueaVenta === true && r.responsable === "SUPER GEEK", "Perdido en tienda SIEMPRE bloquea y es interno");
-r = validarRegistroNovedad({ tipo: "Perdido en tienda", descripcion: "x", esPersonalTienda: true, articulo: { ...enTienda, recibido: false } });
-assert(!r.ok, "Perdido en tienda exige que ya haya llegado");
+r = validarRegistroNovedad({ tipo: "Extraviado", descripcion: "No aparece", esPersonalTienda: true, articulo: enTienda });
+assert(r.ok && r.bloqueaVenta === true, "Extraviado SIEMPRE bloquea");
+r = validarRegistroNovedad({ tipo: "Extraviado", responsable: "Proveedor", descripcion: "No llegó en la caja", esPersonalTienda: true, articulo: { ...enTienda, recibido: false } });
+assert(r.ok, "Extraviado también sirve para algo que se perdió antes de llegar (con el proveedor)");
 r = validarRegistroNovedad({ tipo: "Dañado", descripcion: "x", esPersonalTienda: true, articulo: { ...enTienda, estado: "Vendido", cantidad: 0 } });
 assert(!r.ok && r.motivo.includes("orden de reparación"), "F-5: sobre algo vendido no se registra; se indica la orden de reparación");
 r = validarRegistroNovedad({ tipo: "Dañado", descripcion: "x", esPersonalTienda: true, articulo: { ...enTienda, estado: "Disponible", cantidad: 0 } });
 assert(!r.ok, "Con 0 unidades tampoco");
 for (const estado of ["Agotado", "Dado de baja", "Destinado a partes"]) {
-  assert(!validarRegistroNovedad({ tipo: "Asunto interno", descripcion: "x", esPersonalTienda: true, articulo: { ...enTienda, estado } }).ok, `Tampoco en "${estado}"`);
+  assert(!validarRegistroNovedad({ tipo: "Otro", descripcion: "x", esPersonalTienda: true, articulo: { ...enTienda, estado } }).ok, `Tampoco en "${estado}"`);
 }
-r = validarRegistroNovedad({ tipo: "Incompleto", descripcion: "x", esPersonalTienda: true, articulo: { ...enTienda, proveedorCompraId: "" } });
-assert(!r.ok && r.motivo.includes("Asunto interno"), "Sin proveedor de compra no se puede reclamar: sugiere Asunto interno");
 assert(!validarRegistroNovedad({ tipo: "Dañado", descripcion: "x", esPersonalTienda: false, articulo: enTienda }).ok, "Un proveedor no registra novedades");
-assert(!validarRegistroNovedad({ tipo: "Faltante", descripcion: "x", esPersonalTienda: true, articulo: enTienda }).ok, "Faltante ya no se acepta");
+for (const viejo of ["Faltante", "Asunto interno", "Observación menor", "Perdido en tienda"]) {
+  assert(!validarRegistroNovedad({ tipo: viejo, descripcion: "x", esPersonalTienda: true, articulo: enTienda }).ok, `"${viejo}" ya no se ofrece para registrar`);
+}
 assert(!validarRegistroNovedad({ tipo: "Dañado", descripcion: "  ", esPersonalTienda: true, articulo: enTienda }).ok, "La descripción es obligatoria");
 
 console.log("— Bloqueo —");
 assert(esNovedadBloqueante({ bloqueaVenta: true }) && !esNovedadBloqueante({ bloqueaVenta: false }), "Solo la casilla decide el bloqueo");
 assert(etiquetaDeBloqueo([{ tipo: "Dañado", bloqueaVenta: true }]) === "Con novedad", "Bloqueado por daño → Con novedad");
-assert(etiquetaDeBloqueo([{ tipo: "Dañado", bloqueaVenta: true }, { tipo: "Perdido en tienda", bloqueaVenta: true }]) === "Perdido en tienda", "Si está perdido, manda Perdido en tienda");
+assert(etiquetaDeBloqueo([{ tipo: "Dañado", bloqueaVenta: true }, { tipo: "Extraviado", bloqueaVenta: true }]) === "Extraviado", "Si está extraviado, manda Extraviado");
+assert(etiquetaDeBloqueo([{ tipo: "Perdido en tienda", bloqueaVenta: true }]) === "Extraviado", "El nombre anterior (Perdido en tienda) se trata como Extraviado");
 assert(etiquetaDeBloqueo([{ tipo: "Dañado", bloqueaVenta: false }]) === null, "Sin bloqueos, no hay etiqueta");
 assert(estadoPrevioParaRestaurar([
   { estadoPrevioArticulo: "Con novedad", fechaRegistro: "2026-10-02" },
@@ -133,7 +144,8 @@ assert(!validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "staff",
 assert(!validarAccionNovedad({ accion: "resolver", novedad: nInt, rol: "staff", valores: { decision: "Reparado", texto: "x", pendienteProveedor: true } }).ok, "Una interna no queda esperando al proveedor");
 assert(!validarAccionNovedad({ accion: "resolver", novedad: nProv, rol: "staff", valores: { decision: "Reparado", texto: "x", desbloquear: true } }).ok, "El personal no puede desbloquear al resolver");
 const nPerdido = { estado: "Abierta", responsable: "SUPER GEEK", tipo: "Perdido en tienda", bloqueaVenta: true };
-assert(getDecisionesPermitidas({ tipo: "Perdido en tienda", isSiteAdmin: true }).map((d) => d.valor).join("|") === "No requiere solución|Dar de baja|No procedía", "Perdido: apareció, se da de baja o no procedía");
+assert(getDecisionesPermitidas({ tipo: "Extraviado", isSiteAdmin: true }).map((d) => d.valor).join("|") === "No requiere solución|Dar de baja|No procedía", "Extraviado: apareció, se da de baja o no procedía");
+assert(getDecisionesPermitidas({ tipo: "Perdido en tienda", isSiteAdmin: true }).length === 3, "…igual para los registros viejos «Perdido en tienda»");
 assert(!validarAccionNovedad({ accion: "resolver", novedad: nPerdido, rol: "staff", valores: { decision: "No requiere solución", texto: "apareció" } }).ok, "Si apareció, hay que anotar dónde o cómo");
 assert(validarAccionNovedad({ accion: "resolver", novedad: nPerdido, rol: "staff", valores: { decision: "No requiere solución", texto: "apareció", comoAparecio: "En la bodega" } }).ok, "…anotándolo, pasa");
 

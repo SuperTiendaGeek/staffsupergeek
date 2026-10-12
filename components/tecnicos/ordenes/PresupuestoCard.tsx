@@ -367,7 +367,7 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
   async function guardar() {
     setError(null);
     const conAviso = b.tipo === "Repuesto" && Boolean(b.itemId);
-    if (conAviso && avisoNovedad?.pendiente !== false) { setError("Falta escribir cómo se usa el repuesto con novedad (cartel amarillo)."); return; }
+    if (conAviso && avisoNovedad?.pendiente !== false) { setError("Falta confirmar cómo se usa el repuesto con novedad (cartel amarillo)."); return; }
     const avisoAlGuardar = conAviso ? avisoNovedad : null;
     const descripcionLinea = b.descripcion;
     setGuardando(true);

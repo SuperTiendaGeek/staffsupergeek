@@ -763,8 +763,10 @@ export type ShippingV2ItemNovedadInput = {
   tipo: string;
   descripcion: string;
   packingId?: string;
-  /** Casilla "Bloquear venta". "Perdido en tienda" siempre bloquea. */
+  /** Casilla "Bloquear venta". "Extraviado" siempre bloquea. */
   bloquearVenta?: boolean;
+  /** "Proveedor" o "SUPER GEEK". Sin valor: Proveedor si el artículo tiene proveedor de compra. */
+  responsable?: string;
 };
 
 export const SHIPPING_V2_PACKING_ESTADOS = SHIPPING_V2_PACKING_SELECT_OPTIONS.estado;

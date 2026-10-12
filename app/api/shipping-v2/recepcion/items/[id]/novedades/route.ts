@@ -24,6 +24,7 @@ export async function POST(request: Request, { params }: Params) {
         descripcion: String(body.descripcion ?? ""),
         packingId: String(body.packingId ?? ""),
         bloquearVenta: body.bloquearVenta === true,
+        responsable: typeof body.responsable === "string" ? body.responsable : undefined,
       },
       // Con access: solo el personal de la tienda registra (punto 8).
       { registradoPor: getShippingV2SessionName(session), access }

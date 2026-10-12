@@ -10,10 +10,11 @@
 //   muestra de quién es el turno ("Esperando al proveedor" / "Respondió el
 //   proveedor"); no hacen falta más estados.
 //
-// · El TIPO decide quién la resuelve (ya no se pregunta):
-//     Incompleto, Dañado, Diferente al comprado, Observación menor
-//       → garantía del PROVEEDOR: se le notifica y conversa con él.
-//     Asunto interno, Perdido en tienda → la resolvemos NOSOTROS.
+// · El RESPONSABLE (Proveedor o SUPER GEEK) se elige al registrar, aparte
+//   del TIPO (corrección del dueño, 11-oct). Se propone "Proveedor" si el
+//   artículo tiene proveedor de compra; si no, solo SUPER GEEK. Tipos:
+//   Dañado, Falla de funcionamiento, Incompleto, Diferente al esperado,
+//   Extraviado (siempre bloquea) y Otro.
 //
 // · Conversación con el proveedor: él SOLO responde (con una propuesta);
 //   nosotros aceptamos (resolvemos) o le contestamos, con historial, hasta
@@ -22,7 +23,7 @@
 // · Bloqueo de venta: lo decide quien registra (casilla "Bloquear venta");
 //   cualquiera del personal puede bloquear después; SOLO el Administrador
 //   desbloquea, aunque la novedad ya esté cerrada. El bloqueo impide reservar
-//   y vender. "Perdido en tienda" siempre bloquea.
+//   y vender. "Extraviado" siempre bloquea.
 //
 // · Al resolver se elige QUÉ PASA CON EL ARTÍCULO y el sistema lo ejecuta.
 //   "Se descarta" desapareció: se usaba creyendo que se descartaba la
@@ -78,14 +79,26 @@ export function isNovedadAbierta(estado?: string | null): boolean {
 }
 
 // ─── Tipos y quién resuelve ──────────────────────────────────────────────────
+//
+// Corrección del dueño (11-oct): el TIPO dice qué problema hay; el RESPONSABLE
+// (Proveedor o SUPER GEEK) se elige aparte. Cualquier tipo sirve para los dos.
+// Si el artículo tiene proveedor de compra se propone "Proveedor" (se puede
+// cambiar a SUPER GEEK); si no tiene, solo SUPER GEEK.
 
-export const SHIPPING_V2_TIPOS_PROVEEDOR = ["Incompleto", "Dañado", "Diferente al comprado", "Observación menor"] as const;
-export const SHIPPING_V2_TIPOS_INTERNOS = ["Asunto interno", "Perdido en tienda"] as const;
-export const SHIPPING_V2_TIPOS_NOVEDAD = [...SHIPPING_V2_TIPOS_PROVEEDOR, ...SHIPPING_V2_TIPOS_INTERNOS] as const;
+export const SHIPPING_V2_TIPOS_NOVEDAD = [
+  "Dañado",
+  "Falla de funcionamiento",
+  "Incompleto",
+  "Diferente al esperado",
+  "Extraviado",
+  "Otro",
+] as const;
 export type ShippingV2TipoNovedad = (typeof SHIPPING_V2_TIPOS_NOVEDAD)[number];
+export const TIPO_EXTRAVIADO = "Extraviado";
+/** Nombre anterior (10-oct) de "Extraviado"; los registros viejos lo conservan. */
 export const TIPO_PERDIDO_EN_TIENDA = "Perdido en tienda";
 
-export const SHIPPING_V2_NOVEDAD_RESPONSABLES = ["SUPER GEEK", "Proveedor"] as const;
+export const SHIPPING_V2_NOVEDAD_RESPONSABLES = ["Proveedor", "SUPER GEEK"] as const;
 export type ShippingV2NovedadResponsable = (typeof SHIPPING_V2_NOVEDAD_RESPONSABLES)[number];
 
 export function normalizarTipoNovedad(tipo?: string | null): ShippingV2TipoNovedad | null {
@@ -93,19 +106,24 @@ export function normalizarTipoNovedad(tipo?: string | null): ShippingV2TipoNoved
   return SHIPPING_V2_TIPOS_NOVEDAD.find((t) => normalize(t) === n) ?? null;
 }
 
-/** Quién resuelve según el tipo. null = tipo viejo o desconocido. */
-export function responsableDeTipo(tipo?: string | null): ShippingV2NovedadResponsable | null {
-  const t = normalizarTipoNovedad(tipo);
-  if (!t) return null;
-  return (SHIPPING_V2_TIPOS_PROVEEDOR as readonly string[]).includes(t) ? "Proveedor" : "SUPER GEEK";
+export function normalizarResponsable(responsable?: string | null): ShippingV2NovedadResponsable | null {
+  const n = normalize(responsable);
+  return SHIPPING_V2_NOVEDAD_RESPONSABLES.find((r) => normalize(r) === n) ?? null;
+}
+
+/** Responsable que se propone al registrar, según el artículo. */
+export function responsablePorDefecto(articulo: { proveedorCompraId?: string | null }): ShippingV2NovedadResponsable {
+  return String(articulo.proveedorCompraId || "").trim() ? "Proveedor" : "SUPER GEEK";
 }
 
 export function esResponsableProveedor(responsable?: string | null): boolean {
   return normalize(responsable) === normalize("Proveedor");
 }
 
+/** "Extraviado" (y su nombre anterior "Perdido en tienda"). */
 export function esPerdidoEnTienda(tipo?: string | null): boolean {
-  return normalize(tipo) === normalize(TIPO_PERDIDO_EN_TIENDA);
+  const n = normalize(tipo);
+  return n === normalize(TIPO_EXTRAVIADO) || n === normalize(TIPO_PERDIDO_EN_TIENDA);
 }
 
 // ─── Lo que propone el proveedor (solo se registra) ─────────────────────────
@@ -217,8 +235,10 @@ export function articuloSalioDelInventario(a: { estado?: string | null; cantidad
 
 /** Etiquetas que pone el bloqueo de venta. */
 export const ETIQUETA_CON_NOVEDAD = "Con novedad";
-export const ETIQUETA_PERDIDO = "Perdido en tienda";
-export const ETIQUETAS_DE_BLOQUEO = [ETIQUETA_CON_NOVEDAD, ETIQUETA_PERDIDO] as const;
+export const ETIQUETA_PERDIDO = "Extraviado";
+/** Etiqueta anterior de lo extraviado; se sigue reconociendo. */
+export const ETIQUETA_PERDIDO_ANTERIOR = "Perdido en tienda";
+export const ETIQUETAS_DE_BLOQUEO = [ETIQUETA_CON_NOVEDAD, ETIQUETA_PERDIDO, ETIQUETA_PERDIDO_ANTERIOR] as const;
 
 export function esEtiquetaDeBloqueo(estado?: string | null): boolean {
   const n = normalize(estado);
@@ -262,6 +282,7 @@ export type ValidacionRegistro =
 
 export function validarRegistroNovedad(input: {
   tipo?: string | null;
+  responsable?: string | null;
   descripcion?: string | null;
   bloquearVenta?: boolean;
   esPersonalTienda: boolean;
@@ -277,15 +298,13 @@ export function validarRegistroNovedad(input: {
       motivo: `Este artículo ya salió del inventario (${input.articulo.estado || "0 unidades"}). Si un cliente reclama una falla, abre una orden de reparación.`,
     };
   }
-  const responsable = responsableDeTipo(tipo) ?? "SUPER GEEK";
+  // Sin responsable elegido se usa el que corresponde al artículo.
+  const responsable = normalizarResponsable(input.responsable) ?? responsablePorDefecto(input.articulo);
   if (responsable === "Proveedor" && !String(input.articulo.proveedorCompraId || "").trim()) {
-    return { ok: false, motivo: "Este artículo no tiene proveedor de compra a quien reclamar. Regístralo como “Asunto interno”." };
+    return { ok: false, motivo: "Este artículo no tiene proveedor de compra: el responsable es SUPER GEEK." };
   }
-  const perdido = esPerdidoEnTienda(tipo);
-  if (perdido && input.articulo.recibido !== true) {
-    return { ok: false, motivo: "“Perdido en tienda” es para lo que ya estaba en la tienda (Recibido). Si no llegó, usa “Incompleto”." };
-  }
-  return { ok: true, tipo, responsable, bloqueaVenta: perdido || input.bloquearVenta === true };
+  // Lo extraviado no se puede vender: siempre bloquea.
+  return { ok: true, tipo, responsable, bloqueaVenta: esPerdidoEnTienda(tipo) || input.bloquearVenta === true };
 }
 
 // ─── El hilo de la conversación ──────────────────────────────────────────────

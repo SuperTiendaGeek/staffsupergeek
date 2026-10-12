@@ -107,6 +107,8 @@ const ESTADOS_CON_PROBLEMA = new Set([
   "con novedad",
   // Punto 8 (10-oct): novedad "Perdido en tienda" con la venta bloqueada.
   "perdido en tienda",
+  // 11-oct: nuevo nombre de lo perdido.
+  "extraviado",
   "en garantia con proveedor",
 ]);
 
