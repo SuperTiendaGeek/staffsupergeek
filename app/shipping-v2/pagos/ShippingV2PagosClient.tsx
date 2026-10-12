@@ -1,899 +1,434 @@
 "use client";
 
-import Link from "next/link";
-import { Fragment, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { calculateShippingV2PaymentItemSubtotal, calculateShippingV2PaymentItemsTotal } from "@/lib/shipping-v2/payment-calculations";
+// Pagos a proveedor (auditoría Shipping V2, punto 9b · 12-oct-2026).
+//
+// Reglas del dueño:
+// · Ningún proveedor da crédito: toda compra registrada ya se pagó; aquí se
+//   registra su RESPALDO (fecha, método, cuenta, orden y comprobante opcional).
+// · Se paga por CAJA (todo lo que no tiene pago, de una vez) o por artículo si
+//   viaja solo. Un pago puede sumar artículos de otra caja del mismo proveedor
+//   (una factura de 3R repartida en dos cajas).
+// · El total = costo × unidades COMPRADAS (lo vendido no cambia lo pagado).
+// · Los regalos se ven en su caja, no suman y no dejan la caja esperando.
+// · Sin revisión: basta con saber quién registró cada pago.
+// · Un proveedor con portal solo ve sus pagos: fecha, método, nº de transacción.
+// Diseño: pantalla de uso diario, compacta (regla UX/UI del dueño, 8-oct).
+
+import { Fragment, useMemo, useState } from "react";
+import { calculateShippingV2PaymentItemSubtotal, unidadesParaPago } from "@/lib/shipping-v2/payment-calculations";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+import { esPagoHistorico } from "@/lib/shipping-v2/pagos-situacion";
 import type { ShippingV2AccessPermissions, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 
-import { esPagoHistorico } from "@/lib/shipping-v2/pagos-situacion";
-
 type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string; permissions: ShippingV2AccessPermissions | null; providerName?: string };
-type TabKey = "pendientes" | "sin-soporte" | "registrados";
+type Tab = "compras" | "registrados";
 
-const ALL = "Todos";
-const paymentMethods = [ALL, ...SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago];
-const supportPaymentMethods = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((method) => method !== "No aplica");
-// Fase 20.5 §4.3 — ya no se intersecta contra SHIPPING_V2_FINANCE_SELECT_OPTIONS.cuentaOrigen
-// (el select legacy y congelado desde 20.1 de "Movimientos Financieros", que nunca tuvo los
-// nombres de tarjeta) — se usa directo el select propio de Shipping Pagos, que el dueño ya
-// cura correctamente (incluye sus tarjetas de crédito reales).
-const paymentAccounts = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((account) => account !== "No aplica");
-const paymentStates = [ALL, ...SHIPPING_V2_PAYMENT_SELECT_OPTIONS.estadoPago];
-const financeStates = [ALL, ...SHIPPING_V2_PAYMENT_SELECT_OPTIONS.estadoIntegracionFinanzas];
+const METODOS = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((m) => m !== "No aplica");
+const CUENTAS = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((c) => c !== "No aplica");
+const TODOS = "";
 
 function normalize(value?: string | number | null) {
-  return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  return String(value ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
-
-function normalizeSingleSelectValue(value?: string | null) {
-  return String(value ?? "").trim().replace(/^"+|"+$/g, "").trim();
-}
-
-function safePaymentMethod(value?: string | null) {
-  const normalized = normalizeSingleSelectValue(value);
-  return SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.includes(normalized as never) && normalized !== "No aplica" ? normalized : "Transferencia bancaria";
-}
-
-// Fase 20.5 §4.3 — se compara recortando cada opción (una de las reales,
-// "Tarjeta D. Supe Geek ", trae un espacio final) contra el valor ya
-// recortado por normalizeSingleSelectValue, para no bloquear una selección
-// válida por esa diferencia. Cuando hay match, se conserva el texto EXACTO
-// de la opción (con su espacio, si lo tiene) — mismo criterio que el
-// servidor, que es quien finalmente escribe el valor a Airtable.
-function cuentaOrigenCanonica(normalized: string): string | undefined {
-  return paymentAccounts.find((opcion) => opcion.trim() === normalized);
-}
-
-function safePaymentAccount(value?: string | null) {
-  const normalized = normalizeSingleSelectValue(value);
-  if (normalized === "No aplica") return "";
-  return cuentaOrigenCanonica(normalized) ?? "";
-}
-
-function validatePaymentSupportForm(input: { cuentaOrigen: string }) {
-  const cuentaOrigen = normalizeSingleSelectValue(input.cuentaOrigen);
-  if (!cuentaOrigen || cuentaOrigen === "No aplica") return "Selecciona una cuenta origen válida antes de marcar el pago como pagado.";
-  if (!cuentaOrigenCanonica(cuentaOrigen)) return "Cuenta origen no válida. Selecciona una opción existente.";
-  return "";
-}
-
-function buildSearchText(parts: Array<string | number | boolean | null | undefined>) {
-  return normalize(parts.filter((part) => part !== null && part !== undefined && part !== "").map(String).join(" "));
-}
-
-function buildPaymentItemSearchText(item: ShippingV2PagoPendingItem | ShippingV2PagoItemResumen) {
-  return buildSearchText([
-    item.id,
-    item.sku,
-    item.skuProveedor,
-    item.nombre,
-    item.tipoOperacion,
-    item.estado,
-    item.categoria,
-    item.tipoItem,
-    item.proveedorId,
-    item.proveedorNombre,
-    item.proveedorLogisticoId,
-    item.proveedorLogisticoNombre,
-    item.cantidad,
-    item.costoProveedor,
-  ]);
-}
-
-function buildPaymentSearchText(pago: ShippingV2Pago) {
-  return buildSearchText([
-    pago.id,
-    pago.pagoId,
-    pago.proveedorId,
-    pago.proveedorNombre,
-    pago.estadoPago,
-    pago.total,
-    pago.totalAPagar,
-    pago.totalPagado,
-    pago.saldoPendiente,
-    pago.fechaCreacion,
-    pago.fechaPagoReal,
-    pago.fechaVencimientoSugerida,
-    pago.metodoPago,
-    pago.cuentaOrigen,
-    pago.transaccionId,
-    pago.estadoIntegracionFinanzas,
-    pago.observacion,
-    pago.registradoPor,
-    pago.pagadoPor,
-    pago.movimientoFinanzasId,
-    ...pago.movimientoFinanzasIds,
-    ...pago.itemsResumen.map(buildPaymentItemSearchText),
-    ...pago.regalosResumen.map(buildPaymentItemSearchText),
-  ]);
-}
-
 function money(value: number | null | undefined) {
   return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(value ?? 0);
 }
-
-type PaymentDisplayItem = ShippingV2PagoPendingItem | ShippingV2PagoItemResumen;
-
-function paymentItemCalculation(item: PaymentDisplayItem) {
+function fecha(value?: string) {
+  if (!value) return "—";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "2-digit" });
+}
+function hoyLocal() {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+function subtotal(item: ShippingV2PagoPendingItem | ShippingV2PagoItemResumen): { valor: number | null; error: string } {
   try {
-    return { subtotal: calculateShippingV2PaymentItemSubtotal(item), error: "" };
-  } catch (error) {
-    return { subtotal: null, error: error instanceof Error ? error.message : "No se pudo calcular el subtotal." };
+    return { valor: calculateShippingV2PaymentItemSubtotal(item), error: "" };
+  } catch (e) {
+    return { valor: null, error: e instanceof Error ? e.message : "Sin total" };
   }
 }
+function sumar(items: Array<ShippingV2PagoPendingItem | ShippingV2PagoItemResumen>) {
+  return Math.round(items.reduce((s, i) => s + (subtotal(i).valor ?? 0), 0) * 100) / 100;
+}
+function tieneComprobante(p: ShippingV2Pago) {
+  return Boolean(p.transaccionId || p.comprobante.length) || esPagoHistorico(p);
+}
 
-function paymentItemsTotal(items: PaymentDisplayItem[]) {
-  try {
-    return calculateShippingV2PaymentItemsTotal(items);
-  } catch {
-    return items.reduce((sum, item) => sum + (paymentItemCalculation(item).subtotal ?? 0), 0);
+type Grupo = {
+  key: string;
+  tipo: "caja" | "suelto";
+  titulo: string;
+  estadoLogistico: string;
+  proveedorId: string;
+  proveedorNombre: string;
+  items: ShippingV2PagoPendingItem[];
+  regalos: ShippingV2PagoPendingItem[];
+  fechaOrden: string;
+};
+
+function armarGrupos(pendientes: ShippingV2PagoPendingItem[], regalos: ShippingV2PagoPendingItem[]): Grupo[] {
+  const mapa = new Map<string, Grupo>();
+  for (const item of pendientes) {
+    const prov = item.proveedorId || "";
+    const key = item.packingId ? `${item.packingId}|${prov}` : item.id;
+    const g = mapa.get(key) ?? {
+      key,
+      tipo: item.packingId ? "caja" : "suelto",
+      titulo: item.packingId ? item.packingIdVisible || item.packingId : item.sku,
+      estadoLogistico: item.packingId ? item.packingEstado || "" : item.estado || "",
+      proveedorId: prov,
+      proveedorNombre: item.proveedorNombre || "Sin proveedor",
+      items: [],
+      regalos: [],
+      fechaOrden: "",
+    };
+    g.items.push(item);
+    if ((item.fechaRegistro || "") > g.fechaOrden) g.fechaOrden = item.fechaRegistro || "";
+    mapa.set(key, g);
   }
+  for (const r of regalos) {
+    const g = mapa.get(`${r.packingId}|${r.proveedorId || ""}`) ?? Array.from(mapa.values()).find((x) => x.tipo === "caja" && x.key.startsWith(`${r.packingId}|`));
+    if (g) g.regalos.push(r);
+  }
+  return Array.from(mapa.values()).sort((a, b) => b.fechaOrden.localeCompare(a.fechaOrden));
 }
 
-function paymentItemValidationErrors(items: PaymentDisplayItem[]) {
-  return items.map((item) => paymentItemCalculation(item).error).filter(Boolean);
-}
+const chip = "whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10.5px] font-bold";
+const tonos = {
+  falta: `${chip} border border-yellow-300/40 text-yellow-200`,
+  ok: `${chip} border border-[#D7FF4F]/40 text-[#D7FF4F]`,
+  mute: `${chip} border border-[#3A3A36] text-[#A7A7A7]`,
+  mal: `${chip} border border-[#FF914D]/45 text-[#FFB07A]`,
+};
+const campo = "h-8 rounded-md border border-[#3A3A36] bg-[#151515] px-2 text-[13px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70";
+const input = `${campo} w-full`;
+const label = "mb-0.5 block text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]";
+const btn = "whitespace-nowrap rounded-md border border-[#3A3A36] px-2.5 py-1 text-[12px] font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-50";
+const btnPrim = "whitespace-nowrap rounded-md border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1 text-[12.5px] font-black text-[#151515] transition hover:brightness-105 disabled:opacity-50";
 
-function dateText(value?: string) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("es-EC", { dateStyle: "medium" }).format(date);
-}
-
-function workspaceFallback(): ShippingV2PagosWorkspace {
-  return {
-    pagos: [],
-    itemsPendientes: [],
-    porPagar: [],
-    pagosPendientes: [],
-    pendientes: { itemsSinPago: [], pagosPendientes: [] },
-    pagadosSinSoporte: [],
-    sinSoporte: { itemsPagadosSinPago: [], pagosIncompletos: [] },
-    pagosCompletos: [],
-    pagosRegistrados: [],
-    proveedores: [],
-    summary: {
-      totalPorPagar: 0,
-      totalPagadoSinSoporte: 0,
-      totalPagadoCompleto: 0,
-      incompletos: 0,
-      porPagarCount: 0,
-      itemsSinPagoCount: 0,
-      pagosPendientesCount: 0,
-      pagadosSinSoporteCount: 0,
-      pagosCompletosCount: 0,
-    },
-  };
-}
-
-function paymentSupportMissing(pago: ShippingV2Pago) {
-  // Punto 9: el pago histórico (antes del 12-oct) no pide soporte.
-  if (esPagoHistorico(pago)) return [];
-  const metodo = normalize(pago.metodoPago);
-  const cuenta = normalize(pago.cuentaOrigen);
-  const finanzas = normalize(pago.estadoIntegracionFinanzas);
-  const missing: string[] = [];
-  if (!pago.fechaPagoReal) missing.push("Fecha real de pago");
-  if (!pago.metodoPago || metodo === "no aplica") missing.push("Método de pago");
-  if (metodo !== "no aplica" && (!pago.cuentaOrigen || cuenta === "no aplica")) missing.push("Cuenta origen");
-  if (!pago.transaccionId && !pago.comprobante.length) missing.push("Comprobante o transacción ID");
-  if (!pago.movimientoFinanzasIds.length) missing.push("Movimiento puente");
-  if (!pago.estadoIntegracionFinanzas || !["pendiente de sincronizar", "sincronizado"].includes(finanzas)) missing.push("Estado Finanzas válido");
-  return missing;
-}
-
-function Badge({ children, tone = "muted" }: { children: ReactNode; tone?: "lime" | "yellow" | "support" | "muted" }) {
-  const toneClass = {
-    lime: "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]",
-    yellow: "border-yellow-300/35 bg-yellow-300/10 text-yellow-100",
-    support: "border-[#FF6B6B]/35 bg-[#FF6B6B]/10 text-[#FFB4A8]",
-    muted: "border-[#3A3A36] bg-[#101010] text-[#A7A7A7]",
-  }[tone];
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${toneClass}`}>{children}</span>;
-}
-
-function Kpi({ label, value, tone }: { label: string; value: string | number; tone: "lime" | "yellow" | "support" | "muted" }) {
-  const toneClass = {
-    lime: "text-[#D7FF4F]",
-    yellow: "text-yellow-100",
-    support: "text-[#FFB4A8]",
-    muted: "text-[#F5F5F5]",
-  }[tone];
+function LineaItem({ item, regalo = false, check }: { item: ShippingV2PagoPendingItem | ShippingV2PagoItemResumen; regalo?: boolean; check?: { on: boolean; toggle: () => void } }) {
+  const st = subtotal(item);
+  const vendido = normalize(item.estado) === "vendido";
   return (
-    <article className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2 shadow-lg shadow-black/10">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</p>
-          <p className={`mt-0.5 text-lg font-semibold leading-none tabular-nums xl:text-xl ${toneClass}`}>{value}</p>
-        </div>
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#D7FF4F]" />
-      </div>
-    </article>
-  );
-}
-
-function MissingList({ missing }: { missing: string[] }) {
-  if (!missing.length) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {missing.map((item) => <Badge key={item} tone="support">{item}</Badge>)}
+    <div className="grid grid-cols-[20px_96px_minmax(0,1fr)_56px_84px_92px] items-center gap-2 border-t border-[#2A2B26] px-2 py-1 text-[12px] text-[#B4B5AC]">
+      <span>{check ? <input type="checkbox" checked={check.on} onChange={check.toggle} aria-label={`Incluir ${item.sku}`} className="h-3.5 w-3.5 accent-[#D7FF4F]" /> : null}</span>
+      <span className="font-semibold text-[#D7FF4F]">{item.sku}</span>
+      <span className="truncate text-[#E6E6E1]" title={item.nombre}>{item.nombre || "—"}{vendido ? <span className={`ml-1.5 ${tonos.mute}`}>Vendido</span> : null}</span>
+      <span className="text-right tabular-nums">{regalo ? "" : `${unidadesParaPago(item) ?? "?"} u`}</span>
+      <span className="text-right tabular-nums">{regalo ? "" : money(item.costoProveedor)}</span>
+      <span className="text-right tabular-nums">
+        {regalo ? <span className={tonos.mute}>Regalo</span> : st.error ? <span className={tonos.mal} title={st.error}>Sin costo</span> : money(st.valor)}
+      </span>
     </div>
   );
 }
 
-function PaymentItemLine({ item }: { item: PaymentDisplayItem }) {
-  const calculation = paymentItemCalculation(item);
-  return (
-    <div className="rounded-lg bg-[#101010] px-3 py-2 text-sm text-[#A7A7A7]">
-      <p className="font-semibold text-[#F5F5F5]"><span className="text-[#D7FF4F]">{item.sku}</span> · {item.nombre || "-"}</p>
-      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-        <span>Cantidad: <span className="text-[#F5F5F5]">{item.cantidad ?? "-"}</span></span>
-        {item.esRegalo ? (
-          <span className="text-yellow-100">Regalo — no suma</span>
-        ) : (
-          <span>Costo unitario: <span className="text-[#F5F5F5]">{money(item.costoProveedor)}</span></span>
-        )}
-        <span>
-          {item.esRegalo ? "Subtotal pagable" : "Subtotal"}:{" "}
-          <span className={calculation.error ? "text-[#FFB4A8]" : "text-[#F5F5F5]"}>
-            {calculation.error ? "No calculable" : money(calculation.subtotal)}
-          </span>
-        </span>
-      </div>
-      {calculation.error ? <p className="mt-1 text-xs text-[#FFB4A8]">{calculation.error}</p> : null}
-    </div>
-  );
-}
-
-function DetailModal({ pago, canManage, onClose, onUpdated }: { pago: ShippingV2Pago; canManage: boolean; onClose: () => void; onUpdated: () => Promise<void> }) {
-  const [busy, setBusy] = useState("");
+function PanelPago({ grupo, otros, regalosPorCaja, onCancel, onDone }: {
+  grupo: Grupo;
+  otros: Grupo[];
+  regalosPorCaja: (keys: string[]) => ShippingV2PagoPendingItem[];
+  onCancel: () => void;
+  onDone: (mensaje: string) => Promise<void>;
+}) {
+  const [extra, setExtra] = useState<string[]>([]);
+  const [fuera, setFuera] = useState<string[]>([]);
+  const [form, setForm] = useState({ fecha: hoyLocal(), metodo: "Transferencia bancaria", cuenta: "", orden: "", transaccion: "", enlace: "" });
   const [error, setError] = useState("");
-  const [paidForm, setPaidForm] = useState({
-    fechaPagoReal: pago.fechaPagoReal ? pago.fechaPagoReal.slice(0, 16) : new Date().toISOString().slice(0, 16),
-    metodoPago: safePaymentMethod(pago.metodoPago),
-    cuentaOrigen: safePaymentAccount(pago.cuentaOrigen),
-    transaccionId: pago.transaccionId || "",
-    comprobanteUrl: pago.comprobante[0]?.url || "",
-    observacion: pago.observacion || "",
-  });
-  const missing = paymentSupportMissing(pago);
-  const locked = normalize(pago.estadoIntegracionFinanzas).includes("sincronizado") || normalize(pago.estadoPago).includes("anulado") || (normalize(pago.estadoPago) === "pagado" && missing.length === 0);
-
-  async function mutate(action: "mark-paid" | "review" | "cancel", body: Record<string, unknown> = {}) {
-    setBusy(action);
-    setError("");
-    if (action === "mark-paid") {
-      const validationError = validatePaymentSupportForm(paidForm);
-      if (validationError) {
-        setBusy("");
-        setError(validationError);
-        return;
-      }
-    }
-    const response = await fetch(`/api/shipping-v2/pagos/${pago.id}/${action}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.success) {
-      setBusy("");
-      setError(String(payload.error || "No se pudo actualizar el pago."));
-      return;
-    }
-    await onUpdated();
-    setBusy("");
-    onClose();
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <section className="max-h-[92vh] w-full max-w-[1800px] overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#1B1B1B] p-4 shadow-2xl">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Detalle de pago</p>
-            <h2 className="mt-1 text-2xl font-semibold text-[#F5F5F5]">{pago.pagoId}</h2>
-            <p className="mt-1 text-sm text-[#A7A7A7]">{pago.proveedorNombre || "Sin proveedor"} · {money(pago.totalAPagar)}</p>
-          </div>
-          <button onClick={onClose} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#F5F5F5]">Cerrar</button>
-        </div>
-        {error ? <p className="mt-4 rounded-[1rem] border border-[#FF914D]/35 bg-[#FF914D]/10 p-3 text-sm text-[#FFB07A]">{error}</p> : null}
-        {locked && canManage ? <p className="mt-4 rounded-[1rem] border border-yellow-300/25 bg-yellow-300/10 p-3 text-sm text-yellow-100">Este pago está bloqueado por su estado o por Finanzas.</p> : null}
-
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          <article className="rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-4">
-            <h3 className="font-semibold text-[#F5F5F5]">Datos principales</h3>
-            <div className="mt-3 grid gap-2 text-sm text-[#A7A7A7]">
-              <p>Estado: <span className="text-[#F5F5F5]">{pago.estadoPago}</span></p>
-              <p>Creación: <span className="text-[#F5F5F5]">{dateText(pago.fechaCreacion)}</span></p>
-              <p>Fecha real: <span className="text-[#F5F5F5]">{dateText(pago.fechaPagoReal)}</span></p>
-              <p>Finanzas: <span className="text-[#F5F5F5]">{pago.estadoIntegracionFinanzas || "-"}</span></p>
-              <p>Movimiento: <span className="text-[#F5F5F5]">{pago.movimientoFinanzasId || "-"}</span></p>
-              {pago.comprobante.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {pago.comprobante.map((attachment, index) => (
-                    <a key={attachment.id || attachment.url} href={attachment.url} target="_blank" rel="noreferrer" className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-xs font-semibold text-[#D7FF4F]">
-                      Comprobante {index + 1}
-                    </a>
-                  ))}
-                </div>
-              ) : null}
-              {pago.facturaProveedor.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {pago.facturaProveedor.map((attachment, index) => (
-                    <a key={attachment.id || attachment.url} href={attachment.url} target="_blank" rel="noreferrer" className="rounded-full border border-[#3A3A36] bg-[#101010] px-3 py-1 text-xs font-semibold text-[#F5F5F5]">
-                      Factura proveedor {index + 1}
-                    </a>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            <div className="mt-3"><MissingList missing={missing} /></div>
-          </article>
-          {canManage ? (
-            <article className="rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-4">
-              <h3 className="font-semibold text-[#F5F5F5]">Registrar soporte</h3>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <input aria-label="Fecha real de pago" type="datetime-local" value={paidForm.fechaPagoReal} onChange={(event) => setPaidForm((current) => ({ ...current, fechaPagoReal: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
-                <select aria-label="Método de pago" value={paidForm.metodoPago} onChange={(event) => setPaidForm((current) => ({ ...current, metodoPago: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">{supportPaymentMethods.map((item) => <option key={item}>{item}</option>)}</select>
-                <select aria-label="Cuenta origen" value={paidForm.cuentaOrigen} onChange={(event) => setPaidForm((current) => ({ ...current, cuentaOrigen: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">
-                  <option value="">Selecciona cuenta origen</option>
-                  {paymentAccounts.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
-                <input value={paidForm.transaccionId} onChange={(event) => setPaidForm((current) => ({ ...current, transaccionId: event.target.value }))} placeholder="Transacción ID" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
-                <input value={paidForm.comprobanteUrl} onChange={(event) => setPaidForm((current) => ({ ...current, comprobanteUrl: event.target.value }))} placeholder="URL comprobante" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5] sm:col-span-2" />
-              </div>
-            </article>
-          ) : null}
-        </div>
-        <article className="mt-4 rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-4">
-          <h3 className="font-semibold text-[#F5F5F5]">Items relacionados</h3>
-          <div className="mt-3 grid gap-2">
-            {pago.itemsResumen.map((item) => <PaymentItemLine key={item.id} item={item} />)}
-            {!pago.itemsResumen.length ? <p className="text-sm text-[#A7A7A7]">Sin items cargados.</p> : null}
-          </div>
-          {pago.regalosResumen.length ? <div className="mt-4"><p className="text-sm font-semibold text-[#F5F5F5]">Regalos incluidos</p><div className="mt-2 grid gap-2">{pago.regalosResumen.map((item) => <PaymentItemLine key={item.id} item={item} />)}</div></div> : null}
-        </article>
-        {canManage ? (
-          <>
-            <textarea value={paidForm.observacion} onChange={(event) => setPaidForm((current) => ({ ...current, observacion: event.target.value }))} placeholder="Observación" className="mt-4 min-h-24 w-full rounded-[1rem] border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5]" />
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <button disabled={locked || busy === "mark-paid"} onClick={() => void mutate("mark-paid", paidForm)} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] disabled:opacity-50">{busy === "mark-paid" ? "Guardando..." : normalize(pago.estadoPago) === "pagado" ? "Completar soporte" : "Registrar pago"}</button>
-              <button disabled={locked || normalize(pago.estadoPago) === "pagado" || busy === "review"} onClick={() => void mutate("review")} className="rounded-full border border-yellow-300/35 px-4 py-2 text-sm font-semibold text-yellow-100 disabled:opacity-50">Enviar a revisión</button>
-              <button disabled={locked || normalize(pago.estadoPago) === "pagado" || busy === "cancel"} onClick={() => void mutate("cancel", { motivo: paidForm.observacion })} className="rounded-full border border-[#FF914D]/45 px-4 py-2 text-sm font-semibold text-[#FFB07A] disabled:opacity-50">Anular</button>
-            </div>
-          </>
-        ) : null}
-      </section>
-    </div>
-  );
-}
-
-function CreatePaymentModal({ selectedItems, registerPaidDefault, onClose, onCreated }: { selectedItems: ShippingV2PagoPendingItem[]; registerPaidDefault: boolean; onClose: () => void; onCreated: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [form, setForm] = useState({
-    observacion: "",
-    fechaPagoReal: new Date().toISOString().slice(0, 16),
-    metodoPago: "Transferencia bancaria",
-    cuentaOrigen: "",
-    transaccionId: "",
-    comprobanteUrl: "",
-  });
-  const providerId = selectedItems[0]?.proveedorId || "";
-  const providerName = selectedItems[0]?.proveedorNombre || "Sin proveedor";
-  const sameProvider = selectedItems.every((item) => item.proveedorId === providerId);
-  const paidItems = selectedItems.filter((item) => !item.esRegalo);
-  const giftItems = selectedItems.filter((item) => item.esRegalo);
-  const total = paymentItemsTotal(paidItems);
-  const validationErrors = paymentItemValidationErrors(paidItems);
+  const grupos = [grupo, ...otros.filter((o) => extra.includes(o.key))];
+  const todos = grupos.flatMap((g) => g.items);
+  const elegidos = todos.filter((i) => !fuera.includes(i.id));
+  const regalos = regalosPorCaja(grupos.map((g) => g.key));
+  const sinCosto = elegidos.filter((i) => subtotal(i).error);
+  const total = sumar(elegidos);
+  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
-  async function createPayment() {
-    setBusy(true);
+  async function registrar() {
     setError("");
-    if (validationErrors.length) {
-      setBusy(false);
-      setError(validationErrors[0] || "Corrige los items seleccionados antes de crear el pago.");
-      return;
-    }
-    if (registerPaidDefault) {
-      const validationError = validatePaymentSupportForm(form);
-      if (validationError) {
-        setBusy(false);
-        setError(validationError);
-        return;
-      }
-    }
-    const response = await fetch("/api/shipping-v2/pagos", {
+    if (!elegidos.length) return setError("Elige al menos un artículo.");
+    if (sinCosto.length) return setError(`${sinCosto.map((i) => i.sku).join(", ")}: sin costo. Ponle costo en su ficha o márcalo como regalo.`);
+    if (!form.fecha) return setError("Indica la fecha del pago.");
+    if (!form.cuenta) return setError("Elige la cuenta.");
+    setBusy(true);
+    const res = await fetch("/api/shipping-v2/pagos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        proveedorId: providerId,
-        itemIds: paidItems.map((item) => item.id),
-        regalosIds: giftItems.map((item) => item.id),
-        estadoPago: registerPaidDefault ? "Pagado" : "Pendiente",
-        observacion: form.observacion,
-        ...(registerPaidDefault ? form : {}),
+        proveedorId: grupo.proveedorId,
+        itemIds: elegidos.map((i) => i.id),
+        regalosIds: regalos.map((r) => r.id),
+        estadoPago: "Pagado",
+        fechaPagoReal: `${form.fecha}T17:00:00.000Z`,
+        metodoPago: form.metodo,
+        cuentaOrigen: form.cuenta,
+        orden: form.orden,
+        transaccionId: form.transaccion,
+        comprobanteUrl: form.enlace,
       }),
     });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.success) {
-      setBusy(false);
-      setError(String(payload.error || "No se pudo crear el pago."));
-      return;
-    }
-    await onCreated();
+    const payload = await res.json().catch(() => ({}));
     setBusy(false);
-    onClose();
+    if (!res.ok || !payload.success) return setError(String(payload.error || "No se pudo registrar el pago."));
+    await onDone(`Pago ${payload.data?.pagoId ?? ""} registrado · ${money(total)}`);
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[1rem] border border-[#3A3A36] bg-[#1B1B1B] p-4 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">{registerPaidDefault ? "Registrar respaldo del pago" : "Crear pago pendiente"}</p>
-            <h2 className="mt-1 text-2xl font-semibold text-[#F5F5F5]">{providerName}</h2>
-            <p className="mt-1 text-sm text-[#A7A7A7]">{paidItems.length} items · {money(total)}</p>
-          </div>
-          <button onClick={onClose} className="rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#F5F5F5]">Cerrar</button>
-        </div>
-        {error ? <p className="mt-4 rounded-[1rem] border border-[#FF914D]/35 bg-[#FF914D]/10 p-3 text-sm text-[#FFB07A]">{error}</p> : null}
-        {!sameProvider || !providerId ? <p className="mt-4 rounded-[1rem] border border-[#FF914D]/35 bg-[#FF914D]/10 p-3 text-sm text-[#FFB07A]">La selección debe tener un solo proveedor válido.</p> : null}
-        {validationErrors.length ? <div className="mt-4 rounded-[1rem] border border-[#FF914D]/35 bg-[#FF914D]/10 p-3 text-sm text-[#FFB07A]"><MissingList missing={validationErrors} /></div> : null}
-        {!registerPaidDefault ? <p className="mt-4 rounded-[1rem] border border-yellow-300/25 bg-yellow-300/10 p-3 text-sm text-yellow-100">Este paso crea la obligación de pago. Los datos de pago real se registran cuando se pague.</p> : null}
-        <div className="mt-5 grid gap-2">
-          {selectedItems.map((item) => (
-            <PaymentItemLine key={item.id} item={item} />
-          ))}
-        </div>
-        {registerPaidDefault ? (
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <input aria-label="Fecha real de pago" type="datetime-local" value={form.fechaPagoReal} onChange={(event) => setForm((current) => ({ ...current, fechaPagoReal: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
-            <select aria-label="Método de pago" value={form.metodoPago} onChange={(event) => setForm((current) => ({ ...current, metodoPago: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">{supportPaymentMethods.map((item) => <option key={item}>{item}</option>)}</select>
-            <select aria-label="Cuenta origen" value={form.cuentaOrigen} onChange={(event) => setForm((current) => ({ ...current, cuentaOrigen: event.target.value }))} className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]">
-              <option value="">Selecciona cuenta origen</option>
-              {paymentAccounts.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-            <input value={form.transaccionId} onChange={(event) => setForm((current) => ({ ...current, transaccionId: event.target.value }))} placeholder="Transacción ID" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5]" />
-            <input value={form.comprobanteUrl} onChange={(event) => setForm((current) => ({ ...current, comprobanteUrl: event.target.value }))} placeholder="URL comprobante" className="h-10 rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm text-[#F5F5F5] sm:col-span-2" />
-          </div>
+    <div className="border-y border-[#D7FF4F]/30 bg-[#151612] px-3 py-2">
+      <div className="max-h-64 overflow-y-auto rounded-md border border-[#2A2B26]">
+        {grupos.map((g) => (
+          <Fragment key={g.key}>
+            {grupos.length > 1 ? <div className="bg-[#1B1C19] px-2 py-0.5 text-[11px] font-bold text-[#8F908A]">{g.titulo}</div> : null}
+            {g.items.map((i) => (
+              <LineaItem key={i.id} item={i} check={{ on: !fuera.includes(i.id), toggle: () => setFuera((f) => (f.includes(i.id) ? f.filter((x) => x !== i.id) : [...f, i.id])) }} />
+            ))}
+            {g.regalos.map((r) => <LineaItem key={r.id} item={r} regalo />)}
+          </Fragment>
+        ))}
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-6">
+        <label><span className={label}>Fecha</span><input type="date" value={form.fecha} onChange={(e) => set("fecha", e.target.value)} className={input} /></label>
+        <label><span className={label}>Método</span><select value={form.metodo} onChange={(e) => set("metodo", e.target.value)} className={input}>{METODOS.map((m) => <option key={m}>{m}</option>)}</select></label>
+        <label><span className={label}>Cuenta</span><select value={form.cuenta} onChange={(e) => set("cuenta", e.target.value)} className={input}><option value="">—</option>{CUENTAS.map((c) => <option key={c} value={c}>{c.trim()}</option>)}</select></label>
+        <label><span className={label}>Orden</span><input value={form.orden} onChange={(e) => set("orden", e.target.value)} placeholder="Opcional" className={input} /></label>
+        <label><span className={label}>Nº transacción</span><input value={form.transaccion} onChange={(e) => set("transaccion", e.target.value)} placeholder="Opcional" className={input} /></label>
+        <label><span className={label}>Enlace comprobante</span><input value={form.enlace} onChange={(e) => set("enlace", e.target.value)} placeholder="Opcional" className={input} /></label>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {otros.length ? (
+          <select value="" onChange={(e) => e.target.value && setExtra((x) => [...x, e.target.value])} className={`${campo} max-w-xs`} aria-label="Sumar otra caja del mismo proveedor">
+            <option value="">+ Sumar otra caja o artículo de {grupo.proveedorNombre}</option>
+            {otros.filter((o) => !extra.includes(o.key)).map((o) => <option key={o.key} value={o.key}>{o.titulo} · {o.items.length} art. · {money(sumar(o.items))}</option>)}
+          </select>
         ) : null}
-        <textarea value={form.observacion} onChange={(event) => setForm((current) => ({ ...current, observacion: event.target.value }))} placeholder="Observación" className="mt-4 min-h-24 w-full rounded-[1rem] border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm text-[#F5F5F5]" />
-        <div className="mt-5 flex justify-end">
-          <button disabled={busy || !sameProvider || !providerId || !selectedItems.length || validationErrors.length > 0} onClick={() => void createPayment()} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#151515] disabled:opacity-50">{busy ? "Guardando..." : registerPaidDefault ? "Registrar respaldo" : "Crear pago pendiente"}</button>
-        </div>
-      </section>
+        {error ? <span className="text-[12px] text-[#FFB07A]">{error}</span> : null}
+        <span className="ml-auto text-[12px] text-[#8F908A]">{elegidos.length} art.{regalos.length ? ` + ${regalos.length} regalo(s)` : ""}{!form.transaccion && !form.enlace ? " · quedará sin comprobante" : ""}</span>
+        <b className="text-[15px] tabular-nums text-[#F5F5F5]">{money(total)}</b>
+        <button onClick={onCancel} className={btn}>Cancelar</button>
+        <button disabled={busy} onClick={() => void registrar()} className={btnPrim}>{busy ? "Guardando…" : "Registrar pago"}</button>
+      </div>
     </div>
   );
 }
 
-function itemMatches(item: ShippingV2PagoPendingItem, filters: FilterState) {
-  if (filters.query && !buildPaymentItemSearchText(item).includes(normalize(filters.query))) return false;
-  if (filters.proveedor !== ALL && item.proveedorId !== filters.proveedor) return false;
-  if (filters.tipoOperacion !== ALL && item.tipoOperacion !== filters.tipoOperacion) return false;
-  return true;
-}
-
-function pagoMatches(pago: ShippingV2Pago, filters: FilterState) {
-  if (filters.query && !buildPaymentSearchText(pago).includes(normalize(filters.query))) return false;
-  if (filters.proveedor !== ALL && pago.proveedorId !== filters.proveedor) return false;
-  if (filters.estadoPago !== ALL && pago.estadoPago !== filters.estadoPago) return false;
-  if (filters.metodoPago !== ALL && pago.metodoPago !== filters.metodoPago) return false;
-  if (filters.estadoFinanzas !== ALL && pago.estadoIntegracionFinanzas !== filters.estadoFinanzas) return false;
-  if (filters.tipoOperacion !== ALL && !pago.itemsResumen.some((item) => item.tipoOperacion === filters.tipoOperacion)) return false;
-  return true;
-}
-
-type FilterState = {
-  query: string;
-  proveedor: string;
-  estadoPago: string;
-  metodoPago: string;
-  estadoFinanzas: string;
-  tipoOperacion: string;
-};
-
-function SelectFilter({ label, value, options, onChange }: { label: string; value: string; options: Array<{ value: string; label: string }>; onChange: (value: string) => void }) {
+function CompletarComprobante({ pago, onDone }: { pago: ShippingV2Pago; onDone: (m: string) => Promise<void> }) {
+  const [f, setF] = useState({ orden: pago.orden || "", transaccion: pago.transaccionId || "", enlace: "" });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function guardar() {
+    setError("");
+    setBusy(true);
+    const res = await fetch(`/api/shipping-v2/pagos/${pago.id}/comprobante`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orden: f.orden, transaccionId: f.transaccion, comprobanteUrl: f.enlace }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok || !payload.success) return setError(String(payload.error || "No se pudo guardar."));
+    await onDone(`Comprobante de ${pago.pagoId} guardado`);
+  }
   return (
-    <label className="min-w-0">
-      <span className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#121310] px-3 text-[13px] font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70">
-        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
-    </label>
-  );
-}
-
-function PendingGroupHeaderRow({
-  packingIdVisible,
-  packingEstado,
-  items,
-  selectedIds,
-  columnCount,
-  onToggleAll,
-}: {
-  packingIdVisible: string;
-  packingEstado: string;
-  items: ShippingV2PagoPendingItem[];
-  selectedIds: string[];
-  columnCount: number;
-  onToggleAll: () => void;
-}) {
-  const selectedCount = items.filter((item) => selectedIds.includes(item.id)).length;
-  const allSelected = selectedCount === items.length;
-  const someSelected = selectedCount > 0 && !allSelected;
-  const unidades = items.reduce((sum, item) => sum + (item.cantidad || 0), 0);
-  return (
-    <tr className="border-t border-[#3A3A36] bg-[#1B1C19]">
-      <td className="px-4 py-2">
-        <input
-          type="checkbox"
-          aria-label={`Seleccionar todo el packing ${packingIdVisible}`}
-          checked={allSelected}
-          ref={(el) => { if (el) el.indeterminate = someSelected; }}
-          onChange={onToggleAll}
-          className="h-4 w-4 accent-[#D7FF4F]"
-        />
-      </td>
-      <td colSpan={columnCount - 1} className="px-4 py-2">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="text-sm font-bold text-[#D7FF4F]">📦 {packingIdVisible}</span>
-          {packingEstado ? <Badge tone="yellow">{packingEstado}</Badge> : null}
-          <span className="text-xs text-[#A7A7A7]">{items.length} {items.length === 1 ? "ítem" : "ítems"}</span>
-          <span className="text-xs text-[#A7A7A7]">{unidades} {unidades === 1 ? "unidad" : "unidades"}</span>
-          <span className="text-xs font-semibold text-[#F5F5F5]">{money(paymentItemsTotal(items))}</span>
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-function PendingItemRow({ item, selected, onToggle }: { item: ShippingV2PagoPendingItem; selected: boolean; onToggle: () => void }) {
-  const calculation = paymentItemCalculation(item);
-  const missing = [!item.proveedorId ? "Sin proveedor" : "", !item.costoProveedor ? "Sin costo" : "", calculation.error].filter(Boolean);
-  return (
-    <tr className="border-t border-[#3A3A36]/70 hover:bg-[#20211F]">
-      <td className="px-4 py-3"><input aria-label={`Seleccionar ${item.sku}`} type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 accent-[#D7FF4F]" /></td>
-      <td className="px-4 py-3 font-semibold text-[#D7FF4F]">{item.sku}</td>
-      <td className="px-4 py-3 text-[#F5F5F5]">{item.nombre || "-"}</td>
-      <td className="px-4 py-3 text-[#A7A7A7]">{item.proveedorNombre || "-"}</td>
-      <td className="px-4 py-3 text-[#A7A7A7]">{item.tipoOperacion || "-"}</td>
-      <td className="px-4 py-3"><Badge tone="yellow">{item.estado || "-"}</Badge></td>
-      <td className="px-4 py-3 text-[#F5F5F5]">{item.cantidad ?? "-"}</td>
-      <td className="px-4 py-3 text-[#F5F5F5]">{money(item.costoProveedor)}</td>
-      <td className="px-4 py-3 text-[#F5F5F5]">{calculation.error ? "—" : money(calculation.subtotal)}</td>
-      <td className="px-4 py-3 text-[#A7A7A7]">{dateText(item.fechaRegistro)}</td>
-      <td className="px-4 py-3"><MissingList missing={missing} /></td>
-    </tr>
-  );
-}
-
-function PagoRow({ pago, expanded, canManage, onToggle, onRegister, onComplete, onDetail }: { pago: ShippingV2Pago; expanded: boolean; canManage: boolean; onToggle: () => void; onRegister: () => void; onComplete: () => void; onDetail: () => void }) {
-  const missing = paymentSupportMissing(pago);
-  const isPaid = normalize(pago.estadoPago) === "pagado";
-  const canComplete = canManage && isPaid && missing.length > 0;
-  const canRegister = canManage && ["pendiente", "borrador", "parcial"].includes(normalize(pago.estadoPago));
-  return (
-    <>
-      <tr className="border-t border-[#3A3A36]/70 hover:bg-[#20211F]">
-        <td className="px-4 py-3"><button onClick={onToggle} className="rounded-full border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5]">{expanded ? "Ocultar" : "Abrir"}</button></td>
-        <td className="px-4 py-3 font-semibold text-[#D7FF4F]">{pago.pagoId}</td>
-        <td className="px-4 py-3 text-[#A7A7A7]">{pago.proveedorNombre || "-"}</td>
-        <td className="px-4 py-3"><Badge tone={isPaid ? "lime" : "yellow"}>{pago.estadoPago}</Badge>{esPagoHistorico(pago) ? <span className="ml-1"><Badge>Histórico</Badge></span> : null}</td>
-        <td className="px-4 py-3 text-[#F5F5F5]">{pago.cantidadItems} / {pago.cantidadRegalos}</td>
-        <td className="px-4 py-3 text-[#F5F5F5]">{money(pago.totalPagado ?? pago.totalAPagar)}</td>
-        <td className="px-4 py-3 text-[#A7A7A7]">{dateText(pago.fechaCreacion)}</td>
-        <td className="px-4 py-3 text-[#A7A7A7]">{dateText(pago.fechaPagoReal)}</td>
-        <td className="px-4 py-3 text-[#A7A7A7]">{pago.metodoPago || "-"}</td>
-        <td className="px-4 py-3 text-[#A7A7A7]">{pago.estadoIntegracionFinanzas || "-"}</td>
-        <td className="px-4 py-3">
-          <div className="flex flex-wrap gap-2">
-            {canRegister ? <button onClick={onRegister} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-xs font-bold text-[#151515]">Registrar pago</button> : null}
-            {canComplete ? <button onClick={onComplete} className="rounded-full border border-[#FFB4A8]/45 px-3 py-1.5 text-xs font-semibold text-[#FFB4A8]">Completar soporte</button> : null}
-            <button onClick={onDetail} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs font-semibold text-[#F5F5F5]">Ver detalle</button>
-          </div>
-        </td>
-      </tr>
-      {expanded ? (
-        <tr className="border-t border-[#3A3A36]/70 bg-[#151515]">
-          <td colSpan={11} className="px-4 py-4">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-normal text-[#A7A7A7]">Items relacionados</p>
-                <div className="mt-2 grid gap-2">{pago.itemsResumen.map((item) => <PaymentItemLine key={item.id} item={item} />)}</div>
-              </div>
-              <div className="grid content-start gap-2 text-sm text-[#A7A7A7]">
-                <div>
-                  <p>Regalos:</p>
-                  <div className="mt-2 grid gap-2">
-                    {pago.regalosResumen.length ? pago.regalosResumen.map((item) => <PaymentItemLine key={item.id} item={item} />) : <span className="text-[#F5F5F5]">-</span>}
-                  </div>
-                </div>
-                <p>Transacción: <span className="text-[#F5F5F5]">{pago.transaccionId || "-"}</span></p>
-                <p>Movimiento Finanzas: <span className="text-[#F5F5F5]">{pago.movimientoFinanzasId || "-"}</span></p>
-                <p>Comprobantes: <span className="text-[#F5F5F5]">{pago.comprobante.length}</span></p>
-                <p>Observación: <span className="text-[#F5F5F5]">{pago.observacion || "-"}</span></p>
-                {pago.motivoAnulacion ? <p>Motivo anulación: <span className="text-[#F5F5F5]">{pago.motivoAnulacion}</span></p> : null}
-                <MissingList missing={missing} />
-              </div>
-            </div>
-          </td>
-        </tr>
-      ) : null}
-    </>
+    <div className="mt-2 flex flex-wrap items-end gap-2">
+      <label className="w-36"><span className={label}>Orden</span><input value={f.orden} onChange={(e) => setF({ ...f, orden: e.target.value })} className={input} /></label>
+      <label className="w-44"><span className={label}>Nº transacción</span><input value={f.transaccion} onChange={(e) => setF({ ...f, transaccion: e.target.value })} className={input} /></label>
+      <label className="w-64"><span className={label}>Enlace comprobante</span><input value={f.enlace} onChange={(e) => setF({ ...f, enlace: e.target.value })} className={input} /></label>
+      <button disabled={busy} onClick={() => void guardar()} className={btnPrim}>{busy ? "Guardando…" : "Guardar"}</button>
+      {error ? <span className="text-[12px] text-[#FFB07A]">{error}</span> : null}
+    </div>
   );
 }
 
 export function ShippingV2PagosClient({ initialWorkspace, error, permissions, providerName }: Props) {
-  const [workspace, setWorkspace] = useState(initialWorkspace);
-  const [activeTab, setActiveTab] = useState<TabKey>(permissions?.canManagePayments === false ? "registrados" : "pendientes");
-  const [filters, setFilters] = useState<FilterState>({ query: "", proveedor: ALL, estadoPago: ALL, metodoPago: ALL, estadoFinanzas: ALL, tipoOperacion: ALL });
-  const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([]);
-  const [createItems, setCreateItems] = useState<ShippingV2PagoPendingItem[]>([]);
-  const [createPaid, setCreatePaid] = useState(false);
-  const [selectedPago, setSelectedPago] = useState<ShippingV2Pago | null>(null);
-  const [expandedPagoIds, setExpandedPagoIds] = useState<string[]>([]);
-  const canManagePayments = permissions?.canManagePayments !== false;
-  const isProviderPortal = Boolean(providerName && permissions?.canManagePayments === false);
+  const [ws, setWs] = useState(initialWorkspace);
+  const gestiona = permissions?.canManagePayments !== false;
+  const portal = Boolean(providerName && !gestiona);
+  const [tab, setTab] = useState<Tab>(gestiona ? "compras" : "registrados");
+  const [proveedor, setProveedor] = useState(TODOS);
+  const [buscar, setBuscar] = useState("");
+  const [abierto, setAbierto] = useState("");
+  const [pagando, setPagando] = useState("");
+  const [soloSinComprobante, setSoloSinComprobante] = useState(false);
+  const [aviso, setAviso] = useState("");
 
-  const proveedores = useMemo(() => workspace.proveedores.map((item) => ({ value: item.id, label: item.nombre || item.label || item.id })), [workspace.proveedores]);
-  const tipoOperacionOptions = useMemo(() => {
-    const values = new Set<string>();
-    [
-      ...workspace.pendientes.itemsSinPago,
-      ...workspace.sinSoporte.itemsPagadosSinPago.map((card) => card.item),
-      ...workspace.pagos.flatMap((pago) => pago.itemsResumen),
-      ...workspace.pagos.flatMap((pago) => pago.regalosResumen),
-    ].forEach((item) => item.tipoOperacion && values.add(item.tipoOperacion));
-    return [ALL, ...Array.from(values).sort((a, b) => a.localeCompare(b, "es"))].map((value) => ({ value, label: value }));
-  }, [workspace]);
+  const grupos = useMemo(() => armarGrupos(ws.porPagar ?? [], ws.regalosEnCaja ?? []), [ws.porPagar, ws.regalosEnCaja]);
+  const q = normalize(buscar);
+  const gruposVista = grupos.filter((g) =>
+    (!proveedor || g.proveedorId === proveedor) &&
+    (!q || normalize([g.titulo, g.proveedorNombre, ...g.items.map((i) => `${i.sku} ${i.nombre} ${i.skuProveedor ?? ""}`)].join(" ")).includes(q))
+  );
+  const pagos = useMemo(
+    () => [...(ws.pagosRegistrados?.length ? ws.pagosRegistrados : ws.pagos)].sort((a, b) => (b.fechaPagoReal || b.fechaCreacion || "").localeCompare(a.fechaPagoReal || a.fechaCreacion || "")),
+    [ws.pagos, ws.pagosRegistrados]
+  );
+  const vivos = pagos.filter((p) => normalize(p.estadoPago) !== "anulado");
+  const sinComprobante = vivos.filter((p) => normalize(p.estadoPago) === "pagado" && !tieneComprobante(p));
+  const pagosVista = pagos.filter((p) =>
+    (!proveedor || p.proveedorId === proveedor) &&
+    (!soloSinComprobante || sinComprobante.includes(p)) &&
+    (!q || normalize([p.pagoId, p.orden, p.transaccionId, p.proveedorNombre, p.registradoPor, ...p.itemsResumen.map((i) => i.sku)].join(" ")).includes(q))
+  );
+  const totalFalta = sumar(ws.porPagar ?? []);
+  const proveedores = useMemo(() => {
+    const m = new Map<string, string>();
+    grupos.forEach((g) => g.proveedorId && m.set(g.proveedorId, g.proveedorNombre));
+    pagos.forEach((p) => p.proveedorId && m.set(p.proveedorId, p.proveedorNombre || p.proveedorId));
+    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1], "es"));
+  }, [grupos, pagos]);
 
-  const pendingItems = useMemo(() => workspace.pendientes.itemsSinPago.filter((item) => itemMatches(item, filters)), [filters, workspace.pendientes.itemsSinPago]);
-  // Agrupa por packing reutilizando la relación que ya trae el item
-  // (packingId/packingIdVisible/packingEstado, resueltos server-side en
-  // toPendingPaymentItem) — no es una relación nueva, solo se aprovecha acá.
-  // Los items sin packing (venta suelta, sin requerir armado) se listan aparte.
-  const pendingGroups = useMemo(() => {
-    const byPacking = new Map<string, { key: string; packingIdVisible: string; packingEstado: string; items: ShippingV2PagoPendingItem[] }>();
-    const sueltos: ShippingV2PagoPendingItem[] = [];
-    pendingItems.forEach((item) => {
-      if (!item.packingId) {
-        sueltos.push(item);
-        return;
-      }
-      const existing = byPacking.get(item.packingId);
-      if (existing) existing.items.push(item);
-      else byPacking.set(item.packingId, {
-        key: item.packingId,
-        packingIdVisible: item.packingIdVisible || item.packingId,
-        packingEstado: item.packingEstado || "",
-        items: [item],
-      });
-    });
-    const grupos = Array.from(byPacking.values()).sort((a, b) => a.packingIdVisible.localeCompare(b.packingIdVisible, "es"));
-    return { grupos, sueltos };
-  }, [pendingItems]);
-  const pendingPayments = useMemo(() => workspace.pendientes.pagosPendientes.filter((pago) => pagoMatches(pago, filters)), [filters, workspace.pendientes.pagosPendientes]);
-  const incompletePayments = useMemo(() => workspace.sinSoporte.pagosIncompletos.filter((card) => pagoMatches(card.pago, filters)), [filters, workspace.sinSoporte.pagosIncompletos]);
-  const registeredPayments = useMemo(() => (workspace.pagosRegistrados.length ? workspace.pagosRegistrados : workspace.pagos).filter((pago) => pagoMatches(pago, filters)), [filters, workspace.pagos, workspace.pagosRegistrados]);
-  const selectedPendingItems = pendingItems.filter((item) => selectedPendingIds.includes(item.id));
-  const pendingProvider = selectedPendingItems[0]?.proveedorId || "";
-  const canCreatePending = selectedPendingItems.length > 0 && selectedPendingItems.every((item) => item.proveedorId && item.proveedorId === pendingProvider);
-
-  async function refreshWorkspace() {
-    const response = await fetch("/api/shipping-v2/pagos", { cache: "no-store" });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.success) return;
-    const fallback = workspaceFallback();
-    setWorkspace({
-      pagos: payload.pagos ?? [],
-      itemsPendientes: payload.itemsPendientes ?? [],
-      porPagar: payload.porPagar ?? [],
-      pagosPendientes: payload.pagosPendientes ?? [],
-      pendientes: payload.pendientes ?? fallback.pendientes,
-      pagadosSinSoporte: payload.pagadosSinSoporte ?? [],
-      sinSoporte: payload.sinSoporte ?? fallback.sinSoporte,
-      pagosCompletos: payload.pagosCompletos ?? [],
-      pagosRegistrados: payload.pagosRegistrados ?? payload.pagos ?? [],
-      proveedores: payload.proveedores ?? [],
-      summary: payload.summary ?? fallback.summary,
-    });
-    setSelectedPendingIds([]);
+  async function recargar(mensaje: string) {
+    const res = await fetch("/api/shipping-v2/pagos", { cache: "no-store" });
+    const payload = await res.json().catch(() => ({}));
+    if (res.ok && payload.success && payload.data) setWs(payload.data as ShippingV2PagosWorkspace);
+    setPagando("");
+    setAbierto("");
+    setAviso(mensaje);
   }
 
-  function updateFilter(key: keyof FilterState, value: string) {
-    setFilters((current) => ({ ...current, [key]: value }));
-  }
-
-function toggleId(id: string, setter: Dispatch<SetStateAction<string[]>>) {
-    setter((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
-  }
-
-  // Selecciona/deselecciona TODOS los items de un packing de una sola vez, sin
-  // tocar la selección individual de items de otros grupos — misma lista de
-  // ids que ya usan los checkboxes uno-a-uno (selectedPendingIds), así que
-  // seguir marcando o desmarcando items sueltos dentro del grupo funciona igual.
-  function toggleGroupSelection(items: ShippingV2PagoPendingItem[]) {
-    const ids = items.map((item) => item.id);
-    const allSelected = ids.every((id) => selectedPendingIds.includes(id));
-    setSelectedPendingIds((current) => {
-      if (allSelected) return current.filter((id) => !ids.includes(id));
-      const merged = new Set(current);
-      ids.forEach((id) => merged.add(id));
-      return Array.from(merged);
-    });
-  }
-
-  function openCreate(items: ShippingV2PagoPendingItem[], paid: boolean) {
-    setCreateItems(items);
-    setCreatePaid(paid);
-  }
-
-  const tabs: Array<{ key: TabKey; label: string; count: number }> = canManagePayments
-    ? [
-      { key: "pendientes", label: "Falta respaldo", count: pendingItems.length + pendingPayments.length },
-      { key: "sin-soporte", label: "Sin comprobante", count: incompletePayments.length },
-      { key: "registrados", label: "Pagos registrados", count: registeredPayments.length },
-    ]
-    : [
-      { key: "registrados", label: "Pagos registrados", count: registeredPayments.length },
-      { key: "pendientes", label: "Pendientes", count: pendingPayments.length },
-    ];
+  const tabBtn = (t: Tab, texto: string, n: number) => (
+    <button key={t} onClick={() => setTab(t)} className={`h-8 border-r border-[#3A3A36] px-3 text-[13px] font-semibold last:border-r-0 ${tab === t ? "bg-[#D7FF4F] text-[#151515]" : "bg-[#151515] text-[#B4B5AC] hover:text-[#D7FF4F]"}`}>
+      {texto} <span className="tabular-nums opacity-70">{n}</span>
+    </button>
+  );
 
   return (
-    <div className="w-full space-y-2.5">
-      <section className="flex flex-col gap-2 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 lg:flex-row lg:items-center lg:justify-between 2xl:px-4 2xl:py-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[#F5F5F5]">Pagos</h2>
-          <p className="mt-0.5 text-sm text-[#A7A7A7]">{isProviderPortal ? `Pagos registrados para ${providerName}.` : "Pagos, soportes y movimientos de Shipping V2"}</p>
-        </div>
-        <Link
-          href="/shipping-v2"
-          className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-center text-sm font-bold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
-        >
-          Volver a Shipping
-        </Link>
-      </section>
-
-      {error ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{error}</div> : null}
-
-      <section className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Falta respaldo" value={money(workspace.summary.totalPorPagar)} tone="yellow" />
-        <Kpi label="Pagos sin comprobante" value={money(workspace.summary.totalPagadoSinSoporte)} tone="support" />
-        <Kpi label="Pagado con respaldo" value={money(workspace.summary.totalPagadoCompleto)} tone="lime" />
-        <Kpi label="Pagos incompletos o en revisión" value={workspace.summary.incompletos + workspace.pagos.filter((pago) => normalize(pago.estadoPago).includes("revision")).length} tone="muted" />
-      </section>
-
-      <section className="rounded-xl border border-[#30312D] bg-[#11120F] p-2 shadow-xl shadow-black/15">
-        <div className="grid gap-2 xl:grid-cols-[1.5fr_repeat(5,minmax(0,1fr))]">
-          <label className="min-w-0">
-            <span className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">Buscar</span>
-            <input value={filters.query} onChange={(event) => updateFilter("query", event.target.value)} placeholder="SKU, pago, proveedor, transacción..." className="mt-1 h-9 w-full rounded-lg border border-[#3A3A36] bg-[#121310] px-3 text-[13px] font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70" />
-          </label>
-          <SelectFilter label="Proveedor" value={filters.proveedor} options={[{ value: ALL, label: ALL }, ...proveedores]} onChange={(value) => updateFilter("proveedor", value)} />
-          <SelectFilter label="Estado Pago" value={filters.estadoPago} options={paymentStates.map((value) => ({ value, label: value }))} onChange={(value) => updateFilter("estadoPago", value)} />
-          <SelectFilter label="Método" value={filters.metodoPago} options={paymentMethods.map((value) => ({ value, label: value }))} onChange={(value) => updateFilter("metodoPago", value)} />
-          <SelectFilter label="Finanzas" value={filters.estadoFinanzas} options={financeStates.map((value) => ({ value, label: value }))} onChange={(value) => updateFilter("estadoFinanzas", value)} />
-          <SelectFilter label="Operación" value={filters.tipoOperacion} options={tipoOperacionOptions} onChange={(value) => updateFilter("tipoOperacion", value)} />
-        </div>
-      </section>
-
-      <nav className="flex gap-1.5 overflow-x-auto rounded-xl border border-[#30312D] bg-[#151515] p-1.5">
-        {tabs.map((tab) => (
-          <button key={tab.key} onClick={() => setActiveTab(tab.key)} className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${activeTab === tab.key ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] bg-[#20201E] text-[#F5F5F5] hover:border-[#D7FF4F]/50"}`}>
-            {tab.label} <span className="ml-2 tabular-nums opacity-75">{tab.count}</span>
-          </button>
-        ))}
-      </nav>
-
-      {activeTab === "pendientes" ? (
-        <section className="space-y-2.5">
-          {canManagePayments ? (
-            <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
-            <div className="flex flex-col gap-2 border-b border-[#30312D] bg-[#20211D] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Compras sin respaldo</h2>
-                <p className="mt-0.5 text-xs text-[#A7A7A7]">{selectedPendingItems.length} seleccionados · {money(paymentItemsTotal(selectedPendingItems))}</p>
-              </div>
-              {canManagePayments ? (
-                <button disabled={!canCreatePending} title={selectedPendingItems.length && !canCreatePending ? "Selecciona compras de un solo proveedor" : undefined} onClick={() => openCreate(selectedPendingItems, true)} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-50">Registrar respaldo</button>
-              ) : null}
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1280px] text-left text-sm">
-                <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "SKU", "Nombre", "Proveedor", "Operación", "Estado", "Cantidad", "Costo unit.", "Subtotal", "Registro", "Faltantes"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
-                <tbody>
-                  {pendingGroups.grupos.map((group) => (
-                    <Fragment key={group.key}>
-                      <PendingGroupHeaderRow
-                        packingIdVisible={group.packingIdVisible}
-                        packingEstado={group.packingEstado}
-                        items={group.items}
-                        selectedIds={selectedPendingIds}
-                        columnCount={11}
-                        onToggleAll={() => toggleGroupSelection(group.items)}
-                      />
-                      {group.items.map((item) => <PendingItemRow key={item.id} item={item} selected={selectedPendingIds.includes(item.id)} onToggle={() => toggleId(item.id, setSelectedPendingIds)} />)}
-                    </Fragment>
-                  ))}
-                  {pendingGroups.sueltos.length ? (
-                    <Fragment>
-                      {pendingGroups.grupos.length ? (
-                        <tr className="border-t border-[#3A3A36] bg-[#1B1C19]">
-                          <td colSpan={11} className="px-4 py-2 text-xs font-semibold uppercase tracking-normal text-[#8F908A]">Sin packing asignado</td>
-                        </tr>
-                      ) : null}
-                      {pendingGroups.sueltos.map((item) => <PendingItemRow key={item.id} item={item} selected={selectedPendingIds.includes(item.id)} onToggle={() => toggleId(item.id, setSelectedPendingIds)} />)}
-                    </Fragment>
-                  ) : null}
-                </tbody>
-              </table>
-              {!pendingItems.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">Todas las compras tienen su respaldo.</p> : null}
-            </div>
+    <div className="w-full space-y-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#2E2F28] bg-[#11120F] px-2 py-1.5">
+        {gestiona ? (
+          <div className="inline-flex overflow-hidden rounded-md border border-[#3A3A36]">
+            {tabBtn("compras", "Compras", grupos.length)}
+            {tabBtn("registrados", "Registrados", vivos.length)}
           </div>
-          ) : null}
-          {pendingPayments.length || !canManagePayments ? (
-          <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
-            <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
-              <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Respaldos en registro</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1180px] text-left text-sm">
-                <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "Pago ID", "Proveedor", "Estado", "Items/Regalos", "Total", "Creación", "Fecha real", "Método", "Finanzas", "Acciones"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
-                <tbody>{pendingPayments.map((pago) => <PagoRow key={pago.id} pago={pago} expanded={expandedPagoIds.includes(pago.id)} canManage={canManagePayments} onToggle={() => toggleId(pago.id, setExpandedPagoIds)} onRegister={() => setSelectedPago(pago)} onComplete={() => setSelectedPago(pago)} onDetail={() => setSelectedPago(pago)} />)}</tbody>
-              </table>
-            </div>
-          </div>
-          ) : null}
-        </section>
-      ) : null}
+        ) : <span className="px-1 text-[13px] font-semibold text-[#F5F5F5]">Pagos{providerName ? ` · ${providerName}` : ""}</span>}
+        {!portal ? (
+          <select value={proveedor} onChange={(e) => setProveedor(e.target.value)} className={`${campo} w-48`} aria-label="Proveedor">
+            <option value={TODOS}>Todos los proveedores</option>
+            {proveedores.map(([id, n]) => <option key={id} value={id}>{n}</option>)}
+          </select>
+        ) : null}
+        <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar SKU, caja, pago, orden…" className={`${campo} min-w-[160px] flex-1`} />
+        {gestiona ? (
+          <span className="text-[12px] text-[#8F908A]">
+            Falta respaldo <b className="tabular-nums text-[#F5F5F5]">{money(totalFalta)}</b>
+            {" · "}
+            <button onClick={() => { setTab("registrados"); setSoloSinComprobante(true); }} className="hover:text-[#D7FF4F]">Sin comprobante <b className="text-[#F5F5F5]">{sinComprobante.length}</b></button>
+          </span>
+        ) : null}
+      </div>
 
-      {activeTab === "sin-soporte" ? (
-        <section className="space-y-2.5">
-          <div className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
-            <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
-              <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Pagos sin comprobante</h2>
+      {error ? <div className="rounded-md border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-1.5 text-sm text-[#FFB07A]">{error}</div> : null}
+      {aviso ? <div className="flex items-center rounded-md border border-[#D7FF4F]/30 bg-[#D7FF4F]/5 px-3 py-1.5 text-[13px] text-[#D7FF4F]">{aviso}<button onClick={() => setAviso("")} className="ml-auto text-[#8F908A]" aria-label="Cerrar">×</button></div> : null}
+
+      {tab === "compras" && gestiona ? (
+        <section className="overflow-x-auto rounded-lg border border-[#2E2F28] bg-[#171814]">
+          <div className="min-w-[760px]">
+            <div className="grid grid-cols-[22px_150px_minmax(0,1fr)_52px_100px_120px_120px] gap-2 border-b border-[#3A3A36] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
+              <span /><span>Caja / SKU</span><span>Proveedor</span><span className="text-right">Art.</span><span className="text-right">Total</span><span>Va en</span><span />
             </div>
-            <div className="grid gap-2 p-2">
-              {incompletePayments.map((card) => (
-                <article key={card.id} className="rounded-xl border border-[#FF6B6B]/25 bg-[#151515] p-3">
-                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <div className="flex flex-wrap gap-2"><Badge tone="support">Pago incompleto</Badge>{!card.pago.movimientoFinanzasIds.length ? <Badge>Movimiento pendiente</Badge> : null}</div>
-                      <h3 className="mt-2 text-base font-semibold text-[#F5F5F5]">{card.pago.pagoId} · {card.proveedorNombre || "Sin proveedor"}</h3>
-                      <p className="mt-1 text-sm text-[#A7A7A7]">{card.pago.cantidadItems} items · {money(card.total)} · Finanzas: {card.pago.estadoIntegracionFinanzas || "-"}</p>
-                    </div>
-                    <button onClick={() => setSelectedPago(card.pago)} className="rounded-lg border border-[#FFB4A8]/45 px-3 py-1.5 text-sm font-semibold text-[#FFB4A8]">Completar soporte</button>
+            {gruposVista.map((g) => {
+              const total = sumar(g.items);
+              const faltaCosto = g.items.some((i) => subtotal(i).error);
+              const abiertoAqui = abierto === g.key;
+              return (
+                <Fragment key={g.key}>
+                  <div className="grid grid-cols-[22px_150px_minmax(0,1fr)_52px_100px_120px_120px] items-center gap-2 border-b border-[#2A2B26] px-2 py-1.5 text-[13px] hover:bg-[#1D1E1A]">
+                    <button onClick={() => setAbierto(abiertoAqui ? "" : g.key)} className="text-[#8F908A] hover:text-[#D7FF4F]" aria-label={abiertoAqui ? "Ocultar artículos" : "Ver artículos"}>{abiertoAqui ? "▾" : "▸"}</button>
+                    <span className={`truncate font-semibold ${g.tipo === "caja" ? "text-[#F5F5F5]" : "text-[#D7FF4F]"}`} title={g.titulo}>{g.titulo}</span>
+                    <span className="truncate text-[#B4B5AC]">{g.proveedorNombre}{g.tipo === "suelto" ? <span className="text-[#6F706A]"> · {g.items[0]?.nombre}</span> : null}</span>
+                    <span className="text-right tabular-nums text-[#B4B5AC]">{g.items.length}{g.regalos.length ? <span className="text-[#6F706A]">+{g.regalos.length}</span> : null}</span>
+                    <span className="text-right font-semibold tabular-nums text-[#F5F5F5]">{money(total)}{faltaCosto ? <span className={`ml-1 ${tonos.mal}`} title="Hay artículos sin costo">!</span> : null}</span>
+                    <span className="truncate text-[12px] text-[#8F908A]">{g.tipo === "caja" ? g.estadoLogistico || "Caja" : `Solo · ${g.estadoLogistico}`}</span>
+                    <span className="text-right">
+                      {pagando === g.key ? null : <button onClick={() => { setPagando(g.key); setAbierto(""); setAviso(""); }} className={btn}>Registrar pago</button>}
+                    </span>
                   </div>
-                  <div className="mt-2"><MissingList missing={card.missing} /></div>
-                </article>
-              ))}
-              {!incompletePayments.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">Todos los pagos tienen su comprobante.</p> : null}
+                  {abiertoAqui && pagando !== g.key ? (
+                    <div className="bg-[#151612] px-2 pb-1">
+                      {g.items.map((i) => <LineaItem key={i.id} item={i} />)}
+                      {g.regalos.map((r) => <LineaItem key={r.id} item={r} regalo />)}
+                    </div>
+                  ) : null}
+                  {pagando === g.key ? (
+                    <PanelPago
+                      grupo={g}
+                      otros={grupos.filter((o) => o.key !== g.key && o.proveedorId === g.proveedorId)}
+                      regalosPorCaja={(keys) => grupos.filter((x) => keys.includes(x.key)).flatMap((x) => x.regalos)}
+                      onCancel={() => setPagando("")}
+                      onDone={recargar}
+                    />
+                  ) : null}
+                </Fragment>
+              );
+            })}
+            {!gruposVista.length ? <p className="py-6 text-center text-[13px] text-[#8F908A]">{grupos.length ? "Nada coincide con el filtro." : "Todas las compras tienen su pago registrado."}</p> : null}
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "registrados" ? (
+        <section className="overflow-x-auto rounded-lg border border-[#2E2F28] bg-[#171814]">
+          {gestiona ? (
+            <div className="flex items-center gap-2 border-b border-[#3A3A36] px-2 py-1 text-[12px]">
+              <label className="flex cursor-pointer items-center gap-1.5 text-[#B4B5AC]">
+                <input type="checkbox" checked={soloSinComprobante} onChange={(e) => setSoloSinComprobante(e.target.checked)} className="h-3.5 w-3.5 accent-[#D7FF4F]" />
+                Solo sin comprobante ({sinComprobante.length})
+              </label>
             </div>
+          ) : null}
+          <div className="min-w-[860px]">
+            <div className={`grid ${portal ? "grid-cols-[22px_150px_130px_52px_100px_90px_130px_minmax(0,1fr)]" : "grid-cols-[22px_150px_minmax(0,1fr)_110px_52px_100px_84px_120px_100px_110px]"} gap-2 border-b border-[#3A3A36] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]`}>
+              {portal
+                ? <><span /><span>Pago</span><span>Orden</span><span className="text-right">Art.</span><span className="text-right">Total</span><span>Fecha</span><span>Método</span><span>Nº transacción</span></>
+                : <><span /><span>Pago</span><span>Proveedor</span><span>Orden</span><span className="text-right">Art.</span><span className="text-right">Total</span><span>Fecha</span><span>Método</span><span>Comprobante</span><span>Registró</span></>}
+            </div>
+            {pagosVista.map((p) => {
+              const abiertoAqui = abierto === p.id;
+              const anulado = normalize(p.estadoPago) === "anulado";
+              const pagado = normalize(p.estadoPago) === "pagado";
+              return (
+                <Fragment key={p.id}>
+                  <div className={`grid ${portal ? "grid-cols-[22px_150px_130px_52px_100px_90px_130px_minmax(0,1fr)]" : "grid-cols-[22px_150px_minmax(0,1fr)_110px_52px_100px_84px_120px_100px_110px]"} items-center gap-2 border-b border-[#2A2B26] px-2 py-1.5 text-[13px] hover:bg-[#1D1E1A] ${anulado ? "opacity-50 line-through" : ""}`}>
+                    <button onClick={() => setAbierto(abiertoAqui ? "" : p.id)} className="text-[#8F908A] hover:text-[#D7FF4F]" aria-label="Ver detalle">{abiertoAqui ? "▾" : "▸"}</button>
+                    <span className="truncate font-semibold text-[#F5F5F5]" title={p.pagoId}>{p.pagoId}</span>
+                    {portal ? null : <span className="truncate text-[#B4B5AC]">{p.proveedorNombre || "—"}</span>}
+                    <span className="truncate text-[#B4B5AC]">{p.orden || "—"}</span>
+                    <span className="text-right tabular-nums text-[#B4B5AC]">{p.cantidadItems}</span>
+                    <span className="text-right font-semibold tabular-nums text-[#F5F5F5]">{money(p.totalPagado ?? p.totalAPagar)}</span>
+                    <span className="text-[12px] text-[#B4B5AC]">{fecha(p.fechaPagoReal || p.fechaCreacion)}</span>
+                    <span className="truncate text-[12px] text-[#B4B5AC]">{p.metodoPago && p.metodoPago !== "No aplica" ? p.metodoPago : "—"}</span>
+                    {portal ? <span className="truncate text-[12px] text-[#B4B5AC]">{p.transaccionId || "—"}</span> : (
+                      <span>
+                        {anulado ? <span className={tonos.mute}>Anulado</span>
+                          : !pagado ? <span className={tonos.falta}>{p.estadoPago}</span>
+                          : esPagoHistorico(p) ? <span className={tonos.mute}>Histórico</span>
+                          : tieneComprobante(p) ? <span className={tonos.ok}>✓</span>
+                          : <span className={tonos.falta}>Falta</span>}
+                      </span>
+                    )}
+                    {portal ? null : <span className="truncate text-[12px] text-[#8F908A]">{p.registradoPor || p.pagadoPor || "—"}</span>}
+                  </div>
+                  {abiertoAqui ? (
+                    <div className="bg-[#151612] px-2 pb-2">
+                      {p.itemsResumen.map((i) => <LineaItem key={i.id} item={i} />)}
+                      {p.regalosResumen.map((r) => <LineaItem key={r.id} item={r} regalo />)}
+                      {!portal && (p.transaccionId || p.cuentaOrigen || p.comprobante.length) ? (
+                        <p className="mt-1 text-[12px] text-[#8F908A]">
+                          {p.cuentaOrigen && p.cuentaOrigen !== "No aplica" ? <span className="mr-3">Cuenta: <span className="text-[#E6E6E1]">{p.cuentaOrigen.trim()}</span></span> : null}
+                          {p.transaccionId ? <span className="mr-3">Transacción: <span className="text-[#E6E6E1]">{p.transaccionId}</span></span> : null}
+                          {p.comprobante.map((a, n) => <a key={a.url} href={a.url} target="_blank" rel="noreferrer" className="mr-2 text-[#D7FF4F] hover:underline">Comprobante {n + 1}</a>)}
+                        </p>
+                      ) : null}
+                      {gestiona && pagado && !tieneComprobante(p) ? <CompletarComprobante pago={p} onDone={recargar} /> : null}
+                    </div>
+                  ) : null}
+                </Fragment>
+              );
+            })}
+            {!pagosVista.length ? <p className="py-6 text-center text-[13px] text-[#8F908A]">No hay pagos con este filtro.</p> : null}
           </div>
         </section>
       ) : null}
-
-      {activeTab === "registrados" ? (
-        <section className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
-          <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
-            <h2 className="text-sm font-semibold uppercase tracking-normal text-[#F5F5F5]">Registros reales de Shipping Pagos</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] text-left text-sm">
-              <thead className="text-[12px] uppercase text-[#A7A7A7]"><tr>{["", "Pago ID", "Proveedor", "Estado", "Items/Regalos", "Total", "Creación", "Fecha real", "Método", "Finanzas", "Acciones"].map((h) => <th key={h} className="px-3 py-2">{h}</th>)}</tr></thead>
-              <tbody>{registeredPayments.map((pago) => <PagoRow key={pago.id} pago={pago} expanded={expandedPagoIds.includes(pago.id)} canManage={canManagePayments} onToggle={() => toggleId(pago.id, setExpandedPagoIds)} onRegister={() => setSelectedPago(pago)} onComplete={() => setSelectedPago(pago)} onDetail={() => setSelectedPago(pago)} />)}</tbody>
-            </table>
-            {!registeredPayments.length ? <p className="py-5 text-center text-sm text-[#A7A7A7]">No hay pagos registrados con estos filtros.</p> : null}
-          </div>
-        </section>
-      ) : null}
-
-      {selectedPago ? <DetailModal pago={selectedPago} canManage={canManagePayments} onClose={() => setSelectedPago(null)} onUpdated={refreshWorkspace} /> : null}
-      {createItems.length && canManagePayments ? <CreatePaymentModal selectedItems={createItems} registerPaidDefault={createPaid} onClose={() => setCreateItems([])} onCreated={refreshWorkspace} /> : null}
     </div>
   );
 }

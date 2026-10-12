@@ -42,6 +42,7 @@ export async function POST(request: Request) {
       cuentaOrigen: String(body.cuentaOrigen ?? ""),
       transaccionId: String(body.transaccionId ?? ""),
       comprobanteUrl: String(body.comprobanteUrl ?? ""),
+      orden: String(body.orden ?? ""),
     }, { registradoPor: getShippingV2SessionName(session), access });
     return NextResponse.json({ success: true, data: pago, recordId: pago.id }, { status: 201 });
   } catch (error) {

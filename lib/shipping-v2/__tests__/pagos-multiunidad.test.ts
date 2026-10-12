@@ -229,6 +229,7 @@ function pendingItem(overrides: Partial<ShippingV2PagoPendingItem> = {}): Shippi
     sku: "PENDING-1",
     skuProveedor: "",
     nombre: "Pendiente",
+    unidadesEnPacking: null,
     tipoOperacion: "Compra a proveedor",
     tipoItem: "Equipo completo",
     categoria: "Laptop",
@@ -328,20 +329,31 @@ assertMoney(
   "Regalo con costo 0 no suma al pago"
 );
 
+assertMoney(
+  calculateShippingV2PaymentItemSubtotal({ sku: "VENDIDO", cantidad: 0, unidadesCompradas: 2, costoProveedor: 10 }),
+  20,
+  "Punto 9b: lo vendido se paga por las unidades COMPRADAS"
+);
+assertMoney(
+  calculateShippingV2PaymentItemSubtotal({ sku: "VIEJO", cantidad: 1, unidadesEnPacking: 3, costoProveedor: 5 }),
+  15,
+  "Punto 9b: dato anterior sin unidades compradas usa lo que viajó en la caja"
+);
+
 async function main() {
 await assertRejects(
   () => calculateShippingV2PaymentItemSubtotal({ sku: "QTY-0", cantidad: 0, costoProveedor: 10 }),
-  "Cantidad inválida",
-  "Cantidad 0 no es pagable"
+  "faltan las unidades compradas",
+  "Cantidad 0 sin unidades compradas no es pagable"
 );
 await assertRejects(
   () => calculateShippingV2PaymentItemSubtotal({ sku: "QTY-NEG", cantidad: -1, costoProveedor: 10 }),
-  "Cantidad inválida",
+  "faltan las unidades compradas",
   "Cantidad negativa no es pagable"
 );
 await assertRejects(
   () => calculateShippingV2PaymentItemSubtotal({ sku: "QTY-DEC", cantidad: 1.5, costoProveedor: 10 }),
-  "Cantidad inválida",
+  "faltan las unidades compradas",
   "Cantidad decimal no es pagable"
 );
 
@@ -471,8 +483,8 @@ await withFixture(async (fixture) => {
   });
   await assertRejects(
     () => createShippingV2Pago({ proveedorId: fixture.providerId, itemIds: [item] }, { registradoPor: "Test", access: systemShippingV2Access() }),
-    "Cantidad inválida",
-    "Crear pago rechaza item futuro con cantidad 0"
+    "faltan las unidades compradas",
+    "Crear pago rechaza item sin unidades compradas y con cantidad 0"
   );
 });
 

@@ -31,6 +31,7 @@ const TABLES = {
 };
 
 const EXPECTED_ITEM_FIELDS = [
+  "Unidades compradas",
   "SKU",
   "Nombre del item",
   "Descripción",
@@ -124,6 +125,7 @@ const EXPECTED_PROVIDER_FIELDS = [
 
 const EXPECTED_PAYMENT_FIELDS = [
   "Pago ID",
+  "Orden",
   "Estado Pago",
   "Proveedor",
   "Items relacionados",
@@ -276,6 +278,7 @@ const ITEM_FIELD_KEYS = {
   precioVentaFinal: "Precio venta final",
   precioVentaSugerido: "Precio venta sugerido",
   cantidad: "Cantidad",
+  unidadesCompradas: "Unidades compradas",
   // F-42 — unidades comprometidas (reserva de cliente u orden) aún no
   // vendidas. Libres = Cantidad - Cantidad Reservada. Ver lib/shipping-v2/unidades.ts.
   cantidadReservada: "Cantidad Reservada",
@@ -353,6 +356,7 @@ const PROVIDER_FIELD_KEYS = {
 
 const PAYMENT_FIELD_KEYS = {
   pagoId: "Pago ID",
+  orden: "Orden",
   estadoPago: "Estado Pago",
   proveedor: "Proveedor",
   itemsRelacionados: "Items relacionados",
