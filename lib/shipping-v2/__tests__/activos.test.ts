@@ -24,10 +24,10 @@ const modo = (r: { ok: boolean; modo?: string }) => (r.ok ? r.modo : "error");
 console.log("— Situación de pago —");
 assert(situacionPago({ requierePago: false }) === "sin-pago", "Reajuste/regalo: no se debe");
 assert(situacionPago({ requierePago: true, esRegalo: true }) === "sin-pago", "Regalo: no se debe");
-assert(situacionPago({ requierePago: true }) === "por-pagar", "Compra sin pago: por pagar");
+assert(situacionPago({ requierePago: true }) === "falta-respaldo", "Compra sin pago registrado: falta respaldo");
 assert(situacionPago({ requierePago: true, pagos: [{ estado: "Pendiente" }] }) === "pago-en-curso", "En un pago pendiente");
 assert(situacionPago({ requierePago: true, pagos: [{ estado: "Anulado" }, { estado: "Pagado" }] }) === "pagado", "Pagado (el anulado no cuenta)");
-assert(situacionPago({ requierePago: true, pagos: [{ estado: "Anulado" }] }) === "por-pagar", "Solo pagos anulados: vuelve a por pagar");
+assert(situacionPago({ requierePago: true, pagos: [{ estado: "Anulado" }] }) === "falta-respaldo", "Solo pagos anulados: vuelve a falta respaldo");
 
 const laptop: ArticuloParaMovimiento = { sku: "LAP-1", usoLocal: false, recibido: true, estado: "Disponible", cantidad: 1, pago: "pagado" };
 const cables: ArticuloParaMovimiento = { sku: "CAB-1", usoLocal: false, recibido: true, estado: "Disponible", cantidad: 5, pago: "pagado" };
@@ -45,7 +45,7 @@ assert(!ok(evaluarPasarAUsoLocal({ ...laptop, estado: "Vendido", cantidad: 0 }, 
 assert(modo(evaluarPasarAUsoLocal({ ...cables, recibido: false, estado: "En tránsito" }, { ...admin, cantidad: 5 })) === "todo", "En camino, todas las unidades: sí (al llegar será Uso local)");
 assert(!ok(evaluarPasarAUsoLocal({ ...cables, recibido: false, estado: "En tránsito" }, { ...admin, cantidad: 2 })), "En camino, solo una parte: no");
 assert(!ok(evaluarPasarAUsoLocal({ ...cables, pago: "pago-en-curso" }, { ...admin, cantidad: 2 })), "Separar con un pago en curso: no");
-assert(modo(evaluarPasarAUsoLocal({ ...cables, pago: "por-pagar" }, { ...admin, cantidad: 2 })) === "separar", "Separar algo por pagar: sí (las dos partes siguen por pagar)");
+assert(modo(evaluarPasarAUsoLocal({ ...cables, pago: "falta-respaldo" }, { ...admin, cantidad: 2 })) === "separar", "Separar algo sin respaldo: sí (las dos partes siguen sin respaldo)");
 
 const pcCaja: ArticuloParaMovimiento = { sku: "DES-1", usoLocal: true, recibido: true, estado: "Uso local", cantidad: 1, pago: "pagado" };
 const sillas: ArticuloParaMovimiento = { sku: "OTR-1", usoLocal: true, recibido: true, estado: "Uso local", cantidad: 4, pago: "sin-pago" };
@@ -64,7 +64,8 @@ assert(!ok(evaluarDarDeBaja({ ...cables, cantidadReservada: 4 }, { ...admin, can
 assert(ok(evaluarDarDeBaja({ ...cables, cantidadReservada: 4 }, { ...admin, cantidad: 1, motivo: "se perdió uno" })), "Mercadería: sí la unidad libre");
 assert(!ok(evaluarDarDeBaja({ ...cables, recibido: false, estado: "En tránsito" }, { ...admin, cantidad: 1, motivo: "se perdió" })), "Mercadería en camino: novedad, no baja");
 assert(!ok(evaluarDarDeBaja({ ...cables, estado: "Vendido", cantidad: 0 }, { ...admin, cantidad: 1, motivo: "se perdió" })), "Mercadería vendida: no se da de baja");
-assert(!ok(evaluarDarDeBaja({ ...pcCaja, pago: "por-pagar" }, { ...admin, cantidad: 1 })), "Si todavía se debe, primero el pago");
+assert(ok(evaluarDarDeBaja({ ...pcCaja, pago: "falta-respaldo" }, { ...admin, cantidad: 1 })), "Punto 9: que falte el respaldo no impide dar de baja");
+assert(!ok(evaluarDarDeBaja({ ...pcCaja, pago: "pago-en-curso" }, { ...admin, cantidad: 1 })), "Con un pago registrándose, primero se termina");
 assert(!ok(evaluarDarDeBaja({ ...pcCaja, pago: "pago-en-curso" }, { ...admin, cantidad: 1 })), "Pago en curso: primero marcarlo pagado");
 assert(!ok(evaluarDarDeBaja({ ...pcCaja, recibido: false, estado: "En tránsito" }, { ...admin, cantidad: 1 })), "En camino: se registra novedad, no baja");
 assert(!ok(evaluarDarDeBaja({ ...pcCaja, estado: "Dado de baja", cantidad: 0 }, { ...admin, cantidad: 1 })), "No se da de baja dos veces");
@@ -90,7 +91,7 @@ console.log("\n— Etiquetas y pagos —");
 assert(etiquetaComoActivo({ recibido: true, requiereInspeccion: false }) === "Uso local", "Activo en la tienda: Uso local");
 assert(etiquetaComoActivo({ recibido: true, requiereInspeccion: true, inspeccionFirmada: false }) === "En revisión", "Activo con inspección pendiente: En revisión");
 assert(etiquetaComoActivo({ recibido: false, estado: "En tránsito" }) === "En tránsito", "Activo en camino: sigue su camino");
-assert(requierePagoParteSeparada("por-pagar") && !requierePagoParteSeparada("pagado") && !requierePagoParteSeparada("sin-pago"), "La parte separada solo se paga si todavía se debía");
+assert(requierePagoParteSeparada("falta-respaldo") && !requierePagoParteSeparada("pagado") && !requierePagoParteSeparada("sin-pago"), "La parte separada solo pide respaldo si al original le faltaba");
 
 if (fallos > 0) { console.error(`\n${fallos} assert(s) fallaron.`); process.exit(1); }
 console.log("\n✅ activos.test.ts — todos los asserts pasaron");

@@ -390,6 +390,11 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   requierePacking: boolean | null;
   pagoV2ItemIds: string[];
   pagoV2RegaloIds: string[];
+  /**
+   * Punto 9 (12-oct): situación del pago, calculada desde Shipping Pagos.
+   * Solo viene en la lista de Artículos (y la ficha la calcula aparte).
+   */
+  situacionPago?: "sin-pago" | "falta-respaldo" | "pago-en-curso" | "pagado";
   packingId?: string;
   /** @deprecated Campo legacy "Pago relacionado" apunta a la tabla vieja Pago. No usar para Shipping V2. */
   pagoId?: string;

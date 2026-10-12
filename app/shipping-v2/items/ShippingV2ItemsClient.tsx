@@ -23,6 +23,7 @@ import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHIPPING_V2_ITEM_EDIT_FIELDS, type ShippingV2ItemEditFieldConfig } from "@/lib/shipping-v2/item-edit-config";
 import { evaluarVentaItem } from "@/lib/shipping-v2/item-venta";
+import { ETIQUETA_SITUACION_PAGO } from "@/lib/shipping-v2/pagos-situacion";
 import {
   SHIPPING_V2_ALL_FILTER,
   filterShippingV2Items,
@@ -136,6 +137,7 @@ type ShippingV2ItemsColumnKey =
   | "availability"
   | "facebookSuperGeek"
   | "requiresPayment"
+  | "paymentStatus"
   | "requiresPacking"
   | "physicalReview"
   | "notes";
@@ -177,6 +179,7 @@ const AVAILABLE_COLUMNS: ShippingV2ItemsColumn[] = [
   { key: "availability", label: "Disponibilidad", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Inventario" },
   { key: "facebookSuperGeek", label: "Facebook SG", defaultWidth: 112, minWidth: 96, maxWidth: 132, align: "center", defaultVisible: true, category: "Inventario" },
   { key: "requiresPayment", label: "Requiere pago", defaultWidth: 130, minWidth: 110, defaultVisible: false, category: "Compra" },
+  { key: "paymentStatus", label: "Pago", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Compra" },
   { key: "requiresPacking", label: "Requiere packing", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Logística" },
   { key: "physicalReview", label: "Revisión física", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Revisión" },
   { key: "notes", label: "Observaciones", defaultWidth: 260, minWidth: 180, defaultVisible: false, category: "Principal" },
@@ -446,6 +449,8 @@ function getItemCellTitle(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKe
       return item.facebookSuperGeek ? "Facebook Super Geek activo" : "Facebook Super Geek inactivo";
     case "requiresPayment":
       return displayBoolean(item.requierePago);
+    case "paymentStatus":
+      return item.situacionPago ? ETIQUETA_SITUACION_PAGO[item.situacionPago] : "—";
     case "requiresPacking":
       return displayBoolean(item.requierePacking);
     case "physicalReview":
@@ -457,6 +462,19 @@ function getItemCellTitle(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKe
     default:
       return undefined;
   }
+}
+
+function PagoChip({ situacion }: { situacion: NonNullable<ShippingV2Item["situacionPago"]> }) {
+  const tono = situacion === "pagado"
+    ? "border-[#D7FF4F]/35 text-[#D7FF4F]"
+    : situacion === "sin-pago"
+      ? "border-[#3A3A36] text-[#A7A7A7]"
+      : "border-yellow-300/40 text-yellow-200";
+  return (
+    <span title={`Pago: ${ETIQUETA_SITUACION_PAGO[situacion]}`} className={`shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${tono}`}>
+      {situacion === "falta-respaldo" ? "Sin respaldo" : ETIQUETA_SITUACION_PAGO[situacion]}
+    </span>
+  );
 }
 
 function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey, context: ItemCellRenderContext) {
@@ -476,7 +494,13 @@ function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey,
     case "operationType":
       return <OperationBadge value={item.tipoOperacion} />;
     case "itemStatus":
-      return <EstadoBadge estado={item.estado} />;
+      // Punto 9: el pago se ve aparte del estado; solo se avisa cuando falta algo.
+      return (
+        <span className="flex min-w-0 items-center gap-1">
+          <EstadoBadge estado={item.estado} />
+          {item.situacionPago === "falta-respaldo" || item.situacionPago === "pago-en-curso" ? <PagoChip situacion={item.situacionPago} /> : null}
+        </span>
+      );
     case "generalRole":
       return displayValue(item.tipoItem);
     case "category":
@@ -520,6 +544,8 @@ function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey,
       );
     case "requiresPayment":
       return displayBoolean(item.requierePago);
+    case "paymentStatus":
+      return item.situacionPago ? ETIQUETA_SITUACION_PAGO[item.situacionPago] : "—";
     case "requiresPacking":
       return displayBoolean(item.requierePacking);
     case "physicalReview":
@@ -1646,6 +1672,8 @@ export function ShippingV2ItemDetailView({
 
   function handleSaved(updatedItem: ShippingV2Item) {
     const resolved: ResolvedItem = {
+      // La edición no cambia el pago: se conserva la situación ya calculada.
+      situacionPago: item.situacionPago,
       ...updatedItem,
       proveedorCompraDisplay: resolveShippingV2ProveedorLabel(updatedItem.proveedorId, providerLabelsById),
       proveedorLogisticoDisplay: resolveShippingV2ProveedorLabel(updatedItem.proveedorLogisticoId, providerLabelsById),
@@ -1869,6 +1897,7 @@ export function ShippingV2ItemDetailView({
       title: "Pago relacionado",
       accent: "yellow",
       rows: [
+        { label: "Situación del pago", value: item.situacionPago, displayValue: item.situacionPago ? ETIQUETA_SITUACION_PAGO[item.situacionPago] : "—", readOnly: true },
         { label: C.requierePago.label, value: item.requierePago, displayValue: displayBoolean(item.requierePago), config: C.requierePago },
         { label: "Pago Shipping V2 relacionado", value: item.pagoId, displayValue: pago?.pagoId || item.pagoId || "—", config: C.pagoRelacionado },
         { label: "Estado de pago", value: pago?.estadoPago, displayValue: pago?.estadoPago ? <EstadoBadge estado={pago.estadoPago} /> : "—", readOnly: true },
@@ -1999,7 +2028,7 @@ export function ShippingV2ItemDetailView({
               <EstadoBadge estado={item.estado} />
               <OperationBadge value={item.tipoOperacion} />
               <AvailabilityBadge item={item} />
-              <BooleanPill label="Requiere pago" value={item.requierePago} />
+              {item.situacionPago ? <PagoChip situacion={item.situacionPago} /> : <BooleanPill label="Requiere pago" value={item.requierePago} />}
               <BooleanPill label="Requiere packing" value={item.requierePacking} />
               <BooleanPill label="Disponible venta" value={item.disponibleVenta} />
               <BooleanPill label="Facebook SG" value={item.facebookSuperGeek} />
@@ -2411,7 +2440,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   const summary = useMemo(() => ({
     total: resolvedItems.length,
     disponibles: resolvedItems.filter((item) => normalizeText(item.estado).includes("disponible") || item.disponibleVenta === true).length,
-    pendientesPago: resolvedItems.filter((item) => normalizeText(item.estado).includes("pendiente pago")).length,
+    faltaRespaldo: resolvedItems.filter((item) => item.situacionPago === "falta-respaldo").length,
     enTransito: resolvedItems.filter((item) => normalizeText(item.estado).includes("transito")).length,
     conNovedad: resolvedItems.filter((item) => item.conNovedad === true || normalizeText(item.estado).includes("novedad")).length,
   }), [resolvedItems]);
@@ -2624,7 +2653,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
       <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
         <MiniMetric label="Items página" value={summary.total} tone="lime" />
         <MiniMetric label="Disponibles pág." value={summary.disponibles} tone="lime" />
-        <MiniMetric label="Pendientes pág." value={summary.pendientesPago} tone="yellow" />
+        <MiniMetric label="Falta respaldo pág." value={summary.faltaRespaldo} tone="yellow" />
         <MiniMetric label="En transito pág." value={summary.enTransito} tone="purple" />
         <MiniMetric label="Con novedad pág." value={summary.conNovedad} tone="orange" />
       </section>

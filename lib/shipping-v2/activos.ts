@@ -45,26 +45,10 @@ const ESTADOS_SALIDOS = new Set([
   "migrado", "dado de baja",
 ]);
 
-export type SituacionPago = "sin-pago" | "por-pagar" | "pago-en-curso" | "pagado";
-
-/**
- * ¿Qué pasa con el pago al proveedor de este artículo?
- *  sin-pago      → no se le debe a nadie (regalo, reajuste…).
- *  por-pagar     → se le debe y todavía no está en ningún pago.
- *  pago-en-curso → está en un pago que todavía no se marca pagado.
- *  pagado        → está en un pago pagado.
- */
-export function situacionPago(a: {
-  requierePago?: boolean | null;
-  esRegalo?: boolean | null;
-  pagos?: Array<{ estado?: string | null }>;
-}): SituacionPago {
-  if (a.requierePago !== true || a.esRegalo === true) return "sin-pago";
-  const vivos = (a.pagos ?? []).filter((p) => normalize(p.estado) !== "anulado");
-  if (vivos.some((p) => normalize(p.estado) === "pagado")) return "pagado";
-  if (vivos.length) return "pago-en-curso";
-  return "por-pagar";
-}
+// Punto 9 (12-oct): la situación del pago vive en pagos-situacion.ts. Ningún
+// proveedor da crédito, así que "por pagar" pasó a ser "falta respaldo".
+export { situacionPago, type SituacionPago } from "./pagos-situacion";
+import type { SituacionPago } from "./pagos-situacion";
 
 export type ArticuloParaMovimiento = {
   sku?: string | null;
@@ -95,7 +79,7 @@ function validarBase(a: ArticuloParaMovimiento, cantidad: number, esAdministrado
 function bloqueoParaSeparar(a: ArticuloParaMovimiento): string | null {
   if (a.recibido !== true) return "Para mover solo una parte, el artículo tiene que estar en la tienda (Recibido). Si viene en camino, mueve todas las unidades.";
   if (a.enPacking) return "Está dentro de una caja de Logística: espera a que llegue o mueve todas las unidades.";
-  if (a.pago === "pago-en-curso") return "Está en un pago que todavía no se marca pagado. Márcalo pagado (o sácalo del pago) antes de separar unidades.";
+  if (a.pago === "pago-en-curso") return "Está en un pago que se está registrando. Termina de registrarlo (o sácalo del pago) antes de separar unidades.";
   return null;
 }
 
@@ -137,8 +121,7 @@ export function evaluarPasarALaVenta(
 /**
  * Dar de baja unidades de un activo o de MERCADERÍA (punto 5, 8-oct: lo que
  * sale sin venderse — se perdió, se dañó sin arreglo, se regaló). Baja la
- * cantidad; con 0 queda "Dado de baja". Una baja NO puede borrar una deuda
- * con el proveedor. En mercadería solo se dan de baja unidades LIBRES: lo
+ * cantidad; con 0 queda "Dado de baja". En mercadería solo se dan de baja unidades LIBRES: lo
  * reservado para un cliente no se toca.
  */
 export function evaluarDarDeBaja(
@@ -163,10 +146,10 @@ export function evaluarDarDeBaja(
       return { ok: false, motivo: `Hay ${libres} unidad(es) libres; las demás están reservadas para un cliente. Libera la reserva primero.` };
     }
   }
-  if (a.pago === "por-pagar") {
-    return { ok: false, motivo: "Todavía se le debe al proveedor. Registra primero el pago en Pagos: la deuda sigue aunque el activo se haya dañado o perdido." };
-  }
-  if (a.pago === "pago-en-curso") return { ok: false, motivo: "Está en un pago que todavía no se marca pagado. Márcalo pagado antes de darlo de baja." };
+  // Punto 9 (12-oct): ningún proveedor da crédito; que falte el respaldo del
+  // pago no impide dar de baja. Solo se espera si el pago se está registrando
+  // en este momento (podría cambiar la cantidad que se respalda).
+  if (a.pago === "pago-en-curso") return { ok: false, motivo: "Está en un pago que se está registrando. Termina de registrarlo (o sácalo del pago) antes de darlo de baja." };
   const quedan = (Number(a.cantidad) || 0) - input.cantidad;
   return { ok: true, quedan, dadoDeBaja: quedan === 0 };
 }
@@ -220,10 +203,11 @@ export function valoresComoMercaderia(a: { recibido?: boolean | null; estado?: s
 }
 
 /**
- * Pago del artículo NUEVO que se separa: si la compra ya se pagó (o no se
- * debía), la parte separada no se vuelve a pagar. Si todavía se debe, la
- * parte separada también aparece en Pagos (la suma de lo que se debe no cambia).
+ * Pago del artículo NUEVO que se separa: si la compra ya tiene su respaldo
+ * (o no hubo compra), la parte separada no vuelve a pedirlo. Si todavía falta
+ * el respaldo, la parte separada también aparece en Pagos → "Falta respaldo"
+ * (el total que falta respaldar no cambia).
  */
 export function requierePagoParteSeparada(pago: SituacionPago): boolean {
-  return pago === "por-pagar";
+  return pago === "falta-respaldo";
 }

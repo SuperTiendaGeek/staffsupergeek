@@ -74,9 +74,11 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       afectaInventario: true,
       disponibleParaVenta: true,
       modoLogistico: "Pendiente de packing",
-      estadoItemSugerido: "Pendiente de pago",
+      // Punto 9 (12-oct): el pago no es una etapa del estado; se ve aparte
+      // ("Falta respaldo" hasta subir el comprobante).
+      estadoItemSugerido: "Registrado",
     });
-    base.notas.push("Aunque esté pendiente de pago, puede ofrecerse o reservarse si fue aprobado para compra.");
+    base.notas.push("Puede ofrecerse o reservarse desde que se registra; se vende cuando llega.");
   } else if (operation === "compra ya pagada") {
     Object.assign(base, {
       requierePago: true,
@@ -84,7 +86,7 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       afectaInventario: true,
       disponibleParaVenta: true,
       modoLogistico: "Pendiente de packing",
-      estadoItemSugerido: "Pagado",
+      estadoItemSugerido: "Registrado",
     });
     base.notas.push("Si viene del exterior, puede ofrecerse o reservarse aunque todavía esté pendiente de llegada.");
   } else if (operation === "regalo de proveedor") {
