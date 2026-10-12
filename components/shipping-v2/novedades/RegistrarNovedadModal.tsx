@@ -81,7 +81,7 @@ export function RegistrarNovedadModal({
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo registrar la novedad."));
-        resultado = { item: payload.data as ShippingV2Item, novedad: (payload.novedad as ShippingV2Novedad) ?? null, aviso: String(payload.aviso || "") };
+        resultado = { item: payload.data as ShippingV2Item, novedad: (payload.novedad as ShippingV2Novedad) ?? null, aviso: String(payload.aviso || (payload.correo ? `Novedad registrada. Se envió un correo a ${payload.correo}.` : "")) };
         setCreada(resultado);
       }
 

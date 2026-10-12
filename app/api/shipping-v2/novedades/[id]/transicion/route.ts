@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getShippingV2AccessContextForSession, transitionShippingV2Novedad } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ValoresAccionNovedad } from "@/lib/shipping-v2/novedades";
+import { origenPublico } from "@/lib/tecnicos/presupuesto/origen";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,7 @@ export async function POST(request: Request, { params }: Params) {
       valores,
       actor: getShippingV2SessionName(session),
       access,
+      origin: origenPublico(request),
     });
 
     return NextResponse.json({ success: true, data: resultado });

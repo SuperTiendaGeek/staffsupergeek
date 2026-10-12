@@ -132,8 +132,11 @@ import {
   etiquetaDeBloqueo,
   etiquetaPropuesta,
   DECISION_VENDIDO_CON_NOVEDAD,
+  construirHiloNovedad,
   isNovedadAbierta,
+  normalizarEstadoNovedad,
   pideAclaracionAlVender,
+  SHIPPING_V2_PROPUESTAS_PROVEEDOR,
   validarAccionNovedad,
   validarCierrePorVenta,
   validarRegistroNovedad,
@@ -142,6 +145,17 @@ import {
   type ValoresAccionNovedad,
 } from "@/lib/shipping-v2/novedades";
 import { validarEvidencias } from "@/lib/shipping-v2/evidencias";
+import {
+  construirCorreoNovedad,
+  evaluarEnlace,
+  generarTokenEnlace,
+  huellaToken,
+  proveedorRecibeCorreo,
+  TOKEN_ENLACE_REGEX,
+  urlEnlaceNovedad,
+  venceEnlace,
+} from "@/lib/shipping-v2/novedades-correo";
+import { enviarCorreoNovedad, leerConfigCorreoNovedades } from "@/lib/shipping-v2/novedades-correo-envio";
 import {
   construirZonasRevision,
   getPerfilRevision,
@@ -5304,6 +5318,10 @@ const CAMPOS_NOVEDAD = {
   precioConDescuento: "Precio con descuento",
   valorPerdida: "Valor de la pérdida",
   perdidaPorDistribuir: "Pérdida por distribuir",
+  // Punto 8c: enlace temporal del correo al proveedor.
+  enlaceHuella: "Enlace proveedor (huella)",
+  enlaceVence: "Enlace proveedor vence",
+  ultimoCorreo: "Último correo al proveedor",
 } as const;
 
 /** Rol de la sesión frente a una novedad. El servidor nunca confía en la pantalla. */
@@ -5342,11 +5360,11 @@ async function aplicarBloqueoEnArticulo(item: ShippingV2Item, etiqueta: string, 
 export async function createShippingV2ItemNovedad(
   recordId: string,
   input: ShippingV2ItemNovedadInput,
-  options: { registradoPor: string; access?: ShippingV2AccessContext }
+  options: { registradoPor: string; access?: ShippingV2AccessContext; origin?: string }
 ) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
-  return withLock(`shipping-item:${id}`, async () => {
+  const resultado = await withLock(`shipping-item:${id}`, async () => {
     const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
     const validacion = validarRegistroNovedad({
       tipo: input.tipo,
@@ -5419,7 +5437,260 @@ export async function createShippingV2ItemNovedad(
       estadoNuevo: validacion.bloqueaVenta ? updatedItem.estado : undefined,
     });
 
-    return { item: updatedItem, novedad: mapNovedad(created), aviso };
+    return { item: updatedItem, novedad: mapNovedad(created), aviso, conProveedor };
+  });
+
+  // Punto 8c: correo al proveedor. Fuera del candado del artículo (el orden
+  // permitido es novedad → artículo, nunca al revés). Si falla, la novedad
+  // igual quedó guardada: solo se avisa.
+  let aviso = resultado.aviso;
+  let correo = "";
+  if (resultado.conProveedor && options.origin) {
+    const envio = await withLock(`shipping-novedad:${resultado.novedad.id}`, () =>
+      notificarProveedorPorCorreo(resultado.novedad.id, { motivo: "nueva", origin: options.origin! })
+    ).catch((error): { enviadoA?: string; aviso: string } => {
+      console.error("No se pudo avisar por correo la novedad nueva:", error);
+      return { aviso: "La novedad se guardó, pero no se pudo enviar el correo al proveedor." };
+    });
+    if (envio.aviso) aviso = [aviso, envio.aviso].filter(Boolean).join(" ");
+    correo = envio.enviadoA ?? "";
+  }
+  return { item: resultado.item, novedad: resultado.novedad, aviso, correo };
+}
+
+// ─── Correo al proveedor (punto 8c · 11-oct-2026) ───────────────────────────
+
+/**
+ * Envía al proveedor el correo con el botón RESPONDER y deja anotado en la
+ * novedad cuándo y a quién se envió (o por qué no).
+ *
+ * Quien la llama debe tener el candado `shipping-novedad:` de esta novedad.
+ * NUNCA lanza error: la novedad ya está guardada y el correo es un extra.
+ */
+async function notificarProveedorPorCorreo(
+  novedadRecordId: string,
+  opciones: { motivo: "nueva" | "respuesta"; origin: string; mensaje?: string }
+): Promise<{ enviadoA?: string; aviso: string }> {
+  const ahora = new Date();
+  const anotar = async (texto: string, extra: Record<string, unknown> = {}) => {
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
+      method: "PATCH",
+      body: JSON.stringify({ records: [{ id: novedadRecordId, fields: { ...extra, [CAMPOS_NOVEDAD.ultimoCorreo]: `[${ahora.toISOString()}] ${texto}` } }] }),
+    }).catch((error) => console.error("No se pudo anotar el correo en la novedad:", error));
+  };
+
+  try {
+    const record = await airtableRequest<AirtableRecordResponse>(
+      `${tableUrl(SHIPPING_V2_TABLES.novedades)}/${encodeURIComponent(novedadRecordId)}`
+    );
+    const novedad = mapNovedad(record);
+    if (!esResponsableProveedor(novedad.responsable)) return { aviso: "" };
+
+    const proveedor = novedad.proveedorResponsableId ? await getShippingV2ProveedorById(novedad.proveedorResponsableId) : null;
+    if (!proveedor || !proveedorRecibeCorreo({ email: proveedor.email, permisosPortal: proveedor.permisosPortal })) {
+      await anotar("No se envió: el proveedor no tiene portal (correo registrado y permiso “Responder novedades”).");
+      return { aviso: "El proveedor no tiene portal: no se le envió correo. Avísale por otro medio y anota su respuesta en la novedad." };
+    }
+
+    const { config, falta } = leerConfigCorreoNovedades();
+    if (!config) {
+      console.error("Correo de novedades sin configurar. Falta:", falta.join(", "));
+      await anotar(`No se envió: falta configurar el correo de staff (${falta.join(", ")}).`);
+      return { aviso: "La novedad se guardó, pero el correo al proveedor no salió: falta configurar el correo de staff en Vercel." };
+    }
+
+    const itemRecord = novedad.itemId ? await getRecordById(SHIPPING_V2_TABLES.items, novedad.itemId) : null;
+    const sku = itemRecord ? firstString(itemRecord.fields[getOfficialSkuField()], novedad.itemId) : "";
+    const articulo = itemRecord ? firstString(itemRecord.fields[SHIPPING_V2_ITEM_FIELDS.nombre]) : "";
+
+    // Primero se guarda la huella del enlace nuevo (reemplaza al anterior) y
+    // después se envía: así el botón ya funciona cuando llega el correo.
+    const token = generarTokenEnlace();
+    const vence = venceEnlace(ahora);
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
+      method: "PATCH",
+      body: JSON.stringify({ records: [{ id: novedadRecordId, fields: { [CAMPOS_NOVEDAD.enlaceHuella]: huellaToken(token), [CAMPOS_NOVEDAD.enlaceVence]: vence } }] }),
+    });
+
+    const correo = construirCorreoNovedad({
+      motivo: opciones.motivo,
+      proveedorNombre: proveedor.nombre,
+      novedadId: novedad.novedadId,
+      sku,
+      articulo,
+      tipo: novedad.tipo,
+      descripcion: novedad.descripcion ?? "",
+      mensaje: opciones.mensaje,
+      url: urlEnlaceNovedad(opciones.origin, token),
+      vence,
+      correoRespuesta: config.correoRespuesta,
+    });
+    const para = String(proveedor.email).trim();
+    try {
+      await enviarCorreoNovedad(config, { para, asunto: correo.asunto, html: correo.html, texto: correo.texto });
+    } catch (error) {
+      const detalle = error instanceof Error ? error.message : "error inesperado";
+      console.error("No se pudo enviar el correo de la novedad:", { novedadRecordId, detalle });
+      await anotar(`No se envió a ${para}: ${detalle}`);
+      return { aviso: `La novedad se guardó, pero el correo a ${para} no salió (${detalle}). Avísale por otro medio.` };
+    }
+    await anotar(`Enviado a ${para} (${opciones.motivo === "nueva" ? "novedad nueva" : "nuestra respuesta"}). El enlace vence el ${vence.slice(0, 10)}.`);
+    return { enviadoA: para, aviso: "" };
+  } catch (error) {
+    console.error("Falló el aviso por correo de la novedad:", error);
+    await anotar(`No se envió: ${error instanceof Error ? error.message : "error inesperado"}`);
+    return { aviso: "La novedad se guardó, pero no se pudo enviar el correo al proveedor." };
+  }
+}
+
+/** Lo que ve el proveedor al abrir el enlace del correo (sin iniciar sesión). */
+export type VistaNovedadPorEnlace =
+  | { estado: "no-existe" | "vencido" }
+  | { estado: "sin-turno"; novedadId: string; sku: string; articulo: string }
+  | {
+      estado: "vigente";
+      novedadId: string;
+      proveedorNombre: string;
+      sku: string;
+      articulo: string;
+      tipo: string;
+      fechaRegistro: string;
+      vence: string;
+      hilo: Array<{ fecha: string; autor: string; texto: string; lado: "super-geek" | "proveedor" }>;
+      evidencias: Array<{ url: string; nombre: string; miniatura: string; esImagen: boolean }>;
+      propuestas: Array<{ valor: string; label: string }>;
+    };
+
+/** Busca la novedad por la huella del código. Solo hex: no hay nada que escapar. */
+async function buscarNovedadPorToken(token: string): Promise<AirtableRecord | null> {
+  if (!TOKEN_ENLACE_REGEX.test(token)) return null;
+  const records = await listRecords(SHIPPING_V2_TABLES.novedades, {
+    filterByFormula: `{${CAMPOS_NOVEDAD.enlaceHuella}} = '${huellaToken(token)}'`,
+    maxRecords: 1,
+  });
+  return records[0] ?? null;
+}
+
+/** La novedad está esperando la respuesta del proveedor por este medio. */
+function novedadAdmiteRespuestaPorEnlace(novedad: ShippingV2Novedad) {
+  return normalizarEstadoNovedad(novedad.estado) === "Abierta" && esResponsableProveedor(novedad.responsable);
+}
+
+export async function leerNovedadPorEnlace(token: string): Promise<VistaNovedadPorEnlace> {
+  const record = await buscarNovedadPorToken(token);
+  if (!record) return { estado: "no-existe" };
+  const original = mapNovedad(record);
+  const enlace = evaluarEnlace({ token, huellaGuardada: firstString(record.fields[CAMPOS_NOVEDAD.enlaceHuella]), vence: firstString(record.fields[CAMPOS_NOVEDAD.enlaceVence]) });
+  if (!enlace.ok) return { estado: enlace.motivo === "vencido" ? "vencido" : "no-existe" };
+
+  const itemRecord = original.itemId ? await getRecordById(SHIPPING_V2_TABLES.items, original.itemId) : null;
+  const sku = itemRecord ? firstString(itemRecord.fields[getOfficialSkuField()]) : "";
+  const articulo = itemRecord ? firstString(itemRecord.fields[SHIPPING_V2_ITEM_FIELDS.nombre]) : "";
+  if (!novedadAdmiteRespuestaPorEnlace(original)) return { estado: "sin-turno", novedadId: original.novedadId, sku, articulo };
+
+  const proveedor = original.proveedorResponsableId ? await getShippingV2ProveedorById(original.proveedorResponsableId) : null;
+  const novedad = ocultarDatosInternosNovedad(original);
+  // Del lado de la tienda no se muestran nombres del personal: solo "SUPER GEEK".
+  const hilo = construirHiloNovedad(novedad).map((entrada) => ({
+    fecha: entrada.fecha,
+    autor: entrada.lado === "super-geek" ? "SUPER GEEK" : entrada.autor,
+    texto: entrada.texto,
+    lado: entrada.lado,
+  }));
+  return {
+    estado: "vigente",
+    novedadId: novedad.novedadId,
+    proveedorNombre: proveedor?.nombre ?? "",
+    sku,
+    articulo,
+    tipo: novedad.tipo,
+    fechaRegistro: novedad.fechaRegistro ?? "",
+    vence: firstString(record.fields[CAMPOS_NOVEDAD.enlaceVence]),
+    hilo,
+    evidencias: novedad.evidencias.map((a) => ({
+      url: a.url,
+      nombre: a.filename || "Archivo",
+      miniatura: a.thumbnailUrl || a.url,
+      esImagen: String(a.type || "").startsWith("image/"),
+    })),
+    propuestas: SHIPPING_V2_PROPUESTAS_PROVEEDOR.map((p) => ({ valor: p.valor, label: p.label })),
+  };
+}
+
+export type RespuestaPorEnlace =
+  | { ok: true }
+  | { ok: false; status: number; error: string };
+
+/**
+ * El proveedor responde desde el enlace. Mismas reglas que "Responder" en el
+ * portal; el enlace queda inutilizado al guardar (un solo uso).
+ */
+export async function responderNovedadPorEnlace(
+  token: string,
+  input: { texto: string; propuesta?: string },
+  meta: { ip?: string } = {}
+): Promise<RespuestaPorEnlace> {
+  const encontrado = await buscarNovedadPorToken(token);
+  if (!encontrado) return { ok: false, status: 404, error: "Este enlace ya no es válido. Si ya respondió, su respuesta quedó registrada." };
+  const id = encontrado.id;
+
+  return withLock(`shipping-novedad:${id}`, async (): Promise<RespuestaPorEnlace> => {
+    // Se vuelve a leer dentro del candado: dos envíos a la vez no se duplican.
+    const record = await airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.novedades)}/${encodeURIComponent(id)}`);
+    const enlace = evaluarEnlace({ token, huellaGuardada: firstString(record.fields[CAMPOS_NOVEDAD.enlaceHuella]), vence: firstString(record.fields[CAMPOS_NOVEDAD.enlaceVence]) });
+    if (!enlace.ok) {
+      return enlace.motivo === "vencido"
+        ? { ok: false, status: 410, error: "Este enlace venció. Puede responder desde el portal de proveedores o escribirnos por correo." }
+        : { ok: false, status: 404, error: "Este enlace ya no es válido. Si ya respondió, su respuesta quedó registrada." };
+    }
+    const novedad = mapNovedad(record);
+    if (!novedadAdmiteRespuestaPorEnlace(novedad)) {
+      return { ok: false, status: 409, error: "Esta novedad ya no espera su respuesta." };
+    }
+
+    const texto = cleanString(input.texto).slice(0, 4000);
+    const propuesta = cleanString(input.propuesta);
+    const validacion = validarAccionNovedad({
+      accion: "responder",
+      novedad: { estado: novedad.estado, responsable: novedad.responsable, tipo: novedad.tipo, bloqueaVenta: novedad.bloqueaVenta, decision: novedad.decision },
+      rol: "proveedor",
+      valores: { texto, propuesta },
+    });
+    if (!validacion.ok) return { ok: false, status: 400, error: validacion.motivo };
+
+    const proveedor = novedad.proveedorResponsableId ? await getShippingV2ProveedorById(novedad.proveedorResponsableId) : null;
+    const autor = `${proveedor?.nombre || "Proveedor"} (desde el correo)`;
+    const now = new Date().toISOString();
+    const cuerpo = propuesta ? `Propone: ${etiquetaPropuesta(propuesta)}. ${texto}` : texto;
+    const fields: Record<string, unknown> = {
+      "Respuesta del proveedor": appendEntradaHilo(novedad.respuestaProveedor, autor, cuerpo, now),
+      "Fecha de respuesta del proveedor": now,
+      "Última actualización": now,
+      "Actualizado por": autor,
+      // Un solo uso.
+      [CAMPOS_NOVEDAD.enlaceHuella]: null,
+      [CAMPOS_NOVEDAD.enlaceVence]: null,
+    };
+    if (propuesta) fields["Solución"] = propuesta;
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.novedades), {
+      method: "PATCH",
+      body: JSON.stringify({ typecast: true, records: [{ id, fields }] }),
+    });
+
+    await createShippingV2Event({
+      action: "Cambio de estado",
+      entity: "Shipping Novedad",
+      novedadRecordId: id,
+      itemRecordId: novedad.itemId,
+      packingRecordId: novedad.packingId,
+      registradoPor: autor,
+      descripcion: "Novedad — el proveedor respondió desde el enlace del correo.",
+      observacion: [texto, propuesta ? `Propuesta: ${etiquetaPropuesta(propuesta)}` : "", meta.ip ? `IP ${meta.ip}` : ""].filter(Boolean).join(" · "),
+      estadoAnterior: novedad.estado,
+      estadoNuevo: novedad.estado,
+    }).catch((error) => console.error("No se pudo registrar el evento de la respuesta por enlace:", error));
+
+    return { ok: true };
   });
 }
 
@@ -5527,6 +5798,8 @@ export async function transitionShippingV2Novedad(
     valores?: ValoresAccionNovedad;
     actor: string;
     access?: ShippingV2AccessContext;
+    /** Dirección pública del portal, para el enlace del correo (punto 8c). */
+    origin?: string;
   }
 ) {
   const rol = rolNovedad(input.access);
@@ -5588,6 +5861,9 @@ export async function transitionShippingV2Novedad(
         fields["Respuesta del proveedor"] = appendEntradaHilo(novedad.respuestaProveedor, autor, cuerpo, now);
         fields["Fecha de respuesta del proveedor"] = now;
         if (propuesta) fields["Solución"] = propuesta;
+        // Ya respondió: el enlace del correo deja de servir (punto 8c).
+        fields[CAMPOS_NOVEDAD.enlaceHuella] = null;
+        fields[CAMPOS_NOVEDAD.enlaceVence] = null;
         break;
       }
       case "contestar":
@@ -5689,6 +5965,14 @@ export async function transitionShippingV2Novedad(
       estadoAnterior: novedad.estado,
       estadoNuevo: novedadActualizada.estado,
     }).catch((error) => console.error("No se pudo registrar el evento de la novedad:", error));
+
+    // Punto 8c: cada vez que le contestamos, le llega un correo con el botón
+    // RESPONDER. Ya estamos dentro del candado de esta novedad.
+    if (accion === "contestar" && input.origin) {
+      const envio = await notificarProveedorPorCorreo(id, { motivo: "respuesta", origin: input.origin, mensaje: texto });
+      const aviso = envio.enviadoA ? `Se envió un correo a ${envio.enviadoA}.` : envio.aviso;
+      if (aviso) mensaje = `${mensaje} ${aviso}`.trim();
+    }
 
     // El bloqueo y la disponibilidad del artículo se recalculan con lo que
     // quedó. Si falla, la novedad igual quedó guardada.
