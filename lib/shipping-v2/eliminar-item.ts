@@ -43,6 +43,8 @@ export const CAMPOS_ITEM = {
   // la pieza no se podía eliminar nunca.
   intervencionesPiezaRetirada: "fldYs8AX9v1kpFq8Q",
   presupuesto: "fld56ubP1rQcohqdk",
+  // Punto 9c: pagos de flete, arancel u otros de un artículo que viaja solo.
+  pagosLogistica: "fldCa3dz3BESvK0HE",
   // No bloquean (se pierden sin daño o son catálogos)
   eventos: "fld6a0wcWWooYAezr",
   opcionOrigen: "fldg48EHyUaFbFutj",
@@ -130,6 +132,7 @@ export function evaluarEliminacion(ctx: ContextoEliminacion): EvaluacionEliminac
   if (pagosAnulados > 0) avisos.push(`Aparece en ${plural(pagosAnulados, "pago anulado", "pagos anulados")}; ese pago quedará sin este item en su lista.`);
 
   // Logística
+  if (n(ctx, C.pagosLogistica) > 0) bloqueos.push("Tiene pagos de logística (flete, arancel u otros) registrados: son el respaldo de un egreso en Finanzas.");
   if (n(ctx, C.packings) > 0) bloqueos.push("Está dentro de un packing. Quítalo del packing primero (afecta el reparto de flete y arancel).");
   if (n(ctx, C.recepciones) > 0) bloqueos.push("Tiene una recepción registrada. La recepción es el respaldo de lo que llegó.");
   if (n(ctx, C.novedades) > 0) bloqueos.push("Tiene novedades registradas (garantía, daño, faltante). Son el respaldo del reclamo al proveedor.");

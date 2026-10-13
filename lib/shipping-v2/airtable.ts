@@ -26,6 +26,7 @@ import type {
   ShippingV2Destinatario,
   ShippingV2FinanzasMovimiento,
   ShippingV2Item,
+  ShippingV2LogisticaFila,
   ShippingV2ItemSearchEntry,
   ShippingV2ItemWriteInput,
   ShippingV2TechnicalSheet,
@@ -89,6 +90,17 @@ import {
   faltaRespaldo,
   type SituacionPago,
 } from "@/lib/shipping-v2/pagos-situacion";
+import {
+  categoriaFinanzasDe,
+  conceptoDePago,
+  esConceptoLogistica,
+  pagadoAPor,
+  situacionGasto,
+  validarPagoLogistica,
+  valorTrasPago,
+  type ConceptoLogistica,
+} from "@/lib/shipping-v2/logistica-pagos";
+import { esProveedorLogistico } from "@/lib/shipping-v2/provider-types";
 import {
   CATEGORIAS_REPUESTO_STOCK,
   ESTADO_AGOTADO,
@@ -1688,6 +1700,10 @@ function mapPago(record: AirtableRecord, context: { labelsById?: Map<string, str
     cuentaOrigen: firstString(f[F.cuentaOrigen]),
     transaccionId: firstString(f[F.transaccionId]),
     orden: firstString(f[F.orden]),
+    concepto: conceptoDePago(firstString(f[F.concepto])),
+    packingLogisticaIds: linkedRecordIds(f[F.packingLogistica]),
+    itemLogisticaIds: linkedRecordIds(f[F.itemLogistica]),
+    pagadoA: firstString(f[F.pagadoA]),
     comprobante: mapAttachments(f[F.comprobante]),
     facturaProveedor: mapAttachments(f[F.facturaProveedor]),
     observacion: firstString(f[F.observacion]),
@@ -3953,9 +3969,19 @@ export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessConte
       .filter((item) => item.esRegalo === true && Boolean(item.packingId) && !isCancelledItem(item) && !itemIsLinkedToActivePayment(item, pagosById))
       .map((item) => toPendingPaymentItem(item, packingsById))
     : [];
+  const labelsProveedores = createShippingV2ProveedorLabelMap(proveedores);
+  const logistica = canManagePayments ? construirFilasLogistica({ packings, items, pagos, labelsById: labelsProveedores }) : [];
+  const transportistas = canManagePayments
+    ? proveedores
+      .filter((p) => esProveedorLogistico(p) && normalizeStatus(p.estado || "activo") !== "inactivo")
+      .map((p) => ({ id: p.id, nombre: labelsProveedores.get(p.id) || p.nombre || p.id }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+    : [];
   return {
     pagos,
     proveedores: access?.providerId ? proveedores.filter((provider) => provider.id === access.providerId) : proveedores,
+    logistica,
+    transportistas,
     itemsPendientes,
     porPagar: itemsPendientes,
     pagosPendientes,
@@ -3973,6 +3999,215 @@ export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessConte
     regalosEnCaja,
     summary: computePagosSummary(itemsPendientes, pagosPendientes, pagadosSinSoporte, pagosCompletos),
   };
+}
+
+// ─── Pagos de logística (punto 9c, 13-oct-2026) ─────────────────────────────
+// Reglas en lib/shipping-v2/logistica-pagos.ts. Cada caja, o cada artículo que
+// viaja solo, tiene Flete (a la empresa logística), Arancel (a la SENAE) y
+// Otros. Cada pago crea su egreso ("Logística Shipping") y manda lo pagado: el
+// valor del gasto pasa a ser el total pagado y se reparte entre los artículos.
+
+type ClaveGasto = "flete" | "arancel" | "otros";
+const CLAVE_DE_CONCEPTO: Record<ConceptoLogistica, ClaveGasto> = { Flete: "flete", Arancel: "arancel", Otros: "otros" };
+
+function pagadoLogistica(pagos: ShippingV2Pago[], destino: { packingId?: string; itemId?: string }, concepto: ConceptoLogistica) {
+  return pagos
+    .filter((p) => normalizeStatus(String(p.estadoPago)) !== "anulado" && p.concepto === concepto)
+    .filter((p) => (destino.packingId ? (p.packingLogisticaIds ?? []).includes(destino.packingId) : (p.itemLogisticaIds ?? []).includes(destino.itemId ?? "")))
+    .reduce((suma, p) => suma + (p.totalAPagar ?? p.total ?? 0), 0);
+}
+
+function construirFilasLogistica(input: {
+  packings: ShippingV2Packing[];
+  items: ShippingV2Item[];
+  pagos: ShippingV2Pago[];
+  labelsById: Map<string, string>;
+}): ShippingV2LogisticaFila[] {
+  const filas: ShippingV2LogisticaFila[] = [];
+  const itemsPorPacking = new Map<string, ShippingV2Item[]>();
+  for (const item of input.items) {
+    if (item.packingId) itemsPorPacking.set(item.packingId, [...(itemsPorPacking.get(item.packingId) ?? []), item]);
+  }
+  for (const pk of input.packings) {
+    if (normalizeStatus(pk.estado) === "cancelado") continue;
+    const contenido = itemsPorPacking.get(pk.id) ?? [];
+    const proveedores = Array.from(new Set(contenido.map((i) => i.proveedorNombre || input.labelsById.get(i.proveedorId || "") || "").filter(Boolean)));
+    const transportistaId = pk.transportistaEc || pk.proveedorLogisticoEcId || "";
+    const destino = { packingId: pk.id };
+    filas.push({
+      key: pk.id,
+      tipo: "caja",
+      packingId: pk.id,
+      titulo: pk.packingId || pk.id,
+      detalle: [proveedores.join(", "), `${contenido.length} art.`].filter(Boolean).join(" · "),
+      estadoLogistico: pk.estado,
+      transportistaId: transportistaId || undefined,
+      transportistaNombre: transportistaId ? input.labelsById.get(transportistaId) || pk.transportistaEcNombre || pk.proveedorLogisticoEcNombre : undefined,
+      fecha: pk.fechaCreacion || pk.createdTime || "",
+      aplicaArancel: true,
+      flete: situacionGasto(pk.flete ?? null, pagadoLogistica(input.pagos, destino, "Flete")),
+      arancel: situacionGasto(pk.arancel ?? null, pagadoLogistica(input.pagos, destino, "Arancel")),
+      otros: situacionGasto(pk.otrosCostos ?? null, pagadoLogistica(input.pagos, destino, "Otros")),
+    });
+  }
+  for (const item of input.items) {
+    if (item.packingId || !vieneDeAfuera(item.origenArticulo) || isCancelledItem(item)) continue;
+    const extranjero = normalizarOrigen(item.origenArticulo) === "Proveedor extranjero";
+    const transportistaId = item.transportistaEcuadorId || item.proveedorLogisticoId || "";
+    const destino = { itemId: item.id };
+    filas.push({
+      key: item.id,
+      tipo: "suelto",
+      itemId: item.id,
+      titulo: item.sku || item.id,
+      detalle: [item.proveedorNombre || input.labelsById.get(item.proveedorId || "") || "", item.nombre].filter(Boolean).join(" · "),
+      estadoLogistico: item.estado || "",
+      transportistaId: transportistaId || undefined,
+      transportistaNombre: transportistaId ? input.labelsById.get(transportistaId) : undefined,
+      fecha: item.fechaRegistro || "",
+      aplicaArancel: extranjero,
+      flete: situacionGasto(item.fleteAsignadoRegistro ?? null, pagadoLogistica(input.pagos, destino, "Flete")),
+      arancel: situacionGasto(item.arancelAsignadoRegistro ?? null, pagadoLogistica(input.pagos, destino, "Arancel")),
+      otros: situacionGasto(item.otrosCostosAsignadosRegistro ?? null, pagadoLogistica(input.pagos, destino, "Otros")),
+    });
+  }
+  return filas.sort((a, b) => b.fecha.localeCompare(a.fecha));
+}
+
+export type ShippingV2PagoLogisticaInput = {
+  concepto: string;
+  packingId?: string;
+  itemId?: string;
+  monto: number;
+  proveedorId?: string;
+  pagadoA?: string;
+  fechaPagoReal: string;
+  metodoPago: string;
+  cuentaOrigen: string;
+  transaccionId?: string;
+  comprobanteUrl?: string;
+  orden?: string;
+  observacion?: string;
+};
+
+/**
+ * Registra el pago de un gasto de logística: crea el pago (Pagado) y su egreso
+ * en Finanzas, y deja el valor del gasto igual a lo pagado en total (se
+ * reparte de nuevo entre los artículos de la caja). Si el reparto falla, el
+ * pago queda registrado y se avisa.
+ */
+export async function registrarPagoLogisticaShippingV2(input: ShippingV2PagoLogisticaInput, options: { registradoPor: string; access?: ShippingV2AccessContext }) {
+  assertShippingV2Permission(options.access, "canManagePayments", "No tienes permiso para registrar pagos de Shipping.");
+  assertShippingV2GeneratedSchema();
+  const packingId = cleanString(input.packingId);
+  const itemId = cleanString(input.itemId);
+  const monto = Math.round(Number(input.monto) * 100) / 100;
+  const error = validarPagoLogistica({ ...input, packingId, itemId, monto });
+  if (error) throw new Error(error);
+  const concepto = conceptoDePago(input.concepto) as ConceptoLogistica;
+  if (!esConceptoLogistica(concepto)) throw new Error("Concepto inválido.");
+
+  // Destino y su valor actual
+  let titulo = "";
+  let valorAntes: number | null = null;
+  if (packingId) {
+    const pk = await getShippingV2PackingById(packingId, systemShippingV2Access(), { includeItems: false, includeAiName: false });
+    if (normalizeStatus(pk.estado) === "cancelado") throw new Error("Esta caja está cancelada.");
+    titulo = pk.packingId || pk.id;
+    valorAntes = concepto === "Flete" ? pk.flete ?? null : concepto === "Arancel" ? pk.arancel ?? null : pk.otrosCostos ?? null;
+  } else {
+    const item = await getShippingV2ItemById(itemId, { includeAiName: false, access: systemShippingV2Access() });
+    if (item.packingId) throw new Error(`${item.sku} viaja en una caja: registra el gasto en la caja.`);
+    titulo = item.sku || item.id;
+    valorAntes = concepto === "Flete" ? item.fleteAsignadoRegistro ?? null : concepto === "Arancel" ? item.arancelAsignadoRegistro ?? null : item.otrosCostosAsignadosRegistro ?? null;
+  }
+  if (input.proveedorId) {
+    const prov = await getShippingV2ProveedorById(cleanString(input.proveedorId));
+    if (!prov) throw new Error("La empresa logística elegida no existe.");
+  }
+  const todos = await getShippingV2Pagos(systemShippingV2Access());
+  const pagadoAntes = pagadoLogistica(todos, { packingId: packingId || undefined, itemId: itemId || undefined }, concepto);
+
+  // 1. El pago
+  const F = SHIPPING_V2_PAYMENT_FIELDS;
+  const proveedorId = concepto === "Flete" ? cleanString(input.proveedorId) : "";
+  const fields = compactFields({
+    [F.pagoId]: generatePaymentId(),
+    [F.estadoPago]: "Pendiente",
+    [F.concepto]: concepto,
+    [F.proveedor]: proveedorId ? [proveedorId] : undefined,
+    [F.packingLogistica]: packingId ? [packingId] : undefined,
+    [F.itemLogistica]: itemId ? [itemId] : undefined,
+    [F.pagadoA]: pagadoAPor(concepto, input.pagadoA) || undefined,
+    [F.totalAPagar]: monto,
+    [F.fechaCreacion]: new Date().toISOString(),
+    [F.orden]: cleanString(input.orden),
+    [F.observacion]: cleanString(input.observacion) || `${concepto} de ${titulo}.`,
+    [F.estadoIntegracionFinanzas]: "Pendiente de generar",
+    [F.registradoPor]: options.registradoPor,
+  });
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.pagos), {
+    method: "POST",
+    body: JSON.stringify({ records: [{ fields }], typecast: true }),
+  });
+  const creado = response.records?.[0];
+  if (!creado) throw new Error("Airtable no devolvió el pago creado.");
+
+  // 2. Pagado + egreso en Finanzas (mismo camino que una compra). Si falla,
+  // el pago a medio crear se anula para que no cuente como pagado.
+  let pago: ShippingV2Pago;
+  try {
+    pago = await markShippingV2PagoAsPaid(creado.id, {
+      fechaPagoReal: input.fechaPagoReal,
+      metodoPago: input.metodoPago,
+      cuentaOrigen: input.cuentaOrigen,
+      transaccionId: input.transaccionId,
+      comprobanteUrl: input.comprobanteUrl,
+      observacion: cleanString(input.observacion) || `${concepto} de ${titulo}.`,
+    }, options);
+  } catch (e) {
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.pagos), {
+      method: "PATCH",
+      body: JSON.stringify({ records: [{ id: creado.id, fields: {
+        [F.estadoPago]: "Anulado",
+        [F.estadoIntegracionFinanzas]: "Anulado",
+        [F.fechaAnulacion]: new Date().toISOString(),
+        [F.motivoAnulacion]: `No se pudo registrar el pago: ${e instanceof Error ? e.message : String(e)}`,
+      } }] }),
+    }).catch((err) => console.error("[Shipping V2 pago logística] no se pudo anular el pago incompleto", err));
+    throw e;
+  }
+
+  // 3. Manda lo pagado: el gasto queda igual al total pagado y se reparte.
+  const valorNuevo = valorTrasPago(pagadoAntes, monto);
+  let aviso = "";
+  if (valorNuevo !== (valorAntes ?? null)) {
+    try {
+      if (packingId) {
+        const campo = concepto === "Flete" ? SHIPPING_V2_PACKING_FIELDS.flete : concepto === "Arancel" ? SHIPPING_V2_PACKING_FIELDS.arancel : SHIPPING_V2_PACKING_FIELDS.otrosCostos;
+        await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.packings), {
+          method: "PATCH",
+          body: JSON.stringify({ records: [{ id: packingId, fields: { [campo]: valorNuevo } }] }),
+        });
+        const reparto = await repartirCostosPackingTrasCambio(packingId, options.registradoPor, `${concepto} pagado (${pago.pagoId}): ${valorAntes ?? 0} → ${valorNuevo}`);
+        if (!reparto || reparto.estado === "omitido") aviso = `El ${concepto.toLowerCase()} de ${titulo} quedó en ${valorNuevo}, pero no se pudo repartir entre sus artículos (caja antigua). Revisa sus costos.`;
+      } else {
+        const clave = CLAVE_DE_CONCEPTO[concepto];
+        await actualizarLlegadaShippingV2Item(itemId, clave === "otros" ? { otrosCostos: valorNuevo } : { [clave]: valorNuevo }, { actualizadoPor: options.registradoPor, access: systemShippingV2Access() });
+      }
+    } catch (e) {
+      console.error("[Shipping V2 pago logística] no se pudo actualizar el valor del gasto", e);
+      aviso = `El pago ${pago.pagoId} quedó registrado, pero no se pudo actualizar el ${concepto.toLowerCase()} de ${titulo} a ${valorNuevo}. Corrígelo a mano.`;
+    }
+  }
+  await createShippingV2Event({
+    action: "Otro",
+    entity: packingId ? "Shipping Packing" : "Shipping Item",
+    registradoPor: options.registradoPor,
+    descripcion: `${concepto} de ${titulo} pagado (${pago.pagoId}, ${monto}).${valorNuevo !== (valorAntes ?? null) ? ` Valor del gasto: ${valorAntes ?? "vacío"} → ${valorNuevo}.` : ""}`,
+    ...(packingId ? { packingRecordId: packingId } : { itemRecordId: itemId }),
+  }).catch(() => undefined);
+  return { pago, aviso };
 }
 
 function generatePaymentId() {
@@ -4106,7 +4341,8 @@ async function createFinanceMovementForPago(pago: ShippingV2Pago, input: Shippin
     {
       tipo: "Egreso",
       origen: "Shipping",
-      categoria: "Compra Proveedor Shipping",
+      // Punto 9c: flete, arancel y otros gastos van a "Logística Shipping".
+      categoria: categoriaFinanzasDe(pago.concepto) as "Compra Proveedor Shipping" | "Logística Shipping",
       monto: pago.totalAPagar ?? 0,
       cuentaOrigenId,
       estado: "Confirmado",
@@ -9276,7 +9512,8 @@ export async function actualizarLlegadaShippingV2Item(
     if (tieneCampo(input, "flete")) fields[F.fleteAsignadoRegistro] = input.flete ?? null;
     if (tieneCampo(input, "arancel")) fields[F.arancelAsignadoRegistro] = input.arancel ?? null;
     if (tieneCampo(input, "otrosCostos")) fields[F.otrosCostosAsignadosRegistro] = input.otrosCostos ?? null;
-    fields[F.unidadesEnPacking] = item.cantidad && item.cantidad > 0 ? item.cantidad : 1;
+    // Punto 9b: se reparte entre lo comprado (no cambia al vender).
+    fields[F.unidadesEnPacking] = Number(item.unidadesCompradas) > 0 ? Number(item.unidadesCompradas) : item.cantidad && item.cantidad > 0 ? item.cantidad : 1;
   }
 
   // Un número de rastreo ya afirma el despacho: pasa solo a "En tránsito".

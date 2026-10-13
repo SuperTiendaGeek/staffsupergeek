@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-12T19:07:57.935Z",
+  "generatedAt": "2026-10-13T13:30:32.014Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -377,6 +377,16 @@
           "type": "multilineText",
           "kind": "multilineText"
         },
+        "Precio venta sugerido": {
+          "id": "fldTMSgsl5Fm6QWqP",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Precio venta final": {
+          "id": "fldST0lr5q3eKIc1o",
+          "type": "currency",
+          "kind": "currency"
+        },
         "SKU proveedor": {
           "id": "fldbnb12bLcRmnvwS",
           "type": "singleLineText",
@@ -582,16 +592,6 @@
         },
         "Costo total estimado": {
           "id": "fldCUDLY0UkGfs3yM",
-          "type": "currency",
-          "kind": "currency"
-        },
-        "Precio venta sugerido": {
-          "id": "fldTMSgsl5Fm6QWqP",
-          "type": "currency",
-          "kind": "currency"
-        },
-        "Precio venta final": {
-          "id": "fldST0lr5q3eKIc1o",
           "type": "currency",
           "kind": "currency"
         },
@@ -1453,6 +1453,12 @@
           "id": "fldyU8ig1YGWrDBVE",
           "type": "number",
           "kind": "number"
+        },
+        "Shipping Pagos": {
+          "id": "fldCa3dz3BESvK0HE",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl7dSFGRM3tzB4yB",
+          "linkedTableName": "Shipping Pagos"
         }
       }
     },
@@ -1646,6 +1652,33 @@
           "id": "fld4qpfmerP6mvc5m",
           "type": "singleLineText",
           "kind": "singleLineText"
+        },
+        "Concepto": {
+          "id": "fldYsVm98VNS3XmUh",
+          "type": "singleSelect",
+          "options": [
+            "Compra",
+            "Flete",
+            "Arancel",
+            "Otros"
+          ]
+        },
+        "Packing (logística)": {
+          "id": "fldHf6Qv9xfYyU7jz",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl5xN2KtZywxsCFS",
+          "linkedTableName": "Shipping Packings"
+        },
+        "Item (logística)": {
+          "id": "fldd55vGmaf4uUhgX",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Pagado a": {
+          "id": "fldwgeANSDcxOb0kc",
+          "type": "singleLineText",
+          "kind": "singleLineText"
         }
       }
     },
@@ -1831,7 +1864,8 @@
             "Devolución",
             "Otro",
             "Ajuste de Caja",
-            "Pago Tarjeta de Crédito"
+            "Pago Tarjeta de Crédito",
+            "Logística Shipping"
           ]
         },
         "Estado del Movimiento": {
@@ -2208,6 +2242,12 @@
           "id": "fldZ5zYSP6wcgjijY",
           "type": "singleLineText",
           "kind": "singleLineText"
+        },
+        "Shipping Pagos": {
+          "id": "fldDPZvkqmzBBRUFN",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl7dSFGRM3tzB4yB",
+          "linkedTableName": "Shipping Pagos"
         }
       }
     },
