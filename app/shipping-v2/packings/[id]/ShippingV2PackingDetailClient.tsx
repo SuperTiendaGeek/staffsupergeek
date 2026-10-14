@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
-import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
-import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
+import { CostosTraerlo } from "@/components/shipping-v2/CostosTraerlo";
 import {
   calculateShippingV2PackingProviderCostSummary,
   calculateShippingV2PackingProviderItemSubtotal,
@@ -48,7 +47,7 @@ function formatDate(value?: string) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("es-EC", { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return new Intl.DateTimeFormat("es-EC", { dateStyle: "medium" }).format(date);
 }
 
 function formatCurrencyZero(value: number | null | undefined) {
@@ -83,11 +82,6 @@ function packingProviderCostSummary(items: ShippingV2Item[]) {
   }
 }
 
-function formatWeight(peso: number | null | undefined) {
-  if (peso === null || peso === undefined) return "Sin registrar";
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(peso)} kg`;
-}
-
 function normalize(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
@@ -96,8 +90,15 @@ function isOpen(status: string) {
   return normalize(status) === "en proceso";
 }
 
+/** Texto de búsqueda: SKU SUPER GEEK, SKU proveedor, nombre y lo demás, sin acentos ni mayúsculas. */
 function itemSearchText(item: ShippingV2Item, providerLabel: string, logisticsProviderLabel: string) {
-  return [item.sku, item.nombre, item.estado, item.tipoOperacion, item.categoria, providerLabel, logisticsProviderLabel, item.modoLogistico].join(" ").toLowerCase();
+  return normalize([item.sku, item.skuProveedor, item.nombre, item.estado, item.tipoOperacion, item.categoria, providerLabel, logisticsProviderLabel, item.modoLogistico].join(" "));
+}
+
+/** Cada palabra buscada debe aparecer (en cualquier orden). */
+function coincide(texto: string, consulta: string) {
+  const palabras = normalize(consulta).split(/\s+/).filter(Boolean);
+  return palabras.every((p) => texto.includes(p));
 }
 
 function isAirtableRecordId(value?: string) {
@@ -112,56 +113,150 @@ function providerDisplayValue(...values: Array<string | undefined>) {
   return "";
 }
 
-function ignoreItemPhotoUpdate(_item: ShippingV2Item) {}
+// ─── Estilo compacto (regla UX/UI del dueño, 14-oct): uso número 100 ───────
+const lbl = "mb-0.5 flex items-center justify-between gap-2 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]";
+const inp = "h-8 w-full min-w-0 rounded-md border border-[#3A3A36] bg-[#151515] px-2 text-[13px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:cursor-not-allowed disabled:opacity-60";
+const btn = "inline-flex h-8 items-center whitespace-nowrap rounded-md border border-[#3A3A36] px-2.5 text-[12.5px] font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:cursor-not-allowed disabled:opacity-50";
+const btnPrim = "inline-flex h-8 items-center whitespace-nowrap rounded-md border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-[12.5px] font-black text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50";
+const seccion = "rounded-lg border border-[#2E2F28] bg-[#171814]";
+const chipBase = "inline-flex items-center whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10.5px] font-bold";
+const chip = {
+  falta: `${chipBase} border border-yellow-300/40 text-yellow-200`,
+  mal: `${chipBase} border border-[#FF914D]/45 text-[#FFB07A]`,
+  ok: `${chipBase} border border-[#D7FF4F]/40 text-[#D7FF4F]`,
+  mute: `${chipBase} border border-[#3A3A36] text-[#A7A7A7]`,
+};
 
-function ProviderCostRows({ item, includeAssignedCosts = false }: { item: ShippingV2Item; includeAssignedCosts?: boolean }) {
-  const calculation = packingProviderItemCalculation(item);
+function detalleCostos(item: ShippingV2Item) {
   const unidades = resolveShippingV2PackingItemUnits(item);
-  const rows = [
-    { label: "Costo proveedor por unidad", value: formatCurrencyZero(item.costoProveedor) },
-    {
-      label: unidades.estimada ? "Unidades en packing (estimadas)" : "Cantidad",
-      value: unidades.estimada ? `${unidades.unidades} · stock actual ${display(item.cantidad)}` : display(item.cantidad),
-    },
-    {
-      label: "Subtotal proveedor",
-      value: calculation.error ? "No calculable" : formatCurrencyZero(calculation.subtotal),
-      accent: true,
-    },
-    ...(item.esRegalo ? [{ label: "Regalo", value: "No suma" }] : []),
-    ...(includeAssignedCosts ? [
-      // Monto del registro completo (todas sus unidades) y su valor por
-      // unidad. Los del registro solo existen cuando el portal ya repartió el
-      // packing (lib/shipping-v2/packing-reparto.ts).
-      ...(item.unidadesEnPacking !== null ? [
-        { label: "Flete asignado (registro)", value: formatCurrencyZero(item.fleteAsignadoRegistro) },
-      ] : []),
-      { label: "Flete por unidad", value: formatCurrencyZero(item.costoFleteAsignado) },
-      ...(item.unidadesEnPacking !== null && item.arancelAsignadoRegistro ? [
-        { label: "Arancel asignado (registro)", value: formatCurrencyZero(item.arancelAsignadoRegistro) },
-      ] : []),
-      { label: "Arancel por unidad", value: formatCurrencyZero(item.costoArancelAsignado) },
-      ...(item.unidadesEnPacking !== null && item.otrosCostosAsignadosRegistro ? [
-        { label: "Otros (registro)", value: formatCurrencyZero(item.otrosCostosAsignadosRegistro) },
-      ] : []),
-      { label: "Otros por unidad", value: formatCurrencyZero(item.otrosCostosAsignados) },
-      { label: "Logístico por unidad", value: formatCurrencyZero(item.costoLogisticoAsignado) },
-      { label: "Total unidad", value: formatCurrencyZero(item.costoTotalUnidad), accent: true },
-    ] : []),
-  ];
+  return [
+    unidades.estimada ? `Unidades en caja estimadas: ${unidades.unidades} (stock actual ${display(item.cantidad)})` : "",
+    item.unidadesEnPacking !== null ? `Flete del registro: ${formatCurrencyZero(item.fleteAsignadoRegistro)}` : "",
+    `Flete por unidad: ${formatCurrencyZero(item.costoFleteAsignado)}`,
+    item.unidadesEnPacking !== null && item.arancelAsignadoRegistro ? `Arancel del registro: ${formatCurrencyZero(item.arancelAsignadoRegistro)}` : "",
+    `Arancel por unidad: ${formatCurrencyZero(item.costoArancelAsignado)}`,
+    item.unidadesEnPacking !== null && item.otrosCostosAsignadosRegistro ? `Otros del registro: ${formatCurrencyZero(item.otrosCostosAsignadosRegistro)}` : "",
+    `Otros por unidad: ${formatCurrencyZero(item.otrosCostosAsignados)}`,
+    `Logístico por unidad: ${formatCurrencyZero(item.costoLogisticoAsignado)}`,
+  ].filter(Boolean).join("\n");
+}
+
+/**
+ * Lista compacta de artículos para armar la caja (bodega del proveedor o
+ * dentro de la caja). Una fila por artículo, columnas alineadas, selección
+ * múltiple y arrastre (regla UX/UI del dueño, 14-oct).
+ */
+function TablaArticulos({
+  modo,
+  items,
+  labels,
+  seleccion,
+  onToggle,
+  onToggleTodos,
+  seleccionable,
+  draggable,
+  canViewCosts,
+  canViewProviderCost,
+  busyItemId,
+  accion,
+  vacio,
+}: {
+  modo: "bodega" | "caja";
+  items: ShippingV2Item[];
+  labels: (item: ShippingV2Item) => { compra: string; logistico: string };
+  seleccion: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleTodos: () => void;
+  seleccionable: boolean;
+  draggable: boolean;
+  canViewCosts: boolean;
+  canViewProviderCost: boolean;
+  busyItemId: string;
+  accion?: (item: ShippingV2Item) => ReactNode;
+  vacio: ReactNode;
+}) {
+  const verCostos = canViewProviderCost;
+  const verTotalU = modo === "caja" && canViewCosts;
+  const cols = [
+    seleccionable ? "20px" : "",
+    "32px",
+    "96px",
+    "minmax(90px,130px)",
+    "minmax(160px,1fr)",
+    "minmax(90px,130px)",
+    "104px",
+    ...(verCostos ? ["40px", "84px", "92px"] : []),
+    ...(verTotalU ? ["92px"] : []),
+    accion ? "76px" : "",
+  ].filter(Boolean).join("_");
+  const grid = { gridTemplateColumns: cols.replaceAll("_", " ") };
+  const todos = items.length > 0 && items.every((i) => seleccion.has(i.id));
+  const head = "text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]";
 
   return (
-    <div className="mt-3 border-t border-[#2F302C] pt-3">
-      <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Costos</p>
-      <div className="mt-2 grid grid-cols-1 gap-x-3 gap-y-1 text-[11px] text-[#A7A7A7] sm:grid-cols-2">
-        {rows.map((row) => (
-          <p key={row.label} className="flex min-w-0 justify-between gap-2">
-            <span className="truncate">{row.label}</span>
-            <span className={`shrink-0 font-semibold ${row.accent ? "text-[#D7FF4F]" : "text-[#F5F5F5]"}`}>{row.value}</span>
-          </p>
-        ))}
+    <div className="overflow-x-auto">
+      <div className="min-w-[820px]">
+        <div className="grid items-center gap-2 border-b border-[#2A2B26] px-2 py-1" style={grid}>
+          {seleccionable ? <input type="checkbox" checked={todos} onChange={onToggleTodos} aria-label="Seleccionar todos" className="h-3.5 w-3.5 accent-[#D7FF4F]" /> : null}
+          <span />
+          <span className={head}>SKU</span>
+          <span className={head}>SKU proveedor</span>
+          <span className={head}>Artículo</span>
+          <span className={head}>Proveedor</span>
+          <span className={head}>Estado</span>
+          {verCostos ? <><span className={`${head} text-right`}>Cant.</span><span className={`${head} text-right`}>Costo u.</span><span className={`${head} text-right`}>Subtotal</span></> : null}
+          {verTotalU ? <span className={`${head} text-right`} title="Costo + logístico por unidad">Total u.</span> : null}
+          {accion ? <span /> : null}
+        </div>
+        {items.map((item) => {
+          const { compra, logistico } = labels(item);
+          const unidades = resolveShippingV2PackingItemUnits(item);
+          const calc = packingProviderItemCalculation(item);
+          const foto = item.fotos[0];
+          const marcado = seleccion.has(item.id);
+          const href = `/shipping-v2/items/${encodeURIComponent(item.id)}`;
+          const extra = [logistico ? `Vía ${logistico}` : "", item.categoria, item.tipoOperacion, item.modoLogistico].filter(Boolean).join(" · ");
+          return (
+            <div
+              key={item.id}
+              draggable={draggable}
+              onDragStart={(event) => {
+                const ids = marcado ? Array.from(seleccion) : [item.id];
+                event.dataTransfer.setData("text/plain", `${modo}:${ids.join(",")}`);
+                event.dataTransfer.effectAllowed = "move";
+              }}
+              className={`grid items-center gap-2 border-b border-[#24251F] px-2 py-1 text-[12.5px] last:border-b-0 ${marcado ? "bg-[#D7FF4F]/[0.06]" : "hover:bg-[#1D1E1A]"} ${draggable ? "cursor-grab active:cursor-grabbing" : ""} ${busyItemId === item.id ? "opacity-50" : ""}`}
+              style={grid}
+            >
+              {seleccionable ? <input type="checkbox" checked={marcado} onChange={() => onToggle(item.id)} aria-label={`Seleccionar ${item.sku}`} className="h-3.5 w-3.5 accent-[#D7FF4F]" /> : null}
+              {foto ? (
+                <a href={foto.url} target="_blank" rel="noreferrer" title="Ver foto" className="block h-8 w-8 overflow-hidden rounded border border-[#3A3A36] bg-black">
+                  <img src={foto.thumbnailUrl || foto.url} alt="" loading="lazy" className="h-full w-full object-cover" />
+                </a>
+              ) : <span className="grid h-8 w-8 place-items-center rounded border border-[#3A3A36] bg-[#1E1F1C] text-[9px] font-black text-[#6F706A]">{(item.nombre || item.sku || "?").slice(0, 2).toUpperCase()}</span>}
+              <Link href={href} className="truncate font-semibold text-[#D7FF4F] hover:underline">{display(item.sku)}</Link>
+              <span className={`truncate font-mono text-[12px] ${item.skuProveedor?.trim() ? "text-[#E6E6E1]" : "text-[#5E5F59]"}`} title={item.skuProveedor || undefined}>{item.skuProveedor?.trim() || "—"}</span>
+              <Link href={href} className="truncate text-[#F5F5F5] hover:text-[#D7FF4F]" title={[item.nombre, extra].filter(Boolean).join("\n")}>
+                {display(item.nombre)}{item.esRegalo ? <span className={`${chip.mute} ml-1.5`}>Regalo</span> : null}
+              </Link>
+              <span className="truncate text-[#B4B5AC]" title={compra}>{compra || "—"}</span>
+              <span className="truncate text-[12px] text-[#8F908A]">{display(item.estado)}</span>
+              {verCostos ? (
+                <>
+                  <span className={`text-right tabular-nums ${unidades.estimada ? "text-[#BDEAFF]" : "text-[#E6E6E1]"}`} title={unidades.estimada ? "Estimado: ya salió del inventario" : undefined}>{unidades.estimada ? "≈" : ""}{unidades.unidades}</span>
+                  <span className="text-right tabular-nums text-[#B4B5AC]">{formatCurrencyZero(item.costoProveedor)}</span>
+                  <span className={`text-right font-semibold tabular-nums ${calc.error ? "text-[#FFB07A]" : "text-[#F5F5F5]"}`} title={calc.error || undefined}>
+                    {item.esRegalo ? <span className="font-normal text-[#8F908A]">no suma</span> : calc.error ? "!" : formatCurrencyZero(calc.subtotal)}
+                  </span>
+                </>
+              ) : null}
+              {verTotalU ? <span className="text-right font-semibold tabular-nums text-[#D7FF4F]" title={detalleCostos(item)}>{formatCurrencyZero(item.costoTotalUnidad)}</span> : null}
+              {accion ? <span className="text-right">{accion(item)}</span> : null}
+            </div>
+          );
+        })}
+        {!items.length ? <div className="px-2 py-4 text-center text-[12.5px] text-[#8F908A]">{vacio}</div> : null}
       </div>
-      {calculation.error ? <p className="mt-2 text-xs font-semibold text-[#FFB07A]">{calculation.error}</p> : null}
     </div>
   );
 }
@@ -179,146 +274,34 @@ function destinatarioOptionLabel(destinatario: ShippingV2Destinatario) {
   ].filter(Boolean).join(" · ");
 }
 
-function DestinatarioSummary({ destinatario }: { destinatario: ShippingV2Destinatario }) {
-  return (
-    <div className="mt-3 grid gap-1.5 text-sm text-[#A7A7A7]">
-      <p className="font-semibold text-[#F5F5F5]">{display(destinatario.nombre)}</p>
-      {destinatario.empresa ? <p>{destinatario.empresa}</p> : null}
-      <p>{display(destinatario.direccion)}</p>
-      {destinatario.direccionLinea2 ? <p>{destinatario.direccionLinea2}</p> : null}
-      <p>{[destinatario.ciudad, destinatario.estado, destinatario.codigoPostal].filter(Boolean).join(", ") || "-"}</p>
-      <p>{display(destinatario.pais)}</p>
-      {destinatario.telefono ? <p>Teléfono: <span className="text-[#F5F5F5]">{destinatario.telefono}</span></p> : null}
-    </div>
-  );
-}
-
-function SummaryBadge({ label, value, accent }: { label: string; value: string; accent?: "status" | "items" }) {
-  return (
-    <div className="min-w-0 rounded-xl border border-[#3A3A36] bg-[#171816]/80 px-3 py-2">
-      <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">
-        {accent === "items" ? (
-          <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 text-[#A7A7A7]">
-            <path d="M12 3 4.5 7.2v9.6L12 21l7.5-4.2V7.2L12 3Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-            <path d="m4.8 7.4 7.2 4.1 7.2-4.1M12 11.5v9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-          </svg>
-        ) : null}
-        {label}
-      </p>
-      <p className="mt-1 flex min-h-6 items-center gap-2 break-words text-sm font-semibold leading-tight text-[#F5F5F5]">
-        {accent === "status" ? <span className="h-2.5 w-2.5 rounded-full bg-[#7CFF4F] shadow-[0_0_14px_rgba(124,255,79,0.55)]" /> : null}
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function WeightSummaryBadge({
-  peso,
-  canEditWeight,
-  onSaveWeight,
-}: {
-  peso: number | null;
-  canEditWeight: boolean;
-  onSaveWeight: (value: string | number | boolean | null) => Promise<void>;
-}) {
-  return (
-    <div className="min-w-0 rounded-xl border border-[#3A3A36] bg-[#171816]/80 px-3 py-2">
-      <InlineEditableField
-        label="Peso"
-        value={peso}
-        type="number"
-        readOnly={!canEditWeight}
-        displayValue={formatWeight(peso)}
-        editSuffix="kg"
-        className="rounded-lg transition"
-        labelClassName="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]"
-        valueClassName="mt-2 min-h-6 break-words text-sm font-semibold leading-tight text-[#F5F5F5] tabular-nums"
-        onSave={onSaveWeight}
-      />
-    </div>
-  );
-}
-
-function HeaderProviderSelect({
-  label = "Proveedor responsable",
-  value,
-  options,
-  disabled,
-  status,
-  onSave,
-}: {
-  label?: string;
-  value?: string;
-  options: Array<{ value: string; label: string }>;
-  disabled?: boolean;
-  status?: "saving" | "saved" | "error";
-  onSave: (value: string) => void;
-}) {
-  return (
-    <label className="block min-w-0 rounded-xl border border-[#3A3A36] bg-[#171816]/80 px-3 py-2">
-      <span className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">
-        {label}
-        <SaveBadge status={status} />
-      </span>
-      <select
-        value={value || ""}
-        disabled={disabled}
-        onChange={(event) => onSave(event.target.value)}
-        className="mt-1 h-9 w-full rounded-lg border border-[#4A4A45] bg-[#191A18]/80 px-3 text-[13px] font-semibold text-[#F5F5F5] outline-none transition hover:border-[#D7FF4F]/45 focus:border-[#D7FF4F]/70 disabled:opacity-70"
-      >
-        {options.map((option) => <option key={option.value || "empty"} value={option.value}>{option.label}</option>)}
-      </select>
-    </label>
-  );
-}
-
-function HeaderFooterSelect({
-  label,
-  value,
-  options,
-  disabled,
-  status,
-  onSave,
-}: {
-  label: string;
-  value?: string;
-  options: Array<{ value: string; label: string }>;
-  disabled?: boolean;
-  status?: "saving" | "saved" | "error";
-  onSave: (value: string) => void;
-}) {
-  return (
-    <label className="inline-flex min-w-0 items-center gap-2">
-      <span className="shrink-0 text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}:</span>
-      <select
-        value={value || ""}
-        disabled={disabled}
-        onChange={(event) => onSave(event.target.value)}
-        className="h-8 min-w-24 rounded-full border border-[#4A4A45] bg-[#191A18]/80 px-3 text-sm font-semibold text-[#F5F5F5] outline-none transition hover:border-[#D7FF4F]/45 focus:border-[#D7FF4F]/70 disabled:opacity-70"
-      >
-        {options.map((option) => <option key={option.value || "empty"} value={option.value}>{option.label}</option>)}
-      </select>
-      <SaveBadge status={status} />
-    </label>
-  );
+function destinatarioResumen(destinatario: ShippingV2Destinatario) {
+  return [
+    destinatario.nombre,
+    destinatario.empresa,
+    [destinatario.direccion, destinatario.direccionLinea2].filter(Boolean).join(" "),
+    [destinatario.ciudad, destinatario.estado, destinatario.codigoPostal].filter(Boolean).join(", "),
+    destinatario.pais,
+    destinatario.telefono ? `Tel. ${destinatario.telefono}` : "",
+  ].filter(Boolean).join(" · ");
 }
 
 function SaveBadge({ status }: { status?: "saving" | "saved" | "error" }) {
   if (!status) return null;
-  const label = status === "saving" ? "Guardando..." : status === "saved" ? "Guardado" : "Error";
+  const label = status === "saving" ? "Guardando…" : status === "saved" ? "✓" : "Error";
   const color = status === "error" ? "text-[#FFB07A]" : "text-[#D7FF4F]";
-  return <span className={`text-[11px] font-semibold ${color}`}>{label}</span>;
+  return <span className={`normal-case tracking-normal text-[11px] font-semibold ${color}`}>{label}</span>;
 }
 
-function EditableTextField({
+function TextoCampo({
   label,
   value,
   disabled,
   status,
   multiline,
-  help,
   placeholder,
+  title,
+  inputMode,
+  className = "",
   onSave,
 }: {
   label: string;
@@ -326,8 +309,10 @@ function EditableTextField({
   disabled?: boolean;
   status?: "saving" | "saved" | "error";
   multiline?: boolean;
-  help?: string;
   placeholder?: string;
+  title?: string;
+  inputMode?: "decimal" | "text";
+  className?: string;
   onSave: (value: string) => void;
 }) {
   const [localValue, setLocalValue] = useState(value || "");
@@ -336,40 +321,41 @@ function EditableTextField({
     if (!disabled && localValue !== (value || "")) onSave(localValue);
   };
   return (
-    <label className="block rounded-[1rem] border border-[#3A3A36] bg-[#151515] px-4 py-3">
-      <span className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">
-        {label}
-        <SaveBadge status={status} />
-      </span>
+    <label className={`block min-w-0 ${className}`} title={title}>
+      <span className={lbl}>{label}<SaveBadge status={status} /></span>
       {multiline ? (
         <textarea
           value={localValue}
           disabled={disabled}
           placeholder={placeholder}
+          rows={1}
           onChange={(event) => setLocalValue(event.target.value)}
           onBlur={commit}
-          className="mt-2 min-h-20 w-full resize-y rounded-[0.85rem] border border-[#3A3A36] bg-[#101010] px-3 py-2 text-sm font-medium text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-70"
+          className={`${inp} h-auto min-h-8 resize-y py-1.5`}
         />
       ) : (
         <input
           value={localValue}
           disabled={disabled}
+          placeholder={placeholder}
+          inputMode={inputMode}
           onChange={(event) => setLocalValue(event.target.value)}
           onBlur={commit}
-          className="mt-2 h-10 w-full rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm font-medium text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-70"
+          onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); }}
+          className={inp}
         />
       )}
-      {help ? <span className="mt-2 block text-xs font-normal normal-case text-[#A7A7A7]">{help}</span> : null}
     </label>
   );
 }
 
-function EditableSelectField({
+function SelectCampo({
   label,
   value,
   options,
   disabled,
   status,
+  className = "",
   onSave,
 }: {
   label: string;
@@ -377,62 +363,66 @@ function EditableSelectField({
   options: Array<{ value: string; label: string }>;
   disabled?: boolean;
   status?: "saving" | "saved" | "error";
+  className?: string;
   onSave: (value: string) => void;
 }) {
   return (
-    <label className="block rounded-[1rem] border border-[#3A3A36] bg-[#151515] px-4 py-3">
-      <span className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">
-        {label}
-        <SaveBadge status={status} />
-      </span>
-      <select
-        value={value || ""}
-        disabled={disabled}
-        onChange={(event) => onSave(event.target.value)}
-        className="mt-2 h-10 w-full rounded-full border border-[#3A3A36] bg-[#101010] px-3 text-sm font-medium text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-70"
-      >
+    <label className={`block min-w-0 ${className}`}>
+      <span className={lbl}>{label}<SaveBadge status={status} /></span>
+      <select value={value || ""} disabled={disabled} onChange={(event) => onSave(event.target.value)} className={inp}>
         {options.map((option) => <option key={option.value || "empty"} value={option.value}>{option.label}</option>)}
       </select>
     </label>
   );
 }
 
-function TrackingActions({
-  tracking,
+/** Rastreo con copiar y "ver" al lado; si falta configurar el transportista, lo dice en el tooltip. */
+function RastreoCampo({
+  label,
+  value,
+  disabled,
+  status,
   trackingUrl,
   help,
   copied,
+  className = "",
   onCopy,
+  onSave,
 }: {
-  tracking?: string;
+  label: string;
+  value?: string;
+  disabled?: boolean;
+  status?: "saving" | "saved" | "error";
   trackingUrl: string | null;
   help?: string | null;
   copied: boolean;
+  className?: string;
   onCopy: () => void;
+  onSave: (value: string) => void;
 }) {
-  if (!tracking?.trim()) return null;
+  const [localValue, setLocalValue] = useState(value || "");
+  useEffect(() => setLocalValue(value || ""), [value]);
+  const commit = () => {
+    if (!disabled && localValue !== (value || "")) onSave(localValue);
+  };
+  const tiene = Boolean(value?.trim());
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={onCopy}
-          className="rounded-full border border-[#3A3A36] bg-[#151515] px-3 py-1 text-xs font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
-        >
-          {copied ? "Copiado" : "Copiar"}
-        </button>
-        {trackingUrl ? (
-          <a
-            href={trackingUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-full border border-[#D7FF4F]/45 bg-[#D7FF4F]/10 px-3 py-1 text-xs font-semibold text-[#D7FF4F] transition hover:border-[#D7FF4F]"
-          >
-            Ver rastreo
-          </a>
-        ) : null}
+    <div className={`min-w-0 ${className}`}>
+      <span className={lbl}>{label}<SaveBadge status={status} /></span>
+      <div className="flex gap-1">
+        <input
+          value={localValue}
+          disabled={disabled}
+          aria-label={label}
+          onChange={(event) => setLocalValue(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); }}
+          className={`${inp} font-mono text-[12.5px]`}
+        />
+        {tiene ? <button type="button" onClick={onCopy} className={`${btn} px-2`} title="Copiar">{copied ? "✓" : "Copiar"}</button> : null}
+        {tiene && trackingUrl ? <a href={trackingUrl} target="_blank" rel="noopener noreferrer" className={`${btn} px-2 text-[#D7FF4F]`}>Ver</a> : null}
+        {tiene && !trackingUrl && help ? <span className={`${chip.falta} self-center`} title={help}>Sin enlace</span> : null}
       </div>
-      {help ? <p className="text-xs leading-5 text-[#A7A7A7]">{help}</p> : null}
     </div>
   );
 }
@@ -537,7 +527,9 @@ function StatusActionPanel({
   onRunAction,
   onOpenNovedades,
   onOpenStatusModal,
+  extra,
 }: {
+  extra?: ReactNode;
   packing: ShippingV2Packing;
   novedades: ShippingV2Novedad[];
   isAdmin: boolean;
@@ -582,177 +574,129 @@ function StatusActionPanel({
   const canReopen = isSiteAdmin && canTransition && state === "cerrado";
   const canRunConfiguredAction = config.action === "close" ? canClose : canTransition;
 
+  const tonoHint = workHint.tono === "alerta" ? "text-[#FFB07A]" : workHint.tono === "listo" ? "text-[#9FEFB3]" : "text-[#D7FF4F]";
+  const ayudaAccion = [config.description, (packing.trackingUsa || packing.trackingEc) && state === "cerrado" ? "Hay rastreo, pero el tránsito se confirma con este botón." : ""].filter(Boolean).join(" ");
+  const item = "block w-full rounded-md px-2.5 py-1.5 text-left text-[13px] font-semibold hover:bg-[#1E1F1C] disabled:opacity-50";
+
   return (
-    <div className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-xl shadow-black/20">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="grid min-w-0 gap-2 sm:grid-cols-[auto_1fr] sm:items-center">
-          <span className={`inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${statusToneClass(packing.estado)}`}>
-            <span className="h-2 w-2 rounded-full bg-current" />
-            {faseInfo.estadoLabel}
-          </span>
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">
-              Fase: {faseInfo.faseLabel}
-              {packing.estado && faseInfo.estadoLabel !== packing.estado ? <span className="ml-1 font-normal normal-case text-[#6F706B]">(Airtable: {packing.estado})</span> : null}
-            </p>
-            <p className="mt-0.5 text-sm leading-5 text-[#F5F5F5]">{faseInfo.significado}</p>
-            <p className={`mt-0.5 text-sm leading-5 ${workHint.tono === "alerta" ? "text-[#FFB07A]" : workHint.tono === "listo" ? "text-[#9FEFB3]" : "text-[#D7FF4F]"}`}>
-              {workHint.texto}
-            </p>
-            {reviewProgress.total > 0 ? (
-              <p className="mt-0.5 text-xs leading-5 text-[#A7A7A7]">
-                Bodega (recibido · revisado · fotos): {formatShippingV2PackingBodegaProgress(reviewProgress)}
-                {" · "}
-                Ciclo completo: {formatShippingV2PackingReviewProgress(reviewProgress)}
-                {reviewProgress.sinPublicacionAplicable > 0
-                  ? ` · ${reviewProgress.sinPublicacionAplicable} sin publicación aplicable`
-                  : ""}
-              </p>
-            ) : null}
-            <p className="mt-1 text-[11px] uppercase tracking-normal text-[#6F706B]">Control operativo</p>
-            <p className="mt-0.5 text-sm leading-5 text-[#A7A7A7]">{config.description}</p>
-            {(packing.trackingUsa || packing.trackingEc) && state === "cerrado" ? (
-              <p className="mt-0.5 text-xs leading-5 text-[#D7FF4F]">Tracking registrado; el tránsito sigue requiriendo confirmación.</p>
-            ) : null}
-            {openNovedades.length ? (
-              <p className="mt-1 text-xs leading-5 text-[#FFB07A]">Este packing tiene novedades pendientes.</p>
-            ) : null}
-          </div>
-        </div>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-bold ${statusToneClass(packing.estado)}`}
+        title={`${faseInfo.faseLabel}: ${faseInfo.significado}${packing.estado && faseInfo.estadoLabel !== packing.estado ? ` (Airtable: ${packing.estado})` : ""}`}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-current" />
+        {faseInfo.estadoLabel}
+      </span>
+      <span className={`text-[12.5px] ${tonoHint}`}>{workHint.texto}</span>
+      {reviewProgress.total > 0 ? (
+        <span className="text-[12px] text-[#8F908A]" title="Bodega: recibido · revisado · fotos. Ciclo completo: incluye publicaciones.">
+          Bodega <b className="text-[#E6E6E1]">{formatShippingV2PackingBodegaProgress(reviewProgress)}</b>
+          {" · "}Ciclo <b className="text-[#E6E6E1]">{formatShippingV2PackingReviewProgress(reviewProgress)}</b>
+          {reviewProgress.sinPublicacionAplicable > 0 ? ` · ${reviewProgress.sinPublicacionAplicable} sin publicación` : ""}
+        </span>
+      ) : null}
+      {(config.action && config.disabled) || config.legacyNovedad ? <span className="text-[12px] text-[#8F908A]">{config.description}</span> : null}
 
-        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-          {openNovedades.length ? (
-            <span className="inline-flex h-9 items-center rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 text-xs font-bold text-[#FFB07A]">
-              {openNovedades.length} novedades abiertas
-            </span>
-          ) : null}
+      <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        {extra}
+        {canViewNovedades && novedades.length ? (
+          <button type="button" onClick={onOpenNovedades} className={`${btn} ${openNovedades.length ? "border-[#FF914D]/45 text-[#FFB07A]" : ""}`}>
+            Novedades {openNovedades.length ? `· ${openNovedades.length} abiertas` : novedades.length}
+          </button>
+        ) : openNovedades.length ? <span className={chip.mal}>{openNovedades.length} novedades abiertas</span> : null}
 
-          {config.action && canRunConfiguredAction ? (
-            <button
-              type="button"
-              disabled={busy || config.disabled}
-              onClick={() => onRunAction(config.action as ShippingV2PackingStatusAction)}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50"
-            >
-              {actionBusy === config.action ? "Procesando..." : config.label}
-            </button>
-          ) : null}
+        {config.action && canRunConfiguredAction ? (
+          <button
+            type="button"
+            disabled={busy || config.disabled}
+            title={ayudaAccion}
+            onClick={() => onRunAction(config.action as ShippingV2PackingStatusAction)}
+            className={btnPrim}
+          >
+            {actionBusy === config.action ? "Procesando…" : config.label}
+          </button>
+        ) : null}
 
-
-          {novedades.length && canViewNovedades ? (
-            <button
-              type="button"
-              onClick={onOpenNovedades}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D7FF4F]/45 bg-[#D7FF4F]/10 px-3 text-sm font-semibold text-[#D7FF4F] transition hover:border-[#D7FF4F]"
-            >
-              Ver novedades
-            </button>
-          ) : null}
-
-          {(canCancel || canRestoreLegacyNovedad || canReopen || canForceCloseCycle) ? (
-            <details className="relative">
-              <summary className="flex h-9 cursor-pointer list-none items-center rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-sm font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/45 hover:text-[#F5F5F5]">
-                Más acciones
-              </summary>
-              <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-[#3A3A36] bg-[#10110F] p-2 shadow-2xl shadow-black/50">
-                {canForceCloseCycle ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => onOpenStatusModal({
-                      action: "close-final",
-                      title: "Cerrar ciclo con artículos incompletos",
-                      label: "Cerrar ciclo igualmente",
-                      fieldLabel: "Justificación administrativa",
-                      description: `Faltan ${reviewProgress.pendientes} de ${reviewProgress.total} artículos por completar su checklist. Cerrar el ciclo ahora deja ese trabajo sin hacer; la justificación queda registrada en el historial del packing.`,
-                    })}
-                    className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#D7FF4F] hover:bg-[#1E1F1C] disabled:opacity-50"
-                  >
-                    Cerrar ciclo igualmente
-                  </button>
-                ) : null}
-                {canReopen ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => onOpenStatusModal({
-                      action: "reopen",
-                      title: "Reabrir packing",
-                      label: "Reabrir packing",
-                      fieldLabel: "Motivo de la reapertura",
-                      description: "Vuelve el packing a En Proceso para poder agregar o quitar items. Solo disponible para Administradores.",
-                    })}
-                    className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#D7FF4F] hover:bg-[#1E1F1C] disabled:opacity-50"
-                  >
-                    Reabrir packing
-                  </button>
-                ) : null}
-                {canRestoreLegacyNovedad ? (
-                  <>
+        {(canCancel || canRestoreLegacyNovedad || canReopen || canForceCloseCycle) ? (
+          <details className="relative">
+            <summary className={`${btn} cursor-pointer list-none text-[#A7A7A7]`}>Más</summary>
+            <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-[#3A3A36] bg-[#10110F] p-1 shadow-2xl shadow-black/50">
+              {canForceCloseCycle ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onOpenStatusModal({
+                    action: "close-final",
+                    title: "Cerrar ciclo con artículos incompletos",
+                    label: "Cerrar ciclo igualmente",
+                    fieldLabel: "Justificación administrativa",
+                    description: `Faltan ${reviewProgress.pendientes} de ${reviewProgress.total} artículos por completar su checklist. Cerrar el ciclo ahora deja ese trabajo sin hacer; la justificación queda registrada en el historial del packing.`,
+                  })}
+                  className={`${item} text-[#D7FF4F]`}
+                >
+                  Cerrar ciclo igualmente
+                </button>
+              ) : null}
+              {canReopen ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onOpenStatusModal({
+                    action: "reopen",
+                    title: "Reabrir packing",
+                    label: "Reabrir packing",
+                    fieldLabel: "Motivo de la reapertura",
+                    description: "Vuelve el packing a En Proceso para poder agregar o quitar items. Solo disponible para Administradores.",
+                  })}
+                  className={`${item} text-[#D7FF4F]`}
+                >
+                  Reabrir caja
+                </button>
+              ) : null}
+              {canRestoreLegacyNovedad ? (
+                <>
+                  {([
+                    ["restore-in-transit", "Volver a En tránsito"],
+                    ["restore-received", "Volver a Recibido"],
+                    ["restore-review", "Volver a En revisión"],
+                  ] as const).map(([action, texto]) => (
                     <button
+                      key={action}
                       type="button"
                       disabled={busy}
                       onClick={() => onOpenStatusModal({
-                        action: "restore-in-transit",
-                        title: "Volver a En tránsito",
+                        action,
+                        title: texto,
                         label: "Restaurar estado",
                         fieldLabel: "Confirmación administrativa",
                         description: "Solo cambia el estado principal del packing. No modifica items ni novedades.",
                       })}
-                      className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#F5F5F5] hover:bg-[#1E1F1C] disabled:opacity-50"
+                      className={`${item} text-[#F5F5F5]`}
                     >
-                      Volver a En tránsito
+                      {texto}
                     </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => onOpenStatusModal({
-                        action: "restore-received",
-                        title: "Volver a Recibido",
-                        label: "Restaurar estado",
-                        fieldLabel: "Confirmación administrativa",
-                        description: "Solo cambia el estado principal del packing. No modifica items ni novedades.",
-                      })}
-                      className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#F5F5F5] hover:bg-[#1E1F1C] disabled:opacity-50"
-                    >
-                      Volver a Recibido
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => onOpenStatusModal({
-                        action: "restore-review",
-                        title: "Volver a En revisión",
-                        label: "Restaurar estado",
-                        fieldLabel: "Confirmación administrativa",
-                        description: "Solo cambia el estado principal del packing. No modifica items ni novedades.",
-                      })}
-                      className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#F5F5F5] hover:bg-[#1E1F1C] disabled:opacity-50"
-                    >
-                      Volver a En revisión
-                    </button>
-                  </>
-                ) : null}
-                {canCancel ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => onOpenStatusModal({
-                      action: "cancel",
-                      title: "Cancelar packing",
-                      label: "Cancelar packing",
-                      fieldLabel: "Motivo de cancelación",
-                      description: "Esta acción queda registrada como administrativa.",
-                    })}
-                    className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#FFB07A] hover:bg-[#2A1B14] disabled:opacity-50"
-                  >
-                    Cancelar packing
-                  </button>
-                ) : null}
-              </div>
-            </details>
-          ) : null}
-        </div>
+                  ))}
+                </>
+              ) : null}
+              {canCancel ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onOpenStatusModal({
+                    action: "cancel",
+                    title: "Cancelar packing",
+                    label: "Cancelar packing",
+                    fieldLabel: "Motivo de cancelación",
+                    description: "Esta acción queda registrada como administrativa.",
+                  })}
+                  className={`${item} text-[#FFB07A] hover:bg-[#2A1B14]`}
+                >
+                  Cancelar caja
+                </button>
+              ) : null}
+            </div>
+          </details>
+        ) : null}
       </div>
     </div>
   );
@@ -862,172 +806,46 @@ function trackingHelpMessage({
   return "Este transportista no tiene URL de rastreo configurada.";
 }
 
-function ItemCard({
-  item,
-  providerLabel,
-  logisticsProviderLabel,
-  action,
-  draggable,
-  showCosts = false,
-  canViewCosts = true,
-  canViewProviderCost = true,
-  onItemUpdated = ignoreItemPhotoUpdate,
-  onDragStart,
-}: {
-  item: ShippingV2Item;
-  providerLabel: string;
-  logisticsProviderLabel?: string;
-  action: ReactNode;
-  draggable?: boolean;
-  showCosts?: boolean;
-  canViewCosts?: boolean;
-  canViewProviderCost?: boolean;
-  onItemUpdated?: (item: ShippingV2Item) => void;
-  onDragStart?: (event: DragEvent<HTMLElement>) => void;
-}) {
-  const itemHref = `/shipping-v2/items/${encodeURIComponent(item.id)}`;
-  const purchaseProviderLabel = providerDisplayValue(providerLabel, item.proveedorNombre);
-  const logisticsDisplayLabel = providerDisplayValue(logisticsProviderLabel, item.proveedorLogisticoNombre);
-  const supplierSku = item.skuProveedor?.trim();
-
-  return (
-    <article
-      draggable={draggable}
-      onDragStart={onDragStart}
-      className={`rounded-[1rem] border border-[#3A3A36] bg-[#151515] p-4 transition ${draggable ? "cursor-grab hover:border-[#D7FF4F]/45 active:cursor-grabbing" : ""}`}
-    >
-      <div className="grid gap-3 md:grid-cols-[7rem_minmax(0,1fr)] md:items-start">
-        <ItemPhotoViewer
-          itemId={item.id}
-          itemName={item.nombre}
-          fotos={item.fotos}
-          onUpdated={onItemUpdated}
-          canEdit={false}
-          density="thumbnail"
-        />
-        <div className="min-w-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <Link href={itemHref} className="inline-flex max-w-full cursor-pointer text-xs font-semibold text-[#D7FF4F] underline-offset-4 transition hover:text-[#EEFF9E] hover:underline">
-                <span className="truncate">
-                  <span>{display(item.sku)}</span>
-                  <span className="mx-1">/</span>
-                  <span className={supplierSku ? "text-[#D7FF4F]" : "text-[#A7A7A7]"}>{supplierSku || "SIN SKU DE PROVEEDOR"}</span>
-                </span>
-              </Link>
-              <Link href={itemHref} className="mt-1 block cursor-pointer break-words text-sm font-semibold text-[#F5F5F5] underline-offset-4 transition hover:text-[#D7FF4F] hover:underline">
-                {display(item.nombre)}
-              </Link>
-            </div>
-            {action ? (
-              <div className="flex shrink-0 flex-col items-center gap-2">
-                {action}
-              </div>
-            ) : null}
-          </div>
-          <div className="mt-3 grid gap-2 text-xs text-[#A7A7A7] sm:grid-cols-2">
-            <p>Estado: <span className="text-[#F5F5F5]">{display(item.estado)}</span></p>
-            <p>Operación: <span className="text-[#F5F5F5]">{display(item.tipoOperacion)}</span></p>
-            <p>Proveedor compra: <span className="text-[#F5F5F5]">{display(purchaseProviderLabel)}</span></p>
-            <p>Proveedor logístico: <span className="text-[#F5F5F5]">{display(logisticsDisplayLabel)}</span></p>
-            <p>Modo: <span className="text-[#F5F5F5]">{display(item.modoLogistico)}</span></p>
-            <p>Categoría: <span className="text-[#F5F5F5]">{display(item.categoria)}</span></p>
-          </div>
-        </div>
-      </div>
-      {showCosts && canViewCosts ? <ProviderCostRows item={item} includeAssignedCosts /> : null}
-      {(!showCosts || !canViewCosts) && canViewProviderCost ? <ProviderCostRows item={item} /> : null}
-    </article>
-  );
-}
-
-function moneyInputValue(value: number | null | undefined) {
-  return value === null || value === undefined ? "" : String(value);
-}
-
-function parseMoneyInput(value: string) {
-  const text = value.trim().replace(",", ".");
-  if (!text) return 0;
-  const parsed = Number(text);
-  if (!Number.isFinite(parsed)) throw new Error("Ingresa un valor numerico valido.");
-  if (parsed < 0) throw new Error("Los costos no pueden ser negativos.");
-  return parsed;
-}
-
-function safeMoneyInputValue(value: string) {
-  try {
-    return parseMoneyInput(value);
-  } catch {
-    return 0;
-  }
-}
-
+// Punto 9c · fase 1 (14-oct): los costos de la caja viven en un solo bloque,
+// "Costos de traerlo". El flete, el arancel y otros ya no se escriben a mano:
+// nacen del pago. Aquí se quedan la regla de reparto, la observación y el
+// resumen de la caja.
 function LogisticsCostsSection({
   packing,
-  canEditCosts,
   canEditDistributionRule,
+  canEditNote,
   providerSummary,
   onSaved,
+  onPagado,
 }: {
   packing: ShippingV2Packing;
-  canEditCosts: boolean;
   canEditDistributionRule: boolean;
+  canEditNote: boolean;
   providerSummary: ReturnType<typeof packingProviderCostSummary>;
   onSaved: (packing: ShippingV2Packing) => void;
+  onPagado: () => void;
 }) {
-  const [form, setForm] = useState({
-    flete: moneyInputValue(packing.flete),
-    arancel: moneyInputValue(packing.arancel),
-    otrosCostos: moneyInputValue(packing.otrosCostos),
-    reglaDistribucionCostos: packing.reglaDistribucionCostos || "No definida",
-    observacionCostos: packing.observacionCostos || "",
-  });
+  const [regla, setRegla] = useState(packing.reglaDistribucionCostos || "No definida");
+  const [nota, setNota] = useState(packing.observacionCostos || "");
   const [status, setStatus] = useState<"saving" | "saved" | "error" | undefined>();
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setForm({
-      flete: moneyInputValue(packing.flete),
-      arancel: moneyInputValue(packing.arancel),
-      otrosCostos: moneyInputValue(packing.otrosCostos),
-      reglaDistribucionCostos: packing.reglaDistribucionCostos || "No definida",
-      observacionCostos: packing.observacionCostos || "",
-    });
-  }, [packing]);
+    setRegla(packing.reglaDistribucionCostos || "No definida");
+    setNota(packing.observacionCostos || "");
+  }, [packing.reglaDistribucionCostos, packing.observacionCostos]);
 
-  const flete = safeMoneyInputValue(form.flete);
-  const arancel = safeMoneyInputValue(form.arancel);
-  const otrosCostos = safeMoneyInputValue(form.otrosCostos);
-  const total = flete + arancel + otrosCostos;
-  const isPreliminary = normalize(packing.estado) === "en proceso";
-  const canSave = canEditCosts || canEditDistributionRule;
-
-  function update(key: keyof typeof form, value: string) {
-    setForm((current) => ({ ...current, [key]: value }));
-  }
-
-  async function saveCosts() {
-    if (!canSave) return;
+  async function guardar(payload: Record<string, string>) {
     setStatus("saving");
     setError("");
     try {
-      const payload: Record<string, string | number> = {};
-      if (canEditCosts) {
-        payload.flete = parseMoneyInput(form.flete);
-        payload.arancel = parseMoneyInput(form.arancel);
-        payload.otrosCostos = parseMoneyInput(form.otrosCostos);
-        payload.observacionCostos = form.observacionCostos;
-      }
-      if (canEditDistributionRule) {
-        payload.reglaDistribucionCostos = form.reglaDistribucionCostos;
-      }
       const response = await fetch(`/api/shipping-v2/packings/${packing.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const responsePayload = await response.json().catch(() => ({}));
-      if (!response.ok || !responsePayload.success) throw new Error(String(responsePayload.error || "No se pudieron guardar los costos."));
+      if (!response.ok || !responsePayload.success) throw new Error(String(responsePayload.error || "No se pudo guardar."));
       onSaved(responsePayload.data as ShippingV2Packing);
       setStatus("saved");
       window.setTimeout(() => setStatus(undefined), 1400);
@@ -1037,85 +855,48 @@ function LogisticsCostsSection({
     }
   }
 
-  const compactInputClass = "mt-1 h-7 w-full rounded border border-transparent bg-transparent p-0 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/55 focus:bg-[#101010] focus:px-2 disabled:opacity-70";
-  const compactSelectClass = "mt-1 h-8 w-full rounded border border-transparent bg-transparent p-0 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/55 focus:bg-[#101010] focus:px-2 disabled:opacity-70";
-  const compactTextareaClass = "mt-1 min-h-8 w-full resize-y rounded border border-transparent bg-transparent p-0 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/55 focus:bg-[#101010] focus:px-2 disabled:opacity-70";
-
   return (
-    <section className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
-      <div>
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Costos logísticos</p>
-          <h3 className="mt-1 text-xl font-semibold text-[#F5F5F5]">Importación del packing</h3>
-          <p className="mt-1 text-sm leading-6 text-[#A7A7A7]">
-            {isPreliminary ? "Los costos finales se registran cuando el packing este cerrado o en transito." : "Registra los costos reales de importacion del grupo fisico."}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <CostSummaryItem label="Flete">
-          <input inputMode="decimal" value={form.flete} disabled={!canEditCosts} onChange={(event) => update("flete", event.target.value)} className={compactInputClass} />
-        </CostSummaryItem>
-        <CostSummaryItem label="Arancel">
-          <input inputMode="decimal" value={form.arancel} disabled={!canEditCosts} onChange={(event) => update("arancel", event.target.value)} className={compactInputClass} />
-        </CostSummaryItem>
-        <CostSummaryItem label="Otros costos">
-          <input inputMode="decimal" value={form.otrosCostos} disabled={!canEditCosts} onChange={(event) => update("otrosCostos", event.target.value)} className={compactInputClass} />
-        </CostSummaryItem>
-        <CostSummaryItem label="Total logístico" value={formatCurrencyZero(total)} strong />
-        <CostSummaryItem label="Costo total proveedor items" value={formatCurrencyZero(providerSummary.costoTotalProveedorItems)} />
-        <CostSummaryItem label="Ítems incluidos" value={display(providerSummary.referenciasIncluidas)} />
-        <CostSummaryItem label="Unidades totales" value={display(providerSummary.unidadesTotales)} />
-        <CostSummaryItem label="Regla distribución">
-          <select value={form.reglaDistribucionCostos} disabled={!canEditDistributionRule} onChange={(event) => update("reglaDistribucionCostos", event.target.value)} className={compactSelectClass}>
-            {SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS.map((option) => <option key={option} value={option}>{option}</option>)}
-          </select>
-        </CostSummaryItem>
-        <CostSummaryItem label="Observación costos">
-          <textarea value={form.observacionCostos} disabled={!canEditCosts} onChange={(event) => update("observacionCostos", event.target.value)} className={compactTextareaClass} />
-        </CostSummaryItem>
-      </div>
-
-      <p className="mt-3 text-xs leading-5 text-[#A7A7A7]">
-        La distribución por item se calcula automáticamente desde Airtable según la regla seleccionada.
-      </p>
-      {providerSummary.error ? <p className="mt-2 text-xs font-semibold text-[#FFB07A]">{providerSummary.error}</p> : null}
-      {providerSummary.referenciasConUnidadesEstimadas ? (
-        <div className="mt-2 rounded-lg border border-[#4FC3FF]/30 bg-[#4FC3FF]/10 px-3 py-2">
-          <p className="text-xs font-semibold text-[#BDEAFF]">
-            {providerSummary.referenciasConUnidadesEstimadas} ítem(s) ya salieron del inventario (vendidos o consumidos).
-          </p>
-          <p className="mt-1 text-xs leading-5 text-[#BDEAFF]/85">
-            Su Cantidad actual es 0, así que el histórico de este packing se calcula con 1 unidad por registro. Es un dato informativo: no afecta al inventario ni a los pagos.
-          </p>
-        </div>
-      ) : null}
-
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="grid gap-1 text-xs text-[#A7A7A7] sm:grid-cols-3 sm:gap-4">
-          <span>Cierre: <strong className="font-semibold text-[#F5F5F5]">{formatDate(packing.fechaCierre)}</strong></span>
-          <span>Envío: <strong className="font-semibold text-[#F5F5F5]">{formatDate(packing.fechaEnvio)}</strong></span>
-          <span>Recepción: <strong className="font-semibold text-[#F5F5F5]">{formatDate(packing.fechaRecepcion)}</strong></span>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          {error ? <span className="text-sm font-semibold text-[#FFB07A]">{error}</span> : null}
+    <CostosTraerlo
+      packingId={packing.id}
+      onPagado={onPagado}
+      cabecera={(
+        <>
+          {error ? <span className="text-[12px] text-[#FFB07A]">{error}</span> : null}
           <SaveBadge status={status} />
-          <button type="button" disabled={!canSave || status === "saving"} onClick={() => void saveCosts()} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-5 py-2.5 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">
-            {canEditCosts ? "Guardar costos" : "Guardar regla"}
-          </button>
-        </div>
+          <label className="flex items-center gap-1.5 text-[12px] text-[#8F908A]">
+            Reparto
+            <select
+              value={regla}
+              disabled={!canEditDistributionRule}
+              onChange={(event) => { setRegla(event.target.value); void guardar({ reglaDistribucionCostos: event.target.value }); }}
+              className="h-7 rounded-md border border-[#3A3A36] bg-[#151515] px-1.5 text-[12.5px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-60"
+            >
+              {SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+        </>
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[#8F908A]">
+        <span>Compra <b className="tabular-nums text-[#E6E6E1]">{formatCurrencyZero(providerSummary.costoTotalProveedorItems)}</b></span>
+        <span><b className="text-[#E6E6E1]">{display(providerSummary.referenciasIncluidas)}</b> ítems · <b className="text-[#E6E6E1]">{display(providerSummary.unidadesTotales)}</b> u.</span>
+        <input
+          value={nota}
+          disabled={!canEditNote}
+          onChange={(event) => setNota(event.target.value)}
+          onBlur={() => { if (nota !== (packing.observacionCostos || "")) void guardar({ observacionCostos: nota }); }}
+          placeholder="Nota de costos"
+          aria-label="Nota de costos"
+          className="h-7 min-w-[180px] flex-1 rounded-md border border-transparent bg-transparent px-1.5 text-[12.5px] text-[#E6E6E1] outline-none placeholder:text-[#5E5F59] hover:border-[#3A3A36] focus:border-[#D7FF4F]/70 focus:bg-[#151515] disabled:opacity-60"
+        />
       </div>
-    </section>
-  );
-}
-
-function CostSummaryItem({ label, value, strong = false, children }: { label: string; value?: string; strong?: boolean; children?: ReactNode }) {
-  return (
-    <div className="min-w-0 rounded-[0.75rem] border border-[#3A3A36] bg-[#151515] px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</p>
-      {children ?? <p className={`mt-1 truncate text-sm ${strong ? "font-bold text-[#D7FF4F]" : "font-semibold text-[#F5F5F5]"}`}>{value}</p>}
-    </div>
+      {providerSummary.error ? <p className="mt-1 text-[12px] font-semibold text-[#FFB07A]">{providerSummary.error}</p> : null}
+      {providerSummary.referenciasConUnidadesEstimadas ? (
+        <p className="mt-1 text-[12px] text-[#BDEAFF]" title="Su cantidad actual es 0: el histórico de la caja cuenta 1 unidad por registro. No afecta inventario ni pagos.">
+          {providerSummary.referenciasConUnidadesEstimadas} ítem(s) ya vendidos o consumidos: se cuentan con 1 unidad.
+        </p>
+      ) : null}
+    </CostosTraerlo>
   );
 }
 
@@ -1128,6 +909,10 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   const [destinatarioNotice, setDestinatarioNotice] = useState("");
   const [availableItems, setAvailableItems] = useState(candidates.filter((item) => !initialPacking.itemIds.includes(item.id)));
   const [query, setQuery] = useState("");
+  const [queryCaja, setQueryCaja] = useState("");
+  const [selBodega, setSelBodega] = useState<Set<string>>(new Set());
+  const [selCaja, setSelCaja] = useState<Set<string>>(new Set());
+  const [dragBodega, setDragBodega] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [busyItemId, setBusyItemId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1249,14 +1034,23 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     trackingUsaUrl,
   ]);
 
-  const visibleCandidates = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return availableItems.filter((item) => {
-      const providerLabel = resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels) || item.proveedorNombre || "";
-      const logisticsProviderLabel = resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabels) || item.proveedorLogisticoNombre || "";
-      return !needle || itemSearchText(item, providerLabel, logisticsProviderLabel).includes(needle);
+  const labelsDe = (item: ShippingV2Item) => ({
+    compra: providerDisplayValue(resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels), item.proveedorNombre),
+    logistico: providerDisplayValue(resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabels), item.proveedorLogisticoNombre),
+  });
+  const filtrar = (items: ShippingV2Item[], consulta: string) => {
+    if (!consulta.trim()) return items;
+    return items.filter((item) => {
+      const { compra, logistico } = labelsDe(item);
+      return coincide(itemSearchText(item, compra, logistico), consulta);
     });
-  }, [availableItems, providerLabels, query]);
+  };
+  const visibleCandidates = useMemo(() => filtrar(availableItems, query),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [availableItems, providerLabels, query]);
+  const visibleEnCaja = useMemo(() => filtrar(packing.items, queryCaja),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [packing.items, providerLabels, queryCaja]);
 
   function canEditField(field: EditablePackingField) {
     const state = normalize(packing.estado);
@@ -1290,6 +1084,14 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     return ["en proceso", "cerrado", "en transito", "recibido", "en revision"].includes(state);
   }
 
+  // Tras pagar un gasto, el valor de la caja y el reparto de sus artículos cambian.
+  async function recargarPacking() {
+    const response = await fetch(`/api/shipping-v2/packings/${packing.id}`, { cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok && payload.success && payload.data) setPacking(payload.data as ShippingV2Packing);
+    router.refresh();
+  }
+
   async function copyTracking(kind: "usa" | "ec", value?: string) {
     const text = value?.trim();
     if (!text) return;
@@ -1319,29 +1121,6 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
       setPacking(previousPacking);
       setSaveState((current) => ({ ...current, [field]: "error" }));
       setError(saveError instanceof Error ? saveError.message : "Error inesperado.");
-    }
-  }
-
-  async function saveInlinePackingField(field: EditablePackingField, value: string | number | boolean | null) {
-    if (!canEditField(field)) throw new Error("Este campo no se puede editar en el estado actual.");
-    if (field === "peso" && typeof value === "number" && value < 0) throw new Error("El peso no puede ser negativo.");
-    const previousPacking = packing;
-    setError("");
-    setPacking((current) => ({ ...current, [field]: value }));
-    try {
-      const response = await fetch(`/api/shipping-v2/packings/${packing.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [field]: value }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo guardar el cambio."));
-      setPacking(payload.data as ShippingV2Packing);
-    } catch (saveError) {
-      setPacking(previousPacking);
-      const message = saveError instanceof Error ? saveError.message : "Error al guardar.";
-      setError(message);
-      throw new Error(message);
     }
   }
 
@@ -1409,13 +1188,28 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
       setBusy(false);
       setBusyItemId("");
       setDragOver(false);
+      setSelBodega(new Set());
     }
   }
 
-  async function removeItem(item: ShippingV2Item) {
-    if (!canRemoveItems || busy) return;
-    const previousPacking = packing;
-    const previousAvailableItems = availableItems;
+  /** Devuelve artículos de la caja a la bodega del proveedor (uno a uno: el servidor quita de a uno). */
+  async function removeItems(itemsToRemove: ShippingV2Item[]) {
+    if (!canRemoveItems || busy || !itemsToRemove.length) return;
+    setBusy(true);
+    setError("");
+    try {
+      for (const item of itemsToRemove) {
+        const ok = await quitarUno(item);
+        if (!ok) break;
+      }
+    } finally {
+      setBusy(false);
+      setBusyItemId("");
+      setSelCaja(new Set());
+    }
+  }
+
+  async function quitarUno(item: ShippingV2Item): Promise<boolean> {
     const optimisticAvailableItem = {
       ...item,
       estado: "Pendiente de packing",
@@ -1423,21 +1217,12 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
       packingId: "",
       requierePacking: true,
     };
-
-    setBusy(true);
     setBusyItemId(item.id);
-    setError("");
     setPacking((current) => {
       const nextItems = current.items.filter((included) => included.id !== item.id);
-      return {
-        ...current,
-        items: nextItems,
-        itemIds: current.itemIds.filter((id) => id !== item.id),
-        itemCount: nextItems.length,
-      };
+      return { ...current, items: nextItems, itemIds: current.itemIds.filter((id) => id !== item.id), itemCount: nextItems.length };
     });
     setAvailableItems((current) => [optimisticAvailableItem, ...current.filter((candidate) => candidate.id !== item.id)]);
-
     try {
       const response = await fetch(`/api/shipping-v2/packings/${packing.id}/items`, {
         method: "DELETE",
@@ -1445,30 +1230,21 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
         body: JSON.stringify({ itemId: item.id }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo quitar el item."));
+      if (!response.ok || !payload.success) throw new Error(String(payload.error || `No se pudo quitar ${item.sku}.`));
       const removedItem = payload.removedItem as ShippingV2Item | undefined;
-      setAvailableItems((current) => [
-        removedItem || optimisticAvailableItem,
-        ...current.filter((candidate) => candidate.id !== item.id),
-      ]);
+      setAvailableItems((current) => [removedItem || optimisticAvailableItem, ...current.filter((candidate) => candidate.id !== item.id)]);
       setPacking((current) => {
         const serverItemIds = Array.isArray(payload.packing?.itemIds) ? payload.packing.itemIds.map(String) : current.itemIds;
         const items = current.items.filter((included) => serverItemIds.includes(included.id));
-        return {
-          ...current,
-          itemIds: serverItemIds,
-          itemCount: typeof payload.packing?.itemCount === "number" ? payload.packing.itemCount : items.length,
-          items,
-        };
+        return { ...current, itemIds: serverItemIds, itemCount: typeof payload.packing?.itemCount === "number" ? payload.packing.itemCount : items.length, items };
       });
+      return true;
     } catch (mutationError) {
-      setPacking(previousPacking);
-      setAvailableItems(previousAvailableItems);
+      setPacking((current) => current.items.some((x) => x.id === item.id) ? current : { ...current, items: [...current.items, item], itemIds: [...current.itemIds, item.id], itemCount: current.items.length + 1 });
+      setAvailableItems((current) => current.filter((candidate) => candidate.id !== item.id));
       setError(mutationError instanceof Error ? mutationError.message : "Error inesperado.");
       router.refresh();
-    } finally {
-      setBusy(false);
-      setBusyItemId("");
+      return false;
     }
   }
 
@@ -1527,11 +1303,33 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     }
   }
 
+  function leerArrastre(event: DragEvent<HTMLElement>) {
+    const [origen, lista = ""] = event.dataTransfer.getData("text/plain").split(":");
+    return { origen, ids: lista.split(",").filter(Boolean) };
+  }
+
+  // Soltar en la caja = agregar (desde la bodega).
   function handleDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault();
+    setDragOver(false);
     if (!canAddItems) return;
-    const itemId = event.dataTransfer.getData("text/plain");
-    if (itemId) void addItems([itemId]);
+    const { origen, ids } = leerArrastre(event);
+    if (origen === "bodega" && ids.length) void addItems(ids);
+  }
+
+  // Soltar en la bodega = devolver (desde la caja).
+  function handleDropBodega(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    setDragBodega(false);
+    if (!canRemoveItems) return;
+    const { origen, ids } = leerArrastre(event);
+    if (origen === "caja" && ids.length) void removeItems(packing.items.filter((item) => ids.includes(item.id)));
+  }
+
+  function alternar(set: Set<string>, id: string) {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
   }
 
   async function generateProviderInvoice() {
@@ -1562,315 +1360,240 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     }
   }
 
+  const facturaAcciones = (
+    <>
+      {packing.factura[0]?.url && canViewInvoice ? (
+        <a href={packing.factura[0].url} target="_blank" rel="noreferrer" className={btn}>Ver factura</a>
+      ) : null}
+      {canGenerateInvoice ? (
+        <button
+          type="button"
+          disabled={invoiceBusy || !currentDestinatario}
+          title={!currentDestinatario ? "Vincula un destinatario antes de generar la factura." : !packing.ordenReferencia ? "Recomendado: escribe la orden de referencia antes." : undefined}
+          onClick={() => void generateProviderInvoice()}
+          className={btn}
+        >
+          {invoiceBusy ? "Generando…" : packing.factura.length ? "Regenerar factura" : "Generar factura"}
+        </button>
+      ) : null}
+    </>
+  );
+  const pesoTexto = packing.peso === null || packing.peso === undefined ? "" : String(packing.peso);
+
   return (
-    <div className="w-full space-y-2.5">
-      <section className="overflow-hidden rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2.5 shadow-xl shadow-black/20">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Link
-            href="/shipping-v2/packings"
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-sm font-bold text-[#151515] shadow-[0_0_20px_rgba(215,255,79,0.14)] transition hover:brightness-105"
-          >
-            Volver a Packings
-          </Link>
-          <div className="flex flex-wrap items-center gap-2">
-            {packing.factura[0]?.url && canViewInvoice ? (
-              <a
-                href={packing.factura[0].url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
-              >
-                Ver factura
-              </a>
-            ) : null}
-            {canGenerateInvoice ? (
-              <button
-                type="button"
-                disabled={invoiceBusy || !currentDestinatario}
-                title={!currentDestinatario ? "Vincula un destinatario antes de generar la factura." : undefined}
-                onClick={() => void generateProviderInvoice()}
-                className="inline-flex h-9 items-center justify-center rounded-lg border border-[#D7FF4F]/70 bg-[#D7FF4F]/10 px-3 text-sm font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {invoiceBusy ? "Generando factura..." : packing.factura.length ? "Regenerar factura proveedor" : "Generar factura proveedor"}
-              </button>
-            ) : null}
-          </div>
+    <div className="w-full space-y-2">
+      {/* Cabecera: qué caja es, en qué etapa está y qué sigue */}
+      <section className={`${seccion} space-y-1.5 px-2 py-1.5`}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Link href="/shipping-v2/packings" className={`${btn} px-2 text-[#A7A7A7]`} title="Volver a Logística">← Logística</Link>
+          <h2 className="text-[15px] font-semibold text-[#F5F5F5]">{display(packing.packingId)}</h2>
+          {packing.nombre?.trim() ? <span className="truncate text-[13px] text-[#A7A7A7]">{packing.nombre.trim()}</span> : null}
+          {isProviderPortal ? <span className={chip.ok} title="Puedes agregar artículos y cerrar la caja cuando esté completa.">Vista proveedor</span> : null}
+          {!currentDestinatario && canGenerateInvoice ? <span className={chip.mal} title="Necesario para generar la factura">Sin destinatario</span> : null}
+          {!packing.ordenReferencia && canGenerateInvoice ? <span className={chip.mute} title="Recomendado para la factura; no la bloquea">Sin orden</span> : null}
+          {missingTracking ? <span className={chip.falta}>Sin rastreo</span> : null}
+          {invoiceNotice ? <span className="text-[12px] font-semibold text-[#D7FF4F]">{invoiceNotice}</span> : null}
+          {destinatarioNotice ? <span className="text-[12px] font-semibold text-[#D7FF4F]">{destinatarioNotice}</span> : null}
         </div>
-        {isProviderPortal ? (
-          <p className="mt-3 rounded-lg border border-[#D7FF4F]/25 bg-[#D7FF4F]/10 px-3 py-2 text-sm text-[#D7FF4F]">
-            Vista proveedor: puedes agregar items y cerrar el packing cuando la caja física esté completa.
-          </p>
-        ) : null}
-        {!currentDestinatario && canGenerateInvoice ? (
-          <p className="mt-3 rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">
-            Falta vincular destinatario para generar la factura.
-          </p>
-        ) : null}
-        {!packing.ordenReferencia && canGenerateInvoice ? (
-          <p className="mt-3 rounded-lg border border-yellow-300/25 bg-yellow-300/10 px-3 py-2 text-sm text-yellow-100">
-            Recomendado: ingresa Orden referencia antes de generar factura.
-          </p>
-        ) : null}
-        {missingTracking ? (
-          <p className="mt-3 rounded-lg border border-yellow-300/20 bg-yellow-300/5 px-3 py-2 text-sm text-yellow-100">
-            Este packing no tiene tracking registrado.
-          </p>
-        ) : null}
-        {invoiceNotice ? (
-          <p className="mt-3 rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-2 text-sm font-semibold text-[#D7FF4F]">{invoiceNotice}</p>
-        ) : null}
-        {destinatarioNotice ? (
-          <p className="mt-3 rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-2 text-sm font-semibold text-[#D7FF4F]">{destinatarioNotice}</p>
-        ) : null}
+        <StatusActionPanel
+          packing={packing}
+          novedades={packingNovedades}
+          isAdmin={isAdmin}
+          isSiteAdmin={isSiteAdmin}
+          canClose={canClosePacking}
+          canTransition={canTransitionPackingStatus}
+          canViewNovedades={canViewNovedades}
+          busy={busy}
+          actionBusy={actionBusy}
+          extra={facturaAcciones}
+          onRunAction={(action) => void runStatusAction(action)}
+          onOpenNovedades={() => setShowNovedadesModal(true)}
+          onOpenStatusModal={(modal) => {
+            setStatusDecision("");
+            setStatusModal(modal);
+          }}
+        />
+      </section>
 
-        <div className="mt-3">
-          <StatusActionPanel
-            packing={packing}
-            novedades={packingNovedades}
-            isAdmin={isAdmin}
-            isSiteAdmin={isSiteAdmin}
-            canClose={canClosePacking}
-            canTransition={canTransitionPackingStatus}
-            canViewNovedades={canViewNovedades}
-            busy={busy}
-            actionBusy={actionBusy}
-            onRunAction={(action) => void runStatusAction(action)}
-            onOpenNovedades={() => setShowNovedadesModal(true)}
-            onOpenStatusModal={(modal) => {
-              setStatusDecision("");
-              setStatusModal(modal);
+      {error ? <div className="rounded-md border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-1.5 text-[13px] text-[#FFB07A]">{error}</div> : null}
+
+      {/* Envío: datos de la caja, rastreos y destinatario */}
+      <section className={seccion}>
+        <div className="flex flex-wrap items-center gap-2 px-2 py-1.5">
+          <h3 className="text-[13px] font-semibold text-[#F5F5F5]">Envío</h3>
+          <span className="ml-auto text-[12px] text-[#8F908A]">
+            Creado <b className="text-[#E6E6E1]">{formatDate(packing.fechaCreacion || packing.createdTime)}</b>
+            {packing.fechaCierre ? <> · Cierre <b className="text-[#E6E6E1]">{formatDate(packing.fechaCierre)}</b></> : null}
+            {packing.fechaEnvio ? <> · Envío <b className="text-[#E6E6E1]">{formatDate(packing.fechaEnvio)}</b></> : null}
+            {packing.fechaRecepcion ? <> · Recepción <b className="text-[#E6E6E1]">{formatDate(packing.fechaRecepcion)}</b></> : null}
+          </span>
+        </div>
+        <div className="grid gap-2 border-t border-[#2A2B26] p-2 sm:grid-cols-2 lg:grid-cols-6">
+          <SelectCampo label="Responsable" value={packing.proveedorResponsableId} options={providerOptions} disabled={!canEditField("proveedorResponsableId")} status={saveState.proveedorResponsableId} onSave={(value) => void savePackingField("proveedorResponsableId", value)} />
+          <SelectCampo label="Tipo" value={packing.tipo} options={packingTypeOptions} disabled={!canEditField("tipo")} status={saveState.tipo} onSave={(value) => void savePackingField("tipo", value)} />
+          <TextoCampo
+            label="Peso (kg)"
+            value={pesoTexto}
+            inputMode="decimal"
+            disabled={!canEditField("peso")}
+            status={saveState.peso}
+            onSave={(value) => {
+              const text = value.trim().replace(",", ".");
+              const numero = text ? Number(text) : null;
+              if (numero !== null && (!Number.isFinite(numero) || numero < 0)) { setError("El peso debe ser un número mayor o igual a 0."); return; }
+              void savePackingField("peso", numero);
             }}
           />
-        </div>
-
-        <div className="mt-3 grid min-w-0 gap-3 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
-          <EditableTextField
-            label="Orden referencia"
-            value={packing.ordenReferencia}
-            disabled={!canEditField("ordenReferencia")}
-            status={saveState.ordenReferencia}
-            placeholder="Ej. #6739, PO-12345, ORDER-123..."
-            help="Dato recomendado para invoice; no bloquea la generación."
-            onSave={(value) => void savePackingField("ordenReferencia", value)}
-          />
-          <section className="min-w-0 overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#151515] px-4 py-3">
-            <div className="grid min-w-0 gap-3">
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Destinatario / dirección de envío</p>
-                {currentDestinatario ? (
-                  <DestinatarioSummary destinatario={currentDestinatario} />
-                ) : (
-                  <p className="mt-3 text-sm text-[#A7A7A7]">Este packing no tiene destinatario vinculado.</p>
-                )}
-              </div>
-              {canLinkDestinatario ? (
-                <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                  <select
-                    value={selectedDestinatarioId}
-                    onChange={(event) => setSelectedDestinatarioId(event.target.value)}
-                    className="h-9 min-w-0 truncate rounded-lg border border-[#3A3A36] bg-[#101010] px-3 text-xs font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/70"
-                  >
-                    <option value="">Seleccionar destinatario</option>
-                    {shippingDestinatarios.map((destinatario) => (
-                      <option key={destinatario.id} value={destinatario.id}>{destinatarioOptionLabel(destinatario)}</option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    disabled={!selectedDestinatarioId || destinatarioBusy}
-                    onClick={() => void linkDestinatario()}
-                    className="h-9 max-w-full truncate rounded-lg border border-[#D7FF4F]/70 bg-[#D7FF4F]/10 px-3 text-xs font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {destinatarioBusy ? "Vinculando..." : currentDestinatario ? "Cambiar destinatario" : "Vincular destinatario"}
+          <TextoCampo label="Orden referencia" value={packing.ordenReferencia} placeholder="#6739, PO-12345…" title="Recomendado para la factura; no la bloquea." disabled={!canEditField("ordenReferencia")} status={saveState.ordenReferencia} onSave={(value) => void savePackingField("ordenReferencia", value)} />
+          <div className="min-w-0 sm:col-span-2">
+            <span className={lbl}>Destinatario</span>
+            {canLinkDestinatario ? (
+              <div className="flex gap-1">
+                <select value={selectedDestinatarioId} onChange={(event) => setSelectedDestinatarioId(event.target.value)} className={inp} title={currentDestinatario ? destinatarioResumen(currentDestinatario) : undefined}>
+                  <option value="">Sin destinatario</option>
+                  {shippingDestinatarios.map((destinatario) => (
+                    <option key={destinatario.id} value={destinatario.id}>{destinatarioOptionLabel(destinatario)}</option>
+                  ))}
+                </select>
+                {selectedDestinatarioId && selectedDestinatarioId !== currentDestinatario?.id ? (
+                  <button type="button" disabled={destinatarioBusy} onClick={() => void linkDestinatario()} className={btnPrim}>
+                    {destinatarioBusy ? "Vinculando…" : currentDestinatario ? "Cambiar" : "Vincular"}
                   </button>
-                </div>
-              ) : null}
-            </div>
-          </section>
-        </div>
-
-        <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(280px,0.75fr)_minmax(520px,1.25fr)] xl:items-start">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Packing ID</p>
-            <h2 className="mt-1 break-words text-xl font-semibold leading-tight text-[#F5F5F5] sm:text-2xl">{display(packing.packingId)}</h2>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              <span className="inline-flex items-center gap-2 rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-xs font-semibold text-[#D7FF4F]">
-                <span className="h-2 w-2 rounded-full bg-[#7CFF4F] shadow-[0_0_14px_rgba(124,255,79,0.55)]" />
-                {display(packing.estado)}
-              </span>
-              {packing.observaciones?.trim() ? <span className="rounded-full border border-[#3A3A36] bg-[#171816]/80 px-3 py-1 text-xs font-semibold text-[#A7A7A7]">Con observación</span> : null}
-            </div>
-            {packing.nombre?.trim() ? <p className="mt-2 text-sm font-medium text-[#A7A7A7]">{packing.nombre.trim()}</p> : null}
+                ) : null}
+              </div>
+            ) : (
+              <p className="truncate py-1.5 text-[13px] text-[#E6E6E1]" title={currentDestinatario ? destinatarioResumen(currentDestinatario) : undefined}>
+                {currentDestinatario ? destinatarioResumen(currentDestinatario) : "—"}
+              </p>
+            )}
           </div>
-
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            <SummaryBadge label="Items" value={String(packing.itemCount)} accent="items" />
-            <WeightSummaryBadge
-              peso={packing.peso}
-              canEditWeight={canEditField("peso")}
-              onSaveWeight={(value) => saveInlinePackingField("peso", value)}
-            />
-            <HeaderProviderSelect
-              label="Responsable"
-              value={packing.proveedorResponsableId}
-              options={providerOptions}
-              disabled={!canEditField("proveedorResponsableId")}
-              status={saveState.proveedorResponsableId}
-              onSave={(value) => void savePackingField("proveedorResponsableId", value)}
-            />
-          </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-[#A7A7A7]">
-          <HeaderFooterSelect
-            label="Tipo"
-            value={packing.tipo}
-            options={packingTypeOptions}
-            disabled={!canEditField("tipo")}
-            status={saveState.tipo}
-            onSave={(value) => void savePackingField("tipo", value)}
+          <RastreoCampo
+            label="Rastreo USA"
+            className="lg:col-span-2"
+            value={packing.trackingUsa}
+            disabled={!canEditField("trackingUsa")}
+            status={saveState.trackingUsa}
+            trackingUrl={trackingUsaUrl}
+            help={trackingUsaHelp}
+            copied={copiedTracking === "usa"}
+            onCopy={() => void copyTracking("usa", packing.trackingUsa)}
+            onSave={(value) => void savePackingField("trackingUsa", value)}
           />
-          <span className="hidden text-[#5E5E58] sm:inline">·</span>
-          <span><span className="font-semibold text-[#A7A7A7]">Creado:</span> <span className="text-[#F5F5F5]">{formatDate(packing.fechaCreacion || packing.createdTime)}</span></span>
-          <span className="hidden text-[#5E5E58] sm:inline">·</span>
-          <span><span className="font-semibold text-[#A7A7A7]">Cierre:</span> <span className="text-[#F5F5F5]">{formatDate(packing.fechaCierre)}</span></span>
+          <SelectCampo label="Transportista USA" value={packing.transportistaUsa} options={usaTransportProviderOptions} disabled={!canEditField("transportistaUsa")} status={saveState.transportistaUsa} onSave={(value) => void savePackingField("transportistaUsa", value)} />
+          <RastreoCampo
+            label="Rastreo Ecuador"
+            className="lg:col-span-2"
+            value={packing.trackingEc}
+            disabled={!canEditField("trackingEc")}
+            status={saveState.trackingEc}
+            trackingUrl={trackingEcUrl}
+            help={trackingEcHelp}
+            copied={copiedTracking === "ec"}
+            onCopy={() => void copyTracking("ec", packing.trackingEc)}
+            onSave={(value) => void savePackingField("trackingEc", value)}
+          />
+          <SelectCampo label="Transportista Ecuador" value={packing.transportistaEc} options={ecuadorTransportProviderOptions} disabled={!canEditField("transportistaEc")} status={saveState.transportistaEc} onSave={(value) => void savePackingField("transportistaEc", value)} />
+          <TextoCampo label="Notas" className="sm:col-span-2 lg:col-span-6" multiline value={packing.observaciones} disabled={!canEditField("observaciones")} status={saveState.observaciones} onSave={(value) => void savePackingField("observaciones", value)} />
         </div>
       </section>
 
-      {error ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{error}</div> : null}
-
-      <section className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/20">
-        <div className="border-b border-[#30312D] bg-[#20211D] px-3 py-2">
-          <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Armado del packing</p>
-          <h3 className="mt-0.5 text-base font-semibold text-[#F5F5F5]">Items y caja</h3>
+      {/* Contenido: arriba la bodega del proveedor, abajo la caja (agregar, devolver, arrastrar) */}
+      <section className={seccion}>
+        <div className="flex flex-wrap items-center gap-2 px-2 py-1.5">
+          <h3 className="text-[13px] font-semibold text-[#F5F5F5]">Contenido</h3>
+          <span className="text-[12px] text-[#8F908A]">{packingItemsUnitsSummary}</span>
+          {canViewProviderCost ? <span className="text-[12px] text-[#8F908A]">· Compra <b className="tabular-nums text-[#E6E6E1]">{formatCurrencyZero(providerSummary.costoTotalProveedorItems)}</b></span> : null}
+          {responsableLabel || packing.proveedorResponsableNombre ? <span className="text-[12px] text-[#8F908A]">· {responsableLabel || packing.proveedorResponsableNombre}</span> : null}
         </div>
 
-        <div className="grid gap-2 p-2 xl:grid-cols-[minmax(340px,0.9fr)_minmax(520px,1.1fr)]">
-          <aside className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <h4 className="text-sm font-semibold text-[#F5F5F5]">Items disponibles para packing</h4>
-                <p className="mt-1 text-xs text-[#A7A7A7]">{availableItems.length} items disponibles</p>
+        {canAddItems ? (
+          <div
+            onDragOver={(event) => { if (!canRemoveItems) return; event.preventDefault(); setDragBodega(true); }}
+            onDragLeave={() => setDragBodega(false)}
+            onDrop={handleDropBodega}
+            className={`border-t border-[#2A2B26] ${dragBodega ? "bg-[#FF914D]/[0.06] outline outline-1 outline-[#FF914D]/60" : ""}`}
+          >
+            <div className="flex flex-wrap items-center gap-2 bg-[#141511] px-2 py-1.5">
+              <span className="text-[12.5px] font-semibold text-[#E6E6E1]">En bodega del proveedor <span className="tabular-nums text-[#8F908A]">{availableItems.length}</span></span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && visibleCandidates.length === 1) {
+                    void addItems([visibleCandidates[0].id]);
+                    setQuery("");
+                  }
+                }}
+                placeholder="Buscar por SKU, SKU proveedor o nombre"
+                title="Con un solo resultado, Enter lo agrega a la caja (sirve con lector de códigos)."
+                className={`${inp} max-w-[340px] flex-1`}
+              />
+              {query && visibleCandidates.length !== availableItems.length ? <span className="text-[12px] text-[#8F908A]">{visibleCandidates.length} de {availableItems.length}</span> : null}
+              <div className="ml-auto flex items-center gap-1.5">
+                {selBodega.size ? <button type="button" onClick={() => setSelBodega(new Set())} className={`${btn} text-[#A7A7A7]`}>Limpiar</button> : null}
+                <button type="button" disabled={busy || !selBodega.size} onClick={() => void addItems(Array.from(selBodega))} className={btnPrim}>
+                  Agregar a la caja{selBodega.size ? ` (${selBodega.size})` : ""} ↓
+                </button>
               </div>
             </div>
-            <div className="mt-3 grid gap-2 md:grid-cols-3 xl:grid-cols-1">
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filtrar items" className="h-9 rounded-lg border border-[#3A3A36] bg-[#151515] px-3 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 md:col-span-3 xl:col-span-1" />
+            <div className="max-h-[340px] overflow-y-auto">
+              <TablaArticulos
+                modo="bodega"
+                items={visibleCandidates}
+                labels={labelsDe}
+                seleccion={selBodega}
+                onToggle={(id) => setSelBodega((cur) => alternar(cur, id))}
+                onToggleTodos={() => setSelBodega((cur) => visibleCandidates.every((i) => cur.has(i.id)) ? new Set() : new Set(visibleCandidates.map((i) => i.id)))}
+                seleccionable
+                draggable={!busy}
+                canViewCosts={canViewCosts}
+                canViewProviderCost={canViewProviderCost}
+                busyItemId={busyItemId}
+                accion={(item) => <button type="button" disabled={busy} onClick={() => void addItems([item.id])} className={`${btn} h-7 border-[#D7FF4F]/55 px-2 text-[#D7FF4F]`} title="Agregar a la caja">Agregar</button>}
+                vacio={availableItems.length
+                  ? "Nada coincide con la búsqueda."
+                  : <span title="Para aparecer aquí un artículo debe: requerir packing, no estar en otra caja, tener modo Pendiente de packing / Crear packing individual / Asignar a packing existente, y ser de un proveedor compatible con esta caja.">El proveedor no tiene artículos pendientes de caja.</span>}
+              />
             </div>
-            <div className="mt-3 grid max-h-[640px] gap-2 overflow-y-auto pr-1">
-              {visibleCandidates.map((item) => {
-                const providerLabel = resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels) || item.proveedorNombre || "";
-                const logisticsProviderLabel = resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabels) || item.proveedorLogisticoNombre || "";
-                return (
-                  <ItemCard
-                    key={item.id}
-                    item={item}
-                    providerLabel={providerLabel}
-                    logisticsProviderLabel={logisticsProviderLabel}
-                    draggable={canAddItems && !busy}
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData("text/plain", item.id);
-                      event.dataTransfer.effectAllowed = "move";
-                    }}
-                    canViewCosts={canViewCosts}
-                    canViewProviderCost={canViewProviderCost}
-                    action={<button type="button" disabled={!canAddItems || busy} onClick={() => void addItems([item.id])} className="min-w-[92px] rounded-full border border-[#D7FF4F]/55 px-3 py-1 text-xs font-semibold text-[#D7FF4F] disabled:opacity-50">{busyItemId === item.id ? "Guardando..." : "Agregar"}</button>}
-                  />
-                );
-              })}
-              {!visibleCandidates.length ? (
-                <div className="rounded-xl border border-[#3A3A36] bg-[#151515] px-3 py-3 text-sm text-[#A7A7A7]">
-                  <p className="font-semibold text-[#F5F5F5]">No hay items disponibles para este packing.</p>
-                  <ul className="mt-3 list-disc space-y-1 pl-5">
-                    <li>Verifica que el Item tenga Requiere packing = Sí.</li>
-                    <li>Verifica que no tenga Packing relacionado.</li>
-                    <li>Verifica que su Modo logístico sea Pendiente de packing, Crear packing individual o Asignar a packing existente.</li>
-                    <li>Verifica que el proveedor del Item sea compatible con este packing.</li>
-                  </ul>
-                </div>
+          </div>
+        ) : null}
+
+        <div
+          onDragOver={(event) => { if (!canAddItems) return; event.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          className={`border-t ${canAddItems ? "border-[#D7FF4F]/25" : "border-[#2A2B26]"} ${dragOver ? "bg-[#D7FF4F]/[0.06] outline outline-1 outline-[#D7FF4F]/70" : ""}`}
+        >
+          <div className="flex flex-wrap items-center gap-2 bg-[#141511] px-2 py-1.5">
+            <span className="text-[12.5px] font-semibold text-[#D7FF4F]">En la caja <span className="tabular-nums text-[#8F908A]">{packing.items.length}</span></span>
+            {packing.items.length > 6 ? (
+              <input value={queryCaja} onChange={(event) => setQueryCaja(event.target.value)} placeholder="Buscar en la caja" className={`${inp} max-w-[260px] flex-1`} />
+            ) : null}
+            <div className="ml-auto flex items-center gap-1.5">
+              {canAddItems ? <span className="hidden text-[11.5px] text-[#6F706A] md:inline">Arrastra filas entre bodega y caja</span> : null}
+              {canRemoveItems ? (
+                <button type="button" disabled={busy || !selCaja.size} onClick={() => void removeItems(packing.items.filter((item) => selCaja.has(item.id)))} className={`${btn} border-[#FF914D]/45 text-[#FFB07A]`}>
+                  ↑ Devolver a bodega{selCaja.size ? ` (${selCaja.size})` : ""}
+                </button>
               ) : null}
             </div>
-          </aside>
-
-          <section
-            onDragOver={(event) => {
-              if (!canAddItems) return;
-              event.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            className={`relative overflow-hidden rounded-xl border p-3 transition ${dragOver ? "border-[#D7FF4F] bg-[#D7FF4F]/10" : "border-[#3A3A36] bg-[#151515]"}`}
-          >
-            <div className="pointer-events-none absolute right-5 top-4 text-5xl font-black text-[#2A2A28]">BOX</div>
-            <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Caja abierta / Packing actual</p>
-                <h4 className="mt-1 text-xl font-semibold text-[#F5F5F5]">{display(packing.packingId)}</h4>
-                <p className="mt-1 text-sm text-[#A7A7A7]">{display(packing.estado)} · {packingItemsUnitsSummary}</p>
-                <p className="mt-1 text-sm text-[#A7A7A7]">Proveedor: {display(responsableLabel || packing.proveedorResponsableNombre)}</p>
-                {packing.trackingUsa ? <p className="mt-1 text-sm text-[#A7A7A7]">Tracking USA: {packing.trackingUsa}</p> : null}
-                {packing.trackingEc ? <p className="mt-1 text-sm text-[#A7A7A7]">Tracking EC: {packing.trackingEc}</p> : null}
-              </div>
-              {canAddItems ? <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-xs font-semibold text-[#D7FF4F]">Arrastra aqui</span> : null}
-            </div>
-            {!canAddItems ? <p className="relative mt-3 rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#A7A7A7]">Este packing ya no permite agregar items desde vista normal.</p> : null}
-            <div className="relative mt-3 grid max-h-[640px] gap-2 overflow-y-auto pr-1">
-              {packing.items.map((item) => {
-                const providerLabel = resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels) || item.proveedorNombre || "";
-                const logisticsProviderLabel = resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabels) || item.proveedorLogisticoNombre || "";
-                return (
-                  <ItemCard
-                    key={item.id}
-                    item={item}
-                    providerLabel={providerLabel}
-                    logisticsProviderLabel={logisticsProviderLabel}
-                    showCosts
-                    canViewCosts={canViewCosts}
-                    canViewProviderCost={canViewProviderCost}
-                    action={canRemoveItems ? <button type="button" disabled={busy} onClick={() => void removeItem(item)} className="min-w-[92px] rounded-full border border-[#FF914D]/45 px-3 py-1 text-xs font-semibold text-[#FFB07A] disabled:opacity-50">{busyItemId === item.id ? "Guardando..." : "Quitar"}</button> : null}
-                  />
-                );
-              })}
-              {!packing.items.length ? <p className="rounded-xl border border-dashed border-[#3A3A36] px-3 py-5 text-center text-sm text-[#A7A7A7]">La caja esta vacia. Agrega items desde el panel izquierdo.</p> : null}
-            </div>
-          </section>
-        </div>
-      </section>
-
-      <section>
-        <div className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
-          <h3 className="mb-3 text-sm font-semibold text-[#F5F5F5]">Tracking y logística</h3>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-[1rem] border border-[#3A3A36] bg-[#1E1F1C] p-3">
-              <p className="text-xs font-semibold text-[#D7FF4F]">Ruta USA · Proveedor a Miami</p>
-              <p className="mt-1 text-xs text-[#A7A7A7]">Usa estos campos para la guía del proveedor o vendedor hasta Miami.</p>
-              <div className="mt-3 grid gap-3">
-                <EditableTextField label="Tracking USA" value={packing.trackingUsa} disabled={!canEditField("trackingUsa")} status={saveState.trackingUsa} onSave={(value) => void savePackingField("trackingUsa", value)} />
-                <TrackingActions
-                  tracking={packing.trackingUsa}
-                  trackingUrl={trackingUsaUrl}
-                  help={trackingUsaHelp}
-                  copied={copiedTracking === "usa"}
-                  onCopy={() => void copyTracking("usa", packing.trackingUsa)}
-                />
-                <EditableSelectField label="Transportista USA" value={packing.transportistaUsa} options={usaTransportProviderOptions} disabled={!canEditField("transportistaUsa")} status={saveState.transportistaUsa} onSave={(value) => void savePackingField("transportistaUsa", value)} />
-              </div>
-            </div>
-            <div className="rounded-[1rem] border border-[#3A3A36] bg-[#1E1F1C] p-3">
-              <p className="text-xs font-semibold text-[#D7FF4F]">Ruta Ecuador · Miami a SUPER GEEK</p>
-              <p className="mt-1 text-xs text-[#A7A7A7]">Usa estos campos para la guía del operador logístico desde Miami hacia Ecuador.</p>
-              <div className="mt-3 grid gap-3">
-                <EditableTextField label="Tracking EC" value={packing.trackingEc} disabled={!canEditField("trackingEc")} status={saveState.trackingEc} onSave={(value) => void savePackingField("trackingEc", value)} />
-                <TrackingActions
-                  tracking={packing.trackingEc}
-                  trackingUrl={trackingEcUrl}
-                  help={trackingEcHelp}
-                  copied={copiedTracking === "ec"}
-                  onCopy={() => void copyTracking("ec", packing.trackingEc)}
-                />
-                <EditableSelectField label="Transportista EC" value={packing.transportistaEc} options={ecuadorTransportProviderOptions} disabled={!canEditField("transportistaEc")} status={saveState.transportistaEc} onSave={(value) => void savePackingField("transportistaEc", value)} />
-              </div>
-            </div>
+          </div>
+          <div className="max-h-[560px] overflow-y-auto">
+            <TablaArticulos
+              modo="caja"
+              items={visibleEnCaja}
+              labels={labelsDe}
+              seleccion={selCaja}
+              onToggle={(id) => setSelCaja((cur) => alternar(cur, id))}
+              onToggleTodos={() => setSelCaja((cur) => visibleEnCaja.every((i) => cur.has(i.id)) ? new Set() : new Set(visibleEnCaja.map((i) => i.id)))}
+              seleccionable={canRemoveItems}
+              draggable={canRemoveItems && !busy}
+              canViewCosts={canViewCosts}
+              canViewProviderCost={canViewProviderCost}
+              busyItemId={busyItemId}
+              accion={canRemoveItems ? (item) => <button type="button" disabled={busy} onClick={() => void removeItems([item])} className={`${btn} h-7 border-[#FF914D]/45 px-2 text-[#FFB07A]`} title="Devolver a la bodega del proveedor">Quitar</button> : undefined}
+              vacio={packing.items.length ? "Nada coincide con la búsqueda." : canAddItems ? "Caja vacía: agrega desde la bodega o arrastra aquí." : "Caja vacía."}
+            />
           </div>
         </div>
       </section>
@@ -1878,20 +1601,16 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
       {canViewCosts ? (
         <LogisticsCostsSection
           packing={packing}
-          canEditCosts={canEditLogisticsCosts()}
           canEditDistributionRule={canEditDistributionRule()}
+          canEditNote={canEditLogisticsCosts()}
           providerSummary={providerSummary}
           onSaved={(updatedPacking) => {
             setPacking(updatedPacking);
             router.refresh();
           }}
+          onPagado={() => void recargarPacking()}
         />
       ) : null}
-
-      <section className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
-        <h3 className="mb-3 text-sm font-semibold text-[#F5F5F5]">Notas del packing</h3>
-        <EditableTextField label="Observaciones" value={packing.observaciones} multiline disabled={!canEditField("observaciones")} status={saveState.observaciones} onSave={(value) => void savePackingField("observaciones", value)} />
-      </section>
 
       {statusModal ? (
         <StatusDecisionModal

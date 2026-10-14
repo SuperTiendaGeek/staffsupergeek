@@ -25,6 +25,8 @@ import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2Novedad, Sh
 import { ShippingV2ItemHeaderNavigation } from "./ShippingV2ItemHeaderNavigation";
 import { EliminarItemAdmin } from "./EliminarItemAdmin";
 import { ShippingV2ActivoAcciones } from "./ShippingV2ActivoAcciones";
+import { CostosTraerlo } from "@/components/shipping-v2/CostosTraerlo";
+import { vieneDeAfuera } from "@/lib/shipping-v2/item-origen";
 import { ShippingV2ItemDetailView, type ResolvedItem } from "../ShippingV2ItemsClient";
 
 export const dynamic = "force-dynamic";
@@ -187,6 +189,8 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
             />
           )}
           <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} esAdmin={esAdmin} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} permissions={permissions} rolNovedades={rolNovedades} />
+          {/* Punto 9c · fase 1: un artículo que viaja solo tiene sus costos de traerlo aquí (si va en una caja, están en la caja). */}
+          {permissions?.canViewCosts && !item.packingId && vieneDeAfuera(item.origenArticulo) ? <CostosTraerlo itemId={item.id} /> : null}
           {esAdmin && <EliminarItemAdmin itemId={item.id} />}
         </div>
       )}

@@ -8,7 +8,8 @@ import { ShippingV2PagosClient } from "./ShippingV2PagosClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function ShippingV2PagosPage() {
+export default async function ShippingV2PagosPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
+  const vista = (await searchParams)?.vista;
   const sessionForGuard = await getSessionFromCookie();
   requirePantallaVisible(sessionForGuard?.user.pantallasRestringidas ?? {}, "shipping-v2", "pagos");
 
@@ -60,7 +61,7 @@ export default async function ShippingV2PagosPage() {
     <StaffAppShell activeHref="/shipping-v2/pagos" sectionLabel="Shipping V2">
       <div className="w-full max-w-none space-y-3">
       <ShippingV2Pestanas />
-      <ShippingV2PagosClient initialWorkspace={workspace} error={error} permissions={permissions} providerName={providerName} />
+      <ShippingV2PagosClient sinComprobanteInicial={vista === "sin-comprobante"} initialWorkspace={workspace} error={error} permissions={permissions} providerName={providerName} />
     </div>
     </StaffAppShell>
   );

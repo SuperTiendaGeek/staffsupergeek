@@ -12,6 +12,8 @@
 // · Los regalos se ven en su caja, no suman y no dejan la caja esperando.
 // · Sin revisión: basta con saber quién registró cada pago.
 // · Un proveedor con portal solo ve sus pagos: fecha, método, nº de transacción.
+// · Flete, arancel y otros (punto 9c, fase 1 · 14-oct) se pagan en su caja o
+//   en la ficha del artículo suelto; aquí aparecen en Registrados.
 // Diseño: pantalla de uso diario, compacta (regla UX/UI del dueño, 8-oct).
 
 import { Fragment, useMemo, useState } from "react";
@@ -20,7 +22,7 @@ import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.gen
 import { esPagoHistorico } from "@/lib/shipping-v2/pagos-situacion";
 import type { ShippingV2AccessPermissions, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 
-type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string; permissions: ShippingV2AccessPermissions | null; providerName?: string };
+type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string; permissions: ShippingV2AccessPermissions | null; providerName?: string; sinComprobanteInicial?: boolean };
 type Tab = "compras" | "registrados";
 
 const METODOS = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((m) => m !== "No aplica");
@@ -240,16 +242,16 @@ function CompletarComprobante({ pago, onDone }: { pago: ShippingV2Pago; onDone: 
   );
 }
 
-export function ShippingV2PagosClient({ initialWorkspace, error, permissions, providerName }: Props) {
+export function ShippingV2PagosClient({ initialWorkspace, error, permissions, providerName, sinComprobanteInicial = false }: Props) {
   const [ws, setWs] = useState(initialWorkspace);
   const gestiona = permissions?.canManagePayments !== false;
   const portal = Boolean(providerName && !gestiona);
-  const [tab, setTab] = useState<Tab>(gestiona ? "compras" : "registrados");
+  const [tab, setTab] = useState<Tab>(gestiona && !sinComprobanteInicial ? "compras" : "registrados");
   const [proveedor, setProveedor] = useState(TODOS);
   const [buscar, setBuscar] = useState("");
   const [abierto, setAbierto] = useState("");
   const [pagando, setPagando] = useState("");
-  const [soloSinComprobante, setSoloSinComprobante] = useState(false);
+  const [soloSinComprobante, setSoloSinComprobante] = useState(sinComprobanteInicial);
   const [aviso, setAviso] = useState("");
 
   const grupos = useMemo(() => armarGrupos(ws.porPagar ?? [], ws.regalosEnCaja ?? []), [ws.porPagar, ws.regalosEnCaja]);
@@ -270,6 +272,9 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
     (!q || normalize([p.pagoId, p.orden, p.transaccionId, p.proveedorNombre, p.registradoPor, ...p.itemsResumen.map((i) => i.sku)].join(" ")).includes(q))
   );
   const totalFalta = sumar(ws.porPagar ?? []);
+  // Punto 9c · fase 1: flete, arancel y otros se pagan en su caja (o en la
+  // ficha del artículo suelto). Aquí solo se ven, en Registrados.
+  const tituloDestino = useMemo(() => new Map((ws.logistica ?? []).map((f) => [f.key, f.titulo])), [ws.logistica]);
   const proveedores = useMemo(() => {
     const m = new Map<string, string>();
     grupos.forEach((g) => g.proveedorId && m.set(g.proveedorId, g.proveedorNombre));
@@ -377,10 +382,10 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
             </div>
           ) : null}
           <div className="min-w-[860px]">
-            <div className={`grid ${portal ? "grid-cols-[22px_150px_130px_52px_100px_90px_130px_minmax(0,1fr)]" : "grid-cols-[22px_150px_minmax(0,1fr)_110px_52px_100px_84px_120px_100px_110px]"} gap-2 border-b border-[#3A3A36] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]`}>
+            <div className={`grid ${portal ? "grid-cols-[22px_150px_130px_52px_100px_90px_130px_minmax(0,1fr)]" : "grid-cols-[22px_150px_74px_minmax(0,1fr)_110px_52px_100px_84px_120px_100px_110px]"} gap-2 border-b border-[#3A3A36] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]`}>
               {portal
                 ? <><span /><span>Pago</span><span>Orden</span><span className="text-right">Art.</span><span className="text-right">Total</span><span>Fecha</span><span>Método</span><span>Nº transacción</span></>
-                : <><span /><span>Pago</span><span>Proveedor</span><span>Orden</span><span className="text-right">Art.</span><span className="text-right">Total</span><span>Fecha</span><span>Método</span><span>Comprobante</span><span>Registró</span></>}
+                : <><span /><span>Pago</span><span>Concepto</span><span>Proveedor / caja</span><span>Orden</span><span className="text-right">Art.</span><span className="text-right">Total</span><span>Fecha</span><span>Método</span><span>Comprobante</span><span>Registró</span></>}
             </div>
             {pagosVista.map((p) => {
               const abiertoAqui = abierto === p.id;
@@ -388,12 +393,19 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
               const pagado = normalize(p.estadoPago) === "pagado";
               return (
                 <Fragment key={p.id}>
-                  <div className={`grid ${portal ? "grid-cols-[22px_150px_130px_52px_100px_90px_130px_minmax(0,1fr)]" : "grid-cols-[22px_150px_minmax(0,1fr)_110px_52px_100px_84px_120px_100px_110px]"} items-center gap-2 border-b border-[#2A2B26] px-2 py-1.5 text-[13px] hover:bg-[#1D1E1A] ${anulado ? "opacity-50 line-through" : ""}`}>
+                  <div className={`grid ${portal ? "grid-cols-[22px_150px_130px_52px_100px_90px_130px_minmax(0,1fr)]" : "grid-cols-[22px_150px_74px_minmax(0,1fr)_110px_52px_100px_84px_120px_100px_110px]"} items-center gap-2 border-b border-[#2A2B26] px-2 py-1.5 text-[13px] hover:bg-[#1D1E1A] ${anulado ? "opacity-50 line-through" : ""}`}>
                     <button onClick={() => setAbierto(abiertoAqui ? "" : p.id)} className="text-[#8F908A] hover:text-[#D7FF4F]" aria-label="Ver detalle">{abiertoAqui ? "▾" : "▸"}</button>
                     <span className="truncate font-semibold text-[#F5F5F5]" title={p.pagoId}>{p.pagoId}</span>
-                    {portal ? null : <span className="truncate text-[#B4B5AC]">{p.proveedorNombre || "—"}</span>}
+                    {portal ? null : <span className={p.concepto && p.concepto !== "Compra" ? tonos.mute : "text-[12px] text-[#8F908A]"}>{p.concepto || "Compra"}</span>}
+                    {portal ? null : (
+                      <span className="truncate text-[#B4B5AC]">
+                        {p.concepto && p.concepto !== "Compra"
+                          ? [p.proveedorNombre || p.pagadoA, ...[...(p.packingLogisticaIds ?? []), ...(p.itemLogisticaIds ?? [])].map((id) => tituloDestino.get(id) || "")].filter(Boolean).join(" · ") || "—"
+                          : p.proveedorNombre || "—"}
+                      </span>
+                    )}
                     <span className="truncate text-[#B4B5AC]">{p.orden || "—"}</span>
-                    <span className="text-right tabular-nums text-[#B4B5AC]">{p.cantidadItems}</span>
+                    <span className="text-right tabular-nums text-[#B4B5AC]">{p.concepto && p.concepto !== "Compra" ? "—" : p.cantidadItems}</span>
                     <span className="text-right font-semibold tabular-nums text-[#F5F5F5]">{money(p.totalPagado ?? p.totalAPagar)}</span>
                     <span className="text-[12px] text-[#B4B5AC]">{fecha(p.fechaPagoReal || p.fechaCreacion)}</span>
                     <span className="truncate text-[12px] text-[#B4B5AC]">{p.metodoPago && p.metodoPago !== "No aplica" ? p.metodoPago : "—"}</span>

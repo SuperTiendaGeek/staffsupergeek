@@ -17,6 +17,8 @@ export type CategoriaMovimiento =
   | "Producto Digital"
   | "Anticipo Cliente"
   | "Compra Proveedor Shipping"
+  // Punto 9c Shipping V2 (13-oct-2026): flete, arancel y otros gastos de logística.
+  | "Logística Shipping"
   | "Compra Local Repuesto"
   | "Compra Licencia"
   | "Nómina"

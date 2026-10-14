@@ -528,6 +528,13 @@ export type ShippingV2Pago = ShippingV2RecordBase & {
   transaccionId?: string;
   /** Punto 9b: número de orden del proveedor (eBay, Amazon, factura…). */
   orden?: string;
+  /** Punto 9c: qué se pagó (vacío = Compra). */
+  concepto?: "Compra" | "Flete" | "Arancel" | "Otros";
+  /** Punto 9c: caja o artículo suelto cuyo gasto de logística cubre. */
+  packingLogisticaIds?: string[];
+  itemLogisticaIds?: string[];
+  /** Punto 9c: a quién se pagó si no es un proveedor (SENAE, texto libre). */
+  pagadoA?: string;
   comprobante: ShippingV2Attachment[];
   facturaProveedor: ShippingV2Attachment[];
   observacion?: string;
@@ -961,6 +968,60 @@ export type ShippingV2PagosWorkspace = {
   pagosRegistrados: ShippingV2Pago[];
   /** Punto 9b: regalos dentro de cajas, sin pago: se muestran en su caja y se adjuntan al pagarla. */
   regalosEnCaja?: ShippingV2PagoPendingItem[];
+  /** Punto 9c: gastos de logística por caja o artículo suelto. */
+  logistica?: ShippingV2LogisticaFila[];
+  /** Punto 9c: empresas logísticas para elegir a quién se pagó el flete. */
+  transportistas?: Array<{ id: string; nombre: string }>;
   proveedores: ShippingV2Proveedor[];
   summary: ShippingV2PagosSummary;
+};
+
+/** Punto 9c: situación de un gasto de logística (flete, arancel u otros). */
+export type ShippingV2SituacionGasto = {
+  valor: number | null;
+  pagado: number;
+  pendiente: number;
+  estado: "pagado" | "falta" | "sin-valor";
+};
+
+/** Punto 9c: una caja o un artículo que viaja solo, con sus gastos de logística. */
+export type ShippingV2LogisticaFila = {
+  key: string;
+  tipo: "caja" | "suelto";
+  packingId?: string;
+  itemId?: string;
+  titulo: string;
+  detalle: string;
+  estadoLogistico: string;
+  /** Empresa logística sugerida para el flete (transportista o casillero). */
+  transportistaId?: string;
+  transportistaNombre?: string;
+  fecha: string;
+  aplicaArancel: boolean;
+  flete: ShippingV2SituacionGasto;
+  arancel: ShippingV2SituacionGasto;
+  otros: ShippingV2SituacionGasto;
+  /** Fase 1 (14-oct): qué le falta (valor sin pago, o viaja sin flete). */
+  pendiente: { falta: number; sinFlete: boolean; pagado: number };
+};
+
+/** Fase 1 (14-oct): un pago de logística, tal como se ve en su caja o artículo. */
+export type ShippingV2PagoLogisticaResumen = {
+  id: string;
+  pagoId: string;
+  concepto: "Flete" | "Arancel" | "Otros";
+  monto: number;
+  fecha: string;
+  pagadoA: string;
+  metodo: string;
+  conComprobante: boolean;
+  registradoPor: string;
+};
+
+/** Fase 1 (14-oct): "Costos de traerlo" de una caja o de un artículo que viaja solo. */
+export type ShippingV2CostosTraerlo = {
+  fila: ShippingV2LogisticaFila;
+  pagos: ShippingV2PagoLogisticaResumen[];
+  transportistas: Array<{ id: string; nombre: string }>;
+  puedePagar: boolean;
 };

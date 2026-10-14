@@ -124,6 +124,10 @@ const EXPECTED_PROVIDER_FIELDS = [
 ];
 
 const EXPECTED_PAYMENT_FIELDS = [
+  "Concepto",
+  "Packing (logística)",
+  "Item (logística)",
+  "Pagado a",
   "Pago ID",
   "Orden",
   "Estado Pago",
@@ -355,6 +359,10 @@ const PROVIDER_FIELD_KEYS = {
 };
 
 const PAYMENT_FIELD_KEYS = {
+  concepto: "Concepto",
+  packingLogistica: "Packing (logística)",
+  itemLogistica: "Item (logística)",
+  pagadoA: "Pagado a",
   pagoId: "Pago ID",
   orden: "Orden",
   estadoPago: "Estado Pago",
