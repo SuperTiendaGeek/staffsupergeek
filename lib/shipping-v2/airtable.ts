@@ -4114,7 +4114,7 @@ export async function getShippingV2CostosTraerlo(destino: { packingId?: string; 
   if (item?.packingId) throw new Error(`${item.sku} viaja en una caja: sus costos están en la caja.`);
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
   const [fila] = construirFilasLogistica({ packings: pk ? [pk] : [], items: item ? [item] : [], pagos, labelsById });
-  if (!fila) throw new Error("Este artículo no viene de afuera: no tiene costos de traerlo.");
+  if (!fila) throw new Error("Este artículo no viene de afuera: no tiene costos logísticos.");
   const puedePagar = canShippingV2(access, "canManagePayments");
   const deEste = pagos
     .filter((p) => normalizeStatus(String(p.estadoPago)) !== "anulado" && esConceptoLogistica(p.concepto))

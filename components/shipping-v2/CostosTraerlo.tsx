@@ -1,6 +1,6 @@
 "use client";
 
-// "Costos de traerlo" de UNA caja o de UN artículo que viaja solo
+// "Costos logísticos" de UNA caja o de UN artículo que viaja solo
 // (auditoría Shipping V2, punto 9c · fase 1, 14-oct-2026).
 //
 // Reglas del dueño:
@@ -211,7 +211,7 @@ export function CostosTraerlo({ packingId, itemId, cabecera, children, onPagado 
   return (
     <section id="costos" className="overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
       <div className="flex flex-wrap items-center gap-2 px-2 py-1.5">
-        <h3 className="text-[13px] font-semibold text-[#F5F5F5]">Costos de traerlo</h3>
+        <h3 className="text-[13px] font-semibold text-[#F5F5F5]">Costos logísticos</h3>
         {fila && total > 0 ? <span className="text-[12px] text-[#8F908A]">Total <b className="tabular-nums text-[#F5F5F5]">{money(total)}</b></span> : null}
         <div className="ml-auto flex flex-wrap items-center gap-2">{cabecera}</div>
       </div>
