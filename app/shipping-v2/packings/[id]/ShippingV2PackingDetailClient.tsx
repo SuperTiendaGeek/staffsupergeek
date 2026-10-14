@@ -90,8 +90,15 @@ function isOpen(status: string) {
   return normalize(status) === "en proceso";
 }
 
+/** Texto de búsqueda: SKU SUPER GEEK, SKU proveedor, nombre y lo demás, sin acentos ni mayúsculas. */
 function itemSearchText(item: ShippingV2Item, providerLabel: string, logisticsProviderLabel: string) {
-  return [item.sku, item.nombre, item.estado, item.tipoOperacion, item.categoria, providerLabel, logisticsProviderLabel, item.modoLogistico].join(" ").toLowerCase();
+  return normalize([item.sku, item.skuProveedor, item.nombre, item.estado, item.tipoOperacion, item.categoria, providerLabel, logisticsProviderLabel, item.modoLogistico].join(" "));
+}
+
+/** Cada palabra buscada debe aparecer (en cualquier orden). */
+function coincide(texto: string, consulta: string) {
+  const palabras = normalize(consulta).split(/\s+/).filter(Boolean);
+  return palabras.every((p) => texto.includes(p));
 }
 
 function isAirtableRecordId(value?: string) {
@@ -120,33 +127,136 @@ const chip = {
   mute: `${chipBase} border border-[#3A3A36] text-[#A7A7A7]`,
 };
 
-/** Costos de un artículo en una línea (el detalle completo va en el tooltip). */
-function CostosDelItem({ item, includeAssignedCosts = false }: { item: ShippingV2Item; includeAssignedCosts?: boolean }) {
-  const calculation = packingProviderItemCalculation(item);
+function detalleCostos(item: ShippingV2Item) {
   const unidades = resolveShippingV2PackingItemUnits(item);
-  const detalle = [
+  return [
     unidades.estimada ? `Unidades en caja estimadas: ${unidades.unidades} (stock actual ${display(item.cantidad)})` : "",
-    ...(includeAssignedCosts ? [
-      item.unidadesEnPacking !== null ? `Flete del registro: ${formatCurrencyZero(item.fleteAsignadoRegistro)}` : "",
-      `Flete por unidad: ${formatCurrencyZero(item.costoFleteAsignado)}`,
-      item.unidadesEnPacking !== null && item.arancelAsignadoRegistro ? `Arancel del registro: ${formatCurrencyZero(item.arancelAsignadoRegistro)}` : "",
-      `Arancel por unidad: ${formatCurrencyZero(item.costoArancelAsignado)}`,
-      item.unidadesEnPacking !== null && item.otrosCostosAsignadosRegistro ? `Otros del registro: ${formatCurrencyZero(item.otrosCostosAsignadosRegistro)}` : "",
-      `Otros por unidad: ${formatCurrencyZero(item.otrosCostosAsignados)}`,
-    ] : []),
+    item.unidadesEnPacking !== null ? `Flete del registro: ${formatCurrencyZero(item.fleteAsignadoRegistro)}` : "",
+    `Flete por unidad: ${formatCurrencyZero(item.costoFleteAsignado)}`,
+    item.unidadesEnPacking !== null && item.arancelAsignadoRegistro ? `Arancel del registro: ${formatCurrencyZero(item.arancelAsignadoRegistro)}` : "",
+    `Arancel por unidad: ${formatCurrencyZero(item.costoArancelAsignado)}`,
+    item.unidadesEnPacking !== null && item.otrosCostosAsignadosRegistro ? `Otros del registro: ${formatCurrencyZero(item.otrosCostosAsignadosRegistro)}` : "",
+    `Otros por unidad: ${formatCurrencyZero(item.otrosCostosAsignados)}`,
+    `Logístico por unidad: ${formatCurrencyZero(item.costoLogisticoAsignado)}`,
   ].filter(Boolean).join("\n");
+}
+
+/**
+ * Lista compacta de artículos para armar la caja (bodega del proveedor o
+ * dentro de la caja). Una fila por artículo, columnas alineadas, selección
+ * múltiple y arrastre (regla UX/UI del dueño, 14-oct).
+ */
+function TablaArticulos({
+  modo,
+  items,
+  labels,
+  seleccion,
+  onToggle,
+  onToggleTodos,
+  seleccionable,
+  draggable,
+  canViewCosts,
+  canViewProviderCost,
+  busyItemId,
+  accion,
+  vacio,
+}: {
+  modo: "bodega" | "caja";
+  items: ShippingV2Item[];
+  labels: (item: ShippingV2Item) => { compra: string; logistico: string };
+  seleccion: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleTodos: () => void;
+  seleccionable: boolean;
+  draggable: boolean;
+  canViewCosts: boolean;
+  canViewProviderCost: boolean;
+  busyItemId: string;
+  accion?: (item: ShippingV2Item) => ReactNode;
+  vacio: ReactNode;
+}) {
+  const verCostos = canViewProviderCost;
+  const verTotalU = modo === "caja" && canViewCosts;
+  const cols = [
+    seleccionable ? "20px" : "",
+    "32px",
+    "96px",
+    "minmax(90px,130px)",
+    "minmax(160px,1fr)",
+    "minmax(90px,130px)",
+    "104px",
+    ...(verCostos ? ["40px", "84px", "92px"] : []),
+    ...(verTotalU ? ["92px"] : []),
+    accion ? "76px" : "",
+  ].filter(Boolean).join("_");
+  const grid = { gridTemplateColumns: cols.replaceAll("_", " ") };
+  const todos = items.length > 0 && items.every((i) => seleccion.has(i.id));
+  const head = "text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]";
+
   return (
-    <div className="text-right text-[12px] tabular-nums leading-5 text-[#A7A7A7]" title={detalle || undefined}>
-      <p>
-        <span className={unidades.estimada ? "text-[#BDEAFF]" : ""}>{unidades.estimada ? "≈" : ""}{unidades.unidades}</span>
-        {" × "}{formatCurrencyZero(item.costoProveedor)}{" = "}
-        {item.esRegalo ? <span className={chip.mute}>Regalo · no suma</span>
-          : <b className="text-[#F5F5F5]">{calculation.error ? "—" : formatCurrencyZero(calculation.subtotal)}</b>}
-      </p>
-      {includeAssignedCosts ? (
-        <p>Log. {formatCurrencyZero(item.costoLogisticoAsignado)}/u · Total <b className="text-[#D7FF4F]">{formatCurrencyZero(item.costoTotalUnidad)}</b>/u</p>
-      ) : null}
-      {calculation.error ? <p className="text-[11px] font-semibold text-[#FFB07A]">{calculation.error}</p> : null}
+    <div className="overflow-x-auto">
+      <div className="min-w-[820px]">
+        <div className="grid items-center gap-2 border-b border-[#2A2B26] px-2 py-1" style={grid}>
+          {seleccionable ? <input type="checkbox" checked={todos} onChange={onToggleTodos} aria-label="Seleccionar todos" className="h-3.5 w-3.5 accent-[#D7FF4F]" /> : null}
+          <span />
+          <span className={head}>SKU</span>
+          <span className={head}>SKU proveedor</span>
+          <span className={head}>Artículo</span>
+          <span className={head}>Proveedor</span>
+          <span className={head}>Estado</span>
+          {verCostos ? <><span className={`${head} text-right`}>Cant.</span><span className={`${head} text-right`}>Costo u.</span><span className={`${head} text-right`}>Subtotal</span></> : null}
+          {verTotalU ? <span className={`${head} text-right`} title="Costo + logístico por unidad">Total u.</span> : null}
+          {accion ? <span /> : null}
+        </div>
+        {items.map((item) => {
+          const { compra, logistico } = labels(item);
+          const unidades = resolveShippingV2PackingItemUnits(item);
+          const calc = packingProviderItemCalculation(item);
+          const foto = item.fotos[0];
+          const marcado = seleccion.has(item.id);
+          const href = `/shipping-v2/items/${encodeURIComponent(item.id)}`;
+          const extra = [logistico ? `Vía ${logistico}` : "", item.categoria, item.tipoOperacion, item.modoLogistico].filter(Boolean).join(" · ");
+          return (
+            <div
+              key={item.id}
+              draggable={draggable}
+              onDragStart={(event) => {
+                const ids = marcado ? Array.from(seleccion) : [item.id];
+                event.dataTransfer.setData("text/plain", `${modo}:${ids.join(",")}`);
+                event.dataTransfer.effectAllowed = "move";
+              }}
+              className={`grid items-center gap-2 border-b border-[#24251F] px-2 py-1 text-[12.5px] last:border-b-0 ${marcado ? "bg-[#D7FF4F]/[0.06]" : "hover:bg-[#1D1E1A]"} ${draggable ? "cursor-grab active:cursor-grabbing" : ""} ${busyItemId === item.id ? "opacity-50" : ""}`}
+              style={grid}
+            >
+              {seleccionable ? <input type="checkbox" checked={marcado} onChange={() => onToggle(item.id)} aria-label={`Seleccionar ${item.sku}`} className="h-3.5 w-3.5 accent-[#D7FF4F]" /> : null}
+              {foto ? (
+                <a href={foto.url} target="_blank" rel="noreferrer" title="Ver foto" className="block h-8 w-8 overflow-hidden rounded border border-[#3A3A36] bg-black">
+                  <img src={foto.thumbnailUrl || foto.url} alt="" loading="lazy" className="h-full w-full object-cover" />
+                </a>
+              ) : <span className="grid h-8 w-8 place-items-center rounded border border-[#3A3A36] bg-[#1E1F1C] text-[9px] font-black text-[#6F706A]">{(item.nombre || item.sku || "?").slice(0, 2).toUpperCase()}</span>}
+              <Link href={href} className="truncate font-semibold text-[#D7FF4F] hover:underline">{display(item.sku)}</Link>
+              <span className={`truncate font-mono text-[12px] ${item.skuProveedor?.trim() ? "text-[#E6E6E1]" : "text-[#5E5F59]"}`} title={item.skuProveedor || undefined}>{item.skuProveedor?.trim() || "—"}</span>
+              <Link href={href} className="truncate text-[#F5F5F5] hover:text-[#D7FF4F]" title={[item.nombre, extra].filter(Boolean).join("\n")}>
+                {display(item.nombre)}{item.esRegalo ? <span className={`${chip.mute} ml-1.5`}>Regalo</span> : null}
+              </Link>
+              <span className="truncate text-[#B4B5AC]" title={compra}>{compra || "—"}</span>
+              <span className="truncate text-[12px] text-[#8F908A]">{display(item.estado)}</span>
+              {verCostos ? (
+                <>
+                  <span className={`text-right tabular-nums ${unidades.estimada ? "text-[#BDEAFF]" : "text-[#E6E6E1]"}`} title={unidades.estimada ? "Estimado: ya salió del inventario" : undefined}>{unidades.estimada ? "≈" : ""}{unidades.unidades}</span>
+                  <span className="text-right tabular-nums text-[#B4B5AC]">{formatCurrencyZero(item.costoProveedor)}</span>
+                  <span className={`text-right font-semibold tabular-nums ${calc.error ? "text-[#FFB07A]" : "text-[#F5F5F5]"}`} title={calc.error || undefined}>
+                    {item.esRegalo ? <span className="font-normal text-[#8F908A]">no suma</span> : calc.error ? "!" : formatCurrencyZero(calc.subtotal)}
+                  </span>
+                </>
+              ) : null}
+              {verTotalU ? <span className="text-right font-semibold tabular-nums text-[#D7FF4F]" title={detalleCostos(item)}>{formatCurrencyZero(item.costoTotalUnidad)}</span> : null}
+              {accion ? <span className="text-right">{accion(item)}</span> : null}
+            </div>
+          );
+        })}
+        {!items.length ? <div className="px-2 py-4 text-center text-[12.5px] text-[#8F908A]">{vacio}</div> : null}
+      </div>
     </div>
   );
 }
@@ -696,70 +806,6 @@ function trackingHelpMessage({
   return "Este transportista no tiene URL de rastreo configurada.";
 }
 
-function ItemCard({
-  item,
-  providerLabel,
-  logisticsProviderLabel,
-  action,
-  draggable,
-  showCosts = false,
-  canViewCosts = true,
-  canViewProviderCost = true,
-  onDragStart,
-}: {
-  item: ShippingV2Item;
-  providerLabel: string;
-  logisticsProviderLabel?: string;
-  action: ReactNode;
-  draggable?: boolean;
-  showCosts?: boolean;
-  canViewCosts?: boolean;
-  canViewProviderCost?: boolean;
-  onDragStart?: (event: DragEvent<HTMLElement>) => void;
-}) {
-  const itemHref = `/shipping-v2/items/${encodeURIComponent(item.id)}`;
-  const purchaseProviderLabel = providerDisplayValue(providerLabel, item.proveedorNombre);
-  const logisticsDisplayLabel = providerDisplayValue(logisticsProviderLabel, item.proveedorLogisticoNombre);
-  const supplierSku = item.skuProveedor?.trim();
-  const foto = item.fotos[0];
-  const secundario = [
-    purchaseProviderLabel,
-    logisticsDisplayLabel ? `vía ${logisticsDisplayLabel}` : "",
-    item.categoria,
-    item.tipoOperacion,
-    item.modoLogistico,
-  ].filter(Boolean).join(" · ");
-
-  return (
-    <article
-      draggable={draggable}
-      onDragStart={onDragStart}
-      className={`grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-2 border-t border-[#2A2B26] px-2 py-1.5 first:border-t-0 ${draggable ? "cursor-grab hover:bg-[#1D1E1A] active:cursor-grabbing" : ""}`}
-    >
-      {foto ? (
-        <a href={foto.url} target="_blank" rel="noreferrer" title="Ver foto" className="block h-10 w-10 overflow-hidden rounded-md border border-[#3A3A36] bg-black">
-          <img src={foto.thumbnailUrl || foto.url} alt={item.nombre || item.sku || "Foto"} loading="lazy" className="h-full w-full object-cover" />
-        </a>
-      ) : (
-        <span className="grid h-10 w-10 place-items-center rounded-md border border-[#3A3A36] bg-[#1E1F1C] text-[10px] font-black text-[#6F706A]">{(item.nombre || item.sku || "?").slice(0, 2).toUpperCase()}</span>
-      )}
-      <div className="min-w-0 leading-5">
-        <p className="flex min-w-0 items-center gap-1.5 text-[12px]">
-          <Link href={itemHref} className="shrink-0 font-semibold text-[#D7FF4F] hover:underline">{display(item.sku)}</Link>
-          <span className={`truncate ${supplierSku ? "text-[#B4B5AC]" : "text-[#6F706A]"}`}>{supplierSku || "sin SKU proveedor"}</span>
-          <span className="shrink-0 text-[#8F908A]">· {display(item.estado)}</span>
-        </p>
-        <Link href={itemHref} className="block truncate text-[13px] font-semibold text-[#F5F5F5] hover:text-[#D7FF4F]" title={item.nombre}>{display(item.nombre)}</Link>
-        {secundario ? <p className="truncate text-[11.5px] text-[#8F908A]" title={secundario}>{secundario}</p> : null}
-      </div>
-      <div className="flex items-center gap-2">
-        {showCosts && canViewCosts ? <CostosDelItem item={item} includeAssignedCosts /> : canViewProviderCost ? <CostosDelItem item={item} /> : null}
-        {action}
-      </div>
-    </article>
-  );
-}
-
 // Punto 9c · fase 1 (14-oct): los costos de la caja viven en un solo bloque,
 // "Costos de traerlo". El flete, el arancel y otros ya no se escriben a mano:
 // nacen del pago. Aquí se quedan la regla de reparto, la observación y el
@@ -863,6 +909,10 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
   const [destinatarioNotice, setDestinatarioNotice] = useState("");
   const [availableItems, setAvailableItems] = useState(candidates.filter((item) => !initialPacking.itemIds.includes(item.id)));
   const [query, setQuery] = useState("");
+  const [queryCaja, setQueryCaja] = useState("");
+  const [selBodega, setSelBodega] = useState<Set<string>>(new Set());
+  const [selCaja, setSelCaja] = useState<Set<string>>(new Set());
+  const [dragBodega, setDragBodega] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [busyItemId, setBusyItemId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -984,14 +1034,23 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     trackingUsaUrl,
   ]);
 
-  const visibleCandidates = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return availableItems.filter((item) => {
-      const providerLabel = resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels) || item.proveedorNombre || "";
-      const logisticsProviderLabel = resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabels) || item.proveedorLogisticoNombre || "";
-      return !needle || itemSearchText(item, providerLabel, logisticsProviderLabel).includes(needle);
+  const labelsDe = (item: ShippingV2Item) => ({
+    compra: providerDisplayValue(resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels), item.proveedorNombre),
+    logistico: providerDisplayValue(resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabels), item.proveedorLogisticoNombre),
+  });
+  const filtrar = (items: ShippingV2Item[], consulta: string) => {
+    if (!consulta.trim()) return items;
+    return items.filter((item) => {
+      const { compra, logistico } = labelsDe(item);
+      return coincide(itemSearchText(item, compra, logistico), consulta);
     });
-  }, [availableItems, providerLabels, query]);
+  };
+  const visibleCandidates = useMemo(() => filtrar(availableItems, query),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [availableItems, providerLabels, query]);
+  const visibleEnCaja = useMemo(() => filtrar(packing.items, queryCaja),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [packing.items, providerLabels, queryCaja]);
 
   function canEditField(field: EditablePackingField) {
     const state = normalize(packing.estado);
@@ -1129,13 +1188,28 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
       setBusy(false);
       setBusyItemId("");
       setDragOver(false);
+      setSelBodega(new Set());
     }
   }
 
-  async function removeItem(item: ShippingV2Item) {
-    if (!canRemoveItems || busy) return;
-    const previousPacking = packing;
-    const previousAvailableItems = availableItems;
+  /** Devuelve artículos de la caja a la bodega del proveedor (uno a uno: el servidor quita de a uno). */
+  async function removeItems(itemsToRemove: ShippingV2Item[]) {
+    if (!canRemoveItems || busy || !itemsToRemove.length) return;
+    setBusy(true);
+    setError("");
+    try {
+      for (const item of itemsToRemove) {
+        const ok = await quitarUno(item);
+        if (!ok) break;
+      }
+    } finally {
+      setBusy(false);
+      setBusyItemId("");
+      setSelCaja(new Set());
+    }
+  }
+
+  async function quitarUno(item: ShippingV2Item): Promise<boolean> {
     const optimisticAvailableItem = {
       ...item,
       estado: "Pendiente de packing",
@@ -1143,21 +1217,12 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
       packingId: "",
       requierePacking: true,
     };
-
-    setBusy(true);
     setBusyItemId(item.id);
-    setError("");
     setPacking((current) => {
       const nextItems = current.items.filter((included) => included.id !== item.id);
-      return {
-        ...current,
-        items: nextItems,
-        itemIds: current.itemIds.filter((id) => id !== item.id),
-        itemCount: nextItems.length,
-      };
+      return { ...current, items: nextItems, itemIds: current.itemIds.filter((id) => id !== item.id), itemCount: nextItems.length };
     });
     setAvailableItems((current) => [optimisticAvailableItem, ...current.filter((candidate) => candidate.id !== item.id)]);
-
     try {
       const response = await fetch(`/api/shipping-v2/packings/${packing.id}/items`, {
         method: "DELETE",
@@ -1165,30 +1230,21 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
         body: JSON.stringify({ itemId: item.id }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo quitar el item."));
+      if (!response.ok || !payload.success) throw new Error(String(payload.error || `No se pudo quitar ${item.sku}.`));
       const removedItem = payload.removedItem as ShippingV2Item | undefined;
-      setAvailableItems((current) => [
-        removedItem || optimisticAvailableItem,
-        ...current.filter((candidate) => candidate.id !== item.id),
-      ]);
+      setAvailableItems((current) => [removedItem || optimisticAvailableItem, ...current.filter((candidate) => candidate.id !== item.id)]);
       setPacking((current) => {
         const serverItemIds = Array.isArray(payload.packing?.itemIds) ? payload.packing.itemIds.map(String) : current.itemIds;
         const items = current.items.filter((included) => serverItemIds.includes(included.id));
-        return {
-          ...current,
-          itemIds: serverItemIds,
-          itemCount: typeof payload.packing?.itemCount === "number" ? payload.packing.itemCount : items.length,
-          items,
-        };
+        return { ...current, itemIds: serverItemIds, itemCount: typeof payload.packing?.itemCount === "number" ? payload.packing.itemCount : items.length, items };
       });
+      return true;
     } catch (mutationError) {
-      setPacking(previousPacking);
-      setAvailableItems(previousAvailableItems);
+      setPacking((current) => current.items.some((x) => x.id === item.id) ? current : { ...current, items: [...current.items, item], itemIds: [...current.itemIds, item.id], itemCount: current.items.length + 1 });
+      setAvailableItems((current) => current.filter((candidate) => candidate.id !== item.id));
       setError(mutationError instanceof Error ? mutationError.message : "Error inesperado.");
       router.refresh();
-    } finally {
-      setBusy(false);
-      setBusyItemId("");
+      return false;
     }
   }
 
@@ -1247,11 +1303,33 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     }
   }
 
+  function leerArrastre(event: DragEvent<HTMLElement>) {
+    const [origen, lista = ""] = event.dataTransfer.getData("text/plain").split(":");
+    return { origen, ids: lista.split(",").filter(Boolean) };
+  }
+
+  // Soltar en la caja = agregar (desde la bodega).
   function handleDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault();
+    setDragOver(false);
     if (!canAddItems) return;
-    const itemId = event.dataTransfer.getData("text/plain");
-    if (itemId) void addItems([itemId]);
+    const { origen, ids } = leerArrastre(event);
+    if (origen === "bodega" && ids.length) void addItems(ids);
+  }
+
+  // Soltar en la bodega = devolver (desde la caja).
+  function handleDropBodega(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    setDragBodega(false);
+    if (!canRemoveItems) return;
+    const { origen, ids } = leerArrastre(event);
+    if (origen === "caja" && ids.length) void removeItems(packing.items.filter((item) => ids.includes(item.id)));
+  }
+
+  function alternar(set: Set<string>, id: string) {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
   }
 
   async function generateProviderInvoice() {
@@ -1419,87 +1497,103 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
         </div>
       </section>
 
-      {/* Contenido: lo que va en la caja (agregar, quitar, arrastrar) */}
+      {/* Contenido: arriba la bodega del proveedor, abajo la caja (agregar, devolver, arrastrar) */}
       <section className={seccion}>
         <div className="flex flex-wrap items-center gap-2 px-2 py-1.5">
           <h3 className="text-[13px] font-semibold text-[#F5F5F5]">Contenido</h3>
           <span className="text-[12px] text-[#8F908A]">{packingItemsUnitsSummary}</span>
+          {canViewProviderCost ? <span className="text-[12px] text-[#8F908A]">· Compra <b className="tabular-nums text-[#E6E6E1]">{formatCurrencyZero(providerSummary.costoTotalProveedorItems)}</b></span> : null}
           {responsableLabel || packing.proveedorResponsableNombre ? <span className="text-[12px] text-[#8F908A]">· {responsableLabel || packing.proveedorResponsableNombre}</span> : null}
         </div>
-        <div className={`grid border-t border-[#2A2B26] ${canAddItems ? "lg:grid-cols-2" : ""}`}>
-          {canAddItems ? (
-            <div className="min-w-0 border-[#2A2B26] lg:border-r">
-              <div className="flex items-center gap-2 px-2 py-1.5">
-                <span className="text-[12px] font-semibold text-[#B4B5AC]">Disponibles <span className="tabular-nums text-[#8F908A]">{availableItems.length}</span></span>
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar SKU, nombre, proveedor…" className={`${inp} ml-auto max-w-[260px]`} />
-              </div>
-              <div className="max-h-[560px] overflow-y-auto border-t border-[#2A2B26]">
-                {visibleCandidates.map((item) => {
-                  const providerLabel = resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels) || item.proveedorNombre || "";
-                  const logisticsProviderLabel = resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabels) || item.proveedorLogisticoNombre || "";
-                  return (
-                    <ItemCard
-                      key={item.id}
-                      item={item}
-                      providerLabel={providerLabel}
-                      logisticsProviderLabel={logisticsProviderLabel}
-                      draggable={canAddItems && !busy}
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData("text/plain", item.id);
-                        event.dataTransfer.effectAllowed = "move";
-                      }}
-                      canViewCosts={canViewCosts}
-                      canViewProviderCost={canViewProviderCost}
-                      action={<button type="button" disabled={busy} onClick={() => void addItems([item.id])} className={`${btn} border-[#D7FF4F]/55 text-[#D7FF4F]`}>{busyItemId === item.id ? "…" : "Agregar"}</button>}
-                    />
-                  );
-                })}
-                {!visibleCandidates.length ? (
-                  <p
-                    className="px-2 py-4 text-center text-[12.5px] text-[#8F908A]"
-                    title={"Para aparecer aquí un artículo debe: requerir packing, no estar en otra caja, tener modo Pendiente de packing / Crear packing individual / Asignar a packing existente, y ser de un proveedor compatible con esta caja."}
-                  >
-                    {availableItems.length ? "Nada coincide con la búsqueda." : "No hay artículos disponibles para esta caja."}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
+
+        {canAddItems ? (
           <div
-            onDragOver={(event) => {
-              if (!canAddItems) return;
-              event.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            className={`min-w-0 transition ${dragOver ? "bg-[#D7FF4F]/10 outline outline-1 outline-[#D7FF4F]" : ""}`}
+            onDragOver={(event) => { if (!canRemoveItems) return; event.preventDefault(); setDragBodega(true); }}
+            onDragLeave={() => setDragBodega(false)}
+            onDrop={handleDropBodega}
+            className={`border-t border-[#2A2B26] ${dragBodega ? "bg-[#FF914D]/[0.06] outline outline-1 outline-[#FF914D]/60" : ""}`}
           >
-            {canAddItems ? (
-              <div className="flex items-center gap-2 px-2 py-1.5">
-                <span className="text-[12px] font-semibold text-[#B4B5AC]">En la caja <span className="tabular-nums text-[#8F908A]">{packing.items.length}</span></span>
-                <span className="ml-auto text-[11.5px] text-[#6F706A]">Arrastra aquí o usa Agregar</span>
+            <div className="flex flex-wrap items-center gap-2 bg-[#141511] px-2 py-1.5">
+              <span className="text-[12.5px] font-semibold text-[#E6E6E1]">En bodega del proveedor <span className="tabular-nums text-[#8F908A]">{availableItems.length}</span></span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && visibleCandidates.length === 1) {
+                    void addItems([visibleCandidates[0].id]);
+                    setQuery("");
+                  }
+                }}
+                placeholder="Buscar por SKU, SKU proveedor o nombre"
+                title="Con un solo resultado, Enter lo agrega a la caja (sirve con lector de códigos)."
+                className={`${inp} max-w-[340px] flex-1`}
+              />
+              {query && visibleCandidates.length !== availableItems.length ? <span className="text-[12px] text-[#8F908A]">{visibleCandidates.length} de {availableItems.length}</span> : null}
+              <div className="ml-auto flex items-center gap-1.5">
+                {selBodega.size ? <button type="button" onClick={() => setSelBodega(new Set())} className={`${btn} text-[#A7A7A7]`}>Limpiar</button> : null}
+                <button type="button" disabled={busy || !selBodega.size} onClick={() => void addItems(Array.from(selBodega))} className={btnPrim}>
+                  Agregar a la caja{selBodega.size ? ` (${selBodega.size})` : ""} ↓
+                </button>
               </div>
-            ) : null}
-            <div className={`max-h-[560px] overflow-y-auto ${canAddItems ? "border-t border-[#2A2B26]" : ""}`}>
-              {packing.items.map((item) => {
-                const providerLabel = resolveShippingV2ProveedorLabel(item.proveedorId, providerLabels) || item.proveedorNombre || "";
-                const logisticsProviderLabel = resolveShippingV2ProveedorLabel(item.proveedorLogisticoId, providerLabels) || item.proveedorLogisticoNombre || "";
-                return (
-                  <ItemCard
-                    key={item.id}
-                    item={item}
-                    providerLabel={providerLabel}
-                    logisticsProviderLabel={logisticsProviderLabel}
-                    showCosts
-                    canViewCosts={canViewCosts}
-                    canViewProviderCost={canViewProviderCost}
-                    action={canRemoveItems ? <button type="button" disabled={busy} onClick={() => void removeItem(item)} className={`${btn} border-[#FF914D]/45 text-[#FFB07A]`}>{busyItemId === item.id ? "…" : "Quitar"}</button> : null}
-                  />
-                );
-              })}
-              {!packing.items.length ? <p className="px-2 py-5 text-center text-[12.5px] text-[#8F908A]">Caja vacía.</p> : null}
             </div>
+            <div className="max-h-[340px] overflow-y-auto">
+              <TablaArticulos
+                modo="bodega"
+                items={visibleCandidates}
+                labels={labelsDe}
+                seleccion={selBodega}
+                onToggle={(id) => setSelBodega((cur) => alternar(cur, id))}
+                onToggleTodos={() => setSelBodega((cur) => visibleCandidates.every((i) => cur.has(i.id)) ? new Set() : new Set(visibleCandidates.map((i) => i.id)))}
+                seleccionable
+                draggable={!busy}
+                canViewCosts={canViewCosts}
+                canViewProviderCost={canViewProviderCost}
+                busyItemId={busyItemId}
+                accion={(item) => <button type="button" disabled={busy} onClick={() => void addItems([item.id])} className={`${btn} h-7 border-[#D7FF4F]/55 px-2 text-[#D7FF4F]`} title="Agregar a la caja">Agregar</button>}
+                vacio={availableItems.length
+                  ? "Nada coincide con la búsqueda."
+                  : <span title="Para aparecer aquí un artículo debe: requerir packing, no estar en otra caja, tener modo Pendiente de packing / Crear packing individual / Asignar a packing existente, y ser de un proveedor compatible con esta caja.">El proveedor no tiene artículos pendientes de caja.</span>}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <div
+          onDragOver={(event) => { if (!canAddItems) return; event.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          className={`border-t ${canAddItems ? "border-[#D7FF4F]/25" : "border-[#2A2B26]"} ${dragOver ? "bg-[#D7FF4F]/[0.06] outline outline-1 outline-[#D7FF4F]/70" : ""}`}
+        >
+          <div className="flex flex-wrap items-center gap-2 bg-[#141511] px-2 py-1.5">
+            <span className="text-[12.5px] font-semibold text-[#D7FF4F]">En la caja <span className="tabular-nums text-[#8F908A]">{packing.items.length}</span></span>
+            {packing.items.length > 6 ? (
+              <input value={queryCaja} onChange={(event) => setQueryCaja(event.target.value)} placeholder="Buscar en la caja" className={`${inp} max-w-[260px] flex-1`} />
+            ) : null}
+            <div className="ml-auto flex items-center gap-1.5">
+              {canAddItems ? <span className="hidden text-[11.5px] text-[#6F706A] md:inline">Arrastra filas entre bodega y caja</span> : null}
+              {canRemoveItems ? (
+                <button type="button" disabled={busy || !selCaja.size} onClick={() => void removeItems(packing.items.filter((item) => selCaja.has(item.id)))} className={`${btn} border-[#FF914D]/45 text-[#FFB07A]`}>
+                  ↑ Devolver a bodega{selCaja.size ? ` (${selCaja.size})` : ""}
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <div className="max-h-[560px] overflow-y-auto">
+            <TablaArticulos
+              modo="caja"
+              items={visibleEnCaja}
+              labels={labelsDe}
+              seleccion={selCaja}
+              onToggle={(id) => setSelCaja((cur) => alternar(cur, id))}
+              onToggleTodos={() => setSelCaja((cur) => visibleEnCaja.every((i) => cur.has(i.id)) ? new Set() : new Set(visibleEnCaja.map((i) => i.id)))}
+              seleccionable={canRemoveItems}
+              draggable={canRemoveItems && !busy}
+              canViewCosts={canViewCosts}
+              canViewProviderCost={canViewProviderCost}
+              busyItemId={busyItemId}
+              accion={canRemoveItems ? (item) => <button type="button" disabled={busy} onClick={() => void removeItems([item])} className={`${btn} h-7 border-[#FF914D]/45 px-2 text-[#FFB07A]`} title="Devolver a la bodega del proveedor">Quitar</button> : undefined}
+              vacio={packing.items.length ? "Nada coincide con la búsqueda." : canAddItems ? "Caja vacía: agrega desde la bodega o arrastra aquí." : "Caja vacía."}
+            />
           </div>
         </div>
       </section>
