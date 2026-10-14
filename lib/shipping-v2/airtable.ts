@@ -27,6 +27,8 @@ import type {
   ShippingV2FinanzasMovimiento,
   ShippingV2Item,
   ShippingV2LogisticaFila,
+  ShippingV2CostosTraerlo,
+  ShippingV2PagoLogisticaResumen,
   ShippingV2ItemSearchEntry,
   ShippingV2ItemWriteInput,
   ShippingV2TechnicalSheet,
@@ -95,6 +97,7 @@ import {
   conceptoDePago,
   esConceptoLogistica,
   pagadoAPor,
+  pendienteLogistica,
   situacionGasto,
   validarPagoLogistica,
   valorTrasPago,
@@ -3971,12 +3974,7 @@ export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessConte
     : [];
   const labelsProveedores = createShippingV2ProveedorLabelMap(proveedores);
   const logistica = canManagePayments ? construirFilasLogistica({ packings, items, pagos, labelsById: labelsProveedores }) : [];
-  const transportistas = canManagePayments
-    ? proveedores
-      .filter((p) => esProveedorLogistico(p) && normalizeStatus(p.estado || "activo") !== "inactivo")
-      .map((p) => ({ id: p.id, nombre: labelsProveedores.get(p.id) || p.nombre || p.id }))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
-    : [];
+  const transportistas = canManagePayments ? transportistasParaFlete(proveedores, labelsProveedores) : [];
   return {
     pagos,
     proveedores: access?.providerId ? proveedores.filter((provider) => provider.id === access.providerId) : proveedores,
@@ -4048,6 +4046,7 @@ function construirFilasLogistica(input: {
       flete: situacionGasto(pk.flete ?? null, pagadoLogistica(input.pagos, destino, "Flete")),
       arancel: situacionGasto(pk.arancel ?? null, pagadoLogistica(input.pagos, destino, "Arancel")),
       otros: situacionGasto(pk.otrosCostos ?? null, pagadoLogistica(input.pagos, destino, "Otros")),
+      pendiente: { falta: 0, sinFlete: false, pagado: 0 },
     });
   }
   for (const item of input.items) {
@@ -4069,9 +4068,80 @@ function construirFilasLogistica(input: {
       flete: situacionGasto(item.fleteAsignadoRegistro ?? null, pagadoLogistica(input.pagos, destino, "Flete")),
       arancel: situacionGasto(item.arancelAsignadoRegistro ?? null, pagadoLogistica(input.pagos, destino, "Arancel")),
       otros: situacionGasto(item.otrosCostosAsignadosRegistro ?? null, pagadoLogistica(input.pagos, destino, "Otros")),
+      pendiente: { falta: 0, sinFlete: false, pagado: 0 },
     });
   }
+  for (const fila of filas) fila.pendiente = pendienteLogistica(fila);
   return filas.sort((a, b) => b.fecha.localeCompare(a.fecha));
+}
+
+function transportistasParaFlete(proveedores: ShippingV2Proveedor[], labelsById: Map<string, string>) {
+  return proveedores
+    .filter((p) => esProveedorLogistico(p) && normalizeStatus(p.estado || "activo") !== "inactivo")
+    .map((p) => ({ id: p.id, nombre: labelsById.get(p.id) || p.nombre || p.id }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+}
+
+function resumenPagoLogistica(p: ShippingV2Pago, labelsById: Map<string, string>): ShippingV2PagoLogisticaResumen {
+  return {
+    id: p.id,
+    pagoId: p.pagoId,
+    concepto: conceptoDePago(p.concepto) as ConceptoLogistica,
+    monto: p.totalPagado ?? p.totalAPagar ?? p.total ?? 0,
+    fecha: p.fechaPagoReal || p.fechaCreacion || "",
+    pagadoA: (p.proveedorId ? labelsById.get(p.proveedorId) : "") || p.proveedorNombre || p.pagadoA || "",
+    metodo: p.metodoPago && p.metodoPago !== "No aplica" ? p.metodoPago : "",
+    conComprobante: Boolean(p.transaccionId || p.comprobante.length),
+    registradoPor: p.registradoPor || p.pagadoPor || "",
+  };
+}
+
+/**
+ * Fase 1 (14-oct): "Costos de traerlo" de UNA caja o de UN artículo que viaja
+ * solo. Es el único lugar donde se ven y se pagan su flete, arancel y otros.
+ */
+export async function getShippingV2CostosTraerlo(destino: { packingId?: string; itemId?: string }, access?: ShippingV2AccessContext): Promise<ShippingV2CostosTraerlo> {
+  assertShippingV2Permission(access, "canViewCosts", "No tienes permiso para ver costos de Shipping.");
+  const packingId = cleanString(destino.packingId);
+  const itemId = cleanString(destino.itemId);
+  if (Boolean(packingId) === Boolean(itemId)) throw new Error("Indica una caja o un artículo.");
+  const [pk, item, pagos, proveedores] = await Promise.all([
+    packingId ? getShippingV2PackingById(packingId, access, { includeItems: false, includeAiName: false }) : Promise.resolve(null),
+    itemId ? getShippingV2ItemById(itemId, { includeAiName: false, access }) : Promise.resolve(null),
+    getShippingV2Pagos(systemShippingV2Access()),
+    getShippingV2Proveedores(),
+  ]);
+  if (item?.packingId) throw new Error(`${item.sku} viaja en una caja: sus costos están en la caja.`);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+  const [fila] = construirFilasLogistica({ packings: pk ? [pk] : [], items: item ? [item] : [], pagos, labelsById });
+  if (!fila) throw new Error("Este artículo no viene de afuera: no tiene costos de traerlo.");
+  const puedePagar = canShippingV2(access, "canManagePayments");
+  const deEste = pagos
+    .filter((p) => normalizeStatus(String(p.estadoPago)) !== "anulado" && esConceptoLogistica(p.concepto))
+    .filter((p) => (packingId ? (p.packingLogisticaIds ?? []).includes(packingId) : (p.itemLogisticaIds ?? []).includes(itemId)))
+    .map((p) => resumenPagoLogistica(p, labelsById))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+  return {
+    fila,
+    pagos: deEste,
+    transportistas: puedePagar ? transportistasParaFlete(proveedores, labelsById) : [],
+    puedePagar,
+  };
+}
+
+/**
+ * Fase 1 (14-oct): costos de traerlo de todas las cajas y artículos sueltos,
+ * para la pantalla Logística (columna "Costos" y filtro "Costos pendientes").
+ */
+export async function getShippingV2ResumenLogistica(context: { access?: ShippingV2AccessContext; packings?: ShippingV2Packing[]; proveedores?: ShippingV2Proveedor[] }): Promise<ShippingV2LogisticaFila[]> {
+  assertShippingV2Permission(context.access, "canViewCosts", "No tienes permiso para ver costos de Shipping.");
+  const [packings, proveedores, pagos, items] = await Promise.all([
+    context.packings ? Promise.resolve(context.packings) : getShippingV2Packings(context.access),
+    context.proveedores ? Promise.resolve(context.proveedores) : getShippingV2Proveedores(),
+    getShippingV2Pagos(systemShippingV2Access()),
+    getShippingV2PaymentItems({ includeAiName: false, access: context.access }),
+  ]);
+  return construirFilasLogistica({ packings, items, pagos, labelsById: createShippingV2ProveedorLabelMap(proveedores) });
 }
 
 export type ShippingV2PagoLogisticaInput = {

@@ -60,9 +60,9 @@ assert(modoLogisticoSegunOrigen("Proveedor local", false).modoLogistico === "Tra
 assert(modoLogisticoSegunOrigen("Proveedor extranjero", true).requierePacking === true, "Viaja en caja → requiere packing");
 
 console.log("\n— Qué falta (Logística) —");
-assert(pendientesLogisticos({ origenArticulo: "Proveedor extranjero" }).join(",") === "Rastreo al casillero,Rastreo a Ecuador,Flete,Arancel", "Extranjero recién registrado: faltan los dos rastreos, flete y arancel");
-assert(pendientesLogisticos({ origenArticulo: "Proveedor extranjero", trackingHaciaIntermediario: "9400", trackingDesdeIntermediario: "LB1", fleteAsignadoRegistro: 12, arancelAsignadoRegistro: 0 }).length === 0, "Extranjero completo (arancel 0 cuenta como anotado)");
-assert(pendientesLogisticos({ origenArticulo: "Proveedor local", trackingDirecto: "SV-1" }).join(",") === "Flete", "Local con rastreo: falta el flete");
+assert(pendientesLogisticos({ origenArticulo: "Proveedor extranjero" }).join(",") === "Rastreo al casillero,Rastreo a Ecuador", "Extranjero recién registrado: faltan los dos rastreos (flete y arancel nacen del pago)");
+assert(pendientesLogisticos({ origenArticulo: "Proveedor extranjero", trackingHaciaIntermediario: "9400", trackingDesdeIntermediario: "LB1" }).length === 0, "Extranjero con sus dos rastreos: completo");
+assert(pendientesLogisticos({ origenArticulo: "Proveedor local", trackingDirecto: "SV-1" }).length === 0, "Local con rastreo: completo");
 assert(pendientesLogisticos({ origenArticulo: "Ya está en la tienda" }).length === 0, "En la tienda: nada pendiente");
 
 if (fallos > 0) { console.error(`\n${fallos} assert(s) fallaron.`); process.exit(1); }

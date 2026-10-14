@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { SHIPPING_V2_PACKING_ESTADOS, SHIPPING_V2_PACKING_TIPOS, type ShippingV2AccessPermissions, type ShippingV2Packing, type ShippingV2PackingReviewSummary, type ShippingV2Proveedor } from "@/types/shipping-v2";
+import { SHIPPING_V2_PACKING_ESTADOS, SHIPPING_V2_PACKING_TIPOS, type ShippingV2AccessPermissions, type ShippingV2LogisticaFila, type ShippingV2Packing, type ShippingV2PackingReviewSummary, type ShippingV2Proveedor } from "@/types/shipping-v2";
+import { EstadoCostos } from "@/components/shipping-v2/CostosTraerlo";
 import { getShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import {
   formatShippingV2PackingBodegaProgress,
@@ -21,7 +22,11 @@ type Props = {
   reviewSummaries?: Record<string, ShippingV2PackingReviewSummary>;
   /** Artículos que viajan solos (se listan debajo de las cajas). */
   sueltosCount?: number;
+  /** Punto 9c · fase 1: costos de traerlo de cada caja y suelto (null = la sesión no ve costos). */
+  costos?: ShippingV2LogisticaFila[] | null;
 };
+
+const tienePendiente = (f: ShippingV2LogisticaFila) => f.pendiente.falta > 0 || f.pendiente.sinFlete;
 
 const ALL = "Todos";
 
@@ -106,7 +111,11 @@ function ReviewCell({ summary }: { summary?: ShippingV2PackingReviewSummary }) {
   );
 }
 
-export function ShippingV2PackingsClient({ packings, proveedores, error, permissions, providerName, reviewSummaries = {}, sueltosCount = 0 }: Props) {
+export function ShippingV2PackingsClient({ packings, proveedores, error, permissions, providerName, reviewSummaries = {}, sueltosCount = 0, costos = null }: Props) {
+  const [soloCostos, setSoloCostos] = useState(false);
+  const costosPorId = useMemo(() => new Map((costos ?? []).map((f) => [f.key, f])), [costos]);
+  const pendientesCostos = useMemo(() => (costos ?? []).filter(tienePendiente), [costos]);
+  const sueltosPendientes = pendientesCostos.filter((f) => f.tipo === "suelto");
   const [fase, setFase] = useState<ShippingV2PackingFase | typeof ALL>(ALL);
   const [estado, setEstado] = useState(ALL);
   const [tipo, setTipo] = useState(ALL);
@@ -125,8 +134,9 @@ export function ShippingV2PackingsClient({ packings, proveedores, error, permiss
     if (estado !== ALL && packing.estado !== estado) return false;
     if (tipo !== ALL && packing.tipo !== tipo) return false;
     if (responsable !== ALL && packing.proveedorResponsableId !== responsable) return false;
+    if (soloCostos) { const c = costosPorId.get(packing.id); if (!c || !tienePendiente(c)) return false; }
     return true;
-  }), [enriched, estado, fase, responsable, tipo]);
+  }), [enriched, estado, fase, responsable, tipo, soloCostos, costosPorId]);
 
   const fasesPresentes = useMemo(() => {
     const counts = new Map<ShippingV2PackingFase, { label: string; count: number }>();
@@ -208,6 +218,17 @@ export function ShippingV2PackingsClient({ packings, proveedores, error, permiss
             {item.label} ({item.count})
           </button>
         ))}
+        {costos ? (
+          <button
+            type="button"
+            onClick={() => setSoloCostos((v) => !v)}
+            aria-pressed={soloCostos}
+            title="Cajas y artículos con flete sin pagar o con un valor anotado sin pago"
+            className={`ml-auto rounded-full border px-3 py-1 text-[12px] font-semibold transition ${soloCostos ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-yellow-300/40 bg-[#151515] text-yellow-200 hover:brightness-125"}`}
+          >
+            Costos pendientes ({pendientesCostos.length})
+          </button>
+        ) : null}
       </section>
 
       <section className="grid gap-2 rounded-xl border border-[#30312D] bg-[#11120F] p-2 shadow-xl shadow-black/15 md:grid-cols-3">
@@ -221,7 +242,7 @@ export function ShippingV2PackingsClient({ packings, proveedores, error, permiss
           <table className="w-full min-w-[1360px] text-left text-sm">
             <thead className="bg-[#20211D] text-[12px] uppercase text-[#A7A7A7]">
               <tr>
-                {["Packing ID", "Alias / nombre interno", "Estado", "Revisión", "Qué falta", "Items", "Peso", "Proveedor responsable", "Tracking USA", "Tracking EC", "Fecha creación"].map((head) => <th key={head} className="px-3 py-2 font-semibold">{head}</th>)}
+                {["Packing ID", "Alias / nombre interno", "Estado", "Revisión", "Qué falta", "Items", "Peso", ...(costos ? ["Costos"] : []), "Proveedor responsable", "Tracking USA", "Tracking EC", "Fecha creación"].map((head) => <th key={head} className="px-3 py-2 font-semibold">{head}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -239,6 +260,11 @@ export function ShippingV2PackingsClient({ packings, proveedores, error, permiss
                   </td>
                   <td className="px-3 py-2.5 text-[#F5F5F5]">{packing.itemCount} items</td>
                   <td className="px-3 py-2.5 text-[#A7A7A7]">{formatWeight(packing.peso)}</td>
+                  {costos ? (
+                    <td className="px-3 py-2.5">
+                      {costosPorId.get(packing.id) ? <Link href={`/shipping-v2/packings/${packing.id}#costos`}><EstadoCostos pendiente={costosPorId.get(packing.id)!.pendiente} /></Link> : <span className="text-[12px] text-[#5E5F59]">—</span>}
+                    </td>
+                  ) : null}
                   <td className="px-3 py-2.5 text-[#A7A7A7]">{display(packing.proveedorResponsableNombre)}</td>
                   <td className="px-3 py-2.5 text-[#A7A7A7]">{display(packing.trackingUsa)}{packing.transportistaUsaNombre ? <span className="block text-[11px] text-[#8F908A]">{packing.transportistaUsaNombre}</span> : null}</td>
                   <td className="px-3 py-2.5 text-[#A7A7A7]">{display(packing.trackingEc)}{packing.transportistaEcNombre ? <span className="block text-[11px] text-[#8F908A]">{packing.transportistaEcNombre}</span> : null}</td>
@@ -246,12 +272,26 @@ export function ShippingV2PackingsClient({ packings, proveedores, error, permiss
                 </tr>
               ))}
               {filtered.length === 0 ? (
-                <tr><td colSpan={11} className="px-3 py-6 text-center text-sm text-[#8F908A]">No hay cajas con estos filtros.</td></tr>
+                <tr><td colSpan={costos ? 12 : 11} className="px-3 py-6 text-center text-sm text-[#8F908A]">No hay cajas con estos filtros.</td></tr>
               ) : null}
             </tbody>
           </table>
         </div>
       </div>
+
+      {soloCostos && sueltosPendientes.length ? (
+        <div className="overflow-hidden rounded-xl border border-[#30312D] bg-[#171814]">
+          <p className="border-b border-[#30312D] px-3 py-1.5 text-[12px] font-semibold uppercase text-[#A7A7A7]">Artículos que viajan solos</p>
+          {sueltosPendientes.map((f) => (
+            <Link key={f.key} href={`/shipping-v2/items/${f.itemId}#costos`} className="grid grid-cols-[120px_minmax(0,1fr)_120px_110px] items-center gap-2 border-t border-[#2A2B26] px-3 py-1.5 text-[13px] first:border-t-0 hover:bg-[#1E1F1C]">
+              <span className="font-semibold text-[#D7FF4F]">{f.titulo}</span>
+              <span className="truncate text-[12px] text-[#B4B5AC]">{f.detalle}</span>
+              <span className="truncate text-[12px] text-[#8F908A]">{f.estadoLogistico}</span>
+              <span className="text-right"><EstadoCostos pendiente={f.pendiente} /></span>
+            </Link>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

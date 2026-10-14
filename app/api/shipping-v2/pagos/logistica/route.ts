@@ -1,8 +1,26 @@
 import { NextResponse } from "next/server";
-import { canShippingV2, getShippingV2AccessContextForSession, registrarPagoLogisticaShippingV2 } from "@/lib/shipping-v2/airtable";
+import { canShippingV2, getShippingV2AccessContextForSession, getShippingV2CostosTraerlo, registrarPagoLogisticaShippingV2 } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 
 export const dynamic = "force-dynamic";
+
+/** Fase 1 (14-oct): costos de traerlo de una caja (?packingId=) o de un artículo suelto (?itemId=). */
+export async function GET(request: Request) {
+  const { response, session } = await requireShippingV2Session();
+  if (response) return response;
+  try {
+    const access = await getShippingV2AccessContextForSession(session);
+    if (!canShippingV2(access, "canViewCosts")) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para ver costos de Shipping." }, { status: 403 });
+    }
+    const url = new URL(request.url);
+    const data = await getShippingV2CostosTraerlo({ packingId: url.searchParams.get("packingId") || "", itemId: url.searchParams.get("itemId") || "" }, access);
+    return NextResponse.json({ success: true, data });
+  } catch (error) {
+    console.error("Error al cargar costos de traerlo Shipping V2:", error);
+    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "Error inesperado" }, { status: 400 });
+  }
+}
 
 /** Punto 9c: registrar el pago de un flete, arancel u otro gasto de una caja o un artículo suelto. */
 export async function POST(request: Request) {

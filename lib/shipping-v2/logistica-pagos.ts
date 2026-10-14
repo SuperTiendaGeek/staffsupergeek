@@ -11,6 +11,9 @@
 // · Manda lo pagado: el valor del gasto en la caja (o el artículo) pasa a ser
 //   lo pagado en total, y se vuelve a repartir entre los artículos.
 // · Las cajas anteriores quedan pendientes: el dueño registra cada pago.
+// · (14-oct, fase 1) El monto de un gasto NUNCA se escribe a mano: nunca se
+//   sabe el flete antes de pagarlo. Nace del pago, y se registra en un solo
+//   lugar: la caja, o la ficha del artículo que viaja solo.
 //
 // Módulo puro: sin red.
 
@@ -104,4 +107,30 @@ export function validarPagoLogistica(e: EntradaPagoLogistica): string | null {
 export function pagadoAPor(concepto: ConceptoLogistica, pagadoA?: string | null): string {
   if (concepto === "Arancel") return PAGADO_A_ARANCEL;
   return String(pagadoA ?? "").trim();
+}
+
+/**
+ * Qué le falta a una caja o artículo suelto en sus costos de traerlo:
+ *  · falta    → valor escrito antes (cajas anteriores) que no tiene pago.
+ *  · sinFlete → ya viaja o ya llegó y no tiene flete pagado. Solo cajas y
+ *               artículos del extranjero (lo local a veces no paga flete).
+ *               Las cajas con el ciclo cerrado no avisan.
+ */
+export type PendienteLogistica = { falta: number; sinFlete: boolean; pagado: number };
+
+const ESPERAN_FLETE = new Set(["en transito", "recibido", "en revision", "con novedad"]);
+
+export function pendienteLogistica(fila: {
+  tipo: "caja" | "suelto";
+  estadoLogistico?: string | null;
+  aplicaArancel: boolean;
+  flete: SituacionGasto;
+  arancel: SituacionGasto;
+  otros: SituacionGasto;
+}): PendienteLogistica {
+  const falta = redondear(fila.flete.pendiente + (fila.aplicaArancel ? fila.arancel.pendiente : 0) + fila.otros.pendiente);
+  const pagado = redondear(fila.flete.pagado + fila.arancel.pagado + fila.otros.pagado);
+  const puedeAvisar = fila.tipo === "caja" || fila.aplicaArancel;
+  const sinFlete = puedeAvisar && ESPERAN_FLETE.has(normalize(fila.estadoLogistico)) && fila.flete.pagado <= 0 && fila.flete.pendiente <= 0;
+  return { falta, sinFlete, pagado };
 }

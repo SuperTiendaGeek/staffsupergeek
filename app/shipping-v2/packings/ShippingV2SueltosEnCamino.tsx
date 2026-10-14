@@ -2,13 +2,16 @@
 
 // Pestaña Logística — artículos que viajan SOLOS (sin caja). Auditoría
 // Shipping V2, punto 2: un solo lugar para lo logístico de todo. Desde cada
-// fila se anotan rastreos con su transportista, casillero, costos, el origen,
-// o se mete el artículo en una caja abierta. Lo que falta se ve de un vistazo.
+// fila se anotan rastreos con su transportista, casillero, el origen, o se
+// mete el artículo en una caja abierta. Lo que falta se ve de un vistazo.
+// Punto 9c · fase 1 (14-oct): sus costos (flete, arancel, otros) se ven y se
+// pagan en "Costos de traerlo"; ya no se escriben a mano.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { ShippingV2Item, ShippingV2Proveedor } from "@/types/shipping-v2";
+import type { ShippingV2Item, ShippingV2LogisticaFila, ShippingV2Proveedor } from "@/types/shipping-v2";
+import { CostosTraerlo, EstadoCostos } from "@/components/shipping-v2/CostosTraerlo";
 import { getShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { esProveedorLogistico } from "@/lib/shipping-v2/provider-types";
 import { buildTrackingUrl } from "@/lib/shipping-v2/tracking";
@@ -28,13 +31,12 @@ type Props = {
   cajasAbiertas: CajaAbiertaLogistica[];
   canEdit: boolean;
   canAddToPacking: boolean;
+  /** Costos de traerlo por artículo (solo si la sesión puede ver costos). */
+  costos?: Record<string, ShippingV2LogisticaFila["pendiente"]>;
+  canViewCosts?: boolean;
 };
 
 const inputClass = "h-8 w-full rounded-lg border border-[#3A3A36] bg-[#151515] px-2.5 text-[13px] text-[#F5F5F5] outline-none placeholder:text-[#696A64] focus:border-[#D7FF4F]/70";
-
-function dinero(v: number | null | undefined) {
-  return typeof v === "number" ? `$${v.toFixed(2)}` : "—";
-}
 
 function texto(v?: string | null) {
   return String(v ?? "").trim();
@@ -55,7 +57,7 @@ function Rastreo({ numero, transportista }: { numero?: string; transportista?: S
   );
 }
 
-function Fila({ item, proveedores, cajasAbiertas, canEdit, canAddToPacking }: { item: ShippingV2Item } & Omit<Props, "items">) {
+function Fila({ item, proveedores, cajasAbiertas, canEdit, canAddToPacking, costos, canViewCosts }: { item: ShippingV2Item } & Omit<Props, "items">) {
   const router = useRouter();
   const porId = new Map(proveedores.map((p) => [p.id, p]));
   const extranjero = item.origenArticulo === ORIGEN_EXTRANJERO;
@@ -71,9 +73,6 @@ function Fila({ item, proveedores, cajasAbiertas, canEdit, canAddToPacking }: { 
     trackingDesdeIntermediario: item.trackingDesdeIntermediario || "",
     transportistaEcuadorId: item.transportistaEcuadorId || "",
     trackingDirecto: item.trackingDirecto || "",
-    flete: item.fleteAsignadoRegistro?.toString() ?? "",
-    arancel: item.arancelAsignadoRegistro?.toString() ?? "",
-    otrosCostos: item.otrosCostosAsignadosRegistro?.toString() ?? "",
     cajaId: "",
   });
 
@@ -104,9 +103,6 @@ function Fila({ item, proveedores, cajasAbiertas, canEdit, canAddToPacking }: { 
       cambio("trackingDirecto", item.trackingDirecto || "");
     }
     cambio("transportistaEcuadorId", item.transportistaEcuadorId || "");
-    cambio("flete", item.fleteAsignadoRegistro?.toString() ?? "");
-    cambio("arancel", item.arancelAsignadoRegistro?.toString() ?? "");
-    cambio("otrosCostos", item.otrosCostosAsignadosRegistro?.toString() ?? "");
     try {
       if (Object.keys(body).length) {
         const r = await fetch(`/api/shipping-v2/items/${item.id}/llegada`, {
@@ -158,10 +154,8 @@ function Fila({ item, proveedores, cajasAbiertas, canEdit, canAddToPacking }: { 
             transportista={porId.get(item.transportistaEcuadorId || "")}
           />
         </td>
-        <td className="px-3 py-2.5 text-[12px] tabular-nums text-[#A7A7A7]">
-          <span className="block">Flete {dinero(item.fleteAsignadoRegistro)}</span>
-          {extranjero ? <span className="block">Arancel {dinero(item.arancelAsignadoRegistro)}</span> : null}
-          {item.otrosCostosAsignadosRegistro != null ? <span className="block">Otros {dinero(item.otrosCostosAsignadosRegistro)}</span> : null}
+        <td className="px-3 py-2.5 text-[12px]">
+          {costos?.[item.id] ? <EstadoCostos pendiente={costos[item.id]} /> : <span className="text-[#5E5F59]">—</span>}
         </td>
         <td className="px-3 py-2.5 text-[12px] text-[#F5F5F5]">{item.estado || "—"}</td>
         <td className="px-3 py-2.5">
@@ -176,7 +170,7 @@ function Fila({ item, proveedores, cajasAbiertas, canEdit, canAddToPacking }: { 
           )}
         </td>
         <td className="px-3 py-2.5 text-right">
-          {canEdit || canAddToPacking ? (
+          {canEdit || canAddToPacking || canViewCosts ? (
             <button
               type="button"
               onClick={() => setAbierto((v) => !v)}
@@ -239,20 +233,6 @@ function Fila({ item, proveedores, cajasAbiertas, canEdit, canAddToPacking }: { 
                       {(transportistasEcuador.length ? transportistasEcuador : logisticos).map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
                     </select>
                   </label>
-                  <label className="space-y-1">
-                    <span className="text-[11px] font-semibold uppercase text-[#A7A7A7]">Flete total ($)</span>
-                    <input type="number" min="0" step="0.01" value={f.flete} onChange={(e) => setF({ ...f, flete: e.target.value })} className={inputClass} />
-                  </label>
-                  {fExtranjero ? (
-                    <label className="space-y-1">
-                      <span className="text-[11px] font-semibold uppercase text-[#A7A7A7]">Arancel total ($)</span>
-                      <input type="number" min="0" step="0.01" value={f.arancel} onChange={(e) => setF({ ...f, arancel: e.target.value })} className={inputClass} />
-                    </label>
-                  ) : null}
-                  <label className="space-y-1">
-                    <span className="text-[11px] font-semibold uppercase text-[#A7A7A7]">Otros costos ($)</span>
-                    <input type="number" min="0" step="0.01" value={f.otrosCostos} onChange={(e) => setF({ ...f, otrosCostos: e.target.value })} className={inputClass} />
-                  </label>
                 </>
               ) : null}
               {canAddToPacking ? (
@@ -265,16 +245,21 @@ function Fila({ item, proveedores, cajasAbiertas, canEdit, canAddToPacking }: { 
                 </label>
               ) : null}
             </div>
-            <p className="mt-2 text-[12px] text-[#8F908A]">
-              Los costos son el total del envío de este artículo; el sistema los reparte por unidad. Al escribir un rastreo el artículo pasa solo a “En tránsito”. Si entra a una caja, desde ahí la caja gobierna sus rastreos y costos.
-            </p>
-            {mensaje ? <p className="mt-2 text-[12px] text-[#FFB07A]">{mensaje}</p> : null}
-            <div className="mt-2 flex justify-end gap-2">
-              <button type="button" onClick={() => setAbierto(false)} className="rounded-lg border border-[#3A3A36] px-3 py-1.5 text-[12px] font-semibold text-[#F5F5F5]">Cancelar</button>
-              <button type="button" disabled={guardando} onClick={guardar} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-[12px] font-black text-[#151515] disabled:opacity-60">
-                {guardando ? "Guardando..." : "Guardar"}
-              </button>
-            </div>
+            {canEdit || canAddToPacking ? (
+              <>
+                <p className="mt-2 text-[12px] text-[#8F908A]" title="Si entra a una caja, desde ahí la caja gobierna sus rastreos y costos.">
+                  Con un rastreo pasa solo a “En tránsito”.
+                </p>
+                {mensaje ? <p className="mt-2 text-[12px] text-[#FFB07A]">{mensaje}</p> : null}
+                <div className="mt-2 flex justify-end gap-2">
+                  <button type="button" onClick={() => setAbierto(false)} className="rounded-lg border border-[#3A3A36] px-3 py-1.5 text-[12px] font-semibold text-[#F5F5F5]">Cancelar</button>
+                  <button type="button" disabled={guardando} onClick={guardar} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-[12px] font-black text-[#151515] disabled:opacity-60">
+                    {guardando ? "Guardando..." : "Guardar"}
+                  </button>
+                </div>
+              </>
+            ) : null}
+            {canViewCosts ? <div className="mt-3"><CostosTraerlo itemId={item.id} onPagado={() => router.refresh()} /></div> : null}
           </td>
         </tr>
       ) : null}

@@ -179,8 +179,6 @@ export function pendientesLogisticos(item: {
   trackingHaciaIntermediario?: string | null;
   trackingDesdeIntermediario?: string | null;
   trackingDirecto?: string | null;
-  fleteAsignadoRegistro?: number | null;
-  arancelAsignadoRegistro?: number | null;
 }): string[] {
   const o = normalizarOrigen(item.origenArticulo);
   const tiene = (v?: string | null) => Boolean(String(v ?? "").trim());
@@ -188,11 +186,10 @@ export function pendientesLogisticos(item: {
   if (o === ORIGEN_EXTRANJERO) {
     if (!tiene(item.trackingHaciaIntermediario)) pendientes.push("Rastreo al casillero");
     if (!tiene(item.trackingDesdeIntermediario)) pendientes.push("Rastreo a Ecuador");
-    if (item.fleteAsignadoRegistro == null) pendientes.push("Flete");
-    if (item.arancelAsignadoRegistro == null) pendientes.push("Arancel");
   } else if (o === ORIGEN_LOCAL) {
     if (!tiene(item.trackingDirecto)) pendientes.push("Rastreo");
-    if (item.fleteAsignadoRegistro == null) pendientes.push("Flete");
   }
+  // Flete y arancel ya no se piden aquí (punto 9c, fase 1): nacen del pago y
+  // se ven en "Costos de traerlo" (logistica-pagos.ts → pendienteLogistica).
   return pendientes;
 }

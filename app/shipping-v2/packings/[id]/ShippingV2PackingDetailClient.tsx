@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
+import { CostosTraerlo } from "@/components/shipping-v2/CostosTraerlo";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import {
@@ -941,93 +942,46 @@ function ItemCard({
   );
 }
 
-function moneyInputValue(value: number | null | undefined) {
-  return value === null || value === undefined ? "" : String(value);
-}
-
-function parseMoneyInput(value: string) {
-  const text = value.trim().replace(",", ".");
-  if (!text) return 0;
-  const parsed = Number(text);
-  if (!Number.isFinite(parsed)) throw new Error("Ingresa un valor numerico valido.");
-  if (parsed < 0) throw new Error("Los costos no pueden ser negativos.");
-  return parsed;
-}
-
-function safeMoneyInputValue(value: string) {
-  try {
-    return parseMoneyInput(value);
-  } catch {
-    return 0;
-  }
-}
-
+// Punto 9c · fase 1 (14-oct): los costos de la caja viven en un solo bloque,
+// "Costos de traerlo". El flete, el arancel y otros ya no se escriben a mano:
+// nacen del pago. Aquí se quedan la regla de reparto, la observación y el
+// resumen de la caja.
 function LogisticsCostsSection({
   packing,
-  canEditCosts,
   canEditDistributionRule,
+  canEditNote,
   providerSummary,
   onSaved,
+  onPagado,
 }: {
   packing: ShippingV2Packing;
-  canEditCosts: boolean;
   canEditDistributionRule: boolean;
+  canEditNote: boolean;
   providerSummary: ReturnType<typeof packingProviderCostSummary>;
   onSaved: (packing: ShippingV2Packing) => void;
+  onPagado: () => void;
 }) {
-  const [form, setForm] = useState({
-    flete: moneyInputValue(packing.flete),
-    arancel: moneyInputValue(packing.arancel),
-    otrosCostos: moneyInputValue(packing.otrosCostos),
-    reglaDistribucionCostos: packing.reglaDistribucionCostos || "No definida",
-    observacionCostos: packing.observacionCostos || "",
-  });
+  const [regla, setRegla] = useState(packing.reglaDistribucionCostos || "No definida");
+  const [nota, setNota] = useState(packing.observacionCostos || "");
   const [status, setStatus] = useState<"saving" | "saved" | "error" | undefined>();
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setForm({
-      flete: moneyInputValue(packing.flete),
-      arancel: moneyInputValue(packing.arancel),
-      otrosCostos: moneyInputValue(packing.otrosCostos),
-      reglaDistribucionCostos: packing.reglaDistribucionCostos || "No definida",
-      observacionCostos: packing.observacionCostos || "",
-    });
-  }, [packing]);
+    setRegla(packing.reglaDistribucionCostos || "No definida");
+    setNota(packing.observacionCostos || "");
+  }, [packing.reglaDistribucionCostos, packing.observacionCostos]);
 
-  const flete = safeMoneyInputValue(form.flete);
-  const arancel = safeMoneyInputValue(form.arancel);
-  const otrosCostos = safeMoneyInputValue(form.otrosCostos);
-  const total = flete + arancel + otrosCostos;
-  const isPreliminary = normalize(packing.estado) === "en proceso";
-  const canSave = canEditCosts || canEditDistributionRule;
-
-  function update(key: keyof typeof form, value: string) {
-    setForm((current) => ({ ...current, [key]: value }));
-  }
-
-  async function saveCosts() {
-    if (!canSave) return;
+  async function guardar(payload: Record<string, string>) {
     setStatus("saving");
     setError("");
     try {
-      const payload: Record<string, string | number> = {};
-      if (canEditCosts) {
-        payload.flete = parseMoneyInput(form.flete);
-        payload.arancel = parseMoneyInput(form.arancel);
-        payload.otrosCostos = parseMoneyInput(form.otrosCostos);
-        payload.observacionCostos = form.observacionCostos;
-      }
-      if (canEditDistributionRule) {
-        payload.reglaDistribucionCostos = form.reglaDistribucionCostos;
-      }
       const response = await fetch(`/api/shipping-v2/packings/${packing.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const responsePayload = await response.json().catch(() => ({}));
-      if (!response.ok || !responsePayload.success) throw new Error(String(responsePayload.error || "No se pudieron guardar los costos."));
+      if (!response.ok || !responsePayload.success) throw new Error(String(responsePayload.error || "No se pudo guardar."));
       onSaved(responsePayload.data as ShippingV2Packing);
       setStatus("saved");
       window.setTimeout(() => setStatus(undefined), 1400);
@@ -1037,85 +991,51 @@ function LogisticsCostsSection({
     }
   }
 
-  const compactInputClass = "mt-1 h-7 w-full rounded border border-transparent bg-transparent p-0 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/55 focus:bg-[#101010] focus:px-2 disabled:opacity-70";
-  const compactSelectClass = "mt-1 h-8 w-full rounded border border-transparent bg-transparent p-0 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/55 focus:bg-[#101010] focus:px-2 disabled:opacity-70";
-  const compactTextareaClass = "mt-1 min-h-8 w-full resize-y rounded border border-transparent bg-transparent p-0 text-sm font-semibold text-[#F5F5F5] outline-none transition focus:border-[#D7FF4F]/55 focus:bg-[#101010] focus:px-2 disabled:opacity-70";
+  const fechas = [["Cierre", packing.fechaCierre], ["Envío", packing.fechaEnvio], ["Recepción", packing.fechaRecepcion]].filter(([, v]) => v) as Array<[string, string]>;
 
   return (
-    <section className="rounded-[1.5rem] border border-[#3A3A36] bg-[#2A2A28] p-4">
-      <div>
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-normal text-[#D7FF4F]">Costos logísticos</p>
-          <h3 className="mt-1 text-xl font-semibold text-[#F5F5F5]">Importación del packing</h3>
-          <p className="mt-1 text-sm leading-6 text-[#A7A7A7]">
-            {isPreliminary ? "Los costos finales se registran cuando el packing este cerrado o en transito." : "Registra los costos reales de importacion del grupo fisico."}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <CostSummaryItem label="Flete">
-          <input inputMode="decimal" value={form.flete} disabled={!canEditCosts} onChange={(event) => update("flete", event.target.value)} className={compactInputClass} />
-        </CostSummaryItem>
-        <CostSummaryItem label="Arancel">
-          <input inputMode="decimal" value={form.arancel} disabled={!canEditCosts} onChange={(event) => update("arancel", event.target.value)} className={compactInputClass} />
-        </CostSummaryItem>
-        <CostSummaryItem label="Otros costos">
-          <input inputMode="decimal" value={form.otrosCostos} disabled={!canEditCosts} onChange={(event) => update("otrosCostos", event.target.value)} className={compactInputClass} />
-        </CostSummaryItem>
-        <CostSummaryItem label="Total logístico" value={formatCurrencyZero(total)} strong />
-        <CostSummaryItem label="Costo total proveedor items" value={formatCurrencyZero(providerSummary.costoTotalProveedorItems)} />
-        <CostSummaryItem label="Ítems incluidos" value={display(providerSummary.referenciasIncluidas)} />
-        <CostSummaryItem label="Unidades totales" value={display(providerSummary.unidadesTotales)} />
-        <CostSummaryItem label="Regla distribución">
-          <select value={form.reglaDistribucionCostos} disabled={!canEditDistributionRule} onChange={(event) => update("reglaDistribucionCostos", event.target.value)} className={compactSelectClass}>
-            {SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS.map((option) => <option key={option} value={option}>{option}</option>)}
-          </select>
-        </CostSummaryItem>
-        <CostSummaryItem label="Observación costos">
-          <textarea value={form.observacionCostos} disabled={!canEditCosts} onChange={(event) => update("observacionCostos", event.target.value)} className={compactTextareaClass} />
-        </CostSummaryItem>
-      </div>
-
-      <p className="mt-3 text-xs leading-5 text-[#A7A7A7]">
-        La distribución por item se calcula automáticamente desde Airtable según la regla seleccionada.
-      </p>
-      {providerSummary.error ? <p className="mt-2 text-xs font-semibold text-[#FFB07A]">{providerSummary.error}</p> : null}
-      {providerSummary.referenciasConUnidadesEstimadas ? (
-        <div className="mt-2 rounded-lg border border-[#4FC3FF]/30 bg-[#4FC3FF]/10 px-3 py-2">
-          <p className="text-xs font-semibold text-[#BDEAFF]">
-            {providerSummary.referenciasConUnidadesEstimadas} ítem(s) ya salieron del inventario (vendidos o consumidos).
-          </p>
-          <p className="mt-1 text-xs leading-5 text-[#BDEAFF]/85">
-            Su Cantidad actual es 0, así que el histórico de este packing se calcula con 1 unidad por registro. Es un dato informativo: no afecta al inventario ni a los pagos.
-          </p>
-        </div>
-      ) : null}
-
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="grid gap-1 text-xs text-[#A7A7A7] sm:grid-cols-3 sm:gap-4">
-          <span>Cierre: <strong className="font-semibold text-[#F5F5F5]">{formatDate(packing.fechaCierre)}</strong></span>
-          <span>Envío: <strong className="font-semibold text-[#F5F5F5]">{formatDate(packing.fechaEnvio)}</strong></span>
-          <span>Recepción: <strong className="font-semibold text-[#F5F5F5]">{formatDate(packing.fechaRecepcion)}</strong></span>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          {error ? <span className="text-sm font-semibold text-[#FFB07A]">{error}</span> : null}
+    <CostosTraerlo
+      packingId={packing.id}
+      onPagado={onPagado}
+      cabecera={(
+        <>
+          {error ? <span className="text-[12px] text-[#FFB07A]">{error}</span> : null}
           <SaveBadge status={status} />
-          <button type="button" disabled={!canSave || status === "saving"} onClick={() => void saveCosts()} className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-5 py-2.5 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">
-            {canEditCosts ? "Guardar costos" : "Guardar regla"}
-          </button>
-        </div>
+          <label className="flex items-center gap-1.5 text-[12px] text-[#8F908A]">
+            Reparto
+            <select
+              value={regla}
+              disabled={!canEditDistributionRule}
+              onChange={(event) => { setRegla(event.target.value); void guardar({ reglaDistribucionCostos: event.target.value }); }}
+              className="h-7 rounded-md border border-[#3A3A36] bg-[#151515] px-1.5 text-[12.5px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70 disabled:opacity-60"
+            >
+              {SHIPPING_V2_REGLAS_DISTRIBUCION_COSTOS.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+        </>
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[#8F908A]">
+        <span>Compra <b className="tabular-nums text-[#E6E6E1]">{formatCurrencyZero(providerSummary.costoTotalProveedorItems)}</b></span>
+        <span><b className="text-[#E6E6E1]">{display(providerSummary.referenciasIncluidas)}</b> ítems · <b className="text-[#E6E6E1]">{display(providerSummary.unidadesTotales)}</b> u.</span>
+        {fechas.map(([k, v]) => <span key={k}>{k} <b className="text-[#E6E6E1]">{formatDate(v)}</b></span>)}
+        <input
+          value={nota}
+          disabled={!canEditNote}
+          onChange={(event) => setNota(event.target.value)}
+          onBlur={() => { if (nota !== (packing.observacionCostos || "")) void guardar({ observacionCostos: nota }); }}
+          placeholder="Nota de costos"
+          aria-label="Nota de costos"
+          className="h-7 min-w-[180px] flex-1 rounded-md border border-transparent bg-transparent px-1.5 text-[12.5px] text-[#E6E6E1] outline-none placeholder:text-[#5E5F59] hover:border-[#3A3A36] focus:border-[#D7FF4F]/70 focus:bg-[#151515] disabled:opacity-60"
+        />
       </div>
-    </section>
-  );
-}
-
-function CostSummaryItem({ label, value, strong = false, children }: { label: string; value?: string; strong?: boolean; children?: ReactNode }) {
-  return (
-    <div className="min-w-0 rounded-[0.75rem] border border-[#3A3A36] bg-[#151515] px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</p>
-      {children ?? <p className={`mt-1 truncate text-sm ${strong ? "font-bold text-[#D7FF4F]" : "font-semibold text-[#F5F5F5]"}`}>{value}</p>}
-    </div>
+      {providerSummary.error ? <p className="mt-1 text-[12px] font-semibold text-[#FFB07A]">{providerSummary.error}</p> : null}
+      {providerSummary.referenciasConUnidadesEstimadas ? (
+        <p className="mt-1 text-[12px] text-[#BDEAFF]" title="Su cantidad actual es 0: el histórico de la caja cuenta 1 unidad por registro. No afecta inventario ni pagos.">
+          {providerSummary.referenciasConUnidadesEstimadas} ítem(s) ya vendidos o consumidos: se cuentan con 1 unidad.
+        </p>
+      ) : null}
+    </CostosTraerlo>
   );
 }
 
@@ -1288,6 +1208,14 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     if (!canEditPacking || !canViewCosts) return false;
     const state = normalize(packing.estado);
     return ["en proceso", "cerrado", "en transito", "recibido", "en revision"].includes(state);
+  }
+
+  // Tras pagar un gasto, el valor de la caja y el reparto de sus artículos cambian.
+  async function recargarPacking() {
+    const response = await fetch(`/api/shipping-v2/packings/${packing.id}`, { cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (response.ok && payload.success && payload.data) setPacking(payload.data as ShippingV2Packing);
+    router.refresh();
   }
 
   async function copyTracking(kind: "usa" | "ec", value?: string) {
@@ -1878,13 +1806,14 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
       {canViewCosts ? (
         <LogisticsCostsSection
           packing={packing}
-          canEditCosts={canEditLogisticsCosts()}
           canEditDistributionRule={canEditDistributionRule()}
+          canEditNote={canEditLogisticsCosts()}
           providerSummary={providerSummary}
           onSaved={(updatedPacking) => {
             setPacking(updatedPacking);
             router.refresh();
           }}
+          onPagado={() => void recargarPacking()}
         />
       ) : null}
 

@@ -12,18 +12,18 @@
 // · Los regalos se ven en su caja, no suman y no dejan la caja esperando.
 // · Sin revisión: basta con saber quién registró cada pago.
 // · Un proveedor con portal solo ve sus pagos: fecha, método, nº de transacción.
+// · Flete, arancel y otros (punto 9c, fase 1 · 14-oct) se pagan en su caja o
+//   en la ficha del artículo suelto; aquí aparecen en Registrados.
 // Diseño: pantalla de uso diario, compacta (regla UX/UI del dueño, 8-oct).
 
 import { Fragment, useMemo, useState } from "react";
 import { calculateShippingV2PaymentItemSubtotal, unidadesParaPago } from "@/lib/shipping-v2/payment-calculations";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import { esPagoHistorico } from "@/lib/shipping-v2/pagos-situacion";
-import type { ShippingV2AccessPermissions, ShippingV2LogisticaFila, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagosWorkspace, ShippingV2SituacionGasto } from "@/types/shipping-v2";
+import type { ShippingV2AccessPermissions, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 
-type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string; permissions: ShippingV2AccessPermissions | null; providerName?: string };
-type Tab = "compras" | "logistica" | "registrados";
-type Concepto = "Flete" | "Arancel" | "Otros";
-const CONCEPTOS: Concepto[] = ["Flete", "Arancel", "Otros"];
+type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string; permissions: ShippingV2AccessPermissions | null; providerName?: string; sinComprobanteInicial?: boolean };
+type Tab = "compras" | "registrados";
 
 const METODOS = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((m) => m !== "No aplica");
 const CUENTAS = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((c) => c !== "No aplica");
@@ -242,123 +242,16 @@ function CompletarComprobante({ pago, onDone }: { pago: ShippingV2Pago; onDone: 
   );
 }
 
-function CeldaGasto({ g, aplica = true, onClick }: { g: ShippingV2SituacionGasto; aplica?: boolean; onClick: () => void }) {
-  if (!aplica) return <span className="text-[12px] text-[#5E5F59]">No aplica</span>;
-  return (
-    <button onClick={onClick} className="flex w-full items-center justify-end gap-1.5 rounded-md px-1.5 py-0.5 text-right hover:bg-[#23241F]" title={g.estado === "pagado" ? `Pagado ${money(g.pagado)}` : g.estado === "falta" ? `Falta registrar ${money(g.pendiente)}` : "Registrar pago"}>
-      <span className="tabular-nums text-[#E6E6E1]">{g.valor !== null && g.valor > 0 ? money(g.valor) : g.pagado > 0 ? money(g.pagado) : "—"}</span>
-      {g.estado === "pagado" ? <span className={tonos.ok}>✓</span> : g.estado === "falta" ? <span className={tonos.falta}>Falta</span> : <span className="text-[13px] text-[#6F706A]">+</span>}
-    </button>
-  );
-}
-
-function PanelLogistica({ fila, concepto: inicial, transportistas, onCancel, onDone }: {
-  fila: ShippingV2LogisticaFila;
-  concepto: Concepto;
-  transportistas: Array<{ id: string; nombre: string }>;
-  onCancel: () => void;
-  onDone: (mensaje: string) => Promise<void>;
-}) {
-  const [concepto, setConcepto] = useState<Concepto>(inicial);
-  const gasto = (c: Concepto) => (c === "Flete" ? fila.flete : c === "Arancel" ? fila.arancel : fila.otros);
-  const sugerido = (c: Concepto) => { const g = gasto(c); return g.pendiente > 0 ? String(g.pendiente) : ""; };
-  const [form, setForm] = useState({ monto: sugerido(inicial), proveedorId: fila.transportistaId || "", pagadoA: "", fecha: hoyLocal(), metodo: "Transferencia bancaria", cuenta: "", orden: "", transaccion: "", enlace: "" });
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
-  const g = gasto(concepto);
-  const conceptos = CONCEPTOS.filter((c) => c !== "Arancel" || fila.aplicaArancel);
-
-  function cambiarConcepto(c: Concepto) {
-    setConcepto(c);
-    setForm((f) => ({ ...f, monto: sugerido(c) }));
-    setError("");
-  }
-
-  async function registrar() {
-    setError("");
-    const monto = Number(String(form.monto).replace(",", "."));
-    if (!(monto > 0)) return setError("Escribe el monto pagado.");
-    if (concepto === "Flete" && !form.proveedorId) return setError("Elige a qué empresa se pagó el flete.");
-    if (!form.fecha) return setError("Indica la fecha del pago.");
-    if (!form.cuenta) return setError("Elige la cuenta.");
-    setBusy(true);
-    const res = await fetch("/api/shipping-v2/pagos/logistica", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        concepto,
-        packingId: fila.packingId || "",
-        itemId: fila.itemId || "",
-        monto,
-        proveedorId: concepto === "Flete" ? form.proveedorId : "",
-        pagadoA: concepto === "Otros" ? form.pagadoA : "",
-        fechaPagoReal: `${form.fecha}T17:00:00.000Z`,
-        metodoPago: form.metodo,
-        cuentaOrigen: form.cuenta,
-        orden: form.orden,
-        transaccionId: form.transaccion,
-        comprobanteUrl: form.enlace,
-      }),
-    });
-    const payload = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok || !payload.success) return setError(String(payload.error || "No se pudo registrar el pago."));
-    await onDone(`${concepto} de ${fila.titulo} registrado · ${money(monto)}${payload.aviso ? `. ${payload.aviso}` : ""}`);
-  }
-
-  return (
-    <div className="border-y border-[#D7FF4F]/30 bg-[#151612] px-3 py-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex overflow-hidden rounded-md border border-[#3A3A36]" role="radiogroup" aria-label="Qué se pagó">
-          {conceptos.map((c) => (
-            <button key={c} role="radio" aria-checked={concepto === c} onClick={() => cambiarConcepto(c)} className={`h-7 border-r border-[#3A3A36] px-3 text-[12.5px] font-semibold last:border-r-0 ${concepto === c ? "bg-[#D7FF4F] text-[#151515]" : "bg-[#151515] text-[#B4B5AC] hover:text-[#D7FF4F]"}`}>{c}</button>
-          ))}
-        </div>
-        <span className="text-[12px] text-[#8F908A]">
-          En {fila.tipo === "caja" ? "la caja" : "el artículo"}: <b className="text-[#E6E6E1]">{g.valor !== null ? money(g.valor) : "sin valor"}</b>
-          {g.pagado > 0 ? <> · ya pagado <b className="text-[#E6E6E1]">{money(g.pagado)}</b></> : null}
-        </span>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-8">
-        <label><span className={label}>Monto</span><input type="number" min="0" step="0.01" value={form.monto} onChange={(e) => set("monto", e.target.value)} className={input} /></label>
-        <label className="md:col-span-2"><span className={label}>Pagado a</span>
-          {concepto === "Flete" ? (
-            <select value={form.proveedorId} onChange={(e) => set("proveedorId", e.target.value)} className={input}>
-              <option value="">—</option>
-              {transportistas.map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
-            </select>
-          ) : concepto === "Arancel" ? <input value="SENAE" readOnly className={`${input} text-[#8F908A]`} />
-            : <input value={form.pagadoA} onChange={(e) => set("pagadoA", e.target.value)} placeholder="Opcional" className={input} />}
-        </label>
-        <label><span className={label}>Fecha</span><input type="date" value={form.fecha} onChange={(e) => set("fecha", e.target.value)} className={input} /></label>
-        <label><span className={label}>Método</span><select value={form.metodo} onChange={(e) => set("metodo", e.target.value)} className={input}>{METODOS.map((m) => <option key={m}>{m}</option>)}</select></label>
-        <label><span className={label}>Cuenta</span><select value={form.cuenta} onChange={(e) => set("cuenta", e.target.value)} className={input}><option value="">—</option>{CUENTAS.map((c) => <option key={c} value={c}>{c.trim()}</option>)}</select></label>
-        <label><span className={label}>Nº transacción</span><input value={form.transaccion} onChange={(e) => set("transaccion", e.target.value)} placeholder="Opcional" className={input} /></label>
-        <label><span className={label}>Enlace comprobante</span><input value={form.enlace} onChange={(e) => set("enlace", e.target.value)} placeholder="Opcional" className={input} /></label>
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {error ? <span className="text-[12px] text-[#FFB07A]">{error}</span> : null}
-        <span className="ml-auto text-[12px] text-[#8F908A]">{g.valor !== null && Number(form.monto) > 0 && Math.abs(g.pagado + Number(form.monto) - g.valor) > 0.009 ? `El ${concepto.toLowerCase()} quedará en ${money(g.pagado + Number(form.monto))}` : ""}{!form.transaccion && !form.enlace ? `${g.valor !== null && Number(form.monto) > 0 && Math.abs(g.pagado + Number(form.monto) - g.valor) > 0.009 ? " · " : ""}quedará sin comprobante` : ""}</span>
-        <button onClick={onCancel} className={btn}>Cancelar</button>
-        <button disabled={busy} onClick={() => void registrar()} className={btnPrim}>{busy ? "Guardando…" : `Registrar ${concepto.toLowerCase()}`}</button>
-      </div>
-    </div>
-  );
-}
-
-export function ShippingV2PagosClient({ initialWorkspace, error, permissions, providerName }: Props) {
+export function ShippingV2PagosClient({ initialWorkspace, error, permissions, providerName, sinComprobanteInicial = false }: Props) {
   const [ws, setWs] = useState(initialWorkspace);
   const gestiona = permissions?.canManagePayments !== false;
   const portal = Boolean(providerName && !gestiona);
-  const [tab, setTab] = useState<Tab>(gestiona ? "compras" : "registrados");
+  const [tab, setTab] = useState<Tab>(gestiona && !sinComprobanteInicial ? "compras" : "registrados");
   const [proveedor, setProveedor] = useState(TODOS);
   const [buscar, setBuscar] = useState("");
   const [abierto, setAbierto] = useState("");
   const [pagando, setPagando] = useState("");
-  const [soloSinComprobante, setSoloSinComprobante] = useState(false);
-  const [soloPendientes, setSoloPendientes] = useState(true);
-  const [pagandoLog, setPagandoLog] = useState<{ key: string; concepto: Concepto } | null>(null);
+  const [soloSinComprobante, setSoloSinComprobante] = useState(sinComprobanteInicial);
   const [aviso, setAviso] = useState("");
 
   const grupos = useMemo(() => armarGrupos(ws.porPagar ?? [], ws.regalosEnCaja ?? []), [ws.porPagar, ws.regalosEnCaja]);
@@ -379,16 +272,9 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
     (!q || normalize([p.pagoId, p.orden, p.transaccionId, p.proveedorNombre, p.registradoPor, ...p.itemsResumen.map((i) => i.sku)].join(" ")).includes(q))
   );
   const totalFalta = sumar(ws.porPagar ?? []);
-  const filasLog = ws.logistica ?? [];
-  const pendienteLog = (f: ShippingV2LogisticaFila) => f.flete.pendiente + (f.aplicaArancel ? f.arancel.pendiente : 0) + f.otros.pendiente;
-  const filasLogPend = filasLog.filter((f) => pendienteLog(f) > 0);
-  const totalLog = Math.round(filasLogPend.reduce((s, f) => s + pendienteLog(f), 0) * 100) / 100;
-  const nombreProveedor = proveedor ? normalize(grupos.find((g) => g.proveedorId === proveedor)?.proveedorNombre || pagos.find((p) => p.proveedorId === proveedor)?.proveedorNombre || "") : "";
-  const filasLogVista = (soloPendientes ? filasLogPend : filasLog).filter((f) =>
-    (!proveedor || f.transportistaId === proveedor || (nombreProveedor && normalize(f.detalle).includes(nombreProveedor))) &&
-    (!q || normalize(`${f.titulo} ${f.detalle} ${f.transportistaNombre ?? ""}`).includes(q))
-  );
-  const tituloDestino = useMemo(() => new Map(filasLog.map((f) => [f.key, f.titulo])), [filasLog]);
+  // Punto 9c · fase 1: flete, arancel y otros se pagan en su caja (o en la
+  // ficha del artículo suelto). Aquí solo se ven, en Registrados.
+  const tituloDestino = useMemo(() => new Map((ws.logistica ?? []).map((f) => [f.key, f.titulo])), [ws.logistica]);
   const proveedores = useMemo(() => {
     const m = new Map<string, string>();
     grupos.forEach((g) => g.proveedorId && m.set(g.proveedorId, g.proveedorNombre));
@@ -401,7 +287,6 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
     const payload = await res.json().catch(() => ({}));
     if (res.ok && payload.success && payload.data) setWs(payload.data as ShippingV2PagosWorkspace);
     setPagando("");
-    setPagandoLog(null);
     setAbierto("");
     setAviso(mensaje);
   }
@@ -418,7 +303,6 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
         {gestiona ? (
           <div className="inline-flex overflow-hidden rounded-md border border-[#3A3A36]">
             {tabBtn("compras", "Compras", grupos.length)}
-            {tabBtn("logistica", "Logística", filasLogPend.length)}
             {tabBtn("registrados", "Registrados", vivos.length)}
           </div>
         ) : <span className="px-1 text-[13px] font-semibold text-[#F5F5F5]">Pagos{providerName ? ` · ${providerName}` : ""}</span>}
@@ -432,8 +316,6 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
         {gestiona ? (
           <span className="text-[12px] text-[#8F908A]">
             Falta respaldo <b className="tabular-nums text-[#F5F5F5]">{money(totalFalta)}</b>
-            {" · "}
-            <button onClick={() => setTab("logistica")} className="hover:text-[#D7FF4F]">Logística <b className="tabular-nums text-[#F5F5F5]">{money(totalLog)}</b></button>
             {" · "}
             <button onClick={() => { setTab("registrados"); setSoloSinComprobante(true); }} className="hover:text-[#D7FF4F]">Sin comprobante <b className="text-[#F5F5F5]">{sinComprobante.length}</b></button>
           </span>
@@ -485,39 +367,6 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
               );
             })}
             {!gruposVista.length ? <p className="py-6 text-center text-[13px] text-[#8F908A]">{grupos.length ? "Nada coincide con el filtro." : "Todas las compras tienen su pago registrado."}</p> : null}
-          </div>
-        </section>
-      ) : null}
-
-      {tab === "logistica" && gestiona ? (
-        <section className="overflow-x-auto rounded-lg border border-[#2E2F28] bg-[#171814]">
-          <div className="flex items-center gap-2 border-b border-[#3A3A36] px-2 py-1 text-[12px]">
-            <label className="flex cursor-pointer items-center gap-1.5 text-[#B4B5AC]">
-              <input type="checkbox" checked={soloPendientes} onChange={(e) => setSoloPendientes(e.target.checked)} className="h-3.5 w-3.5 accent-[#D7FF4F]" />
-              Solo pendientes ({filasLogPend.length})
-            </label>
-            <span className="ml-auto text-[#6F706A]">Pulsa un gasto para registrar su pago</span>
-          </div>
-          <div className="min-w-[860px]">
-            <div className="grid grid-cols-[150px_minmax(0,1fr)_110px_120px_120px_120px] gap-2 border-b border-[#3A3A36] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
-              <span>Caja / SKU</span><span>Contenido</span><span>Va en</span><span className="text-right">Flete</span><span className="text-right">Arancel · SENAE</span><span className="text-right">Otros</span>
-            </div>
-            {filasLogVista.map((f) => (
-              <Fragment key={f.key}>
-                <div className="grid grid-cols-[150px_minmax(0,1fr)_110px_120px_120px_120px] items-center gap-2 border-b border-[#2A2B26] px-2 py-1 text-[13px] hover:bg-[#1D1E1A]">
-                  <span className={`truncate font-semibold ${f.tipo === "caja" ? "text-[#F5F5F5]" : "text-[#D7FF4F]"}`} title={f.titulo}>{f.titulo}</span>
-                  <span className="truncate text-[12px] text-[#B4B5AC]" title={f.detalle}>{f.detalle}{f.transportistaNombre ? <span className="text-[#6F706A]"> · {f.transportistaNombre}</span> : null}</span>
-                  <span className="truncate text-[12px] text-[#8F908A]">{f.tipo === "suelto" ? `Solo · ${f.estadoLogistico}` : f.estadoLogistico}</span>
-                  <CeldaGasto g={f.flete} onClick={() => { setPagandoLog({ key: f.key, concepto: "Flete" }); setAviso(""); }} />
-                  <CeldaGasto g={f.arancel} aplica={f.aplicaArancel} onClick={() => { setPagandoLog({ key: f.key, concepto: "Arancel" }); setAviso(""); }} />
-                  <CeldaGasto g={f.otros} onClick={() => { setPagandoLog({ key: f.key, concepto: "Otros" }); setAviso(""); }} />
-                </div>
-                {pagandoLog?.key === f.key ? (
-                  <PanelLogistica key={`${f.key}-${pagandoLog.concepto}`} fila={f} concepto={pagandoLog.concepto} transportistas={ws.transportistas ?? []} onCancel={() => setPagandoLog(null)} onDone={recargar} />
-                ) : null}
-              </Fragment>
-            ))}
-            {!filasLogVista.length ? <p className="py-6 text-center text-[13px] text-[#8F908A]">{soloPendientes ? "No hay gastos de logística pendientes." : "Nada coincide con el filtro."}</p> : null}
           </div>
         </section>
       ) : null}
