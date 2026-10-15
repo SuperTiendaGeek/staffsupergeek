@@ -18,8 +18,10 @@
 // creadas salen de la tabla: se corrige y se vuelve a guardar.
 //
 // Diseño aprobado por el dueño (boceto 2, 14-oct): lima = la orden; neutro =
-// artículos; verde = el pago; amarillo = lo que falta completar. Pantalla de
-// uso diario: etiquetas cortas, ayuda en tooltips, uso número 100.
+// artículos; verde = el pago; amarillo = lo que falta completar; azul = cargar
+// la lista desde una hoja (entrega 2, 15-oct: pegar, subir .xlsx/.csv y
+// plantilla; ver ImportarLineasPanel). Pantalla de uso diario: etiquetas
+// cortas, ayuda en tooltips, uso número 100.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -58,6 +60,7 @@ import {
   type LineaCompra,
 } from "@/lib/shipping-v2/ordenes-compra";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+import { ACCEPT_HOJAS, ImportarLineasPanel, type EntradaImportacion } from "./ImportarLineasPanel";
 
 const METODOS_PAGO = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((m) => m !== "No aplica");
 const CUENTAS_PAGO = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((c) => c !== "No aplica");
@@ -65,6 +68,7 @@ const COMPRA = "Compra a proveedor";
 const REGALO = "Regalo de proveedor";
 const DESPIECE = "Despiece de equipo";
 const CONDICION_INICIAL = SHIPPING_V2_CONDICIONES[0] ?? "";
+const SIN_RECORDADO: Record<string, string> = {};
 
 function hoyLocal() {
   const d = new Date();
@@ -243,6 +247,10 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
   // Si falla una fila a mitad de camino, lo creado queda en esta orden y se sigue en ella.
   const [ordenEnCurso, setOrdenEnCurso] = useState<{ id: string; ocId: string } | null>(ordenExistente ? { id: ordenExistente.id, ocId: ordenExistente.ocId } : null);
   const [creados, setCreados] = useState<string[]>([]);
+  // Entrega 2: cargar la lista desde una hoja.
+  const [importar, setImportar] = useState<EntradaImportacion | null>(null);
+  const [importado, setImportado] = useState<{ n: number; avisos: string[] } | null>(null);
+  const [recordadosLocales, setRecordadosLocales] = useState<Record<string, Record<string, string>>>({});
 
   const origen = cab.origen || null;
   const vieneDeAfuera = origen === ORIGEN_EXTRANJERO || origen === ORIGEN_LOCAL;
@@ -270,6 +278,9 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
   const origenesPermitidos = ordenExistente && proveedorOrden
     ? ORIGENES_ARTICULO.filter((o) => o === ORIGEN_TIENDA || o === origenSegunZona(proveedorOrden.paisZonaLogistica))
     : ORIGENES_ARTICULO;
+
+  const proveedorSel = proveedores.find((p) => p.id === cab.proveedorId) ?? null;
+  const columnasRecordadas = (cab.proveedorId && recordadosLocales[cab.proveedorId]) || proveedorSel?.columnasImportacion || SIN_RECORDADO;
 
   const cajasCompatibles = cajasAbiertas.filter((caja) => {
     const ids = new Set([caja.proveedorResponsableId, caja.proveedorLogisticoEcId].filter(Boolean));
@@ -371,6 +382,62 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
   function aplicarATodasLasFilas() {
     if (!aplicar.categoria && !aplicar.condicion) return;
     setLineas((ls) => aplicarATodas(ls, aplicar));
+  }
+
+  function abrirImportar(datos: { texto?: string; archivo?: File }) {
+    setImportado(null);
+    setImportar((actual) => ({ n: (actual?.n ?? 0) + 1, ...datos }));
+  }
+
+  /** Las filas de la hoja entran a la tabla (reemplazan las filas vacías). */
+  function agregarImportadas(parciales: Array<Partial<LineaCompra>>, avisos: string[]) {
+    const regaloPermitido = permiteRegalo && esCompra;
+    const regalosQuitados = regaloPermitido ? 0 : parciales.filter((p) => p.regalo).length;
+    const nuevas = parciales.map((p) => nuevaLinea(claveFila(), {
+      condicion: CONDICION_INICIAL,
+      activo: esActivoInicial && !esDespiece,
+      ...p,
+      regalo: regaloPermitido ? Boolean(p.regalo) : false,
+    }));
+    setLineas((ls) => [...ls.filter((l) => !lineaEnBlanco(l) || (fotos[l.key]?.length ?? 0) > 0), ...nuevas]);
+    setImportado({
+      n: nuevas.length,
+      avisos: regalosQuitados ? [...avisos, `${regalosQuitados} regalo(s) quedan como compra (aquí no se marcan regalos): escribe su costo.`] : avisos,
+    });
+    setImportar(null);
+  }
+
+  async function recordarColumnas(columnas: Record<string, string>) {
+    const id = cab.proveedorId;
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/shipping-v2/proveedores/${id}/columnas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ columnas }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload.success) throw new Error(String(payload.error || "error inesperado"));
+      setRecordadosLocales((m) => ({ ...m, [id]: payload.data as Record<string, string> }));
+    } catch (e) {
+      setImportado((x) => (x ? { ...x, avisos: [...x.avisos, `No se pudieron recordar las columnas (${e instanceof Error ? e.message : "error"}).`] } : x));
+    }
+  }
+
+  async function descargarPlantilla() {
+    const [{ crearPlantillaXlsx }, { columnasPlantilla }] = await Promise.all([
+      import("@/lib/shipping-v2/hoja-xlsx"),
+      import("@/lib/shipping-v2/importar-lineas"),
+    ]);
+    const bytes = crearPlantillaXlsx(columnasPlantilla(SHIPPING_V2_CATEGORIAS, SHIPPING_V2_CONDICIONES));
+    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "Plantilla compra SUPER GEEK.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function addPhotos(key: string, files: File[]) {
@@ -683,6 +750,14 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <h2 className="text-[11px] font-bold uppercase tracking-wider text-[#F5F5F5]">Artículos</h2>
           <button type="button" onClick={agregarFila} className="rounded-full border border-[#D7FF4F] px-2.5 py-0.5 text-[11.5px] font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515]">+ Agregar</button>
+          <button type="button" onClick={() => (importar ? setImportar(null) : abrirImportar({}))} title="Copia las filas en Excel o Google Sheets y pégalas"
+            className={`rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold transition ${importar ? "border-[#4FC3FF] bg-[#4FC3FF] text-[#0B1216]" : "border-[#4FC3FF]/70 text-[#4FC3FF] hover:bg-[#4FC3FF]/10"}`}>Pegar desde hoja</button>
+          <label title="Excel (.xlsx) o CSV" className="cursor-pointer rounded-full border border-[#4FC3FF]/70 px-2.5 py-0.5 text-[11.5px] font-semibold text-[#4FC3FF] transition hover:bg-[#4FC3FF]/10">
+            <input type="file" accept={ACCEPT_HOJAS} className="sr-only" onChange={(e: ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) abrirImportar({ archivo: f }); e.target.value = ""; }} />
+            Subir archivo
+          </label>
+          <button type="button" onClick={() => void descargarPlantilla()} title="Excel con las columnas y listas de SUPER GEEK, para pasar ofertas (WhatsApp) a una hoja"
+            className="rounded-full border border-[#3A3A36] px-2.5 py-0.5 text-[11.5px] font-semibold text-[#B4B5AC] transition hover:text-[#F5F5F5]">Plantilla</button>
           <div className="ml-auto flex flex-wrap items-center gap-1.5 text-[11px] text-[#8F908A]" title="Pone la categoría y/o la condición en todas las filas.">
             Aplicar a todas
             <select value={aplicar.categoria} onChange={(e) => setAplicar((a) => ({ ...a, categoria: e.target.value }))} className="h-7 rounded-md border border-[#3A3A36] bg-[#151515] px-1.5 text-[12px] text-[#F5F5F5] outline-none" aria-label="Categoría para todas">
@@ -697,9 +772,31 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
           </div>
         </div>
 
+        {importar ? (
+          <ImportarLineasPanel
+            key={importar.n}
+            entrada={importar}
+            proveedor={proveedorSel ? { id: proveedorSel.id, nombre: getShippingV2ProveedorLabel(proveedorSel) } : null}
+            recordado={columnasRecordadas}
+            condicionPorDefecto={CONDICION_INICIAL}
+            onAgregar={agregarImportadas}
+            onRecordar={(c) => void recordarColumnas(c)}
+            onCerrar={() => setImportar(null)}
+          />
+        ) : null}
+        {importado ? (
+          <div className="mb-2 flex items-start gap-2 rounded-md border border-[#4FC3FF]/30 bg-[#4FC3FF]/[0.06] px-2 py-1.5 text-[12px] text-[#BDEAFF]">
+            <div className="min-w-0 flex-1">
+              Se agregaron {importado.n} artículo(s) de la hoja. Revisa lo que está en amarillo; nada se guarda hasta “{ordenExistente ? `Agregar a ${ordenExistente.ocId}` : esCompra ? "Registrar compra" : "Registrar"}”.
+              {importado.avisos.length ? <ul className="mt-0.5 text-[11.5px] text-[#F4C95B]">{importado.avisos.map((a) => <li key={a}>· {a}</li>)}</ul> : null}
+            </div>
+            <button type="button" onClick={() => setImportado(null)} aria-label="Cerrar aviso" className="text-[14px] leading-none text-[#8F908A] hover:text-[#F5F5F5]">×</button>
+          </div>
+        ) : null}
+
         <div className="overflow-x-auto">
           <div className="min-w-[860px]">
-            <div className="grid grid-cols-[22px_minmax(0,1fr)_96px_118px_96px_50px_84px_80px_76px_62px] items-center gap-1.5 rounded bg-[#1E1F19] px-1.5 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
+            <div className="grid grid-cols-[22px_minmax(0,1fr)_108px_118px_96px_50px_84px_80px_76px_62px] items-center gap-1.5 rounded bg-[#1E1F19] px-1.5 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
               <span>#</span><span>Nombre</span><span>SKU prov.</span><span>Categoría</span><span>Cond.</span><span className="text-right">Cant.</span><span className="text-right">Costo u.</span><span className="text-right">Subtotal</span><span className="text-right">Venta</span><span />
             </div>
             {lineas.map((l, i) => {
@@ -712,10 +809,15 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
               const inspeccion = requiereInspeccionDe(l);
               return (
                 <div key={l.key} className={`border-t border-[#2A2B26] ${marcar ? "bg-[#F4C95B]/[0.06]" : ""}`}>
-                  <div className="grid grid-cols-[22px_minmax(0,1fr)_96px_118px_96px_50px_84px_80px_76px_62px] items-start gap-1.5 px-1.5 py-1">
+                  <div className="grid grid-cols-[22px_minmax(0,1fr)_108px_118px_96px_50px_84px_80px_76px_62px] items-start gap-1.5 px-1.5 py-1">
                     <span className="pt-2 text-[11px] tabular-nums text-[#6F706A]" title={marcar ? `Falta: ${faltan.join(", ")}` : undefined}>{marcar ? <span className="text-[#F4C95B]">!</span> : i + 1}</span>
                     <div className="min-w-0">
-                      <TextInput value={l.nombre} onChange={(e) => setL(l.key, { nombre: e.target.value })} invalid={marcar && faltan.includes("nombre")} placeholder="Nombre del artículo" />
+                      <TextInput value={l.nombre} onChange={(e) => setL(l.key, { nombre: e.target.value })} invalid={marcar && faltan.includes("nombre")} placeholder="Nombre del artículo"
+                        onPaste={(e) => {
+                          // Varias celdas copiadas de una hoja: se abren en "Cargar lista" en vez de pegarse aquí.
+                          const pegado = e.clipboardData.getData("text/plain");
+                          if (/[\t\n]/.test(pegado.replace(/\s+$/, ""))) { e.preventDefault(); abrirImportar({ texto: pegado }); }
+                        }} />
                       {sugerencia && sugerencia !== l.nombre.trim() ? (
                         <button type="button" onClick={() => setL(l.key, { nombre: sugerencia })} className="mt-0.5 block max-w-full truncate text-left text-[11px] text-[#D7FF4F] hover:underline" title="Usar este nombre">Usar: {sugerencia}</button>
                       ) : null}

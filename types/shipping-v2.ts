@@ -205,6 +205,11 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   esloganFactura?: string;
   /** Texto libre, una línea por dato (dirección, teléfono, registro, etc.) — se muestra tal cual en el encabezado de la factura. Solo lo usan las plantillas que lo necesitan. */
   datosEmpresaFactura?: string;
+  /**
+   * Punto 9d (entrega 2): qué es cada columna de la hoja de este proveedor
+   * (título normalizado → campo; "" = ignorar). Se recuerda al cargar una lista.
+   */
+  columnasImportacion?: Record<string, string>;
 };
 
 export type ShippingV2AccessMode = "staff" | "provider" | "none";
