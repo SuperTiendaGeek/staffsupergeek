@@ -13,6 +13,8 @@ import {
   eliminarOrdenCompraVacia,
   getShippingV2OrdenCompraById,
   getShippingV2PagosWorkspace,
+  getShippingV2Proveedores,
+  guardarColumnasImportacionProveedor,
   moverArticuloDeOrden,
   registrarPagoOrdenCompra,
 } from "../airtable";
@@ -175,6 +177,16 @@ try {
   assert((ws.ordenes ?? []).some((x) => x.id === orden2.id && x.resumen.situacion === "falta-respaldo" && x.resumen.falta === 16), "Pagos muestra la orden con Falta respaldo $16");
   assert(!ws.porPagar.some((i) => i.id === cable.id), "Lo que está en una orden no se repite como \"Sin orden\"");
   await rechaza(() => getShippingV2OrdenCompraById(orden.id, { ...staff, providerId: ebay, mode: "provider" as const }), "portal del proveedor", "El portal del proveedor no ve órdenes");
+
+  console.log("\n— Recordar columnas del proveedor (entrega 2) —");
+  const guardado = await guardarColumnasImportacionProveedor(ebay, { "Lote": "skuProveedor", "Precio": "", "Raro": "noExiste" }, { access: staff });
+  assert(JSON.stringify(guardado) === JSON.stringify({ lote: "skuProveedor", precio: "" }), "Guarda solo campos que existen");
+  const prov = (await getShippingV2Proveedores()).find((p) => p.id === ebay);
+  assert(prov?.columnasImportacion?.lote === "skuProveedor" && prov?.columnasImportacion?.precio === "", "El proveedor trae lo recordado");
+  await rechaza(() => guardarColumnasImportacionProveedor(ebay, {}, { access: { ...staff, providerId: ebay, mode: "provider" as const } }), "portal del proveedor", "El portal del proveedor no lo cambia");
+  await guardarColumnasImportacionProveedor(ebay, {}, { access: staff });
+  const prov2 = (await getShippingV2Proveedores()).find((p) => p.id === ebay);
+  assert(JSON.stringify(prov2?.columnasImportacion) === "{}", "Vaciar lo recordado");
 } catch (e) {
   fallos++;
   console.error("✗ Error inesperado:", e);

@@ -146,6 +146,7 @@ import {
   validarCabeceraOrden,
   validarQuitarDeOrden,
 } from "@/lib/shipping-v2/ordenes-compra";
+import { CAMPO_COLUMNAS_IMPORTACION, limpiarColumnasRecordadas } from "@/lib/shipping-v2/importar-lineas";
 import { withShippingV2PackingProviderCostSummary } from "@/lib/shipping-v2/packing-calculations";
 import { planShippingV2PackingItemSync } from "@/lib/shipping-v2/packing-item-sync";
 import {
@@ -1347,6 +1348,7 @@ function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
     nombreComercialFactura: firstString(f["Nombre comercial (factura)"]),
     esloganFactura: firstString(f["Eslogan (factura)"]),
     datosEmpresaFactura: firstString(f["Datos de empresa (factura)"]),
+    columnasImportacion: limpiarColumnasRecordadas(f[CAMPO_COLUMNAS_IMPORTACION]),
   };
 }
 
@@ -4788,6 +4790,26 @@ export async function registrarPagoOrdenCompra(
 }
 
 /** Borra una orden que quedó vacía (por ejemplo, si falló el primer artículo al registrar). */
+/**
+ * Punto 9d (entrega 2): recuerda qué es cada columna de la hoja de un
+ * proveedor, para que la próxima carga salga sola. Solo personal de la tienda.
+ */
+export async function guardarColumnasImportacionProveedor(
+  proveedorId: string,
+  columnas: unknown,
+  options: { access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para registrar compras.");
+  if (options.access?.providerId) throw new Error("No disponible en el portal del proveedor.");
+  const proveedor = await getShippingV2ProveedorById(proveedorId);
+  if (!proveedor) throw new Error("Proveedor no encontrado.");
+  const limpio = limpiarColumnasRecordadas(columnas);
+  await patchAirtableRecords(SHIPPING_V2_TABLES.proveedores, [
+    { id: proveedor.id, fields: { [CAMPO_COLUMNAS_IMPORTACION]: Object.keys(limpio).length ? JSON.stringify(limpio) : "" } },
+  ]);
+  return limpio;
+}
+
 export async function eliminarOrdenCompraVacia(ordenId: string, options: { access?: ShippingV2AccessContext }) {
   assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para registrar compras.");
   const id = cleanString(ordenId);
