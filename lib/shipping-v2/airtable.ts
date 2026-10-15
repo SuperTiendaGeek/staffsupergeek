@@ -51,6 +51,9 @@ import type {
   ShippingV2RecepcionChecklistAction,
   ShippingV2ItemNovedadInput,
   ShippingV2TechnicalOption,
+  ShippingV2OrdenArticulo,
+  ShippingV2OrdenCompra,
+  ShippingV2OrdenCompraWriteInput,
 } from "@/types/shipping-v2";
 import type { StaffSession } from "@/lib/session";
 import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
@@ -90,6 +93,8 @@ import {
   ESTADO_INICIAL_EN_CAMINO,
   esPagoHistorico,
   faltaRespaldo,
+  validarRespaldo,
+  type RespaldoAlRegistrar,
   type SituacionPago,
 } from "@/lib/shipping-v2/pagos-situacion";
 import {
@@ -132,6 +137,15 @@ import {
   calculateShippingV2PaymentItemsTotal,
   type ShippingV2PaymentItemLike,
 } from "@/lib/shipping-v2/payment-calculations";
+import {
+  ORDEN_COMPRA_FIELDS,
+  ocIdDesdeNumero,
+  resumenOrden,
+  validarAnularPago,
+  validarArticuloParaOrden,
+  validarCabeceraOrden,
+  validarQuitarDeOrden,
+} from "@/lib/shipping-v2/ordenes-compra";
 import { withShippingV2PackingProviderCostSummary } from "@/lib/shipping-v2/packing-calculations";
 import { planShippingV2PackingItemSync } from "@/lib/shipping-v2/packing-item-sync";
 import {
@@ -234,7 +248,7 @@ import {
 import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
 import { calculateShippingV2BatteryState, shippingV2CategoryDoesNotUseScreenOrBattery, shippingV2CategoryHasBattery } from "@/lib/shipping-v2/technical-sheet";
 import { fetchCuentaPorNombre, fetchCuentaPorNombreNormalizado } from "@/lib/finanzas/cuentas";
-import { crearMovimiento } from "@/lib/finanzas/movimientos";
+import { anularMovimiento, crearMovimiento } from "@/lib/finanzas/movimientos";
 import { CAMPOS_ITEM, confirmacionValida, detectarVinculosDesconocidos, evaluarEliminacion, type ContextoEliminacion, type EvaluacionEliminacion } from "@/lib/shipping-v2/eliminar-item";
 
 type AirtableRecord = {
@@ -1516,6 +1530,7 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     unidadesDadasDeBaja: firstNumber(f["Unidades dadas de baja"]),
     unidadesEnPacking: firstNumber(f[F.unidadesEnPacking]),
     unidadesCompradas: firstNumber(f[F.unidadesCompradas]),
+    ordenCompraId: linkedRecordIds(f[F.ordenCompra])[0] || undefined,
     fleteAsignadoRegistro: firstNumber(f[F.fleteAsignadoRegistro]),
     arancelAsignadoRegistro: firstNumber(f[F.arancelAsignadoRegistro]),
     otrosCostosAsignadosRegistro: firstNumber(f[F.otrosCostosAsignadosRegistro]),
@@ -1703,6 +1718,7 @@ function mapPago(record: AirtableRecord, context: { labelsById?: Map<string, str
     cuentaOrigen: firstString(f[F.cuentaOrigen]),
     transaccionId: firstString(f[F.transaccionId]),
     orden: firstString(f[F.orden]),
+    ordenCompraId: linkedRecordIds(f[F.ordenCompra])[0] || undefined,
     concepto: conceptoDePago(firstString(f[F.concepto])),
     packingLogisticaIds: linkedRecordIds(f[F.packingLogistica]),
     itemLogisticaIds: linkedRecordIds(f[F.itemLogistica]),
@@ -3047,13 +3063,23 @@ async function createShippingV2ItemRecord(
   return item;
 }
 
-export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string }) {
+export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string; ordenCompraId?: string }) {
   const calculatedInput = completarAltaSegunLlegada(applyCalculatedItemFlow(prepararAltaSegunOrigen(input)));
   const normalizedInput = normalizeShippingV2ItemMoneyQuantityInput(calculatedInput.input, { mode: "create" });
   validateItemInput(normalizedInput);
   await validateItemProviderRules(normalizedInput);
+  // Punto 9d: desde "Registrar compra" el artículo nace dentro de su orden.
+  const ordenCompraId = cleanString(options.ordenCompraId);
+  const orden = ordenCompraId ? await ordenParaArticuloNuevo(ordenCompraId, normalizedInput) : null;
 
-  return createShippingV2ItemRecord(normalizedInput, { ...options, extraFields: calculatedInput.extraFields });
+  return createShippingV2ItemRecord(normalizedInput, {
+    registradoPor: options.registradoPor,
+    extraFields: {
+      ...calculatedInput.extraFields,
+      ...(orden ? { [SHIPPING_V2_ITEM_FIELDS.ordenCompra]: [orden.id] } : {}),
+    },
+    eventDescription: orden ? `Artículo creado en la orden de compra ${orden.ocId} desde Portal Staff.` : undefined,
+  });
 }
 
 /**
@@ -3936,7 +3962,8 @@ export async function getShippingV2PendingPaymentItems(context?: { pagos?: Shipp
 
 export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessContext): Promise<ShippingV2PagosWorkspace> {
   assertShippingV2Permission(access, "canViewPayments", "No tienes permiso para ver pagos de Shipping.");
-  const [pagos, proveedores, items, packings] = await Promise.all([
+  const veOrdenes = canShippingV2(access, "canManagePayments") && !access?.providerId;
+  const [pagos, proveedores, items, packings, ordenRecords] = await Promise.all([
     getShippingV2Pagos(access),
     getShippingV2Proveedores(),
     getShippingV2PaymentItems({ includeAiName: false, access }),
@@ -3944,11 +3971,24 @@ export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessConte
     // solo se resuelve el packing en sí para poder agrupar por él en la
     // pantalla de Pagos, sin inventar una relación paralela.
     getShippingV2Packings(access),
+    veOrdenes ? listOrdenCompraRecords() : Promise.resolve([] as AirtableRecord[]),
   ]);
   const pagosById = new Map(pagos.map((pago) => [pago.id, pago]));
   const packingsById = new Map(packings.map((packing) => [packing.id, packing]));
   const canManagePayments = canShippingV2(access, "canManagePayments");
-  const itemsPendientes = canManagePayments ? await getShippingV2PendingPaymentItems({ pagos, items, packings, access }) : [];
+  // Punto 9d: lo que está en una orden se paga desde su orden; aquí sigue
+  // apareciendo, agrupado por caja o suelto, solo lo que no tiene orden.
+  const labelsOrdenes = createShippingV2ProveedorLabelMap(proveedores);
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  const ordenes = ordenRecords.map((record) => construirOrden(mapOrdenCompraBase(record, labelsOrdenes), { itemsById, pagosById, packingsById }));
+  const ordenIds = new Set(ordenes.map((orden) => orden.id));
+  const enOrden = (itemId: string) => {
+    const ordenId = itemsById.get(itemId)?.ordenCompraId;
+    return Boolean(ordenId && ordenIds.has(ordenId));
+  };
+  const itemsPendientes = canManagePayments
+    ? (await getShippingV2PendingPaymentItems({ pagos, items, packings, access })).filter((item) => !enOrden(item.id))
+    : [];
   const pagosPendientes = pagos.filter(isPendingPayment);
   const pagosPagados = pagos.filter((pago) => normalizeStatus(String(pago.estadoPago)) === "pagado");
   const pagosCompletos = pagosPagados.filter(isCompletePaidPayment);
@@ -3969,7 +4009,7 @@ export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessConte
   const pagadosSinSoporte = [...itemsPagadosSinPago, ...pagosIncompletos];
   const regalosEnCaja = canManagePayments
     ? items
-      .filter((item) => item.esRegalo === true && Boolean(item.packingId) && !isCancelledItem(item) && !itemIsLinkedToActivePayment(item, pagosById))
+      .filter((item) => item.esRegalo === true && Boolean(item.packingId) && !isCancelledItem(item) && !itemIsLinkedToActivePayment(item, pagosById) && !enOrden(item.id))
       .map((item) => toPendingPaymentItem(item, packingsById))
     : [];
   const labelsProveedores = createShippingV2ProveedorLabelMap(proveedores);
@@ -3978,6 +4018,7 @@ export async function getShippingV2PagosWorkspace(access?: ShippingV2AccessConte
   return {
     pagos,
     proveedores: access?.providerId ? proveedores.filter((provider) => provider.id === access.providerId) : proveedores,
+    ordenes,
     logistica,
     transportistas,
     itemsPendientes,
@@ -4354,6 +4395,7 @@ export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, opti
     [F.fechaVencimientoSugerida]: computeSuggestedDueDate(provider, input.fechaVencimientoSugerida),
     [F.observacion]: cleanString(input.observacion),
     [F.orden]: cleanString(input.orden),
+    [F.ordenCompra]: cleanString(input.ordenCompraId) ? [cleanString(input.ordenCompraId)] : undefined,
     [F.estadoIntegracionFinanzas]: estadoPago === "Pagado" ? "Pendiente de sincronizar" : "Pendiente de generar",
     [F.registradoPor]: options.registradoPor,
   });
@@ -4366,7 +4408,22 @@ export async function createShippingV2Pago(input: ShippingV2PagoWriteInput, opti
   if (!created) throw new Error("Airtable no devolvió el pago creado.");
   const pago = await getShippingV2PagoById(created.id, options.access);
   if (estadoPago === "Pagado") {
-    return markShippingV2PagoAsPaid(pago.id, input, options);
+    try {
+      return await markShippingV2PagoAsPaid(pago.id, input, options);
+    } catch (e) {
+      // Punto 9d: sin egreso en Finanzas el pago no puede quedar "Pagado" (los
+      // artículos parecerían pagados). Se anula y se avisa (igual que logística).
+      await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.pagos), {
+        method: "PATCH",
+        body: JSON.stringify({ records: [{ id: pago.id, fields: {
+          [F.estadoPago]: "Anulado",
+          [F.estadoIntegracionFinanzas]: "Anulado",
+          [F.fechaAnulacion]: new Date().toISOString(),
+          [F.motivoAnulacion]: `No se pudo registrar el pago: ${e instanceof Error ? e.message : String(e)}`,
+        } }] }),
+      }).catch((err) => console.error("[Shipping V2 pago] no se pudo anular el pago incompleto", err));
+      throw e;
+    }
   }
   return pago;
 }
@@ -4497,6 +4554,344 @@ export async function cancelShippingV2Pago(recordId: string, input: { motivo?: s
     }),
   });
   return getShippingV2PagoById(pago.id, options.access);
+}
+
+// ─── Órdenes de compra (punto 9d, 14-oct-2026) ──────────────────────────────
+// Reglas en lib/shipping-v2/ordenes-compra.ts. Una orden agrupa lo comprado en
+// una sola compra a un proveedor (sus artículos) y el pago se registra contra
+// la orden: un pago por el total, con un egreso en Finanzas. Lo que todavía no
+// está en un pago vivo es lo que "falta". Roberto (portal) no ve órdenes.
+
+const OC = ORDEN_COMPRA_FIELDS;
+
+type OrdenCompraBase = Omit<ShippingV2OrdenCompra, "articulos" | "pagos" | "resumen">;
+
+function fechaHoyEcuador() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guayaquil", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+function mapOrdenCompraBase(record: AirtableRecord, labelsById: Map<string, string> = new Map()): OrdenCompraBase {
+  const f = record.fields;
+  const proveedorId = firstString(f[OC.proveedor]);
+  return {
+    id: record.id,
+    createdTime: record.createdTime,
+    ocId: firstString(f[OC.ocId]) || ocIdDesdeNumero(firstNumber(f[OC.numero])) || record.id,
+    proveedorId: proveedorId || undefined,
+    proveedorNombre: proveedorId ? resolveShippingV2ProveedorLabel(proveedorId, labelsById) || undefined : undefined,
+    numeroProveedor: firstString(f[OC.numeroProveedor]) || undefined,
+    fechaCompra: firstString(f[OC.fechaCompra]) || undefined,
+    observaciones: firstString(f[OC.observaciones]) || undefined,
+    registradoPor: firstString(f[OC.registradoPor]) || undefined,
+    fechaCreacion: firstString(f[OC.fechaCreacion], record.createdTime),
+    anulada: firstBoolean(f[OC.anulada]) === true,
+    motivoAnulacion: firstString(f[OC.motivoAnulacion]) || undefined,
+    fechaAnulacion: firstString(f[OC.fechaAnulacion]) || undefined,
+    itemIds: linkedRecordIds(f[OC.articulos]),
+    pagoIds: linkedRecordIds(f[OC.pagos]),
+  };
+}
+
+function articuloDeOrden(item: ShippingV2Item, pagosById: Map<string, ShippingV2Pago>, packingsById?: Map<string, ShippingV2Packing>): ShippingV2OrdenArticulo {
+  let subtotal: number | null;
+  try {
+    subtotal = item.esRegalo ? 0 : calculateShippingV2PaymentItemSubtotal(item);
+  } catch {
+    subtotal = null;
+  }
+  return {
+    id: item.id,
+    sku: item.sku,
+    nombre: item.nombre,
+    categoria: item.categoria,
+    estado: item.estado,
+    skuProveedor: item.skuProveedor,
+    cantidad: item.cantidad ?? null,
+    unidadesCompradas: item.unidadesCompradas ?? null,
+    costoProveedor: item.costoProveedor ?? null,
+    costoTotalUnidad: item.costoTotalUnidad ?? null,
+    subtotal,
+    esRegalo: item.esRegalo === true,
+    requierePago: item.requierePago === true,
+    usoLocal: item.usoLocal === true,
+    cancelado: isCancelledItem(item),
+    enPagoVivo: itemIsLinkedToActivePayment(item, pagosById),
+    packingId: item.packingId,
+    packingIdVisible: item.packingId ? packingsById?.get(item.packingId)?.packingId : undefined,
+    recibido: item.recibido === true,
+  };
+}
+
+function construirOrden(
+  base: OrdenCompraBase,
+  ctx: { itemsById: Map<string, ShippingV2Item>; pagosById: Map<string, ShippingV2Pago>; packingsById?: Map<string, ShippingV2Packing> }
+): ShippingV2OrdenCompra {
+  const items = base.itemIds.map((id) => ctx.itemsById.get(id)).filter((i): i is ShippingV2Item => Boolean(i));
+  const articulos = items.map((item) => articuloDeOrden(item, ctx.pagosById, ctx.packingsById));
+  const pagos = base.pagoIds.map((id) => ctx.pagosById.get(id)).filter((p): p is ShippingV2Pago => Boolean(p));
+  const resumen = resumenOrden({
+    anulada: base.anulada,
+    articulos: items.map((item, i) => ({ ...summarizePaymentItem(item), requierePago: item.requierePago, cancelado: articulos[i].cancelado, enPagoVivo: articulos[i].enPagoVivo })),
+    pagos: pagos.map((p) => ({ id: p.id, estado: String(p.estadoPago), total: p.totalAPagar })),
+  });
+  return {
+    ...base,
+    articulos,
+    pagos: pagos.map((p) => ({
+      id: p.id,
+      pagoId: p.pagoId,
+      estadoPago: p.estadoPago,
+      totalAPagar: p.totalAPagar,
+      fechaPagoReal: p.fechaPagoReal,
+      metodoPago: p.metodoPago,
+      cuentaOrigen: p.cuentaOrigen,
+      transaccionId: p.transaccionId,
+      registradoPor: p.registradoPor || p.pagadoPor,
+      motivoAnulacion: p.motivoAnulacion,
+      fechaAnulacion: p.fechaAnulacion,
+      conComprobante: Boolean(p.transaccionId || p.comprobante.length),
+      cantidadItems: p.cantidadItems,
+    })),
+    resumen,
+  };
+}
+
+function assertAccesoOrdenes(access?: ShippingV2AccessContext) {
+  assertShippingV2Permission(access, "canViewPayments", "No tienes permiso para ver órdenes de compra.");
+  if (access?.providerId) throw new Error("Las órdenes de compra no están disponibles en el portal del proveedor.");
+}
+
+async function listOrdenCompraRecords() {
+  return listRecords(SHIPPING_V2_TABLES.ordenesCompra, { sortField: OC.fechaCreacion, sortDirection: "desc" });
+}
+
+export async function getShippingV2OrdenCompraById(recordId: string, access?: ShippingV2AccessContext): Promise<ShippingV2OrdenCompra> {
+  assertAccesoOrdenes(access);
+  const id = cleanString(recordId);
+  if (!id) throw new Error("Orden de compra inválida.");
+  const [record, proveedores] = await Promise.all([getRecordById(SHIPPING_V2_TABLES.ordenesCompra, id), getShippingV2Proveedores()]);
+  if (!record) throw new Error("Orden de compra no encontrada.");
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+  const base = mapOrdenCompraBase(record, labelsById);
+  const items = (await listRecordsByIds(SHIPPING_V2_TABLES.items, base.itemIds)).map((r) => applyItemProviderLabels(mapItem(r, { includeAiName: false }), labelsById));
+  // Los pagos de la orden y los de sus artículos (para saber qué ya está pagado).
+  const pagoIds = Array.from(new Set([...base.pagoIds, ...items.flatMap(paymentLinkedIdsForItem)]));
+  const pagos = (await listRecordsByIds(SHIPPING_V2_TABLES.pagos, pagoIds)).map((r) => mapPago(r, { labelsById }));
+  const packingIds = Array.from(new Set(items.map((i) => i.packingId).filter((x): x is string => Boolean(x))));
+  const packings = packingIds.length ? (await listRecordsByIds(SHIPPING_V2_TABLES.packings, packingIds)).map(mapPacking) : [];
+  return construirOrden(base, {
+    itemsById: new Map(items.map((i) => [i.id, i])),
+    pagosById: new Map(pagos.map((p) => [p.id, p])),
+    packingsById: new Map(packings.map((p) => [p.id, p])),
+  });
+}
+
+/** Órdenes del mismo proveedor (para "Mover a otra orden" del Administrador). */
+export async function getShippingV2OrdenesDeProveedor(proveedorId: string, access?: ShippingV2AccessContext) {
+  assertAccesoOrdenes(access);
+  const id = cleanString(proveedorId);
+  if (!id) return [];
+  return (await listOrdenCompraRecords())
+    .map((r) => mapOrdenCompraBase(r))
+    .filter((o) => o.proveedorId === id && !o.anulada)
+    .map((o) => ({ id: o.id, ocId: o.ocId, numeroProveedor: o.numeroProveedor, fechaCompra: o.fechaCompra }));
+}
+
+export async function createShippingV2OrdenCompra(input: ShippingV2OrdenCompraWriteInput, options: { registradoPor: string; access?: ShippingV2AccessContext }) {
+  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para registrar compras.");
+  if (options.access?.providerId) throw new Error("Las compras se registran desde la tienda.");
+  const proveedorId = cleanString(input.proveedorId);
+  const fechaCompra = cleanString(input.fechaCompra) || fechaHoyEcuador();
+  const error = validarCabeceraOrden({ proveedorId, fechaCompra });
+  if (error) throw new Error(error);
+  const proveedor = await getShippingV2ProveedorById(proveedorId);
+  if (!proveedor) throw new Error("El proveedor elegido no existe.");
+  if (!canBePurchaseProvider(proveedor)) throw new Error(`${proveedor.label} no es un proveedor de compra activo.`);
+
+  const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.ordenesCompra), {
+    method: "POST",
+    body: JSON.stringify({
+      records: [{
+        fields: compactFields({
+          [OC.proveedor]: [proveedorId],
+          [OC.numeroProveedor]: cleanString(input.numeroProveedor) || undefined,
+          [OC.fechaCompra]: fechaCompra,
+          [OC.observaciones]: cleanString(input.observaciones) || undefined,
+          [OC.registradoPor]: options.registradoPor,
+          [OC.fechaCreacion]: new Date().toISOString(),
+        }),
+      }],
+    }),
+  });
+  const created = response.records?.[0];
+  if (!created) throw new Error("Airtable no devolvió la orden creada.");
+  // El código sale del número que pone Airtable: nunca se repite.
+  const ocId = ocIdDesdeNumero(firstNumber(created.fields?.[OC.numero])) || created.id;
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.ordenesCompra), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id: created.id, fields: { [OC.ocId]: ocId } }] }),
+  });
+  return { id: created.id, ocId, proveedorId, fechaCompra };
+}
+
+/** Un artículo nuevo puede nacer dentro de esta orden (mismo proveedor, compra o regalo). */
+async function ordenParaArticuloNuevo(ordenId: string, input: ShippingV2ItemWriteInput) {
+  const record = await getRecordById(SHIPPING_V2_TABLES.ordenesCompra, ordenId);
+  if (!record) throw new Error("La orden de compra no existe.");
+  const base = mapOrdenCompraBase(record);
+  const error = validarArticuloParaOrden(
+    { anulada: base.anulada, proveedorId: base.proveedorId },
+    { proveedorId: cleanString(input.proveedorId), tipoOperacion: input.tipoOperacion }
+  );
+  if (error) throw new Error(error);
+  return base;
+}
+
+/**
+ * Registra el pago de una orden: lleva los artículos que todavía no están en un
+ * pago vivo (todos, la primera vez; solo lo olvidado, si ya se había pagado) y
+ * los regalos sin pago. Crea el egreso en Finanzas (mismo camino que Pagos).
+ */
+export async function registrarPagoOrdenCompra(
+  ordenId: string,
+  respaldo: RespaldoAlRegistrar & { observacion?: string },
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  assertShippingV2Permission(options.access, "canManagePayments", "No tienes permiso para registrar pagos de Shipping.");
+  const orden = await getShippingV2OrdenCompraById(ordenId, options.access);
+  if (orden.anulada) throw new Error("Esta orden está anulada.");
+  const r = orden.resumen;
+  if (r.sinCosto.length) throw new Error(`${r.sinCosto.join(", ")}: sin costo. Ponle costo en su ficha o márcalo como regalo.`);
+  if (!r.porPagarIds.length) {
+    throw new Error(r.situacion === "sin-pago" ? "Esta orden solo tiene regalos: no lleva pago." : "Esta orden ya está pagada.");
+  }
+  const error = validarRespaldo(respaldo);
+  if (error) throw new Error(error);
+  if (!orden.proveedorId) throw new Error("La orden no tiene proveedor.");
+  return createShippingV2Pago(
+    {
+      proveedorId: orden.proveedorId,
+      itemIds: r.porPagarIds,
+      regalosIds: r.regalosPorAdjuntarIds,
+      estadoPago: "Pagado",
+      fechaPagoReal: respaldo.fechaPagoReal ?? undefined,
+      metodoPago: respaldo.metodoPago ?? undefined,
+      cuentaOrigen: respaldo.cuentaOrigen ?? undefined,
+      transaccionId: respaldo.transaccionId ?? undefined,
+      comprobanteUrl: respaldo.comprobanteUrl ?? undefined,
+      orden: orden.numeroProveedor,
+      ordenCompraId: orden.id,
+      observacion: cleanString(respaldo.observacion) || `Pago de ${orden.ocId}${r.situacion === "falta" ? " (lo que faltaba)" : ""}.`,
+    },
+    options
+  );
+}
+
+/** Borra una orden que quedó vacía (por ejemplo, si falló el primer artículo al registrar). */
+export async function eliminarOrdenCompraVacia(ordenId: string, options: { access?: ShippingV2AccessContext }) {
+  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para registrar compras.");
+  const id = cleanString(ordenId);
+  const record = id ? await getRecordById(SHIPPING_V2_TABLES.ordenesCompra, id) : null;
+  if (!record) return { eliminada: false };
+  const base = mapOrdenCompraBase(record);
+  if (base.itemIds.length || base.pagoIds.length) throw new Error("La orden tiene artículos o pagos: no se borra.");
+  await airtableMutation<{ deleted?: boolean }>(`${tableUrl(SHIPPING_V2_TABLES.ordenesCompra)}/${encodeURIComponent(id)}`, { method: "DELETE" });
+  return { eliminada: true };
+}
+
+/**
+ * Solo Administrador: mueve un artículo a otra orden del mismo proveedor, o lo
+ * deja sin orden. Si el artículo ya está en un pago vivo, primero se anula ese pago.
+ */
+export async function moverArticuloDeOrden(
+  itemId: string,
+  input: { destinoOrdenId?: string; motivo?: string },
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  if (options.access?.isSiteAdmin !== true) throw new Error("Solo el Administrador puede mover un artículo de orden.");
+  const item = await getShippingV2ItemById(cleanString(itemId), { includeAiName: false, access: systemShippingV2Access() });
+  if (!item.ordenCompraId) throw new Error(`${item.sku} no está en una orden de compra.`);
+  const pagos = (await listRecordsByIds(SHIPPING_V2_TABLES.pagos, paymentLinkedIdsForItem(item))).map((r) => mapPago(r));
+  const enPagoVivo = itemIsLinkedToActivePayment(item, new Map(pagos.map((p) => [p.id, p])));
+  const motivo = cleanString(input.motivo);
+  const error = validarQuitarDeOrden({ enPagoVivo, motivo });
+  if (error) throw new Error(error);
+  const destinoId = cleanString(input.destinoOrdenId);
+  if (destinoId === item.ordenCompraId) throw new Error("El artículo ya está en esa orden.");
+  let destinoOc = "";
+  if (destinoId) {
+    const destino = await getRecordById(SHIPPING_V2_TABLES.ordenesCompra, destinoId);
+    if (!destino) throw new Error("La orden de destino no existe.");
+    const base = mapOrdenCompraBase(destino);
+    const e = validarArticuloParaOrden({ anulada: base.anulada, proveedorId: base.proveedorId }, item);
+    if (e) throw new Error(e);
+    destinoOc = base.ocId;
+  }
+  const origen = await getRecordById(SHIPPING_V2_TABLES.ordenesCompra, item.ordenCompraId);
+  const origenOc = origen ? mapOrdenCompraBase(origen).ocId : "la orden anterior";
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id: item.id, fields: { [SHIPPING_V2_ITEM_FIELDS.ordenCompra]: destinoId ? [destinoId] : [] } }] }),
+  });
+  await createShippingV2Event({
+    action: "Otro",
+    itemRecordId: item.id,
+    itemName: item.nombre,
+    registradoPor: options.registradoPor,
+    descripcion: `${item.sku}: de ${origenOc} a ${destinoOc || "sin orden"} (Administrador). Motivo: ${motivo}`,
+  });
+  return { sku: item.sku, origenOc, destinoOc };
+}
+
+/**
+ * Solo Administrador: anula un pago de compra y su egreso en Finanzas (Finanzas
+ * no borra: anula). Sus artículos vuelven a "Falta respaldo". Si el egreso ya
+ * estaba anulado (un intento anterior a medias) se sigue con el pago.
+ */
+export async function anularPagoShippingV2(
+  pagoRecordId: string,
+  input: { motivo?: string },
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  if (options.access?.isSiteAdmin !== true) throw new Error("Solo el Administrador puede anular un pago.");
+  const pago = await getShippingV2PagoById(pagoRecordId, options.access);
+  if (conceptoDePago(pago.concepto) !== "Compra") throw new Error("Los pagos de flete, arancel u otros todavía no se anulan desde aquí.");
+  const motivo = cleanString(input.motivo);
+  const error = validarAnularPago({ estado: String(pago.estadoPago), motivo });
+  if (error) throw new Error(error);
+  const avisos: string[] = [];
+  for (const movimientoId of pago.movimientoFinanzasIds) {
+    try {
+      const r = await anularMovimiento(movimientoId, `Pago ${pago.pagoId} anulado por ${options.registradoPor}: ${motivo}`);
+      if (r.warning) avisos.push(r.warning);
+    } catch (e) {
+      if (!(e instanceof Error && e.message.includes("ya está anulado"))) throw e;
+    }
+  }
+  const F = SHIPPING_V2_PAYMENT_FIELDS;
+  await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.pagos), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{
+        id: pago.id,
+        fields: {
+          [F.estadoPago]: "Anulado",
+          [F.estadoIntegracionFinanzas]: "Anulado",
+          [F.fechaAnulacion]: new Date().toISOString(),
+          [F.motivoAnulacion]: `${motivo} (anulado por ${options.registradoPor})`,
+        },
+      }],
+    }),
+  });
+  for (const itemId of [...pago.itemIds, ...pago.regalosIds]) {
+    await createShippingV2Event({
+      action: "Otro",
+      itemRecordId: itemId,
+      registradoPor: options.registradoPor,
+      descripcion: `Pago ${pago.pagoId} anulado por el Administrador (egreso anulado en Finanzas). Motivo: ${motivo}`,
+    });
+  }
+  return { pago: await getShippingV2PagoById(pago.id, options.access), avisos };
 }
 
 function packingFieldsFromInput(input: ShippingV2PackingWriteInput, extra: Record<string, unknown> = {}) {

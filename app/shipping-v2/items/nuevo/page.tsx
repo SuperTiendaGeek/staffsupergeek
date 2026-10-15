@@ -4,18 +4,21 @@ import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSystem";
 import { Button } from "@/components/ui/button";
-import { getShippingV2AccessContextForSession, getShippingV2Packings, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
+import { getShippingV2AccessContextForSession, getShippingV2OrdenCompraById, getShippingV2Packings, getShippingV2Proveedores } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import type { ShippingV2Proveedor } from "@/types/shipping-v2";
-import { ShippingV2NewItemForm, type ShippingV2CajaAbierta } from "./ShippingV2NewItemForm";
+import { ShippingV2NewItemForm, type ShippingV2CajaAbierta, type ShippingV2OrdenParaAgregar } from "./ShippingV2NewItemForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function ShippingV2NewItemPage({ searchParams }: { searchParams?: Promise<{ activo?: string | string[] }> }) {
+export default async function ShippingV2NewItemPage({ searchParams }: { searchParams?: Promise<{ activo?: string | string[]; orden?: string | string[] }> }) {
   const params = searchParams ? await searchParams : {};
   const activoParam = Array.isArray(params.activo) ? params.activo[0] : params.activo;
   const esActivo = activoParam === "1";
+  // Punto 9d: "+ Agregar artículo" desde una orden de compra.
+  const ordenParam = (Array.isArray(params.orden) ? params.orden[0] : params.orden) || "";
+  let ordenExistente: ShippingV2OrdenParaAgregar | null = null;
   let proveedores: ShippingV2Proveedor[] = [];
   let cajasAbiertas: ShippingV2CajaAbierta[] = [];
   let error = "";
@@ -27,8 +30,23 @@ export default async function ShippingV2NewItemPage({ searchParams }: { searchPa
   }
 
   try {
-    const [listaProveedores, packings] = await Promise.all([getShippingV2Proveedores(), getShippingV2Packings(access)]);
+    const [listaProveedores, packings, orden] = await Promise.all([
+      getShippingV2Proveedores(),
+      getShippingV2Packings(access),
+      ordenParam ? getShippingV2OrdenCompraById(ordenParam, access) : Promise.resolve(null),
+    ]);
     proveedores = listaProveedores;
+    if (orden && !orden.anulada && orden.proveedorId) {
+      ordenExistente = {
+        id: orden.id,
+        ocId: orden.ocId,
+        proveedorId: orden.proveedorId,
+        proveedorNombre: orden.proveedorNombre || orden.proveedorId,
+        numeroProveedor: orden.numeroProveedor,
+        fechaCompra: orden.fechaCompra,
+        falta: orden.resumen.falta,
+      };
+    }
     // Cajas donde todavía se pueden meter artículos ("En Proceso").
     cajasAbiertas = packings
       .filter((p) => (p.estado || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === "en proceso")
@@ -51,11 +69,11 @@ export default async function ShippingV2NewItemPage({ searchParams }: { searchPa
       <div className="w-full max-w-none space-y-3">
         <StaffPageHeader
           eyebrow={<StaffBadge tone="lime">SHIPPING V2</StaffBadge>}
-          title={esActivo ? "Registrar activo de la tienda" : "Registrar artículo"}
+          title={esActivo ? "Registrar activo de la tienda" : ordenExistente ? `Agregar artículos a ${ordenExistente.ocId}` : "Registrar compra"}
           density="compact"
           actions={
             <Button asChild className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
-              <Link href={esActivo ? "/shipping-v2/activos" : "/shipping-v2/items"}>{esActivo ? "Volver a Activos" : "Volver a Items"}</Link>
+              <Link href={ordenExistente ? `/shipping-v2/pagos/ordenes/${ordenExistente.id}` : esActivo ? "/shipping-v2/activos" : "/shipping-v2/items"}>{ordenExistente ? `Volver a ${ordenExistente.ocId}` : esActivo ? "Volver a Activos" : "Volver a Items"}</Link>
             </Button>
           }
         />
@@ -65,7 +83,7 @@ export default async function ShippingV2NewItemPage({ searchParams }: { searchPa
             <p className="mt-2 text-sm leading-6 text-orange-100/85">{error}</p>
           </section>
         ) : null}
-        <ShippingV2NewItemForm proveedores={proveedores} cajasAbiertas={cajasAbiertas} esActivoInicial={esActivo} puedeRegistrarRespaldo={access.permissions.canManagePayments === true} />
+        <ShippingV2NewItemForm proveedores={proveedores} cajasAbiertas={cajasAbiertas} esActivoInicial={esActivo} puedeRegistrarRespaldo={access.permissions.canManagePayments === true} ordenExistente={ordenExistente} />
       </div>
     </div>
     </StaffAppShell>

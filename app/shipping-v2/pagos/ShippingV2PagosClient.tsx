@@ -14,13 +14,18 @@
 // · Un proveedor con portal solo ve sus pagos: fecha, método, nº de transacción.
 // · Flete, arancel y otros (punto 9c, fase 1 · 14-oct) se pagan en su caja o
 //   en la ficha del artículo suelto; aquí aparecen en Registrados.
+// · Punto 9d (14-oct): las compras nuevas viven en ÓRDENES DE COMPRA (OC-…).
+//   En "Compras" cada orden sin respaldo es una fila y se paga por lo que le
+//   falta; lo anterior sin orden sigue agrupado por caja o suelto ("Sin orden").
 // Diseño: pantalla de uso diario, compacta (regla UX/UI del dueño, 8-oct).
 
+import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
+import { etiquetaSituacionOrden } from "@/lib/shipping-v2/ordenes-compra";
 import { calculateShippingV2PaymentItemSubtotal, unidadesParaPago } from "@/lib/shipping-v2/payment-calculations";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import { esPagoHistorico } from "@/lib/shipping-v2/pagos-situacion";
-import type { ShippingV2AccessPermissions, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
+import type { ShippingV2AccessPermissions, ShippingV2OrdenArticulo, ShippingV2OrdenCompra, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 
 type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string; permissions: ShippingV2AccessPermissions | null; providerName?: string; sinComprobanteInicial?: boolean };
 type Tab = "compras" | "registrados";
@@ -44,14 +49,15 @@ function hoyLocal() {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
-function subtotal(item: ShippingV2PagoPendingItem | ShippingV2PagoItemResumen): { valor: number | null; error: string } {
+type ItemLinea = ShippingV2PagoPendingItem | ShippingV2PagoItemResumen | ShippingV2OrdenArticulo;
+function subtotal(item: ItemLinea): { valor: number | null; error: string } {
   try {
     return { valor: calculateShippingV2PaymentItemSubtotal(item), error: "" };
   } catch (e) {
     return { valor: null, error: e instanceof Error ? e.message : "Sin total" };
   }
 }
-function sumar(items: Array<ShippingV2PagoPendingItem | ShippingV2PagoItemResumen>) {
+function sumar(items: ItemLinea[]) {
   return Math.round(items.reduce((s, i) => s + (subtotal(i).valor ?? 0), 0) * 100) / 100;
 }
 function tieneComprobante(p: ShippingV2Pago) {
@@ -110,7 +116,7 @@ const label = "mb-0.5 block text-[10.5px] font-semibold uppercase tracking-wide 
 const btn = "whitespace-nowrap rounded-md border border-[#3A3A36] px-2.5 py-1 text-[12px] font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-50";
 const btnPrim = "whitespace-nowrap rounded-md border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1 text-[12.5px] font-black text-[#151515] transition hover:brightness-105 disabled:opacity-50";
 
-function LineaItem({ item, regalo = false, check }: { item: ShippingV2PagoPendingItem | ShippingV2PagoItemResumen; regalo?: boolean; check?: { on: boolean; toggle: () => void } }) {
+function LineaItem({ item, regalo = false, check }: { item: ItemLinea; regalo?: boolean; check?: { on: boolean; toggle: () => void } }) {
   const st = subtotal(item);
   const vendido = normalize(item.estado) === "vendido";
   return (
@@ -214,6 +220,56 @@ function PanelPago({ grupo, otros, regalosPorCaja, onCancel, onDone }: {
   );
 }
 
+/** Punto 9d: pago de una orden de compra (por lo que le falta; el monto no se escribe). */
+function PanelPagoOrden({ orden, onCancel, onDone }: { orden: ShippingV2OrdenCompra; onCancel: () => void; onDone: (mensaje: string) => Promise<void> }) {
+  const [form, setForm] = useState({ fecha: hoyLocal(), metodo: "Transferencia bancaria", cuenta: "", transaccion: "", enlace: "" });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const porPagar = orden.articulos.filter((a) => orden.resumen.porPagarIds.includes(a.id));
+  const regalos = orden.articulos.filter((a) => orden.resumen.regalosPorAdjuntarIds.includes(a.id));
+
+  async function registrar() {
+    setError("");
+    if (orden.resumen.sinCosto.length) return setError(`${orden.resumen.sinCosto.join(", ")}: sin costo. Ponle costo en su ficha o márcalo como regalo.`);
+    if (!form.fecha) return setError("Indica la fecha del pago.");
+    if (!form.cuenta) return setError("Elige la cuenta.");
+    setBusy(true);
+    const res = await fetch(`/api/shipping-v2/ordenes/${orden.id}/pago`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fechaPagoReal: form.fecha, metodoPago: form.metodo, cuentaOrigen: form.cuenta, transaccionId: form.transaccion, comprobanteUrl: form.enlace }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    setBusy(false);
+    if (!res.ok || !payload.success) return setError(String(payload.error || "No se pudo registrar el pago."));
+    await onDone(`${orden.ocId}: pago ${payload.data?.pagoId ?? ""} registrado · ${money(payload.data?.totalAPagar ?? orden.resumen.falta)}`);
+  }
+
+  return (
+    <div className="border-y border-[#7BE495]/30 bg-[#151a13] px-3 py-2">
+      <div className="max-h-64 overflow-y-auto rounded-md border border-[#2A2B26]">
+        {porPagar.map((a) => <LineaItem key={a.id} item={a} />)}
+        {regalos.map((a) => <LineaItem key={a.id} item={a} regalo />)}
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-5">
+        <label><span className={label}>Fecha</span><input type="date" value={form.fecha} onChange={(e) => set("fecha", e.target.value)} className={input} /></label>
+        <label><span className={label}>Método</span><select value={form.metodo} onChange={(e) => set("metodo", e.target.value)} className={input}>{METODOS.map((m) => <option key={m}>{m}</option>)}</select></label>
+        <label><span className={label}>Cuenta</span><select value={form.cuenta} onChange={(e) => set("cuenta", e.target.value)} className={input}><option value="">—</option>{CUENTAS.map((c) => <option key={c} value={c}>{c.trim()}</option>)}</select></label>
+        <label><span className={label}>Nº transacción</span><input value={form.transaccion} onChange={(e) => set("transaccion", e.target.value)} placeholder="Opcional" className={input} /></label>
+        <label><span className={label}>Enlace comprobante</span><input value={form.enlace} onChange={(e) => set("enlace", e.target.value)} placeholder="Opcional" className={input} /></label>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {error ? <span className="text-[12px] text-[#FFB07A]">{error}</span> : null}
+        <span className="ml-auto text-[12px] text-[#8F908A]">{porPagar.length} art.{regalos.length ? ` + ${regalos.length} regalo(s)` : ""}{orden.numeroProveedor ? ` · Nº ${orden.numeroProveedor}` : ""}{!form.transaccion && !form.enlace ? " · quedará sin comprobante" : ""}</span>
+        <b className="text-[15px] tabular-nums text-[#F5F5F5]">{money(orden.resumen.falta)}</b>
+        <button onClick={onCancel} className={btn}>Cancelar</button>
+        <button disabled={busy} onClick={() => void registrar()} className={btnPrim}>{busy ? "Guardando…" : "Registrar pago"}</button>
+      </div>
+    </div>
+  );
+}
+
 function CompletarComprobante({ pago, onDone }: { pago: ShippingV2Pago; onDone: (m: string) => Promise<void> }) {
   const [f, setF] = useState({ orden: pago.orden || "", transaccion: pago.transaccionId || "", enlace: "" });
   const [error, setError] = useState("");
@@ -260,6 +316,14 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
     (!proveedor || g.proveedorId === proveedor) &&
     (!q || normalize([g.titulo, g.proveedorNombre, ...g.items.map((i) => `${i.sku} ${i.nombre} ${i.skuProveedor ?? ""}`)].join(" ")).includes(q))
   );
+  // Punto 9d: órdenes de compra a las que les falta el respaldo (todo o una parte).
+  const ordenes = useMemo(() => ws.ordenes ?? [], [ws.ordenes]);
+  const ocPorId = useMemo(() => new Map(ordenes.map((o) => [o.id, o])), [ordenes]);
+  const ordenesPorPagar = ordenes.filter((o) => o.resumen.situacion === "falta-respaldo" || o.resumen.situacion === "falta");
+  const ordenesVista = ordenesPorPagar.filter((o) =>
+    (!proveedor || o.proveedorId === proveedor) &&
+    (!q || normalize([o.ocId, o.numeroProveedor, o.proveedorNombre, ...o.articulos.map((a) => `${a.sku} ${a.nombre} ${a.skuProveedor ?? ""}`)].join(" ")).includes(q))
+  );
   const pagos = useMemo(
     () => [...(ws.pagosRegistrados?.length ? ws.pagosRegistrados : ws.pagos)].sort((a, b) => (b.fechaPagoReal || b.fechaCreacion || "").localeCompare(a.fechaPagoReal || a.fechaCreacion || "")),
     [ws.pagos, ws.pagosRegistrados]
@@ -269,9 +333,9 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
   const pagosVista = pagos.filter((p) =>
     (!proveedor || p.proveedorId === proveedor) &&
     (!soloSinComprobante || sinComprobante.includes(p)) &&
-    (!q || normalize([p.pagoId, p.orden, p.transaccionId, p.proveedorNombre, p.registradoPor, ...p.itemsResumen.map((i) => i.sku)].join(" ")).includes(q))
+    (!q || normalize([p.pagoId, p.orden, p.ordenCompraId ? ocPorId.get(p.ordenCompraId)?.ocId : "", p.transaccionId, p.proveedorNombre, p.registradoPor, ...p.itemsResumen.map((i) => i.sku)].join(" ")).includes(q))
   );
-  const totalFalta = sumar(ws.porPagar ?? []);
+  const totalFalta = Math.round((sumar(ws.porPagar ?? []) + ordenesPorPagar.reduce((sum, o) => sum + o.resumen.falta, 0)) * 100) / 100;
   // Punto 9c · fase 1: flete, arancel y otros se pagan en su caja (o en la
   // ficha del artículo suelto). Aquí solo se ven, en Registrados.
   const tituloDestino = useMemo(() => new Map((ws.logistica ?? []).map((f) => [f.key, f.titulo])), [ws.logistica]);
@@ -279,8 +343,9 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
     const m = new Map<string, string>();
     grupos.forEach((g) => g.proveedorId && m.set(g.proveedorId, g.proveedorNombre));
     pagos.forEach((p) => p.proveedorId && m.set(p.proveedorId, p.proveedorNombre || p.proveedorId));
+    ordenes.forEach((o) => o.proveedorId && m.set(o.proveedorId, o.proveedorNombre || o.proveedorId));
     return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1], "es"));
-  }, [grupos, pagos]);
+  }, [grupos, pagos, ordenes]);
 
   async function recargar(mensaje: string) {
     const res = await fetch("/api/shipping-v2/pagos", { cache: "no-store" });
@@ -302,7 +367,7 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#2E2F28] bg-[#11120F] px-2 py-1.5">
         {gestiona ? (
           <div className="inline-flex overflow-hidden rounded-md border border-[#3A3A36]">
-            {tabBtn("compras", "Compras", grupos.length)}
+            {tabBtn("compras", "Compras", grupos.length + ordenesPorPagar.length)}
             {tabBtn("registrados", "Registrados", vivos.length)}
           </div>
         ) : <span className="px-1 text-[13px] font-semibold text-[#F5F5F5]">Pagos{providerName ? ` · ${providerName}` : ""}</span>}
@@ -329,8 +394,40 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
         <section className="overflow-x-auto rounded-lg border border-[#2E2F28] bg-[#171814]">
           <div className="min-w-[760px]">
             <div className="grid grid-cols-[22px_150px_minmax(0,1fr)_52px_100px_120px_120px] gap-2 border-b border-[#3A3A36] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
-              <span /><span>Caja / SKU</span><span>Proveedor</span><span className="text-right">Art.</span><span className="text-right">Total</span><span>Va en</span><span />
+              <span /><span>Orden / caja / SKU</span><span>Proveedor</span><span className="text-right">Art.</span><span className="text-right">Total</span><span>Va en</span><span />
             </div>
+            {ordenesVista.map((o) => {
+              const key = `oc:${o.id}`;
+              const abiertoAqui = abierto === key;
+              const cajas = Array.from(new Set(o.articulos.map((a) => (a.packingIdVisible ? `Caja ${a.packingIdVisible}` : a.recibido ? "En tienda" : "Solo"))));
+              return (
+                <Fragment key={key}>
+                  <div className="grid grid-cols-[22px_150px_minmax(0,1fr)_52px_100px_120px_120px] items-center gap-2 border-b border-[#2A2B26] px-2 py-1.5 text-[13px] hover:bg-[#1D1E1A]">
+                    <button onClick={() => setAbierto(abiertoAqui ? "" : key)} className="text-[#8F908A] hover:text-[#D7FF4F]" aria-label={abiertoAqui ? "Ocultar artículos" : "Ver artículos"}>{abiertoAqui ? "▾" : "▸"}</button>
+                    <Link href={`/shipping-v2/pagos/ordenes/${o.id}`} className="truncate font-semibold text-[#D7FF4F] hover:underline" title="Abrir la orden">{o.ocId}</Link>
+                    <span className="truncate text-[#B4B5AC]">{o.proveedorNombre || "Sin proveedor"}{o.numeroProveedor ? <span className="text-[#6F706A]"> · Nº {o.numeroProveedor}</span> : null}</span>
+                    <span className="text-right tabular-nums text-[#B4B5AC]">{o.resumen.porPagarIds.length}{o.resumen.regalosPorAdjuntarIds.length ? <span className="text-[#6F706A]">+{o.resumen.regalosPorAdjuntarIds.length}</span> : null}</span>
+                    <span className="text-right font-semibold tabular-nums text-[#F5F5F5]">{money(o.resumen.falta)}{o.resumen.sinCosto.length ? <span className={`ml-1 ${tonos.mal}`} title="Hay artículos sin costo">!</span> : null}</span>
+                    <span className="truncate text-[12px] text-[#8F908A]" title={cajas.join(", ")}>
+                      {o.resumen.situacion === "falta" ? <span className={tonos.falta}>{etiquetaSituacionOrden(o.resumen, money)}</span> : cajas.join(", ")}
+                    </span>
+                    <span className="text-right">
+                      {pagando === key ? null : <button onClick={() => { setPagando(key); setAbierto(""); setAviso(""); }} className={btn}>Registrar pago</button>}
+                    </span>
+                  </div>
+                  {abiertoAqui && pagando !== key ? (
+                    <div className="bg-[#151612] px-2 pb-1">
+                      {o.articulos.filter((a) => o.resumen.porPagarIds.includes(a.id)).map((a) => <LineaItem key={a.id} item={a} />)}
+                      {o.articulos.filter((a) => o.resumen.regalosPorAdjuntarIds.includes(a.id)).map((a) => <LineaItem key={a.id} item={a} regalo />)}
+                    </div>
+                  ) : null}
+                  {pagando === key ? <PanelPagoOrden orden={o} onCancel={() => setPagando("")} onDone={recargar} /> : null}
+                </Fragment>
+              );
+            })}
+            {ordenesVista.length && gruposVista.length ? (
+              <div className="border-b border-[#2A2B26] bg-[#1B1C19] px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-[#8F908A]" title="Compras registradas antes de las órdenes de compra">Sin orden</div>
+            ) : null}
             {gruposVista.map((g) => {
               const total = sumar(g.items);
               const faltaCosto = g.items.some((i) => subtotal(i).error);
@@ -366,7 +463,7 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
                 </Fragment>
               );
             })}
-            {!gruposVista.length ? <p className="py-6 text-center text-[13px] text-[#8F908A]">{grupos.length ? "Nada coincide con el filtro." : "Todas las compras tienen su pago registrado."}</p> : null}
+            {!gruposVista.length && !ordenesVista.length ? <p className="py-6 text-center text-[13px] text-[#8F908A]">{grupos.length || ordenesPorPagar.length ? "Nada coincide con el filtro." : "Todas las compras tienen su pago registrado."}</p> : null}
           </div>
         </section>
       ) : null}
@@ -404,7 +501,11 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
                           : p.proveedorNombre || "—"}
                       </span>
                     )}
-                    <span className="truncate text-[#B4B5AC]">{p.orden || "—"}</span>
+                    <span className="truncate text-[#B4B5AC]" title={p.orden}>
+                      {!portal && p.ordenCompraId && ocPorId.get(p.ordenCompraId)
+                        ? <Link href={`/shipping-v2/pagos/ordenes/${p.ordenCompraId}`} className="font-semibold text-[#D7FF4F] hover:underline">{ocPorId.get(p.ordenCompraId)?.ocId}</Link>
+                        : p.orden || "—"}
+                    </span>
                     <span className="text-right tabular-nums text-[#B4B5AC]">{p.concepto && p.concepto !== "Compra" ? "—" : p.cantidadItems}</span>
                     <span className="text-right font-semibold tabular-nums text-[#F5F5F5]">{money(p.totalPagado ?? p.totalAPagar)}</span>
                     <span className="text-[12px] text-[#B4B5AC]">{fecha(p.fechaPagoReal || p.fechaCreacion)}</span>

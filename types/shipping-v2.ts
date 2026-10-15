@@ -392,6 +392,8 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   pagoV2RegaloIds: string[];
   /** Punto 9b: unidades compradas al proveedor (no cambia al vender). El pago = costo × esto. */
   unidadesCompradas?: number | null;
+  /** Punto 9d: orden de compra (OC) a la que pertenece. */
+  ordenCompraId?: string;
   /**
    * Punto 9 (12-oct): situación del pago, calculada desde Shipping Pagos.
    * Solo viene en la lista de Artículos (y la ficha la calcula aparte).
@@ -528,6 +530,8 @@ export type ShippingV2Pago = ShippingV2RecordBase & {
   transaccionId?: string;
   /** Punto 9b: número de orden del proveedor (eBay, Amazon, factura…). */
   orden?: string;
+  /** Punto 9d: orden de compra (OC) que paga. */
+  ordenCompraId?: string;
   /** Punto 9c: qué se pagó (vacío = Compra). */
   concepto?: "Compra" | "Flete" | "Arancel" | "Otros";
   /** Punto 9c: caja o artículo suelto cuyo gasto de logística cubre. */
@@ -600,6 +604,8 @@ export type ShippingV2PagoWriteInput = {
   comprobanteUrl?: string;
   /** Punto 9b: número de orden del proveedor. */
   orden?: string;
+  /** Punto 9d: orden de compra (OC) que paga. */
+  ordenCompraId?: string;
 };
 
 export type ShippingV2PagoMarkPaidInput = {
@@ -972,6 +978,8 @@ export type ShippingV2PagosWorkspace = {
   logistica?: ShippingV2LogisticaFila[];
   /** Punto 9c: empresas logísticas para elegir a quién se pagó el flete. */
   transportistas?: Array<{ id: string; nombre: string }>;
+  /** Punto 9d: órdenes de compra con su situación de pago. */
+  ordenes?: ShippingV2OrdenCompra[];
   proveedores: ShippingV2Proveedor[];
   summary: ShippingV2PagosSummary;
 };
@@ -1024,4 +1032,66 @@ export type ShippingV2CostosTraerlo = {
   pagos: ShippingV2PagoLogisticaResumen[];
   transportistas: Array<{ id: string; nombre: string }>;
   puedePagar: boolean;
+};
+
+/** Punto 9d (14-oct): un artículo dentro de su orden de compra. */
+export type ShippingV2OrdenArticulo = {
+  id: string;
+  sku: string;
+  nombre: string;
+  categoria?: string;
+  estado?: string;
+  skuProveedor?: string;
+  cantidad: number | null;
+  unidadesCompradas: number | null;
+  costoProveedor: number | null;
+  /** Costo final por unidad (proveedor + logística repartida + mejoras). */
+  costoTotalUnidad: number | null;
+  subtotal: number | null;
+  esRegalo: boolean;
+  requierePago: boolean;
+  usoLocal: boolean;
+  cancelado: boolean;
+  enPagoVivo: boolean;
+  packingId?: string;
+  packingIdVisible?: string;
+  recibido: boolean;
+};
+
+/** Punto 9d (14-oct): orden de compra (una compra a un proveedor con sus artículos y su pago). */
+export type ShippingV2OrdenCompra = ShippingV2RecordBase & {
+  ocId: string;
+  proveedorId?: string;
+  proveedorNombre?: string;
+  numeroProveedor?: string;
+  fechaCompra?: string;
+  observaciones?: string;
+  registradoPor?: string;
+  fechaCreacion?: string;
+  anulada: boolean;
+  motivoAnulacion?: string;
+  fechaAnulacion?: string;
+  itemIds: string[];
+  pagoIds: string[];
+  articulos: ShippingV2OrdenArticulo[];
+  pagos: Array<Pick<ShippingV2Pago, "id" | "pagoId" | "estadoPago" | "totalAPagar" | "fechaPagoReal" | "metodoPago" | "cuentaOrigen" | "transaccionId" | "registradoPor" | "motivoAnulacion" | "fechaAnulacion"> & { conComprobante: boolean; cantidadItems: number }>;
+  resumen: {
+    situacion: "anulada" | "vacia" | "sin-pago" | "falta-respaldo" | "falta" | "pagada";
+    total: number;
+    pagado: number;
+    falta: number;
+    porPagarIds: string[];
+    regalosPorAdjuntarIds: string[];
+    sinCosto: string[];
+    articulos: number;
+    regalos: number;
+  };
+};
+
+export type ShippingV2OrdenCompraWriteInput = {
+  proveedorId: string;
+  numeroProveedor?: string;
+  /** YYYY-MM-DD; vacío = hoy. */
+  fechaCompra?: string;
+  observaciones?: string;
 };

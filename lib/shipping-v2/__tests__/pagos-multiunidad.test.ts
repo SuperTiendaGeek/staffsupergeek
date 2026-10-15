@@ -85,6 +85,8 @@ function setupFixture(): Fixture {
   registrarTablaDouble(state, SHIPPING_V2_TABLES.items);
   registrarTablaDouble(state, SHIPPING_V2_TABLES.pagos);
   registrarTablaDouble(state, SHIPPING_V2_TABLES.eventos);
+  // Punto 9d: Pagos también lee las órdenes de compra.
+  registrarTablaDouble(state, SHIPPING_V2_TABLES.ordenesCompra);
   crearCuentaDouble(state, { nombre: "Caja Registradora", saldoInicial: 1000, fechaCorte: "2026-01-01" });
   const providerId = crearRegistroDouble(state, SHIPPING_V2_TABLES.proveedores, {
     [F_PROV.proveedorId]: "PROV-TEST",

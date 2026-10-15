@@ -1,12 +1,25 @@
 "use client";
 
-// Registro de un artículo en UNA sola pantalla (auditoría Shipping V2, punto 2).
+// Registrar compra (auditoría Shipping V2, punto 9d · 14-oct-2026).
 //
-// Arriba las tres preguntas que ordenan todo lo demás: ¿Dónde está el
-// artículo?, proveedor y categoría. Si viene de afuera, la sección "Llegada"
-// recoge en el mismo lugar el casillero, los rastreos y si viaja en una caja.
-// Al guardar no hace falta ir a otra pantalla. Ya no se preguntan: Rol general,
-// Estado sugerido, Modo logístico, Ubicación actual ni Origen físico.
+// Una sola pantalla para registrar VARIOS artículos de una misma compra:
+//   · Arriba la ORDEN DE COMPRA (origen, proveedor, nº de orden o factura,
+//     fecha) y su llegada (solo, en caja, casillero y rastreos): se escribe una
+//     vez para todos los artículos.
+//   · Abajo una FILA por artículo con lo que cambia (nombre, categoría,
+//     condición, cantidad, costo, precio). La flecha abre el resto (marca,
+//     modelo, serie, SKU, inspección, regalo, activo, fotos, descripción).
+//   · El PAGO se registra una vez contra la orden, por su total (no se escribe).
+// Reajuste y despiece no son compras: misma pantalla, sin orden ni pago.
+//
+// Al guardar, el navegador crea la orden, luego los artículos de uno en uno
+// (con progreso, para no pasar el tiempo límite de Vercel con 30 artículos) y
+// al final el pago. Si una fila falla, lo creado queda en su orden y las filas
+// creadas salen de la tabla: se corrige y se vuelve a guardar.
+//
+// Diseño aprobado por el dueño (boceto 2, 14-oct): lima = la orden; neutro =
+// artículos; verde = el pago; amarillo = lo que falta completar. Pantalla de
+// uso diario: etiquetas cortas, ayuda en tooltips, uso número 100.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -18,7 +31,6 @@ import {
   type ShippingV2Proveedor,
 } from "@/types/shipping-v2";
 import { normalizeItemNameFast } from "@/lib/shipping-v2/item-name-normalizer";
-import { getDefaultItemFlowByOperation } from "@/lib/shipping-v2/item-operation-rules";
 import { requiereInspeccionPorDefecto } from "@/lib/shipping-v2/item-venta";
 import {
   ORIGEN_EXTRANJERO,
@@ -30,32 +42,54 @@ import {
   type OrigenArticulo,
 } from "@/lib/shipping-v2/item-origen";
 import { esProveedorLogistico } from "@/lib/shipping-v2/provider-types";
-import { isShippingV2GiftOperation, isShippingV2PurchaseOperation } from "@/lib/shipping-v2/item-money-quantity";
 import { getShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
-import { requisitosFaltantesItem } from "@/lib/shipping-v2/item-requisitos";
 import { ACCEPT_FOTOS_ITEM, validarSeleccionFotosItem } from "@/lib/shipping-v2/fotos-item";
 import { FotosInvalidasError, subirFotosItem } from "@/lib/shipping-v2/subir-fotos-item";
 import { validarRespaldo } from "@/lib/shipping-v2/pagos-situacion";
+import {
+  aplicarATodas,
+  duplicarLinea,
+  faltantesLinea,
+  lineaEnBlanco,
+  nuevaLinea,
+  subtotalLinea,
+  totalesLineas,
+  type LineaCompra,
+} from "@/lib/shipping-v2/ordenes-compra";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 
-// Punto 9 (12-oct): toda compra ya está pagada; lo que puede faltar es el
-// respaldo. Si se tiene a mano, se registra aquí mismo (crea el pago y su
-// egreso en Finanzas). Si no, queda en Pagos → "Falta respaldo".
 const METODOS_PAGO = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((m) => m !== "No aplica");
 const CUENTAS_PAGO = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((c) => c !== "No aplica");
+const COMPRA = "Compra a proveedor";
+const REGALO = "Regalo de proveedor";
+const DESPIECE = "Despiece de equipo";
+const CONDICION_INICIAL = SHIPPING_V2_CONDICIONES[0] ?? "";
+
 function hoyLocal() {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
 
-/** Caja (packing "En Proceso") a la que se puede agregar el artículo al registrarlo. */
+/** Caja (packing "En Proceso") a la que se pueden agregar los artículos al registrarlos. */
 export type ShippingV2CajaAbierta = {
   id: string;
   codigo: string;
   nombre: string;
   proveedorResponsableId?: string;
   proveedorLogisticoEcId?: string;
+};
+
+/** Punto 9d: orden ya creada a la que se agregan artículos ("+ Agregar artículo" en la orden). */
+export type ShippingV2OrdenParaAgregar = {
+  id: string;
+  ocId: string;
+  proveedorId: string;
+  proveedorNombre: string;
+  numeroProveedor?: string;
+  fechaCompra?: string;
+  /** Lo que la orden ya debe (artículos sin pago vivo). */
+  falta: number;
 };
 
 type Props = {
@@ -65,52 +99,30 @@ type Props = {
   esActivoInicial?: boolean;
   /** Punto 9: solo quien maneja Pagos puede registrar el respaldo al registrar. */
   puedeRegistrarRespaldo?: boolean;
+  /** Punto 9d: agregar a una orden existente. */
+  ordenExistente?: ShippingV2OrdenParaAgregar | null;
 };
 
-/** Punto 4 (8-oct): ¿es mercadería para vender o un activo de la tienda? */
-type Destino = "mercaderia" | "activo";
-
-type SelectedPhoto = {
-  id: string;
-  file: File;
-  previewUrl: string;
-};
-
+type SelectedPhoto = { id: string; file: File; previewUrl: string };
 type ViajeOpcion = "solo" | "caja" | "nose";
 type RespaldoOpcion = "despues" | "ahora";
 
-type FormState = {
-  destino: Destino;
+type Cabecera = {
   origen: OrigenArticulo | "";
+  operacion: string;
   proveedorId: string;
-  categoria: string;
-  tipoOperacion: string;
-  nombre: string;
-  sku: string;
-  skuProveedor: string;
-  marca: string;
-  modelo: string;
-  numeroSerie: string;
-  condicion: string;
-  /** null = sigue el valor por defecto de la categoría. */
-  requiereInspeccion: boolean | null;
-  cantidad: string;
-  unidad: string;
-  costoProveedor: string;
-  precioVentaSugerido: string;
-  precioVentaFinal: string;
-  descripcion: string;
-  observacionesInternas: string;
+  numeroProveedor: string;
+  fechaCompra: string;
   // Llegada (solo si viene de afuera)
+  viaje: ViajeOpcion;
+  packingDestinoId: string;
   casilleroId: string;
   trackingOrigen: string;
   transportistaOrigenId: string;
   trackingEcuador: string;
   transportistaEcuadorId: string;
   trackingLocal: string;
-  viaje: ViajeOpcion;
-  packingDestinoId: string;
-  // Respaldo del pago (punto 9)
+  // Pago (punto 9d: contra la orden)
   respaldo: RespaldoOpcion;
   respaldoFecha: string;
   respaldoMetodo: string;
@@ -118,51 +130,6 @@ type FormState = {
   respaldoTransaccion: string;
   respaldoComprobanteUrl: string;
 };
-
-function firstOption(options: readonly string[]) {
-  return options[0] ?? "";
-}
-
-const initialState: FormState = {
-  destino: "mercaderia",
-  origen: "",
-  proveedorId: "",
-  categoria: "",
-  tipoOperacion: "",
-  nombre: "",
-  sku: "",
-  skuProveedor: "",
-  marca: "",
-  modelo: "",
-  numeroSerie: "",
-  condicion: firstOption(SHIPPING_V2_CONDICIONES),
-  requiereInspeccion: null,
-  cantidad: "1",
-  unidad: "Unidad",
-  costoProveedor: "",
-  precioVentaSugerido: "",
-  precioVentaFinal: "",
-  descripcion: "",
-  observacionesInternas: "",
-  casilleroId: "",
-  trackingOrigen: "",
-  transportistaOrigenId: "",
-  trackingEcuador: "",
-  transportistaEcuadorId: "",
-  trackingLocal: "",
-  viaje: "nose",
-  packingDestinoId: "",
-  respaldo: "despues",
-  respaldoFecha: "",
-  respaldoMetodo: "Transferencia bancaria",
-  respaldoCuenta: "",
-  respaldoTransaccion: "",
-  respaldoComprobanteUrl: "",
-};
-
-// Diseño (8-oct): pantalla de uso diario. Etiquetas cortas, controles
-// segmentados en vez de tarjetas, ayuda solo en tooltips. Regla del dueño:
-// optimizar para el uso número 100, no para el primero.
 
 const ORIGEN_CORTO: Record<OrigenArticulo, string> = {
   [ORIGEN_TIENDA]: "En tienda",
@@ -172,13 +139,18 @@ const ORIGEN_CORTO: Record<OrigenArticulo, string> = {
 
 const ORIGEN_AYUDA: Record<OrigenArticulo, string> = {
   [ORIGEN_TIENDA]: "Ya está aquí: nace recibido.",
-  [ORIGEN_EXTRANJERO]: "Viene de fuera del país (casillero). Va a Recepción → Por llegar.",
-  [ORIGEN_LOCAL]: "Proveedor en Ecuador. Va a Recepción → Por llegar.",
+  [ORIGEN_EXTRANJERO]: "Viene de fuera del país (casillero).",
+  [ORIGEN_LOCAL]: "Proveedor en Ecuador.",
 };
 
-const inputBase = "h-8 w-full rounded-md border bg-[#151515] px-2.5 text-sm text-[#F5F5F5] outline-none placeholder:text-[#5E5F59] transition";
+const OPERACION_CORTA: Record<string, string> = {
+  [COMPRA]: "Compra",
+  "Reajuste de inventario": "Reajuste",
+  [DESPIECE]: "Despiece",
+};
 
-/** Control segmentado compacto. */
+const inputBase = "h-8 w-full rounded-md border bg-[#151515] px-2 text-[13px] text-[#F5F5F5] outline-none placeholder:text-[#5E5F59] transition";
+
 function Seg<T extends string>({ value, options, onChange, invalid }: {
   value: T | "";
   options: ReadonlyArray<{ value: T; label: string; title?: string }>;
@@ -191,7 +163,7 @@ function Seg<T extends string>({ value, options, onChange, invalid }: {
         const on = value === o.value;
         return (
           <button key={o.value} type="button" role="radio" aria-checked={on} title={o.title} onClick={() => onChange(o.value)}
-            className={`h-8 flex-1 whitespace-nowrap border-r border-[#3A3A36] px-2.5 text-[13px] font-semibold transition last:border-r-0 ${on ? "bg-[#D7FF4F] text-[#151515]" : "bg-[#151515] text-[#B4B5AC] hover:text-[#D7FF4F]"}`}>
+            className={`h-8 flex-1 whitespace-nowrap border-r border-[#3A3A36] px-2 text-[12.5px] font-semibold transition last:border-r-0 ${on ? "bg-[#D7FF4F] text-[#151515]" : "bg-[#151515] text-[#B4B5AC] hover:text-[#D7FF4F]"}`}>
             {o.label}
           </button>
         );
@@ -201,14 +173,12 @@ function Seg<T extends string>({ value, options, onChange, invalid }: {
 }
 
 function Field({ label, children, required, error, className = "", grupo = false }: {
-  label: string; children: ReactNode; required?: boolean; error?: string; className?: string;
-  /** true para botones o casillas: no se envuelve en <label> (tocar el título no activa la primera opción). */
-  grupo?: boolean;
+  label: string; children: ReactNode; required?: boolean; error?: string; className?: string; grupo?: boolean;
 }) {
   const Tag = grupo ? "div" : "label";
   return (
     <Tag className={`block min-w-0 ${className}`}>
-      <span className="mb-1 block text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
+      <span className="mb-0.5 block text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
         {label}
         {required ? <span className="ml-0.5 text-[#FF914D]">*</span> : null}
         {error ? <span className="ml-1.5 normal-case tracking-normal text-[#FFB07A]">{error}</span> : null}
@@ -218,617 +188,721 @@ function Field({ label, children, required, error, className = "", grupo = false
   );
 }
 
-function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  const invalid = props["aria-invalid"] === true || props["aria-invalid"] === "true";
-  return <input {...props} className={`${inputBase} ${invalid ? "border-[#FF914D]/70" : "border-[#3A3A36] focus:border-[#D7FF4F]/70"}`} />;
+function TextInput({ invalid, className = "", ...props }: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
+  return <input {...props} className={`${inputBase} ${invalid ? "border-[#F4C95B]/70" : "border-[#3A3A36] focus:border-[#D7FF4F]/70"} ${className}`} />;
 }
 
-function SelectInput(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  const invalid = props["aria-invalid"] === true || props["aria-invalid"] === "true";
-  return <select {...props} className={`${inputBase} ${invalid ? "border-[#FF914D]/70" : "border-[#3A3A36] focus:border-[#D7FF4F]/70"}`} />;
+function SelectInput({ invalid, className = "", ...props }: SelectHTMLAttributes<HTMLSelectElement> & { invalid?: boolean }) {
+  return <select {...props} className={`${inputBase} ${invalid ? "border-[#F4C95B]/70 text-[#F4C95B]" : "border-[#3A3A36] focus:border-[#D7FF4F]/70"} ${className}`} />;
 }
 
-function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="rounded-lg border border-[#2E2F28] bg-[#171814] px-3 pb-3 pt-2">
-      <div className="mb-2 flex items-center gap-2">
-        <h2 className="text-[11px] font-bold uppercase tracking-wider text-[#D7FF4F]">{title}</h2>
-        {aside ? <div className="ml-auto text-[11px] text-[#7E7F76]">{aside}</div> : null}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function parseDecimalInput(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = Number(trimmed.replace(",", "."));
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function parsePositiveIntegerInput(value: string) {
-  const parsed = parseDecimalInput(value);
-  return parsed !== null && Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseNonNegativeMoneyInput(value: string) {
-  const parsed = parseDecimalInput(value);
-  return parsed !== null && parsed >= 0 ? parsed : null;
-}
-
-function parsePositiveMoneyInput(value: string) {
-  const parsed = parseDecimalInput(value);
-  return parsed !== null && parsed > 0 ? parsed : null;
-}
-
-function formatMoneyPreview(value: number | null) {
+function money(value: number | null) {
   if (value === null) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
 
-export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInicial = false, puedeRegistrarRespaldo = false }: Props) {
+let contadorFilas = 0;
+function claveFila() {
+  contadorFilas += 1;
+  return `f${Date.now().toString(36)}${contadorFilas}`;
+}
+
+export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInicial = false, puedeRegistrarRespaldo = false, ordenExistente = null }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>({ ...initialState, destino: esActivoInicial ? "activo" : "mercaderia" });
-  const esActivo = form.destino === "activo";
+  const proveedorOrden = ordenExistente ? proveedores.find((p) => p.id === ordenExistente.proveedorId) : undefined;
+  const [cab, setCab] = useState<Cabecera>({
+    origen: ordenExistente && proveedorOrden ? origenSegunZona(proveedorOrden.paisZonaLogistica) : "",
+    operacion: COMPRA,
+    proveedorId: ordenExistente?.proveedorId ?? "",
+    numeroProveedor: ordenExistente?.numeroProveedor ?? "",
+    fechaCompra: ordenExistente?.fechaCompra ?? hoyLocal(),
+    viaje: "nose",
+    packingDestinoId: "",
+    casilleroId: "",
+    trackingOrigen: "",
+    transportistaOrigenId: "",
+    trackingEcuador: "",
+    transportistaEcuadorId: "",
+    trackingLocal: "",
+    respaldo: "despues",
+    respaldoFecha: hoyLocal(),
+    respaldoMetodo: "Transferencia bancaria",
+    respaldoCuenta: "",
+    respaldoTransaccion: "",
+    respaldoComprobanteUrl: "",
+  });
+  const [lineas, setLineas] = useState<LineaCompra[]>(() => [nuevaLinea(claveFila(), { condicion: CONDICION_INICIAL, activo: esActivoInicial })]);
+  const [abierta, setAbierta] = useState<string | null>(null);
+  const [fotos, setFotos] = useState<Record<string, SelectedPhoto[]>>({});
+  const fotosRef = useRef<Record<string, SelectedPhoto[]>>({});
+  const [aplicar, setAplicar] = useState({ categoria: "", condicion: "" });
   const [error, setError] = useState("");
+  const [progreso, setProgreso] = useState("");
   const [saving, setSaving] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
-  const [photos, setPhotos] = useState<SelectedPhoto[]>([]);
-  const photosRef = useRef<SelectedPhoto[]>([]);
+  // Si falla una fila a mitad de camino, lo creado queda en esta orden y se sigue en ella.
+  const [ordenEnCurso, setOrdenEnCurso] = useState<{ id: string; ocId: string } | null>(ordenExistente ? { id: ordenExistente.id, ocId: ordenExistente.ocId } : null);
+  const [creados, setCreados] = useState<string[]>([]);
 
-  const origen = form.origen || null;
+  const origen = cab.origen || null;
   const vieneDeAfuera = origen === ORIGEN_EXTRANJERO || origen === ORIGEN_LOCAL;
+  const esCompra = cab.operacion === COMPRA;
+  const esDespiece = cab.operacion === DESPIECE;
+  const permiteRegalo = Boolean(origen && TIPOS_OPERACION_POR_ORIGEN[origen].includes(REGALO));
+  const fijo = Boolean(ordenEnCurso);
   const activos = proveedores.filter((p) => (p.estado || "").toLowerCase() === "activo");
 
-  // Proveedores de compra según el origen: Ecuador = local; el resto, extranjero.
   const proveedoresCompra = useMemo(() => {
     const compra = proveedores.filter(canBePurchaseProvider);
-    if (origen === ORIGEN_EXTRANJERO || origen === ORIGEN_LOCAL) {
-      return compra.filter((p) => origenSegunZona(p.paisZonaLogistica) === origen);
-    }
+    if (origen === ORIGEN_EXTRANJERO || origen === ORIGEN_LOCAL) return compra.filter((p) => origenSegunZona(p.paisZonaLogistica) === origen);
     return compra;
   }, [proveedores, origen]);
   const casilleros = activos.filter((p) => p.esCasillero === true);
   const logisticos = activos.filter((p) => esProveedorLogistico(p));
   const transportistasOrigen = logisticos.filter((p) => p.esCasillero !== true && origenSegunZona(p.paisZonaLogistica) === ORIGEN_EXTRANJERO);
   const transportistasEcuador = logisticos.filter((p) => p.esCasillero === true || origenSegunZona(p.paisZonaLogistica) === ORIGEN_LOCAL);
-  // Un activo no se registra como despiece (eso es para sacar piezas a la venta).
-  const tiposOperacion = origen
-    ? TIPOS_OPERACION_POR_ORIGEN[origen].filter((t) => !(esActivo && t === "Despiece de equipo"))
-    : [];
+  const transportistasEc = transportistasEcuador.length ? transportistasEcuador : logisticos;
 
-  // Cajas abiertas donde puede entrar: del mismo proveedor o del mismo casillero.
+  // Operaciones según el origen: compra (con o sin regalos en sus filas), y en
+  // la tienda también reajuste y despiece. El regalo se marca en cada fila.
+  const operaciones = origen ? TIPOS_OPERACION_POR_ORIGEN[origen].filter((t) => t !== REGALO) : [COMPRA];
+  // Orientación por origen: lo de la orden existente solo admite su zona o la tienda.
+  const origenesPermitidos = ordenExistente && proveedorOrden
+    ? ORIGENES_ARTICULO.filter((o) => o === ORIGEN_TIENDA || o === origenSegunZona(proveedorOrden.paisZonaLogistica))
+    : ORIGENES_ARTICULO;
+
   const cajasCompatibles = cajasAbiertas.filter((caja) => {
     const ids = new Set([caja.proveedorResponsableId, caja.proveedorLogisticoEcId].filter(Boolean));
     if (!ids.size) return true;
-    return (form.proveedorId && ids.has(form.proveedorId)) || (form.casilleroId && ids.has(form.casilleroId));
+    return (cab.proveedorId && ids.has(cab.proveedorId)) || (cab.casilleroId && ids.has(cab.casilleroId));
   });
 
-  const calculatedFlow = useMemo(
-    () => getDefaultItemFlowByOperation({ tipoOperacion: form.tipoOperacion, categoria: form.categoria, proveedorCompra: form.proveedorId }),
-    [form.categoria, form.proveedorId, form.tipoOperacion]
-  );
-  const fastNameSuggestion = useMemo(() => normalizeItemNameFast(form.nombre), [form.nombre]);
-  const showFastNameSuggestion = Boolean(fastNameSuggestion && fastNameSuggestion !== form.nombre.trim());
-  // Un activo no pide inspección salvo que se marque (dueño, 8-oct).
-  const requiereInspeccion = form.requiereInspeccion ?? (esActivo ? false : requiereInspeccionPorDefecto({ categoria: form.categoria, tipoOperacion: form.tipoOperacion }));
-  const cantidadNormalizada = parsePositiveIntegerInput(form.cantidad);
-  const costoProveedorUnitario = parseNonNegativeMoneyInput(form.costoProveedor);
-  const precioVentaFinalDecimal = parseDecimalInput(form.precioVentaFinal);
-  const precioVentaFinalUnitario = parsePositiveMoneyInput(form.precioVentaFinal);
-  const isPurchaseOperation = isShippingV2PurchaseOperation(form.tipoOperacion);
-  const isGiftOperation = isShippingV2GiftOperation(form.tipoOperacion);
-  const subtotalProveedor = cantidadNormalizada !== null && costoProveedorUnitario !== null ? cantidadNormalizada * costoProveedorUnitario : null;
-  const valorPotencialVenta = cantidadNormalizada !== null && precioVentaFinalUnitario !== null ? cantidadNormalizada * precioVentaFinalUnitario : null;
-  const showQuantityWarning = submitAttempted && cantidadNormalizada === null;
-  const showCostWarning = isPurchaseOperation && !parsePositiveMoneyInput(form.costoProveedor);
-  const showGiftCostWarning = isGiftOperation && costoProveedorUnitario !== null && costoProveedorUnitario > 0;
-  const finalPriceProvided = !esActivo && form.precioVentaFinal.trim() !== "";
-  const showFinalPriceWarning = submitAttempted && finalPriceProvided && (precioVentaFinalDecimal === null || precioVentaFinalDecimal < 0);
-  const showCategoryWarning = submitAttempted && !form.categoria;
-  const showOrigenWarning = submitAttempted && !form.origen;
-
-  const pideRespaldo = puedeRegistrarRespaldo && calculatedFlow.requierePago && !isGiftOperation;
-  const respaldoAhora = pideRespaldo && form.respaldo === "ahora";
+  const lineasUsadas = lineas.filter((l) => !lineaEnBlanco(l));
+  const totales = totalesLineas(lineasUsadas);
+  const faltantesPorLinea = new Map(lineas.map((l) => [l.key, lineaEnBlanco(l) ? [] : faltantesLinea(l, { esCompra })]));
+  const porCompletar = lineasUsadas.filter((l) => (faltantesPorLinea.get(l.key) ?? []).length > 0).length;
+  const montoPago = Math.round(((ordenExistente?.falta ?? 0) + totales.total) * 100) / 100;
+  const pidePago = esCompra && puedeRegistrarRespaldo && montoPago > 0;
+  const respaldoAhora = pidePago && cab.respaldo === "ahora";
   const errorRespaldo = respaldoAhora
-    ? validarRespaldo({
-      fechaPagoReal: form.respaldoFecha,
-      metodoPago: form.respaldoMetodo,
-      cuentaOrigen: form.respaldoCuenta,
-      transaccionId: form.respaldoTransaccion,
-      comprobanteUrl: form.respaldoComprobanteUrl,
-    })
+    ? validarRespaldo({ fechaPagoReal: cab.respaldoFecha, metodoPago: cab.respaldoMetodo, cuentaOrigen: cab.respaldoCuenta })
     : null;
 
-  const requisitosFaltantes = [
-    ...(form.origen ? [] : [{ mensaje: "Elige dónde está el artículo." }]),
-    ...(errorRespaldo ? [{ mensaje: `Respaldo: ${errorRespaldo}` }] : []),
-    ...(form.viaje === "caja" && !form.packingDestinoId ? [{ mensaje: "Elige la caja en la que viaja, o marca que viaja solo." }] : []),
-    ...requisitosFaltantesItem({
-      categoria: form.categoria,
-      cantidad: cantidadNormalizada,
-      requierePago: calculatedFlow.requierePago,
-      esCompraProveedor: isPurchaseOperation,
-      esRegaloProveedor: isGiftOperation,
-      proveedorId: form.proveedorId,
-      costoProveedor: costoProveedorUnitario,
-      precioVentaFinal: finalPriceProvided ? precioVentaFinalDecimal : null,
-    }),
+  const requisitos: string[] = [
+    ...(cab.origen ? [] : ["Elige el origen."]),
+    ...(esCompra && !cab.proveedorId ? ["Elige el proveedor de la compra."] : []),
+    ...(lineasUsadas.length ? [] : ["Escribe al menos un artículo."]),
+    ...(porCompletar ? [`${porCompletar} artículo(s) por completar (en amarillo).`] : []),
+    ...(vieneDeAfuera && cab.viaje === "caja" && !cab.packingDestinoId ? ["Elige la caja en la que viajan, o marca que viajan solos."] : []),
+    ...(errorRespaldo ? [`Pago: ${errorRespaldo}`] : []),
   ];
 
-  // Al cambiar el origen: el proveedor y el tipo de operación deben seguir
-  // siendo válidos, y lo extranjero propone el primer casillero activo.
+  // Al cambiar el origen: el proveedor y la operación deben seguir siendo
+  // válidos, y lo extranjero propone el primer casillero activo.
   useEffect(() => {
-    setForm((current) => {
-      const next = { ...current };
-      if (current.proveedorId && !proveedoresCompra.some((p) => p.id === current.proveedorId)) next.proveedorId = "";
-      if (!tiposOperacion.includes(current.tipoOperacion)) next.tipoOperacion = tiposOperacion[0] ?? "";
-      if (current.origen === ORIGEN_EXTRANJERO && !current.casilleroId && casilleros[0]) next.casilleroId = casilleros[0].id;
-      if (current.origen !== ORIGEN_EXTRANJERO && current.casilleroId) next.casilleroId = "";
-      const changed = (Object.keys(next) as Array<keyof FormState>).some((k) => next[k] !== current[k]);
-      return changed ? next : current;
+    setCab((c) => {
+      const next = { ...c };
+      if (!fijo && c.proveedorId && !proveedoresCompra.some((p) => p.id === c.proveedorId)) next.proveedorId = "";
+      if (!operaciones.includes(c.operacion)) next.operacion = operaciones[0] ?? COMPRA;
+      if (c.origen === ORIGEN_EXTRANJERO && !c.casilleroId && casilleros[0]) next.casilleroId = casilleros[0].id;
+      if (c.origen !== ORIGEN_EXTRANJERO && c.casilleroId) next.casilleroId = "";
+      const changed = (Object.keys(next) as Array<keyof Cabecera>).some((k) => next[k] !== c[k]);
+      return changed ? next : c;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.origen, form.destino, proveedoresCompra.length]);
+  }, [cab.origen, proveedoresCompra.length]);
 
   useEffect(() => {
-    if (form.packingDestinoId && !cajasCompatibles.some((c) => c.id === form.packingDestinoId)) update("packingDestinoId", "");
+    if (cab.packingDestinoId && !cajasCompatibles.some((c) => c.id === cab.packingDestinoId)) setC("packingDestinoId", "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.proveedorId, form.casilleroId]);
+  }, [cab.proveedorId, cab.casilleroId]);
 
+  // Sin regalo en el origen (local) o en despiece sin activos: se limpian las marcas.
   useEffect(() => {
-    photosRef.current = photos;
-  }, [photos]);
+    setLineas((ls) => ls.map((l) => ({
+      ...l,
+      regalo: permiteRegalo && esCompra ? l.regalo : false,
+      activo: esDespiece ? false : l.activo,
+    })));
+  }, [permiteRegalo, esCompra, esDespiece]);
 
+  useEffect(() => { fotosRef.current = fotos; }, [fotos]);
   useEffect(() => () => {
-    photosRef.current.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+    Object.values(fotosRef.current).flat().forEach((f) => URL.revokeObjectURL(f.previewUrl));
   }, []);
 
-  function update<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((current) => ({
-      ...current,
-      [key]: value,
-      // Al cambiar la categoría, el tipo de operación o el destino se vuelve a
-      // proponer "Requiere inspección".
-      ...(key === "categoria" || key === "tipoOperacion" || key === "destino" ? { requiereInspeccion: null } : {}),
+  function setC<K extends keyof Cabecera>(key: K, value: Cabecera[K]) {
+    setCab((c) => ({ ...c, [key]: value }));
+  }
+
+  function setL(key: string, cambios: Partial<LineaCompra>) {
+    setLineas((ls) => ls.map((l) => {
+      if (l.key !== key) return l;
+      const next = { ...l, ...cambios };
+      // Al cambiar la categoría, el activo o el regalo se vuelve a proponer la inspección.
+      if ("categoria" in cambios || "activo" in cambios) next.requiereInspeccion = cambios.requiereInspeccion ?? null;
+      if (cambios.regalo === true) next.costoProveedor = "";
+      return next;
     }));
   }
 
-  function addPhotos(files: File[]) {
+  function agregarFila() {
+    const ultima = lineas[lineas.length - 1];
+    const key = claveFila();
+    setLineas((ls) => [...ls, nuevaLinea(key, { condicion: ultima?.condicion || CONDICION_INICIAL, activo: esActivoInicial && !esDespiece })]);
+  }
+
+  function duplicarFila(l: LineaCompra) {
+    const key = claveFila();
+    setLineas((ls) => {
+      const i = ls.findIndex((x) => x.key === l.key);
+      const copia = duplicarLinea(l, key);
+      return [...ls.slice(0, i + 1), copia, ...ls.slice(i + 1)];
+    });
+  }
+
+  function quitarFila(key: string) {
+    (fotos[key] ?? []).forEach((f) => URL.revokeObjectURL(f.previewUrl));
+    setFotos((m) => { const n = { ...m }; delete n[key]; return n; });
+    setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : [nuevaLinea(claveFila(), { condicion: CONDICION_INICIAL, activo: esActivoInicial })]));
+    if (abierta === key) setAbierta(null);
+  }
+
+  function aplicarATodasLasFilas() {
+    if (!aplicar.categoria && !aplicar.condicion) return;
+    setLineas((ls) => aplicarATodas(ls, aplicar));
+  }
+
+  function addPhotos(key: string, files: File[]) {
     setError("");
     if (!files.length) return;
-    const nextPhotos: SelectedPhoto[] = [];
-    const currentKeys = new Set(photos.map((photo) => `${photo.file.name}:${photo.file.size}:${photo.file.lastModified}`));
-    const validacion = validarSeleccionFotosItem(
-      files.map((file) => ({ name: file.name, type: file.type, size: file.size })),
-      { yaSubidas: photos.length }
-    );
-    if (!validacion.ok) {
-      setError(validacion.motivo);
-      return;
-    }
+    const actuales = fotos[key] ?? [];
+    const validacion = validarSeleccionFotosItem(files.map((f) => ({ name: f.name, type: f.type, size: f.size })), { yaSubidas: actuales.length });
+    if (!validacion.ok) { setError(validacion.motivo); return; }
+    const vistos = new Set(actuales.map((p) => `${p.file.name}:${p.file.size}:${p.file.lastModified}`));
+    const nuevas: SelectedPhoto[] = [];
     for (const file of files) {
-      const key = `${file.name}:${file.size}:${file.lastModified}`;
-      if (currentKeys.has(key)) continue;
-      currentKeys.add(key);
-      nextPhotos.push({ id: `${key}:${crypto.randomUUID()}`, file, previewUrl: URL.createObjectURL(file) });
+      const id = `${file.name}:${file.size}:${file.lastModified}`;
+      if (vistos.has(id)) continue;
+      vistos.add(id);
+      nuevas.push({ id: `${id}:${crypto.randomUUID()}`, file, previewUrl: URL.createObjectURL(file) });
     }
-    if (nextPhotos.length > 0) setPhotos((current) => [...current, ...nextPhotos]);
+    if (nuevas.length) setFotos((m) => ({ ...m, [key]: [...(m[key] ?? []), ...nuevas] }));
   }
 
-  function handlePhotoInput(event: ChangeEvent<HTMLInputElement>) {
-    addPhotos(Array.from(event.target.files ?? []));
-    event.target.value = "";
-  }
-
-  function handleDrop(event: DragEvent<HTMLLabelElement>) {
-    event.preventDefault();
-    addPhotos(Array.from(event.dataTransfer.files ?? []));
-  }
-
-  function removePhoto(id: string) {
-    setPhotos((current) => {
-      const photo = current.find((item) => item.id === id);
-      if (photo) URL.revokeObjectURL(photo.previewUrl);
-      return current.filter((item) => item.id !== id);
+  function removePhoto(key: string, id: string) {
+    setFotos((m) => {
+      const foto = (m[key] ?? []).find((p) => p.id === id);
+      if (foto) URL.revokeObjectURL(foto.previewUrl);
+      return { ...m, [key]: (m[key] ?? []).filter((p) => p.id !== id) };
     });
+  }
+
+  function requiereInspeccionDe(l: LineaCompra) {
+    if (l.requiereInspeccion !== null) return l.requiereInspeccion;
+    if (l.activo) return false;
+    return requiereInspeccionPorDefecto({ categoria: l.categoria, tipoOperacion: l.regalo ? REGALO : cab.operacion });
+  }
+
+  function camposArticulo(l: LineaCompra): Record<string, string> {
+    const extranjero = cab.origen === ORIGEN_EXTRANJERO;
+    const local = cab.origen === ORIGEN_LOCAL;
+    const enCaja = vieneDeAfuera && cab.viaje === "caja";
+    return {
+      origenArticulo: cab.origen,
+      proveedorId: cab.proveedorId,
+      categoria: l.categoria,
+      tipoOperacion: esCompra ? (l.regalo ? REGALO : COMPRA) : cab.operacion,
+      nombre: l.nombre,
+      sku: l.sku,
+      skuProveedor: l.skuProveedor,
+      marca: l.marca,
+      modelo: l.modelo,
+      numeroSerie: l.numeroSerie,
+      condicion: l.condicion,
+      requiereInspeccion: String(requiereInspeccionDe(l)),
+      cantidad: l.cantidad,
+      unidad: l.unidad,
+      costoProveedor: l.regalo ? "" : l.costoProveedor,
+      // Un activo no se vende: no lleva precio.
+      precioVentaSugerido: l.activo ? "" : l.precioVentaSugerido,
+      precioVentaFinal: l.activo ? "" : l.precioVentaFinal,
+      usoLocal: l.activo ? "true" : "false",
+      descripcion: l.descripcion,
+      observacionesInternas: l.observacionesInternas,
+      proveedorLogisticoId: extranjero ? cab.casilleroId : "",
+      trackingHaciaIntermediario: extranjero ? cab.trackingOrigen : "",
+      transportistaOrigenId: extranjero ? cab.transportistaOrigenId : "",
+      // Si viaja en una caja, el tramo a Ecuador lo gobierna la caja.
+      trackingDesdeIntermediario: extranjero && !enCaja ? cab.trackingEcuador : "",
+      trackingDirecto: local && !enCaja ? cab.trackingLocal : "",
+      transportistaEcuadorId: (extranjero || local) && !enCaja ? cab.transportistaEcuadorId : "",
+      packingDestinoId: enCaja ? cab.packingDestinoId : "",
+      respaldoAhora: "false",
+    };
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setSubmitAttempted(true);
-    if (requisitosFaltantes.length > 0) {
-      setError(requisitosFaltantes.map((r) => `· ${r.mensaje}`).join("\n"));
+    if (requisitos.length) {
+      setError(requisitos.map((r) => `· ${r}`).join("\n"));
       return;
     }
     setSaving(true);
+    const avisos: string[] = [];
+    let orden = ordenEnCurso;
+    const yaCreados = [...creados];
 
-    const extranjero = form.origen === ORIGEN_EXTRANJERO;
-    const local = form.origen === ORIGEN_LOCAL;
-    const enCaja = vieneDeAfuera && form.viaje === "caja";
-    const campos: Record<string, string> = {
-      origenArticulo: form.origen,
-      proveedorId: form.proveedorId,
-      categoria: form.categoria,
-      tipoOperacion: form.tipoOperacion,
-      nombre: form.nombre,
-      sku: form.sku,
-      skuProveedor: form.skuProveedor,
-      marca: form.marca,
-      modelo: form.modelo,
-      numeroSerie: form.numeroSerie,
-      condicion: form.condicion,
-      requiereInspeccion: String(requiereInspeccion),
-      cantidad: form.cantidad,
-      unidad: form.unidad,
-      costoProveedor: form.costoProveedor,
-      // Un activo no se vende: no lleva precio.
-      precioVentaSugerido: esActivo ? "" : form.precioVentaSugerido,
-      precioVentaFinal: esActivo ? "" : form.precioVentaFinal,
-      usoLocal: esActivo ? "true" : "false",
-      descripcion: form.descripcion,
-      observacionesInternas: form.observacionesInternas,
-      proveedorLogisticoId: extranjero ? form.casilleroId : "",
-      trackingHaciaIntermediario: extranjero ? form.trackingOrigen : "",
-      transportistaOrigenId: extranjero ? form.transportistaOrigenId : "",
-      // Si viaja en una caja, el tramo a Ecuador lo gobierna la caja.
-      trackingDesdeIntermediario: extranjero && !enCaja ? form.trackingEcuador : "",
-      trackingDirecto: local && !enCaja ? form.trackingLocal : "",
-      transportistaEcuadorId: (extranjero || local) && !enCaja ? form.transportistaEcuadorId : "",
-      packingDestinoId: enCaja ? form.packingDestinoId : "",
-      respaldoAhora: respaldoAhora ? "true" : "false",
-      respaldoFecha: respaldoAhora ? form.respaldoFecha : "",
-      respaldoMetodo: respaldoAhora ? form.respaldoMetodo : "",
-      respaldoCuenta: respaldoAhora ? form.respaldoCuenta : "",
-      respaldoTransaccion: respaldoAhora ? form.respaldoTransaccion : "",
-      respaldoComprobanteUrl: respaldoAhora ? form.respaldoComprobanteUrl : "",
-    };
-    const formData = new FormData();
-    Object.entries(campos).forEach(([key, value]) => formData.set(key, value));
-    // Las fotos NO van aquí (tope de 4.5 MB de Vercel): se suben después.
-
-    const response = await fetch("/api/shipping-v2/items", { method: "POST", body: formData });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.success) {
-      setError(String(payload.error || "No se pudo crear el artículo."));
-      setSaving(false);
-      return;
-    }
-
-    const creado = payload.data as { id?: string; sku?: string } | undefined;
-    let avisoFotos = "";
-    if (photos.length && !creado?.id) {
-      avisoFotos = "Las fotos no se subieron: el servidor no devolvió el artículo creado. Agrégalas desde su ficha.";
-    } else if (photos.length && creado?.id) {
-      try {
-        const resultado = await subirFotosItem(creado.id, photos.map((photo) => photo.file));
-        avisoFotos = resultado.aviso;
-      } catch (errorFotos) {
-        avisoFotos = errorFotos instanceof FotosInvalidasError || errorFotos instanceof Error
-          ? `Las fotos no subieron: ${errorFotos.message}`
-          : "Las fotos no subieron.";
+    // 1. La orden (solo compras).
+    if (esCompra && !orden) {
+      setProgreso("Creando la orden…");
+      const res = await fetch("/api/shipping-v2/ordenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proveedorId: cab.proveedorId, numeroProveedor: cab.numeroProveedor, fechaCompra: cab.fechaCompra }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload.success) {
+        setError(String(payload.error || "No se pudo crear la orden."));
+        setSaving(false);
+        setProgreso("");
+        return;
       }
+      orden = { id: String(payload.data.id), ocId: String(payload.data.ocId) };
+      setOrdenEnCurso(orden);
     }
 
-    const avisos = [payload.packingWarning, payload.respaldoWarning, avisoFotos].filter(Boolean).join(" ");
-    const notice = `${esActivo ? "Activo" : "Artículo"} ${creado?.sku || ""} creado.${avisos ? ` ${avisos}` : ""}`;
+    // 2. Los artículos, de uno en uno.
+    const pendientes = [...lineasUsadas];
+    for (let i = 0; i < pendientes.length; i++) {
+      const l = pendientes[i];
+      setProgreso(`Creando ${i + 1} de ${pendientes.length}…`);
+      const formData = new FormData();
+      Object.entries(camposArticulo(l)).forEach(([k, v]) => formData.set(k, v));
+      if (orden && esCompra) formData.set("ordenCompraId", orden.id);
+      const res = await fetch("/api/shipping-v2/items", { method: "POST", body: formData });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload.success) {
+        const nombre = l.nombre.trim() || `fila ${i + 1}`;
+        // Si la orden recién creada se quedó vacía, se borra para no dejar basura.
+        if (orden && esCompra && !ordenExistente && yaCreados.length === 0) {
+          await fetch(`/api/shipping-v2/ordenes/${orden.id}`, { method: "DELETE" }).catch(() => undefined);
+          setOrdenEnCurso(null);
+        }
+        setError(`${nombre}: ${String(payload.error || "no se pudo crear.")}${yaCreados.length ? `\nYa quedaron creados: ${yaCreados.join(", ")}${orden ? ` en ${orden.ocId}` : ""}. Corrige y vuelve a guardar: solo se crea lo que falta.` : ""}`);
+        setSaving(false);
+        setProgreso("");
+        return;
+      }
+      const creado = payload.data as { id?: string; sku?: string } | undefined;
+      yaCreados.push(creado?.sku || "artículo");
+      setCreados([...yaCreados]);
+      if (payload.packingWarning) avisos.push(String(payload.packingWarning));
+      const fotosFila = fotos[l.key] ?? [];
+      if (fotosFila.length && creado?.id) {
+        setProgreso(`Subiendo fotos de ${creado.sku || `la fila ${i + 1}`}…`);
+        try {
+          const r = await subirFotosItem(creado.id, fotosFila.map((f) => f.file));
+          if (r.aviso) avisos.push(`${creado.sku}: ${r.aviso}`);
+        } catch (e) {
+          avisos.push(`${creado.sku}: las fotos no subieron${e instanceof FotosInvalidasError || e instanceof Error ? ` (${e.message})` : ""}.`);
+        }
+      }
+      // La fila creada sale de la tabla: si algo falla después, no se repite.
+      fotosFila.forEach((f) => URL.revokeObjectURL(f.previewUrl));
+      setFotos((m) => { const n = { ...m }; delete n[l.key]; return n; });
+      setLineas((ls) => ls.filter((x) => x.key !== l.key));
+    }
+
+    // 3. El pago contra la orden.
+    let textoPago = "";
+    if (orden && esCompra && respaldoAhora) {
+      setProgreso("Registrando el pago…");
+      const res = await fetch(`/api/shipping-v2/ordenes/${orden.id}/pago`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fechaPagoReal: cab.respaldoFecha,
+          metodoPago: cab.respaldoMetodo,
+          cuentaOrigen: cab.respaldoCuenta,
+          transaccionId: cab.respaldoTransaccion,
+          comprobanteUrl: cab.respaldoComprobanteUrl,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload.success) avisos.push(`El pago no se registró: ${String(payload.error || "error inesperado")}. Regístralo en la orden.`);
+      else textoPago = ` · Pago ${payload.data?.pagoId ?? ""} ${money(typeof payload.data?.totalAPagar === "number" ? payload.data.totalAPagar : montoPago)}`;
+    }
+
+    const quien = esActivoInicial ? "Activo(s)" : "Artículo(s)";
+    const notice = `${orden ? `${orden.ocId}: ` : ""}${quien} ${yaCreados.join(", ")} creado(s)${textoPago}.${avisos.length ? ` ${avisos.join(" ")}` : ""}`;
     window.sessionStorage.setItem("shipping-v2:notice", notice);
-    router.push(esActivo ? "/shipping-v2/activos" : "/shipping-v2/items");
+    if (orden && esCompra) router.push(`/shipping-v2/pagos/ordenes/${orden.id}`);
+    else router.push(esActivoInicial ? "/shipping-v2/activos" : "/shipping-v2/items");
     router.refresh();
   }
 
-  // Lo que pasará al guardar, en chips (sin frases largas).
   const resumen = [
-    esActivo ? "Activo de la tienda" : null,
+    `${lineasUsadas.length} ${lineasUsadas.length === 1 ? "artículo" : "artículos"}${totales.unidades !== lineasUsadas.length ? ` · ${totales.unidades} u.` : ""}`,
     origen === ORIGEN_TIENDA ? "Recibido" : null,
-    vieneDeAfuera ? "Por llegar" : null,
-    vieneDeAfuera && form.viaje !== "caja" && (form.trackingOrigen || form.trackingEcuador || form.trackingLocal) ? "En tránsito" : null,
-    vieneDeAfuera && form.viaje === "caja" && form.packingDestinoId ? "En caja" : null,
-    origen && requiereInspeccion ? "Con inspección" : null,
-    calculatedFlow.requierePago && !isGiftOperation ? (respaldoAhora ? "Con respaldo" : "Falta respaldo") : null,
+    vieneDeAfuera ? (cab.viaje === "caja" && cab.packingDestinoId ? `En caja ${cajasCompatibles.find((c) => c.id === cab.packingDestinoId)?.codigo ?? ""}` : "Por llegar") : null,
+    vieneDeAfuera && cab.viaje !== "caja" && (cab.trackingOrigen || cab.trackingEcuador || cab.trackingLocal) ? "En tránsito" : null,
   ].filter(Boolean) as string[];
 
-  const transportistasEc = transportistasEcuador.length ? transportistasEcuador : logisticos;
+  const chip = "whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold";
+  const errorPorCampo = submitAttempted;
 
   return (
     <form onSubmit={handleSubmit} noValidate className="w-full max-w-none space-y-2 pb-16">
-      {error ? (
-        <div className="whitespace-pre-line rounded-md border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">{error}</div>
-      ) : null}
+      {error ? <div className="whitespace-pre-line rounded-md border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">{error}</div> : null}
 
-      <div className="grid gap-2 lg:grid-cols-12 lg:items-start">
-        <div className="space-y-2 lg:col-span-9">
-          <Section
-            title="Artículo"
-            aside={
-              // Casi todo es mercadería: "Uso local" queda discreto y solo se
-              // marca para un activo de la tienda (decisión del dueño, 8-oct).
-              <label title="Activo de la tienda: no se vende y aparece en Activos de la tienda."
-                className={`flex cursor-pointer items-center gap-1.5 ${esActivo ? "font-semibold text-[#C9BFFF]" : ""}`}>
-                <input type="checkbox" checked={esActivo} onChange={(event) => update("destino", event.target.checked ? "activo" : "mercaderia")}
-                  className="h-3.5 w-3.5 accent-[#8B73FF]" />
-                Uso local
-              </label>
-            }
-          >
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
-              <Field label="Origen" grupo required error={showOrigenWarning ? "Elige uno" : undefined} className="xl:col-span-5">
-                <Seg<OrigenArticulo>
-                  value={form.origen}
-                  invalid={showOrigenWarning}
-                  onChange={(v) => update("origen", v)}
-                  options={ORIGENES_ARTICULO.map((o) => ({ value: o, label: ORIGEN_CORTO[o], title: ORIGEN_AYUDA[o] }))}
+      {/* ── Orden de compra (lima) ─────────────────────────────────────────── */}
+      <section className="rounded-lg border border-[#D7FF4F]/45 bg-[#171814] px-3 pb-3 pt-2">
+        <div className="mb-2 flex items-center gap-2">
+          <h2 className="text-[11px] font-bold uppercase tracking-wider text-[#D7FF4F]">{esCompra ? "Orden de compra" : "Ingreso sin compra"}</h2>
+          <span className="ml-auto text-[11px] text-[#7E7F76]">
+            {ordenEnCurso ? <b className="text-[#D7FF4F]">{ordenEnCurso.ocId}</b> : esCompra ? "OC nueva" : "sin orden ni pago"}
+          </span>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
+          <Field label="Origen" grupo required error={errorPorCampo && !cab.origen ? "Elige uno" : undefined} className="xl:col-span-4">
+            <Seg<OrigenArticulo>
+              value={cab.origen}
+              invalid={errorPorCampo && !cab.origen}
+              onChange={(v) => setC("origen", v)}
+              options={origenesPermitidos.map((o) => ({ value: o, label: ORIGEN_CORTO[o], title: ORIGEN_AYUDA[o] }))}
+            />
+          </Field>
+          {operaciones.length > 1 && !fijo ? (
+            <Field label="Tipo" grupo className="xl:col-span-3">
+              <Seg<string>
+                value={cab.operacion}
+                onChange={(v) => setC("operacion", v)}
+                options={operaciones.map((o) => ({ value: o, label: OPERACION_CORTA[o] ?? o, title: o === COMPRA ? "Compra a un proveedor (los regalos se marcan en cada fila)." : o }))}
+              />
+            </Field>
+          ) : null}
+          <Field label="Proveedor" required={esCompra} error={errorPorCampo && esCompra && !cab.proveedorId ? "Obligatorio" : undefined} className={operaciones.length > 1 && !fijo ? "xl:col-span-5" : "xl:col-span-3"}>
+            {fijo && ordenExistente ? (
+              <div className={`${inputBase} flex items-center border-[#3A3A36] text-[#E6E6E1]`}>{ordenExistente.proveedorNombre}</div>
+            ) : (
+              <SelectInput value={cab.proveedorId} onChange={(e) => setC("proveedorId", e.target.value)} disabled={!origen || fijo} invalid={errorPorCampo && esCompra && !cab.proveedorId}>
+                <option value="">{origen ? (esCompra ? "—" : "Sin proveedor") : "—"}</option>
+                {proveedoresCompra.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
+              </SelectInput>
+            )}
+          </Field>
+          {esCompra ? (
+            <>
+              <Field label="Nº de orden o factura" className={operaciones.length > 1 && !fijo ? "xl:col-span-8" : "xl:col-span-3"}>
+                <TextInput value={cab.numeroProveedor} onChange={(e) => setC("numeroProveedor", e.target.value)} disabled={fijo} placeholder="eBay 12-34567, factura 6812…" />
+              </Field>
+              <Field label="Fecha" className={operaciones.length > 1 && !fijo ? "xl:col-span-4" : "xl:col-span-2"}>
+                <TextInput type="date" value={cab.fechaCompra} onChange={(e) => setC("fechaCompra", e.target.value)} disabled={fijo} />
+              </Field>
+            </>
+          ) : null}
+        </div>
+
+        {vieneDeAfuera ? (
+          <div className="mt-2 rounded-md border border-[#2A2B26] bg-[#11120F] px-2 py-1.5">
+            <div className="grid items-end gap-2 sm:grid-cols-2 xl:grid-cols-12" title="Un rastreo pasa los artículos a En tránsito.">
+              <Field label="Llegada" grupo className="xl:col-span-2">
+                <Seg<ViajeOpcion>
+                  value={cab.viaje}
+                  onChange={(v) => setC("viaje", v)}
+                  options={[
+                    { value: "solo", label: "Solo" },
+                    { value: "caja", label: "En caja", title: "El rastreo de la caja lo gobierna desde que entran." },
+                    { value: "nose", label: "Por definir" },
+                  ]}
                 />
               </Field>
-              <Field label="Operación" className="xl:col-span-3">
-                <SelectInput value={form.tipoOperacion} onChange={(event) => update("tipoOperacion", event.target.value)} disabled={!origen}>
-                  {!origen ? <option value="">—</option> : null}
-                  {tiposOperacion.map((option) => <option key={option}>{option}</option>)}
-                </SelectInput>
-              </Field>
-
-              <Field label="Proveedor" required={calculatedFlow.requierePago} className="xl:col-span-4">
-                <SelectInput value={form.proveedorId} onChange={(event) => update("proveedorId", event.target.value)} disabled={!origen}>
-                  <option value="">{origen ? "Sin proveedor" : "—"}</option>
-                  {proveedoresCompra.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
-                </SelectInput>
-              </Field>
-              <Field label="Categoría" required error={showCategoryWarning ? "Obligatorio" : undefined} className="xl:col-span-4">
-                <SelectInput value={form.categoria} aria-invalid={showCategoryWarning} onChange={(event) => update("categoria", event.target.value)}>
-                  <option value="">—</option>
-                  {SHIPPING_V2_CATEGORIAS.map((option) => <option key={option}>{option}</option>)}
-                </SelectInput>
-              </Field>
-              <Field label="Condición" className="xl:col-span-3">
-                <SelectInput value={form.condicion} onChange={(event) => update("condicion", event.target.value)}>
-                  <option value="">—</option>
-                  {SHIPPING_V2_CONDICIONES.map((option) => <option key={option}>{option}</option>)}
-                </SelectInput>
-              </Field>
-              <Field label="Inspección" grupo className="xl:col-span-5">
-                <label
-                  title={requiereInspeccion ? "Se vende (o entra en uso) al firmar su ficha de inspección." : "No pasa por Inspección."}
-                  className="flex h-8 cursor-pointer items-center gap-2 rounded-md border border-[#3A3A36] bg-[#151515] px-2.5 text-[13px] text-[#F5F5F5]"
-                >
-                  <input type="checkbox" checked={requiereInspeccion} onChange={(event) => update("requiereInspeccion", event.target.checked)} className="h-3.5 w-3.5 accent-[#D7FF4F]" />
-                  Requiere inspección
-                  {form.requiereInspeccion === null && form.categoria && !esActivo ? <span className="ml-auto text-[10.5px] text-[#7E7F76]">por categoría</span> : null}
-                </label>
-              </Field>
-
-              <Field label="Nombre" grupo className="sm:col-span-2 xl:col-span-12">
-                <TextInput value={form.nombre} onChange={(event) => update("nombre", event.target.value)} />
-                {showFastNameSuggestion ? (
-                  <button type="button" onClick={() => update("nombre", fastNameSuggestion)}
-                    className="mt-1 max-w-full truncate text-left text-[11.5px] text-[#D7FF4F] hover:underline" title="Usar este nombre">
-                    Usar: {fastNameSuggestion}
-                  </button>
-                ) : null}
-              </Field>
-              <Field label="Marca" className="xl:col-span-3">
-                <TextInput value={form.marca} onChange={(event) => update("marca", event.target.value)} />
-              </Field>
-              <Field label="Modelo" className="xl:col-span-3">
-                <TextInput value={form.modelo} onChange={(event) => update("modelo", event.target.value)} />
-              </Field>
-              <Field label="Nº de serie" className="xl:col-span-2">
-                <TextInput value={form.numeroSerie} onChange={(event) => update("numeroSerie", event.target.value)} />
-              </Field>
-              <Field label="SKU" className="xl:col-span-2">
-                <TextInput value={form.sku} onChange={(event) => update("sku", event.target.value)} placeholder="Automático" />
-              </Field>
-              <Field label="SKU proveedor" className="xl:col-span-2">
-                <TextInput value={form.skuProveedor} onChange={(event) => update("skuProveedor", event.target.value)} />
-              </Field>
-            </div>
-          </Section>
-
-          <Section
-            title={esActivo ? "Cantidad y costo" : "Cantidad y precio"}
-            aside={
-              <span className="tabular-nums">
-                Subtotal <b className="text-[#F5F5F5]">{formatMoneyPreview(subtotalProveedor)}</b>
-                {!esActivo ? <> · Venta <b className="text-[#D7FF4F]">{formatMoneyPreview(valorPotencialVenta)}</b></> : null}
-              </span>
-            }
-          >
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
-              <Field label="Cantidad" required error={showQuantityWarning ? "Entero > 0" : undefined}>
-                <TextInput type="number" min="1" step="1" value={form.cantidad} aria-invalid={showQuantityWarning} onChange={(event) => update("cantidad", event.target.value)} />
-              </Field>
-              <Field label="Unidad">
-                <SelectInput value={form.unidad} onChange={(event) => update("unidad", event.target.value)}>
-                  {SHIPPING_V2_UNIDADES.map((option) => <option key={option}>{option}</option>)}
-                </SelectInput>
-              </Field>
-              <Field
-                label="Costo unitario"
-                required={isPurchaseOperation}
-                error={showCostWarning ? "Obligatorio" : showGiftCostWarning ? "Regalo: vacío o 0" : undefined}
-              >
-                <TextInput type="number" min="0" step="0.01" value={form.costoProveedor} aria-invalid={showCostWarning || showGiftCostWarning} onChange={(event) => update("costoProveedor", event.target.value)} />
-              </Field>
-              {!esActivo ? (
-                <>
-                  <Field label="Precio sugerido">
-                    <TextInput type="number" min="0.01" step="0.01" value={form.precioVentaSugerido} onChange={(event) => update("precioVentaSugerido", event.target.value)} />
-                  </Field>
-                  <Field label="Precio final" error={showFinalPriceWarning ? "No negativo" : undefined}>
-                    <TextInput type="number" min="0" step="0.01" value={form.precioVentaFinal} aria-invalid={showFinalPriceWarning} onChange={(event) => update("precioVentaFinal", event.target.value)} />
-                  </Field>
-                </>
+              {cab.viaje === "caja" ? (
+                <Field label="Caja" className="xl:col-span-3" error={!cajasCompatibles.length ? "Sin cajas abiertas: créala en Logística" : undefined}>
+                  <SelectInput value={cab.packingDestinoId} onChange={(e) => setC("packingDestinoId", e.target.value)} invalid={errorPorCampo && !cab.packingDestinoId}>
+                    <option value="">—</option>
+                    {cajasCompatibles.map((c) => <option key={c.id} value={c.id}>{c.codigo}{c.nombre ? ` · ${c.nombre}` : ""}</option>)}
+                  </SelectInput>
+                </Field>
               ) : null}
-            </div>
-            {pideRespaldo ? (
-              <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
-                <Field label="Respaldo del pago" grupo className="xl:col-span-3">
-                  <Seg<RespaldoOpcion>
-                    value={form.respaldo}
-                    onChange={(v) => setForm((current) => ({ ...current, respaldo: v, respaldoFecha: current.respaldoFecha || hoyLocal() }))}
-                    options={[
-                      { value: "despues", label: "Después", title: "Queda en Pagos → Falta respaldo." },
-                      { value: "ahora", label: "Ahora", title: "Registra el pago y su egreso en Finanzas." },
-                    ]}
-                  />
-                </Field>
-                {form.respaldo === "ahora" ? (
-                  <>
-                    <Field label="Fecha" required className="xl:col-span-2">
-                      <TextInput type="date" value={form.respaldoFecha} onChange={(event) => update("respaldoFecha", event.target.value)} />
-                    </Field>
-                    <Field label="Método" className="xl:col-span-2">
-                      <SelectInput value={form.respaldoMetodo} onChange={(event) => update("respaldoMetodo", event.target.value)}>
-                        {METODOS_PAGO.map((m) => <option key={m} value={m}>{m}</option>)}
-                      </SelectInput>
-                    </Field>
-                    <Field label="Cuenta" required className="xl:col-span-2">
-                      <SelectInput value={form.respaldoCuenta} onChange={(event) => update("respaldoCuenta", event.target.value)}>
-                        <option value="">—</option>
-                        {CUENTAS_PAGO.map((c) => <option key={c} value={c}>{c.trim()}</option>)}
-                      </SelectInput>
-                    </Field>
-                    <Field label="Nº transacción" className="xl:col-span-1">
-                      <TextInput value={form.respaldoTransaccion} onChange={(event) => update("respaldoTransaccion", event.target.value)} />
-                    </Field>
-                    <Field label="Enlace comprobante" className="xl:col-span-2">
-                      <TextInput value={form.respaldoComprobanteUrl} onChange={(event) => update("respaldoComprobanteUrl", event.target.value)} placeholder="o nº de transacción" />
-                    </Field>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
-          </Section>
-
-          {vieneDeAfuera ? (
-            <Section title="Llegada" aside="Opcional · también en Logística">
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
-                <Field label="Viaja" grupo className="xl:col-span-4">
-                  <Seg<ViajeOpcion>
-                    value={form.viaje}
-                    onChange={(v) => update("viaje", v)}
-                    options={[
-                      { value: "solo", label: "Solo" },
-                      { value: "caja", label: "En caja", title: "El rastreo de la caja lo gobierna desde que entra." },
-                      { value: "nose", label: "Por definir" },
-                    ]}
-                  />
-                </Field>
-                {form.viaje === "caja" ? (
-                  <Field label="Caja" className="xl:col-span-4" error={!cajasCompatibles.length ? "Sin cajas abiertas: créala en Logística" : undefined}>
-                    <SelectInput value={form.packingDestinoId} onChange={(event) => update("packingDestinoId", event.target.value)}>
-                      <option value="">—</option>
-                      {cajasCompatibles.map((c) => <option key={c.id} value={c.id}>{c.codigo}{c.nombre ? ` · ${c.nombre}` : ""}</option>)}
-                    </SelectInput>
-                  </Field>
-                ) : null}
-                {origen === ORIGEN_EXTRANJERO ? (
-                  <Field label="Casillero" className="xl:col-span-4">
-                    <SelectInput value={form.casilleroId} onChange={(event) => update("casilleroId", event.target.value)}>
+              {origen === ORIGEN_EXTRANJERO ? (
+                <>
+                  <Field label="Casillero" className="xl:col-span-2">
+                    <SelectInput value={cab.casilleroId} onChange={(e) => setC("casilleroId", e.target.value)}>
                       <option value="">Sin casillero</option>
                       {casilleros.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
                     </SelectInput>
                   </Field>
-                ) : null}
-              </div>
-              {origen === ORIGEN_EXTRANJERO ? (
-                <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" title="Un rastreo pasa el artículo a En tránsito.">
-                  <Field label="Rastreo → casillero">
-                    <TextInput value={form.trackingOrigen} onChange={(event) => update("trackingOrigen", event.target.value)} />
+                  <Field label="Rastreo → casillero" className="xl:col-span-2">
+                    <TextInput value={cab.trackingOrigen} onChange={(e) => setC("trackingOrigen", e.target.value)} />
                   </Field>
-                  <Field label="Transportista origen">
-                    <SelectInput value={form.transportistaOrigenId} onChange={(event) => update("transportistaOrigenId", event.target.value)}>
+                  <Field label="Transportista origen" className="xl:col-span-2">
+                    <SelectInput value={cab.transportistaOrigenId} onChange={(e) => setC("transportistaOrigenId", e.target.value)}>
                       <option value="">—</option>
                       {(transportistasOrigen.length ? transportistasOrigen : logisticos).map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
                     </SelectInput>
                   </Field>
-                  {form.viaje !== "caja" ? (
+                  {cab.viaje !== "caja" ? (
                     <>
-                      <Field label="Rastreo → Ecuador">
-                        <TextInput value={form.trackingEcuador} onChange={(event) => update("trackingEcuador", event.target.value)} />
+                      <Field label="Rastreo → Ecuador" className="xl:col-span-2">
+                        <TextInput value={cab.trackingEcuador} onChange={(e) => setC("trackingEcuador", e.target.value)} />
                       </Field>
-                      <Field label="Transportista Ecuador">
-                        <SelectInput value={form.transportistaEcuadorId} onChange={(event) => update("transportistaEcuadorId", event.target.value)}>
+                      <Field label="Transportista Ecuador" className="xl:col-span-2">
+                        <SelectInput value={cab.transportistaEcuadorId} onChange={(e) => setC("transportistaEcuadorId", e.target.value)}>
                           <option value="">—</option>
                           {transportistasEc.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
                         </SelectInput>
                       </Field>
                     </>
                   ) : null}
-                </div>
+                </>
               ) : null}
-              {origen === ORIGEN_LOCAL && form.viaje !== "caja" ? (
-                <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4" title="Un rastreo pasa el artículo a En tránsito.">
-                  <Field label="Rastreo">
-                    <TextInput value={form.trackingLocal} onChange={(event) => update("trackingLocal", event.target.value)} />
+              {origen === ORIGEN_LOCAL && cab.viaje !== "caja" ? (
+                <>
+                  <Field label="Rastreo" className="xl:col-span-3">
+                    <TextInput value={cab.trackingLocal} onChange={(e) => setC("trackingLocal", e.target.value)} />
                   </Field>
-                  <Field label="Transportista">
-                    <SelectInput value={form.transportistaEcuadorId} onChange={(event) => update("transportistaEcuadorId", event.target.value)}>
+                  <Field label="Transportista" className="xl:col-span-3">
+                    <SelectInput value={cab.transportistaEcuadorId} onChange={(e) => setC("transportistaEcuadorId", e.target.value)}>
                       <option value="">—</option>
                       {transportistasEc.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}
                     </SelectInput>
                   </Field>
-                </div>
+                </>
               ) : null}
-            </Section>
-          ) : null}
-
-          <details className="group rounded-lg border border-[#2E2F28] bg-[#171814] px-3 py-2" open={Boolean(form.descripcion || form.observacionesInternas)}>
-            <summary className="cursor-pointer list-none text-[11px] font-bold uppercase tracking-wider text-[#D7FF4F]">
-              <span className="mr-1 inline-block transition group-open:rotate-90">›</span> Descripción y observaciones
-            </summary>
-            <div className="mt-2 grid gap-2 md:grid-cols-2">
-              <Field label="Descripción">
-                <textarea value={form.descripcion} onChange={(event) => update("descripcion", event.target.value)} rows={2}
-                  className="w-full rounded-md border border-[#3A3A36] bg-[#151515] px-2.5 py-1.5 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
-              </Field>
-              <Field label="Observaciones internas">
-                <textarea value={form.observacionesInternas} onChange={(event) => update("observacionesInternas", event.target.value)} rows={2}
-                  className="w-full rounded-md border border-[#3A3A36] bg-[#151515] px-2.5 py-1.5 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
-              </Field>
             </div>
-          </details>
+          </div>
+        ) : null}
+      </section>
+
+      {/* ── Artículos (neutro) ─────────────────────────────────────────────── */}
+      <section className="rounded-lg border border-[#2E2F28] bg-[#171814] px-3 pb-3 pt-2">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <h2 className="text-[11px] font-bold uppercase tracking-wider text-[#F5F5F5]">Artículos</h2>
+          <button type="button" onClick={agregarFila} className="rounded-full border border-[#D7FF4F] px-2.5 py-0.5 text-[11.5px] font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515]">+ Agregar</button>
+          <div className="ml-auto flex flex-wrap items-center gap-1.5 text-[11px] text-[#8F908A]" title="Pone la categoría y/o la condición en todas las filas.">
+            Aplicar a todas
+            <select value={aplicar.categoria} onChange={(e) => setAplicar((a) => ({ ...a, categoria: e.target.value }))} className="h-7 rounded-md border border-[#3A3A36] bg-[#151515] px-1.5 text-[12px] text-[#F5F5F5] outline-none" aria-label="Categoría para todas">
+              <option value="">Categoría</option>
+              {SHIPPING_V2_CATEGORIAS.map((c) => <option key={c}>{c}</option>)}
+            </select>
+            <select value={aplicar.condicion} onChange={(e) => setAplicar((a) => ({ ...a, condicion: e.target.value }))} className="h-7 rounded-md border border-[#3A3A36] bg-[#151515] px-1.5 text-[12px] text-[#F5F5F5] outline-none" aria-label="Condición para todas">
+              <option value="">Condición</option>
+              {SHIPPING_V2_CONDICIONES.map((c) => <option key={c}>{c}</option>)}
+            </select>
+            <button type="button" onClick={aplicarATodasLasFilas} className="h-7 rounded-md border border-[#3A3A36] px-2 text-[12px] font-semibold text-[#F5F5F5] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]">Aplicar</button>
+          </div>
         </div>
 
-        <aside className="lg:col-span-3">
-          <Section title="Fotos" aside={`${photos.length}/10`}>
-            <label onDragOver={(event) => event.preventDefault()} onDrop={handleDrop} title="JPG, PNG o WebP. También puedes arrastrarlas."
-              className="flex h-9 cursor-pointer items-center justify-center rounded-md border border-dashed border-[#D7FF4F]/40 bg-[#151515] text-[13px] font-semibold text-[#D7FF4F] transition hover:border-[#D7FF4F]/80">
-              <input type="file" accept={ACCEPT_FOTOS_ITEM} multiple className="sr-only" onChange={handlePhotoInput} />
-              + Agregar fotos
-            </label>
-            {photos.length > 0 ? (
-              <div className="mt-2 grid grid-cols-4 gap-1.5 lg:grid-cols-3">
-                {photos.map((photo) => (
-                  <div key={photo.id} className="group relative overflow-hidden rounded-md border border-[#3A3A36]">
-                    <img src={photo.previewUrl} alt={photo.file.name} title={photo.file.name} className="aspect-square w-full object-cover" />
-                    <button type="button" onClick={() => removePhoto(photo.id)} aria-label={`Quitar ${photo.file.name}`}
-                      className="absolute right-0.5 top-0.5 grid h-5 w-5 place-items-center rounded bg-black/70 text-xs text-[#F5F5F5] hover:text-[#FFB07A]">
-                      ×
-                    </button>
+        <div className="overflow-x-auto">
+          <div className="min-w-[860px]">
+            <div className="grid grid-cols-[22px_minmax(0,1fr)_96px_118px_96px_50px_84px_80px_76px_62px] items-center gap-1.5 rounded bg-[#1E1F19] px-1.5 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
+              <span>#</span><span>Nombre</span><span>SKU prov.</span><span>Categoría</span><span>Cond.</span><span className="text-right">Cant.</span><span className="text-right">Costo u.</span><span className="text-right">Subtotal</span><span className="text-right">Venta</span><span />
+            </div>
+            {lineas.map((l, i) => {
+              const faltan = faltantesPorLinea.get(l.key) ?? [];
+              const marcar = faltan.length > 0 && (submitAttempted || !lineaEnBlanco(l));
+              const st = subtotalLinea(l);
+              const sugerencia = normalizeItemNameFast(l.nombre);
+              const abiertaAqui = abierta === l.key;
+              const fotosFila = fotos[l.key] ?? [];
+              const inspeccion = requiereInspeccionDe(l);
+              return (
+                <div key={l.key} className={`border-t border-[#2A2B26] ${marcar ? "bg-[#F4C95B]/[0.06]" : ""}`}>
+                  <div className="grid grid-cols-[22px_minmax(0,1fr)_96px_118px_96px_50px_84px_80px_76px_62px] items-start gap-1.5 px-1.5 py-1">
+                    <span className="pt-2 text-[11px] tabular-nums text-[#6F706A]" title={marcar ? `Falta: ${faltan.join(", ")}` : undefined}>{marcar ? <span className="text-[#F4C95B]">!</span> : i + 1}</span>
+                    <div className="min-w-0">
+                      <TextInput value={l.nombre} onChange={(e) => setL(l.key, { nombre: e.target.value })} invalid={marcar && faltan.includes("nombre")} placeholder="Nombre del artículo" />
+                      {sugerencia && sugerencia !== l.nombre.trim() ? (
+                        <button type="button" onClick={() => setL(l.key, { nombre: sugerencia })} className="mt-0.5 block max-w-full truncate text-left text-[11px] text-[#D7FF4F] hover:underline" title="Usar este nombre">Usar: {sugerencia}</button>
+                      ) : null}
+                    </div>
+                    <TextInput value={l.skuProveedor} onChange={(e) => setL(l.key, { skuProveedor: e.target.value })} placeholder="—" />
+                    <SelectInput value={l.categoria} onChange={(e) => setL(l.key, { categoria: e.target.value })} invalid={marcar && faltan.includes("categoría")}>
+                      <option value="">Elige</option>
+                      {SHIPPING_V2_CATEGORIAS.map((c) => <option key={c}>{c}</option>)}
+                    </SelectInput>
+                    <SelectInput value={l.condicion} onChange={(e) => setL(l.key, { condicion: e.target.value })}>
+                      <option value="">—</option>
+                      {SHIPPING_V2_CONDICIONES.map((c) => <option key={c}>{c}</option>)}
+                    </SelectInput>
+                    <TextInput type="number" min="1" step="1" value={l.cantidad} onChange={(e) => setL(l.key, { cantidad: e.target.value })} invalid={marcar && faltan.includes("cantidad entera")} className="text-right" />
+                    {l.regalo ? (
+                      <span className="flex h-8 items-center justify-end text-[11px] font-semibold text-[#8F908A]" title="Regalo del proveedor: no suma al pago.">Regalo</span>
+                    ) : (
+                      <TextInput type="number" min="0" step="0.01" value={l.costoProveedor} onChange={(e) => setL(l.key, { costoProveedor: e.target.value })} invalid={marcar && faltan.includes("costo")} className="text-right" placeholder={esCompra ? "0.00" : "—"} />
+                    )}
+                    <span className="flex h-8 items-center justify-end text-[12.5px] tabular-nums text-[#E6E6E1]">{l.regalo ? "$0.00" : money(st)}</span>
+                    {l.activo ? (
+                      <span className="flex h-8 items-center justify-end text-[11px] font-semibold text-[#C9BFFF]" title="Activo de la tienda: no se vende.">Activo</span>
+                    ) : (
+                      <TextInput type="number" min="0" step="0.01" value={l.precioVentaFinal} onChange={(e) => setL(l.key, { precioVentaFinal: e.target.value })} invalid={marcar && faltan.includes("precio válido")} className="text-right text-[#D7FF4F]" placeholder="—" />
+                    )}
+                    <div className="flex h-8 items-center justify-end gap-0.5">
+                      <button type="button" onClick={() => setAbierta(abiertaAqui ? null : l.key)} aria-label={abiertaAqui ? "Ocultar detalles" : "Más detalles"} title="Marca, modelo, serie, inspección, fotos…"
+                        className={`grid h-6 w-6 place-items-center rounded text-[13px] ${abiertaAqui ? "bg-[#D7FF4F] text-[#151515]" : "text-[#8F908A] hover:text-[#D7FF4F]"}`}>
+                        {abiertaAqui ? "⌄" : "›"}
+                      </button>
+                      <button type="button" onClick={() => duplicarFila(l)} aria-label="Duplicar fila" title="Duplicar (casi igual: cambia la serie)" className="grid h-6 w-6 place-items-center rounded text-[12px] text-[#8F908A] hover:text-[#D7FF4F]">⧉</button>
+                      <button type="button" onClick={() => quitarFila(l.key)} aria-label="Quitar fila" title="Quitar fila" className="grid h-6 w-6 place-items-center rounded text-[14px] text-[#8F908A] hover:text-[#FFB07A]">×</button>
+                    </div>
                   </div>
-                ))}
-              </div>
-            ) : null}
-          </Section>
-        </aside>
-      </div>
-
-      {/* Barra fija: lo que pasará al guardar (chips) y las acciones. */}
-      <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-2 rounded-lg border border-[#2E2F28] bg-[#11120F]/95 px-3 py-2 backdrop-blur">
-        <div className="flex min-w-0 flex-1 flex-wrap gap-1">
-          {resumen.map((r) => (
-            <span key={r} className="rounded-full border border-[#3A3A36] bg-[#1B1C17] px-2 py-0.5 text-[11px] font-semibold text-[#B4B5AC]">{r}</span>
-          ))}
+                  {!abiertaAqui && (fotosFila.length || l.marca || l.modelo || l.numeroSerie || l.regalo || l.activo) ? (
+                    <div className="-mt-0.5 flex flex-wrap gap-1 pb-1 pl-8 text-[10.5px] text-[#8F908A]">
+                      {[l.marca, l.modelo, l.numeroSerie ? `S/N ${l.numeroSerie}` : ""].filter(Boolean).join(" · ")}
+                      {fotosFila.length ? <span>· {fotosFila.length} foto(s)</span> : null}
+                      {inspeccion ? <span>· con inspección</span> : null}
+                    </div>
+                  ) : null}
+                  {abiertaAqui ? (
+                    <div className="mx-1.5 mb-2 rounded-md border border-[#2A2B26] bg-[#151612] p-2">
+                      <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-12">
+                        <Field label="Marca" className="xl:col-span-2"><TextInput value={l.marca} onChange={(e) => setL(l.key, { marca: e.target.value })} /></Field>
+                        <Field label="Modelo" className="xl:col-span-2"><TextInput value={l.modelo} onChange={(e) => setL(l.key, { modelo: e.target.value })} /></Field>
+                        <Field label="Nº de serie" className="xl:col-span-2"><TextInput value={l.numeroSerie} onChange={(e) => setL(l.key, { numeroSerie: e.target.value })} /></Field>
+                        <Field label="SKU" className="xl:col-span-2"><TextInput value={l.sku} onChange={(e) => setL(l.key, { sku: e.target.value })} placeholder="Automático" /></Field>
+                        <Field label="Unidad" className="xl:col-span-2">
+                          <SelectInput value={l.unidad} onChange={(e) => setL(l.key, { unidad: e.target.value })}>
+                            {SHIPPING_V2_UNIDADES.map((u) => <option key={u}>{u}</option>)}
+                          </SelectInput>
+                        </Field>
+                        {!l.activo ? (
+                          <Field label="Precio sugerido" className="xl:col-span-2"><TextInput type="number" min="0" step="0.01" value={l.precioVentaSugerido} onChange={(e) => setL(l.key, { precioVentaSugerido: e.target.value })} /></Field>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-[#E6E6E1]">
+                        <label className="flex cursor-pointer items-center gap-1.5" title={inspeccion ? "Se vende (o entra en uso) al firmar su ficha de inspección." : "No pasa por Inspección."}>
+                          <input type="checkbox" checked={inspeccion} onChange={(e) => setL(l.key, { requiereInspeccion: e.target.checked })} className="h-3.5 w-3.5 accent-[#D7FF4F]" />
+                          Requiere inspección
+                          {l.requiereInspeccion === null && l.categoria && !l.activo ? <span className="text-[10.5px] text-[#7E7F76]">(por categoría)</span> : null}
+                        </label>
+                        {esCompra && permiteRegalo ? (
+                          <label className="flex cursor-pointer items-center gap-1.5" title="Regalo del proveedor: costo 0, no suma al pago.">
+                            <input type="checkbox" checked={l.regalo} onChange={(e) => setL(l.key, { regalo: e.target.checked })} className="h-3.5 w-3.5 accent-[#D7FF4F]" />
+                            Regalo
+                          </label>
+                        ) : null}
+                        {!esDespiece ? (
+                          <label className={`flex cursor-pointer items-center gap-1.5 ${l.activo ? "text-[#C9BFFF]" : ""}`} title="Activo de la tienda: no se vende y aparece en Activos de la tienda.">
+                            <input type="checkbox" checked={l.activo} onChange={(e) => setL(l.key, { activo: e.target.checked })} className="h-3.5 w-3.5 accent-[#8B73FF]" />
+                            Uso local (activo)
+                          </label>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 grid gap-2 md:grid-cols-12">
+                        <Field label="Descripción" className="md:col-span-4">
+                          <textarea value={l.descripcion} onChange={(e) => setL(l.key, { descripcion: e.target.value })} rows={2} className="w-full rounded-md border border-[#3A3A36] bg-[#151515] px-2 py-1 text-[13px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
+                        </Field>
+                        <Field label="Observaciones internas" className="md:col-span-4">
+                          <textarea value={l.observacionesInternas} onChange={(e) => setL(l.key, { observacionesInternas: e.target.value })} rows={2} className="w-full rounded-md border border-[#3A3A36] bg-[#151515] px-2 py-1 text-[13px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
+                        </Field>
+                        <Field label={`Fotos ${fotosFila.length}/10`} grupo className="md:col-span-4">
+                          <label onDragOver={(e: DragEvent<HTMLLabelElement>) => e.preventDefault()} onDrop={(e: DragEvent<HTMLLabelElement>) => { e.preventDefault(); addPhotos(l.key, Array.from(e.dataTransfer.files ?? [])); }}
+                            title="JPG, PNG o WebP. También puedes arrastrarlas."
+                            className="flex h-8 cursor-pointer items-center justify-center rounded-md border border-dashed border-[#D7FF4F]/40 bg-[#151515] text-[12.5px] font-semibold text-[#D7FF4F] transition hover:border-[#D7FF4F]/80">
+                            <input type="file" accept={ACCEPT_FOTOS_ITEM} multiple className="sr-only" onChange={(e: ChangeEvent<HTMLInputElement>) => { addPhotos(l.key, Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+                            + Agregar fotos
+                          </label>
+                          {fotosFila.length ? (
+                            <div className="mt-1.5 grid grid-cols-5 gap-1">
+                              {fotosFila.map((f) => (
+                                <div key={f.id} className="relative overflow-hidden rounded border border-[#3A3A36]">
+                                  <img src={f.previewUrl} alt={f.file.name} title={f.file.name} className="aspect-square w-full object-cover" />
+                                  <button type="button" onClick={() => removePhoto(l.key, f.id)} aria-label={`Quitar ${f.file.name}`} className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded bg-black/70 text-[11px] text-[#F5F5F5] hover:text-[#FFB07A]">×</button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </Field>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <Link href={esActivo ? "/shipping-v2/activos" : "/shipping-v2/items"}
+        {creados.length ? (
+          <p className="mt-2 text-[12px] text-[#9FEFB3]">Ya creados{ordenEnCurso ? ` en ${ordenEnCurso.ocId}` : ""}: {creados.join(", ")}.</p>
+        ) : null}
+      </section>
+
+      {/* ── Pago (verde) ───────────────────────────────────────────────────── */}
+      {pidePago ? (
+        <section className="rounded-lg border border-[#7BE495]/40 bg-[#151a13] px-3 pb-3 pt-2">
+          <div className="mb-2 flex items-center gap-2">
+            <h2 className="text-[11px] font-bold uppercase tracking-wider text-[#9FEFB3]">Pago</h2>
+            <span className="ml-auto text-[11px] text-[#7E7F76]" title="El monto es el total de la orden: costo × unidades (los regalos no suman).">
+              {ordenExistente && ordenExistente.falta > 0 ? `Incluye ${money(ordenExistente.falta)} que la orden ya debía · ` : ""}un pago, un egreso en Finanzas
+            </span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-12">
+            <Field label="Respaldo" grupo className="xl:col-span-2">
+              <Seg<RespaldoOpcion>
+                value={cab.respaldo}
+                onChange={(v) => setC("respaldo", v)}
+                options={[
+                  { value: "despues", label: "Después", title: "La orden queda en Pagos → Falta respaldo." },
+                  { value: "ahora", label: "Ahora", title: "Registra el pago y su egreso en Finanzas." },
+                ]}
+              />
+            </Field>
+            {cab.respaldo === "ahora" ? (
+              <>
+                <Field label="Fecha" required className="xl:col-span-2">
+                  <TextInput type="date" value={cab.respaldoFecha} onChange={(e) => setC("respaldoFecha", e.target.value)} />
+                </Field>
+                <Field label="Método" className="xl:col-span-2">
+                  <SelectInput value={cab.respaldoMetodo} onChange={(e) => setC("respaldoMetodo", e.target.value)}>
+                    {METODOS_PAGO.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </SelectInput>
+                </Field>
+                <Field label="Cuenta" required error={errorPorCampo && !cab.respaldoCuenta ? "Obligatoria" : undefined} className="xl:col-span-2">
+                  <SelectInput value={cab.respaldoCuenta} onChange={(e) => setC("respaldoCuenta", e.target.value)} invalid={errorPorCampo && !cab.respaldoCuenta}>
+                    <option value="">—</option>
+                    {CUENTAS_PAGO.map((c) => <option key={c} value={c}>{c.trim()}</option>)}
+                  </SelectInput>
+                </Field>
+                <Field label="Nº transacción" className="xl:col-span-1">
+                  <TextInput value={cab.respaldoTransaccion} onChange={(e) => setC("respaldoTransaccion", e.target.value)} placeholder="Opcional" />
+                </Field>
+                <Field label="Enlace comprobante" className="xl:col-span-2">
+                  <TextInput value={cab.respaldoComprobanteUrl} onChange={(e) => setC("respaldoComprobanteUrl", e.target.value)} placeholder="Opcional" />
+                </Field>
+              </>
+            ) : null}
+            <Field label="Monto" grupo className={cab.respaldo === "ahora" ? "xl:col-span-1" : "xl:col-span-2"}>
+              <div className={`${inputBase} flex items-center justify-end border-[#7BE495]/30 font-semibold tabular-nums`} title="Total de la orden">{money(montoPago)}</div>
+            </Field>
+          </div>
+        </section>
+      ) : null}
+
+      {/* ── Barra fija ─────────────────────────────────────────────────────── */}
+      <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center gap-2 rounded-lg border border-[#2E2F28] bg-[#11120F]/95 px-3 py-2 backdrop-blur">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+          {resumen.map((r) => <span key={r} className={`${chip} border-[#3A3A36] bg-[#1B1C17] text-[#B4B5AC]`}>{r}</span>)}
+          {pidePago ? (
+            respaldoAhora
+              ? <span className={`${chip} border-[#7BE495]/60 text-[#9FEFB3]`}>Con respaldo</span>
+              : <span className={`${chip} border-[#3A3A36] text-[#B4B5AC]`}>Falta respaldo</span>
+          ) : null}
+          {porCompletar ? <span className={`${chip} border-[#F4C95B]/60 text-[#F4C95B]`}>{porCompletar} por completar</span> : null}
+          {progreso ? <span className="text-[12px] text-[#D7FF4F]">{progreso}</span> : null}
+        </div>
+        {esCompra ? (
+          <span className="text-[12px] text-[#8F908A]">Total <b className="text-[15px] font-black tabular-nums text-[#F5F5F5]">{money(totales.total)}</b></span>
+        ) : null}
+        <Link href={ordenExistente ? `/shipping-v2/pagos/ordenes/${ordenExistente.id}` : esActivoInicial ? "/shipping-v2/activos" : "/shipping-v2/items"}
           className="rounded-md border border-[#3A3A36] px-3 py-1.5 text-sm font-semibold text-[#B4B5AC] transition hover:text-[#F5F5F5]">
           Cancelar
         </Link>
         <button type="submit" disabled={saving}
           className="rounded-md border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-1.5 text-sm font-black text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60">
-          {saving ? "Guardando…" : esActivo ? "Registrar activo" : "Registrar artículo"}
+          {saving ? "Guardando…" : ordenExistente ? `Agregar a ${ordenExistente.ocId}` : esCompra ? "Registrar compra" : "Registrar"}
         </button>
       </div>
     </form>

@@ -23,6 +23,8 @@ const TABLES = {
   intervenciones: "Shipping Intervenciones",
   migraciones: "Shipping Migraciones",
   eventos: "Shipping Eventos",
+  // Punto 9d (14-oct-2026): una compra con sus artículos y su pago.
+  ordenesCompra: "Shipping Órdenes de compra",
   cpuCatalog: "Catálogo CPUs",
   computerCatalog: "Catálogo Computadores",
   connectivityCatalog: "Catálogo Conectividad",
@@ -283,6 +285,8 @@ const ITEM_FIELD_KEYS = {
   precioVentaSugerido: "Precio venta sugerido",
   cantidad: "Cantidad",
   unidadesCompradas: "Unidades compradas",
+  // Punto 9d: orden de compra (OC) del artículo.
+  ordenCompra: "Orden de compra",
   // F-42 — unidades comprometidas (reserva de cliente u orden) aún no
   // vendidas. Libres = Cantidad - Cantidad Reservada. Ver lib/shipping-v2/unidades.ts.
   cantidadReservada: "Cantidad Reservada",
@@ -365,6 +369,8 @@ const PAYMENT_FIELD_KEYS = {
   pagadoA: "Pagado a",
   pagoId: "Pago ID",
   orden: "Orden",
+  // Punto 9d: orden de compra (OC) que paga este pago.
+  ordenCompra: "Orden de compra",
   estadoPago: "Estado Pago",
   proveedor: "Proveedor",
   itemsRelacionados: "Items relacionados",

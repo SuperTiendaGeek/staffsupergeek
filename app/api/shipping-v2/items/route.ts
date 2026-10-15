@@ -170,8 +170,14 @@ export async function POST(request: Request) {
       if (errorRespaldo) return NextResponse.json({ success: false, error: `Respaldo: ${errorRespaldo}` }, { status: 400 });
     }
 
+    // Punto 9d: desde "Registrar compra" cada artículo nace dentro de su orden.
+    const ordenCompraId = String(body.ordenCompraId ?? "").trim();
+    if (ordenCompraId && respaldo) {
+      return NextResponse.json({ success: false, error: "El pago de una orden se registra en la orden, no en cada artículo." }, { status: 400 });
+    }
     const item = await createShippingV2Item(input, {
       registradoPor: getShippingV2SessionName(session),
+      ordenCompraId: ordenCompraId || undefined,
     });
 
     let responseItem = item;
