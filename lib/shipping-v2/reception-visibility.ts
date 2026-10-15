@@ -48,8 +48,9 @@ function normalize(value?: string) {
 
 /**
  * Etapas en las que el artículo todavía NO llegó. Desde oct-2026 (auditoría,
- * punto 2) eso se ve en Recepción → "Por llegar" (cajas en tránsito y
- * artículos sueltos), no en la lista de trabajo de bodega. Cuando una caja
+ * punto 2) eso se ve aparte de la lista de trabajo de bodega: desde la fase 2
+ * del punto 9 (15-oct) en Logística, etapa "En camino" (cajas en tránsito y
+ * artículos sueltos), donde se pulsa "Llegó". Cuando una caja
  * llega, sus artículos pasan a "Recibido" y recién ahí aparecen aquí para
  * confirmarlos uno por uno.
  */

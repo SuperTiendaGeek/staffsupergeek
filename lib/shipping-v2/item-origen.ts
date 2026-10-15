@@ -17,7 +17,8 @@
 //     rastreo ya afirma el despacho; no se confirma con un botón);
 //   · puede agruparse en una caja (packing), local o extranjera. Desde que
 //     entra a una caja, el rastreo de la caja lo gobierna;
-//   · aparece en Recepción → "Por llegar" hasta que alguien marque "Recibido".
+//   · aparece en Logística (etapa "En camino") hasta que alguien pulse "Llegó"
+//     (antes Recepción → "Por llegar"; fase 2 del punto 9, 15-oct-2026).
 
 function normalize(value?: string | null) {
   return String(value ?? "")
@@ -125,7 +126,7 @@ type ItemLlegada = {
 };
 
 /**
- * Recepción → "Por llegar": artículos SUELTOS (sin caja) que vienen de afuera
+ * Logística → "En camino" (antes Recepción → "Por llegar"): artículos SUELTOS (sin caja) que vienen de afuera
  * y todavía no llegan. Los que viajan en una caja aparecen dentro de su caja.
  */
 export function esSueltoPorLlegar(item: ItemLlegada): boolean {

@@ -4065,6 +4065,21 @@ function construirFilasLogistica(input: {
   labelsById: Map<string, string>;
 }): ShippingV2LogisticaFila[] {
   const filas: ShippingV2LogisticaFila[] = [];
+  const pagosById = new Map(input.pagos.map((p) => [p.id, p]));
+  // Fase 2 (15-oct): ¿la compra de lo que viaja tiene su respaldo de pago? (chip "Compra" de Logística)
+  const compraDe = (articulos: ShippingV2Item[]) => {
+    const conCompra = articulos.filter((i) => i.requierePago === true && i.esRegalo !== true && !isCancelledItem(i));
+    return {
+      conCompra: conCompra.length,
+      faltaRespaldo: conCompra.filter((i) => faltaRespaldo({
+        requierePago: i.requierePago,
+        esRegalo: i.esRegalo,
+        cancelado: isCancelledItem(i),
+        faltaProveedor: providerRequiredForPayment(i) && !i.proveedorId,
+        enPagoVivo: itemIsLinkedToActivePayment(i, pagosById),
+      })).length,
+    };
+  };
   const itemsPorPacking = new Map<string, ShippingV2Item[]>();
   for (const item of input.items) {
     if (item.packingId) itemsPorPacking.set(item.packingId, [...(itemsPorPacking.get(item.packingId) ?? []), item]);
@@ -4090,6 +4105,7 @@ function construirFilasLogistica(input: {
       arancel: situacionGasto(pk.arancel ?? null, pagadoLogistica(input.pagos, destino, "Arancel")),
       otros: situacionGasto(pk.otrosCostos ?? null, pagadoLogistica(input.pagos, destino, "Otros")),
       pendiente: { falta: 0, sinFlete: false, pagado: 0 },
+      compra: compraDe(contenido),
     });
   }
   for (const item of input.items) {
@@ -4112,6 +4128,7 @@ function construirFilasLogistica(input: {
       arancel: situacionGasto(item.arancelAsignadoRegistro ?? null, pagadoLogistica(input.pagos, destino, "Arancel")),
       otros: situacionGasto(item.otrosCostosAsignadosRegistro ?? null, pagadoLogistica(input.pagos, destino, "Otros")),
       pendiente: { falta: 0, sinFlete: false, pagado: 0 },
+      compra: compraDe([item]),
     });
   }
   for (const fila of filas) fila.pendiente = pendienteLogistica(fila);
@@ -5077,6 +5094,8 @@ export async function getShippingV2PackingsReviewProgress(
   const records = await listRecords(SHIPPING_V2_TABLES.items, {
     fields: [
       F.sku,
+      F.skuProveedor,
+      F.nombre,
       F.estadoItem,
       F.recibido,
       F.requiereInspeccion,
@@ -5092,9 +5111,12 @@ export async function getShippingV2PackingsReviewProgress(
   });
 
   const itemsPorPacking = new Map<string, ShippingV2ReceptionChecklistItemLike[]>();
+  // Fase 2 (15-oct): para buscar una caja por el SKU, SKU proveedor o nombre de lo que lleva.
+  const busquedaPorPacking = new Map<string, string[]>();
   for (const record of records) {
     const packingIds = linkedRecordIds(record.fields["Shipping Packings"]);
     if (!packingIds.length) continue;
+    const textoBusqueda = [record.fields[F.sku], record.fields[F.skuProveedor], record.fields[F.nombre]].map((v) => firstString(v)).filter(Boolean).join(" ");
     const item: ShippingV2ReceptionChecklistItemLike = {
       id: record.id,
       sku: firstString(record.fields[F.sku]),
@@ -5113,6 +5135,7 @@ export async function getShippingV2PackingsReviewProgress(
       const bucket = itemsPorPacking.get(packingId);
       if (bucket) bucket.push(item);
       else itemsPorPacking.set(packingId, [item]);
+      if (textoBusqueda) busquedaPorPacking.set(packingId, [...(busquedaPorPacking.get(packingId) ?? []), textoBusqueda]);
     }
   }
 
@@ -5127,6 +5150,7 @@ export async function getShippingV2PackingsReviewProgress(
       progress,
       novedadesAbiertas,
       hint: getShippingV2PackingWorkHint({ estado: packing.estado, progress, novedadesAbiertas }),
+      busqueda: (busquedaPorPacking.get(packing.id) ?? []).join(" · "),
     });
   }
 
