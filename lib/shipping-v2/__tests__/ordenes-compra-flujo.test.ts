@@ -12,8 +12,11 @@ import {
   createShippingV2OrdenCompra,
   eliminarOrdenCompraVacia,
   getShippingV2OrdenCompraById,
+  getShippingV2Packings,
+  getShippingV2PackingsReviewProgress,
   getShippingV2PagosWorkspace,
   getShippingV2Proveedores,
+  getShippingV2ResumenLogistica,
   guardarColumnasImportacionProveedor,
   moverArticuloDeOrden,
   registrarPagoOrdenCompra,
@@ -187,6 +190,18 @@ try {
   await guardarColumnasImportacionProveedor(ebay, {}, { access: staff });
   const prov2 = (await getShippingV2Proveedores()).find((p) => p.id === ebay);
   assert(JSON.stringify(prov2?.columnasImportacion) === "{}", "Vaciar lo recordado");
+
+  console.log("\n— Logística: compra y buscador (fase 2) —");
+  const pk = crearRegistroDouble(state, T.packings, { "Packing ID": "PK-PRUEBA", "Estado Packing": "En tránsito", "Items incluidos": [ram.id, cable.id] });
+  for (const id of [ram.id, cable.id]) state.otras.get(T.items)!.get(id)!.fields["Shipping Packings"] = [pk];
+  const filasLog = await getShippingV2ResumenLogistica({ access: staff });
+  const filaCaja = filasLog.find((f) => f.key === pk);
+  assert(filaCaja?.compra?.conCompra === 2 && filaCaja?.compra?.faltaRespaldo === 1, `Caja: 2 compras y 1 sin respaldo (el cable de ${orden2.ocId}) → ${JSON.stringify(filaCaja?.compra)}`);
+  const filaSsd = filasLog.find((f) => f.key === ssd.id);
+  assert(filaSsd?.tipo === "suelto" && filaSsd.compra?.conCompra === 1 && filaSsd.compra.faltaRespaldo === 0, "Suelto pagado: compra con respaldo");
+  const resumenes = await getShippingV2PackingsReviewProgress(await getShippingV2Packings(staff));
+  const busqueda = resumenes.get(pk)?.busqueda ?? "";
+  assert(busqueda.includes("Cable HDMI") && busqueda.includes(ram.sku), `El buscador de Logística encuentra la caja por el nombre o SKU de su contenido → ${busqueda}`);
 } catch (e) {
   fallos++;
   console.error("✗ Error inesperado:", e);

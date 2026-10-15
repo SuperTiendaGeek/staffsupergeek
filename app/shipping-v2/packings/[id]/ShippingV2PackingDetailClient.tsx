@@ -467,7 +467,7 @@ function getPackingStatusConfig(
     return { action: "mark-in-transit", label: "Marcar en tránsito", description: "Confirma manualmente que el packing ya salió hacia destino." };
   }
   if (state === "en transito") {
-    return { action: "mark-received", label: "Marcar recibido", description: "Registra recepción sin liberar inventario automáticamente." };
+    return { action: "mark-received", label: "Llegó", description: "La caja llegó. Luego se reciben sus artículos uno por uno en Recepción (botón «Recibir artículos»)." };
   }
   if (state === "recibido") {
     return { action: "start-review", label: "Iniciar revisión", description: "Pasa el contenido a revisión operativa." };
@@ -1360,8 +1360,17 @@ export function ShippingV2PackingDetailClient({ packing: initialPacking, candida
     }
   }
 
+  // Fase 2 (15-oct): de la caja que llegó, directo a recibir sus artículos en Recepción.
+  const estadoRecepcion = normalize(packing.estado);
+  const puedeRecibirArticulos = permissions?.canUseRecepcion === true && ["recibido", "en revision", "con novedad"].includes(estadoRecepcion);
+  const recibidosCaja = packing.items.filter((i) => i.recibido === true).length;
   const facturaAcciones = (
     <>
+      {puedeRecibirArticulos ? (
+        <Link href={`/shipping-v2/recepcion?packing=${packing.id}`} className={btn} title="Abre Recepción con solo los artículos de esta caja.">
+          Recibir artículos {packing.items.length ? `${recibidosCaja}/${packing.items.length}` : ""}
+        </Link>
+      ) : null}
       {packing.factura[0]?.url && canViewInvoice ? (
         <a href={packing.factura[0].url} target="_blank" rel="noreferrer" className={btn}>Ver factura</a>
       ) : null}

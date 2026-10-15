@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { RegistrarNovedadModal } from "@/components/shipping-v2/novedades/RegistrarNovedadModal";
 import { avanceDeInspeccion } from "@/lib/shipping-v2/revision-tecnica-snapshot";
@@ -69,6 +70,11 @@ type Props = {
   novedades: ShippingV2Novedad[];
   error: string;
   preferenceScope: string;
+  /**
+   * Punto 9 · fase 2 (15-oct): Recepción abierta desde Logística con solo una
+   * caja (?packing=<id>, "Recibir artículos") o un artículo (?articulo=<id>).
+   */
+  filtro?: { packingId?: string; articuloId?: string };
 };
 
 type ReceptionItem = ResolvedItem & {
@@ -573,11 +579,12 @@ function BotonInspeccion({
 }
 
 function Metric({ label, value }: { label: string; value: number }) {
+  // Fase 2 (15-oct): indicadores en una línea, como en Logística.
   return (
-    <div className="rounded-lg border border-[#30312D] bg-[#11120F] px-3 py-2">
-      <p className="text-[10px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</p>
-      <p className="mt-0.5 text-lg font-semibold leading-none text-[#D7FF4F]">{value}</p>
-    </div>
+    <span className="inline-flex items-baseline gap-1.5 rounded-full border border-[#30312D] bg-[#11120F] px-2.5 py-0.5">
+      <span className="text-[10.5px] font-bold uppercase tracking-wide text-[#8F908A]">{label}</span>
+      <span className="text-[13px] font-semibold tabular-nums text-[#D7FF4F]">{value}</span>
+    </span>
   );
 }
 
@@ -984,7 +991,8 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
   );
 })
 
-export function ShippingV2RecepcionClient({ items: initialItems, packings, proveedores, novedades: initialNovedades, error, preferenceScope }: Props) {
+export function ShippingV2RecepcionClient({ items: initialItems, packings, proveedores, novedades: initialNovedades, error, preferenceScope, filtro }: Props) {
+  const conFiltro = Boolean(filtro?.packingId || filtro?.articuloId);
   const [items, setItems] = useState(initialItems);
   const [novedades, setNovedades] = useState(initialNovedades);
   const [quickFilter, setQuickFilter] = useState<ReceptionFilterKey>(ALL);
@@ -1006,6 +1014,7 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
   const preferenceKey = useMemo(() => makePreferenceKey(preferenceScope), [preferenceScope]);
+  const guardadoRef = useRef<{ quickFilter?: unknown; itemFilters?: unknown }>({});
 
   useEffect(() => {
     try {
@@ -1018,8 +1027,13 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
           groupBy?: unknown;
           columnWidths?: unknown;
         };
-        if (isReceptionFilterKey(parsed.quickFilter)) setQuickFilter(parsed.quickFilter);
-        setItemFilters(sanitizeStoredFilters(parsed.itemFilters));
+        // Con una caja o artículo elegido desde Logística se ve todo lo de esa caja:
+        // el filtro guardado no se aplica (ni se pisa; ver abajo).
+        guardadoRef.current = { quickFilter: parsed.quickFilter, itemFilters: parsed.itemFilters };
+        if (!conFiltro) {
+          if (isReceptionFilterKey(parsed.quickFilter)) setQuickFilter(parsed.quickFilter);
+          setItemFilters(sanitizeStoredFilters(parsed.itemFilters));
+        }
         if (isSortKey(parsed.sortBy)) setSortBy(parsed.sortBy);
         if (isGroupKey(parsed.groupBy)) setGroupBy(parsed.groupBy);
         setColumnWidths((current) => sanitizeStoredColumnWidths(parsed.columnWidths, current));
@@ -1029,12 +1043,14 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
     } finally {
       setPreferencesLoaded(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferenceKey]);
 
   useEffect(() => {
     if (!preferencesLoaded) return;
-    window.localStorage.setItem(preferenceKey, JSON.stringify({ quickFilter, itemFilters, sortBy, groupBy, columnWidths }));
-  }, [columnWidths, groupBy, itemFilters, preferenceKey, preferencesLoaded, quickFilter, sortBy]);
+    const filtros = conFiltro ? guardadoRef.current : { quickFilter, itemFilters };
+    window.localStorage.setItem(preferenceKey, JSON.stringify({ ...filtros, sortBy, groupBy, columnWidths }));
+  }, [columnWidths, conFiltro, groupBy, itemFilters, preferenceKey, preferencesLoaded, quickFilter, sortBy]);
 
   useEffect(() => {
     return () => {
@@ -1071,7 +1087,7 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
     return map;
   }, [packings]);
 
-  const receptionItems = useMemo<ReceptionItem[]>(() => {
+  const todosLosItems = useMemo<ReceptionItem[]>(() => {
     const resolved = resolveShippingV2Items(items, proveedores);
     return resolved.map((item) => {
       const packing = packingByItemId.get(item.id) || packings.find((candidate) => candidate.id === item.packingId);
@@ -1084,6 +1100,15 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
       };
     });
   }, [items, novedades, packingByItemId, packings, proveedores]);
+
+  // Fase 2: solo la caja (o el artículo) que se abrió desde Logística.
+  const packingFiltrado = filtro?.packingId ? packings.find((p) => p.id === filtro.packingId) ?? null : null;
+  const receptionItems = useMemo(() => {
+    if (filtro?.packingId) return todosLosItems.filter((item) => item.packing?.id === filtro.packingId || item.packingId === filtro.packingId);
+    if (filtro?.articuloId) return todosLosItems.filter((item) => item.id === filtro.articuloId);
+    return todosLosItems;
+  }, [filtro?.articuloId, filtro?.packingId, todosLosItems]);
+  const recibidosFiltro = receptionItems.filter(isReceived).length;
 
   const filterOptions = useMemo(() => getShippingV2ItemFilterOptions(receptionItems), [receptionItems]);
   const filteredByItemControls = useMemo(() => filterShippingV2Items(receptionItems, itemFilters), [itemFilters, receptionItems]);
@@ -1289,20 +1314,40 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
 
   return (
     <div className="w-full space-y-2.5">
-      <section className="rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-[#F5F5F5]">Recepción</h2>
-            <p className="mt-0.5 text-sm text-[#A7A7A7]">Revisión física, preparación comercial y novedades de items recibidos.</p>
-          </div>
-          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-            <Metric label="Items" value={stats.total} />
-            <Metric label="Pendientes" value={stats.pending} />
-            <Metric label="Novedades" value={stats.issues} />
-            <Metric label="Disponibles" value={stats.available} />
-          </div>
+      <section className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-[#2E2F28] bg-[#151613] px-3 py-2">
+        <h2 className="text-[16px] font-semibold text-[#F5F5F5]">Recepción</h2>
+        <span className="text-[12.5px] text-[#8F908A]" title="Revisión física, preparación comercial y novedades de lo que ya llegó. Lo que viene en camino (y su «Llegó») está en Logística.">
+          Lo que ya llegó: recibir, revisar, fotografiar y publicar
+        </span>
+        <div className="ml-auto flex flex-wrap gap-1.5">
+          <Metric label="Items" value={stats.total} />
+          <Metric label="Pendientes" value={stats.pending} />
+          <Metric label="Novedades" value={stats.issues} />
+          <Metric label="Disponibles" value={stats.available} />
         </div>
       </section>
+
+      {conFiltro ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-[#4FC3FF]/40 bg-[#4FC3FF]/[0.07] px-3 py-1.5 text-[13px] text-[#BDEAFF]">
+          {filtro?.packingId ? (
+            <>
+              <span>Caja <b className="text-[#F5F5F5]">{packingFiltrado?.packingId ?? "—"}</b>{packingFiltrado?.nombre?.trim() ? ` · ${packingFiltrado.nombre.trim()}` : ""}</span>
+              {receptionItems.length ? <span>· <b className="tabular-nums text-[#F5F5F5]">{recibidosFiltro} de {receptionItems.length}</b> recibidos</span> : null}
+              {packingFiltrado ? <Link href={`/shipping-v2/packings/${packingFiltrado.id}`} className="font-semibold text-[#D7FF4F] hover:underline">Ver caja</Link> : null}
+            </>
+          ) : (
+            <span>Artículo <b className="text-[#F5F5F5]">{receptionItems[0]?.sku ?? "—"}</b>{receptionItems[0]?.nombre ? ` · ${receptionItems[0].nombre}` : ""}</span>
+          )}
+          {!receptionItems.length ? (
+            <span className="text-[#F4C95B]">
+              {packingFiltrado && normalize(packingFiltrado.estado) === "en transito"
+                ? "Esta caja todavía no se marcó como llegada: márcala en Logística."
+                : "No tiene artículos con trabajo pendiente en Recepción."}
+            </span>
+          ) : null}
+          <Link href="/shipping-v2/recepcion" className="ml-auto rounded-md border border-[#4FC3FF]/50 px-2.5 py-0.5 text-[12px] font-semibold text-[#BDEAFF] hover:bg-[#4FC3FF]/10">Ver todo</Link>
+        </div>
+      ) : null}
 
       {error ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{error}</div> : null}
       {message ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{message}</div> : null}

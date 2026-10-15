@@ -288,7 +288,7 @@ export function getShippingV2PackingWorkHint(input: {
       : { texto: "Confirma el envío para pasarlo a tránsito.", tono: "accion", listoParaCerrarCiclo: false };
   }
   if (info.fase === "en-camino") {
-    return { texto: "En camino. Marca recibido cuando llegue.", tono: "espera", listoParaCerrarCiclo: false };
+    return { texto: "En camino. Pulsa «Llegó» cuando llegue.", tono: "espera", listoParaCerrarCiclo: false };
   }
 
   // En bodega o en revisión: aquí el avance real de los artículos manda.

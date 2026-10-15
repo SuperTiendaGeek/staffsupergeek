@@ -256,7 +256,9 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
   const vieneDeAfuera = origen === ORIGEN_EXTRANJERO || origen === ORIGEN_LOCAL;
   const esCompra = cab.operacion === COMPRA;
   const esDespiece = cab.operacion === DESPIECE;
-  const permiteRegalo = Boolean(origen && TIPOS_OPERACION_POR_ORIGEN[origen].includes(REGALO));
+  // Regalo: en tienda y extranjero (regla del 4-oct). Antes de elegir el origen
+  // también se ofrece, para no perder los regalos de una lista cargada primero.
+  const permiteRegalo = !origen || TIPOS_OPERACION_POR_ORIGEN[origen].includes(REGALO);
   const fijo = Boolean(ordenEnCurso);
   const activos = proveedores.filter((p) => (p.estado || "").toLowerCase() === "activo");
 

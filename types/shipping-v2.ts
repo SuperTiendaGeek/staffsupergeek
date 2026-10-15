@@ -675,6 +675,8 @@ export type ShippingV2PackingReviewSummary = {
   progress: ShippingV2PackingReviewProgress;
   novedadesAbiertas: number;
   hint: ShippingV2PackingWorkHint;
+  /** Fase 2 (15-oct): SKU, SKU proveedor y nombre de su contenido, para el buscador de Logística. */
+  busqueda?: string;
 };
 
 export type ShippingV2Destinatario = ShippingV2RecordBase & {
@@ -1016,6 +1018,8 @@ export type ShippingV2LogisticaFila = {
   otros: ShippingV2SituacionGasto;
   /** Fase 1 (14-oct): qué le falta (valor sin pago, o viaja sin flete). */
   pendiente: { falta: number; sinFlete: boolean; pagado: number };
+  /** Fase 2 (15-oct): compras de su contenido (artículos con compra y cuántos sin respaldo de pago). */
+  compra?: { conCompra: number; faltaRespaldo: number };
 };
 
 /** Fase 1 (14-oct): un pago de logística, tal como se ve en su caja o artículo. */

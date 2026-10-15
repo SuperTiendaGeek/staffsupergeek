@@ -5,10 +5,14 @@ import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2LogisticaFila, ShippingV2Packing, ShippingV2PackingReviewSummary, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2PackingsClient } from "./ShippingV2PackingsClient";
-import { ShippingV2SueltosEnCamino, type CajaAbiertaLogistica } from "./ShippingV2SueltosEnCamino";
+import type { CajaAbiertaLogistica } from "./GestionarSuelto";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Logística (punto 9 · fase 2, 15-oct-2026): una sola lista con las cajas y
+ * los artículos que viajan solos, por etapas. "Llegó" se marca aquí.
+ */
 export default async function ShippingV2PackingsPage() {
   let packings: ShippingV2Packing[] = [];
   let proveedores: ShippingV2Proveedor[] = [];
@@ -16,11 +20,11 @@ export default async function ShippingV2PackingsPage() {
   let providerName = "";
   let error = "";
   let reviewSummaries: Record<string, ShippingV2PackingReviewSummary> = {};
-  // Pestaña Logística (punto 2): además de las cajas, los artículos que viajan solos.
+  // Además de las cajas, los artículos que viajan solos (punto 2).
   let sueltos: ShippingV2Item[] = [];
   let todosProveedores: ShippingV2Proveedor[] = [];
   let cajasAbiertas: CajaAbiertaLogistica[] = [];
-  // Punto 9c · fase 1: costos de traerlo (solo quien ve costos).
+  // Punto 9c · fase 1: costos logísticos (solo quien ve costos).
   let costos: ShippingV2LogisticaFila[] | null = null;
 
   const sessionForGuard = await getSessionFromCookie();
@@ -41,7 +45,7 @@ export default async function ShippingV2PackingsPage() {
     ]);
     todosProveedores = proveedores;
     // Un proveedor (por ejemplo Roberto) solo debe ver nombres ligados a lo
-    // suyo: él mismo y el casillero/transportistas de sus artículos.
+    // suyo: él mismo y el casillero/transportistas de sus artículos y cajas.
     if (!access.isAdmin && access.providerId) {
       const visibles = new Set<string>([access.providerId]);
       for (const item of sueltos) {
@@ -49,10 +53,15 @@ export default async function ShippingV2PackingsPage() {
           if (id) visibles.add(id);
         }
       }
+      for (const packing of packings) {
+        for (const id of [packing.transportistaUsa, packing.transportistaEc]) {
+          if (id) visibles.add(id);
+        }
+      }
       todosProveedores = proveedores.filter((provider) => visibles.has(provider.id));
     }
     cajasAbiertas = packings
-      .filter((p) => (p.estado || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === "en proceso")
+      .filter((p) => (p.estado || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase() === "en proceso")
       .map((p) => ({ id: p.id, codigo: p.packingId || p.id, nombre: p.nombre || "", proveedorResponsableId: p.proveedorResponsableId, proveedorLogisticoEcId: p.proveedorLogisticoEcId }));
     if (canShippingV2(access, "canViewCosts") && !access.providerId) {
       costos = await getShippingV2ResumenLogistica({ access, packings, proveedores }).catch((costosError) => {
@@ -81,20 +90,20 @@ export default async function ShippingV2PackingsPage() {
   return (
     <StaffAppShell activeHref="/shipping-v2/packings" sectionLabel="Shipping V2">
       <div className="w-full max-w-none space-y-3">
-      <ShippingV2Pestanas />
-      <ShippingV2PackingsClient packings={packings} proveedores={proveedores} error={error} permissions={permissions} providerName={providerName} reviewSummaries={reviewSummaries} sueltosCount={sueltos.length} costos={costos} />
-      <div id="sueltos">
-        <ShippingV2SueltosEnCamino
-          items={sueltos}
-          proveedores={todosProveedores}
+        <ShippingV2Pestanas />
+        <ShippingV2PackingsClient
+          packings={packings}
+          proveedores={proveedores}
+          todosProveedores={todosProveedores}
+          sueltos={sueltos}
           cajasAbiertas={cajasAbiertas}
-          canEdit={permissions?.canEditItems === true}
-          canAddToPacking={permissions?.canAddItemsToPacking === true}
-          canViewCosts={costos !== null}
-          costos={costos ? Object.fromEntries(costos.filter((f) => f.tipo === "suelto").map((f) => [f.key, f.pendiente])) : undefined}
+          error={error}
+          permissions={permissions}
+          providerName={providerName}
+          reviewSummaries={reviewSummaries}
+          costos={costos}
         />
       </div>
-    </div>
     </StaffAppShell>
   );
 }
