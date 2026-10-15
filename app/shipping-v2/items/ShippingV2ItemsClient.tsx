@@ -1898,6 +1898,8 @@ export function ShippingV2ItemDetailView({
       accent: "yellow",
       rows: [
         { label: "Situación del pago", value: item.situacionPago, displayValue: item.situacionPago ? ETIQUETA_SITUACION_PAGO[item.situacionPago] : "—", readOnly: true },
+        // Punto 9d: la orden de compra a la que pertenece (ahí se ve y se registra su pago).
+        { label: "Orden de compra", value: item.ordenCompraId, displayValue: item.ordenCompraId ? <Link href={`/shipping-v2/pagos/ordenes/${item.ordenCompraId}`} className="font-semibold text-[#D7FF4F] hover:underline">Ver orden</Link> : "—", readOnly: true },
         { label: C.requierePago.label, value: item.requierePago, displayValue: displayBoolean(item.requierePago), config: C.requierePago },
         { label: "Pago Shipping V2 relacionado", value: item.pagoId, displayValue: pago?.pagoId || item.pagoId || "—", config: C.pagoRelacionado },
         { label: "Estado de pago", value: pago?.estadoPago, displayValue: pago?.estadoPago ? <EstadoBadge estado={pago.estadoPago} /> : "—", readOnly: true },

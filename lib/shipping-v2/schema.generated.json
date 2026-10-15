@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-13T13:30:32.014Z",
+  "generatedAt": "2026-10-15T12:35:30.710Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -352,6 +352,12 @@
           "id": "fldgO7xyHKrTu8SLP",
           "type": "checkbox",
           "checkbox": true
+        },
+        "Órdenes de compra": {
+          "id": "fldEbSeRtEGtLth2G",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblIf1HvEN3Azjscp",
+          "linkedTableName": "Shipping Órdenes de compra"
         }
       }
     },
@@ -1459,6 +1465,12 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tbl7dSFGRM3tzB4yB",
           "linkedTableName": "Shipping Pagos"
+        },
+        "Orden de compra": {
+          "id": "fldSF3xLzadkWU5yd",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblIf1HvEN3Azjscp",
+          "linkedTableName": "Shipping Órdenes de compra"
         }
       }
     },
@@ -1679,6 +1691,12 @@
           "id": "fldwgeANSDcxOb0kc",
           "type": "singleLineText",
           "kind": "singleLineText"
+        },
+        "Orden de compra": {
+          "id": "fldsEnIJbosmhcwUI",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblIf1HvEN3Azjscp",
+          "linkedTableName": "Shipping Órdenes de compra"
         }
       }
     },
@@ -3084,6 +3102,76 @@
             "Corregido",
             "No aplica"
           ]
+        }
+      }
+    },
+    "Shipping Órdenes de compra": {
+      "id": "tblIf1HvEN3Azjscp",
+      "fields": {
+        "OC ID": {
+          "id": "fldnnNAd7NhHSMPmj",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Proveedor": {
+          "id": "fldurXvabAYdVDOel",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblHy141rHAHyXt5W",
+          "linkedTableName": "Shipping Proveedores"
+        },
+        "Nº del proveedor": {
+          "id": "fldeIIjuIlkqWVRIx",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha de compra": {
+          "id": "flduCmNiy3AztMISq",
+          "type": "date",
+          "kind": "date"
+        },
+        "Artículos": {
+          "id": "fldPGOFTZWqBBSHyQ",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbliTKAI8dAWwr1nh",
+          "linkedTableName": "Shipping Items"
+        },
+        "Pagos": {
+          "id": "fldokGCxCC85LXTrz",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbl7dSFGRM3tzB4yB",
+          "linkedTableName": "Shipping Pagos"
+        },
+        "Observaciones": {
+          "id": "fldpnbZiL6wX6hVyj",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Registrado por": {
+          "id": "fld31qi1ddiZ0HXVA",
+          "type": "singleLineText",
+          "kind": "singleLineText"
+        },
+        "Fecha de creación": {
+          "id": "fld3RDeHzwSe6uzy1",
+          "type": "dateTime"
+        },
+        "Anulada": {
+          "id": "fldcj3jUvrCcGeaPy",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "Motivo de anulación": {
+          "id": "fldgwalHXcMg4j9Vy",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Fecha de anulación": {
+          "id": "fldnUdM0jM0vXpGUj",
+          "type": "dateTime"
+        },
+        "Número": {
+          "id": "fldX6IS6UKCanv3bb",
+          "type": "autoNumber"
         }
       }
     },

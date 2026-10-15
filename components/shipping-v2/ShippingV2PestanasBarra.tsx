@@ -49,7 +49,7 @@ export function ShippingV2PestanasBarra({ pestanas, puedeRegistrar }: { pestanas
             aria-current={pathname.startsWith("/shipping-v2/items/nuevo") ? "page" : undefined}
             className="rounded-lg border border-[#D7FF4F] px-3 py-2 text-sm font-black text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515]"
           >
-            + Registrar artículo
+            + Registrar compra
           </Link>
         ) : null}
       </div>

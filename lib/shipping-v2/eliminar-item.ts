@@ -45,6 +45,9 @@ export const CAMPOS_ITEM = {
   presupuesto: "fld56ubP1rQcohqdk",
   // Punto 9c: pagos de flete, arancel u otros de un artículo que viaja solo.
   pagosLogistica: "fldCa3dz3BESvK0HE",
+  // Punto 9d: orden de compra (OC). No bloquea: el artículo sale de la orden
+  // (si ya estaba pagado, lo bloquea su pago).
+  ordenCompra: "fldSF3xLzadkWU5yd",
   // No bloquean (se pierden sin daño o son catálogos)
   eventos: "fld6a0wcWWooYAezr",
   opcionOrigen: "fldg48EHyUaFbFutj",
@@ -62,6 +65,7 @@ export const CAMPOS_ITEM = {
 const VINCULOS_INOFENSIVOS = new Set<string>([
   CAMPOS_ITEM.eventos, CAMPOS_ITEM.opcionOrigen, CAMPOS_ITEM.proveedorCompra, CAMPOS_ITEM.proveedorLogistico,
   CAMPOS_ITEM.destinatarios, CAMPOS_ITEM.conectividad, CAMPOS_ITEM.puertos, CAMPOS_ITEM.extras,
+  CAMPOS_ITEM.ordenCompra,
 ]);
 
 /** Vínculos que se evalúan con detalle (pagos por estado, presupuesto por estado). */
@@ -152,6 +156,7 @@ export function evaluarEliminacion(ctx: ContextoEliminacion): EvaluacionEliminac
   }
   const eventos = n(ctx, C.eventos);
   if (eventos > 0) avisos.push(`Su historial (${plural(eventos, "evento", "eventos")}) queda guardado, pero sin enlace al item. Se registra un evento final con una copia de sus datos.`);
+  if (n(ctx, C.ordenCompra) > 0) avisos.push("Sale de su orden de compra: el total de la orden baja.");
   if (n(ctx, C.opcionOrigen) > 0) avisos.push("La opción de la Operación Comercial de origen quedará sin artículo (la operación ya no lo usa).");
   if (ctx.fotos > 0) avisos.push(`Se pierden ${plural(ctx.fotos, "foto o evidencia", "fotos y evidencias")} del item.`);
   if (ctx.sku) avisos.push(`El SKU ${ctx.sku} queda libre: si es el último de su serie, el próximo item de esa categoría podría recibir el mismo número. Si ya imprimiste su etiqueta, destrúyela.`);
