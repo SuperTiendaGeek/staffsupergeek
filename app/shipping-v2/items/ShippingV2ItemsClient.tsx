@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
-import { ArrowDownAZ, ArrowLeft, BadgeCheck, Check, ChevronLeft, ChevronRight, ChevronsLeft, FileText, ListFilter, Loader2, Printer, Rows3, Sparkles, Tag, X } from "lucide-react";
+import { ArrowDownAZ, ArrowLeft, BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ClipboardCheck, ClipboardList, Columns3, FileText, GitBranch, ListFilter, Loader2, Printer, Receipt, Rows3, Settings2, ShoppingCart, Sparkles, Tag, Truck, Wrench, X, type LucideIcon } from "lucide-react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import { ejecutarAccionNovedad, NovedadAccionModal } from "@/components/shipping-v2/novedades/NovedadAccionModal";
 import { RegistrarNovedadModal } from "@/components/shipping-v2/novedades/RegistrarNovedadModal";
@@ -17,19 +17,14 @@ import {
   type ValoresAccionNovedad,
 } from "@/lib/shipping-v2/novedades";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SHIPPING_V2_ITEM_EDIT_FIELDS, type ShippingV2ItemEditFieldConfig } from "@/lib/shipping-v2/item-edit-config";
 import { evaluarVentaItem } from "@/lib/shipping-v2/item-venta";
 import { ETIQUETA_SITUACION_PAGO } from "@/lib/shipping-v2/pagos-situacion";
 import {
   SHIPPING_V2_ALL_FILTER,
-  filterShippingV2Items,
   formatShippingV2ItemQuantity,
   getShippingV2ItemQuantity,
-  getShippingV2ItemFilterOptions,
   getShippingV2SortOptions,
   groupShippingV2Items,
   normalizeShippingV2ListText,
@@ -53,10 +48,26 @@ import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shippin
 import { ShippingV2DespieceTab } from "./ShippingV2DespieceTab";
 import { ShippingV2IntervencionesTab } from "./ShippingV2IntervencionesTab";
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
+import { avanceDeInspeccion } from "@/lib/shipping-v2/revision-tecnica-snapshot";
+import { ORIGEN_TIENDA, vieneDeAfuera } from "@/lib/shipping-v2/item-origen";
+import {
+  CATEGORIAS_ARTICULO,
+  ESTADOS_OTROS,
+  ESTADOS_PRINCIPALES,
+  FILTRO_ARTICULOS_VACIO,
+  OPERACIONES_OTRAS,
+  OPERACIONES_PRINCIPALES,
+  hayFiltroArticulos,
+  hrefArticulos,
+  interpretarBusqueda,
+  type FiltroArticulos,
+} from "@/lib/shipping-v2/items-filtro";
 import { ShippingV2ItemsPredictiveSearch } from "./ShippingV2ItemsPredictiveSearch";
 import {
   type ShippingV2Attachment,
   type ShippingV2Item,
+  type ShippingV2ItemDocumento,
+  type ShippingV2ItemTrazabilidad,
   type ShippingV2AccessPermissions,
   type ShippingV2Novedad,
   type ShippingV2Packing,
@@ -73,6 +84,8 @@ type Props = {
   /** Personalización por usuario (Fase 2 de permisos, ver lib/permissions/campos.ts). */
   camposOcultos?: readonly string[];
   initialSortBy: SortKey;
+  /** Rediseño 15-oct-2026: filtro aplicado en el servidor (viene de la dirección). */
+  filtro?: FiltroArticulos;
   pagination: {
     pageIndex: number;
     pageSize: number;
@@ -86,7 +99,7 @@ type Props = {
 
 type SortKey = ShippingV2ItemSortKey;
 type GroupKey = ShippingV2ItemGroupKey;
-type ToolbarMenuKey = "filters" | "sort" | "group";
+type ToolbarMenuKey = "filters" | "sort" | "group" | "fields";
 
 export type ResolvedItem = ShippingV2ResolvedItem;
 
@@ -109,8 +122,10 @@ const sanitizeProviderSort = sanitizeShippingV2ProviderSort;
 const sortItems = sortShippingV2Items;
 const groupItems = groupShippingV2Items;
 
-const COLUMN_WIDTHS_STORAGE_KEY = "shipping-v2-items-column-widths";
-const TABLE_VIEW_STORAGE_KEY = "shipping-v2-items-table-view";
+// "-v2" (15-oct-2026, rediseño compacto): así todos arrancan con las columnas
+// nuevas y no con los anchos viejos guardados en su navegador.
+const COLUMN_WIDTHS_STORAGE_KEY = "shipping-v2-items-column-widths-v2";
+const TABLE_VIEW_STORAGE_KEY = "shipping-v2-items-table-view-v2";
 
 type ShippingV2ItemsColumnKey =
   | "sku"
@@ -145,6 +160,8 @@ type ShippingV2ItemsColumnKey =
 type ShippingV2ItemsColumn = {
   key: ShippingV2ItemsColumnKey;
   label: string;
+  /** Nombre completo (panel Campos y ayuda del encabezado) cuando label es corto. */
+  fullLabel?: string;
   defaultWidth: number;
   minWidth: number;
   maxWidth?: number;
@@ -154,36 +171,42 @@ type ShippingV2ItemsColumn = {
   category: "Principal" | "Compra" | "Logística" | "Inventario" | "Revisión" | "Sistema";
 };
 
+// Rediseño compacto (15-oct-2026): por defecto solo lo que se mira a diario y
+// con anchos justos. El resto sigue disponible en "Campos". "Nombre" ocupa el
+// espacio que sobre (ver la tabla), así la lista cabe sin barra horizontal.
 const AVAILABLE_COLUMNS: ShippingV2ItemsColumn[] = [
-  { key: "sku", label: "SKU", defaultWidth: 110, minWidth: 90, defaultVisible: true, required: true, category: "Principal" },
-  { key: "supplierSku", label: "SKU proveedor", defaultWidth: 140, minWidth: 110, defaultVisible: true, category: "Principal" },
-  { key: "name", label: "Nombre", defaultWidth: 280, minWidth: 180, defaultVisible: true, required: true, category: "Principal" },
-  { key: "quantity", label: "Cantidad", defaultWidth: 86, minWidth: 74, maxWidth: 110, align: "center", defaultVisible: true, required: true, category: "Principal" },
-  { key: "operationType", label: "Tipo de operación", defaultWidth: 150, minWidth: 130, defaultVisible: true, category: "Compra" },
-  { key: "itemStatus", label: "Estado item", defaultWidth: 140, minWidth: 120, defaultVisible: true, category: "Principal" },
-  { key: "generalRole", label: "Rol general", defaultWidth: 140, minWidth: 120, defaultVisible: true, category: "Principal" },
-  { key: "category", label: "Categoría", defaultWidth: 120, minWidth: 100, defaultVisible: true, category: "Principal" },
-  { key: "purchaseProvider", label: "Proveedor compra", defaultWidth: 160, minWidth: 130, defaultVisible: true, category: "Compra" },
-  { key: "logisticProvider", label: "Proveedor logístico", defaultWidth: 170, minWidth: 140, defaultVisible: true, category: "Logística" },
-  { key: "packing", label: "Packing", defaultWidth: 120, minWidth: 100, defaultVisible: true, category: "Logística" },
-  { key: "providerCost", label: "Costo proveedor", defaultWidth: 130, minWidth: 110, align: "right", defaultVisible: true, category: "Compra" },
-  { key: "salePrice", label: "Precio venta unit.", defaultWidth: 130, minWidth: 120, align: "right", defaultVisible: true, category: "Inventario" },
-  { key: "createdAt", label: "Fecha registro", defaultWidth: 150, minWidth: 130, defaultVisible: true, category: "Sistema" },
-  { key: "brand", label: "Marca", defaultWidth: 120, minWidth: 100, defaultVisible: false, category: "Principal" },
-  { key: "model", label: "Modelo", defaultWidth: 160, minWidth: 120, defaultVisible: false, category: "Principal" },
-  { key: "serial", label: "Serie", defaultWidth: 150, minWidth: 120, defaultVisible: false, category: "Principal" },
-  { key: "condition", label: "Condición", defaultWidth: 130, minWidth: 110, defaultVisible: false, category: "Inventario" },
-  { key: "location", label: "Ubicación", defaultWidth: 140, minWidth: 110, defaultVisible: false, category: "Inventario" },
-  { key: "triangulationStatus", label: "Triangulación", defaultWidth: 150, minWidth: 120, defaultVisible: false, category: "Logística" },
-  { key: "reviewStatus", label: "Estado revisión", defaultWidth: 150, minWidth: 120, defaultVisible: false, category: "Revisión" },
-  { key: "availability", label: "Disponibilidad", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Inventario" },
-  { key: "facebookSuperGeek", label: "Facebook SG", defaultWidth: 112, minWidth: 96, maxWidth: 132, align: "center", defaultVisible: true, category: "Inventario" },
-  { key: "requiresPayment", label: "Requiere pago", defaultWidth: 130, minWidth: 110, defaultVisible: false, category: "Compra" },
-  { key: "paymentStatus", label: "Pago", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Compra" },
-  { key: "requiresPacking", label: "Requiere packing", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Logística" },
-  { key: "physicalReview", label: "Revisión física", defaultWidth: 140, minWidth: 120, defaultVisible: false, category: "Revisión" },
-  { key: "notes", label: "Observaciones", defaultWidth: 260, minWidth: 180, defaultVisible: false, category: "Principal" },
+  { key: "sku", label: "SKU", defaultWidth: 96, minWidth: 80, defaultVisible: true, required: true, category: "Principal" },
+  { key: "supplierSku", label: "SKU prov.", fullLabel: "SKU proveedor", defaultWidth: 120, minWidth: 90, defaultVisible: false, category: "Principal" },
+  { key: "name", label: "Nombre", defaultWidth: 220, minWidth: 160, defaultVisible: true, required: true, category: "Principal" },
+  { key: "quantity", label: "Cant.", fullLabel: "Cantidad", defaultWidth: 56, minWidth: 48, maxWidth: 96, align: "center", defaultVisible: true, required: true, category: "Principal" },
+  { key: "itemStatus", label: "Estado", fullLabel: "Estado item", defaultWidth: 132, minWidth: 100, defaultVisible: true, category: "Principal" },
+  { key: "operationType", label: "Operación", fullLabel: "Tipo de operación", defaultWidth: 100, minWidth: 84, defaultVisible: true, category: "Compra" },
+  { key: "generalRole", label: "Rol general", defaultWidth: 110, minWidth: 90, defaultVisible: false, category: "Principal" },
+  { key: "category", label: "Categoría", defaultWidth: 104, minWidth: 84, defaultVisible: false, category: "Principal" },
+  { key: "purchaseProvider", label: "Proveedor", fullLabel: "Proveedor compra", defaultWidth: 124, minWidth: 96, defaultVisible: true, category: "Compra" },
+  { key: "logisticProvider", label: "Casillero", fullLabel: "Casillero (proveedor logístico)", defaultWidth: 120, minWidth: 96, defaultVisible: false, category: "Logística" },
+  { key: "packing", label: "Packing", defaultWidth: 100, minWidth: 84, defaultVisible: false, category: "Logística" },
+  { key: "providerCost", label: "Costo", fullLabel: "Costo proveedor (unitario)", defaultWidth: 84, minWidth: 72, align: "right", defaultVisible: true, category: "Compra" },
+  { key: "salePrice", label: "Precio", fullLabel: "Precio venta (unitario)", defaultWidth: 84, minWidth: 72, align: "right", defaultVisible: true, category: "Inventario" },
+  { key: "createdAt", label: "Registro", fullLabel: "Fecha registro", defaultWidth: 88, minWidth: 80, defaultVisible: false, category: "Sistema" },
+  { key: "brand", label: "Marca", defaultWidth: 104, minWidth: 84, defaultVisible: false, category: "Principal" },
+  { key: "model", label: "Modelo", defaultWidth: 130, minWidth: 100, defaultVisible: false, category: "Principal" },
+  { key: "serial", label: "Serie", defaultWidth: 130, minWidth: 100, defaultVisible: false, category: "Principal" },
+  { key: "condition", label: "Condición", defaultWidth: 104, minWidth: 84, defaultVisible: false, category: "Inventario" },
+  { key: "location", label: "Ubicación", defaultWidth: 120, minWidth: 90, defaultVisible: false, category: "Inventario" },
+  { key: "triangulationStatus", label: "Triangulación", defaultWidth: 120, minWidth: 96, defaultVisible: false, category: "Logística" },
+  { key: "reviewStatus", label: "Revisión", fullLabel: "Estado revisión", defaultWidth: 120, minWidth: 96, defaultVisible: false, category: "Revisión" },
+  { key: "availability", label: "Disponibilidad", defaultWidth: 128, minWidth: 104, defaultVisible: false, category: "Inventario" },
+  { key: "facebookSuperGeek", label: "FB", fullLabel: "Facebook Super Geek", defaultWidth: 44, minWidth: 40, maxWidth: 72, align: "center", defaultVisible: true, category: "Inventario" },
+  { key: "requiresPayment", label: "Req. pago", fullLabel: "Requiere pago", defaultWidth: 90, minWidth: 80, defaultVisible: false, category: "Compra" },
+  { key: "paymentStatus", label: "Pago", defaultWidth: 110, minWidth: 90, defaultVisible: false, category: "Compra" },
+  { key: "requiresPacking", label: "Req. packing", fullLabel: "Requiere packing", defaultWidth: 96, minWidth: 84, defaultVisible: false, category: "Logística" },
+  { key: "physicalReview", label: "Inspección", fullLabel: "Inspección firmada", defaultWidth: 96, minWidth: 84, defaultVisible: false, category: "Revisión" },
+  { key: "notes", label: "Observaciones", defaultWidth: 200, minWidth: 140, defaultVisible: false, category: "Principal" },
 ];
+
+/** La columna que se estira para llenar el ancho disponible. */
+const FLEX_COLUMN_KEY: ShippingV2ItemsColumnKey = "name";
 
 const COLUMN_CATEGORIES: ShippingV2ItemsColumn["category"][] = ["Principal", "Compra", "Logística", "Inventario", "Revisión", "Sistema"];
 
@@ -198,6 +221,8 @@ type ItemCellRenderContext = {
   canEditFacebookSuperGeek: boolean;
   facebookSuperGeekBusyId: string;
   onFacebookSuperGeekChange: (item: ResolvedItem, value: boolean) => void;
+  /** Sin la columna Categoría, la categoría va en gris junto al nombre. */
+  categoryInName?: boolean;
 };
 
 function displayValue(value?: string | number | null, fallback = "—") {
@@ -359,6 +384,14 @@ function formatDate(value?: string) {
   }).format(date).replace(",", "");
 }
 
+function formatShortDate(value?: string) {
+  if (!value) return "—";
+  const soloFecha = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const date = new Date(soloFecha ? `${value}T12:00:00Z` : value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-EC", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: soloFecha ? "UTC" : "America/Guayaquil" }).format(date);
+}
+
 function packingLabel(item: ResolvedItem) {
   return item.packingId || "";
 }
@@ -464,15 +497,15 @@ function getItemCellTitle(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKe
   }
 }
 
-function PagoChip({ situacion }: { situacion: NonNullable<ShippingV2Item["situacionPago"]> }) {
-  const tono = situacion === "pagado"
-    ? "border-[#D7FF4F]/35 text-[#D7FF4F]"
-    : situacion === "sin-pago"
-      ? "border-[#3A3A36] text-[#A7A7A7]"
-      : "border-yellow-300/40 text-yellow-200";
+/** En la tabla: un "$" amarillo junto al estado cuando al pago le falta algo (detalle en la ayuda). */
+function PagoAviso({ situacion }: { situacion: NonNullable<ShippingV2Item["situacionPago"]> }) {
   return (
-    <span title={`Pago: ${ETIQUETA_SITUACION_PAGO[situacion]}`} className={`shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${tono}`}>
-      {situacion === "falta-respaldo" ? "Sin respaldo" : ETIQUETA_SITUACION_PAGO[situacion]}
+    <span
+      title={`Pago: ${ETIQUETA_SITUACION_PAGO[situacion]}`}
+      aria-label={`Pago: ${ETIQUETA_SITUACION_PAGO[situacion]}`}
+      className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border text-[9.5px] font-black ${situacion === "falta-respaldo" ? "border-yellow-300/60 bg-yellow-300/15 text-yellow-200" : "border-dashed border-yellow-300/50 text-yellow-200/80"}`}
+    >
+      $
     </span>
   );
 }
@@ -484,21 +517,22 @@ function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey,
     case "supplierSku":
       return supplierSkuLabel(item);
     case "name":
-      return <span className="block truncate">{displayName(item.nombre)}</span>;
-    case "quantity":
       return (
-        <span className="inline-flex min-w-9 justify-center rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-2 py-0.5 text-[12px] font-bold tabular-nums text-[#D7FF4F]">
-          {formatShippingV2ItemQuantity(item)}
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span className="truncate font-medium">{displayName(item.nombre)}</span>
+          {context.categoryInName && item.categoria ? <span className="shrink-0 text-[11px] text-[#8F908A]">{item.categoria}</span> : null}
         </span>
       );
+    case "quantity":
+      return <span className="font-bold tabular-nums text-[#D7FF4F]">{formatShippingV2ItemQuantity(item)}</span>;
     case "operationType":
-      return <OperationBadge value={item.tipoOperacion} />;
+      return <OperationBadge value={item.tipoOperacion} size="sm" />;
     case "itemStatus":
       // Punto 9: el pago se ve aparte del estado; solo se avisa cuando falta algo.
       return (
         <span className="flex min-w-0 items-center gap-1">
-          <EstadoBadge estado={item.estado} />
-          {item.situacionPago === "falta-respaldo" || item.situacionPago === "pago-en-curso" ? <PagoChip situacion={item.situacionPago} /> : null}
+          <EstadoBadge estado={item.estado} size="sm" />
+          {item.situacionPago === "falta-respaldo" || item.situacionPago === "pago-en-curso" ? <PagoAviso situacion={item.situacionPago} /> : null}
         </span>
       );
     case "generalRole":
@@ -516,7 +550,7 @@ function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey,
     case "salePrice":
       return formatCurrency(item.precioVenta);
     case "createdAt":
-      return formatDate(item.fechaRegistro || item.createdTime);
+      return formatShortDate(item.fechaRegistro || item.createdTime);
     case "brand":
       return displayValue(item.marca);
     case "model":
@@ -532,10 +566,11 @@ function renderItemCell(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey,
     case "reviewStatus":
       return displayValue(item.estadoRevision);
     case "availability":
-      return <AvailabilityBadge item={item} />;
+      return <AvailabilityBadge item={item} size="sm" />;
     case "facebookSuperGeek":
       return (
         <FacebookSuperGeekToggle
+          size="sm"
           item={item}
           canEdit={context.canEditFacebookSuperGeek}
           busy={context.facebookSuperGeekBusyId === item.id}
@@ -577,6 +612,12 @@ function estadoTone(estado: string) {
 
 function operationTone(value: string) {
   const normalized = normalizeText(value);
+
+  // Lo común (compra a proveedor) va en gris; se destaca lo que es distinto.
+  if (normalized.includes("regalo")) return "border-[#8B73FF]/35 bg-[#8B73FF]/12 text-[#C9BFFF]";
+  if (normalized.includes("encargo")) return "border-[#4FC3FF]/35 bg-[#4FC3FF]/10 text-[#BDEAFF]";
+  if (normalized.includes("reajuste") || normalized.includes("correccion") || normalized.includes("migracion")) return "border-[#F4C95B]/35 bg-[#F4C95B]/10 text-[#F4C95B]";
+  if (normalized.includes("despiece") || normalized.includes("parte")) return "border-[#8B73FF]/35 bg-[#8B73FF]/12 text-[#C9BFFF]";
 
   if (normalized.includes("stock") || normalized.includes("venta")) {
     return "border-[#CFFF3A]/35 bg-[#CFFF3A]/10 text-[#CFFF3A]";
@@ -622,23 +663,48 @@ function isOpenNovedadStatus(value: string) {
   return !normalized.includes("cerrada") && !normalized.includes("resuelta") && !normalized.includes("rechazada") && !normalized.includes("cancelada");
 }
 
-function EstadoBadge({ estado }: { estado: string }) {
+type BadgeSize = "sm" | "md";
+
+/** "sm": dentro de la tabla (se corta con … si no cabe, el texto completo queda en la ayuda). */
+function badgeSizeClass(size: BadgeSize = "md") {
+  return size === "sm"
+    ? "inline-block max-w-full truncate align-middle px-2 py-px text-[11px] leading-4"
+    : "inline-flex px-2.5 py-0.5 text-[12px]";
+}
+
+function EstadoBadge({ estado, size }: { estado: string; size?: BadgeSize }) {
   return (
-    <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${estadoTone(estado)}`}>
+    <span title={size === "sm" ? displayValue(estado) : undefined} className={`rounded-full border font-semibold ${badgeSizeClass(size)} ${estadoTone(estado)}`}>
       {displayValue(estado)}
     </span>
   );
 }
 
-function OperationBadge({ value }: { value: string }) {
+/** En la tabla basta una palabra; el nombre completo queda en la ayuda. */
+const OPERACION_CORTA: Record<string, string> = {
+  "compra a proveedor": "Compra",
+  "compra ya pagada": "Compra pagada",
+  "regalo de proveedor": "Regalo",
+  "encargo enviado a proveedor": "Encargo",
+  "reajuste de inventario": "Reajuste",
+  "uso local": "Uso local",
+  "parte / componente": "Parte",
+  "despiece de equipo": "Despiece",
+  "migracion historica": "Migración",
+  "correccion administrativa": "Corrección",
+  repuesto: "Repuesto",
+};
+
+function OperationBadge({ value, size }: { value: string; size?: BadgeSize }) {
+  const label = size === "sm" ? OPERACION_CORTA[normalizeText(value)] ?? displayValue(value) : displayValue(value);
   return (
-    <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${operationTone(value)}`}>
-      {displayValue(value)}
+    <span title={size === "sm" ? displayValue(value) : undefined} className={`rounded-full border font-semibold ${badgeSizeClass(size)} ${operationTone(value)}`}>
+      {label}
     </span>
   );
 }
 
-function AvailabilityBadge({ item }: { item: ResolvedItem }) {
+function AvailabilityBadge({ item, size }: { item: ResolvedItem; size?: BadgeSize }) {
   let label = "No disponible";
   let tone = "border-[#3A3A36] bg-[#1E1E1E] text-[#A7A7A7]";
 
@@ -662,7 +728,7 @@ function AvailabilityBadge({ item }: { item: ResolvedItem }) {
     tone = "border-[#F4C95B]/35 bg-[#F4C95B]/10 text-[#F4C95B]";
   }
 
-  return <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${tone}`}>{label}</span>;
+  return <span title={size === "sm" ? label : undefined} className={`rounded-full border font-semibold ${badgeSizeClass(size)} ${tone}`}>{label}</span>;
 }
 
 function FacebookSuperGeekToggle({
@@ -670,11 +736,13 @@ function FacebookSuperGeekToggle({
   canEdit,
   busy,
   onChange,
+  size = "md",
 }: {
   item: ResolvedItem;
   canEdit: boolean;
   busy: boolean;
   onChange: (item: ResolvedItem, value: boolean) => void;
+  size?: "sm" | "md";
 }) {
   const checked = item.facebookSuperGeek === true;
   const activationBlockReason = checked ? "" : getShippingV2FacebookPublicationBlockReason(item);
@@ -693,13 +761,13 @@ function FacebookSuperGeekToggle({
         event.stopPropagation();
         if (!checked) onChange(item, true);
       }}
-      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35 disabled:cursor-not-allowed ${checked ? "" : "disabled:opacity-55"} ${
+      className={`inline-flex ${size === "sm" ? "h-6 w-6 rounded-md" : "h-8 w-8 rounded-lg"} shrink-0 items-center justify-center border transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35 disabled:cursor-not-allowed ${checked ? "" : "disabled:opacity-55"} ${
         checked
           ? "border-[#D7FF4F]/55 bg-[#D7FF4F]/12 text-[#D7FF4F] shadow-lg shadow-[#D7FF4F]/10"
           : "border-[#3A3A36] bg-[#151613] text-[#A7A7A7] hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F]"
       }`}
     >
-      {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <BadgeCheck className="h-4 w-4" aria-hidden="true" />}
+      {busy ? <Loader2 className={`${size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4"} animate-spin`} aria-hidden="true" /> : <BadgeCheck className={size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4"} aria-hidden="true" />}
     </button>
   );
 }
@@ -729,13 +797,13 @@ function FacebookSuperGeekDetailButton({
       title={canEdit || checked ? actionLabel : "Facebook Super Geek"}
       disabled={busy || (!canEdit && !checked)}
       onClick={onOpen}
-      className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border px-3 text-[12px] font-bold transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35 disabled:cursor-not-allowed disabled:opacity-55 ${
+      className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[12.5px] font-bold transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35 disabled:cursor-not-allowed disabled:opacity-55 ${
         checked
           ? "border-[#D7FF4F]/60 bg-[#D7FF4F]/12 text-[#D7FF4F] shadow-lg shadow-[#D7FF4F]/10"
           : "border-[#3A3A36] bg-[#20211D] text-[#A7A7A7] hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F]"
       }`}
     >
-      {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <BadgeCheck className="h-4 w-4" aria-hidden="true" />}
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />}
       <span>Facebook SG</span>
       <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${checked ? "bg-[#D7FF4F] text-[#151515]" : "bg-[#151515] text-[#8F908A]"}`}>
         {statusLabel}
@@ -953,40 +1021,44 @@ function FacebookSuperGeekTextModal({
   );
 }
 
-function FilterGroup({
-  label,
-  values,
-  selected,
+/** Selector compacto de filtro (vacío = todos). Resaltado en lima cuando filtra. */
+function FiltroSelect({
+  etiqueta,
+  valor,
+  principales,
+  otras = [],
+  etiquetas,
   onChange,
   className = "",
 }: {
-  label: string;
-  values: string[];
-  selected: string;
-  onChange: (value: string) => void;
+  etiqueta: string;
+  valor: string;
+  principales: readonly string[];
+  otras?: readonly string[];
+  /** Texto a mostrar por valor (p. ej. nombre del proveedor por su record ID). */
+  etiquetas?: Record<string, string>;
+  onChange: (valor: string) => void;
   className?: string;
 }) {
-  const options = [ALL, ...values];
-
+  const activo = Boolean(valor);
   return (
-    <div className={`min-w-0 space-y-1 ${className}`}>
-      <p className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</p>
-      <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto pr-1">
-        {options.map((value) => {
-          const active = selected === value;
-          return (
-            <button
-              key={value}
-              type="button"
-              onClick={() => onChange(value)}
-              className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold transition ${active ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] shadow-lg shadow-[#D7FF4F]/10" : "border-[#3A3A36] bg-[#151613] text-[#D8D8D3] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"}`}
-            >
-              {value}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    <select
+      value={valor}
+      onChange={(event) => onChange(event.target.value)}
+      aria-label={etiqueta}
+      title={activo ? `${etiqueta}: ${etiquetas?.[valor] ?? valor}` : etiqueta}
+      className={`h-8 min-w-0 shrink-0 cursor-pointer rounded-md border bg-[#10110F] px-2 text-[12.5px] font-semibold outline-none transition focus:ring-2 focus:ring-[#D7FF4F]/35 ${
+        activo ? "border-[#D7FF4F]/60 text-[#D7FF4F]" : "border-[#3A3A36] text-[#B4B5AC] hover:border-[#D7FF4F]/45"
+      } ${className}`}
+    >
+      <option value="">{etiqueta}: {/(a|ón)$/.test(etiqueta) ? "todas" : "todos"}</option>
+      {principales.map((opcion) => <option key={opcion} value={opcion}>{etiquetas?.[opcion] ?? opcion}</option>)}
+      {otras.length ? (
+        <optgroup label="Otros">
+          {otras.map((opcion) => <option key={opcion} value={opcion}>{etiquetas?.[opcion] ?? opcion}</option>)}
+        </optgroup>
+      ) : null}
+    </select>
   );
 }
 
@@ -1016,7 +1088,7 @@ function ToolbarIconButton({
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={onClick}
-          className={`relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35 ${
+          className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35 ${
             highlighted
               ? "border-[#D7FF4F]/55 bg-[#D7FF4F]/10 text-[#D7FF4F] shadow-lg shadow-[#D7FF4F]/10"
               : "border-[#3A3A36] bg-[#10110F] text-[#A7A7A7] hover:border-[#D7FF4F]/45 hover:bg-[#1D1E1A] hover:text-[#D7FF4F]"
@@ -1052,85 +1124,77 @@ function ToolbarMenuOption<T extends string>({
       role="menuitemradio"
       aria-checked={active}
       onClick={() => onSelect(option.value)}
-      className={`flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-sm transition ${
+      className={`flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-[13px] transition ${
         active
           ? "border-[#D7FF4F]/45 bg-[#D7FF4F]/10 text-[#F5F5F5]"
           : "border-transparent bg-transparent text-[#A7A7A7] hover:border-[#3A3A36] hover:bg-[#171814] hover:text-[#F5F5F5]"
       }`}
     >
       <span
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
           active ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] text-transparent"
         }`}
       >
-        <Check className="h-3.5 w-3.5" aria-hidden="true" />
+        <Check className="h-3 w-3" aria-hidden="true" />
       </span>
       <span className="min-w-0 truncate font-semibold">{option.label}</span>
     </button>
   );
 }
 
-function PaginationLinkButton({
-  href,
-  disabled,
-  ariaLabel,
-  children,
-}: {
-  href?: string;
-  disabled: boolean;
-  ariaLabel: string;
-  children: ReactNode;
-}) {
-  const className = `inline-flex h-8 min-w-8 items-center justify-center gap-1 rounded-lg border px-2 text-[12px] font-semibold transition ${
-    disabled
-      ? "cursor-not-allowed border-[#30312D] bg-[#11120F] text-[#5E5F59]"
-      : "border-[#3A3A36] bg-[#151613] text-[#D8D8D3] hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35"
-  }`;
+type ItemsPagination = Props["pagination"];
 
-  if (disabled || !href) {
-    return (
-      <span aria-label={ariaLabel} aria-disabled="true" className={className}>
-        {children}
+/**
+ * Paginado (15-oct-2026). Airtable entrega de a 100 sin decir el total, así
+ * que se muestra el tramo que se está viendo (101–200) y las flechas.
+ */
+function ItemsPager({ pagination, count }: { pagination: ItemsPagination; count: number }) {
+  const start = (pagination.pageIndex - 1) * pagination.pageSize + 1;
+  const range = count ? `${start}–${start + count - 1}` : "0";
+  const boton = "inline-flex h-8 w-8 items-center justify-center rounded-md border transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35";
+  const activo = `${boton} border-[#3A3A36] bg-[#10110F] text-[#B4B5AC] hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F]`;
+  const apagado = `${boton} cursor-not-allowed border-[#24251F] text-[#3F403A]`;
+  const flecha = (href: string | undefined, habilitado: boolean, etiqueta: string, icono: ReactNode) => habilitado && href
+    ? <Link href={href} aria-label={etiqueta} title={etiqueta} className={activo}>{icono}</Link>
+    : <span aria-label={etiqueta} aria-disabled="true" className={apagado}>{icono}</span>;
+  return (
+    <nav aria-label="Páginas" className="flex shrink-0 items-center gap-1">
+      {pagination.pageIndex > 2 ? flecha(pagination.firstHref, true, "Primera página", <ChevronsLeft className="h-4 w-4" aria-hidden="true" />) : null}
+      <span className="min-w-[4.25rem] px-1 text-center text-[12.5px] font-semibold tabular-nums text-[#B4B5AC]" title={`Página ${pagination.pageIndex} · ${pagination.pageSize} por página`}>
+        {range}
       </span>
-    );
-  }
-
-  return (
-    <Link href={href} aria-label={ariaLabel} className={className}>
-      {children}
-    </Link>
+      {flecha(pagination.previousHref, pagination.hasPreviousPage, "Página anterior", <ChevronLeft className="h-4 w-4" aria-hidden="true" />)}
+      {flecha(pagination.nextHref, pagination.hasNextPage, "Página siguiente", <ChevronRight className="h-4 w-4" aria-hidden="true" />)}
+    </nav>
   );
 }
 
-function MiniMetric({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number | string;
-  tone: "lime" | "yellow" | "purple" | "orange";
-}) {
-  const toneClass = {
-    lime: "text-[#D7FF4F] bg-[#D7FF4F]",
-    yellow: "text-[#F4E85B] bg-[#F4E85B]",
-    purple: "text-[#B7A8FF] bg-[#8B73FF]",
-    orange: "text-[#FFB07A] bg-[#FF914D]",
-  }[tone];
-
+function FiltroChip({ children, onQuitar }: { children: ReactNode; onQuitar: () => void }) {
   return (
-    <Card className="rounded-xl border-[#30312D] bg-[#171814] px-3 py-2 shadow-lg shadow-black/10">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</p>
-          <p className={`mt-0.5 text-lg font-semibold leading-none tabular-nums xl:text-xl ${toneClass.split(" ")[0]}`}>{value}</p>
-        </div>
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${toneClass.split(" ")[1]}`} />
-      </div>
-    </Card>
+    <button
+      type="button"
+      onClick={onQuitar}
+      title="Quitar este filtro"
+      className="inline-flex max-w-[16rem] items-center gap-1 rounded-full border border-[#D7FF4F]/40 bg-[#D7FF4F]/[0.08] px-2 py-px text-[11.5px] font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F]/15"
+    >
+      <span className="truncate">{children}</span>
+      <X className="h-3 w-3 shrink-0" aria-hidden="true" />
+    </button>
   );
 }
 
+function PageStat({ label, value, tone }: { label: string; value: number; tone: "lime" | "yellow" | "purple" | "orange" }) {
+  const dot = { lime: "bg-[#D7FF4F]", yellow: "bg-[#F4E85B]", purple: "bg-[#8B73FF]", orange: "bg-[#FF914D]" }[tone];
+  const text = { lime: "text-[#D7FF4F]", yellow: "text-[#F4E85B]", purple: "text-[#C9BFFF]", orange: "text-[#FFB07A]" }[tone];
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      <span className={`h-1.5 w-1.5 rounded-full ${value ? dot : "bg-[#3A3A36]"}`} />
+      {label} <b className={`tabular-nums ${value ? text : "text-[#5E5F59]"}`}>{value}</b>
+    </span>
+  );
+}
+
+/** Tarjeta de la lista en pantallas angostas (celular): dos líneas. */
 function MobileItemCard({
   item,
   canViewCosts,
@@ -1148,6 +1212,7 @@ function MobileItemCard({
   onFacebookSuperGeekChange: (item: ResolvedItem, value: boolean) => void;
   onOpen: () => void;
 }) {
+  const detalle = [item.categoria, item.proveedorCompraDisplay].map((value) => String(value ?? "").trim()).filter(Boolean).join(" · ");
   return (
     <article
       role="button"
@@ -1159,49 +1224,39 @@ function MobileItemCard({
           onOpen();
         }
       }}
-      className="cursor-pointer rounded-[1.55rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20 transition hover:border-[#D7FF4F]/45 hover:bg-[#2A2B27]"
+      className="min-w-0 cursor-pointer rounded-lg border border-[#2E2F28] bg-[#171814] px-2.5 py-2 transition hover:border-[#D7FF4F]/40 focus:border-[#D7FF4F]/50 focus:outline-none"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[12px] font-semibold uppercase tracking-normal text-[#D7FF4F]">{displayValue(item.sku)}</p>
-          <h3 className="mt-1 truncate text-base font-semibold text-[#F5F5F5]">{displayName(item.nombre)}</h3>
-          <p className="mt-1 text-sm text-[#A7A7A7]">{displayValue(item.modelo || item.marca || item.tipoItem)}</p>
-        </div>
-        <EstadoBadge estado={item.estado} />
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 text-[12px] font-bold text-[#D7FF4F]">{displayValue(item.sku)}</span>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#F5F5F5]">{displayName(item.nombre)}</span>
+        <span className="shrink-0 text-[12px] font-bold tabular-nums text-[#D7FF4F]" title="Cantidad">{formatShippingV2ItemQuantity(item)}</span>
       </div>
-      <dl className="mt-4 grid gap-2 text-sm">
-        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Operacion</dt><dd className="text-right text-[#F5F5F5]"><OperationBadge value={item.tipoOperacion} /></dd></div>
-        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Cantidad</dt><dd className="text-right font-semibold tabular-nums text-[#D7FF4F]">{formatShippingV2ItemQuantity(item)}</dd></div>
-        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Rol general</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.tipoItem)}</dd></div>
-        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Categoría</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.categoria)}</dd></div>
-        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Proveedor</dt><dd className="text-right text-[#F5F5F5]">{displayValue(item.proveedorCompraDisplay)}</dd></div>
-        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Packing</dt><dd className="text-right text-[#F5F5F5]">{displayValue(packingLabel(item))}</dd></div>
-        {canViewProviderCost ? (
-          <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Costo proveedor unitario</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.costoProveedor)}</dd></div>
-        ) : null}
-        {canViewCosts ? (
-          <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Precio venta final unitario</dt><dd className="text-right text-[#F5F5F5]">{formatCurrency(item.precioVenta)}</dd></div>
-        ) : null}
-        <div className="flex items-center justify-between gap-4">
-          <dt className="text-[#A7A7A7]">Facebook Super Geek</dt>
-          <dd className="text-right text-[#F5F5F5]">
-            <FacebookSuperGeekToggle
-              item={item}
-              canEdit={canEditFacebookSuperGeek}
-              busy={facebookSuperGeekBusy}
-              onChange={onFacebookSuperGeekChange}
-            />
-          </dd>
-        </div>
-        <div className="flex justify-between gap-4"><dt className="text-[#A7A7A7]">Fecha registro</dt><dd className="text-right text-[#F5F5F5]">{formatDate(item.fechaRegistro || item.createdTime)}</dd></div>
-      </dl>
+      <div className="mt-1 flex min-w-0 items-center gap-1.5">
+        <span className="flex shrink-0 items-center gap-1">
+          <EstadoBadge estado={item.estado} size="sm" />
+          <OperationBadge value={item.tipoOperacion} size="sm" />
+        </span>
+        {detalle ? <span className="min-w-0 truncate text-[11.5px] text-[#8F908A]">{detalle}</span> : null}
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          {canViewCosts ? (
+            <span className="text-[12px] font-semibold tabular-nums text-[#F5F5F5]" title={canViewProviderCost ? `Costo proveedor ${formatCurrency(item.costoProveedor)}` : undefined}>{formatCurrency(item.precioVenta)}</span>
+          ) : canViewProviderCost ? (
+            <span className="text-[12px] font-semibold tabular-nums text-[#F5F5F5]" title="Costo proveedor">{formatCurrency(item.costoProveedor)}</span>
+          ) : null}
+          <FacebookSuperGeekToggle
+            size="sm"
+            item={item}
+            canEdit={canEditFacebookSuperGeek}
+            busy={facebookSuperGeekBusy}
+            onChange={onFacebookSuperGeekChange}
+          />
+        </span>
+      </div>
     </article>
   );
 }
 
 function DetailSection({
-  title,
-  accent,
   rows,
   onSave,
   esAdmin = false,
@@ -1209,8 +1264,6 @@ function DetailSection({
   camposOcultos = [],
   camposSoloLectura = [],
 }: {
-  title: string;
-  accent: "lime" | "purple" | "orange" | "yellow";
   rows: DetailRow[];
   onSave: (field: string, value: string | number | boolean | null) => Promise<void>;
   esAdmin?: boolean;
@@ -1219,13 +1272,6 @@ function DetailSection({
   camposOcultos?: readonly string[];
   camposSoloLectura?: readonly string[];
 }) {
-  const accentClass = {
-    lime: "bg-[#D7FF4F]",
-    purple: "bg-[#8B73FF]",
-    orange: "bg-[#FF914D]",
-    yellow: "bg-[#F4E85B]",
-  }[accent];
-
   // "Oculto" nunca aplica a un campo adminOnly (Cantidad, Disponible para
   // venta): ese ya tiene su propio candado, más estricto, que no depende de
   // esta configuración por usuario.
@@ -1233,37 +1279,34 @@ function DetailSection({
     (row) => row.config?.adminOnly === true || !row.config || !camposOcultos.includes(row.config.key)
   );
 
+  // Rediseño 15-oct-2026: una fila por dato (etiqueta | valor), sin tarjetas.
+  // Se edita pulsando el valor; los datos que no se editan van en gris.
   return (
-    <section className="rounded-xl border border-[#30312D] bg-[#171814] p-3 shadow-lg shadow-black/10">
-      <div className="mb-2.5 flex items-center gap-2">
-        <span className={`h-2 w-2 rounded-full ${accentClass}`} />
-        <h3 className="text-sm font-semibold text-[#F5F5F5]">{title}</h3>
-      </div>
-      <dl className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-        {rowsVisibles.map((row) => {
-          // Los campos marcados adminOnly se ven siempre, pero solo administración
-          // los puede editar (el servidor lo vuelve a validar).
-          const bloqueadoPorRol = row.config?.adminOnly === true && !esAdmin;
-          const bloqueadoPersonalizado =
-            row.config?.adminOnly !== true && Boolean(row.config) && camposSoloLectura.includes(row.config!.key);
-          const soloLectura =
-            !canEdit || (row.readOnly ?? !row.config) || row.config?.category === "readOnly" || bloqueadoPorRol || bloqueadoPersonalizado;
+    <dl className="grid gap-x-6 lg:grid-cols-2 2xl:grid-cols-3">
+      {rowsVisibles.map((row) => {
+        // Los campos marcados adminOnly se ven siempre, pero solo administración
+        // los puede editar (el servidor lo vuelve a validar).
+        const bloqueadoPorRol = row.config?.adminOnly === true && !esAdmin;
+        const bloqueadoPersonalizado =
+          row.config?.adminOnly !== true && Boolean(row.config) && camposSoloLectura.includes(row.config!.key);
+        const soloLectura =
+          !canEdit || (row.readOnly ?? !row.config) || row.config?.category === "readOnly" || bloqueadoPorRol || bloqueadoPersonalizado;
 
-          return (
-            <InlineEditableField
-              key={row.label}
-              label={row.label}
-              value={row.value}
-              type={row.config?.type ?? "readOnly"}
-              readOnly={soloLectura}
-              options={row.options ?? row.config?.options}
-              displayValue={row.displayValue}
-              onSave={!soloLectura && row.config ? (value) => onSave(row.config!.field, value) : undefined}
-            />
-          );
-        })}
-      </dl>
-    </section>
+        return (
+          <InlineEditableField
+            key={row.label}
+            layout="row"
+            label={row.label}
+            value={row.value}
+            type={row.config?.type ?? "readOnly"}
+            readOnly={soloLectura}
+            options={row.options ?? row.config?.options}
+            displayValue={row.displayValue}
+            onSave={!soloLectura && row.config ? (value) => onSave(row.config!.field, value) : undefined}
+          />
+        );
+      })}
+    </dl>
   );
 }
 
@@ -1458,50 +1501,6 @@ function attachmentList(attachments: ShippingV2Attachment[]) {
   );
 }
 
-function DetailMetric({
-  label,
-  value,
-  featured,
-  tone = "neutral",
-}: {
-  label: string;
-  value: ReactNode;
-  featured?: boolean;
-  tone?: "lime" | "orange" | "neutral";
-}) {
-  const valueClass = featured
-    ? "text-[#151515]"
-    : tone === "orange"
-      ? "text-[#FFB07A]"
-      : tone === "lime"
-        ? "text-[#D7FF4F]"
-        : "text-[#F5F5F5]";
-
-  return (
-    <article className={`rounded-xl border px-3 py-2 shadow-lg shadow-black/10 ${featured ? "border-[#D7FF4F] bg-[#D7FF4F]" : "border-[#30312D] bg-[#171814]"}`}>
-      <p className={`truncate text-[11px] font-bold uppercase tracking-normal ${featured ? "text-[#151515]/70" : "text-[#8F908A]"}`}>{label}</p>
-      <p className={`mt-1 text-lg font-semibold leading-none tabular-nums ${valueClass}`}>{value}</p>
-    </article>
-  );
-}
-
-function BooleanPill({ label, value }: { label: string; value: boolean | null }) {
-  return (
-    <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${value ? "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]" : "border-[#3A3A36] bg-[#151515] text-[#A7A7A7]"}`}>
-      {label}: {displayBoolean(value)}
-    </span>
-  );
-}
-
-function SmallDataRow({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-[#30312D]/80 py-2 last:border-b-0">
-      <span className="text-[12px] font-semibold uppercase tracking-normal text-[#8F908A]">{label}</span>
-      <span className="min-w-0 text-right text-sm font-medium text-[#F5F5F5]">{value}</span>
-    </div>
-  );
-}
-
 function shippingV2SkuLabelHref(itemId: string) {
   return `/shipping-v2/recepcion/etiqueta/${encodeURIComponent(itemId)}`;
 }
@@ -1615,6 +1614,112 @@ function ShippingV2ProviderItemDetailView({
   );
 }
 
+/** Qué enlaces a otros módulos puede abrir la sesión (para no llevarla a "Acceso denegado"). */
+export type ShippingV2ItemDetailEnlaces = { facturacion: boolean; operaciones: boolean; tecnicos: boolean };
+
+const DOCUMENTO_ETIQUETA: Record<ShippingV2ItemDocumento["tipo"], string> = {
+  factura: "Factura",
+  recibo: "Recibo",
+  reserva: "Reserva",
+  "nota-credito": "Nota de crédito",
+};
+
+function documentoHref(documento: ShippingV2ItemDocumento) {
+  const id = encodeURIComponent(documento.id);
+  if (documento.tipo === "factura") return `/facturacion/documentos/factura/${id}`;
+  if (documento.tipo === "recibo") return `/facturacion/imprimir/recibo/${id}`;
+  if (documento.tipo === "reserva") return `/facturacion/imprimir/reserva/${id}`;
+  return "/facturacion/nota-credito/historial";
+}
+
+function documentoTono(documento: ShippingV2ItemDocumento): PasoTono {
+  const estado = normalizeText(documento.estado);
+  if (estado.includes("anulad") || estado.includes("liberad") || estado.includes("devuelt") || estado.includes("no autorizado")) return "nada";
+  if (documento.tipo === "reserva") return "espera";
+  if (documento.tipo === "nota-credito") return "alerta";
+  return "ok";
+}
+
+type PasoTono = "ok" | "espera" | "alerta" | "nada";
+
+function PasoChip({ tono, children, title }: { tono: PasoTono; children: ReactNode; title?: string }) {
+  const toneClass = {
+    ok: "border-[#7BE495]/35 bg-[#7BE495]/10 text-[#9FEFB3]",
+    espera: "border-[#F4C95B]/35 bg-[#F4C95B]/10 text-[#F4C95B]",
+    alerta: "border-[#FF914D]/35 bg-[#FF914D]/10 text-[#FFB07A]",
+    nada: "border-[#3A3A36] bg-[#151515] text-[#8F908A]",
+  }[tono];
+  return <span title={title} className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-px text-[10.5px] font-semibold ${toneClass}`}>{children}</span>;
+}
+
+/** Una línea del bloque "Recorrido": qué paso es, el documento (con enlace) y cómo está. */
+function PasoRecorrido({
+  icon: Icon,
+  etiqueta,
+  principal,
+  href,
+  nuevaPestana,
+  onClick,
+  apagado,
+  detalle,
+  chip,
+}: {
+  icon: LucideIcon;
+  etiqueta: string;
+  principal: ReactNode;
+  href?: string;
+  nuevaPestana?: boolean;
+  onClick?: () => void;
+  apagado?: boolean;
+  detalle?: string;
+  chip?: ReactNode;
+}) {
+  const textoClass = "shrink-0 whitespace-nowrap font-semibold";
+  const texto = href ? (
+    <Link href={href} target={nuevaPestana ? "_blank" : undefined} rel={nuevaPestana ? "noreferrer" : undefined} className={`${textoClass} text-[#D7FF4F] hover:underline`}>{principal}</Link>
+  ) : onClick ? (
+    <button type="button" onClick={onClick} className={`${textoClass} text-[#D7FF4F] hover:underline`}>{principal}</button>
+  ) : (
+    <span className={`${textoClass} ${apagado ? "font-normal text-[#8F908A]" : "text-[#E6E6E1]"}`}>{principal}</span>
+  );
+  return (
+    <li className="grid grid-cols-[6.5rem_minmax(0,1fr)_auto] items-center gap-2 px-3 py-1.5">
+      <span className="flex items-center gap-1.5 text-[11.5px] font-medium text-[#8F908A]">
+        <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        {etiqueta}
+      </span>
+      <span className="flex min-w-0 items-baseline gap-2 text-[13px]">
+        {texto}
+        {detalle ? <span className="min-w-0 truncate text-[12px] text-[#8F908A]" title={detalle}>{detalle}</span> : null}
+      </span>
+      {chip ?? <span />}
+    </li>
+  );
+}
+
+function shortDate(value?: string) {
+  if (!value) return "";
+  // Una fecha sin hora ("2026-10-14") se muestra tal cual: convertirla a la
+  // hora de Ecuador la correría al día anterior.
+  const soloFecha = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const date = new Date(soloFecha ? `${value}T12:00:00Z` : value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-EC", { day: "2-digit", month: "short", year: "numeric", timeZone: soloFecha ? "UTC" : "America/Guayaquil" }).format(date);
+}
+
+/** Dato del encabezado (precio, costo, ganancia, cantidad). */
+function HeroStat({ label, children, tone = "neutral", title }: { label: string; children: ReactNode; tone?: "neutral" | "lime" | "orange"; title?: string }) {
+  const valueClass = tone === "lime" ? "text-[#D7FF4F]" : tone === "orange" ? "text-[#FFB07A]" : "text-[#F5F5F5]";
+  return (
+    <div className="min-w-0 bg-[#171814] px-3 py-2" title={title}>
+      <p className="truncate text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">{label}</p>
+      <div className={`mt-0.5 truncate text-[17px] font-semibold leading-6 tabular-nums ${valueClass}`}>{children}</div>
+    </div>
+  );
+}
+
+const accionClass = "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#3A3A36] bg-[#1C1D19] px-2.5 text-[12.5px] font-semibold text-[#E6E6E1] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35";
+
 export function ShippingV2ItemDetailView({
   item: initialItem,
   proveedores,
@@ -1627,6 +1732,10 @@ export function ShippingV2ItemDetailView({
   camposSoloLectura = [],
   permissions,
   rolNovedades = "ninguno",
+  trazabilidad = null,
+  enlaces = { facturacion: false, operaciones: false, tecnicos: false },
+  adminPanel,
+  costosTraerlo,
 }: {
   item: ResolvedItem;
   proveedores: ShippingV2Proveedor[];
@@ -1642,6 +1751,13 @@ export function ShippingV2ItemDetailView({
   permissions?: ShippingV2AccessPermissions | null;
   /** Punto 8: qué puede hacer la sesión con las novedades (sin valor: solo ver). */
   rolNovedades?: ShippingV2NovedadRol;
+  /** Rediseño 15-oct-2026: orden de compra, pedido, documentos de venta (solo personal). */
+  trazabilidad?: ShippingV2ItemTrazabilidad | null;
+  enlaces?: ShippingV2ItemDetailEnlaces;
+  /** Acciones de Administrador (activos, baja, corregir estado, eliminar): van detrás de "Administrar". */
+  adminPanel?: ReactNode;
+  /** Costos de traer un artículo que viaja solo: van en la pestaña Logística. */
+  costosTraerlo?: ReactNode;
 }) {
   const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
   const [item, setItem] = useState(initialItem);
@@ -1653,6 +1769,8 @@ export function ShippingV2ItemDetailView({
   const [facebookTextMessage, setFacebookTextMessage] = useState("");
   const [ignoredAiName, setIgnoredAiName] = useState("");
   const [activeTab, setActiveTab] = useState<ItemDetailTabKey>("general");
+  const [adminOpen, setAdminOpen] = useState(false);
+  const tabsRef = useRef<HTMLElement>(null);
   const purchaseProviderOptions = useMemo(
     () => proveedores.filter(canBePurchaseProvider).map((proveedor) => ({ value: proveedor.id, label: getShippingV2ProveedorLabel(proveedor) })),
     [proveedores]
@@ -1753,8 +1871,8 @@ export function ShippingV2ItemDetailView({
   const canUseRecepcion = permissions?.canUseRecepcion !== false;
   const isProviderDetail = !canEditItems && canEditProviderItemFields;
   // Personalización por usuario (Fase 2 de permisos, ver lib/permissions/campos.ts).
-  // La tarjeta "Resumen rápido" de abajo es JSX a mano (no pasa por
-  // DetailSection), así que cada fila se filtra a mano contra las mismas listas.
+  // El encabezado (precio, costo, ganancia) es JSX a mano (no pasa por
+  // DetailSection), así que cada dato se filtra a mano contra las mismas listas.
   const verCampo = (key: string) => !camposOcultos.includes(key);
   const campoSoloLectura = (key: string) => camposSoloLectura.includes(key);
   const hasAiNameSuggestion = Boolean(aiNameSuggestion && normalizeText(aiNameSuggestion) !== normalizeText(item.nombre) && aiNameSuggestion !== ignoredAiName);
@@ -1791,6 +1909,11 @@ export function ShippingV2ItemDetailView({
     setFacebookSuperGeekModalOpen(true);
   }
 
+  function abrirPestana(tab: ItemDetailTabKey) {
+    setActiveTab(tab);
+    tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   if (isProviderDetail) {
     return (
       <ShippingV2ProviderItemDetailView
@@ -1805,12 +1928,10 @@ export function ShippingV2ItemDetailView({
     );
   }
 
-  const tabs: Array<{ key: ItemDetailTabKey; label: string; title: string; accent: "lime" | "purple" | "orange" | "yellow"; rows: DetailRow[] }> = [
+  const tabs: Array<{ key: ItemDetailTabKey; label: string; rows: DetailRow[] }> = [
     {
       key: "general",
       label: "General",
-      title: "Datos generales",
-      accent: "lime",
       rows: [
         { label: C.sku.label, value: item.sku, config: C.sku },
         { label: C.skuProveedor.label, value: item.skuProveedor, config: C.skuProveedor },
@@ -1821,8 +1942,9 @@ export function ShippingV2ItemDetailView({
         { label: C.condicion.label, value: item.condicion, config: C.condicion },
         { label: C.cantidad.label, value: item.cantidad ?? item.qty, config: C.cantidad },
         { label: C.unidad.label, value: item.unidad, config: C.unidad },
-        { label: C.estadoItem.label, value: item.estado, displayValue: <EstadoBadge estado={item.estado} />, config: C.estadoItem },
+        { label: C.estadoItem.label, value: item.estado, displayValue: <EstadoBadge estado={item.estado} size="sm" />, config: C.estadoItem },
         { label: C.estadoRevision.label, value: item.estadoRevision, config: C.estadoRevision },
+        { label: C.ubicacionActual.label, value: item.ubicacionActual, config: C.ubicacionActual, readOnly: true },
         { label: C.afectaInventario.label, value: item.afectaInventario, displayValue: displayBoolean(item.afectaInventario), config: C.afectaInventario },
         { label: C.requiereInspeccion.label, value: item.requiereInspeccion, config: C.requiereInspeccion },
         { label: C.disponibleVenta.label, value: item.disponibleVenta, displayValue: displayBoolean(item.disponibleVenta), config: C.disponibleVenta },
@@ -1833,10 +1955,8 @@ export function ShippingV2ItemDetailView({
       ],
     },
     ...(canViewCosts ? [{
-      key: "costos",
+      key: "costos" as const,
       label: "Costos",
-      title: "Costos y venta",
-      accent: "lime",
       rows: [
         { label: C.costoProveedor.label, value: item.costoProveedor, displayValue: formatCurrency(item.costoProveedor), config: C.costoProveedor },
         // Montos del REGISTRO (todas sus unidades), guardados por el portal al
@@ -1862,13 +1982,11 @@ export function ShippingV2ItemDetailView({
         { label: C.precioVentaFinal.label, value: item.precioVenta, displayValue: formatCurrency(item.precioVenta), config: C.precioVentaFinal },
         { label: "Ganancia por unidad", value: gananciaUnidad, displayValue: formatCurrency(gananciaUnidad), readOnly: true },
         { label: "Ganancia total del stock", value: gananciaStock, displayValue: formatCurrency(gananciaStock), readOnly: true },
-      ],
-    } satisfies { key: ItemDetailTabKey; label: string; title: string; accent: "lime" | "purple" | "orange" | "yellow"; rows: DetailRow[] }] : []),
+      ] satisfies DetailRow[],
+    }] : []),
     {
       key: "logistica",
       label: "Logística",
-      title: "Proveedores y logística",
-      accent: "orange",
       rows: [
         { label: C.proveedorCompra.label, value: item.proveedorId, displayValue: displayValue(item.proveedorCompraDisplay), config: C.proveedorCompra, options: purchaseProviderOptions },
         // Punto 2 (oct-2026): origen, casillero y rastreos se gestionan en la
@@ -1878,11 +1996,12 @@ export function ShippingV2ItemDetailView({
         { label: "Rastreo al casillero", value: item.trackingHaciaIntermediario, readOnly: true },
         { label: "Rastreo a Ecuador", value: item.trackingDesdeIntermediario, readOnly: true },
         { label: "Rastreo local", value: item.trackingDirecto, readOnly: true },
+        { label: C.requierePacking.label, value: item.requierePacking, displayValue: displayBoolean(item.requierePacking), config: C.requierePacking },
         {
           label: "Dónde se gestiona",
           value: "",
           displayValue: item.packingId
-            ? "En su caja (pestaña Logística → la caja)"
+            ? <Link href={`/shipping-v2/packings/${item.packingId}`} className="font-semibold text-[#D7FF4F] hover:underline">En su caja</Link>
             : item.recibido === true
               ? "Ya llegó"
               : <Link href="/shipping-v2/packings#sueltos" className="font-semibold text-[#D7FF4F] hover:underline">Pestaña Logística</Link>,
@@ -1894,15 +2013,13 @@ export function ShippingV2ItemDetailView({
     {
       key: "pago",
       label: "Pago",
-      title: "Pago relacionado",
-      accent: "yellow",
       rows: [
         { label: "Situación del pago", value: item.situacionPago, displayValue: item.situacionPago ? ETIQUETA_SITUACION_PAGO[item.situacionPago] : "—", readOnly: true },
         // Punto 9d: la orden de compra a la que pertenece (ahí se ve y se registra su pago).
-        { label: "Orden de compra", value: item.ordenCompraId, displayValue: item.ordenCompraId ? <Link href={`/shipping-v2/pagos/ordenes/${item.ordenCompraId}`} className="font-semibold text-[#D7FF4F] hover:underline">Ver orden</Link> : "—", readOnly: true },
+        { label: "Orden de compra", value: item.ordenCompraId, displayValue: item.ordenCompraId ? <Link href={`/shipping-v2/pagos/ordenes/${item.ordenCompraId}`} className="font-semibold text-[#D7FF4F] hover:underline">{trazabilidad?.ordenCompra?.codigo || "Ver orden"}</Link> : "—", readOnly: true },
         { label: C.requierePago.label, value: item.requierePago, displayValue: displayBoolean(item.requierePago), config: C.requierePago },
         { label: "Pago Shipping V2 relacionado", value: item.pagoId, displayValue: pago?.pagoId || item.pagoId || "—", config: C.pagoRelacionado },
-        { label: "Estado de pago", value: pago?.estadoPago, displayValue: pago?.estadoPago ? <EstadoBadge estado={pago.estadoPago} /> : "—", readOnly: true },
+        { label: "Estado de pago", value: pago?.estadoPago, displayValue: pago?.estadoPago ? <EstadoBadge estado={pago.estadoPago} size="sm" /> : "—", readOnly: true },
         { label: "Total del pago", value: pago?.totalAPagar ?? pago?.total, displayValue: formatCurrency(pago?.totalAPagar ?? pago?.total ?? null), readOnly: true },
         { label: "Fecha real de pago", value: pago?.fechaPagoReal, displayValue: formatDate(pago?.fechaPagoReal), readOnly: true },
         { label: "Pago legacy", value: item.legacyPagoRelacionadoIds.join(", "), readOnly: true },
@@ -1911,11 +2028,9 @@ export function ShippingV2ItemDetailView({
     {
       key: "packing",
       label: "Packing",
-      title: "Packing y tracking",
-      accent: "purple",
       rows: [
-        { label: C.packingRelacionado.label, value: item.packingId, displayValue: packing?.packingId || item.packingId || "—", config: C.packingRelacionado },
-        { label: "Estado packing", value: packing?.estado, displayValue: packing?.estado ? <EstadoBadge estado={packing.estado} /> : "—", readOnly: true },
+        { label: C.packingRelacionado.label, value: item.packingId, displayValue: item.packingId ? <Link href={`/shipping-v2/packings/${item.packingId}`} className="font-semibold text-[#D7FF4F] hover:underline">{packing?.packingId || item.packingId}</Link> : "—", config: C.packingRelacionado },
+        { label: "Estado packing", value: packing?.estado, displayValue: packing?.estado ? <EstadoBadge estado={packing.estado} size="sm" /> : "—", readOnly: true },
         { label: "Tracking USA", value: packing?.trackingUsa || item.trackingUsa, readOnly: true },
         { label: "Tracking EC", value: packing?.trackingEc || item.trackingEc, readOnly: true },
         { label: "Peso", value: packing?.peso, displayValue: packing?.peso === null || packing?.peso === undefined ? "—" : `${packing.peso} kg`, readOnly: true },
@@ -1923,15 +2038,13 @@ export function ShippingV2ItemDetailView({
     },
     {
       key: "observaciones",
-      label: "Observaciones",
-      title: "Observaciones y auditoría",
-      accent: "orange",
+      label: "Notas",
       rows: [
         { label: C.observacionesInternas.label, value: item.observacionesInternas, config: C.observacionesInternas },
         { label: C.observacionVenta.label, value: item.observacionVenta, config: C.observacionVenta },
         { label: "Evidencias", value: "", displayValue: attachmentList(item.evidencias), readOnly: true },
-        { label: C.itemPadre.label, value: item.itemPadreId, config: C.itemPadre },
-        { label: C.itemsHijos.label, value: item.itemHijoIds.join(", "), displayValue: item.itemHijoIds.length ? item.itemHijoIds.join(", ") : "—", config: C.itemsHijos },
+        { label: C.itemPadre.label, value: item.itemPadreId, displayValue: item.itemPadreId ? <Link href={`/shipping-v2/items/${item.itemPadreId}`} className="font-semibold text-[#D7FF4F] hover:underline">{trazabilidad?.itemPadre?.sku || "Ver artículo"}</Link> : "—", config: C.itemPadre },
+        { label: C.itemsHijos.label, value: item.itemHijoIds.join(", "), displayValue: item.itemHijoIds.length ? `${item.itemHijoIds.length} pieza${item.itemHijoIds.length === 1 ? "" : "s"} (pestaña Despiece)` : "—", config: C.itemsHijos },
         { label: "Motivo despiece", value: item.motivoDespiece, readOnly: true },
         { label: "Fecha despiece", value: item.fechaDespiece, displayValue: formatDate(item.fechaDespiece), readOnly: true },
         { label: C.fechaRegistro.label, value: item.fechaRegistro || item.createdTime, displayValue: formatDate(item.fechaRegistro || item.createdTime), config: C.fechaRegistro },
@@ -1945,8 +2058,6 @@ export function ShippingV2ItemDetailView({
       // (ver el bloque de render más abajo). `rows` va vacío a propósito.
       key: "despiece",
       label: "Despiece",
-      title: "Despiece",
-      accent: "purple",
       rows: [],
     },
     // Punto 3 (6-oct-2026): mantenimientos y mejoras se registran aquí, no en
@@ -1954,9 +2065,7 @@ export function ShippingV2ItemDetailView({
     ...(canUseRecepcion || canEditItems
       ? [{
         key: "intervenciones" as const,
-        label: "Mantenimientos y mejoras",
-        title: "Mantenimientos y mejoras",
-        accent: "purple" as const,
+        label: "Mejoras",
         rows: [],
       }]
       : []),
@@ -1965,243 +2074,313 @@ export function ShippingV2ItemDetailView({
   const fichaGenerada = isFichaGenerada(item);
   const fichaHref = shippingV2TechnicalSheetHref(item);
   const skuLabelHref = shippingV2SkuLabelHref(item.id);
+
+  // ── Recorrido: de dónde vino y a dónde fue ────────────────────────────
+  const situacion = item.situacionPago;
+  const chipPago = situacion ? (
+    <PasoChip tono={situacion === "pagado" ? "ok" : situacion === "sin-pago" ? "nada" : "espera"} title={`Pago: ${ETIQUETA_SITUACION_PAGO[situacion]}`}>
+      {situacion === "falta-respaldo" ? "Sin respaldo" : ETIQUETA_SITUACION_PAGO[situacion]}
+    </PasoChip>
+  ) : null;
+  const yaEstabaEnTienda = item.origenArticulo === ORIGEN_TIENDA;
+  const oc = trazabilidad?.ordenCompra;
+  const detalleCompra = [item.proveedorCompraDisplay, oc?.numeroProveedor ? `N° ${oc.numeroProveedor}` : "", shortDate(oc?.fechaCompra)].filter(Boolean).join(" · ");
+  const inspeccionHref = canUseRecepcion && item.recibido === true ? `/shipping-v2/recepcion/inspeccion/${encodeURIComponent(item.id)}` : undefined;
+  const avance = avanceDeInspeccion(item.revisionTecnicaDetalle, item.revisadoFisicamente === true);
+  const pideInspeccion = item.requiereInspeccion === true || avance !== "sin-empezar" || item.revisadoFisicamente === true;
+  const fallas = item.puntosRevisionFallidos ?? 0;
+  const documentos = trazabilidad?.documentos ?? [];
+  const viajaSolo = !item.packingId && vieneDeAfuera(item.origenArticulo);
+  const rastreoSuelto = [item.trackingDesdeIntermediario || item.trackingDirecto, item.trackingHaciaIntermediario].filter(Boolean).join(" · ");
+  const salioDelInventario = ["vendido", "agotado"].includes(normalizeText(item.estado));
+  // Cuántos datos tiene la franja de precio (según permisos), para repartir el ancho.
+  const heroStatsCount = 1
+    + (canViewCosts && verCampo("precioVenta") ? 1 : 0)
+    + ((canViewCosts && verCampo("costoTotalUnidad")) || (!canViewCosts && canViewProviderCost && verCampo("costoProveedor")) ? 1 : 0)
+    + (canViewCosts && verCampo("gananciaUnidad") ? 1 : 0);
+  const heroStatsCols = ({ 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-2 sm:grid-cols-4" } as Record<number, string>)[heroStatsCount];
+
+  const recorrido = (
+    <section className="overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
+      <h2 className="border-b border-[#2E2F28] bg-[#1A1B17] px-3 py-1.5 text-[10.5px] font-bold uppercase tracking-wide text-[#8F908A]">Recorrido</h2>
+      <ol className="divide-y divide-[#24251F]">
+        {oc ? (
+          <PasoRecorrido icon={ShoppingCart} etiqueta="Compra" principal={`Orden ${oc.codigo}`} href={`/shipping-v2/pagos/ordenes/${oc.id}`} detalle={detalleCompra} chip={oc.anulada ? <PasoChip tono="alerta">Orden anulada</PasoChip> : chipPago} />
+        ) : yaEstabaEnTienda ? (
+          <PasoRecorrido icon={ShoppingCart} etiqueta="Compra" principal="Ya estaba en la tienda" apagado detalle={displayValue(item.tipoOperacion, "")} chip={chipPago} />
+        ) : (
+          <PasoRecorrido
+            icon={ShoppingCart}
+            etiqueta="Compra"
+            principal={item.ordenCompraId ? "Ver orden" : displayValue(item.proveedorCompraDisplay, "Sin proveedor")}
+            href={item.ordenCompraId ? `/shipping-v2/pagos/ordenes/${item.ordenCompraId}` : undefined}
+            apagado={!item.ordenCompraId && !item.proveedorCompraDisplay}
+            detalle={[item.ordenCompraId ? item.proveedorCompraDisplay : "", shortDate(item.fechaRegistro || item.createdTime)].filter(Boolean).join(" · ")}
+            chip={chipPago}
+          />
+        )}
+        {trazabilidad?.operacion ? (
+          <PasoRecorrido icon={ClipboardList} etiqueta="Pedido" principal={trazabilidad.operacion.codigo} href={enlaces.operaciones ? `/operaciones/${trazabilidad.operacion.id}` : undefined} detalle="Pedido de cliente" />
+        ) : null}
+        {trazabilidad?.ordenReparacion ? (
+          <PasoRecorrido icon={Wrench} etiqueta="Reparación" principal={trazabilidad.ordenReparacion.codigo} href={enlaces.tecnicos ? `/tecnicos/ordenes/${trazabilidad.ordenReparacion.id}` : undefined} detalle="Orden de reparación" />
+        ) : null}
+        {item.itemPadreId ? (
+          <PasoRecorrido icon={GitBranch} etiqueta="Sale de" principal={trazabilidad?.itemPadre?.sku || "Artículo padre"} href={`/shipping-v2/items/${item.itemPadreId}`} detalle={trazabilidad?.itemPadre?.nombre ? `Despiece de ${trazabilidad.itemPadre.nombre}` : "Despiece"} />
+        ) : null}
+        {item.packingId ? (
+          <PasoRecorrido
+            icon={Truck}
+            etiqueta="Envío"
+            principal={packing?.packingId || "Ver caja"}
+            href={`/shipping-v2/packings/${item.packingId}`}
+            detalle={[packing?.nombre, packing?.trackingEc ? `EC ${packing.trackingEc}` : packing?.trackingUsa ? `USA ${packing.trackingUsa}` : ""].filter(Boolean).join(" · ")}
+            chip={packing?.estado ? <EstadoBadge estado={packing.estado} size="sm" /> : null}
+          />
+        ) : viajaSolo ? (
+          <PasoRecorrido
+            icon={Truck}
+            etiqueta="Envío"
+            principal="Viaja solo"
+            onClick={() => abrirPestana("logistica")}
+            detalle={rastreoSuelto || "Sin rastreo"}
+            chip={item.recibido === true ? <PasoChip tono="ok">Llegó</PasoChip> : <PasoChip tono="espera">En camino</PasoChip>}
+          />
+        ) : (
+          <PasoRecorrido icon={Truck} etiqueta="Envío" principal={yaEstabaEnTienda ? "No viajó" : "Sin caja"} apagado />
+        )}
+        {item.recibido !== true ? (
+          <PasoRecorrido icon={ClipboardCheck} etiqueta="Revisión" principal="Aún no llega" apagado chip={<PasoChip tono="nada">Pendiente</PasoChip>} />
+        ) : pideInspeccion ? (
+          <PasoRecorrido
+            icon={ClipboardCheck}
+            etiqueta="Inspección"
+            principal={avance === "firmada" ? "Ficha de inspección" : avance === "en-proceso" ? "Inspección a medias" : "Inspeccionar"}
+            href={inspeccionHref}
+            detalle={avance === "firmada"
+              ? [item.revisadoPor ? `Firmó ${item.revisadoPor}` : "Firmada", shortDate(item.fechaRevision), fallas ? `${fallas} punto${fallas === 1 ? "" : "s"} con falla` : ""].filter(Boolean).join(" · ")
+              : avance === "en-proceso" ? "Alguien empezó y no firmó" : "Falta revisar y firmar"}
+            chip={avance === "firmada"
+              ? <PasoChip tono={fallas ? "alerta" : "ok"}>Firmada</PasoChip>
+              : <PasoChip tono="espera">{avance === "en-proceso" ? "En proceso" : "Pendiente"}</PasoChip>}
+          />
+        ) : (
+          <PasoRecorrido icon={ClipboardCheck} etiqueta="Revisión" principal="Recibido" detalle="No requiere inspección" chip={<PasoChip tono="ok">Listo</PasoChip>} />
+        )}
+        {documentos.length ? documentos.map((documento) => (
+          <PasoRecorrido
+            key={documento.id}
+            icon={Receipt}
+            etiqueta={documento.tipo === "reserva" ? "Reserva" : documento.tipo === "nota-credito" ? "Devolución" : "Venta"}
+            principal={`${DOCUMENTO_ETIQUETA[documento.tipo]} ${documento.numero}`}
+            href={enlaces.facturacion ? documentoHref(documento) : undefined}
+            nuevaPestana={documento.tipo === "recibo" || documento.tipo === "reserva"}
+            detalle={shortDate(documento.fecha)}
+            chip={documento.estado ? <PasoChip tono={documentoTono(documento)}>{documento.estado}</PasoChip> : null}
+          />
+        )) : (
+          <PasoRecorrido
+            icon={Receipt}
+            etiqueta="Venta"
+            principal={item.usoLocal ? "Activo de la tienda" : salioDelInventario ? "Vendido" : "Sin vender"}
+            apagado
+            detalle={salioDelInventario && trazabilidad ? "Sin documento enlazado" : undefined}
+          />
+        )}
+      </ol>
+    </section>
+  );
+
   return (
-    <div className="w-full max-w-none space-y-3">
-      <section className="grid w-full gap-3 xl:grid-cols-12">
-        <aside className="space-y-3 xl:col-span-4 2xl:col-span-3">
-          <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-[#F5F5F5]">Fotos</h2>
-              <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-2.5 py-0.5 text-[12px] font-semibold text-[#A7A7A7]">{item.fotos.length} fotos</span>
-            </div>
-            <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={handleSaved} canEdit={canEditItems} density="compact" />
-          </article>
+    <div className="grid w-full gap-3 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] 2xl:grid-cols-[minmax(0,4fr)_minmax(0,6fr)]">
+      {/* La foto manda: columna propia que acompaña al bajar. */}
+      <aside className="min-w-0 md:sticky md:top-16 md:self-start">
+        <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={handleSaved} canEdit={canEditItems} density="hero" />
+      </aside>
 
-          {canViewCosts ? <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
-            <h2 className="text-sm font-semibold text-[#F5F5F5]">Resumen rápido</h2>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              {verCampo("precioVenta") && (
-                <InlineEditableField
-                  label={C.precioVentaFinal.label}
-                  value={item.precioVenta}
-                  type={C.precioVentaFinal.type}
-                  displayValue={formatCurrency(item.precioVenta)}
-                  className="rounded-xl border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-[#151515] transition"
-                  labelClassName="text-[11px] font-bold uppercase tracking-normal text-[#151515]/70"
-                  valueClassName="mt-1 min-h-5 break-words text-lg font-semibold tabular-nums text-[#151515]"
-                  readOnly={!canEditItems || campoSoloLectura("precioVenta")}
-                  onSave={(value) => saveField(C.precioVentaFinal.field, value)}
-                />
-              )}
-              {verCampo("costoTotalUnidad") && (
-                <DetailMetric label="Costo total unitario" value={formatCurrency(item.costoTotalUnidad)} />
-              )}
-              {verCampo("costoProveedor") && (
-                <InlineEditableField
-                  label={C.costoProveedor.label}
-                  value={item.costoProveedor}
-                  type={C.costoProveedor.type}
-                  displayValue={formatCurrency(item.costoProveedor)}
-                  className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2 transition"
-                  labelClassName="text-[11px] font-bold uppercase tracking-normal text-[#8F908A]"
-                  valueClassName="mt-1 min-h-5 break-words text-lg font-semibold tabular-nums text-[#F5F5F5]"
-                  readOnly={!canEditItems || campoSoloLectura("costoProveedor")}
-                  onSave={(value) => saveField(C.costoProveedor.field, value)}
-                />
-              )}
-              {verCampo("costoLogisticoAsignado") && (
-                <DetailMetric label="Costo logístico" value={formatCurrency(item.costoLogisticoAsignado)} />
-              )}
-              {verCampo("costoTotalStock") && (
-                <DetailMetric label="Costo total del stock" value={formatCurrency(costoStock)} />
-              )}
-              {verCampo("gananciaUnidad") && (
-                <DetailMetric label="Ganancia por unidad" value={formatCurrency(gananciaUnidad)} tone={gananciaUnidad !== null && gananciaUnidad < 0 ? "orange" : "lime"} />
-              )}
-              {verCampo("gananciaStock") && (
-                <DetailMetric label="Ganancia total del stock" value={formatCurrency(gananciaStock)} tone={gananciaStock !== null && gananciaStock < 0 ? "orange" : "lime"} />
-              )}
-            </div>
-          </article> : null}
-
-          <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
-            <h2 className="text-sm font-semibold text-[#F5F5F5]">Estado y disponibilidad</h2>
-            <div className="mt-2 flex flex-wrap gap-2">
+      <div className="min-w-0 space-y-3">
+        <section className="rounded-lg border border-[#2E2F28] bg-[#171814]">
+          <div className="p-3">
+            <div className="flex flex-wrap items-center gap-1.5">
               <EstadoBadge estado={item.estado} />
               <OperationBadge value={item.tipoOperacion} />
               <AvailabilityBadge item={item} />
-              {item.situacionPago ? <PagoChip situacion={item.situacionPago} /> : <BooleanPill label="Requiere pago" value={item.requierePago} />}
-              <BooleanPill label="Requiere packing" value={item.requierePacking} />
-              <BooleanPill label="Disponible venta" value={item.disponibleVenta} />
-              <BooleanPill label="Facebook SG" value={item.facebookSuperGeek} />
+              {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-2.5 py-0.5 text-[12px] font-semibold text-[#FFB07A]">Con novedad</span> : null}
             </div>
-            <div className="mt-3">
-              <SmallDataRow label="Ubicación" value={displayValue(item.ubicacionActual)} />
-              <SmallDataRow label="Packing" value={displayValue(packing?.packingId || item.packingId)} />
-              <SmallDataRow label="Pago" value={displayValue(pago?.pagoId || item.pagoId)} />
-            </div>
-          </article>
-        </aside>
-
-        <main className="space-y-3 xl:col-span-8 2xl:col-span-9">
-          <article className="rounded-xl border border-[#30312D] bg-[#171814] p-4 shadow-xl shadow-black/15">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap gap-2">
-                  <EstadoBadge estado={item.estado} />
-                  <OperationBadge value={item.tipoOperacion} />
-                  <AvailabilityBadge item={item} />
-                  {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-2.5 py-0.5 text-[12px] font-semibold text-[#FFB07A]">Con novedad</span> : null}
-                </div>
-                <InlineEditableField
-                  label={C.nombre.label}
-                  value={item.nombre}
-                  type={C.nombre.type}
-                  displayValue={displayName(item.nombre)}
-                  hideLabel
-                  className="mt-3 rounded-lg transition"
-                  valueClassName="min-h-8 break-words text-2xl font-semibold leading-tight text-[#F5F5F5] lg:text-3xl"
-                  readOnly={!canEditItems}
-                  onSave={(value) => saveField(C.nombre.field, value)}
-                />
-                <InlineEditableField
-                  label={C.descripcion.label}
-                  value={item.descripcion}
-                  type={C.descripcion.type}
-                  displayValue={displayValue(item.descripcion, "Sin descripción registrada.")}
-                  hideLabel
-                  className="mt-2 rounded-lg transition"
-                  valueClassName="min-h-5 break-words text-sm leading-6 text-[#A7A7A7]"
-                  readOnly={!canEditItems}
-                  onSave={(value) => saveField(C.descripcion.field, value)}
-                />
-              </div>
-              <TooltipProvider delayDuration={200}>
-                <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 lg:self-center">
-                  <FacebookSuperGeekDetailButton
-                    item={item}
-                    checked={item.facebookSuperGeek === true}
-                    canEdit={canEditItems}
-                    busy={facebookSuperGeekDetailBusy}
-                    onOpen={openFacebookSuperGeekModal}
-                  />
-                  {canUseRecepcion ? <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Link href={fichaHref} target={fichaGenerada ? "_blank" : undefined} rel={fichaGenerada ? "noreferrer" : undefined} aria-label={fichaGenerada ? "Imprimir ficha" : "Preparar ficha"} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] text-[#F5F5F5] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35">
-                        <Printer className="h-4 w-4" aria-hidden="true" />
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="bg-[#252622] text-[#F5F5F5]">
-                      {fichaGenerada ? "Imprimir ficha" : "Preparar ficha"}
-                    </TooltipContent>
-                  </Tooltip> : null}
-                  {canUseRecepcion ? <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Link href={skuLabelHref} target="_blank" rel="noreferrer" aria-label="Imprimir etiqueta SKU" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] text-[#F5F5F5] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35">
-                        <Tag className="h-4 w-4" aria-hidden="true" />
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="bg-[#252622] text-[#F5F5F5]">
-                      Imprimir etiqueta SKU
-                    </TooltipContent>
-                  </Tooltip> : null}
-                </div>
-              </TooltipProvider>
-            </div>
-          </article>
-
-          {facebookSuperGeekModalOpen ? (
-            <FacebookSuperGeekTextModal
-              item={item}
-              draft={facebookTextDraft}
-              canEdit={canEditItems}
-              saving={facebookTextSaving}
-              activating={facebookSuperGeekDetailBusy}
-              message={facebookTextMessage}
-              onDraftChange={(value) => {
-                setFacebookTextDraft(value);
-                if (facebookTextMessage) setFacebookTextMessage("");
-              }}
-              onSave={() => void saveFacebookText()}
-              onActivate={() => void toggleFacebookSuperGeek(true)}
-              onClose={() => setFacebookSuperGeekModalOpen(false)}
+            <InlineEditableField
+              label={C.nombre.label}
+              value={item.nombre}
+              type={C.nombre.type}
+              displayValue={displayName(item.nombre)}
+              hideLabel
+              className="-mx-1 mt-2 rounded-md px-1 transition"
+              valueClassName="min-h-7 break-words text-xl font-semibold leading-tight text-[#F5F5F5] lg:text-[22px]"
+              readOnly={!canEditItems}
+              onSave={(value) => saveField(C.nombre.field, value)}
             />
-          ) : null}
-
-          {hasAiNameSuggestion && canEditItems ? (
-            <article className="rounded-xl border border-[#D7FF4F]/25 bg-[#151613] p-3 shadow-lg shadow-black/10">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-[#D7FF4F]">Sugerencia de nombre</p>
-                  <div className="mt-2 grid gap-2 lg:grid-cols-2">
-                    <div className="min-w-0 rounded-lg border border-[#30312D] bg-[#11120F] px-3 py-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-normal text-[#8F908A]">Nombre actual</p>
-                      <p className="mt-1 truncate text-sm text-[#F5F5F5]">{displayName(item.nombre)}</p>
-                    </div>
-                    <div className="min-w-0 rounded-lg border border-[#D7FF4F]/30 bg-[#11120F] px-3 py-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-normal text-[#D7FF4F]">Nombre sugerido</p>
-                      <p className="mt-1 truncate text-sm text-[#F5F5F5]">{aiNameSuggestion}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex shrink-0 flex-wrap gap-1.5">
-                  <button type="button" onClick={() => void applyAiNameSuggestion()} disabled={applyingAiName} className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60">
-                    {applyingAiName ? "Aplicando..." : "Aplicar"}
+            <p className="mt-1 text-[12px] text-[#8F908A]">
+              {[item.sku, item.categoria, item.condicion, [item.marca, item.modelo].filter(Boolean).join(" ")].map((value) => String(value ?? "").trim()).filter(Boolean).join(" · ")}
+            </p>
+            {hasAiNameSuggestion && canEditItems ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[#D7FF4F]/25 bg-[#151613] px-2.5 py-1.5">
+                <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#D7FF4F]" aria-hidden="true" />
+                <span className="text-[11.5px] font-semibold text-[#D7FF4F]">Nombre sugerido</span>
+                <span className="min-w-0 flex-1 truncate text-[13px] text-[#F5F5F5]" title={aiNameSuggestion}>{aiNameSuggestion}</span>
+                <span className="flex shrink-0 gap-1">
+                  <button type="button" onClick={() => void applyAiNameSuggestion()} disabled={applyingAiName} className="h-7 rounded-md border border-[#D7FF4F] bg-[#D7FF4F] px-2.5 text-[12px] font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-60">
+                    {applyingAiName ? "Aplicando…" : "Aplicar"}
                   </button>
-                  <button type="button" onClick={() => setIgnoredAiName(aiNameSuggestion || "")} disabled={applyingAiName} className="rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60">
+                  <button type="button" onClick={() => setIgnoredAiName(aiNameSuggestion || "")} disabled={applyingAiName} className="h-7 rounded-md border border-[#3A3A36] px-2.5 text-[12px] font-semibold text-[#E6E6E1] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60">
                     Ignorar
                   </button>
-                  <button type="button" onClick={() => void refreshItem()} disabled={applyingAiName} className="rounded-lg border border-[#3A3A36] bg-[#11120F] px-3 py-2 text-sm font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60">
+                  <button type="button" onClick={() => void refreshItem()} disabled={applyingAiName} title="Volver a leer la sugerencia" className="h-7 rounded-md border border-[#3A3A36] px-2 text-[12px] font-semibold text-[#8F908A] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] disabled:opacity-60">
                     Actualizar
                   </button>
-                </div>
+                </span>
               </div>
-            </article>
-          ) : null}
+            ) : null}
+            <InlineEditableField
+              label={C.descripcion.label}
+              value={item.descripcion}
+              type={C.descripcion.type}
+              displayValue={item.descripcion?.trim() ? item.descripcion : <span className="text-[#5E5F59]">{canEditItems ? "Agregar descripción…" : "Sin descripción"}</span>}
+              hideLabel
+              className="-mx-1 mt-2 rounded-md px-1 transition"
+              valueClassName="min-h-5 break-words text-[13px] leading-5 text-[#B4B5AC]"
+              readOnly={!canEditItems}
+              onSave={(value) => saveField(C.descripcion.field, value)}
+            />
+          </div>
 
-          <section className="rounded-xl border border-[#30312D] bg-[#11120F] p-2 shadow-xl shadow-black/15">
-            <div className="flex gap-1 overflow-x-auto pb-1">
-              {tabs.map((tab) => {
-                const active = tab.key === activeTab;
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setActiveTab(tab.key)}
-                    className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-semibold transition ${active ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#30312D] bg-[#171814] text-[#A7A7A7] hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F]"}`}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="mt-2">
-              {activeTab === "despiece" ? (
-                // El despiece no es una lista de campos sino una tabla donde se
-                // van creando artículos hijos, así que no usa DetailSection.
-                <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} esAdmin={esAdmin} />
-              ) : activeTab === "intervenciones" ? (
-                <ShippingV2IntervencionesTab itemId={item.id} />
-              ) : (
-                <DetailSection title={activeSection.title} accent={activeSection.accent} rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} />
-              )}
-            </div>
-          </section>
+          {/* Lo que se mira siempre: precio, costo, ganancia y cuántos hay. */}
+          <div className={`grid gap-px border-y border-[#24251F] bg-[#24251F] ${heroStatsCols}`}>
+            {canViewCosts && verCampo("precioVenta") ? (
+              <InlineEditableField
+                label="Precio venta"
+                value={item.precioVenta}
+                type={C.precioVentaFinal.type}
+                displayValue={formatCurrency(item.precioVenta)}
+                className="bg-[#171814] px-3 py-2 transition"
+                labelClassName="text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]"
+                valueClassName="mt-0.5 truncate text-[17px] font-semibold leading-6 tabular-nums text-[#D7FF4F]"
+                readOnly={!canEditItems || campoSoloLectura("precioVenta")}
+                onSave={(value) => saveField(C.precioVentaFinal.field, value)}
+              />
+            ) : null}
+            {canViewCosts && verCampo("costoTotalUnidad") ? (
+              <HeroStat label="Costo unitario" title={`Proveedor ${formatCurrency(item.costoProveedor)} + traerlo ${formatCurrency(item.costoLogisticoAsignado)}`}>{formatCurrency(calculateItemUnitCost(item))}</HeroStat>
+            ) : canViewProviderCost && verCampo("costoProveedor") ? (
+              <HeroStat label="Costo proveedor">{formatCurrency(item.costoProveedor)}</HeroStat>
+            ) : null}
+            {canViewCosts && verCampo("gananciaUnidad") ? (
+              <HeroStat label="Ganancia unidad" tone={gananciaUnidad !== null && gananciaUnidad < 0 ? "orange" : "neutral"} title={gananciaStock !== null ? `Todo el stock: ${formatCurrency(gananciaStock)}` : undefined}>{formatCurrency(gananciaUnidad)}</HeroStat>
+            ) : null}
+            <HeroStat label="Cantidad" title={item.unidad || undefined}>
+              {formatShippingV2ItemQuantity(item)}
+              {(item.cantidadReservada ?? 0) > 0 ? <span className="ml-1.5 text-[12px] font-medium text-[#F4E85B]">{item.cantidadReservada} reservada{item.cantidadReservada === 1 ? "" : "s"}</span> : null}
+            </HeroStat>
+          </div>
 
-          <NovedadesVinculadasCard
-            novedades={novedades ?? []}
-            providerLabelsById={providerLabelsById}
-            item={{ id: item.id, sku: item.sku, nombre: item.nombre, cantidad: item.cantidad, estado: item.estado, packingId: item.packingId, proveedorId: item.proveedorId }}
-            rol={rolNovedades}
-            puedeRegistrar={(rolNovedades === "staff" || rolNovedades === "admin") && permissions?.canCreateNovedades !== false}
+          <div className="flex flex-wrap items-center gap-1.5 p-2">
+              <FacebookSuperGeekDetailButton
+                item={item}
+                checked={item.facebookSuperGeek === true}
+                canEdit={canEditItems}
+                busy={facebookSuperGeekDetailBusy}
+                onOpen={openFacebookSuperGeekModal}
+              />
+              {canUseRecepcion ? (
+                <Link href={fichaHref} target={fichaGenerada ? "_blank" : undefined} rel={fichaGenerada ? "noreferrer" : undefined} title={fichaGenerada ? "Imprimir la ficha técnica" : "Preparar la ficha técnica"} className={accionClass}>
+                  <Printer className="h-3.5 w-3.5" aria-hidden="true" />
+                  {fichaGenerada ? "Ficha" : "Preparar ficha"}
+                </Link>
+              ) : null}
+              {canUseRecepcion ? (
+                <Link href={skuLabelHref} target="_blank" rel="noreferrer" title="Imprimir etiqueta SKU" className={accionClass}>
+                  <Tag className="h-3.5 w-3.5" aria-hidden="true" />
+                  Etiqueta
+                </Link>
+              ) : null}
+              {esAdmin && adminPanel ? (
+                <button type="button" onClick={() => setAdminOpen((open) => !open)} aria-expanded={adminOpen} title="Activos, dar de baja, corregir estado y eliminar"
+                  className={`${accionClass} ml-auto ${adminOpen ? "border-[#8B73FF]/60 bg-[#8B73FF]/15 text-[#C9BFFF]" : ""}`}>
+                  <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  Administrar
+                  <ChevronDown className={`h-3.5 w-3.5 transition ${adminOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+                </button>
+              ) : null}
+          </div>
+          {adminOpen && adminPanel ? <div className="space-y-2 border-t border-[#24251F] p-2">{adminPanel}</div> : null}
+        </section>
+
+        {facebookSuperGeekModalOpen ? (
+          <FacebookSuperGeekTextModal
+            item={item}
+            draft={facebookTextDraft}
+            canEdit={canEditItems}
+            saving={facebookTextSaving}
+            activating={facebookSuperGeekDetailBusy}
+            message={facebookTextMessage}
+            onDraftChange={(value) => {
+              setFacebookTextDraft(value);
+              if (facebookTextMessage) setFacebookTextMessage("");
+            }}
+            onSave={() => void saveFacebookText()}
+            onActivate={() => void toggleFacebookSuperGeek(true)}
+            onClose={() => setFacebookSuperGeekModalOpen(false)}
           />
-        </main>
-      </section>
+        ) : null}
+
+        {recorrido}
+
+        <section ref={tabsRef} className="scroll-mt-16 overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
+          <div role="tablist" className="flex gap-0.5 overflow-x-auto border-b border-[#2E2F28] bg-[#1A1B17] px-1 pt-1">
+            {tabs.map((tab) => {
+              const active = tab.key === activeTab;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  title={tab.key === "intervenciones" ? "Mantenimientos y mejoras" : undefined}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`-mb-px shrink-0 whitespace-nowrap rounded-t-md border border-b-0 px-2.5 py-1.5 text-[12.5px] font-semibold transition ${active ? "border-[#2E2F28] bg-[#171814] text-[#D7FF4F]" : "border-transparent text-[#8F908A] hover:text-[#F5F5F5]"}`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="p-2">
+            {activeTab === "despiece" ? (
+              // El despiece no es una lista de campos sino una tabla donde se
+              // van creando artículos hijos, así que no usa DetailSection.
+              <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} esAdmin={esAdmin} />
+            ) : activeTab === "intervenciones" ? (
+              <ShippingV2IntervencionesTab itemId={item.id} />
+            ) : (
+              <>
+                <DetailSection rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} />
+                {activeTab === "logistica" && costosTraerlo ? <div className="mt-2">{costosTraerlo}</div> : null}
+              </>
+            )}
+          </div>
+        </section>
+
+        <NovedadesVinculadasCard
+          novedades={novedades ?? []}
+          providerLabelsById={providerLabelsById}
+          item={{ id: item.id, sku: item.sku, nombre: item.nombre, cantidad: item.cantidad, estado: item.estado, packingId: item.packingId, proveedorId: item.proveedorId }}
+          rol={rolNovedades}
+          puedeRegistrar={(rolNovedades === "staff" || rolNovedades === "admin") && permissions?.canCreateNovedades !== false}
+        />
+      </div>
     </div>
   );
 }
 
-export function ShippingV2ItemsClient({ items: initialItems, proveedores, error, permissions, providerName, camposOcultos = [], initialSortBy, pagination }: Props) {
+export function ShippingV2ItemsClient({ items: initialItems, proveedores, error, permissions, providerName, camposOcultos = [], initialSortBy, filtro = FILTRO_ARTICULOS_VACIO, pagination }: Props) {
   const router = useRouter();
   const canEditItems = permissions?.canEditItems !== false;
   const canViewCosts = permissions?.canViewCosts !== false;
@@ -2214,17 +2393,12 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   const availableColumns = useMemo(() => getAvailableColumns(canViewCosts, canViewProviderCost, camposOcultos), [canViewCosts, canViewProviderCost, camposOcultos]);
   const availableSortOptions = useMemo(() => getSortOptions(canViewCosts, canViewProviderCost), [canViewCosts, canViewProviderCost]);
   const [items, setItems] = useState(initialItems);
-  const [search, setSearch] = useState("");
-  const [estado, setEstado] = useState(ALL);
-  const [tipoOperacion, setTipoOperacion] = useState(ALL);
-  const [proveedorCompra, setProveedorCompra] = useState(ALL);
-  const [tipoItem, setTipoItem] = useState(ALL);
+  const [search, setSearch] = useState(filtro.q);
   const [sortBy, setSortBy] = useState<SortKey>(() => sanitizeProviderSort(initialSortBy, canViewCosts, canViewProviderCost));
   const [groupBy, setGroupBy] = useState<GroupKey>("none");
   const [notice, setNotice] = useState("");
   const [columnWidths, setColumnWidths] = useState<ShippingV2ItemsColumnWidths>(() => createDefaultColumnWidths());
   const [tableView, setTableView] = useState<ShippingV2ItemsTableViewConfig>(() => createDefaultTableViewConfig());
-  const [fieldsPanelOpen, setFieldsPanelOpen] = useState(false);
   const [toolbarMenuOpen, setToolbarMenuOpen] = useState<ToolbarMenuKey | null>(null);
   const [draggedColumnKey, setDraggedColumnKey] = useState<ShippingV2ItemsColumnKey | null>(null);
   const [facebookSuperGeekBusyId, setFacebookSuperGeekBusyId] = useState("");
@@ -2234,6 +2408,10 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   useEffect(() => {
     setItems(initialItems);
   }, [initialItems]);
+
+  useEffect(() => {
+    setSearch(filtro.q);
+  }, [filtro.q]);
 
   useEffect(() => {
     const storedNotice = window.sessionStorage.getItem("shipping-v2:notice");
@@ -2323,6 +2501,12 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
     setColumnWidths(defaults);
     persistColumnWidths(defaults);
   }, [persistColumnWidths]);
+
+  const resetTableView = useCallback(() => {
+    const defaults = sanitizeTableViewConfig(null, availableColumns);
+    setTableView(defaults);
+    persistTableView(defaults);
+  }, [availableColumns, persistTableView]);
 
   const updateTableView = useCallback((updater: (current: ShippingV2ItemsTableViewConfig) => ShippingV2ItemsTableViewConfig) => {
     setTableView((current) => {
@@ -2418,17 +2602,9 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
 
   const resolvedItems = useMemo<ResolvedItem[]>(() => resolveShippingV2Items(items, proveedores), [items, proveedores]);
 
-  const filterOptions = useMemo(() => getShippingV2ItemFilterOptions(resolvedItems), [resolvedItems]);
-
-  const filteredItems = useMemo(() => filterShippingV2Items(resolvedItems, {
-    search,
-    estado,
-    tipoOperacion,
-    proveedorCompra,
-    tipoItem,
-  }), [estado, proveedorCompra, resolvedItems, search, tipoItem, tipoOperacion]);
-
-  const sortedItems = useMemo(() => sortItems(filteredItems, sortBy), [filteredItems, sortBy]);
+  // Rediseño 15-oct-2026: el filtro y la búsqueda ya vienen aplicados por el
+  // servidor sobre todo el inventario; aquí solo se ordena y agrupa la página.
+  const sortedItems = useMemo(() => sortItems(resolvedItems, sortBy), [resolvedItems, sortBy]);
   const groupedItems = useMemo(() => groupItems(sortedItems, groupBy), [groupBy, sortedItems]);
   const visibleGroupCount = groupBy === "none" ? 0 : groupedItems.length;
   const visibleColumns = useMemo(() => {
@@ -2437,6 +2613,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
       .map((key) => availableColumns.find((column) => column.key === key))
       .filter((column): column is ShippingV2ItemsColumn => Boolean(column && visibleKeys.has(column.key)));
   }, [availableColumns, tableView]);
+  // Ancho mínimo de la tabla: si la pantalla es más ancha, "Nombre" se estira.
   const tableWidth = useMemo(() => visibleColumns.reduce((total, column) => total + columnWidths[column.key], 0), [columnWidths, visibleColumns]);
 
   const summary = useMemo(() => ({
@@ -2447,26 +2624,34 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
     conNovedad: resolvedItems.filter((item) => item.conNovedad === true || normalizeText(item.estado).includes("novedad")).length,
   }), [resolvedItems]);
 
-  const activeFilterCount = [estado, tipoOperacion, proveedorCompra, tipoItem].filter((value) => value !== ALL).length;
-  const activeFilterLabel = activeFilterCount === 1 ? "1 filtro activo" : `${activeFilterCount} filtros activos`;
+  // "Más filtros" guarda operación y proveedor; categoría y estado van a la vista.
+  const activeFilterCount = [filtro.operacion, filtro.proveedor].filter(Boolean).length;
+  const proveedorEtiquetas = useMemo(() => Object.fromEntries(proveedores.map((proveedor) => [proveedor.id, getShippingV2ProveedorLabel(proveedor)])), [proveedores]);
+  const proveedorIds = useMemo(() => [...proveedores].sort((a, b) => getShippingV2ProveedorLabel(a).localeCompare(getShippingV2ProveedorLabel(b), "es")).map((proveedor) => proveedor.id), [proveedores]);
   const sortLabel = availableSortOptions.find((option) => option.value === sortBy)?.label ?? "Más nuevos primero";
   const groupLabel = groupOptions.find((option) => option.value === groupBy)?.label ?? "Sin agrupar";
 
-  const resetFilters = useCallback(() => {
-    setEstado(ALL);
-    setTipoOperacion(ALL);
-    setProveedorCompra(ALL);
-    setTipoItem(ALL);
-  }, []);
+  // Cambiar un filtro vuelve a la primera página con el resto igual.
+  const aplicarFiltro = useCallback((cambios: Partial<FiltroArticulos>) => {
+    setToolbarMenuOpen(null);
+    router.push(hrefArticulos({ ...filtro, ...cambios }, { sort: sortBy }));
+  }, [filtro, router, sortBy]);
 
-  const buildSortHref = useCallback((nextSortBy: SortKey) => {
-    const params = new URLSearchParams();
-    if (nextSortBy !== "newest") {
-      params.set("sort", nextSortBy);
-    }
-    const query = params.toString();
-    return `/shipping-v2/items${query ? `?${query}` : ""}`;
-  }, []);
+  // Enter en el buscador: "laptops hp disponibles" → Categoría, Estado y texto.
+  const buscar = useCallback((texto: string) => {
+    const interpretado = interpretarBusqueda(texto);
+    aplicarFiltro({
+      q: interpretado.resto,
+      ...(interpretado.categoria ? { categoria: interpretado.categoria } : {}),
+      ...(interpretado.estado ? { estado: interpretado.estado } : {}),
+    });
+  }, [aplicarFiltro]);
+
+  const resetFilters = useCallback(() => {
+    aplicarFiltro(FILTRO_ARTICULOS_VACIO);
+  }, [aplicarFiltro]);
+
+  const buildSortHref = useCallback((nextSortBy: SortKey) => hrefArticulos(filtro, { sort: nextSortBy }), [filtro]);
 
   const selectSortBy = useCallback((nextSortBy: SortKey) => {
     const safeSortBy = sanitizeProviderSort(nextSortBy, canViewCosts, canViewProviderCost);
@@ -2476,7 +2661,6 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   }, [buildSortHref, canViewCosts, canViewProviderCost, router]);
 
   const toggleToolbarMenu = useCallback((menu: ToolbarMenuKey) => {
-    setFieldsPanelOpen(false);
     setToolbarMenuOpen((current) => (current === menu ? null : menu));
   }, []);
 
@@ -2521,32 +2705,43 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
     router.push(`/shipping-v2/items/${item.id}`);
   }
 
+  const filtering = hayFiltroArticulos(filtro);
+  const hasPages = pagination.hasPreviousPage || pagination.hasNextPage;
+  const cellContext: ItemCellRenderContext = {
+    canEditFacebookSuperGeek: canEditItems,
+    facebookSuperGeekBusyId,
+    onFacebookSuperGeekChange: updateFacebookSuperGeek,
+    categoryInName: !visibleColumns.some((column) => column.key === "category"),
+  };
+  const smallButton = "inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[#3A3A36] bg-[#151613] px-2 text-[11.5px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F] disabled:cursor-not-allowed disabled:opacity-45";
+
   return (
-    <div className="w-full space-y-2.5">
-      <section className="grid gap-3 rounded-xl border border-[#30312D] bg-[#151613] px-3 py-2 shadow-xl shadow-black/20 sm:grid-cols-[auto_minmax(0,740px)_auto] sm:items-center 2xl:px-4 2xl:py-3">
-        <div className="flex justify-start">
-          <Link
-            href="/shipping-v2"
-            aria-label="Volver al dashboard de Shipping V2"
-            title="Volver al dashboard"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[#A7A7A7] transition hover:bg-[#20211D] hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35"
-          >
-            <ArrowLeft className="h-5 w-5" aria-hidden="true" />
-          </Link>
+    <div className="w-full space-y-2">
+      {/* Barra única (15-oct-2026): volver, buscar, filtrar/ordenar/agrupar/campos y páginas. */}
+      <section className="flex flex-wrap items-center gap-1.5 rounded-lg border border-[#2E2F28] bg-[#151613] p-1.5">
+        <Link
+          href="/shipping-v2"
+          aria-label="Volver al inicio de Shipping V2"
+          title="Volver al inicio de Shipping V2"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#8F908A] transition hover:bg-[#20211D] hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+        </Link>
+        <div className="min-w-[12rem] flex-1">
+          <ShippingV2ItemsPredictiveSearch search={search} setSearch={setSearch} fallbackItems={resolvedItems} canViewCosts={puedeVerPrecioVentaLista} onSubmit={buscar} aplicado={filtro.q} />
         </div>
-        <div className="w-full">
-          <ShippingV2ItemsPredictiveSearch search={search} setSearch={setSearch} fallbackItems={resolvedItems} canViewCosts={puedeVerPrecioVentaLista} />
-        </div>
-        <div ref={toolbarMenuRef} className="relative flex shrink-0 items-center gap-1.5 justify-self-start">
+        <FiltroSelect etiqueta="Categoría" valor={filtro.categoria} principales={CATEGORIAS_ARTICULO} onChange={(categoria) => aplicarFiltro({ categoria })} className="w-[8.75rem]" />
+        <FiltroSelect etiqueta="Estado" valor={filtro.estado} principales={ESTADOS_PRINCIPALES} otras={ESTADOS_OTROS} onChange={(estado) => aplicarFiltro({ estado })} className="w-[8.25rem]" />
+        <div ref={toolbarMenuRef} className="relative flex shrink-0 items-center gap-1">
           <TooltipProvider delayDuration={180}>
             <ToolbarIconButton
-              label="Filtrar"
+              label="Más filtros: operación y proveedor"
               open={toolbarMenuOpen === "filters"}
               active={activeFilterCount > 0}
               badge={activeFilterCount || undefined}
               onClick={() => toggleToolbarMenu("filters")}
             >
-              <ListFilter className="h-[18px] w-[18px]" aria-hidden="true" />
+              <ListFilter className="h-4 w-4" aria-hidden="true" />
             </ToolbarIconButton>
             <ToolbarIconButton
               label={`Ordenar: ${sortLabel}`}
@@ -2554,7 +2749,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
               active={sortBy !== "newest"}
               onClick={() => toggleToolbarMenu("sort")}
             >
-              <ArrowDownAZ className="h-[18px] w-[18px]" aria-hidden="true" />
+              <ArrowDownAZ className="h-4 w-4" aria-hidden="true" />
             </ToolbarIconButton>
             <ToolbarIconButton
               label={`Agrupar: ${groupLabel}`}
@@ -2562,56 +2757,44 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
               active={groupBy !== "none"}
               onClick={() => toggleToolbarMenu("group")}
             >
-              <Rows3 className="h-[18px] w-[18px]" aria-hidden="true" />
+              <Rows3 className="h-4 w-4" aria-hidden="true" />
+            </ToolbarIconButton>
+            <ToolbarIconButton
+              label="Campos visibles"
+              open={toolbarMenuOpen === "fields"}
+              active={false}
+              onClick={() => toggleToolbarMenu("fields")}
+            >
+              <Columns3 className="h-4 w-4" aria-hidden="true" />
             </ToolbarIconButton>
           </TooltipProvider>
-
-          {canEditItems ? (
-            <Button asChild size="sm" className="h-10 w-10 rounded-lg bg-[#D7FF4F] p-0 text-lg font-black text-[#151515] hover:bg-[#D7FF4F]/90">
-              <Link href="/shipping-v2/items/nuevo" aria-label="Nuevo Item">+</Link>
-            </Button>
-          ) : null}
 
           {toolbarMenuOpen ? (
             <div
               role="menu"
-              className={`absolute right-0 top-full z-50 mt-2 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-[#30312D] bg-[#11120F] shadow-2xl shadow-black/45 animate-in fade-in-0 zoom-in-95 duration-150 ${
-                toolbarMenuOpen === "filters" ? "w-[min(92vw,680px)]" : "w-[min(92vw,320px)]"
+              className={`absolute right-0 top-full z-50 mt-1.5 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-[#30312D] bg-[#11120F] shadow-2xl shadow-black/45 animate-in fade-in-0 zoom-in-95 duration-150 ${
+                toolbarMenuOpen === "filters" ? "w-[min(92vw,260px)]" : "w-[min(92vw,300px)]"
               }`}
             >
               {toolbarMenuOpen === "filters" ? (
-                <>
-                  <div className="flex items-center justify-between gap-3 border-b border-[#30312D] px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-[#F5F5F5]">Filtros</p>
-                      <p className="mt-0.5 text-[12px] text-[#8F908A]">{activeFilterCount ? activeFilterLabel : "Sin filtros activos"}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={resetFilters}
-                      disabled={!activeFilterCount}
-                      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[#3A3A36] bg-[#151613] px-2.5 text-[12px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-[#3A3A36] disabled:hover:text-[#A7A7A7]"
-                    >
+                <div className="grid gap-1.5 p-2">
+                  <FiltroSelect etiqueta="Operación" valor={filtro.operacion} principales={OPERACIONES_PRINCIPALES} otras={OPERACIONES_OTRAS} onChange={(operacion) => aplicarFiltro({ operacion })} className="w-full" />
+                  {!isProviderPortal ? (
+                    <FiltroSelect etiqueta="Proveedor" valor={filtro.proveedor} principales={proveedorIds} etiquetas={proveedorEtiquetas} onChange={(proveedor) => aplicarFiltro({ proveedor })} className="w-full" />
+                  ) : null}
+                  {filtering ? (
+                    <button type="button" onClick={resetFilters} className={`${smallButton} justify-center`}>
                       <X className="h-3.5 w-3.5" aria-hidden="true" />
-                      Limpiar
+                      Quitar todos los filtros
                     </button>
-                  </div>
-                  <div className="grid gap-2 p-2 sm:grid-cols-2">
-                    <FilterGroup className="rounded-lg border border-[#30312D] bg-[#171814] p-2" label="Estado Item" values={filterOptions.estados} selected={estado} onChange={setEstado} />
-                    <FilterGroup className="rounded-lg border border-[#30312D] bg-[#171814] p-2" label="Tipo de operación" values={filterOptions.operaciones} selected={tipoOperacion} onChange={setTipoOperacion} />
-                    <FilterGroup className="rounded-lg border border-[#30312D] bg-[#171814] p-2" label="Proveedor compra" values={filterOptions.proveedores} selected={proveedorCompra} onChange={setProveedorCompra} />
-                    <FilterGroup className="rounded-lg border border-[#30312D] bg-[#171814] p-2" label="Rol general del item" values={filterOptions.tipos} selected={tipoItem} onChange={setTipoItem} />
-                  </div>
-                </>
+                  ) : null}
+                </div>
               ) : null}
 
               {toolbarMenuOpen === "sort" ? (
                 <>
-                  <div className="border-b border-[#30312D] px-3 py-2">
-                    <p className="text-sm font-semibold text-[#F5F5F5]">Ordenar por</p>
-                    <p className="mt-0.5 truncate text-[12px] text-[#8F908A]">{sortLabel}</p>
-                  </div>
-                  <div className="grid max-h-[420px] gap-1 overflow-y-auto p-2">
+                  <p className="border-b border-[#30312D] px-3 py-1.5 text-[13px] font-semibold text-[#F5F5F5]">Ordenar por</p>
+                  <div className="grid max-h-[420px] gap-0.5 overflow-y-auto p-1.5">
                     {availableSortOptions.map((option) => (
                       <ToolbarMenuOption
                         key={option.value}
@@ -2628,11 +2811,8 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
 
               {toolbarMenuOpen === "group" ? (
                 <>
-                  <div className="border-b border-[#30312D] px-3 py-2">
-                    <p className="text-sm font-semibold text-[#F5F5F5]">Agrupar por</p>
-                    <p className="mt-0.5 truncate text-[12px] text-[#8F908A]">{groupLabel}</p>
-                  </div>
-                  <div className="grid max-h-[420px] gap-1 overflow-y-auto p-2">
+                  <p className="border-b border-[#30312D] px-3 py-1.5 text-[13px] font-semibold text-[#F5F5F5]">Agrupar por</p>
+                  <div className="grid max-h-[420px] gap-0.5 overflow-y-auto p-1.5">
                     {groupOptions.map((option) => (
                       <ToolbarMenuOption
                         key={option.value}
@@ -2647,137 +2827,106 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
                   </div>
                 </>
               ) : null}
-            </div>
-          ) : null}
-        </div>
-      </section>
 
-      <section className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-5">
-        <MiniMetric label="Items página" value={summary.total} tone="lime" />
-        <MiniMetric label="Disponibles pág." value={summary.disponibles} tone="lime" />
-        <MiniMetric label="Falta respaldo pág." value={summary.faltaRespaldo} tone="yellow" />
-        <MiniMetric label="En transito pág." value={summary.enTransito} tone="purple" />
-        <MiniMetric label="Con novedad pág." value={summary.conNovedad} tone="orange" />
-      </section>
-
-      {error ? (
-        <section className="rounded-[1rem] border border-orange-300/25 bg-orange-300/10 p-3 text-orange-100">
-          <p className="text-sm font-semibold uppercase tracking-normal">Airtable V2 no disponible</p>
-          <p className="mt-1 text-sm leading-5 text-orange-100/85">{error}</p>
-        </section>
-      ) : null}
-
-      {notice ? (
-        <section className="rounded-[1rem] border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-2 text-sm font-medium text-[#D7FF4F]">
-          {notice}
-        </section>
-      ) : null}
-
-      <section className="rounded-xl border border-[#30312D] bg-[#171814] shadow-2xl shadow-black/25">
-        <div className="flex flex-col gap-1.5 border-b border-[#30312D] bg-[#20211D] px-3 py-2 sm:flex-row sm:items-center sm:justify-between 2xl:px-4 2xl:py-2.5">
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold text-[#F5F5F5]">Listado</h2>
-            <p className="text-[13px] text-[#A7A7A7]">
-              Página {pagination.pageIndex} · Leídos: {resolvedItems.length} de {pagination.pageSize} · Mostrando: {sortedItems.length}
-              {visibleGroupCount ? ` · Grupos: ${visibleGroupCount}` : ""}
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 rounded-lg border border-[#30312D] bg-[#11120F] p-1">
-              <PaginationLinkButton href={pagination.firstHref} disabled={!pagination.hasPreviousPage} ariaLabel="Ir a la primera página">
-                <ChevronsLeft className="h-4 w-4" aria-hidden="true" />
-              </PaginationLinkButton>
-              <PaginationLinkButton href={pagination.previousHref} disabled={!pagination.hasPreviousPage} ariaLabel="Ir a la página anterior">
-                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-                <span className="hidden sm:inline">Anterior</span>
-              </PaginationLinkButton>
-              <span className="inline-flex h-8 items-center rounded-lg border border-[#30312D] bg-[#171814] px-2.5 text-[12px] font-bold text-[#F5F5F5]">
-                Pág. {pagination.pageIndex}
-              </span>
-              <PaginationLinkButton href={pagination.nextHref} disabled={!pagination.hasNextPage} ariaLabel="Ir a la página siguiente">
-                <span className="hidden sm:inline">Siguiente</span>
-                <ChevronRight className="h-4 w-4" aria-hidden="true" />
-              </PaginationLinkButton>
-            </div>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setFieldsPanelOpen((open) => !open)}
-                className={`h-7 rounded-lg border px-2.5 text-[12px] font-semibold transition ${fieldsPanelOpen ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] bg-[#151613] text-[#A7A7A7] hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F]"}`}
-              >
-                Campos
-              </button>
-              {fieldsPanelOpen ? (
-                <div className="absolute right-0 z-30 mt-2 w-[320px] overflow-hidden rounded-xl border border-[#30312D] bg-[#11120F] shadow-2xl shadow-black/40">
-                  <div className="border-b border-[#30312D] px-3 py-2">
-                    <p className="text-sm font-semibold text-[#F5F5F5]">Campos visibles</p>
-                    <p className="mt-0.5 text-[12px] text-[#8F908A]">{visibleColumns.length} de {availableColumns.length} columnas activas</p>
+              {toolbarMenuOpen === "fields" ? (
+                <>
+                  <div className="flex items-center justify-between gap-2 border-b border-[#30312D] px-3 py-1.5">
+                    <p className="text-[13px] font-semibold text-[#F5F5F5]">Campos <span className="font-normal text-[#8F908A]">{visibleColumns.length}/{availableColumns.length}</span></p>
+                    <div className="flex gap-1">
+                      <button type="button" onClick={resetColumnWidths} className={smallButton} title="Vuelve los anchos de columna a su tamaño original">Anchos</button>
+                      <button type="button" onClick={resetTableView} className={smallButton} title="Vuelve a las columnas y el orden por defecto">Por defecto</button>
+                    </div>
                   </div>
-                  <div className="max-h-[420px] overflow-y-auto p-2">
+                  <div className="max-h-[420px] overflow-y-auto p-1.5">
                     {COLUMN_CATEGORIES.map((category) => {
                       const categoryColumns = availableColumns.filter((column) => column.category === category);
                       if (!categoryColumns.length) return null;
                       return (
-                        <section key={category} className="mb-2 last:mb-0">
-                          <p className="px-2 py-1 text-[11px] font-bold uppercase tracking-normal text-[#8F908A]">{category}</p>
-                          <div className="grid gap-1">
-                            {categoryColumns.map((column) => {
-                              const checked = tableView.visibleColumnKeys.includes(column.key);
-                              return (
-                                <label
-                                  key={column.key}
-                                  className={`flex items-center justify-between gap-3 rounded-lg border px-2.5 py-2 text-sm transition ${checked ? "border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#F5F5F5]" : "border-[#30312D] bg-[#171814] text-[#A7A7A7] hover:border-[#D7FF4F]/35 hover:text-[#F5F5F5]"}`}
-                                >
-                                  <span className="min-w-0">
-                                    <span className="block truncate font-semibold">{column.label}</span>
-                                    {column.required ? <span className="text-[11px] text-[#8F908A]">Obligatoria</span> : null}
-                                  </span>
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    disabled={column.required}
-                                    onChange={() => toggleColumnVisibility(column)}
-                                    className="h-4 w-4 accent-[#D7FF4F] disabled:opacity-50"
-                                  />
-                                </label>
-                              );
-                            })}
-                          </div>
+                        <section key={category} className="mb-1.5 last:mb-0">
+                          <p className="px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-[#8F908A]">{category}</p>
+                          {categoryColumns.map((column) => {
+                            const checked = tableView.visibleColumnKeys.includes(column.key);
+                            return (
+                              <label
+                                key={column.key}
+                                className={`flex items-center justify-between gap-3 rounded px-1.5 py-1 text-[13px] transition ${column.required ? "cursor-default" : "cursor-pointer hover:bg-[#1D1E1A]"} ${checked ? "text-[#F5F5F5]" : "text-[#8F908A]"}`}
+                              >
+                                <span className="min-w-0 truncate">{column.fullLabel ?? column.label}{column.required ? <span className="ml-1 text-[11px] text-[#5E5F59]">fija</span> : null}</span>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={column.required}
+                                  onChange={() => toggleColumnVisibility(column)}
+                                  className="h-3.5 w-3.5 accent-[#D7FF4F] disabled:opacity-50"
+                                />
+                              </label>
+                            );
+                          })}
                         </section>
                       );
                     })}
                   </div>
-                </div>
+                </>
               ) : null}
             </div>
-            <button
-              type="button"
-              onClick={resetColumnWidths}
-              className="h-7 rounded-lg border border-[#3A3A36] bg-[#151613] px-2.5 text-[12px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F]"
-            >
-              Reset anchos
-            </button>
-            <Badge className="h-6 w-fit rounded-full border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2.5 text-[12px] font-bold uppercase text-[#D7FF4F] hover:bg-[#D7FF4F]/10">
-              {isProviderPortal ? "Vista proveedor" : "Solo lectura"}
-            </Badge>
-          </div>
+          ) : null}
         </div>
-        <div className="hidden max-w-full overflow-x-auto xl:block">
+        <ItemsPager pagination={pagination} count={resolvedItems.length} />
+      </section>
+
+      {error ? (
+        <section className="rounded-lg border border-orange-300/25 bg-orange-300/10 px-3 py-2 text-[13px] text-orange-100">
+          <b>Airtable V2 no disponible.</b> <span className="text-orange-100/85">{error}</span>
+        </section>
+      ) : null}
+
+      {notice ? (
+        <section className="flex items-center gap-2 rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1.5 text-[13px] font-medium text-[#D7FF4F]">
+          <span className="min-w-0 flex-1">{notice}</span>
+          <button type="button" onClick={() => setNotice("")} aria-label="Cerrar aviso" className="shrink-0 text-[15px] leading-none text-[#D7FF4F]/70 hover:text-[#D7FF4F]">×</button>
+        </section>
+      ) : null}
+
+      <section className="overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
+        {/* Una línea con lo que hay en esta página (antes eran 5 tarjetas). */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-[#2E2F28] bg-[#1A1B17] px-2.5 py-1.5 text-[12px] text-[#8F908A]">
+          {/* Lo que filtra y no se ve en la barra (texto, operación, proveedor), con × para quitarlo. */}
+          {filtro.q ? <FiltroChip onQuitar={() => aplicarFiltro({ q: "" })}>«{filtro.q}»</FiltroChip> : null}
+          {filtro.operacion ? <FiltroChip onQuitar={() => aplicarFiltro({ operacion: "" })}>{filtro.operacion}</FiltroChip> : null}
+          {filtro.proveedor ? <FiltroChip onQuitar={() => aplicarFiltro({ proveedor: "" })}>{proveedorEtiquetas[filtro.proveedor] ?? "Proveedor"}</FiltroChip> : null}
+          <span className="whitespace-nowrap">
+            <b className="text-[#F5F5F5]">{resolvedItems.length}</b> en esta página
+            {visibleGroupCount ? ` · ${visibleGroupCount} grupos` : ""}
+          </span>
+          <PageStat label="Disponibles" value={summary.disponibles} tone="lime" />
+          <PageStat label="En tránsito" value={summary.enTransito} tone="purple" />
+          <PageStat label="Sin respaldo" value={summary.faltaRespaldo} tone="yellow" />
+          <PageStat label="Con novedad" value={summary.conNovedad} tone="orange" />
+          <span className="ml-auto flex items-center gap-2">
+            {filtering ? (
+              <button type="button" onClick={resetFilters} className="whitespace-nowrap font-semibold text-[#D7FF4F] hover:underline">Quitar filtros</button>
+            ) : null}
+            {isProviderPortal ? <span className="rounded-full border border-[#D7FF4F]/35 px-2 py-px text-[10.5px] font-bold uppercase text-[#D7FF4F]">Vista proveedor</span> : null}
+          </span>
+        </div>
+
+        <div className="hidden max-w-full overflow-x-auto md:block">
           <table
-            className="border-separate border-spacing-0 text-left text-[13px] 2xl:text-sm"
-            style={{ tableLayout: "fixed", width: tableWidth, minWidth: tableWidth }}
+            className="border-separate border-spacing-0 text-left text-[12.5px]"
+            style={{ tableLayout: "fixed", width: "100%", minWidth: tableWidth }}
           >
             <colgroup>
               {visibleColumns.map((column) => (
-                <col key={column.key} style={{ width: columnWidths[column.key], minWidth: column.minWidth }} />
+                <col key={column.key} style={column.key === FLEX_COLUMN_KEY ? undefined : { width: columnWidths[column.key] }} />
               ))}
             </colgroup>
-            <thead className="text-[12px] uppercase tracking-normal text-[#A7A7A7] 2xl:text-[13px]">
+            <thead className="text-[10.5px] uppercase tracking-wide text-[#8F908A]">
               <tr>
                 {visibleColumns.map((column) => (
                   <th
                     key={column.key}
                     draggable
+                    title={`${column.fullLabel ?? column.label} · arrastra para mover`}
                     onDragStart={(event) => handleColumnDragStart(event, column.key)}
                     onDragOver={(event) => {
                       event.preventDefault();
@@ -2785,23 +2934,19 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
                     }}
                     onDrop={(event) => handleColumnDrop(event, column.key)}
                     onDragEnd={() => setDraggedColumnKey(null)}
-                    style={{
-                      width: columnWidths[column.key],
-                      minWidth: column.minWidth,
-                      maxWidth: column.maxWidth,
-                    }}
-                    className={`relative whitespace-nowrap border-b border-[#3A3A36] px-2.5 py-2 font-semibold select-none 2xl:px-3 2xl:py-2.5 ${draggedColumnKey === column.key ? "bg-[#D7FF4F]/10 text-[#D7FF4F]" : ""} ${column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"}`}
+                    style={column.key === FLEX_COLUMN_KEY ? undefined : { width: columnWidths[column.key] }}
+                    className={`relative whitespace-nowrap border-b border-[#2E2F28] px-2 py-1.5 font-semibold select-none ${draggedColumnKey === column.key ? "bg-[#D7FF4F]/10 text-[#D7FF4F]" : ""} ${column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"}`}
                   >
-                    <div className="min-w-0 cursor-grab pr-2 active:cursor-grabbing">
+                    <div className="min-w-0 cursor-grab active:cursor-grabbing">
                       <span className="block truncate">{column.label}</span>
                     </div>
                     <span
                       data-column-resize-handle
                       role="separator"
                       aria-orientation="vertical"
-                      aria-label={`Redimensionar columna ${column.label}`}
+                      aria-label={`Cambiar ancho de ${column.fullLabel ?? column.label}`}
                       onMouseDown={(event) => startColumnResize(event, column)}
-                      className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none after:absolute after:right-0 after:top-1/2 after:h-6 after:w-px after:-translate-y-1/2 after:bg-transparent after:transition hover:after:bg-[#D7FF4F]/70"
+                      className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none after:absolute after:right-0 after:top-1/2 after:h-4 after:w-px after:-translate-y-1/2 after:bg-[#30312D] after:transition hover:after:h-6 hover:after:bg-[#D7FF4F]/70"
                     />
                   </th>
                 ))}
@@ -2812,13 +2957,8 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
                 <Fragment key={group.key}>
                   {groupBy !== "none" ? (
                     <tr>
-                      <td colSpan={visibleColumns.length} className="border-b border-[#3A3A36] bg-[#1E1F1C] px-2.5 py-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="font-semibold text-[#F5F5F5]">{group.label}</span>
-                          <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2.5 py-0.5 text-[12px] font-semibold text-[#D7FF4F]">
-                            {group.items.length} items
-                          </span>
-                        </div>
+                      <td colSpan={visibleColumns.length} className="border-b border-[#2E2F28] bg-[#141511] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-[#B4B5AC]">
+                        {group.label} <span className="font-semibold text-[#8F908A]">· {group.items.length}</span>
                       </td>
                     </tr>
                   ) : null}
@@ -2833,10 +2973,10 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
                           router.push(`/shipping-v2/items/${item.id}`);
                         }
                       }}
-                      className="cursor-pointer transition hover:bg-[#CFFF3A]/[0.055] focus:bg-[#CFFF3A]/[0.055] focus:outline-none"
+                      className="cursor-pointer transition hover:bg-[#D7FF4F]/[0.05] focus:bg-[#D7FF4F]/[0.05] focus:outline-none"
                     >
                       {visibleColumns.map((column) => {
-                        const mutedColumn = column.key === "generalRole" || column.key === "category" || column.key === "packing" || column.key === "createdAt" || column.key === "brand" || column.key === "model" || column.key === "serial" || column.key === "condition" || column.key === "location" || column.key === "triangulationStatus" || column.key === "reviewStatus" || column.key === "requiresPayment" || column.key === "requiresPacking" || column.key === "physicalReview" || column.key === "notes";
+                        const mutedColumn = column.key === "generalRole" || column.key === "category" || column.key === "packing" || column.key === "createdAt" || column.key === "brand" || column.key === "model" || column.key === "serial" || column.key === "condition" || column.key === "location" || column.key === "triangulationStatus" || column.key === "reviewStatus" || column.key === "requiresPayment" || column.key === "requiresPacking" || column.key === "physicalReview" || column.key === "notes" || column.key === "purchaseProvider" || column.key === "logisticProvider" || column.key === "supplierSku";
                         const alignClass = column.align === "right"
                           ? "whitespace-nowrap text-right tabular-nums"
                           : column.align === "center"
@@ -2846,18 +2986,9 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
                           <td
                             key={column.key}
                             title={getItemCellTitle(item, column.key)}
-                            style={{
-                              width: columnWidths[column.key],
-                              minWidth: column.minWidth,
-                              maxWidth: column.maxWidth,
-                            }}
-                            className={`overflow-hidden border-b border-[#3A3A36]/80 px-2.5 py-2 2xl:px-3 2xl:py-2.5 ${column.key === "sku" ? "font-semibold text-[#CFFF3A]" : ""} ${alignClass} ${mutedColumn ? "text-[#A7A7A7]" : ""}`}
+                            className={`overflow-hidden border-b border-[#24251F] px-2 py-1.5 ${column.key === "sku" ? "font-semibold text-[#D7FF4F]" : ""} ${alignClass} ${mutedColumn ? "text-[#B4B5AC]" : ""}`}
                           >
-                            {renderItemCell(item, column.key, {
-                              canEditFacebookSuperGeek: canEditItems,
-                              facebookSuperGeekBusyId,
-                              onFacebookSuperGeekChange: updateFacebookSuperGeek,
-                            })}
+                            {renderItemCell(item, column.key, cellContext)}
                           </td>
                         );
                       })}
@@ -2866,8 +2997,8 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
                 </Fragment>
               )) : (
                 <tr>
-                  <td colSpan={visibleColumns.length} className="px-4 py-10 text-center text-[#A7A7A7]">
-                    No se encontraron items con los filtros actuales.
+                  <td colSpan={visibleColumns.length} className="px-4 py-8 text-center text-[13px] text-[#8F908A]">
+                    {filtering ? <>Ningún artículo coincide. <button type="button" onClick={resetFilters} className="font-semibold text-[#D7FF4F] hover:underline">Quitar filtros</button></> : "No hay artículos."}
                   </td>
                 </tr>
               )}
@@ -2875,16 +3006,13 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
           </table>
         </div>
 
-        <div className="grid gap-2 p-2 xl:hidden">
+        <div className="grid grid-cols-1 gap-1.5 p-1.5 md:hidden">
           {sortedItems.length ? groupedItems.map((group) => (
-            <div key={group.key} className="grid gap-3">
+            <div key={group.key} className="grid min-w-0 grid-cols-1 gap-1.5">
               {groupBy !== "none" ? (
-                <div className="flex items-center justify-between rounded-[1.15rem] border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3">
-                  <span className="text-sm font-semibold text-[#F5F5F5]">{group.label}</span>
-                  <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-1 text-[12px] font-semibold text-[#D7FF4F]">
-                    {group.items.length} items
-                  </span>
-                </div>
+                <p className="px-1 pt-1 text-[11px] font-bold uppercase tracking-wide text-[#B4B5AC]">
+                  {group.label} <span className="font-semibold text-[#8F908A]">· {group.items.length}</span>
+                </p>
               ) : null}
               {group.items.map((item) => (
                 <MobileItemCard
@@ -2900,13 +3028,19 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
               ))}
             </div>
           )) : (
-            <div className="rounded-[1.35rem] border border-[#3A3A36] bg-[#1E1E1E] px-4 py-10 text-center text-sm text-[#A7A7A7]">
-              No se encontraron items con los filtros actuales.
-            </div>
+            <p className="px-4 py-8 text-center text-[13px] text-[#8F908A]">
+              {filtering ? <>Ningún artículo coincide. <button type="button" onClick={resetFilters} className="font-semibold text-[#D7FF4F] hover:underline">Quitar filtros</button></> : "No hay artículos."}
+            </p>
           )}
         </div>
-      </section>
 
+        {hasPages ? (
+          <div className="flex items-center justify-end gap-2 border-t border-[#2E2F28] bg-[#1A1B17] px-2.5 py-1.5 text-[12px] text-[#8F908A]">
+            <span>Página {pagination.pageIndex}</span>
+            <ItemsPager pagination={pagination} count={resolvedItems.length} />
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }

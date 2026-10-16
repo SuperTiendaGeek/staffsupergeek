@@ -26,6 +26,8 @@ import type {
   ShippingV2Destinatario,
   ShippingV2FinanzasMovimiento,
   ShippingV2Item,
+  ShippingV2ItemDocumento,
+  ShippingV2ItemTrazabilidad,
   ShippingV2LogisticaFila,
   ShippingV2CostosTraerlo,
   ShippingV2PagoLogisticaResumen,
@@ -60,6 +62,8 @@ import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
 import { SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD, getShippingV2ItemEditField, getShippingV2ItemEditFieldByKey } from "@/lib/shipping-v2/item-edit-config";
 import { getShippingV2FacebookPublicationBlockReason, getShippingV2FacebookTextGenerationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import { estadoSegunLlegada, requiereInspeccionPorDefecto } from "@/lib/shipping-v2/item-venta";
+import { formulaFiltroArticulos, type FiltroArticulos } from "@/lib/shipping-v2/items-filtro";
+import { formulaRecepcionAirtable } from "@/lib/shipping-v2/reception-visibility";
 import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import type { ArticuloDelPedido } from "@/lib/operaciones/cierre";
 import { evaluarCorreccionEstado, todasReservadas, type CampoCorregible } from "@/lib/shipping-v2/correccion-estado";
@@ -2067,16 +2071,44 @@ async function loadShippingV2Items(options: MapItemOptions, maxRecords?: number)
  * El tope de 5000 es solo un freno de seguridad para que esto no pueda
  * dispararse si la tabla crece de forma inesperada.
  */
+//
+// Velocidad (15-oct-2026, "Recepción demora mucho en cargar"): antes se leía
+// la tabla ENTERA (789 artículos = 8 lecturas de 100, una detrás de otra) y
+// luego se descartaba casi la mitad. Ahora Airtable devuelve solo lo que
+// podría verse en Recepción (formulaRecepcionAirtable, el mismo criterio que
+// shouldShowShippingV2ReceptionItem, que se sigue aplicando en la página) y
+// se lee en 4 partes EN PARALELO, repartidas por el código del registro: con
+// ~400 artículos visibles son ~4 lecturas simultáneas de una sola página.
+const PARTES_RECEPCION = ["^rec[0-9A-F]", "^rec[G-V]", "^rec[W-Za-k]", "^rec[l-z]"];
+
 export async function getShippingV2ReceptionItems(options: MapItemOptions = {}) {
   const proveedoresPromise = options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores();
-  const [records, proveedores] = await Promise.all([
-    listRecords(SHIPPING_V2_TABLES.items, {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const condicion = formulaRecepcionAirtable({
+    estado: F.estadoItem,
+    revision: F.estadoRevision,
+    recibido: F.recibido,
+    operacionComercial: SHIPPING_V2_ITEM_SOURCE_FIELDS.operacionComercial,
+    modoLogistico: F.modoLogistico,
+    publicaciones: ["Fotos tomadas", "Shopify publicado", "Marketplace publicado", "Mercado Libre publicado", "Grupos Facebook publicado", SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD],
+  }, {
+    estados: SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoItem,
+    revisiones: SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoRevision,
+    modos: SHIPPING_V2_ITEM_SELECT_OPTIONS.modoLogistico,
+  });
+  const [partes, proveedores] = await Promise.all([
+    Promise.all(PARTES_RECEPCION.map((parte) => listRecords(SHIPPING_V2_TABLES.items, {
       maxRecords: 5000,
-      sortField: SHIPPING_V2_ITEM_FIELDS.fechaRegistro,
-      sortDirection: "desc",
+      filterByFormula: `AND(${condicion},REGEX_MATCH(RECORD_ID(),'${parte}'))`,
+    }))).catch((error) => {
+      // Red de seguridad: si Airtable rechazara la condición, Recepción no se
+      // cae; se lee la tabla entera como antes (más lento, mismo resultado).
+      console.error("Recepción: la lectura filtrada falló; se lee la tabla entera.", error);
+      return listRecords(SHIPPING_V2_TABLES.items, { maxRecords: 5000 }).then((todos) => [todos]);
     }),
     proveedoresPromise,
   ]);
+  const records = partes.flat();
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
   return records
     .map((record) => mapItem(record, options))
@@ -2117,18 +2149,29 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
   pageSize?: number;
   offset?: string | null;
   sortBy?: ShippingV2ItemsListSortKey;
+  /** Rediseño 15-oct-2026: filtro y búsqueda sobre TODO el inventario (ver items-filtro.ts). */
+  filtro?: FiltroArticulos;
 } = {}) {
   const pageSize = Math.min(Math.max(Math.trunc(options.pageSize ?? 100), 1), 100);
   const sort = getShippingV2ItemsListSort(options.sortBy);
 
+  // El filtro por proveedor necesita su etiqueta ("eBay-Hardware"), que es lo
+  // que Airtable ve en el vínculo; solo entonces se leen antes los proveedores.
+  const proveedoresConocidos = options.proveedores ?? (options.filtro?.proveedor ? await getShippingV2Proveedores() : undefined);
+  const proveedorEtiqueta = options.filtro?.proveedor
+    ? proveedoresConocidos?.find((proveedor) => proveedor.id === options.filtro?.proveedor)?.proveedorId || undefined
+    : undefined;
+  const condicionFiltro = options.filtro ? formulaFiltroArticulos(options.filtro, { proveedorEtiqueta }) : "";
+  const formula = condicionFiltro ? `AND(${FORMULA_SOLO_MERCADERIA},${condicionFiltro})` : FORMULA_SOLO_MERCADERIA;
+
   if (options.access && !options.access.isAdmin) {
-    const proveedoresPromise = options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores();
+    const proveedoresPromise = proveedoresConocidos ? Promise.resolve(proveedoresConocidos) : getShippingV2Proveedores();
     const [records, proveedores] = await Promise.all([
       listRecords(SHIPPING_V2_TABLES.items, {
         maxRecords: 200,
         sortField: sort.sortField,
         sortDirection: sort.sortDirection,
-        filterByFormula: FORMULA_SOLO_MERCADERIA,
+        filterByFormula: formula,
       }),
       proveedoresPromise,
     ]);
@@ -2151,9 +2194,9 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
       offset: options.offset,
       sortField: sort.sortField,
       sortDirection: sort.sortDirection,
-      filterByFormula: FORMULA_SOLO_MERCADERIA,
+      filterByFormula: formula,
     }),
-    options.proveedores ? Promise.resolve(options.proveedores) : getShippingV2Proveedores(),
+    proveedoresConocidos ? Promise.resolve(proveedoresConocidos) : getShippingV2Proveedores(),
   ]);
   const labelsById = createShippingV2ProveedorLabelMap(proveedores);
 
@@ -2231,6 +2274,7 @@ function mapItemSearchEntry(
     sku,
     skuProveedor: firstString(f[F.skuProveedor]) || undefined,
     nombre: firstString(f[F.nombre], "Artículo sin nombre"),
+    categoria: firstString(f[F.categoria]) || undefined,
     marca: firstString(f[F.marca]) || undefined,
     modelo: firstString(f[F.modelo]) || undefined,
     numeroSerie: firstString(f[F.numeroSerie]) || undefined,
@@ -2273,6 +2317,7 @@ export async function getShippingV2ItemSearchIndex(access?: ShippingV2AccessCont
       getOfficialSkuField(),
       F.skuProveedor,
       F.nombre,
+      F.categoria,
       F.marca,
       F.modelo,
       F.numeroSerie,
@@ -9437,6 +9482,69 @@ export async function leerArticuloDePedido(itemRecordId: string): Promise<Articu
       })
       .filter((p) => normalizeStatus(p.estado) !== "anulado"),
     vendido: linkedRecordIds(registro.fields["Factura"]).length > 0 || linkedRecordIds(registro.fields["Recibo"]).length > 0,
+  };
+}
+
+/**
+ * Ficha del artículo (rediseño 15-oct-2026): de dónde vino y a dónde fue.
+ * Junta el código de la orden de compra, el pedido de cliente, la orden de
+ * reparación, el artículo del que salió (despiece) y los documentos de venta
+ * (factura, recibo, reserva, nota de crédito) para enlazarlos desde la ficha.
+ *
+ * Solo lectura. Lo que no se pueda leer simplemente no aparece: la ficha no
+ * se cae por esto.
+ */
+export async function getShippingV2TrazabilidadDeItem(
+  item: Pick<ShippingV2Item, "id" | "ordenCompraId" | "operacionComercialId" | "itemPadreId">
+): Promise<ShippingV2ItemTrazabilidad> {
+  const id = cleanString(item.id);
+  if (!id) throw new Error("Record ID de item inválido.");
+  const registro = await leerRegistroItem(id);
+  const campos = registro.fields;
+  const enlazados = (campo: string) => linkedRecordIds(campos[campo]);
+  const leer = (tabla: string, recordIds: string[]) => recordIds.length
+    ? listRecordsByIds(tabla, recordIds).catch((error) => {
+      console.warn(`No se pudo leer ${tabla} para la ficha del artículo ${id}:`, error);
+      return [] as AirtableRecord[];
+    })
+    : Promise.resolve([] as AirtableRecord[]);
+  const [ordenes, operaciones, reparaciones, padres, facturas, recibos, reservas, notas] = await Promise.all([
+    leer(SHIPPING_V2_TABLES.ordenesCompra, item.ordenCompraId ? [item.ordenCompraId] : []),
+    leer("Operación Comercial", item.operacionComercialId ? [item.operacionComercialId] : []),
+    leer("Órdenes de Reparación", enlazados(ORDEN_STOCK_LINK_FIELD).slice(0, 1)),
+    leer(SHIPPING_V2_TABLES.items, item.itemPadreId ? [item.itemPadreId] : []),
+    leer("Facturas Electrónicas", enlazados("Factura")),
+    leer("Recibos", enlazados("Recibo")),
+    leer("Reservas", enlazados("Reservas")),
+    leer("Notas de Crédito Electrónicas", enlazados("Nota de Crédito")),
+  ]);
+
+  const documento = (tipo: ShippingV2ItemDocumento["tipo"], campoNumero: string, campoFecha: string, porDefecto: string) =>
+    (r: AirtableRecord): ShippingV2ItemDocumento => ({
+      tipo,
+      id: r.id,
+      numero: firstString(r.fields[campoNumero]) || porDefecto,
+      estado: firstString(r.fields["Estado"]),
+      fecha: firstString(r.fields[campoFecha]) || undefined,
+    });
+  const orden = ordenes[0] ? mapOrdenCompraBase(ordenes[0]) : null;
+  const padre = padres[0];
+
+  return {
+    ordenCompra: orden ? { id: orden.id, codigo: orden.ocId, numeroProveedor: orden.numeroProveedor, fechaCompra: orden.fechaCompra, anulada: orden.anulada } : undefined,
+    operacion: operaciones[0] ? { id: operaciones[0].id, codigo: firstString(operaciones[0].fields["Código Operación"]) || operaciones[0].id } : undefined,
+    ordenReparacion: reparaciones[0] ? { id: reparaciones[0].id, codigo: firstString(reparaciones[0].fields["ID"]) || reparaciones[0].id } : undefined,
+    itemPadre: padre ? {
+      id: padre.id,
+      sku: firstString(padre.fields[getOfficialSkuField()]) || padre.id,
+      nombre: firstString(padre.fields[SHIPPING_V2_ITEM_FIELDS.nombre]) || undefined,
+    } : undefined,
+    documentos: [
+      ...facturas.map(documento("factura", "Número de Factura", "Fecha de Emisión", "Factura")),
+      ...recibos.map(documento("recibo", "Número", "Fecha", "Recibo")),
+      ...reservas.map(documento("reserva", "Número", "Fecha", "Reserva")),
+      ...notas.map(documento("nota-credito", "Número de Nota de Crédito", "Fecha de Emisión", "Nota de crédito")),
+    ],
   };
 }
 

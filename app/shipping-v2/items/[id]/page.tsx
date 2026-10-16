@@ -1,6 +1,7 @@
 import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import type { ShippingV2NovedadRol } from "@/lib/shipping-v2/novedades";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSystem";
@@ -18,10 +19,11 @@ import {
   getShippingV2PagoById,
   getShippingV2SituacionPagoDeItem,
   getShippingV2Proveedores,
+  getShippingV2TrazabilidadDeItem,
   type ShippingV2ItemNavigation,
 } from "@/lib/shipping-v2/airtable";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
-import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2Novedad, ShippingV2Packing, ShippingV2Pago, ShippingV2Proveedor } from "@/types/shipping-v2";
+import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2ItemTrazabilidad, ShippingV2Novedad, ShippingV2Packing, ShippingV2Pago, ShippingV2Proveedor } from "@/types/shipping-v2";
 import { ShippingV2ItemHeaderNavigation } from "./ShippingV2ItemHeaderNavigation";
 import { EliminarItemAdmin } from "./EliminarItemAdmin";
 import { ShippingV2ActivoAcciones } from "./ShippingV2ActivoAcciones";
@@ -34,11 +36,6 @@ export const dynamic = "force-dynamic";
 type Props = {
   params: Promise<{ id: string }>;
 };
-
-function displayValue(value?: string | null, fallback = "-") {
-  const stringValue = String(value ?? "").trim();
-  return stringValue || fallback;
-}
 
 const emptyItemNavigation: ShippingV2ItemNavigation = {
   previous: null,
@@ -107,6 +104,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
   let permissions: ShippingV2AccessPermissions | null = null;
   let rolNovedades: ShippingV2NovedadRol = "ninguno";
   let navigation = emptyItemNavigation;
+  let trazabilidad: ShippingV2ItemTrazabilidad | null = null;
   let error = "";
   let notFound = false;
 
@@ -135,7 +133,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
       return undefined;
     });
     item = ocultarCamposDeObjeto(resolveItem({ ...loadedItem, situacionPago }, proveedores), camposOcultos);
-    const [loadedPago, loadedPacking] = await Promise.all([
+    const [loadedPago, loadedPacking, loadedTrazabilidad] = await Promise.all([
       item.pagoId ? getShippingV2PagoById(item.pagoId, access).catch((relatedError) => {
         console.warn("No se pudo cargar pago relacionado del item Shipping V2:", relatedError);
         return null;
@@ -144,9 +142,16 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
         console.warn("No se pudo cargar packing relacionado del item Shipping V2:", relatedError);
         return null;
       }) : Promise.resolve(null),
+      // Rediseño 15-oct-2026: orden de compra, pedido y documentos de venta
+      // para el bloque "Recorrido". Solo el personal (un proveedor no los ve).
+      access.isAdmin ? getShippingV2TrazabilidadDeItem(item).catch((relatedError) => {
+        console.warn("No se pudo cargar el recorrido del item Shipping V2:", relatedError);
+        return null;
+      }) : Promise.resolve(null),
     ]);
     pago = loadedPago;
     packing = loadedPacking;
+    trazabilidad = loadedTrazabilidad;
   } catch (loadError) {
     console.error("Error al cargar detalle de item Shipping V2:", loadError);
     notFound = isNotFoundError(loadError);
@@ -162,36 +167,54 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
       ) : error || !item ? (
         <DetailUnavailable title="Item no disponible" message={error || "No se pudo cargar el item."} />
       ) : (
-        <div className="w-full max-w-none space-y-3">
-          <StaffPageHeader
-            eyebrow={<StaffBadge tone="lime">SHIPPING V2</StaffBadge>}
-            title={displayValue(item.nombre, "Item sin nombre")}
-            description={`${displayValue(item.sku)} / ${displayValue(item.estado)} / ${displayValue(item.tipoOperacion)}`}
-            actions={
+        <div className="w-full max-w-none space-y-2">
+          {/* Rediseño 15-oct-2026: una barra fina (volver y anterior/siguiente); el nombre va en la ficha. */}
+          <div className="flex items-center gap-2">
+            <Link href={item.usoLocal ? "/shipping-v2/activos" : "/shipping-v2/items"} className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12.5px] font-semibold text-[#B4B5AC] transition hover:bg-[#20211D] hover:text-[#D7FF4F]">
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              {item.usoLocal ? "Activos" : "Artículos"}
+            </Link>
+            <div className="ml-auto">
+              <ShippingV2ItemHeaderNavigation currentItemId={item.id} navigation={navigation} />
+            </div>
+          </div>
+          <ShippingV2ItemDetailView
+            item={item}
+            proveedores={proveedores}
+            pago={pago}
+            packing={packing}
+            novedades={novedades}
+            esAdmin={esAdmin}
+            camposOcultos={camposOcultos}
+            camposSoloLectura={camposSoloLectura}
+            permissions={permissions}
+            rolNovedades={rolNovedades}
+            trazabilidad={trazabilidad}
+            enlaces={{
+              facturacion: canAccessApp(session, "Facturación"),
+              operaciones: canAccessApp(session, "Operaciones"),
+              tecnicos: canAccessApp(session, "Técnicos"),
+            }}
+            // Puntos 4 y 5: acciones de Administrador (activos, dar de baja,
+            // corregir estado) y eliminar: detrás del botón "Administrar".
+            adminPanel={esAdmin ? (
               <>
-                <ShippingV2ItemHeaderNavigation currentItemId={item.id} navigation={navigation} />
-                <Button asChild className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
-                  <Link href={item.usoLocal ? "/shipping-v2/activos" : "/shipping-v2/items"}>{item.usoLocal ? "Volver a Activos" : "Volver a Items"}</Link>
-                </Button>
+                <ShippingV2ActivoAcciones
+                  itemId={item.id}
+                  sku={item.sku}
+                  esActivo={item.usoLocal === true}
+                  cantidad={item.cantidad ?? 0}
+                  estado={item.estado ?? ""}
+                  estadoRevision={item.estadoRevision ?? ""}
+                  unidadesDadasDeBaja={item.unidadesDadasDeBaja ?? 0}
+                />
+                <EliminarItemAdmin itemId={item.id} />
               </>
-            }
+            ) : undefined}
+            // Punto 9c · fase 1: un artículo que viaja solo tiene sus costos de
+            // traerlo en la pestaña Logística (si va en una caja, están en la caja).
+            costosTraerlo={permissions?.canViewCosts && !item.packingId && vieneDeAfuera(item.origenArticulo) ? <CostosTraerlo itemId={item.id} /> : undefined}
           />
-          {/* Puntos 4 y 5: acciones de Administrador (activos, dar de baja, corregir estado). */}
-          {esAdmin && (
-            <ShippingV2ActivoAcciones
-              itemId={item.id}
-              sku={item.sku}
-              esActivo={item.usoLocal === true}
-              cantidad={item.cantidad ?? 0}
-              estado={item.estado ?? ""}
-              estadoRevision={item.estadoRevision ?? ""}
-              unidadesDadasDeBaja={item.unidadesDadasDeBaja ?? 0}
-            />
-          )}
-          <ShippingV2ItemDetailView item={item} proveedores={proveedores} pago={pago} packing={packing} novedades={novedades} esAdmin={esAdmin} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} permissions={permissions} rolNovedades={rolNovedades} />
-          {/* Punto 9c · fase 1: un artículo que viaja solo tiene sus costos de traerlo aquí (si va en una caja, están en la caja). */}
-          {permissions?.canViewCosts && !item.packingId && vieneDeAfuera(item.origenArticulo) ? <CostosTraerlo itemId={item.id} /> : null}
-          {esAdmin && <EliminarItemAdmin itemId={item.id} />}
         </div>
       )}
     </div>

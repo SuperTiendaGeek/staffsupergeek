@@ -424,10 +424,33 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   evidencias: ShippingV2Attachment[];
 };
 
+/** Ficha del artículo (15-oct-2026): un documento de venta enlazado al artículo. */
+export type ShippingV2ItemDocumento = {
+  tipo: "factura" | "recibo" | "reserva" | "nota-credito";
+  id: string;
+  numero: string;
+  estado: string;
+  fecha?: string;
+};
+
+/**
+ * Ficha del artículo (15-oct-2026): de dónde vino y a dónde fue, con lo
+ * necesario para enlazar cada documento. Solo para el personal (no proveedor).
+ */
+export type ShippingV2ItemTrazabilidad = {
+  ordenCompra?: { id: string; codigo: string; numeroProveedor?: string; fechaCompra?: string; anulada: boolean };
+  operacion?: { id: string; codigo: string };
+  ordenReparacion?: { id: string; codigo: string };
+  itemPadre?: { id: string; sku: string; nombre?: string };
+  documentos: ShippingV2ItemDocumento[];
+};
+
 export type ShippingV2ItemSearchEntry = ShippingV2RecordBase & {
   sku: string;
   skuProveedor?: string;
   nombre: string;
+  /** 15-oct-2026: para que la vista previa entienda "laptops hp". */
+  categoria?: string;
   marca?: string;
   modelo?: string;
   numeroSerie?: string;

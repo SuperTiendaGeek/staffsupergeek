@@ -17,12 +17,17 @@
 // novedades, estados) se entra a su página.
 //
 // Antes "Costos pendientes (N)" filtraba sin explicarse: ahora la columna
-// "Flete y arancel" dice "Sin pagar", "Falta $X" o "Pagado $X", y el filtro
+// "Pagos" dice "Flete sin pagar", "Flete falta $X" o "Flete ✓", y el filtro
 // se llama "Falta pagar flete/arancel (N)".
+//
+// Rediseño compacto (15-oct-2026, pedido del dueño): la lista cabe en una
+// pantalla de ~1000 px sin barra horizontal. Caja y contenido van en una
+// columna, flete y compra en otra ("Pagos"), el rastreo en una línea (el otro
+// número en la ayuda) y Estado/Tipo/Responsable dentro de "Filtros".
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   SHIPPING_V2_PACKING_ESTADOS,
   SHIPPING_V2_PACKING_TIPOS,
@@ -157,29 +162,53 @@ function detalleGastos(f: ShippingV2LogisticaFila) {
   return [linea("Flete", f.flete), f.aplicaArancel ? linea("Arancel", f.arancel) : "", linea("Otros", f.otros)].filter(Boolean).join("\n");
 }
 
-/** Columna "Flete y arancel" (fase 2): dice lo que falta con palabras claras. */
+/** Columna "Pagos", primera línea: flete, arancel y otros costos de traerlo. */
 function ChipGastos({ fila }: { fila?: ShippingV2LogisticaFila }) {
-  if (!fila) return <span className="text-[12px] text-[#5E5F59]">—</span>;
+  if (!fila) return null;
   const { pendiente } = fila;
   const title = detalleGastos(fila);
-  if (pendiente.falta > 0) return <span className={chipFalta} title={title}>Falta {money(pendiente.falta)}</span>;
-  if (pendiente.sinFlete) return <span className={chipFalta} title={`Ya viaja o llegó y su flete no tiene pago registrado.\n${title}`}>Sin pagar</span>;
-  if (pendiente.pagado > 0) return <span className={chipOk} title={title}>Pagado {money(pendiente.pagado)} ✓</span>;
-  return <span className="text-[12px] text-[#5E5F59]" title={title}>—</span>;
+  if (pendiente.falta > 0) return <span className={chipFalta} title={title}>Flete falta {money(pendiente.falta)}</span>;
+  if (pendiente.sinFlete) return <span className={chipFalta} title={`Ya viaja o llegó y su flete no tiene pago registrado.\n${title}`}>Flete sin pagar</span>;
+  if (pendiente.pagado > 0) return <span className={chipOk} title={`Pagado ${money(pendiente.pagado)}\n${title}`}>Flete ✓</span>;
+  return null;
 }
 
-/** Columna "Compra": ¿la compra de lo que viaja tiene su respaldo de pago? */
+/** Columna "Pagos", segunda línea: ¿la compra de lo que viaja tiene su respaldo de pago? */
 function ChipCompra({ fila }: { fila?: ShippingV2LogisticaFila }) {
   const c = fila?.compra;
-  if (!c || c.conCompra === 0) return <span className="text-[12px] text-[#5E5F59]">—</span>;
+  if (!c || c.conCompra === 0) return null;
   if (c.faltaRespaldo > 0) {
     return (
       <Link href="/shipping-v2/pagos" className={`${chipFalta} hover:brightness-125`} title={`${c.faltaRespaldo} de ${c.conCompra} compra(s) sin respaldo de pago. Se registra en Pagos.`}>
-        Sin respaldo{c.conCompra > 1 ? ` ${c.faltaRespaldo}/${c.conCompra}` : ""}
+        Compra sin respaldo{c.conCompra > 1 ? ` ${c.faltaRespaldo}/${c.conCompra}` : ""}
       </Link>
     );
   }
-  return <span className={chipOk} title="Todas sus compras tienen respaldo de pago.">Pagada ✓</span>;
+  return <span className={chipOk} title="Todas sus compras tienen respaldo de pago.">Compra ✓</span>;
+}
+
+function Pagos({ fila, onAbrir }: { fila?: ShippingV2LogisticaFila; onAbrir: () => void }) {
+  const gastos = <ChipGastos fila={fila} />;
+  const compra = <ChipCompra fila={fila} />;
+  const hayAlgo = Boolean(fila && (fila.pendiente.falta > 0 || fila.pendiente.sinFlete || fila.pendiente.pagado > 0 || (fila.compra?.conCompra ?? 0) > 0));
+  if (!hayAlgo) return <span className="text-[12px] text-[#5E5F59]">—</span>;
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      <button type="button" onClick={onAbrir} className="text-left" title="Ver flete, arancel y otros costos">{gastos}</button>
+      {compra}
+    </div>
+  );
+}
+
+/** Rastreo en una línea: el de Ecuador si ya existe (es el que se mira), si no el de origen. */
+function RastreoCorto({ usa, ec, prefijoUsa = "USA" }: { usa?: { numero?: string; transportista?: ShippingV2Proveedor; nombre?: string }; ec?: { numero?: string; transportista?: ShippingV2Proveedor; nombre?: string }; prefijoUsa?: string }) {
+  const tieneUsa = Boolean(usa?.numero?.trim());
+  const tieneEc = Boolean(ec?.numero?.trim());
+  if (!tieneUsa && !tieneEc) return <span className={chipMute}>Sin rastreo</span>;
+  if (tieneEc) {
+    return <Rastreo compacto prefijo="EC" numero={ec?.numero} transportista={ec?.transportista} nombre={ec?.nombre} extra={tieneUsa ? `${prefijoUsa} ${usa?.numero}` : undefined} />;
+  }
+  return <Rastreo compacto prefijo={prefijoUsa} numero={usa?.numero} transportista={usa?.transportista} nombre={usa?.nombre} />;
 }
 
 function Revision({ summary }: { summary?: ShippingV2PackingReviewSummary }) {
@@ -188,14 +217,11 @@ function Revision({ summary }: { summary?: ShippingV2PackingReviewSummary }) {
   if (progress.total === 0) return <span className="text-[12px] text-[#8F908A]">Sin artículos</span>;
   const done = progress.completo;
   return (
-    <div className="min-w-[6rem]" title={`Ciclo: ${formatShippingV2PackingReviewProgress(progress)}\nBodega: ${formatShippingV2PackingBodegaProgress(progress)}${progress.sinPublicacionAplicable ? `\n${progress.sinPublicacionAplicable} sin publicación aplicable` : ""}`}>
-      <div className="flex items-center gap-1.5">
-        <div className="h-1.5 w-14 overflow-hidden rounded-full bg-[#2A2A28]">
-          <div className={`h-full rounded-full ${done ? "bg-[#9FEFB3]" : "bg-[#D7FF4F]"}`} style={{ width: `${Math.max(progress.porcentaje, progress.revisados > 0 ? 6 : 0)}%` }} />
-        </div>
-        <span className={`whitespace-nowrap text-[12px] font-semibold tabular-nums ${done ? "text-[#9FEFB3]" : "text-[#F5F5F5]"}`}>{progress.revisados}/{progress.total}</span>
+    <div title={`Ciclo: ${formatShippingV2PackingReviewProgress(progress)}\nBodega: ${formatShippingV2PackingBodegaProgress(progress)}${progress.sinPublicacionAplicable ? `\n${progress.sinPublicacionAplicable} sin publicación aplicable` : ""}`}>
+      <span className={`whitespace-nowrap text-[12px] font-semibold tabular-nums ${done ? "text-[#9FEFB3]" : "text-[#F5F5F5]"}`}>{progress.revisados}/{progress.total}</span>
+      <div className="mt-1 h-1 w-12 overflow-hidden rounded-full bg-[#2A2A28]">
+        <div className={`h-full rounded-full ${done ? "bg-[#9FEFB3]" : "bg-[#D7FF4F]"}`} style={{ width: `${Math.max(progress.porcentaje, progress.revisados > 0 ? 6 : 0)}%` }} />
       </div>
-      <p className={`text-[11px] leading-4 ${progress.bodegaCompleta ? "text-[#9FEFB3]" : "text-[#8F908A]"}`}>Bodega {progress.bodegaCompletos}/{progress.total}</p>
     </div>
   );
 }
@@ -225,6 +251,9 @@ export function ShippingV2PackingsClient({ packings, proveedores, todosProveedor
   const [soloFlete, setSoloFlete] = useState(false);
   const [soloNovedad, setSoloNovedad] = useState(false);
   const [soloListos, setSoloListos] = useState(false);
+  const [soloSinRastreo, setSoloSinRastreo] = useState(false);
+  const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
+  const filtrosRef = useRef<HTMLDivElement>(null);
   const [abierta, setAbierta] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState("");
   const [aviso, setAviso] = useState<Aviso | null>(null);
@@ -267,6 +296,23 @@ export function ShippingV2PackingsClient({ packings, proveedores, todosProveedor
 
   const tieneNovedad = (f: Fila) => f.tipo === "caja" && ((f.summary?.novedadesAbiertas ?? 0) > 0 || f.packing.conNovedad);
   const listoParaCerrar = (f: Fila) => f.tipo === "caja" && f.summary?.hint.listoParaCerrarCiclo === true;
+  // Un artículo que viaja solo y le falta algún rastreo (antes era solo un texto amarillo arriba).
+  const faltaRastreo = (f: Fila) => f.tipo === "suelto" && pendientesLogisticos(f.item).length > 0;
+
+  useEffect(() => {
+    if (!filtrosAbiertos) return;
+    const cerrar = (event: PointerEvent) => {
+      if (event.target instanceof Node && filtrosRef.current?.contains(event.target)) return;
+      setFiltrosAbiertos(false);
+    };
+    const tecla = (event: KeyboardEvent) => { if (event.key === "Escape") setFiltrosAbiertos(false); };
+    document.addEventListener("pointerdown", cerrar);
+    document.addEventListener("keydown", tecla);
+    return () => {
+      document.removeEventListener("pointerdown", cerrar);
+      document.removeEventListener("keydown", tecla);
+    };
+  }, [filtrosAbiertos]);
 
   // Buscador y filtros (sin la etapa): de aquí salen los contadores de cada etapa.
   const filtradas = useMemo(() => {
@@ -284,10 +330,11 @@ export function ShippingV2PackingsClient({ packings, proveedores, todosProveedor
       if (soloFlete && !tienePendiente(f.costo)) return false;
       if (soloNovedad && !tieneNovedad(f)) return false;
       if (soloListos && !listoParaCerrar(f)) return false;
+      if (soloSinRastreo && !faltaRastreo(f)) return false;
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filas, buscar, estado, tipo, responsable, soloFlete, soloNovedad, soloListos]);
+  }, [filas, buscar, estado, tipo, responsable, soloFlete, soloNovedad, soloListos, soloSinRastreo]);
 
   const conteo = useMemo(() => {
     const c: Record<Vista, number> = { abiertos: 0, armando: 0, "en-camino": 0, llego: 0, revision: 0, cerrados: 0 };
@@ -312,8 +359,13 @@ export function ShippingV2PackingsClient({ packings, proveedores, todosProveedor
     listos: filas.filter(listoParaCerrar).length,
   };
   const sinAvance = Object.keys(reviewSummaries).length === 0 && packings.length > 0;
-  const hayFiltros = Boolean(buscar.trim()) || estado !== ALL || tipo !== ALL || responsable !== ALL || soloFlete || soloNovedad || soloListos;
-  const columnas = costos ? 9 : 7;
+  const filtrosMenu = [estado, tipo, responsable].filter((v) => v !== ALL).length;
+  const hayFiltros = Boolean(buscar.trim()) || filtrosMenu > 0 || soloFlete || soloNovedad || soloListos || soloSinRastreo;
+  const columnas = costos ? 7 : 6;
+  function quitarFiltros() {
+    setBuscar(""); setEstado(ALL); setTipo(ALL); setResponsable(ALL);
+    setSoloFlete(false); setSoloNovedad(false); setSoloListos(false); setSoloSinRastreo(false);
+  }
 
   async function llegoCaja(packing: ShippingV2Packing, total: number) {
     setOcupado(packing.id);
@@ -387,7 +439,7 @@ export function ShippingV2PackingsClient({ packings, proveedores, todosProveedor
       const faltan = !r || r.recibidos < r.total;
       return (
         <Link href={`/shipping-v2/recepcion?packing=${f.packing.id}`} className={btnSec} title="Abre Recepción con solo los artículos de esta caja.">
-          {faltan ? `Recibir${r && r.total ? ` ${r.recibidos}/${r.total}` : ""}` : "Ver en Recepción"}
+          {faltan ? `Recibir${r && r.total ? ` ${r.recibidos}/${r.total}` : ""}` : "Recepción →"}
         </Link>
       );
     }
@@ -399,44 +451,35 @@ export function ShippingV2PackingsClient({ packings, proveedores, todosProveedor
     const abiertaAqui = abierta === f.key;
     const usa = proveedorPorId.get(packing.transportistaUsa || "");
     const ec = proveedorPorId.get(packing.transportistaEc || "");
-    const sinRastreo = !packing.trackingUsa && !packing.trackingEc;
     return (
       <Fragment key={f.key}>
         <tr className={`border-t border-[#2A2B26] align-top hover:bg-[#1B1C18] ${abiertaAqui ? "bg-[#1B1C18]" : ""}`}>
-          <td className="py-2 pl-2">
+          <td className="py-1.5 pl-1.5">
             <button type="button" onClick={() => setAbierta(abiertaAqui ? null : f.key)} aria-expanded={abiertaAqui} aria-label={abiertaAqui ? "Ocultar detalles" : "Ver detalles"}
               className={`grid h-6 w-6 place-items-center rounded text-[13px] ${abiertaAqui ? "bg-[#D7FF4F] text-[#151515]" : "text-[#8F908A] hover:text-[#D7FF4F]"}`}>
               {abiertaAqui ? "⌄" : "›"}
             </button>
           </td>
-          <td className="px-2 py-2">
-            <Link href={`/shipping-v2/packings/${packing.id}`} className="whitespace-nowrap font-semibold text-[#D7FF4F] hover:underline">{packing.packingId || "—"}</Link>
-            <p className="max-w-[13rem] truncate text-[11.5px] text-[#8F908A]" title={packing.nombre || undefined}>{packing.nombre?.trim() || packing.tipo || "Caja"}</p>
+          <td className="max-w-0 px-2 py-1.5">
+            <div className="flex min-w-0 items-baseline gap-1.5">
+              <Link href={`/shipping-v2/packings/${packing.id}`} className="shrink-0 whitespace-nowrap font-semibold text-[#D7FF4F] hover:underline">{packing.packingId || "—"}</Link>
+              <span className="min-w-0 truncate text-[12px] text-[#B4B5AC]" title={packing.nombre || undefined}>{packing.nombre?.trim() || packing.tipo || "Caja"}</span>
+            </div>
+            <p className="truncate text-[11.5px] text-[#8F908A]">{[packing.proveedorResponsableNombre || "Sin responsable", `${packing.itemCount} art.`, formatWeight(packing.peso)].filter(Boolean).join(" · ")}</p>
           </td>
-          <td className="px-2 py-2">
+          <td className="max-w-0 px-2 py-1.5">
             <span className={`${chipBase} ${faseTone(info.fase)}`} title={info.significado}>{info.estadoLabel}</span>
-            <p className={`mt-0.5 max-w-[15rem] text-[11.5px] leading-4 ${hintTone(summary?.hint.tono)}`}>{summary?.hint.texto ?? info.significado}</p>
+            <p className={`mt-0.5 truncate text-[11.5px] leading-4 ${hintTone(summary?.hint.tono)}`} title={summary?.hint.texto ?? info.significado}>{summary?.hint.texto ?? info.significado}</p>
           </td>
-          <td className="px-2 py-2 text-[12.5px] text-[#E6E6E1]">
-            {packing.proveedorResponsableNombre || "Sin responsable"}
-            <p className="text-[11.5px] text-[#8F908A]">{[`${packing.itemCount} art.`, formatWeight(packing.peso)].filter(Boolean).join(" · ")}</p>
+          <td className="max-w-0 px-2 py-1.5 text-[12px]">
+            <RastreoCorto
+              usa={{ numero: packing.trackingUsa, transportista: usa, nombre: packing.transportistaUsaNombre }}
+              ec={{ numero: packing.trackingEc, transportista: ec, nombre: packing.transportistaEcNombre }}
+            />
           </td>
-          <td className="px-2 py-2 text-[12px]">
-            {sinRastreo ? <span className={chipMute}>Sin rastreo</span> : (
-              <>
-                <Rastreo prefijo="USA" numero={packing.trackingUsa} transportista={usa} nombre={packing.transportistaUsaNombre} />
-                <Rastreo prefijo="EC" numero={packing.trackingEc} transportista={ec} nombre={packing.transportistaEcNombre} />
-              </>
-            )}
-          </td>
-          <td className="px-2 py-2">{f.etapa === "llego" || f.etapa === "revision" || f.etapa === "cerrados" ? <Revision summary={summary} /> : <span className="text-[12px] text-[#5E5F59]">—</span>}</td>
-          {costos ? (
-            <>
-              <td className="px-2 py-2"><button type="button" onClick={() => setAbierta(f.key)} className="text-left"><ChipGastos fila={f.costo} /></button></td>
-              <td className="px-2 py-2"><ChipCompra fila={f.costo} /></td>
-            </>
-          ) : null}
-          <td className="py-2 pl-2 pr-3 text-right">{accion(f)}</td>
+          <td className="px-2 py-1.5">{f.etapa === "llego" || f.etapa === "revision" || f.etapa === "cerrados" ? <Revision summary={summary} /> : <span className="text-[12px] text-[#5E5F59]">—</span>}</td>
+          {costos ? <td className="px-2 py-1.5"><Pagos fila={f.costo} onAbrir={() => setAbierta(f.key)} /></td> : null}
+          <td className="py-1.5 pl-2 pr-2 text-right">{accion(f)}</td>
         </tr>
         {abiertaAqui ? (
           <tr className="bg-[#121310]">
@@ -477,12 +520,11 @@ export function ShippingV2PackingsClient({ packings, proveedores, todosProveedor
     const origen = proveedorPorId.get(item.transportistaOrigenId || "");
     const ec = proveedorPorId.get(item.transportistaEcuadorId || "");
     const numeroEc = extranjero ? item.trackingDesdeIntermediario : item.trackingDirecto;
-    const sinRastreo = !(extranjero && item.trackingHaciaIntermediario) && !numeroEc;
     const puedeGestionar = permissions?.canEditItems === true || permissions?.canAddItemsToPacking === true || costos !== null;
     return (
       <Fragment key={f.key}>
         <tr className={`border-t border-[#2A2B26] align-top hover:bg-[#1B1C18] ${abiertaAqui ? "bg-[#1B1C18]" : ""}`}>
-          <td className="py-2 pl-2">
+          <td className="py-1.5 pl-1.5">
             {puedeGestionar ? (
               <button type="button" onClick={() => setAbierta(abiertaAqui ? null : f.key)} aria-expanded={abiertaAqui} aria-label={abiertaAqui ? "Ocultar" : "Gestionar"} title="Rastreos, casillero, meter en una caja y costos"
                 className={`grid h-6 w-6 place-items-center rounded text-[13px] ${abiertaAqui ? "bg-[#D7FF4F] text-[#151515]" : "text-[#8F908A] hover:text-[#D7FF4F]"}`}>
@@ -490,34 +532,27 @@ export function ShippingV2PackingsClient({ packings, proveedores, todosProveedor
               </button>
             ) : null}
           </td>
-          <td className="px-2 py-2">
-            <Link href={`/shipping-v2/items/${item.id}`} className="whitespace-nowrap font-semibold text-[#D7FF4F] hover:underline">{item.sku || "—"}</Link>
-            <p className="text-[11.5px] text-[#8F908A]">Viaja solo · {extranjero ? "Extranjero" : "Local"}</p>
+          <td className="max-w-0 px-2 py-1.5">
+            <div className="flex min-w-0 items-baseline gap-1.5">
+              <Link href={`/shipping-v2/items/${item.id}`} className="shrink-0 whitespace-nowrap font-semibold text-[#D7FF4F] hover:underline">{item.sku || "—"}</Link>
+              <span className="min-w-0 truncate text-[12px] text-[#B4B5AC]" title={item.nombre}>{item.nombre}</span>
+            </div>
+            <p className="truncate text-[11.5px] text-[#8F908A]">{["Viaja solo", item.proveedorNombre || "Sin proveedor", extranjero && item.proveedorLogisticoNombre ? `Casillero ${item.proveedorLogisticoNombre}` : extranjero ? "Extranjero" : "Local"].filter(Boolean).join(" · ")}</p>
           </td>
-          <td className="px-2 py-2">
+          <td className="max-w-0 px-2 py-1.5">
             <span className={`${chipBase} ${faseTone("en-camino")}`}>{item.estado || "—"}</span>
-            <p className={`mt-0.5 text-[11.5px] leading-4 ${pendientes.length ? "text-yellow-200" : "text-[#9FEFB3]"}`}>{pendientes.length ? `Falta ${pendientes.map((p) => p.toLowerCase()).join(" y ")}` : "Rastreos completos"}</p>
+            <p className={`mt-0.5 truncate text-[11.5px] leading-4 ${pendientes.length ? "text-yellow-200" : "text-[#9FEFB3]"}`}>{pendientes.length ? `Falta ${pendientes.map((p) => p.toLowerCase()).join(" y ")}` : "Rastreos completos"}</p>
           </td>
-          <td className="px-2 py-2 text-[12.5px] text-[#E6E6E1]">
-            <p className="max-w-[14rem] truncate" title={item.nombre}>{item.nombre}</p>
-            <p className="text-[11.5px] text-[#8F908A]">{[item.proveedorNombre || "Sin proveedor", extranjero && item.proveedorLogisticoNombre ? `Casillero ${item.proveedorLogisticoNombre}` : ""].filter(Boolean).join(" · ")}</p>
+          <td className="max-w-0 px-2 py-1.5 text-[12px]">
+            <RastreoCorto
+              prefijoUsa="Origen"
+              usa={extranjero ? { numero: item.trackingHaciaIntermediario, transportista: origen } : undefined}
+              ec={{ numero: numeroEc, transportista: ec }}
+            />
           </td>
-          <td className="px-2 py-2 text-[12px]">
-            {sinRastreo ? <span className={chipMute}>Sin rastreo</span> : (
-              <>
-                {extranjero ? <Rastreo prefijo="USA" numero={item.trackingHaciaIntermediario} transportista={origen} /> : null}
-                <Rastreo prefijo="EC" numero={numeroEc} transportista={ec} />
-              </>
-            )}
-          </td>
-          <td className="px-2 py-2"><span className="text-[12px] text-[#5E5F59]">—</span></td>
-          {costos ? (
-            <>
-              <td className="px-2 py-2"><button type="button" onClick={() => setAbierta(f.key)} className="text-left"><ChipGastos fila={f.costo} /></button></td>
-              <td className="px-2 py-2"><ChipCompra fila={f.costo} /></td>
-            </>
-          ) : null}
-          <td className="py-2 pl-2 pr-3 text-right">{accion(f)}</td>
+          <td className="px-2 py-1.5"><span className="text-[12px] text-[#5E5F59]">—</span></td>
+          {costos ? <td className="px-2 py-1.5"><Pagos fila={f.costo} onAbrir={() => setAbierta(f.key)} /></td> : null}
+          <td className="py-1.5 pl-2 pr-2 text-right">{accion(f)}</td>
         </tr>
         {abiertaAqui ? (
           <tr className="bg-[#121310]">
@@ -540,63 +575,72 @@ export function ShippingV2PackingsClient({ packings, proveedores, todosProveedor
 
   let etapaAnterior: Etapa | null | undefined;
 
+  const chipFiltro = (on: boolean, tono: string) => on ? toggle(true) : `rounded-full border bg-[#151515] px-2.5 py-0.5 text-[11.5px] font-semibold hover:brightness-125 ${tono}`;
+
   return (
     <div className="w-full space-y-2">
-      <section className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-[#2E2F28] bg-[#151613] px-3 py-2">
-        <h2 className="text-[16px] font-semibold text-[#F5F5F5]">Logística</h2>
-        <span className="text-[12.5px] text-[#8F908A]" title="Todo lo que viaja: cajas y artículos que viajan solos, con rastreos, costos y su llegada.">
-          {isProviderPortal ? `Cajas asignadas a ${providerName} · ` : ""}{totales.cajas} caja{totales.cajas === 1 ? "" : "s"}{totales.solos ? ` · ${totales.solos} viajando solo${totales.solos === 1 ? "" : "s"}` : ""}
-          {totales.solosPendientes ? <span className="text-yellow-200"> ({totales.solosPendientes} sin todos sus rastreos)</span> : null}
+      {error ? <div className="rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">{error}</div> : null}
+
+      {/* Una sola barra: etapas, buscar, filtros, atajos y "Nueva caja". */}
+      <section className="flex flex-wrap items-center gap-1.5 rounded-lg border border-[#2E2F28] bg-[#151613] p-1.5">
+        <div role="tablist" className="inline-flex max-w-full overflow-x-auto rounded-md border border-[#3A3A36]">
+          {([{ key: "abiertos" as Vista, label: "Abiertos", title: "Todo lo que no está cerrado." }, ...ETAPAS]).map((e) => {
+            const on = vista === e.key;
+            return (
+              <button key={e.key} type="button" role="tab" aria-selected={on} title={e.title} onClick={() => setVista(e.key)}
+                className={`h-8 whitespace-nowrap border-r border-[#3A3A36] px-2.5 text-[12.5px] font-semibold transition last:border-r-0 ${on ? "bg-[#D7FF4F] text-[#151515]" : "bg-[#151515] text-[#B4B5AC] hover:text-[#D7FF4F]"}`}>
+                {e.label} <span className={`tabular-nums ${on ? "" : "text-[#8F908A]"}`}>{conteo[e.key]}</span>
+              </button>
+            );
+          })}
+        </div>
+        <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar caja, SKU, rastreo…" aria-label="Buscar"
+          className="h-8 min-w-[10rem] flex-1 rounded-md border border-[#3A3A36] bg-[#151515] px-2.5 text-[13px] text-[#F5F5F5] outline-none placeholder:text-[#5E5F59] focus:border-[#D7FF4F]/70 sm:max-w-[16rem]" />
+        <div ref={filtrosRef} className="relative">
+          <button type="button" onClick={() => setFiltrosAbiertos((v) => !v)} aria-expanded={filtrosAbiertos}
+            className={`${btn} gap-1 ${filtrosMenu || filtrosAbiertos ? "border-[#D7FF4F]/55 bg-[#D7FF4F]/10 text-[#D7FF4F]" : "border-[#3A3A36] text-[#B4B5AC] hover:text-[#D7FF4F]"}`}>
+            Filtros{filtrosMenu ? <span className="grid h-4 min-w-4 place-items-center rounded-full bg-[#D7FF4F] px-1 text-[10px] font-black text-[#151515]">{filtrosMenu}</span> : null}
+          </button>
+          {filtrosAbiertos ? (
+            <div className="absolute left-0 top-full z-40 mt-1.5 grid w-60 gap-1.5 rounded-lg border border-[#30312D] bg-[#11120F] p-2 shadow-2xl shadow-black/45">
+              <select value={estado} onChange={(e) => setEstado(e.target.value)} className={select} aria-label="Estado de la caja"><option value={ALL}>Estado: todos</option>{SHIPPING_V2_PACKING_ESTADOS.map((o) => <option key={o}>{o}</option>)}</select>
+              <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={select} aria-label="Tipo de caja"><option value={ALL}>Tipo: todos</option>{SHIPPING_V2_PACKING_TIPOS.map((o) => <option key={o}>{o}</option>)}</select>
+              <select value={responsable} onChange={(e) => setResponsable(e.target.value)} className={select} aria-label="Responsable"><option value={ALL}>Responsable: todos</option>{proveedores.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}</select>
+              {filtrosMenu ? <button type="button" onClick={() => { setEstado(ALL); setTipo(ALL); setResponsable(ALL); }} className="text-left text-[11.5px] font-semibold text-[#8F908A] hover:text-[#F5F5F5]">Quitar estos filtros</button> : null}
+            </div>
+          ) : null}
+        </div>
+        {costos && (totales.conFlete || soloFlete) ? (
+          <button type="button" onClick={() => setSoloFlete((v) => !v)} aria-pressed={soloFlete} className={chipFiltro(soloFlete, "border-yellow-300/40 text-yellow-200")}
+            title="Muestra solo las cajas y artículos a los que les falta pagar flete o arancel (ya viajan o llegaron sin pago, o tienen un valor anotado sin pago).">
+            Falta pagar flete/arancel ({totales.conFlete})
+          </button>
+        ) : null}
+        {totales.solosPendientes || soloSinRastreo ? (
+          <button type="button" onClick={() => setSoloSinRastreo((v) => !v)} aria-pressed={soloSinRastreo} className={chipFiltro(soloSinRastreo, "border-yellow-300/40 text-yellow-200")} title="Artículos que viajan solos y aún no tienen todos sus rastreos.">
+            Faltan rastreos ({totales.solosPendientes})
+          </button>
+        ) : null}
+        {totales.conNovedad || soloNovedad ? (
+          <button type="button" onClick={() => setSoloNovedad((v) => !v)} aria-pressed={soloNovedad} className={chipFiltro(soloNovedad, "border-[#FF914D]/40 text-[#FFB07A]")} title="Cajas con una novedad abierta (faltante, daño, garantía).">
+            Con novedad ({totales.conNovedad})
+          </button>
+        ) : null}
+        {totales.listos || soloListos ? (
+          <button type="button" onClick={() => setSoloListos((v) => !v)} aria-pressed={soloListos} className={chipFiltro(soloListos, "border-[#7BE495]/40 text-[#9FEFB3]")} title="Revisión terminada: solo falta pulsar Cerrar ciclo en la caja.">
+            Listas para cerrar ({totales.listos})
+          </button>
+        ) : null}
+        {hayFiltros ? <button type="button" onClick={quitarFiltros} className="text-[11.5px] font-semibold text-[#8F908A] hover:text-[#F5F5F5]">Quitar filtros</button> : null}
+        <span className="ml-auto flex items-center gap-2">
+          {isProviderPortal ? <span className="text-[12px] text-[#8F908A]">Cajas de {providerName}</span> : null}
+          {canCreatePacking ? <Link href="/shipping-v2/packings/nuevo" className={btnPrim}>+ Nueva caja</Link> : null}
         </span>
-        {canCreatePacking ? <Link href="/shipping-v2/packings/nuevo" className={`${btnPrim} ml-auto`}>+ Nueva caja</Link> : null}
       </section>
 
-      {error ? <div className="rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">{error}</div> : null}
       {sinAvance ? (
         <div className="rounded-lg border border-[#4FC3FF]/30 bg-[#4FC3FF]/10 px-3 py-1.5 text-xs text-[#BDEAFF]">No se pudo calcular el avance de revisión en esta carga. La lista se muestra igual, sin la columna Revisión.</div>
       ) : null}
-
-      <section className="space-y-1.5 rounded-lg border border-[#2E2F28] bg-[#11120F] p-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <div role="tablist" className="inline-flex max-w-full overflow-x-auto rounded-md border border-[#3A3A36]">
-            {([{ key: "abiertos" as Vista, label: "Abiertos", title: "Todo lo que no está cerrado." }, ...ETAPAS]).map((e) => {
-              const on = vista === e.key;
-              return (
-                <button key={e.key} type="button" role="tab" aria-selected={on} title={e.title} onClick={() => setVista(e.key)}
-                  className={`h-8 whitespace-nowrap border-r border-[#3A3A36] px-2.5 text-[12.5px] font-semibold transition last:border-r-0 ${on ? "bg-[#D7FF4F] text-[#151515]" : "bg-[#151515] text-[#B4B5AC] hover:text-[#D7FF4F]"} ${e.key === "cerrados" ? "border-l border-l-[#3A3A36]" : ""}`}>
-                  {e.label} <span className={`tabular-nums ${on ? "" : "text-[#8F908A]"}`}>{conteo[e.key]}</span>
-                </button>
-              );
-            })}
-          </div>
-          <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar caja, SKU, rastreo…" aria-label="Buscar"
-            className="h-8 min-w-[12rem] flex-1 rounded-md border border-[#3A3A36] bg-[#151515] px-2.5 text-[13px] text-[#F5F5F5] outline-none placeholder:text-[#5E5F59] focus:border-[#D7FF4F]/70 sm:max-w-[18rem]" />
-          <select value={estado} onChange={(e) => setEstado(e.target.value)} className={select} aria-label="Estado de la caja"><option value={ALL}>Estado</option>{SHIPPING_V2_PACKING_ESTADOS.map((o) => <option key={o}>{o}</option>)}</select>
-          <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={select} aria-label="Tipo de caja"><option value={ALL}>Tipo</option>{SHIPPING_V2_PACKING_TIPOS.map((o) => <option key={o}>{o}</option>)}</select>
-          <select value={responsable} onChange={(e) => setResponsable(e.target.value)} className={select} aria-label="Responsable"><option value={ALL}>Responsable</option>{proveedores.map((p) => <option key={p.id} value={p.id}>{getShippingV2ProveedorLabel(p)}</option>)}</select>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {costos && (totales.conFlete || soloFlete) ? (
-            <button type="button" onClick={() => setSoloFlete((v) => !v)} aria-pressed={soloFlete} className={soloFlete ? toggle(true) : `rounded-full border border-yellow-300/40 bg-[#151515] px-2.5 py-0.5 text-[11.5px] font-semibold text-yellow-200 hover:brightness-125`}
-              title="Muestra solo las cajas y artículos a los que les falta pagar flete o arancel (ya viajan o llegaron sin pago, o tienen un valor anotado sin pago).">
-              Falta pagar flete/arancel ({totales.conFlete})
-            </button>
-          ) : null}
-          {totales.conNovedad || soloNovedad ? (
-            <button type="button" onClick={() => setSoloNovedad((v) => !v)} aria-pressed={soloNovedad} className={soloNovedad ? toggle(true) : "rounded-full border border-[#FF914D]/40 bg-[#151515] px-2.5 py-0.5 text-[11.5px] font-semibold text-[#FFB07A] hover:brightness-125"} title="Cajas con una novedad abierta (faltante, daño, garantía).">
-              Con novedad ({totales.conNovedad})
-            </button>
-          ) : null}
-          {totales.listos || soloListos ? (
-            <button type="button" onClick={() => setSoloListos((v) => !v)} aria-pressed={soloListos} className={soloListos ? toggle(true) : "rounded-full border border-[#7BE495]/40 bg-[#151515] px-2.5 py-0.5 text-[11.5px] font-semibold text-[#9FEFB3] hover:brightness-125"} title="Revisión terminada: solo falta pulsar Cerrar ciclo en la caja.">
-              Listas para cerrar ({totales.listos})
-            </button>
-          ) : null}
-          {hayFiltros ? (
-            <button type="button" onClick={() => { setBuscar(""); setEstado(ALL); setTipo(ALL); setResponsable(ALL); setSoloFlete(false); setSoloNovedad(false); setSoloListos(false); }} className="text-[11.5px] font-semibold text-[#8F908A] hover:text-[#F5F5F5]">Quitar filtros</button>
-          ) : null}
-        </div>
-      </section>
 
       {aviso ? (
         <div className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-[13px] ${aviso.error ? "border-[#FF914D]/40 bg-[#FF914D]/10 text-[#FFB07A]" : "border-[#D7FF4F]/45 bg-[#D7FF4F]/[0.07] text-[#E6E6E1]"}`}>
@@ -608,17 +652,25 @@ export function ShippingV2PackingsClient({ packings, proveedores, todosProveedor
 
       <div className="overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1080px] text-left">
+          <table className="w-full min-w-[820px] table-fixed text-left text-[13px]">
+            <colgroup>
+              <col className="w-7" />
+              <col />
+              <col className="w-[24%]" />
+              <col className="w-[9rem]" />
+              <col className="w-[5rem]" />
+              {costos ? <col className="w-[9rem]" /> : null}
+              <col className="w-[7.5rem]" />
+            </colgroup>
             <thead className="whitespace-nowrap bg-[#1E1F19] text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
               <tr>
-                <th className="w-8 py-1.5 pl-2" />
-                <th className="px-2 py-1.5">Envío</th>
-                <th className="min-w-[13rem] px-2 py-1.5">Estado</th>
-                <th className="px-2 py-1.5">Contenido</th>
-                <th className="px-2 py-1.5">Rastreo</th>
+                <th className="py-1.5 pl-1.5" />
+                <th className="px-2 py-1.5" title="Caja (o artículo que viaja solo), responsable y cuántos artículos lleva">Envío</th>
+                <th className="px-2 py-1.5">Estado</th>
+                <th className="px-2 py-1.5" title="Se muestra el rastreo de Ecuador si ya existe; el otro número está en la ayuda (+1)">Rastreo</th>
                 <th className="px-2 py-1.5" title="Artículos con todo completo (recibido, revisado, fotos y publicaciones) / total">Revisión</th>
-                {costos ? <><th className="px-2 py-1.5">Flete y arancel</th><th className="px-2 py-1.5">Compra</th></> : null}
-                <th className="py-1.5 pl-2 pr-3" />
+                {costos ? <th className="px-2 py-1.5" title="Flete/arancel de traerlo y respaldo de pago de la compra">Pagos</th> : null}
+                <th className="py-1.5 pl-2 pr-2" />
               </tr>
             </thead>
             <tbody>

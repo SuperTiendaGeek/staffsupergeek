@@ -31,9 +31,28 @@ function texto(v?: string | null) {
 }
 
 /** Número de rastreo con su enlace (si el transportista tiene plantilla) y el nombre del transportista. */
-export function Rastreo({ numero, transportista, prefijo, nombre }: { numero?: string; transportista?: ShippingV2Proveedor; prefijo?: string; nombre?: string }) {
+/**
+ * Un número de rastreo con su enlace. `compacto` (lista de Logística): una sola
+ * línea cortada con …; el transportista y el número completo van en la ayuda.
+ */
+export function Rastreo({ numero, transportista, prefijo, nombre, compacto = false, extra }: { numero?: string; transportista?: ShippingV2Proveedor; prefijo?: string; nombre?: string; compacto?: boolean; extra?: string }) {
   if (!texto(numero)) return null;
   const url = buildTrackingUrl(transportista, numero);
+  const quien = transportista ? getShippingV2ProveedorLabel(transportista) : nombre;
+  if (compacto) {
+    const ayuda = [`${prefijo ? `${prefijo} ` : ""}${numero}${quien ? ` · ${quien}` : ""}`, extra].filter(Boolean).join("\n");
+    return (
+      <span className="flex min-w-0 items-baseline gap-1 whitespace-nowrap leading-4" title={ayuda}>
+        {prefijo ? <span className="shrink-0 text-[10px] font-semibold text-[#8F908A]">{prefijo}</span> : null}
+        {url ? (
+          <a href={url} target="_blank" rel="noreferrer" className="min-w-0 truncate font-semibold text-[#D7FF4F] hover:underline">{numero}</a>
+        ) : (
+          <span className="min-w-0 truncate text-[#E6E6E1]">{numero}</span>
+        )}
+        {extra ? <span className="shrink-0 text-[10.5px] font-semibold text-[#8F908A]">+1</span> : null}
+      </span>
+    );
+  }
   return (
     <span className="block min-w-0 whitespace-nowrap leading-4">
       {prefijo ? <span className="mr-1 text-[10.5px] font-semibold text-[#8F908A]">{prefijo}</span> : null}
@@ -42,7 +61,7 @@ export function Rastreo({ numero, transportista, prefijo, nombre }: { numero?: s
       ) : (
         <span className="text-[#E6E6E1]">{numero}</span>
       )}
-      {transportista || nombre ? <span className="ml-1 text-[11px] text-[#8F908A]">{transportista ? getShippingV2ProveedorLabel(transportista) : nombre}</span> : null}
+      {quien ? <span className="ml-1 text-[11px] text-[#8F908A]">{quien}</span> : null}
     </span>
   );
 }
