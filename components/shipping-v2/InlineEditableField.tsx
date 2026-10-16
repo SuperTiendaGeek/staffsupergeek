@@ -22,6 +22,11 @@ type Props = {
   valueClassName?: string;
   editSuffix?: ReactNode;
   hideLabel?: boolean;
+  /**
+   * "row" (15-oct-2026, ficha del artículo): etiqueta a la izquierda y valor a
+   * la derecha en una línea, sin tarjeta. Por defecto sigue "stacked".
+   */
+  layout?: "stacked" | "row";
   onSave?: (value: string | number | boolean | null) => Promise<void>;
 };
 
@@ -57,7 +62,7 @@ function StatusLabel({ status, error }: { status: SaveStatus; error: string }) {
   return null;
 }
 
-export function InlineEditableField({ label, value, type, options, readOnly, displayValue, className, labelClassName, valueClassName, editSuffix, hideLabel, onSave }: Props) {
+export function InlineEditableField({ label, value, type, options, readOnly, displayValue, className, labelClassName, valueClassName, editSuffix, hideLabel, layout = "stacked", onSave }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(stringifyValue(value));
   const [status, setStatus] = useState<SaveStatus>("idle");
@@ -66,7 +71,10 @@ export function InlineEditableField({ label, value, type, options, readOnly, dis
   const editable = !readOnly && type !== "readOnly" && Boolean(onSave);
   const currentValue = stringifyValue(value);
   const textCursor = type === "text" || type === "number" || type === "currency" || type === "textarea";
-  const valueTextClass = valueClassName ?? `min-h-6 break-words text-sm font-medium ${editable ? "text-[#F5F5F5]" : "text-[#A7A7A7]"}`;
+  const isRow = layout === "row" && !className;
+  const valueTextClass = valueClassName ?? (isRow
+    ? `min-w-0 break-words text-[13px] font-medium leading-5 ${editable ? "text-[#F5F5F5]" : "text-[#B4B5AC]"}`
+    : `min-h-6 break-words text-sm font-medium ${editable ? "text-[#F5F5F5]" : "text-[#A7A7A7]"}`);
   const editTextClass = `${valueTextClass} w-full border-0 bg-transparent p-0 outline-none ring-0 placeholder:text-[#A7A7A7]/70 focus:outline-none focus:ring-0`;
 
   useEffect(() => {
@@ -143,15 +151,31 @@ export function InlineEditableField({ label, value, type, options, readOnly, dis
           ? `${textCursor ? "cursor-text" : "cursor-pointer"} border-[#3A3A36] bg-[#1E1F1C] hover:border-[#D7FF4F]/35`
           : "border-[#3A3A36]/75 bg-[#1B1C19] opacity-80"
   }`;
+  const rowClass = `group grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-start gap-x-3 border-b border-[#24251F] px-1.5 py-1.5 transition ${
+    status === "error"
+      ? "bg-[#FF914D]/[0.06]"
+      : editing
+        ? "bg-[#1E1F1C] ring-1 ring-inset ring-[#D7FF4F]/40"
+        : editable
+          ? `${textCursor ? "cursor-text" : "cursor-pointer"} hover:bg-[#1E1F1C]`
+          : ""
+  }`;
   const rootClass = className
     ? `relative ${className} ${editing ? "ring-1 ring-[#D7FF4F]/55" : editable ? `${textCursor ? "cursor-text" : "cursor-pointer"} hover:ring-1 hover:ring-[#D7FF4F]/35` : "opacity-80"} ${status === "error" ? "ring-1 ring-[#FF914D]/65" : ""}`
-    : shellClass;
+    : isRow ? rowClass : shellClass;
 
   return (
     <div className={rootClass} onClick={() => { if (editable && !editing && type !== "checkbox") setEditing(true); }}>
       {hideLabel ? (
         <div className="pointer-events-none absolute right-2 top-1 z-10 text-[10px] font-semibold uppercase tracking-normal">
           <StatusLabel status={status} error={error} />
+        </div>
+      ) : isRow ? (
+        <div className="flex min-w-0 items-center justify-between gap-1 pt-px">
+          <dt className={labelClassName ?? "truncate text-[12px] leading-5 text-[#8F908A]"} title={label}>{label}</dt>
+          <dd className="shrink-0 text-[10px] font-semibold uppercase tracking-normal">
+            <StatusLabel status={status} error={error} />
+          </dd>
         </div>
       ) : (
         <div className="mb-1 flex items-center justify-between gap-2">
@@ -213,7 +237,7 @@ export function InlineEditableField({ label, value, type, options, readOnly, dis
             event.stopPropagation();
             void commit(!Boolean(value));
           }}
-          className={`mt-1 inline-flex rounded-full border px-3 py-1 text-xs font-medium transition ${value ? "border-[#D7FF4F]/60 bg-[#D7FF4F]/15 text-[#D7FF4F]" : "border-[#3A3A36] bg-[#151515] text-[#A7A7A7]"} disabled:cursor-not-allowed`}
+          className={`${isRow ? "inline-flex h-6 w-fit items-center px-2.5 text-[11.5px]" : "mt-1 inline-flex px-3 py-1 text-xs"} rounded-full border font-medium transition ${value ? "border-[#D7FF4F]/60 bg-[#D7FF4F]/15 text-[#D7FF4F]" : "border-[#3A3A36] bg-[#151515] text-[#A7A7A7]"} disabled:cursor-not-allowed`}
         >
           {value ? "Sí" : "No"}
         </button>

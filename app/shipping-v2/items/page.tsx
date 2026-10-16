@@ -6,6 +6,7 @@ import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import { camposConEstado, ocultarCamposDeObjeto } from "@/lib/permissions/campos";
 import { isAdministratorRole } from "@/lib/apps";
 import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2Proveedor } from "@/types/shipping-v2";
+import { hrefArticulos, leerFiltroArticulos, type FiltroArticulos } from "@/lib/shipping-v2/items-filtro";
 import { ShippingV2ItemsClient } from "./ShippingV2ItemsClient";
 
 export const dynamic = "force-dynamic";
@@ -25,11 +26,7 @@ const SHIPPING_V2_ITEMS_SORT_KEYS: ShippingV2ItemsListSortKey[] = [
 ];
 
 type PageProps = {
-  searchParams?: Promise<{
-    cursor?: string | string[];
-    prev?: string | string[];
-    sort?: string | string[];
-  }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 function firstSearchParam(value?: string | string[]) {
@@ -71,13 +68,14 @@ function buildItemsPageHref(input: {
   cursor?: string;
   stack?: string[];
   sortBy: ShippingV2ItemsListSortKey;
+  filtro: FiltroArticulos;
 }) {
-  const params = new URLSearchParams();
-  if (input.cursor) params.set("cursor", input.cursor);
-  if (input.stack?.length) params.set("prev", encodeCursorStack(input.stack));
-  if (input.sortBy !== "newest") params.set("sort", input.sortBy);
-  const query = params.toString();
-  return `/shipping-v2/items${query ? `?${query}` : ""}`;
+  // Rediseño 15-oct-2026: el filtro viaja con la página (Airtable pagina sobre lo filtrado).
+  return hrefArticulos(input.filtro, {
+    sort: input.sortBy,
+    cursor: input.cursor,
+    prev: input.stack?.length ? encodeCursorStack(input.stack) : undefined,
+  });
 }
 
 export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
@@ -102,6 +100,7 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
   let error = "";
   let nextOffset: string | undefined;
   const params = await searchParams;
+  const filtro = leerFiltroArticulos(params ?? {});
   const currentCursor = cleanCursor(params?.cursor);
   const cursorStack = parseCursorStack(params?.prev);
   let sortBy = parseSortKey(params?.sort);
@@ -117,14 +116,18 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
     ) {
       sortBy = "newest";
     }
+    // Con filtro de proveedor se leen antes los proveedores (hace falta su etiqueta).
+    const proveedoresPrevios = filtro.proveedor ? await getShippingV2Proveedores() : undefined;
     const [itemsPage, proveedoresResult] = await Promise.all([
       getShippingV2ItemsPage({
         pageSize: SHIPPING_V2_ITEMS_PAGE_SIZE,
         offset: currentCursor,
         sortBy,
         access,
+        filtro,
+        proveedores: proveedoresPrevios,
       }),
-      getShippingV2Proveedores(),
+      proveedoresPrevios ? Promise.resolve(proveedoresPrevios) : getShippingV2Proveedores(),
     ]);
     items = itemsPage.items.map((item) => ocultarCamposDeObjeto(item, camposOcultos));
     nextOffset = itemsPage.nextOffset;
@@ -138,12 +141,12 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
   const previousStack = cursorStack.slice(0, -1);
   const nextStack = [...cursorStack, currentCursor ?? ""];
   const pageIndex = cursorStack.length + 1;
-  const firstHref = buildItemsPageHref({ sortBy });
+  const firstHref = buildItemsPageHref({ sortBy, filtro });
   const previousHref = previousCursor !== undefined
-    ? buildItemsPageHref({ cursor: previousCursor || undefined, stack: previousStack, sortBy })
+    ? buildItemsPageHref({ cursor: previousCursor || undefined, stack: previousStack, sortBy, filtro })
     : undefined;
   const nextHref = nextOffset
-    ? buildItemsPageHref({ cursor: nextOffset, stack: nextStack, sortBy })
+    ? buildItemsPageHref({ cursor: nextOffset, stack: nextStack, sortBy, filtro })
     : undefined;
 
   return (
@@ -158,6 +161,7 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
         providerName={providerName}
         camposOcultos={camposOcultos}
         initialSortBy={sortBy}
+        filtro={filtro}
         pagination={{
           pageIndex,
           pageSize: SHIPPING_V2_ITEMS_PAGE_SIZE,

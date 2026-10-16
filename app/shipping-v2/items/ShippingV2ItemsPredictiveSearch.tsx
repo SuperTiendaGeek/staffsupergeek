@@ -11,7 +11,8 @@ import {
   type KeyboardEvent,
   type SetStateAction,
 } from "react";
-import { Loader2, PackageSearch, Search, X } from "lucide-react";
+import { CornerDownLeft, ListFilter, Loader2, PackageSearch, Search, X } from "lucide-react";
+import { interpretarBusqueda } from "@/lib/shipping-v2/items-filtro";
 import {
   normalizeSearchText,
   prepareShippingV2ItemSearchIndex,
@@ -39,6 +40,14 @@ type Props = {
   setSearch: Dispatch<SetStateAction<string>>;
   fallbackItems: FallbackItem[];
   canViewCosts?: boolean;
+  /**
+   * 15-oct-2026: Enter filtra la lista con el texto (antes abría el primer
+   * artículo de la vista previa). Un artículo se abre eligiéndolo con las
+   * flechas o con un clic.
+   */
+  onSubmit?: (texto: string) => void;
+  /** Texto con el que la lista ya está filtrada (para no volver a cargarla al limpiar). */
+  aplicado?: string;
 };
 
 function availabilityLabel(item: FallbackItem) {
@@ -57,6 +66,7 @@ function fallbackItemToSearchEntry(item: FallbackItem): ShippingV2ItemSearchEntr
     sku: item.sku,
     skuProveedor: item.skuProveedor,
     nombre: item.nombre,
+    categoria: item.categoria,
     marca: item.marca,
     modelo: item.modelo,
     numeroSerie: item.numeroSerie,
@@ -101,7 +111,7 @@ function preferredMatch(result: ShippingV2SearchResult) {
   return result.matchedFields.find((match) => !["sku", "nombre", "estado"].includes(match.key)) || result.matchedFields[0];
 }
 
-export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackItems, canViewCosts = true }: Props) {
+export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackItems, canViewCosts = true, onSubmit, aplicado = "" }: Props) {
   const router = useRouter();
   const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -116,8 +126,21 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
   const normalizedQuery = normalizeSearchText(search);
   const fallbackEntries = useMemo(() => fallbackItems.map(fallbackItemToSearchEntry), [fallbackItems]);
   const activeEntries = indexStatus === "ready" ? globalEntries : fallbackEntries;
-  const preparedIndex = useMemo(() => prepareShippingV2ItemSearchIndex(activeEntries), [activeEntries]);
-  const searchResults = useMemo(() => searchShippingV2ItemIndex(preparedIndex, search, { limit: 8 }), [preparedIndex, search]);
+  // La vista previa entiende lo mismo que Enter: "laptops hp disponibles"
+  // muestra laptops disponibles que digan "hp".
+  const interpretacion = useMemo(() => interpretarBusqueda(search), [search]);
+  const entriesFiltradas = useMemo(() => activeEntries.filter((entry) =>
+    (!interpretacion.categoria || entry.categoria === interpretacion.categoria) &&
+    (!interpretacion.estado || entry.estado === interpretacion.estado)
+  ), [activeEntries, interpretacion.categoria, interpretacion.estado]);
+  const preparedIndex = useMemo(() => prepareShippingV2ItemSearchIndex(entriesFiltradas), [entriesFiltradas]);
+  const consultaPreview = interpretacion.categoria || interpretacion.estado ? interpretacion.resto : search;
+  const searchResults = useMemo(() => {
+    if (normalizeSearchText(consultaPreview)) return searchShippingV2ItemIndex(preparedIndex, consultaPreview, { limit: 8 });
+    // Solo categoría o estado ("laptops disponibles"): los más recientes.
+    const recientes = [...entriesFiltradas].sort((a, b) => String(b.fechaRegistro ?? "").localeCompare(String(a.fechaRegistro ?? "")));
+    return { total: recientes.length, results: recientes.slice(0, 8).map((item) => ({ item, score: 0, matchedFields: [] })) };
+  }, [consultaPreview, entriesFiltradas, preparedIndex]);
   const results = searchResults.results;
   const activeResult = activeIndex >= 0 ? results[activeIndex] : null;
   const activeOptionId = activeResult ? `${listboxId}-${activeResult.item.id}` : undefined;
@@ -227,11 +250,16 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
     }
 
     if (event.key === "Enter") {
-      if (!normalizedQuery) return;
-      const target = activeIndex >= 0 ? results[activeIndex] : results[0];
-      if (!target) return;
+      const elegido = activeIndex >= 0 ? results[activeIndex] : null;
+      if (elegido) {
+        event.preventDefault();
+        navigateToResult(elegido);
+        return;
+      }
+      if (!onSubmit) return;
       event.preventDefault();
-      navigateToResult(target);
+      setPanelOpen(false);
+      onSubmit(search);
       return;
     }
 
@@ -249,8 +277,8 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
   }
 
   return (
-    <div ref={rootRef} className="relative z-40 w-full max-w-[740px]">
-      <div className={`group flex h-11 items-center gap-2 rounded-xl border bg-[#10110F] px-3 shadow-xl shadow-black/25 motion-safe:transition ${shouldShowPanel ? "border-[#D7FF4F]/70 ring-2 ring-[#D7FF4F]/15" : "border-[#3A3A36] hover:border-[#D7FF4F]/45"}`}>
+    <div ref={rootRef} className="relative z-40 w-full max-w-[640px]">
+      <div className={`group flex h-8 items-center gap-2 rounded-md border bg-[#10110F] px-2.5 motion-safe:transition ${shouldShowPanel ? "border-[#D7FF4F]/70 ring-2 ring-[#D7FF4F]/15" : "border-[#3A3A36] hover:border-[#D7FF4F]/45"}`}>
         <Search className="h-4 w-4 shrink-0 text-[#D7FF4F]" aria-hidden="true" />
         <input
           ref={inputRef}
@@ -265,8 +293,8 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
           aria-controls={listboxId}
           aria-activedescendant={activeOptionId}
           aria-autocomplete="list"
-          placeholder="Buscar por nombre, SKU, serie, proveedor, packing o tracking"
-          className="h-full min-w-0 flex-1 bg-transparent text-sm font-semibold text-[#F5F5F5] outline-none placeholder:text-[#696A64]"
+          placeholder="Buscar: laptops hp disponibles, SKU, serie, rastreo…"
+          className="h-full min-w-0 flex-1 bg-transparent text-[13px] font-semibold text-[#F5F5F5] outline-none placeholder:font-normal placeholder:text-[#696A64]"
         />
         {search ? (
           <button
@@ -276,11 +304,12 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
               setPanelOpen(false);
               setActiveIndex(-1);
               inputRef.current?.focus();
+              if (aplicado) onSubmit?.("");
             }}
             aria-label="Limpiar búsqueda"
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#30312D] bg-[#171814] text-[#A7A7A7] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[#A7A7A7] transition hover:bg-[#20211D] hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35"
           >
-            <X className="h-4 w-4" aria-hidden="true" />
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         ) : null}
       </div>
@@ -299,7 +328,25 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
             </div>
           ) : null}
 
-          <div id={listboxId} role="listbox" className="max-h-[540px] overflow-y-auto py-1">
+          {onSubmit ? (
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => { setPanelOpen(false); onSubmit(search); }}
+              className={`flex w-full items-center gap-2 border-b border-[#30312D] px-3 py-2 text-left text-[12.5px] transition ${activeIndex < 0 ? "bg-[#D7FF4F]/[0.08]" : "hover:bg-[#D7FF4F]/[0.05]"}`}
+            >
+              <ListFilter className="h-3.5 w-3.5 shrink-0 text-[#D7FF4F]" aria-hidden="true" />
+              <span className="font-semibold text-[#F5F5F5]">Filtrar la lista</span>
+              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                {interpretacion.categoria ? <span className="rounded-full border border-[#D7FF4F]/40 px-1.5 text-[11px] font-semibold text-[#D7FF4F]">{interpretacion.categoria}</span> : null}
+                {interpretacion.estado ? <span className="rounded-full border border-[#D7FF4F]/40 px-1.5 text-[11px] font-semibold text-[#D7FF4F]">{interpretacion.estado}</span> : null}
+                {interpretacion.resto ? <span className="truncate text-[#B4B5AC]">«{interpretacion.resto}»</span> : null}
+              </span>
+              <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-[#8F908A]" aria-label="Enter" />
+            </button>
+          ) : null}
+
+          <div id={listboxId} role="listbox" className="max-h-[480px] overflow-y-auto py-1">
             {results.length ? results.map((result, index) => {
               const item = result.item;
               const active = index === activeIndex;
@@ -315,12 +362,11 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
                   type="button"
                   role="option"
                   aria-selected={active}
-                  onMouseEnter={() => setActiveIndex(index)}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => navigateToResult(result)}
-                  className={`grid w-full grid-cols-[44px_minmax(0,1fr)] gap-3 px-3 py-2.5 text-left motion-safe:transition ${active ? "bg-[#D7FF4F]/12" : "hover:bg-[#CFFF3A]/[0.055]"}`}
+                  className={`grid w-full grid-cols-[36px_minmax(0,1fr)] gap-2.5 px-3 py-1.5 text-left motion-safe:transition ${active ? "bg-[#D7FF4F]/12" : "hover:bg-[#CFFF3A]/[0.055]"}`}
                 >
-                  <span className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-lg border ${active ? "border-[#D7FF4F]/45 bg-[#D7FF4F]/10" : "border-[#30312D] bg-[#171814]"}`}>
+                  <span className={`flex h-9 w-9 items-center justify-center overflow-hidden rounded-md border ${active ? "border-[#D7FF4F]/45 bg-[#D7FF4F]/10" : "border-[#30312D] bg-[#171814]"}`}>
                     {item.thumbnailUrl ? (
                       <img src={item.thumbnailUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
                     ) : (
@@ -330,7 +376,7 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
                   <span className="min-w-0">
                     <span className="flex min-w-0 items-start justify-between gap-3">
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-[#F5F5F5]">{displayValue(item.nombre, "Item sin nombre")}</span>
+                        <span className="block truncate text-[13px] font-semibold text-[#F5F5F5]">{displayValue(item.nombre, "Item sin nombre")}</span>
                         <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] font-semibold text-[#A7A7A7]">
                           <span className="text-[#D7FF4F]">{displayValue(item.sku, "Sin SKU")}</span>
                           {meta ? <span className="truncate">{meta}</span> : null}
@@ -341,7 +387,7 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
                         {displayValue(item.estado, "Sin estado")}
                       </span>
                     </span>
-                    <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-[#8F908A]">
+                    <span className="flex min-w-0 items-center gap-x-2 text-[11.5px] text-[#8F908A]">
                       <span className="truncate">{displayValue(item.proveedorCompra, "Sin proveedor")}</span>
                       {match ? <span className="truncate text-[#D8D8D3]">{match.label}: {match.value}</span> : null}
                       {routePending ? <span className="text-[#D7FF4F]">Abriendo...</span> : null}
@@ -350,14 +396,14 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
                 </button>
               );
             }) : (
-              <div className="px-4 py-8 text-center text-sm text-[#A7A7A7]">
-                Sin coincidencias para esta búsqueda.
+              <div className="px-3 py-3 text-center text-[12.5px] text-[#8F908A]">
+                Sin coincidencias en la vista previa.
               </div>
             )}
           </div>
 
-          <div className="border-t border-[#30312D] px-3 py-2 text-[12px] font-semibold text-[#8F908A]">
-            {results.length ? `${results.length} resultados principales de ${searchResults.total} coincidencias` : "Sin resultados principales"}
+          <div className="border-t border-[#30312D] px-3 py-1.5 text-[11.5px] text-[#8F908A]">
+            {onSubmit ? "↑ ↓ elegir un artículo para abrirlo · Enter filtra la lista" : results.length ? `${results.length} de ${searchResults.total} coincidencias` : "Sin coincidencias"}
           </div>
         </div>
       ) : null}

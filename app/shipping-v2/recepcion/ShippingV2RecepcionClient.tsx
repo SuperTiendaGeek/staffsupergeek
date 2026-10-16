@@ -118,7 +118,8 @@ const ShippingV2ItemDetailView = dynamic<ShippingV2ItemDetailViewProps>(
 );
 
 const ALL = SHIPPING_V2_ALL_FILTER;
-const RECEPTION_PREFS_VERSION = "v1";
+// "v2" (15-oct-2026, rediseño compacto): columnas nuevas; se empieza de cero una vez.
+const RECEPTION_PREFS_VERSION = "v2";
 const DEFAULT_SORT_BY: ShippingV2ItemSortKey = "newest";
 const DEFAULT_GROUP_BY: ShippingV2ItemGroupKey = "none";
 const DEFAULT_ITEM_FILTERS: ShippingV2ItemFilterState = {
@@ -127,9 +128,12 @@ const DEFAULT_ITEM_FILTERS: ShippingV2ItemFilterState = {
   tipoOperacion: ALL,
   proveedorCompra: ALL,
   tipoItem: ALL,
+  categoria: ALL,
 };
 
-type ReceptionColumnKey = "photo" | "item" | "quantity" | "packing" | "provider" | "price" | "checklist" | "actions";
+// Rediseño 15-oct-2026 (mismo estilo que Artículos): packing y proveedor van
+// en la segunda línea del artículo, así la tabla cabe en ~1000 px.
+type ReceptionColumnKey = "photo" | "item" | "quantity" | "price" | "checklist" | "actions";
 
 type ReceptionColumn = {
   key: ReceptionColumnKey;
@@ -144,14 +148,12 @@ type ReceptionColumn = {
 type ReceptionColumnWidths = Record<ReceptionColumnKey, number>;
 
 const RECEPTION_COLUMNS: ReceptionColumn[] = [
-  { key: "photo", label: "Foto", defaultWidth: 62, minWidth: 54, maxWidth: 82, required: true, align: "center" },
-  { key: "item", label: "Item", defaultWidth: 470, minWidth: 280, required: true },
-  { key: "quantity", label: "Cant.", defaultWidth: 74, minWidth: 66, maxWidth: 96, align: "center" },
-  { key: "packing", label: "Packing", defaultWidth: 150, minWidth: 112, maxWidth: 220 },
-  { key: "provider", label: "Proveedor", defaultWidth: 190, minWidth: 130, maxWidth: 260 },
-  { key: "price", label: "Precio", defaultWidth: 104, minWidth: 88, maxWidth: 150, align: "right" },
-  { key: "checklist", label: "Checklist", defaultWidth: 316, minWidth: 304, maxWidth: 360, align: "center" },
-  { key: "actions", label: "Acciones", defaultWidth: 210, minWidth: 190, maxWidth: 260 },
+  { key: "photo", label: "Foto", defaultWidth: 48, minWidth: 44, maxWidth: 72, required: true, align: "center" },
+  { key: "item", label: "Artículo", defaultWidth: 300, minWidth: 240, required: true },
+  { key: "quantity", label: "Cant.", defaultWidth: 52, minWidth: 46, maxWidth: 84, align: "center" },
+  { key: "price", label: "Precio", defaultWidth: 84, minWidth: 72, maxWidth: 130, align: "right" },
+  { key: "checklist", label: "Recibir · revisar · fotos · publicar", defaultWidth: 268, minWidth: 262, maxWidth: 330, align: "center" },
+  { key: "actions", label: "Acciones", defaultWidth: 172, minWidth: 168, maxWidth: 230 },
 ];
 
 const CHECKLIST_CONTROLS: Array<{ action: ShippingV2RecepcionChecklistAction; label: string; icon: LucideIcon }> = [
@@ -171,12 +173,12 @@ const receptionFilterKeys = [ALL, "pending-review", "reviewed-no-photos", "unpub
 type ReceptionFilterKey = (typeof receptionFilterKeys)[number];
 
 const receptionFilters: Array<{ key: ReceptionFilterKey; label: string; shortLabel: string }> = [
-  { key: ALL, label: "Todos", shortLabel: "Todos" },
-  { key: "pending-review", label: "Pendientes de revisión", shortLabel: "Pendientes" },
-  { key: "reviewed-no-photos", label: "Revisados sin fotos", shortLabel: "Sin fotos" },
-  { key: "unpublished", label: "Sin publicar", shortLabel: "Sin publicar" },
-  { key: "with-issue", label: "Con novedad", shortLabel: "Novedad" },
-  { key: "available", label: "Disponibles", shortLabel: "Disponible" },
+  { key: ALL, label: "Todo lo que está en Recepción", shortLabel: "Todos" },
+  { key: "pending-review", label: "Falta recibir o firmar la inspección", shortLabel: "Pendientes" },
+  { key: "reviewed-no-photos", label: "Revisados, falta tomar fotos", shortLabel: "Sin fotos" },
+  { key: "unpublished", label: "Falta alguna publicación", shortLabel: "Sin publicar" },
+  { key: "with-issue", label: "Con novedad abierta o revisión con problema", shortLabel: "Novedad" },
+  { key: "available", label: "Se pueden vender hoy", shortLabel: "Disponibles" },
 ];
 
 type ToolbarMenuKey = "filters" | "sort" | "group";
@@ -292,7 +294,7 @@ function ComercialChip({ item }: { item: ReceptionItem }) {
   if (!disponibilidad.apartable) {
     return (
       <span
-        className="shrink-0 rounded-full border border-[#FF914D]/35 bg-[#FF914D]/10 px-2 py-0.5 text-[11px] font-semibold text-[#FFB07A]"
+        className="shrink-0 rounded-full border border-[#FF914D]/35 bg-[#FF914D]/10 px-1.5 py-px text-[10.5px] font-semibold leading-4 text-[#FFB07A]"
         title={disponibilidad.detalle}
       >
         No vendible
@@ -304,7 +306,7 @@ function ComercialChip({ item }: { item: ReceptionItem }) {
   if (libres <= 0) {
     return (
       <span
-        className="shrink-0 rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/10 px-2 py-0.5 text-[11px] font-semibold text-[#C9BFFF]"
+        className="shrink-0 rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/10 px-1.5 py-px text-[10.5px] font-semibold leading-4 text-[#C9BFFF]"
         title="El artículo está bien, pero todas sus unidades están apartadas o vendidas."
         >
         Sin unidades libres
@@ -314,7 +316,7 @@ function ComercialChip({ item }: { item: ReceptionItem }) {
 
   return (
     <span
-      className="shrink-0 rounded-full border border-[#7BE495]/35 bg-[#7BE495]/10 px-2 py-0.5 text-[11px] font-semibold text-[#9FEFB3]"
+      className="shrink-0 rounded-full border border-[#7BE495]/35 bg-[#7BE495]/10 px-1.5 py-px text-[10.5px] font-semibold leading-4 text-[#9FEFB3]"
       title="Se puede apartar o vender ahora, esté donde esté el artículo."
     >
       Apartable{libres > 1 ? ` · ${libres}` : ""}
@@ -355,6 +357,7 @@ function sanitizeStoredFilters(value: unknown): ShippingV2ItemFilterState {
     tipoOperacion: sanitizeString(input.tipoOperacion, DEFAULT_ITEM_FILTERS.tipoOperacion),
     proveedorCompra: sanitizeString(input.proveedorCompra, DEFAULT_ITEM_FILTERS.proveedorCompra),
     tipoItem: sanitizeString(input.tipoItem, DEFAULT_ITEM_FILTERS.tipoItem),
+    categoria: sanitizeString(input.categoria, ALL),
   };
 }
 
@@ -481,7 +484,7 @@ function ChecklistToggle({
 }) {
   return (
     <label
-      className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-[11px] font-semibold leading-4 transition ${
+      className={`relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-[11px] font-semibold leading-4 transition ${
         checked
           ? "border-[#D7FF4F]/50 bg-[#D7FF4F]/10 text-[#D7FF4F]"
           : disabled
@@ -498,7 +501,7 @@ function ChecklistToggle({
         onChange={(event) => onChange(event.target.checked)}
         className="sr-only"
       />
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Icon className="h-4 w-4" aria-hidden="true" />}
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <Icon className="h-3.5 w-3.5" aria-hidden="true" />}
     </label>
   );
 }
@@ -538,7 +541,7 @@ function BotonInspeccion({
       <span
         title={ayudaNoAplica}
         aria-label={ayudaNoAplica}
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-dashed border-[#2A2A28] text-[11px] font-bold text-[#6E6F68]"
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-dashed border-[#2A2A28] text-[10px] font-bold text-[#6E6F68]"
       >
         N/A
       </span>
@@ -568,9 +571,9 @@ function BotonInspeccion({
       onClick={onClick}
       title={ayuda}
       aria-label={ayuda}
-      className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition disabled:cursor-not-allowed ${tono}`}
+      className={`relative inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition disabled:cursor-not-allowed ${tono}`}
     >
-      <ClipboardCheck className="h-4 w-4" aria-hidden="true" />
+      <ClipboardCheck className="h-3.5 w-3.5" aria-hidden="true" />
       {recibido && avance === "en-proceso" ? (
         <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-[#F4C95B]" aria-hidden="true" />
       ) : null}
@@ -578,52 +581,19 @@ function BotonInspeccion({
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
-  // Fase 2 (15-oct): indicadores en una línea, como en Logística.
+/** Selector compacto de filtro (Todos = sin filtro). */
+function FiltroSelect({ etiqueta, valor, opciones, onChange }: { etiqueta: string; valor: string; opciones: string[]; onChange: (valor: string) => void }) {
+  const activo = valor !== ALL;
   return (
-    <span className="inline-flex items-baseline gap-1.5 rounded-full border border-[#30312D] bg-[#11120F] px-2.5 py-0.5">
-      <span className="text-[10.5px] font-bold uppercase tracking-wide text-[#8F908A]">{label}</span>
-      <span className="text-[13px] font-semibold tabular-nums text-[#D7FF4F]">{value}</span>
-    </span>
-  );
-}
-
-function FilterGroup({
-  label,
-  values,
-  selected,
-  onChange,
-}: {
-  label: string;
-  values: string[];
-  selected: string;
-  onChange: (value: string) => void;
-}) {
-  const options = [ALL, ...values];
-
-  return (
-    <div className="min-w-0 rounded-lg border border-[#30312D] bg-[#171814] p-2">
-      <p className="text-[12px] font-bold uppercase tracking-normal text-[#8F908A]">{label}</p>
-      <div className="mt-1 flex max-h-24 flex-wrap gap-1 overflow-y-auto pr-1">
-        {options.map((value) => {
-          const active = selected === value;
-          return (
-            <button
-              key={value}
-              type="button"
-              onClick={() => onChange(value)}
-              className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[12px] font-semibold transition ${
-                active
-                  ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] shadow-lg shadow-[#D7FF4F]/10"
-                  : "border-[#3A3A36] bg-[#151613] text-[#D8D8D3] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
-              }`}
-            >
-              {value}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    <select
+      value={valor}
+      onChange={(event) => onChange(event.target.value)}
+      aria-label={etiqueta}
+      className={`h-8 w-full cursor-pointer rounded-md border bg-[#10110F] px-2 text-[12.5px] font-semibold outline-none focus:ring-2 focus:ring-[#D7FF4F]/35 ${activo ? "border-[#D7FF4F]/60 text-[#D7FF4F]" : "border-[#3A3A36] text-[#B4B5AC]"}`}
+    >
+      <option value={ALL}>{etiqueta}: {/(a|ón)$/.test(etiqueta) ? "todas" : "todos"}</option>
+      {opciones.map((opcion) => <option key={opcion} value={opcion}>{opcion}</option>)}
+    </select>
   );
 }
 
@@ -643,14 +613,14 @@ function ToolbarButton({
       type="button"
       onClick={onClick}
       title={label}
-      className={`flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg border px-2 text-[12px] font-bold transition ${
+      aria-label={label}
+      className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35 ${
         active
-          ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]"
-          : "border-[#3A3A36] bg-[#171814] text-[#A7A7A7] hover:border-[#D7FF4F]/55 hover:text-[#F5F5F5]"
+          ? "border-[#D7FF4F]/55 bg-[#D7FF4F]/10 text-[#D7FF4F]"
+          : "border-[#3A3A36] bg-[#10110F] text-[#A7A7A7] hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F]"
       }`}
     >
       {children}
-      <span className="hidden lg:inline">{label}</span>
     </button>
   );
 }
@@ -668,10 +638,10 @@ function ToolbarMenuOption<TValue extends string>({
     <button
       type="button"
       onClick={() => onSelect(option.value)}
-      className={`flex min-h-9 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm font-semibold transition ${
+      className={`flex items-center justify-between gap-3 rounded-md border px-2 py-1.5 text-left text-[13px] font-semibold transition ${
         active
-          ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]"
-          : "border-[#30312D] bg-[#171814] text-[#F5F5F5] hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F]"
+          ? "border-[#D7FF4F]/45 bg-[#D7FF4F]/10 text-[#F5F5F5]"
+          : "border-transparent text-[#A7A7A7] hover:border-[#3A3A36] hover:bg-[#171814] hover:text-[#F5F5F5]"
       }`}
     >
       <span className="min-w-0 truncate">{option.label}</span>
@@ -707,7 +677,7 @@ function ActionButton({
       aria-label={title}
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-[11px] font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${toneClass}`}
+      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-[11px] font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${toneClass}`}
     >
       {children}
     </button>
@@ -719,11 +689,11 @@ function PhotoThumb({ item, onOpen }: { item: ReceptionItem; onOpen: (item: Rece
   const hasPhotos = item.fotos.length > 0;
 
   return (
-    <div className="group relative h-11 w-11 overflow-hidden rounded-lg border border-[#3A3A36] bg-[#101010]">
+    <div className="group relative h-9 w-9 overflow-hidden rounded-md border border-[#3A3A36] bg-[#101010]">
       {photo ? (
         <img src={photo} alt="" className="h-full w-full object-cover" loading="lazy" />
       ) : (
-        <div className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-[#6E6F68]">Sin foto</div>
+        <div className="flex h-full w-full items-center justify-center text-[8.5px] font-semibold leading-none text-[#6E6F68]">Sin foto</div>
       )}
       {hasPhotos ? (
         <button
@@ -733,7 +703,7 @@ function PhotoThumb({ item, onOpen }: { item: ReceptionItem; onOpen: (item: Rece
           title="Ver fotos"
           aria-label={`Ver fotos de ${item.sku || item.nombre}`}
         >
-          <span className="grid h-7 w-7 place-items-center rounded-full border border-white/25 bg-black/45 backdrop-blur">
+          <span className="grid h-6 w-6 place-items-center rounded-full border border-white/25 bg-black/45 backdrop-blur">
             <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
           </span>
         </button>
@@ -751,7 +721,7 @@ function ColumnHeader({
 }) {
   return (
     <div
-      className={`relative flex h-9 min-w-0 items-center border-b border-[#30312D] bg-[#20211D] px-2 text-[11px] font-bold uppercase tracking-normal text-[#8F908A] ${
+      className={`relative flex h-8 min-w-0 items-center border-b border-[#2E2F28] bg-[#1A1B17] px-2 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A] ${
         column.align === "right" ? "justify-end text-right" : column.align === "center" ? "justify-center text-center" : "justify-start text-left"
       }`}
     >
@@ -761,7 +731,7 @@ function ColumnHeader({
         aria-orientation="vertical"
         aria-label={`Redimensionar columna ${column.label}`}
         onMouseDown={(event) => onResizeStart(event, column)}
-        className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none after:absolute after:right-0 after:top-1/2 after:h-5 after:w-px after:-translate-y-1/2 after:bg-transparent after:transition hover:after:bg-[#D7FF4F]/70"
+        className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none after:absolute after:right-0 after:top-1/2 after:h-4 after:w-px after:-translate-y-1/2 after:bg-[#30312D] after:transition hover:after:h-6 hover:after:bg-[#D7FF4F]/70"
       />
     </div>
   );
@@ -839,67 +809,63 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
     }
 
     if (column.key === "item") {
+      // Dos líneas: SKU y nombre; debajo, estado, si se puede apartar, revisión,
+      // novedades y de qué caja y proveedor viene.
+      const origen = [item.packingLabel, providerLabel].map((valor) => valor.trim()).filter(Boolean).join(" · ");
       return (
-        <div className="flex min-w-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onOpenDetail(item)}
-            className="shrink-0 text-left text-xs font-black text-[#D7FF4F] transition hover:text-[#E6FF83] hover:underline"
-          >
-            {display(item.sku)}
-          </button>
-          <button
-            type="button"
-            onClick={() => onOpenDetail(item)}
-            title={display(item.nombre)}
-            className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-[#F5F5F5] transition hover:text-[#D7FF4F] hover:underline"
-          >
-            {display(item.nombre)}
-          </button>
-          <span
-            className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${stateTone(item.estado)}`}
-            title={`Etapa logística: dónde está el artículo. No decide si se puede vender.`}
-          >
-            {display(item.estado)}
-          </span>
-          <ComercialChip item={item} />
-          {item.estadoRevision ? (
-            <span className={`hidden shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold 2xl:inline-flex ${stateTone(item.estadoRevision)}`} title={item.estadoRevision}>
-              {item.estadoRevision}
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-baseline gap-1.5">
+            <button
+              type="button"
+              onClick={() => onOpenDetail(item)}
+              className="shrink-0 text-left text-[12px] font-bold text-[#D7FF4F] transition hover:underline"
+            >
+              {display(item.sku)}
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenDetail(item)}
+              title={display(item.nombre)}
+              className="min-w-0 flex-1 truncate text-left text-[12.5px] font-medium text-[#F5F5F5] transition hover:text-[#D7FF4F]"
+            >
+              {display(item.nombre)}
+            </button>
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1">
+            <span
+              className={`shrink-0 rounded-full border px-1.5 py-px text-[10.5px] font-semibold leading-4 ${stateTone(item.estado)}`}
+              title="Etapa logística: dónde está el artículo. No decide si se puede vender."
+            >
+              {display(item.estado)}
             </span>
-          ) : null}
-          {item.openNovedades.length ? (
-            <span className="shrink-0 rounded-full border border-[#FF914D]/35 bg-[#FF914D]/10 px-2 py-0.5 text-[11px] font-semibold text-[#FFB07A]">
-              {item.openNovedades.length}
-            </span>
-          ) : null}
+            <ComercialChip item={item} />
+            {item.estadoRevision && normalize(item.estadoRevision) !== "recibido correctamente" && normalize(item.estadoRevision) !== "no aplica" ? (
+              <span className={`shrink-0 rounded-full border px-1.5 py-px text-[10.5px] font-semibold leading-4 ${stateTone(item.estadoRevision)}`} title={`Revisión: ${item.estadoRevision}`}>
+                {item.estadoRevision}
+              </span>
+            ) : null}
+            {item.openNovedades.length ? (
+              <span className="shrink-0 rounded-full border border-[#FF914D]/35 bg-[#FF914D]/10 px-1.5 py-px text-[10.5px] font-semibold leading-4 text-[#FFB07A]" title="Novedades abiertas">
+                {item.openNovedades.length} novedad{item.openNovedades.length === 1 ? "" : "es"}
+              </span>
+            ) : null}
+            {origen ? <span className="min-w-0 truncate text-[11px] text-[#8F908A]" title={origen}>{origen}</span> : null}
+          </div>
         </div>
       );
     }
 
-    if (column.key === "packing") {
-      return <span title={display(item.packingLabel)}>{display(item.packingLabel)}</span>;
-    }
-
     if (column.key === "quantity") {
-      return (
-        <span className="inline-flex min-w-8 justify-center rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-2 py-0.5 text-[12px] font-bold tabular-nums text-[#D7FF4F]">
-          {formatShippingV2ItemQuantity(item)}
-        </span>
-      );
-    }
-
-    if (column.key === "provider") {
-      return <span title={display(providerLabel)}>{display(providerLabel)}</span>;
+      return <span className="text-[12.5px] font-bold tabular-nums text-[#D7FF4F]">{formatShippingV2ItemQuantity(item)}</span>;
     }
 
     if (column.key === "price") {
-      return <span className="tabular-nums">{formatCurrency(item.precioVenta || item.precioVentaSugerido)}</span>;
+      return <span className="text-[12.5px] tabular-nums text-[#E6E6E1]">{formatCurrency(item.precioVenta || item.precioVentaSugerido)}</span>;
     }
 
     if (column.key === "checklist") {
       return (
-        <div className="flex min-w-0 items-center gap-1">
+        <div className="flex min-w-0 items-center justify-center gap-1">
           {CHECKLIST_CONTROLS.map(({ action, label, icon }, indice) => {
             const blockedByReceipt = action !== "received" && !received;
             const blockedByFacebookText = action === "facebook-super-geek" && Boolean(facebookSuperGeekBlockReason);
@@ -944,7 +910,7 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
       <div className="flex min-w-0 items-center gap-1">
         {venta.vendible ? (
           <span
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 text-[#D7FF4F]"
             title="En la tienda: se puede vender"
             aria-label="En la tienda: se puede vender"
           >
@@ -952,7 +918,7 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
           </span>
         ) : (
           <span
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#2A2A28] bg-[#121310] text-[#6E6F68]"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#2A2A28] bg-[#121310] text-[#6E6F68]"
             title={`Todavía no se vende: ${venta.detalle}`}
             aria-label={`Todavía no se vende: ${venta.detalle}`}
           >
@@ -976,11 +942,11 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
   }
 
   return (
-    <article className="grid min-h-14 items-center border-b border-[#30312D]/80 bg-[#171814] text-xs text-[#F5F5F5] transition hover:bg-[#CFFF3A]/[0.045]" style={{ gridTemplateColumns: columnTemplate }}>
+    <article className="grid min-h-11 items-center border-b border-[#24251F] bg-[#171814] text-xs text-[#F5F5F5] transition hover:bg-[#D7FF4F]/[0.04]" style={{ gridTemplateColumns: columnTemplate }}>
       {visibleColumns.map((column) => (
         <div
           key={column.key}
-          className={`min-w-0 overflow-hidden px-2 py-1.5 ${
+          className={`min-w-0 overflow-hidden px-2 py-1 ${
             column.align === "right" ? "text-right" : column.align === "center" ? "flex justify-center text-center" : ""
           }`}
         >
@@ -1116,34 +1082,20 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   const sortedItems = useMemo(() => sortShippingV2Items(filtered, sortBy), [filtered, sortBy]);
   const groupedItems = useMemo(() => groupShippingV2Items(sortedItems, groupBy), [groupBy, sortedItems]);
   const selectedDetailFallback = useMemo(() => receptionItems.find((item) => item.id === detailItemId) || null, [detailItemId, receptionItems]);
-  const contextHiddenColumns = useMemo(() => {
-    const hidden = new Set<ReceptionColumnKey>();
-    if (groupBy === "packing") hidden.add("packing");
-    if (groupBy === "proveedor-compra" || itemFilters.proveedorCompra !== ALL) hidden.add("provider");
-    return hidden;
-  }, [groupBy, itemFilters.proveedorCompra]);
-  const visibleColumns = useMemo(() => RECEPTION_COLUMNS.filter((column) => !contextHiddenColumns.has(column.key)), [contextHiddenColumns]);
+  const visibleColumns = RECEPTION_COLUMNS;
   const tableWidth = useMemo(() => visibleColumns.reduce((total, column) => total + columnWidths[column.key], 0), [columnWidths, visibleColumns]);
   const columnTemplate = useMemo(() => visibleColumns.map((column) => column.key === "item" ? `minmax(${columnWidths[column.key]}px, 1fr)` : `${columnWidths[column.key]}px`).join(" "), [columnWidths, visibleColumns]);
 
-  const stats = {
-    total: receptionItems.length,
-    pending: receptionItems.filter((item) => !isReceived(item) || !isReviewed(item)).length,
-    issues: receptionItems.filter((item) => item.openNovedades.length > 0 || hasBlockingReview(item)).length,
-    available: receptionItems.filter((item) => normalize(item.estado) === "disponible" || item.disponibleVenta === true).length,
-  };
+  // Rediseño 15-oct-2026: cada atajo dice cuántos tiene (antes eran 4 cifras aparte).
+  const conteos = useMemo(() => Object.fromEntries(
+    receptionFilters.map((filtroRapido) => [filtroRapido.key, filteredByItemControls.filter((item) => matchesReceptionFilter(item, filtroRapido.key)).length])
+  ) as Record<ReceptionFilterKey, number>, [filteredByItemControls]);
 
-  const activeItemFilterCount = [itemFilters.estado, itemFilters.tipoOperacion, itemFilters.proveedorCompra, itemFilters.tipoItem].filter((value) => value !== ALL).length;
-  const activeFilterCount = activeItemFilterCount + (quickFilter === ALL ? 0 : 1);
+  const activeFilterCount = [itemFilters.categoria ?? ALL, itemFilters.estado, itemFilters.tipoOperacion, itemFilters.proveedorCompra, itemFilters.tipoItem].filter((value) => value !== ALL).length;
+  const hayFiltros = activeFilterCount > 0 || Boolean(itemFilters.search.trim()) || quickFilter !== ALL;
   const sortLabel = shippingV2ItemSortOptions.find((option) => option.value === sortBy)?.label ?? "Más nuevos primero";
   const groupLabel = shippingV2ItemGroupOptions.find((option) => option.value === groupBy)?.label ?? "Sin agrupar";
   const visibleGroupCount = groupBy === "none" ? 0 : groupedItems.length;
-  const contextChips = [
-    itemFilters.proveedorCompra !== ALL ? `Proveedor: ${itemFilters.proveedorCompra}` : "",
-    groupBy !== "none" ? `Agrupado por: ${groupLabel}` : "",
-    contextHiddenColumns.has("packing") ? "Columna Packing oculta por contexto" : "",
-    contextHiddenColumns.has("provider") ? "Columna Proveedor oculta por contexto" : "",
-  ].filter(Boolean);
 
   const closeDetail = useCallback(() => {
     setDetailItemId(null);
@@ -1314,19 +1266,6 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
 
   return (
     <div className="w-full space-y-2.5">
-      <section className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-[#2E2F28] bg-[#151613] px-3 py-2">
-        <h2 className="text-[16px] font-semibold text-[#F5F5F5]">Recepción</h2>
-        <span className="text-[12.5px] text-[#8F908A]" title="Revisión física, preparación comercial y novedades de lo que ya llegó. Lo que viene en camino (y su «Llegó») está en Logística.">
-          Lo que ya llegó: recibir, revisar, fotografiar y publicar
-        </span>
-        <div className="ml-auto flex flex-wrap gap-1.5">
-          <Metric label="Items" value={stats.total} />
-          <Metric label="Pendientes" value={stats.pending} />
-          <Metric label="Novedades" value={stats.issues} />
-          <Metric label="Disponibles" value={stats.available} />
-        </div>
-      </section>
-
       {conFiltro ? (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-[#4FC3FF]/40 bg-[#4FC3FF]/[0.07] px-3 py-1.5 text-[13px] text-[#BDEAFF]">
           {filtro?.packingId ? (
@@ -1352,165 +1291,124 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
       {error ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{error}</div> : null}
       {message ? <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2.5 text-sm text-[#FFB07A]">{message}</div> : null}
 
-      <section className="relative z-40 rounded-xl border border-[#30312D] bg-[#11120F] px-2 py-1.5 shadow-xl shadow-black/15">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <div className="flex max-w-full flex-none flex-wrap items-center gap-1">
-            {receptionFilters.map((item) => (
+      {/* Una sola barra (como Artículos): atajos con su conteo, buscar, filtrar, ordenar, agrupar y anchos. */}
+      <section className="relative z-40 flex flex-wrap items-center gap-1.5 rounded-lg border border-[#2E2F28] bg-[#151613] p-1.5">
+        <div role="tablist" className="inline-flex max-w-full overflow-x-auto rounded-md border border-[#3A3A36]">
+          {receptionFilters.map((item) => {
+            const on = quickFilter === item.key;
+            return (
               <button
                 key={item.key}
                 type="button"
+                role="tab"
+                aria-selected={on}
                 onClick={() => setQuickFilter(item.key)}
                 title={item.label}
-                className={`h-7 shrink-0 whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-bold leading-none transition ${
-                  quickFilter === item.key
-                    ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]"
-                    : "border-[#3A3A36] bg-[#171814] text-[#A7A7A7] hover:border-[#D7FF4F]/55 hover:text-[#F5F5F5]"
-                }`}
+                className={`h-8 whitespace-nowrap border-r border-[#3A3A36] px-2.5 text-[12.5px] font-semibold transition last:border-r-0 ${on ? "bg-[#D7FF4F] text-[#151515]" : "bg-[#151515] text-[#B4B5AC] hover:text-[#D7FF4F]"}`}
               >
-                {item.shortLabel}
+                {item.shortLabel} <span className={`tabular-nums ${on ? "" : "text-[#8F908A]"}`}>{conteos[item.key]}</span>
               </button>
-            ))}
-          </div>
+            );
+          })}
+        </div>
 
-          <div className="ml-auto flex min-w-0 flex-1 basis-[520px] flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-            <label className="relative block min-w-[260px] flex-1 sm:max-w-[420px]">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6E6F68]" aria-hidden="true" />
-              <input
-                value={itemFilters.search}
-                onChange={(event) => updateItemFilter("search", event.target.value)}
-                placeholder="Buscar SKU, item, proveedor o packing"
-                className="h-8 w-full rounded-lg border border-[#3A3A36] bg-[#151515] pl-8 pr-3 text-[13px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70"
-              />
-            </label>
+        <label className="relative block min-w-[11rem] flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#D7FF4F]" aria-hidden="true" />
+          <input
+            value={itemFilters.search}
+            onChange={(event) => updateItemFilter("search", event.target.value)}
+            placeholder="Buscar: laptops hp, SKU, packing, proveedor…"
+            className="h-8 w-full rounded-md border border-[#3A3A36] bg-[#10110F] pl-8 pr-3 text-[13px] text-[#F5F5F5] outline-none placeholder:text-[#696A64] focus:border-[#D7FF4F]/70"
+          />
+        </label>
 
-            <div ref={toolbarRef} className="relative z-50 flex shrink-0 items-center gap-1">
-              <ToolbarButton label="Filtrar" active={activeFilterCount > 0} onClick={() => setToolbarMenuOpen((current) => current === "filters" ? null : "filters")}>
-                <ListFilter className="h-4 w-4" aria-hidden="true" />
-                {activeFilterCount ? <span className="rounded-full bg-[#151515] px-1.5 text-[10px] text-[#D7FF4F]">{activeFilterCount}</span> : null}
-              </ToolbarButton>
-              <ToolbarButton label="Ordenar" active={sortBy !== DEFAULT_SORT_BY} onClick={() => setToolbarMenuOpen((current) => current === "sort" ? null : "sort")}>
-                <ArrowDownAZ className="h-4 w-4" aria-hidden="true" />
-              </ToolbarButton>
-              <ToolbarButton label="Agrupar" active={groupBy !== DEFAULT_GROUP_BY} onClick={() => setToolbarMenuOpen((current) => current === "group" ? null : "group")}>
-                <Rows3 className="h-4 w-4" aria-hidden="true" />
-              </ToolbarButton>
+        <div ref={toolbarRef} className="relative z-50 flex shrink-0 items-center gap-1">
+          <ToolbarButton label="Filtrar" active={activeFilterCount > 0} onClick={() => setToolbarMenuOpen((current) => current === "filters" ? null : "filters")}>
+            <ListFilter className="h-4 w-4" aria-hidden="true" />
+            {activeFilterCount ? <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[#D7FF4F] px-1 text-[10px] font-black text-[#151515]">{activeFilterCount}</span> : null}
+          </ToolbarButton>
+          <ToolbarButton label={`Ordenar: ${sortLabel}`} active={sortBy !== DEFAULT_SORT_BY} onClick={() => setToolbarMenuOpen((current) => current === "sort" ? null : "sort")}>
+            <ArrowDownAZ className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
+          <ToolbarButton label={`Agrupar: ${groupLabel}`} active={groupBy !== DEFAULT_GROUP_BY} onClick={() => setToolbarMenuOpen((current) => current === "group" ? null : "group")}>
+            <Rows3 className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
+          <ToolbarButton label="Restablecer anchos de columna" onClick={resetColumnWidths}>
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+          </ToolbarButton>
 
-              {toolbarMenuOpen ? (
-                <div
-                  className={`absolute right-0 top-full z-50 mt-2 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-[#30312D] bg-[#11120F] shadow-2xl shadow-black/45 ${
-                    toolbarMenuOpen === "filters" ? "w-[min(92vw,680px)]" : "w-[min(92vw,320px)]"
-                  }`}
-                >
-                  {toolbarMenuOpen === "filters" ? (
-                    <>
-                      <div className="flex items-center justify-between gap-3 border-b border-[#30312D] px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-[#F5F5F5]">Filtros</p>
-                          <p className="mt-0.5 text-[12px] text-[#8F908A]">{activeFilterCount ? `${activeFilterCount} activos` : "Sin filtros activos"}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={resetFilters}
-                          disabled={!activeFilterCount && !itemFilters.search}
-                          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[#3A3A36] bg-[#151613] px-2.5 text-[12px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F] disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          <X className="h-3.5 w-3.5" aria-hidden="true" />
-                          Limpiar
-                        </button>
-                      </div>
-                      <div className="grid gap-2 p-2 sm:grid-cols-2">
-                        <FilterGroup label="Estado Item" values={filterOptions.estados} selected={itemFilters.estado} onChange={(value) => updateItemFilter("estado", value)} />
-                        <FilterGroup label="Tipo de operación" values={filterOptions.operaciones} selected={itemFilters.tipoOperacion} onChange={(value) => updateItemFilter("tipoOperacion", value)} />
-                        <FilterGroup label="Proveedor compra" values={filterOptions.proveedores} selected={itemFilters.proveedorCompra} onChange={(value) => updateItemFilter("proveedorCompra", value)} />
-                        <FilterGroup label="Rol general del item" values={filterOptions.tipos} selected={itemFilters.tipoItem} onChange={(value) => updateItemFilter("tipoItem", value)} />
-                      </div>
-                    </>
-                  ) : null}
-
-                  {toolbarMenuOpen === "sort" ? (
-                    <>
-                      <div className="border-b border-[#30312D] px-3 py-2">
-                        <p className="text-sm font-semibold text-[#F5F5F5]">Ordenar por</p>
-                        <p className="mt-0.5 truncate text-[12px] text-[#8F908A]">{sortLabel}</p>
-                      </div>
-                      <div className="grid max-h-[420px] gap-1 overflow-y-auto p-2">
-                        {shippingV2ItemSortOptions.map((option) => (
-                          <ToolbarMenuOption
-                            key={option.value}
-                            option={option}
-                            active={sortBy === option.value}
-                            onSelect={(value) => {
-                              setSortBy(value);
-                              setToolbarMenuOpen(null);
-                            }}
-                          />
-                        ))}
-                      </div>
-                    </>
-                  ) : null}
-
-                  {toolbarMenuOpen === "group" ? (
-                    <>
-                      <div className="border-b border-[#30312D] px-3 py-2">
-                        <p className="text-sm font-semibold text-[#F5F5F5]">Agrupar por</p>
-                        <p className="mt-0.5 truncate text-[12px] text-[#8F908A]">{groupLabel}</p>
-                      </div>
-                      <div className="grid max-h-[420px] gap-1 overflow-y-auto p-2">
-                        {shippingV2ItemGroupOptions.map((option) => (
-                          <ToolbarMenuOption
-                            key={option.value}
-                            option={option}
-                            active={groupBy === option.value}
-                            onSelect={(value) => {
-                              setGroupBy(value);
-                              setToolbarMenuOpen(null);
-                            }}
-                          />
-                        ))}
-                      </div>
-                    </>
+          {toolbarMenuOpen ? (
+            <div
+              className={`absolute right-0 top-full z-50 mt-1.5 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-[#30312D] bg-[#11120F] shadow-2xl shadow-black/45 ${
+                toolbarMenuOpen === "filters" ? "w-[min(92vw,260px)]" : "w-[min(92vw,300px)]"
+              }`}
+            >
+              {toolbarMenuOpen === "filters" ? (
+                <div className="grid gap-1.5 p-2">
+                  <FiltroSelect etiqueta="Categoría" valor={itemFilters.categoria ?? ALL} opciones={filterOptions.categorias} onChange={(value) => updateItemFilter("categoria", value)} />
+                  <FiltroSelect etiqueta="Estado" valor={itemFilters.estado} opciones={filterOptions.estados} onChange={(value) => updateItemFilter("estado", value)} />
+                  <FiltroSelect etiqueta="Operación" valor={itemFilters.tipoOperacion} opciones={filterOptions.operaciones} onChange={(value) => updateItemFilter("tipoOperacion", value)} />
+                  <FiltroSelect etiqueta="Proveedor" valor={itemFilters.proveedorCompra} opciones={filterOptions.proveedores} onChange={(value) => updateItemFilter("proveedorCompra", value)} />
+                  {hayFiltros ? (
+                    <button
+                      type="button"
+                      onClick={() => { resetFilters(); setToolbarMenuOpen(null); }}
+                      className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-[#3A3A36] text-[11.5px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F]"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      Quitar todos los filtros
+                    </button>
                   ) : null}
                 </div>
               ) : null}
+
+              {toolbarMenuOpen === "sort" ? (
+                <>
+                  <p className="border-b border-[#30312D] px-3 py-1.5 text-[13px] font-semibold text-[#F5F5F5]">Ordenar por</p>
+                  <div className="grid max-h-[420px] gap-0.5 overflow-y-auto p-1.5">
+                    {shippingV2ItemSortOptions.map((option) => (
+                      <ToolbarMenuOption
+                        key={option.value}
+                        option={option}
+                        active={sortBy === option.value}
+                        onSelect={(value) => {
+                          setSortBy(value);
+                          setToolbarMenuOpen(null);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : null}
+
+              {toolbarMenuOpen === "group" ? (
+                <>
+                  <p className="border-b border-[#30312D] px-3 py-1.5 text-[13px] font-semibold text-[#F5F5F5]">Agrupar por</p>
+                  <div className="grid max-h-[420px] gap-0.5 overflow-y-auto p-1.5">
+                    {shippingV2ItemGroupOptions.map((option) => (
+                      <ToolbarMenuOption
+                        key={option.value}
+                        option={option}
+                        active={groupBy === option.value}
+                        onSelect={(value) => {
+                          setGroupBy(value);
+                          setToolbarMenuOpen(null);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </div>
-          </div>
+          ) : null}
         </div>
+        {hayFiltros ? (
+          <button type="button" onClick={resetFilters} className="text-[11.5px] font-semibold text-[#8F908A] hover:text-[#F5F5F5]">Quitar filtros</button>
+        ) : null}
       </section>
 
-      <section className="rounded-xl border border-[#30312D] bg-[#11120F] p-2 shadow-xl shadow-black/15">
-        <div className="mb-2 flex flex-col gap-1.5 px-1 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-[#F5F5F5]">Items de recepción</h3>
-            <p className="text-[12px] text-[#8F908A]">
-              Mostrando {sortedItems.length} de {receptionItems.length}
-              {visibleGroupCount ? ` · Grupos: ${visibleGroupCount}` : ""}
-            </p>
-          </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            <span className="rounded-full border border-[#30312D] bg-[#171814] px-2.5 py-1 text-[12px] font-semibold text-[#8F908A]">Orden: {sortLabel}</span>
-            <span className="rounded-full border border-[#30312D] bg-[#171814] px-2.5 py-1 text-[12px] font-semibold text-[#8F908A]">Grupo: {groupLabel}</span>
-            <button
-              type="button"
-              onClick={resetColumnWidths}
-              className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[#3A3A36] bg-[#171814] px-2.5 text-[12px] font-semibold text-[#A7A7A7] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F]"
-            >
-              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-              Reset anchos
-            </button>
-          </div>
-        </div>
-
-        {contextChips.length ? (
-          <div className="mb-2 flex flex-wrap gap-1.5 px-1">
-            {contextChips.map((chip) => (
-              <span key={chip} className="rounded-full border border-[#D7FF4F]/25 bg-[#D7FF4F]/10 px-2.5 py-1 text-[11px] font-semibold text-[#D7FF4F]">
-                {chip}
-              </span>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="max-w-full overflow-x-auto overflow-y-visible rounded-lg border border-[#30312D] bg-[#171814]">
+      <section className="overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
+        <div className="max-w-full overflow-x-auto">
           <div className="w-full" style={{ minWidth: tableWidth }}>
             <div className="sticky top-0 z-30 grid" style={{ gridTemplateColumns: columnTemplate }}>
               {visibleColumns.map((column) => (
@@ -1520,9 +1418,8 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
             {sortedItems.length ? groupedItems.map((group) => (
               <div key={group.key}>
                 {groupBy !== "none" ? (
-                  <div className="sticky top-9 z-20 flex min-h-10 items-center justify-between gap-3 border-b border-[#30312D] bg-[#1E1F1C] px-3 py-2 shadow-lg shadow-black/20">
-                    <span className="min-w-0 truncate text-sm font-semibold text-[#F5F5F5]">{group.label}</span>
-                    <span className="rounded-full border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-2.5 py-0.5 text-[12px] font-semibold text-[#D7FF4F]">{group.items.length} items</span>
+                  <div className="sticky top-8 z-20 border-b border-[#2E2F28] bg-[#141511] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-[#B4B5AC]">
+                    {group.label} <span className="font-semibold text-[#8F908A]">· {group.items.length}</span>
                   </div>
                 ) : null}
                 {group.items.map((item) => (
@@ -1546,8 +1443,8 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
                 ))}
               </div>
             )) : (
-              <div className="px-3 py-8 text-center text-sm text-[#A7A7A7]">
-                No hay items para los filtros seleccionados.
+              <div className="px-3 py-8 text-center text-[13px] text-[#8F908A]">
+                {hayFiltros ? <>Nada coincide. <button type="button" onClick={resetFilters} className="font-semibold text-[#D7FF4F] hover:underline">Quitar filtros</button></> : "No hay nada pendiente en Recepción."}
               </div>
             )}
           </div>

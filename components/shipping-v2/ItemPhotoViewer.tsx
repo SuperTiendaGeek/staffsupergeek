@@ -12,7 +12,8 @@ type Props = {
   fotos: ShippingV2Attachment[];
   onUpdated: (item: ShippingV2Item) => void;
   canEdit?: boolean;
-  density?: "default" | "compact" | "immersive" | "thumbnail";
+  /** "hero" (15-oct-2026): la foto protagonista de la ficha del artículo. */
+  density?: "default" | "compact" | "immersive" | "thumbnail" | "hero";
 };
 
 function displayName(value?: string | null) {
@@ -39,22 +40,24 @@ export function ItemPhotoViewer({ itemId, itemName, fotos, onUpdated, canEdit = 
   // rechacen después es peor que no poder elegirlas.
   const cupoLleno = fotos.length >= MAX_FOTOS_POR_ITEM;
   const initials = displayName(itemName).slice(0, 2).toUpperCase();
-  const frameSize = density === "immersive"
+  const frameSize = density === "hero"
+    ? "aspect-square w-full max-h-[calc(100vh-8.5rem)]"
+    : density === "immersive"
     ? "min-h-[420px] h-[calc(100vh-17rem)] max-h-[820px]"
     : density === "thumbnail"
       ? "h-28 w-28"
     : density === "compact"
       ? "h-56 min-h-56"
       : "h-72 min-h-72";
-  const placeholderSize = density === "immersive"
+  const placeholderSize = density === "immersive" || density === "hero"
     ? "h-28 w-28 text-4xl"
     : density === "thumbnail"
       ? "h-12 w-12 text-lg"
     : density === "compact"
       ? "h-16 w-16 text-2xl"
       : "h-24 w-24 text-3xl";
-  const thumbnailSize = density === "immersive" ? "h-20 w-24" : density === "thumbnail" ? "h-10 w-12" : "h-16 w-20";
-  const rootSpacing = density === "thumbnail" ? "h-28 w-28 shrink-0" : "space-y-3";
+  const thumbnailSize = density === "immersive" ? "h-20 w-24" : density === "thumbnail" ? "h-10 w-12" : density === "hero" ? "h-14 w-14" : "h-16 w-20";
+  const rootSpacing = density === "thumbnail" ? "h-28 w-28 shrink-0" : density === "hero" ? "space-y-2" : "space-y-3";
   const controlsClass = density === "thumbnail"
     ? "bottom-2 right-2 gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
     : "right-3 top-3 gap-2 opacity-100 md:opacity-80 md:group-hover:opacity-100";
@@ -247,6 +250,16 @@ export function ItemPhotoViewer({ itemId, itemName, fotos, onUpdated, canEdit = 
                 {initials}
               </div>
               <p className={`${density === "thumbnail" ? "mt-2 text-[11px]" : "mt-4 text-sm"} font-medium text-[#A7A7A7]`}>Sin fotos disponibles</p>
+              {density === "hero" && canEdit && !cupoLleno ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => inputRef.current?.click()}
+                  className="mt-3 inline-flex h-8 items-center rounded-md border border-[#D7FF4F]/50 px-3 text-[12.5px] font-bold text-[#D7FF4F] transition hover:bg-[#D7FF4F] hover:text-[#151515] disabled:cursor-wait disabled:opacity-50"
+                >
+                  {busy ? "Subiendo…" : "Agregar fotos"}
+                </button>
+              ) : null}
             </div>
           </div>
         )}
@@ -303,9 +316,9 @@ export function ItemPhotoViewer({ itemId, itemName, fotos, onUpdated, canEdit = 
         ) : null}
 
         {fotos.length > 1 && density !== "thumbnail" ? (
-          <div className="absolute bottom-3 right-3 flex gap-2">
-            <button type="button" onClick={() => move(-1)} className="grid h-9 w-9 place-items-center rounded-full border border-[#3A3A36] bg-black/60 text-[#F5F5F5] backdrop-blur transition hover:border-[#D7FF4F] hover:text-[#D7FF4F]">‹</button>
-            <button type="button" onClick={() => move(1)} className="grid h-9 w-9 place-items-center rounded-full border border-[#3A3A36] bg-black/60 text-[#F5F5F5] backdrop-blur transition hover:border-[#D7FF4F] hover:text-[#D7FF4F]">›</button>
+          <div className={`absolute flex gap-2 ${density === "hero" ? "pointer-events-none inset-x-3 bottom-1/2 translate-y-1/2 justify-between opacity-100 md:opacity-0 md:transition md:group-hover:opacity-100" : "bottom-3 right-3"}`}>
+            <button type="button" aria-label="Foto anterior" onClick={() => move(-1)} className="pointer-events-auto grid h-9 w-9 place-items-center rounded-full border border-[#3A3A36] bg-black/60 text-[#F5F5F5] backdrop-blur transition hover:border-[#D7FF4F] hover:text-[#D7FF4F]">‹</button>
+            <button type="button" aria-label="Foto siguiente" onClick={() => move(1)} className="pointer-events-auto grid h-9 w-9 place-items-center rounded-full border border-[#3A3A36] bg-black/60 text-[#F5F5F5] backdrop-blur transition hover:border-[#D7FF4F] hover:text-[#D7FF4F]">›</button>
           </div>
         ) : null}
 

@@ -1,5 +1,6 @@
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import type { ShippingV2Item, ShippingV2Proveedor } from "@/types/shipping-v2";
+import { coincidenTerminos, interpretarBusqueda, terminosBusqueda } from "@/lib/shipping-v2/items-filtro";
 
 export const SHIPPING_V2_ALL_FILTER = "Todos";
 
@@ -42,6 +43,8 @@ export type ShippingV2ItemFilterState = {
   tipoOperacion: string;
   proveedorCompra: string;
   tipoItem: string;
+  /** 15-oct-2026 (Recepción): filtro por categoría. Sin valor = todas. */
+  categoria?: string;
 };
 
 export const shippingV2ItemSortOptions: Array<{ value: ShippingV2ItemSortKey; label: string }> = [
@@ -121,6 +124,7 @@ export function uniqueShippingV2ItemValues<TItem extends ShippingV2ResolvedItem>
 
 export function getShippingV2ItemFilterOptions<TItem extends ShippingV2ResolvedItem>(items: TItem[]) {
   return {
+    categorias: uniqueShippingV2ItemValues(items, (item) => item.categoria),
     estados: uniqueShippingV2ItemValues(items, (item) => item.estado),
     operaciones: uniqueShippingV2ItemValues(items, (item) => item.tipoOperacion),
     proveedores: uniqueShippingV2ItemValues(items, (item) => item.proveedorCompraDisplay),
@@ -132,8 +136,12 @@ export function filterShippingV2Items<TItem extends ShippingV2ResolvedItem>(
   items: TItem[],
   filters: ShippingV2ItemFilterState
 ) {
-  const query = normalizeShippingV2ListText(filters.search);
-  const tokens = query.split(" ").filter(Boolean);
+  // 15-oct-2026: el buscador entiende categoría y estado ("laptops sin fotos"
+  // → Categoría Laptop) y busca el comienzo de cada palabra (ver items-filtro.ts).
+  const interpretada = interpretarBusqueda(filters.search);
+  const terminos = terminosBusqueda(interpretada.resto);
+  const categoria = filters.categoria && filters.categoria !== SHIPPING_V2_ALL_FILTER ? filters.categoria : interpretada.categoria;
+  const estado = filters.estado !== SHIPPING_V2_ALL_FILTER ? filters.estado : interpretada.estado;
 
   return items.filter((item) => {
     const searchText = [
@@ -153,11 +161,13 @@ export function filterShippingV2Items<TItem extends ShippingV2ResolvedItem>(
       item.trackingEc,
       item.estado,
       item.tipoOperacion,
+      item.categoria,
     ].map((value) => normalizeShippingV2ListText(value ?? "")).join(" ");
 
     return (
-      (!query || tokens.every((token) => searchText.includes(token))) &&
-      (filters.estado === SHIPPING_V2_ALL_FILTER || item.estado === filters.estado) &&
+      (!terminos.length || coincidenTerminos(searchText, terminos)) &&
+      (!categoria || item.categoria === categoria) &&
+      (!estado || item.estado === estado) &&
       (filters.tipoOperacion === SHIPPING_V2_ALL_FILTER || item.tipoOperacion === filters.tipoOperacion) &&
       (filters.proveedorCompra === SHIPPING_V2_ALL_FILTER || item.proveedorCompraDisplay === filters.proveedorCompra) &&
       (filters.tipoItem === SHIPPING_V2_ALL_FILTER || item.tipoItem === filters.tipoItem)
