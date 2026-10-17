@@ -21,11 +21,16 @@ type Pieza = {
   estadoItem: string; observaciones: string; numeroSerie: string; tieneFacturaORecibo: boolean;
 };
 
+const EN_ESPERA = "Pieza en espera";
+
 type Resumen = {
   padreId: string; puedeDespiezar: boolean; motivoBloqueo?: string;
   estadoDespiece: string; motivo: string; costoTotalEquipo: number;
   piezas: Pieza[]; sinRepartir: number; piezasSinPrecio: string[];
   puedeCancelar: boolean; motivoNoCancelable?: string;
+  // Punto 10b (16-oct)
+  sku: string; cantidad: number; varias: boolean; completado: boolean;
+  puedeRevertir: boolean; motivoNoRevertible?: string;
 };
 
 type Borrador = {
@@ -60,6 +65,7 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState("");
   const [borrador, setBorrador] = useState<Borrador | null>(null);
+  const [motivoRevertir, setMotivoRevertir] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -96,6 +102,22 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
     }
   }
 
+  // Punto 10b: separa 1 unidad (mismo SKU, sus costos) y abre esa unidad para desarmarla.
+  async function separarUnidad() {
+    setGuardando(true); setError("");
+    try {
+      const res = await fetch(`/api/shipping-v2/items/${itemId}/despiece`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accion: "separar-unidad" }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error ?? "No se pudo separar la unidad.");
+      window.location.href = `/shipping-v2/items/${json.data.nuevoId}`;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error inesperado");
+      setGuardando(false);
+    }
+  }
+
   async function guardarBorrador() {
     if (!borrador) return;
     const base = {
@@ -118,7 +140,8 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
   const totalUnidades = resumen.piezas.reduce((s, p) => s + (p.cantidad || 1), 0);
   const totalPrecio = resumen.piezas.reduce((s, p) => s + (p.precioVenta ?? 0) * (p.cantidad || 1), 0);
   const totalCosto = resumen.piezas.reduce((s, p) => s + p.costoAsignado, 0);
-  const editable = canEdit && resumen.puedeDespiezar;
+  // Punto 10b (6a): desarmar, cancelar y revertir es solo del Administrador.
+  const editable = canEdit && esAdmin && resumen.puedeDespiezar;
 
   return (
     <div className="space-y-3">
@@ -133,15 +156,27 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
         </div>
       </div>
 
-      {!resumen.puedeDespiezar ? (
+      {resumen.varias ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#30312D] bg-[#171814] px-3 py-2 text-sm text-[#C9CAC1]">
+          <span className="min-w-0 flex-1">{resumen.cantidad} unidades en este registro. Se desarma una; las demás siguen a la venta.</span>
+          {esAdmin && canEdit ? (
+            <button type="button" disabled={guardando} onClick={() => void separarUnidad()}
+              className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-1.5 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-60">
+              {guardando ? "Separando…" : "Separar 1 unidad y desarmarla"}
+            </button>
+          ) : null}
+        </div>
+      ) : !resumen.puedeDespiezar && !resumen.completado ? (
         <p className="rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">{resumen.motivoBloqueo}</p>
+      ) : resumen.puedeDespiezar && !esAdmin ? (
+        <p className="rounded-lg border border-[#30312D] bg-[#171814] px-3 py-2 text-sm text-[#A7A7A7]">Solo un Administrador puede desarmar equipos.</p>
       ) : null}
       {error ? (
         <p className="whitespace-pre-line rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">{error}</p>
       ) : null}
 
       {/* Piezas creadas — solo lectura, para que se lean bien */}
-      <div className="overflow-x-auto rounded-lg border border-[#30312D]">
+      <div className={`overflow-x-auto rounded-lg border border-[#30312D] ${resumen.varias ? "hidden" : ""}`}>
         <table className="w-full min-w-[600px] text-sm">
           <thead>
             <tr className="border-b border-[#30312D] bg-[#171814] text-left text-[11px] uppercase tracking-normal text-[#A7A7A7]">
@@ -164,6 +199,7 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
                     <div className="text-xs text-[#696A64]">
                       {p.sku}
                       {bloqueada ? <span className="ml-2 text-[#D7FF4F]">· ya vendida</span> : null}
+                      {p.estadoItem === EN_ESPERA ? <span className="ml-2 text-[#FFD25F]" title="No se vende ni se reserva hasta completar el despiece">· en espera</span> : null}
                     </div>
                   </td>
                   <td className="px-3 py-2 text-[#A7A7A7]">{p.categoria}</td>
@@ -201,7 +237,7 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
             {resumen.piezas.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-3 py-5 text-center text-sm text-[#696A64]">
-                  Todavía no hay piezas. Cada una que agregues nace como un artículo propio, en revisión y fuera de la venta.
+                  Todavía no hay piezas. Cada una nace como un artículo propio y espera hasta completar el despiece.
                 </td>
               </tr>
             ) : null}
@@ -300,7 +336,8 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
       {editable && !borrador ? (
         <div className="flex flex-wrap justify-end gap-2">
           {resumen.puedeCancelar ? (
-            <button type="button" disabled={guardando} onClick={() => void accion({ accion: "cancelar" })}
+            <button type="button" disabled={guardando}
+              onClick={() => { if (window.confirm(`Se borrarán las ${resumen.piezas.length} pieza(s) en espera y el equipo vuelve como estaba. ¿Cancelar el despiece?`)) void accion({ accion: "cancelar" }); }}
               className="rounded-lg border border-[#3A3A36] bg-[#11120F] px-3 py-2 text-sm font-semibold text-[#A7A7A7] transition hover:border-[#FF914D]/60 hover:text-[#FFB07A] disabled:opacity-60">
               Cancelar despiece
             </button>
@@ -315,9 +352,37 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
 
       {editable && resumen.piezas.length > 0 && !borrador ? (
         <p className="text-xs leading-5 text-[#696A64]">
-          Al completar el despiece se descuenta del inventario la unidad desarmada y el equipo sale de la venta.
-          Las piezas nacen en la tienda: se venden directo, salvo las que requieren inspección técnica, que se venden al firmar su ficha en Recepción.
+          Las piezas esperan hasta completar. Al completar, el equipo sale del inventario y las piezas quedan a la venta (las que piden inspección, al firmarla).
         </p>
+      ) : null}
+
+      {/* Punto 10b (5a): revertir un despiece completado, solo Administrador. */}
+      {resumen.completado && esAdmin && canEdit && resumen.piezas.length > 0 ? (
+        resumen.puedeRevertir ? (
+          motivoRevertir === null ? (
+            <div className="flex justify-end">
+              <button type="button" disabled={guardando} onClick={() => setMotivoRevertir("")}
+                className="rounded-lg border border-[#3A3A36] bg-[#11120F] px-3 py-2 text-sm font-semibold text-[#A7A7A7] transition hover:border-[#FF914D]/60 hover:text-[#FFB07A] disabled:opacity-60">
+                Revertir despiece
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2">
+              <span className="text-sm text-[#FFB07A]">Se borran las piezas y el equipo vuelve entero a la venta.</span>
+              <input value={motivoRevertir} onChange={(e) => setMotivoRevertir(e.target.value)} placeholder="Motivo"
+                className="h-8 min-w-[160px] flex-1 rounded-lg border border-[#3A3A36] bg-[#151515] px-2 text-sm text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/70" />
+              <button type="button" disabled={guardando} onClick={() => setMotivoRevertir(null)}
+                className="rounded-lg border border-[#3A3A36] px-3 py-1.5 text-sm text-[#A7A7A7]">Volver</button>
+              <button type="button" disabled={guardando || !motivoRevertir.trim()}
+                onClick={async () => { if (await accion({ accion: "revertir", motivo: motivoRevertir })) setMotivoRevertir(null); }}
+                className="rounded-lg border border-[#FF914D] bg-[#FF914D] px-3 py-1.5 text-sm font-bold text-[#151515] disabled:opacity-60">
+                {guardando ? "Revirtiendo…" : "Revertir"}
+              </button>
+            </div>
+          )
+        ) : resumen.motivoNoRevertible ? (
+          <p className="text-right text-xs text-[#696A64]" title={resumen.motivoNoRevertible}>No se puede revertir: hay piezas vendidas, reservadas o usadas.</p>
+        ) : null
       ) : null}
     </div>
   );

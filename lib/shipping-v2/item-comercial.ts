@@ -110,6 +110,8 @@ const ESTADOS_CON_PROBLEMA = new Set([
   // 11-oct: nuevo nombre de lo perdido.
   "extraviado",
   "en garantia con proveedor",
+  // Punto 10b (4a, 16-oct): pieza de un despiece que todavía no se completa.
+  "pieza en espera",
 ]);
 
 export const MENSAJE_BLOQUEO_COMERCIAL: Record<MotivoBloqueoComercial, string> = {

@@ -7,6 +7,8 @@ import {
   construirInputPiezaDespiece,
   evaluarSiSePuedeDespiezar,
   puedeCancelarseDespiece,
+  puedeRevertirseDespiece,
+  ESTADO_PIEZA_EN_ESPERA,
   type NuevaPiezaInput,
   type PiezaDespiece,
   type ResumenDespiece,
@@ -250,6 +252,8 @@ import {
   staffShippingV2Access,
   systemShippingV2Access,
 } from "@/lib/shipping-v2/access";
+import { evaluarSerie, normalizarSerie } from "@/lib/shipping-v2/unidades-serie";
+import { camposOriginalTrasSeparar, camposUnidadSeparada, evaluarSepararUnidad } from "@/lib/shipping-v2/separar-unidad";
 import { camposArticuloFueraDeCaja, evaluarCancelarCaja } from "@/lib/shipping-v2/cancelar-caja";
 import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
 import { calculateShippingV2BatteryState, shippingV2CategoryDoesNotUseScreenOrBattery, shippingV2CategoryHasBattery } from "@/lib/shipping-v2/technical-sheet";
@@ -2466,6 +2470,31 @@ export async function getShippingV2ItemById(recordId: string, options: MapItemOp
   return sanitizeShippingV2ItemForAccess(item, options.access, options);
 }
 
+/**
+ * Punto 10b (17-oct): la serie identifica a un equipo, así que no se repite en
+ * todo el inventario. Devuelve la serie limpia para guardarla, o falla con un
+ * mensaje que dice quién ya la tiene.
+ */
+async function validarSerieParaGuardar(valor: string, itemIdPropio?: string): Promise<string> {
+  const serie = normalizarSerie(valor);
+  const buscar = serie.replace(/'/g, "");
+  const otros = buscar
+    ? await listRecords(SHIPPING_V2_TABLES.items, {
+      maxRecords: 3,
+      fields: [getOfficialSkuField(), SHIPPING_V2_ITEM_FIELDS.numeroSerie],
+      filterByFormula: `UPPER(SUBSTITUTE({${SHIPPING_V2_ITEM_FIELDS.numeroSerie}}," ",""))='${escapeFormulaString(buscar)}'`,
+    })
+    : [];
+  const duenios = new Map(
+    otros
+      .filter((r) => r.id !== itemIdPropio)
+      .map((r) => [normalizarSerie(firstString(r.fields[SHIPPING_V2_ITEM_FIELDS.numeroSerie])), firstString(r.fields[getOfficialSkuField()]) || r.id] as [string, string])
+  );
+  const evaluacion = evaluarSerie(serie, duenios);
+  if (!evaluacion.ok) throw new Error(evaluacion.motivo);
+  return evaluacion.serie;
+}
+
 export async function findShippingV2ItemBySku(skuValue: string) {
   assertShippingV2GeneratedSchema();
   const sku = normalizeSku(cleanString(skuValue));
@@ -3022,8 +3051,12 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
     normalizedValue > 0 &&
     !paymentLinkedIdsForItem(existing).length &&
     (compradasActual === 0 || compradasActual === Number(existing.cantidad));
+  // Punto 10b: la serie se guarda limpia (sin "S/N", en mayúsculas) y no se repite.
+  const serieValidada = field === SHIPPING_V2_ITEM_FIELDS.numeroSerie && cleanString(normalizedValue)
+    ? await validarSerieParaGuardar(cleanString(normalizedValue), id)
+    : null;
   const fields: Record<string, unknown> = {
-    [field]: field === getOfficialSkuField() ? normalizeSku(cleanString(normalizedValue)) : normalizedValue,
+    [field]: field === getOfficialSkuField() ? normalizeSku(cleanString(normalizedValue)) : serieValidada ?? normalizedValue,
     ...(corrigeCompradas ? { [SHIPPING_V2_ITEM_FIELDS.unidadesCompradas]: normalizedValue } : {}),
     ...logisticsFlowFields,
     ...inspeccionFlowFields,
@@ -3073,9 +3106,14 @@ async function createShippingV2ItemRecord(
     registradoPor: string;
     eventDescription?: string;
     extraFields?: Record<string, unknown>;
+    typecast?: boolean;
   }
 ) {
   const sku = await resolveOfficialSkuForCreate(input);
+  // Punto 10b: la serie, si viene, se guarda limpia y no se repite.
+  if (cleanString(input.numeroSerie)) {
+    input = { ...input, numeroSerie: await validarSerieParaGuardar(cleanString(input.numeroSerie)) };
+  }
   const fields = getItemFields(input, {
     [getOfficialSkuField()]: sku,
     [SHIPPING_V2_ITEM_FIELDS.metodoAsignacionSku]: undefined,
@@ -3088,7 +3126,7 @@ async function createShippingV2ItemRecord(
 
   const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
     method: "POST",
-    body: JSON.stringify({ records: [{ fields }] }),
+    body: JSON.stringify({ records: [{ fields }], ...(options.typecast ? { typecast: true } : {}) }),
   });
 
   const created = response.records?.[0];
@@ -3496,6 +3534,10 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   // completa conserva lo que había (antes podía reescribirlos — F-8).
   normalizedInput.estado = existing.estado ?? "";
   normalizedInput.estadoRevision = existing.estadoRevision ?? "";
+  // Punto 10b: una serie nueva o cambiada se guarda limpia y no se repite.
+  if (cleanString(normalizedInput.numeroSerie) && normalizarSerie(normalizedInput.numeroSerie) !== normalizarSerie(existing.numeroSerie)) {
+    normalizedInput.numeroSerie = await validarSerieParaGuardar(cleanString(normalizedInput.numeroSerie), id);
+  }
   normalizedInput.reservado = existing.reservado === true;
   normalizedInput.disponibleVenta = existing.disponibleVenta === true;
 
@@ -8060,10 +8102,21 @@ async function leerRegistroItem(id: string) {
   return airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`);
 }
 
+/** Punto 10b (decisión 6a, 16-oct): desarmar, cancelar o revertir es solo del Administrador. */
+function assertAdminDespiece(access?: ShippingV2AccessContext) {
+  if (access?.isSiteAdmin !== true) throw new Error("Solo un Administrador puede desarmar equipos.");
+}
+
+/** Vínculos que significan que una pieza ya está comprometida o se usó. */
+const VINCULOS_PIEZA_EN_USO = ["Reservas", "Shipping Intervenciones", "Orden de Reparación (Stock)", "Presupuesto por Orden", "Operación Comercial"];
+
 function mapPiezaDespiece(record: AirtableRecord): PiezaDespiece {
   const F = SHIPPING_V2_ITEM_FIELDS;
   const f = record.fields;
   return {
+    cantidadReservada: firstNumber(f[F.cantidadReservada]) ?? 0,
+    enUso: VINCULOS_PIEZA_EN_USO.some((campo) => linkedRecordIds(f[campo]).length > 0),
+    requiereInspeccion: firstBoolean(f[F.requiereInspeccion]) === true,
     id: record.id,
     sku: firstString(f[F.sku]),
     nombre: firstString(f[F.nombre]),
@@ -8111,9 +8164,18 @@ export async function getResumenDespiece(
   });
   const reparto = calcularRepartoParaPiezas(costoTotalEquipo, piezas);
   const cancelacion = puedeCancelarseDespiece(piezas);
+  const estadoDespiece = firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoDespiece]) || "No aplica";
+  const completado = estadoDespiece === "Despiece completo" || estadoDespiece === "Despiece parcial";
+  const reversion = puedeRevertirseDespiece(piezas);
 
   return {
     padreId: id,
+    sku: firstString(f[SHIPPING_V2_ITEM_FIELDS.sku]),
+    cantidad: firstNumber(f[SHIPPING_V2_ITEM_FIELDS.cantidad]) ?? 0,
+    varias: !evaluacion.puede && evaluacion.motivo === "varias-unidades",
+    completado,
+    puedeRevertir: completado && piezas.length > 0 && reversion.puede,
+    motivoNoRevertible: reversion.mensaje,
     puedeDespiezar: evaluacion.puede,
     motivoBloqueo: evaluacion.puede ? undefined : evaluacion.mensaje,
     estadoDespiece: firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoDespiece]) || "No aplica",
@@ -8125,7 +8187,7 @@ export async function getResumenDespiece(
     })),
     sinRepartir: reparto.sinRepartir,
     piezasSinPrecio: reparto.piezasSinPrecio,
-    puedeCancelar: piezas.length > 0 && cancelacion.puede,
+    puedeCancelar: !completado && piezas.length > 0 && cancelacion.puede,
     motivoNoCancelable: cancelacion.mensaje,
   };
 }
@@ -8152,7 +8214,7 @@ export async function crearPiezaDespiece(
   input: NuevaPiezaInput & { padreId: string },
   options: { registradoPor: string; access?: ShippingV2AccessContext }
 ) {
-  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
+  assertAdminDespiece(options.access);
   const padreId = cleanString(input.padreId);
   if (!padreId) throw new Error("Record ID del equipo padre inválido.");
 
@@ -8167,19 +8229,30 @@ export async function crearPiezaDespiece(
     tipoOperacion: firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.tipoOperacion]),
   });
 
-  const pieza = await createShippingV2ItemRecord(itemInput as ShippingV2ItemWriteInput, {
+  // Punto 10b (4a): la pieza nace "en espera" y sin venta hasta completar.
+  const pieza = await createShippingV2ItemRecord({ ...itemInput, estado: ESTADO_PIEZA_EN_ESPERA, disponibleVenta: false } as ShippingV2ItemWriteInput, {
     registradoPor: options.registradoPor,
-    eventDescription: `Pieza recuperada del despiece de ${firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.sku])}.`,
+    eventDescription: `Pieza recuperada del despiece de ${firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.sku])}. En espera hasta completar el despiece.`,
     // La pieza sale de un equipo que ya está en la tienda: nace recibida.
     extraFields: { [CAMPO_ITEM_PADRE]: [padreId], "Es parte recuperada": true, [SHIPPING_V2_ITEM_FIELDS.recibido]: true },
+    // Crea la opción "Pieza en espera" la primera vez.
+    typecast: true,
   });
 
-  // El equipo entra en "Despiece en proceso" en cuanto nace la primera pieza.
+  // El equipo entra en "Despiece en proceso" en cuanto nace la primera pieza,
+  // y deja de venderse: ya lo están desarmando (punto 10b).
   if (resumen.estadoDespiece !== "Despiece en proceso") {
     await airtableMutation(tableUrl(SHIPPING_V2_TABLES.items), {
       method: "PATCH",
       body: JSON.stringify({
-        records: [{ id: padreId, fields: { [SHIPPING_V2_ITEM_FIELDS.estadoDespiece]: "Despiece en proceso" } }],
+        records: [{
+          id: padreId,
+          fields: {
+            [SHIPPING_V2_ITEM_FIELDS.estadoDespiece]: "Despiece en proceso",
+            [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Destinado a partes",
+            [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: false,
+          },
+        }],
       }),
     });
   }
@@ -8195,7 +8268,7 @@ export async function borrarPiezaDespiece(
   input: { padreId: string; piezaId: string },
   options: { registradoPor: string; access?: ShippingV2AccessContext }
 ) {
-  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
+  assertAdminDespiece(options.access);
   const padreId = cleanString(input.padreId);
   const piezaId = cleanString(input.piezaId);
   if (!padreId || !piezaId) throw new Error("Identificadores inválidos.");
@@ -8236,7 +8309,7 @@ export async function editarPiezaDespiece(
   },
   options: { registradoPor: string; access?: ShippingV2AccessContext; esAdmin?: boolean }
 ) {
-  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
+  assertAdminDespiece(options.access);
   const padreId = cleanString(input.padreId);
   const piezaId = cleanString(input.piezaId);
   if (!padreId || !piezaId) throw new Error("Identificadores inválidos.");
@@ -8283,17 +8356,44 @@ export async function editarPiezaDespiece(
   return getResumenDespiece(padreId, options.access);
 }
 
+/** Borra registros de Shipping Items (de a 10, el máximo de Airtable por llamada). */
+async function borrarRegistrosItems(ids: string[]) {
+  for (let i = 0; i < ids.length; i += 10) {
+    const lote = ids.slice(i, i + 10);
+    const query = lote.map((rid) => `records[]=${encodeURIComponent(rid)}`).join("&");
+    await airtableMutation(`${tableUrl(SHIPPING_V2_TABLES.items)}?${query}`, { method: "DELETE" });
+  }
+}
+
+/**
+ * Etiqueta con la que el equipo vuelve a la tienda al cancelar o revertir su
+ * despiece: la de antes de desarmarlo. Si lo mandó a despiece una novedad,
+ * sigue "Destinado a partes". Si no, "Disponible", o "En revisión" si su
+ * categoría pide inspección y nunca se firmó (no se pide una inspección nueva:
+ * decisión 5a del 16-oct).
+ */
+async function estadoAlVolverDelDespiece(padreId: string, f: Record<string, unknown>): Promise<string> {
+  const novedades = await getShippingV2NovedadesForItem(padreId, systemShippingV2Access()).catch(() => []);
+  if (novedades.some((n) => normalizeStatus(n.decision ?? "") === "va a despiece")) return "Destinado a partes";
+  const requiere = firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.requiereInspeccion]) === true;
+  const firmada = firstBoolean(f["Revisado física/técnicamente"]) === true;
+  return requiere && !firmada ? "En revisión" : "Disponible";
+}
+
 /**
  * Cierra el despiece: descuenta la unidad desarmada del equipo padre y lo saca
  * de la venta. Es la tercera forma legítima de reducir inventario —junto a la
  * factura y el recibo— y la única que no es una venta: el equipo no se vendió,
  * cambió de forma. Por eso no genera ningún movimiento financiero.
+ *
+ * Punto 10b (4a): recién aquí las piezas dejan de estar "en espera" y pasan a
+ * "En revisión" (si su categoría pide inspección) o "Disponible".
  */
 export async function completarDespiece(
   input: { padreId: string; completo: boolean; motivo?: string },
   options: { registradoPor: string; access?: ShippingV2AccessContext }
 ) {
-  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
+  assertAdminDespiece(options.access);
   const padreId = cleanString(input.padreId);
   if (!padreId) throw new Error("Record ID del equipo padre inválido.");
 
@@ -8334,13 +8434,32 @@ export async function completarDespiece(
       }),
     });
 
+    // Las piezas salen de la espera.
+    const enEspera = resumen.piezas.filter((p) => normalizeStatus(p.estadoItem) === normalizeStatus(ESTADO_PIEZA_EN_ESPERA));
+    if (enEspera.length) {
+      await patchAirtableRecords(SHIPPING_V2_TABLES.items, enEspera.map((p) => ({
+        id: p.id,
+        fields: {
+          [SHIPPING_V2_ITEM_FIELDS.estadoItem]: p.requiereInspeccion ? "En revisión" : "Disponible",
+          [SHIPPING_V2_ITEM_FIELDS.estadoRevision]: p.requiereInspeccion ? "Recibido pendiente de revisión" : "Recibido correctamente",
+          [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+          [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
+        },
+      })));
+      for (const p of enEspera) {
+        await recalcularDisponibilidadItem(p.id, options.registradoPor).catch((error) =>
+          console.error("No se pudo recalcular la pieza al completar el despiece:", p.sku, error)
+        );
+      }
+    }
+
     await createShippingV2Event({
       action: "Cambio de estado",
       entity: "Shipping Item",
       itemRecordId: padreId,
       itemName: firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.nombre]),
       registradoPor: options.registradoPor,
-      descripcion: `${cierre.estadoDespiecePadre}: se recuperaron ${resumen.piezas.length} pieza(s). La unidad desarmada se descontó del inventario.`,
+      descripcion: `${cierre.estadoDespiecePadre}: se recuperaron ${resumen.piezas.length} pieza(s), ya disponibles. La unidad desarmada se descontó del inventario.`,
       estadoAnterior,
       estadoNuevo: cierre.estadoItemPadre,
     });
@@ -8350,36 +8469,173 @@ export async function completarDespiece(
   });
 }
 
-/** Deshace el despiece. Solo si ninguna pieza salió ya del inventario. */
+/**
+ * Cancela un despiece EN PROCESO (decisión 5a): borra las piezas en espera y
+ * el equipo vuelve como estaba. Un despiece ya completado se revierte con
+ * revertirDespiece.
+ */
 export async function cancelarDespiece(
   input: { padreId: string },
   options: { registradoPor: string; access?: ShippingV2AccessContext }
 ) {
-  assertShippingV2Permission(options.access, "canEditItems", "No tienes permiso para despiezar artículos.");
+  assertAdminDespiece(options.access);
   const padreId = cleanString(input.padreId);
   if (!padreId) throw new Error("Record ID del equipo padre inválido.");
 
-  const resumen = await getResumenDespiece(padreId, options.access);
-  const cancelacion = puedeCancelarseDespiece(resumen.piezas);
-  if (!cancelacion.puede) throw new Error(cancelacion.mensaje ?? "No se puede cancelar este despiece.");
+  return withLock(`shipping-item:${padreId}`, async () => {
+    const resumen = await getResumenDespiece(padreId, options.access);
+    if (resumen.completado) throw new Error("El despiece ya se completó: usa \"Revertir despiece\".");
+    const cancelacion = puedeCancelarseDespiece(resumen.piezas);
+    if (!cancelacion.puede) throw new Error(cancelacion.mensaje ?? "No se puede cancelar este despiece.");
 
-  await airtableMutation(tableUrl(SHIPPING_V2_TABLES.items), {
-    method: "PATCH",
-    body: JSON.stringify({
-      records: [{ id: padreId, fields: { [SHIPPING_V2_ITEM_FIELDS.estadoDespiece]: "Cancelado" } }],
-    }),
+    const padreRecord = await leerRegistroItem(padreId);
+    const estadoAnterior = firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.estadoItem]);
+    const estadoNuevo = await estadoAlVolverDelDespiece(padreId, padreRecord.fields);
+    await borrarRegistrosItems(resumen.piezas.map((p) => p.id));
+    await airtableMutation(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({
+        records: [{
+          id: padreId,
+          fields: {
+            [SHIPPING_V2_ITEM_FIELDS.estadoDespiece]: "Cancelado",
+            [SHIPPING_V2_ITEM_FIELDS.estadoItem]: estadoNuevo,
+            [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+            [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
+          },
+        }],
+      }),
+    });
+    await recalcularDisponibilidadItem(padreId, options.registradoPor).catch((error) =>
+      console.error("No se pudo recalcular el equipo al cancelar el despiece:", error)
+    );
+    await createShippingV2Event({
+      action: "Cambio de estado",
+      entity: "Shipping Item",
+      itemRecordId: padreId,
+      itemName: firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.nombre]),
+      registradoPor: options.registradoPor,
+      descripcion: `Despiece cancelado: se borraron ${resumen.piezas.length} pieza(s) en espera (${resumen.piezas.map((p) => p.sku).join(", ") || "ninguna"}).`,
+      estadoAnterior,
+      estadoNuevo,
+    });
+    invalidateShippingV2ItemSearchIndexCache();
+    return getResumenDespiece(padreId, options.access);
   });
+}
 
-  await createShippingV2Event({
-    action: "Cambio de estado",
-    entity: "Shipping Item",
-    itemRecordId: padreId,
-    registradoPor: options.registradoPor,
-    descripcion: `Despiece cancelado. Las ${resumen.piezas.length} pieza(s) creadas siguen existiendo como artículos independientes.`,
+/**
+ * Revierte un despiece YA COMPLETADO (decisión 5a, solo Administrador): si
+ * ninguna pieza se vendió, reservó o usó, se borran las piezas y el equipo
+ * vuelve a existir entero, directo a la venta (sin inspección nueva).
+ */
+export async function revertirDespiece(
+  input: { padreId: string; motivo?: string },
+  options: { registradoPor: string; access?: ShippingV2AccessContext }
+) {
+  assertAdminDespiece(options.access);
+  const padreId = cleanString(input.padreId);
+  if (!padreId) throw new Error("Record ID del equipo padre inválido.");
+  const motivo = cleanString(input.motivo);
+  if (!motivo) throw new Error("Escribe el motivo para revertir el despiece.");
+
+  return withLock(`shipping-item:${padreId}`, async () => {
+    const resumen = await getResumenDespiece(padreId, options.access);
+    if (!resumen.completado) throw new Error("Este despiece no está completado: usa \"Cancelar despiece\".");
+    const reversion = puedeRevertirseDespiece(resumen.piezas);
+    if (!reversion.puede) throw new Error(reversion.mensaje ?? "No se puede revertir este despiece.");
+
+    const padreRecord = await leerRegistroItem(padreId);
+    const estadoAnterior = firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.estadoItem]);
+    const estadoNuevo = await estadoAlVolverDelDespiece(padreId, padreRecord.fields);
+    await borrarRegistrosItems(resumen.piezas.map((p) => p.id));
+    await airtableMutation(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({
+        records: [{
+          id: padreId,
+          fields: {
+            [SHIPPING_V2_ITEM_FIELDS.cantidad]: 1,
+            [SHIPPING_V2_ITEM_FIELDS.estadoDespiece]: "Cancelado",
+            [SHIPPING_V2_ITEM_FIELDS.estadoItem]: estadoNuevo,
+            [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+            [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
+          },
+        }],
+      }),
+    });
+    await recalcularDisponibilidadItem(padreId, options.registradoPor).catch((error) =>
+      console.error("No se pudo recalcular el equipo al revertir el despiece:", error)
+    );
+    await createShippingV2Event({
+      action: "Cambio de estado",
+      entity: "Shipping Item",
+      itemRecordId: padreId,
+      itemName: firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.nombre]),
+      registradoPor: options.registradoPor,
+      descripcion: `Despiece revertido por Administrador: se borraron ${resumen.piezas.length} pieza(s) (${resumen.piezas.map((p) => p.sku).join(", ")}) y el equipo vuelve entero.`,
+      estadoAnterior,
+      estadoNuevo,
+      observacion: motivo,
+    });
+    invalidateShippingV2ItemSearchIndexCache();
+    return getResumenDespiece(padreId, options.access);
   });
+}
 
-  invalidateShippingV2ItemSearchIndexCache();
-  return getResumenDespiece(padreId, options.access);
+/**
+ * Separa UNA unidad de un registro con varias (punto 10b): nace un registro
+ * nuevo con el MISMO SKU, 1 unidad y su parte exacta de costos; el original
+ * queda con una menos. Primero se crea la nueva y después se descuenta del
+ * original: si algo falla, no se pierde ninguna unidad. Ver separar-unidad.ts.
+ */
+export async function separarUnaUnidadShippingV2(
+  itemId: string,
+  options: { actor: string; access?: ShippingV2AccessContext; motivo?: string }
+): Promise<{ nuevoId: string; sku: string; mensaje: string }> {
+  const id = cleanString(itemId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  return withLock(`shipping-item:${id}`, async () => {
+    const original = await leerRegistroItem(id);
+    const f = original.fields;
+    const F = SHIPPING_V2_ITEM_FIELDS;
+    const evaluacion = evaluarSepararUnidad({
+      cantidad: firstNumber(f[F.cantidad]),
+      cantidadReservada: firstNumber(f[F.cantidadReservada]),
+      reservado: firstBoolean(f[F.reservado]),
+      estado: firstString(f[F.estadoItem]),
+      usoLocal: firstBoolean(f[F.esUsoLocal]),
+    }, { esAdministrador: options.access?.isSiteAdmin === true });
+    if (!evaluacion.ok) throw new Error(evaluacion.motivo);
+
+    const sku = firstString(f[F.sku]);
+    const total = firstNumber(f[F.cantidad]) ?? 0;
+    const motivo = cleanString(options.motivo);
+    const nota = `Unidad separada de ${sku} (${total} → ${total - 1}) el ${new Date().toISOString().slice(0, 10)}${motivo ? `: ${motivo}` : ""}.`;
+    const ahora = new Date().toISOString();
+    const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "POST",
+      body: JSON.stringify({ records: [{ fields: camposUnidadSeparada(f, { nota, actor: options.actor, ahora }) }] }),
+    });
+    const creado = response.records?.[0];
+    if (!creado) throw new Error("Airtable no devolvió la unidad separada.");
+    try {
+      await airtableMutation(tableUrl(SHIPPING_V2_TABLES.items), {
+        method: "PATCH",
+        body: JSON.stringify({ records: [{ id, fields: camposOriginalTrasSeparar(f, { actor: options.actor, ahora }) }] }),
+      });
+    } catch (error) {
+      console.error("CRÍTICO: se creó la unidad separada pero no se descontó del original:", { sku, nuevo: creado.id }, error);
+      throw new Error(`Se creó la unidad nueva de ${sku}, pero no se pudo descontar del registro original. Corrige su cantidad a mano (${total - 1}).`);
+    }
+    await recalcularDisponibilidadItem(id, options.actor).catch((error) => console.error("No se pudo recalcular el original:", error));
+    await recalcularDisponibilidadItem(creado.id, options.actor).catch((error) => console.error("No se pudo recalcular la unidad separada:", error));
+    const nombre = firstString(f[F.nombre]);
+    await createShippingV2Event({ action: "Creado", itemRecordId: creado.id, itemName: nombre, registradoPor: options.actor, descripcion: nota });
+    await createShippingV2Event({ action: "Actualizado", itemRecordId: id, itemName: nombre, registradoPor: options.actor, descripcion: `Se separó 1 unidad en un registro propio (mismo SKU). Quedan ${total - 1}.`, observacion: motivo || undefined });
+    invalidateShippingV2ItemSearchIndexCache();
+    return { nuevoId: creado.id, sku, mensaje: `Se separó 1 unidad de ${sku}. El registro original queda con ${total - 1}.` };
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
