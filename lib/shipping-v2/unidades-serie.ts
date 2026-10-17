@@ -125,6 +125,44 @@ export function separarSeries(texto?: string | null): string[] {
   return salida;
 }
 
+// ─── Direcciones de la unidad (decisión del 17-oct) ──────────────────────────
+
+/** Un id de registro de Airtable ("rec" + 14 letras o números). */
+export function esIdRegistro(valor?: string | null): boolean {
+  return /^rec[A-Za-z0-9]{14}$/.test(String(valor ?? ""));
+}
+
+/** Cómo se nombra la unidad en su dirección: su serie, o el id del registro si todavía no tiene. */
+export function claveUnidad(item: { id: string; numeroSerie?: string | null }): string {
+  return normalizarSerie(item.numeroSerie) || item.id;
+}
+
+export type PaginaUnidad = "inspeccion" | "ficha" | "ficha/print";
+
+/**
+ * Inspección y ficha viven en el artículo, no en Recepción:
+ * /shipping-v2/items/LAP-000500/u/7HX2KQ3/inspeccion. `desde: "recepcion"`
+ * hace que "volver" regrese a la cola de Recepción.
+ */
+export function rutaUnidad(
+  item: { id: string; sku?: string | null; numeroSerie?: string | null },
+  pagina: PaginaUnidad,
+  opciones: { desde?: "recepcion"; imprimir?: boolean } = {}
+): string {
+  const sku = String(item.sku ?? "").trim() || item.id;
+  const query = new URLSearchParams();
+  if (opciones.desde) query.set("desde", opciones.desde);
+  if (opciones.imprimir) query.set("print", "1");
+  const q = query.toString();
+  return `/shipping-v2/items/${encodeURIComponent(sku)}/u/${encodeURIComponent(claveUnidad(item))}/${pagina}${q ? `?${q}` : ""}`;
+}
+
+/** ¿La dirección usada es la de esta unidad? (si cambió su SKU o ya tiene serie, se corrige). */
+export function esRutaDeUnidad(item: { id: string; sku?: string | null; numeroSerie?: string | null }, skuRuta: string, claveRuta: string): boolean {
+  const sku = String(item.sku ?? "").trim() || item.id;
+  return sku.toUpperCase() === String(skuRuta).trim().toUpperCase() && claveUnidad(item) === (esIdRegistro(claveRuta) ? claveRuta : normalizarSerie(claveRuta));
+}
+
 /** Cómo se nombra una unidad en pantallas y documentos: "LAP-000500 · S/N 7HX2KQ3". */
 export function nombreUnidad(sku: string, serie?: string | null): string {
   const s = normalizarSerie(serie);

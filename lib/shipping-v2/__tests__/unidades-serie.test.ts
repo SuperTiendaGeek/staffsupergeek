@@ -11,6 +11,9 @@ import {
   nombreUnidad,
   normalizarSerie,
   evaluarSkuCompartido,
+  esIdRegistro,
+  esRutaDeUnidad,
+  rutaUnidad,
   planDeFila,
   seguimientoDe,
   seguimientoParaGuardar,
@@ -101,6 +104,19 @@ assert(!planDeFila({ seguimiento: "Unidad", cantidad: 2, series: ["A1234", "a123
 assert(evaluarSkuCompartido({ sku: "LAP-000500", categoria: "Laptop" }, { categoria: "Laptop" }) === null, "Misma categoría → se puede sumar");
 assert(evaluarSkuCompartido({ sku: "LAP-000500", categoria: "Laptop" }, { categoria: "Monitor" }) !== null, "Otra categoría → no");
 assert(evaluarSkuCompartido({ sku: "MON-000034", categoria: "Monitor", usoLocal: true }, { categoria: "Monitor" }) !== null, "Activo con mercadería → no");
+
+console.log("\n— Direcciones de la unidad (10b-4) —");
+const laptop = { id: "recAbCdEfGh123456", sku: "LAP-000500", numeroSerie: "7hx2kq3" };
+assert(esIdRegistro(laptop.id) && !esIdRegistro("7HX2KQ3"), "Reconoce un id de registro");
+assert(rutaUnidad(laptop, "inspeccion") === "/shipping-v2/items/LAP-000500/u/7HX2KQ3/inspeccion", "Inspección por SKU y serie");
+assert(rutaUnidad(laptop, "ficha", { desde: "recepcion" }) === "/shipping-v2/items/LAP-000500/u/7HX2KQ3/ficha?desde=recepcion", "Desde Recepción");
+assert(rutaUnidad(laptop, "ficha/print", { imprimir: true }).endsWith("/ficha/print?print=1"), "Imprimir");
+const sinSerie = { id: "recZZZZZZZZZZZZZZ", sku: "LAP-000500" };
+assert(rutaUnidad(sinSerie, "inspeccion") === "/shipping-v2/items/LAP-000500/u/recZZZZZZZZZZZZZZ/inspeccion", "Sin serie: el id del registro");
+assert(esRutaDeUnidad(laptop, "lap-000500", "7HX2KQ3") && esRutaDeUnidad(sinSerie, "LAP-000500", "recZZZZZZZZZZZZZZ"), "Dirección correcta");
+assert(!esRutaDeUnidad(laptop, "LAP-000500", laptop.id), "Ya tiene serie: la dirección con el id se corrige");
+assert(!esRutaDeUnidad(laptop, "LAP-000999", "7HX2KQ3"), "Cambió el SKU (fusión): se corrige");
+assert(rutaUnidad({ id: "recAAAAAAAAAAAAAA", sku: "CEL-000001", numeroSerie: "AB/12" }, "ficha").includes("/u/AB%2F12/"), "Serie con barra va codificada");
 
 console.log("\n— Lotes: primero el más antiguo (C2) —");
 const lotes = [

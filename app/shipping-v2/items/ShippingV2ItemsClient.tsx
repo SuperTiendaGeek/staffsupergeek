@@ -48,6 +48,7 @@ import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shippin
 import { ShippingV2DespieceTab } from "./ShippingV2DespieceTab";
 import { ShippingV2IntervencionesTab } from "./ShippingV2IntervencionesTab";
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
+import { normalizarSerie, rutaUnidad, seguimientoDe, serieCorta } from "@/lib/shipping-v2/unidades-serie";
 import { avanceDeInspeccion } from "@/lib/shipping-v2/revision-tecnica-snapshot";
 import { ORIGEN_TIENDA, vieneDeAfuera } from "@/lib/shipping-v2/item-origen";
 import {
@@ -73,6 +74,7 @@ import {
   type ShippingV2Packing,
   type ShippingV2Pago,
   type ShippingV2Proveedor,
+  type ShippingV2UnidadHermana,
 } from "@/types/shipping-v2";
 
 type Props = {
@@ -1505,10 +1507,11 @@ function shippingV2SkuLabelHref(itemId: string) {
   return `/shipping-v2/recepcion/etiqueta/${encodeURIComponent(itemId)}`;
 }
 
-function shippingV2TechnicalSheetHref(item: Pick<ShippingV2Item, "id" | "technicalSheet">) {
+function shippingV2TechnicalSheetHref(item: Pick<ShippingV2Item, "id" | "sku" | "numeroSerie" | "technicalSheet">) {
+  // Punto 10b-4: la ficha vive en el artículo (/shipping-v2/items/[sku]/u/[serie]/ficha).
   return isFichaGenerada(item)
-    ? `/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}/print?print=1`
-    : `/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}`;
+    ? rutaUnidad(item, "ficha/print", { imprimir: true })
+    : rutaUnidad(item, "ficha");
 }
 
 function ProviderDatum({
@@ -1720,6 +1723,58 @@ function HeroStat({ label, children, tone = "neutral", title }: { label: string;
 
 const accionClass = "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#3A3A36] bg-[#1C1D19] px-2.5 text-[12.5px] font-semibold text-[#E6E6E1] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35";
 
+const ESTADOS_FUERA = new Set(["vendido", "agotado", "dado de baja", "cancelado", "devuelto a proveedor"]);
+
+/**
+ * Punto 10b-4: qué unidad es esta (su serie, o "Lote · N u.") y las demás del
+ * mismo producto, para pasar de una a otra. Una línea; solo si aporta.
+ */
+export function UnidadDelProducto({ item, hermanas }: { item: ShippingV2Item; hermanas: ShippingV2UnidadHermana[] }) {
+  const esUnidad = seguimientoDe(item) === "Unidad";
+  const serie = normalizarSerie(item.numeroSerie);
+  const otras = hermanas.filter((h) => h.id !== item.id);
+  const vivas = otras.filter((h) => !ESTADOS_FUERA.has(normalizeText(h.estado)));
+  // Precio propio: distinto del que tiene la mayoría de las otras unidades vivas.
+  const precios = new Map<number, number>();
+  for (const h of vivas) if (typeof h.precioVenta === "number" && h.precioVenta > 0) precios.set(h.precioVenta, (precios.get(h.precioVenta) ?? 0) + 1);
+  const precioComun = [...precios].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const precioPropio = typeof item.precioVenta === "number" && typeof precioComun === "number" && item.precioVenta !== precioComun;
+  if (!esUnidad && !otras.length) return null;
+  const MAX = 8;
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[11.5px]">
+      {esUnidad ? (
+        serie
+          ? <span className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-mono font-semibold text-[#F5F5F5]" title="Serie de esta unidad">S/N {serie}</span>
+          : <span className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B]" title="Se escanea al recibir; sin serie no se vende.">Sin serie aún</span>
+      ) : (
+        <span className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-semibold text-[#B4B5AC]" title="Lote: lo que llegó de una misma compra, con su costo.">Lote · {item.cantidad ?? 0} u.</span>
+      )}
+      {precioPropio ? (
+        <span className="rounded border border-[#F4C95B]/45 px-1.5 py-0.5 font-semibold text-[#F4C95B]" title={`Las otras unidades: ${formatCurrency(precioComun ?? null)}`}>Precio propio</span>
+      ) : null}
+      {otras.length ? (
+        <>
+          <span className="ml-1 text-[#7E7F76]">{esUnidad ? "Otras unidades" : "Otros lotes"}</span>
+          {otras.slice(0, MAX).map((h) => {
+            const fuera = ESTADOS_FUERA.has(normalizeText(h.estado));
+            const s = normalizarSerie(h.numeroSerie);
+            const texto = esUnidad ? (s ? serieCorta(s) : h.recibido ? "sin serie" : "por llegar") : `${h.cantidad ?? 0} u.`;
+            return (
+              <Link key={h.id} href={`/shipping-v2/items/${encodeURIComponent(h.id)}`}
+                title={[s ? `S/N ${s}` : "", h.estado, typeof h.precioVenta === "number" ? formatCurrency(h.precioVenta) : ""].filter(Boolean).join(" · ")}
+                className={`rounded border px-1.5 py-0.5 font-mono transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] ${fuera ? "border-[#2A2B26] text-[#5E5F59] line-through" : "border-[#3A3A36] text-[#C9CAC1]"}`}>
+                {texto}
+              </Link>
+            );
+          })}
+          {otras.length > MAX ? <span className="text-[#7E7F76]">+{otras.length - MAX}</span> : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export function ShippingV2ItemDetailView({
   item: initialItem,
   proveedores,
@@ -1736,6 +1791,7 @@ export function ShippingV2ItemDetailView({
   enlaces = { facturacion: false, operaciones: false, tecnicos: false },
   adminPanel,
   costosTraerlo,
+  hermanas = [],
 }: {
   item: ResolvedItem;
   proveedores: ShippingV2Proveedor[];
@@ -1758,6 +1814,8 @@ export function ShippingV2ItemDetailView({
   adminPanel?: ReactNode;
   /** Costos de traer un artículo que viaja solo: van en la pestaña Logística. */
   costosTraerlo?: ReactNode;
+  /** Punto 10b-4: los registros que comparten el SKU (incluido este), para pasar de una unidad a otra. */
+  hermanas?: ShippingV2UnidadHermana[];
 }) {
   const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
   const [item, setItem] = useState(initialItem);
@@ -2085,7 +2143,7 @@ export function ShippingV2ItemDetailView({
   const yaEstabaEnTienda = item.origenArticulo === ORIGEN_TIENDA;
   const oc = trazabilidad?.ordenCompra;
   const detalleCompra = [item.proveedorCompraDisplay, oc?.numeroProveedor ? `N° ${oc.numeroProveedor}` : "", shortDate(oc?.fechaCompra)].filter(Boolean).join(" · ");
-  const inspeccionHref = canUseRecepcion && item.recibido === true ? `/shipping-v2/recepcion/inspeccion/${encodeURIComponent(item.id)}` : undefined;
+  const inspeccionHref = canUseRecepcion && item.recibido === true ? rutaUnidad(item, "inspeccion") : undefined;
   const avance = avanceDeInspeccion(item.revisionTecnicaDetalle, item.revisadoFisicamente === true);
   const pideInspeccion = item.requiereInspeccion === true || avance !== "sin-empezar" || item.revisadoFisicamente === true;
   const fallas = item.puntosRevisionFallidos ?? 0;
@@ -2221,6 +2279,7 @@ export function ShippingV2ItemDetailView({
             <p className="mt-1 text-[12px] text-[#8F908A]">
               {[item.sku, item.categoria, item.condicion, [item.marca, item.modelo].filter(Boolean).join(" ")].map((value) => String(value ?? "").trim()).filter(Boolean).join(" · ")}
             </p>
+            <UnidadDelProducto item={item} hermanas={hermanas} />
             {hasAiNameSuggestion && canEditItems ? (
               <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[#D7FF4F]/25 bg-[#151613] px-2.5 py-1.5">
                 <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#D7FF4F]" aria-hidden="true" />

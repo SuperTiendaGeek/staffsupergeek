@@ -487,6 +487,19 @@ export const SHIPPING_V2_ESTADOS_TRIANGULACION = SHIPPING_V2_ITEM_SELECT_OPTIONS
 export const SHIPPING_V2_ESTADOS_DESPIECE = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoDespiece;
 export const SHIPPING_V2_MODOS_LOGISTICOS = SHIPPING_V2_ITEM_SELECT_OPTIONS.modoLogistico;
 
+/** Punto 10b-4: otra unidad (o lote) del mismo producto, para navegar entre ellas. */
+export type ShippingV2UnidadHermana = {
+  id: string;
+  sku: string;
+  numeroSerie?: string;
+  estado: string;
+  cantidad: number | null;
+  precioVenta: number | null;
+  recibido: boolean;
+  inspeccionFirmada: boolean;
+  fechaRegistro?: string;
+};
+
 export type ShippingV2ItemWriteInput = {
   nombre?: string;
   descripcion?: string;

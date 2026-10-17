@@ -53,6 +53,7 @@ import {
   type ShippingV2ItemSortKey,
 } from "@/lib/shipping-v2/item-list-view";
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
+import { rutaUnidad } from "@/lib/shipping-v2/unidades-serie";
 import type {
   ShippingV2AccessPermissions,
   ShippingV2Item,
@@ -241,19 +242,20 @@ function openSkuLabel(itemId: string) {
   window.open(`/shipping-v2/recepcion/etiqueta/${encodeURIComponent(itemId)}`, "_blank", "noopener,noreferrer");
 }
 
-function openTechnicalSheetEditor(itemId: string) {
-  window.location.href = `/shipping-v2/recepcion/ficha/${encodeURIComponent(itemId)}`;
+// Punto 10b-4: inspección y ficha viven en el artículo; desde aquí "volver" regresa a Recepción.
+function openTechnicalSheetEditor(item: ShippingV2Item) {
+  window.location.href = rutaUnidad(item, "ficha", { desde: "recepcion" });
 }
 
-function openInspeccion(itemId: string) {
-  window.location.href = `/shipping-v2/recepcion/inspeccion/${encodeURIComponent(itemId)}`;
+function openInspeccion(item: ShippingV2Item) {
+  window.location.href = rutaUnidad(item, "inspeccion", { desde: "recepcion" });
 }
 
 function openTechnicalSheet(item: ShippingV2Item) {
   const generada = isFichaGenerada(item);
   const path = generada
-    ? `/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}/print?print=1`
-    : `/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}`;
+    ? rutaUnidad(item, "ficha/print", { imprimir: true })
+    : rutaUnidad(item, "ficha", { desde: "recepcion" });
   window.open(path, generada ? "_blank" : "_self", "noopener,noreferrer");
 }
 
@@ -776,8 +778,8 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
   onChecklistChange: (item: ReceptionItem, action: ShippingV2RecepcionChecklistAction, value: boolean) => void;
   onNovedad: (item: ReceptionItem) => void;
   onSkuLabel: (itemId: string) => void;
-  onPrepareSheet: (itemId: string) => void;
-  onInspeccion: (itemId: string) => void;
+  onPrepareSheet: (item: ReceptionItem) => void;
+  onInspeccion: (item: ReceptionItem) => void;
   onPrintSheet: (item: ReceptionItem) => void;
 }) {
   const received = isReceived(item);
@@ -896,7 +898,7 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
                     requiere={item.requiereInspeccion === true}
                     revisadoPor={item.revisadoPor}
                     fechaRevision={item.fechaRevision}
-                    onClick={() => onInspeccion(item.id)}
+                    onClick={() => onInspeccion(item)}
                   />
                 ) : null}
               </Fragment>
@@ -931,7 +933,7 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
         <ActionButton title={received ? "Imprimir etiqueta SKU" : receivedGateHelp} disabled={!received} onClick={() => onSkuLabel(item.id)}>
           <Tag className="h-3.5 w-3.5" aria-hidden="true" />
         </ActionButton>
-        <ActionButton tone="blue" title={received ? "Preparar ficha" : receivedGateHelp} disabled={!received} onClick={() => onPrepareSheet(item.id)}>
+        <ActionButton tone="blue" title={received ? "Preparar ficha" : receivedGateHelp} disabled={!received} onClick={() => onPrepareSheet(item)}>
           <Wrench className="h-3.5 w-3.5" aria-hidden="true" />
         </ActionButton>
         <ActionButton title={received ? "Imprimir ficha" : receivedGateHelp} disabled={!received} onClick={() => onPrintSheet(item)}>
