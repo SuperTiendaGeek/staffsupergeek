@@ -14,7 +14,15 @@ const barlow = Barlow_Condensed({
   display: "block",
 });
 
-type Props = { sku: string; linea?: string; precio?: string };
+type Props = {
+  sku: string;
+  linea?: string;
+  precio?: string;
+  /** Punto 10b: código de barras (SVG en mm) con la serie del equipo o el SKU del lote. */
+  codigoSvg?: string;
+  /** Lo que se lee debajo del código: "S/N 7HX2KQ3" o el SKU. */
+  codigoTexto?: string;
+};
 
 /**
  * Encoge (o agranda) el texto hasta que entre JUSTO en su caja, en un solo
@@ -58,27 +66,50 @@ function useAjustarTexto(minPx: number, maxPx: number, dependencia: string) {
   return { caja, texto };
 }
 
-export function EtiquetaSku({ sku, linea = "", precio = "" }: Props) {
+export function EtiquetaSku({ sku, linea = "", precio = "", codigoSvg = "", codigoTexto = "" }: Props) {
   // Tamaños en px de pantalla (1 mm ≈ 3.78 px). Los máximos solo importan si
   // sobra espacio; los mínimos son el piso legible en la Zebra (203 ppp).
-  const skuAjuste = useAjustarTexto(14, 120, sku + linea + precio);
+  const conCodigo = Boolean(codigoSvg);
+  const skuAjuste = useAjustarTexto(14, conCodigo ? 60 : 120, sku + linea + precio + codigoTexto);
   const lineaAjuste = useAjustarTexto(6, 16, linea);
-  const precioAjuste = useAjustarTexto(10, 30, precio);
+  const precioAjuste = useAjustarTexto(10, conCodigo ? 26 : 30, precio);
+  const serieAjuste = useAjustarTexto(6, 14, codigoTexto);
 
   return (
     <>
-      <main className={`label-sheet ${barlow.className}`}>
-        {/* El SKU se queda con todo el alto que no usan la línea y el precio:
-            así no quedan huecos entre renglones. */}
-        <div ref={skuAjuste.caja} className="fila sku">
-          <span ref={skuAjuste.texto}>{sku}</span>
-        </div>
+      <main className={`label-sheet ${barlow.className} ${conCodigo ? "con-codigo" : ""}`}>
+        {/* Punto 10b (17-oct): SKU y precio arriba, la línea técnica y, con
+            todo el ancho, el código de barras de la serie (o del SKU en un
+            lote) con su texto debajo. Sin código queda como antes. */}
+        {conCodigo ? (
+          <div className="cabecera">
+            <div ref={skuAjuste.caja} className="fila sku">
+              <span ref={skuAjuste.texto}>{sku}</span>
+            </div>
+            {precio ? (
+              <div ref={precioAjuste.caja} className="fila precio">
+                <span ref={precioAjuste.texto}>{precio}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div ref={skuAjuste.caja} className="fila sku">
+            <span ref={skuAjuste.texto}>{sku}</span>
+          </div>
+        )}
         {linea ? (
           <div ref={lineaAjuste.caja} className="fila linea" title={linea}>
             <span ref={lineaAjuste.texto}>{linea}</span>
           </div>
         ) : null}
-        {precio ? (
+        {conCodigo ? (
+          <>
+            <div className="codigo" dangerouslySetInnerHTML={{ __html: codigoSvg }} />
+            <div ref={serieAjuste.caja} className="fila serie">
+              <span ref={serieAjuste.texto}>{codigoTexto}</span>
+            </div>
+          </>
+        ) : precio ? (
           <div ref={precioAjuste.caja} className="fila precio">
             <span ref={precioAjuste.texto}>{precio}</span>
           </div>
@@ -162,6 +193,56 @@ export function EtiquetaSku({ sku, linea = "", precio = "" }: Props) {
         .precio span {
           font-size: 5.2mm;
           font-weight: 800;
+        }
+
+        /* Punto 10b: con código de barras. */
+        .cabecera {
+          flex: 0 0 7mm;
+          display: flex;
+          gap: 1mm;
+          min-height: 0;
+        }
+
+        .con-codigo .cabecera .sku {
+          justify-content: flex-start;
+        }
+
+        .con-codigo .cabecera .precio {
+          flex: 0 0 auto;
+          max-width: 17mm;
+          justify-content: flex-end;
+        }
+
+        .con-codigo .linea {
+          flex: 0 0 3.2mm;
+        }
+
+        .con-codigo .linea span {
+          line-height: 1.15;
+        }
+
+        .codigo {
+          flex: 1 1 auto;
+          min-height: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+        }
+
+        .codigo svg {
+          display: block;
+        }
+
+        .serie {
+          flex: 0 0 3.4mm;
+        }
+
+        .serie span {
+          font-size: 2.8mm;
+          font-weight: 800;
+          letter-spacing: 0.04em;
+          line-height: 1.15;
         }
 
         .actions {
