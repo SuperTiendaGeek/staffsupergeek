@@ -566,7 +566,9 @@ function StatusActionPanel({
     && state === "en revision"
     && !openNovedades.length
     && !reviewProgress.completo;
-  const canCancel = isAdmin && canTransition && !["cancelado", "cerrado final"].includes(state);
+  // Punto 10a (16-oct): solo el Administrador del sistema y solo antes de
+  // que la caja salga (Armando o Cerrada sin despachar). Ver cancelar-caja.ts.
+  const canCancel = isSiteAdmin && canTransition && ["en proceso", "cerrado"].includes(state);
   const canRestoreLegacyNovedad = isAdmin && canTransition && state === "con novedad";
   // Deliberadamente MÁS estricto que canCancel/canRestoreLegacyNovedad: esos
   // usan isAdmin (cualquier staff interno). Reabrir un packing cerrado es
@@ -684,10 +686,10 @@ function StatusActionPanel({
                   disabled={busy}
                   onClick={() => onOpenStatusModal({
                     action: "cancel",
-                    title: "Cancelar packing",
-                    label: "Cancelar packing",
+                    title: "Cancelar caja",
+                    label: "Cancelar caja",
                     fieldLabel: "Motivo de cancelación",
-                    description: "Esta acción queda registrada como administrativa.",
+                    description: "Sus artículos salen sueltos y quedan pendientes de caja. Si la caja tiene pagos de flete, arancel u otros, anúlalos primero.",
                   })}
                   className={`${item} text-[#FFB07A] hover:bg-[#2A1B14]`}
                 >

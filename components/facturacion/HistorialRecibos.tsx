@@ -6,7 +6,15 @@ import Link from "next/link";
 type Recibo = {
   recordId: string; numero: string; fecha: string; estado: string;
   clienteNombre: string; clienteIdentificacion: string; total: number; formaPago: string; tienePdf: boolean;
+  sincronizacionInventario?: string; errorInventario?: string;
 };
+
+// Punto 10a (16-oct): el descargo de inventario que falló se ve y se reintenta.
+// Misma regla que el servidor (lib/facturacion/recibos/reintento.ts).
+function requiereAtencionInventario(r: Recibo) {
+  const s = (r.sincronizacionInventario || "").toUpperCase();
+  return r.estado === "Vigente" && (s === "ERROR" || s === "PENDIENTE");
+}
 
 const FP: Record<string, string> = { "01": "Efectivo", "16": "T. débito", "17": "Dinero elec.", "18": "T. prepago", "19": "T. crédito", "20": "Otros", "21": "Endoso" };
 const BADGE: Record<string, string> = {
@@ -19,6 +27,7 @@ export function HistorialRecibos() {
   const [cargando, setCargando] = useState(true);
   const [q, setQ] = useState("");
   const [anulando, setAnulando] = useState<string | null>(null);
+  const [reintentando, setReintentando] = useState<string | null>(null);
 
   function cargar() {
     setCargando(true);
@@ -39,6 +48,17 @@ export function HistorialRecibos() {
       if (!j.success) alert(j.error ?? "No se pudo anular");
       else cargar();
     } finally { setAnulando(null); }
+  }
+
+  async function reintentar(recordId: string) {
+    if (reintentando) return;
+    setReintentando(recordId);
+    try {
+      const r = await fetch(`/api/facturacion/recibos/${recordId}/sincronizar`, { method: "POST" });
+      const j = await r.json();
+      if (!j.success) alert(j.error ?? "No se pudo reintentar el descargo");
+      cargar();
+    } finally { setReintentando(null); }
   }
 
   return (
@@ -72,8 +92,19 @@ export function HistorialRecibos() {
                     <td className="py-2 px-3 text-[#F5F5F5]">{r.clienteNombre}</td>
                     <td className="py-2 px-3 text-[#A7A7A7] text-xs">{FP[r.formaPago] ?? r.formaPago}</td>
                     <td className="py-2 px-3 text-right text-[#D7FF4F] font-semibold">${r.total.toFixed(2)}</td>
-                    <td className="py-2 px-3 text-center"><span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold ${BADGE[r.estado] ?? ""}`}>{r.estado}</span></td>
+                    <td className="py-2 px-3 text-center">
+                      <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold ${BADGE[r.estado] ?? ""}`}>{r.estado}</span>
+                      {requiereAtencionInventario(r) && (
+                        <span
+                          title={r.errorInventario || "El descuento de inventario no terminó."}
+                          className="ml-1 inline-block rounded-full border border-yellow-700/50 bg-yellow-900/20 px-2 py-0.5 text-[10px] font-bold text-yellow-300"
+                        >
+                          ⚠ Inventario
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2 px-3 text-right whitespace-nowrap">
+                      {requiereAtencionInventario(r) && <button disabled={!!reintentando} onClick={() => reintentar(r.recordId)} className="text-yellow-300 hover:text-yellow-200 underline text-xs mr-3 disabled:opacity-40">{reintentando === r.recordId ? "Reintentando…" : "↺ Reintentar descargo"}</button>}
                       {r.tienePdf && <a href={`/api/facturacion/recibos/${r.recordId}/pdf`} target="_blank" rel="noopener" className="text-[#A7A7A7] hover:text-[#D7FF4F] underline text-xs mr-3">↓ PDF</a>}
                       {r.estado === "Vigente" && <button disabled={anulando === r.recordId} onClick={() => anular(r.recordId, r.numero)} className="text-red-400 hover:text-red-300 underline text-xs disabled:opacity-40">{anulando === r.recordId ? "Anulando…" : "Anular"}</button>}
                     </td>
