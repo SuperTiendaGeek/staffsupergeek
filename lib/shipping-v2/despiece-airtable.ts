@@ -15,6 +15,8 @@ import {
   calcularCierreDespiece,
   evaluarSiSePuedeDespiezar,
   puedeCancelarseDespiece,
+  puedeRevertirseDespiece,
+  ESTADO_PIEZA_EN_ESPERA,
   repartirCostoEntrePiezas,
   type PiezaParaReparto,
 } from "./despiece";
@@ -41,10 +43,22 @@ export type PiezaDespiece = {
   observaciones: string;
   numeroSerie: string;
   tieneFacturaORecibo: boolean;
+  /** Punto 10b: para saber si el despiece se puede revertir. */
+  cantidadReservada: number;
+  enUso: boolean;
+  requiereInspeccion: boolean;
 };
 
 export type ResumenDespiece = {
   padreId: string;
+  /** Punto 10b. */
+  sku: string;
+  cantidad: number;
+  /** El registro tiene varias unidades: hay que separar una para desarmarla. */
+  varias: boolean;
+  completado: boolean;
+  puedeRevertir: boolean;
+  motivoNoRevertible?: string;
   puedeDespiezar: boolean;
   motivoBloqueo?: string;
   estadoDespiece: string;
@@ -162,4 +176,4 @@ export function calcularRepartoParaPiezas(costoTotalEquipo: number, piezas: Piez
   };
 }
 
-export { calcularCierreDespiece, evaluarSiSePuedeDespiezar, puedeCancelarseDespiece };
+export { calcularCierreDespiece, evaluarSiSePuedeDespiezar, puedeCancelarseDespiece, puedeRevertirseDespiece, ESTADO_PIEZA_EN_ESPERA };

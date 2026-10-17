@@ -19,6 +19,7 @@ function pieza(id: string, precio: number | null, cantidad = 1, costoAsignado = 
     id, sku: id, nombre: id, categoria: "RAM", cantidad, condicion: "No probado",
     precioVenta: precio, costoAsignado, estadoItem: "En revisión", observaciones: "",
     numeroSerie: "", tieneFacturaORecibo: false,
+    cantidadReservada: 0, enUso: false, requiereInspeccion: true,
   };
 }
 

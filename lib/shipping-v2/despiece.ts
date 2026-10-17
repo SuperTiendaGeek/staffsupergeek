@@ -33,7 +33,15 @@ export const ESTADOS_DESPIEZABLES = [
   "Desarmado parcialmente",
 ] as const;
 
+/**
+ * Punto 10b (decisión 4a, 16-oct-2026): mientras el despiece no se completa,
+ * las piezas existen pero no se venden ni se reservan. Este estado las marca;
+ * al completar pasan a "En revisión" o "Disponible" según su categoría.
+ */
+export const ESTADO_PIEZA_EN_ESPERA = "Pieza en espera";
+
 export type MotivoBloqueo =
+  | "varias-unidades"
   | "estado-no-apto"
   | "sin-unidades"
   | "unidades-comprometidas"
@@ -79,6 +87,16 @@ export function evaluarSiSePuedeDespiezar(item: ItemParaDespiece): EvaluacionDes
   }
   if (normalizarUnidades(item.cantidad) < 1) {
     return { puede: false, motivo: "sin-unidades", mensaje: "Este equipo no tiene unidades en stock." };
+  }
+  // Punto 10b (3b, 16-oct): se desarma UNA unidad. Si el registro tiene
+  // varias, primero se separa una (mismo SKU, sus propios costos) y se
+  // desarma esa; las demás siguen a la venta.
+  if (normalizarUnidades(item.cantidad) > 1) {
+    return {
+      puede: false,
+      motivo: "varias-unidades",
+      mensaje: `Este registro tiene ${normalizarUnidades(item.cantidad)} unidades. Separa una para desarmarla; las demás siguen a la venta.`,
+    };
   }
   // Se exige una unidad LIBRE: si las que hay están comprometidas con una
   // reserva o una orden, primero hay que soltarlas. Desarmar algo que un
@@ -216,7 +234,7 @@ export function calcularCierreDespiece(item: UnidadesItem, completo: boolean): C
   };
 }
 
-/** ¿Se puede deshacer el despiece? Solo si ninguna pieza salió ya del inventario. */
+/** ¿Se puede cancelar el despiece EN PROCESO? (borra las piezas en espera). */
 export function puedeCancelarseDespiece(piezas: Array<{ estadoItem?: string | null; tieneFacturaORecibo?: boolean }>): {
   puede: boolean;
   mensaje?: string;
@@ -226,6 +244,39 @@ export function puedeCancelarseDespiece(piezas: Array<{ estadoItem?: string | nu
     return {
       puede: false,
       mensaje: `Ya se vendió ${vendidas.length === 1 ? "una pieza" : `${vendidas.length} piezas`} de este despiece; el equipo no puede volver a existir entero.`,
+    };
+  }
+  return { puede: true };
+}
+
+// ─── Revertir un despiece ya completado (decisión 5a, 16-oct-2026) ───────────
+
+export type PiezaParaRevertir = {
+  sku?: string;
+  estadoItem?: string | null;
+  tieneFacturaORecibo?: boolean;
+  cantidadReservada?: number | null;
+  /** Tiene reservas, una orden o presupuesto del técnico, o se usó en una mejora. */
+  enUso?: boolean;
+};
+
+const ESTADOS_PIEZA_REVERTIBLE = new Set(["disponible", "en revision", "recibido", "pieza en espera"]);
+
+/**
+ * Solo el Administrador, y solo si ninguna pieza se vendió, reservó o usó en
+ * una mejora: entonces se borran las piezas y el equipo vuelve a existir
+ * entero, directo a la venta (sin inspección nueva).
+ */
+export function puedeRevertirseDespiece(piezas: PiezaParaRevertir[]): { puede: boolean; mensaje?: string } {
+  const ocupadas = piezas.filter((p) => {
+    const estado = String(p.estadoItem ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    return p.tieneFacturaORecibo === true || (p.cantidadReservada ?? 0) > 0 || p.enUso === true || !ESTADOS_PIEZA_REVERTIBLE.has(estado);
+  });
+  if (ocupadas.length > 0) {
+    const cuales = ocupadas.map((p) => p.sku).filter(Boolean).join(", ");
+    return {
+      puede: false,
+      mensaje: `No se puede revertir: ${ocupadas.length === 1 ? "una pieza ya" : `${ocupadas.length} piezas ya`} se vendió, reservó o usó${cuales ? ` (${cuales})` : ""}.`,
     };
   }
   return { puede: true };

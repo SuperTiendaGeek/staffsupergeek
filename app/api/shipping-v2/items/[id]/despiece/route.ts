@@ -8,6 +8,8 @@ import {
   editarPiezaDespiece,
   getResumenDespiece,
   getShippingV2AccessContextForSession,
+  revertirDespiece,
+  separarUnaUnidadShippingV2,
 } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import { isAdministratorRole } from "@/lib/apps";
@@ -120,6 +122,18 @@ export async function POST(request: Request, { params }: Params) {
 
     if (accion === "cancelar") {
       const data = await cancelarDespiece({ padreId: id }, { registradoPor, access });
+      return NextResponse.json({ success: true, data });
+    }
+
+    // Punto 10b (16-oct): revertir un despiece completado (solo Administrador).
+    if (accion === "revertir") {
+      const data = await revertirDespiece({ padreId: id, motivo: body.motivo ? String(body.motivo) : "" }, { registradoPor, access });
+      return NextResponse.json({ success: true, data });
+    }
+
+    // Punto 10b: separar 1 unidad de un registro con varias para desarmarla.
+    if (accion === "separar-unidad") {
+      const data = await separarUnaUnidadShippingV2(id, { actor: registradoPor, access, motivo: "Para desarmarla" });
       return NextResponse.json({ success: true, data });
     }
 

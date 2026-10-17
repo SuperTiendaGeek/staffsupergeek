@@ -31,6 +31,8 @@ const ESTADOS_FINALES = new Set([
   "destinado a partes",
   "desarmado parcialmente",
   "desarmado completamente",
+  // Punto 10b: las piezas de un despiece en proceso esperan a que se complete.
+  "pieza en espera",
 ]);
 
 /**

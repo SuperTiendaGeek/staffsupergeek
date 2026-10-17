@@ -9,8 +9,10 @@
  */
 
 import {
-  calcularCierreDespiece, evaluarSiSePuedeDespiezar, puedeCancelarseDespiece, repartirCostoEntrePiezas,
+  calcularCierreDespiece, evaluarSiSePuedeDespiezar, puedeCancelarseDespiece, puedeRevertirseDespiece, repartirCostoEntrePiezas,
+  ESTADO_PIEZA_EN_ESPERA,
 } from "../despiece";
+import { evaluarDisponibilidadComercial } from "../item-comercial";
 
 let fallos = 0;
 function assert(cond: boolean, msg: string): void {
@@ -46,11 +48,11 @@ function main(): void {
   assert(!apartado.puede && apartado.mensaje.includes("Libéralas"),
     "…y el mensaje dice qué hacer para destrabarlo");
 
-  // Con varias unidades, basta que quede UNA libre.
-  assert(
-    evaluarSiSePuedeDespiezar({ estadoItem: "Disponible", cantidad: 3, cantidadReservada: 1 }).puede,
-    "Con 3 unidades y 1 apartada, se puede despiezar una de las libres"
-  );
+  // Punto 10b (3b, 16-oct): con varias unidades primero se separa una y se
+  // desarma esa; las demás siguen a la venta.
+  const varias = evaluarSiSePuedeDespiezar({ estadoItem: "Disponible", cantidad: 3, cantidadReservada: 1 });
+  assert(!varias.puede && varias.motivo === "varias-unidades" && varias.mensaje.includes("Separa una"),
+    "Con 3 unidades no se desarma el registro: se separa una unidad primero");
 
   assert(!evaluarSiSePuedeDespiezar({ ...laptop, estadoDespiece: "Despiece completo" }).puede,
     "Un equipo ya despiezado del todo no se vuelve a despiezar");
@@ -140,6 +142,17 @@ function main(): void {
   assert(conVenta.mensaje!.includes("una pieza"), `El mensaje explica por qué (vino: ${conVenta.mensaje})`);
   assert(!puedeCancelarseDespiece([{ estadoItem: "Disponible", tieneFacturaORecibo: true }]).puede,
     "Una pieza ya facturada también impide deshacer");
+
+  // ── Punto 10b (16-oct): piezas en espera y revertir ─────────────────────────
+  assert(!evaluarDisponibilidadComercial({ estado: ESTADO_PIEZA_EN_ESPERA }).apartable,
+    "Una pieza en espera no se reserva ni se vende (4a)");
+  assert(puedeRevertirseDespiece([{ sku: "RAM-1", estadoItem: "Disponible" }, { sku: "PAN-1", estadoItem: "En revisión" }]).puede,
+    "Piezas sin vender ni usar: se puede revertir (5a)");
+  const usada = puedeRevertirseDespiece([{ sku: "RAM-1", estadoItem: "Disponible", enUso: true }, { sku: "PAN-1", estadoItem: "Disponible" }]);
+  assert(!usada.puede && usada.mensaje!.includes("RAM-1"), "Una pieza usada en una mejora impide revertir y se nombra");
+  assert(!puedeRevertirseDespiece([{ sku: "SSD-1", estadoItem: "Disponible", cantidadReservada: 1 }]).puede, "Una pieza reservada impide revertir");
+  assert(!puedeRevertirseDespiece([{ sku: "SSD-1", estadoItem: "Agotado" }]).puede, "Una pieza agotada impide revertir");
+  assert(!puedeRevertirseDespiece([{ sku: "SSD-1", estadoItem: "Disponible", tieneFacturaORecibo: true }]).puede, "Una pieza vendida impide revertir");
 
   if (fallos > 0) { console.error(`\n${fallos} assert(s) fallaron.`); process.exit(1); }
   console.log("\n✅ despiece.test.ts — todos los asserts pasaron");
