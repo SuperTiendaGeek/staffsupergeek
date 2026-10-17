@@ -250,6 +250,7 @@ import {
   staffShippingV2Access,
   systemShippingV2Access,
 } from "@/lib/shipping-v2/access";
+import { camposArticuloFueraDeCaja, evaluarCancelarCaja } from "@/lib/shipping-v2/cancelar-caja";
 import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
 import { calculateShippingV2BatteryState, shippingV2CategoryDoesNotUseScreenOrBattery, shippingV2CategoryHasBattery } from "@/lib/shipping-v2/technical-sheet";
 import { fetchCuentaPorNombre, fetchCuentaPorNombreNormalizado } from "@/lib/finanzas/cuentas";
@@ -5667,18 +5668,9 @@ export async function removeItemFromShippingV2Packing(packingId: string, itemId:
     body: JSON.stringify({
       records: [{
         id: itemRecordId,
-        fields: {
-          [SHIPPING_V2_ITEM_FIELDS.estadoItem]: "Pendiente de packing",
-          [SHIPPING_V2_ITEM_FIELDS.requierePacking]: true,
-          [SHIPPING_V2_ITEM_FIELDS.modoLogistico]: "Pendiente de packing",
-          [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
-          [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: options.registradoPor,
-          // Fuera del packing ya no carga flete/arancel/otros de esa caja.
-          [SHIPPING_V2_ITEM_FIELDS.unidadesEnPacking]: null,
-          [SHIPPING_V2_ITEM_FIELDS.fleteAsignadoRegistro]: null,
-          [SHIPPING_V2_ITEM_FIELDS.arancelAsignadoRegistro]: null,
-          [SHIPPING_V2_ITEM_FIELDS.otrosCostosAsignadosRegistro]: null,
-        },
+        // Fuera del packing ya no carga flete/arancel/otros de esa caja (misma
+        // regla que al cancelar la caja: cancelar-caja.ts).
+        fields: camposArticuloFueraDeCaja(options.registradoPor),
       }],
     }),
   });
@@ -7524,9 +7516,47 @@ export async function transitionShippingV2PackingStatus(
   }
 
   if (input.action === "cancel") {
-    if (!input.access?.isAdmin) throw new Error("Solo un administrador puede cancelar packings.");
-    if (currentStatus === "cerrado final") throw new Error("No puedes cancelar un packing cerrado final.");
-    if (!decision) throw new Error("Registra un motivo para cancelar el packing.");
+    // Punto 10a (C-5, decisiones 1a y 2a del 16-oct): solo antes de salir,
+    // sin pagos de logística vivos, y los artículos salen sueltos.
+    const pagos = await getShippingV2Pagos(systemShippingV2Access());
+    const pagosLogisticaVivos = pagos
+      .filter((p) => normalizeStatus(String(p.estadoPago)) !== "anulado" && esConceptoLogistica(p.concepto))
+      .filter((p) => (p.packingLogisticaIds ?? []).includes(packing.id))
+      .map((p) => ({ concepto: p.concepto, total: p.totalAPagar ?? p.total ?? null, referencia: p.pagoId }));
+    const evaluacion = evaluarCancelarCaja({
+      estado: packing.estado,
+      esAdministrador: input.access?.isSiteAdmin === true,
+      motivo: decision,
+      pagosLogisticaVivos,
+    });
+    if (!evaluacion.ok) throw new Error(evaluacion.motivo);
+
+    // Primero los artículos (si algo falla, la caja sigue viva y se puede
+    // reintentar); después la caja queda Cancelada y vacía en una sola escritura.
+    const articulos = packing.items.filter((item) => packing.itemIds.includes(item.id));
+    if (articulos.length !== packing.itemIds.length) {
+      throw new Error("No se pudieron leer todos los artículos de la caja. Intenta de nuevo.");
+    }
+    await patchAirtableRecords(SHIPPING_V2_TABLES.items, articulos.map((item) => ({
+      id: item.id,
+      fields: camposArticuloFueraDeCaja(input.actor, now),
+    })));
+    const titulo = packing.packingId || packing.id;
+    for (const item of articulos) {
+      await createShippingV2Event({
+        action: "Cambio de estado",
+        entity: "Shipping Item",
+        itemRecordId: item.id,
+        itemName: item.nombre,
+        registradoPor: input.actor,
+        descripcion: `Salió de la caja ${titulo} al cancelarla; queda pendiente de caja.`,
+        estadoAnterior: item.estado,
+        estadoNuevo: "Pendiente de packing",
+        observacion: decision,
+      });
+    }
+    invalidateShippingV2ItemSearchIndexCache();
+    const skus = articulos.map((item) => item.sku || item.id).join(", ");
     return patchPackingStatus({
       packing,
       estado: "Cancelado",
@@ -7534,9 +7564,12 @@ export async function transitionShippingV2PackingStatus(
       access: input.access,
       fields: {
         "Fecha de cancelación": now,
-        "Motivo de cancelación": decision || "Cancelado desde Portal Staff.",
+        "Motivo de cancelación": decision,
+        [SHIPPING_V2_PACKING_FIELDS.itemsIncluidos]: [],
       },
-      descripcion: "Packing cancelado desde Portal Staff.",
+      descripcion: articulos.length
+        ? `Caja cancelada desde Portal Staff. Salieron sueltos ${articulos.length} artículo(s): ${skus}.`
+        : "Caja cancelada desde Portal Staff (sin artículos).",
       observacion: decision,
     });
   }

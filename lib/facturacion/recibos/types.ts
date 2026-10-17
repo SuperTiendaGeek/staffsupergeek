@@ -59,4 +59,7 @@ export type ReciboRegistro = {
   total:                 number;
   formaPago:             string;
   tienePdf:              boolean;
+  /** Descargo de inventario: "OK" | "ERROR" | "PENDIENTE" | "N/A" (punto 10a). */
+  sincronizacionInventario?: string;
+  errorInventario?:      string;
 };

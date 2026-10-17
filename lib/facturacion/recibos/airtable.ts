@@ -134,7 +134,7 @@ export async function listarRecibos(filtros: FiltrosRecibo = {}): Promise<Listad
   const params = new URLSearchParams({ "sort[0][field]": "Secuencial", "sort[0][direction]": "desc", pageSize: String(Math.min(filtros.pageSize ?? 50, 100)) });
   if (formula)        params.set("filterByFormula", formula);
   if (filtros.offset) params.set("offset", filtros.offset);
-  for (const f of ["Número", "Fecha", "Estado", "Cliente Nombre", "Cliente Identificación", "Total", "Forma de Pago", "PDF"]) params.append("fields[]", f);
+  for (const f of ["Número", "Fecha", "Estado", "Cliente Nombre", "Cliente Identificación", "Total", "Forma de Pago", "PDF", "Sincronización Inventario", "Error Inventario"]) params.append("fields[]", f);
 
   const data = await airtableRequest<{ records: Array<{ id: string; fields: Record<string, unknown> }>; offset?: string }>(
     `${client.baseUrl}/${encodeURIComponent(TABLE)}?${params}`
@@ -149,6 +149,8 @@ export async function listarRecibos(filtros: FiltrosRecibo = {}): Promise<Listad
     total:                 num(r.fields["Total"]),
     formaPago:             str(r.fields["Forma de Pago"]),
     tienePdf:              hasAtt(r.fields["PDF"]),
+    sincronizacionInventario: str(r.fields["Sincronización Inventario"]) || "N/A",
+    errorInventario:       str(r.fields["Error Inventario"]),
   }));
   return { recibos, offset: data.offset };
 }
@@ -162,11 +164,16 @@ export type ReciboCompleto = {
   /** Inverso "Movimientos Financieros" — lo usa la anulación para revertir
    *  exactamente lo que este recibo registró, ni un centavo más. */
   movimientoIds: string[];
+  /** Estado del descargo de inventario (punto 10a: reintento). */
+  sincronizacionInventario: string;
+  errorInventario: string;
+  /** createdTime de Airtable. */
+  creadoEn?: string;
 };
 
 export async function obtenerReciboPorId(recordId: string): Promise<ReciboCompleto | null> {
   const client = getClient();
-  const data = await airtableRequest<{ fields: Record<string, unknown> }>(
+  const data = await airtableRequest<{ fields: Record<string, unknown>; createdTime?: string }>(
     `${client.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(recordId)}`
   ).catch(() => null);
   if (!data) return null;
@@ -210,5 +217,8 @@ export async function obtenerReciboPorId(recordId: string): Promise<ReciboComple
     estado: str(data.fields["Estado"]), total: num(data.fields["Total"]),
     formaPago: str(data.fields["Forma de Pago"]) || "01", clienteRecordId, lineas, pdfUrl,
     clienteNombre, clienteIdentificacion, nota, origen, movimientoIds,
+    sincronizacionInventario: str(data.fields["Sincronización Inventario"]) || "N/A",
+    errorInventario: str(data.fields["Error Inventario"]),
+    creadoEn: data.createdTime,
   };
 }
