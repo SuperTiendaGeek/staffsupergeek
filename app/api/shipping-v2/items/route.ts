@@ -36,6 +36,9 @@ function parseInput(body: Record<string, unknown>): ShippingV2ItemWriteInput {
     modelo: String(body.modelo ?? ""),
     marca: String(body.marca ?? ""),
     numeroSerie: String(body.numeroSerie ?? ""),
+    // Punto 10b: unidad o lote, y el producto existente al que se suma.
+    seguimiento: String(body.seguimiento ?? ""),
+    skuCompartido: String(body.skuCompartido ?? ""),
     condicion: String(body.condicion ?? ""),
     cantidad: body.cantidad as number | null,
     unidad: String(body.unidad ?? ""),

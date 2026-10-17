@@ -276,6 +276,8 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   modelo?: string;
   marca?: string;
   numeroSerie?: string;
+  /** Punto 10b: "Unidad" o "Lote" (vacío = el de su categoría). */
+  seguimiento?: string;
   categoria?: string;
   tipoOperacion: string;
   tipoItem: string;
@@ -454,6 +456,9 @@ export type ShippingV2ItemSearchEntry = ShippingV2RecordBase & {
   marca?: string;
   modelo?: string;
   numeroSerie?: string;
+  /** Punto 10b: para "¿Ya existe?" al registrar una compra. */
+  condicion?: string;
+  seguimiento?: string;
   estado?: string;
   tipoOperacion?: string;
   proveedorCompra?: string;
@@ -503,6 +508,13 @@ export type ShippingV2ItemWriteInput = {
   modelo?: string;
   marca?: string;
   numeroSerie?: string;
+  /** Punto 10b: "Unidad" o "Lote". Vacío = el de la categoría (seguimientoPorCategoria). */
+  seguimiento?: string;
+  /**
+   * Punto 10b: SKU de un producto que YA existe al que se suma este registro
+   * (otra unidad u otro lote del mismo producto, con sus propios costos).
+   */
+  skuCompartido?: string;
   condicion?: string;
   cantidad?: number | null;
   unidad?: string;

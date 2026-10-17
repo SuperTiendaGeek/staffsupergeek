@@ -77,6 +77,7 @@ export const SHIPPING_V2_ITEM_FIELDS = {
   "modelo": "Modelo",
   "marca": "Marca",
   "numeroSerie": "Número de serie",
+  "seguimiento": "Seguimiento",
   "condicion": "Condición",
   "ubicacionActual": "Ubicación actual",
   "trackingDirecto": "Tracking directo",
@@ -257,6 +258,10 @@ export const SHIPPING_V2_ITEM_SELECT_OPTIONS = {
     "Pieza",
     "Kit",
     "Otro"
+  ],
+  "seguimiento": [
+    "Unidad",
+    "Lote"
   ],
   "condicion": [
     "Usado",

@@ -7,6 +7,8 @@ import {
   duplicarLinea,
   etiquetaSituacionOrden,
   faltantesLinea,
+  seguimientoDeLinea,
+  seriesDeLinea,
   lineaEnBlanco,
   nuevaLinea,
   ocIdDesdeNumero,
@@ -96,6 +98,15 @@ assert(faltantesLinea(nuevaLinea("6", { nombre: "Surface" }), { esCompra: true }
 assert(faltantesLinea({ ...l1, regalo: true, costoProveedor: "" }, { esCompra: true }).length === 0, "Regalo sin costo: completo");
 assert(faltantesLinea({ ...l1, regalo: true }, { esCompra: true }).includes("regalo sin costo"), "Regalo con costo: error");
 assert(faltantesLinea({ ...l1, costoProveedor: "" }, { esCompra: false }).length === 0, "Reajuste no exige costo");
+assert(seguimientoDeLinea(l1) === "Unidad" && seguimientoDeLinea(nuevaLinea("7", { categoria: "Cable" })) === "Lote", "Unidad o lote por categoría");
+assert(seguimientoDeLinea({ ...l1, seguimiento: "Lote" }) === "Lote", "El empleado puede cambiarlo");
+assert(seriesDeLinea({ numeroSerie: "abc123  DEF456" }).join() === "ABC123,DEF456", "Series de la fila");
+assert(faltantesLinea({ ...l1, numeroSerie: "A1234 B1234 C1234" }, { esCompra: true }).includes("series"), "3 series para 2 laptops → por completar");
+assert(faltantesLinea({ ...l1, numeroSerie: "A1234 B1234" }, { esCompra: true }).length === 0, "2 series para 2 laptops → completa");
+const d2 = duplicarLinea({ ...l1, skuExistente: "LAP-000500" }, "8");
+assert(d2.skuExistente === "", "Duplicar no arrastra el producto elegido");
+const otraCat = aplicarATodas([{ ...l1, skuExistente: "LAP-000500", seguimiento: "Lote" }], { categoria: "Desktop" });
+assert(otraCat[0].skuExistente === "" && otraCat[0].seguimiento === null, "Otra categoría: se suelta el producto y se vuelve a proponer unidad/lote");
 
 if (fallos) { console.error(`\n${fallos} prueba(s) fallaron`); process.exit(1); }
 console.log("\nTodas las pruebas pasaron.");

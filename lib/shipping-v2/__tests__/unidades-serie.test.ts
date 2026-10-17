@@ -10,7 +10,11 @@ import {
   faltaSerieParaVender,
   nombreUnidad,
   normalizarSerie,
+  evaluarSkuCompartido,
+  planDeFila,
   seguimientoDe,
+  seguimientoParaGuardar,
+  separarSeries,
   seguimientoPorCategoria,
   serieCorta,
   siguienteSerieInterna,
@@ -68,6 +72,35 @@ assert(compararProducto({ nombre: "Cable HDMI", categoria: "Cable", marca: "Ugre
 const lista = buscarCoincidencias({ ...dell, sku: undefined }, [dell, { ...dell, sku: "LAP-000501", ram: "8GB" }, dell]);
 assert(lista.length >= 1 && lista[0].sku === "LAP-000500" && lista[0].nivel === "igual", "Una sugerencia por SKU, las Igual primero");
 assert(buscarCoincidencias({ ...dell, sku: undefined }, [dell], { descartados: ["lap-000500"] }).length === 0, "\"Es otro\" no se vuelve a sugerir");
+
+const cable = { sku: "CAB-000010", nombre: "Cable USB-C a Lightning tela 1 m", categoria: "Cable", marca: "Ugreen", condicion: "Nuevo" };
+assert(compararProducto({ ...cable, sku: undefined, nombre: "cable usb-c a lightning, tela 1m" }, cable)?.nivel === "igual", "Lote con el mismo nombre, marca y condición → Igual");
+assert(compararProducto({ ...cable, sku: undefined, condicion: "Usado" }, cable)?.nivel !== "igual", "Mismo nombre pero usado → no es igual");
+const dellSinSpecs = { sku: "LAP-000600", nombre: "Dell Latitude 5420", categoria: "Laptop", marca: "Dell", condicion: "Usado" };
+assert(compararProducto({ ...dellSinSpecs, sku: undefined }, dellSinSpecs)?.nivel === "parecido", "Equipo con el mismo nombre → solo Parecido (puede cambiar la RAM)");
+
+const corto = compararProducto({ nombre: "Dell Latitude 5420 i5 16GB", categoria: "Laptop", condicion: "Usado" }, { sku: "LAP-000500", nombre: "Dell Latitude 5420 i5-1145G7 16 GB 256 GB SSD 14\"", categoria: "Laptop", marca: "Dell", condicion: "Usado" });
+assert(corto?.nivel === "parecido", "Nombre corto sin marca dentro de uno largo → Parecido");
+assert(compararProducto({ nombre: "Cable USB-C", categoria: "Cable" }, cable) === null, "Dos palabras genéricas no bastan");
+const orden = buscarCoincidencias({ nombre: "Dell Latitude 5420 i5 16GB 256GB", categoria: "Laptop", condicion: "Usado" }, [
+  { sku: "LAP-000700", nombre: "Dell Latitude 5420 i5 8GB 128GB SSD 14 pulgadas táctil", categoria: "Laptop", condicion: "Usado" },
+  { sku: "LAP-000800", nombre: "Dell Latitude 5420 i5 16GB 256GB SSD", categoria: "Laptop", condicion: "Usado" },
+]);
+assert(orden[0]?.sku === "LAP-000800", "Entre parecidos, primero el más parecido");
+
+console.log("\n— Registrar compra: unidades y lotes —");
+assert(seguimientoParaGuardar("unidad") === "Unidad" && seguimientoParaGuardar("LOTE") === "Lote" && seguimientoParaGuardar("") === "", "Seguimiento que se guarda");
+assert(separarSeries("S/N 7HX2KQ3\n8pl4qr1, 7HX2KQ3;3BN7ZT5").join() === "7HX2KQ3,8PL4QR1,3BN7ZT5", "Series pegadas o escaneadas: limpias y sin repetir");
+const tres = planDeFila({ seguimiento: "Unidad", cantidad: 3, series: ["7HX2KQ3", "8PL4QR1"] });
+assert(tres.ok && tres.registros.length === 3 && tres.registros.every((r) => r.cantidad === 1) && tres.registros[2].numeroSerie === "", "3 laptops → 3 registros de 1 (la 3.ª sin serie aún)");
+const diez = planDeFila({ seguimiento: "Lote", cantidad: 10 });
+assert(diez.ok && diez.registros.length === 1 && diez.registros[0].cantidad === 10, "10 cables → 1 lote de 10");
+assert(!planDeFila({ seguimiento: "Unidad", cantidad: 1, series: ["A1234", "B1234"] }).ok, "Más series que unidades → error");
+assert(!planDeFila({ seguimiento: "Lote", cantidad: 5, series: ["A1234"] }).ok, "Un lote no lleva series");
+assert(!planDeFila({ seguimiento: "Unidad", cantidad: 2, series: ["A1234", "a1234"] }).ok, "Serie repetida → error");
+assert(evaluarSkuCompartido({ sku: "LAP-000500", categoria: "Laptop" }, { categoria: "Laptop" }) === null, "Misma categoría → se puede sumar");
+assert(evaluarSkuCompartido({ sku: "LAP-000500", categoria: "Laptop" }, { categoria: "Monitor" }) !== null, "Otra categoría → no");
+assert(evaluarSkuCompartido({ sku: "MON-000034", categoria: "Monitor", usoLocal: true }, { categoria: "Monitor" }) !== null, "Activo con mercadería → no");
 
 console.log("\n— Lotes: primero el más antiguo (C2) —");
 const lotes = [
