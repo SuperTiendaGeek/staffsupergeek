@@ -18,6 +18,7 @@ import { EscrituraConcurrenteError, verificarEscrituraUnica, withLock } from "@/
 
 import type {
   ShippingV2DashboardSummary,
+  ShippingV2UnidadHermana,
   ShippingV2AccessContext,
   ShippingV2AccessPermissions,
   ShippingV2Attachment,
@@ -252,7 +253,7 @@ import {
   staffShippingV2Access,
   systemShippingV2Access,
 } from "@/lib/shipping-v2/access";
-import { evaluarSerie, evaluarSkuCompartido, normalizarSerie, seguimientoParaGuardar } from "@/lib/shipping-v2/unidades-serie";
+import { esIdRegistro, evaluarSerie, evaluarSkuCompartido, normalizarSerie, seguimientoParaGuardar } from "@/lib/shipping-v2/unidades-serie";
 import { camposOriginalTrasSeparar, camposUnidadSeparada, evaluarSepararUnidad } from "@/lib/shipping-v2/separar-unidad";
 import { camposArticuloFueraDeCaja, evaluarCancelarCaja } from "@/lib/shipping-v2/cancelar-caja";
 import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
@@ -2499,6 +2500,59 @@ async function validarSerieParaGuardar(valor: string, itemIdPropio?: string): Pr
   const evaluacion = evaluarSerie(serie, duenios);
   if (!evaluacion.ok) throw new Error(evaluacion.motivo);
   return evaluacion.serie;
+}
+
+/**
+ * Punto 10b-4: el registro de una unidad a partir de su dirección
+ * (/shipping-v2/items/LAP-000500/u/7HX2KQ3/…). La clave es la serie o, si la
+ * unidad todavía no tiene, el id del registro. Si el SKU de la dirección ya no
+ * coincide (por ejemplo tras una fusión), igual se encuentra por la serie.
+ */
+export async function idDeUnidadPorRuta(skuRuta: string, claveRuta: string): Promise<string | null> {
+  if (esIdRegistro(claveRuta)) return claveRuta;
+  const serie = normalizarSerie(claveRuta).replace(/'/g, "");
+  if (!serie) return null;
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const registros = await listRecords(SHIPPING_V2_TABLES.items, {
+    maxRecords: 5,
+    fields: [getOfficialSkuField(), F.numeroSerie],
+    filterByFormula: `UPPER(SUBSTITUTE({${F.numeroSerie}}," ",""))='${escapeFormulaString(serie)}'`,
+  });
+  const sku = normalizeSku(cleanString(skuRuta));
+  const mismoSku = registros.find((r) => normalizeSku(firstString(r.fields[getOfficialSkuField()])) === sku);
+  return (mismoSku ?? registros[0])?.id ?? null;
+}
+
+/**
+ * Punto 10b-4: las unidades (y lotes) que comparten el SKU, de la más antigua a
+ * la más nueva. Solo datos para ubicarlas; cada una se abre por su propio registro.
+ */
+export async function getShippingV2UnidadesDelProducto(skuValue: string, access?: ShippingV2AccessContext): Promise<ShippingV2UnidadHermana[]> {
+  const sku = normalizeSku(cleanString(skuValue));
+  if (!sku) return [];
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const registros = await listRecords(SHIPPING_V2_TABLES.items, {
+    maxRecords: 100,
+    fields: [
+      getOfficialSkuField(), F.numeroSerie, F.estadoItem, F.cantidad, F.precioVentaFinal, F.recibido,
+      "Revisado física/técnicamente", F.fechaRegistro, F.proveedorCompra, F.proveedorLogistico,
+    ],
+    filterByFormula: `LOWER({${getOfficialSkuField()}}) = LOWER('${escapeFormulaString(sku)}')`,
+  });
+  return registros
+    .filter((r) => canAccessItemRecord(r, access))
+    .map((r) => ({
+      id: r.id,
+      sku: firstString(r.fields[getOfficialSkuField()]),
+      numeroSerie: firstString(r.fields[F.numeroSerie]) || undefined,
+      estado: firstString(r.fields[F.estadoItem], "Registrado"),
+      cantidad: firstNumber(r.fields[F.cantidad]),
+      precioVenta: canShippingV2(access, "canViewCosts") ? firstNumber(r.fields[F.precioVentaFinal]) : null,
+      recibido: firstBoolean(r.fields[F.recibido]) === true,
+      inspeccionFirmada: firstBoolean(r.fields["Revisado física/técnicamente"]) === true,
+      fechaRegistro: firstString(r.fields[F.fechaRegistro], r.createdTime) || undefined,
+    }))
+    .sort((a, b) => (a.fechaRegistro ?? "").localeCompare(b.fechaRegistro ?? "") || a.id.localeCompare(b.id));
 }
 
 export async function findShippingV2ItemBySku(skuValue: string) {

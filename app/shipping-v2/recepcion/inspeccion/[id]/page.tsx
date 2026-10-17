@@ -1,44 +1,20 @@
-import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import { redirect } from "next/navigation";
-import { StaffAppShell } from "@/components/staff/StaffAppShell";
-import {
-  getShippingV2AccessContextForSession,
-  getShippingV2InspeccionTecnica,
-} from "@/lib/shipping-v2/airtable";
+import { getShippingV2AccessContextForSession, getShippingV2ItemById } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
-import { requirePantallaVisible } from "@/lib/permissions/pantallas";
-import { ShippingV2InspeccionClient } from "./ShippingV2InspeccionClient";
+import { rutaUnidad } from "@/lib/shipping-v2/unidades-serie";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: Promise<{ id: string }> };
-
-export default async function ShippingV2InspeccionPage({ params }: Params) {
+/**
+ * Punto 10b-4 (17-oct-2026): la inspección técnica se mudó al artículo
+ * (/shipping-v2/items/[sku]/u/[serie]/inspeccion). Esta dirección vieja solo
+ * redirige, para no romper enlaces guardados.
+ */
+export default async function RedireccionUnidad({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { id } = await params;
-
+  const query = await searchParams;
   const session = await getSessionFromCookie();
-  requirePantallaVisible(session?.user.pantallasRestringidas ?? {}, "shipping-v2", "recepcion");
-
   const access = await getShippingV2AccessContextForSession(session);
-  if (!access.permissions.canUseRecepcion) redirect("/shipping-v2");
-
-  const inspeccion = await getShippingV2InspeccionTecnica(id, { access });
-
-  // Un item que todavía no llegó no se puede inspeccionar. Se devuelve a
-  // Recepción en vez de mostrar una pantalla que no va a poder guardar nada.
-  if (inspeccion.item.recibido !== true) redirect("/shipping-v2/recepcion");
-
-  return (
-    <StaffAppShell activeHref="/shipping-v2/recepcion" sectionLabel="Shipping V2">
-      <div className="w-full max-w-none space-y-3">
-      <ShippingV2Pestanas />
-      <ShippingV2InspeccionClient
-        inicial={inspeccion}
-        usuario={session?.user.nombre || session?.user.email || "Portal Staff"}
-        puedeEditarItems={access.permissions.canEditItems}
-        puedeCrearNovedades={access.permissions.canCreateNovedades}
-      />
-    </div>
-    </StaffAppShell>
-  );
+  const item = await getShippingV2ItemById(id, { includeAiName: false, access });
+  redirect(rutaUnidad(item, "inspeccion", { desde: query.desde === "recepcion" ? "recepcion" : undefined }));
 }

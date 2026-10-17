@@ -20,10 +20,11 @@ import {
   getShippingV2SituacionPagoDeItem,
   getShippingV2Proveedores,
   getShippingV2TrazabilidadDeItem,
+  getShippingV2UnidadesDelProducto,
   type ShippingV2ItemNavigation,
 } from "@/lib/shipping-v2/airtable";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
-import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2ItemTrazabilidad, ShippingV2Novedad, ShippingV2Packing, ShippingV2Pago, ShippingV2Proveedor } from "@/types/shipping-v2";
+import type { ShippingV2AccessPermissions, ShippingV2Item, ShippingV2ItemTrazabilidad, ShippingV2Novedad, ShippingV2Packing, ShippingV2Pago, ShippingV2Proveedor, ShippingV2UnidadHermana } from "@/types/shipping-v2";
 import { ShippingV2ItemHeaderNavigation } from "./ShippingV2ItemHeaderNavigation";
 import { EliminarItemAdmin } from "./EliminarItemAdmin";
 import { ShippingV2ActivoAcciones } from "./ShippingV2ActivoAcciones";
@@ -105,6 +106,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
   let rolNovedades: ShippingV2NovedadRol = "ninguno";
   let navigation = emptyItemNavigation;
   let trazabilidad: ShippingV2ItemTrazabilidad | null = null;
+  let hermanas: ShippingV2UnidadHermana[] = [];
   let error = "";
   let notFound = false;
 
@@ -133,7 +135,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
       return undefined;
     });
     item = ocultarCamposDeObjeto(resolveItem({ ...loadedItem, situacionPago }, proveedores), camposOcultos);
-    const [loadedPago, loadedPacking, loadedTrazabilidad] = await Promise.all([
+    const [loadedPago, loadedPacking, loadedTrazabilidad, loadedHermanas] = await Promise.all([
       item.pagoId ? getShippingV2PagoById(item.pagoId, access).catch((relatedError) => {
         console.warn("No se pudo cargar pago relacionado del item Shipping V2:", relatedError);
         return null;
@@ -148,10 +150,16 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
         console.warn("No se pudo cargar el recorrido del item Shipping V2:", relatedError);
         return null;
       }) : Promise.resolve(null),
+      // Punto 10b-4: las otras unidades (o lotes) del mismo SKU.
+      getShippingV2UnidadesDelProducto(item.sku, access).catch((relatedError) => {
+        console.warn("No se pudieron cargar las otras unidades del producto:", relatedError);
+        return [];
+      }),
     ]);
     pago = loadedPago;
     packing = loadedPacking;
     trazabilidad = loadedTrazabilidad;
+    hermanas = loadedHermanas;
   } catch (loadError) {
     console.error("Error al cargar detalle de item Shipping V2:", loadError);
     notFound = isNotFoundError(loadError);
@@ -190,6 +198,7 @@ export default async function ShippingV2ItemDetailPage({ params }: Props) {
             permissions={permissions}
             rolNovedades={rolNovedades}
             trazabilidad={trazabilidad}
+            hermanas={hermanas}
             enlaces={{
               facturacion: canAccessApp(session, "Facturación"),
               operaciones: canAccessApp(session, "Operaciones"),

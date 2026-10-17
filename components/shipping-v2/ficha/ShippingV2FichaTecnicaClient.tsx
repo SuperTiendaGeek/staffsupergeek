@@ -19,6 +19,9 @@ type Props = {
     ports: ShippingV2TechnicalOption[];
     extraFeatures: ShippingV2TechnicalOption[];
   };
+  /** Punto 10b-4: la ficha para imprimir de esta unidad (vista previa e imprimir). */
+  vistaPreviaHref: string;
+  imprimirHref: string;
 };
 
 type FieldKey = keyof ShippingV2TechnicalSheetInput;
@@ -337,6 +340,8 @@ export function ShippingV2FichaTecnicaClient({
   item: initialItem,
   technicalOptions,
   especificaciones: especificacionesIniciales,
+  vistaPreviaHref,
+  imprimirHref,
 }: Props) {
   const [item, setItem] = useState(initialItem);
   const [especificaciones, setEspecificaciones] = useState(especificacionesIniciales);
@@ -764,8 +769,8 @@ export function ShippingV2FichaTecnicaClient({
             <button type="button" disabled={Boolean(busy)} onClick={() => void completeFromCatalogs()} className="h-9 rounded-lg border border-[#D7FF4F]/55 bg-[#D7FF4F] px-3 text-xs font-bold text-[#151515] disabled:opacity-60">{busy === "complete-catalogs" ? "Completando..." : "Completar desde catálogos"}</button>
             <button type="button" disabled={Boolean(busy)} onClick={() => void save()} className="h-9 rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-xs font-bold text-[#F5F5F5] disabled:opacity-60">{busy === "save" ? "Guardando..." : "Guardar ficha"}</button>
             <button type="button" disabled={Boolean(busy)} onClick={() => void save({ reviewed: true })} className="h-9 rounded-lg border border-[#4FC3FF]/45 bg-[#4FC3FF]/10 px-3 text-xs font-bold text-[#BDEAFF] disabled:opacity-60">{busy === "review" ? "Marcando..." : "Marcar ficha revisada"}</button>
-            <Link href={`/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}/print`} className="flex h-9 items-center rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-xs font-bold text-[#F5F5F5]">Vista previa</Link>
-            <Link href={`/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}/print?print=1`} target="_blank" className="flex h-9 items-center rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-xs font-bold text-[#F5F5F5]">Imprimir ficha</Link>
+            <Link href={vistaPreviaHref} className="flex h-9 items-center rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-xs font-bold text-[#F5F5F5]">Vista previa</Link>
+            <Link href={imprimirHref} target="_blank" className="flex h-9 items-center rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 text-xs font-bold text-[#F5F5F5]">Imprimir ficha</Link>
           </div>
         </div>
       </section>

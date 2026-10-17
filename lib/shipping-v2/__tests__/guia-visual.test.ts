@@ -2,7 +2,7 @@
  * La guía visual de la inspección no puede señalar zonas que no existen.
  * Ejecutar: npm test guia-visual
  *
- * Los dibujos (app/.../inspeccion/[id]/trazos.tsx) traen dos mapas con ids de
+ * Los dibujos (components/shipping-v2/inspeccion/trazos.tsx) traen dos mapas con ids de
  * zona escritos a mano: `capas` (el contorno que se enciende) y `coords` (dónde
  * va el número). Los ids reales los decide construirZonasRevision(). TypeScript
  * no puede casar esos dos lados —son Record<string, …>— así que un id mal
@@ -11,7 +11,7 @@
  * prueba es ese chequeo.
  */
 import { construirZonasRevision, getPerfilRevision, idsDeZonaDelPerfil, type PerfilRevision } from "../revision-tecnica";
-import { TRAZOS } from "../../../app/shipping-v2/recepcion/inspeccion/[id]/trazos";
+import { TRAZOS } from "../../../components/shipping-v2/inspeccion/trazos";
 
 let fallos = 0;
 function assert(cond: boolean, msg: string): void {

@@ -29,6 +29,10 @@ type Props = {
   usuario: string;
   puedeEditarItems: boolean;
   puedeCrearNovedades: boolean;
+  /** Punto 10b-4: "←" vuelve a Recepción o al detalle de la unidad, según de dónde se llegó. */
+  volver: { href: string; etiqueta: string };
+  /** Punto 10b-4: la ficha de esta unidad (/shipping-v2/items/[sku]/u/[serie]/ficha). */
+  fichaHref: string;
 };
 
 // Mantenimientos y mejoras ya NO viven aquí (punto 3, 6-oct-2026): se
@@ -68,7 +72,7 @@ function fecha(iso?: string) {
 }
 
 export function ShippingV2InspeccionClient({
-  inicial, usuario, puedeEditarItems, puedeCrearNovedades,
+  inicial, usuario, puedeEditarItems, puedeCrearNovedades, volver, fichaHref,
 }: Props) {
   const [datos, setDatos] = useState(inicial);
   const [pestana, setPestana] = useState<Pestana>(
@@ -363,9 +367,9 @@ export function ShippingV2InspeccionClient({
                 Firmada
               </span>
             ) : null}
-            <Link href="/shipping-v2/recepcion"
+            <Link href={volver.href}
               className="rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 py-1.5 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45">
-              ← Recepción
+              ← {volver.etiqueta}
             </Link>
           </div>
         </div>
@@ -694,7 +698,7 @@ export function ShippingV2InspeccionClient({
                       {firmado ? (
                         <p className="mt-2 text-[11.5px] text-[#7E7F76]">
                           La inspección está firmada. Para corregir un dato técnico sin reabrirla, entra por{" "}
-                          <Link href={`/shipping-v2/recepcion/ficha/${item.id}`} className="font-semibold text-[#D7FF4F] underline">
+                          <Link href={fichaHref} className="font-semibold text-[#D7FF4F] underline">
                             Preparar ficha
                           </Link>.
                         </p>
@@ -765,7 +769,7 @@ export function ShippingV2InspeccionClient({
           {conteos.datos ? <span>Datos técnicos <b className="font-mono text-[#F4C95B]">{conteos.datos}</b></span> : null}
         </div>
         <div className="ml-auto flex gap-2">
-          <Link href="/shipping-v2/recepcion"
+          <Link href={volver.href}
             className="rounded-lg border border-[#3A3A36] bg-[#2A2B23] px-3 py-2 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#A8C93B]">
             Guardar y seguir después
           </Link>
