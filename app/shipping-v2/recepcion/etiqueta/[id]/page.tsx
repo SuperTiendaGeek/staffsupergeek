@@ -4,6 +4,8 @@ import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import { EtiquetaSku } from "./EtiquetaSku";
 import { lineaEtiqueta, parsearEspecificaciones } from "@/lib/shipping-v2/especificaciones";
+import { codigoBarrasEtiqueta } from "@/lib/shipping-v2/codigo-barras";
+import { valorCodigoBarras } from "@/lib/shipping-v2/unidades-serie";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -22,7 +24,7 @@ function formatoPrecio(valor: number | null | undefined): string {
  * viven en EtiquetaSku, que corre en el navegador porque necesita medir el
  * texto ya dibujado. Aquí solo se leen los datos.
  */
-function PrintableSkuLabel(props: { sku: string; linea?: string; precio?: string }) {
+function PrintableSkuLabel(props: { sku: string; linea?: string; precio?: string; codigoSvg?: string; codigoTexto?: string }) {
   return <EtiquetaSku {...props} />;
 }
 
@@ -53,5 +55,10 @@ export default async function ShippingV2SkuLabelPage({ params }: Props) {
   );
   // Igual que la lista de Recepción: un precio final en 0 cae al sugerido.
   const precio = formatoPrecio(item.precioVenta || item.precioVentaSugerido);
-  return <PrintableSkuLabel sku={item.sku?.trim() || "SKU no disponible"} linea={linea} precio={precio} />;
+  const sku = item.sku?.trim() || "SKU no disponible";
+  // Punto 10b: la serie del equipo (o el SKU de un lote) en código de barras,
+  // con todo el ancho útil de la etiqueta (50 mm menos 1,2 mm por lado).
+  const codigo = item.sku?.trim() ? valorCodigoBarras({ sku, numeroSerie: item.numeroSerie, categoria: item.categoria }) : null;
+  const svg = codigo ? codigoBarrasEtiqueta(codigo.valor, { anchoUtilMm: 47.6, altoMm: 8 }) : null;
+  return <PrintableSkuLabel sku={sku} linea={linea} precio={precio} codigoSvg={svg?.svg} codigoTexto={svg ? codigo?.texto : undefined} />;
 }
