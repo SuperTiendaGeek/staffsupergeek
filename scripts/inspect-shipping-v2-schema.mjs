@@ -295,6 +295,8 @@ const ITEM_FIELD_KEYS = {
   modelo: "Modelo",
   marca: "Marca",
   numeroSerie: "Número de serie",
+  // Punto 10b (17-oct-2026): "Unidad" (1 equipo con su serie) o "Lote".
+  seguimiento: "Seguimiento",
   condicion: "Condición",
   ubicacionActual: "Ubicación actual",
   trackingDirecto: "Tracking directo",

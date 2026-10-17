@@ -1476,6 +1476,14 @@
           "type": "multipleRecordLinks",
           "linkedTableId": "tblIf1HvEN3Azjscp",
           "linkedTableName": "Shipping Órdenes de compra"
+        },
+        "Seguimiento": {
+          "id": "fldI2ccjcWmYNuOZp",
+          "type": "singleSelect",
+          "options": [
+            "Unidad",
+            "Lote"
+          ]
         }
       }
     },

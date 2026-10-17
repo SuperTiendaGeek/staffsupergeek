@@ -43,6 +43,14 @@ export function seguimientoPorCategoria(categoria?: string | null): Seguimiento 
   return POR_UNIDAD.has(normalizarTexto(categoria)) ? "Unidad" : "Lote";
 }
 
+/** Lo que se escribe en el campo "Seguimiento" de Airtable ("" = no se toca). */
+export function seguimientoParaGuardar(valor?: string | null): Seguimiento | "" {
+  const v = normalizarTexto(valor);
+  if (v === "unidad") return "Unidad";
+  if (v === "lote") return "Lote";
+  return "";
+}
+
 /** El seguimiento real de un registro: el elegido al registrar o el de su categoría. */
 export function seguimientoDe(item: { seguimiento?: string | null; categoria?: string | null }): Seguimiento {
   const elegido = normalizarTexto(item.seguimiento);
@@ -100,6 +108,23 @@ export function evaluarSerie(valor: string | null | undefined, otras: Map<string
   return { ok: true, serie };
 }
 
+/**
+ * Lo que se pega o escanea en "Series": una o varias, separadas por espacios,
+ * comas, punto y coma, saltos de línea o tabuladores (lo que manda el lector
+ * de códigos o una columna copiada de una hoja). Sin repetir y en orden.
+ */
+export function separarSeries(texto?: string | null): string[] {
+  const vistas = new Set<string>();
+  const salida: string[] = [];
+  for (const pedazo of String(texto ?? "").split(/[\s,;]+/)) {
+    const serie = normalizarSerie(pedazo);
+    if (!serie || vistas.has(serie)) continue;
+    vistas.add(serie);
+    salida.push(serie);
+  }
+  return salida;
+}
+
 /** Cómo se nombra una unidad en pantallas y documentos: "LAP-000500 · S/N 7HX2KQ3". */
 export function nombreUnidad(sku: string, serie?: string | null): string {
   const s = normalizarSerie(serie);
@@ -146,23 +171,28 @@ export type DatosParaComparar = {
   almacenamiento?: string;
 };
 
-export type Coincidencia = { sku: string; nivel: "igual" | "parecido"; motivos: string[] };
+/** `puntaje`: qué tanto se parecen los nombres (0 a 1), para ordenar las "parecido". */
+export type Coincidencia = { sku: string; nivel: "igual" | "parecido"; motivos: string[]; puntaje?: number };
 
 function clave(valor?: string | null) {
   return normalizarTexto(valor).replace(/[^a-z0-9]/g, "");
 }
 
+/** Palabras del nombre; "16GB" y "16 GB" cuentan igual. */
 function palabras(valor?: string | null): Set<string> {
-  return new Set(normalizarTexto(valor).split(/[^a-z0-9]+/).filter((p) => p.length >= 2));
+  const texto = normalizarTexto(valor).replace(/(\d)(gb|tb|mb|ghz|mhz|hz|mah|w|v|mm|cm|m)\b/g, "$1 $2");
+  return new Set(texto.split(/[^a-z0-9]+/).filter((p) => p.length >= 2));
 }
 
 /**
  * Compara lo que se está registrando con un producto que ya existe.
  *
  * - "igual" por número de parte o código de barras idéntico.
+ * - "igual" por nombre idéntico en artículos por lote (misma categoría, marca y condición).
  * - "igual" en equipos: mismo modelo, procesador, RAM, disco y condición.
  *   Si cambia uno (8 GB contra 16 GB), NO es el mismo producto.
- * - "parecido": misma categoría y marca y nombres muy parecidos. Solo sugiere.
+ * - "parecido": misma categoría (y marca, si se escribió) y nombres muy
+ *   parecidos. Solo sugiere.
  * El sistema nunca une solo: el empleado confirma "Usar este producto" o "Es otro".
  */
 export function compararProducto(nuevo: DatosParaComparar, existente: DatosParaComparar): Coincidencia | null {
@@ -171,6 +201,8 @@ export function compararProducto(nuevo: DatosParaComparar, existente: DatosParaC
   const mismaCategoria = clave(nuevo.categoria) && clave(nuevo.categoria) === clave(existente.categoria);
   const mismaCondicion = clave(nuevo.condicion) === clave(existente.condicion);
 
+  // Al registrar casi nunca se escribe la marca: vacía no descarta.
+  const mismaMarca = !clave(nuevo.marca) || clave(nuevo.marca) === clave(existente.marca);
   const parteNueva = clave(nuevo.numeroParte);
   if (parteNueva.length >= 4 && parteNueva === clave(existente.numeroParte) && mismaCondicion) {
     return { sku, nivel: "igual", motivos: [`número de parte ${nuevo.numeroParte?.trim()}`] };
@@ -191,14 +223,27 @@ export function compararProducto(nuevo: DatosParaComparar, existente: DatosParaC
     }
   }
 
-  if (mismaCategoria && clave(nuevo.marca) === clave(existente.marca)) {
+  // Artículos por lote (cables, cargadores, tintas): nombre idéntico, con la
+  // misma categoría, marca y condición, es el mismo producto. En equipos NO:
+  // "Dell Latitude 5420" puede ser de 8 o de 16 GB, así que ahí el mismo
+  // nombre solo da "parecido" y el empleado revisa la configuración.
+  const nombreNuevo = clave(nuevo.nombre);
+  if (mismaCategoria && mismaMarca && mismaCondicion && seguimientoPorCategoria(nuevo.categoria) === "Lote"
+    && nombreNuevo.length >= 6 && nombreNuevo === clave(existente.nombre)) {
+    return { sku, nivel: "igual", motivos: ["mismo nombre", `condición ${nuevo.condicion ?? ""}`.trim()] };
+  }
+
+  if (mismaCategoria && mismaMarca) {
     const a = palabras(nuevo.nombre);
     const b = palabras(existente.nombre);
     if (a.size && b.size) {
       let comunes = 0;
       for (const p of a) if (b.has(p)) comunes++;
       const parecido = comunes / Math.max(a.size, b.size);
-      if (parecido >= 0.6) return { sku, nivel: "parecido", motivos: ["nombre parecido"] };
+      // Nombre corto contenido en uno largo ("Dell Latitude 5420" en
+      // "Dell Latitude 5420 i5 16 GB 256 GB") también se sugiere.
+      const contenido = comunes >= 3 && comunes / Math.min(a.size, b.size) >= 0.8;
+      if (parecido >= 0.6 || contenido) return { sku, nivel: "parecido", motivos: ["nombre parecido"], puntaje: Math.round(parecido * 100) / 100 };
     }
   }
   return null;
@@ -223,7 +268,9 @@ export function buscarCoincidencias(
     if (!previa || (previa.nivel === "parecido" && c.nivel === "igual")) porSku.set(c.sku, c);
   }
   return [...porSku.values()]
-    .sort((x, y) => (x.nivel === y.nivel ? x.sku.localeCompare(y.sku) : x.nivel === "igual" ? -1 : 1))
+    .sort((x, y) => (x.nivel !== y.nivel
+      ? (x.nivel === "igual" ? -1 : 1)
+      : (y.puntaje ?? 1) - (x.puntaje ?? 1) || x.sku.localeCompare(y.sku)))
     .slice(0, opciones.maximo ?? 5);
 }
 
@@ -254,4 +301,47 @@ export function tomarDeLotes(lotes: LoteDisponible[], cantidad: number): TomaDeL
     falta -= t;
   }
   return { ok: true, tomas };
+}
+
+// ─── Registrar compra: cuántos registros salen de una fila ──────────────────
+
+export type RegistroAlRegistrar = { cantidad: number; numeroSerie: string };
+
+export type PlanFila = { ok: true; registros: RegistroAlRegistrar[] } | { ok: false; motivo: string };
+
+/**
+ * Una fila de "Registrar compra" se guarda así (decisión del 17-oct):
+ * - Lote: UN registro con su cantidad (las 10 unidades de cable de esta compra).
+ * - Unidad: un registro POR EQUIPO, cantidad 1, cada uno con su serie si ya se
+ *   tiene (las que falten se escanean al recibir). Todos con el mismo SKU.
+ */
+export function planDeFila(fila: { seguimiento: Seguimiento; cantidad: number; series?: string[] }): PlanFila {
+  const cantidad = Math.floor(fila.cantidad);
+  if (!(cantidad > 0) || cantidad !== fila.cantidad) return { ok: false, motivo: "La cantidad debe ser un número entero mayor que 0." };
+  const series = (fila.series ?? []).map(normalizarSerie).filter(Boolean);
+  if (fila.seguimiento === "Lote") {
+    if (series.length) return { ok: false, motivo: "Un lote no lleva series: cámbialo a uno por uno." };
+    return { ok: true, registros: [{ cantidad, numeroSerie: "" }] };
+  }
+  if (new Set(series).size !== series.length) return { ok: false, motivo: "Hay una serie repetida." };
+  if (series.length > cantidad) return { ok: false, motivo: `Hay ${series.length} series para ${cantidad} unidad(es).` };
+  return { ok: true, registros: Array.from({ length: cantidad }, (_, i) => ({ cantidad: 1, numeroSerie: series[i] ?? "" })) };
+}
+
+/**
+ * ¿Se puede sumar este registro a un producto que ya existe? Solo si es la
+ * misma categoría (no se mezcla un monitor en LAP-000500) y del mismo lado:
+ * mercadería con mercadería, activo de la tienda con activo.
+ */
+export function evaluarSkuCompartido(
+  existente: { sku: string; categoria?: string | null; usoLocal?: boolean | null },
+  nuevo: { categoria?: string | null; usoLocal?: boolean | null }
+): string | null {
+  if (clave(existente.categoria) !== clave(nuevo.categoria)) {
+    return `${existente.sku} es de categoría ${existente.categoria || "sin categoría"}; este artículo es ${nuevo.categoria || "sin categoría"}.`;
+  }
+  if (Boolean(existente.usoLocal) !== Boolean(nuevo.usoLocal)) {
+    return existente.usoLocal ? `${existente.sku} es un activo de la tienda.` : `${existente.sku} es mercadería para la venta, no un activo.`;
+  }
+  return null;
 }

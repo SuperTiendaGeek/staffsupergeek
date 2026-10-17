@@ -252,7 +252,7 @@ import {
   staffShippingV2Access,
   systemShippingV2Access,
 } from "@/lib/shipping-v2/access";
-import { evaluarSerie, normalizarSerie } from "@/lib/shipping-v2/unidades-serie";
+import { evaluarSerie, evaluarSkuCompartido, normalizarSerie, seguimientoParaGuardar } from "@/lib/shipping-v2/unidades-serie";
 import { camposOriginalTrasSeparar, camposUnidadSeparada, evaluarSepararUnidad } from "@/lib/shipping-v2/separar-unidad";
 import { camposArticuloFueraDeCaja, evaluarCancelarCaja } from "@/lib/shipping-v2/cancelar-caja";
 import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
@@ -1046,6 +1046,7 @@ function getItemFields(input: ShippingV2ItemWriteInput, extra: Record<string, un
     [F.modelo]: cleanString(input.modelo),
     [F.marca]: cleanString(input.marca),
     [F.numeroSerie]: cleanString(input.numeroSerie),
+    [F.seguimiento]: seguimientoParaGuardar(input.seguimiento),
     [F.condicion]: cleanString(input.condicion),
     [F.cantidad]: input.cantidad ?? undefined,
     [F.unidad]: cleanString(input.unidad),
@@ -1507,6 +1508,7 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     modelo: firstString(f[F.modelo]),
     marca: firstString(f[F.marca]),
     numeroSerie: firstString(f[F.numeroSerie]),
+    seguimiento: firstString(f[F.seguimiento]) || undefined,
     categoria: firstString(f[F.categoria]),
     tipoOperacion: firstString(f[F.tipoOperacion]),
     tipoItem: firstString(f[F.tipoItem]),
@@ -2283,6 +2285,8 @@ function mapItemSearchEntry(
     marca: firstString(f[F.marca]) || undefined,
     modelo: firstString(f[F.modelo]) || undefined,
     numeroSerie: firstString(f[F.numeroSerie]) || undefined,
+    condicion: firstString(f[F.condicion]) || undefined,
+    seguimiento: firstString(f[F.seguimiento]) || undefined,
     estado: firstString(f[F.estadoItem], "Registrado"),
     tipoOperacion: firstString(f[F.tipoOperacion]) || undefined,
     proveedorCompra: resolveShippingV2ProveedorLabel(proveedorCompraId, context.providerLabelsById) || undefined,
@@ -2326,6 +2330,8 @@ export async function getShippingV2ItemSearchIndex(access?: ShippingV2AccessCont
       F.marca,
       F.modelo,
       F.numeroSerie,
+      F.condicion,
+      F.seguimiento,
       F.estadoItem,
       F.tipoOperacion,
       F.proveedorCompra,
@@ -2797,6 +2803,19 @@ export async function generateUniqueShippingV2SkuForCategory(category?: string) 
  * en el mismo instante podían recibir ambos el mismo número.
  */
 async function resolveOfficialSkuForCreate(input: ShippingV2ItemWriteInput) {
+  // Punto 10b: otra unidad u otro lote de un producto que ya existe. Ese SKU
+  // SÍ se repite a propósito (cada registro guarda sus propios costos).
+  const compartido = normalizeSku(cleanString(input.skuCompartido));
+  if (compartido) {
+    const existente = await findShippingV2ItemBySku(compartido);
+    if (!existente) throw new Error(`El producto ${compartido} no existe en Shipping Items.`);
+    const motivo = evaluarSkuCompartido(
+      { sku: compartido, categoria: existente.categoria, usoLocal: existente.usoLocal },
+      { categoria: cleanString(input.categoria), usoLocal: Boolean(input.usoLocal) }
+    );
+    if (motivo) throw new Error(motivo);
+    return compartido;
+  }
   const manualSku = normalizeSku(cleanString(input.sku));
   const prefijo = manualSku ? manualSku.split("-")[0] : getSkuPrefixByCategory(cleanString(input.categoria));
 
@@ -3133,8 +3152,9 @@ async function createShippingV2ItemRecord(
   if (!created) throw new Error("Airtable no devolvió el item creado.");
 
   // Segunda capa de la unicidad del SKU: el turno de arriba no cruza
-  // instancias del servidor, así que se confirma releyendo.
-  await verificarSkuUnicoTrasCrear(sku, created.id);
+  // instancias del servidor, así que se confirma releyendo. No aplica a otra
+  // unidad o lote de un producto que ya existe (punto 10b).
+  if (!cleanString(input.skuCompartido)) await verificarSkuUnicoTrasCrear(sku, created.id);
 
   const item = mapItem(created);
   await createShippingV2Event({
@@ -3153,6 +3173,10 @@ export async function createShippingV2Item(input: ShippingV2ItemWriteInput, opti
   const calculatedInput = completarAltaSegunLlegada(applyCalculatedItemFlow(prepararAltaSegunOrigen(input)));
   const normalizedInput = normalizeShippingV2ItemMoneyQuantityInput(calculatedInput.input, { mode: "create" });
   validateItemInput(normalizedInput);
+  // Punto 10b: una UNIDAD es un solo equipo (cantidad 1, con su serie).
+  if (seguimientoParaGuardar(normalizedInput.seguimiento) === "Unidad" && typeof normalizedInput.cantidad === "number" && normalizedInput.cantidad !== 1) {
+    throw new Error("Una unidad es un solo equipo (cantidad 1): cada equipo se registra con su serie.");
+  }
   await validateItemProviderRules(normalizedInput);
   // Punto 9d: desde "Registrar compra" el artículo nace dentro de su orden.
   const ordenCompraId = cleanString(options.ordenCompraId);

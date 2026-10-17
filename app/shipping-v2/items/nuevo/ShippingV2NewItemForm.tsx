@@ -30,6 +30,7 @@ import {
   SHIPPING_V2_CATEGORIAS,
   SHIPPING_V2_CONDICIONES,
   SHIPPING_V2_UNIDADES,
+  type ShippingV2ItemSearchEntry,
   type ShippingV2Proveedor,
 } from "@/types/shipping-v2";
 import { normalizeItemNameFast } from "@/lib/shipping-v2/item-name-normalizer";
@@ -54,11 +55,24 @@ import {
   duplicarLinea,
   faltantesLinea,
   lineaEnBlanco,
+  enteroPositivo,
   nuevaLinea,
+  seguimientoDeLinea,
+  seriesDeLinea,
   subtotalLinea,
   totalesLineas,
   type LineaCompra,
 } from "@/lib/shipping-v2/ordenes-compra";
+import {
+  buscarCoincidencias,
+  normalizarSerie,
+  planDeFila,
+  separarSeries,
+  type Coincidencia,
+  type DatosParaComparar,
+  type RegistroAlRegistrar,
+  type Seguimiento,
+} from "@/lib/shipping-v2/unidades-serie";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import { ACCEPT_HOJAS, ImportarLineasPanel, type EntradaImportacion } from "./ImportarLineasPanel";
 
@@ -155,11 +169,13 @@ const OPERACION_CORTA: Record<string, string> = {
 
 const inputBase = "h-8 w-full rounded-md border bg-[#151515] px-2 text-[13px] text-[#F5F5F5] outline-none placeholder:text-[#5E5F59] transition";
 
-function Seg<T extends string>({ value, options, onChange, invalid }: {
+function Seg<T extends string>({ value, options, onChange, invalid, suave = false }: {
   value: T | "";
   options: ReadonlyArray<{ value: T; label: string; title?: string }>;
   onChange: (value: T) => void;
   invalid?: boolean;
+  /** Dentro de la tabla: sin el lima, para no competir con los datos. */
+  suave?: boolean;
 }) {
   return (
     <div role="radiogroup" className={`inline-flex w-full overflow-hidden rounded-md border ${invalid ? "border-[#FF914D]/70" : "border-[#3A3A36]"}`}>
@@ -167,7 +183,7 @@ function Seg<T extends string>({ value, options, onChange, invalid }: {
         const on = value === o.value;
         return (
           <button key={o.value} type="button" role="radio" aria-checked={on} title={o.title} onClick={() => onChange(o.value)}
-            className={`h-8 flex-1 whitespace-nowrap border-r border-[#3A3A36] px-2 text-[12.5px] font-semibold transition last:border-r-0 ${on ? "bg-[#D7FF4F] text-[#151515]" : "bg-[#151515] text-[#B4B5AC] hover:text-[#D7FF4F]"}`}>
+            className={`h-8 flex-1 whitespace-nowrap border-r border-[#3A3A36] px-2 text-[12.5px] font-semibold transition last:border-r-0 ${on ? (suave ? "bg-[#33342D] text-[#F5F5F5]" : "bg-[#D7FF4F] text-[#151515]") : `bg-[#151515] ${suave ? "text-[#8F908A]" : "text-[#B4B5AC]"} hover:text-[#D7FF4F]`}`}>
             {o.label}
           </button>
         );
@@ -204,6 +220,63 @@ function money(value: number | null) {
   if (value === null) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
+
+/** Punto 10b: un producto que ya existe (los registros que comparten su SKU). */
+type ProductoExistente = DatosParaComparar & {
+  sku: string;
+  nombre: string;
+  precio: number | null;
+  registros: number;
+  disponibles: number;
+  seguimiento?: string;
+};
+
+type IndiceExistentes = { productos: ProductoExistente[]; porSku: Map<string, ProductoExistente>; series: Map<string, string> };
+
+/** Agrupa el índice de búsqueda por SKU (el registro más reciente da los datos). */
+function armarIndice(entradas: ShippingV2ItemSearchEntry[]): IndiceExistentes {
+  const porSku = new Map<string, ProductoExistente>();
+  const series = new Map<string, string>();
+  for (const e of entradas) {
+    const sku = (e.sku || "").trim().toUpperCase();
+    if (!sku) continue;
+    const serie = normalizarSerie(e.numeroSerie);
+    if (serie) series.set(serie, sku);
+    const libre = e.disponibilidad === "Reservable";
+    const previo = porSku.get(sku);
+    if (previo) {
+      previo.registros += 1;
+      if (libre) previo.disponibles += 1;
+      continue;
+    }
+    porSku.set(sku, {
+      sku,
+      nombre: e.nombre,
+      categoria: e.categoria,
+      marca: e.marca,
+      modelo: e.modelo,
+      condicion: e.condicion,
+      numeroParte: e.skuProveedor,
+      precio: e.precioVenta,
+      registros: 1,
+      disponibles: libre ? 1 : 0,
+      seguimiento: e.seguimiento,
+    });
+  }
+  return { productos: [...porSku.values()], porSku, series };
+}
+
+/** "LAP-000500, LAP-000500, CAB-000010" → "LAP-000500 ×2, CAB-000010". */
+function resumirCreados(skus: string[]): string {
+  const cuenta = new Map<string, number>();
+  for (const s of skus) cuenta.set(s, (cuenta.get(s) ?? 0) + 1);
+  return [...cuenta].map(([s, n]) => (n > 1 ? `${s} ×${n}` : s)).join(", ");
+}
+
+const SEGUIMIENTOS: ReadonlyArray<{ value: Seguimiento; label: string; title: string }> = [
+  { value: "Unidad", label: "Unidad", title: "Uno por uno: un registro por equipo, cada uno con su serie." },
+  { value: "Lote", label: "Lote", title: "Un registro con la cantidad (cables, accesorios…). Al vender sale primero el más antiguo." },
+];
 
 let contadorFilas = 0;
 function claveFila() {
@@ -251,6 +324,9 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
   const [importar, setImportar] = useState<EntradaImportacion | null>(null);
   const [importado, setImportado] = useState<{ n: number; avisos: string[] } | null>(null);
   const [recordadosLocales, setRecordadosLocales] = useState<Record<string, Record<string, string>>>({});
+  // Punto 10b: productos que ya existen, para "¿Ya existe?" y series repetidas.
+  const [indice, setIndice] = useState<IndiceExistentes | null>(null);
+  const cacheCoincidencias = useRef(new Map<string, Coincidencia[]>());
 
   const origen = cab.origen || null;
   const vieneDeAfuera = origen === ORIGEN_EXTRANJERO || origen === ORIGEN_LOCAL;
@@ -292,7 +368,29 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
 
   const lineasUsadas = lineas.filter((l) => !lineaEnBlanco(l));
   const totales = totalesLineas(lineasUsadas);
-  const faltantesPorLinea = new Map(lineas.map((l) => [l.key, lineaEnBlanco(l) ? [] : faltantesLinea(l, { esCompra })]));
+  // Punto 10b: una serie no se repite ni en el inventario ni en esta compra.
+  const seriesEnPantalla = new Map<string, number>();
+  for (const l of lineasUsadas) for (const serie of seriesDeLinea(l)) seriesEnPantalla.set(serie, (seriesEnPantalla.get(serie) ?? 0) + 1);
+  function problemaSerie(serie: string): string | null {
+    const duenio = indice?.series.get(serie);
+    if (duenio) return `Ya la tiene ${duenio}`;
+    if ((seriesEnPantalla.get(serie) ?? 0) > 1) return "Repetida en esta compra";
+    return null;
+  }
+  const faltantesPorLinea = new Map(lineas.map((l) => [
+    l.key,
+    lineaEnBlanco(l) ? [] : [
+      ...faltantesLinea(l, { esCompra }),
+      ...(seriesDeLinea(l).some((serie) => problemaSerie(serie)) ? ["serie repetida"] : []),
+    ],
+  ]));
+  const conteo = lineasUsadas.reduce((c, l) => {
+    const n = enteroPositivo(l.cantidad) ?? 0;
+    if (!l.skuExistente) c.nuevos += 1;
+    if (seguimientoDeLinea(l) === "Unidad") c.unidades += n;
+    else c.lotes += 1;
+    return c;
+  }, { nuevos: 0, unidades: 0, lotes: 0 });
   const porCompletar = lineasUsadas.filter((l) => (faltantesPorLinea.get(l.key) ?? []).length > 0).length;
   const montoPago = Math.round(((ordenExistente?.falta ?? 0) + totales.total) * 100) / 100;
   const pidePago = esCompra && puedeRegistrarRespaldo && montoPago > 0;
@@ -340,6 +438,22 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
   }, [permiteRegalo, esCompra, esDespiece]);
 
   useEffect(() => { fotosRef.current = fotos; }, [fotos]);
+
+  // Punto 10b: el índice de artículos (el mismo del buscador) para "¿Ya existe?".
+  // Si no carga, el registro sigue igual, solo sin sugerencias.
+  useEffect(() => {
+    let vivo = true;
+    fetch("/api/shipping-v2/items/search-index")
+      .then((r) => r.json())
+      .then((payload: { items?: ShippingV2ItemSearchEntry[] }) => {
+        if (vivo && Array.isArray(payload.items)) {
+          cacheCoincidencias.current.clear();
+          setIndice(armarIndice(payload.items));
+        }
+      })
+      .catch(() => undefined);
+    return () => { vivo = false; };
+  }, []);
   useEffect(() => () => {
     Object.values(fotosRef.current).flat().forEach((f) => URL.revokeObjectURL(f.previewUrl));
   }, []);
@@ -354,6 +468,11 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
       const next = { ...l, ...cambios };
       // Al cambiar la categoría, el activo o el regalo se vuelve a proponer la inspección.
       if ("categoria" in cambios || "activo" in cambios) next.requiereInspeccion = cambios.requiereInspeccion ?? null;
+      // Otra categoría (o pasar a activo): el producto elegido ya no aplica y unidad/lote se vuelve a proponer.
+      if (("categoria" in cambios && cambios.categoria !== l.categoria) || ("activo" in cambios && cambios.activo !== l.activo)) {
+        next.skuExistente = cambios.skuExistente ?? "";
+        next.seguimiento = cambios.seguimiento ?? null;
+      }
       if (cambios.regalo === true) next.costoProveedor = "";
       return next;
     }));
@@ -379,6 +498,52 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
     setFotos((m) => { const n = { ...m }; delete n[key]; return n; });
     setLineas((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : [nuevaLinea(claveFila(), { condicion: CONDICION_INICIAL, activo: esActivoInicial })]));
     if (abierta === key) setAbierta(null);
+  }
+
+  /** Punto 10b: "¿Ya existe?" — lo que se parece a esta fila entre los productos registrados. */
+  function coincidenciasDe(l: LineaCompra): Coincidencia[] {
+    if (!indice || l.activo || l.skuExistente || !l.nombre.trim() || !l.categoria) return [];
+    const clave = [l.nombre, l.categoria, l.marca, l.condicion, l.skuProveedor, l.modelo, l.descartados.join("|")].join("\u0001");
+    const cache = cacheCoincidencias.current;
+    const guardada = cache.get(clave);
+    if (guardada) return guardada;
+    const encontradas = buscarCoincidencias(
+      { nombre: l.nombre, categoria: l.categoria, marca: l.marca, condicion: l.condicion, numeroParte: l.skuProveedor, modelo: l.modelo },
+      indice.productos,
+      { descartados: l.descartados, maximo: 3 }
+    );
+    if (cache.size > 400) cache.clear();
+    cache.set(clave, encontradas);
+    return encontradas;
+  }
+
+  /** "Usar este producto": la fila se suma a ese SKU con los datos del producto. */
+  function usarProducto(key: string, p: ProductoExistente) {
+    setLineas((ls) => ls.map((l) => (l.key !== key ? l : {
+      ...l,
+      skuExistente: p.sku,
+      sku: "",
+      nombre: p.nombre || l.nombre,
+      marca: l.marca || p.marca || "",
+      modelo: l.modelo || p.modelo || "",
+      precioVentaFinal: l.precioVentaFinal || (typeof p.precio === "number" && p.precio > 0 ? String(p.precio) : ""),
+      seguimiento: l.seguimiento ?? (p.seguimiento === "Unidad" || p.seguimiento === "Lote" ? p.seguimiento : null),
+    })));
+  }
+
+  function descartarProducto(key: string, sku: string) {
+    setLineas((ls) => ls.map((l) => (l.key === key ? { ...l, descartados: [...l.descartados, sku] } : l)));
+  }
+
+  /** Lo escaneado o pegado se suma a las series de la fila (sin repetir). */
+  function agregarSeries(key: string, texto: string) {
+    const nuevas = separarSeries(texto);
+    if (!nuevas.length) return;
+    setLineas((ls) => ls.map((l) => (l.key === key ? { ...l, numeroSerie: separarSeries(`${l.numeroSerie} ${nuevas.join(" ")}`).join(" ") } : l)));
+  }
+
+  function quitarSerie(key: string, serie: string) {
+    setLineas((ls) => ls.map((l) => (l.key === key ? { ...l, numeroSerie: seriesDeLinea(l).filter((s) => s !== serie).join(" ") } : l)));
   }
 
   function aplicarATodasLasFilas() {
@@ -543,45 +708,80 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
       setOrdenEnCurso(orden);
     }
 
-    // 2. Los artículos, de uno en uno.
-    const pendientes = [...lineasUsadas];
-    for (let i = 0; i < pendientes.length; i++) {
-      const l = pendientes[i];
-      setProgreso(`Creando ${i + 1} de ${pendientes.length}…`);
-      const formData = new FormData();
-      Object.entries(camposArticulo(l)).forEach(([k, v]) => formData.set(k, v));
-      if (orden && esCompra) formData.set("ordenCompraId", orden.id);
-      const res = await fetch("/api/shipping-v2/items", { method: "POST", body: formData });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok || !payload.success) {
-        const nombre = l.nombre.trim() || `fila ${i + 1}`;
-        // Si la orden recién creada se quedó vacía, se borra para no dejar basura.
-        if (orden && esCompra && !ordenExistente && yaCreados.length === 0) {
-          await fetch(`/api/shipping-v2/ordenes/${orden.id}`, { method: "DELETE" }).catch(() => undefined);
-          setOrdenEnCurso(null);
+    // 2. Los artículos, de uno en uno. Punto 10b: una fila "uno por uno" con
+    // cantidad 3 son 3 registros (cantidad 1, cada uno con su serie) que
+    // comparten el SKU; un lote es un solo registro con su cantidad.
+    const tareas = lineasUsadas.map((l) => {
+      const cantidad = enteroPositivo(l.cantidad) ?? 1;
+      const plan = planDeFila({ seguimiento: seguimientoDeLinea(l), cantidad, series: seriesDeLinea(l) });
+      const registros: RegistroAlRegistrar[] = plan.ok ? plan.registros : [{ cantidad, numeroSerie: "" }];
+      return { l, registros };
+    });
+    const totalRegistros = tareas.reduce((n, t) => n + t.registros.length, 0);
+    let hechos = 0;
+    for (let i = 0; i < tareas.length; i++) {
+      const { l, registros } = tareas[i];
+      const seguimiento = seguimientoDeLinea(l);
+      let skuProducto = l.skuExistente;
+      for (let j = 0; j < registros.length; j++) {
+        const r = registros[j];
+        setProgreso(`Creando ${hechos + 1} de ${totalRegistros}…`);
+        const formData = new FormData();
+        Object.entries(camposArticulo(l)).forEach(([k, v]) => formData.set(k, v));
+        formData.set("cantidad", String(r.cantidad));
+        formData.set("numeroSerie", r.numeroSerie);
+        formData.set("seguimiento", seguimiento);
+        if (skuProducto) {
+          formData.set("skuCompartido", skuProducto);
+          formData.set("sku", "");
         }
-        setError(`${nombre}: ${String(payload.error || "no se pudo crear.")}${yaCreados.length ? `\nYa quedaron creados: ${yaCreados.join(", ")}${orden ? ` en ${orden.ocId}` : ""}. Corrige y vuelve a guardar: solo se crea lo que falta.` : ""}`);
-        setSaving(false);
-        setProgreso("");
-        return;
-      }
-      const creado = payload.data as { id?: string; sku?: string } | undefined;
-      yaCreados.push(creado?.sku || "artículo");
-      setCreados([...yaCreados]);
-      if (payload.packingWarning) avisos.push(String(payload.packingWarning));
-      const fotosFila = fotos[l.key] ?? [];
-      if (fotosFila.length && creado?.id) {
-        setProgreso(`Subiendo fotos de ${creado.sku || `la fila ${i + 1}`}…`);
-        try {
-          const r = await subirFotosItem(creado.id, fotosFila.map((f) => f.file));
-          if (r.aviso) avisos.push(`${creado.sku}: ${r.aviso}`);
-        } catch (e) {
-          avisos.push(`${creado.sku}: las fotos no subieron${e instanceof FotosInvalidasError || e instanceof Error ? ` (${e.message})` : ""}.`);
+        if (orden && esCompra) formData.set("ordenCompraId", orden.id);
+        const res = await fetch("/api/shipping-v2/items", { method: "POST", body: formData });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok || !payload.success) {
+          const nombre = l.nombre.trim() || `fila ${i + 1}`;
+          // Si la orden recién creada se quedó vacía, se borra para no dejar basura.
+          if (orden && esCompra && !ordenExistente && yaCreados.length === 0) {
+            await fetch(`/api/shipping-v2/ordenes/${orden.id}`, { method: "DELETE" }).catch(() => undefined);
+            setOrdenEnCurso(null);
+          }
+          // Unidades a medias: la fila queda con las que faltan, sumándose al mismo producto.
+          if (j > 0) {
+            const restantes = registros.slice(j);
+            setLineas((ls) => ls.map((x) => (x.key !== l.key ? x : {
+              ...x,
+              cantidad: String(restantes.length),
+              numeroSerie: restantes.map((x2) => x2.numeroSerie).filter(Boolean).join(" "),
+              skuExistente: skuProducto,
+              sku: "",
+            })));
+          }
+          setError(`${nombre}: ${String(payload.error || "no se pudo crear.")}${yaCreados.length ? `\nYa quedaron creados: ${resumirCreados(yaCreados)}${orden ? ` en ${orden.ocId}` : ""}. Corrige y vuelve a guardar: solo se crea lo que falta.` : ""}`);
+          setSaving(false);
+          setProgreso("");
+          return;
+        }
+        hechos += 1;
+        const creado = payload.data as { id?: string; sku?: string } | undefined;
+        skuProducto = skuProducto || creado?.sku || "";
+        yaCreados.push(creado?.sku || "artículo");
+        setCreados([...yaCreados]);
+        if (payload.packingWarning) avisos.push(String(payload.packingWarning));
+        // Las fotos de la fila van al primer registro (son las del producto).
+        const fotosFila = j === 0 ? (fotos[l.key] ?? []) : [];
+        if (fotosFila.length && creado?.id) {
+          setProgreso(`Subiendo fotos de ${creado.sku || `la fila ${i + 1}`}…`);
+          try {
+            const subida = await subirFotosItem(creado.id, fotosFila.map((f) => f.file));
+            if (subida.aviso) avisos.push(`${creado.sku}: ${subida.aviso}`);
+          } catch (e) {
+            avisos.push(`${creado.sku}: las fotos no subieron${e instanceof FotosInvalidasError || e instanceof Error ? ` (${e.message})` : ""}.`);
+          }
+          fotosFila.forEach((f) => URL.revokeObjectURL(f.previewUrl));
+          setFotos((m) => { const n = { ...m }; delete n[l.key]; return n; });
         }
       }
       // La fila creada sale de la tabla: si algo falla después, no se repite.
-      fotosFila.forEach((f) => URL.revokeObjectURL(f.previewUrl));
-      setFotos((m) => { const n = { ...m }; delete n[l.key]; return n; });
       setLineas((ls) => ls.filter((x) => x.key !== l.key));
     }
 
@@ -606,7 +806,7 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
     }
 
     const quien = esActivoInicial ? "Activo(s)" : "Artículo(s)";
-    const notice = `${orden ? `${orden.ocId}: ` : ""}${quien} ${yaCreados.join(", ")} creado(s)${textoPago}.${avisos.length ? ` ${avisos.join(" ")}` : ""}`;
+    const notice = `${orden ? `${orden.ocId}: ` : ""}${quien} ${resumirCreados(yaCreados)} creado(s)${textoPago}.${avisos.length ? ` ${avisos.join(" ")}` : ""}`;
     window.sessionStorage.setItem("shipping-v2:notice", notice);
     if (orden && esCompra) router.push(`/shipping-v2/pagos/ordenes/${orden.id}`);
     else router.push(esActivoInicial ? "/shipping-v2/activos" : "/shipping-v2/items");
@@ -614,7 +814,13 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
   }
 
   const resumen = [
-    `${lineasUsadas.length} ${lineasUsadas.length === 1 ? "artículo" : "artículos"}${totales.unidades !== lineasUsadas.length ? ` · ${totales.unidades} u.` : ""}`,
+    lineasUsadas.length
+      ? [
+        conteo.nuevos ? `${conteo.nuevos} ${conteo.nuevos === 1 ? "producto nuevo" : "productos nuevos"}` : null,
+        conteo.unidades ? `${conteo.unidades} ${conteo.unidades === 1 ? "unidad" : "unidades"}` : null,
+        conteo.lotes ? `${conteo.lotes} ${conteo.lotes === 1 ? "lote" : "lotes"}` : null,
+      ].filter(Boolean).join(" · ")
+      : "0 artículos",
     origen === ORIGEN_TIENDA ? "Recibido" : null,
     vieneDeAfuera ? (cab.viaje === "caja" && cab.packingDestinoId ? `En caja ${cajasCompatibles.find((c) => c.id === cab.packingDestinoId)?.codigo ?? ""}` : "Por llegar") : null,
     vieneDeAfuera && cab.viaje !== "caja" && (cab.trackingOrigen || cab.trackingEcuador || cab.trackingLocal) ? "En tránsito" : null,
@@ -797,9 +1003,9 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
         ) : null}
 
         <div className="overflow-x-auto">
-          <div className="min-w-[860px]">
-            <div className="grid grid-cols-[22px_minmax(0,1fr)_108px_118px_96px_50px_84px_80px_76px_62px] items-center gap-1.5 rounded bg-[#1E1F19] px-1.5 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
-              <span>#</span><span>Nombre</span><span>SKU prov.</span><span>Categoría</span><span>Cond.</span><span className="text-right">Cant.</span><span className="text-right">Costo u.</span><span className="text-right">Subtotal</span><span className="text-right">Venta</span><span />
+          <div className="min-w-[980px]">
+            <div className="grid grid-cols-[22px_minmax(0,1fr)_108px_118px_96px_50px_112px_84px_80px_76px_62px] items-center gap-1.5 rounded bg-[#1E1F19] px-1.5 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
+              <span>#</span><span>Nombre</span><span>SKU prov.</span><span>Categoría</span><span>Cond.</span><span className="text-right">Cant.</span><span title="Unidad: uno por uno, con serie. Lote: un registro con la cantidad.">Seguimiento</span><span className="text-right">Costo u.</span><span className="text-right">Subtotal</span><span className="text-right">Venta</span><span />
             </div>
             {lineas.map((l, i) => {
               const faltan = faltantesPorLinea.get(l.key) ?? [];
@@ -809,9 +1015,23 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
               const abiertaAqui = abierta === l.key;
               const fotosFila = fotos[l.key] ?? [];
               const inspeccion = requiereInspeccionDe(l);
+              const seguimiento = seguimientoDeLinea(l);
+              const esUnidad = seguimiento === "Unidad";
+              const series = seriesDeLinea(l);
+              const cantidadFila = enteroPositivo(l.cantidad);
+              const coincidencia = lineaEnBlanco(l) ? undefined : coincidenciasDe(l)[0];
+              const producto = coincidencia ? indice?.porSku.get(coincidencia.sku) : undefined;
+              const productoElegido = l.skuExistente ? indice?.porSku.get(l.skuExistente) : undefined;
+              const mostrarTira = !lineaEnBlanco(l) && (Boolean(l.skuExistente) || Boolean(producto) || esUnidad || series.length > 0);
+              // Lo que está escrito en "Más detalles", en una línea (con la fila cerrada).
+              const datosFila = !abiertaAqui && (fotosFila.length || l.marca || l.modelo || l.regalo || l.activo) ? (
+                <span className="text-[10.5px] text-[#8F908A]">
+                  {[l.marca, l.modelo, fotosFila.length ? `${fotosFila.length} foto(s)` : "", inspeccion ? "con inspección" : ""].filter(Boolean).join(" · ")}
+                </span>
+              ) : null;
               return (
                 <div key={l.key} className={`border-t border-[#2A2B26] ${marcar ? "bg-[#F4C95B]/[0.06]" : ""}`}>
-                  <div className="grid grid-cols-[22px_minmax(0,1fr)_108px_118px_96px_50px_84px_80px_76px_62px] items-start gap-1.5 px-1.5 py-1">
+                  <div className="grid grid-cols-[22px_minmax(0,1fr)_108px_118px_96px_50px_112px_84px_80px_76px_62px] items-start gap-1.5 px-1.5 py-1">
                     <span className="pt-2 text-[11px] tabular-nums text-[#6F706A]" title={marcar ? `Falta: ${faltan.join(", ")}` : undefined}>{marcar ? <span className="text-[#F4C95B]">!</span> : i + 1}</span>
                     <div className="min-w-0">
                       <TextInput value={l.nombre} onChange={(e) => setL(l.key, { nombre: e.target.value })} invalid={marcar && faltan.includes("nombre")} placeholder="Nombre del artículo"
@@ -834,6 +1054,8 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
                       {SHIPPING_V2_CONDICIONES.map((c) => <option key={c}>{c}</option>)}
                     </SelectInput>
                     <TextInput type="number" min="1" step="1" value={l.cantidad} onChange={(e) => setL(l.key, { cantidad: e.target.value })} invalid={marcar && faltan.includes("cantidad entera")} className="text-right" />
+                    <Seg<Seguimiento> suave value={seguimiento} options={SEGUIMIENTOS} invalid={marcar && faltan.includes("series") && !esUnidad}
+                      onChange={(v) => setL(l.key, { seguimiento: v })} />
                     {l.regalo ? (
                       <span className="flex h-8 items-center justify-end text-[11px] font-semibold text-[#8F908A]" title="Regalo del proveedor: no suma al pago.">Regalo</span>
                     ) : (
@@ -854,20 +1076,68 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
                       <button type="button" onClick={() => quitarFila(l.key)} aria-label="Quitar fila" title="Quitar fila" className="grid h-6 w-6 place-items-center rounded text-[14px] text-[#8F908A] hover:text-[#FFB07A]">×</button>
                     </div>
                   </div>
-                  {!abiertaAqui && (fotosFila.length || l.marca || l.modelo || l.numeroSerie || l.regalo || l.activo) ? (
-                    <div className="-mt-0.5 flex flex-wrap gap-1 pb-1 pl-8 text-[10.5px] text-[#8F908A]">
-                      {[l.marca, l.modelo, l.numeroSerie ? `S/N ${l.numeroSerie}` : ""].filter(Boolean).join(" · ")}
-                      {fotosFila.length ? <span>· {fotosFila.length} foto(s)</span> : null}
-                      {inspeccion ? <span>· con inspección</span> : null}
+                  {mostrarTira ? (
+                    <div className="-mt-0.5 flex flex-wrap items-center gap-1.5 pb-1.5 pl-8 pr-1.5 text-[11.5px]">
+                      {l.skuExistente ? (
+                        <span className="inline-flex items-center gap-1 rounded border border-[#7BE495]/40 bg-[#7BE495]/[0.08] px-1.5 py-0.5 text-[#CFF7D9]"
+                          title="Se suma a ese producto: mismo SKU, y este registro guarda sus propios costos.">
+                          Se suma a <b className="font-mono">{l.skuExistente}</b>
+                          {productoElegido ? <span className="text-[#8F908A]">· {productoElegido.registros} ya registrado(s)</span> : null}
+                          <button type="button" onClick={() => setL(l.key, { skuExistente: "" })} aria-label="Quitar producto existente" title="Es un producto nuevo" className="ml-0.5 text-[13px] leading-none text-[#8F908A] hover:text-[#FFB07A]">×</button>
+                        </span>
+                      ) : coincidencia && producto ? (
+                        <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded border border-[#7FB4FF]/35 bg-[#7FB4FF]/[0.07] px-1.5 py-0.5 text-[#CFE0FF]" title={`Coincide en: ${coincidencia.motivos.join(" · ")}`}>
+                          <span className={`rounded-full px-1.5 text-[10.5px] font-bold ${coincidencia.nivel === "igual" ? "bg-[#9FEFB3] text-[#10140F]" : "bg-[#F4C95B] text-[#1A1606]"}`}>{coincidencia.nivel === "igual" ? "Igual" : "Parecido"}</span>
+                          <b className="font-mono">{producto.sku}</b>
+                          <span className="min-w-0 truncate">{producto.nombre}</span>
+                          <span className="whitespace-nowrap text-[#8F908A]">{producto.disponibles} disp.{typeof producto.precio === "number" ? ` · ${money(producto.precio)}` : ""}</span>
+                          <button type="button" onClick={() => usarProducto(l.key, producto)} className="whitespace-nowrap rounded border border-[#D7FF4F] bg-[#D7FF4F] px-1.5 text-[11px] font-bold text-[#151515] hover:brightness-105">Usar este</button>
+                          <button type="button" onClick={() => descartarProducto(l.key, producto.sku)} className="whitespace-nowrap rounded border border-[#3A3A36] px-1.5 text-[11px] font-semibold text-[#B4B5AC] hover:text-[#F5F5F5]">Es otro</button>
+                        </span>
+                      ) : null}
+                      {datosFila}
+                      {esUnidad || series.length ? (
+                        <div className={`flex min-w-[240px] flex-1 flex-wrap items-center gap-1 rounded border bg-[#151515] px-1.5 py-0.5 ${marcar && (faltan.includes("series") || faltan.includes("serie repetida")) ? "border-[#F4C95B]/70" : "border-[#3A3A36]"}`}
+                          title={esUnidad ? "Escanea o pega las series (una por equipo). Las que falten se escanean al recibir." : "Un lote no lleva series: cámbialo a Unidad o quítalas."}>
+                          <span className={`whitespace-nowrap text-[10.5px] font-semibold uppercase tracking-wide ${cantidadFila !== null && series.length > cantidadFila ? "text-[#F4C95B]" : "text-[#8F908A]"}`}>Series {series.length}/{cantidadFila ?? "?"}</span>
+                          {series.map((serie) => {
+                            const problema = problemaSerie(serie);
+                            return (
+                              <span key={serie} title={problema ?? undefined} className={`inline-flex items-center gap-0.5 rounded px-1 font-mono text-[11px] ${problema ? "bg-[#FF914D]/15 text-[#FFB07A]" : "bg-[#2A2B26] text-[#E6E6E1]"}`}>
+                                {serie}
+                                <button type="button" onClick={() => quitarSerie(l.key, serie)} aria-label={`Quitar ${serie}`} className="text-[12px] leading-none text-[#8F908A] hover:text-[#FFB07A]">×</button>
+                              </span>
+                            );
+                          })}
+                          <input aria-label="Escanear o pegar series" placeholder={series.length ? "" : "Escanear o pegar (opcional)"}
+                            className="h-6 min-w-[120px] flex-1 bg-transparent font-mono text-[12px] text-[#F5F5F5] outline-none placeholder:font-sans placeholder:text-[#5E5F59]"
+                            onKeyDown={(e) => {
+                              // El lector de códigos termina con Enter: suma la serie y no envía el formulario.
+                              if (e.key === "Enter" || e.key === "," || e.key === " ") {
+                                e.preventDefault();
+                                agregarSeries(l.key, e.currentTarget.value);
+                                e.currentTarget.value = "";
+                              } else if (e.key === "Backspace" && !e.currentTarget.value && series.length) {
+                                quitarSerie(l.key, series[series.length - 1]);
+                              }
+                            }}
+                            onPaste={(e) => { e.preventDefault(); agregarSeries(l.key, e.clipboardData.getData("text/plain")); }}
+                            onBlur={(e) => { agregarSeries(l.key, e.currentTarget.value); e.currentTarget.value = ""; }} />
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
+                  {datosFila && !mostrarTira ? <div className="-mt-0.5 pb-1 pl-8">{datosFila}</div> : null}
                   {abiertaAqui ? (
                     <div className="mx-1.5 mb-2 rounded-md border border-[#2A2B26] bg-[#151612] p-2">
                       <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-12">
                         <Field label="Marca" className="xl:col-span-2"><TextInput value={l.marca} onChange={(e) => setL(l.key, { marca: e.target.value })} /></Field>
                         <Field label="Modelo" className="xl:col-span-2"><TextInput value={l.modelo} onChange={(e) => setL(l.key, { modelo: e.target.value })} /></Field>
-                        <Field label="Nº de serie" className="xl:col-span-2"><TextInput value={l.numeroSerie} onChange={(e) => setL(l.key, { numeroSerie: e.target.value })} /></Field>
-                        <Field label="SKU" className="xl:col-span-2"><TextInput value={l.sku} onChange={(e) => setL(l.key, { sku: e.target.value })} placeholder="Automático" /></Field>
+                        <Field label="SKU" className="xl:col-span-2">
+                          {l.skuExistente
+                            ? <div className={`${inputBase} flex items-center border-[#3A3A36] font-mono text-[#CFF7D9]`} title="Producto que ya existe">{l.skuExistente}</div>
+                            : <TextInput value={l.sku} onChange={(e) => setL(l.key, { sku: e.target.value })} placeholder="Automático" />}
+                        </Field>
                         <Field label="Unidad" className="xl:col-span-2">
                           <SelectInput value={l.unidad} onChange={(e) => setL(l.key, { unidad: e.target.value })}>
                             {SHIPPING_V2_UNIDADES.map((u) => <option key={u}>{u}</option>)}
@@ -930,7 +1200,7 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
           </div>
         </div>
         {creados.length ? (
-          <p className="mt-2 text-[12px] text-[#9FEFB3]">Ya creados{ordenEnCurso ? ` en ${ordenEnCurso.ocId}` : ""}: {creados.join(", ")}.</p>
+          <p className="mt-2 text-[12px] text-[#9FEFB3]">Ya creados{ordenEnCurso ? ` en ${ordenEnCurso.ocId}` : ""}: {resumirCreados(creados)}.</p>
         ) : null}
       </section>
 

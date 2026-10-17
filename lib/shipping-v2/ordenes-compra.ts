@@ -18,6 +18,7 @@
 // Módulo puro: sin red. Lo usan el servidor, la pantalla y las pruebas.
 
 import { calculateShippingV2PaymentItemSubtotal, type ShippingV2PaymentItemLike } from "@/lib/shipping-v2/payment-calculations";
+import { planDeFila, seguimientoPorCategoria, separarSeries, type Seguimiento } from "@/lib/shipping-v2/unidades-serie";
 
 /** Campos de la tabla "Shipping Órdenes de compra" (creada el 14-oct-2026). */
 export const ORDEN_COMPRA_FIELDS = {
@@ -229,8 +230,18 @@ export type LineaCompra = {
   skuProveedor: string;
   marca: string;
   modelo: string;
+  /**
+   * Punto 10b: la(s) serie(s) tal como se pegan o escanean ("7HX2KQ3 8PL4QR1").
+   * En una fila "uno por uno" va una por equipo; un lote no lleva.
+   */
   numeroSerie: string;
   categoria: string;
+  /** Punto 10b: null = el de la categoría (equipos uno por uno; lo demás, lote). */
+  seguimiento: Seguimiento | null;
+  /** Punto 10b: SKU del producto que ya existe al que se suman (vacío = producto nuevo). */
+  skuExistente: string;
+  /** Punto 10b: SKU que el empleado marcó "Es otro" en "¿Ya existe?". */
+  descartados: string[];
   condicion: string;
   /** null = sigue el valor por defecto de la categoría. */
   requiereInspeccion: boolean | null;
@@ -257,6 +268,9 @@ export function nuevaLinea(key: string, base: Partial<LineaCompra> = {}): LineaC
     modelo: "",
     numeroSerie: "",
     categoria: "",
+    seguimiento: null,
+    skuExistente: "",
+    descartados: [],
     condicion: "",
     requiereInspeccion: null,
     cantidad: "1",
@@ -272,9 +286,19 @@ export function nuevaLinea(key: string, base: Partial<LineaCompra> = {}): LineaC
   };
 }
 
-/** Copia una fila para un artículo casi igual: se limpian SKU y nº de serie. */
+/** Copia una fila para un artículo casi igual: se limpian SKU, series y el producto elegido. */
 export function duplicarLinea(linea: LineaCompra, key: string): LineaCompra {
-  return { ...linea, key, sku: "", numeroSerie: "" };
+  return { ...linea, key, sku: "", numeroSerie: "", skuExistente: "" };
+}
+
+/** Unidad o lote de la fila: el elegido, o el de su categoría. */
+export function seguimientoDeLinea(l: Pick<LineaCompra, "seguimiento" | "categoria">): Seguimiento {
+  return l.seguimiento ?? seguimientoPorCategoria(l.categoria);
+}
+
+/** Las series escritas en la fila, limpias y sin repetir. */
+export function seriesDeLinea(l: Pick<LineaCompra, "numeroSerie">): string[] {
+  return separarSeries(l.numeroSerie);
 }
 
 /** "Aplicar a todas": pone la categoría y/o condición en todas las filas. */
@@ -282,6 +306,8 @@ export function aplicarATodas(lineas: LineaCompra[], cambios: { categoria?: stri
   return lineas.map((l) => ({
     ...l,
     ...(cambios.categoria ? { categoria: cambios.categoria, requiereInspeccion: null } : {}),
+    // Otra categoría: unidad/lote vuelve a proponerse y el producto elegido ya no aplica.
+    ...(cambios.categoria && cambios.categoria !== l.categoria ? { seguimiento: null, skuExistente: "" } : {}),
     ...(cambios.condicion ? { condicion: cambios.condicion } : {}),
   }));
 }
@@ -340,5 +366,10 @@ export function faltantesLinea(l: LineaCompra, ctx: { esCompra: boolean }): stri
   if (l.regalo && costo !== null && costo !== 0) faltan.push("regalo sin costo");
   const precio = numeroDesdeTexto(l.precioVentaFinal);
   if (!l.activo && l.precioVentaFinal.trim() && (precio === null || precio < 0)) faltan.push("precio válido");
+  const cantidad = enteroPositivo(l.cantidad);
+  if (cantidad !== null) {
+    const plan = planDeFila({ seguimiento: seguimientoDeLinea(l), cantidad, series: seriesDeLinea(l) });
+    if (!plan.ok) faltan.push("series");
+  }
   return faltan;
 }
