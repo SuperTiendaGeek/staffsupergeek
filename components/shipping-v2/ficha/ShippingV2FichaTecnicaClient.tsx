@@ -6,7 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { buildFichaVentaData, type FichaVentaData } from "@/lib/shipping-v2/ficha-venta-data";
 import { SHIPPING_V2_ITEM_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import { calculateShippingV2BatteryState, inferShippingV2TechnicalSheetFromItem, shippingV2CategoryDoesNotUseScreenOrBattery } from "@/lib/shipping-v2/technical-sheet";
-import type { ShippingV2Item, ShippingV2TechnicalOption, ShippingV2TechnicalSheetInput } from "@/types/shipping-v2";
+import type { ShippingV2Item, ShippingV2TechnicalOption, ShippingV2TechnicalSheetInput, ShippingV2UnidadHermana } from "@/types/shipping-v2";
+import { ESTADOS_FUERA_DE_INVENTARIO, UsarEnOtrasUnidades, textoNormal } from "./UsarEnOtrasUnidades";
 import type { ShippingV2EspecificacionesItem } from "@/lib/shipping-v2/airtable";
 import { FichaVentaPrintTemplate } from "./print/FichaVentaPrintTemplate";
 
@@ -22,7 +23,10 @@ type Props = {
   /** Punto 10b-4: la ficha para imprimir de esta unidad (vista previa e imprimir). */
   vistaPreviaHref: string;
   imprimirHref: string;
+  /** Punto 10b-4b: las otras unidades del mismo SKU ("¿Usar estos datos técnicos en otras unidades?"). */
+  otrasUnidades?: ShippingV2UnidadHermana[];
 };
+
 
 type FieldKey = keyof ShippingV2TechnicalSheetInput;
 type CpuCatalogResult = {
@@ -342,6 +346,7 @@ export function ShippingV2FichaTecnicaClient({
   especificaciones: especificacionesIniciales,
   vistaPreviaHref,
   imprimirHref,
+  otrasUnidades = [],
 }: Props) {
   const [item, setItem] = useState(initialItem);
   const [especificaciones, setEspecificaciones] = useState(especificacionesIniciales);
@@ -692,7 +697,7 @@ export function ShippingV2FichaTecnicaClient({
     ];
     if (invalidTechnicalOptions.length) {
       setMessage(`No se guardaron algunas opciones V2 porque no existen en los catálogos maestros: ${Array.from(new Set(invalidTechnicalOptions)).join(", ")}.`);
-      return;
+      return false;
     }
 
     setBusy(options.reviewed ? "review" : "save");
@@ -709,8 +714,36 @@ export function ShippingV2FichaTecnicaClient({
       setItem(updated);
       setForm(normalizeForm(updated));
       setMessage(options.reviewed ? "Ficha guardada y marcada como revisada." : "Ficha técnica guardada.");
+      return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Error inesperado.");
+      return false;
+    } finally {
+      setBusy("");
+    }
+  }
+
+  /** Punto 10b-4b: guarda esta ficha y copia los datos del producto a las unidades elegidas. */
+  async function copiarAOtrasUnidades(destinos: string[]): Promise<string[] | null> {
+    if (!(await save())) return null;
+    setBusy("copiar");
+    try {
+      const response = await fetch(`/api/shipping-v2/recepcion/ficha/${encodeURIComponent(item.id)}/copiar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destinos }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudieron copiar los datos."));
+      const data = payload.data as { copiadas: string[]; omitidas: Array<{ unidad: string; motivo: string }> };
+      setMessage([
+        data.copiadas.length ? `Datos técnicos copiados a ${data.copiadas.join(", ")}.` : "",
+        data.omitidas.length ? `No se copió a: ${data.omitidas.map((o) => `${o.unidad} (${o.motivo})`).join(", ")}.` : "",
+      ].filter(Boolean).join(" "));
+      return data.copiadas;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Error inesperado.");
+      return null;
     } finally {
       setBusy("");
     }
@@ -774,6 +807,13 @@ export function ShippingV2FichaTecnicaClient({
           </div>
         </div>
       </section>
+
+      <UsarEnOtrasUnidades
+        sku={item.sku}
+        unidades={otrasUnidades.filter((u) => !ESTADOS_FUERA_DE_INVENTARIO.has(textoNormal(u.estado)))}
+        ocupado={Boolean(busy)}
+        onCopiar={copiarAOtrasUnidades}
+      />
 
       {especificaciones.campos.length ? (
         <SectionCard title="Datos técnicos de la categoría" action={

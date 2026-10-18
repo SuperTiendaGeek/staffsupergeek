@@ -2,7 +2,7 @@ import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas"
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
-import { especificacionesDeItem, getShippingV2AccessContextForSession, getShippingV2ItemById, getShippingV2TechnicalOptionSets } from "@/lib/shipping-v2/airtable";
+import { especificacionesDeItem, getShippingV2AccessContextForSession, getShippingV2ItemById, getShippingV2TechnicalOptionSets, getShippingV2UnidadesDelProducto } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import { rutaUnidad } from "@/lib/shipping-v2/unidades-serie";
@@ -29,6 +29,8 @@ export default async function ShippingV2FichaUnidadPage({ params, searchParams }
   }
   asegurarRutaCanonica(item, ruta, "ficha");
   const volver = volverDeUnidad(item, ruta.desdeRecepcion);
+  // Punto 10b-4b: las otras unidades del producto, para "¿Usar en otras unidades?".
+  const hermanas = await getShippingV2UnidadesDelProducto(item.sku, access).catch(() => []);
 
   return (
     <StaffAppShell activeHref={ruta.desdeRecepcion ? "/shipping-v2/recepcion" : "/shipping-v2/items"} sectionLabel="Shipping V2">
@@ -43,6 +45,7 @@ export default async function ShippingV2FichaUnidadPage({ params, searchParams }
         especificaciones={especificacionesDeItem(item)}
         vistaPreviaHref={rutaUnidad(item, "ficha/print")}
         imprimirHref={rutaUnidad(item, "ficha/print", { imprimir: true })}
+        otrasUnidades={hermanas.filter((h) => h.id !== item.id)}
       />
     </div>
     </StaffAppShell>
