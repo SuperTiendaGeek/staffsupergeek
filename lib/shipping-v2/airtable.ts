@@ -253,7 +253,8 @@ import {
   staffShippingV2Access,
   systemShippingV2Access,
 } from "@/lib/shipping-v2/access";
-import { esIdRegistro, evaluarSerie, evaluarSkuCompartido, normalizarSerie, seguimientoParaGuardar } from "@/lib/shipping-v2/unidades-serie";
+import { esIdRegistro, evaluarSerie, evaluarSkuCompartido, nombreUnidad, normalizarSerie, seguimientoParaGuardar } from "@/lib/shipping-v2/unidades-serie";
+import { CAMPO_ESPECIFICACIONES, camposFichaCopiada, evaluarCopiaFicha, resultadosParaCopiar } from "@/lib/shipping-v2/copiar-unidad";
 import { camposOriginalTrasSeparar, camposUnidadSeparada, evaluarSepararUnidad } from "@/lib/shipping-v2/separar-unidad";
 import { camposArticuloFueraDeCaja, evaluarCancelarCaja } from "@/lib/shipping-v2/cancelar-caja";
 import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, SHIPPING_V2_COMPUTER_CATALOG_SELECT_OPTIONS, SHIPPING_V2_CONNECTIVITY_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_FIELDS, SHIPPING_V2_CPU_CATALOG_SELECT_OPTIONS, SHIPPING_V2_EXTRA_FEATURES_CATALOG_FIELDS, SHIPPING_V2_FINANCE_FIELDS, SHIPPING_V2_FINANCE_SELECT_OPTIONS, SHIPPING_V2_ITEM_FIELDS, SHIPPING_V2_ITEM_SELECT_OPTIONS, SHIPPING_V2_PACKING_FIELDS, SHIPPING_V2_PACKING_SELECT_OPTIONS, SHIPPING_V2_PAYMENT_FIELDS, SHIPPING_V2_PAYMENT_SELECT_OPTIONS, SHIPPING_V2_PORTS_CATALOG_FIELDS, SHIPPING_V2_PROVIDER_FIELDS, SHIPPING_V2_TABLES } from "@/lib/shipping-v2/schema.generated";
@@ -2535,7 +2536,7 @@ export async function getShippingV2UnidadesDelProducto(skuValue: string, access?
     maxRecords: 100,
     fields: [
       getOfficialSkuField(), F.numeroSerie, F.estadoItem, F.cantidad, F.precioVentaFinal, F.recibido,
-      "Revisado física/técnicamente", F.fechaRegistro, F.proveedorCompra, F.proveedorLogistico,
+      "Revisado física/técnicamente", F.fichaTecnicaGenerada, F.fechaRegistro, F.proveedorCompra, F.proveedorLogistico,
     ],
     filterByFormula: `LOWER({${getOfficialSkuField()}}) = LOWER('${escapeFormulaString(sku)}')`,
   });
@@ -2550,6 +2551,7 @@ export async function getShippingV2UnidadesDelProducto(skuValue: string, access?
       precioVenta: canShippingV2(access, "canViewCosts") ? firstNumber(r.fields[F.precioVentaFinal]) : null,
       recibido: firstBoolean(r.fields[F.recibido]) === true,
       inspeccionFirmada: firstBoolean(r.fields["Revisado física/técnicamente"]) === true,
+      fichaGenerada: firstBoolean(r.fields[F.fichaTecnicaGenerada]) === true,
       fechaRegistro: firstString(r.fields[F.fechaRegistro], r.createdTime) || undefined,
     }))
     .sort((a, b) => (a.fechaRegistro ?? "").localeCompare(b.fechaRegistro ?? "") || a.id.localeCompare(b.id));
@@ -10784,4 +10786,118 @@ async function eliminarShippingItemInterno(
   await airtableMutation(`${tableUrl(SHIPPING_V2_TABLES.items)}?records[]=${encodeURIComponent(id)}`, { method: "DELETE" });
   invalidateShippingV2ItemSearchIndexCache();
   return { sku: ctx.sku, nombre: ctx.nombre, avisos: evaluacion.avisos };
+}
+
+// ─── Punto 10b-4b: copiar entre unidades del mismo producto ──────────────────
+
+export type ResultadoCopiaFicha = {
+  copiadas: string[];
+  omitidas: Array<{ unidad: string; motivo: string }>;
+};
+
+/**
+ * "¿Usar estos datos técnicos en otras unidades?": escribe en cada destino los
+ * datos del producto que tiene la ficha de `origenId` (ver copiar-unidad.ts).
+ * El usuario elige los destinos; lo propio de cada unidad no se toca.
+ */
+export async function copiarFichaTecnicaAUnidades(
+  origenId: string,
+  destinoIds: string[],
+  options: { actor: string; access?: ShippingV2AccessContext }
+): Promise<ResultadoCopiaFicha> {
+  assertShippingV2Permission(options.access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+  const origenLimpio = cleanString(origenId);
+  const destinos = Array.from(new Set(destinoIds.map(cleanString).filter((id) => id && id !== origenLimpio)));
+  if (!origenLimpio || !destinos.length) throw new Error("Elige al menos una unidad.");
+  if (destinos.length > 50) throw new Error("Máximo 50 unidades por vez.");
+
+  const registros = await listRecordsByIds(SHIPPING_V2_TABLES.items, [origenLimpio, ...destinos]);
+  const porId = new Map(registros.map((r) => [r.id, r]));
+  const origen = porId.get(origenLimpio);
+  if (!origen || !canAccessItemRecord(origen, options.access)) throw new Error("No se encontró la unidad de origen.");
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const skuOrigen = firstString(origen.fields[getOfficialSkuField()]);
+  const nombreOrigen = nombreUnidad(skuOrigen, firstString(origen.fields[F.numeroSerie]));
+  const ahora = new Date().toISOString();
+
+  const resultado: ResultadoCopiaFicha = { copiadas: [], omitidas: [] };
+  const escrituras: Array<{ id: string; fields: Record<string, unknown>; nombre: string }> = [];
+  for (const id of destinos) {
+    const destino = porId.get(id);
+    if (!destino || !canAccessItemRecord(destino, options.access)) {
+      resultado.omitidas.push({ unidad: id, motivo: "No se encontró." });
+      continue;
+    }
+    const nombre = nombreUnidad(firstString(destino.fields[getOfficialSkuField()]), firstString(destino.fields[F.numeroSerie]));
+    const motivo = evaluarCopiaFicha(
+      { id: origen.id, sku: skuOrigen },
+      { id, sku: firstString(destino.fields[getOfficialSkuField()]), estado: firstString(destino.fields[F.estadoItem]) }
+    );
+    if (motivo) {
+      resultado.omitidas.push({ unidad: nombre, motivo });
+      continue;
+    }
+    escrituras.push({
+      id,
+      nombre,
+      fields: camposFichaCopiada(
+        origen.fields,
+        { especificaciones: destino.fields[CAMPO_ESPECIFICACIONES], fichaGenerada: firstBoolean(destino.fields[F.fichaTecnicaGenerada]) },
+        { actor: options.actor, ahora }
+      ),
+    });
+  }
+
+  for (let i = 0; i < escrituras.length; i += 10) {
+    const lote = escrituras.slice(i, i + 10);
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({ records: lote.map((e) => ({ id: e.id, fields: e.fields })) }),
+    });
+    for (const e of lote) {
+      resultado.copiadas.push(e.nombre);
+      await createShippingV2Event({
+        action: "Actualizado",
+        itemRecordId: e.id,
+        itemName: e.nombre,
+        registradoPor: options.actor,
+        descripcion: `Datos técnicos copiados de ${nombreOrigen} (ficha de mostrador).`,
+      });
+    }
+  }
+  if (escrituras.length) invalidateShippingV2ItemSearchIndexCache();
+  return resultado;
+}
+
+/**
+ * "⋯ Copiar de otra unidad" en la inspección: arma los cambios (equipamiento
+ * declarado y puntos Conforme / No aplica de la otra unidad) para guardarlos
+ * por el camino normal de la inspección, que valida que esta unidad esté
+ * recibida y sin firmar.
+ */
+export async function cambiosParaCopiarInspeccion(
+  destinoId: string,
+  origenId: string,
+  options: { access?: ShippingV2AccessContext }
+): Promise<{ cambios: ShippingV2InspeccionCambios; origenNombre: string }> {
+  const [destino, origen] = await Promise.all([
+    getShippingV2ItemById(cleanString(destinoId), { includeAiName: false, access: options.access }),
+    getShippingV2ItemById(cleanString(origenId), { includeAiName: false, access: options.access }),
+  ]);
+  if (destino.id === origen.id) throw new Error("Elige otra unidad.");
+  if (normalizeSku(destino.sku) !== normalizeSku(origen.sku)) throw new Error("Esa unidad es de otro producto (otro SKU).");
+  const origenNombre = nombreUnidad(origen.sku, origen.numeroSerie);
+  const puntos = resultadosParaCopiar(parsearSnapshot(origen.revisionTecnicaDetalle, origen.categoria));
+  if (!puntos.length) throw new Error(`${origenNombre} no tiene puntos conformes para copiar.`);
+  return {
+    origenNombre,
+    cambios: {
+      equipamiento: {
+        conectividadIds: origen.technicalSheet.connectivityV2Ids,
+        puertosIds: origen.technicalSheet.portV2Ids,
+        extrasIds: origen.technicalSheet.extraFeatureV2Ids,
+      },
+      puntos,
+    },
+  };
 }

@@ -23,6 +23,8 @@ import type { ResultadoPunto, ZonaRevision } from "@/lib/shipping-v2/revision-te
 import { getPerfilRevision } from "@/lib/shipping-v2/revision-tecnica";
 import type { SnapshotRevision } from "@/lib/shipping-v2/revision-tecnica-snapshot";
 import { DibujoEquipo } from "./DibujoEquipo";
+import type { ShippingV2UnidadHermana } from "@/types/shipping-v2";
+import { normalizarSerie, serieCorta } from "@/lib/shipping-v2/unidades-serie";
 
 type Props = {
   inicial: ShippingV2InspeccionTecnica;
@@ -33,7 +35,14 @@ type Props = {
   volver: { href: string; etiqueta: string };
   /** Punto 10b-4: la ficha de esta unidad (/shipping-v2/items/[sku]/u/[serie]/ficha). */
   fichaHref: string;
+  /** Punto 10b-4b: otras unidades del mismo SKU con la inspección firmada ("⋯ Copiar de otra unidad"). */
+  firmadasParaCopiar?: ShippingV2UnidadHermana[];
 };
+
+function nombreCortoUnidad(u: ShippingV2UnidadHermana) {
+  const serie = normalizarSerie(u.numeroSerie);
+  return serie ? `S/N ${serieCorta(serie, 4)}` : "Sin serie";
+}
 
 // Mantenimientos y mejoras ya NO viven aquí (punto 3, 6-oct-2026): se
 // registran en la ficha del artículo, pestaña "Mantenimientos y mejoras".
@@ -72,8 +81,11 @@ function fecha(iso?: string) {
 }
 
 export function ShippingV2InspeccionClient({
-  inicial, usuario, puedeEditarItems, puedeCrearNovedades, volver, fichaHref,
+  inicial, usuario, puedeEditarItems, puedeCrearNovedades, volver, fichaHref, firmadasParaCopiar = [],
 }: Props) {
+  // Punto 10b-4b: "⋯ Copiar de otra unidad" (opción secundaria).
+  const [menuCopia, setMenuCopia] = useState(false);
+  const [copiaDe, setCopiaDe] = useState<ShippingV2UnidadHermana | null>(null);
   const [datos, setDatos] = useState(inicial);
   const [pestana, setPestana] = useState<Pestana>(
     inicial.estado.completa ? "inspeccion" : inicial.snapshot.equipamiento.confirmadoPor ? "inspeccion" : "equipo"
@@ -367,6 +379,24 @@ export function ShippingV2InspeccionClient({
                 Firmada
               </span>
             ) : null}
+            {!firmado && firmadasParaCopiar.length ? (
+              <div className="relative">
+                <button type="button" onClick={() => setMenuCopia((v) => !v)} aria-label="Más opciones" title="Más opciones"
+                  className="h-[30px] rounded-lg border border-[#3A3A36] bg-[#20211D] px-2.5 text-sm font-bold text-[#B4B5AC] transition hover:border-[#D7FF4F]/45 hover:text-[#F5F5F5]">⋯</button>
+                {menuCopia ? (
+                  <div className="absolute right-0 top-9 z-20 w-60 rounded-lg border border-[#3A3A36] bg-[#1B1C17] p-1 shadow-xl shadow-black/40">
+                    <p className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">Copiar de otra unidad</p>
+                    {firmadasParaCopiar.map((u) => (
+                      <button key={u.id} type="button" onClick={() => { setCopiaDe(u); setMenuCopia(false); }}
+                        className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[12.5px] text-[#E6E6E1] hover:bg-[#2A2B23]">
+                        <span className="font-mono">{nombreCortoUnidad(u)}</span>
+                        <span className="text-[11px] text-[#7BE495]">firmada</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <Link href={volver.href}
               className="rounded-lg border border-[#3A3A36] bg-[#20211D] px-3 py-1.5 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#D7FF4F]/45">
               ← {volver.etiqueta}
@@ -374,6 +404,22 @@ export function ShippingV2InspeccionClient({
           </div>
         </div>
       </section>
+
+      {copiaDe ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#F4C95B]/40 bg-[#F4C95B]/[0.07] px-3 py-2 text-[12.5px] text-[#F3E7C2]">
+          <span className="min-w-0 flex-1">
+            Copiar de <b className="font-mono">{nombreCortoUnidad(copiaDe)}</b> los puntos conformes y “no aplica” y el equipamiento.
+            Las fallas y observaciones no se copian. Revisa este equipo antes de firmar.
+          </span>
+          <button type="button" disabled={guardando}
+            onClick={async () => {
+              const ok = await guardar({ copiarDe: copiaDe.id }, `Copiado de ${nombreCortoUnidad(copiaDe)}: revisa y firma.`);
+              if (ok) setCopiaDe(null);
+            }}
+            className="h-8 rounded-lg border border-[#F4C95B] bg-[#F4C95B] px-3 text-xs font-bold text-[#1A1606] disabled:opacity-50">Copiar</button>
+          <button type="button" onClick={() => setCopiaDe(null)} className="h-8 rounded-lg border border-[#3A3A36] px-3 text-xs font-semibold text-[#E6E6E1]">Cancelar</button>
+        </div>
+      ) : null}
 
       {mensaje ? (
         <div className="rounded-xl border border-[#FF7A6B]/40 bg-[#FF7A6B]/10 px-3 py-2.5 text-sm text-[#FFB3A9]">{mensaje}</div>

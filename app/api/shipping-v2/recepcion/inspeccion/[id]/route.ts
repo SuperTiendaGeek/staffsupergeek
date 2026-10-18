@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  cambiosParaCopiarInspeccion,
   canShippingV2,
   getShippingV2AccessContextForSession,
   guardarShippingV2InspeccionTecnica,
@@ -93,12 +94,16 @@ export async function PATCH(request: Request, { params }: Params) {
     }
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const cambios = parsearCambios(body);
+    let cambios = parsearCambios(body);
+    let actor = getShippingV2SessionName(session);
+    // Punto 10b-4b: "⋯ Copiar de otra unidad" del mismo producto.
+    if (typeof body.copiarDe === "string" && body.copiarDe.trim()) {
+      const copia = await cambiosParaCopiarInspeccion(id, body.copiarDe, { access });
+      cambios = copia.cambios;
+      actor = `${actor} (copiado de ${copia.origenNombre})`;
+    }
 
-    const resultado = await guardarShippingV2InspeccionTecnica(id, cambios, {
-      actor: getShippingV2SessionName(session),
-      access,
-    });
+    const resultado = await guardarShippingV2InspeccionTecnica(id, cambios, { actor, access });
 
     return NextResponse.json({
       success: true,

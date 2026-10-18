@@ -1,7 +1,7 @@
 import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
-import { getShippingV2AccessContextForSession, getShippingV2InspeccionTecnica } from "@/lib/shipping-v2/airtable";
+import { getShippingV2AccessContextForSession, getShippingV2InspeccionTecnica, getShippingV2UnidadesDelProducto } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import { rutaUnidad } from "@/lib/shipping-v2/unidades-serie";
@@ -26,6 +26,8 @@ export default async function ShippingV2InspeccionUnidadPage({ params, searchPar
   // Recepción en vez de mostrar una pantalla que no va a poder guardar nada.
   if (item.recibido !== true) redirect("/shipping-v2/recepcion");
   asegurarRutaCanonica(item, ruta, "inspeccion");
+  // Punto 10b-4b: unidades del mismo producto con la inspección firmada ("⋯ Copiar de otra unidad").
+  const hermanas = await getShippingV2UnidadesDelProducto(item.sku, access).catch(() => []);
 
   return (
     <StaffAppShell activeHref={ruta.desdeRecepcion ? "/shipping-v2/recepcion" : "/shipping-v2/items"} sectionLabel="Shipping V2">
@@ -38,6 +40,7 @@ export default async function ShippingV2InspeccionUnidadPage({ params, searchPar
         puedeCrearNovedades={access.permissions.canCreateNovedades}
         volver={volverDeUnidad(item, ruta.desdeRecepcion)}
         fichaHref={rutaUnidad(item, "ficha", { desde: ruta.desdeRecepcion ? "recepcion" : undefined })}
+        firmadasParaCopiar={hermanas.filter((h) => h.id !== item.id && h.inspeccionFirmada)}
       />
     </div>
     </StaffAppShell>

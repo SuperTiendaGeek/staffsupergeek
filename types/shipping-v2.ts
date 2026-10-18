@@ -497,6 +497,8 @@ export type ShippingV2UnidadHermana = {
   precioVenta: number | null;
   recibido: boolean;
   inspeccionFirmada: boolean;
+  /** Punto 10b-4b: ya tiene ficha de mostrador (para proponer a cuáles copiar). */
+  fichaGenerada: boolean;
   fechaRegistro?: string;
 };
 
