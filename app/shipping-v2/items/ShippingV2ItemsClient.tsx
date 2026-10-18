@@ -1757,7 +1757,7 @@ export function UnidadDelProducto({ item, hermanas, onGuardarSerie, onSerieInter
           ? <span className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-mono font-semibold text-[#F5F5F5]" title="Serie de esta unidad">S/N {serie}</span>
           : onGuardarSerie && escaneando ? (
             <span className="inline-flex flex-wrap items-center gap-1">
-              <input autoFocus disabled={ocupado} placeholder="Escanear serie" aria-label="Escanear serie"
+              <input autoFocus disabled={ocupado} placeholder="Escanear o escribir" aria-label="Escanear o escribir la serie"
                 className="h-6 w-36 rounded border border-[#F4C95B]/60 bg-[#151515] px-1.5 font-mono text-[12px] text-[#F5F5F5] outline-none"
                 onKeyDown={async (e) => {
                   if (e.key === "Escape") { setEscaneando(false); setErrorSerie(""); return; }
@@ -1777,8 +1777,8 @@ export function UnidadDelProducto({ item, hermanas, onGuardarSerie, onSerieInter
               {errorSerie ? <span className="text-[#FFB07A]">{errorSerie}</span> : null}
             </span>
           ) : onGuardarSerie ? (
-            <button type="button" onClick={() => setEscaneando(true)} className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B] hover:border-[#F4C95B]" title="Sin serie no se vende. Pulsa para escanearla o usar una serie interna.">Sin serie aún · escanear</button>
-          ) : <span className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B]" title="Se escanea al recibir; sin serie no se vende.">Sin serie aún</span>
+            <button type="button" onClick={() => setEscaneando(true)} className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B] hover:border-[#F4C95B]" title="Pulsa para escanearla, escribirla o usar una serie interna (SG…).">Sin serie aún · escanear</button>
+          ) : <span className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B]" title="Se escanea o escribe al recibir.">Sin serie aún</span>
       ) : (
         <span className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-semibold text-[#B4B5AC]" title="Lote: lo que llegó de una misma compra, con su costo.">Lote · {item.cantidad ?? 0} u.</span>
       )}

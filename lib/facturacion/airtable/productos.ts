@@ -95,7 +95,8 @@ export async function buscarProductos(
   if (query.length < 2) return [];
 
   const [shippingItems, productosDigitales] = await Promise.all([
-    buscarEnShippingItems(query, pageSize, opts.incluirEnCamino === true),
+    // Punto 10b-5: al buscar por SKU deben verse TODAS sus unidades para elegir por serie.
+    buscarEnShippingItems(query, Math.max(pageSize, 20), opts.incluirEnCamino === true),
     buscarProductosDigitales(query, pageSize),
   ]);
 

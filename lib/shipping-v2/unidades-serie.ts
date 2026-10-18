@@ -186,8 +186,9 @@ export function valorCodigoBarras(item: { sku: string; numeroSerie?: string | nu
 }
 
 /**
- * Una unidad (equipo) que ya está en la tienda necesita su serie para
- * venderse: es lo que dice la factura y lo que se escanea en caja.
+ * ¿A esta unidad (equipo) le falta registrar su serie? Solo es un aviso: la
+ * serie NO es requisito para vender (dueño, 18-oct-2026; una etiqueta borrosa
+ * no puede frenar una venta).
  */
 export function faltaSerieParaVender(item: { seguimiento?: string | null; categoria?: string | null; numeroSerie?: string | null }): boolean {
   return seguimientoDe(item) === "Unidad" && !normalizarSerie(item.numeroSerie);
