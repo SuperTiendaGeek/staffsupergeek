@@ -26,6 +26,15 @@ export type CamposLineaDesdeProducto = {
   stockDisponible?:   number;
 };
 
+/**
+ * Punto 10b-5: la descripción de la línea lleva la serie del equipo vendido
+ * ("Dell Latitude 5420 … S/N 7HX2KQ3"): así la factura, el recibo y la
+ * reserva dicen qué unidad exacta salió (sirve también para la garantía).
+ */
+export function descripcionDeProducto(p: { nombre: string; seguimiento?: string; numeroSerie?: string }): string {
+  return p.seguimiento === "Unidad" && p.numeroSerie ? `${p.nombre} S/N ${p.numeroSerie}` : p.nombre;
+}
+
 export function camposLineaDesdeProducto(p: ProductoCatalogo): CamposLineaDesdeProducto {
   if (p.fuente === "productoDigital") {
     return {
@@ -42,7 +51,7 @@ export function camposLineaDesdeProducto(p: ProductoCatalogo): CamposLineaDesdeP
   }
   return {
     codigoPrincipal:  p.sku || p.id,
-    descripcion:      p.nombre,
+    descripcion:      descripcionDeProducto(p),
     unidadMedida:     p.unidad,
     cantidad:         1,
     precioUnitario:   p.precioVenta,

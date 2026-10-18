@@ -27,7 +27,7 @@ import { EntregaProductoDigital, type ProductoDigitalEntrega } from "./EntregaPr
 import { AvisoNovedadVenta, cerrarNovedadesVendidas, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
 
 type CatServicio = { id: string; nombre: string; descripcion: string | null; costoSugerido: number | null; activo: boolean };
-type ItemStock   = { id: string; sku: string; nombre: string; precioVentaFinal: number | null };
+type ItemStock   = { id: string; sku: string; nombre: string; precioVentaFinal: number | null; detalle?: string };
 type CatDigital  = { id: string; productoBase: string; marca: string | null; precioVentaCatalogo: number | null };
 type Totales     = { propuesto: number; aprobado: number; pendienteDeCargar: number; rechazado: number };
 type Resultado   = PasoCarga & { cargada: boolean; esperandoPedido?: boolean; error?: string };
@@ -204,7 +204,7 @@ function BuscadorRepuesto({ ordenId, onElegir }: { ordenId: string; onElegir: (i
           {res.map((i) => (
             <li key={i.id}>
               <button type="button" onClick={() => { onElegir(i); setQ(""); setAbierto(false); }} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[var(--sg-card)]">
-                <span className="min-w-0"><span className="block truncate text-[var(--sg-text-primary)]">{i.nombre}</span><span className="text-[10px] text-[var(--sg-text-muted)]">{i.sku}</span></span>
+                <span className="min-w-0"><span className="block truncate text-[var(--sg-text-primary)]">{i.nombre}</span><span className="text-[10px] text-[var(--sg-text-muted)]">{i.sku}{i.detalle ? ` · ${i.detalle}` : ""}</span></span>
                 <span className="shrink-0 text-xs font-semibold text-[var(--sg-lime)]">{i.precioVentaFinal !== null ? mon(i.precioVentaFinal) : "sin precio"}</span>
               </button>
             </li>

@@ -7,13 +7,15 @@ import { useEffect, useRef, useState } from "react";
 import { abonoMinimo, PLAZOS_VALIDOS } from "@/lib/facturacion/reservas/reglas";
 import { ClienteCard, CLIENTE_VACIO, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 import { AvisoNovedadVenta, cerrarNovedadesVendidas, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
+import { descripcionDeProducto } from "@/lib/facturacion/lineaDesdeProductoCatalogo";
 
 const FORMAS_PAGO = [
   { codigo: "01", label: "Efectivo" }, { codigo: "16", label: "Tarjeta de débito" }, { codigo: "19", label: "Tarjeta de crédito" },
   { codigo: "17", label: "Dinero electrónico" }, { codigo: "18", label: "Tarjeta prepago" }, { codigo: "20", label: "Otros (sist. financiero)" }, { codigo: "21", label: "Endoso de títulos" },
 ];
 
-type Producto = { id: string; sku: string; nombre: string; precioVenta: number; unidad: string; cantidadDisponible: number };
+// Punto 10b-5: numeroSerie/seguimiento para la descripción; detalle = "S/N …" o "Lote … · más antiguo".
+type Producto = { id: string; sku: string; nombre: string; precioVenta: number; unidad: string; cantidadDisponible: number; numeroSerie?: string; seguimiento?: string; detalle?: string };
 type ItemSel = { shippingItemId: string; descripcion: string; precio: number; sku: string };
 
 const CARD  = "rounded-xl border border-[#3A3A36] bg-[#1A1B18] p-4 mb-4";
@@ -116,7 +118,7 @@ export function ReservaForm() {
             <input ref={prodRef} value={queryProd} onChange={(e) => setQueryProd(e.target.value)} placeholder="Nombre del producto o SKU…" className={INPUT} />
             {prodSug.length > 0 && (
               <ul className="absolute z-20 mt-1 w-full rounded-md border border-[#3A3A36] bg-[#1A1B18] shadow-xl divide-y divide-[#2A2B28]">
-                {prodSug.map((p) => (<li key={p.id}><button onClick={() => { setItem({ shippingItemId: p.id, descripcion: p.nombre, precio: p.precioVenta, sku: p.sku }); setQueryProd(""); setProdSug([]); }} className="w-full text-left px-4 py-2.5 hover:bg-[#252622] text-sm"><p className="font-semibold text-[#F5F5F5]">{p.nombre}</p><p className="text-[#666] text-xs">{p.sku} · {mon(p.precioVenta)} · stock: {p.cantidadDisponible}</p></button></li>))}
+                {prodSug.map((p) => (<li key={p.id}><button onClick={() => { setItem({ shippingItemId: p.id, descripcion: descripcionDeProducto(p), precio: p.precioVenta, sku: p.sku }); setQueryProd(""); setProdSug([]); }} className="w-full text-left px-4 py-2.5 hover:bg-[#252622] text-sm"><p className="font-semibold text-[#F5F5F5]">{p.nombre}</p><p className="text-[#666] text-xs">{p.sku}{p.detalle ? ` · ${p.detalle}` : ""} · {mon(p.precioVenta)} · stock: {p.cantidadDisponible}</p></button></li>))}
               </ul>
             )}
           </div>

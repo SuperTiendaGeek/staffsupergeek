@@ -1,4 +1,5 @@
 import { unidadesLibres } from "@/lib/shipping-v2/unidades";
+import { normalizarSerie, seguimientoDe } from "@/lib/shipping-v2/unidades-serie";
 
 // "fuente" es obligatorio a propósito, no opcional: cada sitio que consume
 // un ProductoCatalogo (agregarProducto en el formulario, hoy; cualquier
@@ -17,6 +18,14 @@ export type ProductoCatalogo = {
   unidad: string;
   cantidadDisponible: number;
   fuente: FuenteProductoCatalogo;
+  /** Punto 10b-5: la serie de la unidad (equipos), para elegirla y para la factura. */
+  numeroSerie?: string;
+  /** Punto 10b-5: "Unidad" o "Lote" (vacío = el de la categoría). */
+  seguimiento?: "Unidad" | "Lote";
+  /** Punto 10b-5: para ordenar los lotes del más antiguo al más nuevo. */
+  fechaRegistro?: string;
+  /** Punto 10b-5: lo que se muestra junto al SKU en el buscador ("S/N 7HX2KQ3", "Lote 05-ago · más antiguo"). */
+  detalle?: string;
 };
 
 type ProductoRecord = {
@@ -63,11 +72,16 @@ export function buildShippingItemsProductFilterFormula(query: string, opts: { in
     // lib/shipping-v2/item-venta.ts (evaluarVentaItem), que es la que de
     // verdad bloquea al emitir (reglas/entregables.ts).
     (soloEnTienda ? `{Recibido},OR(NOT({Requiere inspección}),{Revisado física/técnicamente}),` : ``) +
+    // Punto 10b-5: un equipo "Unidad" se vende con su serie (los registros
+    // anteriores, sin Seguimiento, no cambian).
+    (soloEnTienda ? `OR({Seguimiento}!="Unidad",{Número de serie}!=""),` : ``) +
     `{Cantidad}>=1,` +
     `{Precio venta final}>0,` +
     `OR(` +
       `SEARCH("${escaped}",LOWER({Nombre del item})),` +
-      `SEARCH("${escaped}",LOWER({SKU}))` +
+      `SEARCH("${escaped}",LOWER({SKU})),` +
+      // Punto 10b-5: escanear la serie de la etiqueta encuentra esa unidad.
+      `SEARCH("${escaped}",LOWER(SUBSTITUTE({Número de serie}&""," ","")))` +
     `))`
   );
 }
@@ -93,5 +107,47 @@ export function mapShippingItemProductRecord(record: ProductoRecord): ProductoCa
       reservado: fields["Reservado"] === true,
     }),
     fuente: "shippingItem",
+    numeroSerie: normalizarSerie(firstStr(fields["Número de serie"])) || undefined,
+    seguimiento: seguimientoDe({ seguimiento: firstStr(fields["Seguimiento"]), categoria: firstStr(fields["Categoría"]) }),
+    fechaRegistro: firstStr(fields["Fecha de registro"]) || undefined,
   };
+}
+
+function fechaCorta(iso?: string) {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", timeZone: "America/Guayaquil" }).replace(".", "") : "";
+}
+
+/**
+ * Punto 10b-5 (decisiones G y C2 del 17-oct): las unidades de un equipo se
+ * muestran con su serie para elegir la exacta; los lotes de un mismo SKU, del
+ * más antiguo al más nuevo, con el primero marcado "más antiguo" (se vende
+ * primero lo que entró primero, cada lote con su costo).
+ */
+export function ordenarYDetallarProductos(productos: ProductoCatalogo[]): ProductoCatalogo[] {
+  const lotesPorSku = new Map<string, ProductoCatalogo[]>();
+  for (const p of productos) {
+    if (p.fuente !== "shippingItem" || p.seguimiento !== "Lote") continue;
+    const clave = p.sku.toUpperCase();
+    lotesPorSku.set(clave, [...(lotesPorSku.get(clave) ?? []), p]);
+  }
+  const antiguedad = (p: ProductoCatalogo) => p.fechaRegistro ?? "";
+  for (const lotes of lotesPorSku.values()) lotes.sort((a, b) => antiguedad(a).localeCompare(antiguedad(b)) || a.id.localeCompare(b.id));
+
+  const vistos = new Set<string>();
+  const salida: ProductoCatalogo[] = [];
+  for (const p of productos) {
+    if (vistos.has(p.id)) continue;
+    const lotes = p.fuente === "shippingItem" && p.seguimiento === "Lote" ? lotesPorSku.get(p.sku.toUpperCase()) : undefined;
+    if (lotes && lotes.length > 1) {
+      lotes.forEach((l, i) => {
+        vistos.add(l.id);
+        salida.push({ ...l, detalle: `Lote ${fechaCorta(l.fechaRegistro)}${i === 0 ? " · más antiguo" : ""}`.trim() });
+      });
+      continue;
+    }
+    vistos.add(p.id);
+    salida.push(p.fuente === "shippingItem" && p.seguimiento === "Unidad" && p.numeroSerie ? { ...p, detalle: `S/N ${p.numeroSerie}` } : p);
+  }
+  return salida;
 }

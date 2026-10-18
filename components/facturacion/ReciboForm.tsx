@@ -13,6 +13,7 @@ import type { LineaRecibo, OrigenRecibo } from "@/lib/facturacion/recibos/types"
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { ClienteCard, CLIENTE_VACIO, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
+import { descripcionDeProducto } from "@/lib/facturacion/lineaDesdeProductoCatalogo";
 import {
   clienteDesdePrefactura, lineasReciboDesdePrefactura,
   abonosDesdePrefactura, formaPagoSaldoDesdePrefactura, type AbonoPrefill,
@@ -28,7 +29,8 @@ const FORMAS_PAGO = [
   { codigo: "21", label: "Endoso de títulos" },
 ];
 
-type Producto = { id: string; sku: string; nombre: string; precioVenta: number; unidad: string; cantidadDisponible: number };
+// Punto 10b-5: numeroSerie/seguimiento para la descripción; detalle = "S/N …" o "Lote … · más antiguo".
+type Producto = { id: string; sku: string; nombre: string; precioVenta: number; unidad: string; cantidadDisponible: number; numeroSerie?: string; seguimiento?: string; detalle?: string };
 type Linea = LineaRecibo & { _id: string; stockDisponible?: number };
 
 const CARD  = "rounded-xl border border-[#3A3A36] bg-[#1A1B18] p-5 mb-4";
@@ -83,7 +85,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
   const saldo = round2(total - sumaAbonos);
 
   function agregarProducto(p: Producto) {
-    setLineas((prev) => [...prev, { _id: crypto.randomUUID(), codigo: p.sku || p.id, descripcion: p.nombre, unidadMedida: p.unidad, cantidad: 1, precioUnitario: p.precioVenta, descuento: 0, shippingItemId: p.id, stockDisponible: p.cantidadDisponible }]);
+    setLineas((prev) => [...prev, { _id: crypto.randomUUID(), codigo: p.sku || p.id, descripcion: descripcionDeProducto(p), unidadMedida: p.unidad, cantidad: 1, precioUnitario: p.precioVenta, descuento: 0, shippingItemId: p.id, stockDisponible: p.cantidadDisponible }]);
     setQueryProd(""); setProdSug([]); prodRef.current?.focus();
   }
   function agregarManual() { setLineas((prev) => [...prev, { _id: crypto.randomUUID(), codigo: "", descripcion: "", unidadMedida: "UNIDAD", cantidad: 1, precioUnitario: 0, descuento: 0 }]); }
@@ -173,7 +175,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
           <input ref={prodRef} value={queryProd} onChange={(e) => setQueryProd(e.target.value)} placeholder="Nombre del producto o SKU…" className={INPUT} />
           {prodSug.length > 0 && (
             <ul className="absolute z-20 mt-1 w-full rounded-md border border-[#3A3A36] bg-[#1A1B18] shadow-xl divide-y divide-[#2A2B28]">
-              {prodSug.map((p) => (<li key={p.id}><button onClick={() => agregarProducto(p)} className="w-full text-left px-4 py-2.5 hover:bg-[#252622] text-sm"><p className="font-semibold text-[#F5F5F5]">{p.nombre}</p><p className="text-[#666] text-xs">{p.sku} · {p.unidad} · ${p.precioVenta.toFixed(2)} · stock: {p.cantidadDisponible}</p></button></li>))}
+              {prodSug.map((p) => (<li key={p.id}><button onClick={() => agregarProducto(p)} className="w-full text-left px-4 py-2.5 hover:bg-[#252622] text-sm"><p className="font-semibold text-[#F5F5F5]">{p.nombre}</p><p className="text-[#666] text-xs">{p.sku}{p.detalle ? ` · ${p.detalle}` : ""} · {p.unidad} · ${p.precioVenta.toFixed(2)} · stock: {p.cantidadDisponible}</p></button></li>))}
             </ul>
           )}
         </div>

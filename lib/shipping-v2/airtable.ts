@@ -253,7 +253,7 @@ import {
   staffShippingV2Access,
   systemShippingV2Access,
 } from "@/lib/shipping-v2/access";
-import { esIdRegistro, evaluarSerie, evaluarSkuCompartido, nombreUnidad, normalizarSerie, seguimientoParaGuardar } from "@/lib/shipping-v2/unidades-serie";
+import { esIdRegistro, evaluarSerie, evaluarSkuCompartido, nombreUnidad, normalizarSerie, seguimientoParaGuardar, siguienteSerieInterna } from "@/lib/shipping-v2/unidades-serie";
 import { CAMPO_ESPECIFICACIONES, camposFichaCopiada, evaluarCopiaFicha, resultadosParaCopiar } from "@/lib/shipping-v2/copiar-unidad";
 import { camposOriginalTrasSeparar, camposUnidadSeparada, evaluarSepararUnidad } from "@/lib/shipping-v2/separar-unidad";
 import { camposArticuloFueraDeCaja, evaluarCancelarCaja } from "@/lib/shipping-v2/cancelar-caja";
@@ -7846,6 +7846,11 @@ export type ShippingV2RepuestoStockResumen = {
   sku: string;
   nombre: string;
   precioVentaFinal: number | null;
+  /** Punto 10b-5: "S/N …" de una unidad, o "Lote 05-ago · más antiguo" si hay varios lotes del SKU. */
+  detalle?: string;
+  /** Punto 10b-5: para ordenar los lotes del más antiguo al más nuevo. */
+  fechaRegistro?: string;
+  numeroSerie?: string;
 };
 
 const ORDEN_STOCK_LINK_FIELD = "Orden de Reparación (Stock)";
@@ -7857,6 +7862,8 @@ function mapRepuestoStockResumen(record: AirtableRecord): ShippingV2RepuestoStoc
     sku: firstString(f[SHIPPING_V2_ITEM_FIELDS.sku], record.id),
     nombre: firstString(f[SHIPPING_V2_ITEM_FIELDS.nombre], "Artículo sin nombre"),
     precioVentaFinal: firstNumber(f[SHIPPING_V2_ITEM_FIELDS.precioVentaFinal]),
+    fechaRegistro: firstString(f[SHIPPING_V2_ITEM_FIELDS.fechaRegistro], record.createdTime) || undefined,
+    numeroSerie: normalizarSerie(firstString(f[SHIPPING_V2_ITEM_FIELDS.numeroSerie])) || undefined,
   };
 }
 
@@ -7905,7 +7912,7 @@ export async function buscarShippingItemsRepuestoStockDisponibles(
   if (q) {
     const escaped = escapeAirtableSearchTerm(q);
     condiciones.push(
-      `OR(SEARCH("${escaped}", LOWER({${SHIPPING_V2_ITEM_FIELDS.sku}}&"")), SEARCH("${escaped}", LOWER({${SHIPPING_V2_ITEM_FIELDS.nombre}}&"")))`
+      `OR(SEARCH("${escaped}", LOWER({${SHIPPING_V2_ITEM_FIELDS.sku}}&"")), SEARCH("${escaped}", LOWER({${SHIPPING_V2_ITEM_FIELDS.nombre}}&"")), SEARCH("${escaped}", LOWER(SUBSTITUTE({${SHIPPING_V2_ITEM_FIELDS.numeroSerie}}&""," ",""))))`
     );
   }
 
@@ -7920,7 +7927,22 @@ export async function buscarShippingItemsRepuestoStockDisponibles(
     sortDirection: "asc",
   });
 
-  return records.map(mapRepuestoStockResumen).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  // Punto 10b-5: los lotes de un mismo SKU, del más antiguo al más nuevo (se
+  // usa primero lo que entró primero); las unidades, con su serie.
+  const lista = records.map(mapRepuestoStockResumen)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es") || a.sku.localeCompare(b.sku) || (a.fechaRegistro ?? "").localeCompare(b.fechaRegistro ?? ""));
+  const porSku = new Map<string, number>();
+  for (const r of lista) porSku.set(r.sku, (porSku.get(r.sku) ?? 0) + 1);
+  const vistos = new Set<string>();
+  return lista.map((r) => {
+    if (r.numeroSerie) return { ...r, detalle: `S/N ${r.numeroSerie}` };
+    if ((porSku.get(r.sku) ?? 0) < 2) return r;
+    const primero = !vistos.has(r.sku);
+    vistos.add(r.sku);
+    const fecha = r.fechaRegistro ? new Date(r.fechaRegistro) : null;
+    const texto = fecha && !Number.isNaN(fecha.getTime()) ? fecha.toLocaleDateString("es-EC", { day: "2-digit", month: "short", timeZone: "America/Guayaquil" }).replace(".", "") : "";
+    return { ...r, detalle: `Lote ${texto}${primero ? " · más antiguo" : ""}`.trim() };
+  });
 }
 
 // Reserva un item de stock para una orden: Reservado=true, Disponible para
@@ -10900,4 +10922,34 @@ export async function cambiosParaCopiarInspeccion(
       puntos,
     },
   };
+}
+
+/**
+ * Punto 10b-5: un equipo sin serie legible recibe la siguiente serie interna
+ * (SG00000001…). Se calcula por turno para que dos personas no saquen la misma,
+ * y se guarda por el camino normal del campo (que vuelve a comprobar que no se
+ * repita y deja el evento).
+ */
+export async function asignarSerieInternaShippingV2(
+  recordId: string,
+  options: { actualizadoPor: string; esAdmin?: boolean; access?: ShippingV2AccessContext; camposNoEditables?: readonly string[] }
+) {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  return withLock("shipping-serie-interna", async () => {
+    const actual = await getShippingV2ItemById(cleanString(recordId), { includeAiName: false, access: options.access });
+    if (normalizarSerie(actual.numeroSerie)) throw new Error(`Esta unidad ya tiene serie (${normalizarSerie(actual.numeroSerie)}).`);
+    const ultimas = await listRecords(SHIPPING_V2_TABLES.items, {
+      maxRecords: 1,
+      fields: [F.numeroSerie],
+      filterByFormula: `REGEX_MATCH({${F.numeroSerie}}&"","^SG[0-9]{8}$")`,
+      sortField: F.numeroSerie,
+      sortDirection: "desc",
+    });
+    const serie = siguienteSerieInterna(ultimas.map((r) => firstString(r.fields[F.numeroSerie])));
+    return updateShippingV2ItemField(actual.id, {
+      field: F.numeroSerie,
+      value: serie,
+      eventDescription: `Serie interna ${serie} asignada (el equipo no tiene serie legible).`,
+    }, options);
+  });
 }

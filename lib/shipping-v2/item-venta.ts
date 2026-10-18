@@ -27,6 +27,7 @@
 // cambiaba esa etiqueta a mano; se eliminó porque no decidía la venta.
 
 import { evaluarDisponibilidadComercial } from "./item-comercial";
+import { normalizarSerie, seguimientoParaGuardar } from "./unidades-serie";
 
 function normalize(value?: string | null) {
   return String(value || "")
@@ -84,9 +85,16 @@ export type ShippingV2ItemVentaLike = {
   requiereInspeccion?: boolean | null;
   /** Casilla "Revisado física/técnicamente": se marca al firmar la ficha. */
   inspeccionFirmada?: boolean | null;
+  /**
+   * Punto 10b-5: campo "Seguimiento" y la serie. Solo un registro marcado
+   * "Unidad" (equipos registrados desde el 17-oct) exige serie para venderse;
+   * los anteriores, sin ese campo, no cambian.
+   */
+  seguimiento?: string | null;
+  numeroSerie?: string | null;
 };
 
-export type MotivoNoVendible = "bloqueado" | "no-llego" | "falta-inspeccion";
+export type MotivoNoVendible = "bloqueado" | "no-llego" | "falta-inspeccion" | "falta-serie";
 
 export type EvaluacionVenta =
   | { vendible: true }
@@ -95,6 +103,7 @@ export type EvaluacionVenta =
 export const MENSAJE_NO_VENDIBLE: Record<Exclude<MotivoNoVendible, "bloqueado">, string> = {
   "no-llego": "todavía no llega a la tienda. Se puede reservar, pero se factura cuando llegue y se entregue",
   "falta-inspeccion": "llegó, pero falta firmar su inspección técnica",
+  "falta-serie": "es un equipo sin serie: escanea su serie (o usa una serie interna) en su ficha antes de venderlo",
 };
 
 export function evaluarVentaItem(item: ShippingV2ItemVentaLike): EvaluacionVenta {
@@ -112,6 +121,9 @@ export function evaluarVentaItem(item: ShippingV2ItemVentaLike): EvaluacionVenta
   }
   if (item.requiereInspeccion === true && item.inspeccionFirmada !== true) {
     return { vendible: false, motivo: "falta-inspeccion", detalle: MENSAJE_NO_VENDIBLE["falta-inspeccion"] };
+  }
+  if (seguimientoParaGuardar(item.seguimiento) === "Unidad" && !normalizarSerie(item.numeroSerie)) {
+    return { vendible: false, motivo: "falta-serie", detalle: MENSAJE_NO_VENDIBLE["falta-serie"] };
   }
   return { vendible: true };
 }

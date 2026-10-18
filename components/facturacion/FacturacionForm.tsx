@@ -129,6 +129,10 @@ type ProductoCatalogo = {
   precioVenta: number;
   unidad:      string;
   cantidadDisponible: number;
+  // Punto 10b-5: serie de la unidad, unidad/lote y lo que se muestra junto al SKU.
+  numeroSerie?: string;
+  seguimiento?: "Unidad" | "Lote";
+  detalle?: string;
   // Obligatorio — mismo criterio que lib/facturacion/airtable/productosShippingItems.ts:
   // cada sitio que consume un ProductoCatalogo tiene que decidir explícitamente
   // qué hacer con cada fuente, el compilador no deja pasar el caso sin decidir.
@@ -1129,7 +1133,7 @@ export function FacturacionForm({
                         <span className="text-[#666]">· ${p.precioVenta.toFixed(2)} · 1 unidad disponible</span>
                       </p>
                     ) : (
-                      <p className="text-[#666] text-xs">{p.sku} · {p.unidad} · ${p.precioVenta.toFixed(2)} · stock: {p.cantidadDisponible}</p>
+                      <p className="text-[#666] text-xs">{p.sku}{p.detalle ? ` · ${p.detalle}` : ""} · {p.unidad} · ${p.precioVenta.toFixed(2)} · stock: {p.cantidadDisponible}</p>
                     )}
                   </button>
                 </li>
