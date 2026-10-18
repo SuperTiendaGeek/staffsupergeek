@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/reservas-vencidas",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/revision-inventario",
+      "schedule": "0 11 * * *"
     }
   ]
 }

@@ -284,6 +284,16 @@ import {
   type Publicacion,
 } from "@/lib/shipping-v2/publicaciones";
 import { iaAnunciosDisponible } from "@/lib/shipping-v2/ia-anuncios-servidor";
+import {
+  TIPOS_ASUNTO,
+  detectarAsuntos,
+  planSincronizacion,
+  type AsuntoDetectado,
+  type DatosRevision,
+  type EstadoAsunto,
+  type LineaVenta,
+  type TipoAsunto,
+} from "@/lib/shipping-v2/revision-inventario";
 import { CAMPOS_ITEM, confirmacionValida, detectarVinculosDesconocidos, evaluarEliminacion, type ContextoEliminacion, type EvaluacionEliminacion } from "@/lib/shipping-v2/eliminar-item";
 
 type AirtableRecord = {
@@ -10459,6 +10469,7 @@ export async function getShippingV2ResumenPestanas(access?: ShippingV2AccessCont
     novedadesAbiertas: novedades.filter((r) => isNovedadAbierta(firstString(r.fields["Estado Novedad"], "Abierta"))).length,
     // Punto 10d-4: anuncios de cosas que ya no están a la venta.
     anunciosPorRetirar: await getShippingV2AnunciosPendientes().then((a) => a.porRetirar.length).catch(() => 0),
+    asuntosRevision: await contarAsuntosRevisionAbiertos().catch(() => 0),
   };
 }
 
@@ -11378,4 +11389,236 @@ export async function retirarPublicacionShippingV2(id: string, options: { actor:
   const publicacion = r ? mapPublicacion(r) : null;
   if (!publicacion) throw new Error("Airtable no devolvió el anuncio.");
   return publicacion;
+}
+
+// ─── Punto 10c-1: revisión de inventario ─────────────────────────────────────
+
+const TABLA_REVISION = "Shipping Revisión de inventario";
+
+export type ShippingV2AsuntoRevision = {
+  id: string;
+  clave: string;
+  tipo: TipoAsunto;
+  estado: EstadoAsunto;
+  sku: string;
+  itemIds: string[];
+  asunto: string;
+  detalle: string;
+  sugerencia: string;
+  motivo: string;
+  resueltoPor: string;
+  fechaResuelto: string;
+  detectado: string;
+  ultimaRevision: string;
+};
+
+function mapAsuntoRevision(r: AirtableRecord): ShippingV2AsuntoRevision {
+  const f = r.fields;
+  const tipo = firstString(f["Tipo"]);
+  const estado = firstString(f["Estado"], "Abierto");
+  return {
+    id: r.id,
+    clave: firstString(f["Clave"]),
+    tipo: ((TIPOS_ASUNTO as readonly string[]).includes(tipo) ? tipo : "Unidades no cuadran") as TipoAsunto,
+    estado: (estado === "Resuelto" || estado === "Está bien" ? estado : "Abierto") as EstadoAsunto,
+    sku: firstString(f["SKU"]),
+    itemIds: linkedRecordIds(f["Artículo"]),
+    asunto: firstString(f["Asunto"]),
+    detalle: firstString(f["Detalle"]),
+    sugerencia: firstString(f["Sugerencia"]),
+    motivo: firstString(f["Motivo"]),
+    resueltoPor: firstString(f["Resuelto por"]),
+    fechaResuelto: firstString(f["Fecha resuelto"]),
+    detectado: firstString(f["Detectado"]),
+    ultimaRevision: firstString(f["Última revisión"]),
+  };
+}
+
+export async function getShippingV2AsuntosRevision(opciones: { conResueltos?: boolean } = {}): Promise<ShippingV2AsuntoRevision[]> {
+  const registros = await listRecords(TABLA_REVISION, {
+    filterByFormula: opciones.conResueltos ? "" : "{Estado} = 'Abierto'",
+    sortField: "Detectado",
+    sortDirection: "desc",
+    ...(opciones.conResueltos ? { maxRecords: 600 } : {}),
+  });
+  return registros.map(mapAsuntoRevision);
+}
+
+export async function contarAsuntosRevisionAbiertos(): Promise<number> {
+  const registros = await listRecords(TABLA_REVISION, { filterByFormula: "{Estado} = 'Abierto'", fields: ["Estado"] });
+  return registros.length;
+}
+
+function lineasJson(valor: unknown): Record<string, unknown> {
+  try {
+    const obj = JSON.parse(firstString(valor) || "{}");
+    return obj && typeof obj === "object" && !Array.isArray(obj) ? (obj as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function lineasDeItems(lista: unknown, soloDevolucion = false): LineaVenta[] {
+  if (!Array.isArray(lista)) return [];
+  return lista
+    .map((l) => (l && typeof l === "object" ? (l as Record<string, unknown>) : {}))
+    .filter((l) => typeof l.shippingItemId === "string" && (l.tipo === undefined || l.tipo === "producto"))
+    .filter((l) => !soloDevolucion || l.devolucionFisica === true)
+    .map((l) => ({ itemId: String(l.shippingItemId), cantidad: Number(l.cantidad) || 0 }));
+}
+
+/** Lee de Airtable todo lo que necesita la revisión. */
+async function leerDatosRevision(): Promise<DatosRevision> {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const PAGOS_ITEM = "Shipping Pagos (Items relacionados)";
+  const PAGOS_REGALO = "Shipping Pagos (Regalos incluidos)";
+  const [items, facturas, recibos, notas, reservas, novedades, cajas] = await Promise.all([
+    listRecords(SHIPPING_V2_TABLES.items, {
+      fields: [F.sku, F.nombre, F.categoria, F.estadoItem, F.cantidad, F.unidadesCompradas, F.recibido, F.precioVentaFinal, F.tipoOperacion, F.origenArticulo, F.fechaRegistro, F.requierePago, F.esRegalo, PAGOS_ITEM, PAGOS_REGALO],
+    }),
+    listRecords("Facturas Electrónicas", {
+      filterByFormula: "{Estado} = 'AUTORIZADO'",
+      fields: ["Número de Factura", "Ambiente", "Estado Anulación", "Sincronización Inventario", "Error Sincronización", "Líneas JSON", "Shipping Items"],
+    }),
+    listRecords("Recibos", { fields: ["Número", "Estado", "Sincronización Inventario", "Error Inventario", "Líneas JSON", "Shipping Items"] }),
+    listRecords("Notas de Crédito Electrónicas", {
+      filterByFormula: "{Estado} = 'AUTORIZADO'",
+      fields: ["Número de Nota de Crédito", "Ambiente", "Reverso Inventario", "Error Reverso", "Líneas JSON", "Shipping Items"],
+    }),
+    listRecords("Reservas", { filterByFormula: "{Estado} = 'Activa'", fields: ["Número", "Fecha Límite", "Shipping Item"] }),
+    listRecords(SHIPPING_V2_TABLES.novedades, { fields: ["Novedad ID", "Tipo de novedad", "Estado Novedad", "Item relacionado", "Última actualización", "Fecha de registro"] }),
+    listRecords(SHIPPING_V2_TABLES.packings, {
+      filterByFormula: `{${SHIPPING_V2_PACKING_FIELDS.estado}} = 'Cerrado final'`,
+      fields: [SHIPPING_V2_PACKING_FIELDS.packingId, "Items incluidos"],
+    }),
+  ]);
+
+  const datos: DatosRevision = { items: [], ventas: [], devoluciones: [], reservasActivas: [], novedadesAbiertas: [], cajasCerradas: [], documentosConError: [] };
+  for (const r of items) {
+    const f = r.fields;
+    const compradas = firstNumber(f[F.unidadesCompradas]);
+    datos.items.push({
+      id: r.id,
+      sku: firstString(f[F.sku]),
+      nombre: firstString(f[F.nombre]),
+      categoria: firstString(f[F.categoria]),
+      estado: firstString(f[F.estadoItem]),
+      cantidad: firstNumber(f[F.cantidad]) ?? 0,
+      compradas,
+      recibido: firstBoolean(f[F.recibido]) === true,
+      precio: firstNumber(f[F.precioVentaFinal]),
+      tipoOperacion: firstString(f[F.tipoOperacion]),
+      origen: firstString(f[F.origenArticulo]),
+      fechaRegistro: firstString(f[F.fechaRegistro]) || r.createdTime || "",
+      requierePago: firstBoolean(f[F.requierePago]) === true,
+      esRegalo: firstBoolean(f[F.esRegalo]) === true,
+      tienePago: linkedRecordIds(f[PAGOS_ITEM]).length + linkedRecordIds(f[PAGOS_REGALO]).length > 0,
+    });
+  }
+  for (const r of facturas) {
+    const f = r.fields;
+    if (normalizeStatus(firstString(f["Ambiente"])) !== "produccion") continue;
+    if (normalizeStatus(firstString(f["Estado Anulación"])) === "anulada") continue;
+    datos.ventas.push(...lineasDeItems(lineasJson(f["Líneas JSON"]).detalles));
+    if (firstString(f["Sincronización Inventario"]) === "ERROR") {
+      datos.documentosConError.push({ tipo: "Factura", numero: firstString(f["Número de Factura"]), itemIds: linkedRecordIds(f["Shipping Items"]), error: firstString(f["Error Sincronización"]) });
+    }
+  }
+  for (const r of recibos) {
+    const f = r.fields;
+    if (firstString(f["Estado"]) !== "Vigente") continue;
+    datos.ventas.push(...lineasDeItems(lineasJson(f["Líneas JSON"]).lineas));
+    if (firstString(f["Sincronización Inventario"]) === "ERROR") {
+      datos.documentosConError.push({ tipo: "Recibo", numero: firstString(f["Número"]), itemIds: linkedRecordIds(f["Shipping Items"]), error: firstString(f["Error Inventario"]) });
+    }
+  }
+  for (const r of notas) {
+    const f = r.fields;
+    if (normalizeStatus(firstString(f["Ambiente"])) === "pruebas") continue;
+    const reverso = firstString(f["Reverso Inventario"]);
+    if (reverso === "OK") datos.devoluciones.push(...lineasDeItems(lineasJson(f["Líneas JSON"]).detalles, true));
+    if (reverso === "ERROR") {
+      datos.documentosConError.push({ tipo: "Nota de crédito", numero: firstString(f["Número de Nota de Crédito"]), itemIds: linkedRecordIds(f["Shipping Items"]), error: firstString(f["Error Reverso"]) });
+    }
+  }
+  for (const r of reservas) {
+    datos.reservasActivas.push({ id: r.id, numero: firstString(r.fields["Número"]), fechaLimite: firstString(r.fields["Fecha Límite"]), itemId: linkedRecordIds(r.fields["Shipping Item"])[0] });
+  }
+  for (const r of novedades) {
+    if (!isNovedadAbierta(firstString(r.fields["Estado Novedad"], "Abierta"))) continue;
+    datos.novedadesAbiertas.push({
+      id: r.id,
+      codigo: firstString(r.fields["Novedad ID"]) || r.id,
+      tipo: firstString(r.fields["Tipo de novedad"]),
+      itemId: linkedRecordIds(r.fields["Item relacionado"])[0],
+      ultimaActualizacion: firstString(r.fields["Última actualización"]) || firstString(r.fields["Fecha de registro"]) || r.createdTime || "",
+    });
+  }
+  for (const r of cajas) {
+    datos.cajasCerradas.push({ id: r.id, codigo: firstString(r.fields[SHIPPING_V2_PACKING_FIELDS.packingId]) || r.id, itemIds: linkedRecordIds(r.fields["Items incluidos"]) });
+  }
+  return datos;
+}
+
+function camposAsunto(a: AsuntoDetectado, ahora: string) {
+  return {
+    Asunto: a.sku ? `${a.sku} · ${a.asunto}` : a.asunto,
+    Clave: a.clave,
+    Tipo: a.tipo,
+    SKU: a.sku,
+    "Artículo": a.itemIds.filter((id) => id.startsWith("rec")).slice(0, 50),
+    Detalle: a.detalle,
+    Sugerencia: a.sugerencia,
+    "Última revisión": ahora,
+  };
+}
+
+async function mutarRevision(method: "POST" | "PATCH", records: Array<{ id?: string; fields: Record<string, unknown> }>) {
+  for (let i = 0; i < records.length; i += 10) {
+    await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_REVISION), { method, body: JSON.stringify({ records: records.slice(i, i + 10), typecast: false }) });
+  }
+}
+
+/** "Revisar ahora" y el proceso de cada mañana. */
+export async function revisarInventarioShippingV2(options: { actor: string }) {
+  return withLock("revision-inventario", async () => {
+    const [datos, registros] = await Promise.all([
+      leerDatosRevision(),
+      listRecords(TABLA_REVISION, { fields: ["Clave", "Estado", "Asunto", "Detalle", "Tipo"] }),
+    ]);
+    const guardados = registros.map(mapAsuntoRevision);
+    const detectados = detectarAsuntos(datos, new Date());
+    const plan = planSincronizacion(guardados, detectados);
+    const ahora = new Date().toISOString();
+    await mutarRevision("POST", plan.crear.map((a) => ({ fields: { ...camposAsunto(a, ahora), Estado: "Abierto", Detectado: ahora } })));
+    await mutarRevision("PATCH", plan.renovar.map(({ id, asunto }) => ({ id, fields: camposAsunto(asunto, ahora) })));
+    await mutarRevision("PATCH", plan.cerrar.map((id) => ({
+      id,
+      fields: { Estado: "Resuelto", "Resuelto por": `Sistema (${options.actor})`, "Fecha resuelto": ahora, Motivo: "Ya no aparece en la revisión." },
+    })));
+    return { nuevos: plan.crear.length, siguen: plan.renovar.length, resueltos: plan.cerrar.length, revisado: ahora };
+  });
+}
+
+/** "Está bien" (con motivo) o "Resuelto" a mano. Volver a "Abierto" deshace. */
+export async function resolverAsuntoRevisionShippingV2(
+  id: string,
+  input: { estado: EstadoAsunto; motivo: string },
+  options: { actor: string }
+): Promise<ShippingV2AsuntoRevision> {
+  const recordId = cleanString(id);
+  if (!recordId) throw new Error("Falta el asunto.");
+  const motivo = cleanString(input.motivo);
+  if (input.estado === "Está bien" && !motivo) throw new Error("Escribe el motivo.");
+  const ahora = new Date().toISOString();
+  const fields: Record<string, unknown> = input.estado === "Abierto"
+    ? { Estado: "Abierto", "Resuelto por": "", "Fecha resuelto": null, Motivo: "" }
+    : { Estado: input.estado, "Resuelto por": options.actor, "Fecha resuelto": ahora, Motivo: motivo };
+  const respuesta = await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_REVISION), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id: recordId, fields }] }),
+  });
+  const r = respuesta.records?.[0];
+  if (!r) throw new Error("Airtable no devolvió el asunto.");
+  return mapAsuntoRevision(r);
 }
