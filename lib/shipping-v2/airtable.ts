@@ -11006,13 +11006,15 @@ export async function getShippingV2DatosTienda(): Promise<DatosTienda> {
     garantiaLarga: firstString(f["Garantía larga"]),
     hashtagsFijos: firstString(f["Hashtags fijos"]),
     version: firstNumber(f["Versión"]) ?? 1,
+    editadoPor: firstString(f["Editado por"]) || undefined,
+    fechaEdicion: firstString(f["Fecha edición"]) || undefined,
   };
 }
 
 export async function getShippingV2PlantillasPublicacion(): Promise<PlantillaPublicacion[]> {
   const registros = await listRecords(TABLA_PLANTILLAS_PUBLICACION, { maxRecords: 500 });
   return registros
-    .map((r) => {
+    .map((r): PlantillaPublicacion | null => {
       const canal = canalValido(r.fields["Canal"]);
       if (!canal) return null;
       return {
@@ -11023,7 +11025,9 @@ export async function getShippingV2PlantillasPublicacion(): Promise<PlantillaPub
         titulo: firstString(r.fields["Título"]),
         descripcion: firstString(r.fields["Descripción"]),
         activa: firstBoolean(r.fields["Activa"]) === true,
-      } satisfies PlantillaPublicacion;
+        editadaPor: firstString(r.fields["Editada por"]) || undefined,
+        fechaEdicion: firstString(r.fields["Fecha edición"]) || undefined,
+      };
     })
     .filter((p): p is PlantillaPublicacion => p !== null);
 }
@@ -11201,4 +11205,109 @@ export async function guardarPublicacionShippingV2(
     }
     return { publicacion: guardada, itemsActualizados };
   });
+}
+
+// ─── Punto 10d-2: editor de plantillas y datos fijos de la tienda ────────────
+
+/** Categorías que puede tener una plantilla: las de los artículos + "Otros" (respaldo). */
+export function categoriasDePlantilla(): string[] {
+  return [...SHIPPING_V2_ITEM_SELECT_OPTIONS.categoria, "Otros"];
+}
+
+export type GuardarPlantillaInput = {
+  id?: string;
+  nombre: string;
+  categoria: string;
+  canal: CanalPublicacion;
+  titulo: string;
+  descripcion: string;
+  activa: boolean;
+};
+
+export async function guardarPlantillaPublicacionShippingV2(
+  input: GuardarPlantillaInput,
+  options: { actor: string }
+): Promise<PlantillaPublicacion> {
+  const categoria = cleanString(input.categoria);
+  if (!categoriasDePlantilla().includes(categoria)) throw new Error("Categoría no válida.");
+  if (!canalValido(input.canal)) throw new Error("Canal no válido.");
+  const titulo = cleanString(input.titulo);
+  const descripcion = String(input.descripcion ?? "").replace(/\r\n/g, "\n").trim();
+  if (!titulo) throw new Error("Escribe el título de la plantilla.");
+  if (!descripcion) throw new Error("Escribe la descripción de la plantilla.");
+  const nombre = cleanString(input.nombre) || `${categoria} · ${input.canal}`;
+  const id = cleanString(input.id);
+  const fields: Record<string, unknown> = {
+    Nombre: nombre,
+    "Categoría": categoria,
+    Canal: input.canal,
+    "Título": titulo,
+    "Descripción": descripcion,
+    Activa: input.activa === true,
+    "Editada por": options.actor,
+    "Fecha edición": new Date().toISOString(),
+  };
+  const respuesta = await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_PLANTILLAS_PUBLICACION), {
+    method: id ? "PATCH" : "POST",
+    body: JSON.stringify({ records: [id ? { id, fields } : { fields }] }),
+  });
+  const r = respuesta.records?.[0];
+  if (!r) throw new Error("Airtable no devolvió la plantilla guardada.");
+  return {
+    id: r.id,
+    nombre,
+    categoria,
+    canal: input.canal,
+    titulo,
+    descripcion,
+    activa: input.activa === true,
+    editadaPor: options.actor,
+    fechaEdicion: firstString(r.fields["Fecha edición"]) || undefined,
+  };
+}
+
+const CAMPOS_TIENDA: Array<[keyof Omit<DatosTienda, "id" | "version" | "editadoPor" | "fechaEdicion">, string]> = [
+  ["direccion", "Dirección"],
+  ["horarioSemana", "Horario lunes a viernes"],
+  ["horarioSabado", "Horario sábados"],
+  ["whatsapp", "WhatsApp"],
+  ["telefonoFijo", "Teléfono fijo"],
+  ["web", "Página web"],
+  ["metodosPago", "Métodos de pago"],
+  ["garantiaCorta", "Garantía corta"],
+  ["garantiaLarga", "Garantía larga"],
+  ["hashtagsFijos", "Hashtags fijos"],
+];
+
+/** Guarda los datos fijos de la tienda. Si algo cambió, sube la versión (los anuncios publicados antes quedan "por actualizar"). */
+export async function guardarShippingV2DatosTienda(
+  input: Partial<DatosTienda>,
+  options: { actor: string }
+): Promise<DatosTienda> {
+  return withLock("datos-tienda", async () => {
+    const actual = await getShippingV2DatosTienda();
+    const fields: Record<string, unknown> = {};
+    for (const [clave, campo] of CAMPOS_TIENDA) {
+      if (input[clave] === undefined) continue;
+      const valor = String(input[clave] ?? "").replace(/\r\n/g, "\n").trim();
+      if (valor !== actual[clave]) fields[campo] = valor;
+    }
+    if (!Object.keys(fields).length) return actual;
+    const version = actual.version + 1;
+    Object.assign(fields, { "Versión": version, "Editado por": options.actor, "Fecha edición": new Date().toISOString() });
+    await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_DATOS_TIENDA), {
+      method: actual.id ? "PATCH" : "POST",
+      body: JSON.stringify({ records: [actual.id ? { id: actual.id, fields } : { fields: { Nombre: "SUPER GEEK", ...fields } }] }),
+    });
+    return getShippingV2DatosTienda();
+  });
+}
+
+/** Anuncios publicados con datos de la tienda de una versión anterior (no cambian solos). */
+export async function contarPublicacionesDesactualizadasShippingV2(version: number): Promise<number> {
+  const registros = await listRecords(TABLA_PUBLICACIONES, {
+    fields: ["Estado"],
+    filterByFormula: `AND({Estado} = 'Publicado', {Versión datos de la tienda} < ${Math.max(0, Math.floor(version))})`,
+  });
+  return registros.length;
 }

@@ -6,7 +6,7 @@
 
 import type { ShippingV2AccessPermissions } from "@/types/shipping-v2";
 
-export type PestanaShippingKey = "items" | "activos" | "packings" | "recepcion" | "pagos" | "novedades";
+export type PestanaShippingKey = "items" | "activos" | "packings" | "recepcion" | "anuncios" | "pagos" | "novedades";
 
 export type PestanaShipping = {
   key: PestanaShippingKey;
@@ -26,6 +26,8 @@ export const PESTANAS_SHIPPING_V2: readonly PestanaShipping[] = [
   // viajan solos, en una sola lista. La ruta se conserva.
   { key: "packings", label: "Logística", href: "/shipping-v2/packings", permiso: "canViewPackings" },
   { key: "recepcion", label: "Recepción", href: "/shipping-v2/recepcion", permiso: "canUseRecepcion" },
+  // Punto 10d (18-oct): plantillas de anuncios, datos fijos de la tienda y, más adelante, anuncios por retirar.
+  { key: "anuncios", label: "Anuncios", href: "/shipping-v2/anuncios", permiso: "canUseRecepcion", soloStaff: true },
   { key: "pagos", label: "Pagos", href: "/shipping-v2/pagos", permiso: "canViewPayments" },
   { key: "novedades", label: "Novedades", href: "/shipping-v2/novedades", permiso: "canViewNovedades" },
 ];
