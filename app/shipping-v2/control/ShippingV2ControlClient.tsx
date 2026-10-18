@@ -1,17 +1,68 @@
 "use client";
 
-// Pestaña Control (punto 10c-1): revisión de inventario. Lista compacta de
-// asuntos con filtros por grupo, "Revisar ahora", "Abrir" y "Está bien" con
-// motivo. Conteos, Fusionar SKU y Cambios de código llegan en 10c-2 y 10c-3.
+// Pestaña Control (punto 10c-1): revisión de inventario como lista de tareas.
+//
+// Mejora del dueño (18-oct): "Abrir" muestra el artículo en un modal sin salir
+// de la lista (filtros, orden y posición se conservan); la fila abierta queda
+// resaltada; al guardar, el sistema vuelve a revisar los asuntos de ese
+// artículo y, si quedaron resueltos, al cerrar el modal la fila se marca
+// "Resuelto" y sale con una animación. Una fila solo sale cuando el servidor
+// confirma que ya no tiene asuntos abiertos; si la verificación falla, se queda.
 
-import Link from "next/link";
-import { useMemo, useState } from "react";
-import { ChevronDown, Loader2, RefreshCw } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
 import { GRUPO_TIPO, TIPOS_ASUNTO, type TipoAsunto } from "@/lib/shipping-v2/revision-inventario";
+import { resolveShippingV2Items } from "@/lib/shipping-v2/item-list-view";
 import type { ShippingV2AsuntoRevision } from "@/lib/shipping-v2/airtable";
+import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
+import type {
+  ShippingV2AccessPermissions,
+  ShippingV2Item,
+  ShippingV2Novedad,
+  ShippingV2Packing,
+  ShippingV2Pago,
+  ShippingV2Proveedor,
+} from "@/types/shipping-v2";
+
+type DetailPayload = {
+  item: ResolvedItem;
+  proveedores: ShippingV2Proveedor[];
+  pago: ShippingV2Pago | null;
+  packing: ShippingV2Packing | null;
+  novedades: ShippingV2Novedad[];
+  permissions: ShippingV2AccessPermissions | null;
+  esAdmin: boolean;
+};
+
+type DetailViewProps = {
+  item: ResolvedItem;
+  proveedores: ShippingV2Proveedor[];
+  pago?: ShippingV2Pago | null;
+  packing?: ShippingV2Packing | null;
+  novedades?: ShippingV2Novedad[];
+  onSaved?: (item: ShippingV2Item) => void;
+  esAdmin?: boolean;
+  permissions?: ShippingV2AccessPermissions | null;
+};
+
+const ShippingV2ItemDetailView = dynamic<DetailViewProps>(
+  () => import("../items/ShippingV2ItemsClient").then((m) => m.ShippingV2ItemDetailView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-64 items-center justify-center text-sm text-[#A7A7A7]">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />Cargando…
+      </div>
+    ),
+  }
+);
 
 const TODOS = "Todos";
 const botonClass = "inline-flex h-7 items-center gap-1.5 rounded-lg border border-[#3A3B35] bg-[#1A1B17] px-2.5 text-[12px] font-semibold text-[#EDEDE7] transition hover:border-[#D7FF4F]/50 disabled:opacity-50";
+
+/** Cómo se ve una fila mientras se trabaja: verificando, ya resuelta (antes de salir) o saliendo. */
+type EstadoFila = "verificando" | "resuelto" | "saliendo";
 
 function fechaHora(valor?: string) {
   if (!valor) return "";
@@ -19,13 +70,13 @@ function fechaHora(valor?: string) {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("es-EC", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-/** A dónde lleva "Abrir" según el tipo. */
-function enlaceAsunto(a: ShippingV2AsuntoRevision): string | null {
+/** Asuntos que se corrigen en otra pantalla (se abren en otra pestaña). */
+function enlaceExterno(a: ShippingV2AsuntoRevision): string | null {
   const idClave = a.clave.split("|").pop() ?? "";
   if (a.tipo === "Falta respaldo") return "/shipping-v2/pagos";
   if (a.tipo === "Novedad sin movimiento") return "/shipping-v2/novedades";
   if (a.tipo === "Caja cerrada sin recibir" && idClave.startsWith("rec")) return `/shipping-v2/packings/${idClave}`;
-  return a.itemIds[0] ? `/shipping-v2/items/${a.itemIds[0]}` : null;
+  return null;
 }
 
 /** El texto sin el "SKU · " del principio (el SKU tiene su columna). */
@@ -35,6 +86,9 @@ function textoAsunto(a: ShippingV2AsuntoRevision) {
 
 export function ShippingV2ControlClient({ asuntosIniciales }: { asuntosIniciales: ShippingV2AsuntoRevision[] }) {
   const [abiertos, setAbiertos] = useState(asuntosIniciales);
+  /** Filas ya resueltas que siguen a la vista hasta su animación de salida. */
+  const [porSalir, setPorSalir] = useState<ShippingV2AsuntoRevision[]>([]);
+  const [estadoFila, setEstadoFila] = useState<Record<string, EstadoFila>>({});
   const [resueltos, setResueltos] = useState<ShippingV2AsuntoRevision[] | null>(null);
   const [verResueltos, setVerResueltos] = useState(false);
   const [grupo, setGrupo] = useState(TODOS);
@@ -43,21 +97,171 @@ export function ShippingV2ControlClient({ asuntosIniciales }: { asuntosIniciales
   const [motivoDe, setMotivoDe] = useState<string | null>(null);
   const [motivo, setMotivo] = useState("");
   const [expandido, setExpandido] = useState<string | null>(null);
+  /** La fila en la que se está trabajando (queda resaltada). */
+  const [activa, setActiva] = useState<string | null>(null);
+  const [modal, setModal] = useState<{ itemId: string; asuntoId: string } | null>(null);
+  /** Asuntos abiertos en otra pestaña: se verifican al volver a esta. */
+  const enOtraPestana = useRef<Set<string>>(new Set());
+  const modalAbierto = useRef(false);
+  modalAbierto.current = Boolean(modal);
 
+  // ── Lista ──
   const ultima = useMemo(() => abiertos.map((a) => a.ultimaRevision).sort().pop() ?? "", [abiertos]);
-  // Por tipo (en el orden de importancia) y luego por SKU; los resueltos, del más reciente.
   const lista = useMemo(() => {
     if (verResueltos) return (resueltos ?? []).filter((a) => a.estado !== "Abierto").sort((a, b) => b.fechaResuelto.localeCompare(a.fechaResuelto));
     const orden = (t: string) => (TIPOS_ASUNTO as readonly string[]).indexOf(t);
-    return [...abiertos].sort((a, b) => orden(a.tipo) - orden(b.tipo) || a.sku.localeCompare(b.sku));
-  }, [verResueltos, resueltos, abiertos]);
+    const ids = new Set(abiertos.map((a) => a.id));
+    return [...abiertos, ...porSalir.filter((a) => !ids.has(a.id))].sort((a, b) => orden(a.tipo) - orden(b.tipo) || a.sku.localeCompare(b.sku));
+  }, [verResueltos, resueltos, abiertos, porSalir]);
+  const grupoDe = (a: ShippingV2AsuntoRevision) => GRUPO_TIPO[a.tipo as TipoAsunto] ?? "Otros";
   const grupos = useMemo(() => {
     const conteo = new Map<string, number>();
-    for (const a of lista) conteo.set(GRUPO_TIPO[a.tipo as TipoAsunto] ?? "Otros", (conteo.get(GRUPO_TIPO[a.tipo as TipoAsunto] ?? "Otros") ?? 0) + 1);
+    const base = verResueltos ? lista : abiertos; // los contadores cuentan solo lo pendiente
+    for (const a of base) conteo.set(grupoDe(a), (conteo.get(grupoDe(a)) ?? 0) + 1);
     return Array.from(conteo.entries()).sort((a, b) => b[1] - a[1]);
-  }, [lista]);
-  const visibles = grupo === TODOS ? lista : lista.filter((a) => (GRUPO_TIPO[a.tipo as TipoAsunto] ?? "Otros") === grupo);
+  }, [lista, abiertos, verResueltos]);
+  const totalVista = verResueltos ? lista.length : abiertos.length;
+  const visibles = grupo === TODOS ? lista : lista.filter((a) => grupoDe(a) === grupo);
 
+  // ── Verificación ──
+  const marcar = useCallback((ids: string[], estado: EstadoFila | null) => {
+    setEstadoFila((actual) => {
+      const nuevo = { ...actual };
+      for (const id of ids) {
+        if (estado) nuevo[id] = estado;
+        else delete nuevo[id];
+      }
+      return nuevo;
+    });
+  }, []);
+
+  /** Animación de salida: "Resuelto" un momento, luego se desvanece y se quita. */
+  const despedir = useCallback((filas: ShippingV2AsuntoRevision[]) => {
+    if (!filas.length) return;
+    const ids = filas.map((f) => f.id);
+    window.setTimeout(() => marcar(ids, "saliendo"), 900);
+    window.setTimeout(() => {
+      setPorSalir((l) => l.filter((f) => !ids.includes(f.id)));
+      marcar(ids, null);
+      setActiva((a) => (a && ids.includes(a) ? null : a));
+    }, 1300);
+  }, [marcar]);
+
+  const pendientesDeSalida = useRef<ShippingV2AsuntoRevision[]>([]);
+  const abiertosRef = useRef(abiertos);
+  abiertosRef.current = abiertos;
+
+  const verificar = useCallback(async (input: { itemIds?: string[]; asuntoIds?: string[] }) => {
+    const afectadas = abiertosRef.current.filter((a) => (input.asuntoIds ?? []).includes(a.id) || a.itemIds.some((id) => (input.itemIds ?? []).includes(id)));
+    marcar(afectadas.map((a) => a.id), "verificando");
+    try {
+      const response = await fetch("/api/shipping-v2/control/revision/verificar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemIds: input.itemIds ?? [], asuntoIds: input.asuntoIds ?? [] }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo verificar."));
+      const { abiertos: nuevos } = payload.data as { abiertos: ShippingV2AsuntoRevision[] };
+      const siguen = new Set(nuevos.map((a) => a.id));
+      const resueltasAhora = afectadas.filter((a) => !siguen.has(a.id));
+      setAbiertos(nuevos);
+      marcar(afectadas.filter((a) => siguen.has(a.id)).map((a) => a.id), null);
+      if (resueltasAhora.length) {
+        setPorSalir((l) => [...l.filter((f) => !resueltasAhora.some((r) => r.id === f.id)), ...resueltasAhora]);
+        marcar(resueltasAhora.map((a) => a.id), "resuelto");
+        // Con el modal abierto, la salida espera a que se cierre.
+        if (modalAbierto.current) pendientesDeSalida.current = [...pendientesDeSalida.current, ...resueltasAhora];
+        else despedir(resueltasAhora);
+      }
+      return true;
+    } catch (e) {
+      marcar(afectadas.map((a) => a.id), null);
+      setMensaje(e instanceof Error ? e.message : "No se pudo verificar.");
+      return false;
+    }
+  }, [marcar, despedir]);
+
+  // Al volver de otra pestaña (Pagos, Novedades, la caja), verificar lo que se abrió allí.
+  useEffect(() => {
+    const alVolver = () => {
+      if (document.visibilityState !== "visible" || !enOtraPestana.current.size) return;
+      const ids = Array.from(enOtraPestana.current);
+      enOtraPestana.current.clear();
+      void verificar({
+        asuntoIds: ids.filter((id) => !id.startsWith("item:")),
+        itemIds: ids.filter((id) => id.startsWith("item:")).map((id) => id.slice(5)),
+      });
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => document.removeEventListener("visibilitychange", alVolver);
+  }, [verificar]);
+
+  // ── Modal del artículo ──
+  const [detalle, setDetalle] = useState<DetailPayload | null>(null);
+  const [errorDetalle, setErrorDetalle] = useState("");
+  const huboCambios = useRef(false);
+
+  useEffect(() => {
+    if (!modal) return;
+    let cancelado = false;
+    setDetalle(null);
+    setErrorDetalle("");
+    huboCambios.current = false;
+    fetch(`/api/shipping-v2/items/${encodeURIComponent(modal.itemId)}/detail`, { cache: "no-store" })
+      .then(async (r) => {
+        const payload = await r.json().catch(() => ({}));
+        if (!r.ok || !payload.success) throw new Error(String(payload.error || "No se pudo cargar el artículo."));
+        if (!cancelado) setDetalle(payload.data as DetailPayload);
+      })
+      .catch((e) => { if (!cancelado) setErrorDetalle(e instanceof Error ? e.message : "Error inesperado."); });
+    return () => { cancelado = true; };
+  }, [modal]);
+
+  function abrir(a: ShippingV2AsuntoRevision) {
+    setActiva(a.id);
+    const externo = enlaceExterno(a);
+    if (externo || !a.itemIds[0]) {
+      if (externo) {
+        enOtraPestana.current.add(a.id);
+        window.open(externo, "_blank", "noopener");
+      }
+      return;
+    }
+    pendientesDeSalida.current = [];
+    setModal({ itemId: a.itemIds[0], asuntoId: a.id });
+  }
+
+  function alGuardar(item: ShippingV2Item) {
+    huboCambios.current = true;
+    setDetalle((d) => (d && d.item.id === item.id ? { ...d, item: resolveShippingV2Items([item], d.proveedores)[0] } : d));
+    void verificar({ itemIds: [item.id] });
+  }
+
+  const cerrarModal = useCallback(() => {
+    if (!modal) return;
+    setModal(null);
+    setDetalle(null);
+    const salen = pendientesDeSalida.current;
+    pendientesDeSalida.current = [];
+    if (salen.length) despedir(salen);
+    // Si abrió la ficha completa en otra pestaña, lo que haya hecho allí también se verifica.
+    if (enOtraPestana.current.has(`item:${modal.itemId}`)) {
+      enOtraPestana.current.delete(`item:${modal.itemId}`);
+      void verificar({ itemIds: [modal.itemId] });
+    }
+  }, [modal, despedir, verificar]);
+
+  useEffect(() => {
+    if (!modal) return;
+    const original = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") cerrarModal(); };
+    document.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = original; document.removeEventListener("keydown", onKey); };
+  }, [modal, cerrarModal]);
+
+  // ── Acciones de la lista ──
   async function revisarAhora() {
     setBusy("revisar");
     setMensaje("");
@@ -67,8 +271,10 @@ export function ShippingV2ControlClient({ asuntosIniciales }: { asuntosIniciales
       if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo revisar."));
       const { resumen, asuntos } = payload.data as { resumen: { nuevos: number; resueltos: number }; asuntos: ShippingV2AsuntoRevision[] };
       setAbiertos(asuntos);
+      setPorSalir([]);
+      setEstadoFila({});
       setResueltos(null);
-      setMensaje(`${resumen.nuevos} nuevo${resumen.nuevos === 1 ? "" : "s"} · ${resumen.resueltos} resuelto${resumen.resueltos === 1 ? "" : "s"} solo${resumen.resueltos === 1 ? "" : "s"}`);
+      setMensaje(`${resumen.nuevos} nuevo${resumen.nuevos === 1 ? "" : "s"} · ${resumen.resueltos} resuelto${resumen.resueltos === 1 ? "" : "s"}`);
     } catch (e) {
       setMensaje(e instanceof Error ? e.message : "Error inesperado.");
     } finally {
@@ -110,6 +316,9 @@ export function ShippingV2ControlClient({ asuntosIniciales }: { asuntosIniciales
         setResueltos((l) => (l ? l.filter((x) => x.id !== a.id) : l));
       } else {
         setAbiertos((l) => l.filter((x) => x.id !== a.id));
+        setPorSalir((l) => [...l, a]);
+        marcar([a.id], "resuelto");
+        despedir([a]);
         setResueltos((l) => (l ? [actualizado, ...l] : l));
       }
       setMotivoDe(null);
@@ -138,7 +347,7 @@ export function ShippingV2ControlClient({ asuntosIniciales }: { asuntosIniciales
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        {[[TODOS, lista.length] as const, ...grupos].map(([g, n]) => (
+        {[[TODOS, totalVista] as const, ...grupos].map(([g, n]) => (
           <button
             key={g}
             type="button"
@@ -161,70 +370,129 @@ export function ShippingV2ControlClient({ asuntosIniciales }: { asuntosIniciales
           <span>SKU</span><span>Qué pasa</span><span>{verResueltos ? "Cómo quedó" : "Sugerencia"}</span><span />
         </div>
         {visibles.length ? visibles.map((a) => {
-          const enlace = enlaceAsunto(a);
           const conDetalle = Boolean(a.detalle);
+          const est = estadoFila[a.id];
+          const resaltada = activa === a.id && est !== "saliendo";
+          const fondo = est === "resuelto" || est === "saliendo" ? "bg-[#7BE495]/[0.12]" : resaltada ? "bg-[#D7FF4F]/[0.07] shadow-[inset_3px_0_0_#D7FF4F]" : "";
           return (
-            <div key={a.id} className="border-b border-[#252622] last:border-b-0">
-              <div className="grid items-center gap-2.5 px-3 py-1.5 md:grid-cols-[108px_minmax(0,1fr)_200px_190px]">
-                <span className="font-mono font-semibold">{a.sku || "—"}</span>
-                <span className="min-w-0">
-                  {textoAsunto(a)}
-                  {conDetalle && a.tipo !== "Posible duplicado" && a.tipo !== "Falta respaldo" ? <span className="ml-1.5 font-semibold text-[#FFB07A]">({a.detalle})</span> : null}
-                  {conDetalle && (a.tipo === "Posible duplicado" || a.tipo === "Falta respaldo") ? (
-                    <button type="button" onClick={() => setExpandido((x) => (x === a.id ? null : a.id))} aria-expanded={expandido === a.id} className="ml-1 inline-flex align-middle text-[#8F908A] hover:text-[#F5F5F5]" aria-label="Ver detalle">
-                      <ChevronDown className={`h-3.5 w-3.5 transition ${expandido === a.id ? "rotate-180" : ""}`} aria-hidden="true" />
+            <div
+              key={a.id}
+              className={`grid transition-all duration-300 ease-out ${est === "saliendo" ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}
+            >
+              <div className={`min-h-0 overflow-hidden border-b border-[#252622] transition-colors duration-300 ${fondo}`}>
+                <div className="grid items-center gap-2.5 px-3 py-1.5 md:grid-cols-[108px_minmax(0,1fr)_200px_190px]">
+                  <span className="font-mono font-semibold">{a.sku || "—"}</span>
+                  <span className="min-w-0">
+                    {textoAsunto(a)}
+                    {conDetalle && a.tipo !== "Posible duplicado" && a.tipo !== "Falta respaldo" ? <span className="ml-1.5 font-semibold text-[#FFB07A]">({a.detalle})</span> : null}
+                    {conDetalle && (a.tipo === "Posible duplicado" || a.tipo === "Falta respaldo") ? (
+                      <button type="button" onClick={() => setExpandido((x) => (x === a.id ? null : a.id))} aria-expanded={expandido === a.id} className="ml-1 inline-flex align-middle text-[#8F908A] hover:text-[#F5F5F5]" aria-label="Ver detalle">
+                        <ChevronDown className={`h-3.5 w-3.5 transition ${expandido === a.id ? "rotate-180" : ""}`} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </span>
+                  <span className="text-[#B4B5AC]">
+                    {verResueltos ? (
+                      <span title={a.motivo}>{a.estado}{a.resueltoPor ? ` · ${a.resueltoPor}` : ""}{a.fechaResuelto ? ` · ${fechaHora(a.fechaResuelto)}` : ""}</span>
+                    ) : a.sugerencia}
+                  </span>
+                  <span className="flex items-center justify-end gap-2">
+                    {est === "verificando" ? (
+                      <span className="inline-flex items-center gap-1.5 text-[12px] text-[#B4B5AC]"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />Verificando</span>
+                    ) : est === "resuelto" || est === "saliendo" ? (
+                      <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#9FEFB3]"><Check className="h-3.5 w-3.5" aria-hidden="true" />Resuelto</span>
+                    ) : verResueltos ? (
+                      a.estado === "Está bien" ? <button type="button" onClick={() => void resolver(a, "Abierto")} disabled={busy === a.id} className={botonClass}>Reabrir</button> : null
+                    ) : (
+                      <>
+                        {a.itemIds[0] || enlaceExterno(a) ? (
+                          <button type="button" onClick={() => abrir(a)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#D7FF4F] hover:underline">
+                            Abrir{enlaceExterno(a) ? <ExternalLink className="h-3 w-3" aria-hidden="true" /> : null}
+                          </button>
+                        ) : null}
+                        <button type="button" onClick={() => { setMotivoDe(motivoDe === a.id ? null : a.id); setMotivo(""); setActiva(a.id); }} className={botonClass} aria-expanded={motivoDe === a.id}>
+                          Está bien
+                        </button>
+                      </>
+                    )}
+                  </span>
+                </div>
+                {expandido === a.id ? <div className="whitespace-pre-line px-3 pb-2 font-mono text-[11.5px] text-[#B4B5AC]">{a.detalle}</div> : null}
+                {verResueltos && a.motivo ? <div className="px-3 pb-2 text-[11.5px] text-[#8F908A]">{a.motivo}</div> : null}
+                {motivoDe === a.id && !est ? (
+                  <form className="flex items-center gap-2 px-3 pb-2" onSubmit={(e) => { e.preventDefault(); if (motivo.trim()) void resolver(a, "Está bien", motivo); }}>
+                    <input
+                      autoFocus
+                      value={motivo}
+                      onChange={(e) => setMotivo(e.target.value)}
+                      placeholder="Motivo"
+                      aria-label="Motivo"
+                      maxLength={500}
+                      className="h-7 min-w-0 flex-1 rounded-lg border border-[#3A3B35] bg-[#151515] px-2.5 text-[12px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/60"
+                    />
+                    <button type="submit" disabled={busy === a.id || !motivo.trim()} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-2.5 text-[12px] font-bold text-[#141510] disabled:opacity-50">
+                      {busy === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Guardar
                     </button>
-                  ) : null}
-                </span>
-                <span className="text-[#B4B5AC]">
-                  {verResueltos ? (
-                    <span title={a.motivo}>{a.estado}{a.resueltoPor ? ` · ${a.resueltoPor}` : ""}{a.fechaResuelto ? ` · ${fechaHora(a.fechaResuelto)}` : ""}</span>
-                  ) : a.sugerencia}
-                </span>
-                <span className="flex items-center justify-end gap-2">
-                  {enlace ? <Link href={enlace} className="text-[12px] font-semibold text-[#D7FF4F] hover:underline">Abrir</Link> : null}
-                  {verResueltos ? (
-                    a.estado === "Está bien" ? (
-                      <button type="button" onClick={() => void resolver(a, "Abierto")} disabled={busy === a.id} className={botonClass}>Reabrir</button>
-                    ) : null
-                  ) : (
-                    <button type="button" onClick={() => { setMotivoDe(motivoDe === a.id ? null : a.id); setMotivo(""); }} className={botonClass} aria-expanded={motivoDe === a.id}>
-                      Está bien
-                    </button>
-                  )}
-                </span>
+                  </form>
+                ) : null}
               </div>
-              {expandido === a.id ? (
-                <div className="whitespace-pre-line px-3 pb-2 font-mono text-[11.5px] text-[#B4B5AC]">{a.detalle}</div>
-              ) : null}
-              {verResueltos && a.motivo ? <div className="px-3 pb-2 text-[11.5px] text-[#8F908A]">{a.motivo}</div> : null}
-              {motivoDe === a.id ? (
-                <form
-                  className="flex items-center gap-2 px-3 pb-2"
-                  onSubmit={(e) => { e.preventDefault(); if (motivo.trim()) void resolver(a, "Está bien", motivo); }}
-                >
-                  <input
-                    autoFocus
-                    value={motivo}
-                    onChange={(e) => setMotivo(e.target.value)}
-                    placeholder="Motivo"
-                    aria-label="Motivo"
-                    maxLength={500}
-                    className="h-7 min-w-0 flex-1 rounded-lg border border-[#3A3B35] bg-[#151515] px-2.5 text-[12px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/60"
-                  />
-                  <button type="submit" disabled={busy === a.id || !motivo.trim()} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-2.5 text-[12px] font-bold text-[#141510] disabled:opacity-50">
-                    {busy === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Guardar
-                  </button>
-                </form>
-              ) : null}
             </div>
           );
         }) : (
           <p className="px-3 py-6 text-center text-[12.5px] text-[#8F908A]">
-            {verResueltos ? "Sin asuntos resueltos." : abiertos.length ? "Nada en este grupo." : "Todo en orden. Pulsa \"Revisar ahora\" para volver a revisar."}
+            {verResueltos ? "Sin asuntos resueltos." : abiertos.length ? "Nada en este grupo." : "Todo en orden."}
           </p>
         )}
       </div>
+
+      {modal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-4" onMouseDown={(e) => { if (e.target === e.currentTarget) cerrarModal(); }}>
+          <div className="flex max-h-[94vh] w-full max-w-[min(96vw,1440px)] flex-col overflow-hidden rounded-xl border border-[#3A3A36] bg-[#151613] shadow-2xl shadow-black/50">
+            <div className="flex items-center gap-2.5 border-b border-[#30312D] px-4 py-2.5">
+              <span className="font-mono text-[13px] font-semibold text-[#D7FF4F]">{detalle?.item.sku ?? ""}</span>
+              <span className="min-w-0 truncate text-[14px] font-semibold text-[#F5F5F5]">{detalle?.item.nombre ?? ""}</span>
+              {abiertos.filter((x) => x.itemIds.includes(modal.itemId)).length ? (
+                <span className="shrink-0 text-[12px] text-[#FFB07A]">
+                  {abiertos.filter((x) => x.itemIds.includes(modal.itemId)).map(textoAsunto).join(" · ")}
+                </span>
+              ) : porSalir.some((x) => x.itemIds.includes(modal.itemId)) ? (
+                <span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-semibold text-[#9FEFB3]"><Check className="h-3.5 w-3.5" aria-hidden="true" />Resuelto</span>
+              ) : null}
+              <a
+                href={`/shipping-v2/items/${modal.itemId}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => enOtraPestana.current.add(`item:${modal.itemId}`)}
+                className="ml-auto inline-flex shrink-0 items-center gap-1 text-[12px] font-semibold text-[#D7FF4F] hover:underline"
+                title="Para acciones de Administrador (dar de baja, corregir estado…)"
+              >
+                Ficha completa<ExternalLink className="h-3 w-3" aria-hidden="true" />
+              </a>
+              <button type="button" onClick={cerrarModal} aria-label="Cerrar" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#20211D] text-[#A7A7A7] hover:text-[#F5F5F5]">
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-4">
+              {errorDetalle ? (
+                <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{errorDetalle}</div>
+              ) : detalle ? (
+                <ShippingV2ItemDetailView
+                  item={detalle.item}
+                  proveedores={detalle.proveedores}
+                  pago={detalle.pago}
+                  packing={detalle.packing}
+                  novedades={detalle.novedades}
+                  esAdmin={detalle.esAdmin}
+                  permissions={detalle.permissions}
+                  onSaved={alGuardar}
+                />
+              ) : (
+                <div className="flex min-h-64 items-center justify-center text-sm text-[#A7A7A7]"><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />Cargando…</div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
