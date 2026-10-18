@@ -13,6 +13,7 @@ import {
   canalUsaHtml,
   llenarPlantilla,
   llenarTitulo,
+  origenMetacampo,
   unidadesCubiertas,
   valoresAnuncio,
   type CanalPublicacion,
@@ -347,7 +348,7 @@ function EditorPlantillas({
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className={labelClass} title="Clic para insertar donde está el cursor. Si el equipo no tiene ese dato, su línea no aparece.">Metacampos</span>
+        <span className={labelClass} title="Clic para insertar donde está el cursor. El dato lo pone el sistema en cada anuncio; si el equipo no lo tiene, su línea no aparece.">Metacampos</span>
         {(["articulo", "tienda", "automatico"] as const).map((grupo) => (
           <div key={grupo} className="flex flex-col gap-1">
             <span className="text-[11.5px] text-[#8F908A]">{TITULO_GRUPO[grupo]}</span>
@@ -358,7 +359,7 @@ function EditorPlantillas({
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => insertar(m.clave)}
-                  title={`{{${m.clave}}}`}
+                  title={`Sale de: ${origenMetacampo(m.clave)}`}
                   disabled={modo !== "editar"}
                   className={`rounded px-1.5 py-0.5 font-mono text-[11.5px] disabled:opacity-40 ${COLOR_GRUPO[grupo]}`}
                 >

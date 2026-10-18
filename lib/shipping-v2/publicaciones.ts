@@ -238,6 +238,8 @@ export type GestorPublicacionesDatos = {
   plantillas: PlantillaPublicacion[];
   publicaciones: Publicacion[];
   unidades: DatosUnidadAnuncio[];
+  /** ✨ Sugerir: hay clave de IA configurada. */
+  iaDisponible?: boolean;
 };
 
 // ─── Qué unidades cubre un anuncio ───────────────────────────────────────────
@@ -309,6 +311,20 @@ export const METACAMPOS: ReadonlyArray<{ clave: string; grupo: GrupoMetacampo; e
   { clave: "presentacion", grupo: "automatico", etiqueta: "presentación" },
   { clave: "hashtags", grupo: "automatico", etiqueta: "hashtags" },
 ];
+
+/** De dónde sale el dato de un metacampo (se muestra al pasar el mouse en el editor). */
+export function origenMetacampo(clave: string): string {
+  if (clave === "presentacion") return "Se escribe en el gestor de cada producto (✨ Sugerir)";
+  if (clave === "precio") return "Precio del gestor (el de venta del artículo)";
+  if (clave === "hashtags") return "Automático: marca, modelo, categoría y hashtags fijos de la tienda";
+  if (clave === "con_cargador") return "Automático: \"c/ cargador\" si los accesorios incluyen un cargador";
+  if (clave === "accesorios" || clave === "accesorios_texto") return "Inspección: Accesorios incluidos";
+  if (clave === "bateria") return "Inspección / ficha técnica: salud y estado de la batería";
+  if (clave === "condicion_titulo") return "Condición del artículo, en mayúsculas (USADA / USADO)";
+  if (clave === "categoria" || clave === "nombre" || clave === "condicion" || clave === "sku") return "Datos del artículo";
+  if (clave.startsWith("tienda_")) return "Anuncios → Datos de la tienda";
+  return "Ficha técnica del artículo";
+}
 
 const FEMENINO = new Set(["laptop", "tablet", "consola", "impresora", "tarjeta grafica", "pantalla", "bateria", "ram", "fuente de poder", "camara / seguridad"]);
 

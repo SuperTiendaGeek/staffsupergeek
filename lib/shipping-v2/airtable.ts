@@ -280,6 +280,7 @@ import {
   type PlantillaPublicacion,
   type Publicacion,
 } from "@/lib/shipping-v2/publicaciones";
+import { iaAnunciosDisponible } from "@/lib/shipping-v2/ia-anuncios-servidor";
 import { CAMPOS_ITEM, confirmacionValida, detectarVinculosDesconocidos, evaluarEliminacion, type ContextoEliminacion, type EvaluacionEliminacion } from "@/lib/shipping-v2/eliminar-item";
 
 type AirtableRecord = {
@@ -11089,7 +11090,7 @@ export async function getShippingV2GestorPublicaciones(skuValue: string, access?
   if (!items.length) throw new Error("No se encontró el producto.");
   const unidades = items.map((item) => datosUnidadDeItem(item, especificacionesDeItem(item).resumen));
   const principal = items.find((i) => unidadViva(i)) ?? items[0];
-  return { sku: principal.sku, nombre: principal.nombre, categoria: principal.categoria ?? "", tienda, plantillas, publicaciones, unidades };
+  return { sku: principal.sku, nombre: principal.nombre, categoria: principal.categoria ?? "", tienda, plantillas, publicaciones, unidades, iaDisponible: iaAnunciosDisponible() };
 }
 
 export type GuardarPublicacionInput = {
