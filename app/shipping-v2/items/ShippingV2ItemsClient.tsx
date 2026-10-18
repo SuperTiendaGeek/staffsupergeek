@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
-import { ArrowDownAZ, ArrowLeft, BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ClipboardCheck, ClipboardList, Columns3, FileText, GitBranch, ListFilter, Loader2, Printer, Receipt, Rows3, Settings2, ShoppingCart, Sparkles, Tag, Truck, Wrench, X, type LucideIcon } from "lucide-react";
+import { Megaphone, ArrowDownAZ, ArrowLeft, BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ClipboardCheck, ClipboardList, Columns3, FileText, GitBranch, ListFilter, Loader2, Printer, Receipt, Rows3, Settings2, ShoppingCart, Sparkles, Tag, Truck, Wrench, X, type LucideIcon } from "lucide-react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import { ejecutarAccionNovedad, NovedadAccionModal } from "@/components/shipping-v2/novedades/NovedadAccionModal";
 import { RegistrarNovedadModal } from "@/components/shipping-v2/novedades/RegistrarNovedadModal";
+import { GestorPublicacionesModal } from "@/components/shipping-v2/publicaciones/GestorPublicacionesModal";
 import {
   articuloSalioDelInventario,
   etiquetaPropuesta,
@@ -1853,6 +1854,7 @@ export function ShippingV2ItemDetailView({
   const [item, setItem] = useState(initialItem);
   const [applyingAiName, setApplyingAiName] = useState(false);
   const [facebookSuperGeekModalOpen, setFacebookSuperGeekModalOpen] = useState(false);
+  const [gestorAbierto, setGestorAbierto] = useState(false);
   const [facebookSuperGeekDetailBusy, setFacebookSuperGeekDetailBusy] = useState(false);
   const [facebookTextDraft, setFacebookTextDraft] = useState(initialItem.textoFacebook ?? "");
   const [facebookTextSaving, setFacebookTextSaving] = useState(false);
@@ -2131,6 +2133,7 @@ export function ShippingV2ItemDetailView({
       label: "Notas",
       rows: [
         { label: C.observacionesInternas.label, value: item.observacionesInternas, config: C.observacionesInternas },
+        { label: C.accesoriosIncluidos.label, value: item.accesoriosIncluidos, config: C.accesoriosIncluidos },
         { label: C.observacionVenta.label, value: item.observacionVenta, config: C.observacionVenta },
         { label: "Evidencias", value: "", displayValue: attachmentList(item.evidencias), readOnly: true },
         { label: C.itemPadre.label, value: item.itemPadreId, displayValue: item.itemPadreId ? <Link href={`/shipping-v2/items/${item.itemPadreId}`} className="font-semibold text-[#D7FF4F] hover:underline">{trazabilidad?.itemPadre?.sku || "Ver artículo"}</Link> : "—", config: C.itemPadre },
@@ -2399,6 +2402,12 @@ export function ShippingV2ItemDetailView({
                   Etiqueta
                 </Link>
               ) : null}
+              {(canUseRecepcion || canEditItems) && item.sku ? (
+                <button type="button" onClick={() => setGestorAbierto(true)} title="Anuncios de Marketplace y Grupos Facebook" className={accionClass}>
+                  <Megaphone className="h-3.5 w-3.5" aria-hidden="true" />
+                  Publicar
+                </button>
+              ) : null}
               {esAdmin && adminPanel ? (
                 <button type="button" onClick={() => setAdminOpen((open) => !open)} aria-expanded={adminOpen} title="Activos, dar de baja, corregir estado y eliminar"
                   className={`${accionClass} ml-auto ${adminOpen ? "border-[#8B73FF]/60 bg-[#8B73FF]/15 text-[#C9BFFF]" : ""}`}>
@@ -2410,6 +2419,18 @@ export function ShippingV2ItemDetailView({
           </div>
           {adminOpen && adminPanel ? <div className="space-y-2 border-t border-[#24251F] p-2">{adminPanel}</div> : null}
         </section>
+
+        {gestorAbierto ? (
+          <GestorPublicacionesModal
+            sku={item.sku}
+            unidadInicialId={item.id}
+            onClose={() => setGestorAbierto(false)}
+            onChanged={({ itemsActualizados }) => {
+              const este = itemsActualizados.find((actualizado) => actualizado.id === item.id);
+              if (este) handleSaved(este);
+            }}
+          />
+        ) : null}
 
         {facebookSuperGeekModalOpen ? (
           <FacebookSuperGeekTextModal

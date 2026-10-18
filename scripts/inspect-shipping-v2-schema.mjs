@@ -297,6 +297,8 @@ const ITEM_FIELD_KEYS = {
   numeroSerie: "Número de serie",
   // Punto 10b (17-oct-2026): "Unidad" (1 equipo con su serie) o "Lote".
   seguimiento: "Seguimiento",
+  // Punto 10d (18-oct-2026): lo que trae cada unidad, uno por línea.
+  accesoriosIncluidos: "Accesorios incluidos",
   condicion: "Condición",
   ubicacionActual: "Ubicación actual",
   trackingDirecto: "Tracking directo",
