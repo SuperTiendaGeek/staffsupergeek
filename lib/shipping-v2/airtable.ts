@@ -11622,3 +11622,37 @@ export async function resolverAsuntoRevisionShippingV2(
   if (!r) throw new Error("Airtable no devolvió el asunto.");
   return mapAsuntoRevision(r);
 }
+
+/**
+ * Punto 10c-1 (mejora del dueño, 18-oct): después de corregir un artículo
+ * desde Control, vuelve a revisar SOLO sus asuntos (y los que se pidan por id)
+ * con los datos actuales: cierra los que ya no aparecen, renueva el texto de
+ * los que siguen y crea los nuevos de ese artículo. Devuelve todos los
+ * asuntos abiertos, para que la pantalla se ponga al día.
+ */
+export async function verificarAsuntosRevisionShippingV2(
+  input: { itemIds: string[]; asuntoIds: string[] },
+  options: { actor: string }
+): Promise<{ abiertos: ShippingV2AsuntoRevision[]; resueltos: string[] }> {
+  const itemIds = new Set(input.itemIds.map(cleanString).filter((id) => id.startsWith("rec")));
+  const asuntoIds = new Set(input.asuntoIds.map(cleanString).filter((id) => id.startsWith("rec")));
+  if (!itemIds.size && !asuntoIds.size) throw new Error("Nada que verificar.");
+  const resueltos = await withLock("revision-inventario", async () => {
+    const [datos, registros] = await Promise.all([leerDatosRevision(), listRecords(TABLA_REVISION)]);
+    const guardados = registros.map(mapAsuntoRevision);
+    const toca = (ids: string[]) => ids.some((id) => itemIds.has(id));
+    const claves = new Set(guardados.filter((g) => asuntoIds.has(g.id) || (g.estado === "Abierto" && toca(g.itemIds))).map((g) => g.clave));
+    const detectados = detectarAsuntos(datos, new Date()).filter((d) => claves.has(d.clave) || toca(d.itemIds));
+    detectados.forEach((d) => claves.add(d.clave));
+    const plan = planSincronizacion(guardados.filter((g) => claves.has(g.clave)), detectados);
+    const ahora = new Date().toISOString();
+    await mutarRevision("POST", plan.crear.map((a) => ({ fields: { ...camposAsunto(a, ahora), Estado: "Abierto", Detectado: ahora } })));
+    await mutarRevision("PATCH", plan.renovar.map(({ id, asunto }) => ({ id, fields: camposAsunto(asunto, ahora) })));
+    await mutarRevision("PATCH", plan.cerrar.map((id) => ({
+      id,
+      fields: { Estado: "Resuelto", "Resuelto por": options.actor, "Fecha resuelto": ahora, Motivo: "Corregido · verificado por el sistema al guardar." },
+    })));
+    return plan.cerrar;
+  });
+  return { abiertos: await getShippingV2AsuntosRevision(), resueltos };
+}
