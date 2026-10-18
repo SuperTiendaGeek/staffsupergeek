@@ -95,6 +95,8 @@ export const SHIPPING_V2_ITEM_EDIT_FIELDS = {
   ubicacionActual: { key: "ubicacionActual", field: F.ubicacionActual, label: "Ubicación actual", category: "hidden", type: "readOnly" },
   trackingDirecto: { key: "trackingDirecto", field: F.trackingDirecto, label: "Rastreo local", category: "readOnly", type: "readOnly" },
   observacionesInternas: { key: "observacionesInternas", field: F.observacionesInternas, label: "Observaciones internas", category: "normal", type: "textarea" },
+  // Punto 10d: lo que trae esta unidad (uno por línea). Se llena en la inspección.
+  accesoriosIncluidos: { key: "accesoriosIncluidos", field: F.accesoriosIncluidos, label: "Accesorios incluidos", category: "normal", type: "textarea" },
   observacionVenta: { key: "observacionVenta", field: F.observacionVenta, label: "Observación para venta", category: "normal", type: "textarea" },
   metodoAsignacionSku: { key: "metodoAsignacionSku", field: F.metodoAsignacionSku, label: "Método de asignación SKU", category: "readOnly", type: "readOnly" },
   itemPadre: { key: "itemPadreId", field: "Item padre", label: "Item padre", category: "readOnly", type: "readOnly" },

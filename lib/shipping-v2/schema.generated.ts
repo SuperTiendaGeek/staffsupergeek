@@ -78,6 +78,7 @@ export const SHIPPING_V2_ITEM_FIELDS = {
   "marca": "Marca",
   "numeroSerie": "Número de serie",
   "seguimiento": "Seguimiento",
+  "accesoriosIncluidos": "Accesorios incluidos",
   "condicion": "Condición",
   "ubicacionActual": "Ubicación actual",
   "trackingDirecto": "Tracking directo",

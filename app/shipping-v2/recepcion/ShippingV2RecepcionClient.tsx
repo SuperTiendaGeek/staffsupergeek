@@ -4,6 +4,8 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { RegistrarNovedadModal } from "@/components/shipping-v2/novedades/RegistrarNovedadModal";
+import { GestorPublicacionesModal } from "@/components/shipping-v2/publicaciones/GestorPublicacionesModal";
+import { canalDeAccion, CANALES_EN_GESTOR, type CanalPublicacion } from "@/lib/shipping-v2/publicaciones";
 import { avanceDeInspeccion } from "@/lib/shipping-v2/revision-tecnica-snapshot";
 import {
   AlertTriangle,
@@ -973,6 +975,8 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   const [busyKey, setBusyKey] = useState("");
   const [message, setMessage] = useState("");
   const [novedadItem, setNovedadItem] = useState<ReceptionItem | null>(null);
+  // Punto 10d: las casillas de Marketplace y Grupos Facebook abren el gestor de publicaciones.
+  const [gestor, setGestor] = useState<{ item: ReceptionItem; canal: CanalPublicacion; action: ShippingV2RecepcionChecklistAction } | null>(null);
   const [photoItem, setPhotoItem] = useState<ReceptionItem | null>(null);
   const [detailItemId, setDetailItemId] = useState<string | null>(null);
   const [detailData, setDetailData] = useState<DetailPayload | null>(null);
@@ -1259,6 +1263,11 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
 
   const handleChecklistChange = useCallback(
     (item: ReceptionItem, action: ShippingV2RecepcionChecklistAction, value: boolean) => {
+      const canal = canalDeAccion(action);
+      if (canal && CANALES_EN_GESTOR.includes(canal) && item.sku) {
+        setGestor({ item, canal, action });
+        return;
+      }
       void updateChecklistRef.current(item, action, value);
     },
     []
@@ -1469,6 +1478,22 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
             density="immersive"
           />
         </ModalShell>
+      ) : null}
+
+      {gestor ? (
+        <GestorPublicacionesModal
+          sku={gestor.item.sku}
+          canalInicial={gestor.canal}
+          unidadInicialId={gestor.item.id}
+          casillaMarcada={gestor.canal === "Marketplace" ? gestor.item.marketplacePublicado === true : gestor.item.gruposFacebookPublicado === true}
+          onDesmarcarCasilla={() => updateChecklist(gestor.item, gestor.action, false)}
+          onClose={() => setGestor(null)}
+          onChanged={({ itemsActualizados }) => {
+            if (!itemsActualizados.length) return;
+            const porId = new Map(itemsActualizados.map((actualizado) => [actualizado.id, actualizado]));
+            setItems((current) => current.map((currentItem) => porId.get(currentItem.id) ?? currentItem));
+          }}
+        />
       ) : null}
 
       {novedadItem ? (

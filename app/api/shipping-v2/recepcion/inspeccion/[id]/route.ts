@@ -78,6 +78,8 @@ function parsearCambios(body: Record<string, unknown>): ShippingV2InspeccionCamb
     cambios.especificaciones = especificaciones;
   }
 
+  if (typeof body.accesorios === "string") cambios.accesorios = body.accesorios.slice(0, 2000);
+
   return cambios;
 }
 

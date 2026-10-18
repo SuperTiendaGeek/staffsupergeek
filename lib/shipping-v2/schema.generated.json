@@ -1484,6 +1484,10 @@
             "Unidad",
             "Lote"
           ]
+        },
+        "Accesorios incluidos": {
+          "id": "fldB98gxq9SfhcbZl",
+          "type": "multilineText"
         }
       }
     },

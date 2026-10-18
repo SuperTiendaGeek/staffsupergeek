@@ -80,6 +80,8 @@ const NO_COPIAR = new Set<string>([
   "Motivo de despiece",
   "Fecha de despiece",
   "Responsable de despiece",
+  // Punto 10d: un anuncio aparte es de UNA unidad (vínculo inverso de Shipping Publicaciones).
+  "Shipping Publicaciones",
 ]);
 
 type CampoEsquema = { type?: string };

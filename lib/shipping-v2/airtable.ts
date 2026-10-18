@@ -261,6 +261,25 @@ import { assertShippingV2GeneratedSchema, SHIPPING_V2_COMPUTER_CATALOG_FIELDS, S
 import { calculateShippingV2BatteryState, shippingV2CategoryDoesNotUseScreenOrBattery, shippingV2CategoryHasBattery } from "@/lib/shipping-v2/technical-sheet";
 import { fetchCuentaPorNombre, fetchCuentaPorNombreNormalizado } from "@/lib/finanzas/cuentas";
 import { anularMovimiento, crearMovimiento } from "@/lib/finanzas/movimientos";
+import {
+  ACCION_CHECKLIST_CANAL,
+  CANALES_PUBLICACION,
+  TITULO_MAX,
+  datosUnidadDeItem,
+  escribirAccesorios,
+  leerAccesorios,
+  nombrePublicacion,
+  unidadViva,
+  unidadesCubiertas,
+  type AlcancePublicacion,
+  type CanalPublicacion,
+  type DatosTienda,
+  type DatosUnidadAnuncio,
+  type EstadoPublicacion,
+  type GestorPublicacionesDatos,
+  type PlantillaPublicacion,
+  type Publicacion,
+} from "@/lib/shipping-v2/publicaciones";
 import { CAMPOS_ITEM, confirmacionValida, detectarVinculosDesconocidos, evaluarEliminacion, type ContextoEliminacion, type EvaluacionEliminacion } from "@/lib/shipping-v2/eliminar-item";
 
 type AirtableRecord = {
@@ -1511,6 +1530,7 @@ function mapItem(record: AirtableRecord, options: MapItemOptions = {}): Shipping
     marca: firstString(f[F.marca]),
     numeroSerie: firstString(f[F.numeroSerie]),
     seguimiento: firstString(f[F.seguimiento]) || undefined,
+    accesoriosIncluidos: firstString(f[F.accesoriosIncluidos]) || undefined,
     categoria: firstString(f[F.categoria]),
     tipoOperacion: firstString(f[F.tipoOperacion]),
     tipoItem: firstString(f[F.tipoItem]),
@@ -9051,6 +9071,8 @@ export type ShippingV2InspeccionCambios = {
   ficha?: ShippingV2TechnicalSheetInput;
   /** Datos técnicos de la categoría: { campoId: valor }. "" borra el campo. */
   especificaciones?: Record<string, string>;
+  /** Punto 10d: "Accesorios incluidos" (una línea por accesorio, o "Sin accesorios"). */
+  accesorios?: string;
 };
 
 // Los artículos que no requieren inspección no pasan por la pantalla de
@@ -9157,6 +9179,9 @@ export async function guardarShippingV2InspeccionTecnica(
         id,
         fields: {
           ...camposEspec,
+          ...(cambios.accesorios !== undefined
+            ? { [SHIPPING_V2_ITEM_FIELDS.accesoriosIncluidos]: escribirAccesorios(leerAccesorios(cambios.accesorios)) }
+            : {}),
           "Revisión técnica detalle": serializarSnapshot(snapshot),
           "Puntos de revisión fallidos": contarFallas(snapshot, zonas),
           "Última actualización": ahora,
@@ -10951,5 +10976,229 @@ export async function asignarSerieInternaShippingV2(
       value: serie,
       eventDescription: `Serie interna ${serie} asignada (el equipo no tiene serie legible).`,
     }, options);
+  });
+}
+
+// ─── Punto 10d: gestor de publicaciones ──────────────────────────────────────
+
+const TABLA_PUBLICACIONES = "Shipping Publicaciones";
+const TABLA_PLANTILLAS_PUBLICACION = "Shipping Plantillas de publicación";
+const TABLA_DATOS_TIENDA = "Shipping Datos de la tienda";
+
+function canalValido(valor: unknown): CanalPublicacion | null {
+  const t = firstString(valor);
+  return (CANALES_PUBLICACION as readonly string[]).includes(t) ? (t as CanalPublicacion) : null;
+}
+
+export async function getShippingV2DatosTienda(): Promise<DatosTienda> {
+  const registros = await listRecords(TABLA_DATOS_TIENDA, { maxRecords: 1 });
+  const f = registros[0]?.fields ?? {};
+  return {
+    id: registros[0]?.id,
+    direccion: firstString(f["Dirección"]),
+    horarioSemana: firstString(f["Horario lunes a viernes"]),
+    horarioSabado: firstString(f["Horario sábados"]),
+    whatsapp: firstString(f["WhatsApp"]),
+    telefonoFijo: firstString(f["Teléfono fijo"]),
+    web: firstString(f["Página web"]),
+    metodosPago: firstString(f["Métodos de pago"]),
+    garantiaCorta: firstString(f["Garantía corta"]),
+    garantiaLarga: firstString(f["Garantía larga"]),
+    hashtagsFijos: firstString(f["Hashtags fijos"]),
+    version: firstNumber(f["Versión"]) ?? 1,
+  };
+}
+
+export async function getShippingV2PlantillasPublicacion(): Promise<PlantillaPublicacion[]> {
+  const registros = await listRecords(TABLA_PLANTILLAS_PUBLICACION, { maxRecords: 500 });
+  return registros
+    .map((r) => {
+      const canal = canalValido(r.fields["Canal"]);
+      if (!canal) return null;
+      return {
+        id: r.id,
+        nombre: firstString(r.fields["Nombre"]),
+        categoria: firstString(r.fields["Categoría"]),
+        canal,
+        titulo: firstString(r.fields["Título"]),
+        descripcion: firstString(r.fields["Descripción"]),
+        activa: firstBoolean(r.fields["Activa"]) === true,
+      } satisfies PlantillaPublicacion;
+    })
+    .filter((p): p is PlantillaPublicacion => p !== null);
+}
+
+function mapPublicacion(r: AirtableRecord): Publicacion | null {
+  const f = r.fields;
+  const canal = canalValido(f["Canal"]);
+  if (!canal) return null;
+  const estado = firstString(f["Estado"], "Borrador");
+  return {
+    id: r.id,
+    sku: firstString(f["SKU"]),
+    canal,
+    alcance: firstString(f["Alcance"]) === "Unidad" ? "Unidad" : "Producto",
+    unidadId: linkedRecordIds(f["Unidad"])[0],
+    plantillaId: linkedRecordIds(f["Plantilla"])[0],
+    titulo: firstString(f["Título"]),
+    presentacion: firstString(f["Presentación"]),
+    descripcion: firstString(f["Descripción"]),
+    precio: firstNumber(f["Precio publicado"]),
+    enlace: firstString(f["Enlace"]),
+    estado: (["Borrador", "Publicado", "Por retirar", "Retirado"].includes(estado) ? estado : "Borrador") as EstadoPublicacion,
+    publicadoPor: firstString(f["Publicado por"]) || undefined,
+    fechaPublicado: firstString(f["Fecha publicado"]) || undefined,
+    versionTienda: firstNumber(f["Versión datos de la tienda"]),
+  };
+}
+
+export async function getShippingV2PublicacionesDeSku(skuValue: string): Promise<Publicacion[]> {
+  const sku = normalizeSku(cleanString(skuValue));
+  if (!sku) return [];
+  const registros = await listRecords(TABLA_PUBLICACIONES, {
+    maxRecords: 200,
+    filterByFormula: `LOWER({SKU}) = LOWER('${escapeFormulaString(sku)}')`,
+  });
+  return registros.map(mapPublicacion).filter((p): p is Publicacion => p !== null);
+}
+
+/** Todos los registros (unidades o lotes) de un SKU, completos. */
+export async function getShippingV2ItemsDelSku(skuValue: string, access?: ShippingV2AccessContext): Promise<ShippingV2Item[]> {
+  const sku = normalizeSku(cleanString(skuValue));
+  if (!sku) return [];
+  const registros = await listRecords(SHIPPING_V2_TABLES.items, {
+    maxRecords: 100,
+    filterByFormula: `LOWER({${getOfficialSkuField()}}) = LOWER('${escapeFormulaString(sku)}')`,
+  });
+  return registros.filter((r) => canAccessItemRecord(r, access)).map((r) => mapItem(r, { access }));
+}
+
+export type ShippingV2GestorPublicaciones = GestorPublicacionesDatos;
+
+export async function getShippingV2GestorPublicaciones(skuValue: string, access?: ShippingV2AccessContext): Promise<ShippingV2GestorPublicaciones> {
+  const [items, tienda, plantillas, publicaciones] = await Promise.all([
+    getShippingV2ItemsDelSku(skuValue, access),
+    getShippingV2DatosTienda(),
+    getShippingV2PlantillasPublicacion(),
+    getShippingV2PublicacionesDeSku(skuValue),
+  ]);
+  if (!items.length) throw new Error("No se encontró el producto.");
+  const unidades = items.map((item) => datosUnidadDeItem(item, especificacionesDeItem(item).resumen));
+  const principal = items.find((i) => unidadViva(i)) ?? items[0];
+  return { sku: principal.sku, nombre: principal.nombre, categoria: principal.categoria ?? "", tienda, plantillas, publicaciones, unidades };
+}
+
+export type GuardarPublicacionInput = {
+  sku: string;
+  canal: CanalPublicacion;
+  alcance: AlcancePublicacion;
+  unidadId?: string;
+  plantillaId?: string;
+  titulo: string;
+  presentacion: string;
+  descripcion: string;
+  precio: number | null;
+  enlace: string;
+  /** guardar = borrador; publicar = marca publicado (y la casilla de Recepción); retirar = ya no está publicado. */
+  accion: "guardar" | "publicar" | "retirar";
+};
+
+/**
+ * Guarda el anuncio de un canal (uno por SKU + canal + alcance + unidad). Al
+ * publicar o retirar, marca o desmarca la casilla de Recepción de ese canal en
+ * las unidades que el anuncio cubre y que ya están en la tienda (las que vienen
+ * en camino se marcan al llegar, desde el gestor).
+ */
+export async function guardarPublicacionShippingV2(
+  input: GuardarPublicacionInput,
+  options: { actor: string; access?: ShippingV2AccessContext }
+): Promise<{ publicacion: Publicacion; itemsActualizados: ShippingV2Item[] }> {
+  const sku = normalizeSku(cleanString(input.sku));
+  if (!sku) throw new Error("Falta el SKU.");
+  if (!canalValido(input.canal)) throw new Error("Canal no válido.");
+  if (input.alcance === "Unidad" && !cleanString(input.unidadId)) throw new Error("Elige la unidad del anuncio aparte.");
+  const titulo = cleanString(input.titulo);
+  if (input.accion === "publicar" && !titulo) throw new Error("Escribe el título.");
+  if (titulo.length > TITULO_MAX[input.canal]) throw new Error(`El título pasa de ${TITULO_MAX[input.canal]} caracteres.`);
+  const enlace = cleanString(input.enlace);
+  if (enlace && !/^https?:\/\//i.test(enlace)) throw new Error("El enlace debe empezar con https://");
+
+  return withLock(`publicacion:${sku}:${input.canal}`, async () => {
+    const [publicaciones, items, tienda] = await Promise.all([
+      getShippingV2PublicacionesDeSku(sku),
+      getShippingV2ItemsDelSku(sku, options.access),
+      getShippingV2DatosTienda(),
+    ]);
+    if (!items.length) throw new Error("No se encontró el producto.");
+    const unidadId = input.alcance === "Unidad" ? cleanString(input.unidadId) : undefined;
+    if (unidadId && !items.some((i) => i.id === unidadId)) throw new Error("Esa unidad no es de este producto.");
+    const actual = publicaciones.find((p) => p.canal === input.canal && p.alcance === input.alcance && (p.unidadId ?? "") === (unidadId ?? ""));
+    const ahora = new Date().toISOString();
+    const serie = unidadId ? items.find((i) => i.id === unidadId)?.numeroSerie : undefined;
+    const fields: Record<string, unknown> = {
+      "Publicación": nombrePublicacion(sku, input.canal, input.alcance, serie),
+      SKU: sku,
+      Canal: input.canal,
+      Alcance: input.alcance,
+      Unidad: unidadId ? [unidadId] : [],
+      Plantilla: cleanString(input.plantillaId) ? [cleanString(input.plantillaId)] : [],
+      "Título": titulo,
+      "Presentación": cleanString(input.presentacion),
+      "Descripción": String(input.descripcion ?? "").trim(),
+      "Precio publicado": typeof input.precio === "number" && Number.isFinite(input.precio) ? input.precio : null,
+      Enlace: enlace || null,
+      "Actualizado por": options.actor,
+      "Última actualización": ahora,
+    };
+    if (input.accion === "publicar") {
+      fields.Estado = "Publicado";
+      // Volver a "publicar" uno ya publicado solo actualiza (no cambia quién ni cuándo).
+      if (actual?.estado !== "Publicado") {
+        fields["Publicado por"] = options.actor;
+        fields["Fecha publicado"] = ahora;
+      }
+      fields["Versión datos de la tienda"] = tienda.version;
+    } else if (input.accion === "retirar") {
+      fields.Estado = "Retirado";
+      fields["Retirado por"] = options.actor;
+      fields["Fecha retirado"] = ahora;
+    } else if (!actual) {
+      fields.Estado = "Borrador";
+    }
+
+    const respuesta = await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_PUBLICACIONES), {
+      method: actual ? "PATCH" : "POST",
+      body: JSON.stringify({ records: [actual ? { id: actual.id, fields } : { fields }] }),
+    });
+    const guardada = respuesta.records?.[0] ? mapPublicacion(respuesta.records[0]) : null;
+    if (!guardada) throw new Error("Airtable no devolvió el anuncio guardado.");
+
+    // La casilla de Recepción del canal en las unidades que cubre (ya recibidas).
+    // Una unidad cuyo anuncio aparte se retira sigue publicada si el anuncio
+    // del producto en ese canal está publicado (vuelve a quedar dentro de él).
+    const itemsActualizados: ShippingV2Item[] = [];
+    if (input.accion !== "guardar") {
+      const todas = items.map((i) => datosUnidadDeItem(i));
+      const conGuardada = publicaciones.filter((p) => p.id !== guardada.id).concat(guardada);
+      const cubiertas = unidadesCubiertas(todas, conGuardada, input.canal, input.alcance, unidadId);
+      const productoPublicado = conGuardada.some((p) => p.canal === input.canal && p.alcance === "Producto" && p.estado === "Publicado");
+      const valor = input.accion === "publicar" || (input.alcance === "Unidad" && productoPublicado);
+      const campo = ACCION_CHECKLIST_CANAL[input.canal];
+      for (const u of cubiertas) {
+        const item = items.find((i) => i.id === u.id);
+        if (!item || item.recibido !== true) continue;
+        const yaMarcado = input.canal === "Marketplace" ? item.marketplacePublicado === true
+          : input.canal === "Grupos Facebook" ? item.gruposFacebookPublicado === true
+          : input.canal === "Mercado Libre" ? item.mercadoLibrePublicado === true
+          : item.shopifyPublicado === true;
+        if (yaMarcado === valor) continue;
+        try {
+          itemsActualizados.push(await updateShippingV2ReceptionChecklistItem(u.id, { action: campo, value: valor }, { actualizadoPor: options.actor }));
+        } catch (error) {
+          console.warn("No se pudo marcar la casilla del canal en la unidad:", u.id, error);
+        }
+      }
+    }
+    return { publicacion: guardada, itemsActualizados };
   });
 }

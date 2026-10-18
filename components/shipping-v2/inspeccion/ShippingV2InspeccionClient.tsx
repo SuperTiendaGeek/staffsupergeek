@@ -13,6 +13,7 @@
 // a media inspección que el equipo trae algo que nadie declaró.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AccesoriosIncluidos } from "./AccesoriosIncluidos";
 import Link from "next/link";
 import { SHIPPING_V2_ITEM_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import type {
@@ -489,6 +490,12 @@ export function ShippingV2InspeccionClient({
                 </div>
               </div>
             ))}
+            <AccesoriosIncluidos
+              valor={item.accesoriosIncluidos}
+              categoria={item.categoria}
+              deshabilitado={firmado}
+              onGuardar={(texto) => guardar({ accesorios: texto })}
+            />
           </section>
 
           <section className="rounded-xl border border-[#2E2F28] bg-[#1B1C17] p-3.5">

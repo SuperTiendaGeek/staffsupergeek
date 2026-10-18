@@ -278,6 +278,8 @@ export type ShippingV2Item = ShippingV2RecordBase & {
   numeroSerie?: string;
   /** Punto 10b: "Unidad" o "Lote" (vacío = el de su categoría). */
   seguimiento?: string;
+  /** Punto 10d: lo que trae esta unidad, uno por línea ("Sin accesorios" = revisado, nada). */
+  accesoriosIncluidos?: string;
   categoria?: string;
   tipoOperacion: string;
   tipoItem: string;
