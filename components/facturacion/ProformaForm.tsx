@@ -11,6 +11,7 @@ import type { LineaProforma, OrigenProforma } from "@/lib/facturacion/proformas/
 import { ClienteCard, CLIENTE_VACIO, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { clienteDesdePrefactura, lineasProformaDesdePrefactura } from "@/lib/facturacion/gancho/prefill";
+import { descripcionDeProducto } from "@/lib/facturacion/lineaDesdeProductoCatalogo";
 
 const TARIFAS = [
   { codigo: "4", label: "15%" },
@@ -19,7 +20,8 @@ const TARIFAS = [
   { codigo: "0", label: "No objeto" },
 ];
 
-type Producto = { id: string; sku: string; nombre: string; precioVenta: number; unidad: string; cantidadDisponible: number };
+// Punto 10b-5: numeroSerie/seguimiento para la descripción; detalle = "S/N …" o "Lote … · más antiguo".
+type Producto = { id: string; sku: string; nombre: string; precioVenta: number; unidad: string; cantidadDisponible: number; numeroSerie?: string; seguimiento?: string; detalle?: string };
 type Linea = LineaProforma & { _id: string };
 
 const CARD  = "rounded-xl border border-[#3A3A36] bg-[#1A1B18] p-5 mb-4";
@@ -70,7 +72,7 @@ export function ProformaForm({ prefactura, origen, bannerOrigen }: {
 
   function agregarProducto(p: Producto) {
     setLineas((prev) => [...prev, {
-      _id: crypto.randomUUID(), codigo: p.sku || p.id, descripcion: p.nombre, unidadMedida: p.unidad,
+      _id: crypto.randomUUID(), codigo: p.sku || p.id, descripcion: descripcionDeProducto(p), unidadMedida: p.unidad,
       cantidad: 1, precioUnitario: p.precioVenta, descuento: 0, tarifaIva: "4",
       origen: "shipping-item", shippingItemId: p.id,
     }]);
@@ -169,7 +171,7 @@ export function ProformaForm({ prefactura, origen, bannerOrigen }: {
                 <li key={p.id}>
                   <button onClick={() => agregarProducto(p)} className="w-full text-left px-4 py-2.5 hover:bg-[#252622] text-sm">
                     <p className="font-semibold text-[#F5F5F5]">{p.nombre}</p>
-                    <p className="text-[#666] text-xs">{p.sku} · {p.unidad} · ${p.precioVenta.toFixed(2)} · stock: {p.cantidadDisponible}</p>
+                    <p className="text-[#666] text-xs">{p.sku}{p.detalle ? ` · ${p.detalle}` : ""} · {p.unidad} · ${p.precioVenta.toFixed(2)} · stock: {p.cantidadDisponible}</p>
                   </button>
                 </li>
               ))}

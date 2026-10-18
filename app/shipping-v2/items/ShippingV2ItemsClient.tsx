@@ -1729,7 +1729,16 @@ const ESTADOS_FUERA = new Set(["vendido", "agotado", "dado de baja", "cancelado"
  * Punto 10b-4: qué unidad es esta (su serie, o "Lote · N u.") y las demás del
  * mismo producto, para pasar de una a otra. Una línea; solo si aporta.
  */
-export function UnidadDelProducto({ item, hermanas }: { item: ShippingV2Item; hermanas: ShippingV2UnidadHermana[] }) {
+export function UnidadDelProducto({ item, hermanas, onGuardarSerie, onSerieInterna }: {
+  item: ShippingV2Item;
+  hermanas: ShippingV2UnidadHermana[];
+  /** Punto 10b-5: escanear la serie de un equipo que no la tiene (sin esto, solo se muestra). */
+  onGuardarSerie?: (serie: string) => Promise<void>;
+  onSerieInterna?: () => Promise<void>;
+}) {
+  const [escaneando, setEscaneando] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
+  const [errorSerie, setErrorSerie] = useState("");
   const esUnidad = seguimientoDe(item) === "Unidad";
   const serie = normalizarSerie(item.numeroSerie);
   const otras = hermanas.filter((h) => h.id !== item.id);
@@ -1746,7 +1755,30 @@ export function UnidadDelProducto({ item, hermanas }: { item: ShippingV2Item; he
       {esUnidad ? (
         serie
           ? <span className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-mono font-semibold text-[#F5F5F5]" title="Serie de esta unidad">S/N {serie}</span>
-          : <span className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B]" title="Se escanea al recibir; sin serie no se vende.">Sin serie aún</span>
+          : onGuardarSerie && escaneando ? (
+            <span className="inline-flex flex-wrap items-center gap-1">
+              <input autoFocus disabled={ocupado} placeholder="Escanear serie" aria-label="Escanear serie"
+                className="h-6 w-36 rounded border border-[#F4C95B]/60 bg-[#151515] px-1.5 font-mono text-[12px] text-[#F5F5F5] outline-none"
+                onKeyDown={async (e) => {
+                  if (e.key === "Escape") { setEscaneando(false); setErrorSerie(""); return; }
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  const valor = e.currentTarget.value.trim();
+                  if (!valor) return;
+                  setOcupado(true); setErrorSerie("");
+                  try { await onGuardarSerie(valor); setEscaneando(false); } catch (err) { setErrorSerie(err instanceof Error ? err.message : "No se pudo guardar."); } finally { setOcupado(false); }
+                }} />
+              {onSerieInterna ? (
+                <button type="button" disabled={ocupado} title="Para un equipo sin serie legible: SG + 8 números, se imprime en su etiqueta."
+                  onClick={async () => { setOcupado(true); setErrorSerie(""); try { await onSerieInterna(); setEscaneando(false); } catch (err) { setErrorSerie(err instanceof Error ? err.message : "No se pudo asignar."); } finally { setOcupado(false); } }}
+                  className="h-6 rounded border border-[#3A3A36] px-1.5 font-semibold text-[#B4B5AC] hover:text-[#F5F5F5] disabled:opacity-50">Serie interna</button>
+              ) : null}
+              <button type="button" onClick={() => { setEscaneando(false); setErrorSerie(""); }} aria-label="Cancelar" className="px-1 text-[13px] text-[#8F908A] hover:text-[#F5F5F5]">×</button>
+              {errorSerie ? <span className="text-[#FFB07A]">{errorSerie}</span> : null}
+            </span>
+          ) : onGuardarSerie ? (
+            <button type="button" onClick={() => setEscaneando(true)} className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B] hover:border-[#F4C95B]" title="Sin serie no se vende. Pulsa para escanearla o usar una serie interna.">Sin serie aún · escanear</button>
+          ) : <span className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B]" title="Se escanea al recibir; sin serie no se vende.">Sin serie aún</span>
       ) : (
         <span className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-semibold text-[#B4B5AC]" title="Lote: lo que llegó de una misma compra, con su costo.">Lote · {item.cantidad ?? 0} u.</span>
       )}
@@ -2279,7 +2311,14 @@ export function ShippingV2ItemDetailView({
             <p className="mt-1 text-[12px] text-[#8F908A]">
               {[item.sku, item.categoria, item.condicion, [item.marca, item.modelo].filter(Boolean).join(" ")].map((value) => String(value ?? "").trim()).filter(Boolean).join(" · ")}
             </p>
-            <UnidadDelProducto item={item} hermanas={hermanas} />
+            <UnidadDelProducto item={item} hermanas={hermanas}
+              onGuardarSerie={canEditItems && !campoSoloLectura("numeroSerie") ? (serie) => saveField(C.numeroSerie.field, serie) : undefined}
+              onSerieInterna={canEditItems && !campoSoloLectura("numeroSerie") ? async () => {
+                const response = await fetch(`/api/shipping-v2/items/${item.id}/serie-interna`, { method: "POST" });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo asignar la serie interna."));
+                handleSaved(payload.data as ShippingV2Item);
+              } : undefined} />
             {hasAiNameSuggestion && canEditItems ? (
               <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-[#D7FF4F]/25 bg-[#151613] px-2.5 py-1.5">
                 <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#D7FF4F]" aria-hidden="true" />

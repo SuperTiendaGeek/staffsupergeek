@@ -64,6 +64,9 @@ export function calcularNoEntregables(
       recibido: f["Recibido"] === true,
       requiereInspeccion: f["Requiere inspección"] === true,
       inspeccionFirmada: f["Revisado física/técnicamente"] === true,
+      // Punto 10b-5: un equipo "Unidad" se vende con su serie.
+      seguimiento: firstString(f["Seguimiento"]),
+      numeroSerie: firstString(f["Número de serie"]),
     });
     if (!evaluacion.vendible) {
       resultado.push({

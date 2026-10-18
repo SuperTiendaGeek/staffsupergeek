@@ -3,6 +3,7 @@ import "server-only";
 import {
   buildShippingItemsProductFilterFormula,
   mapShippingItemProductRecord,
+  ordenarYDetallarProductos,
   type ProductoCatalogo,
 } from "@/lib/facturacion/airtable/productosShippingItems";
 import { buscarProductosDigitales } from "@/lib/facturacion/airtable/productosDigitales";
@@ -65,6 +66,11 @@ async function buscarEnShippingItems(query: string, pageSize: number, incluirEnC
   params.append("fields[]", "Cantidad");
   params.append("fields[]", "Cantidad Reservada");
   params.append("fields[]", "Reservado");
+  // Punto 10b-5: serie, unidad/lote y antigüedad del lote.
+  params.append("fields[]", "Número de serie");
+  params.append("fields[]", "Seguimiento");
+  params.append("fields[]", "Categoría");
+  params.append("fields[]", "Fecha de registro");
 
   const url = `${client.baseUrl}/${encodeURIComponent(TABLE)}?${params}`;
   const res = await fetch(url, { headers: client.headers, cache: "no-store" });
@@ -75,7 +81,9 @@ async function buscarEnShippingItems(query: string, pageSize: number, incluirEnC
   }
 
   const data = (await res.json()) as { records?: Array<{ id: string; fields?: Record<string, unknown> }> };
-  return (data.records ?? []).map(mapShippingItemProductRecord).filter((producto): producto is ProductoCatalogo => producto !== null);
+  return ordenarYDetallarProductos(
+    (data.records ?? []).map(mapShippingItemProductRecord).filter((producto): producto is ProductoCatalogo => producto !== null)
+  );
 }
 
 export async function buscarProductos(
