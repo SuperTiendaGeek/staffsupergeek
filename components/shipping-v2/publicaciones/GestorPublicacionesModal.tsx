@@ -16,10 +16,12 @@ import {
   accesoriosAnuncio,
   accesoriosDistintos,
   bateriaAnuncio,
+  canalUsaHtml,
   elegirPlantilla,
   hashtagsAnuncio,
   llenarPlantilla,
   llenarTitulo,
+  plantillasDisponibles,
   unidadViva,
   unidadesCubiertas,
   valoresAnuncio,
@@ -109,7 +111,7 @@ export function GestorPublicacionesModal({
   const [cargadoPara, setCargadoPara] = useState("");
   const [busy, setBusy] = useState<Accion | "desmarcar" | "">("");
   const [mensaje, setMensaje] = useState("");
-  const [copiado, setCopiado] = useState<"titulo" | "descripcion" | "">("");
+  const [copiado, setCopiado] = useState<"titulo" | "descripcion" | "sku" | "">("");
   const [casilla, setCasilla] = useState(casillaMarcada === true);
 
   useEffect(() => {
@@ -144,8 +146,16 @@ export function GestorPublicacionesModal({
     () => (datos ? unidadesCubiertas(datos.unidades, datos.publicaciones, canal, alcance, unidadId) : []),
     [datos, canal, alcance, unidadId]
   );
-  const plantillasCanal = useMemo(() => (datos?.plantillas ?? []).filter((p) => p.canal === canal && p.activa), [datos, canal]);
+  const plantillasCanal = useMemo(() => {
+    if (!datos) return [];
+    const disponibles = plantillasDisponibles(datos.plantillas, datos.categoria, canal);
+    // La que ya usa un anuncio guardado se muestra aunque hoy esté inactiva.
+    const enUso = datos.plantillas.find((p) => p.id === plantillaId && p.canal === canal);
+    return enUso && !disponibles.includes(enUso) ? [...disponibles, enUso] : disponibles;
+  }, [datos, canal, plantillaId]);
   const plantilla = plantillasCanal.find((p) => p.id === plantillaId) ?? null;
+  const html = canalUsaHtml(canal);
+  const [verCodigo, setVerCodigo] = useState(false);
   const precioNumero = precio.trim() === "" ? null : Number(precio.replace(",", "."));
   const precioValido = precioNumero === null || (Number.isFinite(precioNumero) && precioNumero >= 0);
 
@@ -168,7 +178,7 @@ export function GestorPublicacionesModal({
     if (guardada) {
       const valores = valoresAnuncio({ unidades: unidadesDe, alcance, tienda: datos.tienda, presentacion: presentacionInicial, precio: precioBase });
       const tituloGenerado = elegida ? llenarTitulo(elegida.titulo, valores) : "";
-      const descripcionGenerada = elegida ? llenarPlantilla(elegida.descripcion, valores) : "";
+      const descripcionGenerada = elegida ? llenarPlantilla(elegida.descripcion, valores, { html: canalUsaHtml(canal) }) : "";
       setTituloManual(guardada.titulo && guardada.titulo !== tituloGenerado ? guardada.titulo : null);
       setDescripcionManual(guardada.descripcion && guardada.descripcion !== descripcionGenerada ? guardada.descripcion : null);
     } else {
@@ -184,7 +194,7 @@ export function GestorPublicacionesModal({
     [datos, cubiertas, alcance, presentacion, precioNumero, precioValido]
   );
   const tituloGenerado = plantilla ? llenarTitulo(plantilla.titulo, valores) : "";
-  const descripcionGenerada = plantilla ? llenarPlantilla(plantilla.descripcion, valores) : "";
+  const descripcionGenerada = plantilla ? llenarPlantilla(plantilla.descripcion, valores, { html }) : "";
   const titulo = tituloManual ?? tituloGenerado;
   const descripcion = descripcionManual ?? descripcionGenerada;
   const maximo = TITULO_MAX[canal];
@@ -193,7 +203,7 @@ export function GestorPublicacionesModal({
   const accesoriosTexto = alcance === "Unidad" ? (cubiertas[0]?.accesorios ?? []).join(", ") : accesoriosAnuncio(cubiertas).join(", ");
   const porLlegar = cubiertas.filter((u) => !u.recibido).length;
 
-  const copiar = useCallback(async (texto: string, que: "titulo" | "descripcion") => {
+  const copiar = useCallback(async (texto: string, que: "titulo" | "descripcion" | "sku") => {
     try {
       await navigator.clipboard.writeText(texto);
       setCopiado(que);
@@ -372,6 +382,14 @@ export function GestorPublicacionesModal({
                   {plantillasCanal.length ? null : <option value="">Sin plantilla</option>}
                   {plantillasCanal.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                 </select>
+                <a
+                  href={`/shipping-v2/anuncios?ver=plantillas&categoria=${encodeURIComponent(datos.categoria)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[12px] font-semibold text-[#D7FF4F] hover:underline"
+                >
+                  Editar
+                </a>
               </label>
             </div>
 
@@ -418,8 +436,23 @@ export function GestorPublicacionesModal({
                     {sinRevisar ? <span className="ml-1.5 text-[#F4C95B]" title="Se registran en la inspección técnica">{sinRevisar} sin revisar</span> : null}
                     {alcance === "Producto" && accesoriosDistintos(cubiertas) ? <span className="ml-1.5 text-[#F4C95B]" title="Solo sale lo que traen todas">no todas traen lo mismo</span> : null}
                   </span>
-                  <span className="text-[#8F908A]">Hashtags</span>
-                  <span className="break-words">{cubiertas[0] ? hashtagsAnuncio(cubiertas[0], datos.tienda.hashtagsFijos) : "—"}</span>
+                  {plantilla?.descripcion.includes("{{hashtags}}") ? (
+                    <>
+                      <span className="text-[#8F908A]">Hashtags</span>
+                      <span className="break-words">{cubiertas[0] ? hashtagsAnuncio(cubiertas[0], datos.tienda.hashtagsFijos) : "—"}</span>
+                    </>
+                  ) : null}
+                  {canal === "Shopify" ? (
+                    <>
+                      <span className="text-[#8F908A]">SKU</span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="font-mono">{datos.sku}</span>
+                        <button type="button" onClick={() => copiar(datos.sku, "sku")} title="Copiar SKU" className="text-[#8F908A] hover:text-[#F5F5F5]">
+                          {copiado === "sku" ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
+                        </button>
+                      </span>
+                    </>
+                  ) : null}
                   {porLlegar ? (
                     <>
                       <span className="text-[#8F908A]">Por llegar</span>
@@ -436,6 +469,16 @@ export function GestorPublicacionesModal({
               <div className="flex min-w-0 flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className={labelClass}>Descripción</span>
+                  {html ? (
+                    <div role="radiogroup" aria-label="Ver descripción" className="inline-flex overflow-hidden rounded-lg border border-[#3A3B35]">
+                      {[false, true].map((codigo) => (
+                        <button key={String(codigo)} type="button" role="radio" aria-checked={verCodigo === codigo} onClick={() => setVerCodigo(codigo)}
+                          className={`h-7 px-2.5 text-[12px] font-semibold ${codigo ? "border-l border-[#3A3B35]" : ""} ${verCodigo === codigo ? "bg-[#33342D] text-[#F5F5F5]" : "bg-[#151515] text-[#8F908A]"}`}>
+                          {codigo ? "Código HTML" : "Vista"}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                   {descripcionManual !== null ? (
                     <button type="button" onClick={() => setDescripcionManual(null)} className="inline-flex items-center gap-1 text-[12px] text-[#B4B5AC] hover:text-[#F5F5F5]" title="Descartar cambios a mano y volver a la plantilla">
                       <RotateCcw className="h-3 w-3" aria-hidden="true" />Regenerar
@@ -449,19 +492,29 @@ export function GestorPublicacionesModal({
                     onClick={() => copiar(descripcion, "descripcion")}
                     className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-2.5 text-[12px] font-bold text-[#141510]"
                   >
-                    {copiado === "descripcion" ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}Copiar descripción
+                    {copiado === "descripcion" ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}{html ? "Copiar HTML" : "Copiar descripción"}
                   </button>
                 </div>
-                <textarea
-                  value={descripcion}
-                  onChange={(e) => setDescripcionManual(e.target.value)}
-                  aria-label="Descripción del anuncio"
-                  className="min-h-[340px] flex-1 resize-y rounded-lg border border-[#2A2B26] bg-[#F7F7F4] px-3 py-2.5 text-[12px] leading-[1.5] text-[#1C1D19] outline-none"
-                />
+                {html && !verCodigo ? (
+                  <iframe
+                    title="Vista de la descripción"
+                    sandbox=""
+                    srcDoc={`<body style="margin:12px;background:#fff">${descripcion}</body>`}
+                    className="min-h-[340px] flex-1 rounded-lg border border-[#2A2B26] bg-white"
+                  />
+                ) : (
+                  <textarea
+                    value={descripcion}
+                    onChange={(e) => setDescripcionManual(e.target.value)}
+                    aria-label="Descripción del anuncio"
+                    spellCheck={!html}
+                    className={`min-h-[340px] flex-1 resize-y rounded-lg border border-[#2A2B26] bg-[#F7F7F4] px-3 py-2.5 leading-[1.5] text-[#1C1D19] outline-none ${html ? "font-mono text-[11.5px]" : "text-[12px]"}`}
+                  />
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   {mensaje ? <span className="text-[12px] text-[#C9CAC1]">{mensaje}</span> : null}
                   <span className="flex-1" />
-                  {actual && actual.estado !== "Retirado" ? (
+                  {actual && (actual.estado === "Publicado" || actual.estado === "Por retirar") ? (
                     <button type="button" onClick={() => guardar("retirar")} disabled={Boolean(busy)} className={botonClass}>
                       {busy === "retirar" ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Retirado
                     </button>

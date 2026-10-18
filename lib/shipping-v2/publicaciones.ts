@@ -21,7 +21,12 @@ export type CanalPublicacion = (typeof CANALES_PUBLICACION)[number];
 export type AlcancePublicacion = "Producto" | "Unidad";
 
 /** Canales que ya se gestionan desde el gestor (10d-1). Los demás siguen con su casilla. */
-export const CANALES_EN_GESTOR: readonly CanalPublicacion[] = ["Marketplace", "Grupos Facebook"];
+export const CANALES_EN_GESTOR: readonly CanalPublicacion[] = ["Marketplace", "Mercado Libre", "Shopify", "Grupos Facebook"];
+
+/** Shopify usa una descripción en HTML. */
+export function canalUsaHtml(canal: CanalPublicacion) {
+  return canal === "Shopify";
+}
 
 /** Largo máximo del título en cada canal. */
 export const TITULO_MAX: Record<CanalPublicacion, number> = {
@@ -59,6 +64,8 @@ export type DatosTienda = {
   garantiaLarga: string;
   hashtagsFijos: string;
   version: number;
+  editadoPor?: string;
+  fechaEdicion?: string;
 };
 
 export type PlantillaPublicacion = {
@@ -69,6 +76,8 @@ export type PlantillaPublicacion = {
   titulo: string;
   descripcion: string;
   activa: boolean;
+  editadaPor?: string;
+  fechaEdicion?: string;
 };
 
 export type EstadoPublicacion = "Borrador" | "Publicado" | "Por retirar" | "Retirado";
@@ -255,43 +264,50 @@ export function unidadesCubiertas(
 
 // ─── Metacampos ──────────────────────────────────────────────────────────────
 
-/** Los metacampos que entiende una plantilla, con su grupo (para el editor). */
-export const METACAMPOS: ReadonlyArray<{ clave: string; grupo: "articulo" | "tienda" | "automatico" }> = [
-  { clave: "categoria", grupo: "articulo" },
-  { clave: "nombre", grupo: "articulo" },
-  { clave: "marca", grupo: "articulo" },
-  { clave: "modelo", grupo: "articulo" },
-  { clave: "condicion", grupo: "articulo" },
-  { clave: "condicion_titulo", grupo: "articulo" },
-  { clave: "pantalla", grupo: "articulo" },
-  { clave: "pantalla_titulo", grupo: "articulo" },
-  { clave: "procesador", grupo: "articulo" },
-  { clave: "procesador_titulo", grupo: "articulo" },
-  { clave: "graficos", grupo: "articulo" },
-  { clave: "ram", grupo: "articulo" },
-  { clave: "ram_titulo", grupo: "articulo" },
-  { clave: "disco", grupo: "articulo" },
-  { clave: "disco_titulo", grupo: "articulo" },
-  { clave: "conectividad", grupo: "articulo" },
-  { clave: "caracteristicas", grupo: "articulo" },
-  { clave: "sistema", grupo: "articulo" },
-  { clave: "bateria", grupo: "articulo" },
-  { clave: "accesorios", grupo: "articulo" },
-  { clave: "con_cargador", grupo: "articulo" },
-  { clave: "especificaciones", grupo: "articulo" },
-  { clave: "precio", grupo: "articulo" },
-  { clave: "sku", grupo: "articulo" },
-  { clave: "tienda_direccion", grupo: "tienda" },
-  { clave: "tienda_horario_semana", grupo: "tienda" },
-  { clave: "tienda_horario_sabado", grupo: "tienda" },
-  { clave: "tienda_whatsapp", grupo: "tienda" },
-  { clave: "tienda_telefono", grupo: "tienda" },
-  { clave: "tienda_web", grupo: "tienda" },
-  { clave: "tienda_pagos", grupo: "tienda" },
-  { clave: "tienda_garantia_corta", grupo: "tienda" },
-  { clave: "tienda_garantia_larga", grupo: "tienda" },
-  { clave: "presentacion", grupo: "automatico" },
-  { clave: "hashtags", grupo: "automatico" },
+export type GrupoMetacampo = "articulo" | "tienda" | "automatico";
+
+/** Los metacampos que entiende una plantilla, con su grupo y nombre corto (para el editor). */
+export const METACAMPOS: ReadonlyArray<{ clave: string; grupo: GrupoMetacampo; etiqueta: string }> = [
+  { clave: "categoria", grupo: "articulo", etiqueta: "categoría" },
+  { clave: "nombre", grupo: "articulo", etiqueta: "nombre" },
+  { clave: "marca", grupo: "articulo", etiqueta: "marca" },
+  { clave: "modelo", grupo: "articulo", etiqueta: "modelo" },
+  { clave: "condicion", grupo: "articulo", etiqueta: "condición" },
+  { clave: "condicion_titulo", grupo: "articulo", etiqueta: "CONDICIÓN" },
+  { clave: "pantalla", grupo: "articulo", etiqueta: "pantalla" },
+  { clave: "pantalla_titulo", grupo: "articulo", etiqueta: "pantalla corta" },
+  { clave: "pantalla_pulgadas", grupo: "articulo", etiqueta: "pulgadas" },
+  { clave: "procesador", grupo: "articulo", etiqueta: "procesador" },
+  { clave: "procesador_titulo", grupo: "articulo", etiqueta: "procesador corto" },
+  { clave: "graficos", grupo: "articulo", etiqueta: "gráficos" },
+  { clave: "ram", grupo: "articulo", etiqueta: "ram" },
+  { clave: "ram_titulo", grupo: "articulo", etiqueta: "ram corta" },
+  { clave: "ram_capacidad", grupo: "articulo", etiqueta: "ram GB" },
+  { clave: "disco", grupo: "articulo", etiqueta: "disco" },
+  { clave: "disco_titulo", grupo: "articulo", etiqueta: "disco corto" },
+  { clave: "disco_capacidad", grupo: "articulo", etiqueta: "disco GB" },
+  { clave: "conectividad", grupo: "articulo", etiqueta: "conectividad" },
+  { clave: "caracteristicas", grupo: "articulo", etiqueta: "características" },
+  { clave: "sistema", grupo: "articulo", etiqueta: "SISTEMA" },
+  { clave: "sistema_texto", grupo: "articulo", etiqueta: "sistema" },
+  { clave: "especificaciones", grupo: "articulo", etiqueta: "detalles" },
+  { clave: "bateria", grupo: "articulo", etiqueta: "batería" },
+  { clave: "accesorios", grupo: "articulo", etiqueta: "ACCESORIOS" },
+  { clave: "accesorios_texto", grupo: "articulo", etiqueta: "accesorios" },
+  { clave: "con_cargador", grupo: "articulo", etiqueta: "c/ cargador" },
+  { clave: "precio", grupo: "articulo", etiqueta: "precio" },
+  { clave: "sku", grupo: "articulo", etiqueta: "sku" },
+  { clave: "tienda_direccion", grupo: "tienda", etiqueta: "dirección" },
+  { clave: "tienda_horario_semana", grupo: "tienda", etiqueta: "horario L-V" },
+  { clave: "tienda_horario_sabado", grupo: "tienda", etiqueta: "horario sábado" },
+  { clave: "tienda_whatsapp", grupo: "tienda", etiqueta: "WhatsApp" },
+  { clave: "tienda_telefono", grupo: "tienda", etiqueta: "teléfono fijo" },
+  { clave: "tienda_web", grupo: "tienda", etiqueta: "web" },
+  { clave: "tienda_pagos", grupo: "tienda", etiqueta: "métodos de pago" },
+  { clave: "tienda_garantia_corta", grupo: "tienda", etiqueta: "garantía corta" },
+  { clave: "tienda_garantia_larga", grupo: "tienda", etiqueta: "garantía larga" },
+  { clave: "presentacion", grupo: "automatico", etiqueta: "presentación" },
+  { clave: "hashtags", grupo: "automatico", etiqueta: "hashtags" },
 ];
 
 const FEMENINO = new Set(["laptop", "tablet", "consola", "impresora", "tarjeta grafica", "pantalla", "bateria", "ram", "fuente de poder", "camara / seguridad"]);
@@ -371,6 +387,19 @@ function dinero(v: number | null) {
   return typeof v === "number" ? `$${Number.isInteger(v) ? v : v.toFixed(2)}` : "";
 }
 
+function primeraPalabra(texto: string) {
+  return txt(texto).split(/\s+/)[0] ?? "";
+}
+
+/** "WINDOWS 11 PRO" → "Windows 11 Pro". */
+function tituloCaso(texto: string) {
+  return txt(texto).toLocaleLowerCase("es").replace(/(^|\s)(\p{L})/gu, (_, espacio: string, letra: string) => espacio + letra.toLocaleUpperCase("es"));
+}
+
+function escaparHtml(texto: string) {
+  return texto.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 /** Los valores de los metacampos para un anuncio. */
 export function valoresAnuncio(input: {
   unidades: DatosUnidadAnuncio[];
@@ -403,6 +432,12 @@ export function valoresAnuncio(input: {
     conectividad: vacio ? "" : u.conectividad,
     caracteristicas: vacio ? "" : u.caracteristicas,
     sistema: vacio ? "" : u.sistema,
+    sistema_texto: vacio ? "" : tituloCaso(u.sistema),
+    pantalla_pulgadas: vacio ? "" : primeraPalabra(u.pantallaTitulo).replace(/["”″]/g, ""),
+    ram_capacidad: vacio ? "" : primeraPalabra(u.ramTitulo),
+    disco_capacidad: vacio ? "" : primeraPalabra(u.discoTitulo),
+    // Tal como se escribieron (marcas y siglas intactas: "Cargador original Dell USB-C").
+    accesorios_texto: accesorios.join(", "),
     bateria: bateriaAnuncio(input.unidades, input.alcance),
     accesorios: accesorios.join(", ").toLocaleUpperCase("es"),
     con_cargador: accesorios.some((a) => normal(a).includes("cargador")) ? "c/ cargador" : "",
@@ -430,14 +465,14 @@ const PATRON_METACAMPO = /\{\{\s*([a-z_]+)\s*\}\}/g;
  * quita entera; un metacampo desconocido se deja tal cual (para verlo y
  * corregir la plantilla). Sin líneas en blanco de más.
  */
-export function llenarPlantilla(plantilla: string, valores: Record<string, string>): string {
+export function llenarPlantilla(plantilla: string, valores: Record<string, string>, opciones: { html?: boolean } = {}): string {
   const lineas = plantilla.replace(/\r\n/g, "\n").split("\n");
   const salida: string[] = [];
   for (const linea of lineas) {
     const claves = Array.from(linea.matchAll(PATRON_METACAMPO), (m) => m[1]);
     const conocidas = claves.filter((c) => c in valores);
     if (conocidas.length && conocidas.every((c) => !txt(valores[c]))) continue;
-    salida.push(linea.replace(PATRON_METACAMPO, (todo, clave: string) => (clave in valores ? txt(valores[clave]) : todo)).replace(/[ \t]{2,}/g, " ").replace(/[ \t]+$/, ""));
+    salida.push(linea.replace(PATRON_METACAMPO, (todo, clave: string) => (clave in valores ? (opciones.html ? escaparHtml(txt(valores[clave])) : txt(valores[clave])) : todo)).replace(/[ \t]{2,}/g, " ").replace(/[ \t]+$/, ""));
   }
   return salida.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -445,6 +480,15 @@ export function llenarPlantilla(plantilla: string, valores: Record<string, strin
 /** Título en una línea, sin espacios de más. */
 export function llenarTitulo(plantilla: string, valores: Record<string, string>): string {
   return llenarPlantilla(plantilla.replace(/\n+/g, " "), valores).replace(/\s+/g, " ").trim();
+}
+
+/** Las plantillas activas que sirven para un canal y categoría: las propias primero, luego las de "Otros". */
+export function plantillasDisponibles(plantillas: PlantillaPublicacion[], categoria: string, canal: CanalPublicacion): PlantillaPublicacion[] {
+  const activas = plantillas.filter((p) => p.activa && p.canal === canal);
+  return [
+    ...activas.filter((p) => normal(p.categoria) === normal(categoria)),
+    ...activas.filter((p) => normal(p.categoria) === "otros" && normal(categoria) !== "otros"),
+  ];
 }
 
 /** La plantilla de la categoría, o la de "Otros" si no tiene propia. */

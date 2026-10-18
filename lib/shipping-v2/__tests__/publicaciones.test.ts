@@ -4,7 +4,7 @@
  */
 import {
   accesoriosAnuncio, bateriaAnuncio, condicionTitulo, elegirPlantilla, escribirAccesorios, hashtagsAnuncio, leerAccesorios,
-  llenarPlantilla, llenarTitulo, unidadesCubiertas, valoresAnuncio,
+  llenarPlantilla, llenarTitulo, plantillasDisponibles, unidadesCubiertas, valoresAnuncio,
   type DatosTienda, type DatosUnidadAnuncio, type PlantillaPublicacion,
 } from "../publicaciones";
 
@@ -66,6 +66,28 @@ const pubs = [{ canal: "Marketplace" as const, alcance: "Unidad" as const, unida
 assert(unidadesCubiertas([base, otra, vendida], pubs, "Marketplace", "Producto").map((u) => u.id).join() === "rec1", "Producto: sin vendidas ni las que van aparte");
 assert(unidadesCubiertas([base, otra, vendida], pubs, "Grupos Facebook", "Producto").length === 2, "En otro canal la unidad aparte sigue en el compartido");
 assert(unidadesCubiertas([base, otra], pubs, "Marketplace", "Unidad", "rec2").map((u) => u.id).join() === "rec2", "Unidad: solo esa");
+
+console.log("\n— Mercado Libre y Shopify (10d-2) —");
+const ML_TITULO = "{{categoria}} {{marca}} {{modelo}} {{pantalla_pulgadas}} {{procesador_titulo}} {{ram_capacidad}} {{disco_capacidad}}";
+const ML_DESC = "{{presentacion}}\n* Pantalla: {{pantalla}}.\n* Procesador: {{procesador}}.\n* Gráficos: {{graficos}}.\n* Memoria RAM: {{ram}}.\n* Almacenamiento: {{disco}}.\n* Conectividad: {{conectividad}}.\n* Características: {{caracteristicas}}.\n* Sistema operativo: {{sistema_texto}}.\n* Detalles: {{especificaciones}}.\n* Batería: {{bateria}}.\n* Accesorios incluidos: {{accesorios_texto}}.\n{{tienda_garantia_larga}}";
+const SH_DESC = "<div style=\"background-color: #211f1f; color: #fff; padding: 20px; font-family: Arial,sans-serif; border-radius: 12px;\">\n<p style=\"font-size: 15px; text-align: left; margin-bottom: 20px; color: #ccc;\">{{presentacion}}</p>\n<div style=\"background-color: #2b2a2a; padding: 15px; border-radius: 8px; margin-bottom: 20px;\">\n<h2 style=\"color: #e3fc02; font-size: 18px;\">⚙️ Especificaciones Técnicas</h2>\n<ul style=\"padding-left: 20px; line-height: 1.6;\">\n<li><strong>Pantalla:</strong> {{pantalla}}</li>\n<li><strong>Procesador:</strong> {{procesador}}</li>\n<li><strong>Gráficos:</strong> {{graficos}}</li>\n<li><strong>Memoria RAM:</strong> {{ram}}</li>\n<li><strong>Almacenamiento:</strong> {{disco}}</li>\n<li><strong>Conectividad:</strong> {{conectividad}}</li>\n<li><strong>Características:</strong> {{caracteristicas}}</li>\n<li><strong>Sistema Operativo:</strong> {{sistema}}</li>\n<li><strong>Detalles:</strong> {{especificaciones}}</li>\n<li><strong>Batería:</strong> {{bateria}}</li>\n<li><strong>Accesorios incluidos:</strong> {{accesorios}}</li>\n</ul>\n</div>\n<div style=\"background-color: #2b2a2a; padding: 15px; border-radius: 8px; margin-bottom: 20px;\">\n<h2 style=\"color: #e3fc02; font-size: 18px;\">💼 Métodos de Pago</h2>\n<p>{{tienda_pagos}}</p>\n</div>\n<div style=\"background-color: #2b2a2a; padding: 15px; border-radius: 8px; margin-bottom: 20px;\">\n<h2 style=\"color: #e3fc02; font-size: 18px;\">🔒 Garantía</h2>\n<p>{{tienda_garantia_corta}}</p>\n</div>\n</div>";
+const tituloMl = llenarTitulo(ML_TITULO, valores);
+assert(tituloMl === "Laptop Dell Latitude 7420 14 i7-1165G7 16GB 512GB" && tituloMl.length <= 60, "Título de Mercado Libre corto (≤ 60)");
+const descMl = llenarPlantilla(ML_DESC, valores);
+assert(descMl.includes("* Sistema operativo: Windows 11 Pro.") && descMl.includes("* Accesorios incluidos: Cargador original Dell USB-C."), "Mercado Libre: sistema sin mayúsculas; accesorios tal como se escribieron");
+assert(!descMl.includes("Gráficos") && descMl.endsWith(tienda.garantiaLarga) && !descMl.includes("WhatsApp"), "Mercado Libre: sin líneas vacías, garantía larga, sin contactos");
+const conComillas = valoresAnuncio({ unidades: [{ ...base, accesorios: ["Adaptador <USB> & HDMI"] }], alcance: "Unidad", tienda, presentacion: "Laptop de 14\" & liviana", precio: 450 });
+const html = llenarPlantilla(SH_DESC, conComillas, { html: true });
+assert(html.includes("Laptop de 14&quot; &amp; liviana") && html.includes("ADAPTADOR &lt;USB&gt; &amp; HDMI"), "Shopify: los datos se escapan en el HTML");
+assert(!html.includes("Gráficos") && html.includes("<li><strong>Batería:</strong> 86% salud, batería en muy buen estado</li>"), "Shopify: un <li> sin dato desaparece");
+assert(html.trim().endsWith("</div>") && !html.includes("{{"), "Shopify: HTML completo, sin metacampos sueltos");
+const varias: PlantillaPublicacion[] = [
+  { id: "a", nombre: "Otros · Shopify", categoria: "Otros", canal: "Shopify", titulo: "", descripcion: "", activa: true },
+  { id: "b", nombre: "Laptop · Shopify", categoria: "Laptop", canal: "Shopify", titulo: "", descripcion: "", activa: true },
+  { id: "c", nombre: "Monitor · Shopify", categoria: "Monitor", canal: "Shopify", titulo: "", descripcion: "", activa: true },
+  { id: "d", nombre: "Laptop · Shopify vieja", categoria: "Laptop", canal: "Shopify", titulo: "", descripcion: "", activa: false },
+];
+assert(plantillasDisponibles(varias, "Laptop", "Shopify").map((p) => p.id).join() === "b,a", "Disponibles: las de la categoría y luego Otros (sin inactivas ni de otras categorías)");
 
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo bien.");
