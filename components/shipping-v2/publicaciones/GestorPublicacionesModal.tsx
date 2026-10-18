@@ -202,6 +202,8 @@ export function GestorPublicacionesModal({
   const sinRevisar = cubiertas.filter((u) => u.accesorios === null).length;
   const accesoriosTexto = alcance === "Unidad" ? (cubiertas[0]?.accesorios ?? []).join(", ") : accesoriosAnuncio(cubiertas).join(", ");
   const porLlegar = cubiertas.filter((u) => !u.recibido).length;
+  // Precio de venta que tiene hoy el sistema (puede haber cambiado desde que se publicó).
+  const precioSistema = cubiertas.find((u) => u.precio !== null)?.precio ?? null;
 
   const copiar = useCallback(async (texto: string, que: "titulo" | "descripcion" | "sku") => {
     try {
@@ -481,6 +483,11 @@ export function GestorPublicacionesModal({
                       aria-label="Precio publicado"
                       className={`h-6 w-24 rounded border bg-[#151515] px-1.5 text-[12px] text-[#F5F5F5] outline-none ${precioValido ? "border-[#3A3B35]" : "border-[#FF8A6B]"}`}
                     />
+                    {precioSistema !== null && precioValido && precioNumero !== precioSistema ? (
+                      <button type="button" onClick={() => setPrecio(String(precioSistema))} title="Precio de venta actual del artículo" className="ml-1 text-[11.5px] font-semibold text-[#F4C95B] hover:underline">
+                        usar ${precioSistema}
+                      </button>
+                    ) : null}
                   </span>
                   <span className="text-[#8F908A]">Batería</span>
                   <span>{bateriaAnuncio(cubiertas, alcance) || "—"}</span>

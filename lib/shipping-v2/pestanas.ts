@@ -46,6 +46,8 @@ export type ResumenPestanas = {
   /** Cajas abiertas ("En Proceso"). */
   cajasAbiertas: number;
   novedadesAbiertas: number;
+  /** Anuncios publicados de algo que ya no está a la venta (10d-4). */
+  anunciosPorRetirar?: number;
 };
 
 /** Texto corto del pendiente de cada pestaña, o null si no hay nada que mostrar. */
@@ -54,6 +56,7 @@ export function pendienteDePestana(key: PestanaShippingKey, r: ResumenPestanas |
   if (key === "recepcion" && r.porLlegar > 0) return `${r.porLlegar} por llegar`;
   if (key === "packings" && r.sinRastreo > 0) return `${r.sinRastreo} sin rastreo`;
   if (key === "packings" && r.cajasAbiertas > 0) return `${r.cajasAbiertas} caja${r.cajasAbiertas === 1 ? "" : "s"} abierta${r.cajasAbiertas === 1 ? "" : "s"}`;
+  if (key === "anuncios" && (r.anunciosPorRetirar ?? 0) > 0) return `${r.anunciosPorRetirar} por retirar`;
   if (key === "novedades" && r.novedadesAbiertas > 0) return `${r.novedadesAbiertas} abiertas`;
   return null;
 }

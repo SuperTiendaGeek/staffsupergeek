@@ -5,9 +5,11 @@ import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSyste
 import {
   categoriasDePlantilla,
   contarPublicacionesDesactualizadasShippingV2,
+  getShippingV2AnunciosPendientes,
   getShippingV2AccessContextForSession,
   getShippingV2DatosTienda,
   getShippingV2PlantillasPublicacion,
+  type ShippingV2AnunciosPendientes,
 } from "@/lib/shipping-v2/airtable";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import { getSessionFromCookie } from "@/lib/session";
@@ -31,9 +33,14 @@ export default async function ShippingV2AnunciosPage({ searchParams }: Props) {
   let plantillas: PlantillaPublicacion[] = [];
   let tienda: DatosTienda | null = null;
   let desactualizadas = 0;
+  let pendientes: ShippingV2AnunciosPendientes = { porRetirar: [], porActualizar: [], retirados: [] };
   let error = "";
   try {
-    [plantillas, tienda] = await Promise.all([getShippingV2PlantillasPublicacion(), getShippingV2DatosTienda()]);
+    [plantillas, tienda, pendientes] = await Promise.all([
+      getShippingV2PlantillasPublicacion(),
+      getShippingV2DatosTienda(),
+      getShippingV2AnunciosPendientes({ conRetirados: true }),
+    ]);
     desactualizadas = await contarPublicacionesDesactualizadasShippingV2(tienda.version);
   } catch (e) {
     console.error("Error al cargar Anuncios:", e);
@@ -54,7 +61,12 @@ export default async function ShippingV2AnunciosPage({ searchParams }: Props) {
             desactualizadas={desactualizadas}
             categorias={categoriasDePlantilla()}
             puedeEditarTienda={access.isSiteAdmin === true}
-            vistaInicial={ver === "tienda" ? "tienda" : "plantillas"}
+            pendientes={pendientes}
+            vistaInicial={
+              ver === "tienda" || ver === "plantillas" || ver === "retirar" || ver === "actualizar" || ver === "retirados"
+                ? ver
+                : pendientes.porRetirar.length ? "retirar" : pendientes.porActualizar.length ? "actualizar" : "plantillas"
+            }
             categoriaInicial={categoria && categoriasDePlantilla().includes(categoria) ? categoria : "Laptop"}
           />
         )}
