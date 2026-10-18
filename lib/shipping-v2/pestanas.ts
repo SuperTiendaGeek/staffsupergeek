@@ -6,7 +6,7 @@
 
 import type { ShippingV2AccessPermissions } from "@/types/shipping-v2";
 
-export type PestanaShippingKey = "items" | "activos" | "packings" | "recepcion" | "anuncios" | "pagos" | "novedades";
+export type PestanaShippingKey = "items" | "activos" | "packings" | "recepcion" | "anuncios" | "control" | "pagos" | "novedades";
 
 export type PestanaShipping = {
   key: PestanaShippingKey;
@@ -28,6 +28,8 @@ export const PESTANAS_SHIPPING_V2: readonly PestanaShipping[] = [
   { key: "recepcion", label: "Recepción", href: "/shipping-v2/recepcion", permiso: "canUseRecepcion" },
   // Punto 10d (18-oct): plantillas de anuncios, datos fijos de la tienda y, más adelante, anuncios por retirar.
   { key: "anuncios", label: "Anuncios", href: "/shipping-v2/anuncios", permiso: "canUseRecepcion", soloStaff: true },
+  // Punto 10c (18-oct): revisión de inventario, conteos, fusionar SKU y cambios de código.
+  { key: "control", label: "Control", href: "/shipping-v2/control", permiso: "canUseRecepcion", soloStaff: true },
   { key: "pagos", label: "Pagos", href: "/shipping-v2/pagos", permiso: "canViewPayments" },
   { key: "novedades", label: "Novedades", href: "/shipping-v2/novedades", permiso: "canViewNovedades" },
 ];
@@ -48,6 +50,8 @@ export type ResumenPestanas = {
   novedadesAbiertas: number;
   /** Anuncios publicados de algo que ya no está a la venta (10d-4). */
   anunciosPorRetirar?: number;
+  /** Asuntos abiertos de la revisión de inventario (10c-1). */
+  asuntosRevision?: number;
 };
 
 /** Texto corto del pendiente de cada pestaña, o null si no hay nada que mostrar. */
@@ -57,6 +61,7 @@ export function pendienteDePestana(key: PestanaShippingKey, r: ResumenPestanas |
   if (key === "packings" && r.sinRastreo > 0) return `${r.sinRastreo} sin rastreo`;
   if (key === "packings" && r.cajasAbiertas > 0) return `${r.cajasAbiertas} caja${r.cajasAbiertas === 1 ? "" : "s"} abierta${r.cajasAbiertas === 1 ? "" : "s"}`;
   if (key === "anuncios" && (r.anunciosPorRetirar ?? 0) > 0) return `${r.anunciosPorRetirar} por retirar`;
+  if (key === "control" && (r.asuntosRevision ?? 0) > 0) return `${r.asuntosRevision} asunto${r.asuntosRevision === 1 ? "" : "s"}`;
   if (key === "novedades" && r.novedadesAbiertas > 0) return `${r.novedadesAbiertas} abiertas`;
   return null;
 }
