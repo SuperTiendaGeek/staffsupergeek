@@ -9,7 +9,7 @@
 // Tiene su propio estado: escribir aquí no repinta la pantalla de fondo.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Copy, Loader2, RotateCcw, X } from "lucide-react";
+import { Check, Copy, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import {
   CANALES_EN_GESTOR,
   TITULO_MAX,
@@ -250,6 +250,38 @@ export function GestorPublicacionesModal({
     }
   }
 
+  // ✨ Sugerir (10d-3): Claude escribe la presentación o el título con los datos del equipo.
+  const [sugiriendo, setSugiriendo] = useState<"" | "presentacion" | "titulo">("");
+  async function sugerir(que: "presentacion" | "titulo") {
+    if (!datos) return;
+    setSugiriendo(que);
+    setMensaje("");
+    try {
+      const response = await fetch("/api/shipping-v2/publicaciones/sugerir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sku: datos.sku,
+          canal,
+          alcance,
+          unidadId: alcance === "Unidad" ? unidadId : undefined,
+          que,
+          tituloPlantilla: tituloGenerado,
+          actual: que === "presentacion" ? presentacion : titulo,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(String(payload.error || "La IA no pudo responder."));
+      const texto = String(payload.data?.texto ?? "");
+      if (que === "presentacion") setPresentacion(texto);
+      else setTituloManual(texto);
+    } catch (e) {
+      setMensaje(e instanceof Error ? e.message : "Error inesperado.");
+    } finally {
+      setSugiriendo("");
+    }
+  }
+
   async function desmarcar() {
     if (!onDesmarcarCasilla) return;
     setBusy("desmarcar");
@@ -395,7 +427,7 @@ export function GestorPublicacionesModal({
 
             <div className="grid min-h-0 gap-3.5 md:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
               <div className="flex min-w-0 flex-col gap-2.5">
-                <label className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1">
                   <span className={`flex items-center gap-1.5 ${labelClass}`}>
                     Título
                     {tituloManual !== null ? (
@@ -404,19 +436,41 @@ export function GestorPublicacionesModal({
                       </button>
                     ) : null}
                     <span className={`ml-auto normal-case tracking-normal ${titulo.length > maximo ? "text-[#FF8A6B]" : "text-[#9FEFB3]"}`}>{titulo.length}/{maximo}</span>
+                    <button
+                      type="button"
+                      onClick={() => void sugerir("titulo")}
+                      disabled={Boolean(sugiriendo) || !datos.iaDisponible}
+                      title={datos.iaDisponible ? "Sugerir título con IA" : "Falta configurar la clave de IA en Vercel"}
+                      className="inline-flex h-6 items-center gap-1 rounded-md border border-[#B9A5FF]/40 bg-[#B9A5FF]/10 px-1.5 text-[11.5px] font-semibold normal-case tracking-normal text-[#D6CCFF] disabled:opacity-40"
+                    >
+                      {sugiriendo === "titulo" ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : <Sparkles className="h-3 w-3" aria-hidden="true" />}Sugerir
+                    </button>
                   </span>
-                  <input value={titulo} onChange={(e) => setTituloManual(e.target.value)} className={inputClass} />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className={labelClass}>Presentación</span>
+                  <input value={titulo} onChange={(e) => setTituloManual(e.target.value)} aria-label="Título" className={inputClass} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className={`flex items-center ${labelClass}`}>
+                    Presentación
+                    <span className="flex-1" />
+                    <button
+                      type="button"
+                      onClick={() => void sugerir("presentacion")}
+                      disabled={Boolean(sugiriendo) || !datos.iaDisponible}
+                      title={datos.iaDisponible ? "Sugerir presentación con IA" : "Falta configurar la clave de IA en Vercel"}
+                      className="inline-flex h-6 items-center gap-1 rounded-md border border-[#B9A5FF]/40 bg-[#B9A5FF]/10 px-1.5 text-[11.5px] font-semibold normal-case tracking-normal text-[#D6CCFF] disabled:opacity-40"
+                    >
+                      {sugiriendo === "presentacion" ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> : <Sparkles className="h-3 w-3" aria-hidden="true" />}Sugerir
+                    </button>
+                  </span>
                   <textarea
                     rows={4}
                     value={presentacion}
+                    aria-label="Presentación"
                     onChange={(e) => setPresentacion(e.target.value)}
                     placeholder="Para qué sirve y qué lo hace atractivo"
                     className="min-w-0 resize-y rounded-lg border border-[#3A3B35] bg-[#151515] px-2.5 py-1.5 text-[12.5px] leading-[1.45] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/60"
                   />
-                </label>
+                </div>
                 <div className="grid grid-cols-[84px_minmax(0,1fr)] gap-x-2 gap-y-1 rounded-lg border border-[#2A2B26] bg-[#151612] px-2.5 py-2 text-[12px] text-[#EDEDE7]">
                   <span className="text-[#8F908A]">Precio</span>
                   <span className="flex items-center gap-1">
