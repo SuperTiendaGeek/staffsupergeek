@@ -269,9 +269,12 @@ import {
   escribirAccesorios,
   leerAccesorios,
   nombrePublicacion,
+  revisarAnuncios,
   unidadViva,
   unidadesCubiertas,
   type AlcancePublicacion,
+  type AnuncioPendiente,
+  type UnidadParaRevisar,
   type CanalPublicacion,
   type DatosTienda,
   type DatosUnidadAnuncio,
@@ -10454,6 +10457,8 @@ export async function getShippingV2ResumenPestanas(access?: ShippingV2AccessCont
     sinRastreo,
     cajasAbiertas: packings.filter((r) => estadoPacking(r) === "en proceso").length,
     novedadesAbiertas: novedades.filter((r) => isNovedadAbierta(firstString(r.fields["Estado Novedad"], "Abierta"))).length,
+    // Punto 10d-4: anuncios de cosas que ya no están a la venta.
+    anunciosPorRetirar: await getShippingV2AnunciosPendientes().then((a) => a.porRetirar.length).catch(() => 0),
   };
 }
 
@@ -11054,6 +11059,8 @@ function mapPublicacion(r: AirtableRecord): Publicacion | null {
     publicadoPor: firstString(f["Publicado por"]) || undefined,
     fechaPublicado: firstString(f["Fecha publicado"]) || undefined,
     versionTienda: firstNumber(f["Versión datos de la tienda"]),
+    retiradoPor: firstString(f["Retirado por"]) || undefined,
+    fechaRetirado: firstString(f["Fecha retirado"]) || undefined,
   };
 }
 
@@ -11311,4 +11318,64 @@ export async function contarPublicacionesDesactualizadasShippingV2(version: numb
     filterByFormula: `AND({Estado} = 'Publicado', {Versión datos de la tienda} < ${Math.max(0, Math.floor(version))})`,
   });
   return registros.length;
+}
+
+// ─── Punto 10d-4: anuncios por retirar / por actualizar ──────────────────────
+
+export type ShippingV2AnunciosPendientes = {
+  porRetirar: AnuncioPendiente[];
+  porActualizar: AnuncioPendiente[];
+  retirados: Publicacion[];
+};
+
+/** Revisa todos los anuncios publicados contra el inventario y los datos de la tienda. */
+export async function getShippingV2AnunciosPendientes(opciones: { conRetirados?: boolean } = {}): Promise<ShippingV2AnunciosPendientes> {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const [publicados, tienda, retirados] = await Promise.all([
+    listRecords(TABLA_PUBLICACIONES, { filterByFormula: "OR({Estado} = 'Publicado', {Estado} = 'Por retirar')" }),
+    getShippingV2DatosTienda(),
+    opciones.conRetirados
+      ? listRecords(TABLA_PUBLICACIONES, { filterByFormula: "{Estado} = 'Retirado'", sortField: "Fecha retirado", sortDirection: "desc", maxRecords: 30 })
+      : Promise.resolve([] as AirtableRecord[]),
+  ]);
+  const publicaciones = publicados.map(mapPublicacion).filter((p): p is Publicacion => p !== null);
+  const skus = Array.from(new Set(publicaciones.map((p) => p.sku.toUpperCase()).filter(Boolean)));
+  const unidades: UnidadParaRevisar[] = [];
+  for (let i = 0; i < skus.length; i += 20) {
+    const grupo = skus.slice(i, i + 20);
+    const formula = `OR(${grupo.map((s) => `UPPER({${F.sku}}) = '${escapeFormulaString(s)}'`).join(", ")})`;
+    const registros = await listRecords(SHIPPING_V2_TABLES.items, { filterByFormula: formula, fields: [F.sku, F.estadoItem, F.precioVentaFinal, F.numeroSerie] });
+    for (const r of registros) {
+      unidades.push({
+        id: r.id,
+        sku: firstString(r.fields[F.sku]),
+        estado: firstString(r.fields[F.estadoItem], "Registrado"),
+        precio: firstNumber(r.fields[F.precioVentaFinal]),
+        numeroSerie: firstString(r.fields[F.numeroSerie]) || undefined,
+      });
+    }
+  }
+  const { porRetirar, porActualizar } = revisarAnuncios(publicaciones, unidades, tienda.version);
+  return {
+    porRetirar,
+    porActualizar,
+    retirados: retirados.map(mapPublicacion).filter((p): p is Publicacion => p !== null),
+  };
+}
+
+/** "Retirado": el empleado ya lo quitó del canal. */
+export async function retirarPublicacionShippingV2(id: string, options: { actor: string }): Promise<Publicacion> {
+  const recordId = cleanString(id);
+  if (!recordId) throw new Error("Falta el anuncio.");
+  const ahora = new Date().toISOString();
+  const respuesta = await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_PUBLICACIONES), {
+    method: "PATCH",
+    body: JSON.stringify({
+      records: [{ id: recordId, fields: { Estado: "Retirado", "Retirado por": options.actor, "Fecha retirado": ahora, "Actualizado por": options.actor, "Última actualización": ahora } }],
+    }),
+  });
+  const r = respuesta.records?.[0];
+  const publicacion = r ? mapPublicacion(r) : null;
+  if (!publicacion) throw new Error("Airtable no devolvió el anuncio.");
+  return publicacion;
 }

@@ -1,7 +1,7 @@
 "use client";
 
-// Pestaña "Anuncios" (punto 10d-2): plantillas por categoría y canal, y datos
-// fijos de la tienda. Las plantillas las editan Administrador y Staff; los
+// Pestaña "Anuncios" (puntos 10d-2 y 10d-4): anuncios por retirar y por
+// actualizar, plantillas por categoría y canal, y datos fijos de la tienda. Las plantillas las editan Administrador y Staff; los
 // datos de la tienda, solo el Administrador.
 
 import { useMemo, useRef, useState } from "react";
@@ -22,8 +22,10 @@ import {
   type GrupoMetacampo,
   type PlantillaPublicacion,
 } from "@/lib/shipping-v2/publicaciones";
+import type { ShippingV2AnunciosPendientes } from "@/lib/shipping-v2/airtable";
+import { ListasAnuncios } from "./ListasAnuncios";
 
-type Vista = "plantillas" | "tienda";
+type Vista = "retirar" | "actualizar" | "retirados" | "plantillas" | "tienda";
 
 const labelClass = "text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]";
 const inputClass = "h-8 w-full min-w-0 rounded-lg border border-[#3A3B35] bg-[#151515] px-2.5 text-[12.5px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/60 disabled:opacity-60";
@@ -34,6 +36,13 @@ const COLOR_GRUPO: Record<GrupoMetacampo, string> = {
   articulo: "bg-[#2E3A12] text-[#E3F7A0]",
   tienda: "bg-[#173246] text-[#BDEAFF]",
   automatico: "bg-[#3A2A12] text-[#FFD9A0]",
+};
+const ETIQUETA_VISTA: Record<Vista, string> = {
+  retirar: "Por retirar",
+  actualizar: "Por actualizar",
+  retirados: "Retirados",
+  plantillas: "Plantillas",
+  tienda: "Datos de la tienda",
 };
 const TITULO_GRUPO: Record<GrupoMetacampo, string> = { articulo: "Del artículo", tienda: "De la tienda", automatico: "Automáticos" };
 
@@ -49,6 +58,7 @@ export function ShippingV2AnunciosClient({
   desactualizadas,
   categorias,
   puedeEditarTienda,
+  pendientes,
   vistaInicial,
   categoriaInicial,
 }: {
@@ -57,6 +67,7 @@ export function ShippingV2AnunciosClient({
   desactualizadas: number;
   categorias: string[];
   puedeEditarTienda: boolean;
+  pendientes: ShippingV2AnunciosPendientes;
   vistaInicial: Vista;
   categoriaInicial: string;
 }) {
@@ -65,7 +76,7 @@ export function ShippingV2AnunciosClient({
   return (
     <div className="space-y-3">
       <div role="tablist" className="inline-flex overflow-hidden rounded-lg border border-[#3A3B35]">
-        {(["plantillas", "tienda"] as const).map((v, i) => (
+        {(["retirar", "actualizar", "retirados", "plantillas", "tienda"] as const).map((v, i) => (
           <button
             key={v}
             type="button"
@@ -74,14 +85,18 @@ export function ShippingV2AnunciosClient({
             onClick={() => setVista(v)}
             className={`h-8 px-3 text-[12.5px] font-semibold ${i ? "border-l border-[#3A3B35]" : ""} ${vista === v ? "bg-[#D7FF4F] font-bold text-[#141510]" : "bg-[#151515] text-[#B4B5AC]"}`}
           >
-            {v === "plantillas" ? "Plantillas" : "Datos de la tienda"}
+            {ETIQUETA_VISTA[v]}
+            {v === "retirar" && pendientes.porRetirar.length ? ` · ${pendientes.porRetirar.length}` : ""}
+            {v === "actualizar" && pendientes.porActualizar.length ? ` · ${pendientes.porActualizar.length}` : ""}
           </button>
         ))}
       </div>
-      {vista === "plantillas" ? (
+      {vista === "retirar" || vista === "actualizar" || vista === "retirados" ? (
+        <ListasAnuncios vista={vista} porRetirar={pendientes.porRetirar} porActualizar={pendientes.porActualizar} retirados={pendientes.retirados} />
+      ) : vista === "plantillas" ? (
         <EditorPlantillas inicial={plantillas} categorias={categorias} categoriaInicial={categoriaInicial} tienda={datosTienda} />
       ) : (
-        <FormularioTienda tienda={datosTienda} desactualizadasInicial={desactualizadas} puedeEditar={puedeEditarTienda} onGuardada={setDatosTienda} />
+        <FormularioTienda tienda={datosTienda} desactualizadasInicial={desactualizadas} puedeEditar={puedeEditarTienda} onGuardada={setDatosTienda} onVer={() => setVista("actualizar")} />
       )}
     </div>
   );
@@ -394,11 +409,13 @@ function FormularioTienda({
   desactualizadasInicial,
   puedeEditar,
   onGuardada,
+  onVer,
 }: {
   tienda: DatosTienda;
   desactualizadasInicial: number;
   puedeEditar: boolean;
   onGuardada: (t: DatosTienda) => void;
+  onVer: () => void;
 }) {
   const [valores, setValores] = useState<DatosTienda>(tienda);
   const [desactualizadas, setDesactualizadas] = useState(desactualizadasInicial);
@@ -461,6 +478,7 @@ function FormularioTienda({
         {desactualizadas ? (
           <span className="text-[#F4C95B]" title="Los anuncios ya publicados no cambian solos">
             <b>{desactualizadas}</b> anuncio{desactualizadas === 1 ? "" : "s"} publicado{desactualizadas === 1 ? "" : "s"} con los datos anteriores
+            <button type="button" onClick={onVer} className="ml-2 font-semibold text-[#D7FF4F] hover:underline">Ver</button>
           </span>
         ) : null}
         {mensaje ? <span className="text-[#C9CAC1]">{mensaje}</span> : null}

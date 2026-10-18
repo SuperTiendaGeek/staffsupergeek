@@ -98,6 +98,8 @@ export type Publicacion = {
   publicadoPor?: string;
   fechaPublicado?: string;
   versionTienda?: number | null;
+  retiradoPor?: string;
+  fechaRetirado?: string;
 };
 
 /** Lo que un anuncio necesita de cada unidad (se arma en el servidor desde la ficha). */
@@ -516,4 +518,59 @@ export function elegirPlantilla(plantillas: PlantillaPublicacion[], categoria: s
 /** Nombre del registro de Shipping Publicaciones: "LAP-000500 · Marketplace · Producto". */
 export function nombrePublicacion(sku: string, canal: CanalPublicacion, alcance: AlcancePublicacion, serie?: string | null) {
   return [sku, canal, alcance === "Unidad" ? `S/N ${normalizarSerie(serie) || "unidad"}` : "Producto"].join(" · ");
+}
+
+// ─── Anuncios por retirar / por actualizar (10d-4) ───────────────────────────
+
+/** Lo mínimo de cada registro del SKU para revisar sus anuncios. */
+export type UnidadParaRevisar = { id: string; sku: string; estado: string; precio: number | null; numeroSerie?: string };
+
+export type AnuncioPendiente = { publicacion: Publicacion; motivo: string };
+
+function mismoSku(a: string, b: string) {
+  return txt(a).toUpperCase() === txt(b).toUpperCase();
+}
+
+/**
+ * Revisa los anuncios publicados contra el inventario:
+ * - Por retirar: el anuncio ya no tiene nada que vender (producto: ninguna
+ *   unidad a la venta; aparte: esa unidad se vendió o salió).
+ * - Por actualizar: cambiaron los datos de la tienda después de publicarlo, o
+ *   el precio del sistema ya no es el publicado.
+ */
+export function revisarAnuncios(
+  publicaciones: Publicacion[],
+  unidades: UnidadParaRevisar[],
+  versionTienda: number
+): { porRetirar: AnuncioPendiente[]; porActualizar: AnuncioPendiente[] } {
+  const porRetirar: AnuncioPendiente[] = [];
+  const porActualizar: AnuncioPendiente[] = [];
+  for (const p of publicaciones) {
+    if (p.estado !== "Publicado" && p.estado !== "Por retirar") continue;
+    const delSku = unidades.filter((u) => mismoSku(u.sku, p.sku));
+    const vivas = delSku.filter((u) => unidadViva(u));
+    let precioActual: number | null = null;
+    if (p.alcance === "Unidad") {
+      const u = delSku.find((x) => x.id === p.unidadId);
+      if (!u || !unidadViva(u)) {
+        porRetirar.push({ publicacion: p, motivo: u ? `${u.numeroSerie ? `S/N ${u.numeroSerie}` : "La unidad"}: ${u.estado}` : "La unidad ya no existe" });
+        continue;
+      }
+      precioActual = u.precio;
+    } else {
+      if (!vivas.length) {
+        const estados = Array.from(new Set(delSku.map((u) => u.estado).filter(Boolean)));
+        porRetirar.push({ publicacion: p, motivo: delSku.length ? `Sin unidades a la venta · ${estados.join(", ")}` : "El producto ya no existe" });
+        continue;
+      }
+      precioActual = vivas.find((u) => u.precio !== null)?.precio ?? null;
+    }
+    const motivos: string[] = [];
+    if ((p.versionTienda ?? 0) < versionTienda) motivos.push("Cambiaron los datos de la tienda");
+    if (p.precio !== null && precioActual !== null && Math.abs(p.precio - precioActual) > 0.009) {
+      motivos.push(`Precio ${dinero(p.precio)} → ${dinero(precioActual)}`);
+    }
+    if (motivos.length) porActualizar.push({ publicacion: p, motivo: motivos.join(" · ") });
+  }
+  return { porRetirar, porActualizar };
 }

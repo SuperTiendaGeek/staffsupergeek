@@ -4,8 +4,8 @@
  */
 import {
   accesoriosAnuncio, bateriaAnuncio, condicionTitulo, elegirPlantilla, escribirAccesorios, hashtagsAnuncio, leerAccesorios,
-  llenarPlantilla, llenarTitulo, plantillasDisponibles, unidadesCubiertas, valoresAnuncio,
-  type DatosTienda, type DatosUnidadAnuncio, type PlantillaPublicacion,
+  llenarPlantilla, llenarTitulo, plantillasDisponibles, revisarAnuncios, unidadesCubiertas, valoresAnuncio,
+  type DatosTienda, type DatosUnidadAnuncio, type PlantillaPublicacion, type Publicacion,
 } from "../publicaciones";
 
 let fallos = 0;
@@ -88,6 +88,26 @@ const varias: PlantillaPublicacion[] = [
   { id: "d", nombre: "Laptop · Shopify vieja", categoria: "Laptop", canal: "Shopify", titulo: "", descripcion: "", activa: false },
 ];
 assert(plantillasDisponibles(varias, "Laptop", "Shopify").map((p) => p.id).join() === "b,a", "Disponibles: las de la categoría y luego Otros (sin inactivas ni de otras categorías)");
+
+console.log("\n— Por retirar / por actualizar (10d-4) —");
+const pub = (x: Partial<Publicacion>): Publicacion => ({ id: "p", sku: "LAP-000500", canal: "Marketplace", alcance: "Producto", titulo: "", presentacion: "", descripcion: "", precio: 390, enlace: "", estado: "Publicado", versionTienda: 1, ...x });
+const inv = [
+  { id: "u1", sku: "LAP-000500", estado: "Vendido", precio: 390, numeroSerie: "AAA" },
+  { id: "u2", sku: "lap-000500", estado: "Disponible", precio: 370, numeroSerie: "BBB" },
+  { id: "u3", sku: "MON-000034", estado: "Dado de baja", precio: 120 },
+];
+const r1 = revisarAnuncios([
+  pub({ id: "a" }),
+  pub({ id: "b", alcance: "Unidad", unidadId: "u1" }),
+  pub({ id: "c", sku: "MON-000034", precio: 120 }),
+  pub({ id: "d", alcance: "Unidad", unidadId: "u2", precio: 370 }),
+  pub({ id: "e", estado: "Borrador", sku: "MON-000034" }),
+], inv, 2);
+assert(r1.porRetirar.map((x) => x.publicacion.id).join() === "b,c", "Por retirar: unidad aparte vendida y producto sin unidades (no los borradores)");
+assert(r1.porRetirar[0].motivo === "S/N AAA: Vendido" && r1.porRetirar[1].motivo.includes("Dado de baja"), "Motivo legible");
+assert(r1.porActualizar.find((x) => x.publicacion.id === "a")?.motivo === "Cambiaron los datos de la tienda · Precio $390 → $370", "Por actualizar: datos de la tienda y precio");
+assert(r1.porActualizar.find((x) => x.publicacion.id === "d")?.motivo === "Cambiaron los datos de la tienda", "Aparte con su propio precio: solo la tienda");
+assert(revisarAnuncios([pub({ id: "f", precio: 370, versionTienda: 2 })], inv, 2).porActualizar.length === 0, "Al día: nada que hacer");
 
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo bien.");
