@@ -59,7 +59,7 @@ assert(serieCorta("7HX2KQ3") === "…KQ3", "Abreviada …KQ3");
 assert(valorCodigoBarras({ sku: "LAP-000500", numeroSerie: "7HX2KQ3", categoria: "Laptop" }).valor === "7HX2KQ3", "Equipo con serie → la serie");
 assert(valorCodigoBarras({ sku: "LAP-000500", numeroSerie: "", categoria: "Laptop" }).valor === "LAP-000500", "Equipo sin serie aún → el SKU");
 assert(valorCodigoBarras({ sku: "CAB-000010", numeroSerie: "X1234", categoria: "Cable" }).valor === "CAB-000010", "Lote → el SKU");
-assert(faltaSerieParaVender({ categoria: "Laptop" }) && !faltaSerieParaVender({ categoria: "Cable" }), "Un equipo sin serie no se vende; un cable sí");
+assert(faltaSerieParaVender({ categoria: "Laptop" }) && !faltaSerieParaVender({ categoria: "Cable" }), "A un equipo sin serie le falta registrarla (solo aviso); a un cable no");
 
 console.log("\n— ¿Ya existe? —");
 const dell = { sku: "LAP-000500", nombre: "Dell Latitude 5420 i5 16GB 256GB", categoria: "Laptop", marca: "Dell", condicion: "Usado", modelo: "Latitude 5420", cpuModelo: "i5-1145G7", ram: "16GB", almacenamiento: "256GB" };

@@ -72,9 +72,6 @@ export function buildShippingItemsProductFilterFormula(query: string, opts: { in
     // lib/shipping-v2/item-venta.ts (evaluarVentaItem), que es la que de
     // verdad bloquea al emitir (reglas/entregables.ts).
     (soloEnTienda ? `{Recibido},OR(NOT({Requiere inspección}),{Revisado física/técnicamente}),` : ``) +
-    // Punto 10b-5: un equipo "Unidad" se vende con su serie (los registros
-    // anteriores, sin Seguimiento, no cambian).
-    (soloEnTienda ? `OR({Seguimiento}!="Unidad",{Número de serie}!=""),` : ``) +
     `{Cantidad}>=1,` +
     `{Precio venta final}>0,` +
     `OR(` +
@@ -147,7 +144,9 @@ export function ordenarYDetallarProductos(productos: ProductoCatalogo[]): Produc
       continue;
     }
     vistos.add(p.id);
-    salida.push(p.fuente === "shippingItem" && p.seguimiento === "Unidad" && p.numeroSerie ? { ...p, detalle: `S/N ${p.numeroSerie}` } : p);
+    // Cada equipo con su serie para elegir la unidad exacta; el que no la
+    // tiene se puede vender igual (una etiqueta borrosa no frena la venta).
+    salida.push(p.fuente === "shippingItem" && p.seguimiento === "Unidad" ? { ...p, detalle: p.numeroSerie ? `S/N ${p.numeroSerie}` : "sin serie" } : p);
   }
   return salida;
 }

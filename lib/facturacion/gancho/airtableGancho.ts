@@ -225,9 +225,7 @@ function pendienteDeEntregaDe(fields: Record<string, unknown>): ItemDetalleGanch
     requiereInspeccion: fields["Requiere inspección"] === true,
     inspeccionFirmada: fields["Revisado física/técnicamente"] === true,
   });
-  // "falta-serie" no aplica aquí (no se leen la serie ni el seguimiento): lo
-  // revisa la verificación final al emitir (reglas/entregables.ts).
-  if (evaluacion.vendible || evaluacion.motivo === "bloqueado" || evaluacion.motivo === "falta-serie") return null;
+  if (evaluacion.vendible || evaluacion.motivo === "bloqueado") return null;
   return evaluacion.motivo;
 }
 
