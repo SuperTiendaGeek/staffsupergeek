@@ -16,6 +16,7 @@ import { GRUPO_TIPO, TIPOS_ASUNTO, type TipoAsunto } from "@/lib/shipping-v2/rev
 import { resolveShippingV2Items } from "@/lib/shipping-v2/item-list-view";
 import type { ShippingV2AsuntoRevision } from "@/lib/shipping-v2/airtable";
 import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
+import { ConteosLista } from "./ConteosLista";
 import type {
   ShippingV2AccessPermissions,
   ShippingV2Item,
@@ -84,7 +85,11 @@ function textoAsunto(a: ShippingV2AsuntoRevision) {
   return a.sku && a.asunto.startsWith(`${a.sku} · `) ? a.asunto.slice(a.sku.length + 3) : a.asunto;
 }
 
-export function ShippingV2ControlClient({ asuntosIniciales }: { asuntosIniciales: ShippingV2AsuntoRevision[] }) {
+export type VistaControl = "revision" | "conteos";
+
+export function ShippingV2ControlClient({ asuntosIniciales, vistaInicial = "revision" }: { asuntosIniciales: ShippingV2AsuntoRevision[]; vistaInicial?: VistaControl }) {
+  const [vista, setVista] = useState<VistaControl>(vistaInicial);
+  const [conteosAbiertos, setConteosAbiertos] = useState<number | null>(null);
   const [abiertos, setAbiertos] = useState(asuntosIniciales);
   /** Filas ya resueltas que siguen a la vista hasta su animación de salida. */
   const [porSalir, setPorSalir] = useState<ShippingV2AsuntoRevision[]>([]);
@@ -330,14 +335,48 @@ export function ShippingV2ControlClient({ asuntosIniciales }: { asuntosIniciales
     }
   }
 
+  function cambiarPestana(v: VistaControl) {
+    setVista(v);
+    try {
+      window.history.replaceState(null, "", v === "conteos" ? "?vista=conteos" : window.location.pathname);
+    } catch {
+      /* solo recuerda la pestaña al volver */
+    }
+  }
+
+  const pestanas = (
+    <div role="tablist" className="inline-flex overflow-hidden rounded-lg border border-[#3A3B35]">
+      {([
+        ["revision", `Revisión${abiertos.length ? ` · ${abiertos.length}` : ""}`],
+        ["conteos", `Conteos${conteosAbiertos ? ` · ${conteosAbiertos}` : ""}`],
+      ] as const).map(([v, t], n) => (
+        <button
+          key={v}
+          type="button"
+          role="tab"
+          aria-selected={vista === v}
+          onClick={() => cambiarPestana(v)}
+          className={`h-8 px-3 text-[12.5px] ${n ? "border-l border-[#3A3B35]" : ""} ${vista === v ? "bg-[#D7FF4F] font-bold text-[#141510]" : "bg-[#151515] font-semibold text-[#B4B5AC] hover:text-[#EDEDE7]"}`}
+        >
+          {t}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (vista === "conteos") {
+    return (
+      <div className="space-y-2.5">
+        {pestanas}
+        <ConteosLista onAbiertos={setConteosAbiertos} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2.5">
       <div className="flex flex-wrap items-center gap-2">
-        <div role="tablist" className="inline-flex overflow-hidden rounded-lg border border-[#3A3B35]">
-          <button type="button" role="tab" aria-selected className="h-8 bg-[#D7FF4F] px-3 text-[12.5px] font-bold text-[#141510]">
-            Revisión{abiertos.length ? ` · ${abiertos.length}` : ""}
-          </button>
-        </div>
+        {pestanas}
         {mensaje ? <span className="text-[12px] text-[#C9CAC1]">{mensaje}</span> : null}
         <span className="ml-auto text-[12px] text-[#8F908A]">{ultima ? `Revisado ${fechaHora(ultima)}` : ""}</span>
         <button type="button" onClick={() => void revisarAhora()} disabled={Boolean(busy)} className={`${botonClass} h-8`}>

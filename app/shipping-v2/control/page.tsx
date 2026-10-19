@@ -10,15 +10,16 @@ import { ShippingV2ControlClient } from "./ShippingV2ControlClient";
 export const dynamic = "force-dynamic";
 
 // Pestaña "Control" (auditoría Shipping V2, punto 10c, 18-oct-2026). 10c-1:
-// revisión de inventario. El Staff la usa; regularizar el stock (dar de baja,
+// revisión de inventario. 10c-2: conteos físicos (pestaña "Conteos"). El Staff la usa; regularizar el stock (dar de baja,
 // agregar, fusionar) queda para el Administrador.
 
-export default async function ShippingV2ControlPage() {
+export default async function ShippingV2ControlPage({ searchParams }: { searchParams: Promise<{ vista?: string }> }) {
   const session = await getSessionFromCookie();
   requirePantallaVisible(session?.user.pantallasRestringidas ?? {}, "shipping-v2", "control");
   const access = await getShippingV2AccessContextForSession(session);
   if (!access.isAdmin || !(access.permissions.canUseRecepcion || access.permissions.canEditItems)) redirect("/shipping-v2");
 
+  const { vista } = await searchParams;
   let asuntos: ShippingV2AsuntoRevision[] = [];
   let error = "";
   try {
@@ -36,7 +37,7 @@ export default async function ShippingV2ControlPage() {
         {error ? (
           <section className="rounded-xl border border-orange-300/25 bg-orange-300/10 p-4 text-sm text-orange-100">{error}</section>
         ) : (
-          <ShippingV2ControlClient asuntosIniciales={asuntos} />
+          <ShippingV2ControlClient asuntosIniciales={asuntos} vistaInicial={vista === "conteos" ? "conteos" : "revision"} />
         )}
       </div>
     </StaffAppShell>
