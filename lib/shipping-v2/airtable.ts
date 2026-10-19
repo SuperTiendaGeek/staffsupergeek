@@ -11916,7 +11916,7 @@ export async function cambiarEstadoConteoShippingV2(
   });
 }
 
-/** La comparación (solo con el conteo terminado: mientras se cuenta es ciego). */
+/** La comparación del conteo terminado (mientras se cuenta, la pantalla compara sola). */
 export async function revisarConteoShippingV2(conteoId: string) {
   const { conteo, lineas } = await getShippingV2Conteo(conteoId);
   if (conteo.estado === "Contando") throw new Error("El conteo sigue abierto.");

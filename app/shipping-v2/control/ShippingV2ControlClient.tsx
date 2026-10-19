@@ -367,8 +367,7 @@ export function ShippingV2ControlClient({ asuntosIniciales, vistaInicial = "revi
   if (vista === "conteos") {
     return (
       <div className="space-y-2.5">
-        {pestanas}
-        <ConteosLista onAbiertos={setConteosAbiertos} />
+        <ConteosLista pestanas={pestanas} onAbiertos={setConteosAbiertos} />
       </div>
     );
   }

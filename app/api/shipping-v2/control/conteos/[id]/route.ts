@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { cambiarEstadoConteoShippingV2, getShippingV2Conteo, getShippingV2ItemsParaConteo, revisarConteoShippingV2, type ShippingV2Conteo } from "@/lib/shipping-v2/airtable";
-import { indiceCiego } from "@/lib/shipping-v2/conteo";
 import { accesoControl, errorJson } from "../../acceso";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +7,7 @@ export const maxDuration = 60;
 
 type Params = { params: Promise<{ id: string }> };
 
-/** La foto inicial tiene las cantidades del sistema: no sale del servidor. */
+/** La foto inicial solo hace falta mientras se cuenta. */
 function sinFoto(conteo: ShippingV2Conteo): ShippingV2Conteo {
   return { ...conteo, foto: null };
 }
@@ -21,9 +20,9 @@ export async function GET(_request: Request, { params }: Params) {
   try {
     const { conteo, lineas } = await getShippingV2Conteo(id);
     if (conteo.estado === "Contando") {
-      // Conteo ciego: el índice reconoce los códigos pero no dice cuánto hay.
-      const indice = indiceCiego(await getShippingV2ItemsParaConteo());
-      return NextResponse.json({ success: true, data: { conteo: sinFoto(conteo), lineas, indice } });
+      // Mientras se cuenta, la pantalla compara sola ("N de N", lo que falta encontrar).
+      const indice = await getShippingV2ItemsParaConteo();
+      return NextResponse.json({ success: true, data: { conteo, lineas, indice } });
     }
     const revision = await revisarConteoShippingV2(id);
     return NextResponse.json({ success: true, data: { ...revision, conteo: sinFoto(revision.conteo) } });
