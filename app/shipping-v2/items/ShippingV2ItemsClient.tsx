@@ -19,6 +19,7 @@ import {
 } from "@/lib/shipping-v2/novedades";
 import { InlineEditableField } from "@/components/shipping-v2/InlineEditableField";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { CopyableSKU } from "@/components/ui/copyable-sku";
 import { SHIPPING_V2_ITEM_EDIT_FIELDS, type ShippingV2ItemEditFieldConfig } from "@/lib/shipping-v2/item-edit-config";
 import { evaluarVentaItem } from "@/lib/shipping-v2/item-venta";
 import { ETIQUETA_SITUACION_PAGO } from "@/lib/shipping-v2/pagos-situacion";
@@ -113,6 +114,8 @@ type DetailRow = {
   config?: ShippingV2ItemEditFieldConfig;
   readOnly?: boolean;
   options?: readonly string[] | readonly { value: string; label: string }[];
+  /** Si el dato no se puede editar, pulsarlo lo copia (ver CopyableSKU). */
+  copiable?: boolean;
 };
 
 type ItemDetailTabKey = "general" | "costos" | "logistica" | "pago" | "packing" | "observaciones" | "despiece" | "intervenciones";
@@ -1304,7 +1307,8 @@ function DetailSection({
             type={row.config?.type ?? "readOnly"}
             readOnly={soloLectura}
             options={row.options ?? row.config?.options}
-            displayValue={row.displayValue}
+            // Editable: pulsar abre la edición, como siempre. Solo lectura: pulsar copia.
+            displayValue={row.copiable && soloLectura && String(row.value ?? "").trim() ? <CopyableSKU sku={String(row.value).trim()} /> : row.displayValue}
             onSave={!soloLectura && row.config ? (value) => onSave(row.config!.field, value) : undefined}
           />
         );
@@ -1587,7 +1591,7 @@ function ShippingV2ProviderItemDetailView({
             <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {canViewProviderCost ? <ProviderDatum label="Costo proveedor unitario" value={formatCurrency(item.costoProveedor)} featured /> : null}
               <ProviderDatum label="SKU proveedor" value={displayValue(item.skuProveedor)} />
-              <ProviderDatum label="SKU" value={displayValue(item.sku)} />
+              <ProviderDatum label="SKU" value={item.sku?.trim() ? <CopyableSKU sku={item.sku.trim()} /> : "—"} />
               <ProviderDatum label="Categoría" value={displayValue(item.categoria)} />
               <ProviderDatum label="Estado item" value={<EstadoBadge estado={item.estado} />} />
               <ProviderDatum label="Packing" value={packingDisplay} />
@@ -1968,6 +1972,9 @@ export function ShippingV2ItemDetailView({
   const verCampo = (key: string) => !camposOcultos.includes(key);
   const campoSoloLectura = (key: string) => camposSoloLectura.includes(key);
   const hasAiNameSuggestion = Boolean(aiNameSuggestion && normalizeText(aiNameSuggestion) !== normalizeText(item.nombre) && aiNameSuggestion !== ignoredAiName);
+  // Línea bajo el nombre: "SKU · Categoría · Condición · Marca Modelo". El SKU se copia al pulsarlo.
+  const skuCabecera = String(item.sku ?? "").trim();
+  const restoCabecera = [item.categoria, item.condicion, [item.marca, item.modelo].filter(Boolean).join(" ")].map((value) => String(value ?? "").trim()).filter(Boolean).join(" · ");
 
   async function toggleFacebookSuperGeek(value: boolean) {
     setFacebookSuperGeekDetailBusy(true);
@@ -2025,7 +2032,7 @@ export function ShippingV2ItemDetailView({
       key: "general",
       label: "General",
       rows: [
-        { label: C.sku.label, value: item.sku, config: C.sku },
+        { label: C.sku.label, value: item.sku, config: C.sku, copiable: true },
         { label: C.skuProveedor.label, value: item.skuProveedor, config: C.skuProveedor },
         { label: C.numeroSerie.label, value: item.numeroSerie, config: C.numeroSerie },
         { label: C.marca.label, value: item.marca, config: C.marca },
@@ -2312,7 +2319,9 @@ export function ShippingV2ItemDetailView({
               onSave={(value) => saveField(C.nombre.field, value)}
             />
             <p className="mt-1 text-[12px] text-[#8F908A]">
-              {[item.sku, item.categoria, item.condicion, [item.marca, item.modelo].filter(Boolean).join(" ")].map((value) => String(value ?? "").trim()).filter(Boolean).join(" · ")}
+              {skuCabecera ? <CopyableSKU sku={skuCabecera} /> : null}
+              {skuCabecera && restoCabecera ? " · " : null}
+              {restoCabecera}
             </p>
             <UnidadDelProducto item={item} hermanas={hermanas}
               onGuardarSerie={canEditItems && !campoSoloLectura("numeroSerie") ? (serie) => saveField(C.numeroSerie.field, serie) : undefined}

@@ -1,5 +1,6 @@
 "use client";
 
+import { CopyableSKU } from "@/components/ui/copyable-sku";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
@@ -416,7 +417,7 @@ function ModalShell({
   onClose,
 }: {
   title: string;
-  description?: string;
+  description?: ReactNode;
   size?: "default" | "detail";
   children: ReactNode;
   onClose: () => void;
@@ -1518,7 +1519,10 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
         <ModalShell
           size="detail"
           title={detailData?.item.nombre || selectedDetailFallback?.nombre || "Detalle de item"}
-          description={`${display(detailData?.item.sku || selectedDetailFallback?.sku)} · Detalle compartido con Shipping Items`}
+          description={(() => {
+            const sku = String(detailData?.item.sku || selectedDetailFallback?.sku || "").trim();
+            return <>{sku ? <CopyableSKU sku={sku} /> : display(sku)} · Detalle compartido con Shipping Items</>;
+          })()}
           onClose={closeDetail}
         >
           {detailLoading ? (

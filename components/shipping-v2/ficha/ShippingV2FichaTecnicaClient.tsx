@@ -1,5 +1,6 @@
 "use client";
 
+import { CopyableSKU } from "@/components/ui/copyable-sku";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -788,7 +789,7 @@ export function ShippingV2FichaTecnicaClient({
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs font-bold text-[#D7FF4F]">{display(item.sku)}</p>
+              <p className="text-xs font-bold text-[#D7FF4F]">{item.sku?.trim() ? <CopyableSKU sku={item.sku.trim()} /> : display(item.sku)}</p>
               <span className="rounded-full border border-[#3A3A36] px-2 py-0.5 text-[11px] font-semibold text-[#A7A7A7]">{display(item.categoria)}</span>
             </div>
             <h2 className="mt-1 text-lg font-semibold leading-6 text-[#F5F5F5]">{display(item.nombre)}</h2>

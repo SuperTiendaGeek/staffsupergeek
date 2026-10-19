@@ -8,6 +8,7 @@
 //
 // Tiene su propio estado: escribir aquí no repinta la pantalla de fondo.
 
+import { CopyableSKU } from "@/components/ui/copyable-sku";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Copy, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import {
@@ -308,7 +309,7 @@ export function GestorPublicacionesModal({
       <div className="flex max-h-[94vh] w-full max-w-[1080px] flex-col overflow-hidden rounded-xl border border-[#3A3A36] bg-[#151613] shadow-2xl shadow-black/50">
         <div className="flex items-center gap-2.5 border-b border-[#30312D] px-4 py-2.5">
           <span className={labelClass}>Publicar</span>
-          <span className="font-mono text-[13px] font-semibold text-[#D7FF4F]">{datos?.sku ?? sku}</span>
+          <span className="font-mono text-[13px] font-semibold text-[#D7FF4F]">{(datos?.sku ?? sku)?.trim() ? <CopyableSKU sku={(datos?.sku ?? sku).trim()} /> : (datos?.sku ?? sku)}</span>
           <span className="min-w-0 truncate text-[14px] font-semibold text-[#F5F5F5]">{datos?.nombre ?? ""}</span>
           {datos ? (
             <span className="shrink-0 text-[12px] text-[#8F908A]">
