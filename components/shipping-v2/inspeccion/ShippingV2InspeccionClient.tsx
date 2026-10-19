@@ -12,6 +12,7 @@
 // las zonas. Un candado en la entrada dejaría atrapado al técnico que descubre
 // a media inspección que el equipo trae algo que nadie declaró.
 
+import { CopyableSKU } from "@/components/ui/copyable-sku";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccesoriosIncluidos } from "./AccesoriosIncluidos";
 import Link from "next/link";
@@ -368,7 +369,7 @@ export function ShippingV2InspeccionClient({
           <div className="min-w-0">
             <h2 className="text-lg font-semibold text-[#F5F5F5]">Inspección técnica</h2>
             <p className="mt-0.5 truncate text-sm text-[#A7A7A7]">
-              <span className="font-mono font-semibold text-[#D7FF4F]">{item.sku}</span> · {item.nombre}
+              <span className="font-mono font-semibold text-[#D7FF4F]">{item.sku?.trim() ? <CopyableSKU sku={item.sku.trim()} /> : item.sku}</span> · {item.nombre}
             </p>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-2">

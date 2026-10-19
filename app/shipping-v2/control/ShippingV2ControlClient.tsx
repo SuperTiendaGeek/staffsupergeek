@@ -9,6 +9,7 @@
 // "Resuelto" y sale con una animación. Una fila solo sale cuando el servidor
 // confirma que ya no tiene asuntos abiertos; si la verificación falla, se queda.
 
+import { CopyableSKU } from "@/components/ui/copyable-sku";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
@@ -487,7 +488,7 @@ export function ShippingV2ControlClient({ asuntosIniciales, vistaInicial = "revi
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-4" onMouseDown={(e) => { if (e.target === e.currentTarget) cerrarModal(); }}>
           <div className="flex max-h-[94vh] w-full max-w-[min(96vw,1440px)] flex-col overflow-hidden rounded-xl border border-[#3A3A36] bg-[#151613] shadow-2xl shadow-black/50">
             <div className="flex items-center gap-2.5 border-b border-[#30312D] px-4 py-2.5">
-              <span className="font-mono text-[13px] font-semibold text-[#D7FF4F]">{detalle?.item.sku ?? ""}</span>
+              <span className="font-mono text-[13px] font-semibold text-[#D7FF4F]">{detalle?.item.sku?.trim() ? <CopyableSKU sku={detalle.item.sku.trim()} /> : ""}</span>
               <span className="min-w-0 truncate text-[14px] font-semibold text-[#F5F5F5]">{detalle?.item.nombre ?? ""}</span>
               {abiertos.filter((x) => x.itemIds.includes(modal.itemId)).length ? (
                 <span className="shrink-0 text-[12px] text-[#FFB07A]">
