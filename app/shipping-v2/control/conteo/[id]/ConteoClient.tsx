@@ -2,24 +2,28 @@
 
 // Conteo físico (punto 10c-2a). Mientras se cuenta: un solo campo que acepta
 // el escáner (SKU o serie) o lo que se escriba (busca por nombre si no es un
-// código). Conteo ciego: solo se ve cuántos se llevan contados, nunca cuántos
-// debería haber. Varias personas pueden contar a la vez. Al terminar se ve la
-// comparación con el sistema; aquí no se cambia el stock (eso es 10c-2b, solo
-// el Administrador).
+// código). Conteo a la vista (decisión del dueño, 18-oct noche): quien cuenta
+// ve "N de N", lo que falta por encontrar y lo que sobra, como la lista de
+// "faltantes" de los sistemas de tienda. Varias personas pueden contar a la
+// vez. Al terminar se revisa; aquí no se cambia el stock (eso lo aplica el
+// Administrador, 10c-2b).
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, Loader2, Minus, Plus, X } from "lucide-react";
 import {
   buscarParaContar,
+  compararConteo,
   esUnidad,
   leerCodigo,
   lineasVivas,
+  progresoConteo,
   totalContado,
   type FilaConteo,
   type ItemConteo,
   type Lectura,
   type LineaConteo,
+  type ProgresoFila,
   type ResultadoConteo,
   type TipoLinea,
 } from "@/lib/shipping-v2/conteo";
@@ -31,9 +35,12 @@ const API = "/api/shipping-v2/control/conteos";
 const VOLVER = "/shipping-v2/control?vista=conteos";
 const boton = "inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#3A3B35] bg-[#1A1B17] px-3 text-[12.5px] font-semibold text-[#EDEDE7] transition hover:border-[#D7FF4F]/50 disabled:opacity-50";
 const botonPrincipal = "inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#D7FF4F] px-3 text-[12.5px] font-bold text-[#141510] hover:bg-[#E4FF7A] disabled:opacity-50";
+const botonFila = "h-7 rounded-lg border border-[#3A3B35] bg-[#1A1B17] px-2.5 text-[12px] font-semibold text-[#EDEDE7] hover:border-[#D7FF4F]/60";
 const formato = new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" });
 const dinero = { format: (v: number) => `${v < 0 ? "−" : v > 0 ? "+" : ""}${formato.format(Math.abs(v))}` };
 const FUERA_DE_TIENDA = /vendido|agotado|baja|cancelado|archivado|usado en|perdido|partes|devuelto|desarmado/i;
+const chip = (activo: boolean) =>
+  `h-7 rounded-lg border px-2.5 text-[12px] font-semibold ${activo ? "border-[#D7FF4F] bg-[#D7FF4F]/10 text-[#F5F5F5]" : "border-[#3A3B35] bg-[#151515] text-[#B4B5AC] hover:text-[#EDEDE7]"}`;
 
 function hora(valor?: string) {
   if (!valor) return "";
@@ -43,12 +50,56 @@ function hora(valor?: string) {
   return d.toLocaleString("es-EC", hoy ? { hour: "2-digit", minute: "2-digit" } : { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-function serieDe(i: Pick<ItemConteo, "numeroSerie" | "id">) {
-  return i.numeroSerie ? `S/N ${i.numeroSerie}` : `sin serie · ${i.id.slice(-5)}`;
+function serieDe(i: Pick<ItemConteo, "numeroSerie">) {
+  return i.numeroSerie ? `S/N ${i.numeroSerie}` : "sin serie";
+}
+
+/** "S/N A, S/N B y 2 sin serie" (las unidades sin serie no se distinguen entre sí). */
+function listaUnidades(unidades: ItemConteo[]) {
+  const conSerie = unidades.filter((i) => i.numeroSerie).map(serieDe);
+  const sinSerie = unidades.length - conSerie.length;
+  if (!conSerie.length) return sinSerie ? `${sinSerie} sin serie` : "";
+  return `${conSerie.join(", ")}${sinSerie ? ` y ${sinSerie} sin serie` : ""}`;
 }
 
 function nombres(lista: string[]) {
   return Array.from(new Set(lista.filter(Boolean))).join(", ");
+}
+
+function motivoSobra(i: ItemConteo, conteo: ShippingV2Conteo) {
+  if (!i.recibido) return "no figuraba como recibido";
+  if (i.cantidad <= 0 || FUERA_DE_TIENDA.test(i.estado)) return `figuraba "${i.estado || "sin stock"}"`;
+  if (i.usoLocal && !conteo.incluyeActivos) return "es activo de la tienda";
+  if (conteo.categorias.length && !conteo.categorias.includes(i.categoria)) return `es de ${i.categoria || "otra categoría"}`;
+  return `figuraba "${i.estado}"`;
+}
+
+/** Qué sobra en un SKU, en pocas palabras. */
+function textoSobra(f: FilaConteo, conteo: ShippingV2Conteo): ReactNode {
+  if (f.tipo === "lote") return <>{f.contado - f.sistema} más que el sistema <span className="text-[#8F908A]">· lote</span></>;
+  return (
+    <>
+      {f.sobran.map((i, n) => (
+        <span key={i.id}>{n ? "; " : ""}<span className="font-mono">{serieDe(i)}</span> {motivoSobra(i, conteo)}</span>
+      ))}
+      {f.sinIdentificarDeMas > 0 ? <span>{f.sobran.length ? "; " : ""}{f.sinIdentificarDeMas} sin identificar de más</span> : null}
+    </>
+  );
+}
+
+/** Qué falta en un SKU, en pocas palabras. */
+function textoFalta(f: FilaConteo): ReactNode {
+  if (f.tipo === "lote") return <>{f.sistema - f.contado} menos que el sistema <span className="text-[#8F908A]">· lote</span></>;
+  const n = f.faltan.length;
+  const conSerie = f.faltan.some((i) => i.numeroSerie);
+  const detalle = conSerie ? listaUnidades(f.faltan) : "";
+  return (
+    <>
+      {f.sistema === 1 ? "No se encontró" : `Falta${n > 1 ? "n" : ""} ${n}`}
+      {detalle ? <span className="font-mono">{f.sistema === 1 ? " · " : ": "}{detalle}</span> : f.sistema > 1 ? <span className="text-[#8F908A]"> · sin serie</span> : null}
+      {f.sinIdentificar ? <span className="text-[#8F908A]" title="Se contaron sin decir cuál y cubrieron a otras"> · {f.sinIdentificar} sin identificar</span> : null}
+    </>
+  );
 }
 
 async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
@@ -81,12 +132,13 @@ export function ConteoClient({ conteoId, actor, esAdministrador }: { conteoId: s
   if (datos.conteo.estado === "Contando" && datos.indice) {
     return <Contando key={`${datos.conteo.id}:${datos.conteo.recontar.join()}`} conteo={datos.conteo} lineasIniciales={datos.lineas} indice={datos.indice} actor={actor} puedeCancelar={puedeCancelar} onCambio={cargar} />;
   }
-  return <Revision conteo={datos.conteo} lineas={datos.lineas} resultado={datos.resultado ?? null} puedeCancelar={puedeCancelar} onCambio={cargar} />;
+  return <Revision conteo={datos.conteo} lineas={datos.lineas} resultado={datos.resultado ?? null} puedeCancelar={puedeCancelar} esAdministrador={esAdministrador} onCambio={cargar} />;
 }
 
 // ─── Mientras se cuenta ──────────────────────────────────────────────────────
 
 type Aviso = { tipo: "ok" | "aviso" | "error"; titulo: string; detalle?: string } | null;
+type Pestana = "porContar" | "contados" | "deMas";
 type FilaVista =
   | { clave: string; tipo: "linea"; linea: LineaConteo; fecha: string }
   | { clave: string; tipo: "lote"; sku: string; item?: ItemConteo; total: number; quien: string; fecha: string; pendiente: boolean };
@@ -114,6 +166,7 @@ function Contando({
   const [noEncontrado, setNoEncontrado] = useState<{ codigo: string; resultados: ItemConteo[] } | null>(null);
   const [confirmar, setConfirmar] = useState<"" | "terminar" | "cancelar">("");
   const [ocupado, setOcupado] = useState(false);
+  const [pestana, setPestana] = useState<Pestana>("porContar");
   const entrada = useRef<HTMLInputElement>(null);
   const cola = useRef<Promise<void>>(Promise.resolve());
   const enCurso = useRef(0);
@@ -129,6 +182,16 @@ function Contando({
   const vivas = useMemo(() => lineasVivas(todas), [todas]);
   const contados = totalContado(todas);
   const quienes = nombres(vivas.map((l) => l.contadoPor));
+
+  // La comparación en vivo: "N de N", lo que falta encontrar y lo que sobra.
+  const resultado = useMemo(
+    () => compararConteo({ items: indice, lineas: todas, alcance: { categorias: conteo.categorias, incluyeActivos: conteo.incluyeActivos }, inicio: conteo.inicio, foto: conteo.foto }),
+    [indice, todas, conteo]
+  );
+  const avance = useMemo(() => progresoConteo(resultado), [resultado]);
+  const porEncontrar = avance.total - avance.encontrados;
+  const deMas = avance.deMas.reduce((s, p) => s + p.sobra, 0) + resultado.sinRegistro.reduce((s, x) => s + x.cantidad, 0) + resultado.cambiaron.length;
+  const pct = avance.total ? Math.round((avance.encontrados / avance.total) * 100) : 0;
 
   const enfocar = () => requestAnimationFrame(() => entrada.current?.focus());
 
@@ -200,19 +263,27 @@ function Contando({
     return vivas.filter((l) => l.tipo === "Lote" && l.sku.toUpperCase() === sku.toUpperCase()).reduce((s, l) => s + l.cantidad, 0);
   }
 
+  function avanceDe(sku: string) {
+    const p = [...avance.porContar, ...avance.deMas].find((x) => x.fila.sku === sku.toUpperCase());
+    const f = p?.fila ?? resultado.coinciden.find((x) => x.sku === sku.toUpperCase());
+    return f ? ` · ${f.contado} de ${f.sistema}` : "";
+  }
+
   function contarUnidad(item: ItemConteo, codigo: string) {
     const ya = vivas.find((l) => l.tipo === "Unidad" && l.itemId === item.id);
     if (ya) {
-      setAviso({ tipo: "aviso", titulo: `${serieDe(item)} ya contada por ${ya.contadoPor === actor ? "ti" : ya.contadoPor} · ${hora(ya.fecha)}`, detalle: `${item.sku} · ${item.nombre}` });
+      setAviso({ tipo: "aviso", titulo: `${item.sku} · ${serieDe(item)} ya contada por ${ya.contadoPor === actor ? "ti" : ya.contadoPor} · ${hora(ya.fecha)}`, detalle: item.nombre });
       return;
     }
     agregar("Unidad", 1, item, codigo);
-    setAviso({ tipo: "ok", titulo: `${item.sku} · ${serieDe(item)}`, detalle: item.nombre });
+    const f = [...avance.porContar].find((x) => x.fila.sku === item.sku.toUpperCase())?.fila;
+    setAviso({ tipo: "ok", titulo: `${item.sku} · ${serieDe(item)}${f ? ` · ${f.contado + 1} de ${f.sistema}` : avanceDe(item.sku) ? "" : " · no estaba en este conteo"}`, detalle: item.nombre });
   }
 
   function contarLote(item: ItemConteo, codigo: string, cantidad = 1) {
     agregar("Lote", cantidad, item, codigo);
-    setAviso({ tipo: "ok", titulo: `${item.sku} · lote · ${totalLote(item.sku) + cantidad}`, detalle: item.nombre });
+    const f = [...avance.porContar, ...avance.deMas].find((x) => x.fila.sku === item.sku.toUpperCase())?.fila ?? resultado.coinciden.find((x) => x.sku === item.sku.toUpperCase());
+    setAviso({ tipo: "ok", titulo: `${item.sku} · lote · ${totalLote(item.sku) + cantidad}${f ? ` de ${f.sistema}` : ""}`, detalle: item.nombre });
   }
 
   function elegirItem(item: ItemConteo, codigo: string) {
@@ -231,16 +302,20 @@ function Contando({
     setNoEncontrado(null);
     setConfirmar("");
     const lectura = leerCodigo(codigo, indice, todas);
-    if (lectura.tipo === "unidad") contarUnidad(lectura.item, codigo);
-    else if (lectura.tipo === "ya-contada") contarUnidad(lectura.item, codigo);
+    if (lectura.tipo === "unidad" || lectura.tipo === "ya-contada") contarUnidad(lectura.item, codigo);
     else if (lectura.tipo === "lote") contarLote(lectura.item, codigo);
     else if (lectura.tipo === "elegir") {
-      setAviso(null);
-      setElegir(lectura);
+      // Las unidades sin serie no se distinguen entre sí: se cuenta una sin preguntar.
+      if (lectura.opciones.length && lectura.opciones.every((i) => !i.numeroSerie)) contarUnidad(lectura.opciones[0], codigo);
+      else {
+        setAviso(null);
+        setElegir(lectura);
+      }
     } else {
       setAviso(null);
       setNoEncontrado({ codigo, resultados: buscarParaContar(codigo, indice) });
     }
+    enfocar();
   }
 
   function ajustarLote(sku: string, item: ItemConteo | undefined, nuevo: number) {
@@ -270,7 +345,7 @@ function Contando({
     }
   }
 
-  // Filas: cada unidad por separado; los lotes, una fila por SKU con su total.
+  // Lecturas: cada unidad por separado; los lotes, una fila por SKU con su total.
   const filas = useMemo<FilaVista[]>(() => {
     const salida: FilaVista[] = [];
     const lotes = new Map<string, Extract<FilaVista, { tipo: "lote" }>>();
@@ -296,7 +371,41 @@ function Contando({
     return salida.filter((f) => f.tipo === "linea" || f.total !== 0).sort((a, b) => b.fecha.localeCompare(a.fecha));
   }, [todas, porId, porSku]);
 
-  const columnas = "grid-cols-[minmax(0,1fr)_auto_28px] md:grid-cols-[104px_minmax(0,1fr)_150px_112px_minmax(0,110px)_28px]";
+  const controlLote = (sku: string, item: ItemConteo | undefined, valor: number) => (
+    <span className="flex items-center gap-1">
+      <button type="button" onClick={() => ajustarLote(sku, item, valor - 1)} disabled={valor <= 0} aria-label="Uno menos" className="flex h-7 w-7 items-center justify-center rounded-md border border-[#3A3B35] bg-[#1A1B17] text-[#EDEDE7] disabled:opacity-40"><Minus className="h-3.5 w-3.5" aria-hidden="true" /></button>
+      <CantidadLote valor={valor} onCambio={(n) => ajustarLote(sku, item, n)} />
+      <button type="button" onClick={() => ajustarLote(sku, item, valor + 1)} aria-label="Uno más" className="flex h-7 w-7 items-center justify-center rounded-md border border-[#3A3B35] bg-[#1A1B17] text-[#EDEDE7]"><Plus className="h-3.5 w-3.5" aria-hidden="true" /></button>
+    </span>
+  );
+
+  const colLecturas = "grid-cols-[minmax(0,1fr)_auto_28px] md:grid-cols-[104px_minmax(0,1fr)_150px_112px_minmax(0,110px)_28px]";
+  const colAvance = "grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[104px_minmax(0,1fr)_minmax(0,220px)_64px_128px]";
+  const encabezado = (cols: string, celdas: ReactNode) => (
+    <div className={`hidden ${cols} gap-2.5 border-b border-[#30312D] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A] md:grid`}>{celdas}</div>
+  );
+  const filaAvance = (p: ProgresoFila, lado: "falta" | "sobra") => {
+    const f = p.fila;
+    const item = f.registros.find((i) => i.cantidad > 0) ?? f.registros[0] ?? porSku.get(f.sku);
+    return (
+      <div key={`${lado}:${f.sku}`} className={`grid ${colAvance} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 last:border-b-0`}>
+        <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{f.sku}</span>
+        <span className="min-w-0 truncate text-[#C9CAC1]"><span className="font-mono font-semibold text-[#EDEDE7] md:hidden">{f.sku} · </span>{f.nombre}</span>
+        <span className="hidden min-w-0 truncate text-[12px] text-[#B4B5AC] md:block">{lado === "falta" ? (f.tipo === "lote" ? `faltan ${p.falta}` : listaUnidades(f.faltan)) : textoSobra(f, conteo)}</span>
+        <span className="hidden text-right md:block"><b className="text-[#EDEDE7]">{f.contado}</b><span className="text-[#8F908A]"> de {f.sistema}</span></span>
+        <span className="flex justify-end">
+          {f.tipo === "lote" ? controlLote(f.sku, item, f.contado) : lado === "falta" ? (
+            <span className="flex items-center gap-2">
+            <span className="text-[12px] text-[#8F908A] md:hidden">{f.contado}/{f.sistema}</span>
+            <button type="button" onClick={() => procesar(f.sku)} className={botonFila} title="Contar sin escanear">Contar</button>
+            </span>
+          ) : (
+            <span className="text-[12px] text-[#FFC857] md:hidden">+{p.sobra}</span>
+          )}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-2.5">
@@ -307,8 +416,11 @@ function Contando({
           {conteo.incluyeActivos ? " + activos" : ""}
           {quienes ? ` · cuentan ${quienes}` : ""}
         </span>
-        <span className="ml-auto rounded-lg border border-[#3A3B35] bg-[#151515] px-2.5 py-1 text-[12.5px] font-semibold text-[#EDEDE7]" title="Cuántos llevan contados (no se muestra cuántos debería haber)">
-          {contados} contados
+        <span className="ml-auto flex items-center gap-2" title={`Encontrados de lo que tiene el sistema en este conteo${deMas ? ` · ${deMas} de más` : ""}`}>
+          <span className="h-1.5 w-28 overflow-hidden rounded-full bg-[#2A2B27]">
+            <span className="block h-full rounded-full bg-[#D7FF4F] transition-all duration-300" style={{ width: `${pct}%` }} />
+          </span>
+          <span className="text-[13px] font-semibold text-[#EDEDE7]">{avance.encontrados} <span className="font-normal text-[#8F908A]">de</span> {avance.total}</span>
         </span>
       </div>
 
@@ -351,15 +463,21 @@ function Contando({
           <div className="flex items-baseline gap-2">
             <span className="font-mono text-[13px] font-semibold text-[#D7FF4F]">{elegir.sku}</span>
             <span className="min-w-0 truncate text-[13px] text-[#EDEDE7]">{elegir.nombre}</span>
+            <span className="shrink-0 text-[12px] text-[#8F908A]">{avanceDe(elegir.sku).replace(" · ", "")}</span>
             <button type="button" onClick={() => { setElegir(null); enfocar(); }} aria-label="Cerrar" className="ml-auto text-[#8F908A] hover:text-[#F5F5F5]"><X className="h-4 w-4" aria-hidden="true" /></button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="mr-1 text-[12px] font-semibold text-[#8F908A]">¿Cuál?</span>
-            {elegir.opciones.map((i) => (
+            {elegir.opciones.filter((i) => i.numeroSerie).map((i) => (
               <button key={i.id} type="button" onClick={() => elegirItem(i, i.numeroSerie || elegir.sku)} className="h-8 rounded-lg border border-[#3A3B35] bg-[#1A1B17] px-2.5 font-mono text-[12.5px] text-[#EDEDE7] hover:border-[#D7FF4F]/60">
                 {serieDe(i)}
               </button>
             ))}
+            {elegir.opciones.some((i) => !i.numeroSerie) ? (
+              <button type="button" onClick={() => elegirItem(elegir.opciones.find((i) => !i.numeroSerie)!, elegir.sku)} className="h-8 rounded-lg border border-[#3A3B35] bg-[#1A1B17] px-2.5 text-[12.5px] text-[#EDEDE7] hover:border-[#D7FF4F]/60">
+                Sin serie · {elegir.opciones.filter((i) => !i.numeroSerie).length}
+              </button>
+            ) : null}
             {elegir.contadas.map((i) => (
               <button key={i.id} type="button" disabled title="Ya contada" className="h-8 rounded-lg border border-[#2A2B27] bg-[#151515] px-2.5 font-mono text-[12.5px] text-[#77786F]">
                 {serieDe(i)} ✓
@@ -422,51 +540,92 @@ function Contando({
         </div>
       ) : null}
 
+      <div className="flex flex-wrap items-center gap-1.5" role="tablist">
+        <button type="button" role="tab" aria-selected={pestana === "porContar"} onClick={() => setPestana("porContar")} className={chip(pestana === "porContar")}>Por encontrar · {porEncontrar}</button>
+        <button type="button" role="tab" aria-selected={pestana === "contados"} onClick={() => setPestana("contados")} className={chip(pestana === "contados")}>Contados · {contados}</button>
+        <button type="button" role="tab" aria-selected={pestana === "deMas"} onClick={() => setPestana("deMas")} className={chip(pestana === "deMas")} title="Contado y no esperado aquí: de más, no existe en el sistema o cambió mientras se contaba">
+          De más · {deMas}
+        </button>
+        <span className="ml-auto text-[12px] text-[#8F908A]">{avance.completos} {avance.completos === 1 ? "producto completo" : "productos completos"}</span>
+      </div>
+
       <div className="overflow-hidden rounded-xl border border-[#30312D] bg-[#171814] text-[12.5px]">
-        <div className={`hidden ${columnas} gap-2.5 border-b border-[#30312D] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A] md:grid`}>
-          <span>SKU</span><span>Artículo</span><span>Unidad</span><span>Cantidad</span><span>Quién</span><span />
-        </div>
-        {filas.length ? (
-          filas.map((f) => {
-            if (f.tipo === "lote") {
+        {pestana === "porContar" ? (
+          avance.porContar.length ? (
+            <>
+              {encabezado(colAvance, <><span>SKU</span><span>Artículo</span><span>Falta</span><span className="text-right">Contado</span><span /></>)}
+              {avance.porContar.map((p) => filaAvance(p, "falta"))}
+            </>
+          ) : (
+            <p className="px-3 py-6 text-center text-[#9FEFB3]">{avance.total ? "Se encontró todo lo del sistema." : "Nada por contar."}</p>
+          )
+        ) : pestana === "deMas" ? (
+          deMas ? (
+            <>
+              {encabezado(colAvance, <><span>SKU</span><span>Artículo</span><span>Qué pasa</span><span className="text-right">Contado</span><span /></>)}
+              {avance.deMas.map((p) => filaAvance(p, "sobra"))}
+              {resultado.sinRegistro.map((s) => (
+                <div key={`sr:${s.codigo}`} className={`grid ${colAvance} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 last:border-b-0`}>
+                  <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{s.codigo}</span>
+                  <span className="min-w-0 truncate text-[#FFB07A]"><span className="font-mono font-semibold text-[#EDEDE7] md:hidden">{s.codigo} · </span>No existe en el sistema</span>
+                  <span className="hidden text-[12px] text-[#8F908A] md:block">{s.contadoPor}</span>
+                  <span className="hidden text-right font-semibold text-[#EDEDE7] md:block">{s.cantidad}</span>
+                  <span />
+                </div>
+              ))}
+              {resultado.cambiaron.map(({ item, contado }) => (
+                <div key={`cb:${item.id}`} className={`grid ${colAvance} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 last:border-b-0`}>
+                  <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{item.sku}</span>
+                  <span className="min-w-0 truncate text-[#C9CAC1]"><span className="font-mono font-semibold text-[#EDEDE7] md:hidden">{item.sku} · </span>{item.nombre}</span>
+                  <span className="hidden text-[12px] text-[#8F908A] md:block" title="Se vendió, recibió o ajustó mientras se contaba: no se compara">Cambió al contar · ahora &quot;{item.estado}&quot;</span>
+                  <span className="hidden text-right font-semibold text-[#EDEDE7] md:block">{contado}</span>
+                  <span />
+                </div>
+              ))}
+            </>
+          ) : (
+            <p className="px-3 py-6 text-center text-[#8F908A]">Nada de más.</p>
+          )
+        ) : filas.length ? (
+          <>
+            {encabezado(colLecturas, <><span>SKU</span><span>Artículo</span><span>Unidad</span><span>Cantidad</span><span>Quién</span><span /></>)}
+            {filas.map((f) => {
+              if (f.tipo === "lote") {
+                return (
+                  <div key={f.clave} className={`grid ${colLecturas} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 last:border-b-0`}>
+                    <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{f.sku}</span>
+                    <span className="min-w-0 truncate text-[#C9CAC1]"><span className="font-mono font-semibold text-[#EDEDE7] md:hidden">{f.sku} · </span>{f.item?.nombre ?? ""}</span>
+                    <span className="hidden text-[#8F908A] md:block">lote</span>
+                    {controlLote(f.sku, f.item, f.total)}
+                    <span className="hidden truncate text-[#8F908A] md:block">{f.quien}</span>
+                    <button type="button" onClick={() => ajustarLote(f.sku, f.item, 0)} aria-label="Quitar" className="text-[16px] leading-none text-[#77786F] hover:text-[#FFB07A]">×</button>
+                  </div>
+                );
+              }
+              const l = f.linea;
+              const item = l.itemId ? porId.get(l.itemId) : porSku.get(l.sku.toUpperCase());
+              const pendiente = l.id.startsWith("tmp-");
               return (
-                <div key={f.clave} className={`grid ${columnas} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 last:border-b-0`}>
-                  <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{f.sku}</span>
-                  <span className="min-w-0 truncate text-[#C9CAC1]"><span className="font-mono font-semibold text-[#EDEDE7] md:hidden">{f.sku} · </span>{f.item?.nombre ?? ""}</span>
-                  <span className="hidden text-[#8F908A] md:block">lote</span>
-                  <span className="flex items-center gap-1">
-                    <button type="button" onClick={() => ajustarLote(f.sku, f.item, f.total - 1)} aria-label="Uno menos" className="flex h-7 w-7 items-center justify-center rounded-md border border-[#3A3B35] bg-[#1A1B17] text-[#EDEDE7]"><Minus className="h-3.5 w-3.5" aria-hidden="true" /></button>
-                    <CantidadLote valor={f.total} onCambio={(n) => ajustarLote(f.sku, f.item, n)} />
-                    <button type="button" onClick={() => ajustarLote(f.sku, f.item, f.total + 1)} aria-label="Uno más" className="flex h-7 w-7 items-center justify-center rounded-md border border-[#3A3B35] bg-[#1A1B17] text-[#EDEDE7]"><Plus className="h-3.5 w-3.5" aria-hidden="true" /></button>
+                <div key={f.clave} className={`grid ${colLecturas} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 last:border-b-0 ${pendiente ? "opacity-60" : ""}`}>
+                  <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{l.tipo === "Sin registro" ? l.codigo : l.sku}</span>
+                  <span className="min-w-0 truncate text-[#C9CAC1]">
+                    <span className="font-mono font-semibold text-[#EDEDE7] md:hidden">
+                      {l.tipo === "Sin registro" ? l.codigo : l.sku}
+                      {l.tipo === "Unidad" && l.serie ? <span className="font-normal text-[#B4B5AC]"> · {l.serie}</span> : l.tipo === "Sin identificar" ? <span className="font-sans font-normal text-[#FFC857]"> · sin identificar</span> : null}
+                      {" · "}
+                    </span>
+                    {l.tipo === "Sin registro" ? <span className="text-[#FFB07A]">No existe en el sistema</span> : item?.nombre ?? ""}
                   </span>
-                  <span className="hidden truncate text-[#8F908A] md:block">{f.quien}</span>
-                  <button type="button" onClick={() => ajustarLote(f.sku, f.item, 0)} aria-label="Quitar" className="text-[16px] leading-none text-[#77786F] hover:text-[#FFB07A]">×</button>
+                  <span className="hidden font-mono text-[12px] text-[#B4B5AC] md:block">
+                    {l.tipo === "Unidad" ? (l.serie ? `S/N ${l.serie}` : "sin serie") : l.tipo === "Sin identificar" ? <span className="font-sans text-[#FFC857]" title="La etiqueta de serie no se leyó: cuenta 1 sin decir cuál">sin identificar</span> : ""}
+                  </span>
+                  <span className="text-[#EDEDE7]">{pendiente ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8F908A]" aria-label="Guardando" /> : l.cantidad}</span>
+                  <span className="hidden truncate text-[#8F908A] md:block">{l.contadoPor}</span>
+                  <button type="button" onClick={() => quitar(l)} disabled={pendiente} aria-label="Quitar" className="text-[16px] leading-none text-[#77786F] hover:text-[#FFB07A] disabled:opacity-30">×</button>
                 </div>
               );
-            }
-            const l = f.linea;
-            const item = l.itemId ? porId.get(l.itemId) : porSku.get(l.sku.toUpperCase());
-            const pendiente = l.id.startsWith("tmp-");
-            return (
-              <div key={f.clave} className={`grid ${columnas} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 last:border-b-0 ${pendiente ? "opacity-60" : ""}`}>
-                <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{l.tipo === "Sin registro" ? l.codigo : l.sku}</span>
-                <span className="min-w-0 truncate text-[#C9CAC1]">
-                  <span className="font-mono font-semibold text-[#EDEDE7] md:hidden">
-                    {l.tipo === "Sin registro" ? l.codigo : l.sku}
-                    {l.tipo === "Unidad" && l.serie ? <span className="font-normal text-[#B4B5AC]"> · {l.serie}</span> : l.tipo === "Sin identificar" ? <span className="font-sans font-normal text-[#FFC857]"> · sin identificar</span> : null}
-                    {" · "}
-                  </span>
-                  {l.tipo === "Sin registro" ? <span className="text-[#FFB07A]">No existe en el sistema</span> : item?.nombre ?? ""}
-                </span>
-                <span className="hidden font-mono text-[12px] text-[#B4B5AC] md:block">
-                  {l.tipo === "Unidad" ? (l.serie ? `S/N ${l.serie}` : "sin serie") : l.tipo === "Sin identificar" ? <span className="font-sans text-[#FFC857]" title="La etiqueta de serie no se leyó: cuenta 1 sin decir cuál">sin identificar</span> : ""}
-                </span>
-                <span className="text-[#EDEDE7]">{pendiente ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8F908A]" aria-label="Guardando" /> : l.cantidad}</span>
-                <span className="hidden truncate text-[#8F908A] md:block">{l.contadoPor}</span>
-                <button type="button" onClick={() => quitar(l)} disabled={pendiente} aria-label="Quitar" className="text-[16px] leading-none text-[#77786F] hover:text-[#FFB07A] disabled:opacity-30">×</button>
-              </div>
-            );
-          })
+            })}
+          </>
         ) : (
           <p className="px-3 py-6 text-center text-[#8F908A]">Escanea el primer artículo.</p>
         )}
@@ -487,7 +646,7 @@ function Contando({
         <Link href={VOLVER} className={boton}>Seguir después</Link>
         {confirmar === "terminar" ? (
           <>
-            <span className="text-[12px] text-[#C9CAC1]">¿Ya se contó todo?</span>
+            <span className="text-[12px] text-[#C9CAC1]">{porEncontrar ? `Quedan ${porEncontrar} por encontrar. ¿Terminar igual?` : "¿Terminar el conteo?"}</span>
             <button type="button" onClick={() => void cambiarEstado("terminar")} disabled={ocupado} className={botonPrincipal}>
               {ocupado ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Sí, terminar
             </button>
@@ -536,25 +695,19 @@ function costoDe(i: ItemConteo) {
   return typeof i.costoUnidad === "number" && Number.isFinite(i.costoUnidad) ? i.costoUnidad : 0;
 }
 
-function motivoSobra(i: ItemConteo, conteo: ShippingV2Conteo) {
-  if (!i.recibido) return "no figuraba como recibido";
-  if (i.cantidad <= 0 || FUERA_DE_TIENDA.test(i.estado)) return `figuraba "${i.estado || "sin stock"}"`;
-  if (i.usoLocal && !conteo.incluyeActivos) return "es activo de la tienda";
-  if (conteo.categorias.length && !conteo.categorias.includes(i.categoria)) return `es de ${i.categoria || "otra categoría"}`;
-  return `figuraba "${i.estado}"`;
-}
-
 function Revision({
   conteo,
   lineas,
   resultado,
   puedeCancelar,
+  esAdministrador,
   onCambio,
 }: {
   conteo: ShippingV2Conteo;
   lineas: LineaConteo[];
   resultado: ResultadoConteo | null;
   puedeCancelar: boolean;
+  esAdministrador: boolean;
   onCambio: () => Promise<void>;
 }) {
   const [vista, setVista] = useState<Vista>("diferencias");
@@ -568,6 +721,7 @@ function Revision({
   if (!resultado) return <p className="text-[12.5px] text-[#8F908A]">Sin resultado.</p>;
   const r = resultado;
   const diferencias = new Set([...r.faltan, ...r.sobran].map((f) => f.sku)).size + r.sinRegistro.length;
+  const avance = progresoConteo(r);
 
   function marcar(sku: string) {
     setMarcados((l) => (l.includes(sku) ? l.filter((x) => x !== sku) : [...l, sku]));
@@ -596,32 +750,13 @@ function Revision({
   const filaDif = (f: FilaConteo, lado: "falta" | "sobra") => {
     const valorFaltan = f.tipo === "lote" ? f.valor : -f.faltan.reduce((s, i) => s + costoDe(i), 0);
     const valor = f.tipo === "lote" ? f.valor : lado === "falta" ? valorFaltan : f.valor - valorFaltan;
-    const sinIdDeMas = f.sinIdentificarDeMas;
-    let que: ReactNode;
-    if (f.tipo === "lote") que = <>{Math.abs(f.contado - f.sistema)} {lado === "falta" ? "menos" : "más"} que el sistema <span className="text-[#8F908A]">· lote</span></>;
-    else if (lado === "falta")
-      que = (
-        <>
-          No apareció <span className="font-mono">{f.faltan.map(serieDe).join(", ")}</span>
-          {f.sinIdentificar ? <span className="text-[#8F908A]" title="Se contaron sin serie y cubrieron a otras"> · {f.sinIdentificar} sin identificar</span> : null}
-        </>
-      );
-    else
-      que = (
-        <>
-          {f.sobran.map((i, n) => (
-            <span key={i.id}>{n ? "; " : ""}<span className="font-mono">{serieDe(i)}</span> {motivoSobra(i, conteo)}</span>
-          ))}
-          {sinIdDeMas > 0 ? <span>{f.sobran.length ? "; " : ""}{sinIdDeMas} sin identificar de más</span> : null}
-        </>
-      );
     return (
       <div key={`${lado}:${f.sku}`} className={`grid ${columnas} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5`}>
         {casilla(f.sku)}
         <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{f.sku}</span>
         <span className="min-w-0 text-[#C9CAC1]">
           <span className="font-mono font-semibold text-[#EDEDE7] md:hidden">{f.sku} · </span>
-          {que}
+          {lado === "falta" ? textoFalta(f) : textoSobra(f, conteo)}
           <span className="block truncate text-[11.5px] text-[#77786F]">{f.nombre}</span>
         </span>
         <span className="hidden text-right text-[#B4B5AC] md:block">{f.sistema}</span>
@@ -638,13 +773,18 @@ function Revision({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h1 className="text-[16px] font-bold text-[#F5F5F5]">{conteo.nombre}</h1>
         <span className="text-[12px] text-[#8F908A]">
-          {conteo.estado === "Terminado" ? "Terminado" : conteo.estado} {hora(conteo.estado === "Aplicado" ? conteo.fechaAplicado : conteo.fin)}
+          {conteo.estado} {hora(conteo.estado === "Aplicado" ? conteo.fechaAplicado : conteo.fin)}
           {quienes ? ` · ${quienes}` : ""}
+          {` · ${avance.encontrados} de ${avance.total} encontrados`}
         </span>
         <Link href={VOLVER} className="ml-auto text-[12px] font-semibold text-[#D7FF4F] hover:underline">Conteos</Link>
       </div>
 
-      {conteo.resumen ? <p className="text-[12px] text-[#B4B5AC]">{conteo.resumen}</p> : null}
+      {conteo.estado === "Cancelado" ? (
+        <p className="rounded-lg border border-[#3A3B35] bg-[#151515] px-3 py-1.5 text-[12px] text-[#B4B5AC]">Conteo cancelado: no cambió nada en el inventario. Abajo queda cómo iba al cancelarlo.</p>
+      ) : conteo.resumen ? (
+        <p className="text-[12px] text-[#B4B5AC]">{conteo.resumen}</p>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-1.5">
         {([
@@ -658,7 +798,7 @@ function Revision({
             aria-pressed={vista === v}
             onClick={() => setVista(v)}
             title={v === "cambiaron" ? "Se vendió, recibió o ajustó mientras se contaba: no se compara" : undefined}
-            className={`h-7 rounded-lg border px-2.5 text-[12px] font-semibold ${vista === v ? "border-[#D7FF4F] bg-[#D7FF4F]/10 text-[#F5F5F5]" : "border-[#3A3B35] bg-[#151515] text-[#B4B5AC]"}`}
+            className={chip(vista === v)}
           >
             {t}
           </button>
@@ -709,7 +849,7 @@ function Revision({
             <div key={item.id} className={`grid ${columnas} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 last:border-b-0`}>
               {casilla(item.sku)}
               <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{item.sku}</span>
-              <span className="min-w-0 truncate text-[#C9CAC1]"><span className="font-mono font-semibold text-[#EDEDE7] md:hidden">{item.sku} · </span>{item.nombre} <span className="text-[#8F908A]">· ahora "{item.estado}"</span></span>
+              <span className="min-w-0 truncate text-[#C9CAC1]"><span className="font-mono font-semibold text-[#EDEDE7] md:hidden">{item.sku} · </span>{item.nombre} <span className="text-[#8F908A]">· ahora &quot;{item.estado}&quot;</span></span>
               <span className="hidden text-right text-[#B4B5AC] md:block">{esUnidad(item) ? (item.cantidad > 0 ? 1 : 0) : item.cantidad}</span>
               <span className="hidden text-right font-semibold text-[#EDEDE7] md:block">{contado}</span>
               <span />
@@ -734,6 +874,7 @@ function Revision({
               <button type="button" onClick={() => setConfirmar(true)} className={`${mensaje ? "" : "mr-auto "}text-[12px] text-[#8F908A] hover:text-[#FFB07A]`}>Cancelar conteo</button>
             )
           ) : null}
+          {!esAdministrador && diferencias ? <span className="text-[12px] text-[#8F908A]">Los ajustes los aplica el Administrador.</span> : null}
           <button type="button" onClick={() => void accion("recontar")} disabled={ocupado || !marcados.length} className={boton} title="Vuelve a contar solo lo marcado">
             {ocupado ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
             Recontar{marcados.length ? ` ${marcados.length}` : ""}

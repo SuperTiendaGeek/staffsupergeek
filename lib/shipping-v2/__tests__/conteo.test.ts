@@ -2,7 +2,7 @@
  * Conteo físico (punto 10c-2): leer códigos y comparar con el sistema.
  * Ejecutar: npx tsx lib/shipping-v2/__tests__/conteo.test.ts
  */
-import { buscarParaContar, compararConteo, entraEnConteo, fotoInicial, indiceCiego, leerCodigo, totalContado, type ItemConteo, type LineaConteo } from "../conteo";
+import { buscarParaContar, compararConteo, entraEnConteo, fotoInicial, leerCodigo, progresoConteo, totalContado, type ItemConteo, type LineaConteo } from "../conteo";
 
 let fallos = 0;
 function assert(condicion: unknown, mensaje: string) {
@@ -78,9 +78,10 @@ const foto = fotoInicial(items, alcance);
 r = compararConteo({ items: conVenta.map((i) => ({ ...i, ultimaActualizacion: "2026-10-18T16:00:00Z" })), lineas: lineas.filter((x) => x.id !== "3"), alcance, inicio: "2026-10-18T14:00:00Z", foto });
 assert(r.cambiaron.length === 1 && r.cambiaron[0].item.id === "c", "Con la foto inicial, solo cuenta como cambio lo que cambió de cantidad o estado (no cualquier edición)");
 
-const ciego = indiceCiego(items);
-assert(ciego.every((i) => i.costoUnidad === null && !i.ultimaActualizacion && i.cantidad <= 2), "El índice del conteo no muestra costo ni cantidades");
-assert(leerCodigo("OTR-000028", ciego, []).tipo === "lote" && leerCodigo("LAP-000500", ciego, []).tipo === "elegir", "Con el índice ciego el lector reconoce igual lotes y unidades");
+const avance = progresoConteo(compararConteo({ items, lineas, alcance, inicio: "2026-10-18T14:00:00Z" }));
+assert(avance.porContar.find((p) => p.fila.sku === "LAP-000500")?.falta === 1, "Avance: a LAP-000500 le falta 1 por encontrar");
+assert(avance.deMas.find((p) => p.fila.sku === "OTR-000028")?.sobra === 1 && avance.deMas.find((p) => p.fila.sku === "LAP-000500")?.sobra === 1, "Avance: de más el cable y la unidad vendida");
+assert(avance.encontrados === avance.total - avance.porContar.reduce((s, p) => s + p.falta, 0) && avance.total > avance.encontrados, "Avance: N de N");
 
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo bien.");

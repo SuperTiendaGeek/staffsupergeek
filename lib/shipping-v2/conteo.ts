@@ -7,8 +7,9 @@
 // - Una UNIDAD (un equipo) se identifica por su serie; si se escanea el SKU de
 //   un producto con varias unidades, se elige cuál (o "sin identificar").
 //   Un LOTE (cables, accesorios) se cuenta por cantidad a nivel de SKU.
-// - Conteo ciego: quien cuenta no ve cuánto "debería" haber; la comparación
-//   es solo para la revisión.
+// - Conteo a la vista (decisión del dueño, 18-oct noche): quien cuenta ve
+//   "N de N" y lo que falta por encontrar. Ajustar el stock es solo del
+//   Administrador, después de terminar.
 // - Se puede seguir vendiendo: lo que cambió después de empezar el conteo va
 //   aparte ("Cambió al contar") y no se toma como faltante ni sobrante.
 
@@ -301,21 +302,39 @@ export function compararConteo(input: {
   return resultado;
 }
 
-/** Cuántas lecturas lleva (lo único que ve el Staff mientras cuenta). */
+/** Cuántas lecturas lleva. */
 export function totalContado(lineas: LineaConteo[]) {
   return lineasVivas(lineas).reduce((s, l) => s + l.cantidad, 0);
 }
 
-/**
- * Lo que recibe la pantalla de conteo para reconocer códigos sin revelar
- * cuánto hay (conteo ciego): sin costo, sin fecha y con la cantidad reducida
- * a "no está" (0), "una unidad" (1) o "lote" (2).
- */
-export function indiceCiego(items: ItemConteo[]): ItemConteo[] {
-  return items.map((i) => ({
-    ...i,
-    cantidad: i.cantidad <= 0 ? 0 : esUnidad(i) ? 1 : 2,
-    costoUnidad: null,
-    ultimaActualizacion: "",
-  }));
+/** Cómo va un SKU: cuántas le faltan por encontrar y cuántas hay de más. */
+export type ProgresoFila = { fila: FilaConteo; falta: number; sobra: number };
+
+export type ProgresoConteo = {
+  /** Lo que el sistema tiene en el conteo (sin lo que cambió mientras se contaba). */
+  total: number;
+  /** De eso, cuánto ya se encontró. */
+  encontrados: number;
+  porContar: ProgresoFila[];
+  deMas: ProgresoFila[];
+  completos: number;
+};
+
+/** El avance mientras se cuenta ("23 de 50"), a partir de la comparación. */
+export function progresoConteo(r: ResultadoConteo): ProgresoConteo {
+  const filas = Array.from(new Set<FilaConteo>([...r.coinciden, ...r.faltan, ...r.sobran]));
+  const salida: ProgresoConteo = { total: 0, encontrados: 0, porContar: [], deMas: [], completos: 0 };
+  for (const fila of filas) {
+    const falta = fila.tipo === "lote" ? Math.max(0, fila.sistema - fila.contado) : fila.faltan.length;
+    const sobra = fila.tipo === "lote" ? Math.max(0, fila.contado - fila.sistema) : fila.sobran.length + fila.sinIdentificarDeMas;
+    salida.total += fila.sistema;
+    salida.encontrados += fila.sistema - falta;
+    if (falta) salida.porContar.push({ fila, falta, sobra });
+    if (sobra) salida.deMas.push({ fila, falta, sobra });
+    if (!falta && !sobra) salida.completos++;
+  }
+  const orden = (a: ProgresoFila, b: ProgresoFila) => a.fila.sku.localeCompare(b.fila.sku);
+  salida.porContar.sort(orden);
+  salida.deMas.sort(orden);
+  return salida;
 }

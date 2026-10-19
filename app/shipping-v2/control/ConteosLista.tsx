@@ -5,7 +5,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Loader2, Plus } from "lucide-react";
 import type { ShippingV2Conteo } from "@/lib/shipping-v2/airtable";
 
@@ -31,7 +31,7 @@ function hoyCorto() {
   return new Date().toLocaleDateString("es-EC", { day: "2-digit", month: "short" }).replace(".", "");
 }
 
-export function ConteosLista({ onAbiertos }: { onAbiertos?: (n: number) => void }) {
+export function ConteosLista({ pestanas, onAbiertos }: { pestanas?: ReactNode; onAbiertos?: (n: number) => void }) {
   const router = useRouter();
   const [conteos, setConteos] = useState<ShippingV2Conteo[] | null>(null);
   const [resumen, setResumen] = useState<Resumen | null>(null);
@@ -105,6 +105,7 @@ export function ConteosLista({ onAbiertos }: { onAbiertos?: (n: number) => void 
   return (
     <div className="space-y-2.5">
       <div className="flex flex-wrap items-center gap-2">
+        {pestanas}
         {error ? <span className="text-[12px] text-[#FFB07A]">{error}</span> : null}
         <button
           type="button"
