@@ -285,6 +285,16 @@ import {
 } from "@/lib/shipping-v2/publicaciones";
 import { iaAnunciosDisponible } from "@/lib/shipping-v2/ia-anuncios-servidor";
 import {
+  compararConteo,
+  entraEnConteo,
+  esUnidad,
+  fotoInicial,
+  type AlcanceConteo,
+  type FotoConteo,
+  type ItemConteo,
+  type LineaConteo,
+} from "@/lib/shipping-v2/conteo";
+import {
   TIPOS_ASUNTO,
   detectarAsuntos,
   planSincronizacion,
@@ -11655,4 +11665,282 @@ export async function verificarAsuntosRevisionShippingV2(
     return plan.cerrar;
   });
   return { abiertos: await getShippingV2AsuntosRevision(), resueltos };
+}
+
+// ─── Punto 10c-2: conteo físico ──────────────────────────────────────────────
+
+const TABLA_CONTEOS = "Shipping Conteos";
+const TABLA_CONTEO_LINEAS = "Shipping Conteo líneas";
+
+export type EstadoConteo = "Contando" | "Terminado" | "Aplicado" | "Cancelado";
+
+export type ShippingV2Conteo = {
+  id: string;
+  nombre: string;
+  categorias: string[];
+  incluyeActivos: boolean;
+  estado: EstadoConteo;
+  recontar: string[];
+  creadoPor: string;
+  inicio: string;
+  terminadoPor: string;
+  fin: string;
+  aplicadoPor: string;
+  fechaAplicado: string;
+  resumen: string;
+  foto: FotoConteo | null;
+};
+
+function lineasTexto(valor: unknown) {
+  return firstString(valor).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+}
+
+function mapConteo(r: AirtableRecord): ShippingV2Conteo {
+  const f = r.fields;
+  const estado = firstString(f["Estado"], "Contando");
+  let foto: FotoConteo | null = null;
+  try {
+    const crudo = firstString(f["Foto inicial"]);
+    if (crudo) foto = JSON.parse(crudo) as FotoConteo;
+  } catch {
+    foto = null;
+  }
+  return {
+    id: r.id,
+    nombre: firstString(f["Conteo"]),
+    categorias: lineasTexto(f["Categorías"]),
+    incluyeActivos: firstBoolean(f["Incluye activos"]) === true,
+    estado: (["Contando", "Terminado", "Aplicado", "Cancelado"].includes(estado) ? estado : "Contando") as EstadoConteo,
+    recontar: lineasTexto(f["Recontar"]),
+    creadoPor: firstString(f["Creado por"]),
+    inicio: firstString(f["Inicio"]) || r.createdTime || "",
+    terminadoPor: firstString(f["Terminado por"]),
+    fin: firstString(f["Fin"]),
+    aplicadoPor: firstString(f["Aplicado por"]),
+    fechaAplicado: firstString(f["Fecha aplicado"]),
+    resumen: firstString(f["Resumen"]),
+    foto,
+  };
+}
+
+function mapLineaConteo(r: AirtableRecord): LineaConteo {
+  const f = r.fields;
+  const tipo = firstString(f["Tipo"], "Unidad");
+  return {
+    id: r.id,
+    codigo: firstString(f["Código leído"]),
+    itemId: linkedRecordIds(f["Artículo"])[0],
+    sku: firstString(f["SKU"]),
+    serie: firstString(f["Serie"]),
+    cantidad: firstNumber(f["Cantidad"]) ?? 1,
+    tipo: (["Unidad", "Sin identificar", "Lote", "Sin registro"].includes(tipo) ? tipo : "Unidad") as LineaConteo["tipo"],
+    contadoPor: firstString(f["Contado por"]),
+    fecha: firstString(f["Fecha"]) || r.createdTime || "",
+    anulada: firstBoolean(f["Anulada"]) === true,
+  };
+}
+
+/** Todos los artículos, con lo justo para contar (el lector reconoce también lo vendido). */
+export async function getShippingV2ItemsParaConteo(): Promise<ItemConteo[]> {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const registros = await listRecords(SHIPPING_V2_TABLES.items, {
+    fields: [F.sku, F.nombre, F.categoria, F.estadoItem, F.cantidad, F.recibido, F.esUsoLocal, F.seguimiento, F.numeroSerie, F.costoTotalUnidad, F.costoProveedor, F.ultimaActualizacion],
+  });
+  return registros
+    .map((r) => {
+      const f = r.fields;
+      return {
+        id: r.id,
+        sku: firstString(f[F.sku]),
+        nombre: firstString(f[F.nombre]),
+        categoria: firstString(f[F.categoria]),
+        estado: firstString(f[F.estadoItem]),
+        cantidad: firstNumber(f[F.cantidad]) ?? 0,
+        recibido: firstBoolean(f[F.recibido]) === true,
+        usoLocal: firstBoolean(f[F.esUsoLocal]) === true,
+        seguimiento: firstString(f[F.seguimiento]),
+        numeroSerie: firstString(f[F.numeroSerie]),
+        costoUnidad: firstNumber(f[F.costoTotalUnidad]) ?? firstNumber(f[F.costoProveedor]),
+        ultimaActualizacion: firstString(f[F.ultimaActualizacion]) || r.createdTime || "",
+      } satisfies ItemConteo;
+    })
+    .filter((i) => i.sku);
+}
+
+export async function getShippingV2Conteos(): Promise<ShippingV2Conteo[]> {
+  const registros = await listRecords(TABLA_CONTEOS, {
+    fields: ["Conteo", "Categorías", "Incluye activos", "Estado", "Recontar", "Creado por", "Inicio", "Terminado por", "Fin", "Aplicado por", "Fecha aplicado"],
+    sortField: "Inicio",
+    sortDirection: "desc",
+    maxRecords: 40,
+  });
+  return registros.map(mapConteo);
+}
+
+async function leerConteo(id: string): Promise<ShippingV2Conteo> {
+  const recordId = cleanString(id);
+  if (!recordId.startsWith("rec")) throw new Error("Conteo no válido.");
+  const [r] = await listRecordsByIds(TABLA_CONTEOS, [recordId]);
+  if (!r) throw new Error("No se encontró el conteo.");
+  return mapConteo(r);
+}
+
+export async function getShippingV2LineasConteo(conteoId: string): Promise<LineaConteo[]> {
+  const registros = await listRecords(TABLA_CONTEO_LINEAS, {
+    filterByFormula: `{Conteo ID} = '${escapeFormulaString(cleanString(conteoId))}'`,
+    sortField: "Fecha",
+    sortDirection: "desc",
+  });
+  return registros.map(mapLineaConteo);
+}
+
+export async function getShippingV2Conteo(id: string) {
+  const conteo = await leerConteo(id);
+  const lineas = await getShippingV2LineasConteo(conteo.id);
+  return { conteo, lineas };
+}
+
+export async function crearConteoShippingV2(
+  input: { nombre: string; categorias: string[]; incluyeActivos: boolean },
+  options: { actor: string }
+): Promise<ShippingV2Conteo> {
+  const categorias = Array.from(new Set(input.categorias.map(cleanString).filter(Boolean)));
+  const alcance: AlcanceConteo = { categorias, incluyeActivos: input.incluyeActivos === true };
+  const items = await getShippingV2ItemsParaConteo();
+  const foto = fotoInicial(items, alcance);
+  if (!Object.keys(foto).length) throw new Error("No hay nada en la tienda con esas categorías.");
+  const ahora = new Date().toISOString();
+  const nombre = cleanString(input.nombre) || `${categorias.length ? categorias.join(", ") : "Todo"} · ${ahora.slice(0, 10)}`;
+  const respuesta = await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_CONTEOS), {
+    method: "POST",
+    body: JSON.stringify({
+      records: [{
+        fields: {
+          Conteo: nombre,
+          "Categorías": categorias.join("\n"),
+          "Incluye activos": alcance.incluyeActivos,
+          Estado: "Contando",
+          "Creado por": options.actor,
+          Inicio: ahora,
+          "Foto inicial": JSON.stringify(foto),
+        },
+      }],
+    }),
+  });
+  const r = respuesta.records?.[0];
+  if (!r) throw new Error("Airtable no devolvió el conteo.");
+  return mapConteo(r);
+}
+
+export type LecturaNueva = { codigo: string; itemId?: string; sku: string; serie?: string; cantidad: number; tipo: LineaConteo["tipo"] };
+
+/** Una lectura (escaneo o ingreso manual). Devuelve todas las lecturas del conteo (otros pueden estar contando a la vez). */
+export async function agregarLecturaConteoShippingV2(conteoId: string, lectura: LecturaNueva, options: { actor: string }): Promise<LineaConteo[]> {
+  const conteo = await leerConteo(conteoId);
+  if (conteo.estado !== "Contando") throw new Error("Este conteo ya terminó.");
+  const cantidad = Math.trunc(Number(lectura.cantidad));
+  if (!Number.isFinite(cantidad) || cantidad === 0 || Math.abs(cantidad) > 999) throw new Error("Cantidad no válida.");
+  if (lectura.tipo !== "Lote" && cantidad < 0) throw new Error("Cantidad no válida.");
+  const itemId = cleanString(lectura.itemId);
+  await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_CONTEO_LINEAS), {
+    method: "POST",
+    body: JSON.stringify({
+      records: [{
+        fields: {
+          "Código leído": cleanString(lectura.codigo).slice(0, 120) || cleanString(lectura.sku),
+          Conteo: [conteo.id],
+          "Conteo ID": conteo.id,
+          "Artículo": itemId.startsWith("rec") ? [itemId] : [],
+          SKU: cleanString(lectura.sku).toUpperCase(),
+          Serie: cleanString(lectura.serie),
+          Cantidad: cantidad,
+          Tipo: lectura.tipo,
+          "Contado por": options.actor,
+          Fecha: new Date().toISOString(),
+        },
+      }],
+    }),
+  });
+  return getShippingV2LineasConteo(conteo.id);
+}
+
+export async function anularLecturaConteoShippingV2(conteoId: string, lineaId: string): Promise<LineaConteo[]> {
+  const conteo = await leerConteo(conteoId);
+  if (conteo.estado !== "Contando") throw new Error("Este conteo ya terminó.");
+  const id = cleanString(lineaId);
+  if (!id.startsWith("rec")) throw new Error("Lectura no válida.");
+  await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_CONTEO_LINEAS), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id, fields: { Anulada: true } }] }),
+  });
+  return getShippingV2LineasConteo(conteo.id);
+}
+
+/** Terminar, mandar a recontar (vuelve a "Contando" sin lo de esos SKU) o cancelar. */
+export async function cambiarEstadoConteoShippingV2(
+  conteoId: string,
+  input: { accion: "terminar" | "recontar" | "cancelar"; skus?: string[] },
+  options: { actor: string; esAdministrador: boolean }
+): Promise<ShippingV2Conteo> {
+  return withLock(`conteo:${cleanString(conteoId)}`, async () => {
+    const conteo = await leerConteo(conteoId);
+    if (conteo.estado === "Aplicado" || conteo.estado === "Cancelado") throw new Error("Este conteo ya está cerrado.");
+    const ahora = new Date().toISOString();
+    let fields: Record<string, unknown>;
+    if (input.accion === "terminar") {
+      if (conteo.estado !== "Contando") throw new Error("Este conteo ya terminó.");
+      fields = { Estado: "Terminado", "Terminado por": options.actor, Fin: ahora };
+    } else if (input.accion === "cancelar") {
+      if (!options.esAdministrador && conteo.creadoPor !== options.actor) throw new Error("Solo quien lo empezó o el Administrador lo cancela.");
+      fields = { Estado: "Cancelado", "Terminado por": options.actor, Fin: ahora };
+    } else {
+      const skus = Array.from(new Set((input.skus ?? []).map((s) => cleanString(s).toUpperCase()).filter(Boolean)));
+      if (!skus.length) throw new Error("Elige qué recontar.");
+      const lineas = await getShippingV2LineasConteo(conteo.id);
+      const anular = lineas.filter((l) => !l.anulada && skus.includes((l.sku || "").toUpperCase()));
+      for (let i = 0; i < anular.length; i += 10) {
+        await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_CONTEO_LINEAS), {
+          method: "PATCH",
+          body: JSON.stringify({ records: anular.slice(i, i + 10).map((l) => ({ id: l.id, fields: { Anulada: true } })) }),
+        });
+      }
+      fields = { Estado: "Contando", Recontar: skus.join("\n"), "Terminado por": "", Fin: null };
+    }
+    const respuesta = await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_CONTEOS), {
+      method: "PATCH",
+      body: JSON.stringify({ records: [{ id: conteo.id, fields }] }),
+    });
+    const r = respuesta.records?.[0];
+    if (!r) throw new Error("Airtable no devolvió el conteo.");
+    return mapConteo(r);
+  });
+}
+
+/** La comparación (solo con el conteo terminado: mientras se cuenta es ciego). */
+export async function revisarConteoShippingV2(conteoId: string) {
+  const { conteo, lineas } = await getShippingV2Conteo(conteoId);
+  if (conteo.estado === "Contando") throw new Error("El conteo sigue abierto.");
+  const items = await getShippingV2ItemsParaConteo();
+  const resultado = compararConteo({
+    items,
+    lineas,
+    alcance: { categorias: conteo.categorias, incluyeActivos: conteo.incluyeActivos },
+    inicio: conteo.inicio,
+    foto: conteo.foto,
+  });
+  return { conteo, lineas, resultado };
+}
+
+/** Cuánto hay en la tienda por categoría (para elegir qué contar). */
+export async function getShippingV2ResumenParaConteo() {
+  const items = await getShippingV2ItemsParaConteo();
+  const porCategoria = new Map<string, number>();
+  let activos = 0;
+  for (const i of items) {
+    if (!entraEnConteo(i, { categorias: [], incluyeActivos: true })) continue;
+    if (i.usoLocal) { activos++; continue; }
+    const c = i.categoria || "Sin categoría";
+    porCategoria.set(c, (porCategoria.get(c) ?? 0) + (esUnidad(i) ? 1 : i.cantidad));
+  }
+  return { categorias: Array.from(porCategoria.entries()).sort((a, b) => b[1] - a[1]).map(([nombre, cantidad]) => ({ nombre, cantidad })), activos };
 }
