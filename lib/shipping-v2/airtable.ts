@@ -289,7 +289,11 @@ import {
   entraEnConteo,
   esUnidad,
   fotoInicial,
+  MOTIVO_AJUSTE,
+  planAjustes,
+  type AccionAjuste,
   type AlcanceConteo,
+  type DecisionAjuste,
   type FotoConteo,
   type ItemConteo,
   type LineaConteo,
@@ -11929,6 +11933,90 @@ export async function revisarConteoShippingV2(conteoId: string) {
     foto: conteo.foto,
   });
   return { conteo, lineas, resultado };
+}
+
+// 10c-2b: aplicar los ajustes del conteo (solo Administrador).
+
+export type ResultadoAjusteConteo = { sku: string; lado: "falta" | "sobra"; accion: AccionAjuste; ok: boolean; texto: string; valor: number };
+
+function dineroResumen(v: number) {
+  return `${v < 0 ? "−" : v > 0 ? "+" : ""}$${Math.abs(v).toFixed(2).replace(".", ",")}`;
+}
+
+/**
+ * Aplica lo que eligió el Administrador para cada diferencia. Usa las mismas
+ * acciones de la ficha (dar de baja / revertir una baja), así que cada cambio
+ * queda en el historial del artículo con su motivo y se puede revertir.
+ * Se compara de nuevo antes de aplicar: lo que cambió desde que se terminó el
+ * conteo no se toca (y nada se aplica dos veces). Si todo salió bien, el
+ * conteo queda "Aplicado"; si algo falló, sigue "Terminado" para reintentar.
+ */
+export async function aplicarConteoShippingV2(
+  conteoId: string,
+  decisiones: DecisionAjuste[],
+  options: { actor: string; access: ShippingV2AccessContext }
+): Promise<{ conteo: ShippingV2Conteo; resultados: ResultadoAjusteConteo[] }> {
+  if (options.access.isSiteAdmin !== true) throw new Error("Solo el Administrador aplica los ajustes.");
+  if (!decisiones.length) throw new Error("Elige qué hacer con al menos una diferencia.");
+  return withLock(`conteo:${cleanString(conteoId)}`, async () => {
+    const { conteo, resultado } = await revisarConteoShippingV2(conteoId);
+    if (conteo.estado !== "Terminado") throw new Error(conteo.estado === "Aplicado" ? "Este conteo ya se aplicó." : "Primero hay que terminar el conteo.");
+    const resultados: ResultadoAjusteConteo[] = [];
+    for (const p of planAjustes(resultado, decisiones)) {
+      const r = { sku: p.sku, lado: p.lado, accion: p.accion };
+      if (p.error) {
+        resultados.push({ ...r, ok: false, texto: p.error, valor: 0 });
+        continue;
+      }
+      const motivo = `Conteo "${conteo.nombre}": ${MOTIVO_AJUSTE[p.accion].toLowerCase()}`;
+      const total = p.operaciones.reduce((s, o) => s + o.cantidad, 0);
+      let hechas = 0;
+      try {
+        for (const op of p.operaciones) {
+          if (op.accion === "baja") {
+            await moverActivoShippingV2(op.itemId, { accion: "baja", cantidad: op.cantidad, motivo }, options);
+            hechas += op.cantidad;
+            continue;
+          }
+          let resta = op.cantidad;
+          for (const id of [op.itemId, ...(op.alternativas ?? [])]) {
+            if (resta <= 0) break;
+            const registro = await leerRegistroItem(id);
+            const n = Math.min(resta, firstNumber(registro.fields[CAMPO_UNIDADES_DADAS_DE_BAJA]) ?? 0);
+            if (n < 1) continue;
+            await moverActivoShippingV2(id, { accion: "revertir-baja", cantidad: n, motivo }, options);
+            resta -= n;
+            hechas += n;
+          }
+          if (resta > 0) throw new Error("No hay más bajas que revertir: lo demás regístralo con + Registrar compra.");
+        }
+        resultados.push({ ...r, ok: true, texto: p.texto, valor: p.valor });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "No se pudo aplicar.";
+        resultados.push({ ...r, ok: false, texto: hechas ? `Se aplicaron ${hechas} de ${total}. ${msg}` : msg, valor: 0 });
+      }
+    }
+
+    const hechos = resultados.filter((x) => x.ok);
+    const errores = resultados.length - hechos.length;
+    if (!hechos.length) return { conteo, resultados };
+    const ahora = new Date().toISOString();
+    const lineasResumen = hechos.map((x) => `${x.sku} · ${MOTIVO_AJUSTE[x.accion]}${x.valor ? ` · ${dineroResumen(x.valor)}` : ""}`);
+    const valor = hechos.reduce((s, x) => s + x.valor, 0);
+    const cabecera = `${hechos.length} ajuste${hechos.length > 1 ? "s" : ""} · ${dineroResumen(valor)} · ${options.actor}${errores ? ` · ${errores} sin aplicar` : ""}`;
+    const resumen = [conteo.resumen, cabecera, ...lineasResumen].filter(Boolean).join("\n");
+    const respuesta = await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_CONTEOS), {
+      method: "PATCH",
+      body: JSON.stringify({
+        records: [{
+          id: conteo.id,
+          fields: { Resumen: resumen, ...(errores ? {} : { Estado: "Aplicado", "Aplicado por": options.actor, "Fecha aplicado": ahora }) },
+        }],
+      }),
+    });
+    const actualizado = respuesta.records?.[0];
+    return { conteo: actualizado ? mapConteo(actualizado) : conteo, resultados };
+  });
 }
 
 /** Cuánto hay en la tienda por categoría (para elegir qué contar). */
