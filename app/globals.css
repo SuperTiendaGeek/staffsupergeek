@@ -48,3 +48,21 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
+/* Conteo físico (Shipping V2, 10c-2): microanimaciones de filas y avisos. */
+@keyframes sg-entrada {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sg-destello {
+  0% { background-color: rgba(215, 255, 79, 0.16); }
+  100% { background-color: transparent; }
+}
+@keyframes sg-sacudir {
+  0%, 100% { transform: none; }
+  20%, 60% { transform: translateX(-3px); }
+  40%, 80% { transform: translateX(3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [class*="animate-[sg-"] { animation: none !important; }
+}

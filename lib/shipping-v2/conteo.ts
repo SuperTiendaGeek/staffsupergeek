@@ -338,3 +338,106 @@ export function progresoConteo(r: ResultadoConteo): ProgresoConteo {
   salida.deMas.sort(orden);
   return salida;
 }
+
+// ─── Aplicar ajustes (10c-2b, solo Administrador) ────────────────────────────
+
+/** Qué hacer con una diferencia. */
+export type AccionAjuste = "baja-perdido" | "baja-robo" | "baja-error" | "fuera" | "devolver";
+export type DecisionAjuste = { sku: string; lado: "falta" | "sobra"; accion: AccionAjuste };
+
+export const MOTIVO_AJUSTE: Record<AccionAjuste, string> = {
+  "baja-perdido": "Dar de baja · perdido",
+  "baja-robo": "Dar de baja · robo",
+  "baja-error": "Dar de baja · error de registro",
+  fuera: "Está fuera (técnico, cliente)",
+  devolver: "Devolver al stock",
+};
+
+/** Una operación sobre un registro: "baja" o "revertir-baja" (volver al stock lo dado de baja). */
+export type OperacionAjuste = { itemId: string; sku: string; accion: "baja" | "revertir-baja"; cantidad: number; /** Otros registros del mismo SKU por si este no alcanza (lotes). */ alternativas?: string[] };
+export type PlanAjuste = DecisionAjuste & { operaciones: OperacionAjuste[]; valor: number; texto: string; error?: string };
+
+function enTienda(i: ItemConteo) {
+  return i.recibido && i.cantidad > 0 && !FUERA.has(normal(i.estado));
+}
+
+/**
+ * Convierte lo que eligió el Administrador en operaciones, usando la
+ * comparación ACTUAL (si algo cambió desde que se terminó el conteo, esa fila
+ * ya no está y no se toca: así un ajuste nunca se aplica dos veces).
+ */
+export function planAjustes(resultado: ResultadoConteo, decisiones: DecisionAjuste[]): PlanAjuste[] {
+  const vistos = new Set<string>();
+  const salida: PlanAjuste[] = [];
+  for (const d of decisiones) {
+    const sku = normalCodigo(d.sku);
+    const clave = `${d.lado}:${sku}`;
+    if (!sku || vistos.has(clave)) continue;
+    vistos.add(clave);
+    const base: PlanAjuste = { ...d, sku, operaciones: [], valor: 0, texto: MOTIVO_AJUSTE[d.accion] ?? "" };
+    const fila = (d.lado === "falta" ? resultado.faltan : resultado.sobran).find((f) => f.sku === sku);
+    if (!MOTIVO_AJUSTE[d.accion]) {
+      salida.push({ ...base, error: "Acción no válida." });
+      continue;
+    }
+    if (!fila) {
+      salida.push({ ...base, error: d.lado === "falta" ? "Ya no figura como faltante (cambió después del conteo)." : "Ya no figura como sobrante." });
+      continue;
+    }
+    if (d.lado === "falta") {
+      if (d.accion === "devolver") {
+        salida.push({ ...base, error: "Acción no válida para un faltante." });
+        continue;
+      }
+      if (d.accion === "fuera") {
+        salida.push(base);
+        continue;
+      }
+      if (fila.tipo === "unidad") {
+        base.operaciones = fila.faltan.map((i) => ({ itemId: i.id, sku: i.sku, accion: "baja" as const, cantidad: 1 }));
+        base.valor = -fila.faltan.reduce((s, i) => s + costo(i), 0);
+      } else {
+        // Lote: se descuenta de los registros más antiguos primero.
+        let resta = fila.sistema - fila.contado;
+        for (const r of fila.registros.filter(enTienda)) {
+          if (resta <= 0) break;
+          const n = Math.min(resta, r.cantidad);
+          base.operaciones.push({ itemId: r.id, sku: r.sku, accion: "baja", cantidad: n });
+          base.valor -= n * costo(r);
+          resta -= n;
+        }
+        if (resta > 0) base.error = "No alcanzan las unidades registradas para descontar.";
+      }
+      salida.push(base);
+      continue;
+    }
+    // Sobrantes: solo se puede devolver al stock lo que estaba dado de baja.
+    if (d.accion !== "devolver") {
+      salida.push({ ...base, error: "Acción no válida para un sobrante." });
+      continue;
+    }
+    if (fila.tipo === "unidad") {
+      const deBaja = fila.sobran.filter((i) => normal(i.estado) === "dado de baja");
+      if (!deBaja.length) base.error = "Solo se devuelve al stock lo que estaba dado de baja.";
+      base.operaciones = deBaja.map((i) => ({ itemId: i.id, sku: i.sku, accion: "revertir-baja" as const, cantidad: 1 }));
+      base.valor = deBaja.reduce((s, i) => s + costo(i), 0);
+    } else {
+      // Lote: las unidades de más vuelven por los registros más nuevos (el servidor
+      // revisa cuántas bajas tiene cada uno).
+      const n = fila.contado - fila.sistema;
+      const ref = [...fila.registros].reverse();
+      base.operaciones = ref.length ? [{ itemId: ref[0].id, sku: ref[0].sku, accion: "revertir-baja", cantidad: n, alternativas: ref.slice(1).map((i) => i.id) }] : [];
+      base.valor = n * (ref[0] ? costo(ref[0]) : 0);
+      if (!ref.length) base.error = "No hay registros de este producto.";
+    }
+    salida.push(base);
+  }
+  return salida;
+}
+
+/** Acciones que tiene sentido ofrecer para una fila. */
+export function accionesPara(fila: FilaConteo, lado: "falta" | "sobra"): AccionAjuste[] {
+  if (lado === "falta") return ["baja-perdido", "baja-robo", "baja-error", "fuera"];
+  if (fila.tipo === "lote") return ["devolver"];
+  return fila.sobran.some((i) => normal(i.estado) === "dado de baja") ? ["devolver"] : [];
+}

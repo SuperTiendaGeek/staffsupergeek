@@ -2,7 +2,7 @@
  * Conteo físico (punto 10c-2): leer códigos y comparar con el sistema.
  * Ejecutar: npx tsx lib/shipping-v2/__tests__/conteo.test.ts
  */
-import { buscarParaContar, compararConteo, entraEnConteo, fotoInicial, leerCodigo, progresoConteo, totalContado, type ItemConteo, type LineaConteo } from "../conteo";
+import { accionesPara, buscarParaContar, compararConteo, entraEnConteo, fotoInicial, leerCodigo, planAjustes, progresoConteo, totalContado, type ItemConteo, type LineaConteo } from "../conteo";
 
 let fallos = 0;
 function assert(condicion: unknown, mensaje: string) {
@@ -82,6 +82,28 @@ const avance = progresoConteo(compararConteo({ items, lineas, alcance, inicio: "
 assert(avance.porContar.find((p) => p.fila.sku === "LAP-000500")?.falta === 1, "Avance: a LAP-000500 le falta 1 por encontrar");
 assert(avance.deMas.find((p) => p.fila.sku === "OTR-000028")?.sobra === 1 && avance.deMas.find((p) => p.fila.sku === "LAP-000500")?.sobra === 1, "Avance: de más el cable y la unidad vendida");
 assert(avance.encontrados === avance.total - avance.porContar.reduce((s, p) => s + p.falta, 0) && avance.total > avance.encontrados, "Avance: N de N");
+
+console.log("\n— Aplicar ajustes (10c-2b) —");
+const rAj = compararConteo({ items, lineas, alcance, inicio: "2026-10-18T14:00:00Z" });
+let plan = planAjustes(rAj, [
+  { sku: "lap-000500", lado: "falta", accion: "baja-robo" },
+  { sku: "LAP-000500", lado: "falta", accion: "baja-perdido" },
+]);
+assert(plan.length === 1 && plan[0].operaciones.length === 1 && plan[0].operaciones[0].itemId === "d" && plan[0].operaciones[0].accion === "baja" && Math.abs(plan[0].valor + 231) < 0.001, "Faltante: da de baja la unidad que no apareció (una sola vez aunque se repita)");
+plan = planAjustes(rAj, [{ sku: "LAP-000102", lado: "falta", accion: "baja-perdido" }]);
+assert(plan[0].error && !plan[0].operaciones.length, "Lo que coincide no se puede dar de baja");
+plan = planAjustes(rAj, [{ sku: "LAP-000500", lado: "falta", accion: "fuera" }]);
+assert(!plan[0].error && !plan[0].operaciones.length, "\"Está fuera\" no cambia el stock");
+plan = planAjustes(rAj, [{ sku: "LAP-000500", lado: "sobra", accion: "devolver" }]);
+assert(Boolean(plan[0].error), "Una unidad vendida que se contó no vuelve al stock desde aquí (se revisa la venta)");
+plan = planAjustes(rAj, [{ sku: "OTR-000028", lado: "sobra", accion: "devolver" }]);
+assert(plan[0].operaciones[0]?.accion === "revertir-baja" && plan[0].operaciones[0].cantidad === 1, "Lote con 1 de más: vuelve 1 al stock");
+const lotesViejo = { ...lote, id: "lv", cantidad: 2, ultimaActualizacion: "2026-09-01T00:00:00Z" };
+const loteNuevo = { ...lote, id: "ln", cantidad: 3, ultimaActualizacion: "2026-10-01T00:00:00Z" };
+const rLote = compararConteo({ items: [lotesViejo, loteNuevo], lineas: [linea("q", { itemId: "ln", sku: "OTR-000028", tipo: "Lote", cantidad: 1 })], alcance, inicio: "2026-10-18T14:00:00Z" });
+plan = planAjustes(rLote, [{ sku: "OTR-000028", lado: "falta", accion: "baja-error" }]);
+assert(plan[0].operaciones.map((o) => `${o.itemId}:${o.cantidad}`).join() === "lv:2,ln:2", "Lote: faltan 4, se descuentan primero del registro más antiguo");
+assert(accionesPara(rAj.faltan[0], "falta").includes("baja-robo") && accionesPara(rAj.sobran.find((f) => f.sku === "LAP-000500")!, "sobra").length === 0, "Acciones según la fila");
 
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo bien.");
