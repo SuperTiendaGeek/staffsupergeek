@@ -287,6 +287,7 @@ import { iaAnunciosDisponible } from "@/lib/shipping-v2/ia-anuncios-servidor";
 import {
   agruparProductos,
   normalSku,
+  registroEnTienda,
   planFusion,
   sugerirPrincipal,
   type ProductoFusion,
@@ -12075,6 +12076,8 @@ export type ShippingV2CambioCodigo = {
   hechoPor: string;
   fecha: string;
   marcadoPor: string;
+  /** Lo que está HOY en la tienda con este código (una etiqueta por registro; un lote se imprime N veces). */
+  porEtiquetar: Array<{ id: string; serie: string; cantidad: number }>;
 };
 
 function mapCambioCodigo(r: AirtableRecord): ShippingV2CambioCodigo {
@@ -12094,6 +12097,7 @@ function mapCambioCodigo(r: AirtableRecord): ShippingV2CambioCodigo {
     hechoPor: firstString(f["Hecho por"]),
     fecha: firstString(f["Fecha"]) || r.createdTime || "",
     marcadoPor: firstString(f["Marcado por"]),
+    porEtiquetar: [],
   };
 }
 
@@ -12104,7 +12108,29 @@ export function cambioCodigoPendiente(c: Pick<ShippingV2CambioCodigo, "enTienda"
 
 export async function getShippingV2CambiosCodigo(): Promise<ShippingV2CambioCodigo[]> {
   const registros = await listRecords(TABLA_CAMBIOS_CODIGO, { sortField: "Fecha", sortDirection: "desc" });
-  return registros.map(mapCambioCodigo);
+  const cambios = registros.map(mapCambioCodigo);
+  // Para "Imprimir etiqueta": qué registros de cada cambio siguen en la tienda.
+  const ids = Array.from(new Set(cambios.flatMap((c) => c.itemIds)));
+  if (!ids.length) return cambios;
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const items = new Map<string, AirtableRecord>();
+  for (let i = 0; i < ids.length; i += 50) {
+    try {
+      for (const r of await listRecordsByIds(SHIPPING_V2_TABLES.items, ids.slice(i, i + 50))) items.set(r.id, r);
+    } catch (error) {
+      console.warn("No se pudieron leer los artículos de los cambios de código:", error);
+    }
+  }
+  return cambios.map((c) => ({
+    ...c,
+    porEtiquetar: c.itemIds.flatMap((id) => {
+      const r = items.get(id);
+      if (!r) return [];
+      const f = r.fields;
+      const enTienda = registroEnTienda({ recibido: firstBoolean(f[F.recibido]) === true, cantidad: firstNumber(f[F.cantidad]) ?? 0, estado: firstString(f[F.estadoItem]) });
+      return enTienda ? [{ id, serie: firstString(f[F.numeroSerie]), cantidad: firstNumber(f[F.cantidad]) ?? 1 }] : [];
+    }),
+  }));
 }
 
 export async function contarCambiosCodigoPendientes(): Promise<number> {
