@@ -460,6 +460,8 @@ export type ShippingV2ItemSearchEntry = ShippingV2RecordBase & {
   numeroSerie?: string;
   /** Punto 10b: para "¿Ya existe?" al registrar una compra. */
   condicion?: string;
+  /** Punto 10c-3: códigos que tuvo antes (fusión); buscarlos encuentra el producto. */
+  skusAnteriores?: string;
   seguimiento?: string;
   estado?: string;
   tipoOperacion?: string;

@@ -77,6 +77,8 @@ export function buildShippingItemsProductFilterFormula(query: string, opts: { in
     `OR(` +
       `SEARCH("${escaped}",LOWER({Nombre del item})),` +
       `SEARCH("${escaped}",LOWER({SKU})),` +
+      // Punto 10c-3: la etiqueta vieja de un SKU fusionado sigue funcionando.
+      `SEARCH("${escaped}",LOWER({SKUs anteriores}&"")),` +
       // Punto 10b-5: escanear la serie de la etiqueta encuentra esa unidad.
       `SEARCH("${escaped}",LOWER(SUBSTITUTE({Número de serie}&""," ","")))` +
     `))`

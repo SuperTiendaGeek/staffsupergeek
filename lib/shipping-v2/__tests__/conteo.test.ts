@@ -83,6 +83,10 @@ assert(avance.porContar.find((p) => p.fila.sku === "LAP-000500")?.falta === 1, "
 assert(avance.deMas.find((p) => p.fila.sku === "OTR-000028")?.sobra === 1 && avance.deMas.find((p) => p.fila.sku === "LAP-000500")?.sobra === 1, "Avance: de más el cable y la unidad vendida");
 assert(avance.encontrados === avance.total - avance.porContar.reduce((s, p) => s + p.falta, 0) && avance.total > avance.encontrados, "Avance: N de N");
 
+const conAnterior = items.map((i) => (i.id === "s" ? { ...i, skusAnteriores: ["LAP-000099"] } : i));
+const viejo = leerCodigo("lap-000099", conAnterior, []);
+assert(viejo.tipo === "unidad" && viejo.item.id === "s", "La etiqueta vieja de un SKU fusionado encuentra el producto nuevo");
+
 console.log("\n— Aplicar ajustes (10c-2b) —");
 const rAj = compararConteo({ items, lineas, alcance, inicio: "2026-10-18T14:00:00Z" });
 let plan = planAjustes(rAj, [
