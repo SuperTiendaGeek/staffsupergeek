@@ -75,6 +75,7 @@ function buildFields(item: ShippingV2ItemSearchEntry) {
   return [
     field("sku", "SKU", item.sku),
     field("skuProveedor", "SKU proveedor", item.skuProveedor),
+    field("skusAnteriores", "SKU anterior", item.skusAnteriores),
     field("nombre", "Nombre", item.nombre),
     field("marca", "Marca", item.marca),
     field("modelo", "Modelo", item.modelo),

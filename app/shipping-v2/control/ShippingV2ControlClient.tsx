@@ -17,6 +17,7 @@ import { GRUPO_TIPO, TIPOS_ASUNTO, type TipoAsunto } from "@/lib/shipping-v2/rev
 import { resolveShippingV2Items } from "@/lib/shipping-v2/item-list-view";
 import type { ShippingV2AsuntoRevision } from "@/lib/shipping-v2/airtable";
 import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
+import { CodigosLista } from "./CodigosLista";
 import { ConteosLista } from "./ConteosLista";
 import type {
   ShippingV2AccessPermissions,
@@ -86,11 +87,22 @@ function textoAsunto(a: ShippingV2AsuntoRevision) {
   return a.sku && a.asunto.startsWith(`${a.sku} · `) ? a.asunto.slice(a.sku.length + 3) : a.asunto;
 }
 
-export type VistaControl = "revision" | "conteos";
+export type VistaControl = "revision" | "conteos" | "codigos";
 
-export function ShippingV2ControlClient({ asuntosIniciales, vistaInicial = "revision" }: { asuntosIniciales: ShippingV2AsuntoRevision[]; vistaInicial?: VistaControl }) {
+export function ShippingV2ControlClient({
+  asuntosIniciales,
+  vistaInicial = "revision",
+  esAdministrador = false,
+  codigosPendientes: pendientesIniciales = 0,
+}: {
+  asuntosIniciales: ShippingV2AsuntoRevision[];
+  vistaInicial?: VistaControl;
+  esAdministrador?: boolean;
+  codigosPendientes?: number;
+}) {
   const [vista, setVista] = useState<VistaControl>(vistaInicial);
   const [conteosAbiertos, setConteosAbiertos] = useState<number | null>(null);
+  const [codigosPendientes, setCodigosPendientes] = useState(pendientesIniciales);
   const [abiertos, setAbiertos] = useState(asuntosIniciales);
   /** Filas ya resueltas que siguen a la vista hasta su animación de salida. */
   const [porSalir, setPorSalir] = useState<ShippingV2AsuntoRevision[]>([]);
@@ -339,7 +351,7 @@ export function ShippingV2ControlClient({ asuntosIniciales, vistaInicial = "revi
   function cambiarPestana(v: VistaControl) {
     setVista(v);
     try {
-      window.history.replaceState(null, "", v === "conteos" ? "?vista=conteos" : window.location.pathname);
+      window.history.replaceState(null, "", v === "revision" ? window.location.pathname : `?vista=${v}`);
     } catch {
       /* solo recuerda la pestaña al volver */
     }
@@ -350,6 +362,7 @@ export function ShippingV2ControlClient({ asuntosIniciales, vistaInicial = "revi
       {([
         ["revision", `Revisión${abiertos.length ? ` · ${abiertos.length}` : ""}`],
         ["conteos", `Conteos${conteosAbiertos ? ` · ${conteosAbiertos}` : ""}`],
+        ["codigos", `Códigos${codigosPendientes ? ` · ${codigosPendientes}` : ""}`],
       ] as const).map(([v, t], n) => (
         <button
           key={v}
@@ -364,6 +377,10 @@ export function ShippingV2ControlClient({ asuntosIniciales, vistaInicial = "revi
       ))}
     </div>
   );
+
+  if (vista === "codigos") {
+    return <CodigosLista pestanas={pestanas} esAdministrador={esAdministrador} onPendientes={setCodigosPendientes} />;
+  }
 
   if (vista === "conteos") {
     return (
@@ -448,6 +465,18 @@ export function ShippingV2ControlClient({ asuntosIniciales, vistaInicial = "revi
                           <button type="button" onClick={() => abrir(a)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#D7FF4F] hover:underline">
                             Abrir{enlaceExterno(a) ? <ExternalLink className="h-3 w-3" aria-hidden="true" /> : null}
                           </button>
+                        ) : null}
+                        {esAdministrador && a.tipo === "Posible duplicado" ? (
+                          <a
+                            href={`/shipping-v2/control/fusionar?skus=${encodeURIComponent(a.clave.split("|")[1] ?? a.sku)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={() => { enOtraPestana.current.add(a.id); setActiva(a.id); }}
+                            className={botonClass}
+                            title="Juntar estos productos en uno (se revisa solo al volver)"
+                          >
+                            Fusionar<ExternalLink className="h-3 w-3" aria-hidden="true" />
+                          </a>
                         ) : null}
                         <button type="button" onClick={() => { setMotivoDe(motivoDe === a.id ? null : a.id); setMotivo(""); setActiva(a.id); }} className={botonClass} aria-expanded={motivoDe === a.id}>
                           Está bien

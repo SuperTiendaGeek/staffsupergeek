@@ -28,6 +28,8 @@ export type ItemConteo = {
   numeroSerie: string;
   costoUnidad: number | null;
   ultimaActualizacion: string;
+  /** Punto 10c-3: códigos que tuvo antes (las etiquetas viejas siguen sirviendo). */
+  skusAnteriores?: string[];
 };
 
 export type TipoLinea = "Unidad" | "Sin identificar" | "Lote" | "Sin registro";
@@ -47,7 +49,9 @@ export type LineaConteo = {
 
 export type AlcanceConteo = { categorias: string[]; incluyeActivos: boolean };
 
-const FUERA = new Set(["vendido", "agotado", "dado de baja", "cancelado", "archivado", "usado en reparacion", "perdido en tienda", "destinado a partes", "devuelto a proveedor", "desarmado completamente"]);
+/** Estados de lo que ya no está en la tienda (también lo usa la fusión de SKU). */
+export const ESTADOS_FUERA_TIENDA: ReadonlySet<string> = new Set(["vendido", "agotado", "dado de baja", "cancelado", "archivado", "usado en reparacion", "perdido en tienda", "destinado a partes", "devuelto a proveedor", "desarmado completamente"]);
+const FUERA = ESTADOS_FUERA_TIENDA;
 
 function normal(texto?: string | null) {
   return String(texto ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
@@ -108,7 +112,12 @@ export function leerCodigo(codigo: string, items: ItemConteo[], lineas: LineaCon
   }
 
   const delSku = items.filter((i) => normalCodigo(i.sku) === texto);
-  if (!delSku.length) return { tipo: "sin-registro", codigo: texto };
+  if (!delSku.length) {
+    // Punto 10c-3: la etiqueta vieja de un SKU fusionado lleva al SKU nuevo.
+    const fusionado = items.find((i) => (i.skusAnteriores ?? []).some((s) => normalCodigo(s) === texto));
+    if (fusionado && normalCodigo(fusionado.sku) !== texto) return leerCodigo(fusionado.sku, items, lineas);
+    return { tipo: "sin-registro", codigo: texto };
+  }
   const enTienda = delSku.filter((i) => i.recibido && i.cantidad > 0 && !FUERA.has(normal(i.estado)));
   const base = enTienda.length ? enTienda : delSku;
   if (base.some((i) => !esUnidad(i))) return { tipo: "lote", item: base.find((i) => !esUnidad(i)) ?? base[0] };

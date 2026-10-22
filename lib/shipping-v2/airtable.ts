@@ -285,6 +285,14 @@ import {
 } from "@/lib/shipping-v2/publicaciones";
 import { iaAnunciosDisponible } from "@/lib/shipping-v2/ia-anuncios-servidor";
 import {
+  agruparProductos,
+  normalSku,
+  planFusion,
+  sugerirPrincipal,
+  type ProductoFusion,
+  type RegistroFusion,
+} from "@/lib/shipping-v2/fusion";
+import {
   compararConteo,
   entraEnConteo,
   esUnidad,
@@ -2336,6 +2344,7 @@ function mapItemSearchEntry(
     modelo: firstString(f[F.modelo]) || undefined,
     numeroSerie: firstString(f[F.numeroSerie]) || undefined,
     condicion: firstString(f[F.condicion]) || undefined,
+    skusAnteriores: lineasTexto(f[CAMPO_SKUS_ANTERIORES]).join(" ") || undefined,
     seguimiento: firstString(f[F.seguimiento]) || undefined,
     estado: firstString(f[F.estadoItem], "Registrado"),
     tipoOperacion: firstString(f[F.tipoOperacion]) || undefined,
@@ -2381,6 +2390,7 @@ export async function getShippingV2ItemSearchIndex(access?: ShippingV2AccessCont
       F.modelo,
       F.numeroSerie,
       F.condicion,
+      CAMPO_SKUS_ANTERIORES,
       F.seguimiento,
       F.estadoItem,
       F.tipoOperacion,
@@ -2878,7 +2888,11 @@ export async function createShippingV2TechnicalOption(input: {
 
 async function getExistingShippingV2Skus() {
   const records = await listRecords(SHIPPING_V2_TABLES.items, { pageSize: 100 });
-  return records.map((record) => firstString(record.fields[getOfficialSkuField()])).filter(Boolean);
+  // Punto 10c-3: un código absorbido en una fusión no se vuelve a usar (sus
+  // etiquetas viejas todavía pueden estar pegadas en la tienda).
+  return records
+    .flatMap((record) => [firstString(record.fields[getOfficialSkuField()]), ...lineasTexto(record.fields[CAMPO_SKUS_ANTERIORES])])
+    .filter(Boolean);
 }
 
 export async function generateUniqueShippingV2SkuForCategory(category?: string) {
@@ -11748,7 +11762,7 @@ function mapLineaConteo(r: AirtableRecord): LineaConteo {
 export async function getShippingV2ItemsParaConteo(): Promise<ItemConteo[]> {
   const F = SHIPPING_V2_ITEM_FIELDS;
   const registros = await listRecords(SHIPPING_V2_TABLES.items, {
-    fields: [F.sku, F.nombre, F.categoria, F.estadoItem, F.cantidad, F.recibido, F.esUsoLocal, F.seguimiento, F.numeroSerie, F.costoTotalUnidad, F.costoProveedor, F.ultimaActualizacion],
+    fields: [F.sku, F.nombre, F.categoria, F.estadoItem, F.cantidad, F.recibido, F.esUsoLocal, F.seguimiento, F.numeroSerie, F.costoTotalUnidad, F.costoProveedor, F.ultimaActualizacion, CAMPO_SKUS_ANTERIORES],
   });
   return registros
     .map((r) => {
@@ -11766,6 +11780,7 @@ export async function getShippingV2ItemsParaConteo(): Promise<ItemConteo[]> {
         numeroSerie: firstString(f[F.numeroSerie]),
         costoUnidad: firstNumber(f[F.costoTotalUnidad]) ?? firstNumber(f[F.costoProveedor]),
         ultimaActualizacion: firstString(f[F.ultimaActualizacion]) || r.createdTime || "",
+        skusAnteriores: lineasTexto(f[CAMPO_SKUS_ANTERIORES]),
       } satisfies ItemConteo;
     })
     .filter((i) => i.sku);
@@ -12031,4 +12046,270 @@ export async function getShippingV2ResumenParaConteo() {
     porCategoria.set(c, (porCategoria.get(c) ?? 0) + (esUnidad(i) ? 1 : i.cantidad));
   }
   return { categorias: Array.from(porCategoria.entries()).sort((a, b) => b[1] - a[1]).map(([nombre, cantidad]) => ({ nombre, cantidad })), activos };
+}
+
+
+// ─── Fusionar SKU y cambios de código (punto 10c-3, 21-oct-2026) ────────────
+// Reglas en fusion.ts. Cada registro de los productos absorbidos pasa al SKU
+// principal con sus propios costos, compra, caja y documentos (todo se enlaza
+// al registro, no al texto del SKU). El código viejo queda en "SKUs
+// anteriores": el buscador, el conteo y la facturación lo siguen
+// reconociendo hasta que se reimprima la etiqueta. Cada SKU absorbido deja un
+// registro en "Shipping Cambios de código".
+
+const CAMPO_SKUS_ANTERIORES = "SKUs anteriores";
+const TABLA_CAMBIOS_CODIGO = "Shipping Cambios de código";
+
+export type ShippingV2CambioCodigo = {
+  id: string;
+  antes: string;
+  ahora: string;
+  motivo: string;
+  detalle: string;
+  itemIds: string[];
+  registros: number;
+  enTienda: number;
+  anuncios: number;
+  etiquetaReimpresa: boolean;
+  anunciosCorregidos: boolean;
+  hechoPor: string;
+  fecha: string;
+  marcadoPor: string;
+};
+
+function mapCambioCodigo(r: AirtableRecord): ShippingV2CambioCodigo {
+  const f = r.fields;
+  return {
+    id: r.id,
+    antes: firstString(f["Antes"]),
+    ahora: firstString(f["Ahora"]),
+    motivo: firstString(f["Motivo"]),
+    detalle: firstString(f["Detalle"]),
+    itemIds: linkedRecordIds(f["Artículos"]),
+    registros: firstNumber(f["Registros"]) ?? 0,
+    enTienda: firstNumber(f["En tienda"]) ?? 0,
+    anuncios: firstNumber(f["Anuncios"]) ?? 0,
+    etiquetaReimpresa: firstBoolean(f["Etiqueta reimpresa"]) === true,
+    anunciosCorregidos: firstBoolean(f["Anuncios corregidos"]) === true,
+    hechoPor: firstString(f["Hecho por"]),
+    fecha: firstString(f["Fecha"]) || r.createdTime || "",
+    marcadoPor: firstString(f["Marcado por"]),
+  };
+}
+
+/** ¿Le falta algo? Etiqueta por reimprimir (si hay en tienda) o anuncios por corregir. */
+export function cambioCodigoPendiente(c: Pick<ShippingV2CambioCodigo, "enTienda" | "etiquetaReimpresa" | "anuncios" | "anunciosCorregidos">) {
+  return (c.enTienda > 0 && !c.etiquetaReimpresa) || (c.anuncios > 0 && !c.anunciosCorregidos);
+}
+
+export async function getShippingV2CambiosCodigo(): Promise<ShippingV2CambioCodigo[]> {
+  const registros = await listRecords(TABLA_CAMBIOS_CODIGO, { sortField: "Fecha", sortDirection: "desc" });
+  return registros.map(mapCambioCodigo);
+}
+
+export async function contarCambiosCodigoPendientes(): Promise<number> {
+  return (await getShippingV2CambiosCodigo()).filter(cambioCodigoPendiente).length;
+}
+
+export async function marcarCambioCodigoShippingV2(
+  id: string,
+  input: { etiquetaReimpresa?: boolean; anunciosCorregidos?: boolean },
+  options: { actor: string }
+): Promise<ShippingV2CambioCodigo> {
+  const recordId = cleanString(id);
+  if (!recordId.startsWith("rec")) throw new Error("Cambio no válido.");
+  const fields: Record<string, unknown> = { "Marcado por": options.actor };
+  if (typeof input.etiquetaReimpresa === "boolean") fields["Etiqueta reimpresa"] = input.etiquetaReimpresa;
+  if (typeof input.anunciosCorregidos === "boolean") fields["Anuncios corregidos"] = input.anunciosCorregidos;
+  const respuesta = await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_CAMBIOS_CODIGO), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id: recordId, fields }] }),
+  });
+  const r = respuesta.records?.[0];
+  if (!r) throw new Error("Airtable no devolvió el cambio.");
+  return mapCambioCodigo(r);
+}
+
+function formulaSkus(campo: string, skus: string[]) {
+  return `OR(${skus.map((s) => `UPPER({${campo}}) = '${escapeFormulaString(s)}'`).join(",")})`;
+}
+
+async function leerRegistrosFusion(skus: string[]): Promise<RegistroFusion[]> {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const registros = await listRecords(SHIPPING_V2_TABLES.items, {
+    filterByFormula: formulaSkus(F.sku, skus),
+    fields: [F.sku, F.nombre, F.categoria, F.estadoItem, F.cantidad, F.recibido, F.esUsoLocal, F.seguimiento, F.condicion, F.numeroSerie,
+      F.precioVentaFinal, F.costoTotalUnidad, F.costoProveedor, F.ultimaActualizacion, "Factura", "Recibo", CAMPO_SKUS_ANTERIORES],
+  });
+  return registros.map((r) => {
+    const f = r.fields;
+    return {
+      id: r.id,
+      sku: normalSku(firstString(f[F.sku])),
+      nombre: firstString(f[F.nombre]),
+      categoria: firstString(f[F.categoria]),
+      estado: firstString(f[F.estadoItem]),
+      cantidad: firstNumber(f[F.cantidad]) ?? 0,
+      recibido: firstBoolean(f[F.recibido]) === true,
+      usoLocal: firstBoolean(f[F.esUsoLocal]) === true,
+      seguimiento: firstString(f[F.seguimiento]),
+      condicion: firstString(f[F.condicion]),
+      numeroSerie: firstString(f[F.numeroSerie]),
+      precio: firstNumber(f[F.precioVentaFinal]),
+      costoUnidad: firstNumber(f[F.costoTotalUnidad]) ?? firstNumber(f[F.costoProveedor]),
+      documentos: linkedRecordIds(f["Factura"]).length + linkedRecordIds(f["Recibo"]).length,
+      skusAnteriores: lineasTexto(f[CAMPO_SKUS_ANTERIORES]),
+      ultimaActualizacion: firstString(f[F.ultimaActualizacion]) || r.createdTime || "",
+    };
+  });
+}
+
+async function contarAnunciosPorSku(skus: string[]): Promise<Map<string, AirtableRecord[]>> {
+  const registros = await listRecords(TABLA_PUBLICACIONES, { filterByFormula: formulaSkus("SKU", skus), fields: ["SKU", "Estado"] });
+  const mapa = new Map<string, AirtableRecord[]>();
+  for (const r of registros) {
+    if (normalizeStatus(firstString(r.fields["Estado"])) === "retirado") continue;
+    const sku = normalSku(firstString(r.fields["SKU"]));
+    mapa.set(sku, [...(mapa.get(sku) ?? []), r]);
+  }
+  return mapa;
+}
+
+function skusValidos(skus: string[]) {
+  const lista = Array.from(new Set(skus.map(normalSku).filter((s) => /^[A-Z0-9][A-Z0-9-]{2,40}$/.test(s))));
+  if (lista.length > 10) throw new Error("Máximo 10 productos por fusión.");
+  return lista;
+}
+
+export type VistaFusion = {
+  productos: Array<Omit<ProductoFusion, "registros"> & { registros: number; anuncios: number; estados: string[] }>;
+  noEncontrados: string[];
+  principal: string;
+  plan: { ok: true; registros: number; etiquetas: number; avisos: string[] } | { ok: false; motivo: string } | null;
+};
+
+/** Lo que se va a fusionar, para mostrarlo antes de confirmar. */
+export async function getShippingV2Fusion(skusEntrada: string[], principalEntrada?: string): Promise<VistaFusion> {
+  const skus = skusValidos(skusEntrada);
+  if (!skus.length) return { productos: [], noEncontrados: [], principal: "", plan: null };
+  const [registros, anuncios] = await Promise.all([leerRegistrosFusion(skus), contarAnunciosPorSku(skus)]);
+  const productos = agruparProductos(registros);
+  const encontrados = new Set(productos.map((p) => p.sku));
+  const principal = principalEntrada && encontrados.has(normalSku(principalEntrada)) ? normalSku(principalEntrada) : sugerirPrincipal(productos);
+  const plan = productos.length >= 2 ? planFusion(productos, principal) : null;
+  return {
+    productos: productos.map((p) => ({
+      ...p,
+      registros: p.registros.length,
+      anuncios: anuncios.get(p.sku)?.length ?? 0,
+      estados: Array.from(new Set(p.registros.map((r) => r.estado).filter(Boolean))),
+    })),
+    noEncontrados: skus.filter((s) => !encontrados.has(s)),
+    principal,
+    plan: plan ? (plan.ok ? { ok: true, registros: plan.cambios.length, etiquetas: plan.etiquetas, avisos: plan.avisos } : plan) : null,
+  };
+}
+
+export type ResultadoFusion = { principal: string; movidos: number; etiquetas: number; anuncios: number; cambios: ShippingV2CambioCodigo[] };
+
+/** Fusiona (solo Administrador). Se hace SKU por SKU: si algo falla, lo ya hecho queda completo y se puede volver a intentar. */
+export async function fusionarSkuShippingV2(
+  input: { skus: string[]; principal: string },
+  options: { actor: string; access: ShippingV2AccessContext }
+): Promise<ResultadoFusion> {
+  if (options.access.isSiteAdmin !== true) throw new Error("Solo el Administrador fusiona SKU.");
+  const skus = skusValidos(input.skus);
+  return withLock("fusion-sku", async () => {
+    const productos = agruparProductos(await leerRegistrosFusion(skus));
+    const faltan = skus.filter((s) => !productos.some((p) => p.sku === s));
+    if (faltan.length) throw new Error(`No se encontró ${faltan.join(", ")}.`);
+    const plan = planFusion(productos, input.principal);
+    if (!plan.ok) throw new Error(plan.motivo);
+    const F = SHIPPING_V2_ITEM_FIELDS;
+    const anuncios = await contarAnunciosPorSku(plan.absorbidos.map((p) => p.sku));
+    const resultado: ResultadoFusion = { principal: plan.principal.sku, movidos: 0, etiquetas: 0, anuncios: 0, cambios: [] };
+    const ahora = new Date().toISOString();
+
+    for (const absorbido of plan.absorbidos) {
+      const cambios = plan.cambios.filter((c) => c.skuAntes === absorbido.sku);
+      // 1. Los registros pasan al SKU principal (de 10 en 10).
+      for (let i = 0; i < cambios.length; i += 10) {
+        await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+          method: "PATCH",
+          body: JSON.stringify({
+            typecast: true,
+            records: cambios.slice(i, i + 10).map((c) => ({
+              id: c.id,
+              fields: compactFields({
+                [F.sku]: c.campos.sku,
+                [CAMPO_SKUS_ANTERIORES]: c.campos.skusAnteriores.join("\n"),
+                [F.categoria]: c.campos.categoria,
+                [F.nombre]: c.campos.nombre,
+                [F.precioVentaFinal]: c.campos.precio,
+                [F.seguimiento]: c.campos.seguimiento,
+                [F.ultimaActualizacion]: ahora,
+                [F.actualizadoPor]: options.actor,
+              }),
+            })),
+          }),
+        });
+      }
+      // 2. Historial de cada registro.
+      for (const c of cambios) {
+        const registro = absorbido.registros.find((r) => r.id === c.id);
+        await createShippingV2Event({
+          action: "Actualizado",
+          itemRecordId: c.id,
+          itemName: registro?.nombre,
+          registradoPor: options.actor,
+          descripcion: `Fusión de SKU: ${absorbido.sku} → ${plan.principal.sku}. ${c.enTienda ? "Toma nombre, categoría y precio del principal; conserva su costo, compra y caja." : "Ya no estaba en la tienda: solo cambia el código (su venta y documentos no cambian)."}`,
+          estadoAnterior: absorbido.sku,
+          estadoNuevo: plan.principal.sku,
+        }).catch((error) => console.error("No se pudo registrar el evento de la fusión:", error));
+      }
+      // 3. Los anuncios del SKU viejo pasan al principal (hay que corregir el texto en cada canal).
+      const anunciosSku = anuncios.get(absorbido.sku) ?? [];
+      for (let i = 0; i < anunciosSku.length; i += 10) {
+        await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_PUBLICACIONES), {
+          method: "PATCH",
+          body: JSON.stringify({ records: anunciosSku.slice(i, i + 10).map((r) => ({ id: r.id, fields: { SKU: plan.principal.sku } })) }),
+        });
+      }
+      // 4. El reporte "Cambios de código".
+      const enTienda = cambios.filter((c) => c.enTienda).length;
+      const respuesta = await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_CAMBIOS_CODIGO), {
+        method: "POST",
+        body: JSON.stringify({
+          typecast: true,
+          records: [{
+            fields: {
+              Cambio: `${absorbido.sku} → ${plan.principal.sku}`,
+              Antes: absorbido.sku,
+              Ahora: plan.principal.sku,
+              Motivo: "Fusión",
+              Detalle: `${absorbido.nombre} → ${plan.principal.nombre}. ${cambios.length} registro(s)${enTienda ? `, ${enTienda} en la tienda` : ", ninguno en la tienda"}.`,
+              "Artículos": cambios.map((c) => c.id),
+              Registros: cambios.length,
+              "En tienda": enTienda,
+              Anuncios: anunciosSku.length,
+              "Hecho por": options.actor,
+              Fecha: ahora,
+            },
+          }],
+        }),
+      });
+      const creado = respuesta.records?.[0];
+      if (creado) resultado.cambios.push(mapCambioCodigo(creado));
+      resultado.movidos += cambios.length;
+      resultado.etiquetas += enTienda;
+      resultado.anuncios += anunciosSku.length;
+    }
+    invalidateShippingV2ItemSearchIndexCache();
+    // Los "Posible duplicado" de estos artículos se revisan de nuevo.
+    await verificarAsuntosRevisionShippingV2(
+      { itemIds: productos.flatMap((p) => p.registros.map((r) => r.id)), asuntoIds: [] },
+      { actor: options.actor }
+    ).catch((error) => console.error("No se pudo verificar la revisión tras la fusión:", error));
+    return resultado;
+  });
 }
