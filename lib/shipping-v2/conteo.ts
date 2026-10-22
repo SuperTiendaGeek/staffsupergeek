@@ -351,7 +351,7 @@ export function progresoConteo(r: ResultadoConteo): ProgresoConteo {
 // ─── Aplicar ajustes (10c-2b, solo Administrador) ────────────────────────────
 
 /** Qué hacer con una diferencia. */
-export type AccionAjuste = "baja-perdido" | "baja-robo" | "baja-error" | "fuera" | "devolver";
+export type AccionAjuste = "baja-perdido" | "baja-robo" | "baja-error" | "fuera" | "devolver" | "encontrada";
 export type DecisionAjuste = { sku: string; lado: "falta" | "sobra"; accion: AccionAjuste };
 
 export const MOTIVO_AJUSTE: Record<AccionAjuste, string> = {
@@ -359,11 +359,12 @@ export const MOTIVO_AJUSTE: Record<AccionAjuste, string> = {
   "baja-robo": "Dar de baja · robo",
   "baja-error": "Dar de baja · error de registro",
   fuera: "Está fuera (técnico, cliente)",
-  devolver: "Devolver al stock",
+  devolver: "Devolver al stock (estaba de baja)",
+  encontrada: "Encontrada: sumar al stock",
 };
 
 /** Una operación sobre un registro: "baja" o "revertir-baja" (volver al stock lo dado de baja). */
-export type OperacionAjuste = { itemId: string; sku: string; accion: "baja" | "revertir-baja"; cantidad: number; /** Otros registros del mismo SKU por si este no alcanza (lotes). */ alternativas?: string[] };
+export type OperacionAjuste = { itemId: string; sku: string; accion: "baja" | "revertir-baja" | "sumar"; cantidad: number; /** Otros registros del mismo SKU por si este no alcanza (lotes). */ alternativas?: string[] };
 export type PlanAjuste = DecisionAjuste & { operaciones: OperacionAjuste[]; valor: number; texto: string; error?: string };
 
 function enTienda(i: ItemConteo) {
@@ -420,7 +421,25 @@ export function planAjustes(resultado: ResultadoConteo, decisiones: DecisionAjus
       salida.push(base);
       continue;
     }
-    // Sobrantes: solo se puede devolver al stock lo que estaba dado de baja.
+    // Sobrantes. "Encontrada" (10c-4): vuelve al stock lo que se contó y el
+    // sistema tenía en 0 (un lote suma en su registro más nuevo).
+    if (d.accion === "encontrada") {
+      if (fila.tipo === "unidad") {
+        const sinStock = fila.sobran.filter((i) => i.cantidad <= 0 && normal(i.estado) !== "dado de baja");
+        if (!sinStock.length) base.error = "Nada de esto figura sin stock (si estaba de baja, usa «Devolver al stock»).";
+        base.operaciones = sinStock.map((i) => ({ itemId: i.id, sku: i.sku, accion: "sumar" as const, cantidad: 1 }));
+        base.valor = sinStock.reduce((s, i) => s + costo(i), 0);
+      } else {
+        const n = fila.contado - fila.sistema;
+        const nuevo = [...fila.registros].reverse().find((i) => i.recibido) ?? [...fila.registros].reverse()[0];
+        base.operaciones = nuevo ? [{ itemId: nuevo.id, sku: nuevo.sku, accion: "sumar", cantidad: n }] : [];
+        base.valor = nuevo ? n * costo(nuevo) : 0;
+        if (!nuevo) base.error = "No hay registros de este producto.";
+      }
+      salida.push(base);
+      continue;
+    }
+    // Devolver al stock: solo lo que estaba dado de baja.
     if (d.accion !== "devolver") {
       salida.push({ ...base, error: "Acción no válida para un sobrante." });
       continue;
@@ -447,6 +466,9 @@ export function planAjustes(resultado: ResultadoConteo, decisiones: DecisionAjus
 /** Acciones que tiene sentido ofrecer para una fila. */
 export function accionesPara(fila: FilaConteo, lado: "falta" | "sobra"): AccionAjuste[] {
   if (lado === "falta") return ["baja-perdido", "baja-robo", "baja-error", "fuera"];
-  if (fila.tipo === "lote") return ["devolver"];
-  return fila.sobran.some((i) => normal(i.estado) === "dado de baja") ? ["devolver"] : [];
+  if (fila.tipo === "lote") return ["encontrada", "devolver"];
+  const acciones: AccionAjuste[] = [];
+  if (fila.sobran.some((i) => i.cantidad <= 0 && normal(i.estado) !== "dado de baja")) acciones.push("encontrada");
+  if (fila.sobran.some((i) => normal(i.estado) === "dado de baja")) acciones.push("devolver");
+  return acciones;
 }

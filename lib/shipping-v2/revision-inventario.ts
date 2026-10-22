@@ -54,6 +54,11 @@ export type ItemRevision = {
   requierePago: boolean;
   esRegalo: boolean;
   tienePago: boolean;
+  /** Punto 10c-4: salidas sin documento de venta de este portal (para cuadrar). */
+  bajas?: number;
+  vendidasFuera?: number;
+  salidasInternas?: number;
+  ventasOtro?: number;
 };
 
 export type LineaVenta = { itemId: string; cantidad: number };
@@ -183,18 +188,27 @@ export function detectarAsuntos(datos: DatosRevision, hoy: Date, plazos = PLAZOS
 
   for (const i of datos.items) {
     const estado = normal(i.estado);
-    // Unidades: compradas = en tienda + vendidas (menos devueltas). Lo dado de baja o pasado a uso local sale aparte.
+    // Unidades: compradas = en tienda + vendidas (menos devueltas) + bajas + vendidas fuera
+    // del sistema + salidas internas − ventas de otro artículo (punto 10c-4).
+    // Un registro dado de baja entero o pasado a uso local sale aparte.
     if (i.compradas !== null && !["dado de baja", "perdido en tienda", "uso local", "destinado a partes"].includes(estado)) {
       const netas = (vendidas.get(i.id) ?? 0) - (devueltas.get(i.id) ?? 0);
-      const esperado = i.cantidad + netas;
+      const extras = (i.bajas ?? 0) + (i.vendidasFuera ?? 0) + (i.salidasInternas ?? 0) - (i.ventasOtro ?? 0);
+      const esperado = i.cantidad + netas + extras;
       if (esperado !== i.compradas) {
         const diferencia = esperado - i.compradas;
+        const otros = [
+          i.bajas ? `bajas ${i.bajas}` : "",
+          i.vendidasFuera ? `fuera del sistema ${i.vendidasFuera}` : "",
+          i.salidasInternas ? `salidas internas ${i.salidasInternas}` : "",
+          i.ventasOtro ? `de otro artículo −${i.ventasOtro}` : "",
+        ].filter(Boolean);
         asuntos.push({
           clave: `Unidades no cuadran|${i.id}`,
           tipo: "Unidades no cuadran",
           sku: i.sku,
           itemIds: [i.id],
-          asunto: `Compradas ${i.compradas} · vendidas ${netas} · en tienda ${i.cantidad}`,
+          asunto: `Compradas ${i.compradas} · vendidas ${netas} · en tienda ${i.cantidad}${otros.length ? ` · ${otros.join(" · ")}` : ""}`,
           detalle: diferencia > 0 ? `${diferencia} más de lo comprado` : `Falta${diferencia === -1 ? "" : "n"} ${-diferencia}`,
           sugerencia: "Contar",
         });
