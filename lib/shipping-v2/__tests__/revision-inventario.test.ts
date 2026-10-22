@@ -25,6 +25,12 @@ a = detectarAsuntos({ ...vacio, items: [{ ...base, cantidad: 1 }], ventas: [{ it
 assert(a.length === 0, "Cuadra: no hay asunto");
 a = detectarAsuntos({ ...vacio, items: [{ ...base, cantidad: 0, estado: "Vendido", compradas: 1 }], ventas: [{ itemId: "r1", cantidad: 2 }], devoluciones: [{ itemId: "r1", cantidad: 1 }] }, hoy);
 assert(a.length === 0, "La nota de crédito con devolución resta lo vendido");
+a = detectarAsuntos({ ...vacio, items: [{ ...base, compradas: 7, cantidad: 4, bajas: 1, vendidasFuera: 1, salidasInternas: 1 }] }, hoy);
+assert(a.length === 0, "Punto 10c-4: bajas, vendidas fuera del sistema y salidas internas cuentan para cuadrar");
+a = detectarAsuntos({ ...vacio, items: [{ ...base, estado: "Vendido", compradas: 1, cantidad: 0, ventasOtro: 2 }], ventas: [{ itemId: "r1", cantidad: 3 }] }, hoy);
+assert(a.length === 0, "Punto 10c-4: las ventas de otro artículo se descuentan");
+a = detectarAsuntos({ ...vacio, items: [{ ...base, compradas: 7, cantidad: 5, bajas: 1 }] }, hoy);
+assert(a[0]?.asunto.includes("bajas 1") && a[0]?.detalle === "Falta 1", "El asunto muestra las bajas y lo que falta");
 a = detectarAsuntos({ ...vacio, items: [{ ...base, compradas: null }] }, hoy);
 assert(a.length === 0, "Sin \"Unidades compradas\" no se compara");
 a = detectarAsuntos({ ...vacio, items: [{ ...base, estado: "Vendido", compradas: null }] }, hoy);

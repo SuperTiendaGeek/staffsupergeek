@@ -19,6 +19,7 @@ import type { ShippingV2AsuntoRevision } from "@/lib/shipping-v2/airtable";
 import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
 import { CodigosLista } from "./CodigosLista";
 import { ConteosLista } from "./ConteosLista";
+import { CuadrePanel } from "./CuadrePanel";
 import type {
   ShippingV2AccessPermissions,
   ShippingV2Item,
@@ -62,7 +63,7 @@ const ShippingV2ItemDetailView = dynamic<DetailViewProps>(
 );
 
 const TODOS = "Todos";
-const botonClass = "inline-flex h-7 items-center gap-1.5 rounded-lg border border-[#3A3B35] bg-[#1A1B17] px-2.5 text-[12px] font-semibold text-[#EDEDE7] transition hover:border-[#D7FF4F]/50 disabled:opacity-50";
+const botonClass = "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#3A3B35] bg-[#1A1B17] px-2.5 text-[12px] font-semibold text-[#EDEDE7] transition hover:border-[#D7FF4F]/50 disabled:opacity-50";
 
 /** Cómo se ve una fila mientras se trabaja: verificando, ya resuelta (antes de salir) o saliendo. */
 type EstadoFila = "verificando" | "resuelto" | "saliendo";
@@ -113,6 +114,8 @@ export function ShippingV2ControlClient({
   const [busy, setBusy] = useState("");
   const [mensaje, setMensaje] = useState("");
   const [motivoDe, setMotivoDe] = useState<string | null>(null);
+  /** Punto 10c-4: fila con el panel "Contar" abierto. */
+  const [cuadreDe, setCuadreDe] = useState<string | null>(null);
   const [motivo, setMotivo] = useState("");
   const [expandido, setExpandido] = useState<string | null>(null);
   /** La fila en la que se está trabajando (queda resaltada). */
@@ -169,18 +172,22 @@ export function ShippingV2ControlClient({
   const abiertosRef = useRef(abiertos);
   abiertosRef.current = abiertos;
 
-  const verificar = useCallback(async (input: { itemIds?: string[]; asuntoIds?: string[] }) => {
+  /** Vuelve a revisar los asuntos de esos artículos (o usa lo que ya devolvió el servidor al cuadrar). */
+  const verificar = useCallback(async (input: { itemIds?: string[]; asuntoIds?: string[] }, yaVerificados?: ShippingV2AsuntoRevision[]) => {
     const afectadas = abiertosRef.current.filter((a) => (input.asuntoIds ?? []).includes(a.id) || a.itemIds.some((id) => (input.itemIds ?? []).includes(id)));
     marcar(afectadas.map((a) => a.id), "verificando");
     try {
-      const response = await fetch("/api/shipping-v2/control/revision/verificar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemIds: input.itemIds ?? [], asuntoIds: input.asuntoIds ?? [] }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo verificar."));
-      const { abiertos: nuevos } = payload.data as { abiertos: ShippingV2AsuntoRevision[] };
+      let nuevos = yaVerificados;
+      if (!nuevos) {
+        const response = await fetch("/api/shipping-v2/control/revision/verificar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemIds: input.itemIds ?? [], asuntoIds: input.asuntoIds ?? [] }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo verificar."));
+        nuevos = (payload.data as { abiertos: ShippingV2AsuntoRevision[] }).abiertos;
+      }
       const siguen = new Set(nuevos.map((a) => a.id));
       const resueltasAhora = afectadas.filter((a) => !siguen.has(a.id));
       setAbiertos(nuevos);
@@ -422,7 +429,7 @@ export function ShippingV2ControlClient({
       </div>
 
       <div className="overflow-hidden rounded-xl border border-[#30312D] bg-[#171814] text-[12.5px]">
-        <div className="hidden grid-cols-[108px_minmax(0,1fr)_200px_190px] gap-2.5 border-b border-[#30312D] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A] md:grid">
+        <div className="hidden grid-cols-[108px_minmax(0,1fr)_220px_210px] gap-2.5 border-b border-[#30312D] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A] md:grid">
           <span>SKU</span><span>Qué pasa</span><span>{verResueltos ? "Cómo quedó" : "Sugerencia"}</span><span />
         </div>
         {visibles.length ? visibles.map((a) => {
@@ -436,8 +443,20 @@ export function ShippingV2ControlClient({
               className={`grid transition-all duration-300 ease-out ${est === "saliendo" ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}
             >
               <div className={`min-h-0 overflow-hidden border-b border-[#252622] transition-colors duration-300 ${fondo}`}>
-                <div className="grid items-center gap-2.5 px-3 py-1.5 md:grid-cols-[108px_minmax(0,1fr)_200px_190px]">
-                  <span className="font-mono font-semibold">{a.sku || "—"}</span>
+                <div className="grid items-center gap-2.5 px-3 py-1.5 md:grid-cols-[108px_minmax(0,1fr)_220px_210px]">
+                  {a.itemIds[0] || enlaceExterno(a) ? (
+                    <button
+                      type="button"
+                      onClick={() => abrir(a)}
+                      className="inline-flex w-fit items-center gap-1 text-left font-mono font-semibold text-[#EDEDE7] underline decoration-[#8F908A]/50 decoration-dotted underline-offset-[3px] transition hover:text-[#D7FF4F] hover:decoration-[#D7FF4F] hover:decoration-solid"
+                      title={enlaceExterno(a) ? "Abrir en otra pestaña" : "Abrir el artículo"}
+                    >
+                      {a.sku || "Abrir"}
+                      {enlaceExterno(a) ? <ExternalLink className="h-3 w-3" aria-hidden="true" /> : null}
+                    </button>
+                  ) : (
+                    <span className="font-mono font-semibold">{a.sku || "—"}</span>
+                  )}
                   <span className="min-w-0">
                     {textoAsunto(a)}
                     {conDetalle && a.tipo !== "Posible duplicado" && a.tipo !== "Falta respaldo" ? <span className="ml-1.5 font-semibold text-[#FFB07A]">({a.detalle})</span> : null}
@@ -449,8 +468,13 @@ export function ShippingV2ControlClient({
                   </span>
                   <span className="text-[#B4B5AC]">
                     {verResueltos ? (
-                      <span title={a.motivo}>{a.estado}{a.resueltoPor ? ` · ${a.resueltoPor}` : ""}{a.fechaResuelto ? ` · ${fechaHora(a.fechaResuelto)}` : ""}</span>
-                    ) : a.sugerencia}
+                      <span title={a.motivo}>{a.estado === "Está bien" ? "Dejado así" : a.estado}{a.resueltoPor ? ` · ${a.resueltoPor}` : ""}{a.fechaResuelto ? ` · ${fechaHora(a.fechaResuelto)}` : ""}</span>
+                    ) : (
+                      <>
+                        {a.sugerencia}
+                        {a.contado !== null && a.contadoPor ? <span className="text-[#FFC857]" title={fechaHora(a.fechaConteo)}> · contado {a.contado} ({a.contadoPor})</span> : null}
+                      </>
+                    )}
                   </span>
                   <span className="flex items-center justify-end gap-2">
                     {est === "verificando" ? (
@@ -461,9 +485,15 @@ export function ShippingV2ControlClient({
                       a.estado === "Está bien" ? <button type="button" onClick={() => void resolver(a, "Abierto")} disabled={busy === a.id} className={botonClass}>Reabrir</button> : null
                     ) : (
                       <>
-                        {a.itemIds[0] || enlaceExterno(a) ? (
-                          <button type="button" onClick={() => abrir(a)} className="inline-flex items-center gap-1 text-[12px] font-semibold text-[#D7FF4F] hover:underline">
-                            Abrir{enlaceExterno(a) ? <ExternalLink className="h-3 w-3" aria-hidden="true" /> : null}
+                        {(a.tipo === "Unidades no cuadran" || a.tipo === "Vendido con unidades") && a.itemIds[0] ? (
+                          <button
+                            type="button"
+                            onClick={() => { setCuadreDe(cuadreDe === a.id ? null : a.id); setMotivoDe(null); setActiva(a.id); }}
+                            className={botonClass}
+                            aria-expanded={cuadreDe === a.id}
+                            title={esAdministrador ? "Escribir cuántas hay y cuadrar" : "Anotar cuántas hay (el Administrador lo aplica)"}
+                          >
+                            Contar
                           </button>
                         ) : null}
                         {esAdministrador && a.tipo === "Posible duplicado" ? (
@@ -478,8 +508,14 @@ export function ShippingV2ControlClient({
                             Fusionar<ExternalLink className="h-3 w-3" aria-hidden="true" />
                           </a>
                         ) : null}
-                        <button type="button" onClick={() => { setMotivoDe(motivoDe === a.id ? null : a.id); setMotivo(""); setActiva(a.id); }} className={botonClass} aria-expanded={motivoDe === a.id}>
-                          Está bien
+                        <button
+                          type="button"
+                          onClick={() => { setMotivoDe(motivoDe === a.id ? null : a.id); setMotivo(""); setCuadreDe(null); setActiva(a.id); }}
+                          className={botonClass}
+                          aria-expanded={motivoDe === a.id}
+                          title="No cambia ningún dato: queda anotado con tu motivo y la fila pasa a resueltos"
+                        >
+                          Dejar así
                         </button>
                       </>
                     )}
@@ -487,13 +523,28 @@ export function ShippingV2ControlClient({
                 </div>
                 {expandido === a.id ? <div className="whitespace-pre-line px-3 pb-2 font-mono text-[11.5px] text-[#B4B5AC]">{a.detalle}</div> : null}
                 {verResueltos && a.motivo ? <div className="px-3 pb-2 text-[11.5px] text-[#8F908A]">{a.motivo}</div> : null}
+                {cuadreDe === a.id && !est ? (
+                  <CuadrePanel
+                    asunto={a}
+                    esAdministrador={esAdministrador}
+                    onCerrar={() => setCuadreDe(null)}
+                    onAnotado={(actualizado) => {
+                      setAbiertos((l) => l.map((x) => (x.id === actualizado.id ? actualizado : x)));
+                      setCuadreDe(null);
+                    }}
+                    onAplicado={(nuevos) => {
+                      setCuadreDe(null);
+                      void verificar({ asuntoIds: [a.id], itemIds: a.itemIds }, nuevos);
+                    }}
+                  />
+                ) : null}
                 {motivoDe === a.id && !est ? (
                   <form className="flex items-center gap-2 px-3 pb-2" onSubmit={(e) => { e.preventDefault(); if (motivo.trim()) void resolver(a, "Está bien", motivo); }}>
                     <input
                       autoFocus
                       value={motivo}
                       onChange={(e) => setMotivo(e.target.value)}
-                      placeholder="Motivo"
+                      placeholder="Motivo (no cambia ningún dato)"
                       aria-label="Motivo"
                       maxLength={500}
                       className="h-7 min-w-0 flex-1 rounded-lg border border-[#3A3B35] bg-[#151515] px-2.5 text-[12px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/60"

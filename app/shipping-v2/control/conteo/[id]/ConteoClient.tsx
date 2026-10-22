@@ -486,16 +486,57 @@ function Contando({
   );
 
   const colLecturas = "grid-cols-[minmax(0,1fr)_auto_28px] md:grid-cols-[104px_minmax(0,1fr)_150px_112px_minmax(0,110px)_28px]";
-  const colAvance = "grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[104px_minmax(0,1fr)_minmax(0,220px)_64px_128px]";
+  const colAvance = "grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[104px_minmax(0,1fr)_minmax(0,200px)_64px_212px]";
   const encabezado = (cols: string, celdas: ReactNode) => (
     <div className={`hidden ${cols} gap-2.5 border-b border-[#30312D] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A] md:grid`}>{celdas}</div>
   );
+  /** "Contar" con la cantidad escrita (pedido del dueño, 22-oct): se registra la diferencia con lo ya contado. */
+  function contarTotal(p: ProgresoFila, n: number, item: ItemConteo | undefined) {
+    const f = p.fila;
+    const sku = f.sku;
+    const ref = item ?? f.registros[0] ?? porSku.get(sku);
+    const delta = n - f.contado;
+    if (f.tipo === "lote") {
+      if (delta === 0 && n > 0) {
+        avisar({ tipo: "aviso", titulo: `${sku} · sin cambios (${n} de ${f.sistema})`, detalle: f.nombre });
+        return;
+      }
+      agregar("Lote", delta, ref, sku);
+    } else if (delta > 0) {
+      // Unidades sin serie (o la única del producto): se cuentan las que faltan; si tienen serie, "sin identificar".
+      const libres = [...f.faltan];
+      for (let i = 0; i < delta; i++) {
+        const u = libres.shift();
+        if (u && (!u.numeroSerie || f.sistema === 1)) agregar("Unidad", 1, u, sku);
+        else agregar("Sin identificar", 1, u ?? ref, sku);
+      }
+    } else if (delta < 0) {
+      const lineasSku = vivas
+        .filter((l) => l.sku.toUpperCase() === sku && l.cantidad > 0 && !l.id.startsWith("tmp-"))
+        .sort((a, b) => (a.tipo === "Sin identificar" ? 0 : 1) - (b.tipo === "Sin identificar" ? 0 : 1) || b.fecha.localeCompare(a.fecha));
+      for (const l of lineasSku.slice(0, -delta)) quitar(l);
+    } else if (n === 0) {
+      agregar("Sin identificar", 0, ref, sku); // "lo busqué y no hay"
+    } else {
+      avisar({ tipo: "aviso", titulo: `${sku} · sin cambios (${n} de ${f.sistema})`, detalle: f.nombre });
+      return;
+    }
+    const faltan = f.sistema - n;
+    avisar({
+      tipo: faltan > 0 ? "aviso" : "ok",
+      titulo: `${sku} · contado ${n} de ${f.sistema}${faltan > 0 ? ` · falta ${faltan}` : faltan < 0 ? ` · ${-faltan} de más` : ""}`,
+      detalle: f.nombre,
+    });
+  }
+
   const filaAvance = (p: ProgresoFila, lado: "falta" | "sobra", fase?: Salida["fase"]) => {
     const f = p.fila;
     const item = f.registros.find((i) => i.cantidad > 0) ?? f.registros[0] ?? porSku.get(f.sku);
     const guardandoSku = pendientes.some((l) => l.sku.toUpperCase() === f.sku);
     const fallo = fallidos[f.sku];
     const listo = fase === "ok" || fase === "saliendo";
+    // Ya se contó (aunque falten): lo que queda es un faltante, no algo "por contar".
+    const confirmado = lado === "falta" && !fase && vivas.some((l) => l.sku.toUpperCase() === f.sku);
     const fondo = listo ? "bg-[#7BE495]/[0.10]" : fase === "guardando" ? "bg-[#D7FF4F]/[0.05]" : fallo ? "bg-[#FF914D]/[0.10]" : "";
     const anim = fallo ? "animate-[sg-sacudir_380ms_ease-in-out]" : destellos[f.sku] && !fase ? "animate-[sg-destello_900ms_ease-out]" : "";
     return (
@@ -507,8 +548,8 @@ function Contando({
           <div className={`grid ${colAvance} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 transition-colors duration-300 ${fondo} ${anim}`}>
             <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{f.sku}</span>
             <span className="min-w-0 truncate text-[#C9CAC1]"><span className="font-mono font-semibold text-[#EDEDE7] md:hidden">{f.sku} · </span>{f.nombre}</span>
-            <span className={`hidden min-w-0 truncate text-[12px] md:block ${fallo ? "text-[#FFB07A]" : listo ? "text-[#9FEFB3]" : "text-[#B4B5AC]"}`}>
-              {fallo ? `No se guardó: ${fallo}` : listo ? "Completo" : lado === "falta" ? (f.tipo === "lote" ? `faltan ${p.falta}` : listaUnidades(f.faltan)) : textoSobra(f, conteo)}
+            <span className={`hidden min-w-0 truncate text-[12px] md:block ${fallo ? "text-[#FFB07A]" : listo ? "text-[#9FEFB3]" : confirmado ? "text-[#FFC857]" : "text-[#B4B5AC]"}`}>
+              {fallo ? `No se guardó: ${fallo}` : listo ? "Completo" : confirmado ? `Contado · falta ${p.falta}` : lado === "falta" ? (f.tipo === "lote" ? `faltan ${p.falta}` : listaUnidades(f.faltan)) : textoSobra(f, conteo)}
             </span>
             <span className="hidden text-right md:block">
               <b className={listo ? "text-[#9FEFB3]" : "text-[#EDEDE7]"}>{f.contado}</b><span className="text-[#8F908A]"> de {f.sistema}</span>
@@ -518,15 +559,10 @@ function Contando({
                 <span className="inline-flex h-7 items-center gap-1 text-[12px] font-semibold text-[#9FEFB3] animate-[sg-entrada_200ms_ease-out]"><Check className="h-4 w-4" aria-hidden="true" />Contado</span>
               ) : fase === "guardando" ? (
                 <span className="inline-flex h-7 items-center gap-1.5 text-[12px] text-[#B4B5AC]"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />Guardando</span>
+              ) : lado === "falta" ? (
+                <ContarCantidad key={`${f.sku}:${f.contado}`} inicial={f.contado} sistema={f.sistema} guardando={guardandoSku} onContar={(n) => contarTotal(p, n, item)} />
               ) : f.tipo === "lote" ? (
                 controlLote(f.sku, item, f.contado)
-              ) : lado === "falta" ? (
-                <span className="flex items-center gap-2">
-                  <span className="text-[12px] text-[#8F908A] md:hidden">{f.contado}/{f.sistema}</span>
-                  <button type="button" onClick={() => procesar(f.sku)} disabled={guardandoSku} className={`${botonFila} inline-flex items-center gap-1.5 transition active:scale-95`} title="Contar sin escanear">
-                    {guardandoSku ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Contar
-                  </button>
-                </span>
               ) : (
                 <span className="text-[12px] text-[#FFC857] md:hidden">+{p.sobra}</span>
               )}
@@ -802,6 +838,43 @@ function Contando({
   );
 }
 
+/** Cantidad contada de un producto: − n + y "Contar" para confirmarla (arranca en lo ya contado; 0 si no se contó). */
+function ContarCantidad({ inicial, sistema, guardando, onContar }: { inicial: number; sistema: number; guardando: boolean; onContar: (n: number) => void }) {
+  const [valor, setValor] = useState(Math.max(0, inicial));
+  const cambiar = (n: number) => setValor(Math.max(0, Math.min(999, Number.isFinite(n) ? Math.trunc(n) : 0)));
+  const paso = "flex h-7 w-7 items-center justify-center rounded-md border border-[#3A3B35] bg-[#1A1B17] text-[#EDEDE7] transition active:scale-95 disabled:opacity-40";
+  return (
+    <span className="flex items-center gap-1">
+      <button type="button" onClick={() => cambiar(valor - 1)} disabled={guardando || valor <= 0} aria-label="Uno menos" className={paso}><Minus className="h-3.5 w-3.5" aria-hidden="true" /></button>
+      <input
+        value={valor}
+        inputMode="numeric"
+        aria-label="Cantidad contada"
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => cambiar(Number(e.target.value.replace(/[^\d]/g, "") || 0))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (!guardando) onContar(valor);
+          }
+        }}
+        className="h-7 w-11 rounded-md border border-[#3A3B35] bg-[#11120F] text-center text-[12.5px] text-[#EDEDE7] focus:border-[#D7FF4F]/60 focus:outline-none"
+      />
+      <button type="button" onClick={() => cambiar(valor + 1)} disabled={guardando} aria-label="Uno más" className={paso}><Plus className="h-3.5 w-3.5" aria-hidden="true" /></button>
+      <span className="text-[11px] text-[#8F908A] md:hidden">/{sistema}</span>
+      <button
+        type="button"
+        onClick={() => onContar(valor)}
+        disabled={guardando}
+        title="Confirmar la cantidad contada"
+        className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-lg bg-[#D7FF4F] px-2.5 text-[12px] font-bold text-[#141510] transition hover:bg-[#E4FF7A] active:scale-95 disabled:opacity-50"
+      >
+        {guardando ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Contar
+      </button>
+    </span>
+  );
+}
+
 /** Cantidad de un lote: se escribe y se aplica al salir del campo o con Enter. */
 function CantidadLote({ valor, onCambio }: { valor: number; onCambio: (n: number) => void }) {
   const [texto, setTexto] = useState(String(valor));
@@ -854,6 +927,7 @@ const ETIQUETA_CORTA: Record<AccionAjuste, string> = {
   "baja-error": "Dado de baja",
   fuera: "Anotado: está fuera",
   devolver: "Devuelto al stock",
+  encontrada: "Sumado al stock",
 };
 
 function Revision({

@@ -253,7 +253,7 @@ import {
   staffShippingV2Access,
   systemShippingV2Access,
 } from "@/lib/shipping-v2/access";
-import { esIdRegistro, evaluarSerie, evaluarSkuCompartido, nombreUnidad, normalizarSerie, seguimientoParaGuardar, siguienteSerieInterna } from "@/lib/shipping-v2/unidades-serie";
+import { esIdRegistro, evaluarSerie, evaluarSkuCompartido, nombreUnidad, normalizarSerie, seguimientoDe, seguimientoParaGuardar, siguienteSerieInterna } from "@/lib/shipping-v2/unidades-serie";
 import { CAMPO_ESPECIFICACIONES, camposFichaCopiada, evaluarCopiaFicha, resultadosParaCopiar } from "@/lib/shipping-v2/copiar-unidad";
 import { camposOriginalTrasSeparar, camposUnidadSeparada, evaluarSepararUnidad } from "@/lib/shipping-v2/separar-unidad";
 import { camposArticuloFueraDeCaja, evaluarCancelarCaja } from "@/lib/shipping-v2/cancelar-caja";
@@ -284,6 +284,14 @@ import {
   type Publicacion,
 } from "@/lib/shipping-v2/publicaciones";
 import { iaAnunciosDisponible } from "@/lib/shipping-v2/ia-anuncios-servidor";
+import {
+  diferenciaCuadre,
+  estadoTrasCuadre,
+  planCuadre,
+  TEXTO_CAUSA,
+  type CausaCuadre,
+  type DatosCuadre,
+} from "@/lib/shipping-v2/cuadre";
 import {
   agruparProductos,
   normalSku,
@@ -11439,6 +11447,10 @@ export type ShippingV2AsuntoRevision = {
   fechaResuelto: string;
   detectado: string;
   ultimaRevision: string;
+  /** Punto 10c-4: lo que anotó quien contó desde Revisión. */
+  contado: number | null;
+  contadoPor: string;
+  fechaConteo: string;
 };
 
 function mapAsuntoRevision(r: AirtableRecord): ShippingV2AsuntoRevision {
@@ -11460,6 +11472,9 @@ function mapAsuntoRevision(r: AirtableRecord): ShippingV2AsuntoRevision {
     fechaResuelto: firstString(f["Fecha resuelto"]),
     detectado: firstString(f["Detectado"]),
     ultimaRevision: firstString(f["Última revisión"]),
+    contado: firstNumber(f["Contado"]),
+    contadoPor: firstString(f["Contado por"]),
+    fechaConteo: firstString(f["Fecha conteo"]),
   };
 }
 
@@ -11503,7 +11518,8 @@ async function leerDatosRevision(): Promise<DatosRevision> {
   const PAGOS_REGALO = "Shipping Pagos (Regalos incluidos)";
   const [items, facturas, recibos, notas, reservas, novedades, cajas] = await Promise.all([
     listRecords(SHIPPING_V2_TABLES.items, {
-      fields: [F.sku, F.nombre, F.categoria, F.estadoItem, F.cantidad, F.unidadesCompradas, F.recibido, F.precioVentaFinal, F.tipoOperacion, F.origenArticulo, F.fechaRegistro, F.requierePago, F.esRegalo, PAGOS_ITEM, PAGOS_REGALO],
+      fields: [F.sku, F.nombre, F.categoria, F.estadoItem, F.cantidad, F.unidadesCompradas, F.recibido, F.precioVentaFinal, F.tipoOperacion, F.origenArticulo, F.fechaRegistro, F.requierePago, F.esRegalo, PAGOS_ITEM, PAGOS_REGALO,
+        CAMPO_UNIDADES_DADAS_DE_BAJA, CAMPO_VENDIDAS_FUERA, CAMPO_SALIDAS_INTERNAS, CAMPO_VENTAS_OTRO],
     }),
     listRecords("Facturas Electrónicas", {
       filterByFormula: "{Estado} = 'AUTORIZADO'",
@@ -11542,6 +11558,10 @@ async function leerDatosRevision(): Promise<DatosRevision> {
       requierePago: firstBoolean(f[F.requierePago]) === true,
       esRegalo: firstBoolean(f[F.esRegalo]) === true,
       tienePago: linkedRecordIds(f[PAGOS_ITEM]).length + linkedRecordIds(f[PAGOS_REGALO]).length > 0,
+      bajas: firstNumber(f[CAMPO_UNIDADES_DADAS_DE_BAJA]) ?? 0,
+      vendidasFuera: firstNumber(f[CAMPO_VENDIDAS_FUERA]) ?? 0,
+      salidasInternas: firstNumber(f[CAMPO_SALIDAS_INTERNAS]) ?? 0,
+      ventasOtro: firstNumber(f[CAMPO_VENTAS_OTRO]) ?? 0,
     });
   }
   for (const r of facturas) {
@@ -11859,7 +11879,9 @@ export async function agregarLecturaConteoShippingV2(conteoId: string, lectura: 
   const conteo = await leerConteo(conteoId);
   if (conteo.estado !== "Contando") throw new Error("Este conteo ya terminó.");
   const cantidad = Math.trunc(Number(lectura.cantidad));
-  if (!Number.isFinite(cantidad) || cantidad === 0 || Math.abs(cantidad) > 999) throw new Error("Cantidad no válida.");
+  // 0 = "lo conté y no hay" (10c-4): solo para un lote o un conteo sin identificar.
+  const ceroValido = cantidad === 0 && (lectura.tipo === "Lote" || lectura.tipo === "Sin identificar");
+  if (!Number.isFinite(cantidad) || (cantidad === 0 && !ceroValido) || Math.abs(cantidad) > 999) throw new Error("Cantidad no válida.");
   if (lectura.tipo !== "Lote" && cantidad < 0) throw new Error("Cantidad no válida.");
   const itemId = cleanString(lectura.itemId);
   await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_CONTEO_LINEAS), {
@@ -11991,6 +12013,11 @@ export async function aplicarConteoShippingV2(
         for (const op of p.operaciones) {
           if (op.accion === "baja") {
             await moverActivoShippingV2(op.itemId, { accion: "baja", cantidad: op.cantidad, motivo }, options);
+            hechas += op.cantidad;
+            continue;
+          }
+          if (op.accion === "sumar") {
+            await sumarEncontradasShippingV2(op.itemId, op.cantidad, motivo, options);
             hechas += op.cantidad;
             continue;
           }
@@ -12337,5 +12364,182 @@ export async function fusionarSkuShippingV2(
       { actor: options.actor }
     ).catch((error) => console.error("No se pudo verificar la revisión tras la fusión:", error));
     return resultado;
+  });
+}
+
+
+// ─── Cuadrar unidades desde Revisión (punto 10c-4, 22-oct-2026) ─────────────
+// Reglas en cuadre.ts. El Staff anota cuántas hay en la tienda; el
+// Administrador aplica: corrige el stock y explica la diferencia con una
+// causa fija (cada una escribe su campo), siempre con motivo. Todo queda en
+// el historial del artículo.
+
+const CAMPO_VENDIDAS_FUERA = "Vendidas fuera del sistema";
+const CAMPO_SALIDAS_INTERNAS = "Salidas internas";
+const CAMPO_VENTAS_OTRO = "Ventas de otro artículo";
+
+/** El Staff (o quien sea) anota lo contado en el asunto; no cambia el stock. */
+export async function anotarConteoAsuntoShippingV2(asuntoId: string, n: number, options: { actor: string }): Promise<ShippingV2AsuntoRevision> {
+  const id = cleanString(asuntoId);
+  if (!id.startsWith("rec")) throw new Error("Asunto no válido.");
+  const cantidad = Number(n);
+  if (!Number.isInteger(cantidad) || cantidad < 0 || cantidad > 9999) throw new Error("Escribe cuántas hay (un número entero).");
+  const respuesta = await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_REVISION), {
+    method: "PATCH",
+    body: JSON.stringify({ records: [{ id, fields: { Contado: cantidad, "Contado por": options.actor, "Fecha conteo": new Date().toISOString() } }] }),
+  });
+  const r = respuesta.records?.[0];
+  if (!r) throw new Error("Airtable no devolvió el asunto.");
+  return mapAsuntoRevision(r);
+}
+
+export type CuadreItem = {
+  datos: DatosCuadre;
+  estado: string;
+  sku: string;
+  nombre: string;
+};
+
+async function leerCuadreItem(itemId: string): Promise<CuadreItem & { usoLocal: boolean; requiereInspeccion: boolean; inspeccionFirmada: boolean }> {
+  const id = cleanString(itemId);
+  if (!id.startsWith("rec")) throw new Error("Artículo no válido.");
+  const [revision, item] = await Promise.all([leerDatosRevision(), getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() })]);
+  const r = revision.items.find((x) => x.id === id);
+  if (!r) throw new Error("No se encontró el artículo.");
+  const suma = (lineas: Array<{ itemId: string; cantidad: number }>) => lineas.filter((l) => l.itemId === id).reduce((s, l) => s + l.cantidad, 0);
+  return {
+    datos: {
+      compradas: r.compradas,
+      tienda: r.cantidad,
+      reservadas: Number(item.cantidadReservada) || 0,
+      vendidas: suma(revision.ventas) - suma(revision.devoluciones),
+      bajas: r.bajas ?? 0,
+      fuera: r.vendidasFuera ?? 0,
+      salidas: r.salidasInternas ?? 0,
+      otro: r.ventasOtro ?? 0,
+      unidad: seguimientoDe({ seguimiento: item.seguimiento, categoria: item.categoria }) === "Unidad",
+    },
+    estado: r.estado,
+    sku: r.sku,
+    nombre: r.nombre,
+    usoLocal: item.usoLocal === true,
+    requiereInspeccion: item.requiereInspeccion === true,
+    inspeccionFirmada: item.revisadoFisicamente === true,
+  };
+}
+
+/** Para el panel "Cuadrar": los números actuales del registro. */
+export async function getShippingV2CuadreItem(itemId: string): Promise<CuadreItem> {
+  const { datos, estado, sku, nombre } = await leerCuadreItem(itemId);
+  return { datos, estado, sku, nombre };
+}
+
+/** Aplica el cuadre (solo Administrador) y vuelve a revisar los asuntos del artículo. */
+export async function cuadrarUnidadesShippingV2(
+  input: { itemId: string; asuntoId?: string; n: number; causa?: CausaCuadre | ""; motivo: string },
+  options: { actor: string; access: ShippingV2AccessContext }
+): Promise<{ texto: string; abiertos: ShippingV2AsuntoRevision[]; resueltos: string[] }> {
+  if (options.access.isSiteAdmin !== true) throw new Error("Solo el Administrador cuadra el inventario.");
+  const motivo = cleanString(input.motivo);
+  if (motivo.length < 5) throw new Error("Escribe el motivo (mínimo 5 caracteres).");
+  const id = cleanString(input.itemId);
+  const texto = await withLock(`shipping-item:${id}`, async () => {
+    const c = await leerCuadreItem(id);
+    if (normalizeStatus(c.estado) === "perdido en tienda") throw new Error("Tiene una novedad de pérdida abierta: resuélvela en Novedades.");
+    const plan = planCuadre(c.datos, { n: input.n, causa: input.causa });
+    if (!plan.ok) throw new Error(plan.motivo);
+    const estadoNuevo = estadoTrasCuadre({
+      estado: c.estado,
+      n: plan.cambios.cantidad ?? c.datos.tienda,
+      causa: plan.causa,
+      usoLocal: c.usoLocal,
+      requiereInspeccion: c.requiereInspeccion,
+      inspeccionFirmada: c.inspeccionFirmada,
+    });
+    const F = SHIPPING_V2_ITEM_FIELDS;
+    const ch = plan.cambios;
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({
+        typecast: true,
+        records: [{
+          id,
+          fields: compactFields({
+            [F.cantidad]: ch.cantidad,
+            [F.unidadesCompradas]: ch.compradas,
+            [CAMPO_UNIDADES_DADAS_DE_BAJA]: ch.bajas,
+            [CAMPO_VENDIDAS_FUERA]: ch.fuera,
+            [CAMPO_SALIDAS_INTERNAS]: ch.salidas,
+            [CAMPO_VENTAS_OTRO]: ch.otro,
+            [F.estadoItem]: estadoNuevo ?? undefined,
+            [F.ultimaActualizacion]: new Date().toISOString(),
+            [F.actualizadoPor]: options.actor,
+          }),
+        }],
+      }),
+    });
+    if (!c.usoLocal) await recalcularDisponibilidadItem(id, options.actor).catch((error) => console.error("No se pudo recalcular tras cuadrar:", error));
+    invalidateShippingV2ItemSearchIndexCache();
+    const descripcion = `Cuadre de unidades (Control → Revisión): ${plan.texto} Motivo: ${motivo}`;
+    await createShippingV2Event({
+      action: estadoNuevo ? "Cambio de estado" : "Actualizado",
+      itemRecordId: id,
+      itemName: c.nombre,
+      registradoPor: options.actor,
+      descripcion,
+      estadoAnterior: estadoNuevo ? c.estado : undefined,
+      estadoNuevo: estadoNuevo ?? undefined,
+    }).catch((error) => console.error("No se pudo registrar el evento del cuadre:", error));
+    return `${plan.causa ? TEXTO_CAUSA[plan.causa] : "Conteo"} · ${motivo}`;
+  });
+  const asuntoId = cleanString(input.asuntoId);
+  const verificacion = await verificarAsuntosRevisionShippingV2({ itemIds: [id], asuntoIds: asuntoId ? [asuntoId] : [] }, { actor: options.actor });
+  // El asunto cerrado guarda la explicación del Administrador.
+  if (asuntoId && verificacion.resueltos.includes(asuntoId)) {
+    await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_REVISION), {
+      method: "PATCH",
+      body: JSON.stringify({ records: [{ id: asuntoId, fields: { Motivo: texto } }] }),
+    }).catch((error) => console.error("No se pudo guardar el motivo del cuadre:", error));
+  }
+  return { texto, ...verificacion };
+}
+
+/** 10c-4: lo encontrado en un conteo vuelve al stock (sin tocar "Unidades compradas"). */
+async function sumarEncontradasShippingV2(itemId: string, cantidad: number, motivo: string, options: { actor: string }) {
+  const id = cleanString(itemId);
+  return withLock(`shipping-item:${id}`, async () => {
+    const item = await getShippingV2ItemById(id, { includeAiName: false, access: systemShippingV2Access() });
+    if (normalizeStatus(item.estado) === "perdido en tienda") throw new Error(`${item.sku}: tiene una novedad de pérdida abierta; resuélvela en Novedades.`);
+    const actual = Math.max(0, Number(item.cantidad) || 0);
+    const nueva = actual + cantidad;
+    if (seguimientoDe({ seguimiento: item.seguimiento, categoria: item.categoria }) === "Unidad" && nueva > 1) {
+      throw new Error(`${item.sku} es un equipo y ya figura en la tienda: si es otro, regístralo como compra.`);
+    }
+    const estadoNuevo = estadoTrasCuadre({
+      estado: item.estado,
+      n: nueva,
+      usoLocal: item.usoLocal === true,
+      requiereInspeccion: item.requiereInspeccion === true,
+      inspeccionFirmada: item.revisadoFisicamente === true,
+    });
+    const F = SHIPPING_V2_ITEM_FIELDS;
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({
+        typecast: true,
+        records: [{ id, fields: compactFields({ [F.cantidad]: nueva, [F.estadoItem]: estadoNuevo ?? undefined, [F.ultimaActualizacion]: new Date().toISOString(), [F.actualizadoPor]: options.actor }) }],
+      }),
+    });
+    if (!item.usoLocal) await recalcularDisponibilidadItem(id, options.actor).catch((error) => console.error("No se pudo recalcular tras sumar:", error));
+    invalidateShippingV2ItemSearchIndexCache();
+    await createShippingV2Event({
+      action: estadoNuevo ? "Cambio de estado" : "Actualizado",
+      itemRecordId: id,
+      itemName: item.nombre,
+      registradoPor: options.actor,
+      descripcion: `Encontradas en conteo: ${cantidad} (en tienda ${actual} → ${nueva}). Motivo: ${motivo}`,
+      estadoAnterior: estadoNuevo ? item.estado : undefined,
+      estadoNuevo: estadoNuevo ?? undefined,
+    }).catch((error) => console.error("No se pudo registrar el evento:", error));
   });
 }

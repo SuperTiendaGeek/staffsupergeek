@@ -107,7 +107,11 @@ const loteNuevo = { ...lote, id: "ln", cantidad: 3, ultimaActualizacion: "2026-1
 const rLote = compararConteo({ items: [lotesViejo, loteNuevo], lineas: [linea("q", { itemId: "ln", sku: "OTR-000028", tipo: "Lote", cantidad: 1 })], alcance, inicio: "2026-10-18T14:00:00Z" });
 plan = planAjustes(rLote, [{ sku: "OTR-000028", lado: "falta", accion: "baja-error" }]);
 assert(plan[0].operaciones.map((o) => `${o.itemId}:${o.cantidad}`).join() === "lv:2,ln:2", "Lote: faltan 4, se descuentan primero del registro más antiguo");
-assert(accionesPara(rAj.faltan[0], "falta").includes("baja-robo") && accionesPara(rAj.sobran.find((f) => f.sku === "LAP-000500")!, "sobra").length === 0, "Acciones según la fila");
+assert(accionesPara(rAj.faltan[0], "falta").includes("baja-robo") && accionesPara(rAj.sobran.find((f) => f.sku === "LAP-000500")!, "sobra").join() === "encontrada", "Acciones según la fila");
+plan = planAjustes(rAj, [{ sku: "LAP-000500", lado: "sobra", accion: "encontrada" }]);
+assert(plan[0].operaciones[0]?.itemId === "v" && plan[0].operaciones[0].accion === "sumar" && plan[0].operaciones[0].cantidad === 1, "Encontrada: la unidad que figuraba vendida vuelve al stock");
+plan = planAjustes(rAj, [{ sku: "OTR-000028", lado: "sobra", accion: "encontrada" }]);
+assert(plan[0].operaciones[0]?.accion === "sumar" && plan[0].operaciones[0].cantidad === 1, "Encontrada en un lote: suma 1 al registro más nuevo");
 
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo bien.");
