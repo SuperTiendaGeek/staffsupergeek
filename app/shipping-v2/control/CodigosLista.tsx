@@ -2,11 +2,12 @@
 
 // Pestaña Control → Códigos (punto 10c-3): cada SKU que pasó a ser otro
 // (fusión o cambio de categoría). Se marca "Etiqueta reimpresa" y "Anuncios
-// corregidos" hasta dejar la lista de pendientes en cero.
+// corregidos" hasta dejar la lista de pendientes en cero. "Imprimir" abre la
+// etiqueta de lo que está hoy en la tienda (pedido del dueño, 21-oct).
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Check, Download, Loader2, Merge } from "lucide-react";
+import { Check, Download, Loader2, Merge, Printer } from "lucide-react";
 import type { ShippingV2CambioCodigo } from "@/lib/shipping-v2/airtable";
 import { crearTablaXlsx } from "@/lib/shipping-v2/hoja-xlsx";
 
@@ -33,6 +34,7 @@ export function CodigosLista({ pestanas, esAdministrador, onPendientes }: { pest
   const [error, setError] = useState("");
   const [estado, setEstado] = useState<Record<string, EstadoFila>>({});
   const [saliendo, setSaliendo] = useState<string[]>([]);
+  const [impresos, setImpresos] = useState<string[]>([]);
 
   useEffect(() => {
     let vivo = true;
@@ -74,7 +76,7 @@ export function CodigosLista({ pestanas, esAdministrador, onPendientes }: { pest
       });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || "No se pudo guardar.");
-      setCambios((l) => (l ?? []).map((x) => (x.id === c.id ? j.data : x)));
+      setCambios((l) => (l ?? []).map((x) => (x.id === c.id ? { ...x, ...j.data, porEtiquetar: x.porEtiquetar } : x)));
       if (sale) {
         setEstado((e) => ({ ...e, [c.id]: "listo" }));
         setTimeout(() => setEstado((e) => ({ ...e, [c.id]: "saliendo" })), 900);
@@ -136,7 +138,7 @@ export function CodigosLista({ pestanas, esAdministrador, onPendientes }: { pest
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
-  const columnas = "grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[104px_18px_104px_minmax(0,1fr)_64px_150px_150px]";
+  const columnas = "grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[104px_18px_104px_minmax(0,1fr)_64px_200px_150px]";
 
   return (
     <div className="space-y-2.5">
@@ -194,7 +196,16 @@ export function CodigosLista({ pestanas, esAdministrador, onPendientes }: { pest
                     <span className="col-span-2 flex flex-wrap items-center gap-x-4 gap-y-1 md:contents">
                       <span>
                         {c.enTienda ? (
-                          <Casilla activo={c.etiquetaReimpresa} guardando={est === "guardando"} onCambio={(v) => void marcar(c, "etiquetaReimpresa", v)} texto={`Reimpresa${c.enTienda > 1 ? ` · ${c.enTienda}` : ""}`} />
+                          <span className="inline-flex items-center gap-2">
+                            <Imprimir registros={c.porEtiquetar} onImprimir={() => setImpresos((l) => (l.includes(c.id) ? l : [...l, c.id]))} />
+                            <Casilla
+                              activo={c.etiquetaReimpresa}
+                              guardando={est === "guardando"}
+                              resaltar={impresos.includes(c.id) && !c.etiquetaReimpresa}
+                              onCambio={(v) => void marcar(c, "etiquetaReimpresa", v)}
+                              texto={`Reimpresa${c.enTienda > 1 ? ` · ${c.enTienda}` : ""}`}
+                            />
+                          </span>
                         ) : (
                           <span className="text-[12px] text-[#77786F]" title="Nada de este producto está en la tienda: no hay etiqueta que cambiar">nada en tienda</span>
                         )}
@@ -222,9 +233,70 @@ export function CodigosLista({ pestanas, esAdministrador, onPendientes }: { pest
   );
 }
 
-function Casilla({ activo, guardando, onCambio, texto }: { activo: boolean; guardando: boolean; onCambio: (v: boolean) => void; texto: string }) {
+const urlEtiqueta = (id: string) => `/shipping-v2/recepcion/etiqueta/${encodeURIComponent(id)}`;
+const botonImprimir = "inline-flex h-7 items-center gap-1 rounded-md border border-[#3A3B35] bg-[#1A1B17] px-2 text-[12px] font-semibold text-[#EDEDE7] transition hover:border-[#D7FF4F]/60 active:scale-95";
+
+/** Un registro: abre su etiqueta. Varios: lista para elegir (un lote se imprime N veces). */
+function Imprimir({ registros, onImprimir }: { registros: Array<{ id: string; serie: string; cantidad: number }>; onImprimir: () => void }) {
+  // La lista flota sobre la tabla (las filas recortan lo que sobresale).
+  const [abierto, setAbierto] = useState<{ top: number; left: number } | null>(null);
+  useEffect(() => {
+    if (!abierto) return;
+    const cerrar = () => setAbierto(null);
+    const t = setTimeout(() => document.addEventListener("click", cerrar), 0);
+    window.addEventListener("scroll", cerrar, true);
+    window.addEventListener("resize", cerrar);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("click", cerrar);
+      window.removeEventListener("scroll", cerrar, true);
+      window.removeEventListener("resize", cerrar);
+    };
+  }, [abierto]);
+  if (!registros.length) return null;
+  const etiqueta = (r: { serie: string; cantidad: number }) => `${r.serie ? `S/N ${r.serie}` : "sin serie"}${r.cantidad > 1 ? ` · ${r.cantidad} copias` : ""}`;
+  if (registros.length === 1) {
+    const r = registros[0];
+    return (
+      <a href={urlEtiqueta(r.id)} target="_blank" rel="noreferrer" onClick={onImprimir} className={botonImprimir} title={`Imprimir etiqueta · ${etiqueta(r)}`} aria-label="Imprimir etiqueta">
+        <Printer className="h-3.5 w-3.5" aria-hidden="true" />
+        {r.cantidad > 1 ? `×${r.cantidad}` : null}
+      </a>
+    );
+  }
   return (
-    <label className={`inline-flex cursor-pointer items-center gap-1.5 text-[12px] ${activo ? "text-[#9FEFB3]" : "text-[#C9CAC1]"}`}>
+    <span className="relative">
+      <button
+        type="button"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setAbierto((v) => (v ? null : { top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 200) }));
+        }}
+        aria-expanded={Boolean(abierto)}
+        className={botonImprimir} title="Imprimir etiquetas" aria-label="Imprimir etiquetas">
+        <Printer className="h-3.5 w-3.5" aria-hidden="true" />
+        {registros.length}
+      </button>
+      {abierto ? (
+        <span style={{ top: abierto.top, left: abierto.left }} className="fixed z-50 flex min-w-[190px] flex-col rounded-lg border border-[#3A3B35] bg-[#171814] p-1 shadow-xl shadow-black/40 animate-[sg-entrada_150ms_ease-out]">
+          {registros.map((r) => (
+            <a key={r.id} href={urlEtiqueta(r.id)} target="_blank" rel="noreferrer" onClick={onImprimir} className="flex items-center gap-2 rounded-md px-2 py-1.5 font-mono text-[12px] text-[#EDEDE7] hover:bg-[#D7FF4F]/[0.08]">
+              <Printer className="h-3.5 w-3.5 text-[#8F908A]" aria-hidden="true" />
+              {etiqueta(r)}
+            </a>
+          ))}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function Casilla({ activo, guardando, resaltar = false, onCambio, texto }: { activo: boolean; guardando: boolean; resaltar?: boolean; onCambio: (v: boolean) => void; texto: string }) {
+  return (
+    <label
+      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1 text-[12px] transition ${activo ? "text-[#9FEFB3]" : "text-[#C9CAC1]"} ${resaltar ? "bg-[#D7FF4F]/10 ring-1 ring-[#D7FF4F]/50" : ""}`}
+      title={resaltar ? "¿Ya la pegaste? Márcala" : undefined}
+    >
       {guardando ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8F908A]" aria-hidden="true" />
       ) : (
