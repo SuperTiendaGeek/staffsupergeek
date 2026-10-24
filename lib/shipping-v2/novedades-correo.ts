@@ -51,8 +51,12 @@ export function evaluarEnlace(input: { token: string; huellaGuardada?: string | 
   return { ok: true };
 }
 
-/** Solo se escribe a proveedores con portal: correo válido y permiso para responder. */
-export function proveedorRecibeCorreo(p: { email?: string | null; permisosPortal?: string[] | null }): boolean {
+/**
+ * Solo se escribe a proveedores con portal: correo válido y permiso para
+ * responder. Punto 11 (24-oct): un proveedor desactivado no recibe correos.
+ */
+export function proveedorRecibeCorreo(p: { email?: string | null; permisosPortal?: string[] | null; estado?: string | null }): boolean {
+  if (String(p.estado || "").trim().toLowerCase() === "inactivo") return false;
   const email = String(p.email || "").trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return false;
   return (p.permisosPortal ?? []).some((permiso) => permiso.trim().toLowerCase() === PERMISO_RESPONDER_NOVEDADES.toLowerCase());

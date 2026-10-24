@@ -11,8 +11,11 @@ import {
   eliminarProveedorAdmin,
   getHistorialProveedorAdmin,
   getProveedoresAdmin,
+  getShippingV2AccessContextForSession,
   getShippingV2Proveedores,
 } from "../airtable";
+import { proveedorRecibeCorreo } from "../novedades-correo";
+import type { StaffSession } from "@/lib/session";
 import { CAMPOS_PROVEEDOR as C, ErrorValidacionProveedor } from "../proveedores-admin";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "../provider-rules";
 import { SHIPPING_V2_TABLES } from "../schema.generated";
@@ -134,6 +137,27 @@ async function main() {
   assert(r.eliminado && !proveedores().has(nuevo.id), "Proveedor sin uso se elimina");
   const reactivado = await cambiarEstadoProveedorAdmin(ebay, true, quien);
   assert(reactivado.estado === "Activo", "Reactivar");
+
+  console.log("\n— Desactivar corta el portal (24-oct) —");
+  const conPortal = await crearProveedorAdmin(
+    { nombre: "Proveedor Portal", tipos: ["Hardware"], pais: "USA", email: "portal@prov.com", portal: true, permisosPortal: ["Ver artículos", "Responder novedades"] },
+    quien
+  );
+  const sesion = (rol: string, email: string) => ({ user: { userId: "u1", nombre: "X", email, rol, appsPermitidas: ["Shipping"], pantallasRestringidas: {}, camposRestringidos: {} }, expiresAt: "2099-01-01" }) as unknown as StaffSession;
+  const antes = await getShippingV2AccessContextForSession(sesion("Proveedor", "portal@prov.com"));
+  assert(antes.mode === "provider" && antes.providerId === conPortal.id, "Activo: entra al portal como proveedor");
+  const sistemaAntes = (await getShippingV2Proveedores()).find((p) => p.id === conPortal.id)!;
+  assert(proveedorRecibeCorreo(sistemaAntes), "Activo: recibe correos de novedades");
+  await cambiarEstadoProveedorAdmin(conPortal.id, false, quien);
+  const despues = await getShippingV2AccessContextForSession(sesion("Proveedor", "portal@prov.com"));
+  assert(despues.mode === "none", "Desactivado: ya no entra al portal");
+  const sistemaDespues = (await getShippingV2Proveedores()).find((p) => p.id === conPortal.id)!;
+  assert(!proveedorRecibeCorreo(sistemaDespues), "Desactivado: no recibe correos de novedades");
+  const staff = await getShippingV2AccessContextForSession(sesion("Staff", "portal@prov.com"));
+  assert(staff.mode === "staff", "Un empleado con ese mismo email sigue entrando como personal");
+  await cambiarEstadoProveedorAdmin(conPortal.id, true, quien);
+  const otraVez = await getShippingV2AccessContextForSession(sesion("Proveedor", "portal@prov.com"));
+  assert(otraVez.mode === "provider", "Reactivado: vuelve a entrar");
 
   if (fallos) {
     console.error(`\n${fallos} prueba(s) fallaron`);

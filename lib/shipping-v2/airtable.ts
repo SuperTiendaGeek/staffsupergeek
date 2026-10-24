@@ -2080,7 +2080,10 @@ export async function getShippingV2AccessContextForSession(session: StaffSession
   // Assumption: the current Staff session does not store a provider record id.
   // Provider access is derived from a Shipping Proveedor email match plus either
   // the user role "Proveedor" or the provider portal-access checkbox.
-  if (provider && (roleIsProvider || provider.permiteAccesoPortalProveedor === true)) {
+  // Punto 11 (24-oct): un proveedor desactivado pierde el portal al instante
+  // (el acceso se calcula en cada visita, no queda guardado en la sesión).
+  const proveedorActivo = Boolean(provider) && normalizeStatus(provider?.estado || "Activo") !== "inactivo";
+  if (provider && proveedorActivo && (roleIsProvider || provider.permiteAccesoPortalProveedor === true)) {
     return providerShippingV2Access(provider);
   }
 
@@ -6524,9 +6527,14 @@ async function notificarProveedorPorCorreo(
     if (!esResponsableProveedor(novedad.responsable)) return { aviso: "" };
 
     const proveedor = novedad.proveedorResponsableId ? await getShippingV2ProveedorById(novedad.proveedorResponsableId) : null;
-    if (!proveedor || !proveedorRecibeCorreo({ email: proveedor.email, permisosPortal: proveedor.permisosPortal })) {
-      await anotar("No se envió: el proveedor no tiene portal (correo registrado y permiso “Responder novedades”).");
-      return { aviso: "El proveedor no tiene portal: no se le envió correo. Avísale por otro medio y anota su respuesta en la novedad." };
+    if (!proveedor || !proveedorRecibeCorreo({ email: proveedor.email, permisosPortal: proveedor.permisosPortal, estado: proveedor.estado })) {
+      const inactivo = proveedorDesactivado(proveedor);
+      await anotar(inactivo
+        ? "No se envió: el proveedor está desactivado (Administrar › Proveedores)."
+        : "No se envió: el proveedor no tiene portal (correo registrado y permiso “Responder novedades”).");
+      return { aviso: inactivo
+        ? "El proveedor está desactivado: no se le envió correo. Avísale por otro medio y anota su respuesta en la novedad."
+        : "El proveedor no tiene portal: no se le envió correo. Avísale por otro medio y anota su respuesta en la novedad." };
     }
 
     const { config, falta } = leerConfigCorreoNovedades();
@@ -6598,6 +6606,11 @@ export type VistaNovedadPorEnlace =
       propuestas: Array<{ valor: string; label: string }>;
     };
 
+/** Proveedor desactivado en Administrar › Proveedores (punto 11): sin portal ni correos. */
+function proveedorDesactivado(proveedor: Pick<ShippingV2Proveedor, "estado"> | null | undefined) {
+  return Boolean(proveedor) && normalizeStatus(proveedor?.estado || "") === "inactivo";
+}
+
 /** Busca la novedad por la huella del código. Solo hex: no hay nada que escapar. */
 async function buscarNovedadPorToken(token: string): Promise<AirtableRecord | null> {
   if (!TOKEN_ENLACE_REGEX.test(token)) return null;
@@ -6626,6 +6639,8 @@ export async function leerNovedadPorEnlace(token: string): Promise<VistaNovedadP
   if (!novedadAdmiteRespuestaPorEnlace(original)) return { estado: "sin-turno", novedadId: original.novedadId, sku, articulo };
 
   const proveedor = original.proveedorResponsableId ? await getShippingV2ProveedorById(original.proveedorResponsableId) : null;
+  // Punto 11: el enlace del correo tampoco sirve si el proveedor fue desactivado.
+  if (proveedorDesactivado(proveedor)) return { estado: "no-existe" };
   const novedad = ocultarDatosInternosNovedad(original);
   // Del lado de la tienda no se muestran nombres del personal: solo "SUPER GEEK".
   const hilo = construirHiloNovedad(novedad).map((entrada) => ({
@@ -6696,6 +6711,9 @@ export async function responderNovedadPorEnlace(
     if (!validacion.ok) return { ok: false, status: 400, error: validacion.motivo };
 
     const proveedor = novedad.proveedorResponsableId ? await getShippingV2ProveedorById(novedad.proveedorResponsableId) : null;
+    if (proveedorDesactivado(proveedor)) {
+      return { ok: false, status: 404, error: "Este enlace ya no es válido. Si ya respondió, su respuesta quedó registrada." };
+    }
     const autor = `${proveedor?.nombre || "Proveedor"} (desde el correo)`;
     const now = new Date().toISOString();
     const cuerpo = propuesta ? `Propone: ${etiquetaPropuesta(propuesta)}. ${texto}` : texto;
