@@ -238,7 +238,7 @@ const TEXTO_BUSCABLE = sinTildes(
 
 /**
  * Condición de Airtable para el filtro (vacía si no hay filtro). El proveedor
- * se compara por su etiqueta ("eBay-Hardware"), que es lo que Airtable ve en
+ * se compara por su etiqueta ("eBay"; "Proveedor ID" = el nombre desde el punto 11), que es lo que Airtable ve en
  * el vínculo; si no se conoce, no devuelve nada en vez de devolver todo.
  */
 export function formulaFiltroArticulos(filtro: FiltroArticulos, opciones: { proveedorEtiqueta?: string } = {}) {

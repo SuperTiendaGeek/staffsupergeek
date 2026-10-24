@@ -51,6 +51,17 @@ function AppSymbol({ icon }: IconProps) {
     );
   }
 
+  if (icon === "admin") {
+    return (
+      <svg className={common} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M4 7h9M17 7h3M4 17h3M11 17h9M4 12h5M13 12h7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx="15" cy="7" r="2" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="9" cy="17" r="2" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="11" cy="12" r="2" stroke="currentColor" strokeWidth="1.8" />
+      </svg>
+    );
+  }
+
   if (icon === "users") {
     return (
       <svg className={common} viewBox="0 0 24 24" fill="none" aria-hidden="true">

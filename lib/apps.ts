@@ -4,7 +4,7 @@ export type StaffRole = "admin" | "manager" | "staff" | "finance" | "technical" 
 
 export type AppStatus = "Disponible" | "Próximamente" | "En construcción";
 
-export type AppIcon = "tools" | "finance" | "schedule" | "invoice" | "shipping" | "users";
+export type AppIcon = "tools" | "finance" | "schedule" | "invoice" | "shipping" | "users" | "admin";
 
 export type AppPermissionName =
   | "Técnicos"
@@ -111,6 +111,18 @@ export const staffApps: StaffApp[] = [
     icon: "shipping",
     description: "Control de inventario, pagos, packings, recepción y novedades.",
     requiredRoles: ["admin", "manager", "staff"]
+  },
+  {
+    // Auditoría Shipping V2, punto 11 (22-oct-2026): módulo "Administrar",
+    // solo para el rol Administrador. Primera pantalla: Proveedores.
+    id: "administrar",
+    name: "Administrar",
+    permissionName: "Administración",
+    route: "/admin/proveedores",
+    status: "Disponible",
+    icon: "admin",
+    description: "Proveedores de compra, logísticos y casilleros: datos, rastreo, portal y factura.",
+    requiredRoles: ["admin"]
   },
   {
     id: "usuarios",

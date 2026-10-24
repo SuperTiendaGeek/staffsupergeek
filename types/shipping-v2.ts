@@ -6,7 +6,7 @@ export type ShippingV2RecordBase = {
   createdTime?: string;
 };
 
-export type ShippingV2ProveedorEstado = "Activo" | "Inactivo" | "En Revision";
+export type ShippingV2ProveedorEstado = "Activo" | "Inactivo";
 export type ShippingV2ItemEstado = "Borrador" | "Pendiente Pago" | "Pagado" | "En Transito" | "Disponible" | "Entregado" | "Cancelado";
 export type ShippingV2PagoEstado = (typeof SHIPPING_V2_PAYMENT_SELECT_OPTIONS.estadoPago)[number];
 export type ShippingV2FinanzasMovimientoEstado = (typeof SHIPPING_V2_FINANCE_SELECT_OPTIONS.estadoIntegracion)[number];
@@ -171,22 +171,13 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   tipoProveedor?: string;
   /** "Tipo de proveedor" es de selección múltiple desde el 4-oct-2026. Ver provider-types.ts. */
   tiposProveedor?: string[];
-  requierePagoAntesEnvio: boolean | null;
-  plazoSugeridoPagoDias: number | null;
-  metodoPagoPreferido?: string;
-  cuentaDestinoPagoPreferida?: string;
-  puedeArmarPackings: boolean | null;
-  puedeRecibirEncargosTerceros: boolean | null;
-  permiteTriangulacion: boolean | null;
   permiteAccesoPortalProveedor: boolean | null;
-  puedeResponderNovedadesGarantias: boolean | null;
   /**
    * Lo marcado en "Permisos portal proveedor" (Shipping Proveedores). Define
    * qué puede hacer ESTE proveedor dentro del portal. Vacío = no puede nada.
    * Las etiquetas válidas están en lib/shipping-v2/access.ts.
    */
   permisosPortal: string[];
-  contacto?: string;
   email?: string;
   telefono?: string;
   pais?: string;
@@ -197,7 +188,8 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
   pieFactura?: string;
   logoProveedor: ShippingV2Attachment[];
   permiteRastreoWeb: boolean | null;
-  notasRastreo?: string;
+  /** "Observaciones" en Airtable: notas internas del proveedor (punto 11). */
+  notas?: string;
   /** "Diseño de factura" en Shipping Proveedores. Vacío/"Estándar" = diseño actual (sin cambios). Elegido una vez por proveedor, recordado siempre — no se elige por factura. */
   disenoFactura?: string;
   /** Nombre público a mostrar en la factura si es distinto del nombre interno del proveedor (ej. "LV Electronics Recycling" vs "Roberto-USA"). Vacío = se usa el nombre normal. */
