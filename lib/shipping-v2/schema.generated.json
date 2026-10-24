@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-24T12:36:28.177Z",
+  "generatedAt": "2026-10-24T13:32:04.227Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -19,8 +19,7 @@
           "type": "singleSelect",
           "options": [
             "Activo",
-            "Inactivo",
-            "En revisión"
+            "Inactivo"
           ]
         },
         "Tipo de proveedor": {
@@ -33,131 +32,20 @@
             "Hardware"
           ]
         },
-        "Requiere pago antes de envío": {
-          "id": "fldTnkcsnKJmCVNyy",
-          "type": "checkbox",
-          "checkbox": true
-        },
-        "Plazo sugerido de pago en días": {
-          "id": "fldN7CQKY5eQcurmN",
-          "type": "number",
-          "kind": "number"
-        },
-        "Puede armar packings": {
-          "id": "fldk8UE7nBwbPxtXd",
-          "type": "checkbox",
-          "checkbox": true
-        },
-        "Puede recibir encargos de terceros": {
-          "id": "fldfit2M9ICXDoRAO",
-          "type": "checkbox",
-          "checkbox": true
-        },
-        "Permite triangulación": {
-          "id": "fldugDOf32xCpp2Ik",
-          "type": "checkbox",
-          "checkbox": true
-        },
         "Permite acceso portal proveedor": {
           "id": "fldLGccG3ojv2wRjc",
           "type": "checkbox",
           "checkbox": true
-        },
-        "Puede responder novedades o garantías": {
-          "id": "fld4S3FemVXIDcCjP",
-          "type": "checkbox",
-          "checkbox": true
-        },
-        "Método de pago preferido": {
-          "id": "fldAC7lgqJuo92T8K",
-          "type": "singleSelect",
-          "options": [
-            "Transferencia bancaria",
-            "PayPal",
-            "Efectivo",
-            "Tarjeta",
-            "Depósito",
-            "Otro",
-            "No aplica"
-          ]
-        },
-        "Cuenta o destino de pago preferido": {
-          "id": "fldOEqY1mANAfblnp",
-          "type": "singleLineText",
-          "kind": "singleLineText"
-        },
-        "Regla de distribución de costos preferida": {
-          "id": "fldB7vqSGsoyyaqKe",
-          "type": "singleSelect",
-          "options": [
-            "Por costo del item",
-            "Por peso",
-            "Por cantidad",
-            "Manual",
-            "No definida"
-          ]
-        },
-        "Email de contacto": {
-          "id": "fld25dTKho41FgmXt",
-          "type": "email",
-          "kind": "email"
         },
         "Teléfono / WhatsApp": {
           "id": "fldiKVWEH9f2vlQA9",
           "type": "phoneNumber",
           "kind": "phoneNumber"
         },
-        "Notificar recepción por email": {
-          "id": "fldyXQym6PGj4HWnd",
-          "type": "checkbox",
-          "checkbox": true
-        },
-        "Notificar novedades por email": {
-          "id": "fldrAoX3DbKqLhG52",
-          "type": "checkbox",
-          "checkbox": true
-        },
-        "Permisos especiales": {
-          "id": "fldJxxVRsX0h0zL2f",
-          "type": "multipleSelects",
-          "options": [
-            "Puede incluir regalos",
-            "Puede editar tracking",
-            "Puede registrar peso",
-            "Puede marcar enviado",
-            "Puede proponer solución de garantía",
-            "Puede ver solo sus packings",
-            "Puede ver solo sus novedades",
-            "Requiere revisión administrativa"
-          ]
-        },
         "Observaciones": {
           "id": "fldtq2Tlsw7HH5GZ0",
           "type": "multilineText",
           "kind": "multilineText"
-        },
-        "Registrado por": {
-          "id": "fld3koKLXaghISGQa",
-          "type": "singleLineText",
-          "kind": "singleLineText"
-        },
-        "Fecha de creación": {
-          "id": "fldg4etX5dSHHl6Oi",
-          "type": "dateTime"
-        },
-        "Última actualización": {
-          "id": "fldxFYDhuRXe4xSCy",
-          "type": "dateTime"
-        },
-        "Legacy Proveedor ID": {
-          "id": "fldaGT0p9178soR02",
-          "type": "singleLineText",
-          "kind": "singleLineText"
-        },
-        "Fuente de migración": {
-          "id": "fldMrPPnPESYrjMuZ",
-          "type": "singleLineText",
-          "kind": "singleLineText"
         },
         "Shipping Items (Proveedor de compra)": {
           "id": "fldjhEXQTQbnmaovy",
@@ -256,11 +144,6 @@
           "id": "fldX9dsa1WzGCxDnp",
           "type": "checkbox",
           "checkbox": true
-        },
-        "Notas de rastreo": {
-          "id": "fldXl8BkVOmEZY9wg",
-          "type": "multilineText",
-          "kind": "multilineText"
         },
         "Logo proveedor": {
           "id": "fld1rDlCCEJcvvOVu",

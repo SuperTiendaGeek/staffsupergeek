@@ -794,6 +794,7 @@ function PanelProveedor({
           >
             {datos.portal ? (
               <div className="space-y-2 animate-[sg-entrada_180ms_ease-out]">
+                {!activo ? <p className="text-[12px] text-[#F4C95B]">Desactivado: no entra al portal ni recibe correos hasta reactivarlo.</p> : null}
                 <p className="text-[12px]">
                   {!limpio.email ? (
                     <span className="text-[#F4C95B]">Falta el email (con él entra).</span>
@@ -940,7 +941,7 @@ function PanelProveedor({
               <span className="min-w-0 flex-1 text-[#E5E5E0]">
                 {confirmar === "descartar" && "¿Descartar los cambios?"}
                 {confirmar === "desactivar" && (activo
-                  ? <>¿Desactivar <b>{proveedor?.datos.nombre}</b>? Deja de salir al registrar compras y envíos; su historia se conserva.</>
+                  ? <>¿Desactivar <b>{proveedor?.datos.nombre}</b>? Deja de salir al registrar compras y envíos{proveedor?.datos.portal ? " y pierde el portal" : ""}; su historia se conserva.</>
                   : <>¿Reactivar <b>{proveedor?.datos.nombre}</b>?</>)}
                 {confirmar === "eliminar" && <>¿Eliminar <b>{proveedor?.datos.nombre}</b>? No se puede deshacer.</>}
               </span>
