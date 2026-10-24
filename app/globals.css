@@ -66,3 +66,20 @@ a {
 @media (prefers-reduced-motion: reduce) {
   [class*="animate-[sg-"] { animation: none !important; }
 }
+
+/* Administrar › Proveedores (punto 11): panel lateral y filas que salen. */
+@keyframes sg-panel {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sg-velo {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sg-salida {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateX(12px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [class*="animate-[sg-"] { animation: none !important; }
+}

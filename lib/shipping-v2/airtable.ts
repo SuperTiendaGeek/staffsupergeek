@@ -325,6 +325,26 @@ import {
   type LineaVenta,
   type TipoAsunto,
 } from "@/lib/shipping-v2/revision-inventario";
+import {
+  CAMPOS_LECTURA_PROVEEDOR,
+  CAMPOS_PROVEEDOR,
+  ESTADO_ACTIVO,
+  ESTADO_INACTIVO,
+  ErrorValidacionProveedor,
+  buscarDuplicados,
+  camposCambiados,
+  camposParaAirtable,
+  describirCambios,
+  erroresDeDuplicados,
+  limpiarDatosProveedor,
+  proveedorAdminDesdeRegistro,
+  resumenUso,
+  sePuedeEliminar,
+  validarDatosProveedor,
+  validarLogo,
+  type EventoProveedor,
+  type ProveedorAdmin,
+} from "@/lib/shipping-v2/proveedores-admin";
 import { CAMPOS_ITEM, confirmacionValida, detectarVinculosDesconocidos, evaluarEliminacion, type ContextoEliminacion, type EvaluacionEliminacion } from "@/lib/shipping-v2/eliminar-item";
 
 type AirtableRecord = {
@@ -1380,50 +1400,48 @@ async function listRecordsPage(tableName: string, options: ListRecordsPageOption
 function mapProveedor(record: AirtableRecord): ShippingV2Proveedor {
   const f = record.fields;
   const F = SHIPPING_V2_PROVIDER_FIELDS;
+  const C = CAMPOS_PROVEEDOR;
   const proveedorId = firstString(f[F.proveedorId]);
-  const nombre = firstString(f[F.nombre] ?? f["Nombre Proveedor"] ?? f.Nombre ?? f.Proveedor);
-  const label = proveedorId || nombre || record.id;
+  const nombre = firstString(f[F.nombre]).trim();
+  // Punto 11 (22-oct): se muestra solo el nombre ("Roberto", no "Roberto-Hardware").
+  const label = nombre || proveedorId || record.id;
   // Selección múltiple desde el 4-oct-2026 (Software, Hardware, Logístico, Otro).
   const tiposProveedor = stringArray(f[F.tipoProveedor]);
   const tipoProveedor = tiposProveedor.join(", ");
+  const paisZonaLogistica = firstString(f[C.pais]);
 
+  // Punto 11: solo se leen los campos que el sistema usa. Los demás (plazos y
+  // métodos de pago, "Puede armar packings", "Permite triangulación",
+  // "Email de contacto", "Notas de rastreo"…) se dejaron de leer y se borran
+  // de Airtable. Se editan en Administrar › Proveedores.
   return {
     id: record.id,
     createdTime: record.createdTime,
     proveedorId,
     label,
-    nombre: nombre || label,
-    estado: firstString(f[F.estado] ?? f.Estado, "Activo"),
+    nombre: label,
+    estado: firstString(f[F.estado], "Activo"),
     tipoProveedor,
     tiposProveedor,
-    requierePagoAntesEnvio: firstBoolean(f["Requiere pago antes de envío"]),
-    plazoSugeridoPagoDias: firstNumber(f["Plazo sugerido de pago en días"]),
-    metodoPagoPreferido: firstString(f["Método de pago preferido"]),
-    cuentaDestinoPagoPreferida: firstString(f["Cuenta o destino de pago preferido"]),
-    puedeArmarPackings: firstBoolean(f[F.puedeArmarPackings] ?? f["Puede armar packings"]),
-    puedeRecibirEncargosTerceros: firstBoolean(f[F.puedeRecibirEncargosTerceros] ?? f["Puede recibir encargos de terceros"]),
-    permiteTriangulacion: firstBoolean(f[F.permiteTriangulacion] ?? f["Permite triangulación"] ?? f["Permite triangulacion"]),
-    permiteAccesoPortalProveedor: firstBoolean(f["Permite acceso portal proveedor"]),
-    permisosPortal: stringArray(f["Permisos portal proveedor"]),
-    puedeResponderNovedadesGarantias: firstBoolean(f["Puede responder novedades o garantías"] ?? f["Puede responder novedades o garantias"]),
-    contacto: firstString(f.Contacto),
-    email: firstString(f["Email proveedor"] ?? f.Email ?? f["Email de contacto"]),
-    telefono: firstString(f.Telefono ?? f["Teléfono"] ?? f["Teléfono / WhatsApp"]),
-    // El origen ya no sale de "Tipo de proveedor" (que dejó de tener USA/Local).
-    pais: firstString(f.Pais ?? f["País"] ?? f[F.paisZonaLogistica]),
-    paisZonaLogistica: firstString(f[F.paisZonaLogistica] ?? f["País / zona logística"]),
-    urlRastreo: firstString(f[F.urlRastreo] ?? f["URL rastreo"]),
-    plantillaUrlRastreo: firstString(f[F.plantillaUrlRastreo] ?? f["Plantilla URL rastreo"]),
-    website: firstString(f["Website proveedor"] ?? f.Website ?? f["Sitio web"] ?? f["Página web"]),
-    pieFactura: firstString(f["Pie factura"]),
-    logoProveedor: mapAttachments(f["Logo proveedor"] ?? f.Logo),
-    permiteRastreoWeb: firstBoolean(f[F.permiteRastreoWeb] ?? f["Permite rastreo web"]),
-    notasRastreo: firstString(f[F.notasRastreo] ?? f["Notas de rastreo"]),
-    esCasillero: firstBoolean(f[F.esCasillero]),
-    disenoFactura: firstString(f["Diseño de factura"]),
-    nombreComercialFactura: firstString(f["Nombre comercial (factura)"]),
-    esloganFactura: firstString(f["Eslogan (factura)"]),
-    datosEmpresaFactura: firstString(f["Datos de empresa (factura)"]),
+    permiteAccesoPortalProveedor: firstBoolean(f[C.portal]),
+    permisosPortal: stringArray(f[C.permisosPortal]),
+    email: firstString(f[C.email]).trim(),
+    telefono: firstString(f[C.telefono]).trim(),
+    // El origen sale de "País / zona logística": Ecuador = local; el resto, extranjero.
+    pais: paisZonaLogistica,
+    paisZonaLogistica,
+    urlRastreo: firstString(f[C.urlRastreo]),
+    plantillaUrlRastreo: firstString(f[C.plantillaUrlRastreo]),
+    website: firstString(f[C.website]),
+    notas: firstString(f[C.notas]),
+    pieFactura: firstString(f[C.pieFactura]),
+    logoProveedor: mapAttachments(f[C.logo]),
+    permiteRastreoWeb: firstBoolean(f[C.permiteRastreoWeb]),
+    esCasillero: firstBoolean(f[C.esCasillero]),
+    disenoFactura: firstString(f[C.disenoFactura]),
+    nombreComercialFactura: firstString(f[C.nombreComercialFactura]),
+    esloganFactura: firstString(f[C.esloganFactura]),
+    datosEmpresaFactura: firstString(f[C.datosEmpresaFactura]),
     columnasImportacion: limpiarColumnasRecordadas(f[CAMPO_COLUMNAS_IMPORTACION]),
   };
 }
@@ -2029,7 +2047,13 @@ function mapNovedad(record: AirtableRecord): ShippingV2Novedad {
 }
 
 export async function getShippingV2Proveedores() {
-  const records = await listRecords(SHIPPING_V2_TABLES.proveedores, { maxRecords: 100 });
+  // Punto 11: todos los proveedores (antes se cortaba en 100) y solo los campos
+  // que el sistema usa, sin los vínculos (eBay arrastraba cientos de artículos).
+  const records = await listRecords(SHIPPING_V2_TABLES.proveedores, {
+    fields: CAMPOS_LECTURA_PROVEEDOR,
+    sortField: CAMPOS_PROVEEDOR.nombre,
+    sortDirection: "asc",
+  });
   return records.map(mapProveedor);
 }
 
@@ -2229,7 +2253,7 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
   const pageSize = Math.min(Math.max(Math.trunc(options.pageSize ?? 100), 1), 100);
   const sort = getShippingV2ItemsListSort(options.sortBy);
 
-  // El filtro por proveedor necesita su etiqueta ("eBay-Hardware"), que es lo
+  // El filtro por proveedor necesita su etiqueta ("Proveedor ID" = el nombre), que es lo
   // que Airtable ve en el vínculo; solo entonces se leen antes los proveedores.
   const proveedoresConocidos = options.proveedores ?? (options.filtro?.proveedor ? await getShippingV2Proveedores() : undefined);
   const proveedorEtiqueta = options.filtro?.proveedor
@@ -2977,8 +3001,9 @@ async function verificarSkuUnicoTrasCrear(sku: string, recordIdCreado: string): 
 
 async function createShippingV2Event(input: {
   action: "Creado" | "Actualizado" | "Cambio de estado" | "Novedad abierta" | "Otro";
-  entity?: "Shipping Item" | "Shipping Packing" | "Shipping Novedad";
+  entity?: "Shipping Item" | "Shipping Packing" | "Shipping Novedad" | "Shipping Proveedor";
   itemRecordId?: string;
+  proveedorRecordId?: string;
   packingRecordId?: string;
   novedadRecordId?: string;
   itemName?: string;
@@ -3000,6 +3025,7 @@ async function createShippingV2Event(input: {
               "Item relacionado": input.itemRecordId ? [input.itemRecordId] : undefined,
               "Packing relacionado": input.packingRecordId ? [input.packingRecordId] : undefined,
               "Novedad relacionada": input.novedadRecordId ? [input.novedadRecordId] : undefined,
+              "Proveedor relacionado": input.proveedorRecordId ? [input.proveedorRecordId] : undefined,
               "Estado anterior": input.estadoAnterior,
               "Estado nuevo": input.estadoNuevo,
               "Descripción del evento": input.descripcion,
@@ -4155,14 +4181,10 @@ function isPendingPayment(pago: ShippingV2Pago) {
   return ["pendiente", "borrador", "parcial"].includes(normalizeStatus(String(pago.estadoPago)));
 }
 
-function computeSuggestedDueDate(provider: ShippingV2Proveedor | null, fallback?: string) {
-  const explicit = cleanString(fallback);
-  if (explicit) return explicit;
-  const days = provider?.plazoSugeridoPagoDias;
-  if (typeof days !== "number" || !Number.isFinite(days) || days <= 0) return "";
-  const date = new Date();
-  date.setDate(date.getDate() + Math.trunc(days));
-  return date.toISOString().slice(0, 10);
+// Punto 11 (22-oct): sin "Plazo sugerido de pago" del proveedor. Desde el punto
+// 9a ningún proveedor da crédito, así que no hay vencimiento que proponer.
+function computeSuggestedDueDate(_provider: ShippingV2Proveedor | null, fallback?: string) {
+  return cleanString(fallback);
 }
 
 export function computePagosSummary(porPagar: ShippingV2PagoPendingItem[], pagosPendientes: ShippingV2Pago[], pagadosSinSoporte: ShippingV2PagoSupportCard[], pagosCompletos: ShippingV2Pago[]): ShippingV2PagosSummary {
@@ -12542,4 +12564,212 @@ async function sumarEncontradasShippingV2(itemId: string, cantidad: number, moti
       estadoNuevo: estadoNuevo ?? undefined,
     }).catch((error) => console.error("No se pudo registrar el evento:", error));
   });
+}
+
+// ─── Administrar › Proveedores (auditoría punto 11, 22-oct-2026) ─────────────
+//
+// Solo el Administrador llega aquí (las rutas viven en /api/admin, que el
+// proxy reserva al rol Administrador). Reglas en proveedores-admin.ts.
+
+const TABLA_PRODUCTOS_DIGITALES = "Productos Digitales";
+
+/** Todos los proveedores con su uso (se leen los vínculos: es la pantalla de administración). */
+export async function getProveedoresAdmin(): Promise<ProveedorAdmin[]> {
+  const records = await listRecords(SHIPPING_V2_TABLES.proveedores, {
+    sortField: CAMPOS_PROVEEDOR.nombre,
+    sortDirection: "asc",
+  });
+  return records.map(proveedorAdminDesdeRegistro);
+}
+
+async function getProveedorAdminPorId(id: string): Promise<ProveedorAdmin> {
+  const record = await getRecordById(SHIPPING_V2_TABLES.proveedores, cleanString(id));
+  if (!record) throw new Error("Proveedor no encontrado.");
+  return proveedorAdminDesdeRegistro(record);
+}
+
+/** Productos digitales que guardan este nombre de proveedor (texto, no vínculo). */
+async function contarProductosDigitalesDeProveedor(nombre: string): Promise<number> {
+  if (!nombre.trim()) return 0;
+  const url = new URL(tableUrl(TABLA_PRODUCTOS_DIGITALES));
+  url.searchParams.set("filterByFormula", `LOWER(TRIM({Proveedor}&''))='${escapeFormulaString(nombre.trim().toLowerCase())}'`);
+  url.searchParams.set("maxRecords", "1");
+  url.searchParams.append("fields[]", "Proveedor");
+  try {
+    const data = await airtableRequest<AirtableListResponse>(url.toString());
+    return (data.records ?? []).length;
+  } catch (error) {
+    // Si no se puede comprobar, se trata como usado: nunca borrar a ciegas.
+    console.warn("No se pudo revisar Productos Digitales antes de eliminar un proveedor:", error);
+    return 1;
+  }
+}
+
+async function asegurarSinDuplicados(datos: ReturnType<typeof limpiarDatosProveedor>, propioId?: string) {
+  const todos = await getShippingV2Proveedores();
+  const otros = todos.map((p) => ({
+    id: p.id,
+    datos: { nombre: p.nombre, email: p.email ?? "", telefono: p.telefono ?? "", website: p.website ?? "" },
+  }));
+  const errores = erroresDeDuplicados(buscarDuplicados(datos, otros, propioId));
+  if (Object.keys(errores).length) throw new ErrorValidacionProveedor(errores);
+}
+
+export async function crearProveedorAdmin(input: unknown, options: { registradoPor: string }): Promise<ProveedorAdmin> {
+  const datos = limpiarDatosProveedor(input);
+  const errores = validarDatosProveedor(datos);
+  if (Object.keys(errores).length) throw new ErrorValidacionProveedor(errores);
+  await asegurarSinDuplicados(datos);
+
+  const respuesta = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.proveedores), {
+    method: "POST",
+    body: JSON.stringify({
+      records: [{ fields: { ...camposParaAirtable(datos), [CAMPOS_PROVEEDOR.estado]: ESTADO_ACTIVO } }],
+    }),
+  });
+  const creado = respuesta.records?.[0];
+  if (!creado?.id) throw new Error("Airtable no devolvió el proveedor creado.");
+
+  await createShippingV2Event({
+    action: "Creado",
+    entity: "Shipping Proveedor",
+    proveedorRecordId: creado.id,
+    registradoPor: options.registradoPor,
+    descripcion: `Proveedor creado: ${datos.nombre} (${datos.tipos.join(", ")} · ${datos.pais}).`,
+  });
+  return getProveedorAdminPorId(creado.id);
+}
+
+export async function actualizarProveedorAdmin(
+  id: string,
+  input: unknown,
+  options: { registradoPor: string; olvidarColumnas?: boolean }
+): Promise<ProveedorAdmin> {
+  const actual = await getProveedorAdminPorId(id);
+  const datos = limpiarDatosProveedor(input);
+  const errores = validarDatosProveedor(datos);
+  if (Object.keys(errores).length) throw new ErrorValidacionProveedor(errores);
+
+  const cambios = camposCambiados(actual.datos, datos);
+  const tocaDuplicados = cambios.some((c) => c === "nombre" || c === "email" || c === "telefono" || c === "website");
+  if (tocaDuplicados) await asegurarSinDuplicados(datos, actual.id);
+
+  const fields = camposParaAirtable(datos, actual.datos);
+  const olvidar = options.olvidarColumnas === true && actual.columnasRecordadas > 0;
+  if (olvidar) fields[CAMPOS_PROVEEDOR.columnasImportacion] = null;
+  if (!Object.keys(fields).length) return actual;
+
+  await patchAirtableRecords(SHIPPING_V2_TABLES.proveedores, [{ id: actual.id, fields }]);
+  const lineas = describirCambios(actual.datos, datos);
+  if (olvidar) lineas.push("Columnas recordadas: olvidadas");
+  await createShippingV2Event({
+    action: "Actualizado",
+    entity: "Shipping Proveedor",
+    proveedorRecordId: actual.id,
+    registradoPor: options.registradoPor,
+    descripcion: lineas.join("\n"),
+  });
+  return getProveedorAdminPorId(actual.id);
+}
+
+/** Desactivar (no sale al registrar compras ni envíos) o reactivar. */
+export async function cambiarEstadoProveedorAdmin(
+  id: string,
+  activo: boolean,
+  options: { registradoPor: string }
+): Promise<ProveedorAdmin> {
+  const actual = await getProveedorAdminPorId(id);
+  const nuevo = activo ? ESTADO_ACTIVO : ESTADO_INACTIVO;
+  if (actual.estado === nuevo) return actual;
+  await patchAirtableRecords(SHIPPING_V2_TABLES.proveedores, [{ id: actual.id, fields: { [CAMPOS_PROVEEDOR.estado]: nuevo } }]);
+  await createShippingV2Event({
+    action: "Cambio de estado",
+    entity: "Shipping Proveedor",
+    proveedorRecordId: actual.id,
+    registradoPor: options.registradoPor,
+    estadoAnterior: actual.estado,
+    estadoNuevo: nuevo,
+    descripcion: activo ? "Proveedor reactivado." : "Proveedor desactivado.",
+  });
+  return getProveedorAdminPorId(actual.id);
+}
+
+/** Solo se elimina un proveedor que nunca se usó (decisión del dueño). */
+export async function eliminarProveedorAdmin(id: string, options: { registradoPor: string }) {
+  const actual = await getProveedorAdminPorId(id);
+  const uso = { ...actual.uso, productosDigitales: await contarProductosDigitalesDeProveedor(actual.datos.nombre) };
+  if (!sePuedeEliminar(uso)) {
+    throw new Error(`${actual.datos.nombre} ya se usó (${resumenUso(uso)}): solo se puede desactivar.`);
+  }
+  await airtableMutation<{ deleted?: boolean }>(
+    `${tableUrl(SHIPPING_V2_TABLES.proveedores)}/${encodeURIComponent(actual.id)}`,
+    { method: "DELETE" }
+  );
+  await createShippingV2Event({
+    action: "Otro",
+    entity: "Shipping Proveedor",
+    registradoPor: options.registradoPor,
+    descripcion: `Proveedor eliminado (no tenía uso): ${actual.datos.nombre} · ${actual.datos.tipos.join(", ")} · ${actual.datos.pais}.`,
+  });
+  return { eliminado: true, id: actual.id };
+}
+
+/** Reemplaza el logo (el de la factura del packing). */
+export async function cambiarLogoProveedorAdmin(
+  id: string,
+  archivo: { filename: string; contentType: string; size: number; fileBase64: string },
+  options: { registradoPor: string }
+): Promise<ProveedorAdmin> {
+  const motivo = validarLogo({ type: archivo.contentType, size: archivo.size });
+  if (motivo) throw new Error(motivo);
+  const actual = await getProveedorAdminPorId(id);
+  if (actual.logo) await patchAirtableRecords(SHIPPING_V2_TABLES.proveedores, [{ id: actual.id, fields: { [CAMPOS_PROVEEDOR.logo]: [] } }]);
+  await uploadAttachmentToRecord({
+    recordId: actual.id,
+    attachmentFieldIdOrName: CAMPOS_PROVEEDOR.logo,
+    filename: archivo.filename,
+    contentType: archivo.contentType,
+    fileBase64: archivo.fileBase64,
+  });
+  await createShippingV2Event({
+    action: "Actualizado",
+    entity: "Shipping Proveedor",
+    proveedorRecordId: actual.id,
+    registradoPor: options.registradoPor,
+    descripcion: actual.logo ? `Logo: cambiado (${archivo.filename})` : `Logo: agregado (${archivo.filename})`,
+  });
+  return getProveedorAdminPorId(actual.id);
+}
+
+export async function quitarLogoProveedorAdmin(id: string, options: { registradoPor: string }): Promise<ProveedorAdmin> {
+  const actual = await getProveedorAdminPorId(id);
+  if (!actual.logo) return actual;
+  await patchAirtableRecords(SHIPPING_V2_TABLES.proveedores, [{ id: actual.id, fields: { [CAMPOS_PROVEEDOR.logo]: [] } }]);
+  await createShippingV2Event({
+    action: "Actualizado",
+    entity: "Shipping Proveedor",
+    proveedorRecordId: actual.id,
+    registradoPor: options.registradoPor,
+    descripcion: "Logo: quitado",
+  });
+  return getProveedorAdminPorId(actual.id);
+}
+
+/** Últimos cambios del proveedor (Shipping Eventos con "Proveedor relacionado"). */
+export async function getHistorialProveedorAdmin(id: string, limite = 30): Promise<EventoProveedor[]> {
+  const record = await getRecordById(SHIPPING_V2_TABLES.proveedores, cleanString(id));
+  if (!record) throw new Error("Proveedor no encontrado.");
+  const ids = linkedRecordIds(record.fields[CAMPOS_PROVEEDOR.eventos]);
+  if (!ids.length) return [];
+  const eventos = await listRecordsByIds(SHIPPING_V2_TABLES.eventos, ids.slice(-Math.max(limite * 2, 60)));
+  return eventos
+    .map((e) => ({
+      id: e.id,
+      fecha: firstString(e.fields["Fecha del evento"]) || e.createdTime || "",
+      accion: firstString(e.fields["Acción"]),
+      descripcion: firstString(e.fields["Descripción del evento"]),
+      registradoPor: firstString(e.fields["Registrado por"]),
+    }))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha))
+    .slice(0, limite);
 }

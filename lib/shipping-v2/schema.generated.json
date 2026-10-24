@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-15T13:29:19.972Z",
+  "generatedAt": "2026-10-24T12:36:28.177Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -374,34 +374,35 @@
           "type": "singleLineText",
           "kind": "singleLineText"
         },
-        "AI Nombre del item": {
-          "id": "fldWS0nuWqJ8stRFU",
-          "type": "aiText"
-        },
         "SKU": {
           "id": "fldCe4yFR032xDZ8V",
           "type": "singleLineText",
           "kind": "singleLineText"
         },
+        "Fotos": {
+          "id": "fldIfhSPM29upwdKY",
+          "type": "multipleAttachments",
+          "attachment": true
+        },
+        "Orden de Reparación (Stock)": {
+          "id": "fldnSAsUGWzMWQQOu",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblm4bd1eUUqDEHmz",
+          "linkedTableName": "Órdenes de Reparación"
+        },
+        "Facebook Super Geek": {
+          "id": "fldUnC2Y1Q3e4eFpe",
+          "type": "checkbox",
+          "checkbox": true
+        },
+        "AI Nombre del item": {
+          "id": "fldWS0nuWqJ8stRFU",
+          "type": "aiText"
+        },
         "Descripción": {
           "id": "fldBatGqWuoi0vYci",
           "type": "multilineText",
           "kind": "multilineText"
-        },
-        "Precio venta sugerido": {
-          "id": "fldTMSgsl5Fm6QWqP",
-          "type": "currency",
-          "kind": "currency"
-        },
-        "Precio venta final": {
-          "id": "fldST0lr5q3eKIc1o",
-          "type": "currency",
-          "kind": "currency"
-        },
-        "SKU proveedor": {
-          "id": "fldbnb12bLcRmnvwS",
-          "type": "singleLineText",
-          "kind": "singleLineText"
         },
         "Tipo de operación": {
           "id": "fldGfGydXE6VKHqVx",
@@ -606,6 +607,16 @@
           "type": "currency",
           "kind": "currency"
         },
+        "Precio venta sugerido": {
+          "id": "fldTMSgsl5Fm6QWqP",
+          "type": "currency",
+          "kind": "currency"
+        },
+        "Precio venta final": {
+          "id": "fldST0lr5q3eKIc1o",
+          "type": "currency",
+          "kind": "currency"
+        },
         "Cantidad": {
           "id": "fldeH94NlFqWUZWwe",
           "type": "number",
@@ -649,6 +660,11 @@
             "Kit",
             "Otro"
           ]
+        },
+        "SKU proveedor": {
+          "id": "fldbnb12bLcRmnvwS",
+          "type": "singleLineText",
+          "kind": "singleLineText"
         },
         "Número de serie": {
           "id": "fld6qmqPu3eAiNX33",
@@ -759,11 +775,6 @@
           "id": "fldKgNWYar9wMjXCv",
           "type": "checkbox",
           "checkbox": true
-        },
-        "Fotos": {
-          "id": "fldIfhSPM29upwdKY",
-          "type": "multipleAttachments",
-          "attachment": true
         },
         "Evidencias": {
           "id": "fldnqMaoLOlYtw6m3",
@@ -1277,12 +1288,6 @@
           "id": "fldtE3aMDsLdQrT5v",
           "type": "formula"
         },
-        "Orden de Reparación (Stock)": {
-          "id": "fldnSAsUGWzMWQQOu",
-          "type": "multipleRecordLinks",
-          "linkedTableId": "tblm4bd1eUUqDEHmz",
-          "linkedTableName": "Órdenes de Reparación"
-        },
         "Factura": {
           "id": "fldA2rvyJmzqP0Sfo",
           "type": "multipleRecordLinks",
@@ -1325,11 +1330,6 @@
         "Texto Facebook fórmula legacy": {
           "id": "fldzz1Ykz5GpfSx3C",
           "type": "formula"
-        },
-        "Facebook Super Geek": {
-          "id": "fldUnC2Y1Q3e4eFpe",
-          "type": "checkbox",
-          "checkbox": true
         },
         "Cantidad Reservada": {
           "id": "fld6tH0L5LPIrOown",
@@ -1485,9 +1485,54 @@
             "Lote"
           ]
         },
+        "Shipping Publicaciones": {
+          "id": "flda1PA6uIM04R5cP",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblhVEUbxzjQbqOwO",
+          "linkedTableName": "Shipping Publicaciones"
+        },
         "Accesorios incluidos": {
           "id": "fldB98gxq9SfhcbZl",
-          "type": "multilineText"
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Shipping Revisión de inventario": {
+          "id": "fldCzLR5iGezw6FJO",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblxYQvdAGnfSgeM0",
+          "linkedTableName": "Shipping Revisión de inventario"
+        },
+        "Shipping Conteo líneas": {
+          "id": "fldp2pd56DLE6VSwa",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tblV93Jmu2An78CfU",
+          "linkedTableName": "Shipping Conteo líneas"
+        },
+        "SKUs anteriores": {
+          "id": "fldKnUVjSkmGxdh06",
+          "type": "multilineText",
+          "kind": "multilineText"
+        },
+        "Shipping Cambios de código": {
+          "id": "fldToBiiP7m0IWa7e",
+          "type": "multipleRecordLinks",
+          "linkedTableId": "tbljT7KWwGqpnAD9C",
+          "linkedTableName": "Shipping Cambios de código"
+        },
+        "Vendidas fuera del sistema": {
+          "id": "fldh5aBZv6BxkwxCs",
+          "type": "number",
+          "kind": "number"
+        },
+        "Salidas internas": {
+          "id": "fldUBGKOut6Q03ZvY",
+          "type": "number",
+          "kind": "number"
+        },
+        "Ventas de otro artículo": {
+          "id": "fldg12JZgBJaDweKt",
+          "type": "number",
+          "kind": "number"
         }
       }
     },
@@ -2547,7 +2592,8 @@
             "Se repara internamente",
             "Va a despiece",
             "Se destina a uso local",
-            "Se descarta"
+            "Se descarta",
+            "Sin compensación"
           ]
         },
         "Descripción de solución": {
@@ -2628,7 +2674,8 @@
             "Va a despiece",
             "Pasa a activo",
             "Devuelto al proveedor",
-            "No procedía"
+            "No procedía",
+            "Vendido con novedad"
           ]
         },
         "Bloquea venta": {

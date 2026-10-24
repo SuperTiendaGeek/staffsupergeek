@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { isProviderRole } from "@/lib/apps";
 import {
   MODULO_POR_APP_PERMITIDA,
@@ -20,6 +20,8 @@ type AdminUsersClientProps = {
   initialUsers: PortalUser[];
   availableApps: string[];
   currentUserId: string;
+  /** Alta con datos ya puestos (?nuevo=email&nombre=…&rol=Proveedor). */
+  prefill?: { email: string; nombre?: string; rol?: string };
 };
 
 type UserFormState = {
@@ -137,7 +139,7 @@ function ToggleButton({
   );
 }
 
-export function AdminUsersClient({ initialUsers, availableApps, currentUserId }: AdminUsersClientProps) {
+export function AdminUsersClient({ initialUsers, availableApps, currentUserId, prefill }: AdminUsersClientProps) {
   const [users, setUsers] = useState(initialUsers);
   const [mode, setMode] = useState<"create" | "edit" | null>(null);
   const [editingUser, setEditingUser] = useState<PortalUser | null>(null);
@@ -169,6 +171,19 @@ export function AdminUsersClient({ initialUsers, availableApps, currentUserId }:
     setForm(emptyForm);
     setMode("create");
   }
+
+  // Punto 11: "Crear usuario" desde Administrar › Proveedores abre el alta con
+  // el nombre, el email y el rol Proveedor ya puestos (solo si aún no existe).
+  useEffect(() => {
+    if (!prefill?.email) return;
+    const email = prefill.email.trim().toLowerCase();
+    if (users.some((user) => user.email.trim().toLowerCase() === email)) return;
+    setEditingUser(null);
+    setForm({ ...emptyForm, nombre: prefill.nombre ?? "", email, rol: prefill.rol || "Proveedor", appsPermitidas: ["Shipping"] });
+    setMode("create");
+    // Solo al entrar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function openEdit(user: PortalUser) {
     setError("");

@@ -7,7 +7,13 @@ import { staffApps } from "@/lib/apps";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminUsersPage() {
+type PageProps = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
+
+function primero(v: string | string[] | undefined) {
+  return Array.isArray(v) ? v[0] ?? "" : v ?? "";
+}
+
+export default async function AdminUsersPage({ searchParams }: PageProps) {
   const session = await getAdminSession();
 
   if (!session) {
@@ -15,6 +21,9 @@ export default async function AdminUsersPage() {
   }
 
   const users = await listPortalUsers();
+  const sp = (await searchParams) ?? {};
+  const nuevo = primero(sp.nuevo).trim();
+  const prefill = nuevo ? { email: nuevo, nombre: primero(sp.nombre).trim(), rol: primero(sp.rol).trim() || "Proveedor" } : undefined;
   const availableApps = [
     ...new Set(
       staffApps
@@ -29,6 +38,7 @@ export default async function AdminUsersPage() {
         initialUsers={users}
         availableApps={availableApps}
         currentUserId={session.user.userId}
+        prefill={prefill}
       />
     </StaffAppShell>
   );

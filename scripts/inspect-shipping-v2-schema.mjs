@@ -122,7 +122,6 @@ const EXPECTED_PROVIDER_FIELDS = [
   "URL rastreo",
   "Plantilla URL rastreo",
   "Permite rastreo web",
-  "Notas de rastreo",
 ];
 
 const EXPECTED_PAYMENT_FIELDS = [
@@ -351,18 +350,12 @@ const PROVIDER_FIELD_KEYS = {
   nombre: "Nombre proveedor",
   estado: "Estado proveedor",
   tipoProveedor: "Tipo de proveedor",
-  puedeArmarPackings: "Puede armar packings",
-  puedeRecibirEncargosTerceros: "Puede recibir encargos de terceros",
-  permiteTriangulacion: "Permite triangulación",
-  contacto: "Contacto",
-  email: "Email",
-  telefono: "Teléfono",
-  pais: "País",
+  // Punto 11 (22-oct): "Puede armar packings", "Puede recibir encargos de
+  // terceros", "Permite triangulación" y "Notas de rastreo" se retiraron.
   paisZonaLogistica: "País / zona logística",
   urlRastreo: "URL rastreo",
   plantillaUrlRastreo: "Plantilla URL rastreo",
   permiteRastreoWeb: "Permite rastreo web",
-  notasRastreo: "Notas de rastreo",
   esCasillero: "Es casillero",
 };
 
