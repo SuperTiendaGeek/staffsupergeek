@@ -16,7 +16,9 @@ import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Download, Loader2, Printer, RotateCcw, Search, TriangleAlert, X } from "lucide-react";
 import { KardexTabla } from "@/components/shipping-v2/kardex/KardexTabla";
-import { cantidadTexto, descargarXlsx, dinero, enlaceDocumento, fechaCorta, serieCorta, textoDocumento } from "@/components/shipping-v2/kardex/kardex-formato";
+import { EnlaceDocumento } from "@/components/shipping-v2/kardex/EnlaceDocumento";
+import { VisorDocumentosProvider } from "@/components/documentos/DocumentoModal";
+import { cantidadTexto, descargarXlsx, dinero, fechaCorta, serieCorta, textoDocumento } from "@/components/shipping-v2/kardex/kardex-formato";
 import {
   conSaldo,
   gananciaDe,
@@ -47,6 +49,31 @@ async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
   if (!j.success) throw new Error(j.error || "No se pudo cargar.");
   return j.data as T;
 }
+
+// Lo que el usuario dejó elegido (búsqueda, periodo, filtros, atajos) y lo
+// último que se cargó se conservan al volver de otra pantalla (← del
+// navegador) o al cambiar de vista: memoria de la pestaña + sessionStorage.
+const MEMORIA = new Map<string, unknown>();
+const PREFIJO = "sg-kardex:";
+function leerGuardado<T>(clave: string, inicial: T): T {
+  if (MEMORIA.has(clave)) return MEMORIA.get(clave) as T;
+  try {
+    const v = window.sessionStorage.getItem(PREFIJO + clave);
+    if (v !== null) return JSON.parse(v) as T;
+  } catch { /* sin almacenamiento: se usa lo de siempre */ }
+  return inicial;
+}
+function guardar(clave: string, valor: unknown) {
+  MEMORIA.set(clave, valor);
+  try { window.sessionStorage.setItem(PREFIJO + clave, JSON.stringify(valor)); } catch { /* sin almacenamiento */ }
+}
+function useEstado<T>(clave: string, inicial: T): [T, (v: T | ((p: T) => T)) => void] {
+  const [v, setV] = useState<T>(() => leerGuardado(clave, inicial));
+  useEffect(() => { guardar(clave, v); }, [clave, v]);
+  return [v, setV];
+}
+/** Respuestas ya cargadas: al volver se ven al instante y se refrescan detrás. */
+const RESPUESTAS = new Map<string, unknown>();
 
 function ecuadorHoy(): string {
   return new Date(Date.now() - 5 * 3600_000).toISOString().slice(0, 10);
@@ -115,20 +142,60 @@ function Aviso({ children, tono = "naranja" }: { children: ReactNode; tono?: "na
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function ShippingV2KardexClient({ vistaInicial, qInicial, esAdministrador }: { vistaInicial: VistaKardex; qInicial: string; esAdministrador: boolean }) {
-  const [vista, setVista] = useState<VistaKardex>(vistaInicial);
-  const [q, setQ] = useState(qInicial);
+export function ShippingV2KardexClient(props: { vistaInicial: VistaKardex; qInicial: string; esAdministrador: boolean }) {
+  // Se arma en el navegador: así arranca con lo que el usuario dejó elegido.
+  const [montado, setMontado] = useState(false);
+  useEffect(() => setMontado(true), []);
+  if (!montado) return <p className="flex items-center gap-2 px-1 py-6 text-[12.5px] text-[#8F908A]"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />Cargando…</p>;
+  return <KardexPantalla {...props} />;
+}
+
+function KardexPantalla({ vistaInicial, qInicial, esAdministrador }: { vistaInicial: VistaKardex; qInicial: string; esAdministrador: boolean }) {
+  // Lo que trae la dirección (enlace desde la ficha o Control) manda; si no
+  // trae nada, se retoma lo último de esta pestaña del navegador.
+  const [vista, setVista] = useState<VistaKardex>(() => {
+    const p = new URLSearchParams(window.location.search);
+    const v = (p.get("vista") as VistaKardex | null) ?? (p.get("q") ? "producto" : leerGuardado<VistaKardex>("vista", vistaInicial));
+    return v === "resumen" && !esAdministrador ? "producto" : v;
+  });
+  const [q, setQ] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.has("q") || p.has("vista") ? (p.get("q") ?? qInicial) : leerGuardado("q", qInicial);
+  });
 
   const irA = useCallback((v: VistaKardex, nuevoQ?: string) => {
     setVista(v);
     if (nuevoQ !== undefined) setQ(nuevoQ);
+  }, []);
+
+  // La dirección siempre refleja la vista y la búsqueda (← del navegador y enlaces copiados).
+  useEffect(() => {
+    guardar("vista", vista);
+    guardar("q", q);
     const u = new URL(window.location.href);
-    u.searchParams.set("vista", v);
-    const qq = nuevoQ ?? q;
-    if (v === "producto" && qq) u.searchParams.set("q", qq);
+    u.searchParams.set("vista", vista);
+    if (vista === "producto" && q) u.searchParams.set("q", q);
     else u.searchParams.delete("q");
-    window.history.replaceState(null, "", u.toString());
-  }, [q]);
+    if (u.toString() !== window.location.href) window.history.replaceState(window.history.state, "", u.toString());
+  }, [vista, q]);
+
+  // Al volver a esta pantalla, el desplazamiento queda donde estaba.
+  useEffect(() => {
+    let y = 0;
+    try { y = Number(window.sessionStorage.getItem(`${PREFIJO}scroll`)) || 0; } catch { /* nada */ }
+    let intentos = 0;
+    let marco = 0;
+    const intentar = () => {
+      if (!y) return;
+      if (document.documentElement.scrollHeight - window.innerHeight >= y || intentos > 60) { window.scrollTo(0, y); return; }
+      intentos += 1;
+      marco = window.requestAnimationFrame(intentar);
+    };
+    intentar();
+    const guardarScroll = () => { try { window.sessionStorage.setItem(`${PREFIJO}scroll`, String(Math.round(window.scrollY))); } catch { /* nada */ } };
+    window.addEventListener("pagehide", guardarScroll);
+    return () => { window.cancelAnimationFrame(marco); guardarScroll(); window.removeEventListener("pagehide", guardarScroll); };
+  }, []);
 
   const vistas: Array<{ key: VistaKardex; label: string }> = [
     { key: "producto", label: "Producto" },
@@ -146,13 +213,16 @@ export function ShippingV2KardexClient({ vistaInicial, qInicial, esAdministrador
     </div>
   );
 
+  const abrirProducto = useCallback((sku: string) => { irA("producto", sku); window.scrollTo({ top: 0 }); }, [irA]);
   return (
-    <div className="space-y-2.5 text-[#EDEDE7]">
-      {vista === "producto" ? <VistaProducto barra={barra} q={q} onQ={(x) => irA("producto", x)} esAdministrador={esAdministrador} /> : null}
-      {vista === "movimientos" ? <VistaMovimientos barra={barra} onAbrir={(sku) => irA("producto", sku)} /> : null}
-      {vista === "bajas" ? <VistaBajas barra={barra} esAdministrador={esAdministrador} onAbrir={(sku) => irA("producto", sku)} /> : null}
-      {vista === "resumen" && esAdministrador ? <VistaResumen barra={barra} onAbrir={(sku) => irA("producto", sku)} /> : null}
-    </div>
+    <VisorDocumentosProvider resaltarSku={vista === "producto" ? q : undefined} onAbrirSku={abrirProducto}>
+      <div className="space-y-2.5 text-[#EDEDE7]">
+        {vista === "producto" ? <VistaProducto barra={barra} q={q} onQ={(x) => irA("producto", x)} esAdministrador={esAdministrador} /> : null}
+        {vista === "movimientos" ? <VistaMovimientos barra={barra} onAbrir={abrirProducto} /> : null}
+        {vista === "bajas" ? <VistaBajas barra={barra} esAdministrador={esAdministrador} onAbrir={abrirProducto} /> : null}
+        {vista === "resumen" && esAdministrador ? <VistaResumen barra={barra} onAbrir={abrirProducto} /> : null}
+      </div>
+    </VisorDocumentosProvider>
   );
 }
 
@@ -245,27 +315,35 @@ function BuscadorProducto({ valor, onElegir }: { valor: string; onElegir: (q: st
 // ─── Producto ────────────────────────────────────────────────────────────────
 
 function VistaProducto({ barra, q, onQ, esAdministrador }: { barra: ReactNode; q: string; onQ: (q: string) => void; esAdministrador: boolean }) {
-  const [datos, setDatos] = useState<KardexProducto | null | undefined>(undefined);
+  const url = q ? `/api/shipping-v2/kardex?vista=producto&q=${encodeURIComponent(q)}` : "";
+  const [datos, setDatos] = useState<KardexProducto | null | undefined>(() => (url ? (RESPUESTAS.get(url) as KardexProducto | null | undefined) : undefined));
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState("");
-  const [unidad, setUnidad] = useState<string>("");
-  const [periodo, setPeriodo] = useState<Periodo>("todo");
-  const [rango, setRango] = useState({ desde: "", hasta: "" });
-  const [verInfo, setVerInfo] = useState(true);
-  const [verCostos, setVerCostos] = useState(true);
+  const [unidad, setUnidad] = useEstado<string>("prod.unidad", "");
+  const [periodo, setPeriodo] = useEstado<Periodo>("prod.periodo", "todo");
+  const [rango, setRango] = useEstado("prod.rango", { desde: "", hasta: "" });
+  const [verInfo, setVerInfo] = useEstado("prod.info", true);
+  const [verCostos, setVerCostos] = useEstado("prod.costos", true);
   const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
-    if (!q) { setDatos(undefined); return; }
+    if (!url) { setDatos(undefined); return; }
     let vivo = true;
-    setCargando(true);
+    const previo = RESPUESTAS.get(url) as KardexProducto | null | undefined;
+    if (previo !== undefined && recarga === 0) setDatos(previo);
+    else setCargando(true);
     setError("");
-    pedir<KardexProducto | null>(`/api/shipping-v2/kardex?vista=producto&q=${encodeURIComponent(q)}`)
-      .then((d) => { if (vivo) { setDatos(d); setUnidad(""); } })
+    pedir<KardexProducto | null>(url)
+      .then((d) => {
+        if (!vivo) return;
+        RESPUESTAS.set(url, d);
+        setDatos(d);
+        setUnidad((u) => (u && d?.unidades.some((x) => x.id === u) ? u : ""));
+      })
       .catch((e) => vivo && setError(e instanceof Error ? e.message : "No se pudo cargar."))
       .finally(() => vivo && setCargando(false));
     return () => { vivo = false; };
-  }, [q, recarga]);
+  }, [url, recarga, setUnidad]);
 
   const { desde, hasta } = rangoDe(periodo, rango);
   const vista = useMemo(() => {
@@ -456,28 +534,32 @@ function normalizar(t: string) {
 }
 
 function VistaMovimientos({ barra, onAbrir }: { barra: ReactNode; onAbrir: (sku: string) => void }) {
-  const [periodo, setPeriodo] = useState<Periodo>("mes");
-  const [rango, setRango] = useState({ desde: "", hasta: "" });
-  const [datos, setDatos] = useState<{ movimientos: MovimientoKardex[]; verCostos: boolean } | null>(null);
+  type DatosMov = { movimientos: MovimientoKardex[]; verCostos: boolean };
+  const [periodo, setPeriodo] = useEstado<Periodo>("mov.periodo", "mes");
+  const [rango, setRango] = useEstado("mov.rango", { desde: "", hasta: "" });
+  const [datos, setDatos] = useState<DatosMov | null>(null);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
-  const [grupo, setGrupo] = useState<GrupoKardex | "todos">("todos");
-  const [texto, setTexto] = useState("");
-  const [categoria, setCategoria] = useState("");
-  const [ambito, setAmbito] = useState<"Mercadería" | "Activo">("Mercadería");
-  const [limite, setLimite] = useState(100);
+  const [grupo, setGrupo] = useEstado<GrupoKardex | "todos">("mov.grupo", "todos");
+  const [texto, setTexto] = useEstado("mov.texto", "");
+  const [categoria, setCategoria] = useEstado("mov.categoria", "");
+  const [ambito, setAmbito] = useEstado<"Mercadería" | "Activo">("mov.ambito", "Mercadería");
+  const [limite, setLimite] = useEstado("mov.limite", 100);
 
   const { desde, hasta } = rangoDe(periodo, rango);
   useEffect(() => {
     if (periodo === "rango" && (!rango.desde || !rango.hasta)) return;
     let vivo = true;
-    setCargando(true);
     setError("");
     const p = new URLSearchParams({ vista: "movimientos" });
     if (desde) p.set("desde", desde);
     if (hasta) p.set("hasta", hasta);
-    pedir<{ movimientos: MovimientoKardex[]; verCostos: boolean }>(`/api/shipping-v2/kardex?${p}`)
-      .then((d) => vivo && setDatos(d))
+    const url = `/api/shipping-v2/kardex?${p}`;
+    const previo = RESPUESTAS.get(url) as DatosMov | undefined;
+    if (previo) setDatos(previo);
+    else setCargando(true);
+    pedir<DatosMov>(url)
+      .then((d) => { if (vivo) { RESPUESTAS.set(url, d); setDatos(d); } })
       .catch((e) => vivo && setError(e instanceof Error ? e.message : "No se pudo cargar."))
       .finally(() => vivo && setCargando(false));
     return () => { vivo = false; };
@@ -505,7 +587,12 @@ function VistaMovimientos({ barra, onAbrir }: { barra: ReactNode; onAbrir: (sku:
     }
     return { eu, ev: Math.round(ev * 100) / 100, su, sv: Math.round(sv * 100) / 100 };
   }, [filas]);
-  useEffect(() => setLimite(100), [grupo, texto, categoria, ambito, desde, hasta]);
+  // Más filas solo hasta que cambia un filtro (al volver se respeta "Ver más").
+  const filtroPrevio = useRef(`${grupo}|${texto}|${categoria}|${ambito}|${desde}|${hasta}`);
+  useEffect(() => {
+    const ahora = `${grupo}|${texto}|${categoria}|${ambito}|${desde}|${hasta}`;
+    if (filtroPrevio.current !== ahora) { filtroPrevio.current = ahora; setLimite(100); }
+  }, [grupo, texto, categoria, ambito, desde, hasta, setLimite]);
 
   const verCostos = datos?.verCostos === true;
   function exportar() {
@@ -570,7 +657,6 @@ function VistaMovimientos({ barra, onAbrir }: { barra: ReactNode; onAbrir: (sku:
               </thead>
               <tbody>
                 {filas.slice(0, limite).map((m) => {
-                  const href = enlaceDocumento(m);
                   const doc = textoDocumento(m);
                   const ganancia = verCostos ? gananciaDe(m) : null;
                   const sub = [m.serie ? `S/N ${serieCorta(m.serie)}` : "", m.causa, ganancia !== null ? `ganancia ${dinero(ganancia)}` : "", m.tipo === "Costo" || m.motivo === "Vendida fuera del sistema" || m.motivo === "Salida interna" ? m.nota : ""].filter(Boolean).join(" · ");
@@ -580,7 +666,7 @@ function VistaMovimientos({ barra, onAbrir }: { barra: ReactNode; onAbrir: (sku:
                       <td className={td}><button type="button" onClick={() => onAbrir(m.sku)} className="font-mono font-semibold text-[#D7FF4F] hover:underline">{m.sku}</button></td>
                       <td className={`${td} max-w-[140px] truncate text-[#B4B5AC]`} title={m.nombre}>{m.nombre}</td>
                       <td className={`${td} whitespace-normal`}>{m.motivo}{sub ? <span className="block max-w-[200px] truncate text-[11px] text-[#8F908A]" title={sub}>{sub}</span> : null}</td>
-                      <td className={td}>{href && doc ? <Link href={href} className="text-[#D7FF4F] hover:underline">{doc}</Link> : <span className="text-[#B4B5AC]">{doc}</span>}</td>
+                      <td className={td}><EnlaceDocumento documentoTipo={m.documentoTipo} documentoId={m.documentoId} registroId={m.registroId} texto={doc} /></td>
                       <td className={`${td} max-w-[120px] truncate`} title={m.contraparte}>{m.contraparte}</td>
                       <td className={`${td} text-right tabular-nums ${m.cantidad > 0 ? "text-[#7BE495]" : m.cantidad < 0 ? "text-[#FFB07A]" : "text-[#8F908A]"}`}>{m.tipo === "Costo" ? "0" : cantidadTexto(m.cantidad)}</td>
                       {verCostos ? <td className={`${td} text-right tabular-nums`}>{m.tipo === "Costo" ? dinero(m.valor, { signo: true }) : dinero(m.costoUnitario)}</td> : null}
@@ -618,19 +704,20 @@ const COLOR_CAUSA: Record<CausaBaja, string> = {
 };
 
 function VistaBajas({ barra, esAdministrador, onAbrir }: { barra: ReactNode; esAdministrador: boolean; onAbrir: (sku: string) => void }) {
-  const [datos, setDatos] = useState<{ movimientos: MovimientoKardex[]; bajasVigentes: Record<string, number>; verCostos: boolean } | null>(null);
+  type DatosBajas = { movimientos: MovimientoKardex[]; bajasVigentes: Record<string, number>; verCostos: boolean };
+  const [datos, setDatos] = useState<DatosBajas | null>(() => (RESPUESTAS.get("bajas") as DatosBajas | undefined) ?? null);
   const [error, setError] = useState("");
-  const [causa, setCausa] = useState<CausaBaja | "todas" | "revertidas">("todas");
-  const [periodo, setPeriodo] = useState<Periodo>("todo");
-  const [rango, setRango] = useState({ desde: "", hasta: "" });
-  const [texto, setTexto] = useState("");
+  const [causa, setCausa] = useEstado<CausaBaja | "todas" | "revertidas">("bajas.causa", "todas");
+  const [periodo, setPeriodo] = useEstado<Periodo>("bajas.periodo", "todo");
+  const [rango, setRango] = useEstado("bajas.rango", { desde: "", hasta: "" });
+  const [texto, setTexto] = useEstado("bajas.texto", "");
   const [recarga, setRecarga] = useState(0);
   const [revertir, setRevertir] = useState<{ id: string; cantidad: number; motivo: string; estado: "" | "guardando" | "listo"; error: string } | null>(null);
 
   useEffect(() => {
     let vivo = true;
-    pedir<{ movimientos: MovimientoKardex[]; bajasVigentes: Record<string, number>; verCostos: boolean }>("/api/shipping-v2/kardex?vista=bajas")
-      .then((d) => vivo && setDatos(d))
+    pedir<DatosBajas>("/api/shipping-v2/kardex?vista=bajas")
+      .then((d) => { if (vivo) { RESPUESTAS.set("bajas", d); setDatos(d); } })
       .catch((e) => vivo && setError(e instanceof Error ? e.message : "No se pudo cargar."));
     return () => { vivo = false; };
   }, [recarga]);
@@ -715,7 +802,6 @@ function VistaBajas({ barra, esAdministrador, onAbrir }: { barra: ReactNode; esA
               </thead>
               <tbody>
                 {filas.map((m) => {
-                  const href = enlaceDocumento(m);
                   const doc = textoDocumento(m) || "Ficha";
                   const vigentes = datos.bajasVigentes[m.registroId] ?? 0;
                   const abierto = revertir?.id === m.registroId && m.motivo === "Dada de baja" && revertir;
@@ -727,7 +813,7 @@ function VistaBajas({ barra, esAdministrador, onAbrir }: { barra: ReactNode; esA
                       <td className={td}><button type="button" onClick={() => onAbrir(m.sku)} className="font-mono font-semibold text-[#D7FF4F] hover:underline">{m.sku}</button>{m.serie ? <span className="block text-[11px] text-[#8F908A]">S/N {serieCorta(m.serie)}</span> : null}</td>
                       <td className={`${td} max-w-[220px] truncate text-[#B4B5AC]`} title={m.nombre}>{m.nombre}</td>
                       <td className={td}>{m.motivo === "Baja revertida" ? <span className="rounded-full bg-[#7BE495]/15 px-2 py-0.5 text-[11px] font-semibold text-[#7BE495]">Revertida</span> : <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${COLOR_CAUSA[c] ?? COLOR_CAUSA.Otro}`}>{c}</span>}</td>
-                      <td className={td}>{href ? <Link href={href} className="text-[#D7FF4F] hover:underline">{doc}</Link> : doc}</td>
+                      <td className={td}><EnlaceDocumento documentoTipo={m.documentoTipo} documentoId={m.documentoId} registroId={m.registroId} texto={doc} apagado="" /></td>
                       <td className={`${td} text-right tabular-nums`}>{Math.abs(m.cantidad)}</td>
                       {verCostos ? <td className={`${td} text-right tabular-nums`}>{m.costoUnitario ? dinero(Math.abs(m.valor)) : "—"}</td> : null}
                       <td className={`${td} max-w-[240px] truncate text-[#B4B5AC]`} title={m.nota}>{m.nota.replace(/^Conteo "[^"]*":\s*/, "")}</td>
@@ -773,23 +859,26 @@ function VistaBajas({ barra, esAdministrador, onAbrir }: { barra: ReactNode; esA
 // ─── Resumen (Administrador) ─────────────────────────────────────────────────
 
 function VistaResumen({ barra, onAbrir }: { barra: ReactNode; onAbrir: (sku: string) => void }) {
-  const [periodo, setPeriodo] = useState<Periodo>("mes");
-  const [rango, setRango] = useState({ desde: "", hasta: "" });
-  const [ambito, setAmbito] = useState<"Mercadería" | "Activo">("Mercadería");
+  const [periodo, setPeriodo] = useEstado<Periodo>("res.periodo", "mes");
+  const [rango, setRango] = useEstado("res.rango", { desde: "", hasta: "" });
+  const [ambito, setAmbito] = useEstado<"Mercadería" | "Activo">("res.ambito", "Mercadería");
   const [datos, setDatos] = useState<KardexResumen | null>(null);
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(false);
-  const [abiertas, setAbiertas] = useState<string[]>([]);
+  const [abiertas, setAbiertas] = useEstado<string[]>("res.abiertas", []);
   const opciones = PERIODOS.filter((p) => p.key !== "todo" && p.key !== "hoy");
 
   const { desde, hasta } = rangoDe(periodo, rango);
   useEffect(() => {
     if (!desde || !hasta) return;
     let vivo = true;
-    setCargando(true);
     setError("");
-    pedir<KardexResumen>(`/api/shipping-v2/kardex?vista=resumen&agrupar=sku&ambito=${encodeURIComponent(ambito)}&desde=${desde}&hasta=${hasta}`)
-      .then((d) => vivo && setDatos(d))
+    const url = `/api/shipping-v2/kardex?vista=resumen&agrupar=sku&ambito=${encodeURIComponent(ambito)}&desde=${desde}&hasta=${hasta}`;
+    const previo = RESPUESTAS.get(url) as KardexResumen | undefined;
+    if (previo) setDatos(previo);
+    else setCargando(true);
+    pedir<KardexResumen>(url)
+      .then((d) => { if (vivo) { RESPUESTAS.set(url, d); setDatos(d); } })
       .catch((e) => vivo && setError(e instanceof Error ? e.message : "No se pudo cargar."))
       .finally(() => vivo && setCargando(false));
     return () => { vivo = false; };

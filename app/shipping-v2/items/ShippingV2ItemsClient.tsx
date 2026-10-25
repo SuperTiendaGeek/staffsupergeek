@@ -49,6 +49,7 @@ import { createShippingV2ProveedorLabelMap, getShippingV2ProveedorLabel, resolve
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { ShippingV2DespieceTab } from "./ShippingV2DespieceTab";
 import { KardexRegistroTab } from "@/components/shipping-v2/kardex/KardexRegistroTab";
+import { DocumentoModal } from "@/components/documentos/DocumentoModal";
 import { ShippingV2IntervencionesTab } from "./ShippingV2IntervencionesTab";
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
 import { normalizarSerie, rutaUnidad, seguimientoDe, serieCorta } from "@/lib/shipping-v2/unidades-serie";
@@ -1633,14 +1634,6 @@ const DOCUMENTO_ETIQUETA: Record<ShippingV2ItemDocumento["tipo"], string> = {
   "nota-credito": "Nota de crédito",
 };
 
-function documentoHref(documento: ShippingV2ItemDocumento) {
-  const id = encodeURIComponent(documento.id);
-  if (documento.tipo === "factura") return `/facturacion/documentos/factura/${id}`;
-  if (documento.tipo === "recibo") return `/facturacion/imprimir/recibo/${id}`;
-  if (documento.tipo === "reserva") return `/facturacion/imprimir/reserva/${id}`;
-  return "/facturacion/nota-credito/historial";
-}
-
 function documentoTono(documento: ShippingV2ItemDocumento): PasoTono {
   const estado = normalizeText(documento.estado);
   if (estado.includes("anulad") || estado.includes("liberad") || estado.includes("devuelt") || estado.includes("no autorizado")) return "nada";
@@ -1650,6 +1643,26 @@ function documentoTono(documento: ShippingV2ItemDocumento): PasoTono {
 }
 
 type PasoTono = "ok" | "espera" | "alerta" | "nada";
+
+// Factura, recibo, reserva o nota de crédito: se abre en el visor de
+// documentos (ventana flotante), sin salir de la ficha.
+function PasoDocumento({ documento, sku }: { documento: ShippingV2ItemDocumento; sku: string }) {
+  const [abierto, setAbierto] = useState(false);
+  const tipo = documento.tipo === "nota-credito" ? "notaCredito" : documento.tipo;
+  return (
+    <>
+      <PasoRecorrido
+        icon={Receipt}
+        etiqueta={documento.tipo === "reserva" ? "Reserva" : documento.tipo === "nota-credito" ? "Devolución" : "Venta"}
+        principal={`${DOCUMENTO_ETIQUETA[documento.tipo]} ${documento.numero}`}
+        onClick={() => setAbierto(true)}
+        detalle={shortDate(documento.fecha)}
+        chip={documento.estado ? <PasoChip tono={documentoTono(documento)}>{documento.estado}</PasoChip> : null}
+      />
+      {abierto ? <DocumentoModal tipo={tipo} recordId={documento.id} numero={documento.numero} resaltarSku={sku} onClose={() => setAbierto(false)} /> : null}
+    </>
+  );
+}
 
 function PasoChip({ tono, children, title }: { tono: PasoTono; children: ReactNode; title?: string }) {
   const toneClass = {
@@ -2274,16 +2287,7 @@ export function ShippingV2ItemDetailView({
           <PasoRecorrido icon={ClipboardCheck} etiqueta="Revisión" principal="Recibido" detalle="No requiere inspección" chip={<PasoChip tono="ok">Listo</PasoChip>} />
         )}
         {documentos.length ? documentos.map((documento) => (
-          <PasoRecorrido
-            key={documento.id}
-            icon={Receipt}
-            etiqueta={documento.tipo === "reserva" ? "Reserva" : documento.tipo === "nota-credito" ? "Devolución" : "Venta"}
-            principal={`${DOCUMENTO_ETIQUETA[documento.tipo]} ${documento.numero}`}
-            href={enlaces.facturacion ? documentoHref(documento) : undefined}
-            nuevaPestana={documento.tipo === "recibo" || documento.tipo === "reserva"}
-            detalle={shortDate(documento.fecha)}
-            chip={documento.estado ? <PasoChip tono={documentoTono(documento)}>{documento.estado}</PasoChip> : null}
-          />
+          <PasoDocumento key={documento.id} documento={documento} sku={item.sku} />
         )) : (
           <PasoRecorrido
             icon={Receipt}

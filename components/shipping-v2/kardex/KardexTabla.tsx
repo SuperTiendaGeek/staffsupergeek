@@ -4,12 +4,12 @@
 // pestaña Kardex (Producto) y la ficha del artículo. Lo informativo (en
 // camino, apartado, cambio de código) va en gris y no mueve el saldo.
 
-import Link from "next/link";
 import { Fragment, useMemo } from "react";
 import { Check, TriangleAlert } from "lucide-react";
 import { conSaldo, gananciaDe, type MovimientoConSaldo, type MovimientoKardex } from "@/lib/shipping-v2/kardex";
 import type { KardexInformativo } from "@/lib/shipping-v2/kardex-lectura";
-import { cantidadTexto, dinero, enlaceDocumento, enlaceReserva, fechaCorta, serieCorta, textoDocumento } from "./kardex-formato";
+import { cantidadTexto, dinero, fechaCorta, serieCorta, textoDocumento } from "./kardex-formato";
+import { EnlaceDocumento } from "./EnlaceDocumento";
 
 type Fila =
   | { clase: "mov"; fecha: string; orden: string; m: MovimientoConSaldo }
@@ -104,14 +104,13 @@ export function KardexTabla({
           {filas.map((f) => {
             if (f.clase === "info") {
               const i = f.i;
-              const href = i.documentoTipo === "Reserva" ? enlaceReserva(i.documentoId) : i.documentoId ? enlaceDocumento({ documentoTipo: i.documentoTipo as MovimientoKardex["documentoTipo"], documentoId: i.documentoId, registroId: i.registroId }) : null;
               const doc = i.documento || codigos[i.documentoId] || i.documentoTipo || "";
               return (
                 <tr key={f.orden} className="border-b border-[#252622] italic text-[#8F908A] animate-[sg-entrada_180ms_ease-out]">
                   <td className={td}>{fechaCorta(i.fecha)}</td>
                   <td className={td}>{i.texto}</td>
                   {mostrarUnidad ? <td className={td}>{i.serie ? serieCorta(i.serie) : i.cantidad > 1 ? `${i.cantidad} u.` : ""}</td> : null}
-                  <td className={td}>{href && doc ? <Link href={href} className="not-italic text-[#B4B5AC] hover:text-[#D7FF4F] hover:underline">{doc}</Link> : doc}</td>
+                  <td className={td}><EnlaceDocumento documentoTipo={i.documentoTipo} documentoId={i.documentoId} registroId={i.registroId} texto={doc} className="not-italic text-[#B4B5AC] hover:text-[#D7FF4F] hover:underline" apagado="" /></td>
                   <td className={`${td} max-w-[150px] truncate`}>{i.contraparte}</td>
                   <td className={tdN} />
                   <td className={tdN}>{f.saldo}</td>
@@ -121,7 +120,6 @@ export function KardexTabla({
               );
             }
             const m = f.m;
-            const href = enlaceDocumento(m);
             const doc = textoDocumento(m, codigos);
             const ganancia = verCostos ? gananciaDe(m) : null;
             const esCosto = m.tipo === "Costo";
@@ -138,7 +136,7 @@ export function KardexTabla({
                   {sub ? <span className="block max-w-[240px] truncate text-[11px] text-[#8F908A]" title={sub}>{sub}</span> : null}
                 </td>
                 {mostrarUnidad ? <td className={`${td} font-mono text-[12px] text-[#C9CAC1]`} title={m.serie}>{m.serie ? serieCorta(m.serie) : ""}</td> : null}
-                <td className={td}>{href && doc ? <Link href={href} className="text-[#D7FF4F] hover:underline">{doc}</Link> : <span className="text-[#B4B5AC]">{doc}</span>}</td>
+                <td className={td}><EnlaceDocumento documentoTipo={m.documentoTipo} documentoId={m.documentoId} registroId={m.registroId} texto={doc} /></td>
                 <td className={`${td} max-w-[150px] truncate`} title={m.contraparte}>{m.contraparte}</td>
                 <td className={`${tdN} ${m.cantidad > 0 ? "text-[#7BE495]" : "text-[#FFB07A]"}`}>{m.cantidad ? cantidadTexto(m.cantidad) : ""}</td>
                 <td className={`${tdN} font-semibold`}>{m.saldo}</td>

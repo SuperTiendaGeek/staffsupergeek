@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { MovimientoKardex } from "@/lib/shipping-v2/kardex";
+import { VisorDocumentosProvider } from "@/components/documentos/DocumentoModal";
 import { KardexTabla } from "./KardexTabla";
 
 type Datos = { movimientos: MovimientoKardex[]; sku: string; cuadra: boolean; libro: number; inventario: number; verCostos: boolean };
@@ -34,6 +35,7 @@ export function KardexRegistroTab({ itemId }: { itemId: string }) {
   if (!datos) return <p className="flex items-center gap-2 px-1 py-3 text-[12.5px] text-[#8F908A]"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />Cargando…</p>;
 
   return (
+    <VisorDocumentosProvider resaltarSku={datos.sku}>
     <div className="space-y-2 animate-[sg-entrada_180ms_ease-out]">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
         <span className="text-[#8F908A]">
@@ -44,5 +46,6 @@ export function KardexRegistroTab({ itemId }: { itemId: string }) {
       </div>
       <KardexTabla movimientos={datos.movimientos} verCostos={datos.verCostos} mostrarUnidad={false} vacio="Todavía no entra a la tienda: el Kardex empieza al recibirlo." />
     </div>
+    </VisorDocumentosProvider>
   );
 }
