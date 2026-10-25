@@ -29,6 +29,7 @@ import "server-only";
 // en un solo resultado, pero uno no puede hacer fallar al otro.
 
 import { camposRetornoItem } from "@/lib/shipping-v2/devoluciones";
+import { kardexDocumento, type LineaDocumentoKardex } from "@/lib/shipping-v2/kardex-registro";
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "../gancho/airtableGancho";
 import { actualizarReversoInventario } from "./airtable";
 import type { DetalleNotaCredito } from "./types";
@@ -168,6 +169,7 @@ async function revertirInventarioShippingItemsNotaCredito(input: ReversoInput): 
   const fallidos: Array<{ id: string; descripcion: string; error: string }> = [];
   let yaHechos = 0;
   let revertidos = 0;
+  const kardexDevueltos: LineaDocumentoKardex[] = [];
 
   for (const [itemId, dev] of devueltoPorItem) {
     const est = actual.get(itemId);
@@ -204,10 +206,14 @@ async function revertirInventarioShippingItemsNotaCredito(input: ReversoInput): 
     try {
       await patchItemConReintento(itemId, fields);
       revertidos++;
+      kardexDevueltos.push({ itemId, cantidad: dev.cantidad });
     } catch (e) {
       fallidos.push({ id: itemId, descripcion: dev.descripcion, error: e instanceof Error ? e.message : String(e) });
     }
   }
+
+  // Kardex (punto 12): "Devolución del cliente" por artículo. Nunca lanza.
+  await kardexDocumento({ tipo: "devolucion-nc", documentoId: input.notaCreditoRecordId, lineas: kardexDevueltos });
 
   if (fallidos.length === 0) {
     await actualizarReversoInventario(input.notaCreditoRecordId, "OK").catch((e) =>

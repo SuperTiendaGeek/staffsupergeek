@@ -80,6 +80,7 @@ function enlaceExterno(a: ShippingV2AsuntoRevision): string | null {
   if (a.tipo === "Falta respaldo") return "/shipping-v2/pagos";
   if (a.tipo === "Novedad sin movimiento") return "/shipping-v2/novedades";
   if (a.tipo === "Caja cerrada sin recibir" && idClave.startsWith("rec")) return `/shipping-v2/packings/${idClave}`;
+  if (a.tipo === "Kardex no cuadra" && idClave.startsWith("rec")) return `/shipping-v2/kardex?vista=producto&q=${idClave}`;
   return null;
 }
 

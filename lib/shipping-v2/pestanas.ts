@@ -6,7 +6,7 @@
 
 import type { ShippingV2AccessPermissions } from "@/types/shipping-v2";
 
-export type PestanaShippingKey = "items" | "activos" | "packings" | "recepcion" | "anuncios" | "control" | "pagos" | "novedades";
+export type PestanaShippingKey = "items" | "activos" | "packings" | "recepcion" | "anuncios" | "control" | "kardex" | "pagos" | "novedades";
 
 export type PestanaShipping = {
   key: PestanaShippingKey;
@@ -30,6 +30,8 @@ export const PESTANAS_SHIPPING_V2: readonly PestanaShipping[] = [
   { key: "anuncios", label: "Anuncios", href: "/shipping-v2/anuncios", permiso: "canUseRecepcion", soloStaff: true },
   // Punto 10c (18-oct): revisión de inventario, conteos, fusionar SKU y cambios de código.
   { key: "control", label: "Control", href: "/shipping-v2/control", permiso: "canUseRecepcion", soloStaff: true },
+  // Punto 12 (24-oct): libro de movimientos del inventario. Todo el personal lo ve; costos solo el Administrador.
+  { key: "kardex", label: "Kardex", href: "/shipping-v2/kardex", permiso: "canViewItems", soloStaff: true },
   { key: "pagos", label: "Pagos", href: "/shipping-v2/pagos", permiso: "canViewPayments" },
   { key: "novedades", label: "Novedades", href: "/shipping-v2/novedades", permiso: "canViewNovedades" },
 ];

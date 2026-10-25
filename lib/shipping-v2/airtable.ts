@@ -1,6 +1,8 @@
 import "server-only";
 
 import { comprometerUnidades, liberarUnidades, normalizarUnidades, unidadesLibres, unidadesReservadas } from "./unidades";
+import { kardexAjustarCostos, kardexConciliar, kardexMovimientos, kardexPorCambio, kardexRevisar, leerItems as leerItemsKardex, type ContextoKardex } from "./kardex-registro";
+import { causaDeBaja, claveKardex, unidadesEnLibro as unidadesEnLibroKardex, type CausaBaja, type MotivoKardex } from "./kardex";
 import {
   calcularCierreDespiece,
   calcularRepartoParaPiezas,
@@ -3002,6 +3004,33 @@ async function verificarSkuUnicoTrasCrear(sku: string, recordIdCreado: string): 
   }
 }
 
+// ─── Kardex (punto 12) ───────────────────────────────────────────────────────
+// Lo mínimo que necesita el Kardex para saber cuántas unidades de un registro
+// están en la tienda (kardex.ts → unidadesEnLibro).
+function camposKardexDeItem(item: Pick<ShippingV2Item, "recibido" | "estado" | "cantidad">): Record<string, unknown> {
+  return { Recibido: item.recibido === true, "Estado Item": item.estado ?? "", Cantidad: item.cantidad ?? 0 };
+}
+
+/** Con qué motivo entra a la tienda un artículo nuevo o recibido. */
+function motivoEntradaDeItem(item: Pick<ShippingV2Item, "tipoOperacion" | "esRegalo">): MotivoKardex {
+  if (item.esRegalo === true || normalizeStatus(item.tipoOperacion) === "regalo de proveedor") return "Regalo del proveedor";
+  if (normalizeStatus(item.tipoOperacion).startsWith("reajuste")) return "Reajuste de inventario";
+  return "Compra recibida";
+}
+
+/** Documento y proveedor de la compra (para la entrada al recibir). */
+function contextoCompraDeItem(item: Pick<ShippingV2Item, "packingId" | "ordenCompraId" | "proveedorNombre">, actor: string): ContextoKardex {
+  const caja = cleanString(item.packingId).startsWith("rec") ? cleanString(item.packingId) : "";
+  const orden = cleanString(item.ordenCompraId);
+  return {
+    documentoTipo: caja ? "Caja" : orden ? "Orden de compra" : "Recepción",
+    documentoId: caja || orden || "",
+    // Un item recién creado trae el id del proveedor, no su nombre: el Kardex lo resuelve al mostrar.
+    contraparte: cleanString(item.proveedorNombre).startsWith("rec") ? "" : cleanString(item.proveedorNombre),
+    hechoPor: actor,
+  };
+}
+
 async function createShippingV2Event(input: {
   action: "Creado" | "Actualizado" | "Cambio de estado" | "Novedad abierta" | "Otro";
   entity?: "Shipping Item" | "Shipping Packing" | "Shipping Novedad" | "Shipping Proveedor";
@@ -3046,6 +3075,9 @@ async function createShippingV2Event(input: {
   }
 }
 
+export const MENSAJE_CANTIDAD_EN_TIENDA =
+  "Ya está en la tienda: la cantidad cambia con una venta, una baja o un cuadre (Control → Revisión), así queda en el Kardex.";
+
 function shouldLogShippingV2ItemFieldEvent(config: { field: string; category: string }) {
   const criticalFields = new Set<string>([
     SHIPPING_V2_ITEM_FIELDS.estadoItem,
@@ -3086,6 +3118,11 @@ async function validateInlineItemFieldChange(input: {
   // Campos de corrección: visibles para todos, editables solo por administración.
   if (config.adminOnly && !input.esAdmin) {
     throw new Error(`Solo un administrador puede corregir "${config.label}" a mano.`);
+  }
+  // Kardex (punto 12, decisión del dueño 24-oct): lo que ya está en la tienda
+  // no cambia de cantidad a mano; cada cambio debe dejar su movimiento.
+  if (input.field === SHIPPING_V2_ITEM_FIELDS.cantidad && input.item.recibido === true) {
+    throw new Error(MENSAJE_CANTIDAD_EN_TIENDA);
   }
 
   // Personalización por usuario (Fase 2 de permisos, ver lib/permissions/campos.ts).
@@ -3252,6 +3289,10 @@ export async function updateShippingV2ItemField(recordId: string, input: { field
     const reparto = await repartirCostosPackingTrasCambio(existing.packingId, options.actualizadoPor, `Cambio de "${config.label}" en ${item.sku}.`);
     if (reparto?.estado === "aplicado") item = await releerItemRecord(id);
   }
+  // Kardex (punto 12): si cambió su costo y ya está en la tienda, ajuste de costo.
+  if (field === SHIPPING_V2_ITEM_FIELDS.costoProveedor) {
+    await kardexAjustarCostos([id], { documentoTipo: "Ficha", documentoId: id, hechoPor: options.actualizadoPor });
+  }
   const visibleItem = sanitizeShippingV2ItemForAccess(item, options.access);
   if (shouldLogShippingV2ItemFieldEvent(config)) {
     // Las correcciones que solo puede hacer administración se marcan como tales
@@ -3282,6 +3323,13 @@ async function createShippingV2ItemRecord(
     eventDescription?: string;
     extraFields?: Record<string, unknown>;
     typecast?: boolean;
+    /**
+     * Kardex (punto 12): si nace ya en la tienda, su entrada. Por defecto
+     * "Compra recibida" / "Regalo" / "Reajuste" según su tipo. `false` cuando
+     * quien llama escribe sus propios movimientos (pieza de despiece en
+     * espera, parte separada de un activo).
+     */
+    kardex?: { motivo: MotivoKardex; contexto?: ContextoKardex } | false;
   }
 ) {
   const sku = await resolveOfficialSkuForCreate(input);
@@ -3320,6 +3368,16 @@ async function createShippingV2ItemRecord(
     registradoPor: options.registradoPor,
     descripcion: options.eventDescription || `Item ${item.sku} creado desde Portal Staff.`,
   });
+  if (options.kardex !== false && created.fields[SHIPPING_V2_ITEM_FIELDS.recibido] === true) {
+    await kardexPorCambio({
+      itemId: created.id,
+      antes: null,
+      despues: created.fields,
+      motivo: options.kardex?.motivo ?? motivoEntradaDeItem(item),
+      clave: claveKardex("alta", created.id),
+      contexto: options.kardex?.contexto ?? contextoCompraDeItem(item, options.registradoPor),
+    });
+  }
 
   invalidateShippingV2ItemSearchIndexCache();
   return item;
@@ -3729,6 +3787,9 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   if (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) && options.esAdmin !== true) {
     throw new Error('Solo un administrador puede corregir "Cantidad" a mano.');
   }
+  if (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) && existing.recibido === true) {
+    throw new Error(MENSAJE_CANTIDAD_EN_TIENDA);
+  }
 
   // Personalización por usuario (Fase 2 de permisos, ver
   // lib/permissions/campos.ts) — mismo criterio que en el editor de campo
@@ -3796,6 +3857,9 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   ) {
     const reparto = await repartirCostosPackingTrasCambio(existing.packingId, options.actualizadoPor, `Cambio de cantidad/costo en ${item.sku}.`);
     if (reparto?.estado === "aplicado") item = await releerItemRecord(id);
+  }
+  if (nullableNumberChanged(normalizedInput.costoProveedor, existing.costoProveedor)) {
+    await kardexAjustarCostos([id], { documentoTipo: "Ficha", documentoId: id, hechoPor: options.actualizadoPor });
   }
 
   invalidateShippingV2ItemSearchIndexCache();
@@ -6038,6 +6102,10 @@ export async function recalcularCostosShippingV2Packing(
     observacion: [options.motivo, ...reparto.advertencias].filter(Boolean).join(" ") || undefined,
   });
   invalidateShippingV2ItemSearchIndexCache();
+  // Kardex (punto 12): lo que ya está en la tienda cambia de costo (flete, arancel, otros).
+  await kardexAjustarCostos(cambios.map((c) => c.id), {
+    documentoTipo: "Caja", documentoId: id, documento: `Caja ${packing.packingId || ""}`.trim(), hechoPor: options.registradoPor, nota: options.motivo || undefined,
+  });
   return { estado: "aplicado", ...base };
 }
 
@@ -6261,6 +6329,17 @@ export async function updateShippingV2ReceptionChecklistItem(
   const updated = response.records?.[0];
   if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
   const updatedItem = mapItem(updated);
+  // Kardex (punto 12): entra a la tienda al marcar "Recibido" (o sale si se desmarca).
+  if (input.action === "received" && (item.recibido === true) !== input.value) {
+    await kardexPorCambio({
+      itemId: id,
+      antes: camposKardexDeItem(item),
+      despues: updated.fields,
+      motivo: input.value ? motivoEntradaDeItem(item) : "Recepción revertida",
+      clave: claveKardex("recepcion", id, now),
+      contexto: { ...contextoCompraDeItem(item, options.actualizadoPor), nota: note || undefined },
+    });
+  }
   await createShippingV2Event({
     action: "Actualizado",
     itemRecordId: id,
@@ -7240,7 +7319,13 @@ async function prepararDecisionNovedad(input: {
       return async () => {
         const resultado = await moverActivoShippingV2(
           item.id,
-          { accion: "baja", cantidad, motivo, permitirSinRecibir: true },
+          {
+            accion: "baja", cantidad, motivo, permitirSinRecibir: true,
+            kardex: {
+              causa: devuelto ? "Devuelto al proveedor" : causaDeBaja(`${novedad.tipo} ${texto}`),
+              contexto: { documentoTipo: "Novedad", documentoId: novedad.id, documento: `Novedad ${ref}` },
+            },
+          },
           { actor, access: input.access }
         );
         return resultado.mensaje;
@@ -7269,7 +7354,7 @@ async function prepararDecisionNovedad(input: {
       return async () => {
         const resultado = await moverActivoShippingV2(
           item.id,
-          { accion: "uso-local", cantidad, motivo: `Pasa a activo por la novedad ${ref}: ${texto}` },
+          { accion: "uso-local", cantidad, motivo: `Pasa a activo por la novedad ${ref}: ${texto}`, kardex: { contexto: { documentoTipo: "Novedad", documentoId: novedad.id, documento: `Novedad ${ref}` } } },
           { actor, access: input.access }
         );
         return resultado.mensaje;
@@ -8445,6 +8530,8 @@ export async function crearPiezaDespiece(
   // Punto 10b (4a): la pieza nace "en espera" y sin venta hasta completar.
   const pieza = await createShippingV2ItemRecord({ ...itemInput, estado: ESTADO_PIEZA_EN_ESPERA, disponibleVenta: false } as ShippingV2ItemWriteInput, {
     registradoPor: options.registradoPor,
+    // Kardex: la pieza entra al completar el despiece, no ahora.
+    kardex: false,
     eventDescription: `Pieza recuperada del despiece de ${firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.sku])}. En espera hasta completar el despiece.`,
     // La pieza sale de un equipo que ya está en la tienda: nace recibida.
     extraFields: { [CAMPO_ITEM_PADRE]: [padreId], "Es parte recuperada": true, [SHIPPING_V2_ITEM_FIELDS.recibido]: true },
@@ -8647,6 +8734,19 @@ export async function completarDespiece(
       }),
     });
 
+    // Kardex (punto 12): el equipo desarmado sale de la tienda.
+    const padreSku = firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.sku]);
+    const ctxDespiece: ContextoKardex = { documentoTipo: "Despiece", documentoId: padreId, documento: `Despiece ${padreSku}`.trim(), hechoPor: options.registradoPor, nota: cleanString(input.motivo) || undefined };
+    const marcaDespiece = new Date().toISOString();
+    await kardexPorCambio({
+      itemId: padreId,
+      antes: padreRecord.fields,
+      despues: { ...padreRecord.fields, [SHIPPING_V2_ITEM_FIELDS.cantidad]: cierre.cantidadPadre, [SHIPPING_V2_ITEM_FIELDS.estadoItem]: cierre.estadoItemPadre },
+      motivo: "Desarmada",
+      clave: claveKardex("despiece", padreId, marcaDespiece),
+      contexto: ctxDespiece,
+    });
+
     // Las piezas salen de la espera.
     const enEspera = resumen.piezas.filter((p) => normalizeStatus(p.estadoItem) === normalizeStatus(ESTADO_PIEZA_EN_ESPERA));
     if (enEspera.length) {
@@ -8664,6 +8764,14 @@ export async function completarDespiece(
           console.error("No se pudo recalcular la pieza al completar el despiece:", p.sku, error)
         );
       }
+      // Kardex: cada pieza entra a la tienda con su valor.
+      await kardexMovimientos(enEspera.map((p) => ({
+        itemId: p.id,
+        motivo: "Pieza de despiece" as MotivoKardex,
+        cantidad: normalizarUnidades(p.cantidad),
+        clave: claveKardex("despiece-pieza", p.id),
+        contexto: { ...ctxDespiece, nota: `Origen ${padreSku}` },
+      })));
     }
 
     await createShippingV2Event({
@@ -8761,7 +8869,16 @@ export async function revertirDespiece(
     const padreRecord = await leerRegistroItem(padreId);
     const estadoAnterior = firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.estadoItem]);
     const estadoNuevo = await estadoAlVolverDelDespiece(padreId, padreRecord.fields);
+    // Kardex (punto 12): las piezas salen del libro antes de borrarse.
+    const padreSkuRev = firstString(padreRecord.fields[SHIPPING_V2_ITEM_FIELDS.sku]);
+    const ctxRevertir: ContextoKardex = { documentoTipo: "Despiece", documentoId: padreId, documento: `Despiece ${padreSkuRev}`.trim(), hechoPor: options.registradoPor, nota: motivo };
+    const marcaRevertir = new Date().toISOString();
+    const camposPiezas = await leerItemsKardex(resumen.piezas.map((p) => p.id));
     await borrarRegistrosItems(resumen.piezas.map((p) => p.id));
+    await kardexMovimientos(resumen.piezas.map((p) => {
+      const pf = camposPiezas.get(p.id) ?? null;
+      return { itemId: p.id, fields: pf, motivo: "Despiece revertido" as MotivoKardex, cantidad: -(pf ? unidadesEnLibroKardex(pf) : 0), clave: claveKardex("revierte-pieza", p.id), contexto: ctxRevertir };
+    }));
     await airtableMutation(tableUrl(SHIPPING_V2_TABLES.items), {
       method: "PATCH",
       body: JSON.stringify({
@@ -8790,6 +8907,14 @@ export async function revertirDespiece(
       estadoAnterior,
       estadoNuevo,
       observacion: motivo,
+    });
+    await kardexPorCambio({
+      itemId: padreId,
+      antes: padreRecord.fields,
+      despues: { ...padreRecord.fields, [SHIPPING_V2_ITEM_FIELDS.cantidad]: 1, [SHIPPING_V2_ITEM_FIELDS.estadoItem]: estadoNuevo },
+      motivo: "Despiece revertido",
+      clave: claveKardex("revierte-despiece", padreId, marcaRevertir),
+      contexto: ctxRevertir,
     });
     invalidateShippingV2ItemSearchIndexCache();
     return getResumenDespiece(padreId, options.access);
@@ -8843,6 +8968,14 @@ export async function separarUnaUnidadShippingV2(
     }
     await recalcularDisponibilidadItem(id, options.actor).catch((error) => console.error("No se pudo recalcular el original:", error));
     await recalcularDisponibilidadItem(creado.id, options.actor).catch((error) => console.error("No se pudo recalcular la unidad separada:", error));
+    // Kardex (punto 12): 1 unidad pasa del registro original al nuevo (mismo SKU).
+    if (firstBoolean(f[F.recibido]) === true && unidadesEnLibroKardex(f) > 0) {
+      const ctxSep: ContextoKardex = { documentoTipo: "Ficha", documentoId: id, documento: `Separación ${sku}`, hechoPor: options.actor, nota: motivo || undefined };
+      await kardexMovimientos([
+        { itemId: id, fields: f, motivo: "Separación de unidad", cantidad: -1, clave: claveKardex("separa", creado.id, "sale"), contexto: ctxSep },
+        { itemId: creado.id, motivo: "Separación de unidad", cantidad: 1, clave: claveKardex("separa", creado.id, "entra"), contexto: ctxSep },
+      ]);
+    }
     const nombre = firstString(f[F.nombre]);
     await createShippingV2Event({ action: "Creado", itemRecordId: creado.id, itemName: nombre, registradoPor: options.actor, descripcion: nota });
     await createShippingV2Event({ action: "Actualizado", itemRecordId: id, itemName: nombre, registradoPor: options.actor, descripcion: `Se separó 1 unidad en un registro propio (mismo SKU). Quedan ${total - 1}.`, observacion: motivo || undefined });
@@ -9746,6 +9879,10 @@ async function registrarIntervencionSinTurno(
               [SHIPPING_V2_ITEM_FIELDS.recibido]: true,
               [SHIPPING_V2_ITEM_FIELDS.origenArticulo]: "Ya está en la tienda",
             },
+            kardex: {
+              motivo: "Pieza retirada en una mejora",
+              contexto: { documentoTipo: "Mejora", documentoId: creado.id, documento: `Mejora en ${item.sku}`, hechoPor: options.actor, nota: `Origen ${item.sku}` },
+            },
           }
         );
         piezaRetiradaSku = pieza.sku;
@@ -9763,6 +9900,13 @@ async function registrarIntervencionSinTurno(
         avisos.push(`La mejora quedó registrada, pero no se pudo crear la pieza retirada "${piezaRetirada.nombre}". Regístrala a mano.`);
       }
     }
+
+    // Kardex (punto 12): la pieza usada sale y el costo del equipo cambia.
+    const ctxMejora: ContextoKardex = { documentoTipo: "Mejora", documentoId: creado.id, documento: `Mejora en ${item.sku}`, hechoPor: options.actor, nota: detalle };
+    if (repuesto && repuesto.recibido === true) {
+      await kardexMovimientos([{ itemId: repuesto.id, motivo: "Usada en una mejora", cantidad: -cantidadUsada, clave: claveKardex("mejora", creado.id, "pieza"), contexto: ctxMejora }]);
+    }
+    if (decisionCosto && decisionCosto.ajuste !== 0) await kardexAjustarCostos([id], ctxMejora);
 
     void (async () => {
       try {
@@ -10057,7 +10201,7 @@ export async function getShippingV2TrazabilidadDeItem(
 
 export async function moverActivoShippingV2(
   itemRecordId: string,
-  input: { accion: AccionActivo; cantidad: number; motivo: string; precioVenta?: number | null; permitirSinRecibir?: boolean },
+  input: { accion: AccionActivo; cantidad: number; motivo: string; precioVenta?: number | null; permitirSinRecibir?: boolean; kardex?: { causa?: CausaBaja; contexto?: ContextoKardex } },
   options: { actor: string; access?: ShippingV2AccessContext }
 ): Promise<ResultadoMovimientoActivo> {
   const id = cleanString(itemRecordId);
@@ -10067,7 +10211,7 @@ export async function moverActivoShippingV2(
 
 async function moverActivoSinTurno(
   id: string,
-  input: { accion: AccionActivo; cantidad: number; motivo: string; precioVenta?: number | null; permitirSinRecibir?: boolean },
+  input: { accion: AccionActivo; cantidad: number; motivo: string; precioVenta?: number | null; permitirSinRecibir?: boolean; kardex?: { causa?: CausaBaja; contexto?: ContextoKardex } },
   options: { actor: string; access?: ShippingV2AccessContext }
 ): Promise<ResultadoMovimientoActivo> {
   const esAdministrador = options.access?.isSiteAdmin === true;
@@ -10130,6 +10274,14 @@ async function moverActivoSinTurno(
     // Las unidades ya se escribieron: un fallo al recalcular no debe hacer
     // creer que la baja no ocurrió (se repetiría al reintentar).
     if (!item.usoLocal) await recalcularDisponibilidadItem(id, options.actor).catch((error) => console.error("No se pudo recalcular tras la baja:", error));
+    // Kardex (punto 12): salida "Dada de baja" con su causa.
+    await kardexPorCambio({
+      itemId: id,
+      antes: camposKardexDeItem(item),
+      motivo: "Dada de baja",
+      clave: claveKardex("baja", id, ahora),
+      contexto: { documentoTipo: "Ficha", documentoId: id, hechoPor: options.actor, nota: motivo, causa: input.kardex?.causa ?? causaDeBaja(motivo), ...input.kardex?.contexto },
+    });
     const que = item.usoLocal ? "Activo dado de baja" : "Mercadería dada de baja";
     await evento(
       `${que}: ${cantidad} de ${total} unidad(es). Motivo: ${motivo}`,
@@ -10162,6 +10314,13 @@ async function moverActivoSinTurno(
       ...(estadoNuevo ? { [F.estadoItem]: estadoNuevo } : {}),
     });
     if (!item.usoLocal) await recalcularDisponibilidadItem(id, options.actor);
+    await kardexPorCambio({
+      itemId: id,
+      antes: camposKardexDeItem(item),
+      motivo: "Baja revertida",
+      clave: claveKardex("revierte-baja", id, ahora),
+      contexto: { documentoTipo: "Ficha", documentoId: id, hechoPor: options.actor, nota: motivo, ...input.kardex?.contexto },
+    });
     await evento(`Baja revertida: vuelven ${cantidad} unidad(es). Motivo: ${motivo}`, estadoNuevo ?? item.estado);
     invalidateShippingV2ItemSearchIndexCache();
     return { mensaje: `Se devolvieron ${cantidad} unidad(es) a ${item.sku}${estadoNuevo ? ` (vuelve a "${estadoNuevo}")` : ""}.` };
@@ -10202,6 +10361,12 @@ async function moverActivoSinTurno(
     };
 
   const destinoTexto = aActivo ? "activo de la tienda" : "mercadería a la venta";
+  // Kardex (punto 12): sale de un ámbito y entra al otro (mismo registro o la parte separada).
+  const motivoTraslado: MotivoKardex = aActivo ? "Pasa a activo de la tienda" : "Pasa a la venta";
+  const ambitoOrigen = item.usoLocal ? "Activo" : "Mercadería";
+  const ambitoDestino = aActivo ? "Activo" : "Mercadería";
+  const ctxTraslado: ContextoKardex = { documentoTipo: "Ficha", documentoId: id, hechoPor: options.actor, nota: motivo };
+  const enLibroAntes = unidadesEnLibroKardex(camposKardexDeItem(item));
 
   // ── Todo el artículo cambia (mismo SKU) ──
   if (ev.modo === "todo") {
@@ -10211,6 +10376,12 @@ async function moverActivoSinTurno(
     await recalcularDisponibilidadItem(id, options.actor).catch((error) =>
       console.error("No se pudo recalcular la disponibilidad:", error)
     );
+    if (enLibroAntes > 0) {
+      await kardexMovimientos([
+        { itemId: id, motivo: motivoTraslado, cantidad: -enLibroAntes, ambito: ambitoOrigen, clave: claveKardex("traslado", id, ahora, "sale"), contexto: ctxTraslado },
+        { itemId: id, motivo: motivoTraslado, cantidad: enLibroAntes, ambito: ambitoDestino, clave: claveKardex("traslado", id, ahora, "entra"), contexto: ctxTraslado },
+      ]);
+    }
     await evento(`Pasa a ${destinoTexto} (${total} unidad(es)). Motivo: ${motivo}`, String(campos[F.estadoItem] ?? item.estado));
     invalidateShippingV2ItemSearchIndexCache();
     const avisoVenta = !aActivo
@@ -10258,6 +10429,8 @@ async function moverActivoSinTurno(
   const nuevo = await createShippingV2ItemRecord(nuevoInput, {
     registradoPor: options.actor,
     eventDescription: nota,
+    // Kardex: los dos renglones del traslado se escriben abajo.
+    kardex: false,
     extraFields: {
       [F.recibido]: true,
       // Su parte de flete y arancel viaja con ella (ver fórmulas de costo).
@@ -10280,6 +10453,15 @@ async function moverActivoSinTurno(
   }
   await recalcularDisponibilidadItem(id, options.actor).catch((error) => console.error("No se pudo recalcular el original:", error));
   await recalcularDisponibilidadItem(nuevo.id, options.actor).catch((error) => console.error("No se pudo recalcular la parte nueva:", error));
+  if (item.recibido === true) {
+    await kardexMovimientos([
+      { itemId: id, motivo: motivoTraslado, cantidad: -cantidad, ambito: ambitoOrigen, clave: claveKardex("traslado", nuevo.id, "sale"), contexto: ctxTraslado },
+      { itemId: nuevo.id, motivo: motivoTraslado, cantidad, ambito: ambitoDestino, clave: claveKardex("traslado", nuevo.id, "entra"), contexto: ctxTraslado },
+    ]);
+  } else {
+    // La parte separada nace "Recibido" aunque el original no haya llegado.
+    await kardexMovimientos([{ itemId: nuevo.id, motivo: motivoTraslado, cantidad, ambito: ambitoDestino, clave: claveKardex("traslado", nuevo.id, "entra"), contexto: ctxTraslado }]);
+  }
   await evento(`Se separaron ${cantidad} de ${total} unidad(es) como ${destinoTexto} en ${nuevo.sku}. Motivo: ${motivo}`, item.estado);
   invalidateShippingV2ItemSearchIndexCache();
   return {
@@ -10413,6 +10595,12 @@ async function anularIntervencionSinTurno(
             }),
           });
           hecho.push(`Se devolvieron ${unidades} unidad(es) a ${pieza.sku || pieza.nombre}${estadoNuevo ? ` (vuelve a "${estadoNuevo}")` : ""}.`);
+          if (pieza.recibido === true) {
+            await kardexMovimientos([{
+              itemId: repuestoId, motivo: "Mejora anulada", cantidad: unidades, clave: claveKardex("anula-mejora", intervencionId, "pieza"),
+              contexto: { documentoTipo: "Mejora", documentoId: intervencionId, documento: `Mejora en ${equipo?.sku || ""}`.trim(), hechoPor: options.actor, nota: motivo },
+            }]);
+          }
           await createShippingV2Event({
             action: "Actualizado",
             itemRecordId: repuestoId,
@@ -10445,6 +10633,7 @@ async function anularIntervencionSinTurno(
           body: JSON.stringify({ records: [{ id: itemId, fields: { [CAMPO_COSTO_MEJORAS]: nuevo } }] }),
         });
         hecho.push(`Costo de mejoras del equipo: de $${actual.toFixed(2)} a $${nuevo.toFixed(2)}.`);
+        await kardexAjustarCostos([itemId], { documentoTipo: "Mejora", documentoId: intervencionId, documento: `Mejora anulada en ${equipo?.sku || ""}`.trim(), hechoPor: options.actor, nota: motivo });
       } catch (error) {
         console.error("Anulación: no se pudo corregir el costo del equipo:", error);
         pendiente.push(`Restar a mano $${neto.toFixed(2)} del "Costo de mejoras" del equipo.`);
@@ -10458,6 +10647,8 @@ async function anularIntervencionSinTurno(
           motivo: `Mejora anulada en ${equipo?.sku || "el equipo"}: la pieza retirada vuelve a no existir. ${motivo}`,
           registradoPor: options.actor,
           exigirConfirmacion: false,
+          motivoKardex: "Mejora anulada",
+          contextoKardex: { documentoTipo: "Mejora", documentoId: intervencionId, documento: `Mejora en ${equipo?.sku || ""}`.trim() },
         });
         hecho.push(`Se eliminó la pieza retirada ${skuPiezaRetirada || intervencion.piezaRetiradaId}.`);
       } catch (error) {
@@ -10671,6 +10862,8 @@ export async function actualizarLlegadaShippingV2Item(
     ...(estadoNuevo ? { estadoAnterior: item.estado, estadoNuevo } : {}),
   });
   invalidateShippingV2ItemSearchIndexCache();
+  // Kardex (punto 12): flete/arancel/otros de un suelto que ya está en la tienda.
+  if (actualizado.recibido === true) await kardexAjustarCostos([id], { documentoTipo: "Pago", documentoId: id, hechoPor: options.actualizadoPor });
   return actualizado;
 }
 
@@ -10884,7 +11077,7 @@ export async function eliminarShippingItem(itemId: string, opts: { confirmacion:
  */
 async function eliminarShippingItemInterno(
   itemId: string,
-  opts: { confirmacion?: unknown; motivo: string; registradoPor: string; exigirConfirmacion: boolean }
+  opts: { confirmacion?: unknown; motivo: string; registradoPor: string; exigirConfirmacion: boolean; motivoKardex?: MotivoKardex; contextoKardex?: ContextoKardex }
 ) {
   assertShippingV2GeneratedSchema();
   const id = cleanString(itemId);
@@ -10926,6 +11119,15 @@ async function eliminarShippingItemInterno(
   // 2) Borrado.
   await airtableMutation(`${tableUrl(SHIPPING_V2_TABLES.items)}?records[]=${encodeURIComponent(id)}`, { method: "DELETE" });
   invalidateShippingV2ItemSearchIndexCache();
+  // Kardex (punto 12): si estaba en la tienda, sus unidades salen del libro.
+  await kardexPorCambio({
+    itemId: id,
+    antes: fields,
+    despues: { [SHIPPING_V2_ITEM_FIELDS.recibido]: false, [SHIPPING_V2_ITEM_FIELDS.cantidad]: 0 },
+    motivo: opts.motivoKardex ?? "Registro eliminado",
+    clave: claveKardex("eliminado", id),
+    contexto: { hechoPor: opts.registradoPor, nota: motivo, ...opts.contextoKardex },
+  });
   return { sku: ctx.sku, nombre: ctx.nombre, avisos: evaluacion.avisos };
 }
 
@@ -11552,7 +11754,7 @@ function lineasDeItems(lista: unknown, soloDevolucion = false): LineaVenta[] {
 }
 
 /** Lee de Airtable todo lo que necesita la revisión. */
-async function leerDatosRevision(): Promise<DatosRevision> {
+async function leerDatosRevision(opciones: { kardexItemIds?: string[] } = {}): Promise<DatosRevision> {
   const F = SHIPPING_V2_ITEM_FIELDS;
   const PAGOS_ITEM = "Shipping Pagos (Items relacionados)";
   const PAGOS_REGALO = "Shipping Pagos (Regalos incluidos)";
@@ -11579,6 +11781,13 @@ async function leerDatosRevision(): Promise<DatosRevision> {
   ]);
 
   const datos: DatosRevision = { items: [], ventas: [], devoluciones: [], reservasActivas: [], novedadesAbiertas: [], cajasCerradas: [], documentosConError: [] };
+  // Punto 12: Kardex vs inventario (y, en la revisión completa, los ajustes de costo pendientes).
+  try {
+    datos.kardex = await kardexRevisar(opciones.kardexItemIds ? { itemIds: opciones.kardexItemIds } : { ajustarCostos: true });
+  } catch (error) {
+    console.error("[Revisión] No se pudo revisar el Kardex:", error);
+    datos.kardex = undefined;
+  }
   for (const r of items) {
     const f = r.fields;
     const compradas = firstNumber(f[F.unidadesCompradas]);
@@ -11664,7 +11873,8 @@ function camposAsunto(a: AsuntoDetectado, ahora: string) {
 
 async function mutarRevision(method: "POST" | "PATCH", records: Array<{ id?: string; fields: Record<string, unknown> }>) {
   for (let i = 0; i < records.length; i += 10) {
-    await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_REVISION), { method, body: JSON.stringify({ records: records.slice(i, i + 10), typecast: false }) });
+    // typecast: crea la opción de "Tipo" la primera vez (p. ej. "Kardex no cuadra", punto 12).
+    await airtableMutation<AirtableMutationResponse>(tableUrl(TABLA_REVISION), { method, body: JSON.stringify({ records: records.slice(i, i + 10), typecast: true }) });
   }
 }
 
@@ -11675,7 +11885,8 @@ export async function revisarInventarioShippingV2(options: { actor: string }) {
       leerDatosRevision(),
       listRecords(TABLA_REVISION, { fields: ["Clave", "Estado", "Asunto", "Detalle", "Tipo"] }),
     ]);
-    const guardados = registros.map(mapAsuntoRevision);
+    // Sin Kardex leído no se cierran sus asuntos (no es que se hayan resuelto).
+    const guardados = registros.map(mapAsuntoRevision).filter((g) => datos.kardex !== undefined || g.tipo !== "Kardex no cuadra");
     const detectados = detectarAsuntos(datos, new Date());
     const plan = planSincronizacion(guardados, detectados);
     const ahora = new Date().toISOString();
@@ -11727,8 +11938,13 @@ export async function verificarAsuntosRevisionShippingV2(
   const asuntoIds = new Set(input.asuntoIds.map(cleanString).filter((id) => id.startsWith("rec")));
   if (!itemIds.size && !asuntoIds.size) throw new Error("Nada que verificar.");
   const resueltos = await withLock("revision-inventario", async () => {
-    const [datos, registros] = await Promise.all([leerDatosRevision(), listRecords(TABLA_REVISION)]);
-    const guardados = registros.map(mapAsuntoRevision);
+    const [registros] = await Promise.all([listRecords(TABLA_REVISION)]);
+    const guardadosTodos = registros.map(mapAsuntoRevision);
+    // El Kardex se revisa solo para los artículos que tocan (más liviano).
+    const idsKardex = new Set(itemIds);
+    for (const g of guardadosTodos) if (asuntoIds.has(g.id)) g.itemIds.forEach((id) => idsKardex.add(id));
+    const datos = await leerDatosRevision({ kardexItemIds: [...idsKardex] });
+    const guardados = guardadosTodos.filter((g) => datos.kardex !== undefined || g.tipo !== "Kardex no cuadra");
     const toca = (ids: string[]) => ids.some((id) => itemIds.has(id));
     const claves = new Set(guardados.filter((g) => asuntoIds.has(g.id) || (g.estado === "Abierto" && toca(g.itemIds))).map((g) => g.clave));
     const detectados = detectarAsuntos(datos, new Date()).filter((d) => claves.has(d.clave) || toca(d.itemIds));
@@ -12047,12 +12263,13 @@ export async function aplicarConteoShippingV2(
         continue;
       }
       const motivo = `Conteo "${conteo.nombre}": ${MOTIVO_AJUSTE[p.accion].toLowerCase()}`;
+      const kardexConteo = { causa: causaDeBaja(MOTIVO_AJUSTE[p.accion]), contexto: { documentoTipo: "Conteo" as const, documentoId: conteo.id, documento: `Conteo ${conteo.nombre}` } };
       const total = p.operaciones.reduce((s, o) => s + o.cantidad, 0);
       let hechas = 0;
       try {
         for (const op of p.operaciones) {
           if (op.accion === "baja") {
-            await moverActivoShippingV2(op.itemId, { accion: "baja", cantidad: op.cantidad, motivo }, options);
+            await moverActivoShippingV2(op.itemId, { accion: "baja", cantidad: op.cantidad, motivo, kardex: kardexConteo }, options);
             hechas += op.cantidad;
             continue;
           }
@@ -12067,7 +12284,7 @@ export async function aplicarConteoShippingV2(
             const registro = await leerRegistroItem(id);
             const n = Math.min(resta, firstNumber(registro.fields[CAMPO_UNIDADES_DADAS_DE_BAJA]) ?? 0);
             if (n < 1) continue;
-            await moverActivoShippingV2(id, { accion: "revertir-baja", cantidad: n, motivo }, options);
+            await moverActivoShippingV2(id, { accion: "revertir-baja", cantidad: n, motivo, kardex: { contexto: kardexConteo.contexto } }, options);
             resta -= n;
             hechas += n;
           }
@@ -12520,6 +12737,28 @@ export async function cuadrarUnidadesShippingV2(
     });
     if (!c.usoLocal) await recalcularDisponibilidadItem(id, options.actor).catch((error) => console.error("No se pudo recalcular tras cuadrar:", error));
     invalidateShippingV2ItemSearchIndexCache();
+    // Kardex (punto 12): el libro queda igual a la tienda, con la causa elegida.
+    const motivosCuadre: Record<string, [MotivoKardex, MotivoKardex]> = {
+      fuera: ["Ajuste del Kardex", "Vendida fuera del sistema"],
+      perdida: ["Ajuste del Kardex", "Dada de baja"],
+      interna: ["Ajuste del Kardex", "Salida interna"],
+      "compra-de-mas": ["Ajuste del Kardex", "Compra registrada de más"],
+      "llegaron-mas": ["Llegaron más de lo comprado", "Ajuste del Kardex"],
+      "venta-otro": ["Venta de otro artículo", "Ajuste del Kardex"],
+      "baja-error": ["Baja revertida", "Ajuste del Kardex"],
+    };
+    const porDefecto: [MotivoKardex, MotivoKardex] = ["Encontrada", "Ajuste del Kardex"];
+    const [sube, baja] = plan.causa ? motivosCuadre[plan.causa] ?? porDefecto : porDefecto;
+    await kardexConciliar({
+      itemId: id,
+      motivoSube: sube,
+      motivoBaja: baja,
+      clave: claveKardex("cuadre", id, new Date().toISOString()),
+      contexto: {
+        documentoTipo: "Revisión", documentoId: cleanString(input.asuntoId) || id, documento: "Cuadre · Revisión", hechoPor: options.actor, nota: motivo,
+        causa: plan.causa === "perdida" ? causaDeBaja(motivo) === "Otro" ? "Perdido" : causaDeBaja(motivo) : "",
+      },
+    });
     const descripcion = `Cuadre de unidades (Control → Revisión): ${plan.texto} Motivo: ${motivo}`;
     await createShippingV2Event({
       action: estadoNuevo ? "Cambio de estado" : "Actualizado",
@@ -12572,6 +12811,13 @@ async function sumarEncontradasShippingV2(itemId: string, cantidad: number, moti
     });
     if (!item.usoLocal) await recalcularDisponibilidadItem(id, options.actor).catch((error) => console.error("No se pudo recalcular tras sumar:", error));
     invalidateShippingV2ItemSearchIndexCache();
+    await kardexConciliar({
+      itemId: id,
+      motivoSube: "Encontrada",
+      motivoBaja: "Ajuste del Kardex",
+      clave: claveKardex("encontrada", id, new Date().toISOString()),
+      contexto: { documentoTipo: "Conteo", documento: motivo.match(/^Conteo "[^"]+"/)?.[0]?.replace(/"/g, "") ?? "Conteo", hechoPor: options.actor, nota: motivo },
+    });
     await createShippingV2Event({
       action: estadoNuevo ? "Cambio de estado" : "Actualizado",
       itemRecordId: id,
