@@ -33,6 +33,7 @@ import { vieneDeAfuera } from "@/lib/shipping-v2/item-origen";
 import { rutaUnidad } from "@/lib/shipping-v2/unidades-serie";
 import { createShippingV2ProveedorLabelMap, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import {
+  casillasDelSku,
   novedadParaTecnico,
   recortarItemProveedor,
   recortarItemTecnico,
@@ -107,7 +108,8 @@ async function fichaInterna(item: ShippingV2Item, access: ShippingV2AccessContex
     },
     camposOcultos: [...camposOcultos],
     camposSoloLectura: [...camposSoloLectura],
-    publicaciones: resumenPublicaciones(resuelto, publicaciones),
+    // Punto 18b: las casillas viejas de publicación se leen a nivel de SKU.
+    publicaciones: resumenPublicaciones({ ...resuelto, ...casillasDelSku(hermanas) }, publicaciones),
     costosTraerlo: canShippingV2(access, "canViewCosts") && !resuelto.packingId && vieneDeAfuera(resuelto.origenArticulo),
   };
 }

@@ -68,6 +68,7 @@ import { SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_FIELD
 import { getShippingV2FacebookPublicationBlockReason, getShippingV2FacebookTextGenerationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import { estadoSegunLlegada, requiereInspeccionPorDefecto } from "@/lib/shipping-v2/item-venta";
 import { formulaFiltroArticulos, type FiltroArticulos } from "@/lib/shipping-v2/items-filtro";
+import { agruparIndicePorSku, ordenarSegunIndice, paginaDeGrupos } from "@/lib/shipping-v2/items-por-sku";
 import { formulaRecepcionAirtable } from "@/lib/shipping-v2/reception-visibility";
 import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import type { ArticuloDelPedido } from "@/lib/operaciones/cierre";
@@ -262,7 +263,7 @@ import {
   tecnicoShippingV2Access,
 } from "@/lib/shipping-v2/access";
 import { cambioDePrecioBloqueado, esCampoPrecioVenta, MENSAJE_PRECIO_SOLO_ADMIN } from "@/lib/shipping-v2/precio-candado";
-import { novedadParaTecnico, pagosVisiblesParaProveedor, type FichaProveedorCompra, type FichaProveedorEnvio, type FichaProveedorPago } from "@/lib/shipping-v2/ficha-articulo";
+import { novedadParaTecnico, pagosVisiblesParaProveedor, registrosParaPropagar, type FichaProveedorCompra, type FichaProveedorEnvio, type FichaProveedorPago } from "@/lib/shipping-v2/ficha-articulo";
 import { esIdRegistro, evaluarSerie, evaluarSkuCompartido, nombreUnidad, normalizarSerie, seguimientoDe, seguimientoParaGuardar, siguienteSerieInterna } from "@/lib/shipping-v2/unidades-serie";
 import { CAMPO_ESPECIFICACIONES, camposFichaCopiada, evaluarCopiaFicha, resultadosParaCopiar } from "@/lib/shipping-v2/copiar-unidad";
 import { camposOriginalTrasSeparar, camposUnidadSeparada, evaluarSepararUnidad } from "@/lib/shipping-v2/separar-unidad";
@@ -428,7 +429,16 @@ let shippingV2ItemSearchIndexCache: ShippingV2ItemSearchIndexCache | null = null
 
 function invalidateShippingV2ItemSearchIndexCache() {
   shippingV2ItemSearchIndexCache = null;
+  // Punto 18b: el índice liviano de la lista por SKU se vence con lo mismo.
+  indiceSkuCache.clear();
 }
+
+// Punto 18b: índice liviano (id + SKU) de TODO lo que cumple el filtro, en el
+// orden elegido. Con él se arman las filas por SKU y sus cantidades sin traer
+// cada registro completo. Cache corto (30 s; hoy son ~840 registros, unas 9
+// lecturas livianas): se vence también con cada cambio de artículos.
+const INDICE_SKU_CACHE_MS = 30 * 1000;
+const indiceSkuCache = new Map<string, { entradas: Array<{ id: string; sku: string }>; expiresAt: number }>();
 
 // El control de acceso vive en lib/shipping-v2/access.ts (puro y testeable).
 // Se reexporta desde aquí para no romper los imports existentes del módulo.
@@ -2329,6 +2339,77 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
   };
 }
 
+/**
+ * Punto 18b (25-oct-2026): la lista de Artículos por SKU.
+ * Lee el índice liviano de todo lo filtrado, lo agrupa por SKU, toma la
+ * página de grupos pedida y trae completos solo los registros de esa página.
+ * No cambia ningún dato: es una consulta de lectura.
+ */
+export async function getShippingV2ItemsPorSkuPage(options: MapItemOptions & {
+  pagina?: number;
+  gruposPorPagina?: number;
+  sortBy?: ShippingV2ItemsListSortKey;
+  filtro?: FiltroArticulos;
+} = {}) {
+  // El proveedor ya recibe su lista completa (máx. 200): se agrupa en pantalla.
+  if (options.access && !options.access.isAdmin) {
+    const lista = await getShippingV2ItemsPage({ ...options, pageSize: 100 });
+    return { items: lista.items, pagina: 1, totalPaginas: 1, totalGrupos: 0, totalRegistros: lista.items.length };
+  }
+
+  const sort = getShippingV2ItemsListSort(options.sortBy);
+  const proveedoresConocidos = options.proveedores ?? (options.filtro?.proveedor ? await getShippingV2Proveedores() : undefined);
+  const proveedorEtiqueta = options.filtro?.proveedor
+    ? proveedoresConocidos?.find((proveedor) => proveedor.id === options.filtro?.proveedor)?.proveedorId || undefined
+    : undefined;
+  const condicionFiltro = options.filtro ? formulaFiltroArticulos(options.filtro, { proveedorEtiqueta }) : "";
+  const formula = condicionFiltro ? `AND(${FORMULA_SOLO_MERCADERIA},${condicionFiltro})` : FORMULA_SOLO_MERCADERIA;
+
+  const claveCache = `${formula}|${sort.sortField}|${sort.sortDirection}`;
+  const ahora = Date.now();
+  const enCache = indiceSkuCache.get(claveCache);
+  let entradas = enCache && enCache.expiresAt > ahora ? enCache.entradas : undefined;
+  if (!entradas) {
+    const skuField = getOfficialSkuField();
+    const registros = await listRecords(SHIPPING_V2_TABLES.items, {
+      pageSize: 100,
+      fields: [skuField],
+      sortField: sort.sortField,
+      sortDirection: sort.sortDirection,
+      filterByFormula: formula,
+    });
+    entradas = registros.map((record) => ({ id: record.id, sku: firstString(record.fields[skuField]) }));
+    if (indiceSkuCache.size >= 30) indiceSkuCache.clear();
+    indiceSkuCache.set(claveCache, { entradas, expiresAt: ahora + INDICE_SKU_CACHE_MS });
+  }
+
+  const pagina = paginaDeGrupos(agruparIndicePorSku(entradas), options.pagina ?? 1, options.gruposPorPagina ?? 100);
+  const ids = pagina.grupos.flatMap((grupo) => grupo.ids);
+
+  // Los registros de la página, completos, en bloques que se piden a la vez.
+  const BLOQUE = 40;
+  const bloques: string[][] = [];
+  for (let i = 0; i < ids.length; i += BLOQUE) bloques.push(ids.slice(i, i + BLOQUE));
+  const [porBloque, proveedores] = await Promise.all([
+    Promise.all(bloques.map((bloque) => listRecords(SHIPPING_V2_TABLES.items, { pageSize: 100, filterByFormula: recordIdFilterFormula(bloque) }))),
+    proveedoresConocidos ? Promise.resolve(proveedoresConocidos) : getShippingV2Proveedores(),
+  ]);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+  const records = ordenarSegunIndice(porBloque.flat(), ids);
+
+  return {
+    items: await adjuntarSituacionPago(records
+      .map((record) => mapItem(record, options))
+      .map((item) => applyItemProviderLabels(item, labelsById))
+      .filter((item) => canAccessItem(item, options.access))
+      .map((item) => sanitizeShippingV2ItemForAccess(item, options.access, options))),
+    pagina: pagina.pagina,
+    totalPaginas: pagina.totalPaginas,
+    totalGrupos: pagina.totalGrupos,
+    totalRegistros: pagina.totalRegistros,
+  };
+}
+
 type ShippingV2PackingSearchInfo = {
   packingId: string;
   trackingUsa?: string;
@@ -2644,30 +2725,70 @@ export async function getShippingV2UnidadesDelProducto(skuValue: string, access?
   const sku = normalizeSku(cleanString(skuValue));
   if (!sku) return [];
   const F = SHIPPING_V2_ITEM_FIELDS;
-  const registros = await listRecords(SHIPPING_V2_TABLES.items, {
-    maxRecords: 100,
-    fields: [
-      getOfficialSkuField(), F.numeroSerie, F.estadoItem, F.cantidad, F.precioVentaFinal, F.recibido,
-      "Revisado física/técnicamente", F.fichaTecnicaGenerada, F.fechaRegistro, F.proveedorCompra, F.proveedorLogistico,
-    ],
-    filterByFormula: `LOWER({${getOfficialSkuField()}}) = LOWER('${escapeFormulaString(sku)}')`,
-  });
+  // Punto 18b: lo que necesita la tabla "Unidades del SKU" de la ficha. Los
+  // costos solo para quien los ve; el proveedor de compra, solo al personal
+  // que no es técnico.
+  const verCostos = canShippingV2(access, "canViewCosts");
+  const verProveedor = Boolean(access?.isAdmin) && !esTecnicoShippingV2(access);
+  const [registros, proveedores] = await Promise.all([
+    listRecords(SHIPPING_V2_TABLES.items, {
+      maxRecords: 100,
+      fields: [
+        getOfficialSkuField(), F.numeroSerie, F.estadoItem, F.cantidad, F.precioVentaFinal, F.recibido,
+        "Revisado física/técnicamente", F.fichaTecnicaGenerada, F.fechaRegistro, F.proveedorCompra, F.proveedorLogistico,
+        F.tipoOperacion, F.cantidadReservada, F.seguimiento, F.requiereInspeccion, "Revisado por", "Fecha revisión", F.fotos,
+        SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, ...CASILLAS_PUBLICACION_REGISTRO.flatMap((c) => [c.marcado, c.por, c.fecha]),
+        ...(verCostos ? [F.costoTotalUnidad] : []),
+      ],
+      filterByFormula: `LOWER({${getOfficialSkuField()}}) = LOWER('${escapeFormulaString(sku)}')`,
+    }),
+    verProveedor ? getShippingV2Proveedores().catch(() => [] as ShippingV2Proveedor[]) : Promise.resolve([] as ShippingV2Proveedor[]),
+  ]);
+  const etiquetas = createShippingV2ProveedorLabelMap(proveedores);
   return registros
     .filter((r) => canAccessItemRecord(r, access))
-    .map((r) => ({
-      id: r.id,
-      sku: firstString(r.fields[getOfficialSkuField()]),
-      numeroSerie: firstString(r.fields[F.numeroSerie]) || undefined,
-      estado: firstString(r.fields[F.estadoItem], "Registrado"),
-      cantidad: firstNumber(r.fields[F.cantidad]),
-      precioVenta: canShippingV2(access, "canViewSalePrice") ? firstNumber(r.fields[F.precioVentaFinal]) : null,
-      recibido: firstBoolean(r.fields[F.recibido]) === true,
-      inspeccionFirmada: firstBoolean(r.fields["Revisado física/técnicamente"]) === true,
-      fichaGenerada: firstBoolean(r.fields[F.fichaTecnicaGenerada]) === true,
-      fechaRegistro: firstString(r.fields[F.fechaRegistro], r.createdTime) || undefined,
-    }))
+    .map((r) => {
+      const f = r.fields;
+      const casillas = Object.fromEntries(
+        CASILLAS_PUBLICACION_REGISTRO
+          .filter((c) => firstBoolean(f[c.marcado]) === true)
+          .map((c) => [c.canal, { por: firstString(f[c.por]) || undefined, fecha: firstString(f[c.fecha]) || undefined }])
+      );
+      const proveedorId = firstString(f[F.proveedorCompra]);
+      return {
+        id: r.id,
+        sku: firstString(f[getOfficialSkuField()]),
+        numeroSerie: firstString(f[F.numeroSerie]) || undefined,
+        estado: firstString(f[F.estadoItem], "Registrado"),
+        cantidad: firstNumber(f[F.cantidad]),
+        precioVenta: canShippingV2(access, "canViewSalePrice") ? firstNumber(f[F.precioVentaFinal]) : null,
+        recibido: firstBoolean(f[F.recibido]) === true,
+        inspeccionFirmada: firstBoolean(f["Revisado física/técnicamente"]) === true,
+        fichaGenerada: firstBoolean(f[F.fichaTecnicaGenerada]) === true,
+        fechaRegistro: firstString(f[F.fechaRegistro], r.createdTime) || undefined,
+        tipoOperacion: firstString(f[F.tipoOperacion]) || undefined,
+        ...(verProveedor && proveedorId ? { proveedorNombre: resolveShippingV2ProveedorLabel(proveedorId, etiquetas) || undefined } : {}),
+        ...(verCostos ? { costoUnidad: firstNumber(f[F.costoTotalUnidad]) } : {}),
+        cantidadReservada: firstNumber(f[F.cantidadReservada]),
+        seguimiento: firstString(f[F.seguimiento]) || undefined,
+        requiereInspeccion: firstBoolean(f[F.requiereInspeccion]) === true,
+        revisadoPor: firstString(f["Revisado por"]) || undefined,
+        fechaRevision: firstString(f["Fecha revisión"]) || undefined,
+        facebookSuperGeek: firstBoolean(f[SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD]) === true,
+        fotos: mapAttachments(f[F.fotos]),
+        ...(Object.keys(casillas).length ? { casillasPublicacion: casillas } : {}),
+      };
+    })
     .sort((a, b) => (a.fechaRegistro ?? "").localeCompare(b.fechaRegistro ?? "") || a.id.localeCompare(b.id));
 }
+
+/** Punto 18b: casillas viejas de publicación (antes del gestor), por registro. */
+const CASILLAS_PUBLICACION_REGISTRO = [
+  { canal: "Marketplace", marcado: "Marketplace publicado", por: "Marketplace publicado por", fecha: "Fecha Marketplace publicado" },
+  { canal: "Mercado Libre", marcado: "Mercado Libre publicado", por: "Mercado Libre publicado por", fecha: "Fecha Mercado Libre publicado" },
+  { canal: "Shopify", marcado: "Shopify publicado", por: "Shopify publicado por", fecha: "Fecha Shopify publicado" },
+  { canal: "Grupos Facebook", marcado: "Grupos Facebook publicado", por: "Facebook publicado por", fecha: "Fecha Facebook publicado" },
+] as const;
 
 export async function findShippingV2ItemBySku(skuValue: string) {
   assertShippingV2GeneratedSchema();
@@ -3229,6 +3350,49 @@ async function validateInlineItemFieldChange(input: {
       }
     }
   }
+}
+
+/**
+ * Punto 18b (decisión del dueño, 25-oct): nombre, descripción, categoría,
+ * marca, modelo y precio de venta son del PRODUCTO. Después de guardar el
+ * cambio en un registro (con todas sus validaciones), se copia el mismo valor
+ * a los otros registros del SKU que siguen en el inventario. Lo vendido o
+ * dado de baja conserva el dato con que salió. Queda un evento en el registro
+ * donde se hizo el cambio. Devuelve cuántos registros más se actualizaron.
+ */
+export async function propagarCampoProductoShippingV2(
+  origen: ShippingV2Item,
+  campoAirtable: string,
+  valor: unknown,
+  options: { actor: string }
+): Promise<number> {
+  const sku = normalizeSku(cleanString(origen.sku));
+  if (!sku) return 0;
+  const otros = registrosParaPropagar(await getShippingV2UnidadesDelProducto(sku, systemShippingV2Access()), origen.id);
+  if (!otros.length) return 0;
+  const ahora = new Date().toISOString();
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  for (let i = 0; i < otros.length; i += 10) {
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({
+        typecast: true,
+        records: otros.slice(i, i + 10).map((r) => ({
+          id: r.id,
+          fields: { [campoAirtable]: valor ?? null, [F.ultimaActualizacion]: ahora, [F.actualizadoPor]: options.actor },
+        })),
+      }),
+    });
+  }
+  invalidateShippingV2ItemSearchIndexCache();
+  await createShippingV2Event({
+    action: "Actualizado",
+    itemRecordId: origen.id,
+    itemName: origen.nombre,
+    registradoPor: options.actor,
+    descripcion: `"${campoAirtable}" aplicado también a ${otros.length} registro${otros.length === 1 ? "" : "s"} más de ${sku} (dato del producto).`,
+  }).catch((error) => console.warn("[Shipping V2] No se pudo dejar el evento de la propagación:", error));
+  return otros.length;
 }
 
 export async function updateShippingV2ItemField(recordId: string, input: { field: string; value: unknown; eventDescription?: string }, options: { actualizadoPor: string; esAdmin?: boolean; access?: ShippingV2AccessContext; allowedFields?: readonly string[]; camposNoEditables?: readonly string[] }) {

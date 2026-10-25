@@ -70,8 +70,10 @@ import {
 import { ShippingV2ItemsPredictiveSearch } from "./ShippingV2ItemsPredictiveSearch";
 import { EnlaceArticulo, useAlCambiarArticulo, useFichaArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import { FichaPublicaciones } from "@/components/shipping-v2/ficha-articulo/FichaPublicaciones";
-import type { FichaPublicacion } from "@/lib/shipping-v2/ficha-articulo";
+import { ID_BLOQUE_UNIDADES, UnidadesDelSku } from "@/components/shipping-v2/ficha-articulo/UnidadesDelSku";
+import { existenciasDelSku, sigueEnInventario, type FichaPublicacion } from "@/lib/shipping-v2/ficha-articulo";
 import { configFichaInterna, type BloqueFichaInterna } from "@/lib/shipping-v2/ficha-secciones";
+import { agruparItemsPorSku, unidadPorDefecto, type GrupoSku } from "@/lib/shipping-v2/items-por-sku";
 import {
   type ShippingV2Attachment,
   type ShippingV2Item,
@@ -104,6 +106,10 @@ type Props = {
     nextHref?: string;
     hasPreviousPage: boolean;
     hasNextPage: boolean;
+    /** Punto 18b: la lista va por SKU y se conoce el total. */
+    totalPages?: number;
+    totalGroups?: number;
+    totalRecords?: number;
   };
 };
 
@@ -1157,12 +1163,13 @@ function ToolbarMenuOption<T extends string>({
 type ItemsPagination = Props["pagination"];
 
 /**
- * Paginado (15-oct-2026). Airtable entrega de a 100 sin decir el total, así
- * que se muestra el tramo que se está viendo (101–200) y las flechas.
+ * Paginado (15-oct-2026): el tramo que se está viendo (101–200) y las flechas.
+ * Punto 18b: se cuentan productos (filas por SKU) y se sabe el total.
  */
 function ItemsPager({ pagination, count }: { pagination: ItemsPagination; count: number }) {
   const start = (pagination.pageIndex - 1) * pagination.pageSize + 1;
-  const range = count ? `${start}–${start + count - 1}` : "0";
+  const total = pagination.totalGroups && pagination.totalGroups > count ? ` de ${pagination.totalGroups}` : "";
+  const range = count ? `${start}–${start + count - 1}${total}` : "0";
   const boton = "inline-flex h-8 w-8 items-center justify-center rounded-md border transition focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35";
   const activo = `${boton} border-[#3A3A36] bg-[#10110F] text-[#B4B5AC] hover:border-[#D7FF4F]/45 hover:text-[#D7FF4F]`;
   const apagado = `${boton} cursor-not-allowed border-[#24251F] text-[#3F403A]`;
@@ -1172,7 +1179,7 @@ function ItemsPager({ pagination, count }: { pagination: ItemsPagination; count:
   return (
     <nav aria-label="Páginas" className="flex shrink-0 items-center gap-1">
       {pagination.pageIndex > 2 ? flecha(pagination.firstHref, true, "Primera página", <ChevronsLeft className="h-4 w-4" aria-hidden="true" />) : null}
-      <span className="min-w-[4.25rem] px-1 text-center text-[12.5px] font-semibold tabular-nums text-[#B4B5AC]" title={`Página ${pagination.pageIndex} · ${pagination.pageSize} por página`}>
+      <span className="min-w-[4.25rem] whitespace-nowrap px-1 text-center text-[12.5px] font-semibold tabular-nums text-[#B4B5AC]" title={`Página ${pagination.pageIndex}${pagination.totalPages ? ` de ${pagination.totalPages}` : ""} · ${pagination.pageSize} productos por página`}>
         {range}
       </span>
       {flecha(pagination.previousHref, pagination.hasPreviousPage, "Página anterior", <ChevronLeft className="h-4 w-4" aria-hidden="true" />)}
@@ -1207,6 +1214,98 @@ function PageStat({ label, value, tone }: { label: string; value: number; tone: 
 }
 
 /** Tarjeta de la lista en pantallas angostas (celular): dos líneas. */
+// ─── Punto 18b: una fila por SKU ────────────────────────────────────────────
+
+type GrupoItems = GrupoSku<ResolvedItem>;
+
+/** Valor con el que se compara una columna entre los registros del SKU. */
+function valorComparable(item: ResolvedItem, columnKey: ShippingV2ItemsColumnKey) {
+  if (columnKey === "itemStatus") return item.estado;
+  if (columnKey === "operationType") return item.tipoOperacion;
+  return getItemCellTitle(item, columnKey) ?? "";
+}
+
+function conteoDe(items: ResolvedItem[], columnKey: ShippingV2ItemsColumnKey) {
+  const conteo = new Map<string, number>();
+  for (const item of items) {
+    const valor = String(valorComparable(item, columnKey) ?? "").trim() || "—";
+    conteo.set(valor, (conteo.get(valor) ?? 0) + 1);
+  }
+  return [...conteo].sort((a, b) => b[1] - a[1]);
+}
+
+function cantidadDelGrupo(grupo: GrupoItems) {
+  return new Intl.NumberFormat("es-EC", { maximumFractionDigits: Number.isInteger(grupo.cantidad) ? 0 : 2 }).format(grupo.cantidad);
+}
+
+/** Lo que identifica a cada registro dentro de su SKU: la serie, o su fecha de registro. */
+function etiquetaRegistro(item: ResolvedItem) {
+  const serie = String(item.numeroSerie ?? "").trim();
+  if (serie) return `S/N ${serie}`;
+  return `sin serie · ${formatShortDate(item.fechaRegistro || item.createdTime)}`;
+}
+
+function GrupoChevron({ abierto, total, onToggle }: { abierto: boolean; total: number; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      aria-expanded={abierto}
+      aria-label={abierto ? `Ocultar los ${total} registros` : `Ver los ${total} registros`}
+      title={abierto ? "Ocultar registros" : `Ver los ${total} registros de este SKU`}
+      className="grid h-4 w-4 shrink-0 place-items-center rounded text-[#8F908A] transition hover:text-[#D7FF4F] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/50"
+    >
+      <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-150 ${abierto ? "rotate-90" : ""}`} aria-hidden="true" />
+    </button>
+  );
+}
+
+/** Celdas de la fila del SKU: lo común se muestra igual; lo que cambia entre registros, resumido. */
+function renderGroupCell(grupo: GrupoItems, columnKey: ShippingV2ItemsColumnKey, context: ItemCellRenderContext, abierto: boolean, onToggle: () => void) {
+  const { principal, items } = grupo;
+  switch (columnKey) {
+    case "sku":
+      return (
+        <span className="flex min-w-0 items-center gap-1">
+          <GrupoChevron abierto={abierto} total={items.length} onToggle={onToggle} />
+          <span className="truncate">{displayValue(principal.sku)}</span>
+        </span>
+      );
+    case "quantity":
+      return <span className="font-bold tabular-nums text-[#D7FF4F]">{cantidadDelGrupo(grupo)}</span>;
+    case "facebookSuperGeek": {
+      // Dato del producto: cuántos de sus registros están marcados.
+      const marcados = items.filter((item) => item.facebookSuperGeek === true).length;
+      if (marcados === items.length) return renderItemCell(principal, columnKey, { ...context, canEditFacebookSuperGeek: false });
+      return <span className="text-[11px] tabular-nums text-[#8F908A]">{marcados ? `${marcados}/${items.length}` : "—"}</span>;
+    }
+    default:
+      break;
+  }
+  const conteo = conteoDe(items, columnKey);
+  if (conteo.length <= 1) return renderItemCell(principal, columnKey, context);
+  if (columnKey === "itemStatus") {
+    return (
+      <span className="flex min-w-0 items-center gap-1">
+        <EstadoBadge estado={conteo[0][0]} size="sm" />
+        <span className="shrink-0 text-[11px] font-semibold text-[#8F908A]">+{conteo.length - 1}</span>
+      </span>
+    );
+  }
+  return <span className="text-[#8F908A]">Varios</span>;
+}
+
+function getGroupCellTitle(grupo: GrupoItems, columnKey: ShippingV2ItemsColumnKey) {
+  if (columnKey === "sku") return `${displayValue(grupo.principal.sku)} · ${grupo.items.length} registros`;
+  if (columnKey === "quantity") return `Suma de ${grupo.items.length} registros`;
+  const conteo = conteoDe(grupo.items, columnKey);
+  if (conteo.length <= 1) return getItemCellTitle(grupo.principal, columnKey);
+  return conteo.map(([valor, veces]) => `${valor}: ${veces}`).join(" · ");
+}
+
 function MobileItemCard({
   item,
   canViewCosts,
@@ -1666,7 +1765,7 @@ const ESTADOS_FUERA = new Set(["vendido", "agotado", "dado de baja", "cancelado"
  * mismo producto, para pasar de una a otra. Una línea; solo si aporta.
  */
 export function UnidadDelProducto({ item, hermanas, onGuardarSerie, onSerieInterna }: {
-  item: Pick<ShippingV2Item, "id" | "numeroSerie" | "cantidad" | "precioVenta" | "seguimiento" | "categoria">;
+  item: Pick<ShippingV2Item, "id" | "sku" | "numeroSerie" | "cantidad" | "precioVenta" | "seguimiento" | "categoria">;
   hermanas: ShippingV2UnidadHermana[];
   /** Punto 10b-5: escanear la serie de un equipo que no la tiene (sin esto, solo se muestra). */
   onGuardarSerie?: (serie: string) => Promise<void>;
@@ -1721,23 +1820,16 @@ export function UnidadDelProducto({ item, hermanas, onGuardarSerie, onSerieInter
       {precioPropio ? (
         <span className="rounded border border-[#F4C95B]/45 px-1.5 py-0.5 font-semibold text-[#F4C95B]" title={`Las otras unidades: ${formatCurrency(precioComun ?? null)}`}>Precio propio</span>
       ) : null}
+      {/* Punto 18b: las demás unidades se ven y se eligen en el bloque "Unidades del SKU". */}
       {otras.length ? (
-        <>
-          <span className="ml-1 text-[#7E7F76]">{esUnidad ? "Otras unidades" : "Otros lotes"}</span>
-          {otras.slice(0, MAX).map((h) => {
-            const fuera = ESTADOS_FUERA.has(normalizeText(h.estado));
-            const s = normalizarSerie(h.numeroSerie);
-            const texto = esUnidad ? (s ? serieCorta(s) : h.recibido ? "sin serie" : "por llegar") : `${h.cantidad ?? 0} u.`;
-            return (
-              <EnlaceArticulo key={h.id} id={h.id}
-                title={[s ? `S/N ${s}` : "", h.estado, typeof h.precioVenta === "number" ? formatCurrency(h.precioVenta) : ""].filter(Boolean).join(" · ")}
-                className={`rounded border px-1.5 py-0.5 font-mono transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] ${fuera ? "border-[#2A2B26] text-[#5E5F59] line-through" : "border-[#3A3A36] text-[#C9CAC1]"}`}>
-                {texto}
-              </EnlaceArticulo>
-            );
-          })}
-          {otras.length > MAX ? <span className="text-[#7E7F76]">+{otras.length - MAX}</span> : null}
-        </>
+        <button
+          type="button"
+          onClick={() => document.getElementById(ID_BLOQUE_UNIDADES)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          className="ml-1 text-[#8F908A] transition hover:text-[#D7FF4F]"
+          title="Ver y elegir las unidades de este SKU"
+        >
+          {otras.length + 1} {esUnidad ? "unidades" : "registros"} en {String(item.sku ?? "").trim() || "el SKU"} ↓
+        </button>
       ) : null}
     </div>
   );
@@ -1764,6 +1856,7 @@ export function ShippingV2ItemDetailView({
   publicaciones = [],
   modo = "pagina",
   alCambiar,
+  onElegirUnidad,
 }: {
   item: ResolvedItem;
   proveedores: ShippingV2Proveedor[];
@@ -1796,6 +1889,8 @@ export function ShippingV2ItemDetailView({
   modo?: "modal" | "pagina";
   /** Punto 18: recarga la ficha (y la pantalla de atrás) tras una acción que cambia mucho. */
   alCambiar?: () => void;
+  /** Punto 18b: elegir otra unidad del mismo SKU (la ficha queda, cambia la unidad). */
+  onElegirUnidad?: (id: string) => void;
 }) {
   const config = configFichaInterna(perfil);
   const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
@@ -1811,6 +1906,15 @@ export function ShippingV2ItemDetailView({
   const [activeTab, setActiveTab] = useState<ItemDetailTabKey>("general");
   const [adminOpen, setAdminOpen] = useState(false);
   const tabsRef = useRef<HTMLElement>(null);
+  // Punto 18b: sin fotos propias, se muestran las de otra unidad del SKU (marcadas).
+  const [verFotosPropias, setVerFotosPropias] = useState(false);
+  // Punto 18b: el precio es del producto; "solo esta unidad" para la excepción.
+  const [precioSoloUnidad, setPrecioSoloUnidad] = useState(false);
+  // Al pasar a otra unidad del SKU, lo que era de la anterior vuelve a empezar.
+  useEffect(() => {
+    setVerFotosPropias(false);
+    setPrecioSoloUnidad(false);
+  }, [initialItem.id]);
   const purchaseProviderOptions = useMemo(
     () => proveedores.filter(canBePurchaseProvider).map((proveedor) => ({ value: proveedor.id, label: getShippingV2ProveedorLabel(proveedor) })),
     [proveedores]
@@ -1840,11 +1944,11 @@ export function ShippingV2ItemDetailView({
     onSaved?.(updatedItem);
   }
 
-  async function saveField(field: string, value: string | number | boolean | null) {
+  async function saveField(field: string, value: string | number | boolean | null, alcance?: "unidad") {
     const response = await fetch(`/api/shipping-v2/items/${item.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ field, value }),
+      body: JSON.stringify({ field, value, ...(alcance ? { alcance } : {}) }),
     });
 
     const payload = await response.json().catch(() => ({}));
@@ -1854,6 +1958,8 @@ export function ShippingV2ItemDetailView({
     }
 
     handleSaved(payload.data as ShippingV2Item);
+    // Punto 18b: un dato del producto se copió a las otras unidades del SKU.
+    if (Number(payload.propagados) > 0) alCambiar?.();
   }
 
   async function applyAiNameSuggestion() {
@@ -2137,9 +2243,21 @@ export function ShippingV2ItemDetailView({
     + (canViewCosts && verCampo("gananciaUnidad") ? 1 : 0);
   const heroStatsCols = ({ 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-2 sm:grid-cols-4" } as Record<number, string>)[heroStatsCount];
 
+  // Punto 18b: existencias del SKU (todas sus unidades) y cómo se llama esta unidad.
+  const existencias = existenciasDelSku(hermanas.length ? hermanas : [{ estado: item.estado, cantidad: item.cantidad, cantidadReservada: item.cantidadReservada }]);
+  const unidadesVivas = hermanas.filter((h) => sigueEnInventario(h)).length;
+  // Decisión 4 (18b): Facebook Super Geek se lee como dato del producto.
+  const fbEnSku = hermanas.filter((h) => sigueEnInventario(h) && h.facebookSuperGeek === true).length;
+  const serieActual = normalizarSerie(item.numeroSerie);
+  const etiquetaUnidad = serieActual ? `S/N ${serieActual}` : `sin serie · ${shortDate(item.fechaRegistro || item.createdTime) || "registro"}`;
+  const fotosDeOtraUnidad = item.fotos.length ? null : hermanas.find((h) => h.id !== item.id && (h.fotos?.length ?? 0) > 0)?.fotos ?? null;
+
   const recorrido = (
     <section className="overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
-      <h2 className="border-b border-[#2E2F28] bg-[#1A1B17] px-3 py-1.5 text-[10.5px] font-bold uppercase tracking-wide text-[#8F908A]">Recorrido</h2>
+      <h2 className="border-b border-[#2E2F28] bg-[#1A1B17] px-3 py-1.5 text-[10.5px] font-bold uppercase tracking-wide text-[#8F908A]">
+        Recorrido
+        {existencias.registros > 1 ? <span className="ml-1.5 font-mono font-semibold normal-case tracking-normal text-[#B4B5AC]">· {etiquetaUnidad}</span> : null}
+      </h2>
       <ol className="divide-y divide-[#24251F]">
         {oc ? (
           <PasoRecorrido icon={ShoppingCart} etiqueta="Compra" principal={`Orden ${oc.codigo}`} href={`/shipping-v2/pagos/ordenes/${oc.id}`} detalle={detalleCompra} chip={oc.anulada ? <PasoChip tono="alerta">Orden anulada</PasoChip> : chipPago} />
@@ -2224,6 +2342,16 @@ export function ShippingV2ItemDetailView({
 
   // Punto 18: cada bloque de la ficha, en el orden que dice la configuración del perfil (ficha-secciones.ts).
   const bloques: Record<BloqueFichaInterna, ReactNode> = {
+    unidades: existencias.registros > 1 && onElegirUnidad ? (
+      <UnidadesDelSku
+        sku={String(item.sku ?? "").trim()}
+        hermanas={hermanas}
+        actualId={item.id}
+        verCostos={canViewCosts && verCampo("costoTotalUnidad")}
+        kardexHref={canUseRecepcion || canEditItems ? `/shipping-v2/kardex?vista=producto&q=${encodeURIComponent(String(item.sku ?? "").trim())}` : undefined}
+        onElegir={onElegirUnidad}
+      />
+    ) : null,
     recorrido,
     publicaciones: <FichaPublicaciones publicaciones={publicaciones} />,
     pestanas: (
@@ -2250,11 +2378,11 @@ export function ShippingV2ItemDetailView({
           {activeSection.key === "despiece" ? (
             // El despiece no es una lista de campos sino una tabla donde se
             // van creando artículos hijos, así que no usa DetailSection.
-            <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} esAdmin={esAdmin} />
+            <ShippingV2DespieceTab key={item.id} itemId={item.id} canEdit={canEditItems} esAdmin={esAdmin} />
           ) : activeSection.key === "intervenciones" ? (
-            <ShippingV2IntervencionesTab itemId={item.id} />
+            <ShippingV2IntervencionesTab key={item.id} itemId={item.id} />
           ) : activeSection.key === "kardex" ? (
-            <KardexRegistroTab itemId={item.id} />
+            <KardexRegistroTab key={item.id} itemId={item.id} />
           ) : (
             <>
               <DetailSection rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} />
@@ -2266,6 +2394,7 @@ export function ShippingV2ItemDetailView({
     ),
     novedades: (
       <NovedadesVinculadasCard
+        key={item.id}
         novedades={novedades ?? []}
         providerLabelsById={providerLabelsById}
         item={{ id: item.id, sku: item.sku, nombre: item.nombre, cantidad: item.cantidad, estado: item.estado, packingId: item.packingId, proveedorId: item.proveedorId }}
@@ -2281,7 +2410,17 @@ export function ShippingV2ItemDetailView({
     <div className="grid w-full gap-3 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] 2xl:grid-cols-[minmax(0,4fr)_minmax(0,6fr)]">
       {/* La foto manda: columna propia que acompaña al bajar. */}
       <aside className={`min-w-0 md:sticky md:self-start ${modo === "modal" ? "md:top-0" : "md:top-16"}`}>
-        <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={handleSaved} canEdit={canEditItems} density="hero" />
+        {fotosDeOtraUnidad && !verFotosPropias ? (
+          <div className="relative">
+            <ItemPhotoViewer key={`otra-${item.id}`} itemId={item.id} itemName={item.nombre} fotos={fotosDeOtraUnidad} onUpdated={handleSaved} canEdit={false} density="hero" />
+            <span className="absolute bottom-2 left-2 z-10 inline-flex items-center gap-1.5 rounded-md border border-[#3A3A36] bg-[#11120F]/90 px-2 py-1 text-[11px] font-semibold text-[#B4B5AC]">
+              Foto de otra unidad
+              {canEditItems ? <button type="button" onClick={() => setVerFotosPropias(true)} className="text-[#D7FF4F] hover:underline">Agregar de esta</button> : null}
+            </span>
+          </div>
+        ) : (
+          <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={handleSaved} canEdit={canEditItems} density="hero" />
+        )}
       </aside>
 
       <div className="min-w-0 space-y-3">
@@ -2360,7 +2499,13 @@ export function ShippingV2ItemDetailView({
                 labelClassName="text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]"
                 valueClassName="mt-0.5 truncate text-[17px] font-semibold leading-6 tabular-nums text-[#D7FF4F]"
                 readOnly={!precioEditable || campoSoloLectura("precioVenta")}
-                onSave={(value) => saveField(C.precioVentaFinal.field, value)}
+                editSuffix={unidadesVivas > 1 ? (
+                  <label className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap text-[11px] font-semibold text-[#B4B5AC]" title={precioSoloUnidad ? "El precio cambia solo en esta unidad (precio propio)" : `El precio se aplica a las ${unidadesVivas} unidades del SKU`}>
+                    <input type="checkbox" checked={precioSoloUnidad} onChange={(e) => setPrecioSoloUnidad(e.target.checked)} className="h-3.5 w-3.5 accent-[#D7FF4F]" />
+                    Solo esta unidad
+                  </label>
+                ) : undefined}
+                onSave={(value) => saveField(C.precioVentaFinal.field, value, precioSoloUnidad ? "unidad" : undefined)}
               />
             ) : null}
             {canViewCosts && verCampo("costoTotalUnidad") ? (
@@ -2371,8 +2516,9 @@ export function ShippingV2ItemDetailView({
             {canViewCosts && verCampo("gananciaUnidad") ? (
               <HeroStat label="Ganancia unidad" tone={gananciaUnidad !== null && gananciaUnidad < 0 ? "orange" : "neutral"} title={gananciaStock !== null ? `Todo el stock: ${formatCurrency(gananciaStock)}` : undefined}>{formatCurrency(gananciaUnidad)}</HeroStat>
             ) : null}
-            <HeroStat label="Cantidad" title={item.unidad || undefined}>
+            <HeroStat label="Cantidad" title={existencias.registros > 1 ? `Este registro: ${formatShippingV2ItemQuantity(item)} · ${String(item.sku ?? "").trim()}: ${existencias.enInventario} en inventario` : item.unidad || undefined}>
               {formatShippingV2ItemQuantity(item)}
+              {existencias.registros > 1 ? <span className="ml-1 text-[12px] font-medium text-[#8F908A]">de {existencias.enInventario}</span> : null}
               {(item.cantidadReservada ?? 0) > 0 ? <span className="ml-1.5 text-[12px] font-medium text-[#F4E85B]">{item.cantidadReservada} reservada{item.cantidadReservada === 1 ? "" : "s"}</span> : null}
               {canUseRecepcion || canEditItems ? (
                 <button
@@ -2395,6 +2541,11 @@ export function ShippingV2ItemDetailView({
                 busy={facebookSuperGeekDetailBusy}
                 onOpen={openFacebookSuperGeekModal}
               />
+              {unidadesVivas > 1 && fbEnSku > 0 ? (
+                <span className="text-[11px] font-medium text-[#8F908A]" title="Unidades de este SKU, en inventario, marcadas en Facebook Super Geek">
+                  FB SG: {fbEnSku} de {unidadesVivas}
+                </span>
+              ) : null}
               {canUseRecepcion ? (
                 <Link href={fichaHref} target={fichaGenerada ? "_blank" : undefined} rel={fichaGenerada ? "noreferrer" : undefined} title={fichaGenerada ? "Imprimir la ficha técnica" : "Preparar la ficha técnica"} className={accionClass}>
                   <Printer className="h-3.5 w-3.5" aria-hidden="true" />
@@ -2490,6 +2641,16 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   const [toolbarMenuOpen, setToolbarMenuOpen] = useState<ToolbarMenuKey | null>(null);
   const [draggedColumnKey, setDraggedColumnKey] = useState<ShippingV2ItemsColumnKey | null>(null);
   const [facebookSuperGeekBusyId, setFacebookSuperGeekBusyId] = useState("");
+  // Punto 18b: SKUs desplegados (ver sus registros).
+  const [skusAbiertos, setSkusAbiertos] = useState<ReadonlySet<string>>(() => new Set());
+  const alternarSku = useCallback((clave: string) => {
+    setSkusAbiertos((actual) => {
+      const siguiente = new Set(actual);
+      if (siguiente.has(clave)) siguiente.delete(clave);
+      else siguiente.add(clave);
+      return siguiente;
+    });
+  }, []);
   const toolbarMenuRef = useRef<HTMLDivElement>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
@@ -2694,6 +2855,10 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   // servidor sobre todo el inventario; aquí solo se ordena y agrupa la página.
   const sortedItems = useMemo(() => sortItems(resolvedItems, sortBy), [resolvedItems, sortBy]);
   const groupedItems = useMemo(() => groupItems(sortedItems, groupBy), [groupBy, sortedItems]);
+  // Punto 18b: dentro de cada grupo, una fila por SKU.
+  const gruposSku = useMemo(() => new Map(groupedItems.map((group) => [group.key, agruparItemsPorSku(group.items)])), [groupedItems]);
+  const totalSkus = useMemo(() => [...gruposSku.values()].reduce((total, grupos) => total + grupos.length, 0), [gruposSku]);
+  const hayGruposSku = useMemo(() => [...gruposSku.values()].some((grupos) => grupos.some((grupo) => grupo.items.length > 1)), [gruposSku]);
   const visibleGroupCount = groupBy === "none" ? 0 : groupedItems.length;
   const visibleColumns = useMemo(() => {
     const visibleKeys = new Set(tableView.visibleColumnKeys);
@@ -2791,6 +2956,84 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
     const target = event.target as HTMLElement;
     if (target.closest("a,button,input,select,textarea")) return;
     abrirArticulo(item.id);
+  }
+
+  // ── Punto 18b: filas de la tabla ──
+  const MUTED_COLUMNS = new Set<ShippingV2ItemsColumnKey>(["generalRole", "category", "packing", "createdAt", "brand", "model", "serial", "condition", "location", "triangulationStatus", "reviewStatus", "requiresPayment", "requiresPacking", "physicalReview", "notes", "purchaseProvider", "logisticProvider", "supplierSku"]);
+  const celdaClass = (column: ShippingV2ItemsColumn) => {
+    const alignClass = column.align === "right"
+      ? "whitespace-nowrap text-right tabular-nums"
+      : column.align === "center"
+        ? "whitespace-nowrap text-center tabular-nums"
+        : "whitespace-nowrap";
+    return `overflow-hidden border-b border-[#24251F] px-2 py-1.5 ${column.key === "sku" ? "font-semibold text-[#D7FF4F]" : ""} ${alignClass} ${MUTED_COLUMNS.has(column.key) ? "text-[#B4B5AC]" : ""}`;
+  };
+  const filaClass = "cursor-pointer transition hover:bg-[#D7FF4F]/[0.05] focus:bg-[#D7FF4F]/[0.05] focus:outline-none";
+
+  /** Un registro: solo (SKU de un registro) o hijo dentro de su SKU desplegado. */
+  function renderFilaItem(item: ResolvedItem, tipo: "sola" | "hija") {
+    return (
+      <tr
+        key={item.id}
+        tabIndex={0}
+        onClick={(event) => openItemFromRow(event, item)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            abrirArticulo(item.id);
+          }
+        }}
+        className={`${filaClass} ${tipo === "hija" ? "bg-[#141511]" : ""}`}
+      >
+        {visibleColumns.map((column) => (
+          <td key={column.key} title={tipo === "hija" && column.key === "sku" ? `${displayValue(item.sku)} · ${etiquetaRegistro(item)}` : getItemCellTitle(item, column.key)} className={celdaClass(column)}>
+            {column.key === "sku" && tipo === "hija" ? (
+              <span className="block truncate pl-5 text-[11.5px] font-medium text-[#B4B5AC]">{etiquetaRegistro(item)}</span>
+            ) : column.key === "sku" && hayGruposSku ? (
+              <span className="block truncate pl-5">{renderItemCell(item, column.key, cellContext)}</span>
+            ) : (
+              renderItemCell(item, column.key, cellContext)
+            )}
+          </td>
+        ))}
+      </tr>
+    );
+  }
+
+  /** La fila del SKU: abre una unidad disponible; la flecha muestra sus registros. */
+  function renderFilaGrupo(grupo: GrupoItems, abierto: boolean) {
+    const abrirGrupo = () => abrirArticulo((unidadPorDefecto(grupo.items) ?? grupo.principal).id);
+    return (
+      <tr
+        key={`grupo:${grupo.clave}`}
+        tabIndex={0}
+        aria-expanded={abierto}
+        onClick={(event) => {
+          const target = event.target as HTMLElement;
+          if (target.closest("a,button,input,select,textarea")) return;
+          abrirGrupo();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            abrirGrupo();
+          } else if (event.key === "ArrowRight" && !abierto) {
+            event.preventDefault();
+            alternarSku(grupo.clave);
+          } else if (event.key === "ArrowLeft" && abierto) {
+            event.preventDefault();
+            alternarSku(grupo.clave);
+          }
+        }}
+        className={filaClass}
+      >
+        {visibleColumns.map((column) => (
+          <td key={column.key} title={getGroupCellTitle(grupo, column.key)} className={celdaClass(column)}>
+            {renderGroupCell(grupo, column.key, cellContext, abierto, () => alternarSku(grupo.clave))}
+          </td>
+        ))}
+      </tr>
+    );
   }
 
   const filtering = hayFiltroArticulos(filtro);
@@ -2972,7 +3215,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
             </div>
           ) : null}
         </div>
-        <ItemsPager pagination={pagination} count={resolvedItems.length} />
+        <ItemsPager pagination={pagination} count={totalSkus} />
       </section>
 
       {error ? (
@@ -2996,7 +3239,11 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
           {filtro.operacion ? <FiltroChip onQuitar={() => aplicarFiltro({ operacion: "" })}>{filtro.operacion}</FiltroChip> : null}
           {filtro.proveedor ? <FiltroChip onQuitar={() => aplicarFiltro({ proveedor: "" })}>{proveedorEtiquetas[filtro.proveedor] ?? "Proveedor"}</FiltroChip> : null}
           <span className="whitespace-nowrap">
-            <b className="text-[#F5F5F5]">{resolvedItems.length}</b> en esta página
+            {totalSkus < resolvedItems.length ? (
+              <><b className="text-[#F5F5F5]">{totalSkus}</b> productos · {resolvedItems.length} registros en esta página</>
+            ) : (
+              <><b className="text-[#F5F5F5]">{resolvedItems.length}</b> en esta página</>
+            )}
             {visibleGroupCount ? ` · ${visibleGroupCount} grupos` : ""}
           </span>
           <PageStat label="Disponibles" value={summary.disponibles} tone="lime" />
@@ -3063,38 +3310,17 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
                       </td>
                     </tr>
                   ) : null}
-                  {group.items.map((item) => (
-                    <tr
-                      key={item.id}
-                      tabIndex={0}
-                      onClick={(event) => openItemFromRow(event, item)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          abrirArticulo(item.id);
-                        }
-                      }}
-                      className="cursor-pointer transition hover:bg-[#D7FF4F]/[0.05] focus:bg-[#D7FF4F]/[0.05] focus:outline-none"
-                    >
-                      {visibleColumns.map((column) => {
-                        const mutedColumn = column.key === "generalRole" || column.key === "category" || column.key === "packing" || column.key === "createdAt" || column.key === "brand" || column.key === "model" || column.key === "serial" || column.key === "condition" || column.key === "location" || column.key === "triangulationStatus" || column.key === "reviewStatus" || column.key === "requiresPayment" || column.key === "requiresPacking" || column.key === "physicalReview" || column.key === "notes" || column.key === "purchaseProvider" || column.key === "logisticProvider" || column.key === "supplierSku";
-                        const alignClass = column.align === "right"
-                          ? "whitespace-nowrap text-right tabular-nums"
-                          : column.align === "center"
-                            ? "whitespace-nowrap text-center tabular-nums"
-                            : "whitespace-nowrap";
-                        return (
-                          <td
-                            key={column.key}
-                            title={getItemCellTitle(item, column.key)}
-                            className={`overflow-hidden border-b border-[#24251F] px-2 py-1.5 ${column.key === "sku" ? "font-semibold text-[#D7FF4F]" : ""} ${alignClass} ${mutedColumn ? "text-[#B4B5AC]" : ""}`}
-                          >
-                            {renderItemCell(item, column.key, cellContext)}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                  {(gruposSku.get(group.key) ?? []).map((grupo) => {
+                    const varios = grupo.items.length > 1;
+                    const abierto = varios && skusAbiertos.has(grupo.clave);
+                    const filaGrupo = varios ? renderFilaGrupo(grupo, abierto) : null;
+                    return (
+                      <Fragment key={grupo.clave}>
+                        {filaGrupo ?? renderFilaItem(grupo.principal, "sola")}
+                        {abierto ? grupo.items.map((item) => renderFilaItem(item, "hija")) : null}
+                      </Fragment>
+                    );
+                  })}
                 </Fragment>
               )) : (
                 <tr>
@@ -3115,18 +3341,38 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
                   {group.label} <span className="font-semibold text-[#8F908A]">· {group.items.length}</span>
                 </p>
               ) : null}
-              {group.items.map((item) => (
-                <MobileItemCard
-                  key={item.id}
-                  item={item}
-                  canViewCosts={puedeVerPrecioVentaLista}
-                  canViewProviderCost={puedeVerCostoProveedorLista}
-                  canEditFacebookSuperGeek={canEditItems}
-                  facebookSuperGeekBusy={facebookSuperGeekBusyId === item.id}
-                  onFacebookSuperGeekChange={updateFacebookSuperGeek}
-                  onOpen={() => abrirArticulo(item.id)}
-                />
-              ))}
+              {(gruposSku.get(group.key) ?? []).map((grupo) => {
+                const varios = grupo.items.length > 1;
+                const abierto = varios && skusAbiertos.has(grupo.clave);
+                const tarjeta = (item: ResolvedItem, resumen?: GrupoItems) => (
+                  <MobileItemCard
+                    key={item.id}
+                    item={resumen ? { ...item, cantidad: resumen.cantidad, qty: resumen.cantidad } : item}
+                    canViewCosts={puedeVerPrecioVentaLista}
+                    canViewProviderCost={puedeVerCostoProveedorLista}
+                    canEditFacebookSuperGeek={canEditItems && !resumen}
+                    facebookSuperGeekBusy={facebookSuperGeekBusyId === item.id}
+                    onFacebookSuperGeekChange={updateFacebookSuperGeek}
+                    onOpen={() => abrirArticulo(resumen ? (unidadPorDefecto(resumen.items) ?? item).id : item.id)}
+                  />
+                );
+                if (!varios) return tarjeta(grupo.principal);
+                return (
+                  <div key={grupo.clave} className="grid min-w-0 grid-cols-1 gap-1">
+                    {tarjeta(grupo.principal, grupo)}
+                    <button
+                      type="button"
+                      onClick={() => alternarSku(grupo.clave)}
+                      aria-expanded={abierto}
+                      className="inline-flex items-center gap-1 justify-self-start px-1 text-[11.5px] font-semibold text-[#8F908A] hover:text-[#D7FF4F]"
+                    >
+                      <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-150 ${abierto ? "rotate-90" : ""}`} aria-hidden="true" />
+                      {abierto ? "Ocultar registros" : `Ver los ${grupo.items.length} registros`}
+                    </button>
+                    {abierto ? <div className="grid gap-1 border-l border-[#30312D] pl-2">{grupo.items.map((item) => tarjeta(item))}</div> : null}
+                  </div>
+                );
+              })}
             </div>
           )) : (
             <p className="px-4 py-8 text-center text-[13px] text-[#8F908A]">
@@ -3138,7 +3384,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
         {hasPages ? (
           <div className="flex items-center justify-end gap-2 border-t border-[#2E2F28] bg-[#1A1B17] px-2.5 py-1.5 text-[12px] text-[#8F908A]">
             <span>Página {pagination.pageIndex}</span>
-            <ItemsPager pagination={pagination} count={resolvedItems.length} />
+            <ItemsPager pagination={pagination} count={totalSkus} />
           </div>
         ) : null}
       </section>

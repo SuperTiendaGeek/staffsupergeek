@@ -93,7 +93,7 @@ export function hayFiltroArticulos(filtro: FiltroArticulos) {
 /** Dirección de la lista con este filtro (y, si se pasa, el orden y la página). */
 export function hrefArticulos(
   filtro: FiltroArticulos,
-  opciones: { sort?: string; cursor?: string; prev?: string } = {}
+  opciones: { sort?: string; cursor?: string; prev?: string; pagina?: number } = {}
 ) {
   const params = new URLSearchParams();
   if (filtro.q) params.set("q", filtro.q);
@@ -104,6 +104,8 @@ export function hrefArticulos(
   if (filtro.inspeccion) params.set("inspeccion", filtro.inspeccion);
   if (opciones.cursor) params.set("cursor", opciones.cursor);
   if (opciones.prev) params.set("prev", opciones.prev);
+  // Punto 18b: la lista por SKU pagina por número de página.
+  if (opciones.pagina && opciones.pagina > 1) params.set("pagina", String(Math.trunc(opciones.pagina)));
   if (opciones.sort && opciones.sort !== "newest") params.set("sort", opciones.sort);
   const query = params.toString();
   return `/shipping-v2/items${query ? `?${query}` : ""}`;

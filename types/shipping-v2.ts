@@ -512,6 +512,23 @@ export type ShippingV2UnidadHermana = {
   /** Punto 10b-4b: ya tiene ficha de mostrador (para proponer a cuáles copiar). */
   fichaGenerada: boolean;
   fechaRegistro?: string;
+  // ── Punto 18b (25-oct-2026): la ficha como contenedor del SKU ──
+  /** "Compra a proveedor", "Reajuste de inventario"… (de dónde salió el registro). */
+  tipoOperacion?: string;
+  /** Proveedor de compra (etiqueta). Solo personal que no es técnico. */
+  proveedorNombre?: string;
+  /** Costo total de una unidad de este registro. Solo quien ve costos. */
+  costoUnidad?: number | null;
+  cantidadReservada?: number | null;
+  /** "Unidad" o "Lote" (vacío = el de su categoría). */
+  seguimiento?: string;
+  requiereInspeccion?: boolean;
+  revisadoPor?: string;
+  fechaRevision?: string;
+  facebookSuperGeek?: boolean;
+  fotos?: ShippingV2Attachment[];
+  /** Casillas viejas de publicación marcadas en este registro (canal → quién y cuándo). */
+  casillasPublicacion?: Record<string, { por?: string; fecha?: string }>;
 };
 
 export type ShippingV2ItemWriteInput = {

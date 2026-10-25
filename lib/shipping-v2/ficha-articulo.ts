@@ -329,3 +329,95 @@ export type FichaArticulo =
 export type ResultadoFicha =
   | { ok: true; ficha: FichaArticulo }
   | { ok: false; estado: 401 | 403 | 404 | 500; mensaje: string };
+
+// ─── Punto 18b (25-oct-2026): la ficha como contenedor del SKU ───────────────
+
+/**
+ * Datos del PRODUCTO (decisión del dueño, 25-oct): al editarlos en la ficha se
+ * aplican a todas las unidades del SKU que siguen en el inventario. Lo vendido
+ * o dado de baja conserva el nombre con que salió (misma regla que la fusión).
+ * El precio de venta también es del producto, con la opción "solo esta unidad".
+ */
+export const CLAVES_CAMPO_PRODUCTO = ["nombre", "descripcion", "categoria", "marca", "modelo"] as const;
+
+/** Estados de lo que ya no está en el inventario: no se le propagan cambios. */
+const ESTADOS_SALIERON = new Set(["vendido", "agotado", "dado de baja", "cancelado", "archivado", "usado en reparacion", "perdido en tienda", "devuelto a proveedor", "desarmado completamente"]);
+
+function normalEstado(estado?: string | null) {
+  return String(estado ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+export function sigueEnInventario(registro: { estado?: string | null }) {
+  return !ESTADOS_SALIERON.has(normalEstado(registro.estado));
+}
+
+/** A qué otros registros del SKU se aplica un cambio de dato del producto. */
+export function registrosParaPropagar<T extends { id: string; estado?: string | null }>(registros: readonly T[], origenId: string): T[] {
+  return registros.filter((r) => r.id !== origenId && sigueEnInventario(r));
+}
+
+export type ExistenciasSku = {
+  /** Registros del SKU (unidades y lotes), incluido lo que ya salió. */
+  registros: number;
+  /** Unidades que siguen en el inventario (suma de cantidades). */
+  enInventario: number;
+  reservadas: number;
+  /** Unidades por estado, solo lo que sigue en el inventario (ordenado de mayor a menor). */
+  porEstado: Array<{ estado: string; cantidad: number }>;
+  /** Registros que ya salieron (vendidos, agotados, dados de baja…). */
+  salieron: number;
+};
+
+export function existenciasDelSku(registros: ReadonlyArray<{ estado: string; cantidad: number | null; cantidadReservada?: number | null }>): ExistenciasSku {
+  const porEstado = new Map<string, number>();
+  let enInventario = 0;
+  let reservadas = 0;
+  let salieron = 0;
+  for (const r of registros) {
+    if (!sigueEnInventario(r)) {
+      salieron += 1;
+      continue;
+    }
+    const cantidad = Math.max(0, Number(r.cantidad) || 0);
+    enInventario += cantidad;
+    reservadas += Math.max(0, Number(r.cantidadReservada) || 0);
+    porEstado.set(r.estado, (porEstado.get(r.estado) ?? 0) + cantidad);
+  }
+  return {
+    registros: registros.length,
+    enInventario,
+    reservadas,
+    porEstado: [...porEstado].map(([estado, cantidad]) => ({ estado, cantidad })).filter((e) => e.cantidad > 0).sort((a, b) => b.cantidad - a.cantidad),
+    salieron,
+  };
+}
+
+/**
+ * Casillas viejas de publicación vistas a nivel de SKU: si este registro no
+ * tiene marcada la de un canal pero otro registro del SKU sí, cuenta (así no
+ * aparece 20 veces ni desaparece al cambiar de unidad).
+ */
+export function casillasDelSku(
+  hermanas: ReadonlyArray<{ fechaRegistro?: string; casillasPublicacion?: Record<string, { por?: string; fecha?: string }> }>
+): Partial<ShippingV2Item> {
+  const campos: Record<string, [keyof ShippingV2Item, keyof ShippingV2Item, keyof ShippingV2Item]> = {
+    Marketplace: ["marketplacePublicado", "marketplacePublicadoPor", "fechaMarketplacePublicado"],
+    "Mercado Libre": ["mercadoLibrePublicado", "mercadoLibrePublicadoPor", "fechaMercadoLibrePublicado"],
+    Shopify: ["shopifyPublicado", "shopifyPublicadoPor", "fechaShopifyPublicado"],
+    "Grupos Facebook": ["gruposFacebookPublicado", "facebookPublicadoPor", "fechaFacebookPublicado"],
+  };
+  const resultado: Record<string, unknown> = {};
+  for (const [canal, [marcado, por, fecha]] of Object.entries(campos)) {
+    // La primera vez que se marcó en el SKU (la más antigua con fecha).
+    const marcas = hermanas
+      .map((h) => h.casillasPublicacion?.[canal])
+      .filter((c): c is { por?: string; fecha?: string } => Boolean(c))
+      .sort((a, b) => (a.fecha ?? "9").localeCompare(b.fecha ?? "9"));
+    if (!marcas.length) continue;
+    resultado[marcado] = true;
+    // Solo lo que se conoce: nunca se borra con "vacío" lo que ya traía el registro.
+    if (marcas[0].por) resultado[por] = marcas[0].por;
+    if (marcas[0].fecha) resultado[fecha] = marcas[0].fecha;
+  }
+  return resultado as Partial<ShippingV2Item>;
+}

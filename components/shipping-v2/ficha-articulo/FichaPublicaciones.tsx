@@ -76,7 +76,7 @@ export function FichaPublicaciones({ publicaciones }: { publicaciones: readonly 
                 <span className={`flex min-w-0 items-center gap-1.5 text-[12.5px] font-semibold ${retirado ? "text-[#8F908A]" : "text-[#E6E6E1]"}`}>
                   <span className={`h-2 w-2 shrink-0 rounded-full ${COLOR_CANAL[p.canal] ?? "bg-[#8F908A]"} ${retirado ? "opacity-40" : ""}`} aria-hidden="true" />
                   <span className="truncate">{p.canal}</span>
-                  {p.alcance === "Unidad" ? <span className="shrink-0 text-[10.5px] font-medium text-[#8F908A]" title="Anuncio aparte de esta unidad">· unidad</span> : null}
+                  {p.alcance === "Unidad" ? <span className="shrink-0 text-[10.5px] font-medium text-[#8F908A]" title="Anuncio aparte, solo de esta unidad">· esta unidad</span> : null}
                 </span>
                 <span className="flex min-w-0 items-center gap-2 text-[12px] text-[#8F908A]">
                   <span className="truncate" title={p.origen === "casilla" ? "Marcado en Recepción, antes del gestor de publicaciones" : detalle}>

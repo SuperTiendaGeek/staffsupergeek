@@ -5,13 +5,14 @@
 // tiene la suya; comparten piezas (foto, cabecera, filas, pestañas) pero no
 // se pinta una para luego esconder partes.
 
-import type { ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import type { FichaArticulo, FichaInterna } from "@/lib/shipping-v2/ficha-articulo";
 import { ShippingV2ItemDetailView } from "@/app/shipping-v2/items/ShippingV2ItemsClient";
 import { ShippingV2ActivoAcciones } from "@/app/shipping-v2/items/[id]/ShippingV2ActivoAcciones";
 import { EliminarItemAdmin } from "@/app/shipping-v2/items/[id]/EliminarItemAdmin";
 import { CostosTraerlo } from "@/components/shipping-v2/CostosTraerlo";
-import { useFichaArticulo } from "./contexto";
+import { hrefArticulo, useFichaArticulo } from "./contexto";
 import { FichaTecnicoVista } from "./FichaTecnicoVista";
 import { FichaProveedorVista } from "./FichaProveedorVista";
 
@@ -20,9 +21,30 @@ type Props = {
   modo: "modal" | "pagina";
   /** Recarga la ficha tras una acción que cambia mucho (novedades, acciones de Administrador). */
   alCambiar?: () => void;
+  /** Punto 18b: quién cambia de unidad (Control lleva su propia ventana). Sin esto: la ventana única o la página. */
+  onElegirUnidad?: (id: string) => void;
 };
 
-function VistaInterna({ perfil, datos, modo, alCambiar }: { perfil: "admin" | "staff"; datos: FichaInterna; modo: Props["modo"]; alCambiar?: () => void }) {
+/**
+ * Punto 18b (25-oct-2026): la ficha es el contenedor del SKU. Elegir otra
+ * unidad NO abre otra ficha: en la ventana se cambia el registro en el mismo
+ * lugar (la dirección se actualiza en silencio); en la página completa se
+ * reemplaza la dirección sin mover la pantalla.
+ */
+function useElegirUnidad(modo: Props["modo"], propio?: (id: string) => void) {
+  const contexto = useFichaArticulo();
+  const router = useRouter();
+  return useCallback(
+    (id: string) => {
+      if (propio) return propio(id);
+      if (modo === "modal" && contexto) return contexto.abrir(id);
+      router.replace(hrefArticulo(id), { scroll: false });
+    },
+    [propio, modo, contexto, router]
+  );
+}
+
+function VistaInterna({ perfil, datos, modo, alCambiar, onElegirUnidad }: { perfil: "admin" | "staff"; datos: FichaInterna; modo: Props["modo"]; alCambiar?: () => void; onElegirUnidad: (id: string) => void }) {
   const contexto = useFichaArticulo();
   const { item } = datos;
   const adminPanel: ReactNode = perfil === "admin" ? (
@@ -45,8 +67,9 @@ function VistaInterna({ perfil, datos, modo, alCambiar }: { perfil: "admin" | "s
   ) : undefined;
 
   return (
+    // Punto 18b: sin "key" por artículo: al cambiar de unidad la ficha se queda
+    // montada (pestaña abierta, posición) y solo se actualizan sus datos.
     <ShippingV2ItemDetailView
-      key={item.id}
       perfil={perfil}
       modo={modo}
       item={item}
@@ -64,20 +87,22 @@ function VistaInterna({ perfil, datos, modo, alCambiar }: { perfil: "admin" | "s
       enlaces={datos.enlaces}
       publicaciones={datos.publicaciones}
       adminPanel={adminPanel}
-      costosTraerlo={datos.costosTraerlo ? <CostosTraerlo itemId={item.id} /> : undefined}
+      costosTraerlo={datos.costosTraerlo ? <CostosTraerlo key={item.id} itemId={item.id} /> : undefined}
       alCambiar={alCambiar}
       onSaved={(actualizado) => contexto?.avisarCambio({ id: actualizado.id })}
+      onElegirUnidad={onElegirUnidad}
     />
   );
 }
 
-export function FichaArticuloVista({ ficha, modo, alCambiar }: Props) {
+export function FichaArticuloVista({ ficha, modo, alCambiar, onElegirUnidad }: Props) {
+  const elegirUnidad = useElegirUnidad(modo, onElegirUnidad);
   switch (ficha.perfil) {
     case "admin":
     case "staff":
-      return <VistaInterna perfil={ficha.perfil} datos={ficha.datos} modo={modo} alCambiar={alCambiar} />;
+      return <VistaInterna perfil={ficha.perfil} datos={ficha.datos} modo={modo} alCambiar={alCambiar} onElegirUnidad={elegirUnidad} />;
     case "tecnico":
-      return <FichaTecnicoVista key={ficha.datos.item.id} datos={ficha.datos} modo={modo} alCambiar={alCambiar} />;
+      return <FichaTecnicoVista datos={ficha.datos} modo={modo} alCambiar={alCambiar} onElegirUnidad={elegirUnidad} />;
     case "proveedor":
       return <FichaProveedorVista key={ficha.datos.item.id} datos={ficha.datos} modo={modo} alCambiar={alCambiar} />;
   }

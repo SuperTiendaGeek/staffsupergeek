@@ -1,6 +1,6 @@
 import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
-import { getShippingV2AccessContextForSession, getShippingV2ItemsPage, getShippingV2Proveedores, type ShippingV2ItemsListSortKey } from "@/lib/shipping-v2/airtable";
+import { getShippingV2AccessContextForSession, getShippingV2ItemsPorSkuPage, getShippingV2Proveedores, type ShippingV2ItemsListSortKey } from "@/lib/shipping-v2/airtable";
 import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import { camposConEstado, ocultarCamposDeObjeto } from "@/lib/permissions/campos";
@@ -33,10 +33,9 @@ function firstSearchParam(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function cleanCursor(value?: string | string[]) {
-  const cursor = firstSearchParam(value)?.trim();
-  if (!cursor || cursor.length > 500) return undefined;
-  return cursor;
+function parsePagina(value?: string | string[]) {
+  const pagina = Number.parseInt(firstSearchParam(value)?.trim() ?? "", 10);
+  return Number.isFinite(pagina) && pagina > 0 && pagina < 100000 ? pagina : 1;
 }
 
 function parseSortKey(value?: string | string[]): ShippingV2ItemsListSortKey {
@@ -46,36 +45,14 @@ function parseSortKey(value?: string | string[]): ShippingV2ItemsListSortKey {
     : "newest";
 }
 
-function parseCursorStack(value?: string | string[]) {
-  const encoded = firstSearchParam(value)?.trim();
-  if (!encoded) return [] as string[];
-  if (encoded.length > 4096) return [] as string[];
-
-  try {
-    const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((cursor): cursor is string => typeof cursor === "string" && cursor.length <= 500).slice(-25);
-  } catch {
-    return [];
-  }
-}
-
-function encodeCursorStack(stack: string[]) {
-  return Buffer.from(JSON.stringify(stack.slice(-25)), "utf8").toString("base64url");
-}
-
 function buildItemsPageHref(input: {
-  cursor?: string;
-  stack?: string[];
+  pagina: number;
   sortBy: ShippingV2ItemsListSortKey;
   filtro: FiltroArticulos;
 }) {
-  // Rediseño 15-oct-2026: el filtro viaja con la página (Airtable pagina sobre lo filtrado).
-  return hrefArticulos(input.filtro, {
-    sort: input.sortBy,
-    cursor: input.cursor,
-    prev: input.stack?.length ? encodeCursorStack(input.stack) : undefined,
-  });
+  // Rediseño 15-oct-2026: el filtro viaja con la página. Punto 18b: la lista
+  // va por SKU y se pagina por número de página (se conoce el total).
+  return hrefArticulos(input.filtro, { sort: input.sortBy, pagina: input.pagina });
 }
 
 export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
@@ -98,11 +75,12 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
   let permissions: ShippingV2AccessPermissions | null = null;
   let providerName = "";
   let error = "";
-  let nextOffset: string | undefined;
   const params = await searchParams;
   const filtro = leerFiltroArticulos(params ?? {});
-  const currentCursor = cleanCursor(params?.cursor);
-  const cursorStack = parseCursorStack(params?.prev);
+  let pagina = parsePagina(params?.pagina);
+  let totalPaginas = 1;
+  let totalGrupos = 0;
+  let totalRegistros = 0;
   let sortBy = parseSortKey(params?.sort);
 
   try {
@@ -119,9 +97,9 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
     // Con filtro de proveedor se leen antes los proveedores (hace falta su etiqueta).
     const proveedoresPrevios = filtro.proveedor ? await getShippingV2Proveedores() : undefined;
     const [itemsPage, proveedoresResult] = await Promise.all([
-      getShippingV2ItemsPage({
-        pageSize: SHIPPING_V2_ITEMS_PAGE_SIZE,
-        offset: currentCursor,
+      getShippingV2ItemsPorSkuPage({
+        gruposPorPagina: SHIPPING_V2_ITEMS_PAGE_SIZE,
+        pagina,
         sortBy,
         access,
         filtro,
@@ -130,24 +108,19 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
       proveedoresPrevios ? Promise.resolve(proveedoresPrevios) : getShippingV2Proveedores(),
     ]);
     items = itemsPage.items.map((item) => ocultarCamposDeObjeto(item, camposOcultos));
-    nextOffset = itemsPage.nextOffset;
+    pagina = itemsPage.pagina;
+    totalPaginas = itemsPage.totalPaginas;
+    totalGrupos = itemsPage.totalGrupos;
+    totalRegistros = itemsPage.totalRegistros;
     proveedores = access.providerId ? proveedoresResult.filter((provider) => provider.id === access.providerId) : proveedoresResult;
   } catch (loadError) {
     console.error("Error al cargar items de Shipping V2:", loadError);
     error = loadError instanceof Error ? loadError.message : "No se pudieron cargar los items.";
   }
 
-  const previousCursor = cursorStack.at(-1);
-  const previousStack = cursorStack.slice(0, -1);
-  const nextStack = [...cursorStack, currentCursor ?? ""];
-  const pageIndex = cursorStack.length + 1;
-  const firstHref = buildItemsPageHref({ sortBy, filtro });
-  const previousHref = previousCursor !== undefined
-    ? buildItemsPageHref({ cursor: previousCursor || undefined, stack: previousStack, sortBy, filtro })
-    : undefined;
-  const nextHref = nextOffset
-    ? buildItemsPageHref({ cursor: nextOffset, stack: nextStack, sortBy, filtro })
-    : undefined;
+  const firstHref = buildItemsPageHref({ pagina: 1, sortBy, filtro });
+  const previousHref = pagina > 1 ? buildItemsPageHref({ pagina: pagina - 1, sortBy, filtro }) : undefined;
+  const nextHref = pagina < totalPaginas ? buildItemsPageHref({ pagina: pagina + 1, sortBy, filtro }) : undefined;
 
   return (
     <StaffAppShell activeHref="/shipping-v2/items" sectionLabel="Shipping V2">
@@ -163,8 +136,11 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
         initialSortBy={sortBy}
         filtro={filtro}
         pagination={{
-          pageIndex,
+          pageIndex: pagina,
           pageSize: SHIPPING_V2_ITEMS_PAGE_SIZE,
+          totalPages: totalPaginas,
+          totalGroups: totalGrupos,
+          totalRecords: totalRegistros,
           firstHref,
           previousHref,
           nextHref,

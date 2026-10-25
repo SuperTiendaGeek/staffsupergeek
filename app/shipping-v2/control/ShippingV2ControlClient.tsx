@@ -14,7 +14,7 @@ import { FichaArticuloVista } from "@/components/shipping-v2/ficha-articulo/Fich
 import type { FichaArticulo } from "@/lib/shipping-v2/ficha-articulo";
 import { useAlCambiarArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
 import { GRUPO_TIPO, TIPOS_ASUNTO, type TipoAsunto } from "@/lib/shipping-v2/revision-inventario";
 import type { ShippingV2AsuntoRevision } from "@/lib/shipping-v2/airtable";
 import { CodigosLista } from "./CodigosLista";
@@ -45,6 +45,21 @@ function enlaceExterno(a: ShippingV2AsuntoRevision): string | null {
 }
 
 /** El texto sin el "SKU · " del principio (el SKU tiene su columna). */
+type GrupoAsuntos = { clave: string; asuntos: ShippingV2AsuntoRevision[] };
+
+/** Punto 18b: agrupa los asuntos del mismo tipo y SKU (sin SKU, cada uno va solo). */
+function agruparAsuntos(asuntos: readonly ShippingV2AsuntoRevision[]): GrupoAsuntos[] {
+  const grupos = new Map<string, GrupoAsuntos>();
+  for (const a of asuntos) {
+    const sku = String(a.sku ?? "").trim().toUpperCase();
+    const clave = sku ? `${a.tipo}|${sku}` : `id:${a.id}`;
+    const grupo = grupos.get(clave);
+    if (grupo) grupo.asuntos.push(a);
+    else grupos.set(clave, { clave, asuntos: [a] });
+  }
+  return [...grupos.values()];
+}
+
 function textoAsunto(a: ShippingV2AsuntoRevision) {
   return a.sku && a.asunto.startsWith(`${a.sku} · `) ? a.asunto.slice(a.sku.length + 3) : a.asunto;
 }
@@ -104,6 +119,9 @@ export function ShippingV2ControlClient({
   }, [lista, abiertos, verResueltos]);
   const totalVista = verResueltos ? lista.length : abiertos.length;
   const visibles = grupo === TODOS ? lista : lista.filter((a) => grupoDe(a) === grupo);
+  // Punto 18b: mismo tipo y mismo SKU → una sola fila (en el orden en que aparecen).
+  const gruposAsuntos = useMemo(() => agruparAsuntos(visibles), [visibles]);
+  const [gruposAbiertos, setGruposAbiertos] = useState<ReadonlySet<string>>(() => new Set());
 
   // ── Verificación ──
   const marcar = useCallback((ids: string[], estado: EstadoFila | null) => {
@@ -207,10 +225,23 @@ export function ShippingV2ControlClient({
   }, [modal, versionDetalle]);
 
   // Al cambiar de artículo se empieza desde cero (nunca con los datos del anterior).
+  // Punto 18b: si es otra unidad del mismo SKU, la ficha se queda mientras llega.
+  const detalleRef = useRef(detalle);
   useEffect(() => {
-    setDetalle(null);
+    detalleRef.current = detalle;
+  }, [detalle]);
+  useEffect(() => {
+    const actual = detalleRef.current;
+    const mismoSku = Boolean(
+      modal && actual && actual.perfil !== "proveedor" && actual.datos.hermanas.some((h) => h.id === modal.itemId),
+    );
+    if (!mismoSku) setDetalle(null);
     huboCambios.current = false;
   }, [modal?.itemId]);
+
+  function elegirUnidad(id: string) {
+    setModal((m) => (m ? { ...m, itemId: id } : m));
+  }
 
   function abrir(a: ShippingV2AsuntoRevision) {
     setActiva(a.id);
@@ -375,6 +406,176 @@ export function ShippingV2ControlClient({
     );
   }
 
+  // Punto 18b: los asuntos del mismo tipo y SKU van en una fila (la flecha los muestra).
+  function renderAsunto(a: ShippingV2AsuntoRevision) {
+    const conDetalle = Boolean(a.detalle);
+    const est = estadoFila[a.id];
+    const resaltada = activa === a.id && est !== "saliendo";
+    const fondo = est === "resuelto" || est === "saliendo" ? "bg-[#7BE495]/[0.12]" : resaltada ? "bg-[#D7FF4F]/[0.07] shadow-[inset_3px_0_0_#D7FF4F]" : "";
+    return (
+      <div
+        key={a.id}
+        className={`grid transition-all duration-300 ease-out ${est === "saliendo" ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}
+      >
+        <div className={`min-h-0 overflow-hidden border-b border-[#252622] transition-colors duration-300 ${fondo}`}>
+          <div className="grid items-center gap-2.5 px-3 py-1.5 md:grid-cols-[108px_minmax(0,1fr)_220px_210px]">
+            {a.itemIds[0] || enlaceExterno(a) ? (
+              <button
+                type="button"
+                onClick={() => abrir(a)}
+                className="inline-flex w-fit items-center gap-1 text-left font-mono font-semibold text-[#EDEDE7] underline decoration-[#8F908A]/50 decoration-dotted underline-offset-[3px] transition hover:text-[#D7FF4F] hover:decoration-[#D7FF4F] hover:decoration-solid"
+                title={enlaceExterno(a) ? "Abrir en otra pestaña" : "Abrir el artículo"}
+              >
+                {a.sku || "Abrir"}
+                {enlaceExterno(a) ? <ExternalLink className="h-3 w-3" aria-hidden="true" /> : null}
+              </button>
+            ) : (
+              <span className="font-mono font-semibold">{a.sku || "—"}</span>
+            )}
+            <span className="min-w-0">
+              {textoAsunto(a)}
+              {conDetalle && a.tipo !== "Posible duplicado" && a.tipo !== "Falta respaldo" ? <span className="ml-1.5 font-semibold text-[#FFB07A]">({a.detalle})</span> : null}
+              {conDetalle && (a.tipo === "Posible duplicado" || a.tipo === "Falta respaldo") ? (
+                <button type="button" onClick={() => setExpandido((x) => (x === a.id ? null : a.id))} aria-expanded={expandido === a.id} className="ml-1 inline-flex align-middle text-[#8F908A] hover:text-[#F5F5F5]" aria-label="Ver detalle">
+                  <ChevronDown className={`h-3.5 w-3.5 transition ${expandido === a.id ? "rotate-180" : ""}`} aria-hidden="true" />
+                </button>
+              ) : null}
+            </span>
+            <span className="text-[#B4B5AC]">
+              {verResueltos ? (
+                <span title={a.motivo}>{a.estado === "Está bien" ? "Dejado así" : a.estado}{a.resueltoPor ? ` · ${a.resueltoPor}` : ""}{a.fechaResuelto ? ` · ${fechaHora(a.fechaResuelto)}` : ""}</span>
+              ) : (
+                <>
+                  {a.sugerencia}
+                  {a.contado !== null && a.contadoPor ? <span className="text-[#FFC857]" title={fechaHora(a.fechaConteo)}> · contado {a.contado} ({a.contadoPor})</span> : null}
+                </>
+              )}
+            </span>
+            <span className="flex items-center justify-end gap-2">
+              {est === "verificando" ? (
+                <span className="inline-flex items-center gap-1.5 text-[12px] text-[#B4B5AC]"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />Verificando</span>
+              ) : est === "resuelto" || est === "saliendo" ? (
+                <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#9FEFB3]"><Check className="h-3.5 w-3.5" aria-hidden="true" />Resuelto</span>
+              ) : verResueltos ? (
+                a.estado === "Está bien" ? <button type="button" onClick={() => void resolver(a, "Abierto")} disabled={busy === a.id} className={botonClass}>Reabrir</button> : null
+              ) : (
+                <>
+                  {(a.tipo === "Unidades no cuadran" || a.tipo === "Vendido con unidades") && a.itemIds[0] ? (
+                    <button
+                      type="button"
+                      onClick={() => { setCuadreDe(cuadreDe === a.id ? null : a.id); setMotivoDe(null); setActiva(a.id); }}
+                      className={botonClass}
+                      aria-expanded={cuadreDe === a.id}
+                      title={esAdministrador ? "Escribir cuántas hay y cuadrar" : "Anotar cuántas hay (el Administrador lo aplica)"}
+                    >
+                      Contar
+                    </button>
+                  ) : null}
+                  {esAdministrador && a.tipo === "Posible duplicado" ? (
+                    <a
+                      href={`/shipping-v2/control/fusionar?skus=${encodeURIComponent(a.clave.split("|")[1] ?? a.sku)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => { enOtraPestana.current.add(a.id); setActiva(a.id); }}
+                      className={botonClass}
+                      title="Juntar estos productos en uno (se revisa solo al volver)"
+                    >
+                      Fusionar<ExternalLink className="h-3 w-3" aria-hidden="true" />
+                    </a>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => { setMotivoDe(motivoDe === a.id ? null : a.id); setMotivo(""); setCuadreDe(null); setActiva(a.id); }}
+                    className={botonClass}
+                    aria-expanded={motivoDe === a.id}
+                    title="No cambia ningún dato: queda anotado con tu motivo y la fila pasa a resueltos"
+                  >
+                    Dejar así
+                  </button>
+                </>
+              )}
+            </span>
+          </div>
+          {expandido === a.id ? <div className="whitespace-pre-line px-3 pb-2 font-mono text-[11.5px] text-[#B4B5AC]">{a.detalle}</div> : null}
+          {verResueltos && a.motivo ? <div className="px-3 pb-2 text-[11.5px] text-[#8F908A]">{a.motivo}</div> : null}
+          {cuadreDe === a.id && !est ? (
+            <CuadrePanel
+              asunto={a}
+              esAdministrador={esAdministrador}
+              onCerrar={() => setCuadreDe(null)}
+              onAnotado={(actualizado) => {
+                setAbiertos((l) => l.map((x) => (x.id === actualizado.id ? actualizado : x)));
+                setCuadreDe(null);
+              }}
+              onAplicado={(nuevos) => {
+                setCuadreDe(null);
+                void verificar({ asuntoIds: [a.id], itemIds: a.itemIds }, nuevos);
+              }}
+            />
+          ) : null}
+          {motivoDe === a.id && !est ? (
+            <form className="flex items-center gap-2 px-3 pb-2" onSubmit={(e) => { e.preventDefault(); if (motivo.trim()) void resolver(a, "Está bien", motivo); }}>
+              <input
+                autoFocus
+                value={motivo}
+                onChange={(e) => setMotivo(e.target.value)}
+                placeholder="Motivo (no cambia ningún dato)"
+                aria-label="Motivo"
+                maxLength={500}
+                className="h-7 min-w-0 flex-1 rounded-lg border border-[#3A3B35] bg-[#151515] px-2.5 text-[12px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/60"
+              />
+              <button type="submit" disabled={busy === a.id || !motivo.trim()} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-2.5 text-[12px] font-bold text-[#141510] disabled:opacity-50">
+                {busy === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Guardar
+              </button>
+            </form>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  function renderGrupoAsuntos(g: GrupoAsuntos) {
+    const abierto = gruposAbiertos.has(g.clave) || g.asuntos.some((a) => a.id === activa || cuadreDe === a.id || motivoDe === a.id);
+    const primero = g.asuntos[0];
+    const sugerencias = [...new Set(g.asuntos.map((a) => a.sugerencia))];
+    const alternar = () => setGruposAbiertos((actual) => {
+      const siguiente = new Set(actual);
+      if (siguiente.has(g.clave)) siguiente.delete(g.clave);
+      else siguiente.add(g.clave);
+      return siguiente;
+    });
+    return (
+      <div key={`grupo:${g.clave}`}>
+        <div className="border-b border-[#252622]">
+          <div className="grid items-center gap-2.5 px-3 py-1.5 md:grid-cols-[108px_minmax(0,1fr)_220px_210px]">
+            <span className="inline-flex min-w-0 items-center gap-1 font-mono font-semibold text-[#EDEDE7]">
+              <button
+                type="button"
+                onClick={alternar}
+                aria-expanded={abierto}
+                aria-label={abierto ? `Ocultar los ${g.asuntos.length} asuntos` : `Ver los ${g.asuntos.length} asuntos`}
+                className="grid h-4 w-4 shrink-0 place-items-center rounded text-[#8F908A] transition hover:text-[#D7FF4F] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/50"
+              >
+                <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-150 ${abierto ? "rotate-90" : ""}`} aria-hidden="true" />
+              </button>
+              <span className="truncate">{primero.sku}</span>
+            </span>
+            <span className="min-w-0">
+              {primero.tipo} <span className="text-[#8F908A]">· en {g.asuntos.length} registros</span>
+            </span>
+            <span className="truncate text-[#B4B5AC]" title={sugerencias.join(" · ")}>{sugerencias.length === 1 ? sugerencias[0] : "Revisa cada registro"}</span>
+            <span className="flex items-center justify-end">
+              <button type="button" onClick={alternar} className={botonClass} aria-expanded={abierto}>
+                {abierto ? "Ocultar" : `Ver los ${g.asuntos.length}`}
+              </button>
+            </span>
+          </div>
+        </div>
+        {abierto ? <div className="bg-[#141511]">{g.asuntos.map((a) => renderAsunto(a))}</div> : null}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2.5">
       <div className="flex flex-wrap items-center gap-2">
@@ -410,132 +611,7 @@ export function ShippingV2ControlClient({
         <div className="hidden grid-cols-[108px_minmax(0,1fr)_220px_210px] gap-2.5 border-b border-[#30312D] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A] md:grid">
           <span>SKU</span><span>Qué pasa</span><span>{verResueltos ? "Cómo quedó" : "Sugerencia"}</span><span />
         </div>
-        {visibles.length ? visibles.map((a) => {
-          const conDetalle = Boolean(a.detalle);
-          const est = estadoFila[a.id];
-          const resaltada = activa === a.id && est !== "saliendo";
-          const fondo = est === "resuelto" || est === "saliendo" ? "bg-[#7BE495]/[0.12]" : resaltada ? "bg-[#D7FF4F]/[0.07] shadow-[inset_3px_0_0_#D7FF4F]" : "";
-          return (
-            <div
-              key={a.id}
-              className={`grid transition-all duration-300 ease-out ${est === "saliendo" ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}
-            >
-              <div className={`min-h-0 overflow-hidden border-b border-[#252622] transition-colors duration-300 ${fondo}`}>
-                <div className="grid items-center gap-2.5 px-3 py-1.5 md:grid-cols-[108px_minmax(0,1fr)_220px_210px]">
-                  {a.itemIds[0] || enlaceExterno(a) ? (
-                    <button
-                      type="button"
-                      onClick={() => abrir(a)}
-                      className="inline-flex w-fit items-center gap-1 text-left font-mono font-semibold text-[#EDEDE7] underline decoration-[#8F908A]/50 decoration-dotted underline-offset-[3px] transition hover:text-[#D7FF4F] hover:decoration-[#D7FF4F] hover:decoration-solid"
-                      title={enlaceExterno(a) ? "Abrir en otra pestaña" : "Abrir el artículo"}
-                    >
-                      {a.sku || "Abrir"}
-                      {enlaceExterno(a) ? <ExternalLink className="h-3 w-3" aria-hidden="true" /> : null}
-                    </button>
-                  ) : (
-                    <span className="font-mono font-semibold">{a.sku || "—"}</span>
-                  )}
-                  <span className="min-w-0">
-                    {textoAsunto(a)}
-                    {conDetalle && a.tipo !== "Posible duplicado" && a.tipo !== "Falta respaldo" ? <span className="ml-1.5 font-semibold text-[#FFB07A]">({a.detalle})</span> : null}
-                    {conDetalle && (a.tipo === "Posible duplicado" || a.tipo === "Falta respaldo") ? (
-                      <button type="button" onClick={() => setExpandido((x) => (x === a.id ? null : a.id))} aria-expanded={expandido === a.id} className="ml-1 inline-flex align-middle text-[#8F908A] hover:text-[#F5F5F5]" aria-label="Ver detalle">
-                        <ChevronDown className={`h-3.5 w-3.5 transition ${expandido === a.id ? "rotate-180" : ""}`} aria-hidden="true" />
-                      </button>
-                    ) : null}
-                  </span>
-                  <span className="text-[#B4B5AC]">
-                    {verResueltos ? (
-                      <span title={a.motivo}>{a.estado === "Está bien" ? "Dejado así" : a.estado}{a.resueltoPor ? ` · ${a.resueltoPor}` : ""}{a.fechaResuelto ? ` · ${fechaHora(a.fechaResuelto)}` : ""}</span>
-                    ) : (
-                      <>
-                        {a.sugerencia}
-                        {a.contado !== null && a.contadoPor ? <span className="text-[#FFC857]" title={fechaHora(a.fechaConteo)}> · contado {a.contado} ({a.contadoPor})</span> : null}
-                      </>
-                    )}
-                  </span>
-                  <span className="flex items-center justify-end gap-2">
-                    {est === "verificando" ? (
-                      <span className="inline-flex items-center gap-1.5 text-[12px] text-[#B4B5AC]"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />Verificando</span>
-                    ) : est === "resuelto" || est === "saliendo" ? (
-                      <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#9FEFB3]"><Check className="h-3.5 w-3.5" aria-hidden="true" />Resuelto</span>
-                    ) : verResueltos ? (
-                      a.estado === "Está bien" ? <button type="button" onClick={() => void resolver(a, "Abierto")} disabled={busy === a.id} className={botonClass}>Reabrir</button> : null
-                    ) : (
-                      <>
-                        {(a.tipo === "Unidades no cuadran" || a.tipo === "Vendido con unidades") && a.itemIds[0] ? (
-                          <button
-                            type="button"
-                            onClick={() => { setCuadreDe(cuadreDe === a.id ? null : a.id); setMotivoDe(null); setActiva(a.id); }}
-                            className={botonClass}
-                            aria-expanded={cuadreDe === a.id}
-                            title={esAdministrador ? "Escribir cuántas hay y cuadrar" : "Anotar cuántas hay (el Administrador lo aplica)"}
-                          >
-                            Contar
-                          </button>
-                        ) : null}
-                        {esAdministrador && a.tipo === "Posible duplicado" ? (
-                          <a
-                            href={`/shipping-v2/control/fusionar?skus=${encodeURIComponent(a.clave.split("|")[1] ?? a.sku)}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={() => { enOtraPestana.current.add(a.id); setActiva(a.id); }}
-                            className={botonClass}
-                            title="Juntar estos productos en uno (se revisa solo al volver)"
-                          >
-                            Fusionar<ExternalLink className="h-3 w-3" aria-hidden="true" />
-                          </a>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => { setMotivoDe(motivoDe === a.id ? null : a.id); setMotivo(""); setCuadreDe(null); setActiva(a.id); }}
-                          className={botonClass}
-                          aria-expanded={motivoDe === a.id}
-                          title="No cambia ningún dato: queda anotado con tu motivo y la fila pasa a resueltos"
-                        >
-                          Dejar así
-                        </button>
-                      </>
-                    )}
-                  </span>
-                </div>
-                {expandido === a.id ? <div className="whitespace-pre-line px-3 pb-2 font-mono text-[11.5px] text-[#B4B5AC]">{a.detalle}</div> : null}
-                {verResueltos && a.motivo ? <div className="px-3 pb-2 text-[11.5px] text-[#8F908A]">{a.motivo}</div> : null}
-                {cuadreDe === a.id && !est ? (
-                  <CuadrePanel
-                    asunto={a}
-                    esAdministrador={esAdministrador}
-                    onCerrar={() => setCuadreDe(null)}
-                    onAnotado={(actualizado) => {
-                      setAbiertos((l) => l.map((x) => (x.id === actualizado.id ? actualizado : x)));
-                      setCuadreDe(null);
-                    }}
-                    onAplicado={(nuevos) => {
-                      setCuadreDe(null);
-                      void verificar({ asuntoIds: [a.id], itemIds: a.itemIds }, nuevos);
-                    }}
-                  />
-                ) : null}
-                {motivoDe === a.id && !est ? (
-                  <form className="flex items-center gap-2 px-3 pb-2" onSubmit={(e) => { e.preventDefault(); if (motivo.trim()) void resolver(a, "Está bien", motivo); }}>
-                    <input
-                      autoFocus
-                      value={motivo}
-                      onChange={(e) => setMotivo(e.target.value)}
-                      placeholder="Motivo (no cambia ningún dato)"
-                      aria-label="Motivo"
-                      maxLength={500}
-                      className="h-7 min-w-0 flex-1 rounded-lg border border-[#3A3B35] bg-[#151515] px-2.5 text-[12px] text-[#F5F5F5] outline-none focus:border-[#D7FF4F]/60"
-                    />
-                    <button type="submit" disabled={busy === a.id || !motivo.trim()} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-2.5 text-[12px] font-bold text-[#141510] disabled:opacity-50">
-                      {busy === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Guardar
-                    </button>
-                  </form>
-                ) : null}
-              </div>
-            </div>
-          );
-        }) : (
+        {visibles.length ? gruposAsuntos.map((g) => (g.asuntos.length === 1 ? renderAsunto(g.asuntos[0]) : renderGrupoAsuntos(g))) : (
           <p className="px-3 py-6 text-center text-[12.5px] text-[#8F908A]">
             {verResueltos ? "Sin asuntos resueltos." : abiertos.length ? "Nada en este grupo." : "Todo en orden."}
           </p>
@@ -573,7 +649,7 @@ export function ShippingV2ControlClient({
               {errorDetalle ? (
                 <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{errorDetalle}</div>
               ) : detalle ? (
-                <FichaArticuloVista ficha={detalle} modo="modal" alCambiar={alCambiarFicha} />
+                <FichaArticuloVista ficha={detalle} modo="modal" alCambiar={alCambiarFicha} onElegirUnidad={elegirUnidad} />
               ) : (
                 <div className="flex min-h-64 items-center justify-center text-sm text-[#A7A7A7]"><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />Cargando…</div>
               )}

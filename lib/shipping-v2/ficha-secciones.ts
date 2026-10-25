@@ -9,7 +9,7 @@
 // puede ver, simplemente saldría vacía: el dato nunca llegó al navegador.
 
 export type PestanaFichaInterna = "general" | "costos" | "logistica" | "pago" | "packing" | "observaciones" | "despiece" | "intervenciones" | "kardex";
-export type BloqueFichaInterna = "recorrido" | "publicaciones" | "pestanas" | "novedades";
+export type BloqueFichaInterna = "unidades" | "recorrido" | "publicaciones" | "pestanas" | "novedades";
 
 export type ConfigFichaInterna = {
   /** El precio de venta se edita (solo Administrador; el servidor también lo exige). */
@@ -21,7 +21,7 @@ export type ConfigFichaInterna = {
 };
 
 export type PestanaFichaTecnica = "datos" | "mejoras" | "despiece";
-export type BloqueFichaTecnica = "inspeccion" | "origen" | "pestanas" | "novedades";
+export type BloqueFichaTecnica = "unidades" | "inspeccion" | "origen" | "pestanas" | "novedades";
 
 export type BloqueFichaProveedor = "compra" | "envio" | "pagos" | "observaciones";
 
@@ -30,7 +30,8 @@ const PESTANAS_INTERNAS: readonly PestanaFichaInterna[] = ["general", "costos", 
 export const FICHA_ADMIN: ConfigFichaInterna = {
   precioEditable: true,
   administrar: true,
-  bloques: ["recorrido", "publicaciones", "pestanas", "novedades"],
+  // Punto 18b: "unidades" = las unidades del SKU (solo si hay más de una).
+  bloques: ["unidades", "recorrido", "publicaciones", "pestanas", "novedades"],
   pestanas: PESTANAS_INTERNAS,
 };
 
@@ -38,13 +39,14 @@ export const FICHA_ADMIN: ConfigFichaInterna = {
 export const FICHA_STAFF: ConfigFichaInterna = {
   precioEditable: false,
   administrar: false,
-  bloques: ["recorrido", "publicaciones", "pestanas", "novedades"],
+  // Punto 18b: "unidades" = las unidades del SKU (solo si hay más de una).
+  bloques: ["unidades", "recorrido", "publicaciones", "pestanas", "novedades"],
   pestanas: PESTANAS_INTERNAS,
 };
 
 /** Técnico (25-oct): solo su trabajo técnico. */
 export const FICHA_TECNICO = {
-  bloques: ["inspeccion", "origen", "pestanas", "novedades"] as readonly BloqueFichaTecnica[],
+  bloques: ["unidades", "inspeccion", "origen", "pestanas", "novedades"] as readonly BloqueFichaTecnica[],
   pestanas: ["mejoras", "despiece", "datos"] as readonly PestanaFichaTecnica[],
 };
 

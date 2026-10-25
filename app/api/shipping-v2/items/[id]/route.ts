@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canShippingV2, getShippingV2AccessContextForSession, getShippingV2ItemById, updateShippingV2Item, updateShippingV2ItemField } from "@/lib/shipping-v2/airtable";
+import { canShippingV2, getShippingV2AccessContextForSession, getShippingV2ItemById, propagarCampoProductoShippingV2, updateShippingV2Item, updateShippingV2ItemField } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import { isShippingV2ProviderItemEditableField, SHIPPING_V2_PROVIDER_ITEM_EDITABLE_FIELDS } from "@/lib/shipping-v2/item-edit-config";
 import { isAdministratorRole } from "@/lib/apps";
@@ -7,7 +7,8 @@ import { camposConEstado, ocultarCamposDeObjeto } from "@/lib/permissions/campos
 import type { StaffSession } from "@/lib/session";
 import type { ShippingV2AccessContext, ShippingV2Item, ShippingV2ItemWriteInput } from "@/types/shipping-v2";
 import { perfilShippingV2 } from "@/lib/shipping-v2/access";
-import { recortarItemProveedor, recortarItemTecnico } from "@/lib/shipping-v2/ficha-articulo";
+import { CLAVES_CAMPO_PRODUCTO, recortarItemProveedor, recortarItemTecnico } from "@/lib/shipping-v2/ficha-articulo";
+import { getShippingV2ItemEditField } from "@/lib/shipping-v2/item-edit-config";
 
 // Punto 18 (25-oct-2026): el técnico y el proveedor reciben solo los campos de
 // su perfil (las mismas listas que su ficha), nunca el artículo completo.
@@ -138,7 +139,18 @@ export async function PATCH(request: Request, { params }: Params) {
         camposNoEditables: noEditables,
       });
 
-      return NextResponse.json({ success: true, data: itemParaPerfil(item, access, ocultos) });
+      // Punto 18b (25-oct): lo del producto se aplica a todas las unidades del
+      // SKU que siguen en el inventario; el precio, salvo "solo esta unidad".
+      // Solo el personal: lo que edita un proveedor queda en su registro.
+      let propagados = 0;
+      const config = getShippingV2ItemEditField(body.field);
+      const esCampoProducto = Boolean(config && (CLAVES_CAMPO_PRODUCTO as readonly string[]).includes(config.key));
+      const esPrecioDelSku = config?.key === "precioVenta" && body.alcance !== "unidad";
+      if (access.isAdmin && config && (esCampoProducto || esPrecioDelSku)) {
+        propagados = await propagarCampoProductoShippingV2(item, config.field, (item as Record<string, unknown>)[config.key], { actor });
+      }
+
+      return NextResponse.json({ success: true, data: itemParaPerfil(item, access, ocultos), propagados });
     }
 
     if (!canShippingV2(access, "canEditItems")) {

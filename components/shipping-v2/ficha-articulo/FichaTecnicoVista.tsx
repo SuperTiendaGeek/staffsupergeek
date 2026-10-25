@@ -27,6 +27,7 @@ import {
 } from "@/app/shipping-v2/items/ShippingV2ItemsClient";
 import { ShippingV2IntervencionesTab } from "@/app/shipping-v2/items/ShippingV2IntervencionesTab";
 import { ShippingV2DespieceTab } from "@/app/shipping-v2/items/ShippingV2DespieceTab";
+import { UnidadesDelSku } from "./UnidadesDelSku";
 
 const ETIQUETA_PESTANA: Record<PestanaFichaTecnica, string> = {
   mejoras: "Mejoras",
@@ -47,7 +48,7 @@ function Fila({ etiqueta, valor }: { etiqueta: string; valor: ReactNode }) {
   );
 }
 
-export function FichaTecnicoVista({ datos, modo, alCambiar }: { datos: FichaTecnica; modo: "modal" | "pagina"; alCambiar?: () => void }) {
+export function FichaTecnicoVista({ datos, modo, alCambiar, onElegirUnidad }: { datos: FichaTecnica; modo: "modal" | "pagina"; alCambiar?: () => void; onElegirUnidad?: (id: string) => void }) {
   const { item } = datos;
   const [pestana, setPestana] = useState<PestanaFichaTecnica>(FICHA_TECNICO.pestanas[0]);
   const avance = avanceDeInspeccion(item.revisionTecnicaDetalle, item.revisadoFisicamente === true);
@@ -81,6 +82,10 @@ export function FichaTecnicoVista({ datos, modo, alCambiar }: { datos: FichaTecn
   const botonPrincipal = inspeccion.boton && datos.inspeccionHref && avance !== "firmada" && inspeccion.boton !== "Inspeccionar igual";
 
   const bloques: Record<BloqueFichaTecnica, ReactNode> = {
+    // Punto 18b: las unidades del SKU (sin costos: el técnico no los recibe).
+    unidades: datos.hermanas.length > 1 && onElegirUnidad ? (
+      <UnidadesDelSku sku={sku} hermanas={datos.hermanas} actualId={item.id} verCostos={false} onElegir={onElegirUnidad} />
+    ) : null,
     inspeccion: (
       <section className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-[#2E2F28] bg-[#171814] px-3 py-2">
         <ClipboardCheck className="h-4 w-4 shrink-0 text-[#8F908A]" aria-hidden="true" />
@@ -132,9 +137,9 @@ export function FichaTecnicoVista({ datos, modo, alCambiar }: { datos: FichaTecn
         </div>
         <div key={pestana} className="p-2 animate-[sg-entrada_150ms_ease-out]">
           {pestana === "mejoras" ? (
-            <ShippingV2IntervencionesTab itemId={item.id} />
+            <ShippingV2IntervencionesTab key={item.id} itemId={item.id} />
           ) : pestana === "despiece" ? (
-            <ShippingV2DespieceTab itemId={item.id} canEdit={false} esAdmin={false} />
+            <ShippingV2DespieceTab key={item.id} itemId={item.id} canEdit={false} esAdmin={false} />
           ) : (
             <dl className="grid gap-x-6 lg:grid-cols-2">
               <Fila etiqueta="Resumen técnico" valor={texto(item.resumenTecnico)} />
@@ -154,6 +159,7 @@ export function FichaTecnicoVista({ datos, modo, alCambiar }: { datos: FichaTecn
     ),
     novedades: (
       <NovedadesVinculadasCard
+        key={item.id}
         novedades={datos.novedades}
         providerLabelsById={SIN_PROVEEDORES}
         item={{ id: item.id, sku: item.sku, nombre: item.nombre, cantidad: item.cantidad, estado: item.estado }}

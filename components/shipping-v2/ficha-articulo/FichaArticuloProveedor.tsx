@@ -22,6 +22,12 @@ import type { FichaArticulo } from "@/lib/shipping-v2/ficha-articulo";
 import { FichaArticuloVista } from "./FichaArticuloVista";
 import { FichaContexto, ID_REGISTRO, PARAM_FICHA, hrefArticulo, type CambioArticulo, type OyenteCambio } from "./contexto";
 
+/** Registros del mismo SKU que trae la ficha (para cambiar de unidad sin recargar todo). */
+function idsDelSku(ficha: FichaArticulo): string[] {
+  if (ficha.perfil === "proveedor") return [];
+  return ficha.datos.hermanas.map((h) => h.id);
+}
+
 function leerParam(): string | null {
   if (typeof window === "undefined") return null;
   const valor = new URLSearchParams(window.location.search).get(PARAM_FICHA);
@@ -146,8 +152,20 @@ function FichaArticuloVentana({ id, onClose, onCambio }: { id: string; onClose: 
   const panelRef = useRef<HTMLDivElement>(null);
   const enfocadoAntes = useRef<Element | null>(null);
 
-  // Cada artículo nuevo empieza desde el esqueleto (nunca con los datos del anterior).
+  // Cada artículo nuevo empieza desde el esqueleto (nunca con los datos del
+  // anterior). Punto 18b: si es otra unidad del MISMO SKU, la ficha se queda y
+  // solo se atenúa un instante hasta que llega la unidad nueva.
+  const estadoRef = useRef(estado);
   useEffect(() => {
+    estadoRef.current = estado;
+  }, [estado]);
+  const [cambiandoUnidad, setCambiandoUnidad] = useState(false);
+  useEffect(() => {
+    const actual = estadoRef.current;
+    if (actual.tipo === "lista" && actual.ficha.datos.item.id !== id && idsDelSku(actual.ficha).includes(id)) {
+      setCambiandoUnidad(true);
+      return;
+    }
     setEstado({ tipo: "cargando" });
   }, [id]);
 
@@ -158,9 +176,11 @@ function FichaArticuloVentana({ id, onClose, onCambio }: { id: string; onClose: 
         const payload = await respuesta.json().catch(() => ({}));
         if (!respuesta.ok || !payload.success) {
           setEstado({ tipo: "error", mensaje: String(payload.error || "No se pudo cargar el artículo."), estado: respuesta.status });
+          setCambiandoUnidad(false);
           return;
         }
         setEstado({ tipo: "lista", ficha: payload.data as FichaArticulo });
+        setCambiandoUnidad(false);
       })
       .catch((error) => {
         if (control.signal.aborted) return;
@@ -242,7 +262,7 @@ function FichaArticuloVentana({ id, onClose, onCambio }: { id: string; onClose: 
               {estado.estado === 401 ? <> <a href="/login" className="font-semibold underline">Iniciar sesión</a></> : null}
             </div>
           ) : (
-            <div className="p-2 pt-12 sm:p-3 sm:pt-12 animate-[sg-entrada_180ms_ease-out]">
+            <div aria-busy={cambiandoUnidad || undefined} className={`p-2 pt-12 transition-opacity duration-150 sm:p-3 sm:pt-12 animate-[sg-entrada_180ms_ease-out] ${cambiandoUnidad ? "pointer-events-none opacity-60" : ""}`}>
               <FichaArticuloVista ficha={estado.ficha} modo="modal" alCambiar={alCambiar} />
             </div>
           )}
