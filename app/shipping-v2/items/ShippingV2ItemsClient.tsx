@@ -48,6 +48,7 @@ import {
 import { createShippingV2ProveedorLabelMap, getShippingV2ProveedorLabel, resolveShippingV2ProveedorLabel } from "@/lib/shipping-v2/provider-labels";
 import { canBeItemLogisticsProvider, canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
 import { ShippingV2DespieceTab } from "./ShippingV2DespieceTab";
+import { KardexRegistroTab } from "@/components/shipping-v2/kardex/KardexRegistroTab";
 import { ShippingV2IntervencionesTab } from "./ShippingV2IntervencionesTab";
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
 import { normalizarSerie, rutaUnidad, seguimientoDe, serieCorta } from "@/lib/shipping-v2/unidades-serie";
@@ -118,7 +119,7 @@ type DetailRow = {
   copiable?: boolean;
 };
 
-type ItemDetailTabKey = "general" | "costos" | "logistica" | "pago" | "packing" | "observaciones" | "despiece" | "intervenciones";
+type ItemDetailTabKey = "general" | "costos" | "logistica" | "pago" | "packing" | "observaciones" | "despiece" | "intervenciones" | "kardex";
 
 const ALL = SHIPPING_V2_ALL_FILTER;
 const groupOptions = shippingV2ItemGroupOptions;
@@ -2039,7 +2040,8 @@ export function ShippingV2ItemDetailView({
         { label: C.modelo.label, value: item.modelo, config: C.modelo },
         { label: C.categoria.label, value: item.categoria, config: C.categoria },
         { label: C.condicion.label, value: item.condicion, config: C.condicion },
-        { label: C.cantidad.label, value: item.cantidad ?? item.qty, config: C.cantidad },
+        // Punto 12: lo que ya está en la tienda no cambia de cantidad a mano (se cuadra en Control → Revisión).
+        { label: C.cantidad.label, value: item.cantidad ?? item.qty, config: C.cantidad, ...(item.recibido === true ? { readOnly: true } : {}) },
         { label: C.unidad.label, value: item.unidad, config: C.unidad },
         { label: C.estadoItem.label, value: item.estado, displayValue: <EstadoBadge estado={item.estado} size="sm" />, config: C.estadoItem },
         { label: C.estadoRevision.label, value: item.estadoRevision, config: C.estadoRevision },
@@ -2168,6 +2170,10 @@ export function ShippingV2ItemDetailView({
         label: "Mejoras",
         rows: [],
       }]
+      : []),
+    // Punto 12 (24-oct): movimientos de esta unidad o lote. Solo personal.
+    ...(canUseRecepcion || canEditItems
+      ? [{ key: "kardex" as const, label: "Kardex", rows: [] }]
       : []),
   ];
   const activeSection = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
@@ -2388,6 +2394,16 @@ export function ShippingV2ItemDetailView({
             <HeroStat label="Cantidad" title={item.unidad || undefined}>
               {formatShippingV2ItemQuantity(item)}
               {(item.cantidadReservada ?? 0) > 0 ? <span className="ml-1.5 text-[12px] font-medium text-[#F4E85B]">{item.cantidadReservada} reservada{item.cantidadReservada === 1 ? "" : "s"}</span> : null}
+              {canUseRecepcion || canEditItems ? (
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("kardex"); tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+                  className="ml-1.5 text-[12px] font-semibold text-[#D7FF4F] hover:underline"
+                  title="Movimientos de esta unidad o lote"
+                >
+                  Kardex
+                </button>
+              ) : null}
             </HeroStat>
           </div>
 
@@ -2487,6 +2503,8 @@ export function ShippingV2ItemDetailView({
               <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} esAdmin={esAdmin} />
             ) : activeTab === "intervenciones" ? (
               <ShippingV2IntervencionesTab itemId={item.id} />
+            ) : activeTab === "kardex" ? (
+              <KardexRegistroTab itemId={item.id} />
             ) : (
               <>
                 <DetailSection rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} />

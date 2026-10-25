@@ -19,6 +19,7 @@ import "server-only";
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "../gancho/airtableGancho";
 import { crearMovimiento, fetchMovimientoById } from "@/lib/finanzas/movimientos";
 import { camposRetornoItem } from "@/lib/shipping-v2/devoluciones";
+import { kardexDocumento, type LineaDocumentoKardex } from "@/lib/shipping-v2/kardex-registro";
 import type { EstadoMovimiento, Movimiento } from "@/types/finanzas";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
@@ -81,6 +82,7 @@ async function revertirShippingItemsFacturaAnulada(input: {
   }]));
 
   const fallidos: string[] = [];
+  const kardexDevueltos: LineaDocumentoKardex[] = [];
   for (const [itemId, qty] of porItem) {
     const est = actual.get(itemId);
     // Idempotente: solo revierte si esta factura sigue enlazada al item.
@@ -94,9 +96,14 @@ async function revertirShippingItemsFacturaAnulada(input: {
       ...camposRetornoItem(est.fields, { cantidad: qty, tipo: "anulacion", reapartar: input.reapartar === true }),
       "Factura": est.facturaIds.filter((id) => id !== input.facturaRecordId),
     };
-    try { await patchItem(itemId, fields); }
+    try {
+      await patchItem(itemId, fields);
+      kardexDevueltos.push({ itemId, cantidad: qty });
+    }
     catch (e) { fallidos.push(`${itemId}: ${e instanceof Error ? e.message : String(e)}`); }
   }
+  // Kardex (punto 12): "Factura anulada" por artículo que volvió. Nunca lanza.
+  await kardexDocumento({ tipo: "anula-factura", documentoId: input.facturaRecordId, lineas: kardexDevueltos });
   return fallidos.length === 0 ? { estado: "OK" } : { estado: "ERROR", detalle: `Fallaron: ${fallidos.join("; ")}` };
 }
 

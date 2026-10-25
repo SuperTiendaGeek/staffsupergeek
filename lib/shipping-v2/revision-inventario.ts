@@ -17,6 +17,8 @@ export const TIPOS_ASUNTO = [
   "Descargo con error",
   "Falta respaldo",
   "Tipo antiguo",
+  // Punto 12: el libro de movimientos no dice lo mismo que el inventario.
+  "Kardex no cuadra",
 ] as const;
 export type TipoAsunto = (typeof TIPOS_ASUNTO)[number];
 
@@ -33,6 +35,7 @@ export const GRUPO_TIPO: Record<TipoAsunto, string> = {
   "Descargo con error": "Ventas",
   "Falta respaldo": "Pagos",
   "Tipo antiguo": "Datos",
+  "Kardex no cuadra": "Kardex",
 };
 
 export const PLAZOS_REVISION = { diasEnCamino: 45, diasNovedad: 15 };
@@ -77,6 +80,11 @@ export type DatosRevision = {
   novedadesAbiertas: NovedadRevision[];
   cajasCerradas: CajaRevision[];
   documentosConError: DocumentoConError[];
+  /**
+   * Punto 12: registros cuyo Kardex no cuadra con el inventario. `undefined` =
+   * no se pudo leer el Kardex (no se abre ni se cierra ningún asunto de Kardex).
+   */
+  kardex?: Array<{ registroId: string; sku: string; libro: number; inventario: number }>;
 };
 
 export type AsuntoDetectado = {
@@ -324,6 +332,22 @@ export function detectarAsuntos(datos: DatosRevision, hoy: Date, plazos = PLAZOS
       asunto: `${d.tipo} ${d.numero} con error de inventario`,
       detalle: d.error,
       sugerencia: d.tipo === "Recibo" ? "Reintentar descargo" : "Revisar el descargo",
+    });
+  }
+
+  // Kardex (punto 12): si ya hay "Unidades no cuadran" para el registro, ese
+  // asunto lo explica (al cuadrarlo, el libro queda bien también).
+  const conUnidades = new Set(asuntos.filter((a) => a.tipo === "Unidades no cuadran").flatMap((a) => a.itemIds));
+  for (const d of datos.kardex ?? []) {
+    if (conUnidades.has(d.registroId)) continue;
+    asuntos.push({
+      clave: `Kardex no cuadra|${d.registroId}`,
+      tipo: "Kardex no cuadra",
+      sku: d.sku,
+      itemIds: [d.registroId],
+      asunto: `Libro ${d.libro} · inventario ${d.inventario}`,
+      detalle: d.libro > d.inventario ? `El libro tiene ${d.libro - d.inventario} de más` : `Al libro le falta${d.inventario - d.libro === 1 ? "" : "n"} ${d.inventario - d.libro}`,
+      sugerencia: "Cuadrar Kardex",
     });
   }
 

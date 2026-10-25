@@ -25,6 +25,7 @@ import { actualizarSincronizacionInventario } from "../airtable/facturas";
 import { ahoraEnEcuador } from "../fechaEcuador";
 import type { DetalleFactura } from "../types/factura";
 import { aplicarVentaUnidades } from "@/lib/shipping-v2/unidades";
+import { kardexDocumento, type LineaDocumentoKardex } from "@/lib/shipping-v2/kardex-registro";
 
 const SHIPPING_ITEMS_TABLE = "Shipping Items";
 const PRODUCTOS_DIGITALES_TABLE = "Productos Digitales";
@@ -254,6 +255,8 @@ async function postEmisionShippingItems(input: PostEmisionInput): Promise<Result
   const advertencias: string[] = [];
   let yaHechos  = 0;
   let marcados  = 0;
+  // Punto 12 (Kardex): lo que de verdad se descontó, con su precio sin IVA.
+  const kardexHechos: LineaDocumentoKardex[] = [];
 
   for (const [itemId, venta] of vendidaPorItem) {
     const actual = estadoActual.get(itemId);
@@ -317,6 +320,11 @@ async function postEmisionShippingItems(input: PostEmisionInput): Promise<Result
     try {
       await patchShippingItemConReintento(itemId, fields);
       marcados++;
+      for (const l of itemsProducto) {
+        if (l.shippingItemId !== itemId) continue;
+        const q = Number.isFinite(l.cantidad) && l.cantidad > 0 ? l.cantidad : 0;
+        kardexHechos.push({ itemId, cantidad: q, precio: q > 0 && Number.isFinite(l.precioTotalSinImpuesto) ? l.precioTotalSinImpuesto / q : null });
+      }
     } catch (e) {
       fallidos.push({
         id:          itemId,
@@ -325,6 +333,9 @@ async function postEmisionShippingItems(input: PostEmisionInput): Promise<Result
       });
     }
   }
+
+  // Kardex (punto 12): un renglón "Venta con factura" por artículo. Nunca lanza.
+  await kardexDocumento({ tipo: "venta-factura", documentoId: input.facturaRecordId, lineas: kardexHechos });
 
   if (fallidos.length === 0 && advertencias.length === 0) {
     await actualizarSincronizacionInventario(input.facturaRecordId, "OK").catch((e) => {

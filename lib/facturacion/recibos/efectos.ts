@@ -7,6 +7,7 @@ import "server-only";
 // El recibo (registro + PDF) sí se crea siempre; estos efectos son aparte.
 
 import { camposRetornoItem } from "@/lib/shipping-v2/devoluciones";
+import { kardexDocumento, type LineaDocumentoKardex } from "@/lib/shipping-v2/kardex-registro";
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "../gancho/airtableGancho";
 import { ahoraEnEcuador } from "../fechaEcuador";
 import { aplicarVentaUnidades } from "@/lib/shipping-v2/unidades";
@@ -70,6 +71,7 @@ export async function descontarInventarioRecibo(input: {
 
   const fallidos: string[] = [];
   const advertencias: string[] = [];
+  const kardexHechos: LineaDocumentoKardex[] = [];
   for (const [itemId, venta] of porItem) {
     const est = actual.get(itemId);
     if (est && est.reciboIds.includes(input.reciboRecordId)) continue; // idempotente
@@ -95,9 +97,19 @@ export async function descontarInventarioRecibo(input: {
     if (tras.reservado !== est.reservado) fields["Reservado"] = tras.reservado;
     if (nuevaFinal === 0) { fields["Estado Item"] = "Vendido"; fields["Disponible para venta"] = false; }
 
-    try { await patchItem(itemId, fields); }
+    try {
+      await patchItem(itemId, fields);
+      for (const l of conItem) {
+        if (l.shippingItemId !== itemId) continue;
+        const q = Number.isFinite(l.cantidad) && l.cantidad > 0 ? l.cantidad : 0;
+        kardexHechos.push({ itemId, cantidad: q, precio: q > 0 ? (q * (Number(l.precioUnitario) || 0) - (Number(l.descuento) || 0)) / q : null });
+      }
+    }
     catch (e) { fallidos.push(`${venta.descripcion}: ${e instanceof Error ? e.message : String(e)}`); }
   }
+
+  // Kardex (punto 12): "Venta con recibo" por artículo. Nunca lanza.
+  await kardexDocumento({ tipo: "venta-recibo", documentoId: input.reciboRecordId, lineas: kardexHechos });
 
   if (fallidos.length === 0 && advertencias.length === 0) {
     await actualizarEfectosRecibo(input.reciboRecordId, "Sincronización Inventario", "OK").catch(() => {});
@@ -133,6 +145,7 @@ export async function revertirInventarioRecibo(input: { reciboRecordId: string; 
     reciboIds: linkedIds(r.fields["Recibo"]),
   }]));
 
+  const kardexDevueltos: LineaDocumentoKardex[] = [];
   for (const [itemId, qty] of porItem) {
     const est = actual.get(itemId);
     // Solo revierte si este recibo está enlazado (evita revertir dos veces).
@@ -143,8 +156,15 @@ export async function revertirInventarioRecibo(input: { reciboRecordId: string; 
       ...camposRetornoItem(est.fields, { cantidad: qty, tipo: "anulacion", reapartar: input.reapartar === true }),
       "Recibo": est.reciboIds.filter((id) => id !== input.reciboRecordId),
     };
-    await patchItem(itemId, fields).catch((e) => console.error("[revertirInventarioRecibo]", e));
+    try {
+      await patchItem(itemId, fields);
+      kardexDevueltos.push({ itemId, cantidad: qty });
+    } catch (e) {
+      console.error("[revertirInventarioRecibo]", e);
+    }
   }
+  // Kardex (punto 12): "Recibo anulado" por artículo que volvió. Nunca lanza.
+  await kardexDocumento({ tipo: "anula-recibo", documentoId: input.reciboRecordId, lineas: kardexDevueltos });
 }
 
 async function patchItem(itemId: string, fields: Record<string, unknown>): Promise<void> {
