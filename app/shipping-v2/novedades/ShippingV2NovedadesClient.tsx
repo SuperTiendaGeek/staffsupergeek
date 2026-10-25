@@ -6,6 +6,7 @@
 // (artículo y último mensaje) que se despliega para ver la conversación, los
 // datos, las evidencias y el resto de acciones.
 
+import { EnlaceArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -215,9 +216,9 @@ function NovedadFila({
 
   const sku = novedad.itemSku ? (
     enlazarArticulo && novedad.itemId ? (
-      <Link href={`/shipping-v2/items/${novedad.itemId}`} onClick={detener} className="shrink-0 text-[12px] font-bold text-[#D7FF4F] hover:underline" title="Abrir la ficha del artículo">
+      <EnlaceArticulo id={novedad.itemId} onClick={detener} className="shrink-0 text-[12px] font-bold text-[#D7FF4F] hover:underline" title="Abrir la ficha del artículo">
         {novedad.itemSku}
-      </Link>
+      </EnlaceArticulo>
     ) : (
       <span className="shrink-0 text-[12px] font-bold text-[#D7FF4F]">{novedad.itemSku}</span>
     )

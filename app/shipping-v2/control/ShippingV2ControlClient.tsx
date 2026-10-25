@@ -10,57 +10,17 @@
 // confirma que ya no tiene asuntos abiertos; si la verificación falla, se queda.
 
 import { CopyableSKU } from "@/components/ui/copyable-sku";
-import dynamic from "next/dynamic";
+import { FichaArticuloVista } from "@/components/shipping-v2/ficha-articulo/FichaArticuloVista";
+import type { FichaArticulo } from "@/lib/shipping-v2/ficha-articulo";
+import { useAlCambiarArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
 import { GRUPO_TIPO, TIPOS_ASUNTO, type TipoAsunto } from "@/lib/shipping-v2/revision-inventario";
-import { resolveShippingV2Items } from "@/lib/shipping-v2/item-list-view";
 import type { ShippingV2AsuntoRevision } from "@/lib/shipping-v2/airtable";
-import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
 import { CodigosLista } from "./CodigosLista";
 import { ConteosLista } from "./ConteosLista";
 import { CuadrePanel } from "./CuadrePanel";
-import type {
-  ShippingV2AccessPermissions,
-  ShippingV2Item,
-  ShippingV2Novedad,
-  ShippingV2Packing,
-  ShippingV2Pago,
-  ShippingV2Proveedor,
-} from "@/types/shipping-v2";
 
-type DetailPayload = {
-  item: ResolvedItem;
-  proveedores: ShippingV2Proveedor[];
-  pago: ShippingV2Pago | null;
-  packing: ShippingV2Packing | null;
-  novedades: ShippingV2Novedad[];
-  permissions: ShippingV2AccessPermissions | null;
-  esAdmin: boolean;
-};
-
-type DetailViewProps = {
-  item: ResolvedItem;
-  proveedores: ShippingV2Proveedor[];
-  pago?: ShippingV2Pago | null;
-  packing?: ShippingV2Packing | null;
-  novedades?: ShippingV2Novedad[];
-  onSaved?: (item: ShippingV2Item) => void;
-  esAdmin?: boolean;
-  permissions?: ShippingV2AccessPermissions | null;
-};
-
-const ShippingV2ItemDetailView = dynamic<DetailViewProps>(
-  () => import("../items/ShippingV2ItemsClient").then((m) => m.ShippingV2ItemDetailView),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex min-h-64 items-center justify-center text-sm text-[#A7A7A7]">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />Cargando…
-      </div>
-    ),
-  }
-);
 
 const TODOS = "Todos";
 const botonClass = "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#3A3B35] bg-[#1A1B17] px-2.5 text-[12px] font-semibold text-[#EDEDE7] transition hover:border-[#D7FF4F]/50 disabled:opacity-50";
@@ -224,25 +184,33 @@ export function ShippingV2ControlClient({
   }, [verificar]);
 
   // ── Modal del artículo ──
-  const [detalle, setDetalle] = useState<DetailPayload | null>(null);
+  // Punto 18 (25-oct): la ficha llega del mismo cargador que la ventana única
+  // (recortada para el perfil de la sesión); Control conserva su cabecera con
+  // los asuntos del artículo.
+  const [detalle, setDetalle] = useState<FichaArticulo | null>(null);
+  const [versionDetalle, setVersionDetalle] = useState(0);
   const [errorDetalle, setErrorDetalle] = useState("");
   const huboCambios = useRef(false);
 
   useEffect(() => {
     if (!modal) return;
     let cancelado = false;
-    setDetalle(null);
     setErrorDetalle("");
-    huboCambios.current = false;
-    fetch(`/api/shipping-v2/items/${encodeURIComponent(modal.itemId)}/detail`, { cache: "no-store" })
+    fetch(`/api/shipping-v2/items/${encodeURIComponent(modal.itemId)}/ficha`, { cache: "no-store" })
       .then(async (r) => {
         const payload = await r.json().catch(() => ({}));
         if (!r.ok || !payload.success) throw new Error(String(payload.error || "No se pudo cargar el artículo."));
-        if (!cancelado) setDetalle(payload.data as DetailPayload);
+        if (!cancelado) setDetalle(payload.data as FichaArticulo);
       })
       .catch((e) => { if (!cancelado) setErrorDetalle(e instanceof Error ? e.message : "Error inesperado."); });
     return () => { cancelado = true; };
-  }, [modal]);
+  }, [modal, versionDetalle]);
+
+  // Al cambiar de artículo se empieza desde cero (nunca con los datos del anterior).
+  useEffect(() => {
+    setDetalle(null);
+    huboCambios.current = false;
+  }, [modal?.itemId]);
 
   function abrir(a: ShippingV2AsuntoRevision) {
     setActiva(a.id);
@@ -258,10 +226,19 @@ export function ShippingV2ControlClient({
     setModal({ itemId: a.itemIds[0], asuntoId: a.id });
   }
 
-  function alGuardar(item: ShippingV2Item) {
+  // Un dato guardado en la ficha (sin recargarla): se revisan los asuntos de ese artículo.
+  useAlCambiarArticulo(({ id }) => {
+    if (!modal || modal.itemId !== id) return;
     huboCambios.current = true;
-    setDetalle((d) => (d && d.item.id === item.id ? { ...d, item: resolveShippingV2Items([item], d.proveedores)[0] } : d));
-    void verificar({ itemIds: [item.id] });
+    void verificar({ itemIds: [id] });
+  });
+
+  // Algo cambió en la ficha: se recarga y se vuelven a revisar los asuntos del artículo.
+  function alCambiarFicha() {
+    if (!modal) return;
+    huboCambios.current = true;
+    setVersionDetalle((v) => v + 1);
+    void verificar({ itemIds: [modal.itemId] });
   }
 
   const cerrarModal = useCallback(() => {
@@ -569,8 +546,8 @@ export function ShippingV2ControlClient({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-3 py-4" onMouseDown={(e) => { if (e.target === e.currentTarget) cerrarModal(); }}>
           <div className="flex max-h-[94vh] w-full max-w-[min(96vw,1440px)] flex-col overflow-hidden rounded-xl border border-[#3A3A36] bg-[#151613] shadow-2xl shadow-black/50">
             <div className="flex items-center gap-2.5 border-b border-[#30312D] px-4 py-2.5">
-              <span className="font-mono text-[13px] font-semibold text-[#D7FF4F]">{detalle?.item.sku?.trim() ? <CopyableSKU sku={detalle.item.sku.trim()} /> : ""}</span>
-              <span className="min-w-0 truncate text-[14px] font-semibold text-[#F5F5F5]">{detalle?.item.nombre ?? ""}</span>
+              <span className="font-mono text-[13px] font-semibold text-[#D7FF4F]">{detalle?.datos.item.sku?.trim() ? <CopyableSKU sku={detalle.datos.item.sku.trim()} /> : ""}</span>
+              <span className="min-w-0 truncate text-[14px] font-semibold text-[#F5F5F5]">{detalle?.datos.item.nombre ?? ""}</span>
               {abiertos.filter((x) => x.itemIds.includes(modal.itemId)).length ? (
                 <span className="shrink-0 text-[12px] text-[#FFB07A]">
                   {abiertos.filter((x) => x.itemIds.includes(modal.itemId)).map(textoAsunto).join(" · ")}
@@ -596,16 +573,7 @@ export function ShippingV2ControlClient({
               {errorDetalle ? (
                 <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{errorDetalle}</div>
               ) : detalle ? (
-                <ShippingV2ItemDetailView
-                  item={detalle.item}
-                  proveedores={detalle.proveedores}
-                  pago={detalle.pago}
-                  packing={detalle.packing}
-                  novedades={detalle.novedades}
-                  esAdmin={detalle.esAdmin}
-                  permissions={detalle.permissions}
-                  onSaved={alGuardar}
-                />
+                <FichaArticuloVista ficha={detalle} modo="modal" alCambiar={alCambiarFicha} />
               ) : (
                 <div className="flex min-h-64 items-center justify-center text-sm text-[#A7A7A7]"><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />Cargando…</div>
               )}

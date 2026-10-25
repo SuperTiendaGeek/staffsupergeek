@@ -206,6 +206,14 @@ export type ShippingV2Proveedor = ShippingV2RecordBase & {
 
 export type ShippingV2AccessMode = "staff" | "provider" | "none";
 
+/**
+ * Punto 18 (25-oct-2026): quién es la sesión frente a Shipping V2. Decide qué
+ * datos entrega el servidor y qué vista de la ficha se arma. "tecnico" es un
+ * perfil propio (antes era un staff más y recibía costos). Se calcula con
+ * `perfilShippingV2()` (lib/shipping-v2/access.ts), nunca en el navegador.
+ */
+export type ShippingV2Perfil = "admin" | "staff" | "tecnico" | "proveedor" | "ninguno";
+
 export type ShippingV2AccessPermissions = {
   canViewItems: boolean;
   canEditItems: boolean;
@@ -232,6 +240,10 @@ export type ShippingV2AccessPermissions = {
   canUseRecepcion: boolean;
   canViewCosts: boolean;
   canViewProviderCost: boolean;
+  /** Punto 18: ver el precio de venta (el técnico lo ve como dato; el proveedor no). */
+  canViewSalePrice: boolean;
+  /** Punto 18: trabajo técnico sobre un artículo: inspección, mantenimientos y mejoras. */
+  canTrabajoTecnico: boolean;
 };
 
 export type ShippingV2AccessContext = {
@@ -240,6 +252,8 @@ export type ShippingV2AccessContext = {
   /** true solo si la sesión real tiene el rol "Administrador" del sistema (isAdministratorRole). Distinto de `isAdmin`: cualquier staff (técnico, atención, etc.) tiene isAdmin=true aquí, pero isSiteAdmin=false salvo que sea Administrador de verdad. Reservado para acciones que deben quedar fuera del alcance de todo el staff, como reabrir un packing cerrado. */
   isSiteAdmin: boolean;
   mode: ShippingV2AccessMode;
+  /** Punto 18: solo lo fija el perfil técnico; los demás se deducen (ver perfilShippingV2). */
+  perfil?: ShippingV2Perfil;
   providerId?: string;
   providerCode?: string;
   providerName?: string;

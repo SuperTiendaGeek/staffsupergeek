@@ -5,7 +5,23 @@ import { isShippingV2ProviderItemEditableField, SHIPPING_V2_PROVIDER_ITEM_EDITAB
 import { isAdministratorRole } from "@/lib/apps";
 import { camposConEstado, ocultarCamposDeObjeto } from "@/lib/permissions/campos";
 import type { StaffSession } from "@/lib/session";
-import type { ShippingV2ItemWriteInput } from "@/types/shipping-v2";
+import type { ShippingV2AccessContext, ShippingV2Item, ShippingV2ItemWriteInput } from "@/types/shipping-v2";
+import { perfilShippingV2 } from "@/lib/shipping-v2/access";
+import { recortarItemProveedor, recortarItemTecnico } from "@/lib/shipping-v2/ficha-articulo";
+
+// Punto 18 (25-oct-2026): el técnico y el proveedor reciben solo los campos de
+// su perfil (las mismas listas que su ficha), nunca el artículo completo.
+function itemParaPerfil(item: ShippingV2Item, access: ShippingV2AccessContext, ocultos: string[]) {
+  const perfil = perfilShippingV2(access);
+  if (perfil === "tecnico") return recortarItemTecnico(item);
+  if (perfil === "proveedor") {
+    return recortarItemProveedor(item, {
+      verCosto: access.permissions.canViewProviderCost === true,
+      verObservaciones: access.permissions.canEditProviderItemFields === true,
+    });
+  }
+  return ocultarCamposDeObjeto(item, ocultos);
+}
 
 // Personalización por usuario (Fase 2 de permisos, ver
 // lib/permissions/campos.ts) — un Administrador nunca queda restringido por
@@ -78,7 +94,7 @@ export async function GET(_request: Request, { params }: Params) {
     const access = await getShippingV2AccessContextForSession(session);
     const item = await getShippingV2ItemById(id, { access });
     const { ocultos } = camposPersonalizadosDelUsuario(session);
-    return NextResponse.json({ success: true, data: ocultarCamposDeObjeto(item, ocultos) });
+    return NextResponse.json({ success: true, data: itemParaPerfil(item, access, ocultos) });
   } catch (error) {
     console.error("Error al obtener item Shipping V2:", error);
     return NextResponse.json(
@@ -122,7 +138,7 @@ export async function PATCH(request: Request, { params }: Params) {
         camposNoEditables: noEditables,
       });
 
-      return NextResponse.json({ success: true, data: ocultarCamposDeObjeto(item, ocultos) });
+      return NextResponse.json({ success: true, data: itemParaPerfil(item, access, ocultos) });
     }
 
     if (!canShippingV2(access, "canEditItems")) {

@@ -112,7 +112,7 @@ export default async function ShippingV2ItemsPage({ searchParams }: PageProps) {
     providerName = access.providerName || access.providerCode || "";
     if (
       (!access.permissions.canViewProviderCost && sortBy === "costo-desc") ||
-      (!access.permissions.canViewCosts && sortBy === "precio-desc")
+      (!(access.permissions.canViewCosts || access.permissions.canViewSalePrice) && sortBy === "precio-desc")
     ) {
       sortBy = "newest";
     }

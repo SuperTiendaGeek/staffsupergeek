@@ -4,6 +4,7 @@
 // abrir la ficha, donde un Administrador puede darlos de baja o pasarlos a la
 // venta.
 
+import { EnlaceArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -143,10 +144,10 @@ export function ShippingV2ActivosClient({ filas, puedeRegistrar, puedeVerCostos 
                   return (
                     <tr key={f.id} className="border-b border-[#23241F] last:border-b-0 hover:bg-[#171814]">
                       <td className="px-2 py-1.5 font-mono text-[#D7FF4F]">
-                        <Link href={`/shipping-v2/items/${f.id}`} className="hover:underline">{f.sku || "—"}</Link>
+                        <EnlaceArticulo id={f.id} className="hover:underline">{f.sku || "—"}</EnlaceArticulo>
                       </td>
                       <td className="px-2 py-1.5 text-[#F5F5F5]">
-                        <Link href={`/shipping-v2/items/${f.id}`} className="hover:underline">{f.nombre || "Sin nombre"}</Link>
+                        <EnlaceArticulo id={f.id} className="hover:underline">{f.nombre || "Sin nombre"}</EnlaceArticulo>
                         {f.numeroSerie ? <span className="block text-[11px] text-[#696A64]">Serie {f.numeroSerie}</span> : null}
                       </td>
                       <td className="px-2 py-1.5 text-[#A7A7A7]">{f.categoria || "—"}</td>

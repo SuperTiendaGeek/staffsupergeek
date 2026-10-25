@@ -8,6 +8,7 @@
 // anular un pago (anula su egreso en Finanzas) o mover un artículo de orden.
 // Colores del boceto aprobado: lima = la orden, verde = el pago, amarillo = falta.
 
+import { EnlaceArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -152,7 +153,7 @@ export function OrdenCompraClient({ orden, otras, puedePagar, puedeAgregar, esAd
           {orden.articulos.map((a) => (
             <div key={a.id} className={`border-b border-[#2A2B26] ${a.cancelado ? "opacity-50" : ""}`}>
               <div className="grid grid-cols-[96px_minmax(0,1fr)_92px_120px_48px_84px_88px_92px_76px_64px] items-center gap-2 px-2 py-1.5 text-[12.5px] text-[#B4B5AC]">
-                <Link href={`/shipping-v2/items/${a.id}`} className="truncate font-semibold text-[#D7FF4F] hover:underline">{a.sku}</Link>
+                <EnlaceArticulo id={a.id} className="truncate font-semibold text-[#D7FF4F] hover:underline">{a.sku}</EnlaceArticulo>
                 <span className="truncate text-[#E6E6E1]" title={a.nombre}>
                   {a.nombre || "—"}
                   {a.usoLocal ? <span className={`ml-1.5 ${chip} border-[#8B73FF]/50 text-[#C9BFFF]`}>Activo</span> : null}

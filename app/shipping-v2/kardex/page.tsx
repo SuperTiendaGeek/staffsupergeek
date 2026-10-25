@@ -3,6 +3,7 @@ import { ShippingV2Pestanas } from "@/components/shipping-v2/ShippingV2Pestanas"
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { getShippingV2AccessContextForSession } from "@/lib/shipping-v2/airtable";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
+import { esTecnicoShippingV2 } from "@/lib/shipping-v2/access";
 import { getSessionFromCookie } from "@/lib/session";
 import { ShippingV2KardexClient, type VistaKardex } from "./ShippingV2KardexClient";
 
@@ -18,7 +19,8 @@ export default async function ShippingV2KardexPage({ searchParams }: { searchPar
   const session = await getSessionFromCookie();
   requirePantallaVisible(session?.user.pantallasRestringidas ?? {}, "shipping-v2", "kardex");
   const access = await getShippingV2AccessContextForSession(session);
-  if (!access.isAdmin || !access.permissions.canViewItems) redirect("/shipping-v2");
+  // Punto 18: el Kardex es del personal; el técnico no lo usa.
+  if (!access.isAdmin || !access.permissions.canViewItems || esTecnicoShippingV2(access)) redirect("/shipping-v2");
   const esAdministrador = access.isSiteAdmin === true;
   const { vista, q } = await searchParams;
   let inicial = VISTAS.includes(vista as VistaKardex) ? (vista as VistaKardex) : "producto";

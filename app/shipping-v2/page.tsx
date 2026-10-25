@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getShippingV2AccessContextForSession } from "@/lib/shipping-v2/airtable";
+import { esTecnicoShippingV2 } from "@/lib/shipping-v2/access";
 import { PESTANAS_SHIPPING_V2 } from "@/lib/shipping-v2/pestanas";
 import { puedeVerPantalla } from "@/lib/permissions/pantallas";
 import { getSessionFromCookie } from "@/lib/session";
@@ -14,7 +15,7 @@ export default async function ShippingV2Home() {
   const restringidas = session?.user.pantallasRestringidas ?? {};
   const access = await getShippingV2AccessContextForSession(session);
   const primera = PESTANAS_SHIPPING_V2.find(
-    (p) => puedeVerPantalla(restringidas, "shipping-v2", p.key) && access.permissions[p.permiso] === true
+    (p) => puedeVerPantalla(restringidas, "shipping-v2", p.key) && access.permissions[p.permiso] === true && !(p.noTecnico && esTecnicoShippingV2(access))
   );
   redirect(primera?.href ?? "/acceso-denegado");
 }

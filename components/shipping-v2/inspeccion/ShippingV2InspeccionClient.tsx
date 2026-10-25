@@ -12,6 +12,7 @@
 // las zonas. Un candado en la entrada dejaría atrapado al técnico que descubre
 // a media inspección que el equipo trae algo que nadie declaró.
 
+import { EnlaceArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import { CopyableSKU } from "@/components/ui/copyable-sku";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccesoriosIncluidos } from "./AccesoriosIncluidos";
@@ -36,7 +37,8 @@ type Props = {
   /** Punto 10b-4: "←" vuelve a Recepción o al detalle de la unidad, según de dónde se llegó. */
   volver: { href: string; etiqueta: string };
   /** Punto 10b-4: la ficha de esta unidad (/shipping-v2/items/[sku]/u/[serie]/ficha). */
-  fichaHref: string;
+  /** Punto 18: sin enlace (técnico) no se ofrece "Preparar ficha". */
+  fichaHref?: string;
   /** Punto 10b-4b: otras unidades del mismo SKU con la inspección firmada ("⋯ Copiar de otra unidad"). */
   firmadasParaCopiar?: ShippingV2UnidadHermana[];
 };
@@ -749,7 +751,7 @@ export function ShippingV2InspeccionClient({
                       <p className="mt-2.5 rounded-md border border-dashed border-[#3A3A36] bg-[#141510] px-2.5 py-1.5 text-[12px] text-[#B4B5AC]">
                         En la etiqueta: <b className="font-mono font-semibold text-[#F5F5F5]">{especificaciones.resumen || "— solo SKU y precio —"}</b>
                       </p>
-                      {firmado ? (
+                      {firmado && fichaHref ? (
                         <p className="mt-2 text-[11.5px] text-[#7E7F76]">
                           La inspección está firmada. Para corregir un dato técnico sin reabrirla, entra por{" "}
                           <Link href={fichaHref} className="font-semibold text-[#D7FF4F] underline">
@@ -798,9 +800,9 @@ export function ShippingV2InspeccionClient({
       {/* Mantenimientos y mejoras: un solo camino, la ficha del artículo. */}
       <p className="text-[12px] text-[#7E7F76]">
         ¿Le hiciste un mantenimiento o le pusiste una pieza?{" "}
-        <Link href={`/shipping-v2/items/${item.id}`} className="font-semibold text-[#D7FF4F] hover:underline">
-          Regístralo en la ficha del artículo → Mantenimientos y mejoras
-        </Link>
+        <EnlaceArticulo id={item.id} className="font-semibold text-[#D7FF4F] hover:underline">
+          Regístralo en la ficha del artículo → Mejoras
+        </EnlaceArticulo>
       </p>
 
       {/* ── Barra de cierre ── */}

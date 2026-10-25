@@ -13,6 +13,7 @@ import {
 } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import { isAdministratorRole } from "@/lib/apps";
+import { despieceSinCostos } from "@/lib/shipping-v2/despiece";
 
 export const dynamic = "force-dynamic";
 
@@ -38,10 +39,16 @@ export async function GET(_request: Request, { params }: Params) {
   const { id } = await params;
   try {
     const access = await getShippingV2AccessContextForSession(session);
-    if (!canShippingV2(access, "canViewItems")) {
+    // Punto 18 (25-oct): el despiece es información interna (personal y
+    // técnico). Un proveedor no la ve; quien no ve costos la recibe sin ellos.
+    if (!access.isAdmin || !canShippingV2(access, "canViewItems")) {
       return NextResponse.json({ success: false, error: "No tienes acceso a este item." }, { status: 403 });
     }
-    return NextResponse.json({ success: true, data: await getResumenDespiece(id, access) });
+    const resumen = await getResumenDespiece(id, access);
+    return NextResponse.json({
+      success: true,
+      data: canShippingV2(access, "canViewCosts") ? { ...resumen, verCostos: true } : despieceSinCostos(resumen),
+    });
   } catch (e) {
     console.error("Error al leer el despiece:", e);
     return error(e);

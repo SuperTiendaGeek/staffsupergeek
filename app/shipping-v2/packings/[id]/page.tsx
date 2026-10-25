@@ -30,6 +30,8 @@ export default async function ShippingV2PackingDetailPage({ params }: Props) {
   try {
     const session = await getSessionFromCookie();
     const access = await getShippingV2AccessContextForSession(session);
+    // Punto 18: una caja solo la ve quien tiene "Ver packings" (el técnico no).
+    if (!access.permissions.canViewPackings) throw new Error("No tienes acceso a esta caja.");
     isAdmin = access.isAdmin;
     isSiteAdmin = access.isSiteAdmin;
     permissions = access.permissions;

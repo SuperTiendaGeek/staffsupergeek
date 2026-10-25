@@ -13,6 +13,7 @@ import {
 } from "react";
 import { CornerDownLeft, ListFilter, Loader2, PackageSearch, Search, X } from "lucide-react";
 import { interpretarBusqueda } from "@/lib/shipping-v2/items-filtro";
+import { useFichaArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import {
   normalizeSearchText,
   prepareShippingV2ItemSearchIndex,
@@ -113,6 +114,7 @@ function preferredMatch(result: ShippingV2SearchResult) {
 
 export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackItems, canViewCosts = true, onSubmit, aplicado = "" }: Props) {
   const router = useRouter();
+  const ficha = useFichaArticulo();
   const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -229,6 +231,11 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
     if (!result) return;
     setNavigatingId(result.item.id);
     setPanelOpen(false);
+    if (ficha) {
+      setNavigatingId("");
+      ficha.abrir(result.item.id);
+      return;
+    }
     router.push(`/shipping-v2/items/${result.item.id}`);
   }
 

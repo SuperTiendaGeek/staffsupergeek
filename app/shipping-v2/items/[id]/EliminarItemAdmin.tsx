@@ -12,7 +12,7 @@ type Evaluacion = { permitido: boolean; bloqueos: string[]; avisos: string[]; co
 const BTN = "inline-flex h-8 items-center justify-center rounded-[var(--sg-radius-sm)] border px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50";
 const INPUT = "w-full rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2.5 py-1.5 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] focus:border-[var(--sg-danger)] focus:outline-none";
 
-export function EliminarItemAdmin({ itemId }: { itemId: string }) {
+export function EliminarItemAdmin({ itemId, alEliminar }: { itemId: string; /** Punto 18: en la ventana de la ficha, la cierra y refresca la lista. */ alEliminar?: () => void }) {
   const router = useRouter();
   const [evaluacion, setEvaluacion] = useState<Evaluacion | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -46,6 +46,7 @@ export function EliminarItemAdmin({ itemId }: { itemId: string }) {
         if (j.data?.bloqueos) setEvaluacion((ev) => (ev ? { ...ev, ...j.data } : ev));
         return;
       }
+      if (alEliminar) { alEliminar(); return; }
       router.push("/shipping-v2/items");
       router.refresh();
     } catch { setError("Error de red"); }

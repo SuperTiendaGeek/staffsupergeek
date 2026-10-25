@@ -15,6 +15,7 @@
 import type {
   ShippingV2AccessContext,
   ShippingV2AccessPermissions,
+  ShippingV2Perfil,
   ShippingV2Proveedor,
 } from "@/types/shipping-v2";
 
@@ -43,6 +44,8 @@ export const STAFF_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
   canUseRecepcion: true,
   canViewCosts: true,
   canViewProviderCost: true,
+  canViewSalePrice: true,
+  canTrabajoTecnico: true,
 };
 
 export const NO_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
@@ -70,6 +73,26 @@ export const NO_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
   canUseRecepcion: false,
   canViewCosts: false,
   canViewProviderCost: false,
+  canViewSalePrice: false,
+  canTrabajoTecnico: false,
+};
+
+/**
+ * Punto 18 (decisión del dueño, 25-oct-2026): el técnico solo atiende su
+ * trabajo técnico. Ve los artículos para identificarlos (SKU, serie, SKU del
+ * proveedor) y el precio de venta como dato; inspecciona, registra
+ * mantenimientos y mejoras, ve el despiece y atiende novedades. No edita
+ * artículos, no usa Recepción, Logística, Pagos, Kardex ni Activos, y no
+ * recibe NINGÚN costo (el servidor los vacía antes de responder).
+ */
+export const TECNICO_SHIPPING_V2_PERMISSIONS: ShippingV2AccessPermissions = {
+  ...NO_SHIPPING_V2_PERMISSIONS,
+  canViewItems: true,
+  canViewNovedades: true,
+  canCreateNovedades: true,
+  canRespondNovedades: true,
+  canViewSalePrice: true,
+  canTrabajoTecnico: true,
 };
 
 // ─── Permisos que se configuran por proveedor desde Airtable ─────────────────
@@ -158,6 +181,11 @@ export function systemShippingV2Access(): ShippingV2AccessContext {
   return { isAdmin: true, isSiteAdmin: false, mode: "staff", permissions: STAFF_SHIPPING_V2_PERMISSIONS };
 }
 
+/** Punto 18: el técnico es personal interno (ve artículos de cualquier proveedor) pero con su propio juego de permisos. */
+export function tecnicoShippingV2Access(): ShippingV2AccessContext {
+  return { isAdmin: true, isSiteAdmin: false, mode: "staff", perfil: "tecnico", permissions: TECNICO_SHIPPING_V2_PERMISSIONS };
+}
+
 export function noShippingV2Access(): ShippingV2AccessContext {
   return { isAdmin: false, isSiteAdmin: false, mode: "none", permissions: NO_SHIPPING_V2_PERMISSIONS };
 }
@@ -176,6 +204,28 @@ export function providerShippingV2Access(provider: ShippingV2Proveedor): Shippin
 
 export function isShippingV2ProviderAccess(access?: ShippingV2AccessContext) {
   return Boolean(access && access.mode === "provider" && access.providerId);
+}
+
+/**
+ * Punto 18: quién es la sesión frente a Shipping V2. Sin contexto: "ninguno".
+ * El Administrador es solo el rol "Administrador" del sistema (isSiteAdmin);
+ * Manager, Finanzas y Staff son "staff".
+ */
+export function perfilShippingV2(access?: ShippingV2AccessContext): ShippingV2Perfil {
+  if (!access) return "ninguno";
+  if (access.mode === "provider") return access.providerId ? "proveedor" : "ninguno";
+  if (access.mode === "none") return "ninguno";
+  if (access.perfil === "tecnico") return "tecnico";
+  return access.isSiteAdmin === true ? "admin" : "staff";
+}
+
+export function esTecnicoShippingV2(access?: ShippingV2AccessContext) {
+  return perfilShippingV2(access) === "tecnico";
+}
+
+/** Inspección técnica: quien usa Recepción (personal) o el técnico. */
+export function puedeInspeccionarShippingV2(access?: ShippingV2AccessContext) {
+  return canShippingV2(access, "canUseRecepcion") || canShippingV2(access, "canTrabajoTecnico");
 }
 
 // ─── Consultas de permiso ────────────────────────────────────────────────────

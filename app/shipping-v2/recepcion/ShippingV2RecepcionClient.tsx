@@ -1,7 +1,6 @@
 "use client";
 
 import { CopyableSKU } from "@/components/ui/copyable-sku";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { RegistrarNovedadModal } from "@/components/shipping-v2/novedades/RegistrarNovedadModal";
@@ -34,6 +33,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
+import { useAlCambiarArticulo, useFichaArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
 import { evaluarVentaItem } from "@/lib/shipping-v2/item-venta";
 import { evaluarDisponibilidadComercial } from "@/lib/shipping-v2/item-comercial";
@@ -58,11 +58,9 @@ import {
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
 import { rutaUnidad } from "@/lib/shipping-v2/unidades-serie";
 import type {
-  ShippingV2AccessPermissions,
   ShippingV2Item,
   ShippingV2Novedad,
   ShippingV2Packing,
-  ShippingV2Pago,
   ShippingV2Proveedor,
   ShippingV2RecepcionChecklistAction,
 } from "@/types/shipping-v2";
@@ -86,40 +84,6 @@ type ReceptionItem = ResolvedItem & {
   packingLabel: string;
   openNovedades: ShippingV2Novedad[];
 };
-
-type DetailPayload = {
-  item: ResolvedItem;
-  proveedores: ShippingV2Proveedor[];
-  pago: ShippingV2Pago | null;
-  packing: ShippingV2Packing | null;
-  novedades: ShippingV2Novedad[];
-  permissions: ShippingV2AccessPermissions | null;
-  esAdmin: boolean;
-};
-
-type ShippingV2ItemDetailViewProps = {
-  item: ResolvedItem;
-  proveedores: ShippingV2Proveedor[];
-  pago?: ShippingV2Pago | null;
-  packing?: ShippingV2Packing | null;
-  novedades?: ShippingV2Novedad[];
-  onSaved?: (item: ShippingV2Item) => void;
-  esAdmin?: boolean;
-  permissions?: ShippingV2AccessPermissions | null;
-};
-
-const ShippingV2ItemDetailView = dynamic<ShippingV2ItemDetailViewProps>(
-  () => import("../items/ShippingV2ItemsClient").then((module) => module.ShippingV2ItemDetailView),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex min-h-64 items-center justify-center rounded-xl border border-[#30312D] bg-[#11120F] text-sm font-semibold text-[#A7A7A7]">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-        Preparando detalle...
-      </div>
-    ),
-  }
-);
 
 const ALL = SHIPPING_V2_ALL_FILTER;
 // "v2" (15-oct-2026, rediseño compacto): columnas nuevas; se empieza de cero una vez.
@@ -979,10 +943,8 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   // Punto 10d: las casillas de Marketplace y Grupos Facebook abren el gestor de publicaciones.
   const [gestor, setGestor] = useState<{ item: ReceptionItem; canal: CanalPublicacion; action: ShippingV2RecepcionChecklistAction } | null>(null);
   const [photoItem, setPhotoItem] = useState<ReceptionItem | null>(null);
-  const [detailItemId, setDetailItemId] = useState<string | null>(null);
-  const [detailData, setDetailData] = useState<DetailPayload | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState("");
+  // Punto 18 (25-oct): la ficha se abre en la ventana única de Shipping V2.
+  const ficha = useFichaArticulo();
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
@@ -1088,7 +1050,6 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   const filtered = useMemo(() => filteredByItemControls.filter((item) => matchesReceptionFilter(item, quickFilter)), [filteredByItemControls, quickFilter]);
   const sortedItems = useMemo(() => sortShippingV2Items(filtered, sortBy), [filtered, sortBy]);
   const groupedItems = useMemo(() => groupShippingV2Items(sortedItems, groupBy), [groupBy, sortedItems]);
-  const selectedDetailFallback = useMemo(() => receptionItems.find((item) => item.id === detailItemId) || null, [detailItemId, receptionItems]);
   const visibleColumns = RECEPTION_COLUMNS;
   const tableWidth = useMemo(() => visibleColumns.reduce((total, column) => total + columnWidths[column.key], 0), [columnWidths, visibleColumns]);
   const columnTemplate = useMemo(() => visibleColumns.map((column) => column.key === "item" ? `minmax(${columnWidths[column.key]}px, 1fr)` : `${columnWidths[column.key]}px`).join(" "), [columnWidths, visibleColumns]);
@@ -1104,41 +1065,15 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   const groupLabel = shippingV2ItemGroupOptions.find((option) => option.value === groupBy)?.label ?? "Sin agrupar";
   const visibleGroupCount = groupBy === "none" ? 0 : groupedItems.length;
 
-  const closeDetail = useCallback(() => {
-    setDetailItemId(null);
-    setDetailData(null);
-    setDetailError("");
-  }, []);
-
-  useEffect(() => {
-    if (!detailItemId) return;
-    let cancelled = false;
-    setDetailLoading(true);
-    setDetailError("");
-    setDetailData(null);
-
-    fetch(`/api/shipping-v2/items/${encodeURIComponent(detailItemId)}/detail`, { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload.success) {
-          throw new Error(String(payload.error || "No se pudo cargar el detalle del item."));
-        }
-        return payload.data as DetailPayload;
+  // Lo que se cambie en la ficha se refleja en la fila (sin recargar la lista).
+  useAlCambiarArticulo(({ id }) => {
+    fetch(`/api/shipping-v2/items/${encodeURIComponent(id)}`, { cache: "no-store" })
+      .then((response) => response.json().catch(() => ({})))
+      .then((payload) => {
+        if (payload?.success && payload.data) handleDetailSaved(payload.data as ShippingV2Item);
       })
-      .then((data) => {
-        if (!cancelled) setDetailData(data);
-      })
-      .catch((loadError) => {
-        if (!cancelled) setDetailError(loadError instanceof Error ? loadError.message : "Error inesperado.");
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [detailItemId]);
+      .catch(() => undefined);
+  });
 
   function updateItemFilter<K extends keyof ShippingV2ItemFilterState>(key: K, value: ShippingV2ItemFilterState[K]) {
     setItemFilters((current) => ({ ...current, [key]: value }));
@@ -1193,19 +1128,13 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   }, []);
 
   function openDetail(item: ReceptionItem) {
-    setDetailItemId(item.id);
+    if (ficha) ficha.abrir(item.id);
+    else window.location.assign(`/shipping-v2/items/${encodeURIComponent(item.id)}`);
   }
   openDetailRef.current = openDetail;
 
   function handleDetailSaved(updatedItem: ShippingV2Item) {
-    setItems((current) => current.map((currentItem) => currentItem.id === updatedItem.id ? updatedItem : currentItem));
-    setDetailData((current) => {
-      if (!current || current.item.id !== updatedItem.id) return current;
-      return {
-        ...current,
-        item: resolveShippingV2Items([updatedItem], current.proveedores)[0],
-      };
-    });
+    setItems((current) => current.map((currentItem) => currentItem.id === updatedItem.id ? { ...currentItem, ...updatedItem } : currentItem));
   }
 
   function handlePhotoViewerUpdated(updatedItem: ShippingV2Item) {
@@ -1229,9 +1158,6 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
       if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo actualizar el checklist."));
       const updated = payload.data as ShippingV2Item;
       setItems((current) => current.map((currentItem) => currentItem.id === updated.id ? updated : currentItem));
-      if (detailData?.item.id === updated.id) {
-        setDetailData((current) => current ? { ...current, item: resolveShippingV2Items([updated], current.proveedores)[0] } : current);
-      }
       // El servidor cierra solo el ciclo del packing cuando esta casilla era
       // la última que faltaba. Se avisa aquí para que el usuario se entere sin
       // tener que ir a la pantalla de packings a comprobarlo.
@@ -1515,37 +1441,6 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
         />
       ) : null}
 
-      {detailItemId ? (
-        <ModalShell
-          size="detail"
-          title={detailData?.item.nombre || selectedDetailFallback?.nombre || "Detalle de item"}
-          description={(() => {
-            const sku = String(detailData?.item.sku || selectedDetailFallback?.sku || "").trim();
-            return <>{sku ? <CopyableSKU sku={sku} /> : display(sku)} · Detalle compartido con Shipping Items</>;
-          })()}
-          onClose={closeDetail}
-        >
-          {detailLoading ? (
-            <div className="flex min-h-64 items-center justify-center rounded-xl border border-[#30312D] bg-[#11120F] text-sm font-semibold text-[#A7A7A7]">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-              Cargando detalle...
-            </div>
-          ) : detailError ? (
-            <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{detailError}</div>
-          ) : detailData ? (
-            <ShippingV2ItemDetailView
-              item={detailData.item}
-              proveedores={detailData.proveedores}
-              pago={detailData.pago}
-              packing={detailData.packing}
-              novedades={detailData.novedades}
-              esAdmin={detailData.esAdmin}
-              permissions={detailData.permissions}
-              onSaved={handleDetailSaved}
-            />
-          ) : null}
-        </ModalShell>
-      ) : null}
     </div>
   );
 }

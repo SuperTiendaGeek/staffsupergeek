@@ -281,3 +281,32 @@ export function puedeRevertirseDespiece(piezas: PiezaParaRevertir[]): { puede: b
   }
   return { puede: true };
 }
+
+// ─── Punto 18 (25-oct-2026): despiece para quien no ve costos ───────────────
+//
+// El técnico (y cualquiera sin `canViewCosts`) ve la pestaña Despiece para
+// saber qué piezas salieron, pero nunca el costo del equipo ni lo que carga
+// cada pieza. El servidor los quita antes de responder.
+
+type ResumenConCostos = {
+  costoTotalEquipo: number;
+  sinRepartir: number;
+  piezas: Array<{ costoAsignado: number }>;
+};
+
+export type SinCostosDespiece<T extends ResumenConCostos> = Omit<T, "costoTotalEquipo" | "sinRepartir" | "piezas"> & {
+  costoTotalEquipo: null;
+  sinRepartir: null;
+  piezas: Array<Omit<T["piezas"][number], "costoAsignado"> & { costoAsignado: null }>;
+  verCostos: false;
+};
+
+export function despieceSinCostos<T extends ResumenConCostos>(resumen: T): SinCostosDespiece<T> {
+  return {
+    ...resumen,
+    costoTotalEquipo: null,
+    sinRepartir: null,
+    piezas: resumen.piezas.map((pieza) => ({ ...pieza, costoAsignado: null })),
+    verCostos: false,
+  };
+}

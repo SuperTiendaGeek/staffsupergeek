@@ -33,7 +33,8 @@ export default async function ShippingV2RecepcionPage({ searchParams }: { search
   requirePantallaVisible(session?.user.pantallasRestringidas ?? {}, "shipping-v2", "recepcion");
   const access = await getShippingV2AccessContextForSession(session);
   if (!access.permissions.canUseRecepcion) {
-    redirect("/shipping-v2/packings");
+    // Punto 18: quien no usa Recepción (técnico) vuelve a su primera pestaña.
+    redirect("/shipping-v2");
   }
 
   try {

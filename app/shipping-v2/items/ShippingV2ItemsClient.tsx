@@ -68,6 +68,10 @@ import {
   type FiltroArticulos,
 } from "@/lib/shipping-v2/items-filtro";
 import { ShippingV2ItemsPredictiveSearch } from "./ShippingV2ItemsPredictiveSearch";
+import { EnlaceArticulo, useAlCambiarArticulo, useFichaArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
+import { FichaPublicaciones } from "@/components/shipping-v2/ficha-articulo/FichaPublicaciones";
+import type { FichaPublicacion } from "@/lib/shipping-v2/ficha-articulo";
+import { configFichaInterna, type BloqueFichaInterna } from "@/lib/shipping-v2/ficha-secciones";
 import {
   type ShippingV2Attachment,
   type ShippingV2Item,
@@ -340,7 +344,7 @@ function displayBoolean(value: boolean | null) {
   return value ? "Si" : "No";
 }
 
-function formatCurrency(value: number | null) {
+export function formatCurrency(value: number | null) {
   if (value === null || value === undefined) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }
@@ -680,7 +684,7 @@ function badgeSizeClass(size: BadgeSize = "md") {
     : "inline-flex px-2.5 py-0.5 text-[12px]";
 }
 
-function EstadoBadge({ estado, size }: { estado: string; size?: BadgeSize }) {
+export function EstadoBadge({ estado, size }: { estado: string; size?: BadgeSize }) {
   return (
     <span title={size === "sm" ? displayValue(estado) : undefined} className={`rounded-full border font-semibold ${badgeSizeClass(size)} ${estadoTone(estado)}`}>
       {displayValue(estado)}
@@ -1323,20 +1327,27 @@ function DetailSection({
  * Novedades del artículo en su ficha (punto 8). Desde aquí se registran y se
  * gestionan igual que en la pestaña Novedades: mismas reglas, mismas ventanas.
  */
-function NovedadesVinculadasCard({
+export function NovedadesVinculadasCard({
   novedades,
   providerLabelsById,
   item,
   rol,
   puedeRegistrar,
+  canEditItems,
+  alCambiar,
 }: {
   novedades: ShippingV2Novedad[];
   providerLabelsById: Map<string, string>;
   item: { id: string; sku?: string; nombre?: string; cantidad?: number | null; estado?: string | null; packingId?: string; proveedorId?: string };
   rol: ShippingV2NovedadRol;
   puedeRegistrar: boolean;
+  /** Punto 18: el técnico no decide precios ("Se vende con descuento"). */
+  canEditItems?: boolean;
+  /** Punto 18: en la ventana de la ficha, recarga sus datos además de la pantalla de atrás. */
+  alCambiar?: () => void;
 }) {
   const router = useRouter();
+  const refrescar = () => (alCambiar ? alCambiar() : router.refresh());
   const [registrando, setRegistrando] = useState(false);
   const [seleccion, setSeleccion] = useState<{ novedad: ShippingV2Novedad; accion: ShippingV2NovedadAccionConfig } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1360,7 +1371,7 @@ function NovedadesVinculadasCard({
       const resultado = await ejecutarAccionNovedad(seleccion.novedad.id, seleccion.accion.accion, valores);
       setAviso(`${seleccion.accion.label}: listo.${resultado.mensaje ? ` ${resultado.mensaje}` : ""}`);
       setSeleccion(null);
-      router.refresh();
+      refrescar();
     } catch (error) {
       setMensaje(error instanceof Error ? error.message : "Error inesperado.");
     } finally {
@@ -1470,7 +1481,7 @@ function NovedadesVinculadasCard({
           onSaved={({ aviso: avisoRegistro }) => {
             setRegistrando(false);
             setAviso(avisoRegistro || "Novedad registrada.");
-            router.refresh();
+            refrescar();
           }}
         />
       ) : null}
@@ -1480,7 +1491,7 @@ function NovedadesVinculadasCard({
           novedad={seleccion.novedad}
           accion={seleccion.accion}
           rol={rol}
-          canEditItems={rol === "staff" || rol === "admin"}
+          canEditItems={canEditItems ?? (rol === "staff" || rol === "admin")}
           busy={busy}
           mensaje={mensaje}
           onCancel={() => setSeleccion(null)}
@@ -1521,108 +1532,9 @@ function shippingV2TechnicalSheetHref(item: Pick<ShippingV2Item, "id" | "sku" | 
     : rutaUnidad(item, "ficha");
 }
 
-function ProviderDatum({
-  label,
-  value,
-  featured,
-}: {
-  label: string;
-  value: ReactNode;
-  featured?: boolean;
-}) {
-  return (
-    <div className={`rounded-xl border px-3 py-2 ${featured ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#30312D] bg-[#171814]"}`}>
-      <p className={`text-[11px] font-bold uppercase tracking-normal ${featured ? "text-[#151515]/70" : "text-[#8F908A]"}`}>{label}</p>
-      <div className={`mt-1 min-h-5 break-words text-sm font-semibold ${featured ? "text-[#151515]" : "text-[#F5F5F5]"}`}>{value}</div>
-    </div>
-  );
-}
-
-function ShippingV2ProviderItemDetailView({
-  item,
-  pago,
-  packing,
-  canEdit,
-  canViewProviderCost,
-  onSaveField,
-  onSaved,
-}: {
-  item: ResolvedItem;
-  pago?: ShippingV2Pago | null;
-  packing?: ShippingV2Packing | null;
-  canEdit: boolean;
-  canViewProviderCost: boolean;
-  onSaveField: (field: string, value: string | number | boolean | null) => Promise<void>;
-  onSaved: (item: ShippingV2Item) => void;
-}) {
-  const C = SHIPPING_V2_ITEM_EDIT_FIELDS;
-  const packingDisplay = packing?.packingId || item.packingId || "—";
-  const paymentDisplay = pago?.pagoId || item.pagoId || "—";
-
-  return (
-    <div className="w-full max-w-none space-y-3">
-      <section className="grid gap-3 xl:grid-cols-[minmax(520px,0.95fr)_minmax(0,1.05fr)] 2xl:grid-cols-[minmax(680px,1fr)_minmax(0,1.05fr)]">
-        <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15 xl:sticky xl:top-24 xl:self-start">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-[#F5F5F5]">Fotos del item</h2>
-            <span className="rounded-full border border-[#3A3A36] bg-[#151515] px-2.5 py-0.5 text-[12px] font-semibold text-[#A7A7A7]">{item.fotos.length} fotos</span>
-          </div>
-          <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={onSaved} canEdit={false} density="immersive" />
-        </article>
-
-        <main className="space-y-3">
-          <article className="rounded-xl border border-[#30312D] bg-[#171814] p-4 shadow-xl shadow-black/15">
-            <div className="flex flex-wrap gap-2">
-              <EstadoBadge estado={item.estado} />
-              <OperationBadge value={item.tipoOperacion} />
-              <AvailabilityBadge item={item} />
-            </div>
-
-            <InlineEditableField
-              label={C.nombre.label}
-              value={item.nombre}
-              type={C.nombre.type}
-              displayValue={displayName(item.nombre)}
-              hideLabel
-              className="mt-3 rounded-lg transition"
-              valueClassName="min-h-9 break-words text-2xl font-semibold leading-tight text-[#F5F5F5] lg:text-3xl"
-              readOnly={!canEdit}
-              onSave={(value) => onSaveField(C.nombre.field, value)}
-            />
-
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {canViewProviderCost ? <ProviderDatum label="Costo proveedor unitario" value={formatCurrency(item.costoProveedor)} featured /> : null}
-              <ProviderDatum label="SKU proveedor" value={displayValue(item.skuProveedor)} />
-              <ProviderDatum label="SKU" value={item.sku?.trim() ? <CopyableSKU sku={item.sku.trim()} /> : "—"} />
-              <ProviderDatum label="Categoría" value={displayValue(item.categoria)} />
-              <ProviderDatum label="Estado item" value={<EstadoBadge estado={item.estado} />} />
-              <ProviderDatum label="Packing" value={packingDisplay} />
-              <ProviderDatum label="Pago" value={paymentDisplay} />
-            </div>
-          </article>
-
-          <article className="rounded-xl border border-[#30312D] bg-[#11120F] p-3 shadow-xl shadow-black/15">
-            <div className="mb-2 flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-[#D7FF4F]" />
-              <h2 className="text-sm font-semibold text-[#F5F5F5]">Observaciones internas</h2>
-            </div>
-            <InlineEditableField
-              label={C.observacionesInternas.label}
-              value={item.observacionesInternas}
-              type={C.observacionesInternas.type}
-              displayValue={displayValue(item.observacionesInternas, "Sin observaciones registradas.")}
-              hideLabel
-              className="rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 transition hover:border-[#D7FF4F]/35"
-              valueClassName="min-h-24 break-words text-sm leading-6 text-[#F5F5F5]"
-              readOnly={!canEdit}
-              onSave={(value) => onSaveField(C.observacionesInternas.field, value)}
-            />
-          </article>
-        </main>
-      </section>
-    </div>
-  );
-}
+// Punto 18 (25-oct-2026): la vista del proveedor vive aparte
+// (components/shipping-v2/ficha-articulo/FichaProveedorVista.tsx) y recibe
+// solo los datos de su relación comercial.
 
 /** Qué enlaces a otros módulos puede abrir la sesión (para no llevarla a "Acceso denegado"). */
 export type ShippingV2ItemDetailEnlaces = { facturacion: boolean; operaciones: boolean; tecnicos: boolean };
@@ -1664,7 +1576,7 @@ function PasoDocumento({ documento, sku }: { documento: ShippingV2ItemDocumento;
   );
 }
 
-function PasoChip({ tono, children, title }: { tono: PasoTono; children: ReactNode; title?: string }) {
+export function PasoChip({ tono, children, title }: { tono: PasoTono; children: ReactNode; title?: string }) {
   const toneClass = {
     ok: "border-[#7BE495]/35 bg-[#7BE495]/10 text-[#9FEFB3]",
     espera: "border-[#F4C95B]/35 bg-[#F4C95B]/10 text-[#F4C95B]",
@@ -1675,11 +1587,12 @@ function PasoChip({ tono, children, title }: { tono: PasoTono; children: ReactNo
 }
 
 /** Una línea del bloque "Recorrido": qué paso es, el documento (con enlace) y cómo está. */
-function PasoRecorrido({
+export function PasoRecorrido({
   icon: Icon,
   etiqueta,
   principal,
   href,
+  articuloId,
   nuevaPestana,
   onClick,
   apagado,
@@ -1690,6 +1603,8 @@ function PasoRecorrido({
   etiqueta: string;
   principal: ReactNode;
   href?: string;
+  /** Punto 18: otro artículo; se abre en la ventana de la ficha. */
+  articuloId?: string;
   nuevaPestana?: boolean;
   onClick?: () => void;
   apagado?: boolean;
@@ -1697,7 +1612,9 @@ function PasoRecorrido({
   chip?: ReactNode;
 }) {
   const textoClass = "shrink-0 whitespace-nowrap font-semibold";
-  const texto = href ? (
+  const texto = articuloId ? (
+    <EnlaceArticulo id={articuloId} className={`${textoClass} text-[#D7FF4F] hover:underline`}>{principal}</EnlaceArticulo>
+  ) : href ? (
     <Link href={href} target={nuevaPestana ? "_blank" : undefined} rel={nuevaPestana ? "noreferrer" : undefined} className={`${textoClass} text-[#D7FF4F] hover:underline`}>{principal}</Link>
   ) : onClick ? (
     <button type="button" onClick={onClick} className={`${textoClass} text-[#D7FF4F] hover:underline`}>{principal}</button>
@@ -1719,7 +1636,7 @@ function PasoRecorrido({
   );
 }
 
-function shortDate(value?: string) {
+export function shortDate(value?: string) {
   if (!value) return "";
   // Una fecha sin hora ("2026-10-14") se muestra tal cual: convertirla a la
   // hora de Ecuador la correría al día anterior.
@@ -1730,7 +1647,7 @@ function shortDate(value?: string) {
 }
 
 /** Dato del encabezado (precio, costo, ganancia, cantidad). */
-function HeroStat({ label, children, tone = "neutral", title }: { label: string; children: ReactNode; tone?: "neutral" | "lime" | "orange"; title?: string }) {
+export function HeroStat({ label, children, tone = "neutral", title }: { label: string; children: ReactNode; tone?: "neutral" | "lime" | "orange"; title?: string }) {
   const valueClass = tone === "lime" ? "text-[#D7FF4F]" : tone === "orange" ? "text-[#FFB07A]" : "text-[#F5F5F5]";
   return (
     <div className="min-w-0 bg-[#171814] px-3 py-2" title={title}>
@@ -1749,7 +1666,7 @@ const ESTADOS_FUERA = new Set(["vendido", "agotado", "dado de baja", "cancelado"
  * mismo producto, para pasar de una a otra. Una línea; solo si aporta.
  */
 export function UnidadDelProducto({ item, hermanas, onGuardarSerie, onSerieInterna }: {
-  item: ShippingV2Item;
+  item: Pick<ShippingV2Item, "id" | "numeroSerie" | "cantidad" | "precioVenta" | "seguimiento" | "categoria">;
   hermanas: ShippingV2UnidadHermana[];
   /** Punto 10b-5: escanear la serie de un equipo que no la tiene (sin esto, solo se muestra). */
   onGuardarSerie?: (serie: string) => Promise<void>;
@@ -1812,11 +1729,11 @@ export function UnidadDelProducto({ item, hermanas, onGuardarSerie, onSerieInter
             const s = normalizarSerie(h.numeroSerie);
             const texto = esUnidad ? (s ? serieCorta(s) : h.recibido ? "sin serie" : "por llegar") : `${h.cantidad ?? 0} u.`;
             return (
-              <Link key={h.id} href={`/shipping-v2/items/${encodeURIComponent(h.id)}`}
+              <EnlaceArticulo key={h.id} id={h.id}
                 title={[s ? `S/N ${s}` : "", h.estado, typeof h.precioVenta === "number" ? formatCurrency(h.precioVenta) : ""].filter(Boolean).join(" · ")}
                 className={`rounded border px-1.5 py-0.5 font-mono transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] ${fuera ? "border-[#2A2B26] text-[#5E5F59] line-through" : "border-[#3A3A36] text-[#C9CAC1]"}`}>
                 {texto}
-              </Link>
+              </EnlaceArticulo>
             );
           })}
           {otras.length > MAX ? <span className="text-[#7E7F76]">+{otras.length - MAX}</span> : null}
@@ -1843,6 +1760,10 @@ export function ShippingV2ItemDetailView({
   adminPanel,
   costosTraerlo,
   hermanas = [],
+  perfil = "staff",
+  publicaciones = [],
+  modo = "pagina",
+  alCambiar,
 }: {
   item: ResolvedItem;
   proveedores: ShippingV2Proveedor[];
@@ -1867,7 +1788,16 @@ export function ShippingV2ItemDetailView({
   costosTraerlo?: ReactNode;
   /** Punto 10b-4: los registros que comparten el SKU (incluido este), para pasar de una unidad a otra. */
   hermanas?: ShippingV2UnidadHermana[];
+  /** Punto 18: la composición de la ficha (Administrador o Staff); el técnico y el proveedor tienen la suya. */
+  perfil?: "admin" | "staff";
+  /** Punto 18: anuncios de esta unidad (gestor + casillas viejas), ya armados en el servidor. */
+  publicaciones?: FichaPublicacion[];
+  /** Punto 18: "modal" = dentro de la ventana de la ficha. */
+  modo?: "modal" | "pagina";
+  /** Punto 18: recarga la ficha (y la pantalla de atrás) tras una acción que cambia mucho. */
+  alCambiar?: () => void;
 }) {
+  const config = configFichaInterna(perfil);
   const providerLabelsById = useMemo(() => createShippingV2ProveedorLabelMap(proveedores), [proveedores]);
   const [item, setItem] = useState(initialItem);
   const [applyingAiName, setApplyingAiName] = useState(false);
@@ -1974,12 +1904,13 @@ export function ShippingV2ItemDetailView({
   const gananciaStock = calculateItemStockProfit(item);
   const costoStock = calculateItemStockCost(item);
   const aiNameSuggestion = item.aiNombre?.trim();
-  const canEditItems = permissions?.canEditItems !== false;
-  const canEditProviderItemFields = permissions?.canEditProviderItemFields === true;
-  const canViewCosts = permissions?.canViewCosts !== false;
-  const canViewProviderCost = canViewCosts || permissions?.canViewProviderCost !== false;
-  const canUseRecepcion = permissions?.canUseRecepcion !== false;
-  const isProviderDetail = !canEditItems && canEditProviderItemFields;
+  // Punto 18: sin permisos, nada (antes "sin dato" valía como "todo permitido").
+  const canEditItems = permissions?.canEditItems === true;
+  const canViewCosts = permissions?.canViewCosts === true;
+  const canViewProviderCost = canViewCosts || permissions?.canViewProviderCost === true;
+  const canUseRecepcion = permissions?.canUseRecepcion === true;
+  // Punto 18 (25-oct): el precio de un artículo existente solo lo cambia el Administrador.
+  const precioEditable = config.precioEditable && esAdmin && canEditItems;
   // Personalización por usuario (Fase 2 de permisos, ver lib/permissions/campos.ts).
   // El encabezado (precio, costo, ganancia) es JSX a mano (no pasa por
   // DetailSection), así que cada dato se filtra a mano contra las mismas listas.
@@ -2025,20 +1956,6 @@ export function ShippingV2ItemDetailView({
   function abrirPestana(tab: ItemDetailTabKey) {
     setActiveTab(tab);
     tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  if (isProviderDetail) {
-    return (
-      <ShippingV2ProviderItemDetailView
-        item={item}
-        pago={pago}
-        packing={packing}
-        canEdit={canEditProviderItemFields}
-        canViewProviderCost={canViewProviderCost}
-        onSaveField={saveField}
-        onSaved={handleSaved}
-      />
-    );
   }
 
   const tabs: Array<{ key: ItemDetailTabKey; label: string; rows: DetailRow[] }> = [
@@ -2092,8 +2009,8 @@ export function ShippingV2ItemDetailView({
         { label: "Costo total del stock", value: costoStock, displayValue: formatCurrency(costoStock), readOnly: true },
         { label: "Costo asignado despiece", value: item.costoAsignadoDespiece, displayValue: formatCurrency(item.costoAsignadoDespiece), readOnly: true },
         { label: "Costo total estimado", value: item.costoTotalEstimado, displayValue: formatCurrency(item.costoTotalEstimado), readOnly: true },
-        { label: C.precioVentaSugerido.label, value: item.precioVentaSugerido, displayValue: formatCurrency(item.precioVentaSugerido), config: C.precioVentaSugerido },
-        { label: C.precioVentaFinal.label, value: item.precioVenta, displayValue: formatCurrency(item.precioVenta), config: C.precioVentaFinal },
+        { label: C.precioVentaSugerido.label, value: item.precioVentaSugerido, displayValue: formatCurrency(item.precioVentaSugerido), config: C.precioVentaSugerido, ...(precioEditable ? {} : { readOnly: true }) },
+        { label: C.precioVentaFinal.label, value: item.precioVenta, displayValue: formatCurrency(item.precioVenta), config: C.precioVentaFinal, ...(precioEditable ? {} : { readOnly: true }) },
         { label: "Ganancia por unidad", value: gananciaUnidad, displayValue: formatCurrency(gananciaUnidad), readOnly: true },
         { label: "Ganancia total del stock", value: gananciaStock, displayValue: formatCurrency(gananciaStock), readOnly: true },
       ] satisfies DetailRow[],
@@ -2158,7 +2075,7 @@ export function ShippingV2ItemDetailView({
         { label: C.accesoriosIncluidos.label, value: item.accesoriosIncluidos, config: C.accesoriosIncluidos },
         { label: C.observacionVenta.label, value: item.observacionVenta, config: C.observacionVenta },
         { label: "Evidencias", value: "", displayValue: attachmentList(item.evidencias), readOnly: true },
-        { label: C.itemPadre.label, value: item.itemPadreId, displayValue: item.itemPadreId ? <Link href={`/shipping-v2/items/${item.itemPadreId}`} className="font-semibold text-[#D7FF4F] hover:underline">{trazabilidad?.itemPadre?.sku || "Ver artículo"}</Link> : "—", config: C.itemPadre },
+        { label: C.itemPadre.label, value: item.itemPadreId, displayValue: item.itemPadreId ? <EnlaceArticulo id={item.itemPadreId} className="font-semibold text-[#D7FF4F] hover:underline">{trazabilidad?.itemPadre?.sku || "Ver artículo"}</EnlaceArticulo> : "—", config: C.itemPadre },
         { label: C.itemsHijos.label, value: item.itemHijoIds.join(", "), displayValue: item.itemHijoIds.length ? `${item.itemHijoIds.length} pieza${item.itemHijoIds.length === 1 ? "" : "s"} (pestaña Despiece)` : "—", config: C.itemsHijos },
         { label: "Motivo despiece", value: item.motivoDespiece, readOnly: true },
         { label: "Fecha despiece", value: item.fechaDespiece, displayValue: formatDate(item.fechaDespiece), readOnly: true },
@@ -2189,7 +2106,8 @@ export function ShippingV2ItemDetailView({
       ? [{ key: "kardex" as const, label: "Kardex", rows: [] }]
       : []),
   ];
-  const activeSection = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
+  const tabsVisibles = tabs.filter((tab) => config.pestanas.includes(tab.key));
+  const activeSection = tabsVisibles.find((tab) => tab.key === activeTab) ?? tabsVisibles[0];
   const fichaGenerada = isFichaGenerada(item);
   const fichaHref = shippingV2TechnicalSheetHref(item);
   const skuLabelHref = shippingV2SkuLabelHref(item.id);
@@ -2245,10 +2163,10 @@ export function ShippingV2ItemDetailView({
           <PasoRecorrido icon={Wrench} etiqueta="Reparación" principal={trazabilidad.ordenReparacion.codigo} href={enlaces.tecnicos ? `/tecnicos/ordenes/${trazabilidad.ordenReparacion.id}` : undefined} detalle="Orden de reparación" />
         ) : null}
         {item.itemPadreId ? (
-          <PasoRecorrido icon={GitBranch} etiqueta="Sale de" principal={trazabilidad?.itemPadre?.sku || "Artículo padre"} href={`/shipping-v2/items/${item.itemPadreId}`} detalle={trazabilidad?.itemPadre?.nombre ? `Despiece de ${trazabilidad.itemPadre.nombre}` : "Despiece"} />
+          <PasoRecorrido icon={GitBranch} etiqueta="Sale de" principal={trazabilidad?.itemPadre?.sku || "Artículo padre"} articuloId={item.itemPadreId} detalle={trazabilidad?.itemPadre?.nombre ? `Despiece de ${trazabilidad.itemPadre.nombre}` : "Despiece"} />
         ) : null}
         {trazabilidad?.origenMejora ? (
-          <PasoRecorrido icon={GitBranch} etiqueta="Sale de" principal={trazabilidad.origenMejora.equipoSku} href={`/shipping-v2/items/${trazabilidad.origenMejora.equipoId}`} detalle={["Mejora", shortDate(trazabilidad.origenMejora.fecha), trazabilidad.origenMejora.equipoNombre].filter(Boolean).join(" · ")} />
+          <PasoRecorrido icon={GitBranch} etiqueta="Sale de" principal={trazabilidad.origenMejora.equipoSku} articuloId={trazabilidad.origenMejora.equipoId} detalle={["Mejora", shortDate(trazabilidad.origenMejora.fecha), trazabilidad.origenMejora.equipoNombre].filter(Boolean).join(" · ")} />
         ) : null}
         {item.packingId ? (
           <PasoRecorrido
@@ -2304,10 +2222,65 @@ export function ShippingV2ItemDetailView({
     </section>
   );
 
+  // Punto 18: cada bloque de la ficha, en el orden que dice la configuración del perfil (ficha-secciones.ts).
+  const bloques: Record<BloqueFichaInterna, ReactNode> = {
+    recorrido,
+    publicaciones: <FichaPublicaciones publicaciones={publicaciones} />,
+    pestanas: (
+      <section ref={tabsRef} className="scroll-mt-16 overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
+        <div role="tablist" className="flex gap-0.5 overflow-x-auto border-b border-[#2E2F28] bg-[#1A1B17] px-1 pt-1">
+          {tabsVisibles.map((tab) => {
+            const active = tab.key === activeSection.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                title={tab.key === "intervenciones" ? "Mantenimientos y mejoras" : undefined}
+                onClick={() => setActiveTab(tab.key)}
+                className={`-mb-px shrink-0 whitespace-nowrap rounded-t-md border border-b-0 px-2.5 py-1.5 text-[12.5px] font-semibold transition ${active ? "border-[#2E2F28] bg-[#171814] text-[#D7FF4F]" : "border-transparent text-[#8F908A] hover:text-[#F5F5F5]"}`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="p-2">
+          {activeSection.key === "despiece" ? (
+            // El despiece no es una lista de campos sino una tabla donde se
+            // van creando artículos hijos, así que no usa DetailSection.
+            <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} esAdmin={esAdmin} />
+          ) : activeSection.key === "intervenciones" ? (
+            <ShippingV2IntervencionesTab itemId={item.id} />
+          ) : activeSection.key === "kardex" ? (
+            <KardexRegistroTab itemId={item.id} />
+          ) : (
+            <>
+              <DetailSection rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} />
+              {activeSection.key === "logistica" && costosTraerlo ? <div className="mt-2">{costosTraerlo}</div> : null}
+            </>
+          )}
+        </div>
+      </section>
+    ),
+    novedades: (
+      <NovedadesVinculadasCard
+        novedades={novedades ?? []}
+        providerLabelsById={providerLabelsById}
+        item={{ id: item.id, sku: item.sku, nombre: item.nombre, cantidad: item.cantidad, estado: item.estado, packingId: item.packingId, proveedorId: item.proveedorId }}
+        rol={rolNovedades}
+        puedeRegistrar={(rolNovedades === "staff" || rolNovedades === "admin") && permissions?.canCreateNovedades === true}
+        canEditItems={canEditItems}
+        alCambiar={alCambiar}
+      />
+    ),
+  };
+
   return (
     <div className="grid w-full gap-3 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] 2xl:grid-cols-[minmax(0,4fr)_minmax(0,6fr)]">
       {/* La foto manda: columna propia que acompaña al bajar. */}
-      <aside className="min-w-0 md:sticky md:top-16 md:self-start">
+      <aside className={`min-w-0 md:sticky md:self-start ${modo === "modal" ? "md:top-0" : "md:top-16"}`}>
         <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={handleSaved} canEdit={canEditItems} density="hero" />
       </aside>
 
@@ -2386,7 +2359,7 @@ export function ShippingV2ItemDetailView({
                 className="bg-[#171814] px-3 py-2 transition"
                 labelClassName="text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]"
                 valueClassName="mt-0.5 truncate text-[17px] font-semibold leading-6 tabular-nums text-[#D7FF4F]"
-                readOnly={!canEditItems || campoSoloLectura("precioVenta")}
+                readOnly={!precioEditable || campoSoloLectura("precioVenta")}
                 onSave={(value) => saveField(C.precioVentaFinal.field, value)}
               />
             ) : null}
@@ -2440,7 +2413,7 @@ export function ShippingV2ItemDetailView({
                   Publicar
                 </button>
               ) : null}
-              {esAdmin && adminPanel ? (
+              {config.administrar && esAdmin && adminPanel ? (
                 <button type="button" onClick={() => setAdminOpen((open) => !open)} aria-expanded={adminOpen} title="Activos, dar de baja, corregir estado y eliminar"
                   className={`${accionClass} ml-auto ${adminOpen ? "border-[#8B73FF]/60 bg-[#8B73FF]/15 text-[#C9BFFF]" : ""}`}>
                   <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -2482,52 +2455,7 @@ export function ShippingV2ItemDetailView({
           />
         ) : null}
 
-        {recorrido}
-
-        <section ref={tabsRef} className="scroll-mt-16 overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
-          <div role="tablist" className="flex gap-0.5 overflow-x-auto border-b border-[#2E2F28] bg-[#1A1B17] px-1 pt-1">
-            {tabs.map((tab) => {
-              const active = tab.key === activeTab;
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  title={tab.key === "intervenciones" ? "Mantenimientos y mejoras" : undefined}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`-mb-px shrink-0 whitespace-nowrap rounded-t-md border border-b-0 px-2.5 py-1.5 text-[12.5px] font-semibold transition ${active ? "border-[#2E2F28] bg-[#171814] text-[#D7FF4F]" : "border-transparent text-[#8F908A] hover:text-[#F5F5F5]"}`}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-          <div className="p-2">
-            {activeTab === "despiece" ? (
-              // El despiece no es una lista de campos sino una tabla donde se
-              // van creando artículos hijos, así que no usa DetailSection.
-              <ShippingV2DespieceTab itemId={item.id} canEdit={canEditItems} esAdmin={esAdmin} />
-            ) : activeTab === "intervenciones" ? (
-              <ShippingV2IntervencionesTab itemId={item.id} />
-            ) : activeTab === "kardex" ? (
-              <KardexRegistroTab itemId={item.id} />
-            ) : (
-              <>
-                <DetailSection rows={activeSection.rows} onSave={saveField} esAdmin={esAdmin} canEdit={canEditItems} camposOcultos={camposOcultos} camposSoloLectura={camposSoloLectura} />
-                {activeTab === "logistica" && costosTraerlo ? <div className="mt-2">{costosTraerlo}</div> : null}
-              </>
-            )}
-          </div>
-        </section>
-
-        <NovedadesVinculadasCard
-          novedades={novedades ?? []}
-          providerLabelsById={providerLabelsById}
-          item={{ id: item.id, sku: item.sku, nombre: item.nombre, cantidad: item.cantidad, estado: item.estado, packingId: item.packingId, proveedorId: item.proveedorId }}
-          rol={rolNovedades}
-          puedeRegistrar={(rolNovedades === "staff" || rolNovedades === "admin") && permissions?.canCreateNovedades !== false}
-        />
+        {config.bloques.map((bloque) => <Fragment key={bloque}>{bloques[bloque]}</Fragment>)}
       </div>
     </div>
   );
@@ -2535,19 +2463,26 @@ export function ShippingV2ItemDetailView({
 
 export function ShippingV2ItemsClient({ items: initialItems, proveedores, error, permissions, providerName, camposOcultos = [], initialSortBy, filtro = FILTRO_ARTICULOS_VACIO, pagination }: Props) {
   const router = useRouter();
+  // Punto 18: la ficha se abre en la ventana única (la lista no se desmonta).
+  const ficha = useFichaArticulo();
+  const abrirArticulo = useCallback((id: string) => (ficha ? ficha.abrir(id) : router.push(`/shipping-v2/items/${id}`)), [ficha, router]);
+  // Lo que cambie en la ficha se refleja en la lista.
+  useAlCambiarArticulo(() => router.refresh());
   const canEditItems = permissions?.canEditItems !== false;
   const canViewCosts = permissions?.canViewCosts !== false;
   const canViewProviderCost = canViewCosts || permissions?.canViewProviderCost !== false;
+  // Punto 18: el técnico ve el precio de venta (como dato) aunque no vea costos.
+  const canViewSalePrice = canViewCosts || permissions?.canViewSalePrice === true;
   // Personalización por usuario (Fase 2 de permisos) intersecada con los
   // permisos de rol: se necesitan AMBOS para ver el dato.
   const puedeVerCostoProveedorLista = canViewProviderCost && !camposOcultos.includes("costoProveedor");
-  const puedeVerPrecioVentaLista = canViewCosts && !camposOcultos.includes("precioVenta");
+  const puedeVerPrecioVentaLista = canViewSalePrice && !camposOcultos.includes("precioVenta");
   const isProviderPortal = Boolean(providerName && permissions?.canEditItems === false);
-  const availableColumns = useMemo(() => getAvailableColumns(canViewCosts, canViewProviderCost, camposOcultos), [canViewCosts, canViewProviderCost, camposOcultos]);
-  const availableSortOptions = useMemo(() => getSortOptions(canViewCosts, canViewProviderCost), [canViewCosts, canViewProviderCost]);
+  const availableColumns = useMemo(() => getAvailableColumns(canViewSalePrice, canViewProviderCost, camposOcultos), [canViewSalePrice, canViewProviderCost, camposOcultos]);
+  const availableSortOptions = useMemo(() => getSortOptions(canViewSalePrice, canViewProviderCost), [canViewSalePrice, canViewProviderCost]);
   const [items, setItems] = useState(initialItems);
   const [search, setSearch] = useState(filtro.q);
-  const [sortBy, setSortBy] = useState<SortKey>(() => sanitizeProviderSort(initialSortBy, canViewCosts, canViewProviderCost));
+  const [sortBy, setSortBy] = useState<SortKey>(() => sanitizeProviderSort(initialSortBy, canViewSalePrice, canViewProviderCost));
   const [groupBy, setGroupBy] = useState<GroupKey>("none");
   const [notice, setNotice] = useState("");
   const [columnWidths, setColumnWidths] = useState<ShippingV2ItemsColumnWidths>(() => createDefaultColumnWidths());
@@ -2613,8 +2548,8 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   }, []);
 
   useEffect(() => {
-    setSortBy(sanitizeProviderSort(initialSortBy, canViewCosts, canViewProviderCost));
-  }, [canViewCosts, canViewProviderCost, initialSortBy]);
+    setSortBy(sanitizeProviderSort(initialSortBy, canViewSalePrice, canViewProviderCost));
+  }, [canViewSalePrice, canViewProviderCost, initialSortBy]);
 
   useEffect(() => {
     if (!toolbarMenuOpen) return;
@@ -2807,11 +2742,11 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   const buildSortHref = useCallback((nextSortBy: SortKey) => hrefArticulos(filtro, { sort: nextSortBy }), [filtro]);
 
   const selectSortBy = useCallback((nextSortBy: SortKey) => {
-    const safeSortBy = sanitizeProviderSort(nextSortBy, canViewCosts, canViewProviderCost);
+    const safeSortBy = sanitizeProviderSort(nextSortBy, canViewSalePrice, canViewProviderCost);
     setSortBy(safeSortBy);
     setToolbarMenuOpen(null);
     router.push(buildSortHref(safeSortBy));
-  }, [buildSortHref, canViewCosts, canViewProviderCost, router]);
+  }, [buildSortHref, canViewSalePrice, canViewProviderCost, router]);
 
   const toggleToolbarMenu = useCallback((menu: ToolbarMenuKey) => {
     setToolbarMenuOpen((current) => (current === menu ? null : menu));
@@ -2855,7 +2790,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   function openItemFromRow(event: MouseEvent<HTMLElement>, item: ResolvedItem) {
     const target = event.target as HTMLElement;
     if (target.closest("a,button,input,select,textarea")) return;
-    router.push(`/shipping-v2/items/${item.id}`);
+    abrirArticulo(item.id);
   }
 
   const filtering = hayFiltroArticulos(filtro);
@@ -2885,6 +2820,19 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
         </div>
         <FiltroSelect etiqueta="Categoría" valor={filtro.categoria} principales={CATEGORIAS_ARTICULO} onChange={(categoria) => aplicarFiltro({ categoria })} className="w-[8.75rem]" />
         <FiltroSelect etiqueta="Estado" valor={filtro.estado} principales={ESTADOS_PRINCIPALES} otras={ESTADOS_OTROS} onChange={(estado) => aplicarFiltro({ estado })} className="w-[8.25rem]" />
+        {/* Punto 18: la lista de trabajo del técnico (lo que espera su inspección). */}
+        {permissions?.canTrabajoTecnico ? (
+          <button
+            type="button"
+            aria-pressed={filtro.inspeccion === "pendiente"}
+            onClick={() => aplicarFiltro({ inspeccion: filtro.inspeccion === "pendiente" ? "" : "pendiente" })}
+            title="Ya llegaron, piden inspección y nadie la firmó"
+            className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[12.5px] font-semibold transition ${filtro.inspeccion === "pendiente" ? "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515]" : "border-[#3A3A36] bg-[#151515] text-[#B4B5AC] hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F]"}`}
+          >
+            <ClipboardCheck className="h-3.5 w-3.5" aria-hidden="true" />
+            Por inspeccionar
+          </button>
+        ) : null}
         <div ref={toolbarMenuRef} className="relative flex shrink-0 items-center gap-1">
           <TooltipProvider delayDuration={180}>
             <ToolbarIconButton
@@ -3123,7 +3071,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
-                          router.push(`/shipping-v2/items/${item.id}`);
+                          abrirArticulo(item.id);
                         }
                       }}
                       className="cursor-pointer transition hover:bg-[#D7FF4F]/[0.05] focus:bg-[#D7FF4F]/[0.05] focus:outline-none"
@@ -3176,7 +3124,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
                   canEditFacebookSuperGeek={canEditItems}
                   facebookSuperGeekBusy={facebookSuperGeekBusyId === item.id}
                   onFacebookSuperGeekChange={updateFacebookSuperGeek}
-                  onOpen={() => router.push(`/shipping-v2/items/${item.id}`)}
+                  onOpen={() => abrirArticulo(item.id)}
                 />
               ))}
             </div>

@@ -38,6 +38,9 @@ export async function GET() {
 
   try {
     const access = await getShippingV2AccessContextForSession(session);
+    if (!access.permissions.canViewPackings) {
+      return NextResponse.json({ success: false, error: "No tienes acceso a Logística." }, { status: 403 });
+    }
     const packings = await getShippingV2Packings(access);
     return NextResponse.json({ success: true, data: packings });
   } catch (error) {
