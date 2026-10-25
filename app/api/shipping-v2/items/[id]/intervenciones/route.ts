@@ -101,10 +101,13 @@ export async function POST(request: Request, { params }: Params) {
             ? (() => {
                 const p = body.piezaRetirada as Record<string, unknown>;
                 return {
+                  // Punto 13: igual a un producto que ya existe (se suma a ese código).
+                  comoSku: typeof p.comoSku === "string" ? p.comoSku : undefined,
                   nombre: typeof p.nombre === "string" ? p.nombre : "",
                   categoria: typeof p.categoria === "string" ? p.categoria : "",
                   cantidad: numero(p.cantidad),
-                  valor: numero(p.valor) ?? 0,
+                  // Vacío = el valor automático (punto 13).
+                  valor: numero(p.valor) ?? null,
                   precioVenta: numero(p.precioVenta) ?? null,
                 };
               })()

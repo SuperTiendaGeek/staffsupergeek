@@ -2247,6 +2247,9 @@ export function ShippingV2ItemDetailView({
         {item.itemPadreId ? (
           <PasoRecorrido icon={GitBranch} etiqueta="Sale de" principal={trazabilidad?.itemPadre?.sku || "Artículo padre"} href={`/shipping-v2/items/${item.itemPadreId}`} detalle={trazabilidad?.itemPadre?.nombre ? `Despiece de ${trazabilidad.itemPadre.nombre}` : "Despiece"} />
         ) : null}
+        {trazabilidad?.origenMejora ? (
+          <PasoRecorrido icon={GitBranch} etiqueta="Sale de" principal={trazabilidad.origenMejora.equipoSku} href={`/shipping-v2/items/${trazabilidad.origenMejora.equipoId}`} detalle={["Mejora", shortDate(trazabilidad.origenMejora.fecha), trazabilidad.origenMejora.equipoNombre].filter(Boolean).join(" · ")} />
+        ) : null}
         {item.packingId ? (
           <PasoRecorrido
             icon={Truck}

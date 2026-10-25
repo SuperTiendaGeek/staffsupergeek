@@ -152,7 +152,7 @@ export function evaluarEquipoParaIntervencion(equipo: {
 // · Si el registro del equipo tiene VARIAS unidades (p. ej. 9 laptops iguales)
 //   la mejora se registra pero el costo del equipo no se toca: cambiaría el de
 //   las 9 y solo se mejoró una. Se avisa que conviene separar esa unidad
-//   (punto 13, "rompecabezas").
+//   (desde el punto 10 cada equipo es una unidad: solo pasa con los lotes).
 
 const redondear = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -176,11 +176,17 @@ export function decidirCostoMejora(input: {
   cantidadEquipo: number;
   costoSumado: number | null | undefined;
   valorPiezaRetirada?: number | null;
+  /** Costo actual del equipo (punto 13): la pieza que sale no puede valer más que el equipo. */
+  costoEquipo?: number | null;
 }): DecisionCostoMejora {
   const costo = Number(input.costoSumado ?? 0);
   const valor = Number(input.valorPiezaRetirada ?? 0);
   if (!Number.isFinite(costo) || costo < 0) throw new Error("El costo a sumar no puede ser negativo.");
   if (!Number.isFinite(valor) || valor < 0) throw new Error("El valor de la pieza retirada no puede ser negativo.");
+  const costoEquipo = Number(input.costoEquipo);
+  if (input.cantidadEquipo <= 1 && Number.isFinite(costoEquipo) && input.costoEquipo != null && valor > redondear(costoEquipo + costo) + 0.004) {
+    throw new Error(`La pieza que sale ($${valor.toFixed(2)}) no puede valer más que el equipo con la mejora ($${redondear(costoEquipo + costo).toFixed(2)}).`);
+  }
   if (input.cantidadEquipo > 1) {
     return {
       costoSumado: 0,
@@ -194,7 +200,47 @@ export function decidirCostoMejora(input: {
   return { costoSumado, valorRestado, ajuste: redondear(costoSumado - valorRestado) };
 }
 
+// ─── Valor automático de la pieza que sale (punto 13, 25-oct-2026) ───────────
+// · Si es igual a una pieza que ya existe en el inventario (mismo producto),
+//   vale lo que cuesta esa pieza.
+// · Si es una pieza nueva, se reparte como en el despiece: el costo del equipo
+//   en proporción a lo que se cobra por la pieza frente a lo que se cobra por
+//   el equipo (una RAM de $30 en una laptop de $300 se lleva el 10%).
+// · Sin datos para calcular, $0 (el equipo conserva su costo).
+// Siempre se puede cambiar a mano (quien ve costos).
+
+export type CriterioValorRetirada = "misma-pieza" | "por-precio" | "sin-datos";
+
+export function valorSugeridoPiezaRetirada(input: {
+  /** Costo por unidad del producto igual que ya existe. */
+  costoMismaPieza?: number | null;
+  precioPieza?: number | null;
+  costoEquipo?: number | null;
+  precioEquipo?: number | null;
+}): { valor: number; criterio: CriterioValorRetirada } {
+  const n = (v: number | null | undefined) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+  const misma = n(input.costoMismaPieza);
+  if (misma) return { valor: redondear(misma), criterio: "misma-pieza" };
+  const precioPieza = n(input.precioPieza);
+  const precioEquipo = n(input.precioEquipo);
+  const costoEquipo = n(input.costoEquipo);
+  if (precioPieza && precioEquipo && costoEquipo) {
+    return { valor: redondear(Math.min(costoEquipo, (costoEquipo * precioPieza) / precioEquipo)), criterio: "por-precio" };
+  }
+  return { valor: 0, criterio: "sin-datos" };
+}
+
+/** Condiciones que no se mezclan con una pieza usada que sale de un equipo. */
+const CONDICIONES_NO_UNIBLES = new Set(["nuevo", "open box", "danado", "para partes"]);
+
+/** ¿La pieza que sale puede sumarse a este producto? (misma categoría de repuesto y no nuevo). */
+export function puedeUnirsePiezaRetirada(producto: { categoria?: string | null; condicion?: string | null; usoLocal?: boolean | null }): boolean {
+  return esCategoriaDeRepuesto(producto.categoria) && producto.usoLocal !== true && !CONDICIONES_NO_UNIBLES.has(normalize(producto.condicion));
+}
+
 export type PiezaRetiradaInput = {
+  /** Punto 13: SKU del producto igual que ya existe; la pieza se suma a ese código. */
+  comoSku?: string | null;
   nombre: string;
   categoria: string;
   cantidad?: number;
@@ -204,7 +250,7 @@ export type PiezaRetiradaInput = {
   precioVenta?: number | null;
 };
 
-/** Valida la pieza retirada y devuelve la nota que llevará el artículo nuevo. */
+/** Valida la pieza retirada y devuelve la nota que llevará el artículo nuevo ("Origen LAP-000013"). */
 export function validarPiezaRetirada(
   pieza: PiezaRetiradaInput,
   equipo: { sku?: string | null; nombre?: string | null },
@@ -228,7 +274,7 @@ export function validarPiezaRetirada(
     valor: redondear(valor),
     valorTotal: redondear(valor * cantidad),
     precioVenta: precio && precio > 0 ? redondear(precio) : null,
-    nota: `Retirada de ${origen} en una mejora (${fechaIso.slice(0, 10)}).`,
+    nota: `Origen ${origen}: retirada en una mejora (${fechaIso.slice(0, 10)}).`,
   };
 }
 

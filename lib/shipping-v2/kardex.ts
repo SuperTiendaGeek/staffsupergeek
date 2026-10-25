@@ -202,8 +202,8 @@ export function costoDeComponentes(c: ComponentesCosto): number {
 
 /**
  * Costo por unidad del registro: "Costo total unidad" (la misma fórmula que
- * usan Pagos y la ficha). Una pieza de despiece todavía guarda su valor en
- * "Costo asignado por despiece" (punto 13): se usa si no hay otro.
+ * usan Pagos y la ficha; desde el punto 13 incluye "Costo asignado por
+ * despiece"). Si la fórmula no llegó, se arma con sus partes.
  */
 export function costoUnitarioDeCampos(f: Record<string, unknown>): number {
   const total = num(f["Costo total unidad"]);

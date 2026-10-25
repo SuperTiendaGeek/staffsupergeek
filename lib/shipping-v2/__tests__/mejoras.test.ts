@@ -13,7 +13,9 @@ import {
   estadoPiezaTrasDevolver,
   evaluarAnulacion,
   evaluarPiezaParaMejora,
+  puedeUnirsePiezaRetirada,
   validarPiezaRetirada,
+  valorSugeridoPiezaRetirada,
 } from "../mejoras";
 
 let fallos = 0;
@@ -69,7 +71,7 @@ const pr = validarPiezaRetirada({ nombre: "RAM 4GB DDR4", categoria: "RAM" }, { 
 assert(pr.cantidad === 1 && pr.valor === 0 && pr.precioVenta === null, "Por defecto 1 unidad, valor $0 y sin precio");
 const pr2 = validarPiezaRetirada({ nombre: "RAM 4GB", categoria: "RAM", cantidad: 2, valor: 10, precioVenta: 25 }, { sku: "LAP-1" }, "2026-10-08");
 assert(pr2.valorTotal === 20 && pr2.precioVenta === 25, "2 módulos de $10 c/u: se restan $20 del equipo; precio $25");
-assert(pr.nota === "Retirada de LAP-000013 en una mejora (2026-10-06).", "La nota dice de dónde salió");
+assert(pr.nota === "Origen LAP-000013: retirada en una mejora (2026-10-06).", "La nota dice de dónde salió (Origen LAP-000013)");
 lanzo = false; try { validarPiezaRetirada({ nombre: "", categoria: "RAM" }, { sku: "LAP-1" }, "2026-10-06"); } catch { lanzo = true; }
 assert(lanzo, "Sin nombre: error");
 
@@ -88,6 +90,26 @@ assert(estadoPiezaTrasDevolver({ estadoActual: "Agotado", requiereInspeccion: tr
 assert(estadoPiezaTrasDevolver({ estadoActual: "Disponible" }) === null, "Si no quedó Agotado, no se toca la etiqueta");
 assert(costoMejorasTrasAnular(17, mejora) === 0, "Costo: 17 − (25 − 8) = 0");
 assert(costoMejorasTrasAnular(0, { tipo: "Mejora", costoSumado: 0, valorPiezaRetirada: 0 }) === 0, "Mejora sin costo aplicado (varias unidades): no cambia");
+
+// ─── Punto 13 (25-oct): valor automático de la pieza que sale ───────────────
+// LAP-000013 costó $250 y se vende en $400. Se le pone una RAM de 16 GB ($35)
+// y sale su RAM de 8 GB.
+const v1 = valorSugeridoPiezaRetirada({ costoMismaPieza: 15, precioPieza: 25, costoEquipo: 250, precioEquipo: 400 });
+assert(v1.valor === 15 && v1.criterio === "misma-pieza", "Igual a una pieza del inventario: vale lo que cuesta esa pieza ($15)");
+const v2 = valorSugeridoPiezaRetirada({ precioPieza: 40, costoEquipo: 250, precioEquipo: 400 });
+assert(v2.valor === 25 && v2.criterio === "por-precio", "Pieza nueva: reparto por precio, $250 × 40/400 = $25");
+assert(valorSugeridoPiezaRetirada({ precioPieza: 500, costoEquipo: 250, precioEquipo: 400 }).valor === 250, "Nunca más que el equipo");
+assert(valorSugeridoPiezaRetirada({ costoEquipo: 250, precioEquipo: 400 }).criterio === "sin-datos", "Sin precio de la pieza: $0 (el equipo conserva su costo)");
+assert(valorSugeridoPiezaRetirada({ costoMismaPieza: 0, precioPieza: 40, costoEquipo: 250, precioEquipo: 400 }).criterio === "por-precio", "Pieza igual sin costo: se usa el reparto");
+const d13 = decidirCostoMejora({ cantidadEquipo: 1, costoSumado: 35, valorPiezaRetirada: 15, costoEquipo: 250 });
+assert(d13.ajuste === 20, "Equipo: +$35 de la RAM nueva − $15 de la que sale = +$20 ($250 → $270)");
+let fueraDeRango = false;
+try { decidirCostoMejora({ cantidadEquipo: 1, costoSumado: 0, valorPiezaRetirada: 300, costoEquipo: 250 }); } catch { fueraDeRango = true; }
+assert(fueraDeRango, "La pieza que sale no puede valer más que el equipo");
+assert(puedeUnirsePiezaRetirada({ categoria: "RAM", condicion: "Usado" }), "Se suma a una RAM usada que ya existe");
+assert(!puedeUnirsePiezaRetirada({ categoria: "RAM", condicion: "Nuevo" }), "No se mezcla con una RAM nueva");
+assert(!puedeUnirsePiezaRetirada({ categoria: "Laptop", condicion: "Usado" }), "Solo categorías de repuesto");
+assert(!puedeUnirsePiezaRetirada({ categoria: "SSD", condicion: "Usado", usoLocal: true }), "No se suma a un activo de la tienda");
 
 if (fallos > 0) { console.error(`\n${fallos} assert(s) fallaron.`); process.exit(1); }
 console.log("\n✅ mejoras.test.ts — todos los asserts pasaron");
