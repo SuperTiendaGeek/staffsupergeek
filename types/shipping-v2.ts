@@ -438,6 +438,8 @@ export type ShippingV2ItemTrazabilidad = {
   operacion?: { id: string; codigo: string };
   ordenReparacion?: { id: string; codigo: string };
   itemPadre?: { id: string; sku: string; nombre?: string };
+  /** Punto 13: la pieza salió de este equipo en una mejora. */
+  origenMejora?: { equipoId: string; equipoSku: string; equipoNombre?: string; fecha?: string };
   documentos: ShippingV2ItemDocumento[];
 };
 

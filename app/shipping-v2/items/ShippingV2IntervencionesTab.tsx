@@ -10,11 +10,13 @@
 //   Mantenimiento → conserva lo que el equipo es (limpieza, pasta térmica…).
 //   Mejora        → le pone una pieza del inventario y la descuenta.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { X } from "lucide-react";
 import type { ShippingV2Intervencion } from "@/lib/shipping-v2/airtable";
-import { SHIPPING_V2_CATEGORIAS } from "@/types/shipping-v2";
+import { CATEGORIAS_REPUESTO_STOCK, valorSugeridoPiezaRetirada } from "@/lib/shipping-v2/mejoras";
 
 type Repuesto = { id: string; sku: string; nombre: string; categoria: string; stock: number; costo: number };
+type ProductoPieza = { sku: string; nombre: string; categoria: string; condicion: string; seguimiento: string; precio: number | null; costo: number };
 
 type Panel = {
   itemId: string;
@@ -27,15 +29,19 @@ type Panel = {
   puedeVerCostos: boolean;
   puedeAnular: boolean;
   costoMejoras: number | null;
+  costoEquipo: number | null;
+  precioEquipo: number | null;
   trabajos: { mantenimientos: string[]; mejoras: string[] };
   intervenciones: ShippingV2Intervencion[];
   repuestos: Repuesto[];
+  productosPieza: ProductoPieza[];
 };
 
-const money = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
+const money = (n: number) => `$${(n || 0).toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const inputCls =
-  "h-9 w-full rounded-lg border border-[#3A3A36] bg-[#151515] px-3 text-sm text-[#F5F5F5] outline-none placeholder:text-[#696A64] transition focus:border-[#D7FF4F]/70";
+const inputBase =
+  "h-8 rounded-lg border border-[#3A3A36] bg-[#151515] px-2.5 text-[12.5px] text-[#F5F5F5] outline-none placeholder:text-[#696A64] transition focus:border-[#D7FF4F]/70";
+const inputCls = `${inputBase} w-full`;
 
 function fecha(iso?: string) {
   if (!iso) return "";
@@ -45,13 +51,84 @@ function fecha(iso?: string) {
   });
 }
 
-function Campo({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
+const normalizar = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+/** Fila "etiqueta | control" (etiqueta corta a la izquierda, sin ayudas largas). */
+function Fila({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="block min-w-0 space-y-1">
-      <span className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">{label}</span>
-      {children}
-      {hint ? <span className="block text-[11px] leading-4 text-[#696A64]">{hint}</span> : null}
-    </label>
+    <div className="grid grid-cols-[3.6rem_minmax(0,1fr)] items-center gap-2">
+      <span className="text-[11.5px] font-medium text-[#8F908A]">{label}</span>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
+/** Buscador con lista (SKU, nombre o categoría). Al elegir, queda un chip con ×. */
+function Buscador<T>({ opciones, texto, elegido, alElegir, alQuitar, clave, linea, placeholder, extra }: {
+  opciones: T[];
+  texto: (o: T) => string;
+  elegido: ReactNode | null;
+  alElegir: (o: T) => void;
+  alQuitar: () => void;
+  clave: (o: T) => string;
+  linea: (o: T) => ReactNode;
+  placeholder: string;
+  /** Última opción fija (p. ej. "Otra pieza: «…»"). */
+  extra?: (q: string) => { contenido: ReactNode; alElegir: () => void } | null;
+}) {
+  const [q, setQ] = useState("");
+  const [abierto, setAbierto] = useState(false);
+  const [activo, setActivo] = useState(0);
+  const ref = useRef<HTMLInputElement>(null);
+  const lista = useMemo(() => {
+    const t = normalizar(q.trim());
+    return (t ? opciones.filter((o) => normalizar(texto(o)).includes(t)) : opciones).slice(0, 8);
+  }, [opciones, q, texto]);
+  const fija = extra ? extra(q.trim()) : null;
+  const total = lista.length + (fija ? 1 : 0);
+
+  if (elegido) {
+    return (
+      <span className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-[#D7FF4F]/40 bg-[#D7FF4F]/[0.06] px-2.5 text-[12.5px] animate-[sg-entrada_160ms_ease-out]">
+        <span className="min-w-0 flex-1 truncate">{elegido}</span>
+        <button type="button" aria-label="Quitar" onClick={() => { alQuitar(); setQ(""); setTimeout(() => ref.current?.focus(), 0); }} className="text-[#8F908A] hover:text-[#EDEDE7]"><X className="h-3.5 w-3.5" aria-hidden="true" /></button>
+      </span>
+    );
+  }
+  const elegir = (i: number) => {
+    if (i < lista.length) alElegir(lista[i]);
+    else fija?.alElegir();
+    setAbierto(false);
+  };
+  return (
+    <div className="relative">
+      <input ref={ref} value={q} placeholder={placeholder} aria-label={placeholder}
+        onFocus={() => setAbierto(true)} onBlur={() => setTimeout(() => setAbierto(false), 150)}
+        onChange={(e) => { setQ(e.target.value); setActivo(0); setAbierto(true); }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") { e.preventDefault(); setActivo((a) => Math.min(a + 1, Math.max(total - 1, 0))); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setActivo((a) => Math.max(a - 1, 0)); }
+          else if (e.key === "Enter" && total) { e.preventDefault(); elegir(activo); }
+          else if (e.key === "Escape") setAbierto(false);
+        }}
+        className={inputCls} />
+      {abierto && total ? (
+        <div className="absolute left-0 right-0 top-9 z-30 max-h-64 overflow-y-auto rounded-lg border border-[#3A3B35] bg-[#171814] shadow-xl shadow-black/40 animate-[sg-entrada_140ms_ease-out]">
+          {lista.map((o, i) => (
+            <button key={clave(o)} type="button" onMouseDown={(e) => { e.preventDefault(); elegir(i); }}
+              className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12.5px] ${i === activo ? "bg-[#D7FF4F]/[0.08]" : "hover:bg-white/[0.03]"}`}>
+              {linea(o)}
+            </button>
+          ))}
+          {fija ? (
+            <button type="button" onMouseDown={(e) => { e.preventDefault(); elegir(lista.length); }}
+              className={`flex w-full items-center gap-2 border-t border-[#30312D] px-2.5 py-1.5 text-left text-[12.5px] text-[#D7FF4F] ${activo === lista.length ? "bg-[#D7FF4F]/[0.08]" : "hover:bg-white/[0.03]"}`}>
+              {fija.contenido}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -68,19 +145,20 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
   const [mantNota, setMantNota] = useState("");
   // Mejora
   const [mejTipo, setMejTipo] = useState("");
-  const [buscar, setBuscar] = useState("");
   const [piezaId, setPiezaId] = useState("");
   const [cantidad, setCantidad] = useState("1");
   const [mejNota, setMejNota] = useState("");
   // Costo (punto 3): sugerido = costo de la pieza × unidades; se puede cambiar.
   const [costoTexto, setCostoTexto] = useState("");
   const [costoEditado, setCostoEditado] = useState(false);
-  // Pieza que sale del equipo y vuelve al inventario.
+  // Pieza que sale (punto 13): igual a un producto existente o una pieza nueva.
   const [conRetirada, setConRetirada] = useState(false);
+  const [retComo, setRetComo] = useState<ProductoPieza | null>(null);
+  const [retNueva, setRetNueva] = useState(false);
   const [retNombre, setRetNombre] = useState("");
   const [retCategoria, setRetCategoria] = useState("");
   const [retCantidad, setRetCantidad] = useState("1");
-  const [retValor, setRetValor] = useState("0");
+  const [retValor, setRetValor] = useState(""); // vacío = automático
   const [retPrecio, setRetPrecio] = useState("");
   // Anular (solo Administrador): qué registro se está anulando y por qué.
   const [anulandoId, setAnulandoId] = useState("");
@@ -109,13 +187,6 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
 
   useEffect(() => { void cargar(); }, [cargar]);
 
-  const piezasFiltradas = useMemo(() => {
-    const q = buscar.trim().toLowerCase();
-    const lista = panel?.repuestos ?? [];
-    if (!q) return lista;
-    return lista.filter((r) => `${r.sku} ${r.nombre} ${r.categoria}`.toLowerCase().includes(q));
-  }, [panel, buscar]);
-
   const pieza = panel?.repuestos.find((r) => r.id === piezaId) ?? null;
   const cantidadNum = Number(cantidad);
   const cantidadValida = Number.isInteger(cantidadNum) && cantidadNum >= 1 && (!pieza || cantidadNum <= pieza.stock);
@@ -129,15 +200,36 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
 
   const costoNum = Number(costoTexto);
   const costoValido = costoTexto.trim() !== "" && Number.isFinite(costoNum) && costoNum >= 0;
-  const retCantidadNum = Number(retCantidad);
-  const retValorNum = Number(retValor || 0);
+
+  // Pieza que sale: lo que propone el sistema (misma regla que el servidor).
   const retPrecioNum = retPrecio.trim() === "" ? null : Number(retPrecio);
+  const retPrecioEfectivo = retPrecioNum ?? retComo?.precio ?? null;
+  const unaPorVez = (retComo?.seguimiento ?? "") === "Unidad" || ["mainboard", "tarjeta grafica"].includes(normalizar(retComo?.categoria ?? retCategoria));
+  const retCantidadNum = unaPorVez ? 1 : Number(retCantidad);
+  const automatico = valorSugeridoPiezaRetirada({
+    costoMismaPieza: retComo?.costo,
+    precioPieza: retPrecioEfectivo,
+    costoEquipo: panel?.costoEquipo,
+    precioEquipo: panel?.precioEquipo,
+  });
+  const retValorNum = retValor.trim() === "" ? automatico.valor : Number(retValor);
+  const retElegida = Boolean(retComo) || (retNueva && retNombre.trim() !== "");
   const retiradaValida = !conRetirada || (
-    retNombre.trim() !== "" && retCategoria !== "" &&
+    retElegida && (Boolean(retComo) || retCategoria !== "") &&
     Number.isInteger(retCantidadNum) && retCantidadNum >= 1 &&
     Number.isFinite(retValorNum) && retValorNum >= 0 &&
     (retPrecioNum === null || (Number.isFinite(retPrecioNum) && retPrecioNum >= 0))
   );
+  const criterioTexto = automatico.criterio === "misma-pieza" ? `= ${retComo?.sku}` : automatico.criterio === "por-precio" ? "por precio" : "sin precio";
+  const criterioAyuda = automatico.criterio === "misma-pieza" ? `Lo que cuesta ${retComo?.sku} en el inventario` : automatico.criterio === "por-precio" ? "Costo del equipo × precio de la pieza ÷ precio del equipo" : "Ponle precio para calcularlo";
+  const suma = panel?.puedeVerCostos && !variasUnidades && costoValido ? costoNum : 0;
+  const resta = conRetirada && retiradaValida && !variasUnidades ? Math.round(retValorNum * retCantidadNum * 100) / 100 : 0;
+  const costoAntes = panel?.costoEquipo ?? 0;
+  const costoDespues = Math.round((costoAntes + suma - resta) * 100) / 100;
+
+  function limpiarRetirada() {
+    setRetComo(null); setRetNueva(false); setRetNombre(""); setRetCategoria(""); setRetCantidad("1"); setRetValor(""); setRetPrecio("");
+  }
 
   async function anular(intervencionId: string) {
     setGuardando(true); setError(""); setAviso("");
@@ -171,9 +263,9 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
       aplicarPanel(json.data);
       limpiar();
       const partes = [json.repuestoDescontado
-        ? `Mejora registrada. Se descontaron ${cuerpo.cantidadUsada} unidad(es) de ${json.repuestoDescontado}.`
+        ? `Mejora registrada: −${cuerpo.cantidadUsada} ${json.repuestoDescontado}.`
         : "Mantenimiento registrado."];
-      if (json.piezaRetiradaSku) partes.push(`La pieza retirada entró al inventario como ${json.piezaRetiradaSku}.`);
+      if (json.piezaRetiradaSku) partes.push(`Entró ${json.piezaRetiradaSku}.`);
       setAviso(partes.join(" "));
       if (Array.isArray(json.avisos) && json.avisos.length) setError(json.avisos.join("\n"));
     } catch (e) {
@@ -183,8 +275,10 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
     }
   }
 
-  if (cargando) return <p className="px-3 py-6 text-sm text-[#A7A7A7]">Cargando mantenimientos y mejoras…</p>;
+  if (cargando) return <p className="px-3 py-6 text-sm text-[#A7A7A7]">Cargando…</p>;
   if (!panel) return <p className="px-3 py-6 text-sm text-[#FFB07A]">{error || "No se pudo cargar."}</p>;
+
+  const botonPrincipal = "h-8 rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-[12.5px] font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50";
 
   return (
     <div className="space-y-3">
@@ -192,152 +286,171 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
         <p className="rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">{panel.motivoBloqueo}</p>
       ) : null}
       {error ? (
-        <p className="whitespace-pre-line rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">{error}</p>
+        <p className="whitespace-pre-line rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-[12.5px] text-[#FFB07A] animate-[sg-sacudir_300ms_ease-out]">{error}</p>
       ) : null}
       {aviso ? (
-        <p className="rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-2 text-sm text-[#D7FF4F]">{aviso}</p>
+        <p className="rounded-lg border border-[#D7FF4F]/35 bg-[#D7FF4F]/10 px-3 py-2 text-[12.5px] text-[#D7FF4F] animate-[sg-entrada_200ms_ease-out]">{aviso}</p>
       ) : null}
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(280px,440px)_minmax(0,1fr)]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(300px,440px)_minmax(0,1fr)]">
         {panel.puedeRegistrar ? (
-          <section className="space-y-3 rounded-lg border border-[#30312D] bg-[#171814] p-3">
-            <div className="flex gap-1 rounded-lg border border-[#30312D] bg-[#11120F] p-1">
-              {(["Mantenimiento", "Mejora"] as const).map((m) => (
-                <button key={m} type="button" onClick={() => { setModo(m); setError(""); setAviso(""); }}
-                  className={`flex-1 rounded-md px-3 py-1.5 text-sm font-semibold transition ${modo === m ? "bg-[#D7FF4F] text-[#151515]" : "text-[#A7A7A7] hover:text-[#D7FF4F]"}`}>
-                  {m === "Mantenimiento" ? "Mantenimiento" : "Mejora"}
+          <section className="space-y-2 rounded-lg border border-[#30312D] bg-[#171814] p-3">
+            <div className="inline-flex overflow-hidden rounded-lg border border-[#3A3B35]" role="tablist">
+              {(["Mantenimiento", "Mejora"] as const).map((m, i) => (
+                <button key={m} type="button" role="tab" aria-selected={modo === m} onClick={() => { setModo(m); setError(""); setAviso(""); }}
+                  title={m === "Mantenimiento" ? "Conserva lo que el equipo es (no mueve inventario)" : "Le pone una pieza del inventario y la descuenta"}
+                  className={`${i ? "border-l border-[#3A3B35]" : ""} h-8 px-3 text-[12.5px] transition-colors ${modo === m ? "bg-[#D7FF4F] font-bold text-[#141510]" : "bg-[#151515] font-semibold text-[#B4B5AC] hover:text-[#EDEDE7]"}`}>
+                  {m}
                 </button>
               ))}
             </div>
 
             {modo === "Mantenimiento" ? (
               <>
-                <p className="text-[12px] text-[#7E7F76]">Conserva lo que el equipo ya es. No cambia sus características ni el inventario.</p>
-                <Campo label="Tipo de trabajo">
+                <Fila label="Trabajo">
                   <select value={mantTipo} onChange={(e) => setMantTipo(e.target.value)} className={inputCls}>
                     {panel.trabajos.mantenimientos.map((t) => <option key={t}>{t}</option>)}
                   </select>
-                </Campo>
-                <Campo label="Qué se hizo">
-                  <textarea value={mantNota} onChange={(e) => setMantNota(e.target.value)}
-                    placeholder="Ej: se retiró polvo del disipador y se cambió la pasta térmica del CPU."
-                    className={`${inputCls} h-auto min-h-[64px] py-2`} />
-                </Campo>
-                <button type="button" disabled={guardando || !mantTipo}
-                  onClick={() => void registrar({ tipo: "Mantenimiento", detalle: mantTipo, nota: mantNota.trim() }, () => setMantNota(""))}
-                  className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">
-                  Registrar mantenimiento
-                </button>
+                </Fila>
+                <Fila label="Nota">
+                  <input type="text" value={mantNota} onChange={(e) => setMantNota(e.target.value)} placeholder="Qué se hizo" className={inputCls} />
+                </Fila>
+                <div className="flex justify-end">
+                  <button type="button" disabled={guardando || !mantTipo} className={botonPrincipal}
+                    onClick={() => void registrar({ tipo: "Mantenimiento", detalle: mantTipo, nota: mantNota.trim() }, () => setMantNota(""))}>
+                    Registrar
+                  </button>
+                </div>
               </>
             ) : !panel.puedeMejorar ? (
-              <p className="rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-sm text-[#FFB07A]">
-                Una mejora descuenta una pieza del inventario y tu usuario no tiene permiso para editar artículos.
-              </p>
+              <p className="rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-3 py-2 text-[12.5px] text-[#FFB07A]">Tu usuario no puede editar artículos: una mejora descuenta inventario.</p>
             ) : (
               <>
-                <p className="text-[12px] text-[#7E7F76]">Le pone al equipo una pieza del inventario (RAM, SSD, batería…) y la descuenta.</p>
-                <Campo label="Tipo de mejora">
+                <Fila label="Trabajo">
                   <select value={mejTipo} onChange={(e) => setMejTipo(e.target.value)} className={inputCls}>
                     {panel.trabajos.mejoras.map((t) => <option key={t}>{t}</option>)}
                   </select>
-                </Campo>
-                <Campo label="Pieza del inventario" hint={`${panel.repuestos.length} piezas en la tienda con unidades libres.`}>
-                  <input type="search" value={buscar} onChange={(e) => setBuscar(e.target.value)}
-                    placeholder="Buscar por SKU, nombre o categoría" className={inputCls} />
-                  <select value={piezaId} onChange={(e) => setPiezaId(e.target.value)} className={`${inputCls} mt-1.5`}>
-                    <option value="">— Elige la pieza —</option>
-                    {piezasFiltradas.map((r) => (
-                      <option key={r.id} value={r.id}>{r.sku} · {r.nombre} — {r.stock} libre(s)</option>
-                    ))}
-                  </select>
-                </Campo>
-                <Campo label="Cantidad usada" hint={pieza ? `Máximo ${pieza.stock} (unidades libres de ${pieza.sku}).` : undefined}>
-                  <input type="number" min={1} step={1} value={cantidad} onChange={(e) => setCantidad(e.target.value)} className={inputCls} />
-                </Campo>
-                <Campo label="Nota">
-                  <input type="text" value={mejNota} onChange={(e) => setMejNota(e.target.value)}
-                    placeholder="Ej: se pasó de 8 GB a 16 GB en el slot libre." className={inputCls} />
-                </Campo>
-                {panel.puedeVerCostos ? (
-                  variasUnidades ? (
-                    <p className="rounded-lg border border-[#F4C95B]/40 bg-[#F4C95B]/10 px-3 py-2 text-[12px] text-[#F4C95B]">
-                      Este registro tiene {panel.cantidad} unidades iguales: la mejora se registra, pero su costo no se suma
-                      porque cambiaría el de todas. Conviene separar la unidad mejorada en un artículo propio.
-                    </p>
-                  ) : (
-                    <Campo label="Costo que se suma al equipo"
-                      hint={`Sugerido: ${money(costoSugerido)} (costo de la pieza × unidades). Puedes cambiarlo o poner 0. Mejoras acumuladas en este equipo: ${money(panel.costoMejoras ?? 0)}.`}>
-                      <input type="number" min={0} step="0.01" value={costoTexto}
-                        onChange={(e) => { setCostoTexto(e.target.value); setCostoEditado(true); }} className={inputCls} />
-                    </Campo>
-                  )
-                ) : null}
-
-                <label className="flex items-start gap-2 rounded-lg border border-[#30312D] bg-[#11120F] px-3 py-2 text-sm text-[#F5F5F5]">
-                  <input type="checkbox" checked={conRetirada} onChange={(e) => setConRetirada(e.target.checked)} className="mt-0.5" />
-                  <span>
-                    Sale una pieza del equipo y vuelve al inventario
-                    <span className="block text-[11px] text-[#696A64]">Ej: la RAM de 4 GB que se reemplazó. Se crea como artículo nuevo, en la tienda.</span>
-                  </span>
-                </label>
-                {conRetirada ? (
-                  <div className="space-y-2 rounded-lg border border-[#30312D] bg-[#11120F] p-3">
-                    <Campo label="Nombre de la pieza retirada">
-                      <input type="text" value={retNombre} onChange={(e) => setRetNombre(e.target.value)}
-                        placeholder="Ej: RAM DDR4 4GB 2400MHz" className={inputCls} />
-                    </Campo>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Campo label="Categoría">
-                        <select value={retCategoria} onChange={(e) => setRetCategoria(e.target.value)} className={inputCls}>
-                          <option value="">— Elige —</option>
-                          {SHIPPING_V2_CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      </Campo>
-                      <Campo label="Cantidad">
-                        <input type="number" min={1} step={1} value={retCantidad} onChange={(e) => setRetCantidad(e.target.value)} className={inputCls} />
-                      </Campo>
+                </Fila>
+                <Fila label="Entra">
+                  <div className="flex items-center gap-1.5">
+                    <div className="min-w-0 flex-1">
+                      <Buscador
+                        opciones={panel.repuestos}
+                        texto={(r) => `${r.sku} ${r.nombre} ${r.categoria}`}
+                        clave={(r) => r.id}
+                        linea={(r) => <><span className="font-mono font-semibold">{r.sku}</span><span className="min-w-0 flex-1 truncate text-[#C9CAC1]">{r.nombre}</span><span className="text-[11px] text-[#8F908A]">{r.stock} libre{r.stock === 1 ? "" : "s"}</span></>}
+                        elegido={pieza ? <><span className="font-mono font-semibold">{pieza.sku}</span> <span className="text-[#C9CAC1]">{pieza.nombre}</span></> : null}
+                        alElegir={(r) => { setPiezaId(r.id); setCantidad("1"); }}
+                        alQuitar={() => setPiezaId("")}
+                        placeholder="Pieza del inventario"
+                      />
                     </div>
-                    {panel.puedeVerCostos ? (
-                      <Campo label="Costo por unidad de la pieza retirada"
-                        hint={variasUnidades
-                          ? "Es el costo de la pieza nueva (se ve en su Costo total unitario). El equipo no cambia: tiene varias unidades."
-                          : "Es el costo de la pieza nueva (se ve en su Costo total unitario) y se RESTA del costo del equipo (× cantidad). Déjalo en 0 si no quieres cambiarlo."}>
-                        <input type="number" min={0} step="0.01" value={retValor} onChange={(e) => setRetValor(e.target.value)} className={inputCls} />
-                      </Campo>
-                    ) : null}
-                    <Campo label="Precio de venta por unidad (opcional)" hint="Si lo dejas vacío, la pieza nace sin precio y no aparece en el mostrador hasta que se lo pongas.">
-                      <input type="number" min={0} step="0.01" value={retPrecio} onChange={(e) => setRetPrecio(e.target.value)} className={inputCls} />
-                    </Campo>
+                    <input type="number" min={1} max={pieza?.stock} step={1} value={cantidad} onChange={(e) => setCantidad(e.target.value)} aria-label="Cantidad" title={pieza ? `Máximo ${pieza.stock}` : "Cantidad"} className={`${inputBase} w-14 shrink-0 text-center ${cantidadValida ? "" : "border-[#FF914D]/60"}`} />
                   </div>
+                </Fila>
+                {panel.puedeVerCostos && pieza && !variasUnidades ? (
+                  <Fila label="Suma">
+                    <input type="number" min={0} step="0.01" value={costoTexto} aria-label="Costo que se suma al equipo" title={`Sugerido ${money(costoSugerido)}`}
+                      onChange={(e) => { setCostoTexto(e.target.value); setCostoEditado(true); }} className={`${inputBase} w-28`} />
+                  </Fila>
                 ) : null}
 
-                {pieza ? (
-                  <div className="rounded-lg border border-dashed border-[#3A3A36] bg-[#11120F] px-3 py-2 text-[12px] text-[#B4B5AC]">
-                    Se descuentan <b className="text-[#F5F5F5]">{cantidadValida ? cantidadNum : "?"}</b> unidad(es) de{" "}
-                    <b className="text-[#F5F5F5]">{pieza.sku}</b>{panel.puedeVerCostos ? ` (costo por unidad ${money(pieza.costo)})` : ""}.
-                    {cantidadValida && cantidadNum === pieza.stock ? " Es la última unidad libre: la pieza quedará Agotado si no hay otras reservadas." : ""}
-                  </div>
+                <Fila label="Sale">
+                  {!conRetirada ? (
+                    <button type="button" onClick={() => setConRetirada(true)} className="h-8 rounded-lg border border-dashed border-[#3A3B35] px-2.5 text-[12.5px] font-semibold text-[#B4B5AC] hover:border-[#D7FF4F]/50 hover:text-[#EDEDE7]">
+                      + Una pieza del equipo
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <div className="min-w-0 flex-1">
+                        <Buscador
+                          opciones={panel.productosPieza}
+                          texto={(p) => `${p.sku} ${p.nombre} ${p.categoria}`}
+                          clave={(p) => p.sku}
+                          linea={(p) => <><span className="font-mono font-semibold">{p.sku}</span><span className="min-w-0 flex-1 truncate text-[#C9CAC1]">{p.nombre}</span>{p.condicion ? <span className="text-[11px] text-[#8F908A]">{p.condicion}</span> : null}</>}
+                          elegido={retComo
+                            ? <><span className="font-mono font-semibold">{retComo.sku}</span> <span className="text-[#C9CAC1]">{retComo.nombre}</span></>
+                            : retNueva ? <><span className="text-[#8F908A]">Nueva:</span> {retNombre}</> : null}
+                          alElegir={(p) => { setRetComo(p); setRetNueva(false); setRetValor(""); }}
+                          alQuitar={limpiarRetirada}
+                          placeholder="¿Qué pieza sale?"
+                          extra={(q) => q.length >= 3 ? { contenido: <>+ Pieza nueva: «{q}»</>, alElegir: () => { setRetComo(null); setRetNueva(true); setRetNombre(q); setRetValor(""); } } : null}
+                        />
+                      </div>
+                      {!unaPorVez ? (
+                        <input type="number" min={1} step={1} value={retCantidad} onChange={(e) => setRetCantidad(e.target.value)} aria-label="Cantidad que sale" title="Cantidad" className={`${inputBase} w-14 shrink-0 text-center`} />
+                      ) : null}
+                      <button type="button" aria-label="No sale ninguna pieza" title="No sale ninguna pieza" onClick={() => { setConRetirada(false); limpiarRetirada(); }} className="text-[#8F908A] hover:text-[#EDEDE7]"><X className="h-4 w-4" aria-hidden="true" /></button>
+                    </div>
+                  )}
+                </Fila>
+                {conRetirada && retNueva ? (
+                  <Fila label="Categoría">
+                    <select value={retCategoria} onChange={(e) => setRetCategoria(e.target.value)} className={`${inputCls} animate-[sg-entrada_160ms_ease-out]`}>
+                      <option value="">Elige</option>
+                      {CATEGORIAS_REPUESTO_STOCK.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </Fila>
                 ) : null}
-                <button type="button"
-                  disabled={guardando || !mejTipo || !pieza || !cantidadValida || !retiradaValida || (panel.puedeVerCostos && !variasUnidades && !costoValido)}
-                  onClick={() => void registrar(
-                    {
-                      tipo: "Mejora", detalle: mejTipo, nota: mejNota.trim(), repuestoId: piezaId, cantidadUsada: cantidadNum,
-                      ...(panel.puedeVerCostos && !variasUnidades ? { costoSumado: costoNum } : {}),
-                      ...(conRetirada
-                        ? { piezaRetirada: { nombre: retNombre.trim(), categoria: retCategoria, cantidad: retCantidadNum, valor: panel.puedeVerCostos ? retValorNum : 0, precioVenta: retPrecioNum } }
-                        : {}),
-                    },
-                    () => {
-                      setMejNota(""); setPiezaId(""); setCantidad("1"); setBuscar("");
-                      setCostoEditado(false); setConRetirada(false); setRetNombre(""); setRetCategoria(""); setRetCantidad("1"); setRetValor("0"); setRetPrecio("");
-                    })}
-                  className="rounded-lg border border-[#D7FF4F] bg-[#D7FF4F] px-3 py-2 text-sm font-bold text-[#151515] transition hover:brightness-105 disabled:opacity-50">
-                  Registrar mejora
-                </button>
+                {conRetirada && retElegida ? (
+                  <Fila label="Precio">
+                    <div className="flex items-center gap-1.5 animate-[sg-entrada_160ms_ease-out]">
+                      <input type="number" min={0} step="0.01" value={retPrecio} onChange={(e) => setRetPrecio(e.target.value)} aria-label="Precio de venta"
+                        placeholder={retComo?.precio ? retComo.precio.toFixed(2) : "Venta"} className={`${inputBase} w-24 shrink-0`} />
+                      {panel.puedeVerCostos ? (
+                        <>
+                          <span className="ml-1 text-[11.5px] text-[#8F908A]">Vale</span>
+                          <input type="number" min={0} step="0.01" value={retValor} onChange={(e) => setRetValor(e.target.value)} aria-label="Valor de la pieza que sale"
+                            placeholder={automatico.valor.toFixed(2)} className={`${inputBase} w-24 shrink-0`} />
+                          <span className="min-w-0 truncate text-[11px] text-[#6F706A]" title={retValor.trim() === "" ? criterioAyuda : "Escrito a mano"}>{retValor.trim() === "" ? criterioTexto : "a mano"}</span>
+                        </>
+                      ) : null}
+                    </div>
+                  </Fila>
+                ) : null}
+
+                <Fila label="Nota">
+                  <input type="text" value={mejNota} onChange={(e) => setMejNota(e.target.value)} placeholder="Ej: de 8 a 16 GB" className={inputCls} />
+                </Fila>
+
+                {pieza && cantidadValida ? (
+                  <p className="rounded-lg border border-dashed border-[#3A3A36] bg-[#11120F] px-2.5 py-1.5 text-[12px] tabular-nums text-[#B4B5AC]">
+                    <span className="text-[#FFB07A]">−{cantidadNum} {pieza.sku}</span>
+                    {cantidadNum === pieza.stock ? <span className="text-[#8F908A]"> (última: queda Agotado)</span> : null}
+                    {conRetirada && retiradaValida ? <> · <span className="text-[#7BE495]">+{retCantidadNum} {retComo ? retComo.sku : "pieza nueva"}{panel.puedeVerCostos ? ` a ${money(retValorNum)}` : ""}</span></> : null}
+                    {panel.puedeVerCostos && !variasUnidades ? (
+                      <> · {panel.sku} {money(costoAntes)} → <b key={costoDespues} className="inline-block text-[#EDEDE7] animate-[sg-destello_700ms_ease-out]">{money(costoDespues)}</b></>
+                    ) : null}
+                    {variasUnidades ? <span className="block text-[#F4C95B]">Lote de {panel.cantidad} u.: el costo del equipo no cambia.</span> : null}
+                  </p>
+                ) : null}
+                <div className="flex justify-end">
+                  <button type="button" className={botonPrincipal}
+                    disabled={guardando || !mejTipo || !pieza || !cantidadValida || !retiradaValida || (panel.puedeVerCostos && !variasUnidades && !costoValido) || costoDespues < 0}
+                    onClick={() => void registrar(
+                      {
+                        tipo: "Mejora", detalle: mejTipo, nota: mejNota.trim(), repuestoId: piezaId, cantidadUsada: cantidadNum,
+                        ...(panel.puedeVerCostos && !variasUnidades ? { costoSumado: costoNum } : {}),
+                        ...(conRetirada
+                          ? { piezaRetirada: {
+                              comoSku: retComo?.sku,
+                              nombre: retComo ? retComo.nombre : retNombre.trim(),
+                              categoria: retComo ? retComo.categoria : retCategoria,
+                              cantidad: retCantidadNum,
+                              valor: panel.puedeVerCostos && retValor.trim() !== "" ? Number(retValor) : null,
+                              precioVenta: retPrecioNum,
+                            } }
+                          : {}),
+                      },
+                      () => {
+                        setMejNota(""); setPiezaId(""); setCantidad("1");
+                        setCostoEditado(false); setConRetirada(false); limpiarRetirada();
+                      })}>
+                    Registrar mejora
+                  </button>
+                </div>
               </>
             )}
-            <p className="text-[11px] text-[#696A64]">Queda firmado con tu nombre, fecha y hora.</p>
           </section>
         ) : null}
 

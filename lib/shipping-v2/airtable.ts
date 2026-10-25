@@ -129,7 +129,10 @@ import {
   evaluarAnulacion,
   evaluarEquipoParaIntervencion,
   evaluarPiezaParaMejora,
+  esCategoriaDeRepuesto,
+  puedeUnirsePiezaRetirada,
   validarPiezaRetirada,
+  valorSugeridoPiezaRetirada,
   type DecisionCostoMejora,
   type PiezaRetiradaInput,
 } from "@/lib/shipping-v2/mejoras";
@@ -9549,6 +9552,61 @@ export async function getShippingV2RepuestosDisponibles(
     .sort((a, b) => a.sku.localeCompare(b.sku));
 }
 
+/**
+ * Punto 13 (25-oct-2026): productos a los que se puede sumar la pieza que sale
+ * de un equipo en una mejora (misma categoría de repuesto, no nuevos, no
+ * activos). Uno por SKU, con el nombre del registro más reciente, su último
+ * precio y su último costo por unidad (el valor que se propone).
+ */
+export type ShippingV2ProductoPieza = { sku: string; nombre: string; categoria: string; condicion: string; seguimiento: string; precio: number | null; costo: number };
+
+export async function getShippingV2ProductosPieza(opciones: { sku?: string } = {}): Promise<ShippingV2ProductoPieza[]> {
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  const categoriasOr = CATEGORIAS_REPUESTO_STOCK.map((c) => `{${F.categoria}}="${c}"`).join(",");
+  const soloSku = cleanString(opciones.sku);
+  const records = await listRecords(SHIPPING_V2_TABLES.items, {
+    maxRecords: 5000,
+    pageSize: 100,
+    filterByFormula: soloSku
+      ? `LOWER({${getOfficialSkuField()}})=LOWER('${escapeFormulaString(soloSku)}')`
+      : `AND(OR(${categoriasOr}),NOT({${F.esUsoLocal}}))`,
+    fields: [getOfficialSkuField(), F.nombre, F.categoria, F.condicion, F.seguimiento, F.esUsoLocal, F.precioVentaFinal, F.costoTotalUnidad, F.costoProveedor],
+  });
+  const porSku = new Map<string, { r: AirtableRecord[] }>();
+  for (const r of records) {
+    const sku = normalizeSku(firstString(r.fields[getOfficialSkuField()]));
+    if (!sku) continue;
+    const g = porSku.get(sku) ?? { r: [] };
+    g.r.push(r);
+    porSku.set(sku, g);
+  }
+  const productos: ShippingV2ProductoPieza[] = [];
+  for (const [sku, g] of porSku) {
+    const orden = [...g.r].sort((a, b) => String(b.createdTime ?? "").localeCompare(String(a.createdTime ?? "")));
+    const ultimo = orden[0].fields;
+    const producto = {
+      categoria: firstString(ultimo[F.categoria]),
+      condicion: firstString(ultimo[F.condicion]),
+      usoLocal: orden.some((r) => firstBoolean(r.fields[F.esUsoLocal])),
+    };
+    if (!puedeUnirsePiezaRetirada(producto)) continue;
+    const conPrecio = orden.find((r) => (firstNumber(r.fields[F.precioVentaFinal]) ?? 0) > 0);
+    const costo = orden
+      .map((r) => firstNumber(r.fields[F.costoTotalUnidad]) || firstNumber(r.fields[F.costoProveedor]) || 0)
+      .find((c) => c > 0) ?? 0;
+    productos.push({
+      sku,
+      nombre: firstString(ultimo[F.nombre]),
+      categoria: producto.categoria,
+      condicion: producto.condicion,
+      seguimiento: seguimientoDe({ seguimiento: firstString(ultimo[F.seguimiento]), categoria: producto.categoria }),
+      precio: conPrecio ? firstNumber(conPrecio.fields[F.precioVentaFinal]) : null,
+      costo: Math.round(costo * 100) / 100,
+    });
+  }
+  return productos.sort((a, b) => a.sku.localeCompare(b.sku));
+}
+
 export type ShippingV2PanelIntervenciones = {
   itemId: string;
   sku: string;
@@ -9561,9 +9619,14 @@ export type ShippingV2PanelIntervenciones = {
   /** Solo el Administrador del sistema anula (8-oct). */
   puedeAnular: boolean;
   costoMejoras: number | null;
+  /** Punto 13: costo por unidad del equipo (null para quien no ve costos) y su precio. */
+  costoEquipo: number | null;
+  precioEquipo: number | null;
   trabajos: { mantenimientos: string[]; mejoras: string[] };
   intervenciones: ShippingV2Intervencion[];
   repuestos: Awaited<ReturnType<typeof getShippingV2RepuestosDisponibles>>;
+  /** Punto 13: a qué producto se puede sumar la pieza que sale. */
+  productosPieza: ShippingV2ProductoPieza[];
 };
 
 /**
@@ -9580,12 +9643,14 @@ export async function getShippingV2PanelIntervenciones(
   const item = await getShippingV2ItemById(id, { includeAiName: false, access });
   const evaluacion = evaluarEquipoParaIntervencion(item);
   const puedeVerCostos = canShippingV2(access, "canViewCosts");
-  const [intervenciones, repuestosCrudos, equipo] = await Promise.all([
+  const [intervenciones, repuestosCrudos, equipo, productosCrudos] = await Promise.all([
     getShippingV2IntervencionesDeItem(id),
     evaluacion.ok ? getShippingV2RepuestosDisponibles(access, id) : Promise.resolve([]),
     leerRegistroItem(id),
+    evaluacion.ok ? getShippingV2ProductosPieza().catch(() => [] as ShippingV2ProductoPieza[]) : Promise.resolve([] as ShippingV2ProductoPieza[]),
   ]);
   const repuestos = puedeVerCostos ? repuestosCrudos : repuestosCrudos.map((r) => ({ ...r, costo: 0 }));
+  const productosPieza = puedeVerCostos ? productosCrudos : productosCrudos.map((p) => ({ ...p, costo: 0, precio: null }));
   const historial = puedeVerCostos
     ? intervenciones
     : intervenciones.map((i) => ({ ...i, costoRepuesto: null, costoSumado: null, valorPiezaRetirada: null }));
@@ -9599,9 +9664,12 @@ export async function getShippingV2PanelIntervenciones(
     puedeVerCostos,
     puedeAnular: access?.isSiteAdmin === true,
     costoMejoras: puedeVerCostos ? firstNumber(equipo.fields[CAMPO_COSTO_MEJORAS]) ?? 0 : null,
+    costoEquipo: puedeVerCostos ? firstNumber(equipo.fields[SHIPPING_V2_ITEM_FIELDS.costoTotalUnidad]) ?? 0 : null,
+    precioEquipo: puedeVerCostos ? firstNumber(equipo.fields[SHIPPING_V2_ITEM_FIELDS.precioVentaFinal]) : null,
     trabajos: getIntervencionesPorCategoria(item.categoria),
     intervenciones: historial,
     repuestos,
+    productosPieza,
   };
 }
 
@@ -9702,6 +9770,7 @@ async function registrarIntervencionSinTurno(
   let estadoPiezaAntes = "";
   let decisionCosto: DecisionCostoMejora | null = null;
   let piezaRetirada: ReturnType<typeof validarPiezaRetirada> | null = null;
+  let productoRetirada: ShippingV2ProductoPieza | null = null;
 
   if (tipo === "Mejora") {
     const repuestoId = cleanString(input.repuestoId);
@@ -9739,15 +9808,45 @@ async function registrarIntervencionSinTurno(
     // Costo (punto 3): se valida TODO antes de descontar, para no tener que
     // devolver unidades por un dato mal escrito. Quien no ve costos no puede
     // cambiar el sugerido.
-    const sugerido = costoSugeridoMejora(repuesto.costoTotalUnidad ?? repuesto.costoProveedor, cantidadUsada);
+    const sugerido = costoSugeridoMejora(repuesto.costoTotalUnidad || repuesto.costoProveedor, cantidadUsada);
     const puedeVerCostos = canShippingV2(options.access, "canViewCosts");
-    piezaRetirada = input.piezaRetirada ? validarPiezaRetirada(input.piezaRetirada, item, ahora) : null;
+
+    // Costo y precio reales del equipo (quien no ve costos los recibe vacíos en `item`).
+    const registroEquipo = await leerRegistroItem(id);
+    const costoRealEquipo = firstNumber(registroEquipo.fields[SHIPPING_V2_ITEM_FIELDS.costoTotalUnidad]) ?? 0;
+    const precioRealEquipo = firstNumber(registroEquipo.fields[SHIPPING_V2_ITEM_FIELDS.precioVentaFinal]);
+
+    // Pieza que sale (punto 13): si es igual a un producto que ya existe, se
+    // suma a ese código con su nombre, categoría, condición y precio, y vale
+    // lo que cuesta esa pieza. Si es nueva, su valor sale del reparto por
+    // precio. El valor automático se aplica también cuando quien registra no
+    // ve costos (antes quedaba en $0 y la pieza parecía pura ganancia).
+    if (input.piezaRetirada) {
+      const comoSku = normalizeSku(cleanString(input.piezaRetirada.comoSku));
+      productoRetirada = comoSku ? (await getShippingV2ProductosPieza({ sku: comoSku }))[0] ?? null : null;
+      if (comoSku && !productoRetirada) throw new Error(`La pieza que sale no se puede sumar a ${comoSku} (no existe, no es un repuesto o es nuevo).`);
+      const base = productoRetirada
+        ? { ...input.piezaRetirada, nombre: productoRetirada.nombre, categoria: productoRetirada.categoria, precioVenta: input.piezaRetirada.precioVenta ?? productoRetirada.precio }
+        : input.piezaRetirada;
+      if (!esCategoriaDeRepuesto(base.categoria)) throw new Error(`La pieza que sale debe ser de una categoría de repuesto (${CATEGORIAS_REPUESTO_STOCK.join(", ")}).`);
+      if (seguimientoDe({ seguimiento: productoRetirada?.seguimiento, categoria: base.categoria }) === "Unidad" && (base.cantidad ?? 1) !== 1) {
+        throw new Error(`${base.categoria}: registra cada pieza que sale por separado (una por mejora).`);
+      }
+      const automatico = valorSugeridoPiezaRetirada({
+        costoMismaPieza: productoRetirada?.costo,
+        precioPieza: base.precioVenta ?? null,
+        costoEquipo: costoRealEquipo,
+        precioEquipo: precioRealEquipo,
+      });
+      const valor = puedeVerCostos && input.piezaRetirada.valor != null && String(input.piezaRetirada.valor) !== "" ? input.piezaRetirada.valor : automatico.valor;
+      piezaRetirada = validarPiezaRetirada({ ...base, valor }, item, ahora);
+    }
     decisionCosto = decidirCostoMejora({
       cantidadEquipo: normalizarUnidades(item.cantidad),
       costoSumado: puedeVerCostos && input.costoSumado != null ? input.costoSumado : sugerido,
-      valorPiezaRetirada: puedeVerCostos ? piezaRetirada?.valorTotal ?? 0 : 0,
+      valorPiezaRetirada: piezaRetirada?.valorTotal ?? 0,
+      costoEquipo: costoRealEquipo,
     });
-    if (piezaRetirada && !puedeVerCostos) piezaRetirada = { ...piezaRetirada, valor: 0, valorTotal: 0 };
 
     const tras = cambiosPiezaTrasConsumo(normalizarUnidades(repuesto.cantidad), cantidadUsada);
     piezaAgotada = tras.agotada;
@@ -9860,6 +9959,7 @@ async function registrarIntervencionSinTurno(
             cantidad: piezaRetirada.cantidad,
             observaciones: piezaRetirada.nota,
             precioVenta: piezaRetirada.precioVenta,
+            condicion: productoRetirada?.condicion || undefined,
           },
           { proveedorCompraId: item.proveedorId, tipoOperacion: item.tipoOperacion }
         );
@@ -9870,6 +9970,8 @@ async function registrarIntervencionSinTurno(
             // "Costo total unitario" y en la ganancia. No genera pago: la
             // pieza nace con "Requiere pago" apagado.
             costoProveedor: piezaRetirada.valor > 0 ? piezaRetirada.valor : null,
+            // Punto 13: igual a un producto que ya existe → mismo código (otro lote o unidad).
+            ...(productoRetirada ? { skuCompartido: productoRetirada.sku, seguimiento: productoRetirada.seguimiento } : {}),
           } as ShippingV2ItemWriteInput,
           {
             registradoPor: options.actor,
@@ -10181,6 +10283,23 @@ export async function getShippingV2TrazabilidadDeItem(
   const orden = ordenes[0] ? mapOrdenCompraBase(ordenes[0]) : null;
   const padre = padres[0];
 
+  // Punto 13: si la pieza salió de un equipo en una mejora, ese equipo es su origen.
+  let origenMejora: ShippingV2ItemTrazabilidad["origenMejora"];
+  const mejoraId = enlazados("Intervenciones (pieza retirada)")[0];
+  if (mejoraId) {
+    const [mejora] = await leer(SHIPPING_V2_TABLES.intervenciones, [mejoraId]);
+    const equipoId = mejora ? linkedRecordIds(mejora.fields["Item"])[0] : "";
+    const [equipo] = equipoId ? await leer(SHIPPING_V2_TABLES.items, [equipoId]) : [];
+    if (equipo) {
+      origenMejora = {
+        equipoId: equipo.id,
+        equipoSku: firstString(equipo.fields[getOfficialSkuField()]) || equipo.id,
+        equipoNombre: firstString(equipo.fields[SHIPPING_V2_ITEM_FIELDS.nombre]) || undefined,
+        fecha: firstString(mejora?.fields["Fecha"]) || undefined,
+      };
+    }
+  }
+
   return {
     ordenCompra: orden ? { id: orden.id, codigo: orden.ocId, numeroProveedor: orden.numeroProveedor, fechaCompra: orden.fechaCompra, anulada: orden.anulada } : undefined,
     operacion: operaciones[0] ? { id: operaciones[0].id, codigo: firstString(operaciones[0].fields["Código Operación"]) || operaciones[0].id } : undefined,
@@ -10190,6 +10309,7 @@ export async function getShippingV2TrazabilidadDeItem(
       sku: firstString(padre.fields[getOfficialSkuField()]) || padre.id,
       nombre: firstString(padre.fields[SHIPPING_V2_ITEM_FIELDS.nombre]) || undefined,
     } : undefined,
+    origenMejora,
     documentos: [
       ...facturas.map(documento("factura", "Número de Factura", "Fecha de Emisión", "Factura")),
       ...recibos.map(documento("recibo", "Número", "Fecha", "Recibo")),
