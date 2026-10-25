@@ -305,6 +305,15 @@ export type NotaCreditoIndividual = {
   estadoCredito:           string;
   movimientoReversaIds:    string[];
   movimientoCaducidadIds:  string[];
+  // Para el visor de documentos (opcionales: los demás usos no los necesitan).
+  claveAcceso?:             string;
+  ambiente?:                "PRUEBAS" | "PRODUCCIÓN";
+  fechaEmision?:            string;
+  numeroFacturaModificada?: string;
+  facturaRecordId?:         string;
+  motivo?:                  string;
+  tieneXml?:                boolean;
+  tieneRide?:               boolean;
 };
 
 export async function obtenerNotaCreditoPorId(recordId: string): Promise<NotaCreditoIndividual | null> {
@@ -330,6 +339,14 @@ export async function obtenerNotaCreditoPorId(recordId: string): Promise<NotaCre
     estadoCredito:          str(f["Estado Crédito"]),
     movimientoReversaIds:   linkedIdsRaw(f["Movimiento Reversa"]),
     movimientoCaducidadIds: linkedIdsRaw(f["Movimiento Caducidad"]),
+    claveAcceso:            str(f["Clave de Acceso"]),
+    ambiente:               str(f["Ambiente"]) === "PRODUCCIÓN" ? "PRODUCCIÓN" : "PRUEBAS",
+    fechaEmision:           str(f["Fecha de Emisión"]),
+    numeroFacturaModificada: str(f["Factura Modificada (Número)"]),
+    facturaRecordId:        linkedIdsRaw(f["Factura"])[0],
+    motivo:                 str(f["Motivo"]),
+    tieneXml:               hasAtt(f["XML Autorizado"]),
+    tieneRide:              hasAtt(f["RIDE PDF"]),
   };
 }
 

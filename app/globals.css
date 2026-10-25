@@ -72,6 +72,14 @@ a {
   from { opacity: 0; transform: translateX(24px); }
   to { opacity: 1; transform: none; }
 }
+@keyframes sg-regreso {
+  from { opacity: 0; transform: translateX(-24px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sg-modal {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
 @keyframes sg-velo {
   from { opacity: 0; }
   to { opacity: 1; }

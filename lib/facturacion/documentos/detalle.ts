@@ -22,7 +22,7 @@ const soloDigitos = (s: string) => s.replace(/\D/g, "");
 // Resuelve el teléfono del cliente desde la tabla Clientes por su cédula/RUC
 // (los documentos no guardan el teléfono, solo el vínculo al cliente). Devuelve
 // "" para consumidor final o si no se encuentra. Best-effort: nunca lanza.
-async function resolverTelefono(identificacion: string): Promise<string> {
+export async function resolverTelefono(identificacion: string): Promise<string> {
   const id = identificacion.trim();
   if (!id || soloDigitos(id) === "9999999999999") return "";
   try {

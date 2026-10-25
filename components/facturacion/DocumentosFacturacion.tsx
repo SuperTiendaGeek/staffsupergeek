@@ -18,41 +18,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import type { DocumentoResumen, GrupoVista, TipoDocumento, DocumentoCuerpo } from "@/lib/facturacion/documentos/tipos";
+import type { DocumentoResumen, GrupoVista, TipoDocumento } from "@/lib/facturacion/documentos/tipos";
+import type { DocumentoVisor } from "@/lib/facturacion/documentos/visor-tipos";
+import { DocumentoModal } from "@/components/documentos/DocumentoModal";
 import { TIPO_LABEL } from "@/lib/facturacion/documentos/tipos";
 import { NuevoDocumentoModal, type TipoNuevoDocumento } from "@/components/facturacion/NuevoDocumentoModal";
 import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
-import { normalizeEcuadorPhone } from "@/lib/tecnicos/whatsapp";
 import { reservaVencida } from "@/lib/facturacion/reservas/reglas";
-
-const waUrl = (tel?: string | null): string | null => {
-  const n = normalizeEcuadorPhone(tel);
-  return n ? `https://wa.me/${n}` : null;
-};
-
-function BotonWhatsApp({ tel }: { tel?: string | null }) {
-  const url = waUrl(tel);
-  if (!url) return null;
-  return (
-    <a href={url} target="_blank" rel="noopener noreferrer" title="Abrir WhatsApp del cliente"
-       className="flex h-6 w-6 items-center justify-center rounded-md bg-[#D7FF4F] hover:brightness-110 shrink-0">
-      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-[#151515]" aria-hidden="true">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-      </svg>
-    </a>
-  );
-}
 
 // ─── Presentación ─────────────────────────────────────────────────────────────
 
 const mon = (n: number) => `$${n.toFixed(2)}`;
 const fmt = (iso: string) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "—");
-
-const FORMA_PAGO_LABEL: Record<string, string> = {
-  "01": "Efectivo", "15": "Compensación de deudas", "16": "Tarjeta de débito",
-  "17": "Dinero electrónico", "18": "Tarjeta prepago", "19": "Tarjeta de crédito",
-  "20": "Otros (sist. financiero)", "21": "Endoso de títulos",
-};
 
 const TIPO_BADGE: Record<TipoDocumento, string> = {
   factura:     "bg-[#D7FF4F]/15 text-[#D7FF4F] border-[#D7FF4F]/40",
@@ -122,13 +99,15 @@ type AccionesProps = {
   onPost: (url: string, label: string, body?: Record<string, unknown>) => void;
   onDelete: (url: string, label: string) => void;
   onAbrirBorrador: (recordId: string) => void;
+  /** En el visor: sin Imprimir/RIDE/PDF/XML (ya están en su encabezado). */
+  soloAcciones?: boolean;
 };
 
 const btnLink  = "rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F] transition whitespace-nowrap";
 const btnDanger = "rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#A7A7A7] hover:border-red-500/60 hover:text-red-300 transition whitespace-nowrap disabled:opacity-40";
 const btnOff   = "rounded-full border border-[#2A2A22] px-3 py-1.5 text-xs text-[#555] cursor-not-allowed whitespace-nowrap";
 
-function BarraAcciones({ doc, accion, onPost, onDelete, onAbrirBorrador }: AccionesProps) {
+function BarraAcciones({ doc, accion, onPost, onDelete, onAbrirBorrador, soloAcciones = false }: AccionesProps) {
   if (!doc) {
     return <span className="text-xs text-[#555] italic">Selecciona un documento para ver sus acciones</span>;
   }
@@ -149,9 +128,9 @@ function BarraAcciones({ doc, accion, onPost, onDelete, onAbrirBorrador }: Accio
             ✏ Abrir para facturar
           </button>
         )}
-        <a href={`/facturacion/imprimir/factura/${doc.recordId}`} target="_blank" rel="noopener" className={btnLink}>🖨 Imprimir 80 mm</a>
-        {doc.tieneRide && <a href={`/api/facturacion/ride/${doc.claveAcceso}`} target="_blank" rel="noopener" className={btnLink}>↓ RIDE PDF</a>}
-        {doc.tieneXml && <a href={`/api/facturacion/xml/${doc.claveAcceso}`} download={`${doc.claveAcceso}.xml`} className={btnLink}>↓ XML</a>}
+        {!soloAcciones && <a href={`/facturacion/imprimir/factura/${doc.recordId}`} target="_blank" rel="noopener" className={btnLink}>🖨 Imprimir 80 mm</a>}
+        {!soloAcciones && doc.tieneRide && <a href={`/api/facturacion/ride/${doc.claveAcceso}`} target="_blank" rel="noopener" className={btnLink}>↓ RIDE PDF</a>}
+        {!soloAcciones && doc.tieneXml && <a href={`/api/facturacion/xml/${doc.claveAcceso}`} download={`${doc.claveAcceso}.xml`} className={btnLink}>↓ XML</a>}
         {esBorrador && (
           <button disabled={ocupado} onClick={() => onDelete(`/api/facturacion/historial/${doc.recordId}`, "Eliminar borrador")} className={btnDanger}>
             {accion === "Eliminar borrador" ? "Eliminando…" : "🗑 Eliminar borrador"}
@@ -175,8 +154,8 @@ function BarraAcciones({ doc, accion, onPost, onDelete, onAbrirBorrador }: Accio
   if (doc.tipo === "recibo") {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <a href={`/facturacion/imprimir/recibo/${doc.recordId}`} target="_blank" rel="noopener" className={btnLink}>🖨 Imprimir 80 mm</a>
-        {doc.tienePdf && <a href={`/api/facturacion/recibos/${doc.recordId}/pdf`} target="_blank" rel="noopener" className={btnLink}>↓ PDF</a>}
+        {!soloAcciones && <a href={`/facturacion/imprimir/recibo/${doc.recordId}`} target="_blank" rel="noopener" className={btnLink}>🖨 Imprimir 80 mm</a>}
+        {!soloAcciones && doc.tienePdf && <a href={`/api/facturacion/recibos/${doc.recordId}/pdf`} target="_blank" rel="noopener" className={btnLink}>↓ PDF</a>}
         {doc.estado === "Vigente" && (
           <button disabled={ocupado} onClick={() => onPost(`/api/facturacion/recibos/${doc.recordId}/anular`, "Anular recibo")} className={btnDanger}>
             {accion === "Anular recibo" ? "Anulando…" : "⊘ Anular recibo"}
@@ -189,7 +168,7 @@ function BarraAcciones({ doc, accion, onPost, onDelete, onAbrirBorrador }: Accio
   if (doc.tipo === "proforma") {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        {doc.tienePdf && <a href={`/api/facturacion/proformas/${doc.recordId}/pdf`} target="_blank" rel="noopener" className={btnLink}>↓ PDF</a>}
+        {!soloAcciones && doc.tienePdf && <a href={`/api/facturacion/proformas/${doc.recordId}/pdf`} target="_blank" rel="noopener" className={btnLink}>↓ PDF</a>}
         <button className={btnOff} disabled title="Disponible en la próxima fase">→ Facturar · pronto</button>
       </div>
     );
@@ -198,14 +177,16 @@ function BarraAcciones({ doc, accion, onPost, onDelete, onAbrirBorrador }: Accio
   // notaCredito
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {doc.tieneRide && <a href={`/api/facturacion/nota-credito/ride/${doc.claveAcceso}`} target="_blank" rel="noopener" className={btnLink}>↓ RIDE PDF</a>}
-      {doc.tieneXml && <a href={`/api/facturacion/nota-credito/xml/${doc.claveAcceso}`} download={`${doc.claveAcceso}.xml`} className={btnLink}>↓ XML</a>}
+      {!soloAcciones && doc.tieneRide && <a href={`/api/facturacion/nota-credito/ride/${doc.claveAcceso}`} target="_blank" rel="noopener" className={btnLink}>↓ RIDE PDF</a>}
+      {!soloAcciones && doc.tieneXml && <a href={`/api/facturacion/nota-credito/xml/${doc.claveAcceso}`} download={`${doc.claveAcceso}.xml`} className={btnLink}>↓ XML</a>}
       <Link href={`/facturacion/nueva?reemplazoNC=${doc.recordId}`} className={btnLink}>→ Facturar reemplazo</Link>
     </div>
   );
 }
 
 // ─── Visualizador de documento (ventana flotante) ────────────────────────────
+// El mismo visor de todo el portal (components/documentos/DocumentoModal), con
+// las acciones de Facturación al pie. Imprimir, RIDE/PDF y XML van arriba.
 
 function DocumentoDetalleModal({
   doc, accion, onPost, onDelete, onAbrirBorrador, onClose,
@@ -217,160 +198,42 @@ function DocumentoDetalleModal({
   onAbrirBorrador: (recordId: string) => void;
   onClose: () => void;
 }) {
-  const [cuerpo, setCuerpo]     = useState<DocumentoCuerpo | null>(null);
-  const [cargando, setCargando] = useState(true);
-  const [err, setErr]           = useState<string | null>(null);
-  // El cierre por "clic afuera" solo cuenta si el clic empieza Y termina en
-  // el fondo — si solo se mira dónde termina (onClick), seleccionar texto
-  // dentro del modal y soltar el mouse un pixel fuera del cuadro cierra la
-  // ventana sin que nadie haya hecho clic "afuera" a propósito.
-  const [mouseDownEnFondo, setMouseDownEnFondo] = useState(false);
-  // El botón de etiqueta de mantenimiento solo tiene sentido para una factura
-  // ya emitida (el equipo ya salió del taller) — no en un borrador.
-  const [mantenimientoModalOpen, setMantenimientoModalOpen] = useState(false);
+  // La etiqueta de mantenimiento solo tiene sentido para una factura ya
+  // emitida (el equipo ya salió del taller) — no en un borrador.
+  const [mantenimiento, setMantenimiento] = useState<DocumentoVisor | null>(null);
   const puedeImprimirMantenimiento = doc.tipo === "factura" && doc.estado === "AUTORIZADO";
 
-  useEffect(() => {
-    let vivo = true;
-    setCargando(true); setErr(null); setCuerpo(null);
-    fetch(`/api/facturacion/documentos/${doc.tipo}/${doc.recordId}`)
-      .then((r) => r.json())
-      .then((d: { success: boolean; data?: DocumentoCuerpo; error?: string }) => {
-        if (!vivo) return;
-        if (d.success && d.data) setCuerpo(d.data);
-        else setErr(d.error ?? "No se pudo cargar el detalle");
-      })
-      .catch(() => { if (vivo) setErr("Error de red al cargar el detalle"); })
-      .finally(() => { if (vivo) setCargando(false); });
-    return () => { vivo = false; };
-  }, [doc.tipo, doc.recordId]);
+  if (mantenimiento) {
+    return (
+      <ImprimirEtiquetaMantenimientoModal
+        onClose={onClose}
+        factura={{
+          recordId: doc.recordId,
+          clienteNombre: doc.clienteNombre,
+          clienteIdentificacion: doc.clienteIdentificacion,
+          telefono: mantenimiento.cliente.telefono,
+          equipoSugerido: mantenimiento.items[0]?.descripcion ?? "",
+        }}
+      />
+    );
+  }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onMouseDown={(e) => setMouseDownEnFondo(e.target === e.currentTarget)}
-      onClick={(e) => { if (mouseDownEnFondo && e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-2xl border border-[#2A2A22] bg-[#1A1A16] shadow-2xl">
-        {/* Encabezado */}
-        <div className="sticky top-0 z-10 bg-[#1A1A16] border-b border-[#2A2A22] px-5 py-4 flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TIPO_BADGE[doc.tipo]}`}>{TIPO_LABEL[doc.tipo]}</span>
-              <span className={`text-xs ${estadoColor(doc.estado)}`}>{estadoLabel(doc)}</span>
-              <AmbienteBadge ambiente={doc.ambiente} />
-            </div>
-            <p className="mt-1 text-lg font-bold font-mono text-[#F5F5F5]">{doc.numero || "borrador"}</p>
-            {doc.numeroDocModificado && <p className="text-xs text-[#888]">corrige {doc.numeroDocModificado}</p>}
-          </div>
-          <button onClick={onClose} className="text-[#666] hover:text-[#F5F5F5] text-xl leading-none">✕</button>
-        </div>
-
-        <div className="px-5 py-4 space-y-4">
-          {/* Cliente */}
-          <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm space-y-1">
-            <div className="flex justify-between gap-3"><span className="text-[#666]">Cliente</span><span className="text-[#F5F5F5] text-right">{doc.clienteNombre || "—"}</span></div>
-            <div className="flex justify-between gap-3"><span className="text-[#666]">Identificación</span><span className="text-[#F5F5F5] text-right">{doc.clienteIdentificacion || "—"}</span></div>
-            {doc.clienteCorreo && <div className="flex justify-between gap-3"><span className="text-[#666]">Correo</span><span className="text-[#F5F5F5] text-right truncate">{doc.clienteCorreo}</span></div>}
-            {cuerpo?.clienteTelefono && (
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[#666]">Teléfono</span>
-                <span className="flex items-center gap-2 text-[#F5F5F5]">{cuerpo.clienteTelefono}<BotonWhatsApp tel={cuerpo.clienteTelefono} /></span>
-              </div>
-            )}
-            <div className="flex justify-between gap-3"><span className="text-[#666]">Fecha</span><span className="text-[#F5F5F5] text-right">{fmt(doc.fecha)}</span></div>
-          </div>
-
-          {/* Cuerpo (ítems + totales) */}
-          {cargando ? (
-            <div className="flex items-center justify-center py-8 text-[#555]"><Spinner /><span className="ml-2 text-sm">Cargando detalle…</span></div>
-          ) : err ? (
-            <p className="rounded-lg bg-red-900/20 border border-red-700/40 px-3 py-2 text-sm text-red-300">{err}</p>
-          ) : cuerpo ? (
-            <>
-              {cuerpo.items.length > 0 ? (
-                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] overflow-hidden">
-                  <table className="w-full text-xs">
-                    <thead><tr className="text-[#555] border-b border-[#2A2A22]">
-                      <th className="text-left font-semibold py-1.5 px-2">Descripción</th>
-                      <th className="text-right font-semibold py-1.5 px-2">Cant.</th>
-                      <th className="text-right font-semibold py-1.5 px-2">P.Unit</th>
-                      <th className="text-right font-semibold py-1.5 px-2">Total</th>
-                    </tr></thead>
-                    <tbody className="divide-y divide-[#1E1E1A]">
-                      {cuerpo.items.map((it, i) => (
-                        <tr key={i}>
-                          <td className="py-1.5 px-2 text-[#F5F5F5]">
-                            {it.codigo && <span className="block font-mono text-[10px] text-[#777]">SKU: {it.codigo}</span>}
-                            {it.descripcion}
-                          </td>
-                          <td className="py-1.5 px-2 text-right text-[#A7A7A7]">{it.cantidad}</td>
-                          <td className="py-1.5 px-2 text-right text-[#A7A7A7]">{mon(it.precioUnitario)}</td>
-                          <td className="py-1.5 px-2 text-right text-[#D7FF4F] font-semibold">{mon(it.total)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="text-xs text-[#555] italic px-1">Detalle de ítems no disponible para este documento.</p>
-              )}
-
-              <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm space-y-1">
-                {cuerpo.mostrarIva && cuerpo.subtotal !== null && <div className="flex justify-between"><span className="text-[#666]">Subtotal</span><span className="text-[#F5F5F5]">{mon(cuerpo.subtotal)}</span></div>}
-                {cuerpo.mostrarIva && cuerpo.iva !== null && <div className="flex justify-between"><span className="text-[#666]">IVA</span><span className="text-[#F5F5F5]">{mon(cuerpo.iva)}</span></div>}
-                <div className="flex justify-between text-base font-bold"><span className="text-[#F5F5F5]">TOTAL</span><span className="text-[#D7FF4F]">{mon(cuerpo.total)}</span></div>
-              </div>
-
-              {(cuerpo.formaPago || cuerpo.validezDias !== null || cuerpo.nota) && (
-                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-sm space-y-1">
-                  {cuerpo.formaPago && <div className="flex justify-between gap-3"><span className="text-[#666]">Forma de pago</span><span className="text-[#F5F5F5] text-right">{FORMA_PAGO_LABEL[cuerpo.formaPago] ?? cuerpo.formaPago}</span></div>}
-                  {cuerpo.validezDias !== null && <div className="flex justify-between gap-3"><span className="text-[#666]">Validez</span><span className="text-[#F5F5F5]">{cuerpo.validezDias} días</span></div>}
-                  {cuerpo.nota && <div className="flex justify-between gap-3"><span className="text-[#666]">Nota</span><span className="text-[#F5F5F5] text-right">{cuerpo.nota}</span></div>}
-                </div>
-              )}
-
-              {doc.claveAcceso && (
-                <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-[10px] text-[#888] break-all">
-                  <p className="text-[#666] font-semibold uppercase tracking-wider mb-1">SRI</p>
-                  <p><span className="text-[#666]">Clave de acceso:</span> {doc.claveAcceso}</p>
-                </div>
-              )}
-            </>
+    <DocumentoModal
+      tipo={doc.tipo}
+      recordId={doc.recordId}
+      numero={doc.numero || "borrador"}
+      fuente="/api/facturacion/visor"
+      onClose={onClose}
+      acciones={(d) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <BarraAcciones doc={doc} accion={accion} onPost={onPost} onDelete={onDelete} onAbrirBorrador={onAbrirBorrador} soloAcciones />
+          {puedeImprimirMantenimiento && d ? (
+            <button type="button" onClick={() => setMantenimiento(d)} className={btnLink}>🖨 Etiqueta mantenimiento</button>
           ) : null}
-
-          {/* Acciones (mismas que la barra superior) */}
-          <div className="border-t border-[#2A2A22] pt-3">
-            <p className="text-[10px] text-[#666] uppercase tracking-wider mb-2">Acciones</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <BarraAcciones doc={doc} accion={accion} onPost={onPost} onDelete={onDelete} onAbrirBorrador={onAbrirBorrador} />
-              {puedeImprimirMantenimiento && (
-                <button
-                  type="button"
-                  onClick={() => setMantenimientoModalOpen(true)}
-                  className={btnLink}
-                >
-                  🖨 Etiqueta mantenimiento
-                </button>
-              )}
-            </div>
-          </div>
         </div>
-      </div>
-
-      {mantenimientoModalOpen && (
-        <ImprimirEtiquetaMantenimientoModal
-          onClose={() => setMantenimientoModalOpen(false)}
-          factura={{
-            recordId: doc.recordId,
-            clienteNombre: doc.clienteNombre,
-            clienteIdentificacion: doc.clienteIdentificacion,
-            telefono: cuerpo?.clienteTelefono ?? "",
-            equipoSugerido: cuerpo?.items[0]?.descripcion ?? "",
-          }}
-        />
       )}
-    </div>
+    />
   );
 }
 
