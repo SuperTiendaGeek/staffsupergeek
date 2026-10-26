@@ -6,6 +6,7 @@
 
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useRef, type AnchorHTMLAttributes, type MouseEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { FichaArticulo } from "@/lib/shipping-v2/ficha-articulo";
 
 export const PARAM_FICHA = "ficha";
@@ -35,6 +36,22 @@ export type ContextoFicha = {
 };
 
 export const FichaContexto = createContext<ContextoFicha | null>(null);
+
+/**
+ * Rediseño de la ficha (26-oct): la barra de arriba (SKU, unidad, estados y
+ * acciones) vive en la barra fija de la ventana, fuera de lo que se desplaza.
+ * La ventana entrega aquí el lugar donde va; en la página completa (o en la
+ * ventana de Control) la barra se dibuja arriba de la ficha.
+ */
+export const BarraFichaContexto = createContext<HTMLElement | null>(null);
+
+export function BarraFicha({ children }: { children: ReactNode }) {
+  const nodo = useContext(BarraFichaContexto);
+  if (nodo) return createPortal(children, nodo);
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1.5 rounded-lg border border-[#2E2F28] bg-[#171814] px-2 py-1.5">{children}</div>
+  );
+}
 
 /** null fuera de Shipping V2 (los enlaces se comportan como enlaces normales). */
 export function useFichaArticulo() {

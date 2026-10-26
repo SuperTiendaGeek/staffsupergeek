@@ -3,6 +3,10 @@
 // en lugar del editor visual (que se puede montar más adelante sobre esta
 // misma tabla).
 //
+// Rediseño (26-oct): "bloques" dice QUÉ se muestra; el lugar lo da la zona de
+// cada bloque (izquierda: unidades · centro: recorrido y pestañas · derecha:
+// novedades y publicaciones; en el técnico: inspección y origen al centro).
+//
 // IMPORTANTE: esto solo ordena y elige secciones. NO da permisos ni datos:
 // lo que cada perfil recibe lo decide el servidor (ficha-articulo.ts y
 // ficha-articulo-servidor.ts). Si aquí se pusiera una sección que el perfil no

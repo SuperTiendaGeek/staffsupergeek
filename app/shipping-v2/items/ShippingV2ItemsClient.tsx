@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { Megaphone, ArrowDownAZ, ArrowLeft, BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ClipboardCheck, ClipboardList, Columns3, FileText, GitBranch, ListFilter, Loader2, Printer, Receipt, Rows3, Settings2, ShoppingCart, Sparkles, Tag, Truck, Wrench, X, type LucideIcon } from "lucide-react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
 import { ejecutarAccionNovedad, NovedadAccionModal } from "@/components/shipping-v2/novedades/NovedadAccionModal";
@@ -68,7 +68,7 @@ import {
   type FiltroArticulos,
 } from "@/lib/shipping-v2/items-filtro";
 import { ShippingV2ItemsPredictiveSearch } from "./ShippingV2ItemsPredictiveSearch";
-import { EnlaceArticulo, useAlCambiarArticulo, useFichaArticulo, useIntencionFicha } from "@/components/shipping-v2/ficha-articulo/contexto";
+import { BarraFicha, EnlaceArticulo, useAlCambiarArticulo, useFichaArticulo, useIntencionFicha } from "@/components/shipping-v2/ficha-articulo/contexto";
 import { FichaPublicaciones } from "@/components/shipping-v2/ficha-articulo/FichaPublicaciones";
 import { ID_BLOQUE_UNIDADES, UnidadesDelSku } from "@/components/shipping-v2/ficha-articulo/UnidadesDelSku";
 import { existenciasDelSku, sigueEnInventario, type FichaPublicacion } from "@/lib/shipping-v2/ficha-articulo";
@@ -1686,6 +1686,12 @@ export function PasoChip({ tono, children, title }: { tono: PasoTono; children: 
 }
 
 /** Una línea del bloque "Recorrido": qué paso es, el documento (con enlace) y cómo está. */
+/**
+ * Rediseño (26-oct): el recorrido se lee de izquierda a derecha (un paso por
+ * columna) dentro de la ficha interna. En otras partes sigue en filas.
+ */
+const RecorridoHorizontal = createContext(false);
+
 export function PasoRecorrido({
   icon: Icon,
   etiqueta,
@@ -1710,7 +1716,8 @@ export function PasoRecorrido({
   detalle?: string;
   chip?: ReactNode;
 }) {
-  const textoClass = "shrink-0 whitespace-nowrap font-semibold";
+  const horizontal = useContext(RecorridoHorizontal);
+  const textoClass = `${horizontal ? "block max-w-full" : "shrink-0"} whitespace-nowrap font-semibold`;
   const texto = articuloId ? (
     <EnlaceArticulo id={articuloId} className={`${textoClass} text-[#D7FF4F] hover:underline`}>{principal}</EnlaceArticulo>
   ) : href ? (
@@ -1720,6 +1727,21 @@ export function PasoRecorrido({
   ) : (
     <span className={`${textoClass} ${apagado ? "font-normal text-[#8F908A]" : "text-[#E6E6E1]"}`}>{principal}</span>
   );
+  if (horizontal) {
+    return (
+      <li className="min-w-0 bg-[#171814] px-3 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="flex min-w-0 items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A]">
+            <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">{etiqueta}</span>
+          </span>
+          {chip ?? null}
+        </div>
+        <div className="mt-1 min-w-0 truncate text-[13px] [&>*]:truncate">{texto}</div>
+        {detalle ? <p className="truncate text-[11.5px] text-[#8F908A]" title={detalle}>{detalle}</p> : null}
+      </li>
+    );
+  }
   return (
     <li className="grid grid-cols-[6.5rem_minmax(0,1fr)_auto] items-center gap-2 px-3 py-1.5">
       <span className="flex items-center gap-1.5 text-[11.5px] font-medium text-[#8F908A]">
@@ -1758,6 +1780,9 @@ export function HeroStat({ label, children, tone = "neutral", title }: { label: 
 
 const accionClass = "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#3A3A36] bg-[#1C1D19] px-2.5 text-[12.5px] font-semibold text-[#E6E6E1] transition hover:border-[#D7FF4F]/55 hover:text-[#D7FF4F] focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35";
 
+/** Rediseño (26-oct): la acción principal de la barra (Publicar). */
+const accionPrincipalClass = "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#D7FF4F] bg-[#D7FF4F] px-2.5 text-[12.5px] font-bold text-[#141510] transition hover:brightness-105 focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35";
+
 const ESTADOS_FUERA = new Set(["vendido", "agotado", "dado de baja", "cancelado", "devuelto a proveedor"]);
 
 /**
@@ -1788,22 +1813,26 @@ export function UnidadDelProducto({ item, hermanas, onGuardarSerie, onSerieInter
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[11.5px]">
       {esUnidad ? (
-        serie
-          ? <span className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-mono font-semibold text-[#F5F5F5]" title="Serie de esta unidad">S/N {serie}</span>
-          : onGuardarSerie && escaneando ? (
+        onGuardarSerie && escaneando ? (
             <span className="inline-flex flex-wrap items-center gap-1">
-              <input autoFocus disabled={ocupado} placeholder="Escanear o escribir" aria-label="Escanear o escribir la serie"
-                className="h-6 w-36 rounded border border-[#F4C95B]/60 bg-[#151515] px-1.5 font-mono text-[12px] text-[#F5F5F5] outline-none"
+              <input autoFocus disabled={ocupado} defaultValue={serie} placeholder="Escanear o escribir" aria-label={serie ? "Corregir la serie" : "Escanear o escribir la serie"}
+                className="h-6 w-56 rounded border border-[#F4C95B]/60 bg-[#151515] px-1.5 font-mono text-[12px] text-[#F5F5F5] outline-none"
                 onKeyDown={async (e) => {
-                  if (e.key === "Escape") { setEscaneando(false); setErrorSerie(""); return; }
+                  if (e.key === "Escape") { e.preventDefault(); setEscaneando(false); setErrorSerie(""); return; }
                   if (e.key !== "Enter") return;
                   e.preventDefault();
                   const valor = e.currentTarget.value.trim();
-                  if (!valor) return;
+                  if (!valor || normalizarSerie(valor) === serie) { setEscaneando(false); return; }
                   setOcupado(true); setErrorSerie("");
                   try { await onGuardarSerie(valor); setEscaneando(false); } catch (err) { setErrorSerie(err instanceof Error ? err.message : "No se pudo guardar."); } finally { setOcupado(false); }
                 }} />
-              {onSerieInterna ? (
+              {/* Corregir una serie mal puesta: quitarla deja la unidad "sin serie" otra vez. */}
+              {serie ? (
+                <button type="button" disabled={ocupado} title="La unidad queda sin serie (se puede volver a escanear)"
+                  onClick={async () => { setOcupado(true); setErrorSerie(""); try { await onGuardarSerie(""); setEscaneando(false); } catch (err) { setErrorSerie(err instanceof Error ? err.message : "No se pudo quitar."); } finally { setOcupado(false); } }}
+                  className="h-6 rounded border border-[#FF914D]/45 px-1.5 font-semibold text-[#FFB07A] hover:border-[#FF914D] disabled:opacity-50">Quitar serie</button>
+              ) : null}
+              {!serie && onSerieInterna ? (
                 <button type="button" disabled={ocupado} title="Para un equipo sin serie legible: SG + 8 números, se imprime en su etiqueta."
                   onClick={async () => { setOcupado(true); setErrorSerie(""); try { await onSerieInterna(); setEscaneando(false); } catch (err) { setErrorSerie(err instanceof Error ? err.message : "No se pudo asignar."); } finally { setOcupado(false); } }}
                   className="h-6 rounded border border-[#3A3A36] px-1.5 font-semibold text-[#B4B5AC] hover:text-[#F5F5F5] disabled:opacity-50">Serie interna</button>
@@ -1811,6 +1840,10 @@ export function UnidadDelProducto({ item, hermanas, onGuardarSerie, onSerieInter
               <button type="button" onClick={() => { setEscaneando(false); setErrorSerie(""); }} aria-label="Cancelar" className="px-1 text-[13px] text-[#8F908A] hover:text-[#F5F5F5]">×</button>
               {errorSerie ? <span className="text-[#FFB07A]">{errorSerie}</span> : null}
             </span>
+          ) : serie ? (
+            onGuardarSerie ? (
+              <button type="button" onClick={() => setEscaneando(true)} className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-mono font-semibold text-[#F5F5F5] transition hover:border-[#F4C95B]/60" title="Serie de esta unidad · pulsa para corregirla o quitarla">S/N {serie}</button>
+            ) : <span className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-mono font-semibold text-[#F5F5F5]" title="Serie de esta unidad">S/N {serie}</span>
           ) : onGuardarSerie ? (
             <button type="button" onClick={() => setEscaneando(true)} className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B] hover:border-[#F4C95B]" title="Pulsa para escanearla, escribirla o usar una serie interna (SG…).">Sin serie aún · escanear</button>
           ) : <span className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B]" title="Se escanea o escribe al recibir.">Sin serie aún</span>
@@ -1905,6 +1938,16 @@ export function ShippingV2ItemDetailView({
   const [ignoredAiName, setIgnoredAiName] = useState("");
   const [activeTab, setActiveTab] = useState<ItemDetailTabKey>("general");
   const [adminOpen, setAdminOpen] = useState(false);
+  // Rediseño (26-oct): "Administrar" es un menú de la barra; se cierra al tocar fuera.
+  const adminRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!adminOpen) return;
+    const fuera = (event: PointerEvent) => {
+      if (adminRef.current && !adminRef.current.contains(event.target as Node)) setAdminOpen(false);
+    };
+    document.addEventListener("pointerdown", fuera);
+    return () => document.removeEventListener("pointerdown", fuera);
+  }, [adminOpen]);
   const tabsRef = useRef<HTMLElement>(null);
   // Punto 18b: sin fotos propias, se muestran las de otra unidad del SKU (marcadas).
   const [verFotosPropias, setVerFotosPropias] = useState(false);
@@ -2246,8 +2289,9 @@ export function ShippingV2ItemDetailView({
   const heroStatsCount = 1
     + (canViewCosts && verCampo("precioVenta") ? 1 : 0)
     + ((canViewCosts && verCampo("costoTotalUnidad")) || (!canViewCosts && canViewProviderCost && verCampo("costoProveedor")) ? 1 : 0)
-    + (canViewCosts && verCampo("gananciaUnidad") ? 1 : 0);
-  const heroStatsCols = ({ 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-2 sm:grid-cols-4" } as Record<number, string>)[heroStatsCount];
+    + (canViewCosts && verCampo("gananciaUnidad") ? 1 : 0)
+    + 1; // Reservadas (rediseño 26-oct: su propio dato)
+  const heroStatsCols = ({ 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-2 sm:grid-cols-4", 5: "grid-cols-2 sm:grid-cols-5" } as Record<number, string>)[heroStatsCount];
 
   // Punto 18b: existencias del SKU (todas sus unidades) y cómo se llama esta unidad.
   const existencias = existenciasDelSku(hermanas.length ? hermanas : [{ estado: item.estado, cantidad: item.cantidad, cantidadReservada: item.cantidadReservada }]);
@@ -2264,7 +2308,7 @@ export function ShippingV2ItemDetailView({
         Recorrido
         {existencias.registros > 1 ? <span className="ml-1.5 font-mono font-semibold normal-case tracking-normal text-[#B4B5AC]">· {etiquetaUnidad}</span> : null}
       </h2>
-      <ol className="divide-y divide-[#24251F]">
+      <ol className="grid grid-cols-[repeat(auto-fit,minmax(10.5rem,1fr))] gap-px bg-[#24251F]">
         {oc ? (
           <PasoRecorrido icon={ShoppingCart} etiqueta="Compra" principal={`Orden ${oc.codigo}`} href={`/shipping-v2/pagos/ordenes/${oc.id}`} detalle={detalleCompra} chip={oc.anulada ? <PasoChip tono="alerta">Orden anulada</PasoChip> : chipPago} />
         ) : yaEstabaEnTienda ? (
@@ -2362,7 +2406,7 @@ export function ShippingV2ItemDetailView({
     publicaciones: <FichaPublicaciones publicaciones={publicaciones} />,
     pestanas: (
       <section ref={tabsRef} className="scroll-mt-16 overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
-        <div role="tablist" className="flex gap-0.5 overflow-x-auto border-b border-[#2E2F28] bg-[#1A1B17] px-1 pt-1">
+        <div role="tablist" className="flex gap-0.5 overflow-x-auto overflow-y-hidden border-b border-[#2E2F28] bg-[#1A1B17] px-1 pt-1">
           {tabsVisibles.map((tab) => {
             const active = tab.key === activeSection.key;
             return (
@@ -2412,46 +2456,85 @@ export function ShippingV2ItemDetailView({
     ),
   };
 
-  return (
-    <div className="grid w-full gap-3 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] 2xl:grid-cols-[minmax(0,4fr)_minmax(0,6fr)]">
-      {/* La foto manda: columna propia que acompaña al bajar. */}
-      <aside className={`min-w-0 md:sticky md:self-start ${modo === "modal" ? "md:top-0" : "md:top-16"}`}>
-        {fotosDeOtraUnidad && !verFotosPropias ? (
-          <div className="relative">
-            <ItemPhotoViewer key={`otra-${item.id}`} itemId={item.id} itemName={item.nombre} fotos={fotosDeOtraUnidad} onUpdated={handleSaved} canEdit={false} density="hero" />
-            <span className="absolute bottom-2 left-2 z-10 inline-flex items-center gap-1.5 rounded-md border border-[#3A3A36] bg-[#11120F]/90 px-2 py-1 text-[11px] font-semibold text-[#B4B5AC]">
-              Foto de otra unidad
-              {canEditItems ? <button type="button" onClick={() => setVerFotosPropias(true)} className="text-[#D7FF4F] hover:underline">Agregar de esta</button> : null}
-            </span>
-          </div>
-        ) : (
-          <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={handleSaved} canEdit={canEditItems} density="hero" />
-        )}
-      </aside>
+  // Rediseño (26-oct): qué bloques muestra este perfil (ficha-secciones.ts); el
+  // lugar de cada uno lo da su zona: producto a la izquierda, el día a día al
+  // centro y lo que avisa a la derecha.
+  const tiene = (bloque: BloqueFichaInterna) => config.bloques.includes(bloque);
 
-      <div className="min-w-0 space-y-3">
-        <section className="rounded-lg border border-[#2E2F28] bg-[#171814]">
-          <div className="p-3">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <EstadoBadge estado={item.estado} />
-              <OperationBadge value={item.tipoOperacion} />
-              <AvailabilityBadge item={item} />
-              {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-2.5 py-0.5 text-[12px] font-semibold text-[#FFB07A]">Con novedad</span> : null}
-            </div>
+  return (
+    <RecorridoHorizontal.Provider value>
+    <div className="w-full">
+      {/* 1 · Barra: identidad, unidad, estados y acciones (en la ventana va fija arriba). */}
+      <BarraFicha>
+        {skuCabecera ? <span className="shrink-0 font-mono text-[14px] font-semibold text-[#D7FF4F]"><CopyableSKU sku={skuCabecera} /></span> : null}
+        <EstadoBadge estado={item.estado} />
+        <OperationBadge value={item.tipoOperacion} />
+        <AvailabilityBadge item={item} />
+        {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-2.5 py-0.5 text-[12px] font-semibold text-[#FFB07A]">Con novedad</span> : null}
+        <span className="min-w-2 flex-1" aria-hidden="true" />
+              {(canUseRecepcion || canEditItems) && item.sku ? (
+                <button type="button" onClick={() => setGestorAbierto(true)} title="Anuncios de Marketplace y Grupos Facebook" className={accionPrincipalClass}>
+                  <Megaphone className="h-3.5 w-3.5" aria-hidden="true" />
+                  Publicar
+                </button>
+              ) : null}
+              <FacebookSuperGeekDetailButton
+                item={item}
+                checked={item.facebookSuperGeek === true}
+                canEdit={canEditItems}
+                busy={facebookSuperGeekDetailBusy}
+                onOpen={openFacebookSuperGeekModal}
+              />
+              {unidadesVivas > 1 && fbEnSku > 0 ? (
+                <span className="text-[11px] font-medium text-[#8F908A]" title="Unidades de este SKU, en inventario, marcadas en Facebook Super Geek">
+                  FB SG: {fbEnSku} de {unidadesVivas}
+                </span>
+              ) : null}
+              {canUseRecepcion ? (
+                <Link href={fichaHref} target={fichaGenerada ? "_blank" : undefined} rel={fichaGenerada ? "noreferrer" : undefined} title={fichaGenerada ? "Imprimir la ficha técnica" : "Preparar la ficha técnica"} className={accionClass}>
+                  <Printer className="h-3.5 w-3.5" aria-hidden="true" />
+                  {fichaGenerada ? "Ficha" : "Preparar ficha"}
+                </Link>
+              ) : null}
+              {canUseRecepcion ? (
+                <Link href={skuLabelHref} target="_blank" rel="noreferrer" title="Imprimir etiqueta SKU" className={accionClass}>
+                  <Tag className="h-3.5 w-3.5" aria-hidden="true" />
+                  Etiqueta
+                </Link>
+              ) : null}
+        {config.administrar && esAdmin && adminPanel ? (
+          <div ref={adminRef} className="relative">
+            <button type="button" onClick={() => setAdminOpen((open) => !open)} aria-expanded={adminOpen} title="Activos, dar de baja, corregir estado y eliminar"
+              className={`${accionClass} ${adminOpen ? "border-[#8B73FF]/60 bg-[#8B73FF]/15 text-[#C9BFFF]" : ""}`}>
+              <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
+              Administrar
+              <ChevronDown className={`h-3.5 w-3.5 transition ${adminOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+            </button>
+            {adminOpen ? (
+              <div className="absolute right-0 top-full z-40 mt-1 max-h-[70vh] w-[min(92vw,30rem)] space-y-2 overflow-y-auto rounded-lg border border-[#3A3A36] bg-[#161712] p-2 shadow-2xl shadow-black/50 animate-[sg-entrada_120ms_ease-out]">
+                {adminPanel}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </BarraFicha>
+
+      {/* 2 · Nombre a lo ancho, datos del producto, sugerencia y descripción. */}
+      <section className="border-b border-[#24251F] px-1 pb-2.5">
             <InlineEditableField
               label={C.nombre.label}
               value={item.nombre}
               type={C.nombre.type}
               displayValue={displayName(item.nombre)}
               hideLabel
-              className="-mx-1 mt-2 rounded-md px-1 transition"
-              valueClassName="min-h-7 break-words text-xl font-semibold leading-tight text-[#F5F5F5] lg:text-[22px]"
+              className="-mx-1 rounded-md px-1 transition"
+              valueClassName="min-h-7 break-words text-xl font-semibold leading-tight text-[#F5F5F5] lg:text-[21px]"
               readOnly={!canEditItems}
               onSave={(value) => saveField(C.nombre.field, value)}
             />
             <p className="mt-1 text-[12px] text-[#8F908A]">
-              {skuCabecera ? <CopyableSKU sku={skuCabecera} /> : null}
-              {skuCabecera && restoCabecera ? " · " : null}
+              {item.skuProveedor?.trim() ? <>SKU prov. <span className="font-mono text-[#E6E6E1]">{item.skuProveedor.trim()}</span></> : null}
+              {item.skuProveedor?.trim() && restoCabecera ? " · " : null}
               {restoCabecera}
             </p>
             <UnidadDelProducto item={item} hermanas={hermanas}
@@ -2491,10 +2574,31 @@ export function ShippingV2ItemDetailView({
               readOnly={!canEditItems}
               onSave={(value) => saveField(C.descripcion.field, value)}
             />
-          </div>
+      </section>
 
-          {/* Lo que se mira siempre: precio, costo, ganancia y cuántos hay. */}
-          <div className={`grid gap-px border-y border-[#24251F] bg-[#24251F] ${heroStatsCols}`}>
+      {/* 3 · Cuerpo: producto (izquierda) · día a día (centro) · avisos (derecha). */}
+      <div className="mt-3 grid items-start gap-3 lg:grid-cols-[minmax(20rem,max-content)_minmax(0,1fr)] min-[1360px]:grid-cols-[minmax(20rem,max-content)_minmax(0,1fr)_18.75rem]">
+        {/* La columna se ensancha con la serie más larga de sus unidades (hasta 30rem);
+            la foto toma ese ancho sin empujarlo. */}
+        <aside className="min-w-0 space-y-2.5 lg:row-span-2 lg:max-w-[30rem]">
+          <div className="[contain:inline-size]">
+        {fotosDeOtraUnidad && !verFotosPropias ? (
+          <div className="relative">
+            <ItemPhotoViewer key={`otra-${item.id}`} itemId={item.id} itemName={item.nombre} fotos={fotosDeOtraUnidad} onUpdated={handleSaved} canEdit={false} density="hero" />
+            <span className="absolute bottom-2 left-2 z-10 inline-flex items-center gap-1.5 rounded-md border border-[#3A3A36] bg-[#11120F]/90 px-2 py-1 text-[11px] font-semibold text-[#B4B5AC]">
+              Foto de otra unidad
+              {canEditItems ? <button type="button" onClick={() => setVerFotosPropias(true)} className="text-[#D7FF4F] hover:underline">Agregar de esta</button> : null}
+            </span>
+          </div>
+        ) : (
+          <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={handleSaved} canEdit={canEditItems} density="hero" />
+        )}
+          </div>
+          {tiene("unidades") ? bloques.unidades : null}
+        </aside>
+
+        <div className="min-w-0 space-y-2.5">
+          <div className={`grid gap-px overflow-hidden rounded-lg border border-[#2E2F28] bg-[#24251F] ${heroStatsCols}`}>
             {canViewCosts && verCampo("precioVenta") ? (
               <InlineEditableField
                 label="Precio venta"
@@ -2525,7 +2629,6 @@ export function ShippingV2ItemDetailView({
             <HeroStat label="Cantidad" title={existencias.registros > 1 ? `Este registro: ${formatShippingV2ItemQuantity(item)} · ${String(item.sku ?? "").trim()}: ${existencias.enInventario} en inventario` : item.unidad || undefined}>
               {formatShippingV2ItemQuantity(item)}
               {existencias.registros > 1 ? <span className="ml-1 text-[12px] font-medium text-[#8F908A]">de {existencias.enInventario}</span> : null}
-              {(item.cantidadReservada ?? 0) > 0 ? <span className="ml-1.5 text-[12px] font-medium text-[#F4E85B]">{item.cantidadReservada} reservada{item.cantidadReservada === 1 ? "" : "s"}</span> : null}
               {canUseRecepcion || canEditItems ? (
                 <button
                   type="button"
@@ -2537,50 +2640,21 @@ export function ShippingV2ItemDetailView({
                 </button>
               ) : null}
             </HeroStat>
+            <HeroStat label="Reservadas" tone={(item.cantidadReservada ?? 0) > 0 ? "lime" : "neutral"} title="Unidades apartadas para un cliente">
+              {item.cantidadReservada ?? 0}
+              <span className="ml-1 text-[12px] font-medium text-[#8F908A]">de {formatShippingV2ItemQuantity(item)}</span>
+            </HeroStat>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5 p-2">
-              <FacebookSuperGeekDetailButton
-                item={item}
-                checked={item.facebookSuperGeek === true}
-                canEdit={canEditItems}
-                busy={facebookSuperGeekDetailBusy}
-                onOpen={openFacebookSuperGeekModal}
-              />
-              {unidadesVivas > 1 && fbEnSku > 0 ? (
-                <span className="text-[11px] font-medium text-[#8F908A]" title="Unidades de este SKU, en inventario, marcadas en Facebook Super Geek">
-                  FB SG: {fbEnSku} de {unidadesVivas}
-                </span>
-              ) : null}
-              {canUseRecepcion ? (
-                <Link href={fichaHref} target={fichaGenerada ? "_blank" : undefined} rel={fichaGenerada ? "noreferrer" : undefined} title={fichaGenerada ? "Imprimir la ficha técnica" : "Preparar la ficha técnica"} className={accionClass}>
-                  <Printer className="h-3.5 w-3.5" aria-hidden="true" />
-                  {fichaGenerada ? "Ficha" : "Preparar ficha"}
-                </Link>
-              ) : null}
-              {canUseRecepcion ? (
-                <Link href={skuLabelHref} target="_blank" rel="noreferrer" title="Imprimir etiqueta SKU" className={accionClass}>
-                  <Tag className="h-3.5 w-3.5" aria-hidden="true" />
-                  Etiqueta
-                </Link>
-              ) : null}
-              {(canUseRecepcion || canEditItems) && item.sku ? (
-                <button type="button" onClick={() => setGestorAbierto(true)} title="Anuncios de Marketplace y Grupos Facebook" className={accionClass}>
-                  <Megaphone className="h-3.5 w-3.5" aria-hidden="true" />
-                  Publicar
-                </button>
-              ) : null}
-              {config.administrar && esAdmin && adminPanel ? (
-                <button type="button" onClick={() => setAdminOpen((open) => !open)} aria-expanded={adminOpen} title="Activos, dar de baja, corregir estado y eliminar"
-                  className={`${accionClass} ml-auto ${adminOpen ? "border-[#8B73FF]/60 bg-[#8B73FF]/15 text-[#C9BFFF]" : ""}`}>
-                  <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
-                  Administrar
-                  <ChevronDown className={`h-3.5 w-3.5 transition ${adminOpen ? "rotate-180" : ""}`} aria-hidden="true" />
-                </button>
-              ) : null}
-          </div>
-          {adminOpen && adminPanel ? <div className="space-y-2 border-t border-[#24251F] p-2">{adminPanel}</div> : null}
-        </section>
+          {tiene("recorrido") ? bloques.recorrido : null}
+          {tiene("pestanas") ? bloques.pestanas : null}
+        </div>
+
+        <aside className="min-w-0 space-y-2.5 lg:col-start-2 min-[1360px]:col-start-3 min-[1360px]:row-start-1">
+          {tiene("novedades") ? bloques.novedades : null}
+          {tiene("publicaciones") ? bloques.publicaciones : null}
+        </aside>
+      </div>
 
         {gestorAbierto ? (
           <GestorPublicacionesModal
@@ -2612,9 +2686,8 @@ export function ShippingV2ItemDetailView({
           />
         ) : null}
 
-        {config.bloques.map((bloque) => <Fragment key={bloque}>{bloques[bloque]}</Fragment>)}
-      </div>
     </div>
+    </RecorridoHorizontal.Provider>
   );
 }
 
@@ -2998,7 +3071,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
         className={`${filaClass} ${tipo === "hija" ? "bg-[#141511]" : ""}`}
       >
         {visibleColumns.map((column) => (
-          <td key={column.key} title={tipo === "hija" && column.key === "sku" ? `${displayValue(item.sku)} · ${etiquetaRegistro(item)}` : getItemCellTitle(item, column.key)} className={celdaClass(column)}>
+          <td key={column.key} data-ficha-ancla={column.key === "sku" ? "" : undefined} title={tipo === "hija" && column.key === "sku" ? `${displayValue(item.sku)} · ${etiquetaRegistro(item)}` : getItemCellTitle(item, column.key)} className={celdaClass(column)}>
             {column.key === "sku" && tipo === "hija" ? (
               <span className="block truncate pl-5 text-[11.5px] font-medium text-[#B4B5AC]">{etiquetaRegistro(item)}</span>
             ) : column.key === "sku" && hayGruposSku ? (
@@ -3043,7 +3116,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
         className={filaClass}
       >
         {visibleColumns.map((column) => (
-          <td key={column.key} title={getGroupCellTitle(grupo, column.key)} className={celdaClass(column)}>
+          <td key={column.key} data-ficha-ancla={column.key === "sku" ? "" : undefined} title={getGroupCellTitle(grupo, column.key)} className={celdaClass(column)}>
             {renderGroupCell(grupo, column.key, cellContext, abierto, () => alternarSku(grupo.clave))}
           </td>
         ))}
