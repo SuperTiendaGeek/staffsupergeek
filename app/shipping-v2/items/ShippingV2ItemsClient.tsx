@@ -68,7 +68,7 @@ import {
   type FiltroArticulos,
 } from "@/lib/shipping-v2/items-filtro";
 import { ShippingV2ItemsPredictiveSearch } from "./ShippingV2ItemsPredictiveSearch";
-import { EnlaceArticulo, useAlCambiarArticulo, useFichaArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
+import { EnlaceArticulo, useAlCambiarArticulo, useFichaArticulo, useIntencionFicha } from "@/components/shipping-v2/ficha-articulo/contexto";
 import { FichaPublicaciones } from "@/components/shipping-v2/ficha-articulo/FichaPublicaciones";
 import { ID_BLOQUE_UNIDADES, UnidadesDelSku } from "@/components/shipping-v2/ficha-articulo/UnidadesDelSku";
 import { existenciasDelSku, sigueEnInventario, type FichaPublicacion } from "@/lib/shipping-v2/ficha-articulo";
@@ -2622,6 +2622,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   const router = useRouter();
   // Punto 18: la ficha se abre en la ventana única (la lista no se desmonta).
   const ficha = useFichaArticulo();
+  const intencionFicha = useIntencionFicha();
   const abrirArticulo = useCallback((id: string) => (ficha ? ficha.abrir(id) : router.push(`/shipping-v2/items/${id}`)), [ficha, router]);
   // Lo que cambie en la ficha se refleja en la lista.
   useAlCambiarArticulo(() => router.refresh());
@@ -2967,15 +2968,7 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   // ── Punto 18b: filas de la tabla ──
   // Si el mouse se queda un momento sobre una fila, su ficha se pide por
   // adelantado (una a la vez); al hacer clic se abre más rápido.
-  const intencionRef = useRef<number | null>(null);
-  const intencion = (id: string) => {
-    if (intencionRef.current) window.clearTimeout(intencionRef.current);
-    intencionRef.current = window.setTimeout(() => ficha?.precargar(id), 250);
-  };
-  const sinIntencion = () => {
-    if (intencionRef.current) window.clearTimeout(intencionRef.current);
-    intencionRef.current = null;
-  };
+  const { alEntrar: intencion, alSalir: sinIntencion } = intencionFicha;
   const MUTED_COLUMNS = new Set<ShippingV2ItemsColumnKey>(["generalRole", "category", "packing", "createdAt", "brand", "model", "serial", "condition", "location", "triangulationStatus", "reviewStatus", "requiresPayment", "requiresPacking", "physicalReview", "notes", "purchaseProvider", "logisticProvider", "supplierSku"]);
   const celdaClass = (column: ShippingV2ItemsColumn) => {
     const alignClass = column.align === "right"

@@ -12,7 +12,7 @@
 import { CopyableSKU } from "@/components/ui/copyable-sku";
 import { FichaArticuloVista } from "@/components/shipping-v2/ficha-articulo/FichaArticuloVista";
 import type { FichaArticulo } from "@/lib/shipping-v2/ficha-articulo";
-import { useAlCambiarArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
+import { useAlCambiarArticulo, useFichaArticulo, useIntencionFicha } from "@/components/shipping-v2/ficha-articulo/contexto";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
 import { GRUPO_TIPO, TIPOS_ASUNTO, type TipoAsunto } from "@/lib/shipping-v2/revision-inventario";
@@ -210,19 +210,34 @@ export function ShippingV2ControlClient({
   const [errorDetalle, setErrorDetalle] = useState("");
   const huboCambios = useRef(false);
 
+  // Punto 18b (velocidad): la misma ficha que usa la ventana única (con lo que
+  // se pidió por adelantado al pasar el mouse); si algo cambió, se pide fresca.
+  const fichaCtx = useFichaArticulo();
+  const intencion = useIntencionFicha();
+  const versionPedida = useRef(versionDetalle);
   useEffect(() => {
     if (!modal) return;
     let cancelado = false;
+    const fresca = versionPedida.current !== versionDetalle;
+    versionPedida.current = versionDetalle;
     setErrorDetalle("");
-    fetch(`/api/shipping-v2/items/${encodeURIComponent(modal.itemId)}/ficha`, { cache: "no-store" })
-      .then(async (r) => {
-        const payload = await r.json().catch(() => ({}));
-        if (!r.ok || !payload.success) throw new Error(String(payload.error || "No se pudo cargar el artículo."));
-        if (!cancelado) setDetalle(payload.data as FichaArticulo);
+    const pedir = fichaCtx
+      ? fichaCtx.pedirFicha(modal.itemId, { fresca })
+      : fetch(`/api/shipping-v2/items/${encodeURIComponent(modal.itemId)}/ficha`, { cache: "no-store" }).then(async (r) => {
+          const payload = await r.json().catch(() => ({}));
+          return r.ok && payload.success
+            ? { ok: true as const, ficha: payload.data as FichaArticulo }
+            : { ok: false as const, mensaje: String(payload.error || "No se pudo cargar el artículo.") };
+        });
+    pedir
+      .then((respuesta) => {
+        if (cancelado) return;
+        if (respuesta.ok) setDetalle(respuesta.ficha);
+        else setErrorDetalle(respuesta.mensaje);
       })
       .catch((e) => { if (!cancelado) setErrorDetalle(e instanceof Error ? e.message : "Error inesperado."); });
     return () => { cancelado = true; };
-  }, [modal, versionDetalle]);
+  }, [modal, versionDetalle, fichaCtx]);
 
   // Al cambiar de artículo se empieza desde cero (nunca con los datos del anterior).
   // Punto 18b: si es otra unidad del mismo SKU, la ficha se queda mientras llega.
@@ -423,6 +438,8 @@ export function ShippingV2ControlClient({
               <button
                 type="button"
                 onClick={() => abrir(a)}
+                onMouseEnter={() => { if (a.itemIds[0] && !enlaceExterno(a)) intencion.alEntrar(a.itemIds[0]); }}
+                onMouseLeave={intencion.alSalir}
                 className="inline-flex w-fit items-center gap-1 text-left font-mono font-semibold text-[#EDEDE7] underline decoration-[#8F908A]/50 decoration-dotted underline-offset-[3px] transition hover:text-[#D7FF4F] hover:decoration-[#D7FF4F] hover:decoration-solid"
                 title={enlaceExterno(a) ? "Abrir en otra pestaña" : "Abrir el artículo"}
               >

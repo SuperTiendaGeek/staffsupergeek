@@ -13,7 +13,7 @@ import {
 } from "react";
 import { CornerDownLeft, ListFilter, Loader2, PackageSearch, Search, X } from "lucide-react";
 import { interpretarBusqueda } from "@/lib/shipping-v2/items-filtro";
-import { useFichaArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
+import { useFichaArticulo, useIntencionFicha } from "@/components/shipping-v2/ficha-articulo/contexto";
 import {
   normalizeSearchText,
   prepareShippingV2ItemSearchIndex,
@@ -115,6 +115,7 @@ function preferredMatch(result: ShippingV2SearchResult) {
 export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackItems, canViewCosts = true, onSubmit, aplicado = "" }: Props) {
   const router = useRouter();
   const ficha = useFichaArticulo();
+  const intencion = useIntencionFicha();
   const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -370,6 +371,8 @@ export function ShippingV2ItemsPredictiveSearch({ search, setSearch, fallbackIte
                   role="option"
                   aria-selected={active}
                   onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => intencion.alEntrar(item.id)}
+                  onMouseLeave={intencion.alSalir}
                   onClick={() => navigateToResult(result)}
                   className={`grid w-full grid-cols-[36px_minmax(0,1fr)] gap-2.5 px-3 py-1.5 text-left motion-safe:transition ${active ? "bg-[#D7FF4F]/12" : "hover:bg-[#CFFF3A]/[0.055]"}`}
                 >

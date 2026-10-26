@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ExternalLink, Link2, Loader2, X } from "lucide-react";
 import type { FichaArticulo } from "@/lib/shipping-v2/ficha-articulo";
 import { FichaArticuloVista } from "./FichaArticuloVista";
-import { FichaContexto, ID_REGISTRO, PARAM_FICHA, hrefArticulo, type CambioArticulo, type OyenteCambio } from "./contexto";
+import { FichaContexto, ID_REGISTRO, PARAM_FICHA, hrefArticulo, type CambioArticulo, type OyenteCambio, type RespuestaFicha } from "./contexto";
 
 /** Registros del mismo SKU que trae la ficha (para cambiar de unidad sin recargar todo). */
 function idsDelSku(ficha: FichaArticulo): string[] {
@@ -36,10 +36,6 @@ function idsDelSku(ficha: FichaArticulo): string[] {
 // guardado desde la ficha borra todo lo guardado.
 
 const FICHA_GUARDADA_MS = 20 * 1000;
-
-type RespuestaFicha =
-  | { ok: true; ficha: FichaArticulo }
-  | { ok: false; mensaje: string; estado?: number };
 
 type AlmacenFichas = {
   /** Una ficha guardada hace menos de 20 s, si hay. */
@@ -169,7 +165,10 @@ export function FichaArticuloProveedor({ children }: { children: ReactNode }) {
     if (ID_REGISTRO.test(id)) void almacen.pedir(id);
   }, [almacen]);
 
-  const valor = useMemo(() => ({ abrir, cerrar, abierta, suscribir, avisarCambio, precargar }), [abrir, cerrar, abierta, suscribir, avisarCambio, precargar]);
+  const valor = useMemo(
+    () => ({ abrir, cerrar, abierta, suscribir, avisarCambio, precargar, pedirFicha: almacen.pedir }),
+    [abrir, cerrar, abierta, suscribir, avisarCambio, precargar, almacen]
+  );
 
   return (
     <FichaContexto.Provider value={valor}>

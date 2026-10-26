@@ -34,7 +34,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
-import { useAlCambiarArticulo, useFichaArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
+import { useAlCambiarArticulo, useFichaArticulo, useIntencionFicha } from "@/components/shipping-v2/ficha-articulo/contexto";
 import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
 import { evaluarVentaItem } from "@/lib/shipping-v2/item-venta";
 import { agruparItemsPorSku, unidadPorDefecto, type GrupoSku } from "@/lib/shipping-v2/items-por-sku";
@@ -753,6 +753,7 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
 }) {
   const received = isReceived(item);
   const reviewed = isReviewed(item);
+  const intencion = useIntencionFicha();
   const avanceInspeccion = avanceDeInspeccion(item.revisionTecnicaDetalle, reviewed);
   // Ya no hay botón "Listo para vender": el sistema deja el artículo a la
   // venta solo cuando llega (y se firma su inspección, si la requiere). Aquí
@@ -789,6 +790,8 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
             <button
               type="button"
               onClick={() => onOpenDetail(item)}
+              onMouseEnter={() => intencion.alEntrar(item.id)}
+              onMouseLeave={intencion.alSalir}
               className="shrink-0 text-left text-[12px] font-bold text-[#D7FF4F] transition hover:underline"
             >
               {display(item.sku)}
@@ -796,6 +799,8 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
             <button
               type="button"
               onClick={() => onOpenDetail(item)}
+              onMouseEnter={() => intencion.alEntrar(item.id)}
+              onMouseLeave={intencion.alSalir}
               title={display(item.nombre)}
               className="min-w-0 flex-1 truncate text-left text-[12.5px] font-medium text-[#F5F5F5] transition hover:text-[#D7FF4F]"
             >
@@ -958,7 +963,9 @@ function ReceptionGroupRow({
   const novedades = items.reduce((suma, item) => suma + item.openNovedades.length, 0);
   const estados = [...new Set(items.map((item) => item.estado))];
   const precios = [...new Set(items.map((item) => item.precioVenta || item.precioVentaSugerido || 0))];
-  const abrirUnidad = () => onOpenDetail(unidadPorDefecto(items) ?? principal);
+  const unidadAbrir = unidadPorDefecto(items) ?? principal;
+  const abrirUnidad = () => onOpenDetail(unidadAbrir);
+  const intencion = useIntencionFicha();
   const cantidad = new Intl.NumberFormat("es-EC", { maximumFractionDigits: Number.isInteger(grupo.cantidad) ? 0 : 2 }).format(grupo.cantidad);
   const chip = "shrink-0 rounded-full border px-1.5 py-px text-[10.5px] font-semibold leading-4";
 
@@ -978,10 +985,10 @@ function ReceptionGroupRow({
             >
               <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-150 ${abierto ? "rotate-90" : ""}`} aria-hidden="true" />
             </button>
-            <button type="button" onClick={abrirUnidad} className="shrink-0 text-left text-[12px] font-bold text-[#D7FF4F] transition hover:underline">
+            <button type="button" onClick={abrirUnidad} onMouseEnter={() => intencion.alEntrar(unidadAbrir.id)} onMouseLeave={intencion.alSalir} className="shrink-0 text-left text-[12px] font-bold text-[#D7FF4F] transition hover:underline">
               {display(principal.sku)}
             </button>
-            <button type="button" onClick={abrirUnidad} title={display(principal.nombre)} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-medium text-[#F5F5F5] transition hover:text-[#D7FF4F]">
+            <button type="button" onClick={abrirUnidad} onMouseEnter={() => intencion.alEntrar(unidadAbrir.id)} onMouseLeave={intencion.alSalir} title={display(principal.nombre)} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-medium text-[#F5F5F5] transition hover:text-[#D7FF4F]">
               {display(principal.nombre)}
             </button>
           </div>
