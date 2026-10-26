@@ -1813,22 +1813,26 @@ export function UnidadDelProducto({ item, hermanas, onGuardarSerie, onSerieInter
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[11.5px]">
       {esUnidad ? (
-        serie
-          ? <span className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-mono font-semibold text-[#F5F5F5]" title="Serie de esta unidad">S/N {serie}</span>
-          : onGuardarSerie && escaneando ? (
+        onGuardarSerie && escaneando ? (
             <span className="inline-flex flex-wrap items-center gap-1">
-              <input autoFocus disabled={ocupado} placeholder="Escanear o escribir" aria-label="Escanear o escribir la serie"
-                className="h-6 w-36 rounded border border-[#F4C95B]/60 bg-[#151515] px-1.5 font-mono text-[12px] text-[#F5F5F5] outline-none"
+              <input autoFocus disabled={ocupado} defaultValue={serie} placeholder="Escanear o escribir" aria-label={serie ? "Corregir la serie" : "Escanear o escribir la serie"}
+                className="h-6 w-56 rounded border border-[#F4C95B]/60 bg-[#151515] px-1.5 font-mono text-[12px] text-[#F5F5F5] outline-none"
                 onKeyDown={async (e) => {
-                  if (e.key === "Escape") { setEscaneando(false); setErrorSerie(""); return; }
+                  if (e.key === "Escape") { e.preventDefault(); setEscaneando(false); setErrorSerie(""); return; }
                   if (e.key !== "Enter") return;
                   e.preventDefault();
                   const valor = e.currentTarget.value.trim();
-                  if (!valor) return;
+                  if (!valor || normalizarSerie(valor) === serie) { setEscaneando(false); return; }
                   setOcupado(true); setErrorSerie("");
                   try { await onGuardarSerie(valor); setEscaneando(false); } catch (err) { setErrorSerie(err instanceof Error ? err.message : "No se pudo guardar."); } finally { setOcupado(false); }
                 }} />
-              {onSerieInterna ? (
+              {/* Corregir una serie mal puesta: quitarla deja la unidad "sin serie" otra vez. */}
+              {serie ? (
+                <button type="button" disabled={ocupado} title="La unidad queda sin serie (se puede volver a escanear)"
+                  onClick={async () => { setOcupado(true); setErrorSerie(""); try { await onGuardarSerie(""); setEscaneando(false); } catch (err) { setErrorSerie(err instanceof Error ? err.message : "No se pudo quitar."); } finally { setOcupado(false); } }}
+                  className="h-6 rounded border border-[#FF914D]/45 px-1.5 font-semibold text-[#FFB07A] hover:border-[#FF914D] disabled:opacity-50">Quitar serie</button>
+              ) : null}
+              {!serie && onSerieInterna ? (
                 <button type="button" disabled={ocupado} title="Para un equipo sin serie legible: SG + 8 números, se imprime en su etiqueta."
                   onClick={async () => { setOcupado(true); setErrorSerie(""); try { await onSerieInterna(); setEscaneando(false); } catch (err) { setErrorSerie(err instanceof Error ? err.message : "No se pudo asignar."); } finally { setOcupado(false); } }}
                   className="h-6 rounded border border-[#3A3A36] px-1.5 font-semibold text-[#B4B5AC] hover:text-[#F5F5F5] disabled:opacity-50">Serie interna</button>
@@ -1836,6 +1840,10 @@ export function UnidadDelProducto({ item, hermanas, onGuardarSerie, onSerieInter
               <button type="button" onClick={() => { setEscaneando(false); setErrorSerie(""); }} aria-label="Cancelar" className="px-1 text-[13px] text-[#8F908A] hover:text-[#F5F5F5]">×</button>
               {errorSerie ? <span className="text-[#FFB07A]">{errorSerie}</span> : null}
             </span>
+          ) : serie ? (
+            onGuardarSerie ? (
+              <button type="button" onClick={() => setEscaneando(true)} className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-mono font-semibold text-[#F5F5F5] transition hover:border-[#F4C95B]/60" title="Serie de esta unidad · pulsa para corregirla o quitarla">S/N {serie}</button>
+            ) : <span className="rounded border border-[#3A3A36] bg-[#20211D] px-1.5 py-0.5 font-mono font-semibold text-[#F5F5F5]" title="Serie de esta unidad">S/N {serie}</span>
           ) : onGuardarSerie ? (
             <button type="button" onClick={() => setEscaneando(true)} className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B] hover:border-[#F4C95B]" title="Pulsa para escanearla, escribirla o usar una serie interna (SG…).">Sin serie aún · escanear</button>
           ) : <span className="rounded border border-[#F4C95B]/45 bg-[#F4C95B]/10 px-1.5 py-0.5 font-semibold text-[#F4C95B]" title="Se escanea o escribe al recibir.">Sin serie aún</span>
@@ -2569,8 +2577,11 @@ export function ShippingV2ItemDetailView({
       </section>
 
       {/* 3 · Cuerpo: producto (izquierda) · día a día (centro) · avisos (derecha). */}
-      <div className="mt-3 grid items-start gap-3 lg:grid-cols-[20rem_minmax(0,1fr)] min-[1360px]:grid-cols-[20rem_minmax(0,1fr)_18.75rem]">
-        <aside className="min-w-0 space-y-2.5 lg:row-span-2">
+      <div className="mt-3 grid items-start gap-3 lg:grid-cols-[minmax(20rem,max-content)_minmax(0,1fr)] min-[1360px]:grid-cols-[minmax(20rem,max-content)_minmax(0,1fr)_18.75rem]">
+        {/* La columna se ensancha con la serie más larga de sus unidades (hasta 30rem);
+            la foto toma ese ancho sin empujarlo. */}
+        <aside className="min-w-0 space-y-2.5 lg:row-span-2 lg:max-w-[30rem]">
+          <div className="[contain:inline-size]">
         {fotosDeOtraUnidad && !verFotosPropias ? (
           <div className="relative">
             <ItemPhotoViewer key={`otra-${item.id}`} itemId={item.id} itemName={item.nombre} fotos={fotosDeOtraUnidad} onUpdated={handleSaved} canEdit={false} density="hero" />
@@ -2582,6 +2593,7 @@ export function ShippingV2ItemDetailView({
         ) : (
           <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={handleSaved} canEdit={canEditItems} density="hero" />
         )}
+          </div>
           {tiene("unidades") ? bloques.unidades : null}
         </aside>
 

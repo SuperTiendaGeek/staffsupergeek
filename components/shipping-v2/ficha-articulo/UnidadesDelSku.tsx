@@ -130,7 +130,7 @@ export function UnidadesDelSku({
           </Link>
         ) : null}
       </h2>
-      <p className="border-b border-[#24251F] px-3 py-1 text-[11.5px] text-[#B4B5AC]">
+      <p className="border-b border-[#24251F] px-3 py-1 text-[11.5px] text-[#B4B5AC] [contain:inline-size]">
         <b className="font-semibold text-[#F5F5F5]">{e.enInventario}</b> en inventario
         {e.porEstado.map((x) => ` · ${x.cantidad} ${x.estado.toLowerCase()}`).join("")}
         {e.reservadas ? ` · ${e.reservadas} apartada${e.reservadas === 1 ? "" : "s"}` : ""}
@@ -153,7 +153,7 @@ export function UnidadesDelSku({
                 title={`${actual ? "Unidad que estás viendo" : "Ver esta unidad"} · ${detalleUnidad(h)}`}
                 className={`grid w-full grid-cols-[minmax(0,1fr)_4.75rem_3.75rem] items-center gap-1.5 border-b border-l-2 border-b-[#24251F] px-2.5 py-1 text-left text-[12px] leading-5 transition ${actual ? "border-l-[#D7FF4F] bg-[#D7FF4F]/[0.06]" : "border-l-transparent hover:bg-[#1D1E1A]"} ${salio ? "opacity-60" : ""}`}
               >
-                <span className={`min-w-0 break-all font-mono text-[11.5px] ${serie ? "font-semibold text-[#E6E6E1]" : actual ? "text-[#E6E6E1]" : "text-[#8F908A]"}`}>
+                <span className={`min-w-0 truncate whitespace-nowrap font-mono text-[11.5px] ${serie ? "font-semibold text-[#E6E6E1]" : actual ? "text-[#E6E6E1]" : "text-[#8F908A]"}`}>
                   {nombreUnidad(h)}
                   {(h.cantidad ?? 1) !== 1 ? <span className="ml-1 font-sans text-[11px] text-[#B4B5AC]">×{h.cantidad ?? 0}</span> : null}
                 </span>

@@ -205,9 +205,11 @@ export function FichaTecnicoVista({ datos, modo, alCambiar, onElegirUnidad }: { 
         <UnidadDelProducto item={item} hermanas={datos.hermanas} />
       </section>
 
-      <div className="mt-3 grid items-start gap-3 lg:grid-cols-[20rem_minmax(0,1fr)] min-[1360px]:grid-cols-[20rem_minmax(0,1fr)_18.75rem]">
-        <aside className="min-w-0 space-y-2.5 lg:row-span-2">
-          <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={() => undefined} canEdit={false} density="hero" />
+      <div className="mt-3 grid items-start gap-3 lg:grid-cols-[minmax(20rem,max-content)_minmax(0,1fr)] min-[1360px]:grid-cols-[minmax(20rem,max-content)_minmax(0,1fr)_18.75rem]">
+        <aside className="min-w-0 space-y-2.5 lg:row-span-2 lg:max-w-[30rem]">
+          <div className="[contain:inline-size]">
+            <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={() => undefined} canEdit={false} density="hero" />
+          </div>
           {tiene("unidades") ? bloques.unidades : null}
         </aside>
 
