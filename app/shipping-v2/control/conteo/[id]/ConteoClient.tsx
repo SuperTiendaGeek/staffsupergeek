@@ -11,7 +11,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AlertTriangle, Check, ExternalLink, Loader2, Minus, Plus, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, ExternalLink, Loader2, Minus, Plus, X } from "lucide-react";
 import {
   accionesPara,
   buscarParaContar,
@@ -146,7 +146,42 @@ type Pestana = "porContar" | "contados" | "deMas";
 type Salida = { p: ProgresoFila; fase: "guardando" | "ok" | "saliendo" };
 type FilaVista =
   | { clave: string; tipo: "linea"; linea: LineaConteo; fecha: string }
-  | { clave: string; tipo: "lote"; sku: string; item?: ItemConteo; total: number; quien: string; fecha: string; pendiente: boolean };
+  | { clave: string; tipo: "lote"; sku: string; item?: ItemConteo; total: number; quien: string; fecha: string; pendiente: boolean }
+  // Punto 18b: varias unidades leídas del mismo SKU van en una fila (la flecha las muestra).
+  | { clave: string; tipo: "unidades"; sku: string; lineas: LineaConteo[]; total: number; quien: string; fecha: string; pendiente: boolean };
+
+/** Punto 18b: junta las unidades leídas de un mismo SKU; queda donde está su lectura más nueva. */
+function agruparUnidadesLeidas(filas: FilaVista[]): FilaVista[] {
+  const porSku = new Map<string, LineaConteo[]>();
+  for (const f of filas) {
+    if (f.tipo !== "linea" || (f.linea.tipo !== "Unidad" && f.linea.tipo !== "Sin identificar")) continue;
+    const sku = f.linea.sku.toUpperCase();
+    porSku.set(sku, [...(porSku.get(sku) ?? []), f.linea]);
+  }
+  const salida: FilaVista[] = [];
+  const puestos = new Set<string>();
+  for (const f of filas) {
+    const sku = f.tipo === "linea" ? f.linea.sku.toUpperCase() : "";
+    const lineas = f.tipo === "linea" ? porSku.get(sku) : undefined;
+    if (!lineas || lineas.length < 2) {
+      salida.push(f);
+      continue;
+    }
+    if (puestos.has(sku)) continue;
+    puestos.add(sku);
+    salida.push({
+      clave: `unidades:${sku}`,
+      tipo: "unidades",
+      sku,
+      lineas,
+      total: lineas.reduce((suma, l) => suma + l.cantidad, 0),
+      quien: nombres(lineas.map((l) => l.contadoPor)),
+      fecha: lineas[0].fecha,
+      pendiente: lineas.some((l) => l.id.startsWith("tmp-")),
+    });
+  }
+  return salida;
+}
 
 function Contando({
   conteo,
@@ -408,8 +443,15 @@ function Contando({
         salida.push(fila);
       }
     }
-    return salida.filter((f) => f.tipo === "linea" || f.total !== 0).sort((a, b) => b.fecha.localeCompare(a.fecha));
+    return agruparUnidadesLeidas(salida.filter((f) => f.tipo === "linea" || f.total !== 0).sort((a, b) => b.fecha.localeCompare(a.fecha)));
   }, [todas, porId, porSku]);
+  const [skusAbiertos, setSkusAbiertos] = useState<ReadonlySet<string>>(() => new Set());
+  const alternarSku = (sku: string) => setSkusAbiertos((actual) => {
+    const siguiente = new Set(actual);
+    if (siguiente.has(sku)) siguiente.delete(sku);
+    else siguiente.add(sku);
+    return siguiente;
+  });
 
   // Cuando un producto queda completo: se queda un momento ("Guardando" hasta que
   // el servidor confirma, luego "✓ Contado") y sale con una animación. Se
@@ -486,6 +528,34 @@ function Contando({
   );
 
   const colLecturas = "grid-cols-[minmax(0,1fr)_auto_28px] md:grid-cols-[104px_minmax(0,1fr)_150px_112px_minmax(0,110px)_28px]";
+
+  /** Una lectura (unidad, sin identificar o sin registro). */
+  function filaLinea(l: LineaConteo, clave: string) {
+    const item = l.itemId ? porId.get(l.itemId) : porSku.get(l.sku.toUpperCase());
+    const pendiente = l.id.startsWith("tmp-");
+    return (
+      <div
+        key={clave}
+        className={`grid ${colLecturas} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 transition-all duration-200 last:border-b-0 ${pendiente ? "bg-[#D7FF4F]/[0.04] animate-[sg-entrada_220ms_ease-out]" : ""} ${quitando.includes(l.id) ? "-translate-x-2 opacity-0" : ""}`}
+      >
+        <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{l.tipo === "Sin registro" ? l.codigo : l.sku}</span>
+        <span className="min-w-0 truncate text-[#C9CAC1]">
+          <span className="font-mono font-semibold text-[#EDEDE7] md:hidden">
+            {l.tipo === "Sin registro" ? l.codigo : l.sku}
+            {l.tipo === "Unidad" && l.serie ? <span className="font-normal text-[#B4B5AC]"> · {l.serie}</span> : l.tipo === "Sin identificar" ? <span className="font-sans font-normal text-[#FFC857]"> · sin identificar</span> : null}
+            {" · "}
+          </span>
+          {l.tipo === "Sin registro" ? <span className="text-[#FFB07A]">No existe en el sistema</span> : item?.nombre ?? ""}
+        </span>
+        <span className="hidden font-mono text-[12px] text-[#B4B5AC] md:block">
+          {l.tipo === "Unidad" ? (l.serie ? `S/N ${l.serie}` : "sin serie") : l.tipo === "Sin identificar" ? <span className="font-sans text-[#FFC857]" title="La etiqueta de serie no se leyó: cuenta 1 sin decir cuál">sin identificar</span> : ""}
+        </span>
+        <span className="text-[#EDEDE7]">{pendiente ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8F908A]" aria-label="Guardando" /> : l.cantidad}</span>
+        <span className="hidden truncate text-[#8F908A] md:block">{l.contadoPor}</span>
+        <button type="button" onClick={() => quitarSuave(l)} disabled={pendiente || quitando.includes(l.id)} aria-label="Quitar" className="text-[16px] leading-none text-[#77786F] hover:text-[#FFB07A] disabled:opacity-30">×</button>
+      </div>
+    );
+  }
   const colAvance = "grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[104px_minmax(0,1fr)_minmax(0,200px)_64px_212px]";
   const encabezado = (cols: string, celdas: ReactNode) => (
     <div className={`hidden ${cols} gap-2.5 border-b border-[#30312D] px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#8F908A] md:grid`}>{celdas}</div>
@@ -777,31 +847,38 @@ function Contando({
                   </div>
                 );
               }
-              const l = f.linea;
-              const item = l.itemId ? porId.get(l.itemId) : porSku.get(l.sku.toUpperCase());
-              const pendiente = l.id.startsWith("tmp-");
-              return (
-                <div
-                  key={f.clave}
-                  className={`grid ${colLecturas} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 transition-all duration-200 last:border-b-0 ${pendiente ? "bg-[#D7FF4F]/[0.04] animate-[sg-entrada_220ms_ease-out]" : ""} ${quitando.includes(l.id) ? "-translate-x-2 opacity-0" : ""}`}
-                >
-                  <span className="hidden font-mono font-semibold text-[#EDEDE7] md:block">{l.tipo === "Sin registro" ? l.codigo : l.sku}</span>
-                  <span className="min-w-0 truncate text-[#C9CAC1]">
-                    <span className="font-mono font-semibold text-[#EDEDE7] md:hidden">
-                      {l.tipo === "Sin registro" ? l.codigo : l.sku}
-                      {l.tipo === "Unidad" && l.serie ? <span className="font-normal text-[#B4B5AC]"> · {l.serie}</span> : l.tipo === "Sin identificar" ? <span className="font-sans font-normal text-[#FFC857]"> · sin identificar</span> : null}
-                      {" · "}
-                    </span>
-                    {l.tipo === "Sin registro" ? <span className="text-[#FFB07A]">No existe en el sistema</span> : item?.nombre ?? ""}
-                  </span>
-                  <span className="hidden font-mono text-[12px] text-[#B4B5AC] md:block">
-                    {l.tipo === "Unidad" ? (l.serie ? `S/N ${l.serie}` : "sin serie") : l.tipo === "Sin identificar" ? <span className="font-sans text-[#FFC857]" title="La etiqueta de serie no se leyó: cuenta 1 sin decir cuál">sin identificar</span> : ""}
-                  </span>
-                  <span className="text-[#EDEDE7]">{pendiente ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8F908A]" aria-label="Guardando" /> : l.cantidad}</span>
-                  <span className="hidden truncate text-[#8F908A] md:block">{l.contadoPor}</span>
-                  <button type="button" onClick={() => quitarSuave(l)} disabled={pendiente || quitando.includes(l.id)} aria-label="Quitar" className="text-[16px] leading-none text-[#77786F] hover:text-[#FFB07A] disabled:opacity-30">×</button>
-                </div>
-              );
+              if (f.tipo === "unidades") {
+                const abierto = skusAbiertos.has(f.sku);
+                const item = porSku.get(f.sku) ?? (f.lineas[0].itemId ? porId.get(f.lineas[0].itemId) : undefined);
+                return (
+                  <div key={f.clave}>
+                    <div className={`grid ${colLecturas} items-center gap-2.5 border-b border-[#252622] px-3 py-1.5 transition-colors duration-200 last:border-b-0 ${f.pendiente ? "bg-[#D7FF4F]/[0.04]" : ""}`}>
+                      <span className="hidden items-center gap-1 font-mono font-semibold text-[#EDEDE7] md:flex">
+                        <button
+                          type="button"
+                          onClick={() => alternarSku(f.sku)}
+                          aria-expanded={abierto}
+                          aria-label={abierto ? `Ocultar las ${f.lineas.length} lecturas` : `Ver las ${f.lineas.length} lecturas`}
+                          className="grid h-4 w-4 shrink-0 place-items-center rounded text-[#8F908A] transition hover:text-[#D7FF4F] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/50"
+                        >
+                          <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-150 ${abierto ? "rotate-90" : ""}`} aria-hidden="true" />
+                        </button>
+                        <span className="truncate">{f.sku}</span>
+                      </span>
+                      <span className="min-w-0 truncate text-[#C9CAC1]">
+                        <button type="button" onClick={() => alternarSku(f.sku)} className="font-mono font-semibold text-[#EDEDE7] md:hidden">{f.sku} ▸ </button>
+                        {item?.nombre ?? ""}
+                      </span>
+                      <span className="hidden text-[12px] text-[#B4B5AC] md:block">{f.lineas.length} unidades</span>
+                      <span className="font-semibold text-[#EDEDE7]">{f.pendiente ? <Loader2 className="inline h-3.5 w-3.5 animate-spin text-[#8F908A]" aria-label="Guardando" /> : f.total}</span>
+                      <span className="hidden truncate text-[#8F908A] md:block">{f.quien}</span>
+                      <span />
+                    </div>
+                    {abierto ? <div className="bg-[#141511]">{f.lineas.map((l) => filaLinea(l, l.id))}</div> : null}
+                  </div>
+                );
+              }
+              return filaLinea(f.linea, f.clave);
             })}
           </>
         ) : (

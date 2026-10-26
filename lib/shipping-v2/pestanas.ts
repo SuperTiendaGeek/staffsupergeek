@@ -16,22 +16,24 @@ export type PestanaShipping = {
   permiso: keyof ShippingV2AccessPermissions;
   /** Solo personal de la tienda (un proveedor externo no la ve). */
   soloStaff?: boolean;
+  /** Punto 18: el técnico no la ve (solo atiende su trabajo técnico). */
+  noTecnico?: boolean;
 };
 
 export const PESTANAS_SHIPPING_V2: readonly PestanaShipping[] = [
   { key: "items", label: "Artículos", href: "/shipping-v2/items", permiso: "canViewItems" },
   // Punto 4 (8-oct): los activos fijos de la tienda, aparte de la mercadería.
-  { key: "activos", label: "Activos de la tienda", href: "/shipping-v2/activos", permiso: "canViewItems", soloStaff: true },
+  { key: "activos", label: "Activos de la tienda", href: "/shipping-v2/activos", permiso: "canViewItems", soloStaff: true, noTecnico: true },
   // La pantalla de Packings pasa a llamarse Logística: cajas y artículos que
   // viajan solos, en una sola lista. La ruta se conserva.
   { key: "packings", label: "Logística", href: "/shipping-v2/packings", permiso: "canViewPackings" },
   { key: "recepcion", label: "Recepción", href: "/shipping-v2/recepcion", permiso: "canUseRecepcion" },
   // Punto 10d (18-oct): plantillas de anuncios, datos fijos de la tienda y, más adelante, anuncios por retirar.
-  { key: "anuncios", label: "Anuncios", href: "/shipping-v2/anuncios", permiso: "canUseRecepcion", soloStaff: true },
+  { key: "anuncios", label: "Anuncios", href: "/shipping-v2/anuncios", permiso: "canUseRecepcion", soloStaff: true, noTecnico: true },
   // Punto 10c (18-oct): revisión de inventario, conteos, fusionar SKU y cambios de código.
-  { key: "control", label: "Control", href: "/shipping-v2/control", permiso: "canUseRecepcion", soloStaff: true },
+  { key: "control", label: "Control", href: "/shipping-v2/control", permiso: "canUseRecepcion", soloStaff: true, noTecnico: true },
   // Punto 12 (24-oct): libro de movimientos del inventario. Todo el personal lo ve; costos solo el Administrador.
-  { key: "kardex", label: "Kardex", href: "/shipping-v2/kardex", permiso: "canViewItems", soloStaff: true },
+  { key: "kardex", label: "Kardex", href: "/shipping-v2/kardex", permiso: "canViewItems", soloStaff: true, noTecnico: true },
   { key: "pagos", label: "Pagos", href: "/shipping-v2/pagos", permiso: "canViewPayments" },
   { key: "novedades", label: "Novedades", href: "/shipping-v2/novedades", permiso: "canViewNovedades" },
 ];

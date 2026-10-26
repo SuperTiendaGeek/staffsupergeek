@@ -33,6 +33,8 @@ export default async function ShippingV2PackingsPage() {
   try {
     const session = await getSessionFromCookie();
     const access = await getShippingV2AccessContextForSession(session);
+    // Punto 18: Logística es solo para quien tiene "Ver packings" (el técnico no).
+    if (!access.permissions.canViewPackings) throw new Error("No tienes acceso a Logística.");
     permissions = access.permissions;
     providerName = access.providerName || access.providerCode || "";
     [packings, proveedores, sueltos] = await Promise.all([

@@ -1,7 +1,6 @@
 "use client";
 
 import { CopyableSKU } from "@/components/ui/copyable-sku";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { RegistrarNovedadModal } from "@/components/shipping-v2/novedades/RegistrarNovedadModal";
@@ -11,6 +10,7 @@ import { avanceDeInspeccion } from "@/lib/shipping-v2/revision-tecnica-snapshot"
 import {
   AlertTriangle,
   ArrowDownAZ,
+  ChevronRight,
   BadgeCheck,
   Camera,
   Check,
@@ -34,8 +34,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ItemPhotoViewer } from "@/components/shipping-v2/ItemPhotoViewer";
+import { useAlCambiarArticulo, useFichaArticulo, useIntencionFicha } from "@/components/shipping-v2/ficha-articulo/contexto";
 import type { ResolvedItem } from "../items/ShippingV2ItemsClient";
 import { evaluarVentaItem } from "@/lib/shipping-v2/item-venta";
+import { agruparItemsPorSku, unidadPorDefecto, type GrupoSku } from "@/lib/shipping-v2/items-por-sku";
 import { evaluarDisponibilidadComercial } from "@/lib/shipping-v2/item-comercial";
 import { esNovedadBloqueante, isNovedadAbierta } from "@/lib/shipping-v2/novedades";
 import { unidadesLibres } from "@/lib/shipping-v2/unidades";
@@ -58,11 +60,9 @@ import {
 import { isFichaGenerada } from "@/lib/shipping-v2/technical-sheet";
 import { rutaUnidad } from "@/lib/shipping-v2/unidades-serie";
 import type {
-  ShippingV2AccessPermissions,
   ShippingV2Item,
   ShippingV2Novedad,
   ShippingV2Packing,
-  ShippingV2Pago,
   ShippingV2Proveedor,
   ShippingV2RecepcionChecklistAction,
 } from "@/types/shipping-v2";
@@ -86,40 +86,6 @@ type ReceptionItem = ResolvedItem & {
   packingLabel: string;
   openNovedades: ShippingV2Novedad[];
 };
-
-type DetailPayload = {
-  item: ResolvedItem;
-  proveedores: ShippingV2Proveedor[];
-  pago: ShippingV2Pago | null;
-  packing: ShippingV2Packing | null;
-  novedades: ShippingV2Novedad[];
-  permissions: ShippingV2AccessPermissions | null;
-  esAdmin: boolean;
-};
-
-type ShippingV2ItemDetailViewProps = {
-  item: ResolvedItem;
-  proveedores: ShippingV2Proveedor[];
-  pago?: ShippingV2Pago | null;
-  packing?: ShippingV2Packing | null;
-  novedades?: ShippingV2Novedad[];
-  onSaved?: (item: ShippingV2Item) => void;
-  esAdmin?: boolean;
-  permissions?: ShippingV2AccessPermissions | null;
-};
-
-const ShippingV2ItemDetailView = dynamic<ShippingV2ItemDetailViewProps>(
-  () => import("../items/ShippingV2ItemsClient").then((module) => module.ShippingV2ItemDetailView),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex min-h-64 items-center justify-center rounded-xl border border-[#30312D] bg-[#11120F] text-sm font-semibold text-[#A7A7A7]">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-        Preparando detalle...
-      </div>
-    ),
-  }
-);
 
 const ALL = SHIPPING_V2_ALL_FILTER;
 // "v2" (15-oct-2026, rediseño compacto): columnas nuevas; se empieza de cero una vez.
@@ -787,6 +753,7 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
 }) {
   const received = isReceived(item);
   const reviewed = isReviewed(item);
+  const intencion = useIntencionFicha();
   const avanceInspeccion = avanceDeInspeccion(item.revisionTecnicaDetalle, reviewed);
   // Ya no hay botón "Listo para vender": el sistema deja el artículo a la
   // venta solo cuando llega (y se firma su inspección, si la requiere). Aquí
@@ -823,6 +790,8 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
             <button
               type="button"
               onClick={() => onOpenDetail(item)}
+              onMouseEnter={() => intencion.alEntrar(item.id)}
+              onMouseLeave={intencion.alSalir}
               className="shrink-0 text-left text-[12px] font-bold text-[#D7FF4F] transition hover:underline"
             >
               {display(item.sku)}
@@ -830,6 +799,8 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
             <button
               type="button"
               onClick={() => onOpenDetail(item)}
+              onMouseEnter={() => intencion.alEntrar(item.id)}
+              onMouseLeave={intencion.alSalir}
               title={display(item.nombre)}
               className="min-w-0 flex-1 truncate text-left text-[12.5px] font-medium text-[#F5F5F5] transition hover:text-[#D7FF4F]"
             >
@@ -962,6 +933,122 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
   );
 })
 
+/**
+ * Punto 18b (25-oct-2026): una fila por SKU. Muestra cuánto llegó y cuánto
+ * falta de sus registros; cada registro se trabaja en su propia fila (la
+ * flecha los muestra), como siempre.
+ */
+function ReceptionGroupRow({
+  grupo,
+  abierto,
+  visibleColumns,
+  columnTemplate,
+  onToggle,
+  onOpenDetail,
+  onOpenPhotos,
+}: {
+  grupo: GrupoSku<ReceptionItem>;
+  abierto: boolean;
+  visibleColumns: ReceptionColumn[];
+  columnTemplate: string;
+  onToggle: () => void;
+  onOpenDetail: (item: ReceptionItem) => void;
+  onOpenPhotos: (item: ReceptionItem) => void;
+}) {
+  const { principal, items } = grupo;
+  const total = items.length;
+  const recibidos = items.filter(isReceived).length;
+  const porInspeccionar = items.filter((item) => item.requiereInspeccion === true && !isReviewed(item)).length;
+  const conFotos = items.filter((item) => item.fotosTomadas === true).length;
+  const novedades = items.reduce((suma, item) => suma + item.openNovedades.length, 0);
+  const estados = [...new Set(items.map((item) => item.estado))];
+  const precios = [...new Set(items.map((item) => item.precioVenta || item.precioVentaSugerido || 0))];
+  const unidadAbrir = unidadPorDefecto(items) ?? principal;
+  const abrirUnidad = () => onOpenDetail(unidadAbrir);
+  const intencion = useIntencionFicha();
+  const cantidad = new Intl.NumberFormat("es-EC", { maximumFractionDigits: Number.isInteger(grupo.cantidad) ? 0 : 2 }).format(grupo.cantidad);
+  const chip = "shrink-0 rounded-full border px-1.5 py-px text-[10.5px] font-semibold leading-4";
+
+  function renderCell(column: ReceptionColumn) {
+    if (column.key === "photo") return <PhotoThumb item={principal} onOpen={onOpenPhotos} />;
+    if (column.key === "item") {
+      return (
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-baseline gap-1.5">
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded={abierto}
+              aria-label={abierto ? `Ocultar los ${total} registros` : `Ver los ${total} registros`}
+              title={abierto ? "Ocultar registros" : `Ver los ${total} registros de este SKU`}
+              className="grid h-4 w-4 shrink-0 self-center place-items-center rounded text-[#8F908A] transition hover:text-[#D7FF4F] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/50"
+            >
+              <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-150 ${abierto ? "rotate-90" : ""}`} aria-hidden="true" />
+            </button>
+            <button type="button" onClick={abrirUnidad} onMouseEnter={() => intencion.alEntrar(unidadAbrir.id)} onMouseLeave={intencion.alSalir} className="shrink-0 text-left text-[12px] font-bold text-[#D7FF4F] transition hover:underline">
+              {display(principal.sku)}
+            </button>
+            <button type="button" onClick={abrirUnidad} onMouseEnter={() => intencion.alEntrar(unidadAbrir.id)} onMouseLeave={intencion.alSalir} title={display(principal.nombre)} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-medium text-[#F5F5F5] transition hover:text-[#D7FF4F]">
+              {display(principal.nombre)}
+            </button>
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1 pl-5">
+            {estados.length === 1 ? (
+              <span className={`${chip} ${stateTone(estados[0])}`}>{display(estados[0])}</span>
+            ) : (
+              <span className={`${chip} border-[#3A3A36] text-[#B4B5AC]`} title={estados.join(" · ")}>{estados.length} estados</span>
+            )}
+            <span className="shrink-0 text-[11px] text-[#8F908A]">{total} registros</span>
+            {novedades ? (
+              <span className={`${chip} border-[#FF914D]/35 bg-[#FF914D]/10 text-[#FFB07A]`} title="Novedades abiertas en sus registros">
+                {novedades} novedad{novedades === 1 ? "" : "es"}
+              </span>
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+    if (column.key === "quantity") {
+      return <span className="text-[12.5px] font-bold tabular-nums text-[#D7FF4F]" title={`Suma de ${total} registros`}>{cantidad}</span>;
+    }
+    if (column.key === "price") {
+      return precios.length === 1
+        ? <span className="text-[12.5px] tabular-nums text-[#E6E6E1]">{formatCurrency(principal.precioVenta || principal.precioVentaSugerido)}</span>
+        : <span className="text-[12px] text-[#8F908A]">Varios</span>;
+    }
+    if (column.key === "checklist") {
+      // El avance del SKU; cada paso se marca en la fila de su registro.
+      return (
+        <div className="flex min-w-0 items-center justify-center gap-2 text-[11.5px] tabular-nums text-[#B4B5AC]">
+          <span title="Registros que ya llegaron" className={recibidos === total ? "font-semibold text-[#D7FF4F]" : ""}>Recibidos {recibidos}/{total}</span>
+          {porInspeccionar ? <span title="Esperan la firma de su inspección" className="text-[#FFB07A]">Por inspeccionar {porInspeccionar}</span> : null}
+          <span title="Registros con fotos tomadas">Fotos {conFotos}/{total}</span>
+        </div>
+      );
+    }
+    return (
+      <button type="button" onClick={onToggle} className="text-[11.5px] font-semibold text-[#8F908A] transition hover:text-[#D7FF4F]">
+        {abierto ? "Ocultar registros" : "Ver registros"}
+      </button>
+    );
+  }
+
+  return (
+    <article className="grid min-h-11 items-center border-b border-[#24251F] bg-[#171814] text-xs text-[#F5F5F5] transition hover:bg-[#D7FF4F]/[0.04]" style={{ gridTemplateColumns: columnTemplate }}>
+      {visibleColumns.map((column) => (
+        <div
+          key={column.key}
+          className={`min-w-0 overflow-hidden px-2 py-1 ${
+            column.align === "right" ? "text-right" : column.align === "center" ? "flex justify-center text-center" : ""
+          }`}
+        >
+          {renderCell(column)}
+        </div>
+      ))}
+    </article>
+  );
+}
+
 export function ShippingV2RecepcionClient({ items: initialItems, packings, proveedores, novedades: initialNovedades, error, preferenceScope, filtro }: Props) {
   const conFiltro = Boolean(filtro?.packingId || filtro?.articuloId);
   const [items, setItems] = useState(initialItems);
@@ -979,10 +1066,8 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   // Punto 10d: las casillas de Marketplace y Grupos Facebook abren el gestor de publicaciones.
   const [gestor, setGestor] = useState<{ item: ReceptionItem; canal: CanalPublicacion; action: ShippingV2RecepcionChecklistAction } | null>(null);
   const [photoItem, setPhotoItem] = useState<ReceptionItem | null>(null);
-  const [detailItemId, setDetailItemId] = useState<string | null>(null);
-  const [detailData, setDetailData] = useState<DetailPayload | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState("");
+  // Punto 18 (25-oct): la ficha se abre en la ventana única de Shipping V2.
+  const ficha = useFichaArticulo();
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
 
@@ -1088,7 +1173,17 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   const filtered = useMemo(() => filteredByItemControls.filter((item) => matchesReceptionFilter(item, quickFilter)), [filteredByItemControls, quickFilter]);
   const sortedItems = useMemo(() => sortShippingV2Items(filtered, sortBy), [filtered, sortBy]);
   const groupedItems = useMemo(() => groupShippingV2Items(sortedItems, groupBy), [groupBy, sortedItems]);
-  const selectedDetailFallback = useMemo(() => receptionItems.find((item) => item.id === detailItemId) || null, [detailItemId, receptionItems]);
+  // Punto 18b: dentro de cada grupo, una fila por SKU.
+  const gruposSku = useMemo(() => new Map(groupedItems.map((group) => [group.key, agruparItemsPorSku(group.items)])), [groupedItems]);
+  const [skusAbiertos, setSkusAbiertos] = useState<ReadonlySet<string>>(() => new Set());
+  const alternarSku = useCallback((clave: string) => {
+    setSkusAbiertos((actual) => {
+      const siguiente = new Set(actual);
+      if (siguiente.has(clave)) siguiente.delete(clave);
+      else siguiente.add(clave);
+      return siguiente;
+    });
+  }, []);
   const visibleColumns = RECEPTION_COLUMNS;
   const tableWidth = useMemo(() => visibleColumns.reduce((total, column) => total + columnWidths[column.key], 0), [columnWidths, visibleColumns]);
   const columnTemplate = useMemo(() => visibleColumns.map((column) => column.key === "item" ? `minmax(${columnWidths[column.key]}px, 1fr)` : `${columnWidths[column.key]}px`).join(" "), [columnWidths, visibleColumns]);
@@ -1104,41 +1199,15 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   const groupLabel = shippingV2ItemGroupOptions.find((option) => option.value === groupBy)?.label ?? "Sin agrupar";
   const visibleGroupCount = groupBy === "none" ? 0 : groupedItems.length;
 
-  const closeDetail = useCallback(() => {
-    setDetailItemId(null);
-    setDetailData(null);
-    setDetailError("");
-  }, []);
-
-  useEffect(() => {
-    if (!detailItemId) return;
-    let cancelled = false;
-    setDetailLoading(true);
-    setDetailError("");
-    setDetailData(null);
-
-    fetch(`/api/shipping-v2/items/${encodeURIComponent(detailItemId)}/detail`, { cache: "no-store" })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload.success) {
-          throw new Error(String(payload.error || "No se pudo cargar el detalle del item."));
-        }
-        return payload.data as DetailPayload;
+  // Lo que se cambie en la ficha se refleja en la fila (sin recargar la lista).
+  useAlCambiarArticulo(({ id }) => {
+    fetch(`/api/shipping-v2/items/${encodeURIComponent(id)}`, { cache: "no-store" })
+      .then((response) => response.json().catch(() => ({})))
+      .then((payload) => {
+        if (payload?.success && payload.data) handleDetailSaved(payload.data as ShippingV2Item);
       })
-      .then((data) => {
-        if (!cancelled) setDetailData(data);
-      })
-      .catch((loadError) => {
-        if (!cancelled) setDetailError(loadError instanceof Error ? loadError.message : "Error inesperado.");
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [detailItemId]);
+      .catch(() => undefined);
+  });
 
   function updateItemFilter<K extends keyof ShippingV2ItemFilterState>(key: K, value: ShippingV2ItemFilterState[K]) {
     setItemFilters((current) => ({ ...current, [key]: value }));
@@ -1193,19 +1262,13 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
   }, []);
 
   function openDetail(item: ReceptionItem) {
-    setDetailItemId(item.id);
+    if (ficha) ficha.abrir(item.id);
+    else window.location.assign(`/shipping-v2/items/${encodeURIComponent(item.id)}`);
   }
   openDetailRef.current = openDetail;
 
   function handleDetailSaved(updatedItem: ShippingV2Item) {
-    setItems((current) => current.map((currentItem) => currentItem.id === updatedItem.id ? updatedItem : currentItem));
-    setDetailData((current) => {
-      if (!current || current.item.id !== updatedItem.id) return current;
-      return {
-        ...current,
-        item: resolveShippingV2Items([updatedItem], current.proveedores)[0],
-      };
-    });
+    setItems((current) => current.map((currentItem) => currentItem.id === updatedItem.id ? { ...currentItem, ...updatedItem } : currentItem));
   }
 
   function handlePhotoViewerUpdated(updatedItem: ShippingV2Item) {
@@ -1229,9 +1292,6 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
       if (!response.ok || !payload.success) throw new Error(String(payload.error || "No se pudo actualizar el checklist."));
       const updated = payload.data as ShippingV2Item;
       setItems((current) => current.map((currentItem) => currentItem.id === updated.id ? updated : currentItem));
-      if (detailData?.item.id === updated.id) {
-        setDetailData((current) => current ? { ...current, item: resolveShippingV2Items([updated], current.proveedores)[0] } : current);
-      }
       // El servidor cierra solo el ciclo del packing cuando esta casilla era
       // la última que faltaba. Se avisa aquí para que el usuario se entere sin
       // tener que ir a la pantalla de packings a comprobarlo.
@@ -1434,25 +1494,44 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
                     {group.label} <span className="font-semibold text-[#8F908A]">· {group.items.length}</span>
                   </div>
                 ) : null}
-                {group.items.map((item) => (
-                  <ReceptionItemRow
-                    key={item.id}
-                    item={item}
-                    providerLabel={item.proveedorCompraDisplay || item.proveedorNombre || ""}
-                    visibleColumns={visibleColumns}
-                    columnWidths={columnWidths}
-                    columnTemplate={columnTemplate}
-                    busyKey={busyKey}
-                    onOpenDetail={handleOpenDetail}
-                    onOpenPhotos={setPhotoItem}
-                    onChecklistChange={handleChecklistChange}
-                    onNovedad={setNovedadItem}
-                    onSkuLabel={openSkuLabel}
-                    onPrepareSheet={openTechnicalSheetEditor}
-                    onInspeccion={openInspeccion}
-                    onPrintSheet={openTechnicalSheet}
-                  />
-                ))}
+                {(gruposSku.get(group.key) ?? []).map((grupo) => {
+                  const fila = (item: ReceptionItem, hija = false) => (
+                    <div key={item.id} className={hija ? "bg-[#141511] [&>article]:bg-transparent" : undefined}>
+                      <ReceptionItemRow
+                        item={item}
+                        providerLabel={item.proveedorCompraDisplay || item.proveedorNombre || ""}
+                        visibleColumns={visibleColumns}
+                        columnWidths={columnWidths}
+                        columnTemplate={columnTemplate}
+                        busyKey={busyKey}
+                        onOpenDetail={handleOpenDetail}
+                        onOpenPhotos={setPhotoItem}
+                        onChecklistChange={handleChecklistChange}
+                        onNovedad={setNovedadItem}
+                        onSkuLabel={openSkuLabel}
+                        onPrepareSheet={openTechnicalSheetEditor}
+                        onInspeccion={openInspeccion}
+                        onPrintSheet={openTechnicalSheet}
+                      />
+                    </div>
+                  );
+                  if (grupo.items.length === 1) return fila(grupo.principal);
+                  const abierto = skusAbiertos.has(grupo.clave);
+                  return (
+                    <Fragment key={grupo.clave}>
+                      <ReceptionGroupRow
+                        grupo={grupo}
+                        abierto={abierto}
+                        visibleColumns={visibleColumns}
+                        columnTemplate={columnTemplate}
+                        onToggle={() => alternarSku(grupo.clave)}
+                        onOpenDetail={handleOpenDetail}
+                        onOpenPhotos={setPhotoItem}
+                      />
+                      {abierto ? grupo.items.map((item) => fila(item, true)) : null}
+                    </Fragment>
+                  );
+                })}
               </div>
             )) : (
               <div className="px-3 py-8 text-center text-[13px] text-[#8F908A]">
@@ -1515,37 +1594,6 @@ export function ShippingV2RecepcionClient({ items: initialItems, packings, prove
         />
       ) : null}
 
-      {detailItemId ? (
-        <ModalShell
-          size="detail"
-          title={detailData?.item.nombre || selectedDetailFallback?.nombre || "Detalle de item"}
-          description={(() => {
-            const sku = String(detailData?.item.sku || selectedDetailFallback?.sku || "").trim();
-            return <>{sku ? <CopyableSKU sku={sku} /> : display(sku)} · Detalle compartido con Shipping Items</>;
-          })()}
-          onClose={closeDetail}
-        >
-          {detailLoading ? (
-            <div className="flex min-h-64 items-center justify-center rounded-xl border border-[#30312D] bg-[#11120F] text-sm font-semibold text-[#A7A7A7]">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-              Cargando detalle...
-            </div>
-          ) : detailError ? (
-            <div className="rounded-xl border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-sm text-[#FFB07A]">{detailError}</div>
-          ) : detailData ? (
-            <ShippingV2ItemDetailView
-              item={detailData.item}
-              proveedores={detailData.proveedores}
-              pago={detailData.pago}
-              packing={detailData.packing}
-              novedades={detailData.novedades}
-              esAdmin={detailData.esAdmin}
-              permissions={detailData.permissions}
-              onSaved={handleDetailSaved}
-            />
-          ) : null}
-        </ModalShell>
-      ) : null}
     </div>
   );
 }

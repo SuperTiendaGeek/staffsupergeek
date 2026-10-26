@@ -191,6 +191,17 @@ export function isAdministratorRole(role?: string) {
   return normalizedRole === "administrador" || normalizedRole === "admin";
 }
 
+/** Punto 18 (Shipping V2): rol "Técnico" del sistema (también "tecnico"/"technical"). */
+export function isTechnicianRole(role?: string) {
+  if (!role) {
+    return false;
+  }
+
+  const normalizedRole = normalizePermissionValue(role).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  return normalizedRole === "tecnico" || normalizedRole === "technical" || normalizedRole === "technician";
+}
+
 export function isProviderRole(role?: string) {
   if (!role) {
     return false;

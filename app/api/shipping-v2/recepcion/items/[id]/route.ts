@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { canShippingV2, getShippingV2AccessContextForSession, updateShippingV2ReceptionChecklistItem } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
+import { puedeInspeccionarShippingV2 } from "@/lib/shipping-v2/access";
 import type { ShippingV2RecepcionChecklistAction } from "@/types/shipping-v2";
 
 export const dynamic = "force-dynamic";
@@ -36,13 +37,17 @@ export async function PATCH(request: Request, { params }: Params) {
   try {
     const body = await request.json().catch(() => ({}));
     const access = await getShippingV2AccessContextForSession(session);
-    if (!canShippingV2(access, "canUseRecepcion")) {
+    const action = parseAction(body.action ?? body.field);
+    // Punto 18: el técnico no usa Recepción, pero sí reabre una inspección
+    // (casilla "reviewed") desde la pantalla de inspección.
+    const tecnicoReabre = action === "reviewed" && parseBoolean(body.value) === false && puedeInspeccionarShippingV2(access);
+    if (!canShippingV2(access, "canUseRecepcion") && !tecnicoReabre) {
       return NextResponse.json({ success: false, error: "No tienes permiso para usar recepción." }, { status: 403 });
     }
     const item = await updateShippingV2ReceptionChecklistItem(
       id,
       {
-        action: parseAction(body.action ?? body.field),
+        action,
         value: parseBoolean(body.value),
         note: String(body.note ?? ""),
       },

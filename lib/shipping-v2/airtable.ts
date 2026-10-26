@@ -63,11 +63,12 @@ import type {
   ShippingV2OrdenCompraWriteInput,
 } from "@/types/shipping-v2";
 import type { StaffSession } from "@/lib/session";
-import { canAccessApp, isAdministratorRole, isProviderRole } from "@/lib/apps";
+import { canAccessApp, isAdministratorRole, isProviderRole, isTechnicianRole } from "@/lib/apps";
 import { SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_FIELD, SHIPPING_V2_TEXTO_FACEBOOK_LEGACY_FIELD, getShippingV2ItemEditField, getShippingV2ItemEditFieldByKey } from "@/lib/shipping-v2/item-edit-config";
 import { getShippingV2FacebookPublicationBlockReason, getShippingV2FacebookTextGenerationBlockReason } from "@/lib/shipping-v2/facebook-super-geek-text";
 import { estadoSegunLlegada, requiereInspeccionPorDefecto } from "@/lib/shipping-v2/item-venta";
 import { formulaFiltroArticulos, type FiltroArticulos } from "@/lib/shipping-v2/items-filtro";
+import { agruparIndicePorSku, ordenarSegunIndice, paginaDeGrupos } from "@/lib/shipping-v2/items-por-sku";
 import { formulaRecepcionAirtable } from "@/lib/shipping-v2/reception-visibility";
 import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import type { ArticuloDelPedido } from "@/lib/operaciones/cierre";
@@ -256,8 +257,13 @@ import {
   providerShippingV2Access,
   puedeAlcanzarProveedor,
   staffShippingV2Access,
+  esTecnicoShippingV2,
+  puedeInspeccionarShippingV2,
   systemShippingV2Access,
+  tecnicoShippingV2Access,
 } from "@/lib/shipping-v2/access";
+import { cambioDePrecioBloqueado, esCampoPrecioVenta, MENSAJE_PRECIO_SOLO_ADMIN } from "@/lib/shipping-v2/precio-candado";
+import { novedadParaTecnico, pagosVisiblesParaProveedor, registrosParaPropagar, type FichaProveedorCompra, type FichaProveedorEnvio, type FichaProveedorPago } from "@/lib/shipping-v2/ficha-articulo";
 import { esIdRegistro, evaluarSerie, evaluarSkuCompartido, nombreUnidad, normalizarSerie, seguimientoDe, seguimientoParaGuardar, siguienteSerieInterna } from "@/lib/shipping-v2/unidades-serie";
 import { CAMPO_ESPECIFICACIONES, camposFichaCopiada, evaluarCopiaFicha, resultadosParaCopiar } from "@/lib/shipping-v2/copiar-unidad";
 import { camposOriginalTrasSeparar, camposUnidadSeparada, evaluarSepararUnidad } from "@/lib/shipping-v2/separar-unidad";
@@ -423,7 +429,16 @@ let shippingV2ItemSearchIndexCache: ShippingV2ItemSearchIndexCache | null = null
 
 function invalidateShippingV2ItemSearchIndexCache() {
   shippingV2ItemSearchIndexCache = null;
+  // Punto 18b: el índice liviano de la lista por SKU se vence con lo mismo.
+  indiceSkuCache.clear();
 }
+
+// Punto 18b: índice liviano (id + SKU) de TODO lo que cumple el filtro, en el
+// orden elegido. Con él se arman las filas por SKU y sus cantidades sin traer
+// cada registro completo. Cache corto (30 s; hoy son ~840 registros, unas 9
+// lecturas livianas): se vence también con cada cambio de artículos.
+const INDICE_SKU_CACHE_MS = 30 * 1000;
+const indiceSkuCache = new Map<string, { entradas: Array<{ id: string; sku: string }>; expiresAt: number }>();
 
 // El control de acceso vive en lib/shipping-v2/access.ts (puro y testeable).
 // Se reexporta desde aquí para no romper los imports existentes del módulo.
@@ -926,7 +941,8 @@ function sanitizeShippingV2ItemForAccess(item: ShippingV2Item, access?: Shipping
     otrosCostosAsignadosRegistro: null,
     costoTotalEstimado: null,
     precioVentaSugerido: null,
-    precioVenta: null,
+    // Punto 18: el técnico ve el precio de venta como dato; el proveedor no.
+    precioVenta: canShippingV2(access, "canViewSalePrice") ? item.precioVenta : null,
     observacionesInternas: canEditProviderItemFields ? item.observacionesInternas : "",
     legacyPagoRelacionadoIds: [],
   };
@@ -1195,6 +1211,10 @@ function mergeAirtableHeaders(headers?: HeadersInit) {
 }
 
 async function airtableFetch(url: string, init: RequestInit = {}, context: { operation: string }) {
+  // Punto 18b: escribir en proveedores vence su lista guardada (ver getShippingV2Proveedores).
+  if (context.operation !== "lectura" && url.includes(`/${encodeURIComponent(SHIPPING_V2_TABLES.proveedores)}`)) {
+    invalidarProveedoresCache();
+  }
   for (let attempt = 0; attempt <= AIRTABLE_RATE_LIMIT_MAX_RETRIES; attempt++) {
     const response = await fetch(url, {
       ...init,
@@ -2051,15 +2071,37 @@ function mapNovedad(record: AirtableRecord): ShippingV2Novedad {
   };
 }
 
+// Punto 18b (25-oct, velocidad): la lista de proveedores se pedía 3 o 4 veces
+// para abrir UNA ficha (acceso, artículo, ficha, unidades). Ahora se lee una vez
+// y se reutiliza 30 s; si llegan dos pedidos a la vez, comparten la misma
+// lectura. Cualquier escritura en "Shipping Proveedores" la vence al instante.
+const PROVEEDORES_CACHE_MS = 30 * 1000;
+// "conexion" guarda con qué fetch se leyó: si cambia (pruebas con Airtable
+// simulado), la lista guardada no se reutiliza.
+let proveedoresCache: { promesa: Promise<ShippingV2Proveedor[]>; expiresAt: number; conexion: typeof fetch } | null = null;
+
+function invalidarProveedoresCache() {
+  proveedoresCache = null;
+}
+
 export async function getShippingV2Proveedores() {
-  // Punto 11: todos los proveedores (antes se cortaba en 100) y solo los campos
-  // que el sistema usa, sin los vínculos (eBay arrastraba cientos de artículos).
-  const records = await listRecords(SHIPPING_V2_TABLES.proveedores, {
-    fields: CAMPOS_LECTURA_PROVEEDOR,
-    sortField: CAMPOS_PROVEEDOR.nombre,
-    sortDirection: "asc",
-  });
-  return records.map(mapProveedor);
+  const ahora = Date.now();
+  if (!proveedoresCache || proveedoresCache.expiresAt <= ahora || proveedoresCache.conexion !== globalThis.fetch) {
+    // Punto 11: todos los proveedores (antes se cortaba en 100) y solo los campos
+    // que el sistema usa, sin los vínculos (eBay arrastraba cientos de artículos).
+    const promesa = listRecords(SHIPPING_V2_TABLES.proveedores, {
+      fields: CAMPOS_LECTURA_PROVEEDOR,
+      sortField: CAMPOS_PROVEEDOR.nombre,
+      sortDirection: "asc",
+    }).then((records) => records.map(mapProveedor));
+    const entrada = { promesa, expiresAt: ahora + PROVEEDORES_CACHE_MS, conexion: globalThis.fetch };
+    proveedoresCache = entrada;
+    // Una lectura fallida no se guarda.
+    promesa.catch(() => {
+      if (proveedoresCache === entrada) proveedoresCache = null;
+    });
+  }
+  return [...(await proveedoresCache.promesa)];
 }
 
 export async function getShippingV2AccessContextForSession(session: StaffSession | null): Promise<ShippingV2AccessContext> {
@@ -2073,6 +2115,12 @@ export async function getShippingV2AccessContextForSession(session: StaffSession
 
   if (!session || isAdministratorRole(role) || ["manager", "gerente"].includes(normalizeStatus(role || ""))) {
     return session ? { ...staffShippingV2Access(), isSiteAdmin } : noShippingV2Access();
+  }
+
+  // Punto 18 (25-oct-2026): el técnico tiene su propio perfil (sin costos ni
+  // tareas comerciales). Antes recibía los permisos completos del staff.
+  if (isTechnicianRole(role)) {
+    return tecnicoShippingV2Access();
   }
 
   const email = session.user.email.trim().toLowerCase();
@@ -2317,6 +2365,77 @@ export async function getShippingV2ItemsPage(options: MapItemOptions & {
   };
 }
 
+/**
+ * Punto 18b (25-oct-2026): la lista de Artículos por SKU.
+ * Lee el índice liviano de todo lo filtrado, lo agrupa por SKU, toma la
+ * página de grupos pedida y trae completos solo los registros de esa página.
+ * No cambia ningún dato: es una consulta de lectura.
+ */
+export async function getShippingV2ItemsPorSkuPage(options: MapItemOptions & {
+  pagina?: number;
+  gruposPorPagina?: number;
+  sortBy?: ShippingV2ItemsListSortKey;
+  filtro?: FiltroArticulos;
+} = {}) {
+  // El proveedor ya recibe su lista completa (máx. 200): se agrupa en pantalla.
+  if (options.access && !options.access.isAdmin) {
+    const lista = await getShippingV2ItemsPage({ ...options, pageSize: 100 });
+    return { items: lista.items, pagina: 1, totalPaginas: 1, totalGrupos: 0, totalRegistros: lista.items.length };
+  }
+
+  const sort = getShippingV2ItemsListSort(options.sortBy);
+  const proveedoresConocidos = options.proveedores ?? (options.filtro?.proveedor ? await getShippingV2Proveedores() : undefined);
+  const proveedorEtiqueta = options.filtro?.proveedor
+    ? proveedoresConocidos?.find((proveedor) => proveedor.id === options.filtro?.proveedor)?.proveedorId || undefined
+    : undefined;
+  const condicionFiltro = options.filtro ? formulaFiltroArticulos(options.filtro, { proveedorEtiqueta }) : "";
+  const formula = condicionFiltro ? `AND(${FORMULA_SOLO_MERCADERIA},${condicionFiltro})` : FORMULA_SOLO_MERCADERIA;
+
+  const claveCache = `${formula}|${sort.sortField}|${sort.sortDirection}`;
+  const ahora = Date.now();
+  const enCache = indiceSkuCache.get(claveCache);
+  let entradas = enCache && enCache.expiresAt > ahora ? enCache.entradas : undefined;
+  if (!entradas) {
+    const skuField = getOfficialSkuField();
+    const registros = await listRecords(SHIPPING_V2_TABLES.items, {
+      pageSize: 100,
+      fields: [skuField],
+      sortField: sort.sortField,
+      sortDirection: sort.sortDirection,
+      filterByFormula: formula,
+    });
+    entradas = registros.map((record) => ({ id: record.id, sku: firstString(record.fields[skuField]) }));
+    if (indiceSkuCache.size >= 30) indiceSkuCache.clear();
+    indiceSkuCache.set(claveCache, { entradas, expiresAt: ahora + INDICE_SKU_CACHE_MS });
+  }
+
+  const pagina = paginaDeGrupos(agruparIndicePorSku(entradas), options.pagina ?? 1, options.gruposPorPagina ?? 100);
+  const ids = pagina.grupos.flatMap((grupo) => grupo.ids);
+
+  // Los registros de la página, completos, en bloques que se piden a la vez.
+  const BLOQUE = 40;
+  const bloques: string[][] = [];
+  for (let i = 0; i < ids.length; i += BLOQUE) bloques.push(ids.slice(i, i + BLOQUE));
+  const [porBloque, proveedores] = await Promise.all([
+    Promise.all(bloques.map((bloque) => listRecords(SHIPPING_V2_TABLES.items, { pageSize: 100, filterByFormula: recordIdFilterFormula(bloque) }))),
+    proveedoresConocidos ? Promise.resolve(proveedoresConocidos) : getShippingV2Proveedores(),
+  ]);
+  const labelsById = createShippingV2ProveedorLabelMap(proveedores);
+  const records = ordenarSegunIndice(porBloque.flat(), ids);
+
+  return {
+    items: await adjuntarSituacionPago(records
+      .map((record) => mapItem(record, options))
+      .map((item) => applyItemProviderLabels(item, labelsById))
+      .filter((item) => canAccessItem(item, options.access))
+      .map((item) => sanitizeShippingV2ItemForAccess(item, options.access, options))),
+    pagina: pagina.pagina,
+    totalPaginas: pagina.totalPaginas,
+    totalGrupos: pagina.totalGrupos,
+    totalRegistros: pagina.totalRegistros,
+  };
+}
+
 type ShippingV2PackingSearchInfo = {
   packingId: string;
   trackingUsa?: string;
@@ -2359,6 +2478,7 @@ function mapItemSearchEntry(
   context: {
     providerLabelsById: Map<string, string>;
     packingInfoById: Map<string, ShippingV2PackingSearchInfo>;
+    /** Punto 18: ahora significa "puede ver el precio de venta" (canViewSalePrice). */
     canViewCosts?: boolean;
   }
 ): ShippingV2ItemSearchEntry {
@@ -2464,7 +2584,7 @@ export async function getShippingV2ItemSearchIndex(access?: ShippingV2AccessCont
 
     const items = records
       .filter((record) => canAccessItemRecord(record, access))
-      .map((record) => mapItemSearchEntry(record, { providerLabelsById, packingInfoById, canViewCosts: canShippingV2(access, "canViewCosts") }));
+      .map((record) => mapItemSearchEntry(record, { providerLabelsById, packingInfoById, canViewCosts: canShippingV2(access, "canViewSalePrice") }));
     const generatedAt = new Date().toISOString();
 
     // Cache corto en memoria: evita releer todo Airtable en cada montaje y se invalida en mutaciones principales de Items.
@@ -2557,6 +2677,14 @@ export async function getShippingV2ItemNavigation(recordId: string, access?: Shi
 }
 
 export async function getShippingV2ItemById(recordId: string, options: MapItemOptions = {}) {
+  return (await getShippingV2ItemConRegistro(recordId, options)).item;
+}
+
+/**
+ * Punto 18b (velocidad): el artículo y su registro crudo de Airtable, para que
+ * la ficha arme el recorrido sin volver a leer el mismo registro.
+ */
+export async function getShippingV2ItemConRegistro(recordId: string, options: MapItemOptions = {}) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
 
@@ -2574,7 +2702,7 @@ export async function getShippingV2ItemById(recordId: string, options: MapItemOp
       mappedAiNombre: item.aiNombre,
     });
   }
-  return sanitizeShippingV2ItemForAccess(item, options.access, options);
+  return { item: sanitizeShippingV2ItemForAccess(item, options.access, options), registro: record as AirtableRecord };
 }
 
 /**
@@ -2631,30 +2759,70 @@ export async function getShippingV2UnidadesDelProducto(skuValue: string, access?
   const sku = normalizeSku(cleanString(skuValue));
   if (!sku) return [];
   const F = SHIPPING_V2_ITEM_FIELDS;
-  const registros = await listRecords(SHIPPING_V2_TABLES.items, {
-    maxRecords: 100,
-    fields: [
-      getOfficialSkuField(), F.numeroSerie, F.estadoItem, F.cantidad, F.precioVentaFinal, F.recibido,
-      "Revisado física/técnicamente", F.fichaTecnicaGenerada, F.fechaRegistro, F.proveedorCompra, F.proveedorLogistico,
-    ],
-    filterByFormula: `LOWER({${getOfficialSkuField()}}) = LOWER('${escapeFormulaString(sku)}')`,
-  });
+  // Punto 18b: lo que necesita la tabla "Unidades del SKU" de la ficha. Los
+  // costos solo para quien los ve; el proveedor de compra, solo al personal
+  // que no es técnico.
+  const verCostos = canShippingV2(access, "canViewCosts");
+  const verProveedor = Boolean(access?.isAdmin) && !esTecnicoShippingV2(access);
+  const [registros, proveedores] = await Promise.all([
+    listRecords(SHIPPING_V2_TABLES.items, {
+      maxRecords: 100,
+      fields: [
+        getOfficialSkuField(), F.numeroSerie, F.estadoItem, F.cantidad, F.precioVentaFinal, F.recibido,
+        "Revisado física/técnicamente", F.fichaTecnicaGenerada, F.fechaRegistro, F.proveedorCompra, F.proveedorLogistico,
+        F.tipoOperacion, F.cantidadReservada, F.seguimiento, F.requiereInspeccion, "Revisado por", "Fecha revisión", F.fotos,
+        SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD, ...CASILLAS_PUBLICACION_REGISTRO.flatMap((c) => [c.marcado, c.por, c.fecha]),
+        ...(verCostos ? [F.costoTotalUnidad] : []),
+      ],
+      filterByFormula: `LOWER({${getOfficialSkuField()}}) = LOWER('${escapeFormulaString(sku)}')`,
+    }),
+    verProveedor ? getShippingV2Proveedores().catch(() => [] as ShippingV2Proveedor[]) : Promise.resolve([] as ShippingV2Proveedor[]),
+  ]);
+  const etiquetas = createShippingV2ProveedorLabelMap(proveedores);
   return registros
     .filter((r) => canAccessItemRecord(r, access))
-    .map((r) => ({
-      id: r.id,
-      sku: firstString(r.fields[getOfficialSkuField()]),
-      numeroSerie: firstString(r.fields[F.numeroSerie]) || undefined,
-      estado: firstString(r.fields[F.estadoItem], "Registrado"),
-      cantidad: firstNumber(r.fields[F.cantidad]),
-      precioVenta: canShippingV2(access, "canViewCosts") ? firstNumber(r.fields[F.precioVentaFinal]) : null,
-      recibido: firstBoolean(r.fields[F.recibido]) === true,
-      inspeccionFirmada: firstBoolean(r.fields["Revisado física/técnicamente"]) === true,
-      fichaGenerada: firstBoolean(r.fields[F.fichaTecnicaGenerada]) === true,
-      fechaRegistro: firstString(r.fields[F.fechaRegistro], r.createdTime) || undefined,
-    }))
+    .map((r) => {
+      const f = r.fields;
+      const casillas = Object.fromEntries(
+        CASILLAS_PUBLICACION_REGISTRO
+          .filter((c) => firstBoolean(f[c.marcado]) === true)
+          .map((c) => [c.canal, { por: firstString(f[c.por]) || undefined, fecha: firstString(f[c.fecha]) || undefined }])
+      );
+      const proveedorId = firstString(f[F.proveedorCompra]);
+      return {
+        id: r.id,
+        sku: firstString(f[getOfficialSkuField()]),
+        numeroSerie: firstString(f[F.numeroSerie]) || undefined,
+        estado: firstString(f[F.estadoItem], "Registrado"),
+        cantidad: firstNumber(f[F.cantidad]),
+        precioVenta: canShippingV2(access, "canViewSalePrice") ? firstNumber(f[F.precioVentaFinal]) : null,
+        recibido: firstBoolean(f[F.recibido]) === true,
+        inspeccionFirmada: firstBoolean(f["Revisado física/técnicamente"]) === true,
+        fichaGenerada: firstBoolean(f[F.fichaTecnicaGenerada]) === true,
+        fechaRegistro: firstString(f[F.fechaRegistro], r.createdTime) || undefined,
+        tipoOperacion: firstString(f[F.tipoOperacion]) || undefined,
+        ...(verProveedor && proveedorId ? { proveedorNombre: resolveShippingV2ProveedorLabel(proveedorId, etiquetas) || undefined } : {}),
+        ...(verCostos ? { costoUnidad: firstNumber(f[F.costoTotalUnidad]) } : {}),
+        cantidadReservada: firstNumber(f[F.cantidadReservada]),
+        seguimiento: firstString(f[F.seguimiento]) || undefined,
+        requiereInspeccion: firstBoolean(f[F.requiereInspeccion]) === true,
+        revisadoPor: firstString(f["Revisado por"]) || undefined,
+        fechaRevision: firstString(f["Fecha revisión"]) || undefined,
+        facebookSuperGeek: firstBoolean(f[SHIPPING_V2_FACEBOOK_SUPER_GEEK_FIELD]) === true,
+        fotos: mapAttachments(f[F.fotos]),
+        ...(Object.keys(casillas).length ? { casillasPublicacion: casillas } : {}),
+      };
+    })
     .sort((a, b) => (a.fechaRegistro ?? "").localeCompare(b.fechaRegistro ?? "") || a.id.localeCompare(b.id));
 }
+
+/** Punto 18b: casillas viejas de publicación (antes del gestor), por registro. */
+const CASILLAS_PUBLICACION_REGISTRO = [
+  { canal: "Marketplace", marcado: "Marketplace publicado", por: "Marketplace publicado por", fecha: "Fecha Marketplace publicado" },
+  { canal: "Mercado Libre", marcado: "Mercado Libre publicado", por: "Mercado Libre publicado por", fecha: "Fecha Mercado Libre publicado" },
+  { canal: "Shopify", marcado: "Shopify publicado", por: "Shopify publicado por", fecha: "Fecha Shopify publicado" },
+  { canal: "Grupos Facebook", marcado: "Grupos Facebook publicado", por: "Facebook publicado por", fecha: "Fecha Facebook publicado" },
+] as const;
 
 export async function findShippingV2ItemBySku(skuValue: string) {
   assertShippingV2GeneratedSchema();
@@ -3122,6 +3290,11 @@ async function validateInlineItemFieldChange(input: {
   if (config.adminOnly && !input.esAdmin) {
     throw new Error(`Solo un administrador puede corregir "${config.label}" a mano.`);
   }
+  // Punto 18 (25-oct): el precio de venta de un artículo existente solo lo
+  // cambia el Administrador (candado absoluto, como Cantidad).
+  if (!input.esAdmin && esCampoPrecioVenta(input.field)) {
+    throw new Error(MENSAJE_PRECIO_SOLO_ADMIN);
+  }
   // Kardex (punto 12, decisión del dueño 24-oct): lo que ya está en la tienda
   // no cambia de cantidad a mano; cada cambio debe dejar su movimiento.
   if (input.field === SHIPPING_V2_ITEM_FIELDS.cantidad && input.item.recibido === true) {
@@ -3211,6 +3384,49 @@ async function validateInlineItemFieldChange(input: {
       }
     }
   }
+}
+
+/**
+ * Punto 18b (decisión del dueño, 25-oct): nombre, descripción, categoría,
+ * marca, modelo y precio de venta son del PRODUCTO. Después de guardar el
+ * cambio en un registro (con todas sus validaciones), se copia el mismo valor
+ * a los otros registros del SKU que siguen en el inventario. Lo vendido o
+ * dado de baja conserva el dato con que salió. Queda un evento en el registro
+ * donde se hizo el cambio. Devuelve cuántos registros más se actualizaron.
+ */
+export async function propagarCampoProductoShippingV2(
+  origen: ShippingV2Item,
+  campoAirtable: string,
+  valor: unknown,
+  options: { actor: string }
+): Promise<number> {
+  const sku = normalizeSku(cleanString(origen.sku));
+  if (!sku) return 0;
+  const otros = registrosParaPropagar(await getShippingV2UnidadesDelProducto(sku, systemShippingV2Access()), origen.id);
+  if (!otros.length) return 0;
+  const ahora = new Date().toISOString();
+  const F = SHIPPING_V2_ITEM_FIELDS;
+  for (let i = 0; i < otros.length; i += 10) {
+    await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({
+        typecast: true,
+        records: otros.slice(i, i + 10).map((r) => ({
+          id: r.id,
+          fields: { [campoAirtable]: valor ?? null, [F.ultimaActualizacion]: ahora, [F.actualizadoPor]: options.actor },
+        })),
+      }),
+    });
+  }
+  invalidateShippingV2ItemSearchIndexCache();
+  await createShippingV2Event({
+    action: "Actualizado",
+    itemRecordId: origen.id,
+    itemName: origen.nombre,
+    registradoPor: options.actor,
+    descripcion: `"${campoAirtable}" aplicado también a ${otros.length} registro${otros.length === 1 ? "" : "s"} más de ${sku} (dato del producto).`,
+  }).catch((error) => console.warn("[Shipping V2] No se pudo dejar el evento de la propagación:", error));
+  return otros.length;
 }
 
 export async function updateShippingV2ItemField(recordId: string, input: { field: string; value: unknown; eventDescription?: string }, options: { actualizadoPor: string; esAdmin?: boolean; access?: ShippingV2AccessContext; allowedFields?: readonly string[]; camposNoEditables?: readonly string[] }) {
@@ -3793,6 +4009,9 @@ export async function updateShippingV2Item(recordId: string, input: ShippingV2It
   if (nullableNumberChanged(normalizedInput.cantidad, existing.cantidad) && existing.recibido === true) {
     throw new Error(MENSAJE_CANTIDAD_EN_TIENDA);
   }
+  // Punto 18: el mismo candado del precio por el camino de la edición completa.
+  const precioBloqueado = cambioDePrecioBloqueado({ esAdmin: options.esAdmin === true, antes: existing, despues: normalizedInput });
+  if (precioBloqueado) throw new Error(precioBloqueado);
 
   // Personalización por usuario (Fase 2 de permisos, ver
   // lib/permissions/campos.ts) — mismo criterio que en el editor de campo
@@ -4064,15 +4283,34 @@ function sanitizePagoForAccess(pago: ShippingV2Pago, access?: ShippingV2AccessCo
   };
 }
 
-export async function getShippingV2PagoById(recordId: string, access?: ShippingV2AccessContext) {
+export async function getShippingV2PagoById(
+  recordId: string,
+  access?: ShippingV2AccessContext,
+  /** Punto 18b: la ficha del artículo solo usa n.º, estado, total y fecha del pago (no el resumen de sus artículos). */
+  opciones: { sinArticulos?: boolean } = {}
+) {
   assertShippingV2Permission(access, "canViewPayments", "No tienes permiso para ver pagos de Shipping.");
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de pago inválido.");
-  const [record, proveedores, items] = await Promise.all([
+  const [record, proveedores] = await Promise.all([
     airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.pagos)}/${encodeURIComponent(id)}`),
     getShippingV2Proveedores(),
-    getShippingV2PaymentItems({ includeAiName: false, access, sanitizeForAccess: false }),
   ]);
+  // Punto 18b (velocidad): antes se leía el inventario COMPLETO (todos los
+  // artículos con todos sus campos) para nombrar los artículos de UN pago.
+  // Ahora se leen solo los artículos de este pago, con las mismas reglas.
+  const F_PAGO = SHIPPING_V2_PAYMENT_FIELDS;
+  const idsDelPago = [
+    ...linkedRecordIds(record.fields[F_PAGO.itemsRelacionados]),
+    ...linkedRecordIds(record.fields[F_PAGO.regalosIncluidos]),
+  ];
+  const opcionesItems: MapItemOptions = { includeAiName: false, access, sanitizeForAccess: false };
+  const etiquetas = createShippingV2ProveedorLabelMap(proveedores);
+  const items = (idsDelPago.length && !opciones.sinArticulos ? await listRecordsByIds(SHIPPING_V2_TABLES.items, idsDelPago) : [])
+    .map((itemRecord) => mapItem(itemRecord, opcionesItems))
+    .map((item) => applyItemProviderLabels(item, etiquetas))
+    .filter((item) => canAccessItem(item, access))
+    .map((item) => sanitizeShippingV2ItemForAccess(item, access, opcionesItems));
   const pago = mapPago(record, {
     labelsById: createShippingV2ProveedorLabelMap(proveedores),
     itemsById: new Map(items.map((item) => [item.id, item])),
@@ -7927,6 +8165,8 @@ export async function getShippingV2Novedades(access?: ShippingV2AccessContext) {
   // Todas (antes solo las 200 primeras: las más nuevas podían quedar fuera).
   const records = await listRecords(SHIPPING_V2_TABLES.novedades);
   const novedades = records.map(mapNovedad);
+  // Punto 18: el técnico atiende novedades, pero sin los montos (reclamos, pérdidas, descuentos).
+  if (esTecnicoShippingV2(access)) return novedades.map(novedadParaTecnico);
   if (!access || access.isAdmin) return novedades;
   if (!access.providerId) return [];
   return novedades.filter((novedad) => canAccessNovedad(novedad, access));
@@ -7995,18 +8235,31 @@ export async function getShippingV2NovedadesPanel(access?: ShippingV2AccessConte
   });
 }
 
-export async function getShippingV2NovedadesForItem(itemRecordId: string, access?: ShippingV2AccessContext) {
+/** Vínculo inverso en "Shipping Items" de "Item relacionado" (Shipping Novedades). */
+const CAMPO_ITEM_NOVEDADES = "Shipping Novedades";
+
+export async function getShippingV2NovedadesForItem(
+  itemRecordId: string,
+  access?: ShippingV2AccessContext,
+  /** Punto 18b: el registro del artículo ya leído (y ya validado con este mismo acceso). */
+  registroLeido?: AirtableRecord
+) {
   const itemId = cleanString(itemRecordId);
   if (!itemId) return [];
-  await getShippingV2ItemById(itemId, { includeAiName: false, access });
+  const registro = registroLeido?.id === itemId
+    ? registroLeido
+    : (await getShippingV2ItemConRegistro(itemId, { includeAiName: false, access })).registro;
 
-  // Todas (antes tope de 500): con más novedades, las de este artículo podían quedar fuera.
-  const records = await listRecords(SHIPPING_V2_TABLES.novedades);
+  // Punto 18b (velocidad): antes se leía la tabla COMPLETA de novedades para
+  // quedarse con las de este artículo. El artículo ya trae el vínculo inverso
+  // ("Shipping Novedades", espejo de "Item relacionado"): se leen solo esas.
+  const ids = linkedRecordIds(registro.fields[CAMPO_ITEM_NOVEDADES]);
+  const records = ids.length ? await listRecordsByIds(SHIPPING_V2_TABLES.novedades, ids) : [];
   return records
     .map(mapNovedad)
     .filter((novedad) => novedad.itemIds.includes(itemId))
     .filter((novedad) => canAccessNovedad(novedad, access))
-    .map((novedad) => (access && !access.isAdmin ? ocultarDatosInternosNovedad(novedad) : novedad))
+    .map((novedad) => (access && !access.isAdmin ? ocultarDatosInternosNovedad(novedad) : esTecnicoShippingV2(access) ? novedadParaTecnico(novedad) : novedad))
     .sort((a, b) => {
       const bTime = Date.parse(b.fechaRegistro || b.createdTime || "");
       const aTime = Date.parse(a.fechaRegistro || a.createdTime || "");
@@ -9226,7 +9479,8 @@ export async function getShippingV2InspeccionTecnica(
   recordId: string,
   options: { access?: ShippingV2AccessContext } = {}
 ): Promise<ShippingV2InspeccionTecnica> {
-  assertShippingV2Permission(options.access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+  // Punto 18: inspeccionar es trabajo técnico (personal de Recepción o el técnico).
+  if (!puedeInspeccionarShippingV2(options.access)) throw new Error("No tienes permiso para inspeccionar artículos.");
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
 
@@ -9318,7 +9572,8 @@ export async function guardarShippingV2InspeccionTecnica(
   cambios: ShippingV2InspeccionCambios,
   options: { actor: string; access?: ShippingV2AccessContext }
 ) {
-  assertShippingV2Permission(options.access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+  // Punto 18: inspeccionar es trabajo técnico (personal de Recepción o el técnico).
+  if (!puedeInspeccionarShippingV2(options.access)) throw new Error("No tienes permiso para inspeccionar artículos.");
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
 
@@ -9440,7 +9695,8 @@ export async function firmarShippingV2InspeccionTecnica(
   recordId: string,
   options: { actor: string; access?: ShippingV2AccessContext }
 ) {
-  assertShippingV2Permission(options.access, "canUseRecepcion", "No tienes permiso para usar Recepción.");
+  // Punto 18: inspeccionar es trabajo técnico (personal de Recepción o el técnico).
+  if (!puedeInspeccionarShippingV2(options.access)) throw new Error("No tienes permiso para inspeccionar artículos.");
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
 
@@ -9736,9 +9992,9 @@ async function registrarIntervencionSinTurno(
   input: ShippingV2IntervencionInput,
   options: { actor: string; access?: ShippingV2AccessContext }
 ) {
-  // Desde el punto 3 (6-oct) se registra en la ficha del artículo: basta con
-  // poder usar Recepción o editar artículos. Un proveedor no tiene ninguno.
-  if (!canShippingV2(options.access, "canUseRecepcion") && !canShippingV2(options.access, "canEditItems")) {
+  // Desde el punto 3 (6-oct) se registra en la ficha del artículo. Punto 18
+  // (25-oct): es trabajo técnico (personal y técnico; un proveedor no).
+  if (!canShippingV2(options.access, "canTrabajoTecnico")) {
     throw new Error("No tienes permiso para registrar mantenimientos ni mejoras.");
   }
   const id = cleanString(itemRecordId);
@@ -10239,6 +10495,80 @@ export async function leerArticuloDePedido(itemRecordId: string): Promise<Articu
 }
 
 /**
+ * Punto 18 (25-oct-2026): la relación comercial de un artículo vista por SU
+ * proveedor: la orden de compra (su número y fecha), la caja en la que viaja,
+ * los pagos que SUPER GEEK le hizo por esa compra y su factura.
+ *
+ * Todo se comprueba aquí, en el servidor: la orden y los pagos deben ser de
+ * ESE proveedor (un artículo que solo transporta no le muestra la compra), la
+ * caja pasa por canAccessPacking y la factura de la caja solo si la caja es
+ * suya. Lo que no se pueda leer simplemente no aparece.
+ */
+export async function getShippingV2RelacionComercialParaProveedor(
+  item: ShippingV2Item,
+  access: ShippingV2AccessContext
+): Promise<{ compra: FichaProveedorCompra | null; envio: FichaProveedorEnvio | null; pagos: FichaProveedorPago[] | null; estadoPago?: "Pagado" }> {
+  const proveedorId = access.mode === "provider" ? cleanString(access.providerId) : "";
+  if (!proveedorId) throw new Error("Solo para el portal del proveedor.");
+  const esSuCompra = cleanString(item.proveedorId) === proveedorId;
+  const adjuntos = (lista: ShippingV2Attachment[] | undefined) =>
+    (lista ?? []).filter((a) => cleanString(a.url)).map((a) => ({ url: a.url, nombre: cleanString(a.filename) || "Factura" }));
+
+  // 1. Orden de compra (solo si la compra es suya).
+  let ordenPagoIds: string[] = [];
+  const compra = await (async (): Promise<FichaProveedorCompra | null> => {
+    if (!esSuCompra || !cleanString(item.ordenCompraId)) return null;
+    const record = await getRecordById(SHIPPING_V2_TABLES.ordenesCompra, cleanString(item.ordenCompraId)).catch(() => null);
+    if (!record) return null;
+    const base = mapOrdenCompraBase(record);
+    if (base.proveedorId !== proveedorId || base.anulada) return null;
+    ordenPagoIds = base.pagoIds;
+    return { codigo: base.ocId, numeroProveedor: base.numeroProveedor, fecha: base.fechaCompra || base.fechaCreacion };
+  })();
+
+  // 2. La caja (solo con "Ver packings"; canAccessPacking decide si es suya).
+  const envio = await (async (): Promise<FichaProveedorEnvio | null> => {
+    if (!cleanString(item.packingId) || !canShippingV2(access, "canViewPackings")) return null;
+    const packing = await getShippingV2PackingById(cleanString(item.packingId), access, { includeItems: false, includeAiName: false }).catch(() => null);
+    if (!packing) return null;
+    const cajaPropia = cleanString(packing.proveedorResponsableId) === proveedorId;
+    return {
+      codigo: packing.packingId || packing.id,
+      nombre: cleanString(packing.nombre) || undefined,
+      estado: cleanString(packing.estado),
+      trackingUsa: cleanString(packing.trackingUsa) || undefined,
+      trackingEc: cleanString(packing.trackingEc) || undefined,
+      peso: canShippingV2(access, "canEditPackingWeight") || cajaPropia ? packing.peso : null,
+      fechaEnvio: cleanString(packing.fechaEnvio) || undefined,
+      fechaRecepcion: cleanString(packing.fechaRecepcion) || undefined,
+      factura: cajaPropia && canShippingV2(access, "canViewInvoice") ? adjuntos(packing.factura) : [],
+    };
+  })();
+
+  // 3. Pagos de SUPER GEEK por esta compra (solo con "Ver pagos" y si la compra es suya).
+  let pagos: FichaProveedorPago[] | null = null;
+  if (canShippingV2(access, "canViewPayments")) {
+    pagos = [];
+    const ids = Array.from(new Set([...item.pagoV2ItemIds, ...item.pagoV2RegaloIds, ...ordenPagoIds].map(cleanString).filter(Boolean)));
+    if (esSuCompra && ids.length) {
+      const registros = await listRecordsByIds(SHIPPING_V2_TABLES.pagos, ids).catch(() => [] as AirtableRecord[]);
+      pagos = pagosVisiblesParaProveedor(registros.map((r) => mapPago(r)), proveedorId).map((pago) => ({
+        id: pago.id,
+        codigo: pago.pagoId || pago.id,
+        estado: cleanString(pago.estadoPago || pago.estado),
+        fecha: cleanString(pago.fechaPagoReal) || undefined,
+        metodo: cleanString(pago.metodoPago) && pago.metodoPago !== "No aplica" ? pago.metodoPago : undefined,
+        transaccion: cleanString(pago.transaccionId) || undefined,
+        monto: pago.totalPagado ?? pago.totalAPagar ?? pago.total ?? null,
+        factura: adjuntos(pago.facturaProveedor),
+      }));
+    }
+  }
+  const pagado = (pagos ?? []).some((p) => normalizeStatus(p.estado) === "pagado");
+  return { compra, envio, pagos, ...(pagado ? { estadoPago: "Pagado" as const } : {}) };
+}
+
+/**
  * Ficha del artículo (rediseño 15-oct-2026): de dónde vino y a dónde fue.
  * Junta el código de la orden de compra, el pedido de cliente, la orden de
  * reparación, el artículo del que salió (despiece) y los documentos de venta
@@ -10248,11 +10578,13 @@ export async function leerArticuloDePedido(itemRecordId: string): Promise<Articu
  * se cae por esto.
  */
 export async function getShippingV2TrazabilidadDeItem(
-  item: Pick<ShippingV2Item, "id" | "ordenCompraId" | "operacionComercialId" | "itemPadreId">
+  item: Pick<ShippingV2Item, "id" | "ordenCompraId" | "operacionComercialId" | "itemPadreId">,
+  /** Punto 18b: el registro ya leído (evita leerlo otra vez). */
+  registroLeido?: AirtableRecord
 ): Promise<ShippingV2ItemTrazabilidad> {
   const id = cleanString(item.id);
   if (!id) throw new Error("Record ID de item inválido.");
-  const registro = await leerRegistroItem(id);
+  const registro = registroLeido?.id === id ? registroLeido : await leerRegistroItem(id);
   const campos = registro.fields;
   const enlazados = (campo: string) => linkedRecordIds(campos[campo]);
   const leer = (tabla: string, recordIds: string[]) => recordIds.length

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { canShippingV2, getShippingV2AccessContextForSession } from "@/lib/shipping-v2/airtable";
 import { requireShippingV2Session } from "@/lib/shipping-v2/auth";
+import { esTecnicoShippingV2 } from "@/lib/shipping-v2/access";
 import { getKardexRegistro } from "@/lib/shipping-v2/kardex-lectura";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ export async function GET(_request: Request, { params }: Params) {
   const { id } = await params;
   try {
     const access = await getShippingV2AccessContextForSession(session);
-    if (!access.isAdmin || !canShippingV2(access, "canViewItems")) {
+    if (!access.isAdmin || !canShippingV2(access, "canViewItems") || esTecnicoShippingV2(access)) {
       return NextResponse.json({ success: false, error: "No tienes permiso para ver el Kardex." }, { status: 403 });
     }
     if (!/^rec[A-Za-z0-9]{14}$/.test(id)) return NextResponse.json({ success: false, error: "Artículo no válido." }, { status: 400 });

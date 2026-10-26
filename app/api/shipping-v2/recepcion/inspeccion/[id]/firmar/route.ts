@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import {
-  canShippingV2,
   firmarShippingV2InspeccionTecnica,
   getShippingV2AccessContextForSession,
 } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
+import { puedeInspeccionarShippingV2 } from "@/lib/shipping-v2/access";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +25,9 @@ export async function POST(_request: Request, { params }: Params) {
 
   try {
     const access = await getShippingV2AccessContextForSession(session);
-    if (!canShippingV2(access, "canUseRecepcion")) {
-      return NextResponse.json({ success: false, error: "No tienes permiso para usar Recepción." }, { status: 403 });
+    // Punto 18: inspeccionar es trabajo técnico (Recepción o el técnico).
+    if (!puedeInspeccionarShippingV2(access)) {
+      return NextResponse.json({ success: false, error: "No tienes permiso para inspeccionar artículos." }, { status: 403 });
     }
 
     const resultado = await firmarShippingV2InspeccionTecnica(id, {

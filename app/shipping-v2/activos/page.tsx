@@ -4,6 +4,7 @@ import { StaffAppShell } from "@/components/staff/StaffAppShell";
 import { StaffBadge, StaffPageHeader } from "@/components/staff/StaffDesignSystem";
 import { getShippingV2AccessContextForSession, getShippingV2Activos } from "@/lib/shipping-v2/airtable";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
+import { esTecnicoShippingV2 } from "@/lib/shipping-v2/access";
 import { getSessionFromCookie } from "@/lib/session";
 import type { ShippingV2Item } from "@/types/shipping-v2";
 import { ShippingV2ActivosClient, type ActivoFila } from "./ShippingV2ActivosClient";
@@ -36,7 +37,8 @@ export default async function ShippingV2ActivosPage() {
   const session = await getSessionFromCookie();
   requirePantallaVisible(session?.user.pantallasRestringidas ?? {}, "shipping-v2", "activos");
   const access = await getShippingV2AccessContextForSession(session);
-  if (!access.permissions.canViewItems || !access.isAdmin) redirect("/shipping-v2");
+  // Punto 18: los activos de la tienda son del personal; el técnico no los usa.
+  if (!access.permissions.canViewItems || !access.isAdmin || esTecnicoShippingV2(access)) redirect("/shipping-v2");
 
   let filas: ActivoFila[] = [];
   let error = "";

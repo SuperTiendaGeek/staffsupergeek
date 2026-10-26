@@ -17,7 +17,7 @@ import { SHIPPING_V2_CATEGORIAS, SHIPPING_V2_CONDICIONES } from "@/types/shippin
 
 type Pieza = {
   id: string; sku: string; nombre: string; categoria: string; cantidad: number;
-  condicion: string; precioVenta: number | null; costoAsignado: number;
+  condicion: string; precioVenta: number | null; costoAsignado: number | null;
   estadoItem: string; observaciones: string; numeroSerie: string; tieneFacturaORecibo: boolean;
 };
 
@@ -25,8 +25,10 @@ const EN_ESPERA = "Pieza en espera";
 
 type Resumen = {
   padreId: string; puedeDespiezar: boolean; motivoBloqueo?: string;
-  estadoDespiece: string; motivo: string; costoTotalEquipo: number;
-  piezas: Pieza[]; sinRepartir: number; piezasSinPrecio: string[];
+  estadoDespiece: string; motivo: string; costoTotalEquipo: number | null;
+  piezas: Pieza[]; sinRepartir: number | null; piezasSinPrecio: string[];
+  /** Punto 18: false = el servidor no envió costos (técnico); no se muestran. */
+  verCostos?: boolean;
   puedeCancelar: boolean; motivoNoCancelable?: string;
   // Punto 10b (16-oct)
   sku: string; cantidad: number; varias: boolean; completado: boolean;
@@ -139,7 +141,8 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
 
   const totalUnidades = resumen.piezas.reduce((s, p) => s + (p.cantidad || 1), 0);
   const totalPrecio = resumen.piezas.reduce((s, p) => s + (p.precioVenta ?? 0) * (p.cantidad || 1), 0);
-  const totalCosto = resumen.piezas.reduce((s, p) => s + p.costoAsignado, 0);
+  const totalCosto = resumen.piezas.reduce((s, p) => s + (p.costoAsignado ?? 0), 0);
+  const verCostos = resumen.verCostos !== false;
   // Punto 10b (6a): desarmar, cancelar y revertir es solo del Administrador.
   const editable = canEdit && esAdmin && resumen.puedeDespiezar;
 
@@ -150,10 +153,12 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
           <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Estado del despiece</p>
           <p className="mt-0.5 text-sm font-bold text-[#F5F5F5]">{resumen.estadoDespiece}</p>
         </div>
-        <div className="text-right">
-          <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Costo del equipo a repartir</p>
-          <p className="mt-0.5 text-sm font-bold text-[#D7FF4F]">{money(resumen.costoTotalEquipo)}</p>
-        </div>
+        {verCostos ? (
+          <div className="text-right">
+            <p className="text-[11px] font-semibold uppercase tracking-normal text-[#A7A7A7]">Costo del equipo a repartir</p>
+            <p className="mt-0.5 text-sm font-bold text-[#D7FF4F]">{money(resumen.costoTotalEquipo ?? 0)}</p>
+          </div>
+        ) : null}
       </div>
 
       {resumen.varias ? (
@@ -185,7 +190,7 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
               <th className="px-3 py-2 text-center font-semibold">Cant.</th>
               <th className="px-3 py-2 font-semibold">Condición</th>
               <th className="px-3 py-2 text-right font-semibold">Precio</th>
-              <th className="px-3 py-2 text-right font-semibold">Costo</th>
+              {verCostos ? <th className="px-3 py-2 text-right font-semibold">Costo</th> : null}
               <th className="px-3 py-2" />
             </tr>
           </thead>
@@ -208,7 +213,7 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
                   <td className="px-3 py-2 text-right text-[#F5F5F5]">
                     {p.precioVenta ? money(p.precioVenta) : <span className="text-[#FFB07A]">sin precio</span>}
                   </td>
-                  <td className="px-3 py-2 text-right text-[#A7A7A7]">{money(p.costoAsignado)}</td>
+                  {verCostos ? <td className="px-3 py-2 text-right text-[#A7A7A7]">{money(p.costoAsignado ?? 0)}</td> : null}
                   <td className="px-3 py-2">
                     {editable && !bloqueada ? (
                       <div className="flex justify-end gap-1">
@@ -250,15 +255,15 @@ export function ShippingV2DespieceTab({ itemId, canEdit, esAdmin }: { itemId: st
         <div className="rounded-lg border border-[#30312D] bg-[#171814] px-3 py-2 text-sm">
           <p className="text-[#A7A7A7]">
             {totalUnidades} unidad(es) · Precio total <span className="font-semibold text-[#F5F5F5]">{money(totalPrecio)}</span>
-            {" · "}Costo repartido <span className="font-semibold text-[#F5F5F5]">{money(totalCosto)}</span>
+            {verCostos ? <>{" · "}Costo repartido <span className="font-semibold text-[#F5F5F5]">{money(totalCosto)}</span></> : null}
           </p>
-          {resumen.piezasSinPrecio.length > 0 ? (
+          {verCostos && resumen.piezasSinPrecio.length > 0 ? (
             <p className="mt-1 text-xs text-[#FFB07A]">
               ⚠ {resumen.piezasSinPrecio.length} pieza(s) sin precio: no reciben costo hasta que se lo pongas.
             </p>
           ) : null}
-          {resumen.sinRepartir > 0.005 ? (
-            <p className="mt-1 text-xs text-[#FFB07A]">⚠ Sin repartir: {money(resumen.sinRepartir)}</p>
+          {verCostos && (resumen.sinRepartir ?? 0) > 0.005 ? (
+            <p className="mt-1 text-xs text-[#FFB07A]">⚠ Sin repartir: {money(resumen.sinRepartir ?? 0)}</p>
           ) : null}
         </div>
       ) : null}

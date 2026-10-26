@@ -25,6 +25,7 @@
 // columna, flete y compra en otra ("Pagos"), el rastreo en una línea (el otro
 // número en la ayuda) y Estado/Tipo/Responsable dentro de "Filtros".
 
+import { EnlaceArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -534,7 +535,7 @@ export function ShippingV2PackingsClient({ packings, proveedores, todosProveedor
           </td>
           <td className="max-w-0 px-2 py-1.5">
             <div className="flex min-w-0 items-baseline gap-1.5">
-              <Link href={`/shipping-v2/items/${item.id}`} className="shrink-0 whitespace-nowrap font-semibold text-[#D7FF4F] hover:underline">{item.sku || "—"}</Link>
+              <EnlaceArticulo id={item.id} className="shrink-0 whitespace-nowrap font-semibold text-[#D7FF4F] hover:underline">{item.sku || "—"}</EnlaceArticulo>
               <span className="min-w-0 truncate text-[12px] text-[#B4B5AC]" title={item.nombre}>{item.nombre}</span>
             </div>
             <p className="truncate text-[11.5px] text-[#8F908A]">{["Viaja solo", item.proveedorNombre || "Sin proveedor", extranjero && item.proveedorLogisticoNombre ? `Casillero ${item.proveedorLogisticoNombre}` : extranjero ? "Extranjero" : "Local"].filter(Boolean).join(" · ")}</p>

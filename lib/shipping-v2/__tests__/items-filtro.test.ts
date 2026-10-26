@@ -48,7 +48,7 @@ assert(coincidenTerminos(normalizarBusqueda("Cámara web"), ["camara"]), "sin im
 
 console.log("\n— Leer y escribir el filtro en la dirección —");
 const leido = leerFiltroArticulos({ q: "  hp  ", estado: "Disponible", categoria: "Inventado", operacion: "Compra a proveedor", proveedor: "recAAAAAAAAAAAAAA" });
-igual(leido, { q: "hp", categoria: "", estado: "Disponible", operacion: "Compra a proveedor", proveedor: "recAAAAAAAAAAAAAA" }, "lo que no existe se ignora");
+igual(leido, { q: "hp", categoria: "", estado: "Disponible", operacion: "Compra a proveedor", proveedor: "recAAAAAAAAAAAAAA", inspeccion: "" }, "lo que no existe se ignora");
 igual(leerFiltroArticulos(new URLSearchParams("proveedor=hola&estado=Vendido")), { ...FILTRO_ARTICULOS_VACIO, estado: "Vendido" }, "proveedor inválido se ignora");
 assert(!hayFiltroArticulos(FILTRO_ARTICULOS_VACIO) && hayFiltroArticulos(leido), "hayFiltroArticulos");
 assert(

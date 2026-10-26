@@ -70,9 +70,11 @@ assert(!confirmacionValida("", ""), "confirmación vacía no vale");
 // El endpoint exige Administrador en el servidor (no solo el botón oculto).
 const ruta = readFileSync("app/api/shipping-v2/items/[id]/eliminar/route.ts", "utf8");
 assert((ruta.match(/requireAdminSession\(\)/g) ?? []).length === 2, "GET y POST exigen sesión de Administrador");
-const pagina = readFileSync("app/shipping-v2/items/[id]/page.tsx", "utf8");
-// Rediseño 15-oct-2026: va dentro del panel "Administrar", que solo recibe un Administrador.
-assert(/adminPanel=\{esAdmin \? \([\s\S]*?<EliminarItemAdmin[\s\S]*?\) : undefined\}/.test(pagina), "el botón solo se muestra a administradores");
+// Punto 18 (25-oct): la ficha (página y ventana) se arma en FichaArticuloVista;
+// el panel "Administrar" con Eliminar solo se construye para el perfil
+// "admin", que el servidor decide (isSiteAdmin).
+const pagina = readFileSync("components/shipping-v2/ficha-articulo/FichaArticuloVista.tsx", "utf8");
+assert(/adminPanel: ReactNode = perfil === "admin" \? \([\s\S]*?<EliminarItemAdmin[\s\S]*?\) : undefined/.test(pagina), "el botón solo se muestra a administradores");
 
 // Presupuesto: ya no hay panel de vista previa; "Cliente aprobó" carga directo.
 const card = readFileSync("components/tecnicos/ordenes/PresupuestoCard.tsx", "utf8");

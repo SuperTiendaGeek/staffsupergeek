@@ -1,5 +1,6 @@
 "use client";
 
+import { EnlaceArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
@@ -214,7 +215,6 @@ function TablaArticulos({
           const calc = packingProviderItemCalculation(item);
           const foto = item.fotos[0];
           const marcado = seleccion.has(item.id);
-          const href = `/shipping-v2/items/${encodeURIComponent(item.id)}`;
           const extra = [logistico ? `Vía ${logistico}` : "", item.categoria, item.tipoOperacion, item.modoLogistico].filter(Boolean).join(" · ");
           return (
             <div
@@ -234,11 +234,11 @@ function TablaArticulos({
                   <img src={foto.thumbnailUrl || foto.url} alt="" loading="lazy" className="h-full w-full object-cover" />
                 </a>
               ) : <span className="grid h-8 w-8 place-items-center rounded border border-[#3A3A36] bg-[#1E1F1C] text-[9px] font-black text-[#6F706A]">{(item.nombre || item.sku || "?").slice(0, 2).toUpperCase()}</span>}
-              <Link href={href} className="truncate font-semibold text-[#D7FF4F] hover:underline">{display(item.sku)}</Link>
+              <EnlaceArticulo id={item.id} className="truncate font-semibold text-[#D7FF4F] hover:underline">{display(item.sku)}</EnlaceArticulo>
               <span className={`truncate font-mono text-[12px] ${item.skuProveedor?.trim() ? "text-[#E6E6E1]" : "text-[#5E5F59]"}`} title={item.skuProveedor || undefined}>{item.skuProveedor?.trim() || "—"}</span>
-              <Link href={href} className="truncate text-[#F5F5F5] hover:text-[#D7FF4F]" title={[item.nombre, extra].filter(Boolean).join("\n")}>
+              <EnlaceArticulo id={item.id} className="truncate text-[#F5F5F5] hover:text-[#D7FF4F]" title={[item.nombre, extra].filter(Boolean).join("\n")}>
                 {display(item.nombre)}{item.esRegalo ? <span className={`${chip.mute} ml-1.5`}>Regalo</span> : null}
-              </Link>
+              </EnlaceArticulo>
               <span className="truncate text-[#B4B5AC]" title={compra}>{compra || "—"}</span>
               <span className="truncate text-[12px] text-[#8F908A]">{display(item.estado)}</span>
               {verCostos ? (

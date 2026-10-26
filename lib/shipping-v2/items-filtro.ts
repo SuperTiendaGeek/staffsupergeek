@@ -30,9 +30,11 @@ export type FiltroArticulos = {
   operacion: string;
   /** Record ID del proveedor de compra. */
   proveedor: string;
+  /** Punto 18: "pendiente" = ya llegó, pide inspección y nadie la firmó (la lista de trabajo del técnico). */
+  inspeccion: "" | "pendiente";
 };
 
-export const FILTRO_ARTICULOS_VACIO: FiltroArticulos = { q: "", categoria: "", estado: "", operacion: "", proveedor: "" };
+export const FILTRO_ARTICULOS_VACIO: FiltroArticulos = { q: "", categoria: "", estado: "", operacion: "", proveedor: "", inspeccion: "" };
 
 export const CATEGORIAS_ARTICULO: readonly string[] = SHIPPING_V2_ITEM_SELECT_OPTIONS.categoria;
 export const ESTADOS_ARTICULO: readonly string[] = SHIPPING_V2_ITEM_SELECT_OPTIONS.estadoItem;
@@ -80,17 +82,18 @@ export function leerFiltroArticulos(params: Parametros): FiltroArticulos {
     estado: deLaLista(ESTADOS_ARTICULO, primerValor(params, "estado")),
     operacion: deLaLista(OPERACIONES_ARTICULO, primerValor(params, "operacion")),
     proveedor: /^rec[A-Za-z0-9]{14}$/.test(proveedor) ? proveedor : "",
+    inspeccion: primerValor(params, "inspeccion") === "pendiente" ? "pendiente" : "",
   };
 }
 
 export function hayFiltroArticulos(filtro: FiltroArticulos) {
-  return Boolean(filtro.q || filtro.categoria || filtro.estado || filtro.operacion || filtro.proveedor);
+  return Boolean(filtro.q || filtro.categoria || filtro.estado || filtro.operacion || filtro.proveedor || filtro.inspeccion);
 }
 
 /** Dirección de la lista con este filtro (y, si se pasa, el orden y la página). */
 export function hrefArticulos(
   filtro: FiltroArticulos,
-  opciones: { sort?: string; cursor?: string; prev?: string } = {}
+  opciones: { sort?: string; cursor?: string; prev?: string; pagina?: number } = {}
 ) {
   const params = new URLSearchParams();
   if (filtro.q) params.set("q", filtro.q);
@@ -98,8 +101,11 @@ export function hrefArticulos(
   if (filtro.estado) params.set("estado", filtro.estado);
   if (filtro.operacion) params.set("operacion", filtro.operacion);
   if (filtro.proveedor) params.set("proveedor", filtro.proveedor);
+  if (filtro.inspeccion) params.set("inspeccion", filtro.inspeccion);
   if (opciones.cursor) params.set("cursor", opciones.cursor);
   if (opciones.prev) params.set("prev", opciones.prev);
+  // Punto 18b: la lista por SKU pagina por número de página.
+  if (opciones.pagina && opciones.pagina > 1) params.set("pagina", String(Math.trunc(opciones.pagina)));
   if (opciones.sort && opciones.sort !== "newest") params.set("sort", opciones.sort);
   const query = params.toString();
   return `/shipping-v2/items${query ? `?${query}` : ""}`;
@@ -250,6 +256,11 @@ export function formulaFiltroArticulos(filtro: FiltroArticulos, opciones: { prov
     partes.push(opciones.proveedorEtiqueta
       ? `FIND(${literal(`|${opciones.proveedorEtiqueta}|`)},'|'&ARRAYJOIN({${F.proveedorCompra}},'|')&'|')>0`
       : "FALSE()");
+  }
+  if (filtro.inspeccion === "pendiente") {
+    // Ya llegó, pide inspección, nadie la firmó y sigue en el inventario.
+    partes.push(`{${F.recibido}}`, `{${F.requiereInspeccion}}`, `NOT({Revisado física/técnicamente})`);
+    partes.push(`NOT(OR({${F.estadoItem}}='Vendido',{${F.estadoItem}}='Agotado',{${F.estadoItem}}='Dado de baja'))`);
   }
   for (const termino of terminosBusqueda(filtro.q)) {
     partes.push(tieneNumero(termino)

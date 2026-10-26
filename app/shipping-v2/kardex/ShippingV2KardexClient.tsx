@@ -12,6 +12,7 @@
 //
 // Costos y valores solo los recibe el Administrador (los limpia el servidor).
 
+import { EnlaceArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Download, Loader2, Printer, RotateCcw, Search, TriangleAlert, X } from "lucide-react";
@@ -396,7 +397,7 @@ function VistaProducto({ barra, q, onQ, esAdministrador }: { barra: ReactNode; q
         <div className="space-y-2.5 animate-[sg-entrada_200ms_ease-out]">
           <section className="rounded-xl border border-[#30312D] bg-[#171814] px-3 py-2.5">
             <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
-              <Link href={`/shipping-v2/items/${datos.unidades[0]?.id ?? ""}`} className="font-mono text-[17px] font-bold text-[#D7FF4F] hover:underline">{datos.sku}</Link>
+              <EnlaceArticulo id={datos.unidades[0]?.id ?? ""} className="font-mono text-[17px] font-bold text-[#D7FF4F] hover:underline">{datos.sku}</EnlaceArticulo>
               <span className="text-[14px] font-semibold">{datos.nombre}</span>
               <span className="text-[12px] text-[#8F908A]">{[datos.categoria, datos.condicion].filter(Boolean).join(" · ")}</span>
             </div>

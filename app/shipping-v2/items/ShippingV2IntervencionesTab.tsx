@@ -10,6 +10,7 @@
 //   Mantenimiento → conserva lo que el equipo es (limpieza, pasta térmica…).
 //   Mejora        → le pone una pieza del inventario y la descuenta.
 
+import { EnlaceArticulo } from "@/components/shipping-v2/ficha-articulo/contexto";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { ShippingV2Intervencion } from "@/lib/shipping-v2/airtable";
@@ -483,7 +484,7 @@ export function ShippingV2IntervencionesTab({ itemId }: { itemId: string }) {
                     {panel.puedeVerCostos && r.costoSumado ? <span className="font-mono text-[#B4B5AC]">+{money(r.costoSumado)} al costo</span> : null}
                     {panel.puedeVerCostos && r.valorPiezaRetirada ? <span className="font-mono text-[#B4B5AC]">−{money(r.valorPiezaRetirada)} pieza retirada</span> : null}
                     {r.piezaRetiradaId ? (
-                      <a href={`/shipping-v2/items/${r.piezaRetiradaId}`} className="font-semibold text-[#D7FF4F] hover:underline">Ver pieza retirada</a>
+                      <EnlaceArticulo id={r.piezaRetiradaId} className="font-semibold text-[#D7FF4F] hover:underline">Ver pieza retirada</EnlaceArticulo>
                     ) : null}
                   </div>
                   {r.anulada ? (

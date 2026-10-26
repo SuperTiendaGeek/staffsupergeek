@@ -16,12 +16,13 @@ type Params = { params: Promise<{ id: string }> };
 // Desde el punto 3 de la auditoría (6-oct-2026) es el ÚNICO lugar para
 // registrarlos; antes vivían dentro de la Inspección de Recepción.
 //
-// Una mejora descuenta una pieza del inventario: exige `canEditItems`. Un
-// mantenimiento basta con poder usar Recepción o editar artículos. Un
-// proveedor externo no tiene ninguno de los dos.
+// Punto 18 (25-oct-2026): mantenimientos y mejoras son trabajo técnico
+// (`canTrabajoTecnico`): los registra el personal y el técnico. Un proveedor
+// externo no. Quien no ve costos recibe el panel sin costos y el servidor
+// calcula solo el valor (ver getShippingV2PanelIntervenciones).
 
 function puedeRegistrar(access: Awaited<ReturnType<typeof getShippingV2AccessContextForSession>>) {
-  return canShippingV2(access, "canUseRecepcion") || canShippingV2(access, "canEditItems");
+  return canShippingV2(access, "canTrabajoTecnico");
 }
 
 export async function GET(_request: Request, { params }: Params) {
@@ -36,7 +37,7 @@ export async function GET(_request: Request, { params }: Params) {
     const panel = await getShippingV2PanelIntervenciones(id, access);
     return NextResponse.json({
       success: true,
-      data: { ...panel, puedeMejorar: canShippingV2(access, "canEditItems") },
+      data: { ...panel, puedeMejorar: canShippingV2(access, "canTrabajoTecnico") },
     });
   } catch (error) {
     console.error("Error al leer mantenimientos y mejoras:", error);
@@ -71,7 +72,7 @@ export async function POST(request: Request, { params }: Params) {
       const panel = await getShippingV2PanelIntervenciones(id, access);
       return NextResponse.json({
         success: true,
-        data: { ...panel, puedeMejorar: canShippingV2(access, "canEditItems") },
+        data: { ...panel, puedeMejorar: canShippingV2(access, "canTrabajoTecnico") },
         anulacion,
       });
     }
@@ -79,9 +80,9 @@ export async function POST(request: Request, { params }: Params) {
     if (!puedeRegistrar(access)) {
       return NextResponse.json({ success: false, error: "No tienes permiso para registrar mantenimientos ni mejoras." }, { status: 403 });
     }
-    if (tipo === "Mejora" && !canShippingV2(access, "canEditItems")) {
+    if (tipo === "Mejora" && !canShippingV2(access, "canTrabajoTecnico")) {
       return NextResponse.json(
-        { success: false, error: "Registrar una mejora descuenta stock: necesitas permiso para editar artículos." },
+        { success: false, error: "Registrar una mejora descuenta stock: necesitas permiso de trabajo técnico." },
         { status: 403 }
       );
     }
@@ -119,7 +120,7 @@ export async function POST(request: Request, { params }: Params) {
     const panel = await getShippingV2PanelIntervenciones(id, access);
     return NextResponse.json({
       success: true,
-      data: { ...panel, puedeMejorar: canShippingV2(access, "canEditItems") },
+      data: { ...panel, puedeMejorar: canShippingV2(access, "canTrabajoTecnico") },
       repuestoDescontado: resultado.repuestoDescontado,
       piezaRetiradaSku: resultado.piezaRetiradaSku ?? "",
       avisos: resultado.avisos ?? [],

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { canShippingV2, getShippingV2AccessContextForSession } from "@/lib/shipping-v2/airtable";
+import { esTecnicoShippingV2 } from "@/lib/shipping-v2/access";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import { getKardexMovimientos, getKardexProducto, getKardexResumen, resolverSkuKardex } from "@/lib/shipping-v2/kardex-lectura";
 import { kardexConciliar } from "@/lib/shipping-v2/kardex-registro";
@@ -14,7 +15,7 @@ async function acceso() {
   const { response, session } = await requireShippingV2Session();
   if (response) return { response } as const;
   const access = await getShippingV2AccessContextForSession(session);
-  if (!access.isAdmin || !canShippingV2(access, "canViewItems")) {
+  if (!access.isAdmin || !canShippingV2(access, "canViewItems") || esTecnicoShippingV2(access)) {
     return { response: NextResponse.json({ success: false, error: "No tienes permiso para ver el Kardex." }, { status: 403 }) } as const;
   }
   return { response: null, access, actor: getShippingV2SessionName(session), verCostos: access.isSiteAdmin === true } as const;

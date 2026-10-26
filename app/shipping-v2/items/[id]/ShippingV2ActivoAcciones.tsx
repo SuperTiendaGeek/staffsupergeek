@@ -46,8 +46,10 @@ const TEXTO: Record<Accion, { boton: string; titulo: string; ayuda: string; conf
   },
 };
 
-export function ShippingV2ActivoAcciones({ itemId, esActivo, cantidad, estado, estadoRevision = "", unidadesDadasDeBaja = 0 }: {
+export function ShippingV2ActivoAcciones({ itemId, esActivo, cantidad, estado, estadoRevision = "", unidadesDadasDeBaja = 0, alTerminar }: {
   itemId: string;
+  /** Punto 18: en la ventana de la ficha, recarga la ficha (si no, refresca la página). */
+  alTerminar?: () => void;
   sku?: string;
   esActivo: boolean;
   cantidad: number;
@@ -108,7 +110,7 @@ export function ShippingV2ActivoAcciones({ itemId, esActivo, cantidad, estado, e
       if (!json.success) throw new Error(json.error ?? "No se pudo completar.");
       setAviso(json.data.mensaje);
       setAccion(null); setMotivo(""); setPrecio(""); setValor("");
-      router.refresh();
+      if (alTerminar) alTerminar(); else router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error inesperado");
     } finally {
