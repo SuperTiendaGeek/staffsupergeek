@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { baseAcreditadaLinea, leerMontoDescuento, validarDescuentoLinea } from "@/lib/facturacion/notaCredito/calculos";
 
 type DetalleFactura = {
   codigoPrincipal?: string;
@@ -38,7 +39,11 @@ type FacturaOrigen = {
 };
 
 // Punto 7 (9-oct-2026): condición con que vuelve el artículo (se elige siempre).
-type Seleccion = { incluida: boolean; cantidad: number; devolucionFisica: boolean; condicion: "" | "buena" | "falla"; notaFalla: string };
+// 26-oct-2026: descontar un faltante (ej. cargador no devuelto), valor CON IVA.
+type Seleccion = {
+  incluida: boolean; cantidad: number; devolucionFisica: boolean; condicion: "" | "buena" | "falla"; notaFalla: string;
+  conDescuento: boolean; descontar: string; conceptoDescuento: string;
+};
 
 type ResultadoNC = {
   estado:            "AUTORIZADO" | "DEVUELTA" | "NO AUTORIZADO";
@@ -107,6 +112,9 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
           devolucionFisica: d.tipo === "producto",
           condicion: "",
           notaFalla: "",
+          conDescuento: false,
+          descontar: "",
+          conceptoDescuento: "",
         })));
       })
       .catch(() => setBloqueo("Error de red al cargar la factura"))
@@ -114,15 +122,18 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
   }, [facturaRecordId]);
 
   // ── Totales de la NC en construcción ──────────────────────────────────────
+  // Misma función que usa el servidor para armar la línea: lo que se ve aquí
+  // es lo que se emite, centavo por centavo.
+  const descontarDe = (s: Seleccion | undefined) => (s?.conDescuento ? (leerMontoDescuento(s.descontar) ?? 0) : 0);
   let baseNC = 0, ivaNC = 0;
   detalles.forEach((d, i) => {
     const s = sel[i];
     if (!s?.incluida || !(s.cantidad > 0)) return;
-    const proporcion = d.cantidad > 0 ? s.cantidad / d.cantidad : 0;
-    const base = round2(d.precioTotalSinImpuesto * proporcion);
+    const base = Math.max(0, baseAcreditadaLinea(d, s.cantidad, descontarDe(s)));
     baseNC += base;
     ivaNC  += round2(base * ((d.impuestos[0]?.tarifa ?? 0) / 100));
   });
+  const totalDescontado = round2(detalles.reduce((acc, _d, i) => acc + (sel[i]?.incluida ? descontarDe(sel[i]) : 0), 0));
   baseNC = round2(baseNC); ivaNC = round2(ivaNC);
   const totalNC = round2(baseNC + ivaNC);
 
@@ -134,12 +145,20 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
 
   async function emitir() {
     setError(null);
+    if (sel.some((s) => s.incluida && s.cantidad > 0 && s.conDescuento && !((leerMontoDescuento(s.descontar) ?? 0) > 0))) {
+      setError("Indica un valor a descontar mayor que cero y con máximo dos decimales, o quita el descuento."); return;
+    }
     const lineas = sel
-      .map((s, indice) => ({ indice, cantidadAcreditada: s.cantidad, devolucionFisica: s.devolucionFisica, incluida: s.incluida, condicion: s.condicion, notaFalla: s.notaFalla, esProducto: detalles[indice]?.tipo === "producto" }))
+      .map((s, indice) => ({ indice, cantidadAcreditada: s.cantidad, devolucionFisica: s.devolucionFisica, incluida: s.incluida, condicion: s.condicion, notaFalla: s.notaFalla, esProducto: detalles[indice]?.tipo === "producto", descontar: descontarDe(s), conceptoDescuento: s.conceptoDescuento.trim() }))
       .filter((l) => l.incluida && l.cantidadAcreditada > 0)
-      .map(({ indice, cantidadAcreditada, devolucionFisica, condicion, notaFalla, esProducto }) => ({ indice, cantidadAcreditada, devolucionFisica, esProducto, ...(devolucionFisica && condicion ? { condicion } : {}), ...(devolucionFisica && condicion === "falla" && notaFalla.trim() ? { notaFalla: notaFalla.trim() } : {}) }));
+      .map(({ indice, cantidadAcreditada, devolucionFisica, condicion, notaFalla, esProducto, descontar, conceptoDescuento }) => ({ indice, cantidadAcreditada, devolucionFisica, esProducto, ...(devolucionFisica && condicion ? { condicion } : {}), ...(devolucionFisica && condicion === "falla" && notaFalla.trim() ? { notaFalla: notaFalla.trim() } : {}), ...(descontar > 0 ? { descontar, conceptoDescuento } : {}) }));
 
     if (lineas.length === 0) { setError("Selecciona al menos una línea a acreditar"); return; }
+    for (const l of lineas) {
+      if (!l.descontar) continue;
+      const rechazo = validarDescuentoLinea(detalles[l.indice], l.cantidadAcreditada, l.descontar, l.conceptoDescuento);
+      if (rechazo) { setError(rechazo.motivo); return; }
+    }
     if (lineas.some((l) => l.devolucionFisica && l.esProducto && !l.condicion)) { setError("Indica si cada artículo devuelto vuelve en buen estado o con falla"); return; }
     if (motivo.trim().length < 10) { setError("El motivo debe ser específico (mínimo 10 caracteres)"); return; }
     if (excedeDisponible) { setError(`El total excede lo disponible para acreditar ($${factura?.disponibleAcreditar.toFixed(2)})`); return; }
@@ -290,8 +309,7 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
           <tbody>
             {detalles.map((d, i) => {
               const s = sel[i];
-              const proporcion = d.cantidad > 0 ? (s?.cantidad ?? 0) / d.cantidad : 0;
-              const base = s?.incluida ? round2(d.precioTotalSinImpuesto * proporcion) : 0;
+              const base = s?.incluida ? Math.max(0, baseAcreditadaLinea(d, s.cantidad ?? 0, descontarDe(s))) : 0;
               return (
                 <tr key={i} className="border-b border-[#2A2B28]">
                   <td className="py-2 pr-2">
@@ -300,6 +318,32 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
                   <td className="py-2 pr-2 text-[#F5F5F5]">
                     {d.descripcion}
                     {d.codigoPrincipal && <span className="text-[10px] text-[#666] block">{d.codigoPrincipal}</span>}
+                    {s?.incluida && !s.conDescuento && (
+                      <button type="button" onClick={() => actualizar(i, { conDescuento: true })}
+                        className="mt-1 text-[10px] text-[#A7A7A7] underline hover:text-[#D7FF4F]">
+                        + Descontar faltante o daño
+                      </button>
+                    )}
+                    {s?.incluida && s.conDescuento && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] text-[#A7A7A7]">Descontar $</span>
+                        <input
+                          type="text" inputMode="decimal" value={s.descontar} placeholder="70.00"
+                          onChange={(e) => actualizar(i, { descontar: e.target.value })}
+                          className="w-20 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5]"
+                        />
+                        <span className="text-[10px] text-[#666]">IVA incl.</span>
+                        <input
+                          type="text" value={s.conceptoDescuento} maxLength={200} placeholder="Ej: Cargador original no devuelto"
+                          onChange={(e) => actualizar(i, { conceptoDescuento: e.target.value })}
+                          className="min-w-[14rem] flex-1 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5]"
+                        />
+                        <button type="button" onClick={() => actualizar(i, { conDescuento: false, descontar: "", conceptoDescuento: "" })}
+                          className="text-[10px] text-[#A7A7A7] underline hover:text-[#F5F5F5]">
+                          Quitar
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td className="py-2 pr-2 text-right text-[#A7A7A7]">{d.cantidad}</td>
                   <td className="py-2 pr-2 text-right">
@@ -352,7 +396,8 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
         </table>
         <p className="mt-3 text-[10px] text-[#666]">
           &quot;¿Devuelve el item?&quot; marca que la mercadería vuelve físicamente al inventario. Desmárcalo si es
-          solo un ajuste de precio sin devolución. Un producto digital no tiene esta opción: la clave ya se
+          solo un ajuste de precio sin devolución. &quot;Descontar faltante&quot; resta de esa línea lo que el cliente no
+          devolvió (ej. el cargador): la nota de crédito acredita menos y el valor sale en la columna Descuento del RIDE. Un producto digital no tiene esta opción: la clave ya se
           entregó, así que cualquier nota de crédito sobre esa línea la deja Anulada — nunca revendible.
         </p>
       </div>
@@ -436,11 +481,20 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
           placeholder="Ej: Devolución de equipo por cambio a otro modelo"
           className={INPUT} maxLength={300}
         />
+        {totalDescontado > 0 && (
+          <p className="mt-1 text-[10px] text-[#F0C75E]">
+            Menciona el descuento en el motivo (ej. &quot;… se descuentan $70 por cargador no devuelto&quot;): es lo que
+            el cliente lee en el RIDE.
+          </p>
+        )}
         <div className="mt-4 flex justify-end">
           <table className="text-sm">
             <tbody>
               <tr><td className="pr-6 text-[#A7A7A7]">Subtotal</td><td className="text-right text-[#F5F5F5]">${baseNC.toFixed(2)}</td></tr>
               <tr><td className="pr-6 text-[#A7A7A7]">IVA</td><td className="text-right text-[#F5F5F5]">${ivaNC.toFixed(2)}</td></tr>
+              {totalDescontado > 0 && (
+                <tr><td className="pr-6 text-[#A7A7A7]">Descontado (faltantes)</td><td className="text-right text-[#F0C75E]">−${totalDescontado.toFixed(2)}</td></tr>
+              )}
               <tr><td className="pr-6 font-bold text-[#F5F5F5]">Total a acreditar</td><td className="text-right font-bold text-[#D7FF4F]">${totalNC.toFixed(2)}</td></tr>
             </tbody>
           </table>

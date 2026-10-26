@@ -7,6 +7,7 @@ import {
   calcularTotalesNotaCredito,
   evaluarNotaCreditoPermitida,
   validarMotivo,
+  validarDescuentoLinea,
 } from "@/lib/facturacion/notaCredito/calculos";
 import { emitirNotaCredito }         from "@/lib/facturacion/notaCredito/emitirNotaCredito";
 import { procesarPuenteNotaCredito } from "@/lib/finanzas/puentes/notaCredito";
@@ -135,10 +136,15 @@ export async function POST(request: Request) {
     if (sel.devolucionFisica && sel.condicion !== "buena" && sel.condicion !== "falla" && original.tipo === "producto") {
       return NextResponse.json({ success: false, error: `Indica si "${original.descripcion}" vuelve en buen estado o con falla.` }, { status: 400 });
     }
+    // Faltante descontado (ej. cargador no devuelto): se valida contra la
+    // línea real, no contra lo que calculó la pantalla.
+    const rechazoDescuento = validarDescuentoLinea(original, sel.cantidadAcreditada, sel.descontar, sel.conceptoDescuento);
+    if (rechazoDescuento) return NextResponse.json({ success: false, error: rechazoDescuento.motivo }, { status: 400 });
+    const descontar = typeof sel.descontar === "number" && sel.descontar > 0 ? sel.descontar : 0;
     detallesNC.push(construirLineaNotaCredito(original, sel.cantidadAcreditada, !!sel.devolucionFisica, {
       condicion: sel.condicion === "falla" ? "falla" : sel.condicion === "buena" ? "buena" : undefined,
       notaFalla: typeof sel.notaFalla === "string" ? sel.notaFalla : undefined,
-    }));
+    }, descontar > 0 ? { descontar, concepto: String(sel.conceptoDescuento) } : undefined));
   }
 
   const totales = calcularTotalesNotaCredito(detallesNC);
