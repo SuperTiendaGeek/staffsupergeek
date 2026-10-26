@@ -16,11 +16,11 @@
 // también /shipping-v2/items/nuevo (Registrar compra).
 
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ExternalLink, Link2, Loader2, X } from "lucide-react";
 import type { FichaArticulo } from "@/lib/shipping-v2/ficha-articulo";
 import { FichaArticuloVista } from "./FichaArticuloVista";
-import { FichaContexto, ID_REGISTRO, PARAM_FICHA, hrefArticulo, type CambioArticulo, type OyenteCambio, type RespuestaFicha } from "./contexto";
+import { BarraFichaContexto, FichaContexto, ID_REGISTRO, PARAM_FICHA, hrefArticulo, type CambioArticulo, type OyenteCambio, type RespuestaFicha } from "./contexto";
 
 /** Registros del mismo SKU que trae la ficha (para cambiar de unidad sin recargar todo). */
 function idsDelSku(ficha: FichaArticulo): string[] {
@@ -80,6 +80,57 @@ function crearAlmacenFichas(): AlmacenFichas {
   return { guardada, pedir, olvidar: () => guardadas.clear() };
 }
 
+// ─── Rediseño (26-oct): la ficha crece desde la fila y vuelve a ella ────────
+// Solo se mueve con "transform" y "opacity" (los hace la tarjeta de video, sin
+// recalcular la pantalla), unos 0,2 s. Quien pide menos movimiento en su
+// sistema no ve el viaje, solo el destello de la fila.
+
+type Origen = {
+  /** La fila de la lista (se ilumina al volver). */
+  fila: HTMLElement;
+  /** Desde dónde crece la ficha (la celda del SKU si la fila la marca). */
+  ancla: HTMLElement;
+  at: number;
+};
+
+const SELECTOR_FILA = 'tr, [role="row"], article, li, [data-ficha-fila]';
+
+function origenDesde(objetivo: EventTarget | null): Origen | null {
+  if (!(objetivo instanceof Element)) return null;
+  if (objetivo.closest('[role="dialog"]')) return null;
+  const fila = objetivo.closest<HTMLElement>(SELECTOR_FILA);
+  const ancla = fila?.querySelector<HTMLElement>("[data-ficha-ancla]") ?? objetivo.closest<HTMLElement>("a, button") ?? fila;
+  if (!ancla) return null;
+  return { fila: fila ?? ancla, ancla, at: Date.now() };
+}
+
+function pocoMovimiento() {
+  return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+}
+
+function visible(el: HTMLElement) {
+  if (!el.isConnected) return false;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
+}
+
+/** El cambio que lleva el panel (rect P) hasta el lugar del ancla (rect O). */
+function transformHacia(o: DOMRect, p: DOMRect) {
+  const dx = o.left + o.width / 2 - (p.left + p.width / 2);
+  const dy = o.top + o.height / 2 - (p.top + p.height / 2);
+  const sx = Math.max(0.04, o.width / p.width);
+  const sy = Math.max(0.02, o.height / p.height);
+  return `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+}
+
+function destello(fila: HTMLElement) {
+  if (!fila.isConnected || typeof fila.animate !== "function") return;
+  fila.animate(
+    [{ backgroundColor: "rgba(215, 255, 79, 0.30)" }, { backgroundColor: "rgba(215, 255, 79, 0)" }],
+    { duration: 900, easing: "ease-out" }
+  );
+}
+
 function leerParam(): string | null {
   if (typeof window === "undefined") return null;
   const valor = new URLSearchParams(window.location.search).get(PARAM_FICHA);
@@ -101,6 +152,24 @@ export function FichaArticuloProveedor({ children }: { children: ReactNode }) {
   const empujada = useRef(false);
   const oyentes = useRef(new Set<OyenteCambio>());
   const [almacen] = useState(crearAlmacenFichas);
+  // De dónde se abrió la ficha (la fila que se tocó justo antes).
+  const ultimoToque = useRef<Origen | null>(null);
+  const origenAbierta = useRef<Origen | null>(null);
+  useEffect(() => {
+    const alTocar = (event: Event) => {
+      const origen = origenDesde(event.target);
+      if (origen) ultimoToque.current = origen;
+    };
+    const alTeclear = (event: KeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") alTocar(event);
+    };
+    document.addEventListener("pointerdown", alTocar, true);
+    document.addEventListener("keydown", alTeclear, true);
+    return () => {
+      document.removeEventListener("pointerdown", alTocar, true);
+      document.removeEventListener("keydown", alTeclear, true);
+    };
+  }, []);
 
   // Al cargar (o recargar) con ?ficha=… se abre encima de la pantalla.
   useEffect(() => {
@@ -128,6 +197,10 @@ export function FichaArticuloProveedor({ children }: { children: ReactNode }) {
 
   const abrir = useCallback((id: string) => {
     if (!ID_REGISTRO.test(id)) return;
+    if (!leerParam()) {
+      const toque = ultimoToque.current;
+      origenAbierta.current = toque && Date.now() - toque.at < 1500 ? toque : null;
+    }
     if (leerParam()) {
       // Ya hay una ficha abierta: se reemplaza (Atrás sigue cerrando la ventana).
       window.history.replaceState(null, "", urlCon(id));
@@ -173,7 +246,7 @@ export function FichaArticuloProveedor({ children }: { children: ReactNode }) {
   return (
     <FichaContexto.Provider value={valor}>
       {children}
-      {abierta ? <FichaArticuloVentana id={abierta} almacen={almacen} onClose={cerrar} onCambio={avisarCambio} /> : null}
+      {abierta ? <FichaArticuloVentana id={abierta} almacen={almacen} origen={origenAbierta} onClose={cerrar} onCambio={avisarCambio} /> : null}
     </FichaContexto.Provider>
   );
 }
@@ -206,13 +279,65 @@ function EsqueletoFicha() {
   );
 }
 
-function FichaArticuloVentana({ id, almacen, onClose, onCambio }: { id: string; almacen: AlmacenFichas; onClose: () => void; onCambio: (cambio: CambioArticulo) => void }) {
+function FichaArticuloVentana({ id, almacen, origen, onClose: cerrarYa, onCambio }: { id: string; almacen: AlmacenFichas; origen: { current: Origen | null }; onClose: () => void; onCambio: (cambio: CambioArticulo) => void }) {
   const router = useRouter();
   const [estado, setEstado] = useState<Estado>({ tipo: "cargando" });
   const [version, setVersion] = useState(0);
   const [copiado, setCopiado] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const veloRef = useRef<HTMLDivElement>(null);
   const enfocadoAntes = useRef<Element | null>(null);
+  const [nodoBarra, setNodoBarra] = useState<HTMLElement | null>(null);
+  const conViaje = useRef(Boolean(origen.current && !pocoMovimiento()));
+
+  // Al abrir: crece desde la fila (si se abrió desde una y se ve en pantalla).
+  useLayoutEffect(() => {
+    const desde = origen.current;
+    const panel = panelRef.current;
+    if (!conViaje.current || !desde || !panel || typeof panel.animate !== "function" || !visible(desde.ancla)) return;
+    panel.animate(
+      [
+        { transform: transformHacia(desde.ancla.getBoundingClientRect(), panel.getBoundingClientRect()), opacity: 0.35 },
+        { transform: "none", opacity: 1 },
+      ],
+      { duration: 240, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" }
+    );
+    // Solo al abrir.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Al cerrar: vuelve a la fila encogiéndose y la fila destella.
+  const saliendo = useRef(false);
+  const onClose = useCallback(() => {
+    if (saliendo.current) return;
+    const desde = origen.current;
+    const panel = panelRef.current;
+    if (!desde) {
+      cerrarYa();
+      return;
+    }
+    const fila = desde.fila;
+    if (pocoMovimiento() || !panel || typeof panel.animate !== "function" || !visible(desde.ancla)) {
+      cerrarYa();
+      destello(fila);
+      return;
+    }
+    saliendo.current = true;
+    veloRef.current?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: "ease-in", fill: "forwards" });
+    const animacion = panel.animate(
+      [
+        { transform: "none", opacity: 1 },
+        { transform: transformHacia(desde.ancla.getBoundingClientRect(), panel.getBoundingClientRect()), opacity: 0.2 },
+      ],
+      { duration: 200, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" }
+    );
+    const terminar = () => {
+      cerrarYa();
+      destello(fila);
+    };
+    animacion.onfinish = terminar;
+    animacion.oncancel = terminar;
+  }, [cerrarYa, origen]);
 
   // Cada artículo nuevo empieza desde el esqueleto (nunca con los datos del
   // anterior). Punto 18b: si es otra unidad del MISMO SKU, la ficha se queda y
@@ -289,27 +414,26 @@ function FichaArticuloVentana({ id, almacen, onClose, onCambio }: { id: string; 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-hidden bg-black/70 px-2 py-2 animate-[sg-velo_160ms_ease-out] sm:px-4 sm:py-4"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-hidden px-2 py-2 sm:px-4 sm:py-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
+      <div ref={veloRef} aria-hidden="true" className="pointer-events-none absolute inset-0 bg-black/70 animate-[sg-velo_160ms_ease-out]" />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Ficha del artículo"
         tabIndex={-1}
-        className="relative flex max-h-full w-full max-w-[min(96vw,1440px)] flex-col overflow-hidden rounded-xl border border-[#3A3A36] bg-[#11120F] shadow-2xl shadow-black/60 outline-none animate-[sg-modal_200ms_cubic-bezier(0.2,0.8,0.2,1)]"
+        className={`relative flex max-h-full w-full max-w-[min(97vw,1680px)] flex-col overflow-hidden rounded-xl border border-[#3A3A36] bg-[#11120F] shadow-2xl shadow-black/60 outline-none will-change-transform ${conViaje.current ? "" : "animate-[sg-modal_200ms_cubic-bezier(0.2,0.8,0.2,1)]"}`}
       >
-        {/* Barra fija arriba (fuera del área que se desplaza: no tapa la barra de desplazamiento). */}
-        <div className="flex h-11 shrink-0 items-center justify-end gap-1 border-b border-[#24251F] px-2">
-          {cambiandoUnidad ? (
-            <span className="mr-auto inline-flex items-center gap-1.5 px-1 text-[12px] text-[#8F908A]">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-              Cargando unidad…
-            </span>
-          ) : null}
+        {/* Barra fija arriba (fuera del área que se desplaza): la ficha pone aquí
+            su SKU, unidad, estados y acciones; a la derecha, los de la ventana. */}
+        <div className="flex min-h-[3.25rem] shrink-0 items-center gap-1.5 border-b border-[#24251F] px-2 py-1.5 sm:pl-3">
+          <div ref={setNodoBarra} className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5" />
+          {cambiandoUnidad ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#8F908A]" aria-label="Cargando unidad" /> : null}
+          <span className="mx-0.5 hidden h-6 w-px shrink-0 bg-[#2E2F28] sm:block" aria-hidden="true" />
           <button type="button" onClick={() => void copiarEnlace()} className={boton} title={copiado ? "Enlace copiado" : "Copiar enlace del artículo"} aria-label="Copiar enlace del artículo">
             <Link2 className={`h-4 w-4 ${copiado ? "text-[#D7FF4F]" : ""}`} aria-hidden="true" />
           </button>
@@ -330,7 +454,9 @@ function FichaArticuloVentana({ id, almacen, onClose, onCambio }: { id: string; 
             </div>
           ) : (
             <div aria-busy={cambiandoUnidad || undefined} className={`p-2 transition-opacity duration-150 sm:p-3 animate-[sg-entrada_180ms_ease-out] ${cambiandoUnidad ? "pointer-events-none opacity-60" : ""}`}>
-              <FichaArticuloVista ficha={estado.ficha} modo="modal" alCambiar={alCambiar} />
+              <BarraFichaContexto.Provider value={nodoBarra}>
+                <FichaArticuloVista ficha={estado.ficha} modo="modal" alCambiar={alCambiar} />
+              </BarraFichaContexto.Provider>
             </div>
           )}
         </div>

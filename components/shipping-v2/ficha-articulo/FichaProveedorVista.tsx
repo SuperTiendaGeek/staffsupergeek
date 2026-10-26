@@ -15,6 +15,7 @@ import { SHIPPING_V2_ITEM_EDIT_FIELDS } from "@/lib/shipping-v2/item-edit-config
 import { FICHA_PROVEEDOR, type BloqueFichaProveedor } from "@/lib/shipping-v2/ficha-secciones";
 import type { FichaItemProveedor, FichaProveedor } from "@/lib/shipping-v2/ficha-articulo";
 import { EstadoBadge, HeroStat, PasoChip, formatCurrency, shortDate } from "@/app/shipping-v2/items/ShippingV2ItemsClient";
+import { BarraFicha } from "./contexto";
 
 function Seccion({ icono: Icono, titulo, children, extra }: { icono: typeof Package; titulo: string; children: ReactNode; extra?: ReactNode }) {
   return (
@@ -134,45 +135,62 @@ export function FichaProveedorVista({ datos, modo }: { datos: FichaProveedor; mo
     ) : null,
   };
 
-  return (
-    <div className="grid w-full gap-3 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] 2xl:grid-cols-[minmax(0,4fr)_minmax(0,6fr)]">
-      <aside className={`min-w-0 md:sticky md:self-start ${modo === "modal" ? "md:top-0" : "md:top-16"}`}>
-        <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={() => undefined} canEdit={false} density="hero" />
-      </aside>
+  const miniatura = item.fotos[0]?.thumbnailUrl || item.fotos[0]?.url;
+  const suSku = item.skuProveedor?.trim();
 
-      <div className="min-w-0 space-y-3">
-        <section className="rounded-lg border border-[#2E2F28] bg-[#171814]">
-          <div className="p-3">
-            <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${item.situacion === "En camino" ? "border-violet-300/25 bg-violet-300/10 text-violet-200" : "border-[#7BE495]/35 bg-[#7BE495]/10 text-[#9FEFB3]"}`}>
-              {item.situacion}
-            </span>
-            <InlineEditableField
-              label={C.nombre.label}
-              value={item.nombre}
-              type={C.nombre.type}
-              displayValue={item.nombre?.trim() || "Sin nombre"}
-              hideLabel
-              className="-mx-1 mt-2 rounded-md px-1 transition"
-              valueClassName="min-h-7 break-words text-xl font-semibold leading-tight text-[#F5F5F5] lg:text-[22px]"
-              readOnly={!datos.puedeEditar}
-              onSave={(valor) => guardar(C.nombre.field, valor)}
-            />
-            <p className="mt-1 text-[12px] text-[#8F908A]">
-              {sku ? <CopyableSKU sku={sku} /> : null}
-              {sku && resto ? " · " : null}
-              {resto}
-            </p>
-            {item.descripcion?.trim() ? <p className="mt-1.5 whitespace-pre-line text-[13px] leading-5 text-[#B4B5AC]">{item.descripcion}</p> : null}
-          </div>
-          <div className={`grid gap-px border-t border-[#24251F] bg-[#24251F] ${datos.verCosto ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2"}`}>
-            <HeroStat label="Su SKU">{item.skuProveedor?.trim() ? <CopyableSKU sku={item.skuProveedor.trim()} etiqueta="SKU proveedor" /> : "—"}</HeroStat>
+  // Rediseño (26-oct): barra arriba con SU SKU primero; foto a la izquierda y
+  // a la derecha sus cifras, Compra · Envío · Pagos lado a lado y Observaciones.
+  return (
+    <div className="w-full">
+      <BarraFicha>
+        {miniatura ? (
+          <img src={miniatura} alt="" className="h-8 w-8 shrink-0 rounded-md border border-[#3A3A36] object-cover" />
+        ) : (
+          <span className="h-8 w-8 shrink-0 rounded-md border border-[#3A3A36] bg-[#20211D]" aria-hidden="true" />
+        )}
+        {suSku ? (
+          <span className="flex shrink-0 items-baseline gap-1.5 text-[12.5px] text-[#8F908A]">
+            Su SKU <span className="font-mono text-[14px] font-semibold text-[#D7FF4F]"><CopyableSKU sku={suSku} etiqueta="SKU proveedor" /></span>
+          </span>
+        ) : null}
+        {sku ? <span className="shrink-0 text-[12.5px] text-[#8F908A]">· SUPER GEEK <span className="font-mono text-[#E6E6E1]"><CopyableSKU sku={sku} /></span></span> : null}
+        <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${item.situacion === "En camino" ? "border-violet-300/25 bg-violet-300/10 text-violet-200" : "border-[#7BE495]/35 bg-[#7BE495]/10 text-[#9FEFB3]"}`}>
+          {item.situacion}
+        </span>
+      </BarraFicha>
+
+      <section className="border-b border-[#24251F] px-1 pb-2.5">
+        <InlineEditableField
+          label={C.nombre.label}
+          value={item.nombre}
+          type={C.nombre.type}
+          displayValue={item.nombre?.trim() || "Sin nombre"}
+          hideLabel
+          className="-mx-1 rounded-md px-1 transition"
+          valueClassName="min-h-7 break-words text-xl font-semibold leading-tight text-[#F5F5F5] lg:text-[21px]"
+          readOnly={!datos.puedeEditar}
+          onSave={(valor) => guardar(C.nombre.field, valor)}
+        />
+        {resto ? <p className="mt-1 text-[12px] text-[#8F908A]">{resto}</p> : null}
+        {item.descripcion?.trim() ? <p className="mt-1.5 whitespace-pre-line text-[13px] leading-5 text-[#B4B5AC]">{item.descripcion}</p> : null}
+      </section>
+
+      <div className="mt-3 grid items-start gap-3 lg:grid-cols-[18.75rem_minmax(0,1fr)]">
+        <aside className="min-w-0">
+          <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={() => undefined} canEdit={false} density="hero" />
+        </aside>
+        <div className="min-w-0 space-y-2.5">
+          <div className={`grid gap-px overflow-hidden rounded-lg border border-[#2E2F28] bg-[#24251F] ${datos.verCosto ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-2"}`}>
+            <HeroStat label="Su SKU">{suSku ? <CopyableSKU sku={suSku} etiqueta="SKU proveedor" /> : "—"}</HeroStat>
             <HeroStat label="Unidades">{unidades ?? "—"}</HeroStat>
             {datos.verCosto ? <HeroStat label="Costo unitario" tone="lime">{formatCurrency(item.costoProveedor ?? null)}</HeroStat> : null}
             {datos.verCosto ? <HeroStat label="Total">{formatCurrency(total)}</HeroStat> : null}
           </div>
-        </section>
-
-        {FICHA_PROVEEDOR.bloques.map((bloque) => (bloques[bloque] ? <div key={bloque}>{bloques[bloque]}</div> : null))}
+          <div className="grid items-start gap-2.5 xl:grid-cols-3">
+            {(["compra", "envio", "pagos"] as const).filter((b) => FICHA_PROVEEDOR.bloques.includes(b) && bloques[b]).map((b) => <div key={b} className="min-w-0">{bloques[b]}</div>)}
+          </div>
+          {FICHA_PROVEEDOR.bloques.includes("observaciones") ? bloques.observaciones : null}
+        </div>
       </div>
     </div>
   );

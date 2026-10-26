@@ -789,6 +789,7 @@ const ReceptionItemRow = memo(function ReceptionItemRow({
           <div className="flex min-w-0 items-baseline gap-1.5">
             <button
               type="button"
+              data-ficha-ancla
               onClick={() => onOpenDetail(item)}
               onMouseEnter={() => intencion.alEntrar(item.id)}
               onMouseLeave={intencion.alSalir}
@@ -985,7 +986,7 @@ function ReceptionGroupRow({
             >
               <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-150 ${abierto ? "rotate-90" : ""}`} aria-hidden="true" />
             </button>
-            <button type="button" onClick={abrirUnidad} onMouseEnter={() => intencion.alEntrar(unidadAbrir.id)} onMouseLeave={intencion.alSalir} className="shrink-0 text-left text-[12px] font-bold text-[#D7FF4F] transition hover:underline">
+            <button type="button" data-ficha-ancla onClick={abrirUnidad} onMouseEnter={() => intencion.alEntrar(unidadAbrir.id)} onMouseLeave={intencion.alSalir} className="shrink-0 text-left text-[12px] font-bold text-[#D7FF4F] transition hover:underline">
               {display(principal.sku)}
             </button>
             <button type="button" onClick={abrirUnidad} onMouseEnter={() => intencion.alEntrar(unidadAbrir.id)} onMouseLeave={intencion.alSalir} title={display(principal.nombre)} className="min-w-0 flex-1 truncate text-left text-[12.5px] font-medium text-[#F5F5F5] transition hover:text-[#D7FF4F]">

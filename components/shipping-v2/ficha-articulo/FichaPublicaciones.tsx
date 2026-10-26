@@ -72,13 +72,17 @@ export function FichaPublicaciones({ publicaciones }: { publicaciones: readonly 
               ? [quienCuando(p.publicadoPor, p.fechaPublicado), p.retiradoPor || p.fechaRetirado ? `retiró ${quienCuando(p.retiradoPor, p.fechaRetirado)}` : ""].filter(Boolean).join(" → ")
               : quienCuando(p.publicadoPor, p.fechaPublicado);
             return (
-              <li key={p.id} className="grid grid-cols-[8.5rem_minmax(0,1fr)_auto] items-center gap-2 px-3 py-1.5 animate-[sg-entrada_160ms_ease-out]">
-                <span className={`flex min-w-0 items-center gap-1.5 text-[12.5px] font-semibold ${retirado ? "text-[#8F908A]" : "text-[#E6E6E1]"}`}>
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${COLOR_CANAL[p.canal] ?? "bg-[#8F908A]"} ${retirado ? "opacity-40" : ""}`} aria-hidden="true" />
-                  <span className="truncate">{p.canal}</span>
-                  {p.alcance === "Unidad" ? <span className="shrink-0 text-[10.5px] font-medium text-[#8F908A]" title="Anuncio aparte, solo de esta unidad">· esta unidad</span> : null}
-                </span>
-                <span className="flex min-w-0 items-center gap-2 text-[12px] text-[#8F908A]">
+              <li key={p.id} className="px-3 py-1.5 animate-[sg-entrada_160ms_ease-out]">
+                {/* Rediseño (26-oct): dos líneas, para la columna angosta de la derecha. */}
+                <div className="flex items-center gap-2">
+                  <span className={`flex min-w-0 flex-1 items-center gap-1.5 text-[12.5px] font-semibold ${retirado ? "text-[#8F908A]" : "text-[#E6E6E1]"}`}>
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${COLOR_CANAL[p.canal] ?? "bg-[#8F908A]"} ${retirado ? "opacity-40" : ""}`} aria-hidden="true" />
+                    <span className="truncate">{p.canal}</span>
+                    {p.alcance === "Unidad" ? <span className="shrink-0 text-[10.5px] font-medium text-[#8F908A]" title="Anuncio aparte, solo de esta unidad">· esta unidad</span> : null}
+                  </span>
+                  <span className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-px text-[10.5px] font-semibold ${TONO_ESTADO[p.estado]}`}>{p.estado}</span>
+                </div>
+                <div className="mt-0.5 flex min-w-0 items-center gap-2 pl-3.5 text-[11.5px] text-[#8F908A]">
                   <span className="truncate" title={p.origen === "casilla" ? "Marcado en Recepción, antes del gestor de publicaciones" : detalle}>
                     {detalle || (p.origen === "casilla" ? "Marcado en Recepción" : "Sin fecha")}
                   </span>
@@ -88,8 +92,7 @@ export function FichaPublicaciones({ publicaciones }: { publicaciones: readonly 
                       <span className="sr-only">Abrir el anuncio</span>
                     </a>
                   ) : null}
-                </span>
-                <span className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border px-2 py-px text-[10.5px] font-semibold ${TONO_ESTADO[p.estado]}`}>{p.estado}</span>
+                </div>
               </li>
             );
           })}
