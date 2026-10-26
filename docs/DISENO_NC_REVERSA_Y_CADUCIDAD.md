@@ -210,3 +210,39 @@ Es el mismo criterio que ya usaba la anulación de un recibo interno.
 - `lib/finanzas/puentes/notaCredito.ts` — rama del reembolso.
 - `lib/facturacion/notaCredito/airtable.ts` — `marcarReembolsoContable()`.
 - `app/api/facturacion/nota-credito/emitir` y `prefactura`, `components/facturacion/NotaCreditoForm.tsx`.
+
+---
+
+## 7 · Descontar un faltante de una línea (26 de octubre de 2026)
+
+**Por qué:** el cliente de la factura 001-002-000000793 devolvió la MacBook
+(vendida "c/ cargador", $420) sin el cargador, y aceptó que se le descuenten
+$70. Lo que vuelve vale menos que lo que se vendió.
+
+**Cómo:** en la pantalla, cada línea incluida tiene "+ Descontar faltante o
+daño": valor con IVA y concepto obligatorio. La línea de la nota de crédito usa
+el precio unitario de la factura y un **descuento** (cantidad × precio unitario
+− descuento = base), con la misma tarifa de IVA. Es el mecanismo que ya usaba la
+NC parcial; el SRI lo acepta igual.
+
+El formulario acepta punto o coma decimal y máximo dos decimales. Rechaza
+texto parcial, importes negativos y descuentos activados sin valor; no redondea
+silenciosamente el importe escrito. El servidor revalida el importe y el
+concepto contra la línea y la cantidad reales de la factura.
+
+| | Base | IVA | Total |
+|---|---|---|---|
+| Línea original | 365.22 | 54.78 | 420.00 |
+| Descuento ($70 / 1.15) | −60.87 | | |
+| Se acredita | 304.35 | 45.65 | **350.00** |
+
+La factura queda vigente por $100 (dock $30 + cargador $70) y se declara IVA
+por eso. Con destino "Reembolso", el egreso es por $350 — el total de la NC.
+
+El concepto viaja como `detAdicional` de la línea en el XML. El RIDE muestra el
+valor en su columna Descuento; la pantalla pide mencionarlo en el motivo, que es
+lo que el cliente lee.
+
+Código: `baseAcreditadaLinea()` y `validarDescuentoLinea()` en
+`notaCredito/calculos.ts` (los usan la pantalla y el servidor, para que el total
+que se ve sea el que se emite). Test: `notaCredito.descuentoFaltante.test.ts`.
