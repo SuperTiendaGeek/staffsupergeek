@@ -102,6 +102,8 @@ const ITEM_R = "recITEMROBERTO001";
 const ITEM_O = "recITEMOTRO000001";
 
 crear(T.items, ITEM_R, {
+  // Vínculo inverso que Airtable mantiene solo (espejo de "Item relacionado" en la novedad).
+  "Shipping Novedades": ["recNOVEDAD0000001"],
   [F.sku]: "LAP-000042",
   [F.nombre]: "Laptop HP 840 G5",
   [F.categoria]: "Laptop",

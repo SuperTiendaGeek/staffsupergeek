@@ -1211,6 +1211,10 @@ function mergeAirtableHeaders(headers?: HeadersInit) {
 }
 
 async function airtableFetch(url: string, init: RequestInit = {}, context: { operation: string }) {
+  // Punto 18b: escribir en proveedores vence su lista guardada (ver getShippingV2Proveedores).
+  if (context.operation !== "lectura" && url.includes(`/${encodeURIComponent(SHIPPING_V2_TABLES.proveedores)}`)) {
+    invalidarProveedoresCache();
+  }
   for (let attempt = 0; attempt <= AIRTABLE_RATE_LIMIT_MAX_RETRIES; attempt++) {
     const response = await fetch(url, {
       ...init,
@@ -2067,15 +2071,37 @@ function mapNovedad(record: AirtableRecord): ShippingV2Novedad {
   };
 }
 
+// Punto 18b (25-oct, velocidad): la lista de proveedores se pedía 3 o 4 veces
+// para abrir UNA ficha (acceso, artículo, ficha, unidades). Ahora se lee una vez
+// y se reutiliza 30 s; si llegan dos pedidos a la vez, comparten la misma
+// lectura. Cualquier escritura en "Shipping Proveedores" la vence al instante.
+const PROVEEDORES_CACHE_MS = 30 * 1000;
+// "conexion" guarda con qué fetch se leyó: si cambia (pruebas con Airtable
+// simulado), la lista guardada no se reutiliza.
+let proveedoresCache: { promesa: Promise<ShippingV2Proveedor[]>; expiresAt: number; conexion: typeof fetch } | null = null;
+
+function invalidarProveedoresCache() {
+  proveedoresCache = null;
+}
+
 export async function getShippingV2Proveedores() {
-  // Punto 11: todos los proveedores (antes se cortaba en 100) y solo los campos
-  // que el sistema usa, sin los vínculos (eBay arrastraba cientos de artículos).
-  const records = await listRecords(SHIPPING_V2_TABLES.proveedores, {
-    fields: CAMPOS_LECTURA_PROVEEDOR,
-    sortField: CAMPOS_PROVEEDOR.nombre,
-    sortDirection: "asc",
-  });
-  return records.map(mapProveedor);
+  const ahora = Date.now();
+  if (!proveedoresCache || proveedoresCache.expiresAt <= ahora || proveedoresCache.conexion !== globalThis.fetch) {
+    // Punto 11: todos los proveedores (antes se cortaba en 100) y solo los campos
+    // que el sistema usa, sin los vínculos (eBay arrastraba cientos de artículos).
+    const promesa = listRecords(SHIPPING_V2_TABLES.proveedores, {
+      fields: CAMPOS_LECTURA_PROVEEDOR,
+      sortField: CAMPOS_PROVEEDOR.nombre,
+      sortDirection: "asc",
+    }).then((records) => records.map(mapProveedor));
+    const entrada = { promesa, expiresAt: ahora + PROVEEDORES_CACHE_MS, conexion: globalThis.fetch };
+    proveedoresCache = entrada;
+    // Una lectura fallida no se guarda.
+    promesa.catch(() => {
+      if (proveedoresCache === entrada) proveedoresCache = null;
+    });
+  }
+  return [...(await proveedoresCache.promesa)];
 }
 
 export async function getShippingV2AccessContextForSession(session: StaffSession | null): Promise<ShippingV2AccessContext> {
@@ -2651,6 +2677,14 @@ export async function getShippingV2ItemNavigation(recordId: string, access?: Shi
 }
 
 export async function getShippingV2ItemById(recordId: string, options: MapItemOptions = {}) {
+  return (await getShippingV2ItemConRegistro(recordId, options)).item;
+}
+
+/**
+ * Punto 18b (velocidad): el artículo y su registro crudo de Airtable, para que
+ * la ficha arme el recorrido sin volver a leer el mismo registro.
+ */
+export async function getShippingV2ItemConRegistro(recordId: string, options: MapItemOptions = {}) {
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de item inválido.");
 
@@ -2668,7 +2702,7 @@ export async function getShippingV2ItemById(recordId: string, options: MapItemOp
       mappedAiNombre: item.aiNombre,
     });
   }
-  return sanitizeShippingV2ItemForAccess(item, options.access, options);
+  return { item: sanitizeShippingV2ItemForAccess(item, options.access, options), registro: record as AirtableRecord };
 }
 
 /**
@@ -4249,15 +4283,34 @@ function sanitizePagoForAccess(pago: ShippingV2Pago, access?: ShippingV2AccessCo
   };
 }
 
-export async function getShippingV2PagoById(recordId: string, access?: ShippingV2AccessContext) {
+export async function getShippingV2PagoById(
+  recordId: string,
+  access?: ShippingV2AccessContext,
+  /** Punto 18b: la ficha del artículo solo usa n.º, estado, total y fecha del pago (no el resumen de sus artículos). */
+  opciones: { sinArticulos?: boolean } = {}
+) {
   assertShippingV2Permission(access, "canViewPayments", "No tienes permiso para ver pagos de Shipping.");
   const id = cleanString(recordId);
   if (!id) throw new Error("Record ID de pago inválido.");
-  const [record, proveedores, items] = await Promise.all([
+  const [record, proveedores] = await Promise.all([
     airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.pagos)}/${encodeURIComponent(id)}`),
     getShippingV2Proveedores(),
-    getShippingV2PaymentItems({ includeAiName: false, access, sanitizeForAccess: false }),
   ]);
+  // Punto 18b (velocidad): antes se leía el inventario COMPLETO (todos los
+  // artículos con todos sus campos) para nombrar los artículos de UN pago.
+  // Ahora se leen solo los artículos de este pago, con las mismas reglas.
+  const F_PAGO = SHIPPING_V2_PAYMENT_FIELDS;
+  const idsDelPago = [
+    ...linkedRecordIds(record.fields[F_PAGO.itemsRelacionados]),
+    ...linkedRecordIds(record.fields[F_PAGO.regalosIncluidos]),
+  ];
+  const opcionesItems: MapItemOptions = { includeAiName: false, access, sanitizeForAccess: false };
+  const etiquetas = createShippingV2ProveedorLabelMap(proveedores);
+  const items = (idsDelPago.length && !opciones.sinArticulos ? await listRecordsByIds(SHIPPING_V2_TABLES.items, idsDelPago) : [])
+    .map((itemRecord) => mapItem(itemRecord, opcionesItems))
+    .map((item) => applyItemProviderLabels(item, etiquetas))
+    .filter((item) => canAccessItem(item, access))
+    .map((item) => sanitizeShippingV2ItemForAccess(item, access, opcionesItems));
   const pago = mapPago(record, {
     labelsById: createShippingV2ProveedorLabelMap(proveedores),
     itemsById: new Map(items.map((item) => [item.id, item])),
@@ -8182,13 +8235,26 @@ export async function getShippingV2NovedadesPanel(access?: ShippingV2AccessConte
   });
 }
 
-export async function getShippingV2NovedadesForItem(itemRecordId: string, access?: ShippingV2AccessContext) {
+/** Vínculo inverso en "Shipping Items" de "Item relacionado" (Shipping Novedades). */
+const CAMPO_ITEM_NOVEDADES = "Shipping Novedades";
+
+export async function getShippingV2NovedadesForItem(
+  itemRecordId: string,
+  access?: ShippingV2AccessContext,
+  /** Punto 18b: el registro del artículo ya leído (y ya validado con este mismo acceso). */
+  registroLeido?: AirtableRecord
+) {
   const itemId = cleanString(itemRecordId);
   if (!itemId) return [];
-  await getShippingV2ItemById(itemId, { includeAiName: false, access });
+  const registro = registroLeido?.id === itemId
+    ? registroLeido
+    : (await getShippingV2ItemConRegistro(itemId, { includeAiName: false, access })).registro;
 
-  // Todas (antes tope de 500): con más novedades, las de este artículo podían quedar fuera.
-  const records = await listRecords(SHIPPING_V2_TABLES.novedades);
+  // Punto 18b (velocidad): antes se leía la tabla COMPLETA de novedades para
+  // quedarse con las de este artículo. El artículo ya trae el vínculo inverso
+  // ("Shipping Novedades", espejo de "Item relacionado"): se leen solo esas.
+  const ids = linkedRecordIds(registro.fields[CAMPO_ITEM_NOVEDADES]);
+  const records = ids.length ? await listRecordsByIds(SHIPPING_V2_TABLES.novedades, ids) : [];
   return records
     .map(mapNovedad)
     .filter((novedad) => novedad.itemIds.includes(itemId))
@@ -10512,11 +10578,13 @@ export async function getShippingV2RelacionComercialParaProveedor(
  * se cae por esto.
  */
 export async function getShippingV2TrazabilidadDeItem(
-  item: Pick<ShippingV2Item, "id" | "ordenCompraId" | "operacionComercialId" | "itemPadreId">
+  item: Pick<ShippingV2Item, "id" | "ordenCompraId" | "operacionComercialId" | "itemPadreId">,
+  /** Punto 18b: el registro ya leído (evita leerlo otra vez). */
+  registroLeido?: AirtableRecord
 ): Promise<ShippingV2ItemTrazabilidad> {
   const id = cleanString(item.id);
   if (!id) throw new Error("Record ID de item inválido.");
-  const registro = await leerRegistroItem(id);
+  const registro = registroLeido?.id === id ? registroLeido : await leerRegistroItem(id);
   const campos = registro.fields;
   const enlazados = (campo: string) => linkedRecordIds(campos[campo]);
   const leer = (tabla: string, recordIds: string[]) => recordIds.length

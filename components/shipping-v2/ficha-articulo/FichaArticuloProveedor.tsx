@@ -17,7 +17,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ExternalLink, Link2, X } from "lucide-react";
+import { ExternalLink, Link2, Loader2, X } from "lucide-react";
 import type { FichaArticulo } from "@/lib/shipping-v2/ficha-articulo";
 import { FichaArticuloVista } from "./FichaArticuloVista";
 import { FichaContexto, ID_REGISTRO, PARAM_FICHA, hrefArticulo, type CambioArticulo, type OyenteCambio } from "./contexto";
@@ -26,6 +26,62 @@ import { FichaContexto, ID_REGISTRO, PARAM_FICHA, hrefArticulo, type CambioArtic
 function idsDelSku(ficha: FichaArticulo): string[] {
   if (ficha.perfil === "proveedor") return [];
   return ficha.datos.hermanas.map((h) => h.id);
+}
+
+// ─── Punto 18b (velocidad): fichas pedidas por adelantado ────────────────────
+// Cada ficha tarda lo que tardan dos lecturas seguidas en Airtable. Para que
+// cambiar de unidad (o abrir una fila) se sienta inmediato, la ficha se pide
+// al pasar el mouse por encima y se guarda unos segundos SOLO en esta pestaña
+// y mientras se está en Shipping V2 (al salir se olvida). Cualquier cambio
+// guardado desde la ficha borra todo lo guardado.
+
+const FICHA_GUARDADA_MS = 20 * 1000;
+
+type RespuestaFicha =
+  | { ok: true; ficha: FichaArticulo }
+  | { ok: false; mensaje: string; estado?: number };
+
+type AlmacenFichas = {
+  /** Una ficha guardada hace menos de 20 s, si hay. */
+  guardada: (id: string) => FichaArticulo | null;
+  /** Pide la ficha (reutiliza la que ya se está pidiendo o la guardada). */
+  pedir: (id: string, opciones?: { fresca?: boolean }) => Promise<RespuestaFicha>;
+  olvidar: () => void;
+};
+
+function crearAlmacenFichas(): AlmacenFichas {
+  const guardadas = new Map<string, { ficha: FichaArticulo; at: number }>();
+  const enCurso = new Map<string, Promise<RespuestaFicha>>();
+  const guardada = (id: string) => {
+    const g = guardadas.get(id);
+    return g && Date.now() - g.at < FICHA_GUARDADA_MS ? g.ficha : null;
+  };
+  const pedir = (id: string, opciones: { fresca?: boolean } = {}) => {
+    if (!opciones.fresca) {
+      const g = guardada(id);
+      if (g) return Promise.resolve<RespuestaFicha>({ ok: true, ficha: g });
+      const pendiente = enCurso.get(id);
+      if (pendiente) return pendiente;
+    }
+    const promesa: Promise<RespuestaFicha> = fetch(`/api/shipping-v2/items/${encodeURIComponent(id)}/ficha`, { cache: "no-store" })
+      .then(async (respuesta) => {
+        const payload = await respuesta.json().catch(() => ({}));
+        if (!respuesta.ok || !payload.success) {
+          return { ok: false as const, mensaje: String(payload.error || "No se pudo cargar el artículo."), estado: respuesta.status };
+        }
+        const ficha = payload.data as FichaArticulo;
+        guardadas.set(id, { ficha, at: Date.now() });
+        if (guardadas.size > 30) guardadas.delete(guardadas.keys().next().value as string);
+        return { ok: true as const, ficha };
+      })
+      .catch((error) => ({ ok: false as const, mensaje: error instanceof Error ? error.message : "No se pudo cargar el artículo." }))
+      .finally(() => {
+        if (enCurso.get(id) === promesa) enCurso.delete(id);
+      });
+    enCurso.set(id, promesa);
+    return promesa;
+  };
+  return { guardada, pedir, olvidar: () => guardadas.clear() };
 }
 
 function leerParam(): string | null {
@@ -48,6 +104,7 @@ export function FichaArticuloProveedor({ children }: { children: ReactNode }) {
   // ¿La entrada actual del historial la agregamos nosotros? (entonces Cerrar = Atrás)
   const empujada = useRef(false);
   const oyentes = useRef(new Set<OyenteCambio>());
+  const [almacen] = useState(crearAlmacenFichas);
 
   // Al cargar (o recargar) con ?ficha=… se abre encima de la pantalla.
   useEffect(() => {
@@ -103,15 +160,21 @@ export function FichaArticuloProveedor({ children }: { children: ReactNode }) {
   }, []);
 
   const avisarCambio = useCallback((cambio: CambioArticulo) => {
+    // Algo se guardó: lo pedido por adelantado puede estar viejo.
+    almacen.olvidar();
     for (const oyente of oyentes.current) oyente(cambio);
-  }, []);
+  }, [almacen]);
 
-  const valor = useMemo(() => ({ abrir, cerrar, abierta, suscribir, avisarCambio }), [abrir, cerrar, abierta, suscribir, avisarCambio]);
+  const precargar = useCallback((id: string) => {
+    if (ID_REGISTRO.test(id)) void almacen.pedir(id);
+  }, [almacen]);
+
+  const valor = useMemo(() => ({ abrir, cerrar, abierta, suscribir, avisarCambio, precargar }), [abrir, cerrar, abierta, suscribir, avisarCambio, precargar]);
 
   return (
     <FichaContexto.Provider value={valor}>
       {children}
-      {abierta ? <FichaArticuloVentana id={abierta} onClose={cerrar} onCambio={avisarCambio} /> : null}
+      {abierta ? <FichaArticuloVentana id={abierta} almacen={almacen} onClose={cerrar} onCambio={avisarCambio} /> : null}
     </FichaContexto.Provider>
   );
 }
@@ -144,7 +207,7 @@ function EsqueletoFicha() {
   );
 }
 
-function FichaArticuloVentana({ id, onClose, onCambio }: { id: string; onClose: () => void; onCambio: (cambio: CambioArticulo) => void }) {
+function FichaArticuloVentana({ id, almacen, onClose, onCambio }: { id: string; almacen: AlmacenFichas; onClose: () => void; onCambio: (cambio: CambioArticulo) => void }) {
   const router = useRouter();
   const [estado, setEstado] = useState<Estado>({ tipo: "cargando" });
   const [version, setVersion] = useState(0);
@@ -154,40 +217,38 @@ function FichaArticuloVentana({ id, onClose, onCambio }: { id: string; onClose: 
 
   // Cada artículo nuevo empieza desde el esqueleto (nunca con los datos del
   // anterior). Punto 18b: si es otra unidad del MISMO SKU, la ficha se queda y
-  // solo se atenúa un instante hasta que llega la unidad nueva.
+  // solo se atenúa hasta que llega la unidad nueva; si ya se había pedido por
+  // adelantado, aparece al instante.
   const estadoRef = useRef(estado);
   useEffect(() => {
     estadoRef.current = estado;
   }, [estado]);
   const [cambiandoUnidad, setCambiandoUnidad] = useState(false);
+  const versionVista = useRef(version);
   useEffect(() => {
-    const actual = estadoRef.current;
-    if (actual.tipo === "lista" && actual.ficha.datos.item.id !== id && idsDelSku(actual.ficha).includes(id)) {
-      setCambiandoUnidad(true);
+    let vivo = true;
+    const fresca = versionVista.current !== version;
+    versionVista.current = version;
+    const lista = fresca ? null : almacen.guardada(id);
+    if (lista) {
+      setEstado({ tipo: "lista", ficha: lista });
+      setCambiandoUnidad(false);
       return;
     }
-    setEstado({ tipo: "cargando" });
-  }, [id]);
-
-  useEffect(() => {
-    const control = new AbortController();
-    fetch(`/api/shipping-v2/items/${encodeURIComponent(id)}/ficha`, { cache: "no-store", signal: control.signal })
-      .then(async (respuesta) => {
-        const payload = await respuesta.json().catch(() => ({}));
-        if (!respuesta.ok || !payload.success) {
-          setEstado({ tipo: "error", mensaje: String(payload.error || "No se pudo cargar el artículo."), estado: respuesta.status });
-          setCambiandoUnidad(false);
-          return;
-        }
-        setEstado({ tipo: "lista", ficha: payload.data as FichaArticulo });
-        setCambiandoUnidad(false);
-      })
-      .catch((error) => {
-        if (control.signal.aborted) return;
-        setEstado({ tipo: "error", mensaje: error instanceof Error ? error.message : "No se pudo cargar el artículo." });
-      });
-    return () => control.abort();
-  }, [id, version]);
+    const actual = estadoRef.current;
+    if (!fresca) {
+      if (actual.tipo === "lista" && actual.ficha.datos.item.id !== id && idsDelSku(actual.ficha).includes(id)) setCambiandoUnidad(true);
+      else if (!(actual.tipo === "lista" && actual.ficha.datos.item.id === id)) setEstado({ tipo: "cargando" });
+    }
+    void almacen.pedir(id, { fresca }).then((respuesta) => {
+      if (!vivo) return;
+      setEstado(respuesta.ok ? { tipo: "lista", ficha: respuesta.ficha } : { tipo: "error", mensaje: respuesta.mensaje, estado: respuesta.estado });
+      setCambiandoUnidad(false);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [id, version, almacen]);
 
   // Fondo quieto, foco dentro y Esc para cerrar (si no hay otra ventana encima).
   useEffect(() => {
@@ -242,7 +303,14 @@ function FichaArticuloVentana({ id, onClose, onCambio }: { id: string; onClose: 
         tabIndex={-1}
         className="relative flex max-h-full w-full max-w-[min(96vw,1440px)] flex-col overflow-hidden rounded-xl border border-[#3A3A36] bg-[#11120F] shadow-2xl shadow-black/60 outline-none animate-[sg-modal_200ms_cubic-bezier(0.2,0.8,0.2,1)]"
       >
-        <div className="absolute right-2 top-2 z-20 flex gap-1">
+        {/* Barra fija arriba (fuera del área que se desplaza: no tapa la barra de desplazamiento). */}
+        <div className="flex h-11 shrink-0 items-center justify-end gap-1 border-b border-[#24251F] px-2">
+          {cambiandoUnidad ? (
+            <span className="mr-auto inline-flex items-center gap-1.5 px-1 text-[12px] text-[#8F908A]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              Cargando unidad…
+            </span>
+          ) : null}
           <button type="button" onClick={() => void copiarEnlace()} className={boton} title={copiado ? "Enlace copiado" : "Copiar enlace del artículo"} aria-label="Copiar enlace del artículo">
             <Link2 className={`h-4 w-4 ${copiado ? "text-[#D7FF4F]" : ""}`} aria-hidden="true" />
           </button>
@@ -257,12 +325,12 @@ function FichaArticuloVentana({ id, onClose, onCambio }: { id: string; onClose: 
           {estado.tipo === "cargando" ? (
             <EsqueletoFicha />
           ) : estado.tipo === "error" ? (
-            <div className="m-3 mt-12 rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-[13px] text-[#FFB07A]">
+            <div className="m-3 rounded-lg border border-[#FF914D]/35 bg-[#FF914D]/10 px-4 py-3 text-[13px] text-[#FFB07A]">
               {estado.mensaje}
               {estado.estado === 401 ? <> <a href="/login" className="font-semibold underline">Iniciar sesión</a></> : null}
             </div>
           ) : (
-            <div aria-busy={cambiandoUnidad || undefined} className={`p-2 pt-12 transition-opacity duration-150 sm:p-3 sm:pt-12 animate-[sg-entrada_180ms_ease-out] ${cambiandoUnidad ? "pointer-events-none opacity-60" : ""}`}>
+            <div aria-busy={cambiandoUnidad || undefined} className={`p-2 transition-opacity duration-150 sm:p-3 animate-[sg-entrada_180ms_ease-out] ${cambiandoUnidad ? "pointer-events-none opacity-60" : ""}`}>
               <FichaArticuloVista ficha={estado.ficha} modo="modal" alCambiar={alCambiar} />
             </div>
           )}

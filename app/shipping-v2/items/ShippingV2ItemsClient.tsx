@@ -1996,9 +1996,15 @@ export function ShippingV2ItemDetailView({
     }
   }
 
+  // Punto 18b (velocidad): la ficha ya llega recién leída del servidor, así que
+  // NO se vuelve a pedir al abrirla (antes se pedía dos veces más: al instante y
+  // a los 4 s, en cada apertura y en cada cambio de unidad). Solo un artículo
+  // recién creado, que todavía espera su nombre sugerido, se relee una vez.
   useEffect(() => {
     setIgnoredAiName("");
-    void refreshItem();
+    const registrado = Date.parse(item.createdTime || item.fechaRegistro || "");
+    const esperaNombreSugerido = !item.aiNombre?.trim() && Number.isFinite(registrado) && Date.now() - registrado < 15 * 60 * 1000;
+    if (!esperaNombreSugerido) return;
     const timeout = window.setTimeout(() => {
       void refreshItem();
     }, 4000);
@@ -2959,6 +2965,17 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
   }
 
   // ── Punto 18b: filas de la tabla ──
+  // Si el mouse se queda un momento sobre una fila, su ficha se pide por
+  // adelantado (una a la vez); al hacer clic se abre más rápido.
+  const intencionRef = useRef<number | null>(null);
+  const intencion = (id: string) => {
+    if (intencionRef.current) window.clearTimeout(intencionRef.current);
+    intencionRef.current = window.setTimeout(() => ficha?.precargar(id), 250);
+  };
+  const sinIntencion = () => {
+    if (intencionRef.current) window.clearTimeout(intencionRef.current);
+    intencionRef.current = null;
+  };
   const MUTED_COLUMNS = new Set<ShippingV2ItemsColumnKey>(["generalRole", "category", "packing", "createdAt", "brand", "model", "serial", "condition", "location", "triangulationStatus", "reviewStatus", "requiresPayment", "requiresPacking", "physicalReview", "notes", "purchaseProvider", "logisticProvider", "supplierSku"]);
   const celdaClass = (column: ShippingV2ItemsColumn) => {
     const alignClass = column.align === "right"
@@ -2977,6 +2994,8 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
         key={item.id}
         tabIndex={0}
         onClick={(event) => openItemFromRow(event, item)}
+        onMouseEnter={() => intencion(item.id)}
+        onMouseLeave={sinIntencion}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
@@ -3002,12 +3021,15 @@ export function ShippingV2ItemsClient({ items: initialItems, proveedores, error,
 
   /** La fila del SKU: abre una unidad disponible; la flecha muestra sus registros. */
   function renderFilaGrupo(grupo: GrupoItems, abierto: boolean) {
-    const abrirGrupo = () => abrirArticulo((unidadPorDefecto(grupo.items) ?? grupo.principal).id);
+    const unidadAbrir = (unidadPorDefecto(grupo.items) ?? grupo.principal).id;
+    const abrirGrupo = () => abrirArticulo(unidadAbrir);
     return (
       <tr
         key={`grupo:${grupo.clave}`}
         tabIndex={0}
         aria-expanded={abierto}
+        onMouseEnter={() => intencion(unidadAbrir)}
+        onMouseLeave={sinIntencion}
         onClick={(event) => {
           const target = event.target as HTMLElement;
           if (target.closest("a,button,input,select,textarea")) return;

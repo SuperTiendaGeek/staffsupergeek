@@ -20,6 +20,11 @@ export type ContextoFicha = {
   /** Las listas se suscriben para refrescar su fila cuando algo cambia en la ficha. */
   suscribir: (oyente: OyenteCambio) => () => void;
   avisarCambio: (cambio: CambioArticulo) => void;
+  /**
+   * Punto 18b (velocidad): pide la ficha por adelantado (al pasar el mouse
+   * sobre una unidad o una fila). Si luego se abre, aparece al instante.
+   */
+  precargar: (id: string) => void;
 };
 
 export const FichaContexto = createContext<ContextoFicha | null>(null);

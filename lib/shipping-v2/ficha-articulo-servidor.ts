@@ -17,7 +17,7 @@ import type { ShippingV2ResolvedItem } from "@/lib/shipping-v2/item-list-view";
 import type { ShippingV2AccessContext, ShippingV2Item, ShippingV2Proveedor } from "@/types/shipping-v2";
 import {
   getShippingV2AccessContextForSession,
-  getShippingV2ItemById,
+  getShippingV2ItemConRegistro,
   getShippingV2NovedadesForItem,
   getShippingV2PackingById,
   getShippingV2PagoById,
@@ -47,6 +47,23 @@ import {
 
 const ID_REGISTRO = /^rec[A-Za-z0-9]{14}$/;
 
+// Punto 18b (velocidad): cuánto tarda cada parte de la ficha. Solo se escribe
+// en el registro del servidor cuando la ficha tarda más de 1,5 s, para saber
+// qué parte la frena sin adivinar.
+type Tiempos = Record<string, number>;
+function medir<T>(tiempos: Tiempos, parte: string, promesa: Promise<T>): Promise<T> {
+  const inicio = Date.now();
+  return promesa.finally(() => {
+    tiempos[parte] = Date.now() - inicio;
+  });
+}
+function avisarSiTarda(id: string, inicio: number, tiempos: Tiempos) {
+  const total = Date.now() - inicio;
+  if (total < 1500) return;
+  const partes = Object.entries(tiempos).sort((a, b) => b[1] - a[1]).map(([parte, ms]) => `${parte} ${ms} ms`).join(" · ");
+  console.info(`[ficha del artículo] ${id} tardó ${total} ms → ${partes}`);
+}
+
 function avisar(que: string) {
   return (error: unknown) => {
     console.warn(`[ficha del artículo] No se pudo cargar ${que}:`, error);
@@ -68,28 +85,31 @@ function resolver(item: ShippingV2Item, proveedores: ShippingV2Proveedor[]): Shi
   };
 }
 
-async function fichaInterna(item: ShippingV2Item, access: ShippingV2AccessContext, session: StaffSession): Promise<FichaInterna> {
+type RegistroLeido = Awaited<ReturnType<typeof getShippingV2ItemConRegistro>>["registro"];
+
+async function fichaInterna(item: ShippingV2Item, access: ShippingV2AccessContext, session: StaffSession, registro?: RegistroLeido, t: Tiempos = {}): Promise<FichaInterna> {
   // Personalización por usuario (Campos restringidos). Un Administrador nunca queda restringido.
   const esAdmin = isAdministratorRole(session.user.rol);
   const restringidos = esAdmin ? {} : session.user.camposRestringidos;
   const camposOcultos = camposConEstado(restringidos, "shipping-v2", "items", "oculto");
   const camposSoloLectura = camposConEstado(restringidos, "shipping-v2", "items", "solo-lectura");
 
-  const [proveedores, novedades, situacionPago] = await Promise.all([
-    getShippingV2Proveedores(),
-    getShippingV2NovedadesForItem(item.id, access).catch(() => []),
-    getShippingV2SituacionPagoDeItem(item).catch(() => undefined),
+  // Punto 18b (velocidad): todo se pide A LA VEZ (antes eran dos tandas
+  // seguidas). Lo oculto para esta persona no viaja: se recorta abajo.
+  const visible = ocultarCamposDeObjeto(item, camposOcultos);
+  const [proveedores, novedades, situacionPago, pago, packing, trazabilidad, hermanas, publicaciones] = await Promise.all([
+    medir(t, "proveedores", getShippingV2Proveedores()),
+    medir(t, "novedades", getShippingV2NovedadesForItem(item.id, access, registro).catch(() => [])),
+    medir(t, "situación del pago", getShippingV2SituacionPagoDeItem(item).catch(() => undefined)),
+    visible.pagoId ? medir(t, "pago", getShippingV2PagoById(visible.pagoId, access, { sinArticulos: true }).catch(avisar("el pago"))) : Promise.resolve(null),
+    visible.packingId
+      ? medir(t, "caja", getShippingV2PackingById(visible.packingId, access, { includeItems: false, includeAiName: false }).catch(avisar("la caja")))
+      : Promise.resolve(null),
+    medir(t, "recorrido", getShippingV2TrazabilidadDeItem(visible, registro).catch(avisar("el recorrido"))),
+    medir(t, "unidades del SKU", getShippingV2UnidadesDelProducto(visible.sku, access).catch(() => [])),
+    visible.sku ? medir(t, "publicaciones", getShippingV2PublicacionesDeSku(visible.sku).catch(() => [])) : Promise.resolve([]),
   ]);
   const resuelto = ocultarCamposDeObjeto(resolver({ ...item, situacionPago }, proveedores), camposOcultos);
-  const [pago, packing, trazabilidad, hermanas, publicaciones] = await Promise.all([
-    resuelto.pagoId ? getShippingV2PagoById(resuelto.pagoId, access).catch(avisar("el pago")) : Promise.resolve(null),
-    resuelto.packingId
-      ? getShippingV2PackingById(resuelto.packingId, access, { includeItems: false, includeAiName: false }).catch(avisar("la caja"))
-      : Promise.resolve(null),
-    getShippingV2TrazabilidadDeItem(resuelto).catch(avisar("el recorrido")),
-    getShippingV2UnidadesDelProducto(resuelto.sku, access).catch(() => []),
-    resuelto.sku ? getShippingV2PublicacionesDeSku(resuelto.sku).catch(() => []) : Promise.resolve([]),
-  ]);
 
   return {
     item: resuelto,
@@ -114,12 +134,12 @@ async function fichaInterna(item: ShippingV2Item, access: ShippingV2AccessContex
   };
 }
 
-async function fichaTecnica(item: ShippingV2Item, access: ShippingV2AccessContext, session: StaffSession): Promise<FichaTecnica> {
+async function fichaTecnica(item: ShippingV2Item, access: ShippingV2AccessContext, session: StaffSession, registro?: RegistroLeido): Promise<FichaTecnica> {
   const [novedades, hermanas, trazabilidad] = await Promise.all([
-    getShippingV2NovedadesForItem(item.id, access).catch(() => []),
+    getShippingV2NovedadesForItem(item.id, access, registro).catch(() => []),
     getShippingV2UnidadesDelProducto(item.sku, access).catch(() => []),
     // Solo se usa "de dónde salió" (despiece o mejora); lo comercial no viaja.
-    getShippingV2TrazabilidadDeItem(item).catch(avisar("el origen")),
+    getShippingV2TrazabilidadDeItem(item, registro).catch(avisar("el origen")),
   ]);
   const puedeInspeccionar = puedeInspeccionarShippingV2(access);
   return {
@@ -180,9 +200,12 @@ export async function cargarFichaArticulo(id: string, session: StaffSession | nu
     return { ok: false, estado: 403, mensaje: "No tienes acceso a los artículos." };
   }
 
+  const inicio = Date.now();
+  const tiempos: Tiempos = {};
   let item: ShippingV2Item;
+  let registro: RegistroLeido | undefined;
   try {
-    item = await getShippingV2ItemById(recordId, { access });
+    ({ item, registro } = await medir(tiempos, "artículo", getShippingV2ItemConRegistro(recordId, { access })));
   } catch (error) {
     const mensaje = error instanceof Error ? error.message : "";
     if (mensaje.includes("error 404")) return { ok: false, estado: 404, mensaje: "No existe un artículo con ese código." };
@@ -194,9 +217,10 @@ export async function cargarFichaArticulo(id: string, session: StaffSession | nu
 
   try {
     let ficha: FichaArticulo;
-    if (perfil === "tecnico") ficha = { perfil, datos: await fichaTecnica(item, access, session) };
+    if (perfil === "tecnico") ficha = { perfil, datos: await fichaTecnica(item, access, session, registro) };
     else if (perfil === "proveedor") ficha = { perfil, datos: await fichaProveedor(item, access) };
-    else ficha = { perfil, datos: await fichaInterna(item, access, session) };
+    else ficha = { perfil, datos: await fichaInterna(item, access, session, registro, tiempos) };
+    avisarSiTarda(recordId, inicio, tiempos);
     return { ok: true, ficha };
   } catch (error) {
     console.error("[ficha del artículo] No se pudo armar la ficha:", error);
