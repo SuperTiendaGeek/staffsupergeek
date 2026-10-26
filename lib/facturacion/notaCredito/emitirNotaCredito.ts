@@ -33,11 +33,13 @@ import {
   subirAdjuntoNotaCredito,
 } from "./airtable";
 import type { DetalleNotaCredito, DestinoNotaCredito } from "./types";
+import type { DatosReembolso } from "./reembolso";
 import type { MensajeSRI } from "../sri/recepcion";
 
 const DESTINO_LABEL: Record<DestinoNotaCredito, string> = {
-  cambio: "Cambio de equipo",
-  saldo:  "Saldo a favor",
+  cambio:    "Cambio de equipo",
+  saldo:     "Saldo a favor",
+  reembolso: "Reembolso",
 };
 
 const MAX_REINTENTOS = 3;
@@ -99,6 +101,9 @@ export type DatosNotaCredito = {
   detalles: DetalleNotaCredito[];
   /** Fase 18 PR2b — destino del dinero (se guarda en la NC para el puente contable). */
   destino?: DestinoNotaCredito;
+  /** Solo con destino "reembolso": de qué cuenta sale y cómo. Ya validado por la ruta.
+   *  Se guarda en "Líneas JSON"; NUNCA entra al XML. */
+  reembolso?: DatosReembolso;
 };
 
 export type ResultadoNotaCredito = {
@@ -141,6 +146,12 @@ export function fechaLimiteAceptacionAnulacion(desde: Date): Date {
 // ─── Emisión ─────────────────────────────────────────────────────────────────
 
 export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<ResultadoNotaCredito> {
+  // Un reembolso sin cuenta no se podría asentar: frenarlo aquí, antes de
+  // quemar un secuencial o de que el SRI autorice algo que luego no cuadra.
+  if (datos.destino === "reembolso" && !datos.reembolso) {
+    throw new Error("Falta indicar de qué cuenta sale el reembolso.");
+  }
+
   const cfg          = getFacturacionConfig();
   const fechaEmision = ahoraEnEcuador();
   const totales      = calcularTotalesNotaCredito(datos.detalles);
@@ -284,11 +295,16 @@ export async function emitirNotaCredito(datos: DatosNotaCredito): Promise<Result
       destino:            datos.destino ? DESTINO_LABEL[datos.destino] : undefined,
       // El crédito interno arranca igual al total de la NC; baja al usarse
       // como compensación en facturas de reemplazo (Fase 18 PR2c).
-      saldoDisponible:    totales.valorModificacion,
+      // Con reembolso arranca en 0: el dinero se le devuelve al cliente, no
+      // queda nada que gastar. Se pone aquí y no después en el puente para
+      // que, si el asiento contable fallara, el cliente no quede con un
+      // crédito que además se le pagó.
+      saldoDisponible:    datos.destino === "reembolso" ? 0 : totales.valorModificacion,
       lineasJson: JSON.stringify({
         version:  1,
         detalles: datos.detalles,
         origen:   { numeroFacturaModificada: datos.numeroFacturaModificada, facturaRecordId: datos.facturaRecordId },
+        ...(datos.destino === "reembolso" && datos.reembolso ? { reembolso: datos.reembolso } : {}),
       }),
     });
 

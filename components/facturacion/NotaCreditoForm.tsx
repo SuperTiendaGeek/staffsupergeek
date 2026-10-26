@@ -46,9 +46,25 @@ type ResultadoNC = {
   claveAcceso:       string;
   recordId?:         string;
   mensajes?:         Array<{ identificador: string; tipo: string; mensaje: string; informacionAdicional?: string }>;
+  /** Solo con destino "reembolso": cómo terminó el registro en Finanzas. */
+  contabilidad?: {
+    estado:     "OK" | "OMITIDO" | "ERROR";
+    motivo?:    string;
+    reembolso?: { monto: number; cuenta: string };
+    movimientoId?: string;
+  };
 };
 
-type Destino = "cambio" | "saldo";
+type Destino = "cambio" | "saldo" | "reembolso";
+
+type ConfigReembolso = {
+  disponible: boolean;
+  aviso:      string | null;
+  cuentas:    Array<{ id: string; nombre: string; tipo: string }>;
+  metodos:    string[];
+};
+
+const METODOS_CON_REFERENCIA = new Set(["Transferencia bancaria", "Depósito", "DeUna", "PayPal"]);
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -64,6 +80,10 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
   const [sel, setSel]             = useState<Seleccion[]>([]);
   const [motivo, setMotivo]       = useState("");
   const [destino, setDestino]     = useState<Destino>("cambio");
+  const [cfgReembolso, setCfgReembolso] = useState<ConfigReembolso | null>(null);
+  const [cuentaReembolso, setCuentaReembolso] = useState("");
+  const [metodoReembolso, setMetodoReembolso] = useState("Transferencia bancaria");
+  const [refReembolso, setRefReembolso]       = useState("");
   const [emitiendo, setEmitiendo] = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [resultado, setResultado] = useState<ResultadoNC | null>(null);
@@ -76,6 +96,7 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
         if (j.data.bloqueado) { setBloqueo(j.data.motivo); return; }
         setFactura(j.data.factura);
         setDetalles(j.data.detalles);
+        setCfgReembolso(j.data.reembolso ?? null);
         // Por defecto: todo incluido, cantidad completa, con devolución física
         // en las líneas de producto (el caso común es el cambio de equipo).
         // Para "productoDigital" da igual qué valor tome: el servidor la
@@ -122,13 +143,30 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
     if (lineas.some((l) => l.devolucionFisica && l.esProducto && !l.condicion)) { setError("Indica si cada artículo devuelto vuelve en buen estado o con falla"); return; }
     if (motivo.trim().length < 10) { setError("El motivo debe ser específico (mínimo 10 caracteres)"); return; }
     if (excedeDisponible) { setError(`El total excede lo disponible para acreditar ($${factura?.disponibleAcreditar.toFixed(2)})`); return; }
+    if (destino === "reembolso") {
+      if (!cfgReembolso?.disponible) { setError(cfgReembolso?.aviso ?? "El reembolso no está disponible"); return; }
+      if (!cuentaReembolso) { setError("Elige la cuenta de la que sale el reembolso"); return; }
+      if (METODOS_CON_REFERENCIA.has(metodoReembolso) && !refReembolso.trim()) {
+        setError(`Escribe el número de la ${metodoReembolso.toLowerCase()} del reembolso`); return;
+      }
+      const cuenta = cfgReembolso.cuentas.find((c) => c.id === cuentaReembolso)?.nombre ?? "la cuenta elegida";
+      const ok = window.confirm(
+        `Se emitirá la nota de crédito por $${totalNC.toFixed(2)} y se registrará en Finanzas que salen $${totalNC.toFixed(2)} de ${cuenta} para devolvérselos al cliente.\n\nEl cliente no quedará con saldo a favor. ¿Continuar?`
+      );
+      if (!ok) return;
+    }
 
     setEmitiendo(true);
     try {
       const r = await fetch("/api/facturacion/nota-credito/emitir", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ facturaRecordId, motivo: motivo.trim(), lineas, destino }),
+        body: JSON.stringify({
+          facturaRecordId, motivo: motivo.trim(), lineas, destino,
+          ...(destino === "reembolso"
+            ? { reembolso: { cuentaOrigenId: cuentaReembolso, metodo: metodoReembolso, transaccionId: refReembolso.trim() } }
+            : {}),
+        }),
       });
       const j = await r.json();
       if (!j.success) setError(j.error ?? "Error al emitir la nota de crédito");
@@ -166,6 +204,25 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
         {ok && (
           <p className="text-xs text-[#6EE7B7] bg-[#6EE7B7]/10 border-l-2 border-[#6EE7B7] px-3 py-2 mb-3">
             La nota de crédito está <strong>autorizada y vigente</strong>. El RIDE se envió al cliente por correo.
+          </p>
+        )}
+        {ok && destino === "reembolso" && resultado.contabilidad?.estado === "OK" && (
+          <p className="text-xs text-[#6EE7B7] bg-[#6EE7B7]/10 border-l-2 border-[#6EE7B7] px-3 py-2 mb-3">
+            Reembolso registrado en Finanzas: salen <strong>${resultado.contabilidad.reembolso?.monto.toFixed(2)}</strong>
+            {resultado.contabilidad.reembolso?.cuenta ? <> de <strong>{resultado.contabilidad.reembolso.cuenta}</strong></> : null}.
+            El cliente no queda con saldo a favor.
+          </p>
+        )}
+        {ok && destino === "reembolso" && resultado.contabilidad?.estado === "OMITIDO" && (
+          <p className="text-xs text-[#F0C75E] bg-[#F0C75E]/10 border-l-2 border-[#F0C75E] px-3 py-2 mb-3">
+            Ambiente de pruebas: no se registró nada en Finanzas.
+          </p>
+        )}
+        {ok && destino === "reembolso" && resultado.contabilidad?.estado === "ERROR" && (
+          <p className="text-xs text-red-300 bg-red-950/30 border-l-2 border-red-400 px-3 py-2 mb-3">
+            <strong>La nota de crédito es válida, pero hay que revisar el registro del reembolso.</strong>{" "}
+            {resultado.contabilidad.motivo} El cliente no quedó con saldo a favor.{" "}
+            {!resultado.contabilidad.movimientoId && "Antes de registrar un egreso a mano, confirma en Finanzas con el administrador si ya existe uno para esta nota de crédito."}
           </p>
         )}
         {!ok && (resultado.mensajes ?? []).map((m, i) => (
@@ -303,24 +360,70 @@ export function NotaCreditoForm({ facturaRecordId }: { facturaRecordId: string }
       {/* Destino del crédito */}
       <div className={CARD}>
         <h2 className="text-[#D7FF4F] font-bold text-sm mb-3">3. Tipo de nota de crédito</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
           {([
-            { v: "cambio", t: "Cambio de equipo", d: "Se factura un reemplazo enseguida; el crédito se usa como forma de pago." },
-            { v: "saldo",  t: "Saldo a favor",    d: "El crédito queda para una compra posterior del cliente." },
-          ] as { v: Destino; t: string; d: string }[]).map((op) => (
-            <button
-              key={op.v}
-              onClick={() => setDestino(op.v)}
-              className={`text-left rounded-lg border px-3 py-2 transition ${destino === op.v ? "border-[#D7FF4F] bg-[#D7FF4F]/10" : "border-[#3A3A36] hover:border-[#D7FF4F]/40"}`}
-            >
-              <p className="text-xs font-bold text-[#F5F5F5]">{op.t}</p>
-              <p className="text-[10px] text-[#666] mt-0.5">{op.d}</p>
-            </button>
-          ))}
+            { v: "cambio",    t: "Cambio de equipo",     d: "Se factura un reemplazo enseguida; el crédito se usa como forma de pago." },
+            { v: "saldo",     t: "Saldo a favor",        d: "El crédito queda para una compra posterior del cliente." },
+            { v: "reembolso", t: "Reembolso al cliente", d: "Se le devuelve el dinero. No queda saldo a favor." },
+          ] as { v: Destino; t: string; d: string }[]).map((op) => {
+            const deshabilitado = op.v === "reembolso" && !cfgReembolso?.disponible;
+            return (
+              <button
+                key={op.v}
+                type="button"
+                onClick={() => !deshabilitado && setDestino(op.v)}
+                disabled={deshabilitado}
+                title={deshabilitado ? (cfgReembolso?.aviso ?? undefined) : undefined}
+                className={`text-left rounded-lg border px-3 py-2 transition disabled:opacity-40 disabled:cursor-not-allowed ${destino === op.v ? "border-[#D7FF4F] bg-[#D7FF4F]/10" : "border-[#3A3A36] hover:border-[#D7FF4F]/40"}`}
+              >
+                <p className="text-xs font-bold text-[#F5F5F5]">{op.t}</p>
+                <p className="text-[10px] text-[#666] mt-0.5">{op.d}</p>
+              </button>
+            );
+          })}
         </div>
+        {!cfgReembolso?.disponible && cfgReembolso?.aviso && (
+          <p className="mt-2 text-[10px] text-[#A7A7A7]">Reembolso: {cfgReembolso.aviso}</p>
+        )}
+
+        {destino === "reembolso" && cfgReembolso?.disponible && (
+          <div className="mt-3 rounded-lg border border-[#3A3A36] bg-[#252622]/60 p-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className={LABEL}>Sale de la cuenta</label>
+                <select value={cuentaReembolso} onChange={(e) => setCuentaReembolso(e.target.value)} className={INPUT}>
+                  <option value="">Elige la cuenta…</option>
+                  {cfgReembolso.cuentas.map((c) => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={LABEL}>Cómo se devuelve</label>
+                <select value={metodoReembolso} onChange={(e) => setMetodoReembolso(e.target.value)} className={INPUT}>
+                  {cfgReembolso.metodos.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={LABEL}>
+                  Referencia {METODOS_CON_REFERENCIA.has(metodoReembolso) ? "(obligatoria)" : "(opcional)"}
+                </label>
+                <input
+                  type="text" value={refReembolso} onChange={(e) => setRefReembolso(e.target.value)}
+                  placeholder="N.º de transferencia o comprobante" maxLength={100} className={INPUT}
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-[10px] text-[#A7A7A7]">
+              Se registra en Finanzas un egreso por <strong className="text-[#F5F5F5]">${totalNC.toFixed(2)}</strong> desde
+              esa cuenta, y el crédito de la nota queda en $0. Elige la cuenta de donde de verdad sale el dinero.
+            </p>
+          </div>
+        )}
+
         <p className="mt-3 text-[10px] text-[#666]">
-          Una nota de crédito nunca devuelve efectivo: genera un crédito interno. El efectivo solo se
-          devuelve en una anulación (flujo aparte).
+          El tipo no cambia nada ante el SRI: la nota de crédito que se envía es la misma. Solo decide qué
+          se registra en Finanzas — crédito interno (cambio o saldo a favor) o dinero devuelto (reembolso).
         </p>
       </div>
 

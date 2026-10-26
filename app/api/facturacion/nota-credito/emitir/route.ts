@@ -16,6 +16,9 @@ import type { DetalleFactura }       from "@/lib/facturacion/types/factura";
 import type { SeleccionLinea }       from "@/lib/facturacion/notaCredito/calculos";
 import type { DestinoNotaCredito }   from "@/lib/facturacion/notaCredito/types";
 import { inferirTipoSugerido }       from "@/lib/facturacion/reglas/identificacion";
+import { validarSolicitudReembolso, type DatosReembolso, type SolicitudReembolso } from "@/lib/facturacion/notaCredito/reembolso";
+import { fetchCuentaById }           from "@/lib/finanzas/cuentas";
+import { canAccessApp }              from "@/lib/apps";
 
 export const dynamic     = "force-dynamic";
 export const maxDuration = 90;   // igual que la emisión de factura
@@ -35,14 +38,22 @@ export const maxDuration = 90;   // igual que la emisión de factura
 // producción por su propio guard de ambiente.
 // PENDIENTE (etapa siguiente): registrar el crédito/saldo y su aplicación en
 // la factura de reemplazo (formas de pago "Nota de crédito / Compensación").
+//
+// Destino "reembolso" (26-oct-2026): la única excepción a "no mueve caja". El
+// XML que va al SRI es el mismo; lo que cambia es que el asiento de reversa
+// sale de la cuenta elegida y el crédito queda en 0. Como mueve dinero, solo
+// lo puede usar quien tiene acceso a Finanzas, y la cuenta se valida ANTES de
+// emitir: una NC autorizada ya no se puede deshacer.
 
-const DESTINOS_VALIDOS: DestinoNotaCredito[] = ["cambio", "saldo"];
+const DESTINOS_VALIDOS: DestinoNotaCredito[] = ["cambio", "saldo", "reembolso"];
 
 type Body = {
   facturaRecordId: string;
   motivo:          string;
   lineas:          SeleccionLinea[];
   destino:         DestinoNotaCredito;
+  /** Solo con destino "reembolso". */
+  reembolso?:      SolicitudReembolso;
 };
 
 type LineasJsonEnvoltorio = { version: number; detalles?: DetalleFactura[] };
@@ -69,7 +80,31 @@ export async function POST(request: Request) {
   if (errMotivo) return NextResponse.json({ success: false, error: errMotivo.motivo }, { status: 400 });
 
   if (!DESTINOS_VALIDOS.includes(body.destino)) {
-    return NextResponse.json({ success: false, error: "Indica si la nota de crédito es por cambio de equipo o saldo a favor" }, { status: 400 });
+    return NextResponse.json({ success: false, error: "Indica si la nota de crédito es por cambio de equipo, saldo a favor o reembolso" }, { status: 400 });
+  }
+
+  // ── Reembolso: permiso y cuenta, antes de tocar el SRI ────────────────────
+  let reembolso: DatosReembolso | undefined;
+  if (body.destino === "reembolso") {
+    if (!canAccessApp(session, "Finanzas")) {
+      return NextResponse.json(
+        { success: false, error: "Solo quien tiene acceso a Finanzas puede registrar un reembolso de dinero. Pídeselo a un administrador." },
+        { status: 403 }
+      );
+    }
+    const cuentaId = typeof body.reembolso?.cuentaOrigenId === "string" ? body.reembolso.cuentaOrigenId.trim() : "";
+    let cuenta: Awaited<ReturnType<typeof fetchCuentaById>> = null;
+    if (cuentaId) {
+      try {
+        cuenta = await fetchCuentaById(cuentaId);
+      } catch (e) {
+        console.error("[/api/facturacion/nota-credito/emitir] no se pudo leer la cuenta del reembolso:", e);
+        return NextResponse.json({ success: false, error: "No se pudo verificar la cuenta del reembolso. Intenta de nuevo." }, { status: 502 });
+      }
+    }
+    const v = validarSolicitudReembolso(body.reembolso, cuenta);
+    if (!v.ok) return NextResponse.json({ success: false, error: v.motivo }, { status: 400 });
+    reembolso = v.datos;
   }
 
   const factura = await obtenerFactura(body.facturaRecordId);
@@ -147,6 +182,7 @@ export async function POST(request: Request) {
       motivo:                  body.motivo.trim(),
       detalles:                detallesNC,
       destino:                 body.destino,
+      reembolso,
     });
 
     // Efectos internos tras AUTORIZADO. Los dos son best-effort, cada uno en su
@@ -165,8 +201,8 @@ export async function POST(request: Request) {
         console.error("[/api/facturacion/nota-credito/emitir] reverso de inventario falló:", e);
       }
 
-      // (b) Revertir el ingreso contable y arrancar el reloj de caducidad del
-      // crédito. No mueve caja: la NC sigue sin generar egreso de dinero.
+      // (b) Revertir el ingreso: crédito interno con caducidad o, para un
+      // reembolso, egreso desde la cuenta elegida y saldo disponible cero.
       const puente = await procesarPuenteNotaCredito({
         notaCreditoRecordId: resultado.recordId,
         ambiente:            resultado.ambiente,
@@ -174,6 +210,23 @@ export async function POST(request: Request) {
       });
       if (puente.estado === "ERROR") {
         console.error("[/api/facturacion/nota-credito/emitir] puente contable falló:", puente.motivo);
+      }
+      // Solo el reembolso necesita que la pantalla sepa cómo terminó Finanzas:
+      // si el egreso no se registró, el usuario tiene que saberlo antes de
+      // entregar el dinero o justo después.
+      if (body.destino === "reembolso") {
+        return NextResponse.json({
+          success: true,
+          data: {
+            ...resultado,
+            contabilidad: {
+              estado:  puente.estado,
+              motivo:  "motivo" in puente ? puente.motivo : undefined,
+              reembolso: puente.estado === "OK" ? puente.reembolso : undefined,
+              movimientoId: "movimientoId" in puente ? puente.movimientoId : undefined,
+            },
+          },
+        });
       }
     }
 

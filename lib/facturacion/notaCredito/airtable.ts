@@ -285,6 +285,34 @@ export async function marcarReversaContable(
   );
 }
 
+/**
+ * Deja constancia del REEMBOLSO: enlaza el asiento (que sí sacó el dinero de
+ * una cuenta) y cierra el crédito.
+ *
+ * Todo en la MISMA escritura, igual que marcarCreditoCaducado(): el saldo en
+ * 0 y "Consumido" van junto al enlace del movimiento, para que nunca quede
+ * una nota con el dinero devuelto y el crédito todavía disponible. No se
+ * escribe "Fecha de Caducidad": no hay crédito que pueda caducar.
+ *
+ * Sin typecast, por el mismo motivo que marcarReversaContable().
+ */
+export async function marcarReembolsoContable(recordId: string, movimientoId: string): Promise<void> {
+  const client = getClient();
+  await airtableRequest(
+    `${client.baseUrl}/${encodeURIComponent(TABLE)}/${encodeURIComponent(recordId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        fields: {
+          "Movimiento Reversa": [movimientoId],
+          "Saldo Disponible":   0,
+          "Estado Crédito":     "Consumido",
+        },
+      }),
+    }
+  );
+}
+
 // ─── Obtener una NC individual por record id ─────────────────────────────────
 // Para el reemplazo: leer una NC puntual sin listar (evita el tope de 100
 // registros por página de Airtable y es más eficiente).
@@ -305,6 +333,8 @@ export type NotaCreditoIndividual = {
   estadoCredito:           string;
   movimientoReversaIds:    string[];
   movimientoCaducidadIds:  string[];
+  /** "Cambio de equipo" | "Saldo a favor" | "Reembolso" | "" (NC anteriores a Fase 18 PR2b). */
+  destino:                 string;
   // Para el visor de documentos (opcionales: los demás usos no los necesitan).
   claveAcceso?:             string;
   ambiente?:                "PRUEBAS" | "PRODUCCIÓN";
@@ -339,6 +369,7 @@ export async function obtenerNotaCreditoPorId(recordId: string): Promise<NotaCre
     estadoCredito:          str(f["Estado Crédito"]),
     movimientoReversaIds:   linkedIdsRaw(f["Movimiento Reversa"]),
     movimientoCaducidadIds: linkedIdsRaw(f["Movimiento Caducidad"]),
+    destino:                str(f["Destino"]),
     claveAcceso:            str(f["Clave de Acceso"]),
     ambiente:               str(f["Ambiente"]) === "PRODUCCIÓN" ? "PRODUCCIÓN" : "PRUEBAS",
     fechaEmision:           str(f["Fecha de Emisión"]),
