@@ -158,3 +158,55 @@ cron de Vercel sin tocar nada más.
    período de la venta original.
 3. Si quiere una cuenta contable específica para `Crédito Caducado` en vez de
    dejarlo sin cuenta.
+
+---
+
+## 6 · Destino "Reembolso" (26 de octubre de 2026)
+
+**Por qué:** un cliente devolvió una laptop con falla (LAP-000120, factura
+001-002-000000793) y quería su dinero, no un crédito. Con solo "Cambio de
+equipo" y "Saldo a favor", la nota de crédito dejaba $420 vigentes a favor del
+cliente durante seis meses aunque ya se le hubiera devuelto el dinero.
+
+### Ante el SRI no cambia nada
+
+El destino **no viaja en el XML**. La nota de crédito que se firma y se envía
+es idéntica con los tres destinos: `construirNotaCreditoXml()` no recibe ni el
+destino ni los datos del reembolso, y `NotaCreditoInput` no tiene dónde
+ponerlos (lo comprueba `__tests__/notaCredito.reembolso.test.ts`). La NC sigue
+siendo una devolución con su factura modificada, su base y su IVA; el IVA de lo
+devuelto se descuenta en la declaración del mes igual que con cualquier otra NC.
+
+### Qué cambia en Finanzas
+
+| Destino | Asiento al autorizar | Crédito |
+|---|---|---|
+| Cambio de equipo / Saldo a favor | Egreso `Devolución` **sin cuenta** | `Vigente`, caduca a los 6 meses |
+| Reembolso | Egreso `Devolución` **desde la cuenta elegida**, con método y referencia | `Consumido`, saldo 0, sin caducidad |
+
+Un solo asiento revierte el ingreso de la venta y saca el dinero de la caja.
+Es el mismo criterio que ya usaba la anulación de un recibo interno.
+
+### Reglas
+
+- Solo lo puede elegir quien tiene acceso a **Finanzas** (mueve dinero). Se
+  comprueba en la pantalla y otra vez en el servidor.
+- No sale de cuentas de **Tránsito** ni de **Tarjeta de Crédito**, ni de una
+  inactiva. Transferencia, depósito, DeUna y PayPal exigen la referencia.
+- La cuenta se valida **antes** de enviar nada al SRI.
+- La NC nace con `Saldo Disponible` = 0. Si el asiento fallara, el cliente no
+  queda con un crédito que además se le pagó; la pantalla avisa que hay que
+  revisar Finanzas antes de registrar un egreso a mano. Los datos del reembolso quedan en `Líneas JSON`
+  (clave `reembolso`) como constancia.
+- Idempotente como el resto del puente: con `Movimiento Reversa` ya enlazado no
+  vuelve a sacar dinero. Si se creó el egreso pero falló el enlace con la NC,
+  el reintento recupera el egreso existente por su vínculo a la nota y solo
+  completa el enlace y el cierre del crédito. La pantalla identifica este
+  fallo parcial y no indica registrar otro egreso.
+
+### Código
+
+- `lib/facturacion/notaCredito/reembolso.ts` — reglas puras.
+- `lib/finanzas/puentes/notaCredito.ts` — rama del reembolso.
+- `lib/facturacion/notaCredito/airtable.ts` — `marcarReembolsoContable()`.
+- `app/api/facturacion/nota-credito/emitir` y `prefactura`, `components/facturacion/NotaCreditoForm.tsx`.

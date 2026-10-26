@@ -40,18 +40,59 @@ import "server-only";
  *
  * Idempotente: si la NC ya tiene "Movimiento Reversa" enlazado, no hace nada.
  * Un reintento no puede duplicar el asiento.
+ *
+ * ─── Destino "Reembolso" (26-oct-2026) ───────────────────────────────────────
+ *
+ * Si la nota de crédito se emitió para DEVOLVERLE el dinero al cliente, el
+ * mismo asiento lleva la cuenta de la que sale ese dinero (la que se eligió en
+ * la pantalla y quedó guardada en "Líneas JSON"). Así un solo Egreso revierte
+ * el ingreso y descuenta la caja, y el crédito se cierra en 0 ("Consumido")
+ * en vez de quedar vigente seis meses. Si no se sabe de qué cuenta salió, no
+ * se escribe nada: un reembolso sin cuenta mentiría en el saldo de caja.
+ * Ver lib/facturacion/notaCredito/reembolso.ts.
  */
 
-import { obtenerNotaCreditoPorId, marcarReversaContable } from "@/lib/facturacion/notaCredito/airtable";
+import {
+  obtenerNotaCreditoPorId,
+  marcarReversaContable,
+  marcarReembolsoContable,
+} from "@/lib/facturacion/notaCredito/airtable";
 import { fechaDeCaducidad } from "@/lib/facturacion/notaCredito/caducidad";
+import { leerReembolsoDeLineasJson, observacionReembolso } from "@/lib/facturacion/notaCredito/reembolso";
 import { crearMovimiento } from "../movimientos";
+import { airtableRequest, getClient, tableUrl, type AirtableListResponse } from "../airtable-client";
+import { conResolucionDeTablaMovimientos } from "../table-names";
+import { MOVIMIENTOS_FIELDS as F } from "../movimientos-fields";
 
 const AMBIENTE_PRODUCCION = "2";
 
 export type ResultadoPuenteNotaCredito =
-  | { estado: "OK";       movimientoId?: string; motivo?: string }
+  | { estado: "OK";       movimientoId?: string; motivo?: string; reembolso?: { monto: number; cuenta: string } }
   | { estado: "OMITIDO";  motivo: string }
-  | { estado: "ERROR";    motivo: string };
+  | { estado: "ERROR";    motivo: string; movimientoId?: string };
+
+/** Recupera un egreso creado antes de que fallara el enlace con la NC.
+ * Se filtra por textos y se comprueba el link por id en memoria: Airtable
+ * no permite comparar el record id directamente en un campo de enlace. */
+async function buscarReembolsoExistente(notaCreditoId: string): Promise<string | undefined> {
+  return conResolucionDeTablaMovimientos(getClient(), async (tabla) => {
+    let offset: string | undefined;
+    do {
+      const url = new URL(tableUrl(tabla));
+      url.searchParams.set("filterByFormula", `AND({${F.tipo}}='Egreso',{${F.categoria}}='Devolución',{${F.origen}}='Facturación',{${F.estado}}!='Anulado')`);
+      url.searchParams.set("pageSize", "100");
+      if (offset) url.searchParams.set("offset", offset);
+      const data = await airtableRequest<AirtableListResponse>(url.toString());
+      const existente = data.records?.find((r) => {
+        const ids = r.fields[F.notaCredito];
+        return Array.isArray(ids) && ids.includes(notaCreditoId);
+      });
+      if (existente) return existente.id;
+      offset = data.offset;
+    } while (offset);
+    return undefined;
+  });
+}
 
 export type PuenteNotaCreditoInput = {
   notaCreditoRecordId: string;
@@ -83,11 +124,66 @@ export async function procesarPuenteNotaCredito(
 
     // Idempotencia: el asiento ya existe.
     if (nc.movimientoReversaIds.length > 0) {
-      return { estado: "OK", movimientoId: nc.movimientoReversaIds[0], motivo: "El asiento de reversa ya existía." };
+      const datos = nc.destino === "Reembolso" ? leerReembolsoDeLineasJson(nc.lineasJson) : null;
+      return { estado: "OK", movimientoId: nc.movimientoReversaIds[0], motivo: "El asiento de reversa ya existía.",
+        ...(datos ? { reembolso: { monto: nc.total, cuenta: datos.cuentaOrigenNombre } } : {}) };
     }
 
     if (!(nc.total > 0)) {
       return { estado: "OMITIDO", motivo: "La nota de crédito no tiene total que revertir." };
+    }
+
+    if (nc.destino === "Reembolso") {
+      const datos = leerReembolsoDeLineasJson(nc.lineasJson);
+      if (!datos) {
+        return {
+          estado: "ERROR",
+          motivo:
+            `La nota de crédito ${nc.numeroNotaCredito} es un reembolso pero no tiene guardada la cuenta de la que ` +
+            `salió el dinero. No se registró nada en Finanzas: hay que registrar el egreso a mano.`,
+        };
+      }
+
+      // Egreso CON cuenta: aquí sí sale dinero. crearMovimiento() vuelve a
+      // comprobar que la cuenta exista y esté activa, y marca "Alerta
+      // Descuadre" si el saldo del sistema no alcanza (no bloquea: el dinero
+      // ya se entregó).
+      const existenteId = await buscarReembolsoExistente(nc.recordId);
+      const movimiento = existenteId ? { id: existenteId } : await crearMovimiento({
+        tipo:               "Egreso",
+        origen:             "Facturación",
+        categoria:          "Devolución",
+        monto:              nc.total,
+        cuentaOrigenId:     datos.cuentaOrigenId,
+        estado:             "Confirmado",
+        estadoDistribucion: "Pendiente de clasificar",
+        metodo:             datos.metodo,
+        transaccionId:      datos.transaccionId,
+        registradoPor:      input.registradoPor,
+        notaCreditoId:      nc.recordId,
+        clienteId:          nc.clienteRecordId,
+        observacion:        observacionReembolso({
+          numeroNotaCredito:       nc.numeroNotaCredito,
+          numeroFacturaModificada: nc.numeroFacturaModificada,
+          datos,
+        }),
+      });
+
+      try {
+        await marcarReembolsoContable(nc.recordId, movimiento.id);
+      } catch (error) {
+        console.error("[Finanzas] Reembolso creado pero no enlazado a la NC:", error);
+        return {
+          estado: "ERROR", movimientoId: movimiento.id,
+          motivo: `El egreso ${movimiento.id} ya existe en Finanzas, pero no se pudo enlazar a la nota de crédito. No registres otro egreso; revisa el enlace con el administrador.`,
+        };
+      }
+
+      return {
+        estado: "OK",
+        movimientoId: movimiento.id,
+        reembolso: { monto: nc.total, cuenta: datos.cuentaOrigenNombre },
+      };
     }
 
     // El Egreso va SIN cuenta: no sale dinero de ninguna caja. Es el mismo

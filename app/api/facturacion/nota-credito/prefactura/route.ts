@@ -5,6 +5,9 @@ import { totalAcreditadoDeFactura }  from "@/lib/facturacion/notaCredito/airtabl
 import { evaluarNotaCreditoPermitida } from "@/lib/facturacion/notaCredito/calculos";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import type { DetalleFactura }       from "@/lib/facturacion/types/factura";
+import { canAccessApp }              from "@/lib/apps";
+import { fetchCuentasFinancieras }   from "@/lib/finanzas/cuentas";
+import { cuentaPermiteReembolso, METODOS_REEMBOLSO } from "@/lib/facturacion/notaCredito/reembolso";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +21,8 @@ export const dynamic = "force-dynamic";
 type LineasJsonEnvoltorio = { version: number; detalles?: DetalleFactura[] };
 
 export async function GET(request: Request) {
-  const { response } = await requireFacturacionSession();
-  if (response) return response;
+  const { response, session } = await requireFacturacionSession();
+  if (response || !session) return response ?? NextResponse.json({ success: false, error: "Sin sesión" }, { status: 401 });
 
   const facturaRecordId = new URL(request.url).searchParams.get("facturaRecordId")?.trim();
   if (!facturaRecordId) {
@@ -80,10 +83,38 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: true, data: { bloqueado: true, motivo: rechazo.motivo } });
   }
 
+  // Destino "Reembolso": solo para quien tiene acceso a Finanzas, porque saca
+  // dinero de una cuenta. Las cuentas solo se listan a esa persona. Si no se
+  // pueden leer, el reembolso queda deshabilitado con su motivo; los otros
+  // dos destinos siguen funcionando igual.
+  const puedeReembolsar = canAccessApp(session, "Finanzas");
+  let cuentasReembolso: Array<{ id: string; nombre: string; tipo: string }> = [];
+  let avisoReembolso: string | null = puedeReembolsar
+    ? null
+    : "Solo quien tiene acceso a Finanzas puede registrar un reembolso de dinero.";
+  if (puedeReembolsar) {
+    try {
+      cuentasReembolso = (await fetchCuentasFinancieras())
+        .filter(cuentaPermiteReembolso)
+        .map((c) => ({ id: c.id, nombre: c.nombre, tipo: String(c.tipo) }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+      if (cuentasReembolso.length === 0) avisoReembolso = "No hay cuentas activas desde las que se pueda reembolsar.";
+    } catch (e) {
+      console.error("[/api/facturacion/nota-credito/prefactura] no se pudieron leer las cuentas:", e);
+      avisoReembolso = "No se pudieron cargar las cuentas de Finanzas. Recarga la página para intentar de nuevo.";
+    }
+  }
+
   return NextResponse.json({
     success: true,
     data: {
       bloqueado: false,
+      reembolso: {
+        disponible: puedeReembolsar && cuentasReembolso.length > 0,
+        aviso:      avisoReembolso,
+        cuentas:    cuentasReembolso,
+        metodos:    METODOS_REEMBOLSO,
+      },
       factura: {
         recordId:              factura.recordId,
         numeroFactura:         factura.numeroFactura,
