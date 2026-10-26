@@ -8,8 +8,8 @@
 // solo lo propio del registro (costos, recorrido, pestañas, novedades).
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Layers } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, Layers } from "lucide-react";
 import type { ShippingV2UnidadHermana } from "@/types/shipping-v2";
 import { existenciasDelSku, sigueEnInventario } from "@/lib/shipping-v2/ficha-articulo";
 import { normalizarSerie } from "@/lib/shipping-v2/unidades-serie";
@@ -151,9 +151,9 @@ export function UnidadesDelSku({
                 onMouseEnter={actual ? undefined : () => precargar?.(h.id)}
                 onFocus={actual ? undefined : () => precargar?.(h.id)}
                 title={`${actual ? "Unidad que estás viendo" : "Ver esta unidad"} · ${detalleUnidad(h)}`}
-                className={`grid w-full grid-cols-[minmax(0,1fr)_4.5rem_3.5rem] items-center gap-1.5 border-b border-l-2 border-b-[#24251F] px-2.5 py-1 text-left text-[12px] leading-5 transition ${actual ? "border-l-[#D7FF4F] bg-[#D7FF4F]/[0.06]" : "border-l-transparent hover:bg-[#1D1E1A]"} ${salio ? "opacity-60" : ""}`}
+                className={`grid w-full grid-cols-[minmax(0,1fr)_4.75rem_3.75rem] items-center gap-1.5 border-b border-l-2 border-b-[#24251F] px-2.5 py-1 text-left text-[12px] leading-5 transition ${actual ? "border-l-[#D7FF4F] bg-[#D7FF4F]/[0.06]" : "border-l-transparent hover:bg-[#1D1E1A]"} ${salio ? "opacity-60" : ""}`}
               >
-                <span className={`truncate font-mono text-[11.5px] ${serie ? "font-semibold text-[#E6E6E1]" : actual ? "text-[#E6E6E1]" : "text-[#8F908A]"}`}>
+                <span className={`min-w-0 break-all font-mono text-[11.5px] ${serie ? "font-semibold text-[#E6E6E1]" : actual ? "text-[#E6E6E1]" : "text-[#8F908A]"}`}>
                   {nombreUnidad(h)}
                   {(h.cantidad ?? 1) !== 1 ? <span className="ml-1 font-sans text-[11px] text-[#B4B5AC]">×{h.cantidad ?? 0}</span> : null}
                 </span>
@@ -177,92 +177,5 @@ export function UnidadesDelSku({
         </button>
       ) : null}
     </section>
-  );
-}
-
-/**
- * Rediseño (26-oct): en la barra de la ficha, qué unidad se está viendo y la
- * lista para pasar a otra (con su serie completa).
- */
-export function SelectorUnidad({
-  hermanas,
-  actualId,
-  onElegir,
-}: {
-  hermanas: readonly ShippingV2UnidadHermana[];
-  actualId: string;
-  onElegir: (id: string) => void;
-}) {
-  const [abierto, setAbierto] = useState(false);
-  const caja = useRef<HTMLDivElement>(null);
-  const precargar = useFichaArticulo()?.precargar;
-  const ordenadas = ordenar(hermanas);
-  const indice = ordenadas.findIndex((h) => h.id === actualId);
-  const actual = ordenadas[indice];
-
-  useEffect(() => {
-    if (!abierto) return;
-    const fuera = (event: PointerEvent) => {
-      if (caja.current && !caja.current.contains(event.target as Node)) setAbierto(false);
-    };
-    const tecla = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setAbierto(false);
-      }
-    };
-    document.addEventListener("pointerdown", fuera);
-    // En captura: se cierra la lista antes de que Esc cierre la ficha.
-    document.addEventListener("keydown", tecla, true);
-    return () => {
-      document.removeEventListener("pointerdown", fuera);
-      document.removeEventListener("keydown", tecla, true);
-    };
-  }, [abierto]);
-
-  if (ordenadas.length < 2 || !actual) return null;
-  return (
-    <div ref={caja} className="relative">
-      <button
-        type="button"
-        onClick={() => setAbierto((v) => !v)}
-        aria-expanded={abierto}
-        aria-haspopup="listbox"
-        title="Cambiar de unidad"
-        className="inline-flex h-8 max-w-[22rem] items-center gap-1.5 rounded-md border border-[#3A3A36] bg-[#1A1B17] px-2.5 text-[12.5px] font-semibold text-[#E6E6E1] transition hover:border-[#D7FF4F]/55 focus:outline-none focus:ring-2 focus:ring-[#D7FF4F]/35"
-      >
-        <span className="font-medium text-[#8F908A]">Unidad</span>
-        <span className="tabular-nums">{indice + 1} de {ordenadas.length}</span>
-        <span className="truncate font-mono font-medium text-[#B4B5AC]">· {nombreUnidad(actual)}</span>
-        <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition ${abierto ? "rotate-180" : ""}`} aria-hidden="true" />
-      </button>
-      {abierto ? (
-        <ul role="listbox" aria-label="Unidades del SKU" className="absolute left-0 top-full z-40 mt-1 max-h-80 w-[min(92vw,22rem)] overflow-y-auto rounded-lg border border-[#3A3A36] bg-[#161712] p-1 shadow-2xl shadow-black/50 animate-[sg-entrada_120ms_ease-out]">
-          {ordenadas.map((h) => {
-            const esta = h.id === actualId;
-            return (
-              <li key={h.id} role="option" aria-selected={esta}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAbierto(false);
-                    if (!esta) onElegir(h.id);
-                  }}
-                  onMouseEnter={esta ? undefined : () => precargar?.(h.id)}
-                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] transition ${esta ? "bg-[#D7FF4F]/10" : "hover:bg-[#1F201B]"} ${sigueEnInventario(h) ? "" : "opacity-60"}`}
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-mono font-semibold text-[#E6E6E1]">{nombreUnidad(h)}</span>
-                    <span className="block truncate text-[11px] text-[#8F908A]">{detalleUnidad(h)}</span>
-                  </span>
-                  <span className={`shrink-0 text-[11.5px] font-semibold ${tonoEstado(h.estado)}`}>{h.estado}</span>
-                  {esta ? <Check className="h-3.5 w-3.5 shrink-0 text-[#D7FF4F]" aria-hidden="true" /> : <span className="w-3.5 shrink-0" />}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-    </div>
   );
 }

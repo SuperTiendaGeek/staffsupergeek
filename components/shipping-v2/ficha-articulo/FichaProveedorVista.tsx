@@ -135,7 +135,6 @@ export function FichaProveedorVista({ datos, modo }: { datos: FichaProveedor; mo
     ) : null,
   };
 
-  const miniatura = item.fotos[0]?.thumbnailUrl || item.fotos[0]?.url;
   const suSku = item.skuProveedor?.trim();
 
   // Rediseño (26-oct): barra arriba con SU SKU primero; foto a la izquierda y
@@ -143,11 +142,6 @@ export function FichaProveedorVista({ datos, modo }: { datos: FichaProveedor; mo
   return (
     <div className="w-full">
       <BarraFicha>
-        {miniatura ? (
-          <img src={miniatura} alt="" className="h-8 w-8 shrink-0 rounded-md border border-[#3A3A36] object-cover" />
-        ) : (
-          <span className="h-8 w-8 shrink-0 rounded-md border border-[#3A3A36] bg-[#20211D]" aria-hidden="true" />
-        )}
         {suSku ? (
           <span className="flex shrink-0 items-baseline gap-1.5 text-[12.5px] text-[#8F908A]">
             Su SKU <span className="font-mono text-[14px] font-semibold text-[#D7FF4F]"><CopyableSKU sku={suSku} etiqueta="SKU proveedor" /></span>

@@ -70,7 +70,7 @@ import {
 import { ShippingV2ItemsPredictiveSearch } from "./ShippingV2ItemsPredictiveSearch";
 import { BarraFicha, EnlaceArticulo, useAlCambiarArticulo, useFichaArticulo, useIntencionFicha } from "@/components/shipping-v2/ficha-articulo/contexto";
 import { FichaPublicaciones } from "@/components/shipping-v2/ficha-articulo/FichaPublicaciones";
-import { ID_BLOQUE_UNIDADES, SelectorUnidad, UnidadesDelSku } from "@/components/shipping-v2/ficha-articulo/UnidadesDelSku";
+import { ID_BLOQUE_UNIDADES, UnidadesDelSku } from "@/components/shipping-v2/ficha-articulo/UnidadesDelSku";
 import { existenciasDelSku, sigueEnInventario, type FichaPublicacion } from "@/lib/shipping-v2/ficha-articulo";
 import { configFichaInterna, type BloqueFichaInterna } from "@/lib/shipping-v2/ficha-secciones";
 import { agruparItemsPorSku, unidadPorDefecto, type GrupoSku } from "@/lib/shipping-v2/items-por-sku";
@@ -2398,7 +2398,7 @@ export function ShippingV2ItemDetailView({
     publicaciones: <FichaPublicaciones publicaciones={publicaciones} />,
     pestanas: (
       <section ref={tabsRef} className="scroll-mt-16 overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
-        <div role="tablist" className="flex gap-0.5 overflow-x-auto border-b border-[#2E2F28] bg-[#1A1B17] px-1 pt-1">
+        <div role="tablist" className="flex gap-0.5 overflow-x-auto overflow-y-hidden border-b border-[#2E2F28] bg-[#1A1B17] px-1 pt-1">
           {tabsVisibles.map((tab) => {
             const active = tab.key === activeSection.key;
             return (
@@ -2452,20 +2452,13 @@ export function ShippingV2ItemDetailView({
   // lugar de cada uno lo da su zona: producto a la izquierda, el día a día al
   // centro y lo que avisa a la derecha.
   const tiene = (bloque: BloqueFichaInterna) => config.bloques.includes(bloque);
-  const miniatura = item.fotos[0]?.thumbnailUrl || item.fotos[0]?.url || fotosDeOtraUnidad?.[0]?.thumbnailUrl || fotosDeOtraUnidad?.[0]?.url;
 
   return (
     <RecorridoHorizontal.Provider value>
     <div className="w-full">
       {/* 1 · Barra: identidad, unidad, estados y acciones (en la ventana va fija arriba). */}
       <BarraFicha>
-        {miniatura ? (
-          <img src={miniatura} alt="" className="h-8 w-8 shrink-0 rounded-md border border-[#3A3A36] object-cover" />
-        ) : (
-          <span className="h-8 w-8 shrink-0 rounded-md border border-[#3A3A36] bg-[#20211D]" aria-hidden="true" />
-        )}
         {skuCabecera ? <span className="shrink-0 font-mono text-[14px] font-semibold text-[#D7FF4F]"><CopyableSKU sku={skuCabecera} /></span> : null}
-        {onElegirUnidad && hermanas.length > 1 ? <SelectorUnidad hermanas={hermanas} actualId={item.id} onElegir={onElegirUnidad} /> : null}
         <EstadoBadge estado={item.estado} />
         <OperationBadge value={item.tipoOperacion} />
         <AvailabilityBadge item={item} />
@@ -2576,7 +2569,7 @@ export function ShippingV2ItemDetailView({
       </section>
 
       {/* 3 · Cuerpo: producto (izquierda) · día a día (centro) · avisos (derecha). */}
-      <div className="mt-3 grid items-start gap-3 lg:grid-cols-[18.75rem_minmax(0,1fr)] min-[1360px]:grid-cols-[18.75rem_minmax(0,1fr)_18.75rem]">
+      <div className="mt-3 grid items-start gap-3 lg:grid-cols-[20rem_minmax(0,1fr)] min-[1360px]:grid-cols-[20rem_minmax(0,1fr)_18.75rem]">
         <aside className="min-w-0 space-y-2.5 lg:row-span-2">
         {fotosDeOtraUnidad && !verFotosPropias ? (
           <div className="relative">

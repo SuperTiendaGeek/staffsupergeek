@@ -27,7 +27,7 @@ import {
 } from "@/app/shipping-v2/items/ShippingV2ItemsClient";
 import { ShippingV2IntervencionesTab } from "@/app/shipping-v2/items/ShippingV2IntervencionesTab";
 import { ShippingV2DespieceTab } from "@/app/shipping-v2/items/ShippingV2DespieceTab";
-import { SelectorUnidad, UnidadesDelSku } from "./UnidadesDelSku";
+import { UnidadesDelSku } from "./UnidadesDelSku";
 import { BarraFicha } from "./contexto";
 
 const ETIQUETA_PESTANA: Record<PestanaFichaTecnica, string> = {
@@ -118,7 +118,7 @@ export function FichaTecnicoVista({ datos, modo, alCambiar, onElegirUnidad }: { 
     ) : null,
     pestanas: (
       <section className="overflow-hidden rounded-lg border border-[#2E2F28] bg-[#171814]">
-        <div role="tablist" className="flex gap-0.5 overflow-x-auto border-b border-[#2E2F28] bg-[#1A1B17] px-1 pt-1">
+        <div role="tablist" className="flex gap-0.5 overflow-x-auto overflow-y-hidden border-b border-[#2E2F28] bg-[#1A1B17] px-1 pt-1">
           {FICHA_TECNICO.pestanas.map((clave) => {
             const activa = clave === pestana;
             return (
@@ -173,20 +173,13 @@ export function FichaTecnicoVista({ datos, modo, alCambiar, onElegirUnidad }: { 
   };
 
   const tiene = (bloque: BloqueFichaTecnica) => FICHA_TECNICO.bloques.includes(bloque);
-  const miniatura = item.fotos[0]?.thumbnailUrl || item.fotos[0]?.url;
 
   // Rediseño (26-oct): barra arriba, nombre a lo ancho y tres zonas (foto y
   // unidades · su trabajo · avisos). Mismos datos y permisos que antes.
   return (
     <div className="w-full">
       <BarraFicha>
-        {miniatura ? (
-          <img src={miniatura} alt="" className="h-8 w-8 shrink-0 rounded-md border border-[#3A3A36] object-cover" />
-        ) : (
-          <span className="h-8 w-8 shrink-0 rounded-md border border-[#3A3A36] bg-[#20211D]" aria-hidden="true" />
-        )}
         {sku ? <span className="shrink-0 font-mono text-[14px] font-semibold text-[#D7FF4F]"><CopyableSKU sku={sku} /></span> : null}
-        {onElegirUnidad && datos.hermanas.length > 1 ? <SelectorUnidad hermanas={datos.hermanas} actualId={item.id} onElegir={onElegirUnidad} /> : null}
         <EstadoBadge estado={item.estado} />
         {item.conNovedad ? <span className="rounded-full border border-[#FF914D]/35 bg-[#FF914D]/12 px-2.5 py-0.5 text-[12px] font-semibold text-[#FFB07A]">Con novedad</span> : null}
         {item.usoLocal ? <span className="rounded-full border border-[#8B73FF]/35 bg-[#8B73FF]/12 px-2.5 py-0.5 text-[12px] font-semibold text-[#C9BFFF]">Activo de la tienda</span> : null}
@@ -212,7 +205,7 @@ export function FichaTecnicoVista({ datos, modo, alCambiar, onElegirUnidad }: { 
         <UnidadDelProducto item={item} hermanas={datos.hermanas} />
       </section>
 
-      <div className="mt-3 grid items-start gap-3 lg:grid-cols-[18.75rem_minmax(0,1fr)] min-[1360px]:grid-cols-[18.75rem_minmax(0,1fr)_18.75rem]">
+      <div className="mt-3 grid items-start gap-3 lg:grid-cols-[20rem_minmax(0,1fr)] min-[1360px]:grid-cols-[20rem_minmax(0,1fr)_18.75rem]">
         <aside className="min-w-0 space-y-2.5 lg:row-span-2">
           <ItemPhotoViewer itemId={item.id} itemName={item.nombre} fotos={item.fotos} onUpdated={() => undefined} canEdit={false} density="hero" />
           {tiene("unidades") ? bloques.unidades : null}
