@@ -6,13 +6,15 @@ import { cleanText, formatMoney, formatPrintDate } from "./printUtils";
 type TicketAbonoProps = {
   orden: OrdenDetalle;
   abono: AbonoPorOrden;
-  cuentaUnificada: CuentaUnificada | null;
+  // Obligatoria: el comprobante que se le entrega al cliente nunca imprime
+  // un saldo que no salga de la cuenta (auditoría ops, punto 4).
+  cuentaUnificada: CuentaUnificada;
 };
 
 export function TicketAbono({ orden, abono, cuentaUnificada }: TicketAbonoProps) {
-  const totalAPagar = cuentaUnificada?.totalCuenta ?? orden.totalAPagarNV;
-  const totalAbonado = cuentaUnificada?.totalAbonado ?? orden.totalAbonadoNV;
-  const saldoPendiente = cuentaUnificada ? Math.max(0, cuentaUnificada.saldo) : orden.saldoNV;
+  const totalAPagar = cuentaUnificada.totalCuenta;
+  const totalAbonado = cuentaUnificada.totalAbonado;
+  const saldoPendiente = Math.max(0, cuentaUnificada.saldo);
   return (
     <>
       <style>{`

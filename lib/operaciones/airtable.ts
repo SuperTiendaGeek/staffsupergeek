@@ -1,3 +1,4 @@
+import { estadosDeCuentaDeOperaciones } from "@/lib/estado-cuenta/airtable";
 import type {
   OperacionListado,
   OperacionDetalle,
@@ -191,7 +192,7 @@ async function fetchPreciosOpciones(ids: string[]): Promise<Map<string, number>>
   return precios;
 }
 
-export async function fetchOperaciones(): Promise<OperacionListado[]> {
+export async function fetchOperaciones(opciones: { conCuenta?: boolean } = {}): Promise<OperacionListado[]> {
   const client = getClient();
   const base = tableUrl(OPERACIONES_TABLE);
   const records: AirtableRecord[] = [];
@@ -217,9 +218,25 @@ export async function fetchOperaciones(): Promise<OperacionListado[]> {
     records.flatMap((r) => linkedIds(r.fields["Opción Elegida"]))
   );
 
-  return records
+  const listado = records
     .sort((a, b) => (b.createdTime ?? "").localeCompare(a.createdTime ?? ""))
     .map((r) => mapOperacion(r, preciosPorOpcionId));
+  if (!opciones.conCuenta) return listado;
+
+  // Chip del tablero (punto 4): la cuenta de cada pedido aprobado, con la
+  // misma calculadora que la pantalla de la orden. Si no se puede leer, el
+  // tablero se muestra igual y el chip cae al cálculo del propio pedido.
+  const conCuenta = listado.filter((op) => ["Aprobado", "Pedido", "Entregado"].includes(op.estado));
+  try {
+    const cuentas = await estadosDeCuentaDeOperaciones(conCuenta.map((op) => op.id));
+    for (const op of conCuenta) {
+      const c = cuentas.get(op.id);
+      op.cuenta = c ? { estadoPago: c.estadoPago, saldo: c.saldo, deLaOrden: c.ordenId !== null } : null;
+    }
+  } catch (err) {
+    console.error("[operaciones] No se pudo calcular la cuenta para el tablero:", err);
+  }
+  return listado;
 }
 
 async function fetchProveedorNombres(ids: string[]): Promise<Record<string, string>> {

@@ -12,9 +12,8 @@ import "server-only";
 //   4. Facturas y recibos vinculados (solo número y estado).
 //
 // Mismas fuentes que la cuenta unificada:
-//   · Total  = "Total a Pagar NV" (servicios + repuestos legacy + productos
-//     digitales + repuestos de stock V2 + artículos de la operación), el
-//     mismo desglose que suma getCuentaUnificada().
+//   · Total  = la calculadora única (lib/estado-cuenta), la misma que
+//     getCuentaUnificada(); ya no "Total a Pagar NV" de Airtable.
 //   · Abonos = inverso "Abonos (Operación)" de la orden + "Abonos" de cada
 //     operación vinculada, deduplicados por id — igual que la cuenta
 //     unificada tras el arreglo del abono doble (OR000382).
@@ -22,74 +21,22 @@ import "server-only";
 // Regla de la casa: nunca filtrar por campo de link. Los ids se leen de los
 // campos inversos y se busca por RECORD_ID().
 
-import { loadAirtableEnv } from "../config/airtable";
-import { clasificarOrden, comprometidoDeOrden, type DocumentoOrigen, type OrdenCobro } from "./reglas";
-import { estadoPresupuesto, type LineaParaCuenta, type TipoLinea, type EstadoLinea } from "../presupuesto/reglas";
-
-type Registro = { id: string; fields: Record<string, unknown> };
+import { clasificarOrden, type DocumentoOrigen, type OrdenCobro } from "./reglas";
+import { estadoPresupuesto } from "../presupuesto/reglas";
+import {
+  CAMPOS_ORDEN_CUENTA,
+  estadosDeCuentaDeOrdenes,
+  ids,
+  listarTodo,
+  porIds,
+  texto,
+  type Registro,
+} from "@/lib/estado-cuenta/airtable";
 
 const T_ORDENES     = "Órdenes de Reparación";
-const T_OPERACIONES = "Operación Comercial";
-const T_ABONOS      = "Abonos";
 const T_FACTURAS    = "Facturas Electrónicas";
 const T_RECIBOS     = "Recibos";
 const T_PRESUPUESTO = "Presupuesto por Orden";
-
-// Los ids van dentro de filterByFormula, que viaja en la URL: 40 por lote
-// deja la URL muy por debajo del límite de Airtable.
-const LOTE_IDS = 40;
-
-function cliente() {
-  const { token, baseId } = loadAirtableEnv();
-  return {
-    baseUrl: `https://api.airtable.com/v0/${baseId}`,
-    headers: { Authorization: `Bearer ${token}` } as Record<string, string>,
-  };
-}
-
-async function listarTodo(tabla: string, campos: string[], formula?: string): Promise<Registro[]> {
-  const c = cliente();
-  const out: Registro[] = [];
-  let offset: string | undefined;
-  do {
-    const url = new URL(`${c.baseUrl}/${encodeURIComponent(tabla)}`);
-    url.searchParams.set("pageSize", "100");
-    for (const f of campos) url.searchParams.append("fields[]", f);
-    if (formula) url.searchParams.set("filterByFormula", formula);
-    if (offset) url.searchParams.set("offset", offset);
-    const res = await fetch(url.toString(), { headers: c.headers, cache: "no-store" });
-    if (!res.ok) throw new Error(`Airtable ${tabla} ${res.status}: ${await res.text()}`);
-    const data = (await res.json()) as { records?: Registro[]; offset?: string };
-    out.push(...(data.records ?? []));
-    offset = data.offset;
-  } while (offset);
-  return out;
-}
-
-async function porIds(tabla: string, ids: string[], campos: string[]): Promise<Map<string, Registro>> {
-  const unicos = [...new Set(ids)].filter(Boolean);
-  const mapa = new Map<string, Registro>();
-  for (let i = 0; i < unicos.length; i += LOTE_IDS) {
-    const lote = unicos.slice(i, i + LOTE_IDS);
-    const formula = lote.length === 1
-      ? `RECORD_ID()='${lote[0]}'`
-      : `OR(${lote.map((id) => `RECORD_ID()='${id}'`).join(",")})`;
-    for (const r of await listarTodo(tabla, campos, formula)) mapa.set(r.id, r);
-  }
-  return mapa;
-}
-
-const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
-const texto = (v: unknown): string => {
-  if (typeof v === "string") return v;
-  if (Array.isArray(v)) { const s = v.find((x) => typeof x === "string"); return typeof s === "string" ? s : ""; }
-  if (v && typeof v === "object" && "name" in v) return String((v as { name: unknown }).name ?? "");
-  return "";
-};
-const numero = (v: unknown): number => {
-  const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
-  return Number.isFinite(n) ? n : 0;
-};
 
 export type FiltroCobros = { desde?: string | null; ordenId?: string | null };
 
@@ -110,56 +57,19 @@ export async function cargarOrdenesCobro(filtro: FiltroCobros = {}): Promise<Ord
 
   const ordenes = await listarTodo(T_ORDENES, [
     "ID", "ClienteTXT", "Equipo", "Estado Actual", "Fecha de Ingreso",
-    "Total a Pagar NV", "Abonos (Operación)", "Operaciones Comerciales",
-    "Facturas Electrónicas", "Recibos", T_PRESUPUESTO,
+    "Facturas Electrónicas", "Recibos", ...CAMPOS_ORDEN_CUENTA,
   ], formula);
 
-  const operaciones = await porIds(T_OPERACIONES, ordenes.flatMap((o) => ids(o.fields["Operaciones Comerciales"])), ["Abonos", "Artículo físico"]);
-
-  const abonoIdsPorOrden = new Map<string, string[]>();
-  for (const o of ordenes) {
-    const propios = ids(o.fields["Abonos (Operación)"]);
-    const deOperaciones = ids(o.fields["Operaciones Comerciales"]).flatMap((opId) => ids(operaciones.get(opId)?.fields["Abonos"]));
-    // Un mismo abono puede estar enlazado a la orden Y a la operación: se
-    // deduplica por id, nunca se suma dos veces.
-    abonoIdsPorOrden.set(o.id, [...new Set([...propios, ...deOperaciones])]);
-  }
-
-  const [abonos, facturas, recibos, lineasPresupuesto] = await Promise.all([
-    porIds(T_ABONOS, [...abonoIdsPorOrden.values()].flat(), ["Monto", "Estado del Abono"]),
+  // UNA sola calculadora (auditoría ops, punto 4): la misma cuenta que la
+  // pantalla de la orden. Antes el total salía de "Total a Pagar NV" de
+  // Airtable, que cobra el artículo sin mirar cuántas unidades pidió el
+  // cliente y no ve los pedidos aprobados sin artículo.
+  const [cuentas, facturas, recibos, lineasPresupuesto] = await Promise.all([
+    estadosDeCuentaDeOrdenes(ordenes),
     porIds(T_FACTURAS, ordenes.flatMap((o) => ids(o.fields["Facturas Electrónicas"])), ["Número de Factura", "Estado"]),
     porIds(T_RECIBOS, ordenes.flatMap((o) => ids(o.fields["Recibos"])), ["Número", "Estado"]),
-    porIds(T_PRESUPUESTO, ordenes.flatMap((o) => ids(o.fields[T_PRESUPUESTO])), [
-      "Estado", "Tipo", "Descripción", "Precio unitario", "Cantidad", "Operación Comercial", "Bajo pedido",
-      "Artículo de inventario", "Cargo: Servicio por Orden", "Cargo: Producto digital",
-    ]),
+    porIds(T_PRESUPUESTO, ordenes.flatMap((o) => ids(o.fields[T_PRESUPUESTO])), ["Estado"]),
   ]);
-
-  // Para lo aprobado sin artículo (fase 3b): a qué orden está reservado cada
-  // artículo y asignado cada código de las líneas aprobadas. Solo de esas.
-  const aprobadas = [...lineasPresupuesto.values()].filter((l) => texto(l.fields["Estado"]) === "Aprobada");
-  const [itemsAprobados, digitalesAprobados] = await Promise.all([
-    porIds("Shipping Items", aprobadas.flatMap((l) => ids(l.fields["Artículo de inventario"])), ["Orden de Reparación (Stock)"]),
-    porIds("Productos Digitales", aprobadas.flatMap((l) => ids(l.fields["Cargo: Producto digital"])), ["Orden de Reparación"]),
-  ]);
-  const ctxComprometido = {
-    ordenesDeItem: new Map([...itemsAprobados].map(([id, r]) => [id, ids(r.fields["Orden de Reparación (Stock)"])])),
-    ordenesDeDigital: new Map([...digitalesAprobados].map(([id, r]) => [id, ids(r.fields["Orden de Reparación"])])),
-    operacionesConArticulo: new Set([...operaciones].filter(([, r]) => ids(r.fields["Artículo físico"]).length > 0).map(([id]) => id)),
-  };
-  const lineaParaCuenta = (r: Registro): LineaParaCuenta => ({
-    id: r.id,
-    descripcion: texto(r.fields["Descripción"]),
-    tipo: (texto(r.fields["Tipo"]) || "Servicio") as TipoLinea,
-    estado: (texto(r.fields["Estado"]) || "Propuesta") as EstadoLinea,
-    cantidad: numero(r.fields["Cantidad"]) || 1,
-    precioUnitario: numero(r.fields["Precio unitario"]),
-    operacionId: ids(r.fields["Operación Comercial"])[0] ?? null,
-    bajoPedido: r.fields["Bajo pedido"] === true || ids(r.fields["Operación Comercial"]).length > 0,
-    itemId: ids(r.fields["Artículo de inventario"])[0] ?? null,
-    cargoServicioId: ids(r.fields["Cargo: Servicio por Orden"])[0] ?? null,
-    cargoProductoDigitalId: ids(r.fields["Cargo: Producto digital"])[0] ?? null,
-  });
 
   const docFactura = (id: string): DocumentoOrigen | null => {
     const r = facturas.get(id);
@@ -178,11 +88,11 @@ export async function cargarOrdenesCobro(filtro: FiltroCobros = {}): Promise<Ord
       equipo:       texto(o.fields["Equipo"]),
       estado:       texto(o.fields["Estado Actual"]),
       fechaIngreso: texto(o.fields["Fecha de Ingreso"]),
-      totalCuenta:  numero(o.fields["Total a Pagar NV"]),
-      abonos: (abonoIdsPorOrden.get(o.id) ?? [])
-        .map((id) => abonos.get(id))
-        .filter((a): a is Registro => !!a)
-        .map((a) => ({ id: a.id, monto: numero(a.fields["Monto"]), estado: texto(a.fields["Estado del Abono"]) })),
+      // La calculadora ya incluye lo aprobado sin artículo; clasificarOrden
+      // lo recibe aparte (comprometido) para mostrarlo.
+      totalCuenta:  (cuentas.get(o.id)?.totalCuenta ?? 0) - (cuentas.get(o.id)?.totalAprobadoSinArticulo ?? 0),
+      comprometidoPresupuesto: cuentas.get(o.id)?.totalAprobadoSinArticulo ?? 0,
+      abonos: cuentas.get(o.id)?.abonos ?? [],
       facturas: ids(o.fields["Facturas Electrónicas"]).map(docFactura).filter((d): d is DocumentoOrigen => !!d),
       recibos:  ids(o.fields["Recibos"]).map(docRecibo).filter((d): d is DocumentoOrigen => !!d),
       estadoPresupuesto: estadoPresupuesto(
@@ -190,13 +100,6 @@ export async function cargarOrdenesCobro(filtro: FiltroCobros = {}): Promise<Ord
           .map((id) => lineasPresupuesto.get(id))
           .filter((l): l is Registro => !!l)
           .map((l) => ({ estado: (texto(l.fields["Estado"]) || "Propuesta") as "Propuesta" | "Aprobada" | "Cargada" | "Rechazada" }))
-      ),
-      // Aprobado sin artículo (fase 3b: suma al total), con la MISMA regla que
-      // el Resumen financiero: lo que ya tiene su cargo real no se suma otra vez.
-      comprometidoPresupuesto: comprometidoDeOrden(
-        o.id,
-        ids(o.fields[T_PRESUPUESTO]).map((id) => lineasPresupuesto.get(id)).filter((l): l is Registro => !!l).map(lineaParaCuenta),
-        ctxComprometido,
       ),
     }))
     .sort((a, b) => b.fechaIngreso.localeCompare(a.fechaIngreso));

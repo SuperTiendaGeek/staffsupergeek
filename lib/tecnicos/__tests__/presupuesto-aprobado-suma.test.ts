@@ -7,7 +7,8 @@
  */
 import fs from "fs";
 import { aprobadoSinArticulo, cargasPerdidas, fueQuitadaPorLaTienda, type LineaPresupuesto, type CargosDeLaCuenta } from "../presupuesto/reglas";
-import { clasificarOrden, comprometidoDeOrden, CATEGORIAS } from "../cobros/reglas";
+import { clasificarOrden, CATEGORIAS } from "../cobros/reglas";
+import { pendientesDeLaCuenta } from "../../estado-cuenta/reglas";
 import { mensajeAprobadoSinArticulo } from "../../facturacion/reglas/aprobadoSinArticulo";
 
 let fallos = 0;
@@ -73,26 +74,32 @@ const vacio: CargosDeLaCuenta = { servicios: new Set(), digitales: new Set(), it
   assert(soloAprobado.conCargos && soloAprobado.estadoCobro === "sin_abonos", "una orden con solo un repuesto aprobado por pedir ya tiene cargos que cobrar");
 }
 
-// ─── Cobros usa la MISMA regla (revisión de Claude Code, fase 3b) ────────────
+// ─── Cobros usa la MISMA regla (fase 3b; desde el punto 4 de la auditoría
+// ops, la MISMA función: pendientesDeLaCuenta en lib/estado-cuenta) ─────────
 {
+  const op = (id: string, tieneArticulo: boolean) => ({
+    id, producto: "x", estado: "Pedido", precioOpcionElegida: 0, tieneOpcionElegida: true, tieneArticulo,
+  });
   const ctx = {
-    ordenesDeItem: new Map([["recITok", ["recO"]], ["recITotra", ["recOTRA"]]]),
-    ordenesDeDigital: new Map([["recPDok", ["recO"]]]),
-    operacionesConArticulo: new Set(["recOPart"]),
+    serviciosIds: new Set(["recSPO"]),
+    digitalesIds: new Set(["recPDok"]),
+    itemsStockIds: new Set(["recITok"]),
+    operaciones: [op("recOPart", true), op("recOPsin", false)],
   };
+  const suma = (l: LineaPresupuesto) => pendientesDeLaCuenta({ ...ctx, lineas: [l] }).reduce((s, p) => s + p.monto, 0);
   // Reproducción: servicio de $25 ya cobrado y la línea todavía "Aprobada".
-  const servicioYaCobrado = comprometidoDeOrden("recO", [L({ id: "s", cargoServicioId: "recSPO", precioUnitario: 25 })], ctx);
+  const servicioYaCobrado = suma(L({ id: "s", cargoServicioId: "recSPO", precioUnitario: 25 }));
   assert(servicioYaCobrado === 0, "servicio ya cobrado con la línea todavía Aprobada → NO se suma otra vez (antes daba $50)");
   const o = clasificarOrden({
     recordId: "recO", idVisible: "OR", cliente: "", equipo: "", estado: "En Proceso", fechaIngreso: "2026-09-27",
     totalCuenta: 25, abonos: [], facturas: [], recibos: [], estadoPresupuesto: "aprobado", comprometidoPresupuesto: servicioYaCobrado,
   });
   assert(o.totalCuenta === 25, `Cobros: total $25, no $50 — vino ${o.totalCuenta}`);
-  assert(comprometidoDeOrden("recO", [L({ tipo: "Repuesto", itemId: "recITok", precioUnitario: 45 })], ctx) === 0, "artículo ya reservado a ESTA orden → no se suma otra vez");
-  assert(comprometidoDeOrden("recO", [L({ tipo: "Repuesto", itemId: "recITotra", precioUnitario: 45 })], ctx) === 45, "artículo reservado a OTRA orden → sin stock para esta: sí suma");
-  assert(comprometidoDeOrden("recO", [L({ tipo: "Producto digital", cargoProductoDigitalId: "recPDok", precioUnitario: 25 })], ctx) === 0, "código ya asignado a esta orden → no se suma otra vez");
-  assert(comprometidoDeOrden("recO", [L({ tipo: "Repuesto", bajoPedido: true, operacionId: "recOPart", precioUnitario: 90 })], ctx) === 0, "pedido con artículo → se cuenta por el artículo");
-  assert(comprometidoDeOrden("recO", [L({ tipo: "Repuesto", bajoPedido: true, operacionId: "recOPsin", precioUnitario: 70 })], ctx) === 70, "pedido sin artículo → suma");
+  assert(suma(L({ tipo: "Repuesto", itemId: "recITok", precioUnitario: 45 })) === 0, "artículo ya reservado a ESTA orden → no se suma otra vez");
+  assert(suma(L({ tipo: "Repuesto", itemId: "recITotra", precioUnitario: 45 })) === 45, "artículo reservado a OTRA orden → sin stock para esta: sí suma");
+  assert(suma(L({ tipo: "Producto digital", cargoProductoDigitalId: "recPDok", precioUnitario: 25 })) === 0, "código ya asignado a esta orden → no se suma otra vez");
+  assert(suma(L({ tipo: "Repuesto", bajoPedido: true, operacionId: "recOPart", precioUnitario: 90 })) === 0, "pedido con artículo → se cuenta por el artículo");
+  assert(suma(L({ tipo: "Repuesto", bajoPedido: true, operacionId: "recOPsin", precioUnitario: 70 })) === 70, "pedido sin artículo → suma (una vez: por su línea, no también por la operación)");
 }
 
 // ─── Factura y recibo esperan al artículo ────────────────────────────────────
@@ -109,7 +116,14 @@ assert(mensajeAprobadoSinArticulo([], "factura") === null, "sin pendientes se pu
     assert(src.includes("mensajeAprobadoSinArticulo(") && src.includes("MENSAJE_NO_SE_PUDO_VERIFICAR"), `${ruta}: re-verificación server-side, y si no se puede leer la cuenta NO emite`);
   }
   const cuenta = fs.readFileSync("lib/cuenta-unificada/index.ts", "utf8");
-  assert(/totalCuenta = totalRepuestos \+ totalServicios \+ totalProductosDigitales \+ totalAprobadoSinArticulo/.test(cuenta), "la cuenta unificada suma lo aprobado sin artículo al total");
+  // Desde el punto 4 (auditoría ops) el total lo suma UNA calculadora
+  // (lib/estado-cuenta/reglas.ts); la cuenta unificada le pasa la lista.
+  const reglasCuenta = fs.readFileSync("lib/estado-cuenta/reglas.ts", "utf8");
+  assert(
+    cuenta.includes("aprobadoSinArticulo: aprobadoSinArticuloCuenta") && cuenta.includes("calcularEstadoCuenta(") &&
+      /totalCuenta: round2\(totalRepuestos \+ totalServicios \+ totalProductosDigitales \+ totalAprobadoSinArticulo\)/.test(reglasCuenta),
+    "la cuenta unificada suma lo aprobado sin artículo al total",
+  );
 }
 
 // ─── Un cargo borrado desde las tarjetas viejas no se vuelve deuda ───────────

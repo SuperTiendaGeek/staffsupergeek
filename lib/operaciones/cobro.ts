@@ -12,6 +12,8 @@
 //   · "Saldo $1350" a una operación Rechazada
 // Ahora el total se deriva de la opción elegida y el estado distingue los casos.
 
+import type { EstadoPago } from "@/lib/estado-cuenta/reglas";
+
 export type EstadoCobro =
   | "rechazada" // rechazada y sin dinero dentro
   | "rechazada-con-abono" // rechazada pero el cliente ya había abonado → devolver
@@ -86,4 +88,53 @@ export function resolverEstadoCobro(input: {
   if (saldo < -EPS) return { estado: "a-favor", monto: Math.abs(saldo) };
 
   return { estado: "pagado", monto: 0 };
+}
+
+// ─── Chip del tablero con la cuenta completa (auditoría ops, punto 4) ────────
+//
+// Desde que el cliente aprueba, lo que importa es la CUENTA: si el pedido es
+// de una orden, la orden y todos sus pedidos son una sola cuenta (un
+// documento). Antes el chip miraba solo el precio de ESTE pedido y sus abonos:
+// el cliente que pagó todo en la orden salía "Por cobrar" en el tablero.
+// Antes de aprobar (Requerimiento, Cotizado) el chip sigue contando la etapa
+// de la cotización, que no es un estado de pago.
+
+export type CuentaParaTablero = {
+  estadoPago: EstadoPago;
+  /** Positivo = falta cobrar; negativo = a favor del cliente. */
+  saldo: number;
+  /** true si es la cuenta de la orden (orden + todos sus pedidos). */
+  deLaOrden: boolean;
+};
+
+const ESTADOS_CON_CUENTA = new Set(["Aprobado", "Pedido", "Entregado"]);
+
+export function resolverEstadoCobroTablero(input: {
+  estado: string;
+  totalCotizado: number | null;
+  totalAbonado: number | null;
+  tieneOpciones?: boolean;
+  tieneOrden?: boolean;
+  cuenta?: CuentaParaTablero | null;
+}): ResumenCobro {
+  // Un pedido rechazado de una orden no "devuelve" nada por su cuenta: el
+  // dinero es de la cuenta de la orden y se ve allí.
+  if (input.estado === "Rechazado" && input.tieneOrden) return { estado: "rechazada", monto: 0 };
+
+  const c = input.cuenta;
+  if (c && ESTADOS_CON_CUENTA.has(input.estado)) {
+    switch (c.estadoPago) {
+      case "pagado":
+        return { estado: "pagado", monto: 0 };
+      case "pago_parcial":
+        return { estado: "saldo-parcial", monto: c.saldo };
+      case "sin_pago":
+        return { estado: "por-cobrar", monto: c.saldo };
+      case "saldo_a_favor":
+        return { estado: "a-favor", monto: Math.abs(c.saldo) };
+      case "sin_cargos":
+        return { estado: "sin-cotizar", monto: 0 };
+    }
+  }
+  return resolverEstadoCobro(input);
 }

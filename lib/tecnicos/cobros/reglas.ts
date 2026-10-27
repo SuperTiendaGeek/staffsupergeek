@@ -20,43 +20,13 @@
 // con documento y saldo distinto de $0 ya no se tapa: sale como
 // "documentada_con_saldo" para revisarla.
 
-import { aprobadoSinArticulo, type LineaParaCuenta } from "../presupuesto/reglas";
+import { resolverEstadoPago, totalPagosVigentes, type EstadoPago } from "../../estado-cuenta/reglas";
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-// ─── Lo aprobado sin artículo de una orden (fase 3b) ─────────────────────────
-// MISMA regla que el Resumen financiero (aprobadoSinArticulo en
-// presupuesto/reglas.ts): una línea aprobada cuyo cargo real ya está en la
-// orden NO se suma otra vez. Antes Cobros solo reconocía el pedido con
-// artículo y duplicaba, p. ej., un servicio ya cobrado cuya línea seguía
-// "Aprobada" ($25 → $50; revisión de Claude Code).
-//
-//  · servicio: si la línea apunta a su Servicio por Orden, ese registro existe
-//    (Airtable vacía el vínculo cuando se borra el registro) → ya está cobrado.
-//  · digital / repuesto de stock: cuenta solo si el código / artículo está
-//    vinculado a ESTA orden.
-//  · pedido: si su operación ya tiene artículo.
-export function comprometidoDeOrden(
-  ordenId: string,
-  lineas: LineaParaCuenta[],
-  ctx: {
-    /** artículo → órdenes a las que está reservado ("Orden de Reparación (Stock)"). */
-    ordenesDeItem: ReadonlyMap<string, readonly string[]>;
-    /** código digital → órdenes a las que está asignado. */
-    ordenesDeDigital: ReadonlyMap<string, readonly string[]>;
-    operacionesConArticulo: ReadonlySet<string>;
-  },
-): number {
-  const deEstaOrden = (m: ReadonlyMap<string, readonly string[]>) =>
-    new Set([...m].filter(([, ords]) => ords.includes(ordenId)).map(([id]) => id));
-  const pendientes = aprobadoSinArticulo(lineas, {
-    servicios: new Set(lineas.map((l) => l.cargoServicioId).filter((x): x is string => !!x)),
-    digitales: deEstaOrden(ctx.ordenesDeDigital),
-    itemsStock: deEstaOrden(ctx.ordenesDeItem),
-    operacionesConArticulo: ctx.operacionesConArticulo,
-  });
-  return round2(pendientes.reduce((s, p) => s + p.monto, 0));
-}
+// Lo aprobado sin artículo y los totales salen de la calculadora única
+// (lib/estado-cuenta/reglas.ts, auditoría ops punto 4). Aquí ya no se
+// recalcula nada: se clasifica para el panel.
 const TOLERANCIA = 0.01;
 
 export const ESTADO_ENTREGADA = "Finalizado Entregado";
@@ -129,6 +99,8 @@ export type OrdenCobro = {
   /** Borrador o factura rechazada por el SRI: se intentó pero no salió. */
   documentoNoEmitido: DocumentoOrigen | null;
   estadoCobro:   EstadoCobro;
+  /** Estado de pago de la cuenta (lib/estado-cuenta), el mismo de la pantalla de la orden. */
+  estadoPago:    EstadoPago;
   comprometido:  number;
 };
 
@@ -146,7 +118,7 @@ export function clasificarOrden(o: OrdenCobroInput): OrdenCobro {
   // Fase 3b (regla del dueño): lo aprobado sin artículo suma al total desde la
   // aprobación, igual que en el Resumen financiero de la orden.
   const totalCuenta  = round2((o.totalCuenta || 0) + (o.comprometidoPresupuesto ?? 0));
-  const totalAbonado = round2(o.abonos.filter((a) => a.estado !== "Anulado").reduce((s, a) => s + (a.monto || 0), 0));
+  const totalAbonado = totalPagosVigentes(o.abonos);
   const saldo        = round2(totalCuenta - totalAbonado);
   const conCargos    = totalCuenta > TOLERANCIA;
   const documento    = documentoEmitido(o.facturas, o.recibos);
@@ -177,6 +149,7 @@ export function clasificarOrden(o: OrdenCobroInput): OrdenCobro {
     estadoPresupuesto: o.estadoPresupuesto ?? "sin_presupuesto",
     entregada: o.estado === ESTADO_ENTREGADA,
     documento, documentoNoEmitido, estadoCobro,
+    estadoPago: resolverEstadoPago(totalCuenta, totalAbonado),
     comprometido: round2(o.comprometidoPresupuesto ?? 0),
   };
 }

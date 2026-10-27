@@ -8,7 +8,7 @@ export async function GET() {
   if (response) return response;
 
   try {
-    const data = await fetchOperaciones();
+    const data = await fetchOperaciones({ conCuenta: true });
     return NextResponse.json({ success: true, data });
   } catch (err) {
     console.error("[api/operaciones] Error al cargar operaciones:", err);

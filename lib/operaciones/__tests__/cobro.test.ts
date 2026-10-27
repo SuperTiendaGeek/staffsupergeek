@@ -8,7 +8,7 @@
  * Los montos son los reales de la base al 2026-07-27.
  */
 
-import { calcularTotalCotizado, resolverEstadoCobro } from "../cobro";
+import { calcularTotalCotizado, resolverEstadoCobro, resolverEstadoCobroTablero } from "../cobro";
 
 let fallos = 0;
 function assert(cond: boolean, msg: string): void {
@@ -140,6 +140,52 @@ esperar(
   { estado: "Requerimiento", totalCotizado: null, totalAbonado: null },
   { estado: "sin-cotizar", monto: 0 }
 );
+
+// ── Chip del tablero con la cuenta completa (auditoría ops, punto 4) ─────────
+{
+  // Pedido de una orden: el cliente pagó todo en la orden ($80 de servicio +
+  // $60 del repuesto). Mirando solo el pedido decía "Por cobrar $60".
+  const soloPedido = resolverEstadoCobro({ estado: "Pedido", totalCotizado: 60, totalAbonado: 0 });
+  assert(soloPedido.estado === "por-cobrar", "ANTES: mirando solo el pedido → Por cobrar $60");
+  const conCuenta = resolverEstadoCobroTablero({
+    estado: "Pedido", totalCotizado: 60, totalAbonado: 0, tieneOrden: true,
+    cuenta: { estadoPago: "pagado", saldo: 0, deLaOrden: true },
+  });
+  assert(conCuenta.estado === "pagado", "AHORA: la cuenta completa de la orden está pagada → Pagado");
+
+  const parcial = resolverEstadoCobroTablero({
+    estado: "Aprobado", totalCotizado: 60, totalAbonado: 0,
+    cuenta: { estadoPago: "pago_parcial", saldo: 35, deLaOrden: true },
+  });
+  assert(parcial.estado === "saldo-parcial" && parcial.monto === 35, "pago parcial de la cuenta → Saldo $35 (lo que falta en toda la cuenta)");
+
+  const aFavor = resolverEstadoCobroTablero({
+    estado: "Entregado", totalCotizado: 100, totalAbonado: 130,
+    cuenta: { estadoPago: "saldo_a_favor", saldo: -30, deLaOrden: false },
+  });
+  assert(aFavor.estado === "a-favor" && aFavor.monto === 30, "saldo a favor → A favor $30");
+
+  // OP-2026-000024: pedido suelto, sin artículo, $70 pagados → Pagado.
+  const op24 = resolverEstadoCobroTablero({
+    estado: "Pedido", totalCotizado: 70, totalAbonado: 70,
+    cuenta: { estadoPago: "pagado", saldo: 0, deLaOrden: false },
+  });
+  assert(op24.estado === "pagado", "OP-2026-000024 → Pagado");
+
+  const cotizado = resolverEstadoCobroTablero({
+    estado: "Cotizado", totalCotizado: 0, totalAbonado: 0, tieneOpciones: true,
+    cuenta: { estadoPago: "sin_cargos", saldo: 0, deLaOrden: true },
+  });
+  assert(cotizado.estado === "opciones-sin-elegir", "antes de aprobar el chip sigue mostrando la etapa de la cotización");
+
+  const rechazadaDeOrden = resolverEstadoCobroTablero({ estado: "Rechazado", totalCotizado: 0, totalAbonado: 50, tieneOrden: true });
+  assert(rechazadaDeOrden.estado === "rechazada", "pedido rechazado de una orden: el dinero es de la cuenta de la orden, no 'por devolver' aquí");
+  const rechazadaSuelta = resolverEstadoCobroTablero({ estado: "Rechazado", totalCotizado: 0, totalAbonado: 50 });
+  assert(rechazadaSuelta.estado === "rechazada-con-abono", "pedido suelto rechazado con abono → por devolver (igual que antes)");
+
+  const sinCuenta = resolverEstadoCobroTablero({ estado: "Pedido", totalCotizado: 60, totalAbonado: 20, cuenta: null });
+  assert(sinCuenta.estado === "saldo-parcial", "si la cuenta no se pudo leer, cae al cálculo del pedido (el tablero no se rompe)");
+}
 
 if (fallos > 0) {
   console.error(`\n${fallos} assert(s) fallaron.`);
