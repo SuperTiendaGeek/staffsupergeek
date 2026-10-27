@@ -15,12 +15,16 @@ import type {
   GetCuentaUnificadaInput,
   ModoRepuestos,
 } from "@/types/cuenta-unificada";
-import { esAbonoVigente } from "@/types/cuenta-unificada";
 import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import type { ProductoDigital } from "@/lib/tecnicos/airtable";
 import { lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
-import { aprobadoSinArticulo } from "@/lib/tecnicos/presupuesto/reglas";
 import type { CuentaUnificadaAprobadoSinArticulo } from "@/types/cuenta-unificada";
+import {
+  calcularEstadoCuenta,
+  pendientesDeLaCuenta,
+  precioClienteDeItem,
+  type OperacionParaCuenta,
+} from "@/lib/estado-cuenta/reglas";
 
 // ─── Gates de repuestos (extraído para poder testearlo sin mockear todo el
 // árbol de fetches de getCuentaUnificada) ────────────────────────────────────
@@ -146,7 +150,9 @@ function mapShippingItemToCuentaItem(
     id: record.id,
     nombre: firstString(f["Nombre del item"], "Artículo sin nombre"),
     origen,
-    precio: Math.round(precioUnitario * unidades * 100) / 100,
+    // Misma regla que el cálculo en bloque (lib/estado-cuenta): las unidades
+    // que pidió el cliente, no las que tiene el artículo.
+    precio: precioClienteDeItem(precioUnitario, unidades),
     cantidad: unidades,
     precioUnitario,
   };
@@ -283,6 +289,30 @@ async function fetchItemsPedido(
   });
 }
 
+// Lo que la regla de "pedidos aprobados sin artículo" necesita de cada
+// operación de la cuenta: su estado y el precio de la opción elegida (TOTAL de
+// la opción). Solo se piden las opciones de las operaciones sin artículo.
+async function operacionesParaCuenta(
+  operacionRecords: AirtableRecord[],
+  client: AirtableClient
+): Promise<OperacionParaCuenta[]> {
+  const sinArticulo = operacionRecords.filter((r) => linkedIds(r.fields["Artículo físico"]).length === 0);
+  const opcionIds = [...new Set(sinArticulo.flatMap((r) => linkedIds(r.fields["Opción Elegida"])))];
+  const opciones = await fetchRecordsByIds(client, OPCIONES_TABLE, opcionIds);
+  const precio = new Map(opciones.map((o) => [o.id, firstNumber(o.fields["Precio Venta Cliente"])]));
+  return operacionRecords.map((r) => {
+    const elegidas = linkedIds(r.fields["Opción Elegida"]);
+    return {
+      id: r.id,
+      producto: firstString(r.fields["Producto Solicitado"], firstString(r.fields["Código Operación"], r.id)),
+      estado: firstString(r.fields["Estado"], ""),
+      precioOpcionElegida: elegidas.reduce((s, id) => s + (precio.get(id) ?? 0), 0),
+      tieneOpcionElegida: elegidas.length > 0,
+      tieneArticulo: linkedIds(r.fields["Artículo físico"]).length > 0,
+    };
+  });
+}
+
 async function fetchAbonosOperacion(
   operacionRecord: AirtableRecord,
   client: AirtableClient
@@ -391,7 +421,6 @@ export async function getCuentaUnificada(
   // su subtotal se suma
   // directamente a totalCuenta, sin fabricar un "item" falso.
   const items: CuentaUnificadaItem[] = [...itemsPedido, ...repuestosStockV2];
-  const totalRepuestosHistoricos = repuestosHistoricos.reduce((sum, r) => sum + r.subtotal, 0);
 
   const serviciosMapped: CuentaUnificadaServicio[] = servicios.map((s) => ({
     id: s.id,
@@ -441,9 +470,6 @@ export async function getCuentaUnificada(
   // No existe (ni puede existir) un rollup de Airtable que abarque a la vez
   // Shipping Items (pedido + stock) y el histórico legacy condicional — esta
   // es justamente la cuenta que Fase 11 introduce, así que se suma en código.
-  const totalRepuestos =
-    items.reduce((sum, item) => sum + item.precio, 0) +
-    (repuestosLegacyCuentanParaTotal ? totalRepuestosHistoricos : 0);
   // Fase 3b: lo aprobado en el presupuesto que todavía no tiene su artículo
   // también suma (regla del dueño: basta que el cliente apruebe). Lo que ya
   // tiene su cargo se cuenta por el cargo y queda fuera de esta lista — ver
@@ -451,17 +477,17 @@ export async function getCuentaUnificada(
   // Solo se lee si la orden tiene líneas (las órdenes sin presupuesto no hacen
   // ninguna petición extra).
   const lineaIdsPresupuesto = ordenRecord ? linkedIds(ordenRecord.fields["Presupuesto por Orden"]) : [];
-  const aprobadoPendiente: CuentaUnificadaAprobadoSinArticulo[] = lineaIdsPresupuesto.length
-    ? aprobadoSinArticulo(await lineasPorIds(lineaIdsPresupuesto), {
-        servicios: new Set(servicios.map((s) => s.id)),
-        digitales: new Set(productosDigitalesRaw.map((p) => p.id)),
-        itemsStock: new Set(repuestosStockV2.map((i) => i.id)),
-        operacionesConArticulo: new Set(operacionRecords.filter((r) => linkedIds(r.fields["Artículo físico"]).length > 0).map((r) => r.id)),
-      }).map((p) => ({ id: p.lineaId, nombre: p.descripcion, tipo: p.tipo, monto: p.monto, motivo: p.motivo }))
-    : [];
-  const totalAprobadoSinArticulo = Math.round(aprobadoPendiente.reduce((s, p) => s + p.monto, 0) * 100) / 100;
-
-  const totalCuenta = totalRepuestos + totalServicios + totalProductosDigitales + totalAprobadoSinArticulo;
+  const lineasPresupuesto = lineaIdsPresupuesto.length ? await lineasPorIds(lineaIdsPresupuesto) : [];
+  // Más los pedidos aprobados sin artículo que NO nacieron de una línea
+  // (pedido suelto, o enlazado a mano a la orden) — auditoría ops, punto 4,
+  // caso OP-2026-000024. Misma función que el cálculo en bloque.
+  const aprobadoSinArticuloCuenta: CuentaUnificadaAprobadoSinArticulo[] = pendientesDeLaCuenta({
+    lineas: lineasPresupuesto,
+    serviciosIds: new Set(servicios.map((s) => s.id)),
+    digitalesIds: new Set(productosDigitalesRaw.map((p) => p.id)),
+    itemsStockIds: new Set(repuestosStockV2.map((i) => i.id)),
+    operaciones: await operacionesParaCuenta(operacionRecords, client),
+  });
 
   // Los dos rollups ("Total Abonado NV" en la Orden y "Total Abonado" en la
   // Operación) NO son sumables entre sí: un abono con ambos links está dentro
@@ -471,8 +497,24 @@ export async function getCuentaUnificada(
   //
   // Se suma la lista ya deduplicada. El filtro de anulados replica en JS la
   // condición que los rollups aplicaban del lado de Airtable.
-  const totalAbonado = abonos.filter(esAbonoVigente).reduce((sum, a) => sum + a.monto, 0);
-  const saldo = totalCuenta - totalAbonado;
+  //
+  // UNA sola calculadora (lib/estado-cuenta): la misma que usan el panel de
+  // Cobros y el tablero de Operaciones. Aquí solo se le pasan los datos.
+  const estado = calcularEstadoCuenta({
+    cargos: {
+      servicios: totalServicios,
+      productosDigitales: totalProductosDigitales,
+      // El rollup "Costo Total Repuestos NV" (suma de "Subtotal cliente"):
+      // la misma fuente que el cálculo en bloque. La lista de arriba es solo
+      // para mostrar los renglones.
+      repuestosHistoricos: repuestosLegacyCuentanParaTotal && ordenRecord
+        ? firstNumber(ordenRecord.fields["Costo Total Repuestos NV"])
+        : 0,
+      items: items.map((i) => ({ id: i.id, precio: i.precio })),
+      aprobadoSinArticulo: aprobadoSinArticuloCuenta,
+    },
+    abonos,
+  });
 
   return {
     ordenId,
@@ -488,13 +530,14 @@ export async function getCuentaUnificada(
     repuestosHistoricosCuentanParaTotal: repuestosLegacyCuentanParaTotal,
     productosDigitales,
     abonos,
-    totalRepuestos,
-    totalServicios,
-    totalProductosDigitales,
-    aprobadoSinArticulo: aprobadoPendiente,
-    totalAprobadoSinArticulo,
-    totalCuenta,
-    totalAbonado,
-    saldo,
+    totalRepuestos: estado.totalRepuestos,
+    totalServicios: estado.totalServicios,
+    totalProductosDigitales: estado.totalProductosDigitales,
+    aprobadoSinArticulo: aprobadoSinArticuloCuenta,
+    totalAprobadoSinArticulo: estado.totalAprobadoSinArticulo,
+    totalCuenta: estado.totalCuenta,
+    totalAbonado: estado.totalAbonado,
+    saldo: estado.saldo,
+    estadoPago: estado.estadoPago,
   };
 }

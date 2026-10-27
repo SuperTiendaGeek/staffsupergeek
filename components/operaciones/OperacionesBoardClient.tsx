@@ -5,7 +5,7 @@ import { useState, useMemo } from "react";
 import { Wrench, Plus, Clock } from "lucide-react";
 import type { OperacionListado } from "@/types/operaciones";
 import { ESTADOS_TABLERO } from "@/types/operaciones";
-import { resolverEstadoCobro } from "@/lib/operaciones/cobro";
+import { resolverEstadoCobroTablero } from "@/lib/operaciones/cobro";
 import { resolverAlertaGestion, type NivelAlertaGestion } from "@/lib/operaciones/vencimiento";
 import { NuevaOperacionModal } from "./NuevaOperacionModal";
 
@@ -42,11 +42,13 @@ function formatFecha(iso: string): string {
 // Presentación del estado de cobro. La DECISIÓN vive en lib/operaciones/cobro
 // (pura y testeada); acá solo se traduce a etiqueta y color.
 function moneyBadge(op: OperacionListado): { label: string; color: string } {
-  const { estado, monto } = resolverEstadoCobro({
+  const { estado, monto } = resolverEstadoCobroTablero({
     estado: op.estado,
     totalCotizado: op.totalCotizado,
     totalAbonado: op.totalAbonado,
     tieneOpciones: op.tieneOpciones,
+    tieneOrden: op.tieneOrden,
+    cuenta: op.cuenta,
   });
 
   switch (estado) {
@@ -113,6 +115,7 @@ function OperacionCard({ op }: { op: OperacionListado }) {
         <span
           className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
           style={{ background: `${money.color}22`, color: money.color }}
+          title={op.cuenta?.deLaOrden ? "Cuenta completa de la orden (orden + pedidos)" : undefined}
         >
           {money.label}
         </span>

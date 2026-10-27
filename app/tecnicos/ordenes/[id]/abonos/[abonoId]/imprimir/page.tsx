@@ -31,6 +31,17 @@ export default async function ImprimirTicketAbonoPage({ params }: PageProps) {
   // (incluye el repuesto real de la operación vinculada, si existe), no el
   // rollup NV de la orden por su cuenta.
   const cuentaUnificada = await getCuentaUnificada({ ordenId: id }).catch(() => null);
+  // Sin la cuenta no se imprime: antes caía a los campos NV de Airtable y el
+  // cliente se llevaba un saldo distinto al de la pantalla (punto 4).
+  if (!cuentaUnificada) {
+    return (
+      <main style={{ padding: 24, fontFamily: "Arial, Helvetica, sans-serif" }}>
+        <h1>No se pudo calcular el saldo</h1>
+        <p>El comprobante no se imprime con cifras incompletas. Intenta de nuevo en unos segundos.</p>
+        <Link href={`/tecnicos/ordenes/${encodeURIComponent(id)}`}>Volver a la orden</Link>
+      </main>
+    );
+  }
 
   return (
     <>

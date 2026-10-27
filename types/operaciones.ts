@@ -1,3 +1,4 @@
+import type { CuentaParaTablero } from "@/lib/operaciones/cobro";
 export const ESTADOS_OPERACION = [
   "Requerimiento",
   "Cotizado",
@@ -42,6 +43,12 @@ export type OperacionListado = {
    * rechazada automáticamente, evitando que vuelva a rechazarse de inmediato.
    */
   ultimaActualizacion: string;
+  /**
+   * Estado de la cuenta (auditoría ops, punto 4) para el chip del tablero:
+   * la cuenta COMPLETA de la orden si el pedido es de una orden; la suya si
+   * es suelto. Solo en Aprobado/Pedido/Entregado; null si no se pudo leer.
+   */
+  cuenta?: CuentaParaTablero | null;
 };
 
 export type AirtableAttachment = {

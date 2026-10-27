@@ -1,3 +1,4 @@
+import type { EstadoPago } from "@/lib/estado-cuenta/reglas";
 // Tipos de la cuenta unificada Orden↔Operación (Fase 11).
 // Ver lib/cuenta-unificada/index.ts para la implementación del servicio.
 
@@ -151,6 +152,10 @@ export interface CuentaUnificada {
   totalAbonado: number;
   // Positivo = saldo pendiente. Negativo = saldo a favor del cliente.
   saldo: number;
+  // Estado de pago de la cuenta completa, separado del estado de la
+  // reparación o del pedido (auditoría ops, punto 4). Lo calcula
+  // lib/estado-cuenta, la misma función para todas las pantallas.
+  estadoPago: EstadoPago;
 }
 
 export type GetCuentaUnificadaInput = { ordenId: string } | { operacionId: string };

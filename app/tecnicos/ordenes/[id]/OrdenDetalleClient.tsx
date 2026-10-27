@@ -1,5 +1,6 @@
 "use client";
 
+import { ETIQUETA_ESTADO_PAGO } from "@/lib/estado-cuenta/reglas";
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -687,6 +688,8 @@ export function OrdenDetalleClient() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // Cuenta unificada de repuestos (Fase 11 — Etapa 2).
   const [cuentaUnificada, setCuentaUnificada] = useState<CuentaUnificada | null>(null);
+  // Cifras de la cuenta: "—" mientras carga (nunca el rollup NV de Airtable).
+  const enCuenta = (v: number | undefined) => (cuentaUnificada ? formatCurrency(v ?? 0) : "—");
   const [cuentaUnificadaLoading, setCuentaUnificadaLoading] = useState(false);
   const [cuentaUnificadaError, setCuentaUnificadaError] = useState<string | null>(null);
   // Estado de cobro/documento con la MISMA regla del panel de /tecnicos/ordenes
@@ -2152,9 +2155,10 @@ export function OrdenDetalleClient() {
                 </div>
               )}
 
-              {/* Saldo hero — sale de la cuenta unificada (una sola fuente,
-                  Fase 11 etapa 3). Mientras carga, usa el rollup NV de la
-                  orden como fallback visual para no mostrar un hueco. */}
+              {/* Saldo hero — sale de la cuenta unificada (una sola fuente).
+                  Mientras carga muestra "—": los campos NV de Airtable ya no
+                  se usan ni de relleno (auditoría ops, punto 4: daban otra
+                  cifra y se veía un salto al terminar de cargar). */}
               {cobro?.documento && cobro.estadoCobro === "documentada" ? (
                 // Documento emitido Y abonos que cubren el total (auditoría
                 // ops, punto 1: una sola regla, saldo = cargos − abonos; el
@@ -2175,10 +2179,16 @@ export function OrdenDetalleClient() {
               ) : (
                 <div className="mb-3 rounded-xl border border-[var(--sg-lime)]/20 bg-[var(--sg-lime)]/5 px-3 py-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]/60">
-                    {(cuentaUnificada?.saldo ?? 0) < 0 ? "Saldo a favor del cliente" : "Saldo pendiente"}
+                    {!cuentaUnificada
+                      ? "Saldo pendiente"
+                      : cuentaUnificada.estadoPago === "saldo_a_favor"
+                      ? "Saldo a favor del cliente"
+                      : cuentaUnificada.estadoPago === "pagado"
+                      ? "Pagado"
+                      : `Saldo pendiente · ${ETIQUETA_ESTADO_PAGO[cuentaUnificada.estadoPago]}`}
                   </p>
                   <p className="mt-1 text-[1.75rem] font-black leading-none tabular-nums text-[var(--sg-lime)]">
-                    {formatCurrency(Math.abs(cuentaUnificada?.saldo ?? orden.saldoNV ?? 0))}
+                    {cuentaUnificada ? formatCurrency(Math.abs(cuentaUnificada.saldo)) : "—"}
                   </p>
                   {cobro?.documento ? (
                     <p className="mt-1.5 text-xs text-[var(--sg-danger)]">
@@ -2199,25 +2209,25 @@ export function OrdenDetalleClient() {
                 <div className="bg-[var(--sg-card)] px-3 py-2.5">
                   <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Total a pagar</p>
                   <p className="mt-0.5 text-sm font-extrabold leading-none tabular-nums text-[var(--sg-lime)]">
-                    {formatCurrency(cuentaUnificada?.totalCuenta ?? orden.totalAPagarNV)}
+                    {enCuenta(cuentaUnificada?.totalCuenta)}
                   </p>
                 </div>
                 <div className="bg-[var(--sg-card)] px-3 py-2.5">
                   <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Total abonado</p>
                   <p className="mt-0.5 text-sm font-extrabold leading-none tabular-nums text-[var(--sg-lime)]">
-                    {formatCurrency(cuentaUnificada?.totalAbonado ?? orden.totalAbonadoNV)}
+                    {enCuenta(cuentaUnificada?.totalAbonado)}
                   </p>
                 </div>
                 <div className="bg-[var(--sg-panel)] px-3 py-2">
                   <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Repuestos</p>
                   <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
-                    {formatCurrency(cuentaUnificada?.totalRepuestos ?? orden.costoTotalRepuestosNV)}
+                    {enCuenta(cuentaUnificada?.totalRepuestos)}
                   </p>
                 </div>
                 <div className="bg-[var(--sg-panel)] px-3 py-2">
                   <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Servicios</p>
                   <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
-                    {formatCurrency(cuentaUnificada?.totalServicios ?? orden.costoTotalServiciosNV)}
+                    {enCuenta(cuentaUnificada?.totalServicios)}
                   </p>
                 </div>
                 {(cuentaUnificada?.totalAprobadoSinArticulo ?? 0) > 0 && (
@@ -2228,11 +2238,11 @@ export function OrdenDetalleClient() {
                     </p>
                   </div>
                 )}
-                {(cuentaUnificada?.totalProductosDigitales ?? orden.totalProductosDigitalesNV ?? 0) > 0 && (
+                {(cuentaUnificada?.totalProductosDigitales ?? 0) > 0 && (
                   <div className="col-span-2 bg-[var(--sg-panel)] px-3 py-2">
                     <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Productos Digitales</p>
                     <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
-                      {formatCurrency(cuentaUnificada?.totalProductosDigitales ?? orden.totalProductosDigitalesNV)}
+                      {enCuenta(cuentaUnificada?.totalProductosDigitales)}
                     </p>
                   </div>
                 )}
@@ -2261,6 +2271,7 @@ export function OrdenDetalleClient() {
                       totalCuenta: 0,
                       totalAbonado: 0,
                       saldo: 0,
+                      estadoPago: "sin_cargos",
                     }
                   }
                   origenTipo="orden"

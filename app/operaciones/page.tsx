@@ -15,7 +15,7 @@ export default async function OperacionesPage() {
   let error = "";
 
   try {
-    items = await fetchOperaciones();
+    items = await fetchOperaciones({ conCuenta: true });
   } catch (loadError) {
     console.error("Error al cargar operaciones:", loadError);
     error =
