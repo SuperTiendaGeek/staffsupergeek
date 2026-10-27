@@ -997,7 +997,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
 
         {cuentaUnificada ? (
           <div className="mb-4">
-            <CuentaUnificadaPanel cuenta={cuentaUnificada} origenTipo="operacion" />
+            <CuentaUnificadaPanel cuenta={cuentaUnificada} origenTipo="operacion" onRegistrarPago={() => setAbonoModalOpen(true)} />
           </div>
         ) : (
           <p className="mb-4 rounded-lg border border-dashed border-[#3A3A36]/50 px-4 py-4 text-center text-sm text-[#4A4A46]">
@@ -1014,17 +1014,8 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
             <DollarSign size={13} />
             Registrar abono
           </button>
-          {/* Antes este botón estaba desactivado ("Próximamente") y el camino
-              real quedaba escondido dentro de la cuenta del cliente. Lleva a
-              la misma pantalla: factura, recibo o proforma con las unidades
-              del pedido ya cargadas. */}
-          <Link
-            href={`/facturacion/nueva?origen=operacion&recordId=${encodeURIComponent(operacion.id)}`}
-            className="inline-flex items-center gap-1.5 rounded-full border border-[#3A3A36] px-4 py-2 text-sm text-[#F0F0EC] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]"
-          >
-            <CheckCircle size={13} />
-            Facturar / emitir recibo
-          </Link>
+          {/* "Emitir documento" vive en la cuenta (arriba): se habilita con la
+              cuenta en $0 (auditoría ops, punto 1). */}
         </div>
       </section>
 
@@ -1089,6 +1080,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
         <RegistrarAbonoModal
           operacionId={operacion.id}
           ordenId={operacion.ordenVinculada?.id ?? null}
+          montoSugerido={cuentaUnificada && cuentaUnificada.saldo > 0 ? cuentaUnificada.saldo : undefined}
           onClose={() => setAbonoModalOpen(false)}
           onSuccess={handleAbonoSuccess}
         />

@@ -2264,6 +2264,15 @@ export function OrdenDetalleClient() {
                     }
                   }
                   origenTipo="orden"
+                  onRegistrarPago={() => {
+                    setAbonoError(null);
+                    setAbonoMessage(null);
+                    // Abre el cobro con el saldo ya puesto (se puede cambiar
+                    // para pagos en varias partes).
+                    const saldo = cuentaUnificada?.saldo ?? 0;
+                    if (saldo > 0) setAbonoMonto(saldo.toFixed(2));
+                    setOpenAbonoModal(true);
+                  }}
                 />
               </div>
 
