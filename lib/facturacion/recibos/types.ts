@@ -21,6 +21,10 @@ export type LineaRecibo = {
    *  entrega una licencia/clave. Se marca "Usado" al generar el recibo, igual
    *  que hace postEmision() con la factura. */
   productoDigitalId?: string;
+  /** Auditoría ops, punto 1: "cuenta" (viene de la orden/operación, no se
+   *  cambia) o "adicional" (venta de paso, solo en el recibo). Sin marca =
+   *  cuenta, cuando hay origen. */
+  bloque?: "cuenta" | "adicional";
 };
 
 export type ReciboCliente = {
@@ -45,6 +49,13 @@ export type CrearReciboInput = {
    *  servidor lo usa para vincular el recibo, re-verificar idempotencia y
    *  repartir el asiento contable sin doble conteo. */
   origen?:   OrigenRecibo;
+  /** Auditoría ops, punto 1: con origen, cómo pagó el cliente la venta
+   *  adicional (método del catálogo de Abonos, monto y número). La cuenta de
+   *  la orden ya llega pagada con abonos. */
+  pagosAdicionales?: Array<{ metodoPago?: string; total: number; referencia?: string }>;
+  /** Formas de pago finales (abonos + venta adicional), las arma el
+   *  servidor. Se guardan en "Líneas JSON" para el historial. */
+  pagos?: Array<{ formaPago: string; total: number; origenPago?: string; metodoPago?: string; referencia?: string }>;
 };
 
 export type EstadoRecibo = "Vigente" | "Anulado";

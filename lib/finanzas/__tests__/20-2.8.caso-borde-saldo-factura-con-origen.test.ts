@@ -1,9 +1,12 @@
 /**
- * Test §7 #8 (Fase 20.2) — Caso borde "saldo" en factura con origen: una
- * cuenta unificada con abonos que cubren solo una parte del total genera
- * exactamente un movimiento de ingreso nuevo por el remanente
- * (`origenPago: "saldo"`), mientras los abonos existentes solo se
+ * Test §7 #8 (Fase 20.2) — factura con origen: los abonos existentes solo se
  * actualizan (marcados como facturados, nunca duplicados).
+ *
+ * Actualizado por la auditoría ops, punto 1 (27-oct-2026): la cuenta llega
+ * PAGADA con abonos; el único ingreso nuevo es la venta adicional
+ * (`origenPago: "adicional"`), que entra a la cuenta de su método. Una línea
+ * "saldo" con origen orden/operación ya no crea un ingreso suelto sin abono
+ * (era el caso OR000510) — la emisión la rechaza antes de llegar aquí.
  *
  * getCuentaUnificada() (lib/cuenta-unificada) hace sus propios fetch()
  * directos a Airtable — el doble de global.fetch los intercepta igual que
@@ -35,6 +38,7 @@ async function main() {
   global.fetch = construirFetchDouble(state) as typeof fetch;
 
   crearCuentaDouble(state, { nombre: "Caja Registradora", fechaCorte: "2026-01-01" });
+  const sgingresos = crearCuentaDouble(state, { nombre: "SGINGRESOS", fechaCorte: "2026-01-01" });
 
   // Dos abonos vigentes ($50 + $30 = $80) ya con su movimiento (Puente 1).
   const abono1Id = crearRegistroDouble(state, "Abonos", {
@@ -77,13 +81,13 @@ async function main() {
     pagos: [
       { formaPago: "01", total: 50, origenPago: "abono" },
       { formaPago: "01", total: 30, origenPago: "abono" },
-      { formaPago: "01", total: 20, origenPago: "saldo" },
+      { formaPago: "20", total: 20, origenPago: "adicional", metodoPago: "Transferencia", referencia: "TRX-55" },
     ],
   } as unknown as DatosVenta;
 
   await procesarPuenteFacturacion(resultado, body, "Test");
 
-  assert(state.movimientos.size === 3, `Hay exactamente 3 movimientos tras facturar: 2 actualizados + 1 nuevo por el saldo (obtenido: ${state.movimientos.size})`);
+  assert(state.movimientos.size === 3, `Hay exactamente 3 movimientos tras facturar: 2 actualizados + 1 nuevo por la venta adicional (obtenido: ${state.movimientos.size})`);
 
   const movimiento1Actualizado = state.movimientos.get(mov1.movimientoId)!;
   const movimiento2Actualizado = state.movimientos.get(mov2.movimientoId)!;
@@ -106,8 +110,21 @@ async function main() {
     (m) => m.id !== mov1.movimientoId && m.id !== mov2.movimientoId
   );
   assert(!!nuevoMovimientoSaldo, "Existe un movimiento nuevo distinto de los 2 de abonos");
-  assert(nuevoMovimientoSaldo?.fields["Monto"] === 20, `El movimiento nuevo es exactamente por el remanente ($20, obtenido: $${nuevoMovimientoSaldo?.fields["Monto"]})`);
-  assert(nuevoMovimientoSaldo?.fields["Categoría"] === "Venta Producto", "El movimiento del saldo usa la categoría correcta (operación → Venta Producto)");
+  assert(nuevoMovimientoSaldo?.fields["Monto"] === 20, `El movimiento nuevo es exactamente la venta adicional ($20, obtenido: $${nuevoMovimientoSaldo?.fields["Monto"]})`);
+  assert(nuevoMovimientoSaldo?.fields["Categoría"] === "Venta Mostrador", "La venta adicional va a Venta Mostrador");
+  assert((nuevoMovimientoSaldo?.fields["Cuenta Destino (Finanzas)"] as string[])?.[0] === sgingresos, "Transferencia Banco Pichincha → entra a SGINGRESOS (nunca sin cuenta)");
+  assert(nuevoMovimientoSaldo?.fields["Transacción ID"] === "TRX-55", "El número de transferencia queda en el movimiento");
+
+  // ─── Una línea "saldo" con origen orden/operación ya no crea ingreso suelto ─
+  const operacion2Id = crearRegistroDouble(state, "Operación Comercial", { "Orden de Reparación": [], "Artículo físico": [], Abonos: [] });
+  const factura2Id = crearRegistroDouble(state, "Facturas Electrónicas", { "Número de Factura": "001-001-000000100" });
+  const antes = state.movimientos.size;
+  await procesarPuenteFacturacion(
+    { ...resultado, recordId: factura2Id, numeroFactura: "001-001-000000100" },
+    { origen: { tipo: "operacion", recordId: operacion2Id }, pagos: [{ formaPago: "20", total: 25, origenPago: "saldo" }] } as unknown as DatosVenta,
+    "Test"
+  );
+  assert(state.movimientos.size === antes, 'Un "saldo" sin abono no genera un ingreso sin cuenta (caso OR000510)');
 
   global.fetch = fetchOriginal;
   limpiarEnvFalso();
@@ -116,7 +133,7 @@ async function main() {
     console.error(`\n${fallos} fallo(s).`);
     process.exit(1);
   }
-  console.log("\nOK — caso borde \"saldo\" en factura con origen manejado correctamente.");
+  console.log("\nOK — factura con origen: abonos marcados y venta adicional con su cuenta.");
 }
 
 const fetchOriginal = global.fetch;

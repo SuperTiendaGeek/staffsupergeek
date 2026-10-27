@@ -2,7 +2,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import { requireOperacionesSession } from "@/lib/operaciones/auth";
 import { crearAbono, uploadComprobanteAbono } from "@/lib/operaciones/airtable";
 import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
-import { requiereNumeroTransaccion } from "@/types/abonos";
+import { esMetodoCobroNuevoValido, requiereNumeroTransaccion } from "@/types/abonos";
+import { verificarAbonoPermitido } from "@/lib/facturacion/gancho/cobroOrigen";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -31,6 +32,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ success: false, error: "Método de pago requerido." }, { status: 400 });
   }
 
+  // Auditoría ops, punto 1: todo cobro nuevo entra a una cuenta real ("Otro"
+  // no dice cuál). Antes esta ruta no validaba el catálogo en absoluto.
+  if (!esMetodoCobroNuevoValido(metodoPago)) {
+    return NextResponse.json({ success: false, error: "El método de pago no es válido. Elige uno que diga a qué cuenta entra el dinero." }, { status: 400 });
+  }
+
   const fechaAbono = (formData.get("fechaAbono") as string | null)?.trim() ?? "";
   if (!fechaAbono) {
     return NextResponse.json({ success: false, error: "Fecha de abono requerida." }, { status: 400 });
@@ -56,6 +63,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
   const registradoPor =
     session!.user.nombre?.trim() || session!.user.email?.trim() || "Portal";
+
+  // Auditoría ops, punto 1: con documento vigente solo si queda saldo real.
+  const noPermitido = await verificarAbonoPermitido({ tipo: "operacion", recordId: operacionId }, monto);
+  if (noPermitido) {
+    return NextResponse.json({ success: false, error: noPermitido.error }, { status: noPermitido.status });
+  }
 
   try {
     const { id: newId } = await crearAbono({

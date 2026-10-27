@@ -22,6 +22,10 @@ import { verificarArticulosEntregables, mensajeNoEntregables } from "@/lib/factu
 import { verificarProductosDigitalesDisponibles, mensajeProductosDigitalesNoDisponibles } from "@/lib/facturacion/reglas/productosDigitalesDisponibles";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
 import { mensajeReferenciaPagoFaltante } from "@/lib/facturacion/reglas/referenciaPago";
+import { esLineaAdicional, totalFinalLinea } from "@/lib/facturacion/reglas/cobroDocumento";
+import { validarEmisionDesdeOrigen } from "@/lib/facturacion/gancho/cobroOrigen";
+
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 const CODIGO_DUPLICADO_RECIENTE = "POSIBLE_FACTURA_DUPLICADA_RECIENTE";
 
@@ -88,7 +92,11 @@ export async function POST(request: Request) {
   // La validación de pantalla no basta: un request directo la salta. Mismo
   // criterio que assertConsumidorFinalPermitido() en facturación — la
   // regla vive también en el servidor.
-  const errorReferenciaPago = mensajeReferenciaPagoFaltante(body.pagos);
+  // Con origen orden/operación, los abonos son pagos ya registrados (no se
+  // editan al emitir) y la venta adicional tiene su propia validación (número
+  // obligatorio por método) más abajo — ver validarEmisionDesdeOrigen.
+  const desdeCuenta = body.origen?.tipo === "orden" || body.origen?.tipo === "operacion";
+  const errorReferenciaPago = desdeCuenta ? null : mensajeReferenciaPagoFaltante(body.pagos);
   if (errorReferenciaPago) {
     return NextResponse.json({ success: false, error: errorReferenciaPago }, { status: 400 });
   }
@@ -154,6 +162,35 @@ export async function POST(request: Request) {
       });
     if (pendientesArticulo) {
       return NextResponse.json({ success: false, error: pendientesArticulo }, { status: 409 });
+    }
+
+    // Auditoría ops, punto 1 (27-oct-2026): la cuenta se paga con abonos ANTES
+    // de emitir, sus líneas no se cambian y la venta adicional se cobra aquí
+    // con método y cuenta. Las formas de pago las arma el servidor.
+    if (body.origen.tipo === "orden" || body.origen.tipo === "operacion") {
+      const lineasAdicionales = body.detalles.filter(esLineaAdicional);
+      const totalAdicional = round2(lineasAdicionales.reduce((s, d) => s + totalFinalLinea(d), 0));
+      const cobro = await validarEmisionDesdeOrigen({
+        origen: body.origen,
+        lineasCuenta: body.detalles.filter((d) => !esLineaAdicional(d)).map((d) => ({
+          descripcion: d.descripcion, cantidad: d.cantidad, total: totalFinalLinea(d),
+          shippingItemId: d.shippingItemId, productoDigitalId: d.productoDigitalId,
+        })),
+        totalAdicional,
+        pagosAdicionales: body.pagos
+          .filter((p) => p.origenPago === "adicional")
+          .map((p) => ({ metodoPago: p.metodoPago, total: p.total, referencia: p.referencia })),
+      });
+      if (!cobro.ok) {
+        return NextResponse.json({ success: false, error: cobro.error }, { status: cobro.status });
+      }
+      if (Math.abs(round2(cobro.totalCuenta + totalAdicional - body.importeTotal)) > 0.02) {
+        return NextResponse.json(
+          { success: false, error: `El total del documento ($${body.importeTotal.toFixed(2)}) no cuadra con la cuenta ($${cobro.totalCuenta.toFixed(2)}) más la venta adicional ($${totalAdicional.toFixed(2)}).` },
+          { status: 400 }
+        );
+      }
+      body.pagos = cobro.pagos;
     }
   }
 

@@ -3,9 +3,11 @@
  *
  * Casos tomados de datos reales (20-sep-2026) para que la regla que sostiene
  * cada contador quede fija:
- *   · OR000430: factura emitida, $211, cero abonos. Antes aparecía con
- *     "Saldo pendiente $211" aunque se cobró al facturar. Un documento
- *     emitido SALDA la cuenta.
+ *   · OR000430: factura emitida, $211. Hasta el 27-oct-2026 "un documento
+ *     saldaba la cuenta" (parche). Desde el punto 1 de la auditoría ops la
+ *     regla es una sola: saldo = cargos − abonos. Con el abono de $236
+ *     regularizado (incluye el servicio de $25) queda documentada; una orden
+ *     con documento y SIN abonos sale como "documentada con saldo" (revisar).
  *   · OR000453: entregada, $55, abono de $25, sin documento → debe $30.
  *   · OR000477: recibo vigente → documentada.
  *
@@ -25,17 +27,27 @@ const base = (o: Partial<OrdenCobroInput>): OrdenCobroInput => ({
 });
 const en = (cat: keyof typeof CATEGORIAS, o: OrdenCobro) => CATEGORIAS[cat].pertenece(o);
 
-// 1. Factura emitida sin abonos: documentada, nada por cobrar.
+// 1. Factura emitida y pagada con abonos: documentada, nada por cobrar.
 const or430 = clasificarOrden(base({
-  idVisible: "OR000430", estado: "Finalizado Entregado", totalCuenta: 211,
+  idVisible: "OR000430", estado: "Finalizado Entregado", totalCuenta: 236,
+  abonos: [{ id: "aReg", monto: 236, estado: "Registrado" }],
   facturas: [{ tipo: "factura", recordId: "recF", numero: "001-002-000000680", estado: "AUTORIZADO" }],
 }));
-assert(or430.estadoCobro === "documentada", "Factura AUTORIZADA → documentada");
-assert(or430.porCobrar === 0, `Con documento no queda nada por cobrar (obtenido: $${or430.porCobrar})`);
-assert(or430.saldo === 211, "El saldo informativo sigue siendo total − abonos (no se inventan abonos)");
+assert(or430.estadoCobro === "documentada", "Factura AUTORIZADA y abonos que cubren el total → documentada");
+assert(or430.porCobrar === 0, `Nada por cobrar (obtenido: $${or430.porCobrar})`);
 assert(!en("entregadas_por_cobrar", or430) && !en("entregadas_sin_documento", or430),
   "Una entregada con factura NO aparece como entregada con saldo ni sin documento");
 assert(en("con_documento", or430), "Cuenta en 'Con documento'");
+
+// 1b. OR000510 ANTES de la regularización: recibo vigente, $25, sin abono.
+//     El parche decía "cobrada"; ahora dice la verdad y pide revisión.
+const or510 = clasificarOrden(base({
+  idVisible: "OR000510", estado: "Finalizado Entregado", totalCuenta: 25,
+  recibos: [{ tipo: "recibo", recordId: "recR67", numero: "REC-000067", estado: "Vigente" }],
+}));
+assert(or510.estadoCobro === "documentada_con_saldo", "Documento sin abonos → 'documentada con saldo' (ya no se tapa)");
+assert(or510.porCobrar === 25 && or510.saldo === 25, "Una sola cifra: saldo y por cobrar son $25 en todas partes");
+assert(en("documentadas_con_saldo", or510) && en("con_documento", or510), "Aparece en 'Documento emitido con saldo' para revisarla");
 
 // 2. Entregada con abono parcial y sin documento.
 const or453 = clasificarOrden(base({

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { createAbonoPorOrden } from "@/lib/tecnicos/airtable";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
-import { esMetodoPagoAbonoValido, requiereNumeroTransaccion } from "@/types/abonos";
+import { esMetodoCobroNuevoValido, requiereNumeroTransaccion } from "@/types/abonos";
+import { verificarAbonoPermitido } from "@/lib/facturacion/gancho/cobroOrigen";
 
 export const dynamic = "force-dynamic";
 
@@ -129,9 +130,11 @@ export async function POST(request: Request, { params }: Params) {
     );
   }
 
-  if (!esMetodoPagoAbonoValido(metodoPago)) {
+  // Auditoría ops, punto 1: todo cobro nuevo entra a una cuenta real, así
+  // que "Otro" (que no dice a qué cuenta entró) ya no se acepta.
+  if (!esMetodoCobroNuevoValido(metodoPago)) {
     return NextResponse.json(
-      { success: false, error: "El método de pago no es válido" },
+      { success: false, error: "El método de pago no es válido. Elige uno que diga a qué cuenta entra el dinero." },
       { status: 400 }
     );
   }
@@ -147,6 +150,13 @@ export async function POST(request: Request, { params }: Params) {
       },
       { status: 400 }
     );
+  }
+
+  // Auditoría ops, punto 1: con factura o recibo vigente solo se acepta un
+  // abono si queda saldo real (evita que el ingreso entre dos veces).
+  const noPermitido = await verificarAbonoPermitido({ tipo: "orden", recordId: ordenRecordId }, monto);
+  if (noPermitido) {
+    return NextResponse.json({ success: false, error: noPermitido.error }, { status: noPermitido.status });
   }
 
   try {

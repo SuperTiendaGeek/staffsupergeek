@@ -8,6 +8,7 @@ import type { CategoriaMovimiento, EstadoMovimiento, MetodoMovimiento } from "@/
 import { fetchCuentaPorNombre } from "../cuentas";
 import { actualizarMovimiento, crearMovimiento } from "../movimientos";
 import { fetchRecordById, firstLinkedId } from "../airtable-client";
+import { crearMovimientosVentaAdicional } from "./ventaAdicional";
 
 const AMBIENTE_PRODUCCION = "2";
 
@@ -131,9 +132,8 @@ async function abonoIdsVigentesDeReserva(reservaId: string): Promise<string[]> {
 
 // (b) Factura sobre Orden/Operación/Reserva — anti doble conteo: marca como
 // facturados los movimientos de los abonos vigentes (nunca crea un ingreso
-// nuevo por ellos) y solo crea movimiento nuevo por el componente "saldo"
-// (dinero no cubierto por ningún abono previo, cobrado en el instante de
-// facturar).
+// nuevo por ellos). Orden/operación: solo la venta adicional es ingreso nuevo
+// (punto 1 de la auditoría ops). Reserva: el componente "saldo" de siempre.
 async function procesarConOrigen(facturaId: string, body: DatosVenta, origen: OrigenGancho, registradoPor: string) {
   // Reunir los IDs de abonos vigentes del origen.
   let abonoIds: string[];
@@ -166,8 +166,26 @@ async function procesarConOrigen(facturaId: string, body: DatosVenta, origen: Or
     }
   }
 
-  // Orden → servicio; operación y reserva → venta de producto.
-  const categoria: CategoriaMovimiento = origen.tipo === "orden" ? "Servicio Reparación" : "Venta Producto";
+  // Auditoría ops, punto 1 (27-oct-2026): desde una orden u operación la
+  // cuenta llega PAGADA con abonos (la emisión lo exige). Lo único nuevo es la
+  // venta adicional, que entra con la cuenta de su método de pago.
+  if (origen.tipo === "orden" || origen.tipo === "operacion") {
+    const adicional = await crearMovimientosVentaAdicional({
+      cobros: body.pagos
+        .filter((p) => p.origenPago === "adicional")
+        .map((p) => ({ metodoPago: p.metodoPago, total: p.total, referencia: p.referencia })),
+      documento: { facturaElectronicaId: facturaId, etiqueta: "la factura" },
+      clienteId: body.clienteRecordId,
+      registradoPor,
+    });
+    if (adicional.problemas.length > 0) {
+      console.error("[Finanzas] Venta adicional de la factura con problemas", { facturaId, problemas: adicional.problemas });
+    }
+    return;
+  }
+
+  // Reserva (sin cuenta unificada): se mantiene el componente "saldo".
+  const categoria: CategoriaMovimiento = "Venta Producto";
   const componentesSaldo = body.pagos.filter((p) => p.origenPago === "saldo");
   const fecha = new Date().toISOString();
   for (const pago of componentesSaldo) {

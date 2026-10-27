@@ -55,6 +55,14 @@ export type DetalleFactura = {
   shippingItemId?: string;
   // record id del Producto Digital de origen, solo si tipo === "productoDigital".
   productoDigitalId?: string;
+  // Auditoría Técnicos y Operaciones, punto 1 (27-oct-2026) — documento con
+  // dos bloques cuando se emite desde una orden u operación:
+  //   · "cuenta": la línea viene de la cuenta (orden/operación). No se puede
+  //     cambiar al emitir; el servidor la compara con la cuenta real.
+  //   · "adicional": venta hecha "de paso" al cliente (mouse, webcam, envío).
+  //     Vive solo en el documento; la orden nunca la ve.
+  // Sin marca = "cuenta" (líneas precargadas). Nunca se serializa al XML.
+  bloque?: "cuenta" | "adicional";
 };
 
 // ─── Totales de impuesto ─────────────────────────────────────────────────────
@@ -80,7 +88,11 @@ export type Pago = {
   // — solo para presentación en FacturacionForm (etiqueta "Abono registrado"
   // vs "Saldo por cobrar"), nunca se serializa al XML del SRI
   // (construirFacturaXml no la lee).
-  origenPago?: "abono" | "saldo";
+  // "adicional" (punto 1, 27-oct-2026): pago de la venta adicional cobrado al
+  // emitir; lleva metodoPago (catálogo de Abonos) para que Finanzas sepa a qué
+  // cuenta entró. Con origen orden/operación ya no existe "saldo": la cuenta
+  // se paga con abonos antes de emitir.
+  origenPago?: "abono" | "saldo" | "adicional";
   fechaAbono?: string; // fecha del abono en Airtable, solo si origenPago === "abono"
   // Fase "referencia de pago en factura" (2026-08-17): número de
   // transacción del pago (transferencia, DeUna, depósito, etc.). Igual que

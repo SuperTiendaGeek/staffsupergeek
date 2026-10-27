@@ -18,6 +18,7 @@ import {
   calcularFormasPago, round2,
 } from "./construccion";
 import type { ItemNoListo, ProductoDigitalNoListo } from "./construccion";
+import { saldoPorCobrar as calcularSaldoPorCobrar } from "../reglas/cobroDocumento";
 
 export type { ItemNoListo, ProductoDigitalNoListo } from "./construccion";
 
@@ -27,7 +28,7 @@ export type PreFacturaInput = { ordenId: string } | { operacionId: string };
 
 export type PreFacturaBloqueada = {
   bloqueado:        true;
-  motivo:           "FACTURA_EXISTENTE" | "RECIBO_EXISTENTE" | "ITEMS_NO_LISTOS" | "PRODUCTOS_DIGITALES_SIN_PRECIO" | "PRESUPUESTO_PENDIENTE";
+  motivo:           "FACTURA_EXISTENTE" | "RECIBO_EXISTENTE" | "ITEMS_NO_LISTOS" | "PRODUCTOS_DIGITALES_SIN_PRECIO" | "PRESUPUESTO_PENDIENTE" | "LINEA_NEGATIVA";
   facturaExistente?: FacturaVinculadaGancho;
   // Bloqueo cruzado: el recibo interno cierra la cuenta igual que una
   // factura (descuenta inventario y registra el ingreso), así que uno
@@ -44,6 +45,11 @@ export type PreFacturaBloqueada = {
   // artículo (repuesto sin stock o bajo pedido aún sin pedir). Ya suman a la
   // cuenta (fase 3b); la factura/recibo espera a que el artículo exista.
   presupuestoPendiente?: Array<{ id: string; descripcion: string }>;
+  // Cargos negativos en la cuenta (un descuento o ajuste registrado como
+  // servicio de costo negativo, p. ej. la regularización de OR000423). Un
+  // documento no puede llevar una línea negativa: se bloquea hasta que el
+  // descuento tenga su propia herramienta (auditoría ops, punto 4).
+  lineasNegativas?: Array<{ id: string; descripcion: string; monto: number }>;
 };
 
 export type PreFacturaLista = {
@@ -52,6 +58,12 @@ export type PreFacturaLista = {
   ordenIdVisible:    string | null;
   operacionCodigo:   string | null;
   datosVenta:        DatosVenta; // datosVenta.origen y .clienteRecordId siempre presentes aquí
+  /**
+   * Auditoría ops, punto 1: lo que falta cobrar de la cuenta (total − abonos
+   * vigentes). Debe ser $0 para emitir: la cuenta se paga con abonos ANTES
+   * del documento. Negativo = el cliente pagó de más.
+   */
+  saldoPorCobrar:    number;
 };
 
 export type ResultadoPreFactura = PreFacturaBloqueada | PreFacturaLista;
@@ -131,6 +143,16 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
     };
   }
 
+  // ── 3d. Cargos negativos (descuentos o ajustes registrados como servicio) ───
+  const lineasNegativas = cuenta.servicios.filter((s) => s.costo < 0);
+  if (lineasNegativas.length > 0) {
+    return {
+      bloqueado: true,
+      motivo: "LINEA_NEGATIVA",
+      lineasNegativas: lineasNegativas.map((s) => ({ id: s.id, descripcion: s.nombre, monto: s.costo })),
+    };
+  }
+
   // ── 4. Cliente (link real de la orden/operación) ────────────────────────────
   const clienteIdsOrigen = linkedIds(registroOrigen?.fields["Cliente"]);
   const clienteIds = clienteIdsOrigen.length > 0 ? clienteIdsOrigen : linkedIds(registroOtro?.fields["Cliente"]);
@@ -166,7 +188,10 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
   const detallesProductoDigital: DetalleFactura[] = cuenta.productosDigitales.map((p, i) =>
     construirLineaProductoDigital(p, i + 1)
   );
-  const detalles = [...detallesProducto, ...detallesRepuestoHistorico, ...detallesServicio, ...detallesProductoDigital];
+  // Todas estas líneas son el bloque "cuenta" (auditoría ops, punto 1): no se
+  // pueden cambiar al emitir — ver reglas/cobroDocumento.ts.
+  const detalles = [...detallesProducto, ...detallesRepuestoHistorico, ...detallesServicio, ...detallesProductoDigital]
+    .map((d) => ({ ...d, bloque: "cuenta" as const }));
 
   // ── 6. Totales agrupados por tarifa ───────────────────────────────────────────
   const totalConImpuestos = agruparTotalConImpuestos(detalles);
@@ -177,6 +202,7 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
   // ── 7. Formas de pago: abonos reales (no anulados) + saldo pendiente ─────────
   const abonosVigentes = cuenta.abonos.filter(esAbonoVigente);
   const pagos = calcularFormasPago(abonosVigentes, importeTotal);
+  const saldoPorCobrar = calcularSaldoPorCobrar(importeTotal, abonosVigentes);
 
   const datosVenta: DatosVenta = {
     tipoIdentificacionComprador,
@@ -199,5 +225,6 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
     ordenIdVisible:  cuenta.ordenIdVisible,
     operacionCodigo: cuenta.operacionCodigo,
     datosVenta,
+    saldoPorCobrar,
   };
 }

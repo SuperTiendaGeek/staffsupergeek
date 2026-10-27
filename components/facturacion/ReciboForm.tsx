@@ -16,8 +16,11 @@ import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
 import { descripcionDeProducto } from "@/lib/facturacion/lineaDesdeProductoCatalogo";
 import {
   clienteDesdePrefactura, lineasReciboDesdePrefactura,
-  abonosDesdePrefactura, formaPagoSaldoDesdePrefactura, type AbonoPrefill,
+  abonosDesdePrefactura, type AbonoPrefill,
 } from "@/lib/facturacion/gancho/prefill";
+import {
+  AvisoCuentaPorCobrar, PagosVentaAdicional, errorPagosAdicionales, nuevoPagoAdicional, type PagoAdicionalForm,
+} from "@/components/facturacion/CobroDesdeOrigen";
 
 const FORMAS_PAGO = [
   { codigo: "01", label: "Efectivo" },
@@ -43,23 +46,26 @@ const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 // (gancho). Es la MISMA pre-factura que consume el formulario de facturas, así
 // que el cliente, las líneas y los abonos son idénticos: cambiar de pestaña no
 // pierde nada de lo que venía de la orden.
-export function ReciboForm({ prefactura, origen, bannerOrigen }: {
+export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }: {
   prefactura?:   DatosVenta | null;
   origen?:       OrigenRecibo;
   bannerOrigen?: { ordenIdVisible: string | null; operacionCodigo: string | null } | null;
+  /** Auditoría ops, punto 1: lo que falta cobrar de la cuenta (servidor). */
+  saldoPorCobrar?: number;
 } = {}) {
   const [cliente, setCliente] = useState<ClienteDoc>(() =>
     prefactura ? clienteDesdePrefactura(prefactura) : CLIENTE_VACIO
   );
   const [lineas, setLineas] = useState<Linea[]>(() =>
     prefactura
-      ? lineasReciboDesdePrefactura(prefactura).map((l) => ({ ...l, _id: crypto.randomUUID() }))
+      ? lineasReciboDesdePrefactura(prefactura).map((l) => ({ ...l, _id: crypto.randomUUID(), bloque: "cuenta" as const }))
       : []
   );
   const [queryProd, setQueryProd] = useState("");
   const [prodSug, setProdSug] = useState<Producto[]>([]);
   const [abonos] = useState<AbonoPrefill[]>(() => (prefactura ? abonosDesdePrefactura(prefactura) : []));
-  const [formaPago, setFormaPago] = useState(() => (prefactura ? formaPagoSaldoDesdePrefactura(prefactura) : "01"));
+  const [formaPago, setFormaPago] = useState("01");
+  const [pagosAdicionales, setPagosAdicionales] = useState<PagoAdicionalForm[]>([]);
   const [nota, setNota] = useState("");
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,17 +84,27 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
   }, [queryProd]);
 
   const total = totalRecibo(lineas);
-  // Con origen, el total del recibo NO es lo que se cobra hoy: parte ya se
-  // cobró en abonos y está registrada en /finanzas. Lo que se cobra ahora —y
-  // lo único que el servidor registrará como ingreso nuevo— es el saldo.
+  // Con origen (auditoría ops, punto 1): la cuenta llega pagada con abonos y
+  // lo único que se cobra al emitir es la venta adicional.
   const sumaAbonos = round2(abonos.reduce((s, a) => s + a.total, 0));
-  const saldo = round2(total - sumaAbonos);
+  const totalAdicional = origen ? totalRecibo(lineas.filter((l) => l.bloque === "adicional")) : 0;
+  const cuentaPorCobrar = !!origen && (saldoPorCobrar ?? 0) > 0.01;
+
+  useEffect(() => {
+    if (!origen) return;
+    setPagosAdicionales((actual) => {
+      if (totalAdicional <= 0.01) return actual.length ? [] : actual;
+      if (actual.length === 0) return [nuevoPagoAdicional(totalAdicional)];
+      if (actual.length === 1 && actual[0].total !== totalAdicional) return [{ ...actual[0], total: totalAdicional }];
+      return actual;
+    });
+  }, [origen, totalAdicional]);
 
   function agregarProducto(p: Producto) {
-    setLineas((prev) => [...prev, { _id: crypto.randomUUID(), codigo: p.sku || p.id, descripcion: descripcionDeProducto(p), unidadMedida: p.unidad, cantidad: 1, precioUnitario: p.precioVenta, descuento: 0, shippingItemId: p.id, stockDisponible: p.cantidadDisponible }]);
+    setLineas((prev) => [...prev, { _id: crypto.randomUUID(), codigo: p.sku || p.id, descripcion: descripcionDeProducto(p), unidadMedida: p.unidad, cantidad: 1, precioUnitario: p.precioVenta, descuento: 0, shippingItemId: p.id, stockDisponible: p.cantidadDisponible, ...(origen ? { bloque: "adicional" as const } : {}) }]);
     setQueryProd(""); setProdSug([]); prodRef.current?.focus();
   }
-  function agregarManual() { setLineas((prev) => [...prev, { _id: crypto.randomUUID(), codigo: "", descripcion: "", unidadMedida: "UNIDAD", cantidad: 1, precioUnitario: 0, descuento: 0 }]); }
+  function agregarManual() { setLineas((prev) => [...prev, { _id: crypto.randomUUID(), codigo: "", descripcion: "", unidadMedida: "UNIDAD", cantidad: 1, precioUnitario: 0, descuento: 0, ...(origen ? { bloque: "adicional" as const } : {}) }]); }
   function actualizar(id: string, campo: keyof Linea, valor: string | number) { setLineas((prev) => prev.map((l) => (l._id === id ? { ...l, [campo]: valor } : l))); }
   function eliminar(id: string) { setLineas((prev) => prev.filter((l) => l._id !== id)); }
 
@@ -101,7 +117,11 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
     if (lineas.some((l) => l.precioUnitario < 0)) { setError("El precio no puede ser negativo"); return; }
     const errPrecioShipping = mensajePrecioShippingItemInvalido(lineas);
     if (errPrecioShipping) { setError(errPrecioShipping); return; }
-    if (saldo < -0.01) { setError(`Los abonos ya cobrados ($${sumaAbonos.toFixed(2)}) superan el total del recibo ($${total.toFixed(2)}). Revisa las líneas antes de emitir.`); return; }
+    if (origen) {
+      if (cuentaPorCobrar) { setError(`Falta cobrar $${(saldoPorCobrar ?? 0).toFixed(2)} de la cuenta. Registra el pago (botón de arriba) antes de emitir.`); return; }
+      const errAdicional = errorPagosAdicionales(pagosAdicionales, totalAdicional);
+      if (errAdicional) { setError(errAdicional); return; }
+    }
     const sinStock = lineas.filter((l) => l.shippingItemId && l.stockDisponible !== undefined && l.cantidad > l.stockDisponible);
     if (sinStock.length > 0) { setError(`Sin stock: ${sinStock.map((l) => `"${l.descripcion}" (pide ${l.cantidad}, hay ${l.stockDisponible})`).join("; ")}`); return; }
     if (novedadPendiente) { setError("Falta confirmar cómo se vende el artículo con novedad (cartel amarillo)."); return; }
@@ -114,8 +134,12 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
         body: JSON.stringify({
           cliente: { identificacion: cliente.identificacion || undefined, razonSocial: cliente.razonSocial, correo: cliente.correo || undefined, airtableId: cliente.airtableId },
           lineas: lineas.map(({ _id, stockDisponible, ...l }) => { void _id; void stockDisponible; return l; }),
+          // Con origen la forma de pago la deriva el servidor de los cobros reales.
           formaPago, nota: nota.trim() || undefined,
           origen,
+          pagosAdicionales: origen
+            ? pagosAdicionales.map((p) => ({ metodoPago: p.metodoPago, total: round2(p.total), referencia: p.referencia.trim() || undefined }))
+            : undefined,
         }),
       });
       const j = await r.json();
@@ -160,11 +184,14 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
             {etiquetaOrigen ? ` ${etiquetaOrigen}` : ""}
           </p>
           <p className="text-[11px] text-[#A7A7A7] mt-0.5">
-            Cliente, líneas y abonos vienen precargados de la cuenta. El recibo no desglosa IVA: cada precio
-            es el precio final, así que el total coincide con el de la orden. Al emitirlo, la orden queda cerrada
+            Cliente, líneas y abonos vienen de la cuenta. Las líneas de la cuenta no se cambian aquí; lo que el cliente
+            compre de paso se agrega como venta adicional (solo en este recibo). Al emitirlo, la orden queda cerrada
             y ya no se le podrá emitir factura.
           </p>
         </div>
+      )}
+      {origen && saldoPorCobrar !== undefined && (
+        <AvisoCuentaPorCobrar origen={origen} saldo={saldoPorCobrar} etiquetaOrigen={etiquetaOrigen} />
       )}
       <ClienteCard value={cliente} onChange={setCliente} conConsumidorFinal />
 
@@ -186,6 +213,16 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
               <tbody>
                 {lineas.map((l) => (
                   <Fragment key={l._id}>
+                  {origen && l.bloque !== "adicional" ? (
+                  <tr className="border-b border-[#2A2B28] bg-[#1E1F1C]">
+                    <td className="py-1.5 pr-2 text-xs text-[#F5F5F5]">{l.descripcion}<p className="mt-0.5 text-[10px] text-[#666]">🔒 De la cuenta · no se cambia aquí</p></td>
+                    <td className="py-1.5 pr-2 text-right text-xs text-[#F5F5F5]">{l.cantidad}</td>
+                    <td className="py-1.5 pr-2 text-right text-xs text-[#F5F5F5]">{l.precioUnitario.toFixed(2)}</td>
+                    <td className="py-1.5 pr-2 text-right text-xs text-[#A7A7A7]">{l.descuento.toFixed(2)}</td>
+                    <td className="py-1.5 pr-2 text-right text-xs text-[#D7FF4F] font-semibold">${totalLinea(l).toFixed(2)}</td>
+                    <td></td>
+                  </tr>
+                  ) : (
                   <tr className="border-b border-[#2A2B28]">
                     <td className="py-1.5 pr-2"><input value={l.descripcion} onChange={(e) => actualizar(l._id, "descripcion", e.target.value)} className="w-full rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5]" /></td>
                     <td className="py-1.5 pr-2"><input type="number" min="1" step="1" value={l.cantidad} onChange={(e) => actualizar(l._id, "cantidad", Math.max(0, parseInt(e.target.value, 10) || 0))} className="w-14 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5]" /></td>
@@ -194,6 +231,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
                     <td className="py-1.5 pr-2 text-right text-xs text-[#D7FF4F] font-semibold">${totalLinea(l).toFixed(2)}</td>
                     <td className="py-1.5"><button onClick={() => eliminar(l._id)} className="text-[#666] hover:text-red-400 text-xs">✕</button></td>
                   </tr>
+                  )}
                   {l.shippingItemId ? (
                     <AvisoNovedadVenta modulo="facturacion" itemId={l.shippingItemId} colSpan={6} onEstado={(estado) => setAvisosNovedad((a) => ({ ...a, [l._id]: estado }))} />
                   ) : null}
@@ -209,10 +247,12 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
       <div className={CARD}>
         <h2 className="text-[#D7FF4F] font-bold text-sm mb-3">3. Pago y total</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          {!origen ? (
           <div>
-            <label className={LABEL}>{abonos.length > 0 ? "Forma de pago del saldo" : "Forma de pago"}</label>
+            <label className={LABEL}>Forma de pago</label>
             <select value={formaPago} onChange={(e) => setFormaPago(e.target.value)} className={INPUT}>{FORMAS_PAGO.map((fp) => <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>)}</select>
           </div>
+          ) : <div />}
           <div className="md:col-span-2"><label className={LABEL}>Nota (opcional, se imprime)</label><input value={nota} onChange={(e) => setNota(e.target.value)} className={INPUT} maxLength={300} /></div>
         </div>
         {abonos.length > 0 && (
@@ -226,18 +266,19 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
                 </li>
               ))}
             </ul>
-            <p className="mt-2 text-[10px] text-[#666]">Ya están registrados en Finanzas. El recibo no los vuelve a cobrar: solo se registra el saldo.</p>
+            <p className="mt-2 text-[10px] text-[#666]">Ya están registrados en Finanzas, cada uno en su cuenta. El recibo no los vuelve a cobrar.</p>
           </div>
         )}
+        {origen && <PagosVentaAdicional total={totalAdicional} pagos={pagosAdicionales} onChange={setPagosAdicionales} />}
 
         <div className="flex justify-end mt-4">
           <table className="text-sm">
             <tbody>
               <tr><td className="pr-6 font-bold text-[#F5F5F5]">Total</td><td className="text-right font-bold text-[#D7FF4F]">${total.toFixed(2)}</td></tr>
-              {abonos.length > 0 && (
+              {origen && (
                 <>
-                  <tr><td className="pr-6 text-[#A7A7A7]">Abonos</td><td className="text-right text-[#A7A7A7]">− ${sumaAbonos.toFixed(2)}</td></tr>
-                  <tr><td className="pr-6 font-bold text-[#F5F5F5]">Saldo a cobrar ahora</td><td className={`text-right font-bold ${saldo < -0.01 ? "text-red-300" : "text-[#D7FF4F]"}`}>${saldo.toFixed(2)}</td></tr>
+                  <tr><td className="pr-6 text-[#A7A7A7]">Abonos de la cuenta</td><td className="text-right text-[#A7A7A7]">− ${sumaAbonos.toFixed(2)}</td></tr>
+                  <tr><td className="pr-6 font-bold text-[#F5F5F5]">Venta adicional a cobrar ahora</td><td className="text-right font-bold text-[#D7FF4F]">${totalAdicional.toFixed(2)}</td></tr>
                 </>
               )}
             </tbody>
@@ -248,7 +289,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen }: {
 
       {error && <p className="mb-3 text-sm text-red-300 bg-red-950/30 border border-red-500/40 rounded-lg px-4 py-3">{error}</p>}
       <div className="flex items-center gap-3">
-        <button onClick={generar} disabled={generando || total <= 0 || novedadPendiente} title={novedadPendiente ? "Falta confirmar cómo se vende el artículo con novedad" : undefined} className="rounded-full bg-[#D7FF4F] text-[#151515] px-6 py-3 text-sm font-bold hover:brightness-105 disabled:opacity-40">{generando ? "Generando…" : "Generar Recibo →"}</button>
+        <button onClick={generar} disabled={generando || total <= 0 || novedadPendiente || cuentaPorCobrar} title={cuentaPorCobrar ? "Primero registra el pago de la cuenta" : novedadPendiente ? "Falta confirmar cómo se vende el artículo con novedad" : undefined} className="rounded-full bg-[#D7FF4F] text-[#151515] px-6 py-3 text-sm font-bold hover:brightness-105 disabled:opacity-40">{generando ? "Generando…" : "Generar Recibo →"}</button>
 {novedadPendiente ? <span className="text-xs font-semibold text-[#F0C75E]">Confirma el cartel amarillo para generar.</span> : null}
                 <Link href="/facturacion/recibos" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Ver recibos</Link>
       </div>

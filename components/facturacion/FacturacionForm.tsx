@@ -10,6 +10,10 @@ import { camposLineaDesdeProducto } from "@/lib/facturacion/lineaDesdeProductoCa
 import { ClienteCard, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 import { validarIdentificacion, revisarIdentificacion } from "@/lib/facturacion/reglas/identificacion";
 import { mensajeReferenciaPagoFaltante, CODIGO_SRI_REQUIERE_REFERENCIA } from "@/lib/facturacion/reglas/referenciaPago";
+import {
+  AvisoCuentaPorCobrar, PagosVentaAdicional, errorPagosAdicionales, nuevoPagoAdicional, type PagoAdicionalForm,
+} from "@/components/facturacion/CobroDesdeOrigen";
+import { etiquetaMetodoPago } from "@/types/abonos";
 import { resolverBorradorInicial } from "@/lib/facturacion/borradores/formulario";
 import { AvisoNovedadVenta, cerrarNovedadesVendidas, hayAvisoPendiente, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
 
@@ -115,6 +119,9 @@ type LineaDetalle = {
   // (solo si tipo === "productoDigital") — postEmision() lo usa para marcar
   // Usado y enlazar la factura al autorizarse.
   productoDigitalId?: string;
+  // Auditoría ops, punto 1: "cuenta" = viene de la orden/operación y no se
+  // puede cambiar; "adicional" = venta de paso al emitir desde un origen.
+  bloque?: "cuenta" | "adicional";
   // Stock visto al momento de agregar la línea (solo buscador de mostrador).
   // Referencial para validación temprana en el formulario — la verificación
   // definitiva la hace el servidor releyendo Airtable justo antes de emitir.
@@ -328,7 +335,7 @@ const LABEL = "block mb-1 text-xs font-semibold text-[#A7A7A7] uppercase trackin
 type PagoForm = {
   formaPago: string;
   total: number;
-  origenPago?: "abono" | "saldo";
+  origenPago?: "abono" | "saldo" | "adicional";
   fechaAbono?: string;
   // Número de transacción — obligatorio cuando formaPago === "20" (ver
   // CODIGO_SRI_REQUIERE_REFERENCIA), opcional para el resto. Nunca se
@@ -412,6 +419,10 @@ export function FacturacionForm({
   const [bannerOrigen, setBannerOrigen]     = useState<{ ordenIdVisible: string | null; operacionCodigo: string | null } | null>(null);
   const [cargandoPrefactura, setCargandoPrefactura] = useState(false);
   const [prefacturaBloqueada, setPrefacturaBloqueada] = useState<Extract<ResultadoPreFactura, { bloqueado: true }> | null>(null);
+  // Auditoría ops, punto 1: lo que falta cobrar de la cuenta (lo calcula el
+  // servidor) y los cobros de la venta adicional.
+  const [saldoPorCobrarOrigen, setSaldoPorCobrarOrigen] = useState<number | null>(null);
+  const [pagosAdicionales, setPagosAdicionales] = useState<PagoAdicionalForm[]>([]);
 
   // ── Modo reemplazo (Fase 18 PR2c: ?reemplazoNC=recordId) ──────────────────
   // Factura de reemplazo pagada con el crédito de una nota de crédito. El
@@ -460,7 +471,7 @@ export function FacturacionForm({
       setErrGlobal(`"${p.nombre}" ya está en la factura — un producto digital no se puede agregar dos veces.`);
       return;
     }
-    setLineas((prev) => [...prev, { _id: crypto.randomUUID(), ...camposLineaDesdeProducto(p) }]);
+    setLineas((prev) => [...prev, { _id: crypto.randomUUID(), ...camposLineaDesdeProducto(p), ...(origen ? { bloque: "adicional" as const } : {}) }]);
     setQueryProducto("");
     setProductosSug([]);
     productoRef.current?.focus();
@@ -478,6 +489,8 @@ export function FacturacionForm({
         precioUnitario: 0,
         descuento:      0,
         tarifaIva:      "4",
+        // Con origen, todo lo que se agrega es venta adicional (no toca la orden).
+        ...(origen ? { bloque: "adicional" as const } : {}),
       },
     ]);
   }
@@ -494,6 +507,27 @@ export function FacturacionForm({
 
   // ── Totales ───────────────────────────────────────────────────────────────
   const totales = calcularTotales(lineas, ivaIncluido);
+
+  // Auditoría ops, punto 1 — emisión desde orden/operación: el bloque de la
+  // cuenta está bloqueado y la venta adicional se cobra aparte.
+  const modoCuenta = !!origen && (origen.tipo === "orden" || origen.tipo === "operacion");
+  const totalAdicional = modoCuenta
+    ? calcularTotales(lineas.filter((l) => l.bloque === "adicional"), ivaIncluido).importeTotal
+    : 0;
+  const cuentaPorCobrar = modoCuenta && (saldoPorCobrarOrigen ?? 0) > 0.01;
+
+  // El cobro de la venta adicional sigue al total: con un solo método se
+  // ajusta solo; sin venta adicional se vacía. Con varios métodos lo reparte
+  // el empleado (la pantalla dice cuánto falta).
+  useEffect(() => {
+    if (!modoCuenta) return;
+    setPagosAdicionales((actual) => {
+      if (totalAdicional <= 0.01) return actual.length ? [] : actual;
+      if (actual.length === 0) return [nuevoPagoAdicional(totalAdicional)];
+      if (actual.length === 1 && actual[0].total !== totalAdicional) return [{ ...actual[0], total: totalAdicional }];
+      return actual;
+    });
+  }, [modoCuenta, totalAdicional]);
 
   // Regla SRI: Consumidor Final solo permitido hasta el límite configurado
   const excedeLimiteConsumidor =
@@ -609,12 +643,16 @@ export function FacturacionForm({
             tipo:            d.tipo,
             shippingItemId:  d.shippingItemId,
             productoDigitalId: d.productoDigitalId,
+            bloque:          "cuenta" as const,
           }))
         );
 
         setIvaIncluido(true);
+        // Solo los abonos: la cuenta se paga con abonos ANTES de emitir (ya
+        // no existe la línea "saldo por cobrar" dentro del documento).
+        setSaldoPorCobrarOrigen(j.data.saldoPorCobrar ?? null);
         setPagosPrecargados(
-          datosVenta.pagos.map((p) => ({
+          datosVenta.pagos.filter((p) => p.origenPago === "abono").map((p) => ({
             formaPago: p.formaPago, total: p.total,
             origenPago: p.origenPago, fechaAbono: p.fechaAbono,
             referencia: p.referencia, metodoPago: p.metodoPago,
@@ -774,7 +812,14 @@ export function FacturacionForm({
         return;
       }
     }
-    if (pagosPrecargados) {
+    if (modoCuenta) {
+      if ((saldoPorCobrarOrigen ?? 0) > 0.01) {
+        setErrGlobal(`Falta cobrar $${(saldoPorCobrarOrigen ?? 0).toFixed(2)} de la cuenta. Registra el pago (botón de arriba) antes de emitir.`);
+        return;
+      }
+      const errAdicional = errorPagosAdicionales(pagosAdicionales, totalAdicional);
+      if (errAdicional) { setErrGlobal(errAdicional); return; }
+    } else if (pagosPrecargados) {
       if (pagosPrecargados.length === 0) { setErrGlobal("Agrega al menos una forma de pago"); return; }
       const sumaPagos = round2(pagosPrecargados.reduce((s, p) => s + p.total, 0));
       if (Math.abs(sumaPagos - totales.importeTotal) > 0.01) {
@@ -794,7 +839,9 @@ export function FacturacionForm({
     // (ver referenciaPagoDiferencia más arriba), así que puede cumplir la
     // regla como cualquier otro.
     {
-      const pagosAValidar =
+      // Con origen, los abonos son pagos ya registrados (no se editan aquí) y
+      // la venta adicional ya se validó arriba.
+      const pagosAValidar = modoCuenta ? [] :
         pagosReemplazo ??
         pagosPrecargados ?? [
           { formaPago, total: totales.importeTotal, referencia: referenciaPagoUnico.trim() || undefined },
@@ -850,6 +897,7 @@ export function FacturacionForm({
             tipo:           l.tipo,
             shippingItemId: l.shippingItemId,
             productoDigitalId: l.productoDigitalId,
+            bloque:         l.bloque,
           };
         })
       : lineas.map((l) => {
@@ -877,6 +925,7 @@ export function FacturacionForm({
             tipo:           l.tipo,
             shippingItemId: l.shippingItemId,
             productoDigitalId: l.productoDigitalId,
+            bloque:         l.bloque,
           };
         });
 
@@ -916,7 +965,18 @@ export function FacturacionForm({
       totalConImpuestos,
       importeTotal:      totales.importeTotal,
       // En reemplazo: compensación (crédito NC) + efectivo (diferencia).
-      pagos: pagosReemplazo ?? pagosPrecargados ?? [
+      // Con origen: abonos de la cuenta + cobros de la venta adicional. El
+      // servidor rearma las formas de pago con los abonos reales y deduce el
+      // código SRI de cada método (el "01" de aquí es solo un marcador).
+      pagos: modoCuenta
+        ? [
+            ...(pagosPrecargados ?? []).filter((p) => p.origenPago === "abono"),
+            ...pagosAdicionales.map((p) => ({
+              formaPago: "01", total: round2(p.total), origenPago: "adicional" as const,
+              metodoPago: p.metodoPago, referencia: p.referencia.trim() || undefined,
+            })),
+          ]
+        : pagosReemplazo ?? pagosPrecargados ?? [
         { formaPago, total: totales.importeTotal, referencia: referenciaPagoUnico.trim() || undefined },
       ],
       origen:          origen ?? undefined,
@@ -1047,9 +1107,18 @@ export function FacturacionForm({
                 : `la operación ${bannerOrigen.operacionCodigo}`}
           </p>
           <p className="text-xs text-[#A7A7A7] mt-1">
-            Cliente, líneas, tarifas y formas de pago vienen precargados desde la cuenta unificada — revisa y ajusta antes de emitir.
+            Cliente, líneas y abonos vienen de la cuenta. Las líneas de la cuenta no se pueden cambiar aquí; si el cliente
+            se lleva algo más, agrégalo con el buscador o "+ Agregar línea" y queda como venta adicional, solo en esta factura.
           </p>
         </div>
+      )}
+
+      {modoCuenta && origen && saldoPorCobrarOrigen !== null && !resultado && (
+        <AvisoCuentaPorCobrar
+          origen={{ tipo: origen.tipo as "orden" | "operacion", recordId: origen.recordId }}
+          saldo={saldoPorCobrarOrigen}
+          etiquetaOrigen={bannerOrigen?.ordenIdVisible ?? bannerOrigen?.operacionCodigo ?? null}
+        />
       )}
 
       {/* ── RESULTADO ──────────────────────────────────────────────────── */}
@@ -1089,6 +1158,7 @@ export function FacturacionForm({
           <input
             type="checkbox"
             checked={ivaIncluido}
+            disabled={modoCuenta}
             onChange={(e) => setIvaIncluido(e.target.checked)}
             className="h-3.5 w-3.5 accent-[#D7FF4F]"
           />
@@ -1164,6 +1234,8 @@ export function FacturacionForm({
                   <Fragment key={l._id}>
                     <LineaRow
                       linea={l}
+                      bloqueada={modoCuenta && l.bloque !== "adicional"}
+                      adicional={modoCuenta && l.bloque === "adicional"}
                       onChange={(campo, val) => actualizarLinea(l._id, campo, val)}
                       onDelete={() => eliminarLinea(l._id)}
                     />
@@ -1263,7 +1335,35 @@ export function FacturacionForm({
                     </button>
                   ) : null}
                 </div>
-                {pagosPrecargados ? (
+                {modoCuenta ? (
+                  <div className="flex flex-col gap-2">
+                    <div className="rounded-lg border border-[#3A3A36] bg-[#252622] p-3 text-xs">
+                      <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-[#A7A7A7]">Abonos de la cuenta</p>
+                      {(pagosPrecargados ?? []).length === 0 ? (
+                        <p className="text-[#666]">Todavía no hay abonos.</p>
+                      ) : (
+                        <ul className="flex flex-col gap-1">
+                          {(pagosPrecargados ?? []).map((p, i) => (
+                            <li key={i} className="flex justify-between gap-2 text-[#C7C7C7]">
+                              <span>
+                                {p.metodoPago ? etiquetaMetodoPago(p.metodoPago) : "Abono"}
+                                {p.fechaAbono ? ` · ${formatearFechaAbono(p.fechaAbono)}` : ""}
+                                {p.referencia ? ` · n.º ${p.referencia}` : ""}
+                              </span>
+                              <span className="text-[#F5F5F5]">${p.total.toFixed(2)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="mt-1.5 text-[10px] text-[#666]">Ya están en Finanzas, cada uno en su cuenta. La factura no los vuelve a cobrar.</p>
+                    </div>
+                    <PagosVentaAdicional
+                      total={totalAdicional}
+                      pagos={pagosAdicionales}
+                      onChange={setPagosAdicionales}
+                    />
+                  </div>
+                ) : pagosPrecargados ? (
                   <FormasPagoEditor pagos={pagosPrecargados} onChange={setPagosPrecargados} />
                 ) : (
                   <div className="flex flex-col gap-1.5">
@@ -1343,8 +1443,8 @@ export function FacturacionForm({
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => handleEmitir()}
-              disabled={emitiendo || guardandoBorrador || !clienteOk || lineas.length === 0 || !!resultado || excedeLimiteConsumidor || novedadPendiente}
-              title={novedadPendiente ? "Falta confirmar cómo se vende el artículo con novedad" : undefined}
+              disabled={emitiendo || guardandoBorrador || !clienteOk || lineas.length === 0 || !!resultado || excedeLimiteConsumidor || novedadPendiente || cuentaPorCobrar}
+              title={cuentaPorCobrar ? "Primero registra el pago de la cuenta" : novedadPendiente ? "Falta confirmar cómo se vende el artículo con novedad" : undefined}
               className={[
                 "rounded-full border px-6 py-2.5 text-sm font-bold transition",
                 "border-[#D7FF4F] bg-[#D7FF4F] text-[#151515] hover:brightness-105",
@@ -1454,15 +1554,40 @@ function DuplicadoRecienteDialog({
 
 function LineaRow({
   linea,
+  bloqueada = false,
+  adicional = false,
   onChange,
   onDelete,
 }: {
   linea:    LineaDetalle;
+  /** Auditoría ops, punto 1: línea de la cuenta, de solo lectura. */
+  bloqueada?: boolean;
+  /** Venta adicional (solo en este documento). */
+  adicional?: boolean;
   onChange: (campo: keyof LineaDetalle, val: string | number) => void;
   onDelete: () => void;
 }) {
   const total = calcularLinea(linea);
   const esDigital = linea.tipo === "productoDigital";
+  if (bloqueada) {
+    const iva = TARIFAS_IVA.find((t) => t.codigo === linea.tarifaIva)?.label ?? linea.tarifaIva;
+    return (
+      <tr className="bg-[#1E1F1C]">
+        <td className="py-1.5 pr-2 text-xs text-[#A7A7A7]">{linea.codigoPrincipal}</td>
+        <td className="py-1.5 pr-2 text-xs text-[#F5F5F5]">
+          {linea.descripcion}
+          <p className="mt-0.5 text-[10px] text-[#666]">🔒 De la cuenta · no se cambia aquí{esDigital ? " · producto digital" : ""}</p>
+        </td>
+        <td className="py-1.5 pr-2 text-center text-xs text-[#A7A7A7]">{linea.unidadMedida}</td>
+        <td className="py-1.5 pr-2 text-right text-xs text-[#F5F5F5]">{linea.cantidad}</td>
+        <td className="py-1.5 pr-2 text-right text-xs text-[#F5F5F5]">{linea.precioUnitario.toFixed(2)}</td>
+        <td className="py-1.5 pr-2 text-right text-xs text-[#A7A7A7]">{linea.descuento.toFixed(2)}</td>
+        <td className="py-1.5 pr-2 text-center text-xs text-[#A7A7A7]">{iva}</td>
+        <td className="py-1.5 pr-2 text-right text-xs text-[#D7FF4F] font-semibold">${total.toFixed(2)}</td>
+        <td className="py-1.5"></td>
+      </tr>
+    );
+  }
   return (
     <tr>
       {/* SKU y Descripción son ajustables: el borde derecho se arrastra para
@@ -1481,6 +1606,7 @@ function LineaRow({
             formulario para marcar líneas especiales (ver "● Abono
             registrado" / "● Saldo por cobrar" en FormasPagoEditor). */}
         {esDigital && <p className="mt-0.5 text-[10px] text-blue-400/80">● Producto digital</p>}
+        {adicional && <p className="mt-0.5 text-[10px] text-[#D7FF4F]/80">● Venta adicional · solo en este documento</p>}
       </td>
       <td className="py-1.5 pr-2 text-center">
         <input type="text" value={linea.unidadMedida} onChange={(e) => onChange("unidadMedida", e.target.value)} className="w-16 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-center text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" />
@@ -1708,6 +1834,17 @@ function PreFacturaBloqueadaBanner({ resultado }: { resultado: Extract<Resultado
   }
 
   // Presupuesto aprobado con líneas que todavía no tienen su artículo.
+  if (resultado.motivo === "LINEA_NEGATIVA") {
+    return (
+      <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">
+        <p className="text-[#F0C75E] font-bold text-lg mb-2">No se puede facturar todavía</p>
+        <p className="text-[#A7A7A7] text-sm mb-3">La cuenta tiene cargos negativos (descuentos o ajustes). Una factura no puede llevar líneas negativas:</p>
+        <ul className="flex flex-col gap-1">
+          {(resultado.lineasNegativas ?? []).map((l) => <li key={l.id} className="text-sm text-[#F5F5F5]">{l.descripcion} (${l.monto.toFixed(2)})</li>)}
+        </ul>
+      </div>
+    );
+  }
   if (resultado.motivo === "PRESUPUESTO_PENDIENTE") {
     return (
       <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">

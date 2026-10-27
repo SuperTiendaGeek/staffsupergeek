@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { X, DollarSign } from "lucide-react";
-import { METODOS_PAGO_ABONO, requiereNumeroTransaccion } from "@/types/abonos";
+import { METODOS_COBRO_NUEVO, etiquetaMetodoPago, requiereNumeroTransaccion } from "@/types/abonos";
 
 function defaultEcuadorDatetime(): string {
   // Return current time as YYYY-MM-DDTHH:mm in Ecuador timezone (UTC-5)
@@ -11,15 +11,21 @@ function defaultEcuadorDatetime(): string {
   return ec.toISOString().slice(0, 16);
 }
 
+// El mismo modal sirve para la operación (su pantalla) y, desde el punto 1 de
+// la auditoría ops (27-oct-2026), para cobrar el saldo de una ORDEN desde la
+// pantalla de emisión: sin operacionId, registra el abono en la orden por su
+// propia ruta (/api/tecnicos/ordenes/[id]/abonos). Un solo formulario de cobro.
 type Props = {
-  operacionId: string;
+  operacionId?: string | null;
   ordenId: string | null;
+  /** Monto con el que abre el formulario (p. ej. el saldo por cobrar). */
+  montoSugerido?: number;
   onClose: () => void;
   onSuccess: () => void;
 };
 
-export function RegistrarAbonoModal({ operacionId, ordenId, onClose, onSuccess }: Props) {
-  const [monto, setMonto] = useState("");
+export function RegistrarAbonoModal({ operacionId, ordenId, montoSugerido, onClose, onSuccess }: Props) {
+  const [monto, setMonto] = useState(() => (montoSugerido && montoSugerido > 0 ? montoSugerido.toFixed(2) : ""));
   const [metodoPago, setMetodoPago] = useState<string>("Efectivo");
   const [fechaAbono, setFechaAbono] = useState(defaultEcuadorDatetime);
   const [comprobante, setComprobante] = useState<File | null>(null);
@@ -46,6 +52,23 @@ export function RegistrarAbonoModal({ operacionId, ordenId, onClose, onSuccess }
     setError("");
 
     try {
+      if (!operacionId) {
+        // Abono directo a la orden (sin operación vinculada).
+        if (!ordenId) { setError("Falta la orden."); return; }
+        const fdOrden = new FormData();
+        fdOrden.set("fecha", fechaAbono.slice(0, 10));
+        fdOrden.set("monto", String(montoNum));
+        fdOrden.set("metodoPago", metodoPago);
+        if (numeroTransaccion.trim()) fdOrden.set("numeroTransaccion", numeroTransaccion.trim());
+        if (observacion.trim()) fdOrden.set("observacion", observacion.trim());
+        if (comprobante) fdOrden.set("comprobanteArchivo", comprobante);
+        const resOrden = await fetch(`/api/tecnicos/ordenes/${ordenId}/abonos`, { method: "POST", body: fdOrden });
+        const dataOrden = (await resOrden.json()) as { success: boolean; error?: string };
+        if (!resOrden.ok || !dataOrden.success) { setError(dataOrden.error ?? "Error al registrar el abono."); return; }
+        onSuccess();
+        return;
+      }
+
       const fd = new FormData();
       fd.set("monto", String(montoNum));
       fd.set("metodoPago", metodoPago);
@@ -98,7 +121,7 @@ export function RegistrarAbonoModal({ operacionId, ordenId, onClose, onSuccess }
             <h2 id="abono-modal-title" className="text-sm font-semibold text-[#F0F0EC]">
               Registrar abono
             </h2>
-            {ordenId && (
+            {operacionId && ordenId && (
               <span className="rounded-full bg-[#78B7FF]/10 px-2 py-0.5 text-[10px] font-medium text-[#78B7FF]">
                 + orden vinculada
               </span>
@@ -161,9 +184,11 @@ export function RegistrarAbonoModal({ operacionId, ordenId, onClose, onSuccess }
               disabled={loading}
               className="w-full rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2.5 text-sm text-[#F0F0EC] outline-none transition focus:border-[#D7FF4F]/60 focus:ring-1 focus:ring-[#D7FF4F]/20 disabled:opacity-50"
             >
-              {METODOS_PAGO_ABONO.map((m) => (
+              {/* Auditoría ops, punto 1: solo métodos con cuenta real, y cada
+                  uno dice a qué cuenta entra (Banco Pichincha ≠ DeUna). */}
+              {METODOS_COBRO_NUEVO.map((m) => (
                 <option key={m} value={m}>
-                  {m}
+                  {etiquetaMetodoPago(m)}
                 </option>
               ))}
             </select>
