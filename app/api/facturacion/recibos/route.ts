@@ -1,10 +1,10 @@
 import { NextResponse }              from "next/server";
-import { marcarOperacionEntregadaPorDocumento } from "@/lib/operaciones/airtable";
+import { cerrarOperacionesDeLaCuenta } from "@/lib/facturacion/gancho/cierreCuenta";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { crearRecibo, adjuntarPdfRecibo, listarRecibos } from "@/lib/facturacion/recibos/airtable";
 import { descontarInventarioRecibo, registrarIngresoRecibo, marcarProductosDigitalesRecibo } from "@/lib/facturacion/recibos/efectos";
 import { actualizarEfectosRecibo } from "@/lib/facturacion/recibos/airtable";
-import { buscarDocumentoBloqueante } from "@/lib/facturacion/gancho/idempotencia";
+import { buscarDocumentoBloqueante, etiquetaDondeEstaElDocumento } from "@/lib/facturacion/gancho/idempotencia";
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
 import { mensajeAprobadoSinArticulo, MENSAJE_NO_SE_PUDO_VERIFICAR } from "@/lib/facturacion/reglas/aprobadoSinArticulo";
 import { procesarPuenteRecibo } from "@/lib/finanzas/puentes/recibo";
@@ -84,8 +84,8 @@ export async function POST(request: Request) {
     if (bloqueante) {
       const etiqueta = body.origen.tipo === "orden" ? "orden" : "operación";
       const detalle = bloqueante.tipo === "factura"
-        ? `una factura ${bloqueante.factura.estado} (${bloqueante.factura.numeroFactura || bloqueante.factura.claveAcceso})`
-        : `un recibo ${bloqueante.recibo.estado} (${bloqueante.recibo.numero})`;
+        ? `una factura ${bloqueante.factura.estado} (${bloqueante.factura.numeroFactura || bloqueante.factura.claveAcceso})${etiquetaDondeEstaElDocumento(bloqueante)}`
+        : `un recibo ${bloqueante.recibo.estado} (${bloqueante.recibo.numero})${etiquetaDondeEstaElDocumento(bloqueante)}`;
       return NextResponse.json({ success: false, error: `Esta ${etiqueta} ya tiene ${detalle}.` }, { status: 409 });
     }
     // Fase 3b: el recibo espera a que exista el artículo de todo lo aprobado.
@@ -170,11 +170,11 @@ export async function POST(request: Request) {
     try { await descontarInventarioRecibo({ reciboRecordId: recordId, numeroRecibo: numero, lineas: body.lineas, ambiente: cfg.ambiente, liberaReserva: !!body.origen }); }
     catch (e) { console.error("[recibos POST] inventario:", e); }
 
-    // Punto 6 (9-oct): la operación de origen pasa sola a "Entregado"
-    // (mismo guardado de ambiente que el inventario).
-    if (body.origen?.tipo === "operacion" && cfg.ambiente === "2") {
-      try { await marcarOperacionEntregadaPorDocumento(body.origen.recordId); }
-      catch (e) { console.error("[recibos POST] operación entregada:", e); }
+    // Punto 6 (9-oct) + auditoría ops punto 2 (27-oct): los pedidos de la
+    // cuenta (la operación de origen o los de la orden) pasan juntos a
+    // "Entregado" (mismo guardado de ambiente que el inventario).
+    if (body.origen && cfg.ambiente === "2") {
+      await cerrarOperacionesDeLaCuenta(body.origen);
     }
 
     // Productos digitales (solo aparecen en recibos con origen, hoy): se

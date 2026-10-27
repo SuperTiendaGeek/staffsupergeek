@@ -1021,33 +1021,9 @@ export async function eliminarOperacionConOpciones(operacionId: string): Promise
   await deleteRecord(client, OPERACIONES_TABLE, operacionId);
 }
 
-/**
- * Punto 6 (9-oct): una operación pasa SOLA a "Entregado" cuando se emite su
- * factura (autorizada en producción) o su recibo. Idempotente: si ya está
- * Entregado no escribe nada. Best-effort para quien la llama.
- */
-export async function marcarOperacionEntregadaPorDocumento(operacionId: string): Promise<void> {
-  const client = getClient();
-  const url = new URL(`${client.baseUrl}/${encodeURIComponent(OPERACIONES_TABLE)}/${encodeURIComponent(operacionId)}`);
-  url.searchParams.append("fields[]", "Estado");
-  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
-  if (!res.ok) throw new Error(`No se pudo leer la operación: ${res.status}`);
-  const rec = (await res.json()) as AirtableRecord;
-  if (firstString(rec.fields?.["Estado"]) === "Entregado") return;
-  await actualizarEstadoOperacion(operacionId, "Entregado");
-}
-
-/** Punto 7 (9-oct): al anular su factura o recibo, una operación "Entregado" vuelve a "Pedido". */
-export async function reabrirOperacionTrasAnulacion(operacionId: string): Promise<void> {
-  const client = getClient();
-  const url = new URL(`${client.baseUrl}/${encodeURIComponent(OPERACIONES_TABLE)}/${encodeURIComponent(operacionId)}`);
-  url.searchParams.append("fields[]", "Estado");
-  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
-  if (!res.ok) throw new Error(`No se pudo leer la operación: ${res.status}`);
-  const rec = (await res.json()) as AirtableRecord;
-  if (firstString(rec.fields?.["Estado"]) !== "Entregado") return;
-  await actualizarEstadoOperacion(operacionId, "Pedido");
-}
+// marcarOperacionEntregadaPorDocumento / reabrirOperacionTrasAnulacion se
+// reemplazaron por cerrar/reabrirOperacionesDeLaCuenta (lib/facturacion/gancho/
+// cierreCuenta.ts): la cuenta (orden + pedidos) se cierra y reabre junta.
 
 export async function anularOperacion(operacionId: string): Promise<void> {
   await actualizarEstadoOperacion(operacionId, "Rechazado");

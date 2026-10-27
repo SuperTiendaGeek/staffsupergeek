@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { emitirFactura, FacturacionRechazoError } from "@/lib/facturacion/emitirFactura";
 import type { DatosVenta } from "@/lib/facturacion/emitirFactura";
-import { buscarDocumentoBloqueante } from "@/lib/facturacion/gancho/idempotencia";
+import { buscarDocumentoBloqueante, etiquetaDondeEstaElDocumento } from "@/lib/facturacion/gancho/idempotencia";
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
 import { mensajeAprobadoSinArticulo, MENSAJE_NO_SE_PUDO_VERIFICAR } from "@/lib/facturacion/reglas/aprobadoSinArticulo";
 import { ejecutarEfectosPostAutorizacion } from "@/lib/facturacion/gancho/efectosPostAutorizacion";
@@ -146,8 +146,8 @@ export async function POST(request: Request) {
       // ya descontó inventario y registró el ingreso.
       const detalle =
         bloqueante.tipo === "factura"
-          ? `una factura ${bloqueante.factura.estado} (${bloqueante.factura.numeroFactura || bloqueante.factura.claveAcceso})`
-          : `un recibo ${bloqueante.recibo.estado} (${bloqueante.recibo.numero})`;
+          ? `una factura ${bloqueante.factura.estado} (${bloqueante.factura.numeroFactura || bloqueante.factura.claveAcceso})${etiquetaDondeEstaElDocumento(bloqueante)}`
+          : `un recibo ${bloqueante.recibo.estado} (${bloqueante.recibo.numero})${etiquetaDondeEstaElDocumento(bloqueante)}`;
       return NextResponse.json(
         { success: false, error: `Esta ${etiquetaOrigen} ya tiene ${detalle}.` },
         { status: 409 }

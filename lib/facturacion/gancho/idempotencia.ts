@@ -6,6 +6,7 @@ import {
 } from "./airtableGancho";
 import type { FacturaVinculadaGancho, ReciboVinculadoGancho } from "./airtableGancho";
 import type { OrigenGancho } from "../emitirFactura";
+import { armarRegistrosDeLaCuenta } from "@/lib/operaciones/cierre";
 
 // BORRADOR y ANULADA no bloquean: un borrador se puede seguir editando, y
 // una factura anulada no representa una emisión vigente sobre el origen.
@@ -75,8 +76,33 @@ export async function buscarReciboBloqueante(
 }
 
 export type DocumentoBloqueante =
-  | { tipo: "factura"; factura: FacturaVinculadaGancho }
-  | { tipo: "recibo";  recibo:  ReciboVinculadoGancho };
+  | { tipo: "factura"; factura: FacturaVinculadaGancho; en?: OrigenGancho }
+  | { tipo: "recibo";  recibo:  ReciboVinculadoGancho; en?: OrigenGancho };
+
+/**
+ * Auditoría ops, punto 2 (parche provisional, 27-oct-2026): la cuenta es la
+ * orden + todas sus operaciones (ver armarRegistrosDeLaCuenta en
+ * lib/operaciones/cierre.ts). Lanza si Airtable falla (fail-closed).
+ */
+export async function registrosDeLaCuenta(origen: OrigenGancho): Promise<OrigenGancho[]> {
+  if (origen.tipo === "reserva") return [origen];
+  let ordenId: string | null = null;
+  let operacionIdsDeLaOrden: string[] = [];
+  if (origen.tipo === "orden") {
+    const orden = await fetchOrden(origen.recordId);
+    ordenId = origen.recordId;
+    operacionIdsDeLaOrden = orden ? linkedIds(orden.fields["Operaciones Comerciales"]) : [];
+  } else {
+    const operacion = await fetchOperacion(origen.recordId);
+    ordenId = operacion ? linkedIds(operacion.fields["Orden de Reparación"])[0] ?? null : null;
+    if (ordenId) {
+      const orden = await fetchOrden(ordenId);
+      operacionIdsDeLaOrden = orden ? linkedIds(orden.fields["Operaciones Comerciales"]) : [];
+    }
+  }
+  const base = { tipo: origen.tipo === "orden" ? "orden" as const : "operacion" as const, recordId: origen.recordId };
+  return armarRegistrosDeLaCuenta({ origen: base, ordenId, operacionIdsDeLaOrden });
+}
 
 /**
  * Bloqueo cruzado: una orden/operación se cierra con UN solo documento de
@@ -92,11 +118,23 @@ export type DocumentoBloqueante =
 export async function buscarDocumentoBloqueante(
   origen: OrigenGancho
 ): Promise<DocumentoBloqueante | null> {
-  const [factura, recibo] = await Promise.all([
-    buscarFacturaBloqueante(origen),
-    buscarReciboBloqueante(origen),
-  ]);
-  if (factura) return { tipo: "factura", factura };
-  if (recibo)  return { tipo: "recibo",  recibo };
+  // Punto 2: se revisa la cuenta COMPLETA (orden + operaciones), no solo el
+  // registro desde el que se emite. Así una orden ya documentada bloquea a su
+  // operación, y al revés.
+  for (const registro of await registrosDeLaCuenta(origen)) {
+    const [factura, recibo] = await Promise.all([
+      buscarFacturaBloqueante(registro),
+      buscarReciboBloqueante(registro),
+    ]);
+    const en = registro.recordId === origen.recordId ? undefined : registro;
+    if (factura) return { tipo: "factura", factura, en };
+    if (recibo)  return { tipo: "recibo",  recibo, en };
+  }
   return null;
+}
+
+/** "la operación vinculada" / "la orden vinculada" cuando el documento está en el par. */
+export function etiquetaDondeEstaElDocumento(b: DocumentoBloqueante): string {
+  if (!b.en) return "";
+  return b.en.tipo === "orden" ? " (en la orden vinculada)" : " (en la operación vinculada)";
 }

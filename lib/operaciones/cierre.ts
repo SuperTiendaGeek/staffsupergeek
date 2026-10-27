@@ -94,3 +94,37 @@ export function evaluarAnularPedido(input: {
   }
   return { ok: true };
 }
+
+// ─── Una cuenta = la orden + todas sus operaciones ───────────────────────────
+// Auditoría Técnicos y Operaciones, punto 2 — parche provisional (27-oct-2026).
+// Hasta que el repuesto bajo pedido deje de ser una operación (puntos 8 y 10),
+// una orden y sus operaciones vinculadas son UNA cuenta: un solo documento de
+// venta para todas, y se cierran (y reabren) juntas. Antes el bloqueo solo
+// miraba el registro desde el que se emitía (OP-2026-000100/102/103/109
+// quedaron en "Pedido" con su orden ya cobrada, y desde la operación se podía
+// emitir un segundo documento por lo mismo).
+
+export type RegistroCuenta = { tipo: "orden" | "operacion"; recordId: string };
+
+/** Registros de la cuenta, empezando por el de origen; sin repetidos. */
+export function armarRegistrosDeLaCuenta(input: {
+  origen: RegistroCuenta;
+  ordenId: string | null;
+  operacionIdsDeLaOrden: string[];
+}): RegistroCuenta[] {
+  const lista: RegistroCuenta[] = [input.origen];
+  if (input.ordenId) lista.push({ tipo: "orden", recordId: input.ordenId });
+  for (const id of input.operacionIdsDeLaOrden) lista.push({ tipo: "operacion", recordId: id });
+  const vistos = new Set<string>();
+  return lista.filter((r) => (vistos.has(r.recordId) ? false : (vistos.add(r.recordId), true)));
+}
+
+/** Al emitir el documento de la cuenta se cierran las operaciones vivas. */
+export function operacionSeCierraConLaCuenta(estado: string): boolean {
+  return estado === "Pedido" || estado === "Aprobado";
+}
+
+/** Al anular el documento de la cuenta, lo que se cerró con él vuelve a "Pedido". */
+export function operacionSeReabreConLaCuenta(estado: string): boolean {
+  return estado === "Entregado";
+}
