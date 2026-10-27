@@ -1096,7 +1096,7 @@ export function FacturacionForm({
       )}
 
       {/* ── Banner de origen (gancho) ──────────────────────────────────── */}
-      {bannerOrigen && !resultado && (
+      {bannerOrigen && !resultado && !modoCuenta && (
         <div className="rounded-xl border border-[#D7FF4F]/40 bg-[#D7FF4F]/10 px-4 py-3">
           <p className="text-sm font-semibold text-[#D7FF4F]">
             Facturando desde{" "}
@@ -1113,7 +1113,7 @@ export function FacturacionForm({
         </div>
       )}
 
-      {modoCuenta && origen && saldoPorCobrarOrigen !== null && !resultado && (
+      {modoCuenta && origen && !resultado && (
         <AvisoCuentaPorCobrar
           origen={{ tipo: origen.tipo as "orden" | "operacion", recordId: origen.recordId }}
           saldo={saldoPorCobrarOrigen}
@@ -1154,7 +1154,9 @@ export function FacturacionForm({
       <Card titulo="2. Productos / Servicios">
         {/* Toggle "Precios incluyen IVA" — default activado, aplica a todo
             el formulario (mostrador y gancho por igual). Ver §4.6 del diseño. */}
-        <label className="mb-3 flex items-center gap-2 text-xs text-[#A7A7A7] cursor-pointer select-none">
+        {/* Con origen el precio de la cuenta ya es final con IVA (forzado): el
+            interruptor no aplica y no se muestra. */}
+        <label className={`mb-3 flex items-center gap-2 text-xs text-[#A7A7A7] cursor-pointer select-none ${modoCuenta ? "hidden" : ""}`}>
           <input
             type="checkbox"
             checked={ivaIncluido}
@@ -1340,7 +1342,7 @@ export function FacturacionForm({
                     <div className="rounded-lg border border-[#3A3A36] bg-[#252622] p-3 text-xs">
                       <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-[#A7A7A7]">Abonos de la cuenta</p>
                       {(pagosPrecargados ?? []).length === 0 ? (
-                        <p className="text-[#666]">Todavía no hay abonos.</p>
+                        <p className="text-[#666]">Sin abonos.</p>
                       ) : (
                         <ul className="flex flex-col gap-1">
                           {(pagosPrecargados ?? []).map((p, i) => (
@@ -1355,7 +1357,6 @@ export function FacturacionForm({
                           ))}
                         </ul>
                       )}
-                      <p className="mt-1.5 text-[10px] text-[#666]">Ya están en Finanzas, cada uno en su cuenta. La factura no los vuelve a cobrar.</p>
                     </div>
                     <PagosVentaAdicional
                       total={totalAdicional}
@@ -1575,8 +1576,9 @@ function LineaRow({
       <tr className="bg-[#1E1F1C]">
         <td className="py-1.5 pr-2 text-xs text-[#A7A7A7]">{linea.codigoPrincipal}</td>
         <td className="py-1.5 pr-2 text-xs text-[#F5F5F5]">
+          <span title="Viene de la cuenta. No se cambia aquí." className="mr-1.5 cursor-help text-[#666]">🔒</span>
           {linea.descripcion}
-          <p className="mt-0.5 text-[10px] text-[#666]">🔒 De la cuenta · no se cambia aquí{esDigital ? " · producto digital" : ""}</p>
+          {esDigital && <span className="ml-1.5 text-[10px] text-blue-400/80">● Digital</span>}
         </td>
         <td className="py-1.5 pr-2 text-center text-xs text-[#A7A7A7]">{linea.unidadMedida}</td>
         <td className="py-1.5 pr-2 text-right text-xs text-[#F5F5F5]">{linea.cantidad}</td>
@@ -1589,7 +1591,7 @@ function LineaRow({
     );
   }
   return (
-    <tr>
+    <tr className={adicional ? "animate-[sg-entrada_180ms_ease-out]" : undefined}>
       {/* SKU y Descripción son ajustables: el borde derecho se arrastra para
           cambiar el ancho (resize-x). El ancho por defecto va por clase, no por
           style, para que el que fije el usuario no se reinicie al teclear. */}
@@ -1606,7 +1608,7 @@ function LineaRow({
             formulario para marcar líneas especiales (ver "● Abono
             registrado" / "● Saldo por cobrar" en FormasPagoEditor). */}
         {esDigital && <p className="mt-0.5 text-[10px] text-blue-400/80">● Producto digital</p>}
-        {adicional && <p className="mt-0.5 text-[10px] text-[#D7FF4F]/80">● Venta adicional · solo en este documento</p>}
+        {adicional && <p className="mt-0.5 text-[10px] text-[#D7FF4F]/80" title="Solo en este documento; no toca la orden">● Venta adicional</p>}
       </td>
       <td className="py-1.5 pr-2 text-center">
         <input type="text" value={linea.unidadMedida} onChange={(e) => onChange("unidadMedida", e.target.value)} className="w-16 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-center text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30" />

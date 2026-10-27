@@ -32,12 +32,18 @@ function formatFecha(fecha: string | null) {
 // El botón dice "documento", no "factura": la pantalla de destino ofrece
 // factura, recibo (interno, sin IVA) y proforma, todos con los datos de la
 // cuenta ya precargados.
+// Auditoría ops, punto 1: el documento se emite con la cuenta en $0. Si falta
+// cobrar, la acción principal es "Registrar pago" (onRegistrarPago abre el
+// formulario de abono de la pantalla que monta el panel) y "Emitir documento"
+// queda desactivado. La proforma sigue a mano: cotizar no requiere pago.
 export function CuentaUnificadaPanel({
   cuenta,
   origenTipo,
+  onRegistrarPago,
 }: {
   cuenta: CuentaUnificada;
   origenTipo?: "orden" | "operacion";
+  onRegistrarPago?: () => void;
 }) {
   const origenRecordId = origenTipo === "operacion" ? cuenta.operacionId : cuenta.ordenId;
   const hrefEmitirDocumento =
@@ -54,8 +60,9 @@ export function CuentaUnificadaPanel({
           ? `${cuenta.operacionCodigo} · sin orden vinculada`
           : "Sin datos";
 
-  const saldoEsFavor = cuenta.saldo < 0;
-  const saldoEsCero = cuenta.saldo === 0;
+  const saldoEsFavor = cuenta.saldo < -0.01;
+  const saldoEsCero = Math.abs(cuenta.saldo) <= 0.01;
+  const puedeEmitir = saldoEsCero && cuenta.totalCuenta > 0.01;
 
   return (
     <section
@@ -234,26 +241,30 @@ export function CuentaUnificadaPanel({
       </div>
 
       {hrefEmitirDocumento && (
-        <div style={{ margin: "0 14px 14px" }}>
-          <Link
-            href={hrefEmitirDocumento}
-            style={{
-              display: "block",
-              textAlign: "center",
-              borderRadius: "0.5rem",
-              padding: "10px 14px",
-              fontSize: "13px",
-              fontWeight: 700,
-              color: "#10110E",
-              background: "#D7FF4F",
-              textDecoration: "none",
-            }}
-          >
-            Emitir documento →
-          </Link>
-          <p style={{ margin: "6px 0 0", textAlign: "center", fontSize: "11px", color: "#A7A7A7" }}>
-            Factura, recibo o proforma — con los datos de esta cuenta
-          </p>
+        <div style={{ margin: "0 14px 14px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          {puedeEmitir ? (
+            <Link href={hrefEmitirDocumento} style={{ ...BOTON, ...BOTON_PRIMARIO, flex: 1 }}>
+              Emitir documento →
+            </Link>
+          ) : (
+            <>
+              {!saldoEsFavor && !saldoEsCero && onRegistrarPago && (
+                <button type="button" onClick={onRegistrarPago} style={{ ...BOTON, ...BOTON_PRIMARIO, flex: 1 }}>
+                  Registrar pago
+                </button>
+              )}
+              <span
+                aria-disabled="true"
+                title={saldoEsFavor ? "El cliente pagó de más: resuélvelo antes de emitir" : "Se emite cuando la cuenta está en $0"}
+                style={{ ...BOTON, flex: 1, color: "#6B6B66", border: "1px solid #3A3A36", cursor: "not-allowed" }}
+              >
+                Emitir documento
+              </span>
+              <Link href={`${hrefEmitirDocumento}&tipo=proforma`} style={{ fontSize: "12px", color: "#A7A7A7", textDecoration: "underline" }}>
+                Proforma
+              </Link>
+            </>
+          )}
         </div>
       )}
     </section>
@@ -299,3 +310,15 @@ function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone
     </span>
   );
 }
+
+const BOTON: React.CSSProperties = {
+  display: "block",
+  textAlign: "center",
+  borderRadius: "0.5rem",
+  padding: "9px 14px",
+  fontSize: "13px",
+  fontWeight: 700,
+  textDecoration: "none",
+  transition: "background-color 160ms ease, color 160ms ease, opacity 160ms ease",
+};
+const BOTON_PRIMARIO: React.CSSProperties = { color: "#10110E", background: "#D7FF4F", border: "none", cursor: "pointer" };

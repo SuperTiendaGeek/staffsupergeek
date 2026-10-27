@@ -4,10 +4,10 @@
 // Técnicos y Operaciones, punto 1 (27-oct-2026). Las usan el formulario de
 // factura y el de recibo, así las dos pantallas cobran igual:
 //
-//   · AvisoCuentaPorCobrar: si la cuenta no está pagada, NO se emite. El
-//     botón "Registrar pago" abre el MISMO formulario de abono de siempre
-//     (método con su cuenta, número obligatorio en transferencias y DeUna,
-//     comprobante). Al guardarlo, la pantalla se recarga con la cuenta al día.
+//   · AvisoCuentaPorCobrar: barra de una línea con el origen y el estado de la
+//     cuenta. Lo normal es llegar con la cuenta pagada (la orden no deja
+//     emitir si falta cobrar); si no, "Registrar pago" abre el mismo
+//     formulario de abono y la pantalla se recarga con la cuenta al día.
 //   · PagosVentaAdicional: lo que el cliente compra de paso (mouse, webcam,
 //     envío) se cobra aquí, con método y número. El código SRI lo deduce el
 //     servidor del método; el empleado nunca lo elige.
@@ -36,69 +36,61 @@ export function errorPagosAdicionales(pagos: PagoAdicionalForm[], totalAdicional
   );
 }
 
+/**
+ * Barra de una línea: de dónde viene el documento y el estado de la cuenta.
+ * Pagada → se emite. Falta cobrar → "Registrar pago" (el mismo formulario de
+ * abono) y no se emite. Pagado de más → se resuelve en la orden.
+ */
 export function AvisoCuentaPorCobrar({
   origen,
   saldo,
   etiquetaOrigen,
 }: {
   origen: OrigenCuenta;
-  /** Total de la cuenta − abonos vigentes (lo arma el servidor). */
-  saldo: number;
+  /** Total de la cuenta − abonos vigentes (lo arma el servidor); null = sin dato. */
+  saldo: number | null;
   etiquetaOrigen?: string | null;
 }) {
   const [abierto, setAbierto] = useState(false);
-  const nombre = origen.tipo === "orden" ? "la orden" : "la operación";
-
-  if (Math.abs(saldo) <= 0.01) {
-    return (
-      <div className="mb-4 rounded-xl border border-[#6EE7B7]/40 bg-[#064E3B]/30 px-4 py-3">
-        <p className="text-sm font-bold text-[#6EE7B7]">✓ La cuenta de {nombre}{etiquetaOrigen ? ` ${etiquetaOrigen}` : ""} está pagada</p>
-        <p className="mt-0.5 text-[11px] text-[#A7A7A7]">
-          Sus abonos cubren el total. Si el cliente se lleva algo más, agrégalo como venta adicional y cóbralo abajo.
-        </p>
-      </div>
-    );
-  }
-
-  if (saldo < 0) {
-    return (
-      <div className="mb-4 rounded-xl border border-[#78B7FF]/40 bg-[#78B7FF]/10 px-4 py-3">
-        <p className="text-sm font-bold text-[#78B7FF]">El cliente pagó {dinero(-saldo)} de más en {nombre}</p>
-        <p className="mt-0.5 text-[11px] text-[#A7A7A7]">
-          Antes de emitir hay que resolver ese saldo a favor (anular el abono que sobra o devolver el dinero) desde {nombre}.
-        </p>
-      </div>
-    );
-  }
+  const nombre = `${origen.tipo === "orden" ? "Orden" : "Operación"}${etiquetaOrigen ? ` ${etiquetaOrigen}` : ""}`;
+  const estado = saldo === null ? null : Math.abs(saldo) <= 0.01 ? "pagada" : saldo > 0 ? "debe" : "favor";
+  const borde =
+    estado === "debe" ? "border-[#F0C75E]/50 bg-[#F0C75E]/[0.07]" :
+    estado === "favor" ? "border-[#78B7FF]/40 bg-[#78B7FF]/[0.07]" :
+    "border-[#D7FF4F]/30 bg-[#D7FF4F]/[0.05]";
 
   return (
-    <div className="mb-4 rounded-xl border border-[#F0C75E]/50 bg-[#F0C75E]/10 px-4 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-bold text-[#F0C75E]">
-            Falta cobrar {dinero(saldo)} de {nombre}{etiquetaOrigen ? ` ${etiquetaOrigen}` : ""}
-          </p>
-          <p className="mt-0.5 text-[11px] text-[#A7A7A7]">
-            Primero registra el pago (puede ser en varias partes: efectivo, transferencia Banco Pichincha, DeUna…).
-            El documento se emite cuando la cuenta queda en $0. Nunca se emite debiendo.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setAbierto(true)}
-          className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-xs font-bold text-[#151515] hover:brightness-105"
-        >
-          Registrar pago
-        </button>
-      </div>
+    <div className={`mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-4 py-2.5 transition-colors duration-300 ${borde}`}>
+      <span className="text-sm font-semibold text-[#D7FF4F]">{nombre}</span>
+      {estado === "pagada" && (
+        <span className="rounded-full bg-[#6EE7B7]/15 px-2.5 py-0.5 text-xs font-semibold text-[#6EE7B7] animate-[sg-entrada_200ms_ease-out]">✓ Cuenta pagada</span>
+      )}
+      {estado === "debe" && (
+        <>
+          <span className="rounded-full bg-[#F0C75E]/15 px-2.5 py-0.5 text-xs font-semibold text-[#F0C75E]" title="El documento se emite con la cuenta en $0">
+            Falta cobrar {dinero(saldo ?? 0)}
+          </span>
+          <button
+            type="button"
+            onClick={() => setAbierto(true)}
+            className="ml-auto rounded-full bg-[#D7FF4F] px-3.5 py-1 text-xs font-bold text-[#151515] transition hover:brightness-105"
+          >
+            Registrar pago
+          </button>
+        </>
+      )}
+      {estado === "favor" && (
+        <span className="rounded-full bg-[#78B7FF]/15 px-2.5 py-0.5 text-xs font-semibold text-[#78B7FF]" title="Anula el abono que sobra o devuelve el dinero desde la orden">
+          Pagado de más {dinero(-(saldo ?? 0))} · resolver en la {origen.tipo === "orden" ? "orden" : "operación"}
+        </span>
+      )}
       {abierto && (
         <RegistrarAbonoModal
           operacionId={origen.tipo === "operacion" ? origen.recordId : null}
           ordenId={origen.tipo === "orden" ? origen.recordId : null}
-          montoSugerido={saldo}
+          montoSugerido={saldo ?? undefined}
           onClose={() => setAbierto(false)}
-          // Recargar trae la cuenta al día (abonos, saldo y formas de pago)
-          // desde el servidor: es la única fuente.
+          // Recargar trae la cuenta al día desde el servidor (única fuente).
           onSuccess={() => window.location.reload()}
         />
       )}
@@ -124,7 +116,7 @@ export function PagosVentaAdicional({
   return (
     <div className="mt-3 rounded-lg border border-[#D7FF4F]/30 bg-[#D7FF4F]/5 p-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-[#D7FF4F]">Cobro de la venta adicional · {dinero(total)}</p>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-[#D7FF4F]">Cobro venta adicional · {dinero(total)}</p>
         <button
           type="button"
           onClick={() => onChange([...pagos, nuevoPagoAdicional(Math.max(0, falta))])}
@@ -135,7 +127,7 @@ export function PagosVentaAdicional({
       </div>
       <div className="flex flex-col gap-2">
         {pagos.map((p) => (
-          <div key={p._id} className="flex flex-col gap-1.5 rounded-md border border-[#3A3A36] bg-[#1A1B18] p-2">
+          <div key={p._id} className="flex flex-col gap-1.5 rounded-md border border-[#3A3A36] bg-[#1A1B18] p-2 animate-[sg-entrada_180ms_ease-out]">
             <div className="flex items-center gap-2">
               <select
                 value={p.metodoPago}
@@ -162,7 +154,7 @@ export function PagosVentaAdicional({
               type="text"
               value={p.referencia}
               onChange={(e) => actualizar(p._id, { referencia: e.target.value })}
-              placeholder={requiereNumeroTransaccion(p.metodoPago) ? "N° de transacción (obligatorio)" : "N° de transacción (opcional)"}
+              placeholder={requiereNumeroTransaccion(p.metodoPago) ? "N° de transacción *" : "N° de transacción"}
               className="w-full rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5]"
             />
           </div>

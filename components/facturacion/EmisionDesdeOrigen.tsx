@@ -47,7 +47,9 @@ function EmisionDesdeOrigenInterno({ consumidorFinalLimite }: { consumidorFinalL
   const hayOrigen =
     (origenTipo === "orden" || origenTipo === "operacion") && !!recordId?.trim();
 
-  const [tipo, setTipo] = useState<Tipo>("factura");
+  // ?tipo=proforma: la orden ofrece la proforma aunque falte cobrar.
+  const tipoInicial = searchParams.get("tipo");
+  const [tipo, setTipo] = useState<Tipo>(tipoInicial === "recibo" || tipoInicial === "proforma" ? tipoInicial : "factura");
   const [prefactura, setPrefactura] = useState<ResultadoPreFactura | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);

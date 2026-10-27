@@ -178,20 +178,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
   return (
     <div className="w-full max-w-5xl">
       {origen && (
-        <div className="mb-4 rounded-xl border border-[#D7FF4F]/30 bg-[#D7FF4F]/5 px-4 py-3">
-          <p className="text-[#D7FF4F] text-sm font-bold">
-            Recibo desde {origen.tipo === "orden" ? "la orden" : "la operación"}
-            {etiquetaOrigen ? ` ${etiquetaOrigen}` : ""}
-          </p>
-          <p className="text-[11px] text-[#A7A7A7] mt-0.5">
-            Cliente, líneas y abonos vienen de la cuenta. Las líneas de la cuenta no se cambian aquí; lo que el cliente
-            compre de paso se agrega como venta adicional (solo en este recibo). Al emitirlo, la orden queda cerrada
-            y ya no se le podrá emitir factura.
-          </p>
-        </div>
-      )}
-      {origen && saldoPorCobrar !== undefined && (
-        <AvisoCuentaPorCobrar origen={origen} saldo={saldoPorCobrar} etiquetaOrigen={etiquetaOrigen} />
+        <AvisoCuentaPorCobrar origen={origen} saldo={saldoPorCobrar ?? null} etiquetaOrigen={etiquetaOrigen} />
       )}
       <ClienteCard value={cliente} onChange={setCliente} conConsumidorFinal />
 
@@ -215,7 +202,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
                   <Fragment key={l._id}>
                   {origen && l.bloque !== "adicional" ? (
                   <tr className="border-b border-[#2A2B28] bg-[#1E1F1C]">
-                    <td className="py-1.5 pr-2 text-xs text-[#F5F5F5]">{l.descripcion}<p className="mt-0.5 text-[10px] text-[#666]">🔒 De la cuenta · no se cambia aquí</p></td>
+                    <td className="py-1.5 pr-2 text-xs text-[#F5F5F5]"><span title="Viene de la cuenta. No se cambia aquí." className="mr-1.5 cursor-help text-[#666]">🔒</span>{l.descripcion}</td>
                     <td className="py-1.5 pr-2 text-right text-xs text-[#F5F5F5]">{l.cantidad}</td>
                     <td className="py-1.5 pr-2 text-right text-xs text-[#F5F5F5]">{l.precioUnitario.toFixed(2)}</td>
                     <td className="py-1.5 pr-2 text-right text-xs text-[#A7A7A7]">{l.descuento.toFixed(2)}</td>
@@ -223,7 +210,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
                     <td></td>
                   </tr>
                   ) : (
-                  <tr className="border-b border-[#2A2B28]">
+                  <tr className={`border-b border-[#2A2B28] ${origen ? "animate-[sg-entrada_180ms_ease-out]" : ""}`}>
                     <td className="py-1.5 pr-2"><input value={l.descripcion} onChange={(e) => actualizar(l._id, "descripcion", e.target.value)} className="w-full rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5]" /></td>
                     <td className="py-1.5 pr-2"><input type="number" min="1" step="1" value={l.cantidad} onChange={(e) => actualizar(l._id, "cantidad", Math.max(0, parseInt(e.target.value, 10) || 0))} className="w-14 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5]" /></td>
                     <td className="py-1.5 pr-2"><input type="number" min="0" step="0.01" value={l.precioUnitario} onChange={(e) => actualizar(l._id, "precioUnitario", parseFloat(e.target.value) || 0)} className="w-20 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-right text-[#F5F5F5]" /></td>
@@ -266,7 +253,6 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
                 </li>
               ))}
             </ul>
-            <p className="mt-2 text-[10px] text-[#666]">Ya están registrados en Finanzas, cada uno en su cuenta. El recibo no los vuelve a cobrar.</p>
           </div>
         )}
         {origen && <PagosVentaAdicional total={totalAdicional} pagos={pagosAdicionales} onChange={setPagosAdicionales} />}
