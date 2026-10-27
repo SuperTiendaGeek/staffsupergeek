@@ -4,8 +4,9 @@
  * La regla que protege: una orden que ya tenía abonos cobrados NO puede
  * volver a registrar ese dinero al cerrarse con recibo. Los abonos ya están
  * en /finanzas (puente de Abonos); el recibo solo los marca como
- * documentados y registra el SALDO. Es exactamente lo que hace la factura
- * (ver 20-2.8), y sin esto cerrar con recibo inflaría los ingresos del día.
+ * documentados. Desde el punto 1 de la auditoría ops (27-oct-2026) la cuenta
+ * llega pagada con abonos y lo único nuevo es la venta adicional, que entra
+ * con su cuenta. Anular no devuelve los abonos.
  *
  * Ejecutar: NODE_OPTIONS="--conditions react-server" npx tsx lib/finanzas/__tests__/recibo-desde-orden.test.ts
  */
@@ -26,10 +27,12 @@ async function main() {
   const state = crearEstadoDouble("Movimientos Financieros");
   global.fetch = construirFetchDouble(state) as typeof fetch;
 
-  crearCuentaDouble(state, { nombre: "Caja Registradora", fechaCorte: "2026-01-01" });
+  const caja = crearCuentaDouble(state, { nombre: "Caja Registradora", fechaCorte: "2026-01-01" });
+  const deuna = crearCuentaDouble(state, { nombre: "DeUna", fechaCorte: "2026-01-01" });
 
   // Orden con dos abonos vigentes ($50 + $30 = $80), cada uno ya con su
-  // movimiento creado por el puente de Abonos.
+  // movimiento creado por el puente de Abonos. La cuenta es de $80: llega
+  // PAGADA al emitir (la emisión lo exige desde el punto 1 de la auditoría).
   const abono1Id = crearRegistroDouble(state, "Abonos", {
     "ID Abono": 1, Monto: 50, "Método de Pago": "Efectivo",
     "Fecha de Abono": "2026-09-10T10:00:00.000Z", "Estado del Abono": "Registrado",
@@ -48,17 +51,22 @@ async function main() {
   });
   const reciboId = crearRegistroDouble(state, "Recibos", { "Número": "REC-000042", Estado: "Vigente", Total: 100 });
 
-  // Recibo por $100 sobre una cuenta con $80 ya abonados → saldo $20.
+  // Recibo por $100 = cuenta $80 (pagada con abonos) + venta adicional $20
+  // cobrada al emitir: $15 en efectivo y $5 por DeUna.
   const resultado = await procesarPuenteRecibo({
     reciboRecordId: reciboId, numeroRecibo: "REC-000042",
     origen: { tipo: "operacion", recordId: operacionId },
-    total: 100, formaPagoSaldo: "01", registradoPor: "Test", ambiente: "2",
+    pagosAdicionales: [
+      { metodoPago: "Efectivo", total: 15 },
+      { metodoPago: "DeUna", total: 5, referencia: "DU-998" },
+    ],
+    registradoPor: "Test", ambiente: "2",
   });
 
   assert(resultado.estado === "OK", `El puente termina OK (obtenido: ${resultado.estado}${resultado.detalle ? " — " + resultado.detalle : ""})`);
   assert(resultado.abonosMarcados === 2, `Se marcaron los 2 abonos (obtenido: ${resultado.abonosMarcados})`);
-  assert(resultado.saldoRegistrado === 20, `Solo se registró el saldo de $20 (obtenido: $${resultado.saldoRegistrado})`);
-  assert(state.movimientos.size === 3, `Hay 3 movimientos: 2 actualizados + 1 nuevo por el saldo (obtenido: ${state.movimientos.size})`);
+  assert(resultado.adicionalRegistrado === 20, `Solo la venta adicional ($20) es ingreso nuevo (obtenido: $${resultado.adicionalRegistrado})`);
+  assert(state.movimientos.size === 4, `Hay 4 movimientos: 2 de abonos + 2 de la venta adicional (obtenido: ${state.movimientos.size})`);
 
   const m1 = state.movimientos.get(mov1.movimientoId)!;
   const m2 = state.movimientos.get(mov2.movimientoId)!;
@@ -66,27 +74,35 @@ async function main() {
     "Los movimientos de los abonos quedan vinculados al recibo");
   assert(m1.fields["Monto"] === 50 && m2.fields["Monto"] === 30, "Los montos de los abonos no se alteraron");
 
-  const movSaldo = [...state.movimientos.values()].find((m) => m.id !== mov1.movimientoId && m.id !== mov2.movimientoId)!;
-  assert(movSaldo.fields["Monto"] === 20, `El movimiento nuevo es exactamente el saldo ($20, obtenido: $${movSaldo.fields["Monto"]})`);
-  assert(movSaldo.fields["Categoría"] === "Venta Producto", "Operación → categoría Venta Producto");
-  assert((movSaldo.fields["Recibo"] as string[])?.[0] === reciboId, "El movimiento del saldo queda vinculado al recibo");
+  const nuevos = [...state.movimientos.values()].filter((m) => m.id !== mov1.movimientoId && m.id !== mov2.movimientoId);
+  const efectivo = nuevos.find((m) => m.fields["Monto"] === 15);
+  const pagoDeUna = nuevos.find((m) => m.fields["Monto"] === 5);
+  assert((efectivo?.fields["Cuenta Destino (Finanzas)"] as string[])?.[0] === caja, "El cobro adicional en efectivo entra a Caja Registradora");
+  assert((pagoDeUna?.fields["Cuenta Destino (Finanzas)"] as string[])?.[0] === deuna, "El cobro adicional por DeUna entra a la cuenta DeUna (no a SGINGRESOS)");
+  assert(pagoDeUna?.fields["Transacción ID"] === "DU-998", "El número de transacción de DeUna queda en el movimiento");
+  assert(nuevos.every((m) => m.fields["Categoría"] === "Venta Mostrador"), "La venta adicional va a Venta Mostrador");
+  assert(nuevos.every((m) => (m.fields["Recibo"] as string[])?.[0] === reciboId), "Los movimientos de la venta adicional quedan vinculados al recibo");
+  assert(!nuevos.some((m) => String(m.fields["Observación"] ?? "").includes("saldo cobrado al emitir")), 'Ya no existe el movimiento "saldo cobrado al emitir" (caso OR000510)');
 
-  // ─── Anulación: solo se devuelve el saldo, nunca los abonos ────────────────
+  // ─── Anulación: los abonos se quedan en la orden; se revierte lo adicional ─
   const reciboRecord = state.otras.get("Recibos")!.get(reciboId)!;
   const movimientoIds = (reciboRecord.fields["Movimientos Financieros"] as string[] | undefined) ?? [];
-  assert(movimientoIds.length === 3, `El recibo quedó enlazado a los 3 movimientos (obtenido: ${movimientoIds.length})`);
+  assert(movimientoIds.length === 4, `El recibo quedó enlazado a los 4 movimientos (obtenido: ${movimientoIds.length})`);
 
   const reversa = await revertirPuenteRecibo({
     reciboRecordId: reciboId, numeroRecibo: "REC-000042", movimientoIds,
     registradoPor: "Test", ambiente: "2",
   });
-  assert(reversa.montoRevertido === 20, `La anulación devuelve solo el saldo ($20, obtenido: $${reversa.montoRevertido})`);
+  assert(reversa.montoRevertido === 20, `La anulación revierte solo la venta adicional ($20, obtenido: $${reversa.montoRevertido})`);
 
-  const egreso = [...state.movimientos.values()].find((m) => m.fields["Tipo de movimiento"] === "Egreso")!;
-  assert(!!egreso && egreso.fields["Monto"] === 20, "Se creó un Egreso de $20, no de $100");
-  assert(egreso?.fields["Categoría"] === "Devolución", "El Egreso de la anulación va a Devolución");
+  const egresos = [...state.movimientos.values()].filter((m) => m.fields["Tipo de movimiento"] === "Egreso");
+  assert(egresos.length === 2, `Un egreso por cada cobro adicional (obtenido: ${egresos.length})`);
+  assert(egresos.every((e) => e.fields["Categoría"] === "Devolución"), "Los egresos de la anulación van a Devolución");
+  const egresoDeUna = egresos.find((e) => e.fields["Monto"] === 5);
+  assert((egresoDeUna?.fields["Cuenta Origen (Finanzas)"] as string[])?.[0] === deuna, "Cada reversa sale de la MISMA cuenta a la que entró (DeUna)");
+  assert(!egresos.some((e) => e.fields["Monto"] === 50 || e.fields["Monto"] === 30), "Los abonos ($50 y $30) NO se devuelven: son pagos de la orden (decisión del dueño)");
 
-  // ─── Sin abonos: el saldo es el total completo ─────────────────────────────
+  // ─── Cuenta pagada y sin venta adicional: ningún ingreso nuevo ─────────────
   const operacion2Id = crearRegistroDouble(state, "Operación Comercial", {
     "Orden de Reparación": [], "Artículo físico": [], Abonos: [],
   });
@@ -95,17 +111,16 @@ async function main() {
   const r2 = await procesarPuenteRecibo({
     reciboRecordId: recibo2Id, numeroRecibo: "REC-000043",
     origen: { tipo: "operacion", recordId: operacion2Id },
-    total: 45, formaPagoSaldo: "01", registradoPor: "Test", ambiente: "2",
+    pagosAdicionales: [], registradoPor: "Test", ambiente: "2",
   });
-  assert(r2.saldoRegistrado === 45, `Sin abonos, el saldo es el total ($45, obtenido: $${r2.saldoRegistrado})`);
-  assert(state.movimientos.size === antes + 1, "Sin abonos se crea exactamente un movimiento");
+  assert(r2.adicionalRegistrado === 0 && state.movimientos.size === antes, "Sin venta adicional no se crea ningún movimiento");
 
   // ─── Guard de ambiente: en PRUEBAS no se toca /finanzas ────────────────────
   const antesPruebas = state.movimientos.size;
   const r3 = await procesarPuenteRecibo({
     reciboRecordId: recibo2Id, numeroRecibo: "REC-000044",
     origen: { tipo: "operacion", recordId: operacion2Id },
-    total: 45, formaPagoSaldo: "01", registradoPor: "Test", ambiente: "1",
+    pagosAdicionales: [{ metodoPago: "Efectivo", total: 10 }], registradoPor: "Test", ambiente: "1",
   });
   assert(r3.estado === "OMITIDO", "En ambiente PRUEBAS el puente se omite");
   assert(state.movimientos.size === antesPruebas, "En PRUEBAS no se creó ningún movimiento");
@@ -114,7 +129,7 @@ async function main() {
   limpiarEnvFalso();
 
   if (fallos > 0) { console.error(`\n${fallos} fallo(s).`); process.exit(1); }
-  console.log("\nOK — el recibo desde una orden no duplica el ingreso de los abonos.");
+  console.log("\nOK — el recibo desde una orden no duplica el ingreso de los abonos y la venta adicional entra a su cuenta.");
 }
 
 const fetchOriginal = global.fetch;

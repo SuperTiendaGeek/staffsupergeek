@@ -86,6 +86,7 @@ const GRUPOS: Array<{ titulo: string; items: Array<{ cat: CategoriaCobro; tono: 
     items: [
       { cat: "presupuesto_sin_respuesta", tono: "lima", etiqueta: "Presupuestos sin respuesta" },
       { cat: "abonos_sin_respaldo",       tono: "lima", etiqueta: "Abonos sin cargos o de más" },
+      { cat: "documentadas_con_saldo",    tono: "danger", etiqueta: "Documento emitido con saldo" },
     ],
   },
 ];
@@ -93,6 +94,7 @@ const GRUPOS: Array<{ titulo: string; items: Array<{ cat: CategoriaCobro; tono: 
 const ESTADO_COBRO_LABEL: Record<OrdenCobro["estadoCobro"], { texto: string; clase: string }> = {
   sin_cargos:    { texto: "Sin cargos",      clase: "text-[var(--sg-text-muted)]" },
   documentada:   { texto: "Documentada",     clase: "text-[var(--sg-success)]" },
+  documentada_con_saldo: { texto: "Documentada · debe (revisar)", clase: "text-[var(--sg-danger)]" },
   pagada:        { texto: "Pagada · falta documento", clase: "text-[var(--sg-warning)]" },
   abono_parcial: { texto: "Abono parcial",   clase: "text-[var(--sg-warning)]" },
   sin_abonos:    { texto: "Sin abonos",      clase: "text-[var(--sg-danger)]" },

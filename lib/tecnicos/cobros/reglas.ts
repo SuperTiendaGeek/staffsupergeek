@@ -10,15 +10,15 @@
 // prueban sin red y el panel y la pantalla de la orden usan exactamente la
 // misma cuenta.
 //
-// DECISIÓN CLAVE — un documento emitido salda la cuenta.
-// El saldo de la cuenta unificada es "total − abonos". Pero cuando se factura
-// (o se emite recibo) el dinero que faltaba se cobra EN ese momento y se
-// registra como movimiento del documento, no como abono. Por eso una orden
-// facturada seguía mostrando "Saldo pendiente: $211" aunque ya estuviera
-// cobrada (OR000430, OR000431, OR000423, OR000368 — verificado en datos
-// reales). Aquí, si hay documento emitido, la orden cuenta como cobrada: la
-// factura exige que sus formas de pago sumen el total (reglas/pagos.ts), y el
-// recibo registra el saldo al emitirse.
+// UNA SOLA REGLA — saldo = cargos − pagos (abonos), haya documento o no.
+// Hasta el 27-oct-2026 aquí se decía "un documento emitido salda la cuenta",
+// porque al emitir el dinero que faltaba se cobraba dentro del documento y no
+// quedaba como abono. Era un parche: la tarjeta de la orden decía "cobrada" y
+// el ticket, Airtable y el panel decían que debía (caso OR000510). Auditoría
+// Técnicos y Operaciones, punto 1: la factura o el recibo NO son el pago; la
+// cuenta se paga con abonos antes de emitir (la emisión lo exige). Una orden
+// con documento y saldo distinto de $0 ya no se tapa: sale como
+// "documentada_con_saldo" para revisarla.
 
 import { aprobadoSinArticulo, type LineaParaCuenta } from "../presupuesto/reglas";
 
@@ -101,7 +101,8 @@ export type OrdenCobroInput = {
 
 export type EstadoCobro =
   | "sin_cargos"      // la cuenta está en $0: todavía no hay nada que cobrar
-  | "documentada"     // tiene factura o recibo emitido: cobrada y documentada
+  | "documentada"     // tiene factura o recibo emitido y los abonos cubren el total
+  | "documentada_con_saldo" // tiene documento pero los abonos NO cubren el total (revisar)
   | "pagada"          // los abonos cubren el total, pero falta el documento
   | "abono_parcial"   // hay abonos y todavía falta dinero
   | "sin_abonos"      // hay cargos y no se ha registrado ningún pago
@@ -116,9 +117,9 @@ export type OrdenCobro = {
   fechaIngreso:  string;
   totalCuenta:   number;
   totalAbonado:  number;
-  /** total − abonos. Informativo: si hay documento, NO es deuda real. */
+  /** total − abonos. */
   saldo:         number;
-  /** Lo que de verdad falta cobrar: 0 si hay documento emitido. */
+  /** Lo que falta cobrar: el saldo si es positivo, si no 0. */
   porCobrar:     number;
   conCargos:     boolean;
   aprobada:      boolean;
@@ -159,8 +160,9 @@ export function clasificarOrden(o: OrdenCobroInput): OrdenCobro {
   // presupuesto que todavía no se pasó a la orden. No es "sin cargos".
   if (!conCargos && totalAbonado > TOLERANCIA) estadoCobro = "saldo_a_favor";
   else if (!conCargos)          estadoCobro = "sin_cargos";
-  else if (documento)           estadoCobro = "documentada";
   else if (saldo < -TOLERANCIA) estadoCobro = "saldo_a_favor";
+  else if (documento && saldo > TOLERANCIA) estadoCobro = "documentada_con_saldo";
+  else if (documento)           estadoCobro = "documentada";
   else if (saldo <= TOLERANCIA) estadoCobro = "pagada";
   else if (totalAbonado > 0)    estadoCobro = "abono_parcial";
   else                          estadoCobro = "sin_abonos";
@@ -169,7 +171,7 @@ export function clasificarOrden(o: OrdenCobroInput): OrdenCobro {
     recordId: o.recordId, idVisible: o.idVisible, cliente: o.cliente, equipo: o.equipo,
     estado: o.estado, fechaIngreso: o.fechaIngreso,
     totalCuenta, totalAbonado, saldo,
-    porCobrar: documento ? 0 : Math.max(0, saldo),
+    porCobrar: Math.max(0, saldo),
     conCargos,
     aprobada: o.estadoPresupuesto === "aprobado" || conCargos,
     estadoPresupuesto: o.estadoPresupuesto ?? "sin_presupuesto",
@@ -192,6 +194,7 @@ export type CategoriaCobro =
   | "entregadas_sin_documento"
   | "entregadas_por_cobrar"
   | "abonos_sin_respaldo"
+  | "documentadas_con_saldo"
   | "presupuesto_sin_respuesta";
 
 export const CATEGORIAS: Record<CategoriaCobro, { titulo: string; ayuda: string; pertenece: (o: OrdenCobro) => boolean }> = {
@@ -235,6 +238,11 @@ export const CATEGORIAS: Record<CategoriaCobro, { titulo: string; ayuda: string;
     ayuda: "Lo abonado supera lo cargado: falta cargar el trabajo, o hay que devolver o reasignar dinero.",
     pertenece: (o) => o.totalAbonado > o.totalCuenta + TOLERANCIA, // totalCuenta ya incluye lo comprometido (3b)
   },
+  documentadas_con_saldo: {
+    titulo: "Documento emitido y saldo pendiente",
+    ayuda: "Tienen factura o recibo, pero sus abonos no cubren el total. No debería pasar: el cobro al emitir se registra como abono. Revisar.",
+    pertenece: (o) => o.estadoCobro === "documentada_con_saldo",
+  },
   presupuesto_sin_respuesta: {
     titulo: "Presupuestos sin respuesta",
     ayuda: "Tienen presupuesto propuesto y el cliente todavía no aprueba ni rechaza.",
@@ -255,7 +263,7 @@ export function resumirCobros(ordenes: OrdenCobro[]): ResumenCobros {
     // El monto de cada categoría es lo que la hace accionable: en las de
     // cobro es lo que falta cobrar; en las de documento, lo que falta (o ya
     // se) documentó.
-    const monto = clave.startsWith("por_cobrar") || clave === "entregadas_por_cobrar"
+    const monto = clave.startsWith("por_cobrar") || clave === "entregadas_por_cobrar" || clave === "documentadas_con_saldo"
       ? miembros.reduce((s, o) => s + o.porCobrar, 0)
       : clave === "abonos_sin_respaldo"
       ? miembros.reduce((s, o) => s + (o.totalAbonado - o.totalCuenta), 0)

@@ -88,7 +88,10 @@ const MAPA_METODO_PAGO_ABONO: Record<
   DeUna: { cuentaDestinoNombre: "DeUna", estado: "Confirmado", metodo: "DeUna" },
 };
 
-function resolverMapeoMetodoPago(metodoPago: string | null) {
+/** Cuenta, estado y método de Finanzas de un método de pago del catálogo de
+ *  Abonos. Lo usan los abonos y, desde el punto 1 de la auditoría ops, los
+ *  cobros de venta adicional al emitir (una sola tabla de cuentas). */
+export function resolverMapeoMetodoPago(metodoPago: string | null) {
   const clave = cleanString(metodoPago);
   if (!clave || !esMetodoPagoAbonoValido(clave)) return null;
   return MAPA_METODO_PAGO_ABONO[clave];

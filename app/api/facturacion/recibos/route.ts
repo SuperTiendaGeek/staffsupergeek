@@ -17,6 +17,14 @@ import { getFacturacionConfig }      from "@/lib/facturacion/config";
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
 import type { CrearReciboInput }     from "@/lib/facturacion/recibos/types";
 import type { DetalleFactura }       from "@/lib/facturacion/types/factura";
+import { esLineaAdicional }          from "@/lib/facturacion/reglas/cobroDocumento";
+import { validarEmisionDesdeOrigen } from "@/lib/facturacion/gancho/cobroOrigen";
+import { totalLinea, round2 }        from "@/lib/facturacion/recibos/calculos";
+
+/** Código SRI que se imprime en el recibo: el del cobro más grande. */
+function formaPagoPrincipal(pagos: Array<{ formaPago: string; total: number }>): string {
+  return [...pagos].sort((a, b) => b.total - a.total)[0]?.formaPago ?? "01";
+}
 
 export const dynamic     = "force-dynamic";
 export const maxDuration = 60;
@@ -49,7 +57,8 @@ export async function POST(request: Request) {
   if (body.lineas.some((l) => !(l.cantidad > 0) || !Number.isInteger(l.cantidad) || l.precioUnitario < 0)) return NextResponse.json({ success: false, error: "Cantidad entera > 0 y precio ≥ 0 en todas las líneas" }, { status: 400 });
   const errorPrecioShipping = mensajePrecioShippingItemInvalido(body.lineas);
   if (errorPrecioShipping) return NextResponse.json({ success: false, error: errorPrecioShipping }, { status: 400 });
-  if (!body.formaPago?.trim()) return NextResponse.json({ success: false, error: "Elige una forma de pago" }, { status: 400 });
+  // Con origen la forma de pago la deriva el servidor de los cobros reales.
+  if (!body.origen && !body.formaPago?.trim()) return NextResponse.json({ success: false, error: "Elige una forma de pago" }, { status: 400 });
 
   // Gancho: recibo emitido desde una orden/operación. El origen decide tres
   // cosas — el vínculo del recibo, el bloqueo cruzado y el reparto contable.
@@ -89,6 +98,24 @@ export async function POST(request: Request) {
     if (pendientesArticulo) {
       return NextResponse.json({ success: false, error: pendientesArticulo }, { status: 409 });
     }
+
+    // Auditoría ops, punto 1 (27-oct-2026): misma puerta que la factura. La
+    // cuenta llega pagada con abonos, sus líneas no cambian y la venta
+    // adicional se cobra aquí con método y cuenta.
+    const lineasAdicionales = body.lineas.filter(esLineaAdicional);
+    const totalAdicional = round2(lineasAdicionales.reduce((s, l) => s + totalLinea(l), 0));
+    const cobro = await validarEmisionDesdeOrigen({
+      origen: body.origen,
+      lineasCuenta: body.lineas.filter((l) => !esLineaAdicional(l)).map((l) => ({
+        descripcion: l.descripcion, cantidad: l.cantidad, total: totalLinea(l),
+        shippingItemId: l.shippingItemId, productoDigitalId: l.productoDigitalId,
+      })),
+      totalAdicional,
+      pagosAdicionales: body.pagosAdicionales ?? [],
+    });
+    if (!cobro.ok) return NextResponse.json({ success: false, error: cobro.error }, { status: cobro.status });
+    body.pagos = cobro.pagos;
+    body.formaPago = formaPagoPrincipal(cobro.pagos);
   }
 
   // Verificar stock (como una factura) — bloquea antes de crear el recibo.
@@ -160,13 +187,13 @@ export async function POST(request: Request) {
     const registradoPor = session.user.nombre || session.user.email || "Portal";
     try {
       if (body.origen) {
-        // Con origen NO se registra el total: los abonos previos ya están en
-        // /finanzas. Se marcan como documentados y solo se crea el asiento
-        // del saldo (ver lib/finanzas/puentes/recibo.ts).
+        // Con origen NO se registra el total: la cuenta llegó pagada con
+        // abonos (ya en /finanzas). Se marcan como documentados y solo la
+        // venta adicional es ingreso nuevo (ver lib/finanzas/puentes/recibo.ts).
         await actualizarEfectosRecibo(recordId, "Movimiento Contable", "PENDIENTE").catch(() => {});
         const puente = await procesarPuenteRecibo({
           reciboRecordId: recordId, numeroRecibo: numero, origen: body.origen,
-          total, formaPagoSaldo: body.formaPago, clienteRecordId: body.cliente.airtableId,
+          pagosAdicionales: body.pagosAdicionales ?? [], clienteRecordId: body.cliente.airtableId,
           registradoPor, ambiente: cfg.ambiente,
         });
         await actualizarEfectosRecibo(

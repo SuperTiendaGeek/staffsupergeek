@@ -17,7 +17,7 @@ import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnific
 import type { OrdenCobro } from "@/lib/tecnicos/cobros/reglas";
 import { PresupuestoCard } from "@/components/tecnicos/ordenes/PresupuestoCard";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
-import { METODOS_PAGO_ABONO, esMetodoPagoAbonoValido, requiereNumeroTransaccion } from "@/types/abonos";
+import { METODOS_COBRO_NUEVO, esMetodoCobroNuevoValido, etiquetaMetodoPago, requiereNumeroTransaccion } from "@/types/abonos";
 import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
 
 type HistorialItem = {
@@ -690,8 +690,7 @@ export function OrdenDetalleClient() {
   const [cuentaUnificadaLoading, setCuentaUnificadaLoading] = useState(false);
   const [cuentaUnificadaError, setCuentaUnificadaError] = useState<string | null>(null);
   // Estado de cobro/documento con la MISMA regla del panel de /tecnicos/ordenes
-  // (lib/tecnicos/cobros/reglas.ts). Sirve para no mostrar "Saldo pendiente"
-  // en una orden que ya se cobró al facturarla.
+  // (lib/tecnicos/cobros/reglas.ts): saldo = cargos − abonos, una sola cifra.
   const [cobro, setCobro] = useState<OrdenCobro | null>(null);
   const [showRepuestosHistoricos, setShowRepuestosHistoricos] = useState(false);
   const [showMantenimientoModal, setShowMantenimientoModal] = useState(false);
@@ -840,7 +839,7 @@ export function OrdenDetalleClient() {
       setAbonoError("Selecciona un método de pago.");
       return;
     }
-    if (!esMetodoPagoAbonoValido(metodoPago)) {
+    if (!esMetodoCobroNuevoValido(metodoPago)) {
       setAbonoError("El método de pago seleccionado no es válido.");
       return;
     }
@@ -2156,11 +2155,10 @@ export function OrdenDetalleClient() {
               {/* Saldo hero — sale de la cuenta unificada (una sola fuente,
                   Fase 11 etapa 3). Mientras carga, usa el rollup NV de la
                   orden como fallback visual para no mostrar un hueco. */}
-              {cobro?.documento ? (
-                // Con documento emitido la cuenta está cobrada: el saldo que
-                // faltaba se cobró al emitir (queda en el movimiento del
-                // documento, no como abono). Mostrar "Saldo pendiente" aquí
-                // era falso — ver lib/tecnicos/cobros/reglas.ts.
+              {cobro?.documento && cobro.estadoCobro === "documentada" ? (
+                // Documento emitido Y abonos que cubren el total (auditoría
+                // ops, punto 1: una sola regla, saldo = cargos − abonos; el
+                // documento ya no "salda" nada por sí solo).
                 <div className="mb-3 rounded-xl border border-[var(--sg-success)]/40 bg-[var(--sg-success-soft)] px-3 py-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-success)]">
                     Cobrada y documentada
@@ -2182,7 +2180,11 @@ export function OrdenDetalleClient() {
                   <p className="mt-1 text-[1.75rem] font-black leading-none tabular-nums text-[var(--sg-lime)]">
                     {formatCurrency(Math.abs(cuentaUnificada?.saldo ?? orden.saldoNV ?? 0))}
                   </p>
-                  {cobro?.conCargos && (
+                  {cobro?.documento ? (
+                    <p className="mt-1.5 text-xs text-[var(--sg-danger)]">
+                      {cobro.documento.tipo === "factura" ? "Factura" : "Recibo"} {cobro.documento.numero || "—"} emitido, pero los abonos no cubren el total. Revisar.
+                    </p>
+                  ) : cobro?.conCargos && (
                     <p className="mt-1.5 text-xs text-[var(--sg-warning)]">
                       {cobro.documentoNoEmitido
                         ? `Factura en ${cobro.documentoNoEmitido.estado.toLowerCase()} — aún sin documento emitido`
@@ -2735,9 +2737,11 @@ export function OrdenDetalleClient() {
                       disabled={abonoSaving}
                     >
                       <option value="">Seleccionar método de pago</option>
-                      {METODOS_PAGO_ABONO.map((method) => (
+                      {/* Auditoría ops, punto 1: solo métodos con cuenta real, y
+                          cada uno dice a qué cuenta entra (Banco Pichincha ≠ DeUna). */}
+                      {METODOS_COBRO_NUEVO.map((method) => (
                         <option key={method} value={method}>
-                          {method}
+                          {etiquetaMetodoPago(method)}
                         </option>
                       ))}
                     </select>

@@ -42,3 +42,39 @@ const METODOS_QUE_EXIGEN_NUMERO_TRANSACCION = new Set<MetodoPagoAbono>(["Transfe
 export function requiereNumeroTransaccion(metodo: string): boolean {
   return esMetodoPagoAbonoValido(metodo) && METODOS_QUE_EXIGEN_NUMERO_TRANSACCION.has(metodo);
 }
+
+/**
+ * Auditoría Técnicos y Operaciones, punto 1 (decisión del dueño, 27-oct-2026):
+ * todo cobro nuevo entra a una cuenta real. "Otro" no dice a qué cuenta entró
+ * el dinero, así que ya no se ofrece para cobros nuevos (sigue siendo válido
+ * para leer abonos viejos). La cuenta de cada método vive en
+ * lib/finanzas/puentes/abonos.ts (MAPA_METODO_PAGO_ABONO).
+ */
+export const METODOS_COBRO_NUEVO = METODOS_PAGO_ABONO.filter(
+  (m): m is Exclude<MetodoPagoAbono, "Otro"> => m !== "Otro"
+);
+
+export function esMetodoCobroNuevoValido(valor: string): valor is Exclude<MetodoPagoAbono, "Otro"> {
+  return (METODOS_COBRO_NUEVO as readonly string[]).includes(valor);
+}
+
+/**
+ * Cómo se muestra cada método en las pantallas, con la cuenta a la que entra
+ * el dinero. Transferencia y DeUna son ambas transferencias, pero llegan a
+ * cuentas distintas: por eso se nombran por su destino (pedido del dueño).
+ * El valor guardado en Airtable no cambia (sigue siendo "Transferencia").
+ */
+export const ETIQUETA_METODO_PAGO: Record<MetodoPagoAbono, string> = {
+  Efectivo: "Efectivo → Caja Registradora",
+  Transferencia: "Transferencia Banco Pichincha → SGINGRESOS",
+  Tarjeta: "Tarjeta → Tarjetas en Tránsito",
+  Depósito: "Depósito Banco Pichincha → SGINGRESOS",
+  PayPal: "PayPal → cuenta PayPal",
+  PayPhone: "PayPhone → Tarjetas en Tránsito",
+  Otro: "Otro (sin cuenta)",
+  DeUna: "DeUna → cuenta DeUna (no es Banco Pichincha)",
+};
+
+export function etiquetaMetodoPago(metodo: string): string {
+  return esMetodoPagoAbonoValido(metodo) ? ETIQUETA_METODO_PAGO[metodo] : metodo;
+}

@@ -149,6 +149,7 @@ function EmisionDesdeOrigenInterno({ consumidorFinalLimite }: { consumidorFinalL
           prefactura={prefactura.datosVenta}
           origen={origen}
           bannerOrigen={{ ordenIdVisible: prefactura.ordenIdVisible, operacionCodigo: prefactura.operacionCodigo }}
+          saldoPorCobrar={prefactura.saldoPorCobrar}
         />
       )}
 
@@ -198,6 +199,17 @@ function BloqueoBanner({ resultado }: { resultado: Extract<ResultadoPreFactura, 
           El recibo ya cerró esta cuenta: descontó el inventario y registró el ingreso. Para emitir otro documento,
           primero hay que anular el recibo.
         </p>
+      </div>
+    );
+  }
+  if (resultado.motivo === "LINEA_NEGATIVA") {
+    return (
+      <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">
+        <p className="text-[#F0C75E] font-bold text-lg mb-2">No se puede emitir todavía</p>
+        <p className="text-[#A7A7A7] text-sm mb-3">La cuenta tiene cargos negativos (descuentos o ajustes). Un documento no puede llevar líneas negativas:</p>
+        <ul className="flex flex-col gap-1">
+          {(resultado.lineasNegativas ?? []).map((l) => <li key={l.id} className="text-sm text-[#F5F5F5]">{l.descripcion} (${l.monto.toFixed(2)})</li>)}
+        </ul>
       </div>
     );
   }

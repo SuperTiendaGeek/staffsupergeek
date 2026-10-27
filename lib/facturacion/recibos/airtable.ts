@@ -73,7 +73,7 @@ export async function crearRecibo(input: CrearReciboInput): Promise<ReciboCreado
     "Forma de Pago":  input.formaPago,
     // version 2: agrega "origen". Un recibo version 1 (mostrador) sigue
     // leyéndose igual — origen simplemente llega undefined.
-    "Líneas JSON":    JSON.stringify({ version: 2, cliente: input.cliente, lineas: input.lineas, nota: input.nota ?? "", formaPago: input.formaPago, origen: input.origen ?? null }),
+    "Líneas JSON":    JSON.stringify({ version: 2, cliente: input.cliente, lineas: input.lineas, nota: input.nota ?? "", formaPago: input.formaPago, origen: input.origen ?? null, pagos: input.pagos ?? null }),
   };
   if (input.cliente.identificacion) fields["Cliente Identificación"] = input.cliente.identificacion;
   if (input.cliente.correo)         fields["Cliente Correo"] = input.cliente.correo;
