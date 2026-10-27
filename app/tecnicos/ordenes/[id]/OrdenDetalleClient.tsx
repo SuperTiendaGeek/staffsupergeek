@@ -1,6 +1,7 @@
 "use client";
 
 import { ETIQUETA_ESTADO_PAGO } from "@/lib/estado-cuenta/reglas";
+import { isAdministratorRole } from "@/lib/apps";
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -2238,6 +2239,14 @@ export function OrdenDetalleClient() {
                     </p>
                   </div>
                 )}
+                {(cuentaUnificada?.totalDescuentos ?? 0) > 0 && (
+                  <div className="col-span-2 bg-[var(--sg-panel)] px-3 py-2">
+                    <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-warning)]">Descuentos</p>
+                    <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
+                      −{enCuenta(cuentaUnificada?.totalDescuentos)}
+                    </p>
+                  </div>
+                )}
                 {(cuentaUnificada?.totalProductosDigitales ?? 0) > 0 && (
                   <div className="col-span-2 bg-[var(--sg-panel)] px-3 py-2">
                     <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Productos Digitales</p>
@@ -2272,9 +2281,13 @@ export function OrdenDetalleClient() {
                       totalAbonado: 0,
                       saldo: 0,
                       estadoPago: "sin_cargos",
+                      descuentos: [],
+                      totalDescuentos: 0,
                     }
                   }
                   origenTipo="orden"
+                  puedeDescontar={isAdministratorRole(userRol)}
+                  onCuentaCambiada={() => void loadCuentaUnificada()}
                   onRegistrarPago={() => {
                     setAbonoError(null);
                     setAbonoMessage(null);

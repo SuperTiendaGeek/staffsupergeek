@@ -4,6 +4,7 @@ import { OperacionDetalleClient } from "@/components/operaciones/OperacionDetall
 import { fetchOperacionDetalle } from "@/lib/operaciones/airtable";
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
 import { getSessionFromCookie } from "@/lib/session";
+import { isAdministratorRole } from "@/lib/apps";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,11 @@ export default async function OperacionDetallePage({ params }: Props) {
 
   return (
     <OperacionesShell title={operacion.codigo}>
-      <OperacionDetalleClient operacion={operacion} cuentaUnificada={cuentaUnificada} />
+      <OperacionDetalleClient
+        operacion={operacion}
+        cuentaUnificada={cuentaUnificada}
+        esAdmin={isAdministratorRole(session.user.rol)}
+      />
     </OperacionesShell>
   );
 }

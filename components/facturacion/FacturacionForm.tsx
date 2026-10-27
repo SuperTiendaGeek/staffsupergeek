@@ -1,5 +1,6 @@
 "use client";
 
+import { precioYDescuentoFinal } from "@/lib/facturacion/gancho/prefill";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useSearchParams }             from "next/navigation";
 import type { ResultadoPreFactura }    from "@/lib/facturacion/gancho/traductor";
@@ -637,8 +638,10 @@ export function FacturacionForm({
             // ahí, sumarlo entero inflaba el precio unitario y la factura
             // salía por más que la cuenta de la orden. Para cantidad 1 el
             // resultado es idéntico al de antes.
-            precioUnitario:  round2(d.precioUnitario + (d.impuestos[0]?.valor ?? 0) / (d.cantidad > 0 ? d.cantidad : 1)),
-            descuento:       d.descuento,
+            // Precio de lista y descuento en términos FINALES (punto 4B: una
+            // línea con descuento de la cuenta los trae del servidor). Misma
+            // función que recibo y proforma.
+            ...precioYDescuentoFinal(d),
             tarifaIva:       (d.impuestos[0]?.codigoPorcentaje ?? "4") as TarifaCodigo,
             tipo:            d.tipo,
             shippingItemId:  d.shippingItemId,

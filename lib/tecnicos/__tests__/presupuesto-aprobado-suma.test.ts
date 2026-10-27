@@ -121,7 +121,7 @@ assert(mensajeAprobadoSinArticulo([], "factura") === null, "sin pendientes se pu
   const reglasCuenta = fs.readFileSync("lib/estado-cuenta/reglas.ts", "utf8");
   assert(
     cuenta.includes("aprobadoSinArticulo: aprobadoSinArticuloCuenta") && cuenta.includes("calcularEstadoCuenta(") &&
-      /totalCuenta: round2\(totalRepuestos \+ totalServicios \+ totalProductosDigitales \+ totalAprobadoSinArticulo\)/.test(reglasCuenta),
+      /totalCuenta: round2\(totalRepuestos \+ totalServicios \+ totalProductosDigitales \+ totalAprobadoSinArticulo( - totalDescuentos)?\)/.test(reglasCuenta),
     "la cuenta unificada suma lo aprobado sin artículo al total",
   );
 }

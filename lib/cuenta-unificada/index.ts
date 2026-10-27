@@ -19,6 +19,7 @@ import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import type { ProductoDigital } from "@/lib/tecnicos/airtable";
 import { lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
 import type { CuentaUnificadaAprobadoSinArticulo } from "@/types/cuenta-unificada";
+import { CAMPO_DESCUENTOS, TABLA_DESCUENTOS, descuentoDesdeCampos, descuentosVigentes } from "@/lib/estado-cuenta/descuentos";
 import {
   calcularEstadoCuenta,
   pendientesDeLaCuenta,
@@ -500,6 +501,17 @@ export async function getCuentaUnificada(
   //
   // UNA sola calculadora (lib/estado-cuenta): la misma que usan el panel de
   // Cobros y el tablero de Operaciones. Aquí solo se le pasan los datos.
+  // Descuentos por línea (punto 4B): los de la orden; en un pedido suelto,
+  // los del pedido.
+  const descuentoIds = linkedIds((ordenRecord ?? operacionRecord)?.fields[CAMPO_DESCUENTOS]);
+  const descuentos = (await fetchRecordsByIds(client, TABLA_DESCUENTOS, descuentoIds)).map((r) => descuentoDesdeCampos(r.id, r.fields));
+  const cargosExistentes = new Set<string>([
+    ...items.map((i) => i.id),
+    ...servicios.map((s) => s.id),
+    ...productosDigitalesRaw.map((p) => p.id),
+    ...(repuestosLegacyCuentanParaTotal ? repuestosHistoricos.map((r) => r.id) : []),
+  ]);
+
   const estado = calcularEstadoCuenta({
     cargos: {
       servicios: totalServicios,
@@ -512,6 +524,8 @@ export async function getCuentaUnificada(
         : 0,
       items: items.map((i) => ({ id: i.id, precio: i.precio })),
       aprobadoSinArticulo: aprobadoSinArticuloCuenta,
+      descuentos,
+      cargosExistentes,
     },
     abonos,
   });
@@ -539,5 +553,7 @@ export async function getCuentaUnificada(
     totalAbonado: estado.totalAbonado,
     saldo: estado.saldo,
     estadoPago: estado.estadoPago,
+    descuentos: descuentosVigentes(descuentos).filter((d) => cargosExistentes.has(d.cargoId)),
+    totalDescuentos: estado.totalDescuentos,
   };
 }

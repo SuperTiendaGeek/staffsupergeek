@@ -63,6 +63,12 @@ export type DetalleFactura = {
   //     Vive solo en el documento; la orden nunca la ve.
   // Sin marca = "cuenta" (líneas precargadas). Nunca se serializa al XML.
   bloque?: "cuenta" | "adicional";
+  // Auditoría ops, punto 4B — línea de la cuenta con descuento: el precio
+  // unitario y el descuento en términos FINALES (IVA incluido), que es como
+  // trabajan los formularios. `descuento` (arriba) sigue en términos base,
+  // como lo pide el SRI. Nunca se serializan al XML.
+  precioFinalUnitario?: number;
+  descuentoFinal?: number;
 };
 
 // ─── Totales de impuesto ─────────────────────────────────────────────────────

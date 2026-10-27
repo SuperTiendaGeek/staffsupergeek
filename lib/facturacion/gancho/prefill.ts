@@ -31,6 +31,19 @@ function precioFinal(d: DatosVenta["detalles"][number]): number {
   return round2(d.precioUnitario + (d.impuestos[0]?.valor ?? 0) / cantidad);
 }
 
+/**
+ * Precio unitario y descuento FINALES (IVA incluido) de una línea de la
+ * pre-factura, que es como trabajan los formularios. Una línea con descuento
+ * de la cuenta (punto 4B) los trae ya calculados por el servidor; reconstruir
+ * el precio sumando el IVA de la línea daría el precio NETO, no el de lista.
+ */
+export function precioYDescuentoFinal(d: DatosVenta["detalles"][number]): { precioUnitario: number; descuento: number } {
+  if (typeof d.precioFinalUnitario === "number") {
+    return { precioUnitario: d.precioFinalUnitario, descuento: d.descuentoFinal ?? 0 };
+  }
+  return { precioUnitario: precioFinal(d), descuento: d.descuento };
+}
+
 export type ClientePrefill = {
   esConsumidorFinal: boolean;
   tipoIdentificacion: string;
@@ -67,8 +80,7 @@ export function lineasReciboDesdePrefactura(datosVenta: DatosVenta): LineaRecibo
     descripcion:       d.descripcion,
     unidadMedida:      d.unidadMedida ?? "UNIDAD",
     cantidad:          d.cantidad,
-    precioUnitario:    precioFinal(d),
-    descuento:         d.descuento,
+    ...precioYDescuentoFinal(d),
     shippingItemId:    d.shippingItemId,
     productoDigitalId: d.productoDigitalId,
   }));
@@ -81,8 +93,7 @@ export function lineasProformaDesdePrefactura(datosVenta: DatosVenta): LineaProf
     unidadMedida:   d.unidadMedida ?? "UNIDAD",
     cantidad:       d.cantidad,
     // LineaProforma.precioUnitario ya está definido como "CON IVA incluido".
-    precioUnitario: precioFinal(d),
-    descuento:      d.descuento,
+    ...precioYDescuentoFinal(d),
     tarifaIva:      d.impuestos[0]?.codigoPorcentaje ?? "4",
     origen:         d.shippingItemId ? "shipping-item" : "manual",
     shippingItemId: d.shippingItemId,

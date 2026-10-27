@@ -620,9 +620,11 @@ function OpcionCard({ opcion, opcionElegidaId, whatsappUrl, onEditar, onElegir, 
 type Props = {
   operacion: OperacionDetalle;
   cuentaUnificada: CuentaUnificada | null;
+  /** Punto 4B: solo el administrador da o quita descuentos. */
+  esAdmin?: boolean;
 };
 
-export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
+export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = false }: Props) {
   const router = useRouter();
   const [abonoModalOpen, setAbonoModalOpen] = useState(false);
   const [vincularModalOpen, setVincularModalOpen] = useState(false);
@@ -997,7 +999,13 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada }: Props) {
 
         {cuentaUnificada ? (
           <div className="mb-4">
-            <CuentaUnificadaPanel cuenta={cuentaUnificada} origenTipo="operacion" onRegistrarPago={() => setAbonoModalOpen(true)} />
+            <CuentaUnificadaPanel
+              cuenta={cuentaUnificada}
+              origenTipo="operacion"
+              onRegistrarPago={() => setAbonoModalOpen(true)}
+              puedeDescontar={esAdmin}
+              onCuentaCambiada={() => router.refresh()}
+            />
           </div>
         ) : (
           <p className="mb-4 rounded-lg border border-dashed border-[#3A3A36]/50 px-4 py-4 text-center text-sm text-[#4A4A46]">
