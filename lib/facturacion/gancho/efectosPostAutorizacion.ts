@@ -34,7 +34,7 @@ import {
 } from "../airtable/facturas";
 import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
 import { marcarReservaFacturada } from "../reservas/airtable";
-import { marcarOperacionEntregadaPorDocumento } from "@/lib/operaciones/airtable";
+import { cerrarOperacionesDeLaCuenta } from "./cierreCuenta";
 import { leerLineasFactura, planificarCompletarFactura, type LineasFacturaGuardadas } from "../reglas/lineasFactura";
 import type { DatosVenta, ResultadoEmision } from "../emitirFactura";
 
@@ -104,15 +104,12 @@ export async function ejecutarEfectosPostAutorizacion(input: {
     resultado.estado === "AUTORIZADO" &&
     resultado.recordId &&
     resultado.ambiente === AMBIENTE_PRODUCCION &&
-    datos.origen?.tipo === "operacion"
+    (datos.origen?.tipo === "operacion" || datos.origen?.tipo === "orden")
   ) {
-    try {
-      await marcarOperacionEntregadaPorDocumento(datos.origen.recordId);
-      resumen.operacion = "entregada";
-    } catch (e) {
-      console.error("[efectosPostAutorizacion] marcar operación entregada falló:", e);
-      resumen.operacion = "error";
-    }
+    // Auditoría ops, punto 2: se cierran juntos todos los pedidos de la cuenta.
+    const { movidas, errores } = await cerrarOperacionesDeLaCuenta(datos.origen);
+    if (errores.length) resumen.operacion = "error";
+    else if (movidas.length) resumen.operacion = "entregada";
   }
 
   return resumen;
@@ -235,15 +232,11 @@ export async function completarFacturaAutorizada(recordId: string, registradoPor
     }
   }
 
-  // Operación de origen → "Entregado" (punto 6). Idempotente.
-  if (l.origen?.tipo === "operacion") {
-    try {
-      await marcarOperacionEntregadaPorDocumento(l.origen.recordId);
-      efectos.operacion = "entregada";
-    } catch (e) {
-      console.error("[completarFacturaAutorizada] marcar operación entregada falló:", e);
-      efectos.operacion = "error";
-    }
+  // Pedidos de la cuenta → "Entregado" (punto 6 + auditoría ops punto 2). Idempotente.
+  if (l.origen?.tipo === "operacion" || l.origen?.tipo === "orden") {
+    const { movidas, errores } = await cerrarOperacionesDeLaCuenta(l.origen);
+    if (errores.length) efectos.operacion = "error";
+    else if (movidas.length) efectos.operacion = "entregada";
   }
 
   return { accion: "completada", efectos };

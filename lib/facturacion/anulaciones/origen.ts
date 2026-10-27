@@ -4,14 +4,14 @@ import "server-only";
 // recibo que venía de un origen, ese origen vuelve a quedar abierto para
 // emitir el documento correcto:
 //   · reserva   → vuelve a "Activa" (con sus abonos).
-//   · operación → si había pasado sola a "Entregado", vuelve a "Pedido".
-//   · orden     → no cambia nada aquí (la unidad ya vuelve apartada a la orden).
+//   · orden u operación → los pedidos de la cuenta que se cerraron con el
+//     documento vuelven a "Pedido" (auditoría ops, punto 2).
 // La unidad apartada la devuelve el reverso de inventario (reapartar).
 // Best-effort: nunca lanza.
 
 import { reabrirReservaTrasAnulacion } from "../reservas/airtable";
 import { lineaHistorialReserva } from "../reservas/liberar";
-import { reabrirOperacionTrasAnulacion } from "@/lib/operaciones/airtable";
+import { reabrirOperacionesDeLaCuenta } from "../gancho/cierreCuenta";
 
 export type OrigenDocumento = { tipo: "orden" | "operacion" | "reserva"; recordId: string };
 
@@ -30,8 +30,11 @@ export async function reabrirOrigenTrasAnulacion(origen: OrigenDocumento | null 
   try {
     if (origen.tipo === "reserva") {
       await reabrirReservaTrasAnulacion(origen.recordId, lineaHistorialReserva(`Se anuló ${documento}: la reserva vuelve a Activa y el artículo vuelve a quedar apartado.`, usuario));
-    } else if (origen.tipo === "operacion") {
-      await reabrirOperacionTrasAnulacion(origen.recordId);
+    } else {
+      // Auditoría ops, punto 2: los pedidos de la cuenta (orden u operación)
+      // que se cerraron con el documento vuelven juntos a "Pedido".
+      const { errores } = await reabrirOperacionesDeLaCuenta(origen);
+      if (errores.length) throw new Error(errores.join(" "));
     }
     return null;
   } catch (e) {
