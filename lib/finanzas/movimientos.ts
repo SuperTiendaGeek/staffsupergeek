@@ -114,7 +114,9 @@ export async function crearMovimiento(input: CrearMovimientoInput, options: Crea
   const response = await conResolucionDeTablaMovimientos(getClient(), (nombreTabla) =>
     airtableMutation<AirtableMutationResponse>(tableUrl(nombreTabla), {
       method: "POST",
-      body: JSON.stringify({ records: [{ fields }] }),
+      // typecast: el catálogo de métodos de cobro (punto 7) puede traer una
+      // opción nueva del campo "Método" (p. ej. "Mercado Pago").
+      body: JSON.stringify({ records: [{ fields }], typecast: true }),
     })
   );
   const created = response.records?.[0];

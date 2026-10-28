@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { CategoriaMovimiento, EstadoMovimiento, MetodoMovimiento } from "@/types/finanzas";
-import { esMetodoPagoAbonoValido, type MetodoPagoAbono } from "@/types/abonos";
+import { definicionMetodo } from "@/lib/cobros/metodos";
 import {
   airtableRequest,
   cleanString,
@@ -66,35 +66,18 @@ function firstString(value: unknown): string {
  * compilar hasta que se le agregue una entrada — no puede quedar
  * desincronizado en silencio.
  */
-const MAPA_METODO_PAGO_ABONO: Record<
-  MetodoPagoAbono,
-  { cuentaDestinoNombre: string; estado: EstadoMovimiento; metodo: MetodoMovimiento } | null
-> = {
-  Efectivo: { cuentaDestinoNombre: "Caja Registradora", estado: "Confirmado", metodo: "Efectivo" },
-  Transferencia: { cuentaDestinoNombre: "SGINGRESOS", estado: "Confirmado", metodo: "Transferencia bancaria" },
-  Depósito: { cuentaDestinoNombre: "SGINGRESOS", estado: "Confirmado", metodo: "Depósito" },
-  Tarjeta: { cuentaDestinoNombre: "Tarjetas en Tránsito", estado: "Pendiente", metodo: "Tarjeta" },
-  PayPal: { cuentaDestinoNombre: "PayPal", estado: "Confirmado", metodo: "PayPal" },
-  PayPhone: { cuentaDestinoNombre: "Tarjetas en Tránsito", estado: "Pendiente", metodo: "PayPhone" },
-  // "Otro" y cualquier valor no reconocido (incluido vacío) caen al `null`
-  // del default más abajo — sin cuenta resuelta, Alerta Descuadre.
-  Otro: null,
-  // DeUna (2026-08-16) — mismo patrón que PayPal, no el de Tarjeta: es
-  // dinero que llega ya acreditado a la cuenta virtual propia "DeUna" desde
-  // el segundo uno (Tipo "Tránsito" en Cuentas Financieras, luego se
-  // transfiere a mano a SGINGRESOS), no un cobro que el banco todavía no
-  // acreditó como sí pasa con una tarjeta. Por eso "Confirmado", no
-  // "Pendiente".
-  DeUna: { cuentaDestinoNombre: "DeUna", estado: "Confirmado", metodo: "DeUna" },
-};
-
+// Auditoría ops, punto 7: la cuenta, el estado y el método de Finanzas de
+// cada método salen del catálogo único (lib/cobros/metodos.ts). Un método sin
+// cuenta ("Otro") devuelve null — sin cuenta resuelta, Alerta Descuadre.
 /** Cuenta, estado y método de Finanzas de un método de pago del catálogo de
  *  Abonos. Lo usan los abonos y, desde el punto 1 de la auditoría ops, los
  *  cobros de venta adicional al emitir (una sola tabla de cuentas). */
-export function resolverMapeoMetodoPago(metodoPago: string | null) {
-  const clave = cleanString(metodoPago);
-  if (!clave || !esMetodoPagoAbonoValido(clave)) return null;
-  return MAPA_METODO_PAGO_ABONO[clave];
+export function resolverMapeoMetodoPago(
+  metodoPago: string | null
+): { cuentaDestinoNombre: string; estado: EstadoMovimiento; metodo: MetodoMovimiento } | null {
+  const def = definicionMetodo(cleanString(metodoPago));
+  if (!def || !def.cuenta) return null;
+  return { cuentaDestinoNombre: def.cuenta, estado: def.estado, metodo: def.metodoFinanzas as MetodoMovimiento };
 }
 
 export type ResultadoPuenteAbono = { ok: true; movimientoId: string } | { ok: false; error: string };

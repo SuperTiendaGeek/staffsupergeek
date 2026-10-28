@@ -6,6 +6,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { MetodoCobroSelector } from "@/components/facturacion/MetodoCobroSelector";
+import { codigoSriDeMetodo, mensajeCobroInvalido } from "@/lib/cobros/metodos";
+import { etiquetaMetodoPago } from "@/types/abonos";
 import { reservaVencida, diasRestantesReserva, validarAbono, saldoPendiente, pagoCompleto, fechaLiberacionAutomatica, DIAS_GRACIA_VENCIDA } from "@/lib/facturacion/reservas/reglas";
 
 const FORMAS_PAGO = [
@@ -20,7 +23,7 @@ const hoy = () => new Date();
 const dLimite = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`);
 
 type Registro = { recordId: string; numero: string; fecha: string; estado: string; clienteNombre: string; clienteIdentificacion: string; descripcionItem: string; precio: number; totalAbonado: number; fechaLimite: string; tienePdf: boolean };
-type Abono = { monto: number; fecha: string; formaPago: string; registradoPor: string };
+type Abono = { monto: number; fecha: string; formaPago: string; metodoPago?: string; registradoPor: string };
 type Detalle = Registro & { cliente: { razonSocial: string; identificacion?: string; correo?: string; telefono?: string }; abonos: Abono[]; plazoDias: number; saldoAFavor: number; facturaRecordId?: string; historial?: string };
 const fmtFecha = (d: Date) => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
 
@@ -134,7 +137,9 @@ export function ReservasPanel() {
 
 function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onClose: () => void; onCambio: () => void }) {
   const [abono, setAbono] = useState("");
-  const [forma, setForma] = useState("01");
+  // Punto 7: método de cobro (con su cuenta) + n.º de transacción.
+  const [metodoPago, setMetodoPago] = useState("Efectivo");
+  const [referencia, setReferencia] = useState("");
   const [accion, setAccion] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -151,17 +156,17 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
 
   async function registrarAbono() {
     const monto = parseFloat(abono) || 0;
-    const errValid = validarAbono(monto, reserva.precio, reserva.totalAbonado);
+    const errValid = validarAbono(monto, reserva.precio, reserva.totalAbonado) ?? mensajeCobroInvalido({ metodoPago, referencia, total: monto });
     if (errValid) { setErr(errValid); return; }
     setAccion("abono"); setErr(null); setMsg(null);
     try {
-      const r = await fetch(`/api/facturacion/reservas/${reserva.recordId}/abonos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ monto, formaPago: forma }) });
+      const r = await fetch(`/api/facturacion/reservas/${reserva.recordId}/abonos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ monto, metodoPago, referencia: referencia.trim() || undefined }) });
       const d = await r.json();
       if (!d.success) setErr(d.error ?? "Error");
       else {
         setMsg(`Abono de ${mon(monto)} registrado`);
         if (d.data?.advertencia) setErr(d.data.advertencia);
-        setAbono("");
+        setAbono(""); setReferencia("");
         onCambio();
       }
     } catch { setErr("Error de red"); } finally { setAccion(null); }
@@ -223,7 +228,7 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
         <div>
           <p className="text-[10px] text-[#666] uppercase tracking-wider mb-1">Abonos</p>
           <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3 text-xs space-y-1">
-            {reserva.abonos.map((a, i) => (<div key={i} className="flex justify-between"><span className="text-[#A7A7A7]">{fmt(a.fecha)} · {FORMA_PAGO_LABEL[a.formaPago] ?? a.formaPago}</span><span className="text-[#F5F5F5]">{mon(a.monto)}</span></div>))}
+            {reserva.abonos.map((a, i) => (<div key={i} className="flex justify-between"><span className="text-[#A7A7A7]">{fmt(a.fecha)} · {a.metodoPago ? etiquetaMetodoPago(a.metodoPago) : FORMA_PAGO_LABEL[a.formaPago] ?? a.formaPago}</span><span className="text-[#F5F5F5]">{mon(a.monto)}</span></div>))}
           </div>
         </div>
 
@@ -232,8 +237,8 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
           <div className="rounded-xl border border-[#2A2A22] bg-[#151510] p-3">
             <p className="text-[10px] text-[#666] uppercase tracking-wider mb-2">Registrar abono</p>
             <div className="flex items-end gap-2">
-              <div className="flex-1"><label className="block mb-1 text-[10px] text-[#666]">Monto</label><input type="number" min="0" step="0.01" value={abono} onChange={(e) => setAbono(e.target.value)} className="w-full rounded-lg bg-[#252622] border border-[#3A3A36] px-3 py-2 text-sm text-[#F5F5F5]" placeholder="0.00" /></div>
-              <div className="flex-1"><label className="block mb-1 text-[10px] text-[#666]">Forma de pago</label><select value={forma} onChange={(e) => setForma(e.target.value)} className="w-full rounded-lg bg-[#252622] border border-[#3A3A36] px-2 py-2 text-sm text-[#F5F5F5]">{FORMAS_PAGO.map((fp) => <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>)}</select></div>
+              <div className="w-28"><label className="block mb-1 text-[10px] text-[#666]">Monto</label><input type="number" min="0" step="0.01" value={abono} onChange={(e) => setAbono(e.target.value)} className="w-full rounded-lg bg-[#252622] border border-[#3A3A36] px-3 py-2 text-sm text-[#F5F5F5]" placeholder="0.00" /></div>
+              <div className="flex-1"><MetodoCobroSelector metodo={metodoPago} referencia={referencia} onMetodo={setMetodoPago} onReferencia={setReferencia} /></div>
               <button disabled={accion === "abono"} onClick={registrarAbono} className="rounded-full bg-[#D7FF4F] text-[#151515] px-4 py-2 text-xs font-bold hover:brightness-105 disabled:opacity-40">{accion === "abono" ? "…" : "Abonar"}</button>
             </div>
           </div>
@@ -286,7 +291,10 @@ function DetalleReserva({ reserva, onClose, onCambio }: { reserva: Detalle; onCl
 type PreResumen = { numero: string; descripcionItem: string; importeTotal: number; totalAbonado: number; saldo: number };
 
 function FacturarReservaModal({ reserva, onClose, onFacturada }: { reserva: Detalle; onClose: () => void; onFacturada: () => void }) {
-  const [saldoForma, setSaldoForma] = useState("01");
+  // Punto 7: método de cobro del saldo (con su cuenta); el código SRI se deduce.
+  const [saldoMetodo, setSaldoMetodo] = useState("Efectivo");
+  const [saldoReferencia, setSaldoReferencia] = useState("");
+  const saldoForma = codigoSriDeMetodo(saldoMetodo) ?? "01";
   const [resumen, setResumen] = useState<PreResumen | null>(null);
   const [datosVenta, setDatosVenta] = useState<unknown>(null);
   const [cargando, setCargando] = useState(true);
@@ -313,9 +321,22 @@ function FacturarReservaModal({ reserva, onClose, onFacturada }: { reserva: Deta
 
   async function emitir() {
     if (!datosVenta) return;
+    const saldoCobrado = (resumen?.saldo ?? 0) > 0;
+    if (saldoCobrado) {
+      const errCobro = mensajeCobroInvalido({ metodoPago: saldoMetodo, referencia: saldoReferencia, total: resumen?.saldo });
+      if (errCobro) { setErr(errCobro); return; }
+    }
+    // El saldo se cobra con el método elegido (el servidor deduce el código SRI).
+    const dv = datosVenta as { pagos?: Array<{ origenPago?: string }> };
+    const conMetodo = {
+      ...dv,
+      pagos: (dv.pagos ?? []).map((p) =>
+        p.origenPago === "saldo" ? { ...p, metodoPago: saldoMetodo, referencia: saldoReferencia.trim() || undefined } : p
+      ),
+    };
     setEmitiendo(true); setErr(null);
     try {
-      const r = await fetch("/api/facturacion/emitir", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(datosVenta) });
+      const r = await fetch("/api/facturacion/emitir", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(conMetodo) });
       const d = await r.json();
       if (!d.success) { setErr(d.error ?? "Error al emitir"); return; }
       const res = d.data;
@@ -354,10 +375,14 @@ function FacturarReservaModal({ reserva, onClose, onFacturada }: { reserva: Deta
             </div>
 
             {tieneSaldo && (
-              <div>
-                <label className="block mb-1 text-[10px] text-[#666] uppercase tracking-wider">Forma de pago del saldo</label>
-                <select value={saldoForma} onChange={(e) => setSaldoForma(e.target.value)} disabled={emitiendo} className="w-full rounded-lg bg-[#252622] border border-[#3A3A36] px-2 py-2 text-sm text-[#F5F5F5]">{FORMAS_PAGO.map((fp) => <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>)}</select>
-              </div>
+              <MetodoCobroSelector
+                etiqueta="Cobro del saldo"
+                metodo={saldoMetodo}
+                referencia={saldoReferencia}
+                onMetodo={setSaldoMetodo}
+                onReferencia={setSaldoReferencia}
+                disabled={emitiendo}
+              />
             )}
             {!tieneSaldo && <p className="rounded-lg bg-emerald-900/20 border border-emerald-700/40 px-3 py-2 text-xs text-emerald-300">Reserva pagada por completo con los abonos — no hay saldo por cobrar.</p>}
 

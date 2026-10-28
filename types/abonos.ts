@@ -11,70 +11,48 @@
  * El orden importa: es el orden en que aparecen en los `<select>` de las
  * pantallas — no reordenar sin querer cambiar la UI.
  */
-export const METODOS_PAGO_ABONO = [
-  "Efectivo",
-  "Transferencia",
-  "Tarjeta",
-  "Depósito",
-  "PayPal",
-  "PayPhone",
-  "Otro",
-  "DeUna",
-] as const;
+// Auditoría ops, punto 7 (28-oct-2026): el catálogo vive en
+// lib/cobros/metodos.ts (método → cuenta, estado, código SRI). Aquí solo se
+// re-exporta con los nombres de siempre para no tocar a quien ya lo usa.
+import {
+  METODOS_COBRO,
+  METODOS_VIGENTES,
+  TODOS_LOS_METODOS,
+  esMetodoCobro,
+  esMetodoVigente,
+  etiquetaMetodo,
+  exigeReferencia,
+  type MetodoCobro,
+} from "@/lib/cobros/metodos";
 
-export type MetodoPagoAbono = (typeof METODOS_PAGO_ABONO)[number];
+export const METODOS_PAGO_ABONO = TODOS_LOS_METODOS;
+
+export type MetodoPagoAbono = MetodoCobro;
 
 export function esMetodoPagoAbonoValido(valor: string): valor is MetodoPagoAbono {
-  return (METODOS_PAGO_ABONO as readonly string[]).includes(valor);
+  return esMetodoCobro(valor);
 }
 
-/**
- * Métodos para los que el número de transacción es obligatorio (decisión de
- * Alex, 2026-08-16): Transferencia y DeUna dejan un comprobante/rastro
- * bancario verificable con el que se puede conciliar la cuenta destino — a
- * diferencia de Efectivo (nada que conciliar) o Tarjeta (se concilia con el
- * lote del POS, no con un número suelto). El resto de métodos sigue
- * opcional. Aplica solo hacia adelante: los abonos ya guardados sin número
- * no se tocan ni se marcan.
- */
-const METODOS_QUE_EXIGEN_NUMERO_TRANSACCION = new Set<MetodoPagoAbono>(["Transferencia", "DeUna"]);
-
+/** Número de transacción obligatorio (Transferencia, Produbanco, DeUna, Mercado Libre). */
 export function requiereNumeroTransaccion(metodo: string): boolean {
-  return esMetodoPagoAbonoValido(metodo) && METODOS_QUE_EXIGEN_NUMERO_TRANSACCION.has(metodo);
+  return exigeReferencia(metodo);
 }
 
 /**
- * Auditoría Técnicos y Operaciones, punto 1 (decisión del dueño, 27-oct-2026):
- * todo cobro nuevo entra a una cuenta real. "Otro" no dice a qué cuenta entró
- * el dinero, así que ya no se ofrece para cobros nuevos (sigue siendo válido
- * para leer abonos viejos). La cuenta de cada método vive en
- * lib/finanzas/puentes/abonos.ts (MAPA_METODO_PAGO_ABONO).
+ * Métodos que se ofrecen para cobros nuevos: todos entran a una cuenta real.
+ * "Otro" y "Tarjeta" genérica ya no se ofrecen (siguen siendo legibles).
  */
-export const METODOS_COBRO_NUEVO = METODOS_PAGO_ABONO.filter(
-  (m): m is Exclude<MetodoPagoAbono, "Otro"> => m !== "Otro"
-);
+export const METODOS_COBRO_NUEVO = METODOS_VIGENTES;
 
-export function esMetodoCobroNuevoValido(valor: string): valor is Exclude<MetodoPagoAbono, "Otro"> {
-  return (METODOS_COBRO_NUEVO as readonly string[]).includes(valor);
+export function esMetodoCobroNuevoValido(valor: string): valor is MetodoPagoAbono {
+  return esMetodoVigente(valor);
 }
 
-/**
- * Cómo se muestra cada método en las pantallas, con la cuenta a la que entra
- * el dinero. Transferencia y DeUna son ambas transferencias, pero llegan a
- * cuentas distintas: por eso se nombran por su destino (pedido del dueño).
- * El valor guardado en Airtable no cambia (sigue siendo "Transferencia").
- */
-export const ETIQUETA_METODO_PAGO: Record<MetodoPagoAbono, string> = {
-  Efectivo: "Efectivo → Caja Registradora",
-  Transferencia: "Transferencia Banco Pichincha → SGINGRESOS",
-  Tarjeta: "Tarjeta → Tarjetas en Tránsito",
-  Depósito: "Depósito Banco Pichincha → SGINGRESOS",
-  PayPal: "PayPal → cuenta PayPal",
-  PayPhone: "PayPhone → Tarjetas en Tránsito",
-  Otro: "Otro (sin cuenta)",
-  DeUna: "DeUna → cuenta DeUna (no es Banco Pichincha)",
-};
+/** Cómo se muestra cada método, con la cuenta a la que entra el dinero. */
+export const ETIQUETA_METODO_PAGO: Record<MetodoPagoAbono, string> = Object.fromEntries(
+  TODOS_LOS_METODOS.map((m) => [m, METODOS_COBRO[m].etiqueta])
+) as Record<MetodoPagoAbono, string>;
 
 export function etiquetaMetodoPago(metodo: string): string {
-  return esMetodoPagoAbonoValido(metodo) ? ETIQUETA_METODO_PAGO[metodo] : metodo;
+  return etiquetaMetodo(metodo);
 }

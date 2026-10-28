@@ -14,7 +14,10 @@ export type ReservaEstado = "Activa" | "Facturada" | "Liberada" | "Cancelada";
 export type AbonoReserva = {
   monto:         number;
   fecha:         string;   // ISO
-  formaPago:     string;   // código SRI del catálogo de formas de pago
+  formaPago:     string;   // código SRI (lo deduce el servidor del método)
+  /** Punto 7: método de cobro (catálogo único; dice la cuenta). Ausente en abonos viejos. */
+  metodoPago?:   string;
+  referencia?:   string;
   registradoPor: string;
 };
 
@@ -34,5 +37,5 @@ export type CrearReservaInput = {
   plazoDias:       PlazoReserva;
   // Abono inicial (obligatorio: debe alcanzar el mínimo). Los siguientes abonos
   // se registran con otro endpoint sobre la reserva ya creada.
-  abonoInicial:    { monto: number; formaPago: string };
+  abonoInicial:    { monto: number; formaPago: string; metodoPago?: string; referencia?: string };
 };

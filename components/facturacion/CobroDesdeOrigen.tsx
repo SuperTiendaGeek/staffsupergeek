@@ -108,6 +108,26 @@ export function PagosVentaAdicional({
   onChange: (pagos: PagoAdicionalForm[]) => void;
 }) {
   if (total <= 0.01) return null;
+  return <PagosPorMetodo titulo="Cobro venta adicional" total={total} pagos={pagos} onChange={onChange} />;
+}
+
+/**
+ * Cobros por método (auditoría ops, punto 7): una fila por pago con el método
+ * —que dice a qué cuenta entra el dinero—, el monto y el n.º de transacción.
+ * "+ Otro método" para pagos mixtos. Es el mismo control en la venta
+ * adicional, la factura y el recibo de mostrador.
+ */
+export function PagosPorMetodo({
+  titulo,
+  total,
+  pagos,
+  onChange,
+}: {
+  titulo: string;
+  total: number;
+  pagos: PagoAdicionalForm[];
+  onChange: (pagos: PagoAdicionalForm[]) => void;
+}) {
   const suma = round2(pagos.reduce((s, p) => s + (p.total || 0), 0));
   const falta = round2(total - suma);
   const actualizar = (id: string, cambios: Partial<PagoAdicionalForm>) =>
@@ -116,7 +136,7 @@ export function PagosVentaAdicional({
   return (
     <div className="mt-3 rounded-lg border border-[#D7FF4F]/30 bg-[#D7FF4F]/5 p-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-[#D7FF4F]">Cobro venta adicional · {dinero(total)}</p>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-[#D7FF4F]">{titulo} · {dinero(total)}</p>
         <button
           type="button"
           onClick={() => onChange([...pagos, nuevoPagoAdicional(Math.max(0, falta))])}

@@ -47,12 +47,21 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         clienteRecordId: recibo.clienteRecordId, registradoPor, ambiente: cfg.ambiente,
       }).catch((e) => console.error("[anular recibo] contable (origen):", e));
     } else {
-      // Mostrador: Egreso categoría "Devolución" por el total, con la forma
-      // de pago original.
-      await revertirIngresoRecibo({
-        numeroRecibo: recibo.numero, total: recibo.total, formaPago: recibo.formaPago,
-        clienteRecordId: recibo.clienteRecordId, registradoPor, ambiente: cfg.ambiente,
-      }).catch((e) => console.error("[anular recibo] contable:", e));
+      // Mostrador (punto 7): se revierte CADA ingreso desde su propia cuenta
+      // (la que tiene el movimiento), igual que con origen. Antes se
+      // recalculaba la cuenta desde el código SRI y un "20" salía sin cuenta.
+      // Un recibo viejo sin movimientos enlazados cae al reverso por código.
+      if (recibo.movimientoIds.length > 0) {
+        await revertirPuenteRecibo({
+          reciboRecordId: id, numeroRecibo: recibo.numero, movimientoIds: recibo.movimientoIds,
+          clienteRecordId: recibo.clienteRecordId, registradoPor, ambiente: cfg.ambiente,
+        }).catch((e) => console.error("[anular recibo] contable:", e));
+      } else {
+        await revertirIngresoRecibo({
+          numeroRecibo: recibo.numero, total: recibo.total, formaPago: recibo.formaPago,
+          clienteRecordId: recibo.clienteRecordId, registradoPor, ambiente: cfg.ambiente,
+        }).catch((e) => console.error("[anular recibo] contable:", e));
+      }
     }
 
     return NextResponse.json({ success: true, data: { numero: recibo.numero } });

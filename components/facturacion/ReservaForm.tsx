@@ -8,11 +8,9 @@ import { abonoMinimo, PLAZOS_VALIDOS } from "@/lib/facturacion/reservas/reglas";
 import { ClienteCard, CLIENTE_VACIO, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 import { AvisoNovedadVenta, cerrarNovedadesVendidas, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
 import { descripcionDeProducto } from "@/lib/facturacion/lineaDesdeProductoCatalogo";
+import { MetodoCobroSelector } from "@/components/facturacion/MetodoCobroSelector";
+import { mensajeCobroInvalido } from "@/lib/cobros/metodos";
 
-const FORMAS_PAGO = [
-  { codigo: "01", label: "Efectivo" }, { codigo: "16", label: "Tarjeta de débito" }, { codigo: "19", label: "Tarjeta de crédito" },
-  { codigo: "17", label: "Dinero electrónico" }, { codigo: "18", label: "Tarjeta prepago" }, { codigo: "20", label: "Otros (sist. financiero)" }, { codigo: "21", label: "Endoso de títulos" },
-];
 
 // Punto 10b-5: numeroSerie/seguimiento para la descripción; detalle = "S/N …" o "Lote … · más antiguo".
 type Producto = { id: string; sku: string; nombre: string; precioVenta: number; unidad: string; cantidadDisponible: number; numeroSerie?: string; seguimiento?: string; detalle?: string };
@@ -30,7 +28,9 @@ export function ReservaForm() {
   const [prodSug, setProdSug] = useState<Producto[]>([]);
   const [plazoDias, setPlazoDias] = useState(15);
   const [abono, setAbono] = useState("");
-  const [formaPago, setFormaPago] = useState("01");
+  // Punto 7: método de cobro (con su cuenta), no código SRI.
+  const [metodoPago, setMetodoPago] = useState("Efectivo");
+  const [referencia, setReferencia] = useState("");
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<{ recordId: string; numero: string; fechaLimite: string; advertencia?: string | null } | null>(null);
@@ -56,6 +56,8 @@ export function ReservaForm() {
     if (montoAbono < minimo) { setError(`El abono inicial debe ser al menos ${mon(minimo)}`); return; }
     if (montoAbono > item.precio) { setError("El abono no puede superar el precio del ítem"); return; }
     if (novedadPendiente) { setError("Falta confirmar cómo se vende el ítem con novedad (cartel amarillo)."); return; }
+    const errCobro = mensajeCobroInvalido({ metodoPago, referencia, total: montoAbono });
+    if (errCobro) { setError(errCobro); return; }
     const avisoAlCrear = avisoNovedad;
 
     setGenerando(true);
@@ -65,7 +67,7 @@ export function ReservaForm() {
         body: JSON.stringify({
           cliente: { identificacion: cliente.identificacion || undefined, razonSocial: cliente.razonSocial, correo: cliente.correo || undefined, telefono: cliente.telefono || undefined, airtableId: cliente.airtableId },
           shippingItemId: item.shippingItemId, descripcionItem: item.descripcion, precioVenta: item.precio,
-          plazoDias, abonoInicial: { monto: montoAbono, formaPago },
+          plazoDias, abonoInicial: { monto: montoAbono, metodoPago, referencia: referencia.trim() || undefined },
         }),
       });
       const j = await r.json();
@@ -81,7 +83,7 @@ export function ReservaForm() {
 
   function reset() {
     setResultado(null); setItem(null); setCliente(CLIENTE_VACIO);
-    setQueryProd(""); setAbono(""); setPlazoDias(15); setFormaPago("01");
+    setQueryProd(""); setAbono(""); setPlazoDias(15); setMetodoPago("Efectivo"); setReferencia("");
   }
 
   if (resultado) {
@@ -148,10 +150,7 @@ export function ReservaForm() {
             <label className={LABEL}>Abono inicial{item ? ` (mín. ${mon(minimo)})` : ""}</label>
             <input type="number" min="0" step="0.01" value={abono} onChange={(e) => setAbono(e.target.value)} className={INPUT} placeholder="0.00" />
           </div>
-          <div>
-            <label className={LABEL}>Forma de pago</label>
-            <select value={formaPago} onChange={(e) => setFormaPago(e.target.value)} className={INPUT}>{FORMAS_PAGO.map((fp) => <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>)}</select>
-          </div>
+          <MetodoCobroSelector metodo={metodoPago} referencia={referencia} onMetodo={setMetodoPago} onReferencia={setReferencia} />
         </div>
         {item && (
           <div className="mt-3 flex justify-end text-sm">

@@ -1,3 +1,4 @@
+import { codigoSriDeMetodo, mensajeCobroInvalido } from "@/lib/cobros/metodos";
 import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { crearReserva, listarReservas } from "@/lib/facturacion/reservas/airtable";
@@ -31,7 +32,7 @@ type CrearBody = {
   descripcionItem?: string;
   precioVenta?: number;
   plazoDias?: number;
-  abonoInicial?: { monto?: number; formaPago?: string };
+  abonoInicial?: { monto?: number; metodoPago?: string; referencia?: string };
   actualizarFicha?: boolean;
 };
 
@@ -48,12 +49,16 @@ export async function POST(request: Request) {
   const shippingItemId = body.shippingItemId?.trim();
   const plazoDias = Number(body.plazoDias);
   const montoAbono = Number(body.abonoInicial?.monto);
-  const formaPago = body.abonoInicial?.formaPago?.trim();
+  // Punto 7: el abono trae su MÉTODO (dice la cuenta); el código SRI se deduce.
+  const metodoPago = body.abonoInicial?.metodoPago?.trim() ?? "";
+  const referencia = body.abonoInicial?.referencia?.trim() || undefined;
+  const errorCobro = mensajeCobroInvalido({ metodoPago, referencia, total: montoAbono });
+  const formaPago = codigoSriDeMetodo(metodoPago);
 
   if (!razonSocial) return NextResponse.json({ success: false, error: "Falta el nombre del cliente" }, { status: 400 });
   if (!shippingItemId) return NextResponse.json({ success: false, error: "Falta el ítem a reservar" }, { status: 400 });
   if (!PLAZOS_VALIDOS.includes(plazoDias as PlazoReserva)) return NextResponse.json({ success: false, error: "El plazo debe ser 7, 15 o 30 días" }, { status: 400 });
-  if (!formaPago) return NextResponse.json({ success: false, error: "Elige una forma de pago para el abono" }, { status: 400 });
+  if (errorCobro || !formaPago) return NextResponse.json({ success: false, error: errorCobro ?? "Elige el método de cobro del abono" }, { status: 400 });
 
   // El ítem debe poder reservarse (le quedan unidades libres y no está bloqueado).
   // Esto es solo el aviso temprano con buen mensaje: la barrera dura es
@@ -99,7 +104,7 @@ export async function POST(request: Request) {
   const ahora = ahoraEnEcuador();
   const fechaLimite = fechaLimiteReserva(ahora, plazoDias).toISOString().slice(0, 10);
   const registradoPor = session.user.nombre || "Portal";
-  const abonoInicial = { monto: montoAbono, fecha: ahora.toISOString(), formaPago: formaPago!, registradoPor };
+  const abonoInicial = { monto: montoAbono, fecha: ahora.toISOString(), formaPago: formaPago!, metodoPago, referencia, registradoPor };
 
   // Se aparta el ítem ANTES de crear la reserva: es la operación que puede
   // fallar por concurrencia (dos personas reservando la misma unidad a la vez)
@@ -136,6 +141,8 @@ export async function POST(request: Request) {
     numeroReserva: creada.numero,
     monto: montoAbono,
     formaPago: formaPago!,
+    metodoPago,
+    referencia,
     registradoPor,
     fecha: abonoInicial.fecha,
   });

@@ -49,6 +49,7 @@ export type MetodoMovimiento =
   | "PayPhone"
   | "PayPal"
   | "DeUna"
+  | "Mercado Pago"
   | "Dinero electrónico"
   | "Depósito"
   | "Tarjeta"

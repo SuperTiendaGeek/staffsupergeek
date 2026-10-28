@@ -21,7 +21,7 @@ import { verificarStockDisponible, mensajeFaltantes } from "@/lib/facturacion/re
 import { verificarArticulosEntregables, mensajeNoEntregables } from "@/lib/facturacion/reglas/entregables";
 import { verificarProductosDigitalesDisponibles, mensajeProductosDigitalesNoDisponibles } from "@/lib/facturacion/reglas/productosDigitalesDisponibles";
 import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/preciosShippingItems";
-import { mensajeReferenciaPagoFaltante } from "@/lib/facturacion/reglas/referenciaPago";
+import { normalizarCobrosNuevos } from "@/lib/cobros/metodos";
 import { esLineaAdicional, totalFinalLinea } from "@/lib/facturacion/reglas/cobroDocumento";
 import { validarEmisionDesdeOrigen } from "@/lib/facturacion/gancho/cobroOrigen";
 
@@ -96,9 +96,16 @@ export async function POST(request: Request) {
   // editan al emitir) y la venta adicional tiene su propia validación (número
   // obligatorio por método) más abajo — ver validarEmisionDesdeOrigen.
   const desdeCuenta = body.origen?.tipo === "orden" || body.origen?.tipo === "operacion";
-  const errorReferenciaPago = desdeCuenta ? null : mensajeReferenciaPagoFaltante(body.pagos);
-  if (errorReferenciaPago) {
-    return NextResponse.json({ success: false, error: errorReferenciaPago }, { status: 400 });
+  // Auditoría ops, punto 7: todo cobro nuevo (mostrador, saldo de una
+  // reserva, diferencia de un reemplazo) trae su MÉTODO, que dice a qué
+  // cuenta entra el dinero; el código SRI se deduce aquí del método. Antes la
+  // pantalla mandaba el código "20" y el ingreso quedaba sin cuenta.
+  if (!desdeCuenta) {
+    const cobros = normalizarCobrosNuevos(body.pagos);
+    if (cobros.error) {
+      return NextResponse.json({ success: false, error: cobros.error }, { status: 400 });
+    }
+    body.pagos = cobros.pagos;
   }
 
   const borradorOrigenId = textoRecordId(body.borradorOrigenId);

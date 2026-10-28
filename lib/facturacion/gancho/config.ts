@@ -1,3 +1,4 @@
+import { METODOS_COBRO, TODOS_LOS_METODOS } from "@/lib/cobros/metodos";
 import "server-only";
 
 // Config del gancho Cuenta Unificada → Facturación (Fase 16 PR2).
@@ -50,16 +51,11 @@ export const TARIFA_IVA_ITEM_DEFAULT = TARIFA_IVA_SRI["15%"];
 //   - "Otro": mapeo conservador a 20 (con sistema financiero). Si en la
 //     práctica "Otro" se usa a veces para efectivo disfrazado, podría
 //     necesitar revisión caso por caso.
-export const MAPA_METODO_PAGO_SRI: Record<string, string> = {
-  "Efectivo":      "01",
-  "Transferencia": "20", // transferencia bancaria = "con utilización del sistema financiero"
-  "Tarjeta":       "19", // ⚠️ asumido crédito — ver nota arriba
-  "Depósito":      "20", // depósito bancario = "con utilización del sistema financiero"
-  "PayPal":        "20", // ⚠️ no es "17 dinero electrónico" (ese es el sistema específico del BCE)
-  "PayPhone":      "20", // ⚠️ ídem PayPal — procesador privado, no el dinero electrónico del BCE
-  "Otro":          "20", // ⚠️ conservador, revisar caso por caso
-  "DeUna":         "20", // ⚠️ ídem PayPal/PayPhone — billetera privada, no "17 dinero electrónico" del BCE
-};
+// Auditoría ops, punto 7: derivado del catálogo único (lib/cobros/metodos.ts).
+// Antes era una tabla aparte que había que mantener sincronizada a mano.
+export const MAPA_METODO_PAGO_SRI: Record<string, string> = Object.fromEntries(
+  TODOS_LOS_METODOS.map((m) => [m, METODOS_COBRO[m].codigoSri])
+);
 
 // Forma de pago para la línea de saldo pendiente que agrega la pre-factura
 // cuando totalCuenta > totalAbonado (Decisión #4.4 del diseño). Editable en

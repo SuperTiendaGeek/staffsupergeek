@@ -10,11 +10,11 @@ import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/prec
 import { camposLineaDesdeProducto } from "@/lib/facturacion/lineaDesdeProductoCatalogo";
 import { ClienteCard, type ClienteDoc } from "@/components/facturacion/ClienteCard";
 import { validarIdentificacion, revisarIdentificacion } from "@/lib/facturacion/reglas/identificacion";
-import { mensajeReferenciaPagoFaltante, CODIGO_SRI_REQUIERE_REFERENCIA } from "@/lib/facturacion/reglas/referenciaPago";
 import {
-  AvisoCuentaPorCobrar, PagosVentaAdicional, errorPagosAdicionales, nuevoPagoAdicional, type PagoAdicionalForm,
+  AvisoCuentaPorCobrar, PagosVentaAdicional, PagosPorMetodo, errorPagosAdicionales, nuevoPagoAdicional, type PagoAdicionalForm,
 } from "@/components/facturacion/CobroDesdeOrigen";
-import { etiquetaMetodoPago } from "@/types/abonos";
+import { METODOS_COBRO_NUEVO, etiquetaMetodoPago, requiereNumeroTransaccion } from "@/types/abonos";
+import { codigoSriDeMetodo, mensajeCobroInvalido, mensajeCobrosInvalidos, metodoDesdeCodigoSri } from "@/lib/cobros/metodos";
 import { resolverBorradorInicial } from "@/lib/facturacion/borradores/formulario";
 import { AvisoNovedadVenta, cerrarNovedadesVendidas, hayAvisoPendiente, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
 
@@ -30,16 +30,9 @@ const TIPO_LABEL: Record<TipoIdentificacion, string> = {
   "08": "Identificación del exterior",
 };
 
-const FORMAS_PAGO = [
-  { codigo: "01", label: "Efectivo" },
-  { codigo: "16", label: "Tarjeta de débito" },
-  { codigo: "19", label: "Tarjeta de crédito" },
-  { codigo: "17", label: "Dinero electrónico" },
-  { codigo: "15", label: "Compensación de deudas" },
-  { codigo: "18", label: "Tarjeta prepago" },
-  { codigo: "20", label: "Otros (sist. financiero)" },
-  { codigo: "21", label: "Endoso de títulos" },
-];
+// Auditoría ops, punto 7: la pantalla ya no ofrece códigos SRI. El vendedor
+// elige el MÉTODO de cobro (con su cuenta); el código SRI lo deduce el
+// servidor (lib/cobros/metodos.ts).
 
 // codigoPorcentaje SRI: "4"=15%, "2"=0%, "1"=Exento, "0"=No objeto
 const TARIFAS_IVA = [
@@ -360,7 +353,7 @@ type PagoForm = {
 // precioUnitario siempre era la base (sin IVA), así que se restauran con
 // el toggle DESACTIVADO para preservar su semántica original exacta.
 type BorradorPayload = {
-  version:     1 | 2 | 3;
+  version:     1 | 2 | 3 | 4;
   modoCliente: ModoCliente;
   cliente:     ClienteFactura;
   lineas:      LineaDetalle[];
@@ -369,6 +362,9 @@ type BorradorPayload = {
   origen?:           OrigenGancho | null;
   bannerOrigen?:     { ordenIdVisible: string | null; operacionCodigo: string | null } | null;
   ivaIncluido?:       boolean;
+  // version 4 (punto 7): cobros de mostrador por método. `formaPago` queda
+  // solo para leer borradores viejos.
+  pagosMostrador?:    PagoAdicionalForm[];
 };
 
 export function FacturacionForm({
@@ -382,11 +378,9 @@ export function FacturacionForm({
   const [cliente, setCliente]   = useState<ClienteFactura>(CONSUMIDOR_FINAL);
   const [modoCliente, setModoCliente] = useState<ModoCliente>("consumidor");
   const [lineas, setLineas]     = useState<LineaDetalle[]>([]);
-  const [formaPago, setFormaPago] = useState("01");
-  // Número de transacción del modo "un solo pago" (mostrador sin pago
-  // mixto) — obligatorio cuando formaPago === "20". En modo pago mixto /
-  // gancho, cada fila de FormasPagoEditor trae la suya propia (PagoForm.referencia).
-  const [referenciaPagoUnico, setReferenciaPagoUnico] = useState("");
+  // Cobros de mostrador (punto 7): una o varias filas método + monto + n.º
+  // de transacción. Una sola fila sigue el total de la venta.
+  const [pagosMostrador, setPagosMostrador] = useState<PagoAdicionalForm[]>(() => [nuevoPagoAdicional(0)]);
   // Toggle "Precios incluyen IVA" — default activado (decisión de negocio:
   // los precios que maneja el negocio ya incluyen IVA). Al desactivarlo,
   // el formulario vuelve al cálculo histórico (precio = base, IVA sumado
@@ -434,7 +428,7 @@ export function FacturacionForm({
   // Forma de pago de la DIFERENCIA en un reemplazo (la compensación siempre es
   // el crédito, código 15). El cliente puede pagar la diferencia con lo que
   // quiera: efectivo, tarjeta, transferencia, etc.
-  const [formaPagoDiferencia, setFormaPagoDiferencia] = useState("01");
+  const [metodoDiferencia, setMetodoDiferencia] = useState("Efectivo");
   // N° de referencia de esa diferencia — obligatorio cuando formaPagoDiferencia
   // === "20" (transferencia, depósito, PayPal, PayPhone o DeUna), igual que en
   // los otros modos. La compensación (código 15) nunca lo necesita: no es un
@@ -512,6 +506,18 @@ export function FacturacionForm({
   // Auditoría ops, punto 1 — emisión desde orden/operación: el bloque de la
   // cuenta está bloqueado y la venta adicional se cobra aparte.
   const modoCuenta = !!origen && (origen.tipo === "orden" || origen.tipo === "operacion");
+
+  // Un solo cobro de mostrador sigue al total de la venta (con varios, el
+  // vendedor reparte y el aviso "Falta asignar" lo guía).
+  useEffect(() => {
+    if (origen || reemplazoNC) return;
+    setPagosMostrador((actual) =>
+      actual.length === 1 && Math.abs(actual[0].total - totales.importeTotal) > 0.005
+        ? [{ ...actual[0], total: totales.importeTotal }]
+        : actual
+    );
+  }, [totales.importeTotal, origen, reemplazoNC]);
+
   const totalAdicional = modoCuenta
     ? calcularTotales(lineas.filter((l) => l.bloque === "adicional"), ivaIncluido).importeTotal
     : 0;
@@ -545,15 +551,27 @@ export function FacturacionForm({
         if (!d.success || !d.data?.lineasJson) return;
         try {
           const p = JSON.parse(d.data.lineasJson) as BorradorPayload;
-          if (p.version !== 1 && p.version !== 2 && p.version !== 3) return;
+          if (p.version !== 1 && p.version !== 2 && p.version !== 3 && p.version !== 4) return;
           setModoCliente(p.modoCliente);
           setCliente(p.cliente);
           setLineas(p.lineas);
-          setFormaPago(p.formaPago);
-          if (p.version === 2 || p.version === 3) {
-            setPagosPrecargados(p.pagosPrecargados ?? null);
+          const conOrigen = (p.version === 2 || p.version === 3 || p.version === 4) && !!p.origen;
+          if (p.version === 2 || p.version === 3 || p.version === 4) {
+            setPagosPrecargados(conOrigen ? p.pagosPrecargados ?? null : null);
             setOrigen(p.origen ?? null);
             setBannerOrigen(p.bannerOrigen ?? null);
+          }
+          // Cobros de mostrador: version 4 los trae por método; los borradores
+          // viejos solo tenían el código SRI → el método más probable.
+          if (p.pagosMostrador?.length) {
+            setPagosMostrador(p.pagosMostrador);
+          } else if (!conOrigen) {
+            const viejos = (p.pagosPrecargados?.length ? p.pagosPrecargados : [{ formaPago: p.formaPago, total: 0 }]) as PagoForm[];
+            setPagosMostrador(viejos.map((v) => ({
+              ...nuevoPagoAdicional(v.total),
+              metodoPago: metodoDesdeCodigoSri(v.formaPago) ?? "Efectivo",
+              referencia: v.referencia ?? "",
+            })));
           }
           // Borradores version 1/2 son de antes del toggle "Precios incluyen
           // IVA" — en ese entonces precioUnitario siempre era la base, así
@@ -712,8 +730,9 @@ export function FacturacionForm({
         const pagos: PagoForm[] = [{ formaPago: "15", total: round2(comp) }];
         if (diferencia > 0.005) {
           pagos.push({
-            formaPago: formaPagoDiferencia,
+            formaPago: codigoSriDeMetodo(metodoDiferencia) ?? "01",
             total: diferencia,
+            metodoPago: metodoDiferencia,
             referencia: referenciaPagoDiferencia.trim() || undefined,
           });
         }
@@ -727,11 +746,12 @@ export function FacturacionForm({
     setGuardando(true); setMsgBorrador(null); setErrGlobal(null);
     try {
       const payload: BorradorPayload = {
-        version: 3,
+        version: 4,
         modoCliente,
         cliente,
         lineas,
-        formaPago,
+        formaPago:  codigoSriDeMetodo(pagosMostrador[0]?.metodoPago) ?? "01",
+        pagosMostrador,
         pagosPrecargados,
         origen,
         bannerOrigen,
@@ -844,13 +864,14 @@ export function FacturacionForm({
     {
       // Con origen, los abonos son pagos ya registrados (no se editan aquí) y
       // la venta adicional ya se validó arriba.
-      const pagosAValidar = modoCuenta ? [] :
-        pagosReemplazo ??
-        pagosPrecargados ?? [
-          { formaPago, total: totales.importeTotal, referencia: referenciaPagoUnico.trim() || undefined },
-        ];
-      const errReferencia = mensajeReferenciaPagoFaltante(pagosAValidar);
-      if (errReferencia) { setErrGlobal(errReferencia); return; }
+      // Punto 7: cada cobro con su método (y cuenta) y n.º de transacción
+      // cuando el método lo exige; mismos mensajes que el servidor.
+      const errCobro = modoCuenta
+        ? null
+        : pagosReemplazo
+        ? pagosReemplazo.filter((p) => p.formaPago !== "15").map((p) => mensajeCobroInvalido(p)).find(Boolean) ?? null
+        : mensajeCobrosInvalidos(pagosMostrador, totales.importeTotal);
+      if (errCobro) { setErrGlobal(errCobro); return; }
     }
 
     // Construir DatosVenta.
@@ -979,9 +1000,13 @@ export function FacturacionForm({
               metodoPago: p.metodoPago, referencia: p.referencia.trim() || undefined,
             })),
           ]
-        : pagosReemplazo ?? pagosPrecargados ?? [
-        { formaPago, total: totales.importeTotal, referencia: referenciaPagoUnico.trim() || undefined },
-      ],
+        : pagosReemplazo ?? pagosMostrador.map((p) => ({
+            // El servidor vuelve a deducir el código SRI del método.
+            formaPago: codigoSriDeMetodo(p.metodoPago) ?? "01",
+            total: round2(p.total),
+            metodoPago: p.metodoPago,
+            referencia: p.referencia.trim() || undefined,
+          })),
       origen:          origen ?? undefined,
       borradorOrigenId: borradorId ?? undefined,
       confirmadoNoEsDuplicado: confirmadoNoEsDuplicado || undefined,
@@ -1133,7 +1158,7 @@ export function FacturacionForm({
             setLineas([]);
             setCliente(CONSUMIDOR_FINAL);
             setModoCliente("consumidor");
-            setFormaPago("01");
+            setPagosMostrador([nuevoPagoAdicional(0)]);
             setOrigen(null);
             setPagosPrecargados(null);
             setBannerOrigen(null);
@@ -1270,10 +1295,10 @@ export function FacturacionForm({
       {/* ── 3. PAGO Y TOTALES ───────────────────────────────────────────── */}
       <Card titulo="3. Pago y Totales">
         <div className="flex flex-col md:flex-row gap-6">
-          {/* Forma de pago — mostrador: un solo selector por defecto, con
-              opción de pasar a pago mixto (Fase 20.2 — antes solo el gancho
-              podía usar FormasPagoEditor). Gancho: siempre varias líneas
-              editables (abonos reales + saldo), sin este toggle. */}
+          {/* Cobro — mostrador: métodos con su cuenta (punto 7), "+ Otro
+              método" para pago mixto. Desde una orden/operación: los abonos
+              de la cuenta + el cobro de la venta adicional. Reemplazo con
+              nota de crédito: crédito + diferencia. */}
           <div className="md:w-80">
             {reemplazoNC && pagosReemplazo ? (
               // Modo reemplazo: pago derivado (crédito NC + efectivo), no editable.
@@ -1292,24 +1317,24 @@ export function FacturacionForm({
                     return (
                       <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#3A3A36]">
                         <select
-                          value={formaPagoDiferencia}
-                          onChange={(e) => setFormaPagoDiferencia(e.target.value)}
+                          value={metodoDiferencia}
+                          onChange={(e) => setMetodoDiferencia(e.target.value)}
                           className="flex-1 rounded bg-[#1A1B18] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5] focus:outline-none focus:ring-1 focus:ring-[#D7FF4F]/30"
                         >
-                          {FORMAS_PAGO.filter((fp) => fp.codigo !== "15").map((fp) => (
-                            <option key={fp.codigo} value={fp.codigo}>{fp.label} (diferencia)</option>
+                          {METODOS_COBRO_NUEVO.map((m) => (
+                            <option key={m} value={m}>{etiquetaMetodoPago(m)} (diferencia)</option>
                           ))}
                         </select>
                         <span className="text-[#F5F5F5] whitespace-nowrap">${dif.total.toFixed(2)}</span>
                       </div>
                     );
                   })()}
-                  {formaPagoDiferencia === CODIGO_SRI_REQUIERE_REFERENCIA && (
+                  {requiereNumeroTransaccion(metodoDiferencia) && (
                     <input
                       type="text"
                       value={referenciaPagoDiferencia}
                       onChange={(e) => setReferenciaPagoDiferencia(e.target.value)}
-                      placeholder="N° de referencia de la diferencia (obligatorio)"
+                      placeholder="N° de transacción de la diferencia *"
                       className={`${INPUT} text-xs py-1.5`}
                     />
                   )}
@@ -1322,24 +1347,7 @@ export function FacturacionForm({
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between">
-                  <label className={LABEL}>Forma{pagosPrecargados ? "s" : ""} de pago</label>
-                  {!origen ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPagosPrecargados((actual) =>
-                          actual
-                            ? null
-                            : [{ formaPago, total: totales.importeTotal, referencia: referenciaPagoUnico.trim() || undefined }]
-                        )
-                      }
-                      className="text-xs text-lime-400 hover:text-lime-300 underline"
-                    >
-                      {pagosPrecargados ? "Un solo pago" : "Pago mixto"}
-                    </button>
-                  ) : null}
-                </div>
+                <label className={LABEL}>{modoCuenta ? "Pagos" : "Cobro"}</label>
                 {modoCuenta ? (
                   <div className="flex flex-col gap-2">
                     <div className="rounded-lg border border-[#3A3A36] bg-[#252622] p-3 text-xs">
@@ -1367,27 +1375,15 @@ export function FacturacionForm({
                       onChange={setPagosAdicionales}
                     />
                   </div>
-                ) : pagosPrecargados ? (
-                  <FormasPagoEditor pagos={pagosPrecargados} onChange={setPagosPrecargados} />
                 ) : (
-                  <div className="flex flex-col gap-1.5">
-                    <select value={formaPago} onChange={(e) => setFormaPago(e.target.value)} className={SELECT}>
-                      {FORMAS_PAGO.map((fp) => (
-                        <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      value={referenciaPagoUnico}
-                      onChange={(e) => setReferenciaPagoUnico(e.target.value)}
-                      placeholder={
-                        formaPago === CODIGO_SRI_REQUIERE_REFERENCIA
-                          ? "N° de referencia (obligatorio)"
-                          : "N° de referencia (opcional)"
-                      }
-                      className={INPUT}
-                    />
-                  </div>
+                  // Mostrador (punto 7): método con su cuenta; "+ Otro método"
+                  // para pagos mixtos. El código SRI lo deduce el servidor.
+                  <PagosPorMetodo
+                    titulo="Cobro"
+                    total={totales.importeTotal}
+                    pagos={pagosMostrador}
+                    onChange={setPagosMostrador}
+                  />
                 )}
               </>
             )}
@@ -1683,114 +1679,6 @@ function formatearFechaAbono(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-// pagos con origenPago: "abono" vienen de la tabla Abonos (Airtable) — se
-// muestran con etiqueta y el monto queda bloqueado por defecto (evita
-// editar por accidente un cobro que ya ocurrió); "saldo" es el pendiente
-// calculado, siempre editable. Solo presentación — el XML/RIDE no cambian.
-function FormasPagoEditor({
-  pagos,
-  onChange,
-}: {
-  pagos:    Array<PagoForm>;
-  onChange: (pagos: Array<PagoForm>) => void;
-}) {
-  const [desbloqueados, setDesbloqueados] = useState<Set<number>>(new Set());
-
-  function actualizar(i: number, campo: "formaPago" | "total" | "referencia", valor: string | number) {
-    onChange(pagos.map((p, idx) => (idx === i ? { ...p, [campo]: valor } : p)));
-  }
-  function eliminar(i: number) {
-    onChange(pagos.filter((_, idx) => idx !== i));
-  }
-  function agregar() {
-    onChange([...pagos, { formaPago: "01", total: 0, origenPago: "saldo" }]);
-  }
-
-  const suma = round2(pagos.reduce((s, p) => s + p.total, 0));
-
-  return (
-    <div className="flex flex-col gap-2">
-      {pagos.map((p, i) => {
-        const esAbono   = p.origenPago === "abono";
-        const bloqueado = esAbono && !desbloqueados.has(i);
-        return (
-          <div key={i} className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2">
-              <select
-                value={p.formaPago}
-                onChange={(e) => actualizar(i, "formaPago", e.target.value)}
-                className={SELECT}
-              >
-                {FORMAS_PAGO.map((fp) => (
-                  <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={p.total}
-                disabled={bloqueado}
-                onChange={(e) => actualizar(i, "total", parseFloat(e.target.value) || 0)}
-                className={`${INPUT} w-24 text-right`}
-              />
-              <button
-                onClick={() => eliminar(i)}
-                disabled={pagos.length <= 1}
-                className="text-[#666] hover:text-[#FF5A4F] disabled:opacity-30 disabled:cursor-not-allowed text-sm px-1"
-                title="Quitar"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="pl-1 text-[10px]">
-              {esAbono ? (
-                <span className="text-emerald-400/80">
-                  ● Abono registrado{p.fechaAbono ? ` · ${formatearFechaAbono(p.fechaAbono)}` : ""}
-                  {bloqueado && (
-                    <button
-                      type="button"
-                      onClick={() => setDesbloqueados((s) => new Set(s).add(i))}
-                      className="ml-2 underline text-[#666] hover:text-[#D7FF4F]"
-                    >
-                      editar monto
-                    </button>
-                  )}
-                </span>
-              ) : (
-                <span className="text-[#F0C75E]/80">● Saldo por cobrar</span>
-              )}
-            </p>
-            {/* N° de referencia — obligatorio solo con código "20" (Otros
-                sist. financiero: transferencia, depósito, PayPal, PayPhone,
-                DeUna). Editable siempre, incluso en una fila de abono: esto
-                solo afecta el infoAdicional de ESTA factura, nunca escribe
-                de vuelta en el registro del abono. */}
-            <input
-              type="text"
-              value={p.referencia ?? ""}
-              onChange={(e) => actualizar(i, "referencia", e.target.value)}
-              placeholder={
-                p.formaPago === CODIGO_SRI_REQUIERE_REFERENCIA
-                  ? "N° de referencia (obligatorio)"
-                  : "N° de referencia (opcional)"
-              }
-              className={`${INPUT} text-xs py-1.5`}
-            />
-          </div>
-        );
-      })}
-      <button
-        onClick={agregar}
-        className="self-start text-xs text-[#A7A7A7] hover:text-[#D7FF4F] underline"
-      >
-        + Agregar forma de pago
-      </button>
-      <p className="text-xs text-[#666]">Suma: ${suma.toFixed(2)}</p>
-    </div>
-  );
 }
 
 // Banner de bloqueo — gancho Fase 16 PR2: la pre-factura no se pudo armar

@@ -6,6 +6,7 @@ import "server-only";
 // no se tocan (el recibo se usa solo tras el go-live, cuando SRI_AMBIENTE=2).
 // El recibo (registro + PDF) sí se crea siempre; estos efectos son aparte.
 
+import { resolverMapeoMetodoPago } from "@/lib/finanzas/puentes/abonos";
 import { camposRetornoItem } from "@/lib/shipping-v2/devoluciones";
 import { kardexDocumento, type LineaDocumentoKardex } from "@/lib/shipping-v2/kardex-registro";
 import { fetchRecordsByIds, linkedIds, firstString, numberOrZero, textoLecturaFallida } from "../gancho/airtableGancho";
@@ -204,6 +205,8 @@ export async function registrarIngresoRecibo(input: {
   numeroRecibo:   string;
   total:          number;
   formaPago:      string;
+  /** Punto 7: cobros por método (dicen la cuenta). Sin ellos (recibos viejos), se usa formaPago. */
+  pagos?:         Array<{ formaPago: string; total: number; metodoPago?: string; referencia?: string }>;
   clienteRecordId?: string;
   registradoPor:  string;
   ambiente?:      string;
@@ -213,20 +216,28 @@ export async function registrarIngresoRecibo(input: {
 
   await actualizarEfectosRecibo(input.reciboRecordId, "Movimiento Contable", "PENDIENTE").catch(() => {});
   try {
-    const mapeo = MAPA_FORMA_PAGO[input.formaPago] ?? null;
-    const cuenta = mapeo ? await fetchCuentaPorNombre(mapeo.cuenta) : null;
-    await crearMovimiento(
-      {
-        tipo: "Ingreso", origen: "Facturación", categoria: "Venta Mostrador",
-        monto: input.total, cuentaDestinoId: cuenta?.id ?? null,
-        estado: mapeo?.estado ?? "Confirmado", estadoDistribucion: "Pendiente de clasificar",
-        metodo: mapeo?.metodo, fecha: new Date().toISOString(), registradoPor: input.registradoPor,
-        clienteId: input.clienteRecordId,
-        reciboId: input.reciboRecordId,
-        observacion: `Recibo interno ${input.numeroRecibo} (documento no tributario, sin IVA)`,
-      },
-      { permitirCuentaFaltante: cuenta === null }
-    );
+    // Un Ingreso por cobro, en la cuenta de su método (catálogo único).
+    const cobros = input.pagos?.length ? input.pagos : [{ formaPago: input.formaPago, total: input.total }];
+    for (const cobro of cobros) {
+      if (!(cobro.total > 0)) continue;
+      const porMetodo = resolverMapeoMetodoPago(cobro.metodoPago ?? null);
+      const viejo = cobro.metodoPago ? null : MAPA_FORMA_PAGO[cobro.formaPago] ?? null;
+      const cuentaNombre = porMetodo?.cuentaDestinoNombre ?? viejo?.cuenta ?? null;
+      const cuenta = cuentaNombre ? await fetchCuentaPorNombre(cuentaNombre) : null;
+      await crearMovimiento(
+        {
+          tipo: "Ingreso", origen: "Facturación", categoria: "Venta Mostrador",
+          monto: cobro.total, cuentaDestinoId: cuenta?.id ?? null,
+          estado: porMetodo?.estado ?? viejo?.estado ?? "Confirmado", estadoDistribucion: "Pendiente de clasificar",
+          metodo: porMetodo?.metodo ?? viejo?.metodo, transaccionId: cobro.referencia,
+          fecha: new Date().toISOString(), registradoPor: input.registradoPor,
+          clienteId: input.clienteRecordId,
+          reciboId: input.reciboRecordId,
+          observacion: `Recibo interno ${input.numeroRecibo} (documento no tributario, sin IVA)`,
+        },
+        { permitirCuentaFaltante: cuenta === null }
+      );
+    }
     await actualizarEfectosRecibo(input.reciboRecordId, "Movimiento Contable", "OK").catch(() => {});
     return { estado: "OK" };
   } catch (e) {

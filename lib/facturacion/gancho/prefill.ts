@@ -100,7 +100,7 @@ export function lineasProformaDesdePrefactura(datosVenta: DatosVenta): LineaProf
   }));
 }
 
-export type AbonoPrefill = { total: number; formaPago: string; fecha?: string };
+export type AbonoPrefill = { total: number; formaPago: string; fecha?: string; metodoPago?: string };
 
 /**
  * Abonos ya cobrados (y ya registrados en /finanzas) que vienen en la
@@ -110,7 +110,7 @@ export type AbonoPrefill = { total: number; formaPago: string; fecha?: string };
 export function abonosDesdePrefactura(datosVenta: DatosVenta): AbonoPrefill[] {
   return datosVenta.pagos
     .filter((p) => p.origenPago === "abono")
-    .map((p) => ({ total: p.total, formaPago: p.formaPago, fecha: p.fechaAbono }));
+    .map((p) => ({ total: p.total, formaPago: p.formaPago, fecha: p.fechaAbono, metodoPago: p.metodoPago }));
 }
 
 /** Forma de pago sugerida para el saldo, según lo que armó el gancho. */

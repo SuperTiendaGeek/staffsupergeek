@@ -1,3 +1,4 @@
+import { mensajeCobrosInvalidos, normalizarCobrosNuevos } from "@/lib/cobros/metodos";
 import { NextResponse }              from "next/server";
 import { cerrarOperacionesDeLaCuenta } from "@/lib/facturacion/gancho/cierreCuenta";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
@@ -19,7 +20,7 @@ import type { CrearReciboInput }     from "@/lib/facturacion/recibos/types";
 import type { DetalleFactura }       from "@/lib/facturacion/types/factura";
 import { esLineaAdicional }          from "@/lib/facturacion/reglas/cobroDocumento";
 import { validarEmisionDesdeOrigen } from "@/lib/facturacion/gancho/cobroOrigen";
-import { totalLinea, round2 }        from "@/lib/facturacion/recibos/calculos";
+import { totalLinea, totalRecibo, round2 } from "@/lib/facturacion/recibos/calculos";
 
 /** Código SRI que se imprime en el recibo: el del cobro más grande. */
 function formaPagoPrincipal(pagos: Array<{ formaPago: string; total: number }>): string {
@@ -58,7 +59,20 @@ export async function POST(request: Request) {
   const errorPrecioShipping = mensajePrecioShippingItemInvalido(body.lineas);
   if (errorPrecioShipping) return NextResponse.json({ success: false, error: errorPrecioShipping }, { status: 400 });
   // Con origen la forma de pago la deriva el servidor de los cobros reales.
-  if (!body.origen && !body.formaPago?.trim()) return NextResponse.json({ success: false, error: "Elige una forma de pago" }, { status: 400 });
+  // Mostrador (auditoría ops, punto 7): cada cobro trae su MÉTODO (dice a
+  // qué cuenta entra el dinero) y suman el total; el código SRI de "Forma de
+  // Pago" se deduce aquí. Antes la pantalla mandaba "20" y el ingreso quedaba
+  // sin cuenta.
+  if (!body.origen) {
+    const totalMostrador = totalRecibo(body.lineas);
+    const pagosMostrador = Array.isArray(body.pagos) ? body.pagos : [];
+    const errCobro = mensajeCobrosInvalidos(pagosMostrador, totalMostrador, "el recibo");
+    if (errCobro) return NextResponse.json({ success: false, error: errCobro }, { status: 400 });
+    const cobros = normalizarCobrosNuevos(pagosMostrador);
+    if (cobros.error) return NextResponse.json({ success: false, error: cobros.error }, { status: 400 });
+    body.pagos = cobros.pagos;
+    body.formaPago = formaPagoPrincipal(cobros.pagos);
+  }
 
   // Gancho: recibo emitido desde una orden/operación. El origen decide tres
   // cosas — el vínculo del recibo, el bloqueo cruzado y el reparto contable.
@@ -203,7 +217,7 @@ export async function POST(request: Request) {
           puente.detalle
         ).catch(() => {});
       } else {
-        await registrarIngresoRecibo({ reciboRecordId: recordId, numeroRecibo: numero, total, formaPago: body.formaPago, clienteRecordId: body.cliente.airtableId, registradoPor, ambiente: cfg.ambiente });
+        await registrarIngresoRecibo({ reciboRecordId: recordId, numeroRecibo: numero, total, formaPago: body.formaPago, pagos: body.pagos, clienteRecordId: body.cliente.airtableId, registradoPor, ambiente: cfg.ambiente });
       }
     }
     catch (e) { console.error("[recibos POST] contable:", e); }

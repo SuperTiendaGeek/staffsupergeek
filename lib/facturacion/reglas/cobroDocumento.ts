@@ -22,7 +22,7 @@
  */
 
 import type { DetalleFactura, Pago } from "../types/factura";
-import { esMetodoCobroNuevoValido, requiereNumeroTransaccion, etiquetaMetodoPago } from "@/types/abonos";
+import { mensajeCobrosInvalidos } from "@/lib/cobros/metodos";
 
 const TOLERANCIA = 0.01;
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -112,25 +112,8 @@ export function mensajePagosAdicionalesInvalidos(pagos: PagoAdicionalInput[], to
   if (total <= TOLERANCIA) {
     return pagos.length > 0 ? "Hay pagos de venta adicional pero no hay líneas de venta adicional." : null;
   }
-  if (pagos.length === 0) return `Falta registrar cómo pagó el cliente la venta adicional (${dinero(total)}).`;
-
-  for (const p of pagos) {
-    const metodo = p.metodoPago?.trim() ?? "";
-    if (!esMetodoCobroNuevoValido(metodo)) {
-      return metodo
-        ? `El método "${metodo}" no sirve para cobrar: no dice a qué cuenta entra el dinero. Elige otro.`
-        : "Elige el método de pago de la venta adicional.";
-    }
-    if (!(p.total > 0)) return "Cada pago de la venta adicional debe ser mayor a $0.";
-    if (requiereNumeroTransaccion(metodo) && !p.referencia?.trim()) {
-      return `El número de transacción es obligatorio para "${etiquetaMetodoPago(metodo)}" (${dinero(p.total)}).`;
-    }
-  }
-  const suma = round2(pagos.reduce((s, p) => s + p.total, 0));
-  if (Math.abs(round2(suma - total)) > TOLERANCIA) {
-    return `Los pagos de la venta adicional suman ${dinero(suma)} y la venta adicional es de ${dinero(total)}.`;
-  }
-  return null;
+  // Mismas reglas que cualquier cobro (catálogo único, punto 7).
+  return mensajeCobrosInvalidos(pagos, total, "la venta adicional");
 }
 
 /**
