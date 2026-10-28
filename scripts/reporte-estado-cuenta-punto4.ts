@@ -70,6 +70,7 @@ async function main(): Promise<void> {
       const itemsAntes = r2(numero(f["Total Repuestos Stock NV"]) + numero(f["Total Artículos Operación NV"]));
       if (Math.abs(itemsAhora - itemsAntes) > DIF) motivos.push(`artículos ${$(itemsAntes)} → ${$(itemsAhora)} (unidades que pidió el cliente)`);
       if (aprobadoPedidos > DIF) motivos.push(`pedido aprobado sin artículo y sin línea ${$(aprobadoPedidos)}`);
+      if (c.totalDescuentos > DIF) motivos.push(`descuentos ${$(c.totalDescuentos)}`);
       if (!motivos.length) motivos.push("otro (revisar)");
       filasA.push({ id: texto(f["ID"]) || o.id, estado: texto(f["Estado Actual"]), antes, ahora, motivos });
     }

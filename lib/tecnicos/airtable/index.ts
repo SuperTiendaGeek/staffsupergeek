@@ -3087,9 +3087,12 @@ export const updateOrdenCampos = async ({
 export const updateHistorialSolicitarMensaje = async ({
   historialRecordId,
   solicitar = true,
+  resumenCuenta,
 }: {
   historialRecordId: string;
   solicitar?: boolean;
+  /** Punto 4C: foto de la cuenta para la Automatización 2 (se escribe en el mismo PATCH). */
+  resumenCuenta?: string;
 }): Promise<{ solicitarMensajeCliente: boolean }> => {
   const client = getClient();
   const url = `${client.baseUrl}/${encodeURIComponent(
@@ -3099,7 +3102,14 @@ export const updateHistorialSolicitarMensaje = async ({
   const res = await fetch(url, {
     method: "PATCH",
     headers: client.headers,
-    body: JSON.stringify({ fields: { "Solicitar Mensaje Cliente": solicitar } }),
+    // El resumen va en el MISMO PATCH que activa la automatización: así la
+    // IA nunca lee un resumen viejo o vacío por llegar antes que él.
+    body: JSON.stringify({
+      fields: {
+        "Solicitar Mensaje Cliente": solicitar,
+        ...(resumenCuenta !== undefined ? { "Resumen de cuenta (sistema)": resumenCuenta } : {}),
+      },
+    }),
   });
 
   if (!res.ok) {
