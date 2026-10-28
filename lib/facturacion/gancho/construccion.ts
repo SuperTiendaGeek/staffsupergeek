@@ -59,6 +59,33 @@ export function construirLineaProducto(
   };
 }
 
+// ─── Descuento de la cuenta sobre una línea (auditoría ops, punto 4B) ────────
+// El descuento se registra en términos FINALES (IVA incluido: "−$20 al SSD de
+// $40"). En la línea se desglosa como pide el SRI:
+//   · precioUnitario queda igual (el precio de lista, en base);
+//   · el neto final (40 − 20 = 20) se desglosa en base + IVA con el mismo
+//     complemento que el resto de líneas, así el total cuadra al centavo con
+//     la cuenta;
+//   · descuento (base) = cantidad × precioUnitario − base neta, de modo que
+//     cantidad × precioUnitario − descuento = precioTotalSinImpuesto exacto.
+export function aplicarDescuentoALinea(d: DetalleFactura, montoFinal: number | undefined): DetalleFactura {
+  if (!montoFinal || !(montoFinal > 0)) return d;
+  const imp = d.impuestos[0];
+  const tarifa = imp?.tarifa ?? 0;
+  const cantidad = d.cantidad > 0 ? d.cantidad : 1;
+  const finalBruto = round2(d.precioTotalSinImpuesto + d.impuestos.reduce((s, i) => s + (i.valor || 0), 0));
+  const neto = round2(Math.max(0, finalBruto - montoFinal));
+  const { base, valorIva } = desglosarPrecioConIvaIncluido(neto, tarifa);
+  return {
+    ...d,
+    descuento: round2(Math.max(0, round2(cantidad * d.precioUnitario) - base)),
+    precioTotalSinImpuesto: base,
+    impuestos: imp ? [{ ...imp, baseImponible: base, valor: valorIva }] : d.impuestos,
+    precioFinalUnitario: round2(finalBruto / cantidad),
+    descuentoFinal: round2(finalBruto - neto),
+  };
+}
+
 // ─── Línea de repuesto histórico ("Repuestos por Orden") ─────────────────────
 //
 // Renglones de la tabla anterior al inventario único. La tabla está congelada

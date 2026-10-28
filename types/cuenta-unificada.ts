@@ -1,4 +1,5 @@
 import type { EstadoPago } from "@/lib/estado-cuenta/reglas";
+import type { DescuentoCuenta } from "@/lib/estado-cuenta/descuentos";
 // Tipos de la cuenta unificada Orden↔Operación (Fase 11).
 // Ver lib/cuenta-unificada/index.ts para la implementación del servicio.
 
@@ -156,6 +157,10 @@ export interface CuentaUnificada {
   // reparación o del pedido (auditoría ops, punto 4). Lo calcula
   // lib/estado-cuenta, la misma función para todas las pantallas.
   estadoPago: EstadoPago;
+  // Descuentos VIGENTES por línea (auditoría ops, punto 4B), ya restados de
+  // totalCuenta. Cada uno apunta a su cargo por cargoId.
+  descuentos: DescuentoCuenta[];
+  totalDescuentos: number;
 }
 
 export type GetCuentaUnificadaInput = { ordenId: string } | { operacionId: string };

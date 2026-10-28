@@ -15,10 +15,11 @@ import type { FacturaVinculadaGancho, ReciboVinculadoGancho } from "./airtableGa
 import {
   derivarTipoIdentificacion, construirLineaProducto, construirLineaServicio, construirLineaRepuestoHistorico,
   construirLineaProductoDigital, agruparTotalConImpuestos, evaluarItemNoListo, evaluarProductoDigitalNoListo,
-  calcularFormasPago, round2,
+  calcularFormasPago, round2, aplicarDescuentoALinea,
 } from "./construccion";
 import type { ItemNoListo, ProductoDigitalNoListo } from "./construccion";
 import { saldoPorCobrar as calcularSaldoPorCobrar } from "../reglas/cobroDocumento";
+import { descuentoPorCargo } from "@/lib/estado-cuenta/descuentos";
 
 export type { ItemNoListo, ProductoDigitalNoListo } from "./construccion";
 
@@ -169,24 +170,28 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
   const identificacionComprador = clienteRecord && clienteCedula ? clienteCedula : "9999999999999";
 
   // ── 5. Líneas: productos + servicios + productos digitales ──────────────────
+  // Cada línea lleva su descuento de la cuenta, si tiene (punto 4B): la
+  // MISMA lista que resta la calculadora, así importeTotal = cuenta.totalCuenta.
+  const descuentos = descuentoPorCargo(cuenta.descuentos);
+  const conDescuento = (d: DetalleFactura, cargoId: string) => aplicarDescuentoALinea(d, descuentos.get(cargoId)?.monto);
   const detallesProducto: DetalleFactura[] = cuenta.items.map((item) =>
-    construirLineaProducto(item, detalleItems.get(item.id))
+    conDescuento(construirLineaProducto(item, detalleItems.get(item.id)), item.id)
   );
   const detallesServicio: DetalleFactura[] = cuenta.servicios.map((servicio, i) =>
-    construirLineaServicio(servicio, i + 1)
+    conDescuento(construirLineaServicio(servicio, i + 1), servicio.id)
   );
   // Repuestos de la tabla histórica: entran a la factura solo cuando cuentan
   // para el total de la cuenta (mismo criterio que usa cuenta.totalCuenta), de
   // forma que importeTotal y totalCuenta no puedan discrepar.
   const detallesRepuestoHistorico: DetalleFactura[] = cuenta.repuestosHistoricosCuentanParaTotal
-    ? cuenta.repuestosHistoricos.map((r, i) => construirLineaRepuestoHistorico(r, i + 1))
+    ? cuenta.repuestosHistoricos.map((r, i) => conDescuento(construirLineaRepuestoHistorico(r, i + 1), r.id))
     : [];
   // Productos digitales: siempre de la orden (cuenta.productosDigitales ya lo
   // garantiza — ver lib/cuenta-unificada/index.ts). La precondición de arriba
   // (3b) ya descartó los que no tienen precio utilizable, así que todos los
   // que llegan aquí producen una línea válida.
   const detallesProductoDigital: DetalleFactura[] = cuenta.productosDigitales.map((p, i) =>
-    construirLineaProductoDigital(p, i + 1)
+    conDescuento(construirLineaProductoDigital(p, i + 1), p.id)
   );
   // Todas estas líneas son el bloque "cuenta" (auditoría ops, punto 1): no se
   // pueden cambiar al emitir — ver reglas/cobroDocumento.ts.
@@ -211,7 +216,7 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
     correoComprador: clienteCorreo || undefined,
     detalles,
     totalSinImpuestos,
-    totalDescuento: 0,
+    totalDescuento: round2(detalles.reduce((s, d) => s + (d.descuento || 0), 0)),
     totalConImpuestos,
     importeTotal,
     pagos,

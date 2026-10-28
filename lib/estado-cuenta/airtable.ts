@@ -23,6 +23,7 @@ import { loadAirtableEnv } from "@/lib/tecnicos/config/airtable";
 import { lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
 import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import type { CuentaUnificadaAprobadoSinArticulo } from "@/types/cuenta-unificada";
+import { CAMPO_DESCUENTOS, CAMPOS_DESCUENTO, TABLA_DESCUENTOS, descuentoDesdeCampos, type DescuentoCuenta } from "./descuentos";
 import {
   calcularEstadoCuenta,
   pendientesDeLaCuenta,
@@ -109,6 +110,8 @@ export const CAMPOS_ORDEN_CUENTA = [
   "Presupuesto por Orden",
   "Servicios por Orden",
   "Productos Digitales",
+  "Repuestos por Orden",
+  CAMPO_DESCUENTOS,
 ];
 
 const CAMPOS_OPERACION_CUENTA = [
@@ -119,6 +122,7 @@ const CAMPOS_OPERACION_CUENTA = [
   "Artículo físico",
   "Abonos",
   "Orden de Reparación",
+  CAMPO_DESCUENTOS,
 ];
 
 export type CuentaEnBloque = EstadoDeCuenta & {
@@ -133,6 +137,7 @@ type Lecturas = {
   opciones: Map<string, Registro>;
   abonos: Map<string, Registro>;
   lineas: Map<string, Awaited<ReturnType<typeof lineasPorIds>>[number]>;
+  descuentos: Map<string, DescuentoCuenta>;
 };
 
 async function leerDependencias(ordenes: Registro[], operacionesSueltas: Registro[]): Promise<Lecturas> {
@@ -150,17 +155,26 @@ async function leerDependencias(ordenes: Registro[], operacionesSueltas: Registr
     ...ordenes.flatMap((o) => ids(o.fields["Abonos (Operación)"])),
     ...todasOps.flatMap((op) => ids(op.fields["Abonos"])),
   ];
-  const [items, abonos, lineasLista] = await Promise.all([
+  const descuentoIds = [
+    ...ordenes.flatMap((o) => ids(o.fields[CAMPO_DESCUENTOS])),
+    ...operacionesSueltas.flatMap((op) => ids(op.fields[CAMPO_DESCUENTOS])),
+  ];
+  const [items, abonos, lineasLista, descuentosLeidos] = await Promise.all([
     porIds(T_ITEMS, itemIds, ["Precio venta final", "Opción origen"]),
     porIds(T_ABONOS, abonoIds, ["Monto", "Estado del Abono"]),
     lineasPorIds(lineaIds),
+    porIds(TABLA_DESCUENTOS, descuentoIds, CAMPOS_DESCUENTO),
   ]);
   const opcionIds = [
     ...[...items.values()].flatMap((it) => ids(it.fields["Opción origen"])),
     ...todasOps.flatMap((op) => ids(op.fields["Opción Elegida"])),
   ];
   const opciones = await porIds(T_OPCIONES, opcionIds, ["Cantidad", "Precio Venta Cliente"]);
-  return { operaciones, items, opciones, abonos, lineas: new Map(lineasLista.map((l) => [l.id, l])) };
+  return {
+    operaciones, items, opciones, abonos,
+    lineas: new Map(lineasLista.map((l) => [l.id, l])),
+    descuentos: new Map([...descuentosLeidos.values()].map((r) => [r.id, descuentoDesdeCampos(r.id, r.fields)])),
+  };
 }
 
 function operacionParaCuenta(op: Registro, lec: Lecturas): OperacionParaCuenta {
@@ -198,6 +212,10 @@ function abonosDe(abonoIds: string[], lec: Lecturas): AbonoParaCuenta[] {
     .map((a) => ({ id: a.id, monto: numero(a.fields["Monto"]), estado: texto(a.fields["Estado del Abono"]) }));
 }
 
+function descuentosDe(descuentoIds: string[], lec: Lecturas): DescuentoCuenta[] {
+  return descuentoIds.map((id) => lec.descuentos.get(id)).filter((d): d is DescuentoCuenta => !!d);
+}
+
 function cuentaDeOrden(orden: Registro, lec: Lecturas): CuentaEnBloque {
   const f = orden.fields;
   const operaciones = ids(f["Operaciones Comerciales"]).map((id) => lec.operaciones.get(id)).filter((r): r is Registro => !!r);
@@ -228,6 +246,13 @@ function cuentaDeOrden(orden: Registro, lec: Lecturas): CuentaEnBloque {
       repuestosHistoricos: numero(f["Costo Total Repuestos NV"]),
       items,
       aprobadoSinArticulo,
+      descuentos: descuentosDe(ids(f[CAMPO_DESCUENTOS]), lec),
+      cargosExistentes: new Set([
+        ...items.map((i) => i.id),
+        ...ids(f["Servicios por Orden"]),
+        ...ids(f["Productos Digitales"]),
+        ...ids(f["Repuestos por Orden"]),
+      ]),
     },
     abonos,
   });
@@ -243,8 +268,13 @@ function cuentaDeOperacionSuelta(op: Registro, lec: Lecturas): CuentaEnBloque {
     operaciones: [operacionParaCuenta(op, lec)],
   });
   const abonos = abonosDe([...new Set(ids(op.fields["Abonos"]))], lec);
+  const items = itemsDePedidos([op], lec);
   const estado = calcularEstadoCuenta({
-    cargos: { servicios: 0, productosDigitales: 0, repuestosHistoricos: 0, items: itemsDePedidos([op], lec), aprobadoSinArticulo },
+    cargos: {
+      servicios: 0, productosDigitales: 0, repuestosHistoricos: 0, items, aprobadoSinArticulo,
+      descuentos: descuentosDe(ids(op.fields[CAMPO_DESCUENTOS]), lec),
+      cargosExistentes: new Set(items.map((i) => i.id)),
+    },
     abonos,
   });
   return { ...estado, aprobadoSinArticulo, abonos };

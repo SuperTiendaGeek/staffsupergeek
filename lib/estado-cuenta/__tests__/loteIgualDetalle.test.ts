@@ -44,6 +44,8 @@ const T: Record<string, Rec[]> = {
       "Presupuesto por Orden": ["recLINEA000000001"],
       "Servicios por Orden": ["recSERV0000000001"],
       "Productos Digitales": ["recDIGI0000000001"],
+      "Repuestos por Orden": ["recLEGACY00000001"],
+      "Descuentos de Cuenta": ["recDESC0000000001", "recDESCANULADO001"],
     },
   }],
   "Operación Comercial": [
@@ -80,6 +82,10 @@ const T: Record<string, Rec[]> = {
     { id: "recDIGI0000000001", fields: { "Orden de Reparación": ["recORDEN0000000001"], "Precio Venta": 30 } },
   ],
   "Catálogo Productos Digitales": [],
+  "Descuentos de Cuenta": [
+    { id: "recDESC0000000001", fields: { "Cargo ID": "recSERV0000000001", "Tipo de cargo": "Servicio", "Monto": 5, "Estado": "Vigente", "Motivo": "cliente frecuente" } },
+    { id: "recDESCANULADO001", fields: { "Cargo ID": "recSTOCK000000001", "Tipo de cargo": "Repuesto", "Monto": 10, "Estado": "Anulado", "Motivo": "error" } },
+  ],
 };
 
 const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -112,12 +118,14 @@ async function main(): Promise<void> {
     const bloque = (await estadosDeCuentaDeOrdenes([{ id: orden.id, fields: campos }])).get(orden.id)!;
 
     // Esperado: artículos 60 (2 × 30) + 45 + históricos 10 = 115; servicios 25;
-    // digitales 30; aprobado sin artículo 70 (línea) + 40 (pedido manual) = 110.
-    assert(detalle.totalCuenta === 280, `detallada: total $280 — vino ${detalle.totalCuenta}`);
-    assert(detalle.totalAbonado === 100 && detalle.saldo === 180, `detallada: $100 abonados (el anulado no suma), saldo $180 — vino ${detalle.totalAbonado} / ${detalle.saldo}`);
+    // digitales 30; aprobado sin artículo 70 (línea) + 40 (pedido manual) = 110;
+    // descuento vigente de $5 sobre el servicio (el anulado no resta) → 275.
+    assert(detalle.totalCuenta === 275 && detalle.totalDescuentos === 5, `detallada: total $275 con $5 de descuento — vino ${detalle.totalCuenta} / ${detalle.totalDescuentos}`);
+    assert(detalle.descuentos.length === 1 && detalle.descuentos[0].cargoId === "recSERV0000000001", "la cuenta lista solo el descuento vigente");
+    assert(detalle.totalAbonado === 100 && detalle.saldo === 175, `detallada: $100 abonados (el anulado no suma), saldo $175 — vino ${detalle.totalAbonado} / ${detalle.saldo}`);
     assert(detalle.estadoPago === "pago_parcial", "detallada: Pago parcial");
 
-    for (const k of ["totalCuenta", "totalRepuestos", "totalServicios", "totalProductosDigitales", "totalAprobadoSinArticulo", "totalAbonado", "saldo"] as const) {
+    for (const k of ["totalCuenta", "totalDescuentos", "totalRepuestos", "totalServicios", "totalProductosDigitales", "totalAprobadoSinArticulo", "totalAbonado", "saldo"] as const) {
       assert(bloque[k] === detalle[k], `en bloque = detallada en ${k} (${bloque[k]} vs ${detalle[k]})`);
     }
     assert(bloque.estadoPago === detalle.estadoPago, "en bloque = detallada en el estado de pago");
@@ -129,7 +137,7 @@ async function main(): Promise<void> {
 
     // Tablero: cada pedido de la orden muestra la cuenta COMPLETA; el suelto, la suya.
     const tablero = await estadosDeCuentaDeOperaciones(["recOPCONART000001", "recOPMANUAL000001", "recOPSUELTA000024"]);
-    assert(tablero.get("recOPCONART000001")?.saldo === 180 && tablero.get("recOPMANUAL000001")?.saldo === 180, "los pedidos de la orden muestran el saldo de toda la cuenta ($180)");
+    assert(tablero.get("recOPCONART000001")?.saldo === 175 && tablero.get("recOPMANUAL000001")?.saldo === 175, "los pedidos de la orden muestran el saldo de toda la cuenta ($175)");
     assert(tablero.get("recOPCONART000001")?.ordenId === "recORDEN0000000001", "se sabe que es la cuenta de la orden");
     const suelta = tablero.get("recOPSUELTA000024");
     assert(!!suelta && suelta.totalCuenta === 70 && suelta.estadoPago === "pagado" && suelta.ordenId === null, "OP-2026-000024 suelta: $70 aprobado y pagado → Pagado");

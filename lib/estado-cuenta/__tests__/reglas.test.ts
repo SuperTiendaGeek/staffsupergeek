@@ -31,7 +31,7 @@ function assert(cond: boolean, msg: string): void {
   if (!cond) { fallos++; console.error("✗", msg); } else { console.log("✓", msg); }
 }
 
-const sinCargos: DatosDeCargos = { servicios: 0, productosDigitales: 0, repuestosHistoricos: 0, items: [], aprobadoSinArticulo: [] };
+const sinCargos: DatosDeCargos = { servicios: 0, productosDigitales: 0, repuestosHistoricos: 0, items: [], aprobadoSinArticulo: [], descuentos: [], cargosExistentes: new Set() };
 const op = (o: Partial<OperacionParaCuenta>): OperacionParaCuenta => ({
   id: "recOP000000000024", producto: "Batería Dell", estado: "Pedido",
   precioOpcionElegida: 70, tieneOpcionElegida: true, tieneArticulo: false, ...o,
@@ -98,6 +98,8 @@ assert(pedidosAprobadosSinArticulo([op({ estado: "Entregado" })], new Set()).len
         { id: "recITEMSTOCK", precio: 45 }, // repetido: una vez
       ],
       aprobadoSinArticulo: [{ id: "recLINEA", nombre: "Tapa", tipo: "Repuesto", monto: 40, motivo: "falta_pedir" }],
+      descuentos: [],
+      cargosExistentes: new Set(["recITEMPEDIDO", "recITEMSTOCK"]),
     },
     abonos: [{ id: "a1", monto: 100, estado: "Registrado" }],
   });

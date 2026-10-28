@@ -180,6 +180,13 @@ export type DatosDeCargos = {
   items: readonly ItemParaCuenta[];
   /** Aprobado sin artículo: líneas del presupuesto + pedidos sin línea. */
   aprobadoSinArticulo: readonly CuentaUnificadaAprobadoSinArticulo[];
+  /**
+   * Descuentos de la cuenta (punto 4B). Solo restan los vigentes cuyo cargo
+   * sigue en la cuenta (si el cargo se quitó, su descuento ya no aplica).
+   */
+  descuentos: ReadonlyArray<{ cargoId: string; monto: number; estado: string }>;
+  /** Ids de los cargos que hay hoy en la cuenta (servicios, artículos, digitales, históricos). */
+  cargosExistentes: ReadonlySet<string>;
 };
 
 export type CargosDeCuenta = {
@@ -187,8 +194,23 @@ export type CargosDeCuenta = {
   totalServicios: number;
   totalProductosDigitales: number;
   totalAprobadoSinArticulo: number;
+  /** Descuentos vigentes (positivo); ya restados de totalCuenta. */
+  totalDescuentos: number;
   totalCuenta: number;
 };
+
+/** Un descuento vigente por cargo, y solo de cargos que siguen en la cuenta. */
+function descuentoPorCargoVigente(
+  descuentos: DatosDeCargos["descuentos"],
+  cargosExistentes: ReadonlySet<string>,
+): Array<{ cargoId: string; monto: number }> {
+  const porCargo = new Map<string, { cargoId: string; monto: number }>();
+  for (const x of descuentos) {
+    if (x.estado !== "Vigente" || !cargosExistentes.has(x.cargoId) || porCargo.has(x.cargoId)) continue;
+    porCargo.set(x.cargoId, x);
+  }
+  return [...porCargo.values()];
+}
 
 export function sumarCargos(d: DatosDeCargos): CargosDeCuenta {
   const vistos = new Set<string>();
@@ -202,12 +224,16 @@ export function sumarCargos(d: DatosDeCargos): CargosDeCuenta {
   const totalServicios = round2(d.servicios || 0);
   const totalProductosDigitales = round2(d.productosDigitales || 0);
   const totalAprobadoSinArticulo = round2(d.aprobadoSinArticulo.reduce((s, p) => s + (p.monto || 0), 0));
+  const totalDescuentos = round2(
+    descuentoPorCargoVigente(d.descuentos, d.cargosExistentes).reduce((s, x) => s + (x.monto || 0), 0)
+  );
   return {
     totalRepuestos,
     totalServicios,
     totalProductosDigitales,
     totalAprobadoSinArticulo,
-    totalCuenta: round2(totalRepuestos + totalServicios + totalProductosDigitales + totalAprobadoSinArticulo),
+    totalDescuentos,
+    totalCuenta: round2(totalRepuestos + totalServicios + totalProductosDigitales + totalAprobadoSinArticulo - totalDescuentos),
   };
 }
 
