@@ -539,7 +539,8 @@ export async function crearAbono(input: CrearAbonoInput): Promise<{ id: string; 
   const res = await fetch(`${client.baseUrl}/${encodeURIComponent(ABONOS_TABLE)}`, {
     method: "POST",
     headers: client.headers,
-    body: JSON.stringify({ fields }),
+    // typecast: ver createRecord de técnicos (método nuevo del catálogo).
+    body: JSON.stringify({ fields, typecast: true }),
     cache: "no-store",
   });
 

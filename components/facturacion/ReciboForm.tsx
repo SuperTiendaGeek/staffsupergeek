@@ -19,18 +19,13 @@ import {
   abonosDesdePrefactura, type AbonoPrefill,
 } from "@/lib/facturacion/gancho/prefill";
 import {
-  AvisoCuentaPorCobrar, PagosVentaAdicional, errorPagosAdicionales, nuevoPagoAdicional, type PagoAdicionalForm,
+  AvisoCuentaPorCobrar, PagosVentaAdicional, PagosPorMetodo, errorPagosAdicionales, nuevoPagoAdicional, type PagoAdicionalForm,
 } from "@/components/facturacion/CobroDesdeOrigen";
+import { codigoSriDeMetodo, mensajeCobrosInvalidos } from "@/lib/cobros/metodos";
+import { etiquetaMetodoPago } from "@/types/abonos";
 
-const FORMAS_PAGO = [
-  { codigo: "01", label: "Efectivo" },
-  { codigo: "16", label: "Tarjeta de débito" },
-  { codigo: "19", label: "Tarjeta de crédito" },
-  { codigo: "17", label: "Dinero electrónico" },
-  { codigo: "18", label: "Tarjeta prepago" },
-  { codigo: "20", label: "Otros (sist. financiero)" },
-  { codigo: "21", label: "Endoso de títulos" },
-];
+// Auditoría ops, punto 7: el cobro se elige por MÉTODO (con su cuenta); el
+// código SRI de "Forma de Pago" lo deduce el servidor.
 
 // Punto 10b-5: numeroSerie/seguimiento para la descripción; detalle = "S/N …" o "Lote … · más antiguo".
 type Producto = { id: string; sku: string; nombre: string; precioVenta: number; unidad: string; cantidadDisponible: number; numeroSerie?: string; seguimiento?: string; detalle?: string };
@@ -64,7 +59,8 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
   const [queryProd, setQueryProd] = useState("");
   const [prodSug, setProdSug] = useState<Producto[]>([]);
   const [abonos] = useState<AbonoPrefill[]>(() => (prefactura ? abonosDesdePrefactura(prefactura) : []));
-  const [formaPago, setFormaPago] = useState("01");
+  // Cobros de mostrador (punto 7): método + monto + n.º de transacción.
+  const [pagosMostrador, setPagosMostrador] = useState<PagoAdicionalForm[]>(() => [nuevoPagoAdicional(0)]);
   const [pagosAdicionales, setPagosAdicionales] = useState<PagoAdicionalForm[]>([]);
   const [nota, setNota] = useState("");
   const [generando, setGenerando] = useState(false);
@@ -100,6 +96,14 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
     });
   }, [origen, totalAdicional]);
 
+  // Un solo cobro de mostrador sigue al total del recibo.
+  useEffect(() => {
+    if (origen) return;
+    setPagosMostrador((actual) =>
+      actual.length === 1 && Math.abs(actual[0].total - total) > 0.005 ? [{ ...actual[0], total }] : actual
+    );
+  }, [origen, total]);
+
   function agregarProducto(p: Producto) {
     setLineas((prev) => [...prev, { _id: crypto.randomUUID(), codigo: p.sku || p.id, descripcion: descripcionDeProducto(p), unidadMedida: p.unidad, cantidad: 1, precioUnitario: p.precioVenta, descuento: 0, shippingItemId: p.id, stockDisponible: p.cantidadDisponible, ...(origen ? { bloque: "adicional" as const } : {}) }]);
     setQueryProd(""); setProdSug([]); prodRef.current?.focus();
@@ -117,6 +121,10 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
     if (lineas.some((l) => l.precioUnitario < 0)) { setError("El precio no puede ser negativo"); return; }
     const errPrecioShipping = mensajePrecioShippingItemInvalido(lineas);
     if (errPrecioShipping) { setError(errPrecioShipping); return; }
+    if (!origen) {
+      const errCobro = mensajeCobrosInvalidos(pagosMostrador, total, "el recibo");
+      if (errCobro) { setError(errCobro); return; }
+    }
     if (origen) {
       if (cuentaPorCobrar) { setError(`Falta cobrar $${(saldoPorCobrar ?? 0).toFixed(2)} de la cuenta. Registra el pago (botón de arriba) antes de emitir.`); return; }
       const errAdicional = errorPagosAdicionales(pagosAdicionales, totalAdicional);
@@ -134,8 +142,15 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
         body: JSON.stringify({
           cliente: { identificacion: cliente.identificacion || undefined, razonSocial: cliente.razonSocial, correo: cliente.correo || undefined, airtableId: cliente.airtableId },
           lineas: lineas.map(({ _id, stockDisponible, ...l }) => { void _id; void stockDisponible; return l; }),
-          // Con origen la forma de pago la deriva el servidor de los cobros reales.
-          formaPago, nota: nota.trim() || undefined,
+          // La forma de pago (código SRI) la deduce el servidor de los cobros.
+          formaPago: origen ? undefined : codigoSriDeMetodo(pagosMostrador[0]?.metodoPago) ?? "01",
+          nota: nota.trim() || undefined,
+          pagos: origen
+            ? undefined
+            : pagosMostrador.map((p) => ({
+                formaPago: codigoSriDeMetodo(p.metodoPago) ?? "01", total: round2(p.total),
+                metodoPago: p.metodoPago, referencia: p.referencia.trim() || undefined,
+              })),
           origen,
           pagosAdicionales: origen
             ? pagosAdicionales.map((p) => ({ metodoPago: p.metodoPago, total: round2(p.total), referencia: p.referencia.trim() || undefined }))
@@ -166,7 +181,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
           )}
           <Link href="/facturacion/recibos" className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5] self-center">Ver todos los recibos</Link>
           {!origen && (
-            <button onClick={() => { setResultado(null); setLineas([]); setCliente(CLIENTE_VACIO); setNota(""); }} className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Nuevo recibo</button>
+            <button onClick={() => { setResultado(null); setLineas([]); setCliente(CLIENTE_VACIO); setNota(""); setPagosMostrador([nuevoPagoAdicional(0)]); }} className="text-xs text-[#A7A7A7] underline hover:text-[#F5F5F5]">Nuevo recibo</button>
           )}
         </div>
       </div>
@@ -234,13 +249,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
       <div className={CARD}>
         <h2 className="text-[#D7FF4F] font-bold text-sm mb-3">3. Pago y total</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-          {!origen ? (
-          <div>
-            <label className={LABEL}>Forma de pago</label>
-            <select value={formaPago} onChange={(e) => setFormaPago(e.target.value)} className={INPUT}>{FORMAS_PAGO.map((fp) => <option key={fp.codigo} value={fp.codigo}>{fp.label}</option>)}</select>
-          </div>
-          ) : <div />}
-          <div className="md:col-span-2"><label className={LABEL}>Nota (opcional, se imprime)</label><input value={nota} onChange={(e) => setNota(e.target.value)} className={INPUT} maxLength={300} /></div>
+          <div className="md:col-span-3"><label className={LABEL}>Nota (opcional, se imprime)</label><input value={nota} onChange={(e) => setNota(e.target.value)} className={INPUT} maxLength={300} /></div>
         </div>
         {abonos.length > 0 && (
           <div className="mt-4 rounded-lg border border-[#3A3A36] bg-[#252622] px-4 py-3">
@@ -248,14 +257,16 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
             <ul className="flex flex-col gap-1">
               {abonos.map((a, i) => (
                 <li key={i} className="flex justify-between text-xs text-[#C7C7C7]">
-                  <span>{FORMAS_PAGO.find((fp) => fp.codigo === a.formaPago)?.label ?? a.formaPago}{a.fecha ? ` · ${a.fecha.slice(0, 10).split("-").reverse().join("/")}` : ""}</span>
+                  <span>{a.metodoPago ? etiquetaMetodoPago(a.metodoPago) : "Abono"}{a.fecha ? ` · ${a.fecha.slice(0, 10).split("-").reverse().join("/")}` : ""}</span>
                   <span className="text-[#F5F5F5]">${a.total.toFixed(2)}</span>
                 </li>
               ))}
             </ul>
           </div>
         )}
-        {origen && <PagosVentaAdicional total={totalAdicional} pagos={pagosAdicionales} onChange={setPagosAdicionales} />}
+        {origen
+          ? <PagosVentaAdicional total={totalAdicional} pagos={pagosAdicionales} onChange={setPagosAdicionales} />
+          : <PagosPorMetodo titulo="Cobro" total={total} pagos={pagosMostrador} onChange={setPagosMostrador} />}
 
         <div className="flex justify-end mt-4">
           <table className="text-sm">

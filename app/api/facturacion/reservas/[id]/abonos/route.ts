@@ -5,6 +5,7 @@ import { registrarAbonoReserva }     from "@/lib/facturacion/reservas/efectos";
 import { validarAbono, pagoCompleto, saldoPendiente } from "@/lib/facturacion/reservas/reglas";
 
 import { ahoraEnEcuador }            from "@/lib/facturacion/fechaEcuador";
+import { codigoSriDeMetodo, mensajeCobroInvalido } from "@/lib/cobros/metodos";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +15,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (response || !session) return response ?? NextResponse.json({ success: false, error: "Sin sesión" }, { status: 401 });
 
   const { id } = await params;
-  let body: { monto?: number; formaPago?: string };
+  let body: { monto?: number; metodoPago?: string; referencia?: string };
   try { body = await request.json(); } catch { return NextResponse.json({ success: false, error: "Body JSON inválido" }, { status: 400 }); }
 
   const monto = Number(body.monto);
-  const formaPago = body.formaPago?.trim();
-  if (!formaPago) return NextResponse.json({ success: false, error: "Elige una forma de pago" }, { status: 400 });
+  // Punto 7: método de cobro (dice la cuenta); el código SRI se deduce.
+  const metodoPago = body.metodoPago?.trim() ?? "";
+  const referencia = body.referencia?.trim() || undefined;
+  const errorCobro = mensajeCobroInvalido({ metodoPago, referencia, total: monto });
+  const formaPago = codigoSriDeMetodo(metodoPago);
+  if (errorCobro || !formaPago) return NextResponse.json({ success: false, error: errorCobro ?? "Elige el método de cobro" }, { status: 400 });
 
   const reserva = await obtenerReservaPorId(id);
   if (!reserva) return NextResponse.json({ success: false, error: "Reserva no encontrada" }, { status: 404 });
@@ -29,14 +34,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (err) return NextResponse.json({ success: false, error: err }, { status: 400 });
 
   const registradoPor = session.user.nombre || "Portal";
-  const abono = { monto, fecha: ahoraEnEcuador().toISOString(), formaPago, registradoPor };
+  const abono = { monto, fecha: ahoraEnEcuador().toISOString(), formaPago, metodoPago, referencia, registradoPor };
 
   try {
     const { totalAbonado } = await agregarAbonoReserva(id, abono, reserva.abonos, reserva.cliente, reserva.totalAbonado);
 
     // Abono en la tabla centralizada + su movimiento financiero. Best-effort:
     // si falla, el abono queda igual en la reserva y se avisa al operador.
-    const puente = await registrarAbonoReserva({ reservaRecordId: id, numeroReserva: reserva.numero, monto, formaPago, registradoPor, fecha: abono.fecha });
+    const puente = await registrarAbonoReserva({ reservaRecordId: id, numeroReserva: reserva.numero, monto, formaPago, metodoPago, referencia, registradoPor, fecha: abono.fecha });
 
     return NextResponse.json({
       success: true,

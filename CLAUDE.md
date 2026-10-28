@@ -114,6 +114,9 @@ Every electronic document carries `<campoAdicional nombre="RUC Proveedor">` (Res
 There is ONE calculator for a customer account (an order plus all its operations, or a standalone operation): `lib/estado-cuenta/reglas.ts` (`calcularEstadoCuenta`, `resolverEstadoPago`, `pendientesDeLaCuenta`). Two readers feed it the same data: `getCuentaUnificada()` (one account, detailed) and `lib/estado-cuenta/airtable.ts` (many accounts, in bulk — Cobros panel, Operaciones board). Never compute a total, saldo or payment status anywhere else, and never read Airtable's "Total a Pagar NV" / "Saldo NV" / "Total Abonado NV" for it (legacy, to be removed). `lib/estado-cuenta/__tests__/loteIgualDetalle.test.ts` guards that both readers agree.
 Discounts are per line in the Airtable table "Descuentos de Cuenta" (admin only, never deleted, only "Anulado"); rules in `lib/estado-cuenta/descuentos.ts`, writes only through `lib/estado-cuenta/descuentos-servidor.ts`. A discount is never a negative service; on invoices it is the line's `descuento` (`aplicarDescuentoALinea` in `lib/facturacion/gancho/construccion.ts`).
 
+### Métodos de cobro (dinero que entra)
+ONE catalog: `lib/cobros/metodos.ts` (method → Finanzas account, state, Finanzas "Método", SRI code, requires transaction number). Abonos, mostrador invoices/receipts, reservations, venta adicional and the Finanzas bridges all use it. Screens never offer SRI codes: the employee picks the method; servers derive the SRI code (`normalizarCobrosNuevos`) and reject a new payment without a valid method. The only account-less income allowed is SRI "15" (credit-note compensation, no new money).
+
 ## UX/UI
 
 Before designing or redesigning any screen, read `docs/REGLAS_UX_UI.md` (owner's rules: compact interfaces for

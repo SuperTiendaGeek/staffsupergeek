@@ -145,12 +145,14 @@ async function main() {
     METODOS_ANTES_DE_ESTA_RAMA.every((m) => (METODOS_PAGO_ABONO as readonly string[]).includes(m)),
     "(e) Los 7 métodos que existían antes siguen todos presentes"
   );
-  assert(
-    JSON.stringify(METODOS_PAGO_ABONO.filter((m) => m !== "DeUna")) === JSON.stringify(METODOS_ANTES_DE_ESTA_RAMA),
-    "(e) Quitando 'DeUna', el orden relativo de los 7 métodos originales no cambió"
-  );
   assert(METODOS_PAGO_ABONO.includes("DeUna"), "(e) 'DeUna' está en el catálogo centralizado");
-  assert(METODOS_PAGO_ABONO.length === METODOS_ANTES_DE_ESTA_RAMA.length + 1, "(e) El catálogo tiene exactamente un método más que antes (8 en total)");
+  // Auditoría ops, punto 7 (28-oct-2026): el catálogo creció (Produbanco,
+  // Mercado Libre, tarjeta de crédito/débito) y pasó a lib/cobros/metodos.ts.
+  // Lo que importa aquí sigue: ningún método viejo desaparece (los abonos
+  // guardados con ellos se siguen leyendo).
+  for (const nuevo of ["Transferencia Produbanco", "Mercado Libre", "Tarjeta de crédito", "Tarjeta de débito"]) {
+    assert((METODOS_PAGO_ABONO as readonly string[]).includes(nuevo), `(e) punto 7: '${nuevo}' está en el catálogo`);
+  }
 
   global.fetch = fetchOriginal;
   limpiarEnvFalso();

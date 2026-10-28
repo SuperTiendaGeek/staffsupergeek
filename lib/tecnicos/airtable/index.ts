@@ -1955,13 +1955,14 @@ export const fetchCatalogoServiciosGestion = async ({
 const createRecord = async (
   tableName: string,
   fields: Record<string, unknown>,
-  client = getClient()
+  client = getClient(),
+  opciones: { typecast?: boolean } = {}
 ): Promise<AirtableGenericRecord> => {
   const url = `${client.baseUrl}/${encodeURIComponent(tableName)}`;
   const res = await fetch(url, {
     method: "POST",
     headers: client.headers,
-    body: JSON.stringify({ fields }),
+    body: JSON.stringify(opciones.typecast ? { fields, typecast: true } : { fields }),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -2345,7 +2346,9 @@ export const createAbonoPorOrden = async ({
     fields.Comprobante = [{ url: comprobante.trim() }];
   }
 
-  const created = await createRecord(AIRTABLE_TABLES.abonos, fields, client);
+  // typecast: un método nuevo del catálogo (punto 7) crea su opción en
+  // "Método de Pago" la primera vez.
+  const created = await createRecord(AIRTABLE_TABLES.abonos, fields, client, { typecast: true });
   let warning: string | null = null;
 
   if (comprobanteArchivo?.fileBase64) {

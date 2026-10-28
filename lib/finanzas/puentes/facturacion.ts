@@ -9,6 +9,7 @@ import { fetchCuentaPorNombre } from "../cuentas";
 import { actualizarMovimiento, crearMovimiento } from "../movimientos";
 import { fetchRecordById, firstLinkedId } from "../airtable-client";
 import { crearMovimientosVentaAdicional } from "./ventaAdicional";
+import { resolverMapeoMetodoPago } from "./abonos";
 
 const AMBIENTE_PRODUCCION = "2";
 
@@ -46,7 +47,11 @@ async function crearMovimientoDeComponente(params: {
   registradoPor: string;
   fecha: string;
 }) {
-  const mapeo = resolverMapeoFormaPago(params.pago.formaPago);
+  // Punto 7: el MÉTODO dice la cuenta (catálogo único). El código SRI solo se
+  // usa para documentos viejos que no guardaron método (y la compensación
+  // "15", que a propósito no tiene cuenta: no entra dinero nuevo).
+  const mapeo = resolverMapeoMetodoPago(params.pago.metodoPago ?? null)
+    ?? (params.pago.metodoPago ? null : resolverMapeoFormaPago(params.pago.formaPago));
   const cuenta = mapeo ? await fetchCuentaPorNombre(mapeo.cuentaDestinoNombre) : null;
   return crearMovimiento(
     {
@@ -58,6 +63,7 @@ async function crearMovimientoDeComponente(params: {
       estado: mapeo?.estado ?? "Confirmado",
       estadoDistribucion: "Pendiente de clasificar",
       metodo: mapeo?.metodo,
+      transaccionId: params.pago.referencia,
       fecha: params.fecha,
       registradoPor: params.registradoPor,
       facturaElectronicaId: params.facturaElectronicaId,

@@ -30,6 +30,7 @@ import "server-only";
 // El ambiente sigue mandando en la facturación electrónica; ya no manda en el
 // apartado ni en la caja.
 
+import { esMetodoCobro, metodoDesdeCodigoSri } from "@/lib/cobros/metodos";
 import { fetchRecordsByIds, firstString } from "../gancho/airtableGancho";
 import { reservarSiguienteIdAbono } from "@/lib/operaciones/airtable";
 import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
@@ -226,48 +227,14 @@ export async function liberarItem(shippingItemId: string, unidades = 1): Promise
 
 // ─── Abono en la tabla centralizada "Abonos" ─────────────────────────────────
 
-// El abono de reserva llega con el CÓDIGO SRI de forma de pago (01, 16, …). La
-// tabla Abonos usa un single-select "Método de Pago" con estos valores reales:
-// Efectivo · Transferencia · Tarjeta · Depósito · PayPal · PayPhone · Otro.
-// El puente `crearMovimientoParaAbono` mapea ese método → cuenta contable.
-//
-// Casos claros y de uso real (~100% efectivo/tarjeta) se mapean directo. Los
-// códigos poco usados (17 dinero electrónico, 20 otros sist. financiero, 21
-// endoso) caen a "Otro" a propósito: el puente los deja sin cuenta resuelta
-// (Alerta Descuadre) para que un humano los clasifique, en vez de adivinar la
-// cuenta.
-//
-// TODO(contadora): confirmar a qué "Método de Pago" / cuenta contable deben
-// mapear los códigos 17 (dinero electrónico), 20 (otros con sistema
-// financiero) y 21 (endoso de títulos) cuando lleguen a usarse en una reserva.
-// Hoy → "Otro" (sin cuenta, marca Alerta Descuadre para clasificación manual).
-// Al confirmarse, cambiar los valores de estos 3 códigos en el mapa de abajo.
-//
-// Nota (rama DeUna, 2026-08-16) — Reservas NO usa el catálogo central de
-// types/abonos.ts y queda deliberadamente fuera de esa fase. La traducción
-// código SRI → Método de Pago de este archivo es LOSSY: el código "20" por
-// sí solo cubre Transferencia, Depósito, PayPal, PayPhone y ahora DeUna —
-// cinco métodos que van a cuentas distintas — y hoy los deja a todos
-// indistintamente en "Otro" (sin cuenta, Alerta Descuadre). No es un
-// problema nuevo de esta fase ni lo agrava: ya existía. Verificado
-// 2026-08-16 que no hay ningún abono de Reservas en la tabla `Abonos`
-// todavía, así que no hay nada acumulado que arreglar. Arreglarlo de
-// verdad — dar a Reservas su propio selector de Método de Pago con número
-// de transacción, en vez de traducir desde un código SRI — es trabajo
-// aparte, no de esta rama.
-const MAPA_FORMA_PAGO_A_METODO: Record<string, string> = {
-  "01": "Efectivo",
-  "16": "Tarjeta", // débito
-  "18": "Tarjeta", // prepago
-  "19": "Tarjeta", // crédito
-  "17": "Otro",    // dinero electrónico — confirmar con contadora
-  "20": "Otro",    // otros con sist. financiero — confirmar con contadora
-  "21": "Otro",    // endoso de títulos — confirmar con contadora
-  "15": "Otro",    // compensación de deudas
-};
-
-function metodoDeAbonoDesdeFormaPago(formaPago: string): string {
-  return MAPA_FORMA_PAGO_A_METODO[formaPago] ?? "Otro";
+// Auditoría ops, punto 7: el abono de reserva llega con su MÉTODO de cobro
+// (catálogo único lib/cobros/metodos.ts), que dice a qué cuenta entra el
+// dinero. Antes llegaba solo el código SRI y el "20" (transferencia, DeUna,
+// PayPal…) caía en "Otro", sin cuenta. Los abonos viejos sin método se leen
+// por su código (metodoDesdeCodigoSri).
+function metodoDeAbono(input: { metodoPago?: string; formaPago: string }): string {
+  if (input.metodoPago && esMetodoCobro(input.metodoPago)) return input.metodoPago;
+  return metodoDesdeCodigoSri(input.formaPago) ?? "Otro";
 }
 
 async function postAbono(fields: Record<string, unknown>): Promise<string> {
@@ -298,12 +265,14 @@ export async function registrarAbonoReserva(input: {
   numeroReserva: string;
   monto: number;
   formaPago: string;
+  metodoPago?: string;
+  referencia?: string;
   registradoPor: string;
   fecha?: string; // ISO; por defecto ahora
 }): Promise<{ estado: "OK" | "OMITIDO" | "ERROR"; abonoId?: string; detalle?: string }> {
   if (!(input.monto > 0)) return { estado: "OMITIDO" };
   try {
-    const metodoPago = metodoDeAbonoDesdeFormaPago(input.formaPago);
+    const metodoPago = metodoDeAbono(input);
     const fecha = (input.fecha ?? new Date().toISOString()).slice(0, 10);
 
     // Crear el registro en Abonos, ligado a la reserva (tercer origen de abono).
@@ -319,6 +288,7 @@ export async function registrarAbonoReserva(input: {
       // quedó nombrado "Reservas"; si algún día se renombra a la convención
       // "Aplicado a: Reserva", actualizar también ABONOS_FIELDS.aplicadoAReserva.
       "Reservas": [input.reservaRecordId],
+      ...(input.referencia ? { "Número de Transacción": input.referencia } : {}),
     });
 
     // Movimiento financiero (Anticipo Cliente) — mismo puente que órdenes/operaciones.
@@ -328,6 +298,7 @@ export async function registrarAbonoReserva(input: {
       metodoPago,
       fecha,
       registradoPor: input.registradoPor,
+      numeroTransaccion: input.referencia,
       observacion: `Abono de reserva ${input.numeroReserva}`,
     });
     if (!puente.ok) return { estado: "ERROR", abonoId, detalle: puente.error };
