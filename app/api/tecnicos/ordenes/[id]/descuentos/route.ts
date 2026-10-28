@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { responderCrearDescuento } from "@/lib/estado-cuenta/descuentos-ruta";
 
@@ -8,7 +9,7 @@ type Params = { params: Promise<{ id: string }> };
 // POST /api/tecnicos/ordenes/[id]/descuentos — solo administrador (punto 4B).
 export async function POST(request: Request, { params }: Params) {
   const { response, session } = await requireTecnicosSession();
-  if (response || !session) return response;
+  if (response || !session) return response ?? NextResponse.json({ success: false, error: "Sin sesión" }, { status: 401 });
   const { id } = await params;
   return responderCrearDescuento(request, session, { tipo: "orden", recordId: id });
 }

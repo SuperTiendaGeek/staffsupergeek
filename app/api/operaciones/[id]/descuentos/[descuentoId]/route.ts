@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { requireOperacionesSession } from "@/lib/operaciones/auth";
 import { responderAnularDescuento } from "@/lib/estado-cuenta/descuentos-ruta";
 
@@ -9,7 +10,7 @@ type Params = { params: Promise<{ id: string; descuentoId: string }> };
 // descuento; nunca lo borra. Solo administrador (punto 4B).
 export async function DELETE(request: Request, { params }: Params) {
   const { response, session } = await requireOperacionesSession();
-  if (response || !session) return response;
+  if (response || !session) return response ?? NextResponse.json({ success: false, error: "Sin sesión" }, { status: 401 });
   const { id, descuentoId } = await params;
   return responderAnularDescuento(request, session, { tipo: "operacion", recordId: id }, descuentoId);
 }
