@@ -48,28 +48,45 @@ export function presupuestoPorConfirmar(lineas: readonly LineaPorConfirmar[]): {
   return { cantidad: sueltas.length + grupos.size, monto: Math.round(monto * 100) / 100, conAlternativas: grupos.size > 0 };
 }
 
+/** Un cargo de la cuenta tal como se le muestra al cliente. */
+export type CargoVisible = { id: string; nombre: string; precio: number; descuento: number; neto: number; enEspera: boolean };
+
+/**
+ * Los cargos de la cuenta, en el orden en que se le muestran al cliente
+ * (servicios, artículos, productos digitales, repuestos históricos y lo
+ * aprobado que aún espera su artículo), con su descuento vigente. Lo usan el
+ * mensaje de WhatsApp (4C) y el comprobante de abono: una sola lista.
+ */
+export function cargosVisiblesDeCuenta(cuenta: Pick<CuentaParaResumen,
+  "items" | "servicios" | "productosDigitales" | "repuestosHistoricos" | "repuestosHistoricosCuentanParaTotal" | "aprobadoSinArticulo" | "descuentos">): CargoVisible[] {
+  const descuento = new Map<string, number>();
+  for (const d of cuenta.descuentos) if (d.estado === "Vigente" && !descuento.has(d.cargoId)) descuento.set(d.cargoId, d.monto);
+  const cargo = (id: string, nombre: string, precio: number, enEspera = false): CargoVisible => {
+    const desc = Math.min(precio, descuento.get(id) ?? 0);
+    return { id, nombre, precio, descuento: desc > TOL ? desc : 0, neto: Math.max(0, precio - (desc > TOL ? desc : 0)), enEspera };
+  };
+  return [
+    ...cuenta.servicios.filter((s) => s.costo > TOL).map((s) => cargo(s.id, s.nombre, s.costo)),
+    ...cuenta.items.filter((i) => i.precio > TOL).map((i) => cargo(i.id, i.nombre, i.precio)),
+    ...cuenta.productosDigitales.filter((p) => p.precioVenta > TOL).map((p) => cargo(p.id, p.nombre || "Producto digital", p.precioVenta)),
+    ...(cuenta.repuestosHistoricosCuentanParaTotal
+      ? cuenta.repuestosHistoricos.filter((r) => r.subtotal > TOL).map((r) => cargo(r.id, r.nombre, r.subtotal))
+      : []),
+    ...cuenta.aprobadoSinArticulo.filter((p) => p.monto > TOL).map((p) => cargo(p.id, p.nombre, p.monto, true)),
+  ];
+}
+
 export function resumenCuentaParaMensaje(
   cuenta: CuentaParaResumen,
   porConfirmar: { cantidad: number; monto: number; conAlternativas: boolean } = { cantidad: 0, monto: 0, conAlternativas: false },
 ): string {
-  const descuento = new Map<string, number>();
-  for (const d of cuenta.descuentos) if (d.estado === "Vigente" && !descuento.has(d.cargoId)) descuento.set(d.cargoId, d.monto);
-
-  const linea = (id: string, nombre: string, precio: number) => {
-    const desc = descuento.get(id);
-    return desc && desc > TOL
-      ? `• ${nombre}: ${dinero(precio)} − descuento ${dinero(desc)} = ${dinero(Math.max(0, precio - desc))}`
-      : `• ${nombre}: ${dinero(precio)}`;
-  };
-  const cargos = [
-    ...cuenta.servicios.filter((s) => s.costo > TOL).map((s) => linea(s.id, s.nombre, s.costo)),
-    ...cuenta.items.filter((i) => i.precio > TOL).map((i) => linea(i.id, i.nombre, i.precio)),
-    ...cuenta.productosDigitales.filter((p) => p.precioVenta > TOL).map((p) => linea(p.id, p.nombre || "Producto digital", p.precioVenta)),
-    ...(cuenta.repuestosHistoricosCuentanParaTotal
-      ? cuenta.repuestosHistoricos.filter((r) => r.subtotal > TOL).map((r) => linea(r.id, r.nombre, r.subtotal))
-      : []),
-    ...cuenta.aprobadoSinArticulo.filter((p) => p.monto > TOL).map((p) => `• ${p.nombre}: ${dinero(p.monto)} (aprobado, en espera)`),
-  ];
+  const cargos = cargosVisiblesDeCuenta(cuenta).map((c) =>
+    c.enEspera
+      ? `• ${c.nombre}: ${dinero(c.precio)} (aprobado, en espera)`
+      : c.descuento > 0
+        ? `• ${c.nombre}: ${dinero(c.precio)} − descuento ${dinero(c.descuento)} = ${dinero(c.neto)}`
+        : `• ${c.nombre}: ${dinero(c.precio)}`,
+  );
 
   const out: string[] = [];
   const hayPagos = cuenta.totalAbonado > TOL;
