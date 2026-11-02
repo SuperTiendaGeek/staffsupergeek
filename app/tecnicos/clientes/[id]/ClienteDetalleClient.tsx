@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import styles from "@/components/tecnicos/layout/TecnicosTheme.module.css";
-import { Button, FieldShell, Input, Textarea } from "@/components/tecnicos/ui";
+import { Button, FieldShell, Input } from "@/components/tecnicos/ui";
+import type { EventoHistorial, ResumenCliente } from "@/lib/clientes/historial";
+import { HistorialCliente, fechaCorta } from "./HistorialCliente";
+import { DevolverSaldoModal, type OpcionesDevolucion } from "./DevolverSaldoModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,12 +24,11 @@ type ClienteDetalle = {
   ordenesRelacionadas: string[];
 };
 
-type OrdenCliente = {
-  recordId: string;
-  idVisible: string;
-  equipo: string;
-  fechaIngreso: string;
-  estadoActual: string;
+type Historial = {
+  saldo: { disponible: number; proximoVence: string };
+  resumen: ResumenCliente;
+  eventos: EventoHistorial[];
+  devolucion: OpcionesDevolucion;
 };
 
 type ClienteField = "nombre" | "cedula" | "telefono" | "correo" | "direccion" | "notas";
@@ -37,14 +39,8 @@ type NuevaOrdenForm = {
   ingresaPor: string;
 };
 
-const finalOrderStates = new Set(["Completado", "Finalizado Entregado", "Enviado a Reciclaje"]);
-
-const formatDate = (value: string) => {
-  if (!value) return "-";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric" });
-};
+const dinero = (n: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
 
 const buildWhatsAppLink = (telefono?: string | null) => {
   if (!telefono) return null;
@@ -225,12 +221,15 @@ export function ClienteDetalleClient() {
   const id = params?.id;
 
   const [cliente, setCliente] = useState<ClienteDetalle | null>(null);
-  const [ordenes, setOrdenes] = useState<OrdenCliente[]>([]);
+  const [historial, setHistorial] = useState<Historial | null>(null);
   const [loading, setLoading] = useState(true);
-  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [historialLoading, setHistorialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [ordersError, setOrdersError] = useState<string | null>(null);
+  const [historialError, setHistorialError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const [devolverOpen, setDevolverOpen] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
 
   const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [newOrderForm, setNewOrderForm] = useState<NuevaOrdenForm>({ equipo: "", accesorios: "", ingresaPor: "" });
@@ -242,11 +241,10 @@ export function ClienteDetalleClient() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const whatsappLink = useMemo(() => buildWhatsAppLink(cliente?.telefono), [cliente?.telefono]);
-  const finishedOrders = useMemo(() => ordenes.filter((o) => finalOrderStates.has(o.estadoActual)).length, [ordenes]);
-  const activeOrders = useMemo(() => ordenes.filter((o) => !finalOrderStates.has(o.estadoActual)).length, [ordenes]);
-  const latestOrder = ordenes[0] ?? null;
-  const totalOrders = Math.max(ordenes.length, cliente?.numeroOrdenes ?? 0);
+  const resumen = historial?.resumen ?? null;
+  const totalOrders = Math.max(resumen?.ordenes ?? 0, cliente?.numeroOrdenes ?? 0);
   const hasOrders = totalOrders > 0;
+  const saldoAFavor = historial?.saldo.disponible ?? 0;
 
   // Fetch cliente
   useEffect(() => {
@@ -271,23 +269,23 @@ export function ClienteDetalleClient() {
     return () => controller.abort();
   }, [id, refreshKey]);
 
-  // Fetch ordenes del cliente
+  // Historia del cliente: saldo a favor, cuentas y todo lo que ha pasado (punto 13C).
   useEffect(() => {
     if (!id) return;
     const controller = new AbortController();
     const run = async () => {
       try {
-        setOrdersLoading(true);
-        setOrdersError(null);
-        const res = await fetch(`/api/tecnicos/clientes/${encodeURIComponent(id)}/ordenes`, { signal: controller.signal });
-        const json = (await res.json()) as { success?: boolean; records?: OrdenCliente[]; data?: OrdenCliente[]; error?: string };
-        if (!res.ok || !json.success) throw new Error(json.error || "No se pudieron cargar las órdenes");
-        setOrdenes(json.records ?? json.data ?? []);
+        setHistorialLoading(true);
+        setHistorialError(null);
+        const res = await fetch(`/api/tecnicos/clientes/${encodeURIComponent(id)}/historial`, { signal: controller.signal });
+        const json = (await res.json()) as { success?: boolean; data?: Historial; error?: string };
+        if (!res.ok || !json.success || !json.data) throw new Error(json.error || "No se pudo cargar el historial");
+        setHistorial(json.data);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setOrdersError(err instanceof Error ? err.message : "Error desconocido");
+        setHistorialError(err instanceof Error ? err.message : "Error desconocido");
       } finally {
-        if (!controller.signal.aborted) setOrdersLoading(false);
+        if (!controller.signal.aborted) setHistorialLoading(false);
       }
     };
     void run();
@@ -448,80 +446,70 @@ export function ClienteDetalleClient() {
           </div>
         </section>
 
-        {/* Stats strip */}
+        {/* Saldo a favor y cuentas */}
         <section className="overflow-hidden rounded-[1rem] border border-[#3A3A36] bg-[#252622] shadow-xl shadow-black/20">
-          <div className="grid divide-y divide-[#3A3A36] sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
-            <div className="p-3 xl:border-r xl:border-[#3A3A36]">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-[#A7A7A7]">Total de órdenes</p>
-              <p className="mt-1 text-2xl font-extrabold text-[#D7FF4F]">{totalOrders}</p>
+          <div className="grid grid-cols-2 gap-px bg-[#3A3A36] xl:grid-cols-4 [&>*]:bg-[#252622]">
+            <div>
+            <div key={`saldo-${saldoAFavor}`} className="h-full p-3 animate-[sg-destello_900ms_ease-out]">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-[#A7A7A7]">Saldo a favor</p>
+                {historial?.devolucion.puedeDevolver && saldoAFavor > 0.009 && (
+                  <button
+                    type="button"
+                    onClick={() => { setAviso(null); setDevolverOpen(true); }}
+                    className="rounded-full border border-[#3A3A36] px-2 py-0.5 text-[11px] font-semibold text-[#CFCFCB] transition hover:border-[var(--sg-warning)] hover:text-[var(--sg-warning)]"
+                  >
+                    Devolver
+                  </button>
+                )}
+              </div>
+              <p className={`mt-1 text-2xl font-extrabold tabular-nums ${saldoAFavor > 0.009 ? "text-[var(--sg-warning)]" : "text-white"}`}>
+                {historialLoading && !historial ? "…" : dinero(saldoAFavor)}
+              </p>
+              {saldoAFavor > 0.009 && historial?.saldo.proximoVence && (
+                <p className="text-[10px] text-[#A7A7A7]">vence {fechaCorta(historial.saldo.proximoVence)}</p>
+              )}
             </div>
-            <div className="p-3 xl:border-r xl:border-[#3A3A36]">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-[#A7A7A7]">Órdenes activas</p>
-              <p className="mt-1 text-2xl font-extrabold text-white">{activeOrders}</p>
             </div>
-            <div className="p-3 xl:border-r xl:border-[#3A3A36]">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-[#A7A7A7]">Finalizadas</p>
-              <p className="mt-1 text-2xl font-extrabold text-[var(--sg-success)]">{finishedOrders}</p>
+            <div className="p-3">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-[#A7A7A7]">Por cobrar</p>
+              <p className={`mt-1 text-2xl font-extrabold tabular-nums ${(resumen?.porCobrar ?? 0) > 0.009 ? "text-[var(--sg-warning)]" : "text-white"}`}>
+                {historialLoading && !historial ? "…" : dinero(resumen?.porCobrar ?? 0)}
+              </p>
+              {(resumen?.cuentasConDeuda ?? 0) > 0 && (
+                <p className="text-[10px] text-[#A7A7A7]">{resumen!.cuentasConDeuda === 1 ? "1 cuenta" : `${resumen!.cuentasConDeuda} cuentas`}</p>
+              )}
+            </div>
+            <div className="p-3">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-[#A7A7A7]">Órdenes</p>
+              <p className="mt-1 text-2xl font-extrabold tabular-nums text-[#D7FF4F]">{totalOrders}</p>
+              {(resumen?.ordenesActivas ?? 0) > 0 && <p className="text-[10px] text-[#A7A7A7]">{resumen!.ordenesActivas} activas</p>}
             </div>
             <div className="p-3">
               <p className="text-[10px] font-medium uppercase tracking-wider text-[#A7A7A7]">Última orden</p>
-              <p className="mt-1 text-base font-extrabold text-white">
-                {formatDate(latestOrder?.fechaIngreso || cliente.ultimaFechaIngreso)}
-              </p>
-              {latestOrder && <p className="text-[10px] text-[#A7A7A7]">{latestOrder.idVisible}</p>}
+              <p className="mt-1 text-base font-extrabold text-white">{fechaCorta(cliente.ultimaFechaIngreso)}</p>
             </div>
           </div>
-        </section>
-
-        {/* Orders table */}
-        <section className="space-y-3 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 shadow-xl shadow-black/20">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-medium uppercase tracking-wider text-[#A7A7A7]">Historial</p>
-              <h3 className="text-lg font-extrabold text-white">Órdenes vinculadas</h3>
-            </div>
-            <p className="text-xs text-[#A7A7A7]">{ordenes.length} registros</p>
-          </div>
-
-          {ordersLoading && <p className="text-sm text-[#A7A7A7]">Cargando órdenes...</p>}
-          {ordersError && <p className="text-sm text-[var(--sg-danger)]">{ordersError}</p>}
-
-          {!ordersLoading && !ordersError && (
-            ordenes.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-[#3A3A36] bg-[#1E1F1C] px-4 py-6 text-sm text-[#A7A7A7]">
-                Este cliente aún no tiene órdenes registradas.
-              </div>
-            ) : (
-              <div className="w-full overflow-x-auto rounded-lg border border-[#3A3A36] bg-[#252622]">
-                <div className="grid min-w-[700px] grid-cols-[100px_minmax(0,2fr)_130px_160px_100px] border-b border-[#3A3A36] bg-[#30312D] px-5 py-2.5 text-[11px] font-medium uppercase tracking-wider text-[#A7A7A7]">
-                  <span>ID</span><span>Equipo</span><span>Ingreso</span><span>Estado</span><span className="text-right">Acción</span>
-                </div>
-                <div className="divide-y divide-[#3A3A36]">
-                  {ordenes.map((orden) => (
-                    <div
-                      key={orden.recordId}
-                      className="grid min-w-[700px] grid-cols-[100px_minmax(0,2fr)_130px_160px_100px] items-center bg-[#252622] px-5 py-3 text-sm transition hover:bg-[#2D2E2A]"
-                    >
-                      <span className="truncate font-semibold text-white">{orden.idVisible}</span>
-                      <span className="truncate text-[#CFCFCB]">{orden.equipo || "Sin equipo"}</span>
-                      <span className="text-[#A7A7A7]">{formatDate(orden.fechaIngreso)}</span>
-                      <span>
-                        <span className="inline-flex rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/10 px-3 py-0.5 text-[11px] font-semibold text-[#D7FF4F]">
-                          {orden.estadoActual || "Sin estado"}
-                        </span>
-                      </span>
-                      <span className="flex justify-end">
-                        <Link href={`/tecnicos/ordenes/${encodeURIComponent(orden.recordId)}`} className="rounded-full border border-[#3A3A36] bg-[#30312D] px-3 py-1 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]">
-                          Ver orden
-                        </Link>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
+          {(resumen?.sobranteEnCuentas ?? 0) > 0.009 && (
+            <p className="border-t border-[#3A3A36] bg-[var(--sg-warning-soft)] px-3 py-1.5 text-xs text-[var(--sg-warning)]">
+              {dinero(resumen!.sobranteEnCuentas)} de más en sus cuentas: pásalo a saldo a favor o devuélvelo desde la orden.
+            </p>
           )}
         </section>
+
+        {aviso && (
+          <p className="rounded-lg border border-[#56e3a4]/40 bg-[#56e3a4]/10 px-3 py-2 text-sm text-[var(--sg-success)] animate-[sg-entrada_180ms_ease-out]">
+            {aviso}
+          </p>
+        )}
+
+        {historialError ? (
+          <p className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 text-sm text-[var(--sg-danger)]">{historialError}</p>
+        ) : historialLoading && !historial ? (
+          <p className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-4 text-sm text-[#A7A7A7]">Cargando historial...</p>
+        ) : (
+          <HistorialCliente eventos={historial?.eventos ?? []} />
+        )}
       </div>
 
       {/* ── Sidebar ──────────────────────────────────────────────────────────── */}
@@ -544,20 +532,19 @@ export function ClienteDetalleClient() {
           </button>
         </div>
 
-        <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-3 shadow-xl shadow-black/20">
-          <p className="text-sm font-semibold text-white">Conservación de historial</p>
-          <p className="mt-1.5 text-sm leading-5 text-[#A7A7A7]">
-            Los clientes con órdenes no pueden eliminarse para mantener trazabilidad.
-          </p>
-        </div>
-
-        <div className="rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-3 shadow-xl shadow-black/20">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[#A7A7A7]">Edición inline</p>
-          <p className="text-sm leading-5 text-[#A7A7A7]">
-            Clic en cualquier campo para editarlo. Guarda con Enter o al salir del campo.
-          </p>
-        </div>
       </aside>
+
+      {/* ── Modal: Devolver saldo a favor (solo administrador) ─────────────── */}
+      {devolverOpen && historial && id && (
+        <DevolverSaldoModal
+          clienteId={id}
+          clienteNombre={cliente.nombre}
+          disponible={saldoAFavor}
+          opciones={historial.devolucion}
+          onCerrar={() => setDevolverOpen(false)}
+          onHecho={(mensaje) => { setDevolverOpen(false); setAviso(mensaje); setRefreshKey((k) => k + 1); }}
+        />
+      )}
 
       {/* ── Modal: Nueva orden ───────────────────────────────────────────────── */}
       {newOrderOpen && (

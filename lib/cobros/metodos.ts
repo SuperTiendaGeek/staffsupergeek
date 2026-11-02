@@ -131,6 +131,19 @@ export type CobroInput = { metodoPago?: string | null; total: number; referencia
  */
 export const METODO_SALDO_A_FAVOR = "Saldo a favor";
 export const CODIGO_SRI_COMPENSACION = "15";
+/** Método del abono negativo de una devolución (no es un método de cobro). */
+export const METODO_DEVOLUCION = "Devolución";
+
+/**
+ * Cómo se lee un pago de una cuenta. Los del saldo a favor (punto 13B) dicen
+ * qué pasó con el dinero, no solo el método. Lo usan la cuenta de la orden y
+ * la ficha del cliente.
+ */
+export function etiquetaAbono(metodo: string | null, monto: number): string {
+  if (metodo === METODO_SALDO_A_FAVOR) return monto < 0 ? "Pasado a saldo a favor" : "Pagado con saldo a favor";
+  if (metodo === METODO_DEVOLUCION) return "Devuelto al cliente";
+  return metodo || "Sin método";
+}
 
 /**
  * Valida los cobros de una venta: cada uno con método vigente (con cuenta),

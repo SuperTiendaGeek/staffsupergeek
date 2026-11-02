@@ -19,29 +19,28 @@ import {
 
 const esRecordId = (v: string) => /^rec[A-Za-z0-9]{14}$/.test(v);
 
+/** Al administrador: de qué cuentas y cómo se puede devolver dinero (mismas reglas que el reembolso de una NC). */
+export async function opcionesDeDevolucion(session: StaffSession): Promise<{
+  puedeDevolver: boolean;
+  cuentasDevolucion: Array<{ id: string; nombre: string }>;
+  metodosDevolucion: readonly string[];
+}> {
+  if (!isAdministratorRole(session.user.rol)) return { puedeDevolver: false, cuentasDevolucion: [], metodosDevolucion: [] };
+  const cuentasDevolucion = (await fetchCuentasFinancieras().catch(() => []))
+    .filter((c) => cuentaPermiteReembolso({ id: c.id, nombre: c.nombre, tipo: String(c.tipo), activa: c.activa }))
+    .map((c) => ({ id: c.id, nombre: c.nombre }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  return { puedeDevolver: true, cuentasDevolucion, metodosDevolucion: METODOS_REEMBOLSO };
+}
+
 /** GET: saldo a favor del cliente de la cuenta y, al administrador, las cuentas para devolver. */
 export async function responderSaldoDeCuenta(session: StaffSession, origen: OrigenCuenta) {
   if (!esRecordId(origen.recordId)) return NextResponse.json({ success: false, error: "Id inválido." }, { status: 400 });
   try {
     const { clienteId, saldo } = await saldoDeLaCuenta(origen);
-    const esAdmin = isAdministratorRole(session.user.rol);
-    let cuentasDevolucion: Array<{ id: string; nombre: string }> = [];
-    if (esAdmin) {
-      cuentasDevolucion = (await fetchCuentasFinancieras().catch(() => []))
-        .filter((c) => cuentaPermiteReembolso({ id: c.id, nombre: c.nombre, tipo: String(c.tipo), activa: c.activa }))
-        .map((c) => ({ id: c.id, nombre: c.nombre }))
-        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-    }
     return NextResponse.json({
       success: true,
-      data: {
-        clienteId,
-        disponible: saldo?.disponible ?? 0,
-        proximoVence: saldo?.proximoVence ?? "",
-        puedeDevolver: esAdmin,
-        cuentasDevolucion,
-        metodosDevolucion: esAdmin ? METODOS_REEMBOLSO : [],
-      },
+      data: { clienteId, disponible: saldo?.disponible ?? 0, proximoVence: saldo?.proximoVence ?? "", ...(await opcionesDeDevolucion(session)) },
     });
   } catch (e) {
     console.error("[saldo-favor] GET", e);

@@ -24,6 +24,7 @@ export const CAMPO_INVERSO = "Saldo a Favor";
 
 export type RegistroSaldo = MovimientoSaldo & {
   codigo: string;
+  descripcion: string;
   clienteId: string | null;
   abonoIds: string[];
   ordenIds: string[];
@@ -46,6 +47,7 @@ export function registroDesdeAirtable(r: AirtableRecord): RegistroSaldo {
   return {
     id: r.id,
     codigo: texto(f["Código"]),
+    descripcion: texto(f["Descripción"]),
     tipo: texto(f["Tipo"]) as TipoMovimientoSaldo,
     monto: firstNumber(f["Monto"]) ?? 0,
     fecha: texto(f["Fecha"]) || r.createdTime || "",

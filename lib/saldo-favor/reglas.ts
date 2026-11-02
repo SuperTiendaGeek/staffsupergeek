@@ -135,6 +135,20 @@ export function validarDevolverSobrante(input: { aFavorCuenta: number; esAdminis
 }
 
 /**
+ * "Devolver" desde la ficha del cliente (13C): el saldo que el cliente YA
+ * tiene se le devuelve en dinero. Solo el administrador; todo o una parte.
+ * Ej.: Elvis tiene $20 de su reserva liberada y no va a volver a comprar →
+ * el administrador le transfiere $20 desde SGINGRESOS; su saldo queda en $0.
+ */
+export function validarDevolverSaldo(input: { monto: number; disponible: number; esAdministrador: boolean }): { ok: true; monto: number } | Rechazo {
+  if (!input.esAdministrador) return NO("Solo el administrador puede devolver dinero al cliente.");
+  const monto = r2(input.monto);
+  if (!(monto > TOLERANCIA)) return NO("El monto a devolver debe ser mayor a $0.");
+  if (monto > r2(input.disponible) + TOLERANCIA) return NO(`El cliente tiene ${dinero(input.disponible)} de saldo a favor; no se pueden devolver ${dinero(monto)}.`);
+  return { ok: true, monto };
+}
+
+/**
  * Usar el saldo a favor como pago: nunca más de lo que el cliente tiene ni de
  * lo que falta cobrar en esa cuenta.
  * Ej.: tiene $20, la cuenta debe $35 → puede usar hasta $20 y el resto se

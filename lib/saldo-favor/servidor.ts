@@ -34,6 +34,7 @@ import { validarSolicitudReembolso, type SolicitudReembolso } from "@/lib/factur
 import { fetchRecordById, firstLinkedId, linkedIds } from "@/lib/finanzas/airtable-client";
 import { fetchCuentaById } from "@/lib/finanzas/cuentas";
 import { crearMovimiento } from "@/lib/finanzas/movimientos";
+import { METODO_DEVOLUCION } from "@/lib/cobros/metodos";
 import { crearAbono } from "@/lib/operaciones/airtable";
 import { anularAbonoPorOrden, createAbonoPorOrden } from "@/lib/tecnicos/airtable";
 import type { StaffSession } from "@/lib/session";
@@ -50,6 +51,8 @@ import {
   calcularSaldoCliente,
   descripcionMovimiento,
   observacionAbonoSalida,
+  repartirConsumo,
+  validarDevolverSaldo,
   validarDevolverSobrante,
   validarPasarASaldo,
   validarUsoDeSaldo,
@@ -58,8 +61,8 @@ import {
 } from "./reglas";
 
 export const CATEGORIA_SALDO = "Saldo a favor de cliente";
-/** Método del abono negativo de una devolución (no es un método de cobro). */
-export const METODO_DEVOLUCION = "Devolución";
+/** Método del abono negativo de una devolución (vive en el catálogo de cobros). */
+export { METODO_DEVOLUCION };
 
 export type OrigenCuenta = { tipo: "orden" | "operacion"; recordId: string };
 export type ResultadoSaldo<T = Record<string, unknown>> =
@@ -269,6 +272,98 @@ export async function devolverSobranteDeCuenta(input: {
       warning = `La devolución quedó en la cuenta, pero NO se registró la salida de ${dinero(v.monto)} en Finanzas. Regístrala a mano en ${sol.datos.cuentaOrigenNombre}.`;
     }
     return { ok: true, monto: v.monto, warning };
+  });
+}
+
+// ─── Devolver un saldo que el cliente ya tiene (ficha del cliente, 13C) ─────
+
+/**
+ * El administrador le devuelve al cliente, en dinero, todo o parte de su
+ * saldo a favor. Ej.: Elvis tiene $20 (reserva liberada) y no va a volver →
+ * se le transfieren $20 desde SGINGRESOS; su saldo queda en $0.
+ *
+ * Finanzas (dos asientos, para que el resultado sea igual que devolver el
+ * sobrante desde la cuenta):
+ *   · Ingreso "Saldo a favor de cliente" SIN cuenta: el saldo deja de existir
+ *     (deshace el Egreso sin cuenta con que se generó; no mueve caja);
+ *   · Egreso "Devolución" DESDE la cuenta real: aquí sí sale el dinero.
+ * Neto: −$20 de ventas y −$20 de caja, igual que si se hubiera devuelto el
+ * día que sobró.
+ */
+export async function devolverSaldoDeCliente(input: {
+  clienteId: string;
+  monto: number;
+  session: StaffSession;
+  solicitud: SolicitudReembolso;
+}): Promise<ResultadoSaldo<{ monto: number; codigo: string }>> {
+  const esAdmin = isAdministratorRole(input.session.user.rol);
+  if (!esAdmin) return FALLA("Solo el administrador puede devolver dinero al cliente.", 403);
+  return withLock(`saldo-cliente:${input.clienteId}`, async () => {
+    const cliente = await fetchRecordById("Clientes", input.clienteId).catch(() => null);
+    if (!cliente) return FALLA("Cliente no encontrado.", 404);
+    const clienteNombre = typeof cliente.fields["Nombre"] === "string" ? (cliente.fields["Nombre"] as string) : "";
+    const movs = await movimientosDeCliente(input.clienteId);
+    const saldo = calcularSaldoCliente(movs, hoyEcuador());
+    const v = validarDevolverSaldo({ monto: input.monto, disponible: saldo.disponible, esAdministrador: esAdmin });
+    if (!v.ok) return FALLA(v.motivo);
+
+    const cuentaId = typeof input.solicitud?.cuentaOrigenId === "string" ? input.solicitud.cuentaOrigenId.trim() : "";
+    const cuentaFin = cuentaId ? await fetchCuentaById(cuentaId).catch(() => null) : null;
+    const sol = validarSolicitudReembolso(
+      input.solicitud,
+      cuentaFin ? { id: cuentaFin.id, nombre: cuentaFin.nombre, tipo: String(cuentaFin.tipo), activa: cuentaFin.activa } : null,
+    );
+    if (!sol.ok) return FALLA(sol.motivo);
+
+    // De qué saldo sale (primero lo que vence antes), para enlazar su origen.
+    const primerLote = repartirConsumo(saldo.lotes, v.monto)[0];
+    const origen = movs.find((m) => m.id === primerLote?.loteId);
+    const registradoPor = nombreUsuario(input.session);
+    const fecha = new Date().toISOString();
+    const ref = sol.datos.transaccionId ? `, ref. ${sol.datos.transaccionId}` : "";
+    const detalle = `${sol.datos.metodo} desde ${sol.datos.cuentaOrigenNombre}${ref}`;
+
+    const devuelto = await crearMovimientoSaldo({
+      descripcion: descripcionMovimiento({ tipo: "Devuelto", monto: v.monto, cliente: clienteNombre, referencia: detalle }),
+      clienteId: input.clienteId, tipo: "Devuelto", monto: v.monto, fecha,
+      notaCreditoId: origen?.notaCreditoIds[0] ?? null, reservaId: origen?.reservaIds[0] ?? null,
+      ordenId: origen?.ordenIds[0] ?? null, operacionId: origen?.operacionIds[0] ?? null,
+      motivo: `Devuelto al cliente desde su ficha: ${detalle}.`, registradoPor,
+    });
+
+    const asientos: string[] = [];
+    let warning: string | null = null;
+    try {
+      const salida = await crearMovimiento({
+        tipo: "Egreso", origen: "Abonos", categoria: "Devolución", monto: v.monto,
+        cuentaOrigenId: sol.datos.cuentaOrigenId, estado: "Confirmado", estadoDistribucion: "No aplica",
+        metodo: sol.datos.metodo, transaccionId: sol.datos.transaccionId, fecha,
+        observacion: `Devolución del saldo a favor de ${clienteNombre || "cliente"} (${devuelto.codigo}): ${detalle}.`,
+        registradoPor, clienteId: input.clienteId,
+      });
+      asientos.push(salida.id);
+    } catch (e) {
+      console.error("[saldo-favor] Devolver desde la ficha: no se registró la salida en Finanzas", devuelto.codigo, e);
+      warning = `El saldo quedó devuelto, pero NO se registró la salida de ${dinero(v.monto)} en Finanzas. Regístrala a mano en ${sol.datos.cuentaOrigenNombre}.`;
+    }
+    try {
+      const cierre = await crearMovimiento(
+        {
+          tipo: "Ingreso", origen: "Abonos", categoria: CATEGORIA_SALDO, monto: v.monto,
+          cuentaDestinoId: null, estado: "Confirmado", estadoDistribucion: "Sin distribuir", metodo: "No aplica", fecha,
+          observacion: `Saldo a favor de ${clienteNombre || "cliente"} devuelto en dinero (${devuelto.codigo}). No mueve caja: la salida es la Devolución.`,
+          registradoPor, clienteId: input.clienteId,
+        },
+        { permitirCuentaFaltante: true },
+      );
+      asientos.push(cierre.id);
+    } catch (e) {
+      console.error("[saldo-favor] Devolver desde la ficha: no se registró el cierre del saldo en Finanzas", devuelto.codigo, e);
+      warning ??= "El saldo quedó devuelto, pero falta un asiento en Finanzas. Avísale al administrador.";
+    }
+    if (asientos.length) await actualizarMovimientoSaldo(devuelto.id, { "Movimiento Financiero": asientos }).catch(() => {});
+    if (origen?.notaCreditoIds.length) await sincronizarNotasCredito(input.clienteId);
+    return { ok: true, monto: v.monto, codigo: devuelto.codigo, warning };
   });
 }
 

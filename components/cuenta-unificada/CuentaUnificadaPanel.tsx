@@ -8,6 +8,7 @@ import {
   cargosDescontables, descuentoPorCargo, montoDesdePorcentaje,
   type CargoDescontable, type DescuentoCuenta,
 } from "@/lib/estado-cuenta/descuentos";
+import { etiquetaAbono } from "@/lib/cobros/metodos";
 import { SaldoAFavorAcciones, type SaldoInfo } from "./SaldoAFavorAcciones";
 
 // Componente compartido (Fase 11 — Etapa 3): se monta igual en la pantalla de
@@ -502,14 +503,6 @@ function CargoRow({
       )}
     </div>
   );
-}
-
-// Cómo se lee cada pago de la cuenta. Los del saldo a favor (punto 13B)
-// dicen qué pasó con el dinero, no solo el método.
-function etiquetaAbono(metodo: string | null, monto: number): string {
-  if (metodo === "Saldo a favor") return monto < 0 ? "Pasado a saldo a favor" : "Pagado con saldo a favor";
-  if (metodo === "Devolución") return "Devuelto al cliente";
-  return metodo ?? "Sin método";
 }
 
 function LedgerRow({ label, origen, value }: { label: string; origen: string; value: string }) {
