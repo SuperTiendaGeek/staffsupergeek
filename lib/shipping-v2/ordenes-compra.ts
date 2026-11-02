@@ -256,6 +256,10 @@ export type LineaCompra = {
   regalo: boolean;
   /** Activo de la tienda (uso local): no se vende, no lleva precio. */
   activo: boolean;
+  /** Fase 2: la fila cumple esta solicitud de compra (se aparta para su cliente al guardar). */
+  solicitudId?: string;
+  /** "OR000507 · Jose Lopez": para quién es (se ve en la fila). */
+  solicitudPara?: string;
 };
 
 export function nuevaLinea(key: string, base: Partial<LineaCompra> = {}): LineaCompra {

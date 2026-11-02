@@ -1,12 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { requireOperacionesSession } from "@/lib/operaciones/auth";
-import {
-  actualizarEstadoOperacion,
-  fetchOperacionDetalle,
-  pasarOperacionAPedido,
-} from "@/lib/operaciones/airtable";
+import { actualizarEstadoOperacion, fetchOperacionDetalle } from "@/lib/operaciones/airtable";
 import { ESTADOS_OPERACION } from "@/types/operaciones";
-import { esLlegadaPedido } from "@/lib/operaciones/pedido";
+import { asegurarSolicitudDeOpcion, cancelarSolicitudesDeOperacion } from "@/lib/compras/servidor";
 import { evaluarCambioEstadoOperacion } from "@/lib/operaciones/cierre";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -58,29 +54,14 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     );
   }
 
-  // "Pedido" tiene efecto secundario (crea el artículo en inventario): pasa
-  // por el camino compartido, el mismo que usa la tarjeta Presupuesto.
-  if (estado === "Pedido") {
-    // Unidades compradas al proveedor y cómo llegan (ver lib/operaciones/pedido.ts).
-    const unidadesCompradas =
-      body.unidadesCompradas === undefined || body.unidadesCompradas === null || body.unidadesCompradas === ""
-        ? null
-        : Number(body.unidadesCompradas);
-    if (body.llegada !== undefined && body.llegada !== null && !esLlegadaPedido(body.llegada)) {
-      return NextResponse.json({ success: false, error: "Llegada inválida: debe ser tracking o packing." }, { status: 400 });
-    }
-    const llegada = esLlegadaPedido(body.llegada) ? body.llegada : null;
-    try {
-      const r = await pasarOperacionAPedido(id, op.opcionElegidaId, session.user.nombre, { unidadesCompradas, llegada });
-      if (r.itemCreado) return NextResponse.json({ success: true, itemCreado: true, itemId: r.itemId });
-      return NextResponse.json({ success: true, itemCreado: false, itemId: r.itemId, ...(r.aviso ? { itemWarning: r.aviso } : {}) });
-    } catch (err) {
-      console.error("[api/operaciones/[id]/estado] PATCH error:", err);
-      return NextResponse.json(
-        { success: false, error: err instanceof Error ? err.message : "Error al actualizar estado." },
-        { status: 500 }
-      );
-    }
+  // Fase 2 (2-nov-2026): "Pedido" ya no crea el artículo. Lo que el cliente
+  // aprobó se compra en Logística (bandeja "Por comprar" → Registrar compra) y
+  // el pedido pasa a "Pedido" solo cuando esa compra se registra.
+  if (estado === "Pedido" && op.articulosFisicos.length === 0) {
+    return NextResponse.json(
+      { success: false, error: "Se compra desde Logística (Shipping V2 → Por comprar). El pedido pasa a \"Pedido\" solo al registrar la compra." },
+      { status: 409 }
+    );
   }
 
   try {
@@ -91,6 +72,22 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       { success: false, error: err instanceof Error ? err.message : "Error al actualizar estado." },
       { status: 500 }
     );
+  }
+
+  if (estado === "Rechazado") {
+    await cancelarSolicitudesDeOperacion(id, "El pedido se rechazó.", session.user.nombre).catch((err) =>
+      console.error("[api/operaciones/[id]/estado] cancelar solicitudes:", err)
+    );
+  }
+
+  // Al aprobar nace su solicitud de compra (una sola por opción).
+  if (estado === "Aprobado" && op.opcionElegidaId) {
+    try {
+      await asegurarSolicitudDeOpcion({ operacionId: id, opcionId: op.opcionElegidaId, usuario: session.user.nombre });
+    } catch (err) {
+      console.error("[api/operaciones/[id]/estado] solicitud de compra:", err);
+      return NextResponse.json({ success: true, warning: "Quedó aprobado, pero no se pudo crear la solicitud de compra. Vuelve a intentarlo o avisa al administrador." });
+    }
   }
 
   return NextResponse.json({ success: true });

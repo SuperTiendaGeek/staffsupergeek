@@ -38,6 +38,7 @@ import {
 } from "@/lib/operaciones/airtable";
 import { soltarArticuloDePedido } from "@/lib/shipping-v2/airtable";
 import { listarLineas, actualizarLinea, cargarInfoPedidos, clienteDeOrden } from "./airtable";
+import { asegurarSolicitudDeLinea, cancelarSolicitudDeLinea } from "@/lib/compras/servidor";
 import {
   planDeCarga, fasePedido, reversasDisponibles, entradaHistorial,
   cargasPerdidas, cargosSinPresupuesto, conflictoAlternativas, hermanasPropuestas,
@@ -60,7 +61,7 @@ async function itemsPorIds(lista: string[]): Promise<Registro[]> {
     const u = new URL(`https://api.airtable.com/v0/${baseId}/${encodeURIComponent(T_ITEMS)}`);
     u.searchParams.set("filterByFormula", lote.length === 1 ? `RECORD_ID()='${lote[0]}'` : `OR(${lote.map((x) => `RECORD_ID()='${x}'`).join(",")})`);
     for (const f of [SHIPPING_V2_ITEM_FIELDS.sku, SHIPPING_V2_ITEM_FIELDS.precioVentaFinal, SHIPPING_V2_ITEM_FIELDS.cantidad,
-      SHIPPING_V2_ITEM_FIELDS.cantidadReservada, SHIPPING_V2_ITEM_FIELDS.reservado, SHIPPING_V2_ITEM_FIELDS.disponibleVenta, LINK_ORDEN_STOCK]) {
+      SHIPPING_V2_ITEM_FIELDS.cantidadReservada, SHIPPING_V2_ITEM_FIELDS.reservado, SHIPPING_V2_ITEM_FIELDS.disponibleVenta, SHIPPING_V2_ITEM_FIELDS.estadoItem, LINK_ORDEN_STOCK]) {
       u.searchParams.append("fields[]", f);
     }
     const res = await fetch(u.toString(), { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
@@ -187,12 +188,15 @@ export async function aprobarYCargarSinTurno(opts: OpcionesCarga): Promise<Resul
       : {};
 
     try {
-      if (paso.accion.tipo === "crear_pedido_aprobado") {
-        // Recién ahora nace la operación comercial, directamente "Aprobado":
-        // no consume código ni aparece en el tablero mientras el cliente
-        // todavía no responde.
-        const operacionId = await crearOperacionAprobada(opts.ordenId, linea, opts.usuario.nombre);
-        await actualizarLinea(linea.id, { ...aprobacion, operacionId, notaCarga: "Esperando pedido al proveedor." });
+      if (paso.accion.tipo === "crear_solicitud") {
+        // Fase 2: nace la solicitud de compra (bandeja "Por comprar" de
+        // Logística). Ninguna Operación Comercial: el repuesto de una
+        // reparación ya no llena el tablero comercial (punto 8).
+        await asegurarSolicitudDeLinea({ ordenId: opts.ordenId, linea, usuario: opts.usuario.nombre });
+        await actualizarLinea(linea.id, { ...aprobacion, notaCarga: "" });
+        resultados.push({ ...paso, cargada: false, esperandoPedido: true });
+      } else if (paso.accion.tipo === "esperando_compra") {
+        if (linea.estado === "Propuesta") await actualizarLinea(linea.id, { ...aprobacion, notaCarga: "" });
         resultados.push({ ...paso, cargada: false, esperandoPedido: true });
       } else if (paso.accion.tipo === "aprobar_pedido") {
         // La operación pasa a "Aprobado" en el tablero de Operaciones. El
@@ -289,6 +293,34 @@ export async function marcarPedidoAlProveedor(opts: {
   });
 }
 
+// ─── Fase 2: llegó la compra de una solicitud ────────────────────────────────
+// Logística compró (o apartó con "Ya la tenemos") el repuesto bajo pedido de
+// una línea: se monta en la orden por la misma vía que un repuesto de stock y
+// la línea pasa a "Cargada" con ese SKU. Vive aquí porque este archivo es el
+// ÚNICO que carga cargos a una orden (presupuesto-fase4-sin-tarjetas.test.ts).
+
+export async function cargarCompraEnLinea(opts: {
+  ordenId: string;
+  lineaId: string;
+  itemId: string;
+  referencia: string;
+  usuario: { nombre: string };
+}): Promise<void> {
+  return withLock(`presupuesto:${opts.ordenId}`, async () => {
+    const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
+    if (!linea) throw new Error("Línea no encontrada en esta orden.");
+    if (linea.estado === "Cargada" && linea.itemId === opts.itemId) return;
+    if (linea.estado !== "Aprobada") throw new Error(`La línea "${linea.descripcion}" ya no está esperando la compra (${linea.estado}).`);
+    await agregarRepuestoStockAOrden({ ordenRecordId: opts.ordenId, itemId: opts.itemId, registradoPor: opts.usuario.nombre, compradoParaEstaOrden: true });
+    await actualizarLinea(linea.id, {
+      estado: "Cargada",
+      itemId: opts.itemId,
+      notaCarga: "",
+      agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(`Comprado: ${opts.referencia}.`, opts.usuario.nombre) },
+    });
+  });
+}
+
 // ─── Crear la operación comercial al aprobar ─────────────────────────────────
 
 async function crearOperacionAprobada(ordenId: string, l: LineaPresupuesto, usuario: string): Promise<string> {
@@ -326,6 +358,14 @@ async function crearOperacionAprobada(ordenId: string, l: LineaPresupuesto, usua
   }
 }
 
+/** SKU y estado de un artículo (para las reversas de una línea con solicitud de compra). */
+async function articuloBasico(itemId: string): Promise<{ sku: string; estado: string } | null> {
+  const r = (await itemsPorIds([itemId]))[0];
+  if (!r) return null;
+  const t = (v: unknown) => (typeof v === "string" ? v : v && typeof v === "object" && "name" in v ? String((v as { name: unknown }).name ?? "") : "");
+  return { sku: t(r.fields[SHIPPING_V2_ITEM_FIELDS.sku]), estado: t(r.fields[SHIPPING_V2_ITEM_FIELDS.estadoItem]) };
+}
+
 // ─── Reversas ────────────────────────────────────────────────────────────────
 // Qué se deshace en cada caso lo decide reversasDisponibles() (reglas.ts);
 // aquí solo se ejecuta. El dinero abonado NO se mueve: queda a favor en la
@@ -342,10 +382,32 @@ export async function revertirLinea(opts: {
     const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
     if (!linea) throw new Error("Línea no encontrada en esta orden.");
     const info = linea.operacionId ? (await cargarInfoPedidos([linea.operacionId])).get(linea.operacionId) : undefined;
-    const r = reversasDisponibles(linea, info)[opts.accion];
+    // Fase 2: línea con solicitud de compra (sin operación).
+    const conSolicitud = !!linea.solicitudId && !linea.operacionId;
+    const articuloSolicitud = conSolicitud && linea.itemId ? await articuloBasico(linea.itemId) : null;
+    const r = reversasDisponibles(linea, info, articuloSolicitud)[opts.accion];
     if (!r.permitido) throw new Error(r.motivo ?? "No se puede hacer esta acción ahora.");
 
     const motivo = opts.motivo.trim() || (opts.accion === "recotizar" ? "Proveedor sin disponibilidad." : opts.accion === "liberar" ? "El cliente desistió." : "El cliente desistió.");
+
+    if (conSolicitud) {
+      if (opts.accion === "liberar" && linea.itemId) {
+        // La pieza comprada queda como stock de la tienda (no se le cobra al cliente).
+        await quitarRepuestoStockDeOrden({ ordenRecordId: opts.ordenId, itemId: linea.itemId, registradoPor: opts.usuario.nombre });
+        await cancelarSolicitudDeLinea(linea.id, `Liberada a stock: ${motivo}`, opts.usuario.nombre, { aunqueComprada: true });
+      } else {
+        await cancelarSolicitudDeLinea(linea.id, motivo, opts.usuario.nombre);
+      }
+      const t = opts.accion === "recotizar" ? `Recotizada: ${motivo}`
+        : opts.accion === "liberar" ? `Liberada a inventario (${articuloSolicitud?.sku ?? ""}): ${motivo}`
+        : `Cancelada después de aprobada: ${motivo}`;
+      await actualizarLinea(linea.id, {
+        estado: "Rechazada",
+        notaCarga: t,
+        agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(t, opts.usuario.nombre) },
+      });
+      return;
+    }
 
     if (info?.item) {
       await soltarArticuloDePedido(info.item.id, {

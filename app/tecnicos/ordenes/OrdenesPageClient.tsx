@@ -9,6 +9,14 @@ import { ESTADOS_ORDEN } from "@/types/tecnicos";
 import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
 import { PanelCobros } from "@/components/tecnicos/ordenes/PanelCobros";
 
+const CHIP_REPUESTOS: Record<string, string> = {
+  exito: "border-[#56e3a4]/40 text-[#56e3a4]",
+  aviso: "border-[#f0c75e]/45 text-[#f0c75e]",
+  peligro: "border-[#ff5a4f]/45 text-[#ff5a4f]",
+  info: "border-[#78b7ff]/40 text-[#78b7ff]",
+  neutro: "border-[#3A3A36] text-[#A7A7A7]",
+};
+
 type OrdenListado = {
   recordId: string;
   idVisible: string;
@@ -151,6 +159,8 @@ const formatDate = (value: string) => {
 
 export function OrdenesPageClient() {
   const [ordenes, setOrdenes] = useState<OrdenListado[]>([]);
+  // Fase 2: chip de repuestos bajo pedido por orden ("Repuestos 2/3", "1 sin comprar").
+  const [repuestos, setRepuestos] = useState<Record<string, { texto: string; tono: string }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -224,7 +234,14 @@ export function OrdenesPageClient() {
           throw new Error(json.error || "No se pudieron cargar las ordenes");
         }
 
-        setOrdenes(json.records ?? json.data ?? []);
+        const lista = json.records ?? json.data ?? [];
+        setOrdenes(lista);
+        if (lista.length) {
+          fetch(`/api/tecnicos/ordenes/repuestos?ids=${lista.map((o) => o.recordId).join(",")}`, { signal: controller.signal })
+            .then((r) => r.json())
+            .then((j: { data?: Record<string, { texto: string; tono: string }> }) => setRepuestos(j.data ?? {}))
+            .catch(() => {});
+        }
         setNextOffset(json.nextOffset ?? null);
         setRiskSummary(json.riskSummary ?? emptyRiskSummary);
         setStatusCounts(json.statusCounts ?? emptyStatusCounts());
@@ -569,6 +586,11 @@ export function OrdenesPageClient() {
                               >
                                 {orden.estadoActual || "Sin estado"}
                               </span>
+                              {repuestos[orden.recordId] ? (
+                                <span className={`ml-1.5 inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold animate-[sg-entrada_180ms_ease-out] ${CHIP_REPUESTOS[repuestos[orden.recordId].tono] ?? CHIP_REPUESTOS.neutro}`} title="Repuestos bajo pedido de esta orden">
+                                  {repuestos[orden.recordId].texto}
+                                </span>
+                              ) : null}
                             </span>
                           </Link>
                         );

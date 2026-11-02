@@ -6592,6 +6592,14 @@ export async function updateShippingV2ReceptionChecklistItem(
   });
   if (estadoNuevo) invalidateShippingV2ItemSearchIndexCache();
 
+  // Auditoría ops, Fase 2: si el artículo cumple una solicitud de compra de
+  // una orden o un pedido, el personal recibe el aviso "Llegó" en su pantalla.
+  // Nunca bloquea la recepción (el aviso se registra en el log si falla).
+  if (input.action === "received" && input.value && item.recibido !== true) {
+    const { alRecibirArticulo } = await import("@/lib/compras/servidor");
+    await alRecibirArticulo(id);
+  }
+
   // Cierre automático del ciclo del packing. Va después del evento para que el
   // historial conserve el orden real: primero la casilla, luego el cierre que
   // esa casilla provocó.
@@ -8406,6 +8414,8 @@ export async function reservarShippingItemComoRepuestoDeOrdenStock(opciones: {
   ordenRecordId: string;
   ordenIdVisible: string;
   registradoPor: string;
+  /** Fase 2: se compró para esta orden (solicitud de compra); puede estar en camino. */
+  compradoParaEstaOrden?: boolean;
 }): Promise<ShippingV2RepuestoStockResumen> {
   // F-26 — mismo turno por artículo que usa el apartado de reservas, para que
   // montar un repuesto y apartar para un cliente no puedan colarse a la vez
@@ -8420,11 +8430,13 @@ async function reservarRepuestoDeOrdenSinTurno({
   ordenRecordId,
   ordenIdVisible,
   registradoPor,
+  compradoParaEstaOrden = false,
 }: {
   itemId: string;
   ordenRecordId: string;
   ordenIdVisible: string;
   registradoPor: string;
+  compradoParaEstaOrden?: boolean;
 }): Promise<ShippingV2RepuestoStockResumen> {
   assertShippingV2GeneratedSchema();
   const id = cleanString(itemId);
@@ -8454,7 +8466,10 @@ async function reservarRepuestoDeOrdenSinTurno({
   // artículo aún no está vendible (en tránsito, en packing) o que ya no quedan
   // unidades libres. Se distinguen por si hay algo comprometido; sin esto se
   // podría montar en una orden mercadería que todavía no ha llegado.
-  if (firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.disponibleVenta]) === false && unidadesReservadas(unidadesItem) === 0) {
+  // Excepción (Fase 2): lo que se compró PARA esta orden se aparta desde que se
+  // compra, aunque venga en camino; así nadie más lo vende al llegar. La orden
+  // muestra "En camino" hasta que Recepción marca que llegó.
+  if (!compradoParaEstaOrden && firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.disponibleVenta]) === false && unidadesReservadas(unidadesItem) === 0) {
     throw new Error("Este item no está disponible para venta.");
   }
   // Punto 8: una novedad con la venta bloqueada (o cualquier otro bloqueo)

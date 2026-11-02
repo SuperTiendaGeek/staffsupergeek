@@ -75,6 +75,7 @@ import {
 } from "@/lib/shipping-v2/unidades-serie";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
 import { ACCEPT_HOJAS, ImportarLineasPanel, type EntradaImportacion } from "./ImportarLineasPanel";
+import { solicitudesParecidas } from "@/lib/compras/reglas";
 
 const METODOS_PAGO = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((m) => m !== "No aplica");
 const CUENTAS_PAGO = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((c) => c !== "No aplica");
@@ -119,6 +120,23 @@ type Props = {
   puedeRegistrarRespaldo?: boolean;
   /** Punto 9d: agregar a una orden existente. */
   ordenExistente?: ShippingV2OrdenParaAgregar | null;
+  /** Fase 2: "Comprar" desde la bandeja "Por comprar": una fila por solicitud. */
+  solicitudes?: ShippingV2SolicitudParaComprar[];
+  /** Punto 3: solicitudes abiertas, para sugerir "¿Es para…?" al registrar para stock. */
+  abiertas?: ShippingV2SolicitudParaComprar[];
+};
+
+/** Lo que la bandeja "Por comprar" manda a Registrar compra. */
+export type ShippingV2SolicitudParaComprar = {
+  id: string;
+  codigo: string;
+  descripcion: string;
+  cantidad: number;
+  categoria: string;
+  costoCotizado: number | null;
+  precioCliente: number;
+  proveedorId: string | null;
+  para: string;
 };
 
 type SelectedPhoto = { id: string; file: File; previewUrl: string };
@@ -284,13 +302,17 @@ function claveFila() {
   return `f${Date.now().toString(36)}${contadorFilas}`;
 }
 
-export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInicial = false, puedeRegistrarRespaldo = false, ordenExistente = null }: Props) {
+export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInicial = false, puedeRegistrarRespaldo = false, ordenExistente = null, solicitudes = [], abiertas = [] }: Props) {
   const router = useRouter();
-  const proveedorOrden = ordenExistente ? proveedores.find((p) => p.id === ordenExistente.proveedorId) : undefined;
+  // Fase 2: si todas las solicitudes sugieren el mismo proveedor, la orden nace con él.
+  const proveedorSolicitudes = !ordenExistente && solicitudes.length && solicitudes.every((s) => s.proveedorId && s.proveedorId === solicitudes[0].proveedorId)
+    ? proveedores.find((p) => p.id === solicitudes[0].proveedorId)
+    : undefined;
+  const proveedorOrden = ordenExistente ? proveedores.find((p) => p.id === ordenExistente.proveedorId) : proveedorSolicitudes;
   const [cab, setCab] = useState<Cabecera>({
-    origen: ordenExistente && proveedorOrden ? origenSegunZona(proveedorOrden.paisZonaLogistica) : "",
+    origen: proveedorOrden ? origenSegunZona(proveedorOrden.paisZonaLogistica) : "",
     operacion: COMPRA,
-    proveedorId: ordenExistente?.proveedorId ?? "",
+    proveedorId: ordenExistente?.proveedorId ?? proveedorSolicitudes?.id ?? "",
     numeroProveedor: ordenExistente?.numeroProveedor ?? "",
     fechaCompra: ordenExistente?.fechaCompra ?? hoyLocal(),
     viaje: "nose",
@@ -308,7 +330,20 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
     respaldoTransaccion: "",
     respaldoComprobanteUrl: "",
   });
-  const [lineas, setLineas] = useState<LineaCompra[]>(() => [nuevaLinea(claveFila(), { condicion: CONDICION_INICIAL, activo: esActivoInicial })]);
+  const [lineas, setLineas] = useState<LineaCompra[]>(() => solicitudes.length
+    ? solicitudes.map((s) => nuevaLinea(claveFila(), {
+        nombre: s.descripcion,
+        categoria: (SHIPPING_V2_CATEGORIAS as readonly string[]).includes(s.categoria) ? s.categoria : "",
+        condicion: CONDICION_INICIAL,
+        cantidad: String(Math.max(1, s.cantidad)),
+        // Un solo registro: las unidades del cliente quedan apartadas en él.
+        seguimiento: "Lote",
+        costoProveedor: s.costoCotizado != null ? String(s.costoCotizado) : "",
+        precioVentaFinal: s.precioCliente > 0 ? String(s.precioCliente) : "",
+        solicitudId: s.id,
+        solicitudPara: `${s.codigo} · ${s.para}`,
+      }))
+    : [nuevaLinea(claveFila(), { condicion: CONDICION_INICIAL, activo: esActivoInicial })]);
   const [abierta, setAbierta] = useState<string | null>(null);
   const [fotos, setFotos] = useState<Record<string, SelectedPhoto[]>>({});
   const fotosRef = useRef<Record<string, SelectedPhoto[]>>({});
@@ -736,6 +771,8 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
           formData.set("sku", "");
         }
         if (orden && esCompra) formData.set("ordenCompraId", orden.id);
+        // Fase 2: el primer registro de la fila cumple su solicitud (se aparta para el cliente).
+        if (j === 0 && l.solicitudId && esCompra) formData.set("solicitudId", l.solicitudId);
         const res = await fetch("/api/shipping-v2/items", { method: "POST", body: formData });
         const payload = await res.json().catch(() => ({}));
         if (!res.ok || !payload.success) {
@@ -767,6 +804,7 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
         yaCreados.push(creado?.sku || "artículo");
         setCreados([...yaCreados]);
         if (payload.packingWarning) avisos.push(String(payload.packingWarning));
+        if (payload.solicitudWarning) avisos.push(String(payload.solicitudWarning));
         // Las fotos de la fila van al primer registro (son las del producto).
         const fotosFila = j === 0 ? (fotos[l.key] ?? []) : [];
         if (fotosFila.length && creado?.id) {
@@ -1040,6 +1078,24 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
                           const pegado = e.clipboardData.getData("text/plain");
                           if (/[\t\n]/.test(pegado.replace(/\s+$/, ""))) { e.preventDefault(); abrirImportar({ texto: pegado }); }
                         }} />
+                      {l.solicitudPara ? (
+                        <span className="mt-0.5 inline-flex max-w-full items-center gap-1 truncate rounded-full border border-[#D7FF4F]/35 px-2 py-px text-[10.5px] font-semibold text-[#D7FF4F]" title="Al guardar, este artículo queda apartado para este cliente.">
+                          Para {l.solicitudPara}
+                          {!solicitudes.some((s) => s.id === l.solicitudId) ? (
+                            <button type="button" onClick={() => setL(l.key, { solicitudId: undefined, solicitudPara: undefined })} className="text-[#8F908A] hover:text-white" title="No es para este cliente">✕</button>
+                          ) : null}
+                        </span>
+                      ) : (() => {
+                        // Punto 3: ¿lo que se registra para stock es lo que un cliente está esperando?
+                        const usadas = new Set(lineas.map((x) => x.solicitudId).filter(Boolean));
+                        const parecida = l.nombre.trim().length >= 6 ? solicitudesParecidas(l.nombre, abiertas.filter((a) => !usadas.has(a.id)).map((a) => ({ ...a, estado: "Por comprar" as const })))[0] : undefined;
+                        return parecida ? (
+                          <button type="button" onClick={() => setL(l.key, { solicitudId: parecida.id, solicitudPara: `${parecida.codigo} · ${parecida.para}`, seguimiento: "Lote", precioVentaFinal: parecida.precioCliente > 0 ? String(parecida.precioCliente) : l.precioVentaFinal })}
+                            className="mt-0.5 block max-w-full truncate text-left text-[11px] font-semibold text-[#f0c75e] hover:underline" title="Un cliente está esperando algo parecido: al guardar quedará apartado para él.">
+                            ¿Es para {parecida.para}? Usar
+                          </button>
+                        ) : null;
+                      })()}
                       {sugerencia && sugerencia !== l.nombre.trim() ? (
                         <button type="button" onClick={() => setL(l.key, { nombre: sugerencia })} className="mt-0.5 block max-w-full truncate text-left text-[11px] text-[#D7FF4F] hover:underline" title="Usar este nombre">Usar: {sugerencia}</button>
                       ) : null}

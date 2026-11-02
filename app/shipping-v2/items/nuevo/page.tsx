@@ -8,11 +8,14 @@ import { getShippingV2AccessContextForSession, getShippingV2OrdenCompraById, get
 import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import type { ShippingV2Proveedor } from "@/types/shipping-v2";
-import { ShippingV2NewItemForm, type ShippingV2CajaAbierta, type ShippingV2OrdenParaAgregar } from "./ShippingV2NewItemForm";
+import { ShippingV2NewItemForm, type ShippingV2CajaAbierta, type ShippingV2OrdenParaAgregar, type ShippingV2SolicitudParaComprar } from "./ShippingV2NewItemForm";
+import { solicitudesParaComprar } from "@/lib/compras/servidor";
+import { puedeComprar } from "@/lib/compras/reglas";
+import { perfilShippingV2 } from "@/lib/shipping-v2/access";
 
 export const dynamic = "force-dynamic";
 
-export default async function ShippingV2NewItemPage({ searchParams }: { searchParams?: Promise<{ activo?: string | string[]; orden?: string | string[] }> }) {
+export default async function ShippingV2NewItemPage({ searchParams }: { searchParams?: Promise<{ activo?: string | string[]; orden?: string | string[]; solicitudes?: string | string[] }> }) {
   const params = searchParams ? await searchParams : {};
   const activoParam = Array.isArray(params.activo) ? params.activo[0] : params.activo;
   const esActivo = activoParam === "1";
@@ -21,6 +24,11 @@ export default async function ShippingV2NewItemPage({ searchParams }: { searchPa
   let ordenExistente: ShippingV2OrdenParaAgregar | null = null;
   let proveedores: ShippingV2Proveedor[] = [];
   let cajasAbiertas: ShippingV2CajaAbierta[] = [];
+  // Fase 2: "Comprar" desde la bandeja "Por comprar" (?solicitudes=rec1,rec2).
+  const solicitudesParam = (Array.isArray(params.solicitudes) ? params.solicitudes[0] : params.solicitudes) || "";
+  let solicitudes: ShippingV2SolicitudParaComprar[] = [];
+  // Punto 3: lo abierto por comprar, para sugerir "¿Es para OR000507?" al registrar para stock.
+  let abiertas: ShippingV2SolicitudParaComprar[] = [];
   let error = "";
   const session = await getSessionFromCookie();
   requirePantallaVisible(session?.user.pantallasRestringidas ?? {}, "shipping-v2", "items");
@@ -36,6 +44,29 @@ export default async function ShippingV2NewItemPage({ searchParams }: { searchPa
       ordenParam ? getShippingV2OrdenCompraById(ordenParam, access) : Promise.resolve(null),
     ]);
     proveedores = listaProveedores;
+    const idsSolicitudes = solicitudesParam.split(",").map((x) => x.trim()).filter((x) => /^rec[A-Za-z0-9]{14}$/.test(x));
+    const comprador = puedeComprar(perfilShippingV2(access));
+    if (comprador && !esActivo && !idsSolicitudes.length) {
+      const { solicitudesEnEstados } = await import("@/lib/compras/airtable");
+      const ids = (await solicitudesEnEstados(["Por comprar"]).catch(() => [])).map((s) => s.id);
+      abiertas = ids.length ? (await solicitudesParaComprar(ids)).map((s) => ({
+        id: s.id, codigo: s.codigo, descripcion: s.descripcion, cantidad: s.cantidad, categoria: s.categoria,
+        costoCotizado: s.costoCotizado, precioCliente: s.precioCliente, proveedorId: s.proveedorId, para: s.para,
+      })) : [];
+    }
+    if (idsSolicitudes.length && comprador) {
+      solicitudes = (await solicitudesParaComprar(idsSolicitudes)).map((s) => ({
+        id: s.id,
+        codigo: s.codigo,
+        descripcion: s.descripcion,
+        cantidad: s.cantidad,
+        categoria: s.categoria,
+        costoCotizado: s.costoCotizado,
+        precioCliente: s.precioCliente,
+        proveedorId: s.proveedorId,
+        para: s.para,
+      }));
+    }
     if (orden && !orden.anulada && orden.proveedorId) {
       ordenExistente = {
         id: orden.id,
@@ -83,7 +114,7 @@ export default async function ShippingV2NewItemPage({ searchParams }: { searchPa
             <p className="mt-2 text-sm leading-6 text-orange-100/85">{error}</p>
           </section>
         ) : null}
-        <ShippingV2NewItemForm proveedores={proveedores} cajasAbiertas={cajasAbiertas} esActivoInicial={esActivo} puedeRegistrarRespaldo={access.permissions.canManagePayments === true} ordenExistente={ordenExistente} />
+        <ShippingV2NewItemForm proveedores={proveedores} cajasAbiertas={cajasAbiertas} esActivoInicial={esActivo} puedeRegistrarRespaldo={access.permissions.canManagePayments === true} ordenExistente={ordenExistente} solicitudes={solicitudes} abiertas={abiertas} />
       </div>
     </div>
     </StaffAppShell>

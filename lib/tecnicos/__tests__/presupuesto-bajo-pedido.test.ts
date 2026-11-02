@@ -103,19 +103,23 @@ const conAnticipo = clasificarOrden({
 });
 assert(!CATEGORIAS.abonos_sin_respaldo.pertenece(conAnticipo), "Abono de $60 con $25 cargados + $90 aprobados sin cargar → NO es de más");
 
-// ─── Un solo camino a "Pedido" ───────────────────────────────────────────────
+// ─── Fase 2 (2-nov-2026): "Pedido" ya no crea artículos ──────────────────────
+// Lo aprobado nace como solicitud de compra y se compra en Shipping V2 (la
+// única pantalla de compras). Ni el tablero de Operaciones ni la tarjeta
+// Presupuesto crean artículos por su cuenta (caso OR000432).
 const raiz = path.join(__dirname, "..", "..", "..");
 const rutaEstado = fs.readFileSync(path.join(raiz, "app", "api", "operaciones", "[id]", "estado", "route.ts"), "utf8");
-const cargar = fs.readFileSync(path.join(raiz, "lib", "tecnicos", "presupuesto", "cargar.ts"), "utf8");
-assert(rutaEstado.includes("pasarOperacionAPedido(") && cargar.includes("pasarOperacionAPedido("),
-  "El tablero de Operaciones y la tarjeta Presupuesto pasan a Pedido por la misma función");
+const rutaPedido = fs.readFileSync(path.join(raiz, "app", "api", "tecnicos", "ordenes", "[id]", "presupuesto", "[lineaId]", "pedido", "route.ts"), "utf8");
+assert(!rutaEstado.includes("pasarOperacionAPedido(") && rutaEstado.includes("asegurarSolicitudDeOpcion("),
+  "Operaciones: aprobar crea la solicitud de compra; \"Pedido\" no crea artículos");
+assert(!rutaPedido.includes("marcarPedidoAlProveedor("), "\"Ya se pidió al proveedor\" ya no crea artículos desde la orden");
 const opsAirtable = fs.readFileSync(path.join(raiz, "lib", "operaciones", "airtable.ts"), "utf8");
 assert(opsAirtable.includes('opRec.fields["Presupuesto por Orden"]'),
   "El artículo nace como compra pendiente de pago cuando la operación viene del presupuesto, sin importar desde dónde se pidió");
 
 // ─── La operación NO existe hasta que el cliente aprueba ─────────────────────
 const soloPresupuesto = linea({ operacionId: null });
-assert(planDeCarga([soloPresupuesto], { items: new Map(), unidadesDigitales: new Map(), pedidos: new Map() })[0].accion.tipo === "crear_pedido_aprobado",
+assert(planDeCarga([soloPresupuesto], { items: new Map(), unidadesDigitales: new Map(), pedidos: new Map() })[0].accion.tipo === "crear_solicitud",
   "Bajo pedido sin operación → al aprobar se CREA la operación (antes no existe)");
 assert(planDeCarga([linea({ operacionId: null, proveedorId: null })], { items: new Map(), unidadesDigitales: new Map() })[0].accion.tipo === "pendiente",
   "Sin proveedor no se crea nada: queda pendiente");

@@ -60,8 +60,11 @@ export type LineaPresupuesto = {
   costoProveedor:     number | null;
   tiempoEstimado:     string;
   categoria:          string;
-  /** La operación comercial (existe desde que el cliente aprobó). */
+  /** La operación comercial (flujo anterior a la Fase 2; solo líneas viejas). */
   operacionId:        string | null;
+  /** Fase 2 (2-nov-2026): la solicitud de compra que nace al aprobar un
+   *  repuesto bajo pedido. Reemplaza a la operación comercial. */
+  solicitudId?:       string | null;
   /** Bitácora: aprobaciones, recotizaciones, cancelaciones. */
   historial:          string;
   aprobadoPor:        string;
@@ -251,7 +254,8 @@ export function fasePedido(p: InfoPedido): FasePedido {
 // datos frescos (el stock pudo cambiar entre la vista previa y el clic).
 
 export type AccionCarga =
-  | { tipo: "crear_pedido_aprobado" }
+  | { tipo: "crear_solicitud" }
+  | { tipo: "esperando_compra" }
   | { tipo: "aprobar_pedido"; operacionId: string; codigo: string }
   | { tipo: "ya_en_inventario"; sku: string }
   | { tipo: "crear_servicio"; costo: number }
@@ -285,14 +289,16 @@ export function planDeCarga(lineas: LineaPresupuesto[], ctx: ContextoCarga): Pas
         return { ...base, accion: { tipo: "crear_servicio", costo: subtotalLinea(l) } };
       }
 
-      // Bajo pedido que todavía es solo presupuesto: al aprobar se crea la
-      // operación comercial directamente en "Aprobado". Antes de eso no existe
-      // (no consume código ni llena el tablero con cotizaciones muertas).
+      // Bajo pedido (Fase 2, 2-nov-2026): al aprobar nace su SOLICITUD DE
+      // COMPRA, que Logística cumple en "Registrar compra". Ya no se crea una
+      // Operación Comercial (punto 8). Si la solicitud ya existe, la línea
+      // espera la compra: no hay nada que cargar todavía.
       if (l.tipo === "Repuesto" && l.bajoPedido && !l.operacionId) {
+        if (l.solicitudId) return { ...base, accion: { tipo: "esperando_compra" } };
         if (!l.proveedorId || l.costoProveedor === null || !(l.precioUnitario > 0)) {
           return { ...base, accion: { tipo: "pendiente", motivo: "Faltan datos del pedido (proveedor, costo o precio)." } };
         }
-        return { ...base, accion: { tipo: "crear_pedido_aprobado" } };
+        return { ...base, accion: { tipo: "crear_solicitud" } };
       }
 
       if (l.tipo === "Repuesto" && l.operacionId) {
@@ -393,9 +399,30 @@ export type ReversasLinea = Record<AccionReversa, Reversa>;
 const NO = (motivo: string): Reversa => ({ permitido: false, motivo });
 const SI: Reversa = { permitido: true };
 
-export function reversasDisponibles(l: LineaPresupuesto, p: InfoPedido | undefined): ReversasLinea {
+export function reversasDisponibles(
+  l: LineaPresupuesto,
+  p: InfoPedido | undefined,
+  /** Fase 2: el artículo comprado para la solicitud de esta línea (si ya existe). */
+  articuloSolicitud?: { sku: string; estado: string } | null,
+): ReversasLinea {
   const ninguna = { cancelar: NO("No aplica."), recotizar: NO("No aplica."), liberar: NO("No aplica.") };
   if (l.estado === "Propuesta" || l.estado === "Rechazada") return ninguna;
+
+  // Fase 2 (2-nov-2026): repuesto bajo pedido con SOLICITUD DE COMPRA.
+  //   · Todavía no se compró: el cliente puede desistir o se recotiza; la
+  //     solicitud se cancela sola (no hubo dinero).
+  //   · Ya se compró: lo decide Compras (quitarlo de la orden de compra con
+  //     el proveedor). Desde la orden solo se puede liberar la pieza a stock.
+  if (l.solicitudId && !l.operacionId) {
+    if (!l.itemId) return { cancelar: SI, recotizar: SI, liberar: NO("Todavía no se compró.") };
+    if (norm(articuloSolicitud?.estado) === "vendido") {
+      const msg = "Ya se facturó o se emitió recibo: corresponde una nota de crédito o la anulación del recibo.";
+      return { cancelar: NO(msg), recotizar: NO(msg), liberar: NO(msg) };
+    }
+    const sku = articuloSolicitud?.sku || "la pieza";
+    const msg = `Ya se compró (${sku}). Si el cliente no la quiere, usa "Liberar a inventario"; si hay que cancelarla con el proveedor, pídeselo a Compras.`;
+    return { cancelar: NO(msg), recotizar: NO(msg), liberar: SI };
+  }
   const esPedido = l.bajoPedido || !!l.operacionId;
 
   // Servicio, repuesto de stock o producto digital: se quitan o se modifican
@@ -706,9 +733,11 @@ export function lineaTrasRetiro(accion: AccionRetiro, motivo: string): {
 
 export type TonoEstado = "neutro" | "exito" | "aviso" | "peligro";
 
-export function estadoVisible(l: Pick<LineaPresupuesto, "estado" | "notaCarga" | "operacionId" | "tipo"> & { bajoPedido?: boolean }): { texto: string; tono: TonoEstado } {
+export function estadoVisible(l: Pick<LineaPresupuesto, "estado" | "notaCarga" | "operacionId" | "tipo"> & { bajoPedido?: boolean; solicitudId?: string | null }): { texto: string; tono: TonoEstado } {
   if (l.estado === "Cargada") return { texto: "Aprobada", tono: "exito" };
   if (l.estado === "Aprobada") {
+    // Fase 2: lo que falta de la compra lo dice el chip de la solicitud.
+    if (l.solicitudId) return { texto: "Aprobada", tono: "exito" };
     if (l.operacionId || l.bajoPedido) return { texto: "Aprobada · falta pedirla", tono: "aviso" };
     if (l.tipo === "Repuesto") return { texto: "Aprobada · sin stock", tono: "aviso" };
     if (l.tipo === "Producto digital") return { texto: "Aprobada · sin código libre", tono: "aviso" };
