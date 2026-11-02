@@ -9,6 +9,7 @@ import {
   type CargoDescontable, type DescuentoCuenta,
 } from "@/lib/estado-cuenta/descuentos";
 import { etiquetaAbono } from "@/lib/cobros/metodos";
+import { enlacesComprobanteAbono } from "@/lib/cobros/comprobante-abono";
 import { SaldoAFavorAcciones, type SaldoInfo } from "./SaldoAFavorAcciones";
 
 // Componente compartido (Fase 11 — Etapa 3): se monta igual en la pantalla de
@@ -258,7 +259,22 @@ export function CuentaUnificadaPanel({
                     {formatCurrency(abono.monto)}
                   </span>
                 </div>
-                <div style={{ marginTop: "2px", fontSize: "11px", color: "#A7A7A7" }}>{formatFecha(abono.fecha)}</div>
+                <div style={{ marginTop: "2px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", fontSize: "11px", color: "#A7A7A7" }}>
+                  <span>{formatFecha(abono.fecha)}</span>
+                  {!anulado && abono.monto > 0 && origenTipo && origenRecordId && (() => {
+                    const enlaces = enlacesComprobanteAbono(origenTipo, origenRecordId, abono.id);
+                    return (
+                      <span style={{ display: "inline-flex", gap: "10px" }}>
+                        <a href={enlaces.ticket} target="_blank" rel="noreferrer" title="Imprimir comprobante de abono (ticket 80 mm)" style={{ color: "#D7FF4F", textDecoration: "none", fontWeight: 600 }}>
+                          Ticket
+                        </a>
+                        <a href={enlaces.pdf} target="_blank" rel="noreferrer" title="Comprobante de abono en PDF" style={{ color: "#D7FF4F", textDecoration: "none", fontWeight: 600 }}>
+                          PDF
+                        </a>
+                      </span>
+                    );
+                  })()}
+                </div>
               </div>
             );
           })}
