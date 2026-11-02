@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Tag, X } from "lucide-react";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
 import {
   cargosDescontables, descuentoPorCargo, montoDesdePorcentaje,
   type CargoDescontable, type DescuentoCuenta,
 } from "@/lib/estado-cuenta/descuentos";
+import { SaldoAFavorAcciones, type SaldoInfo } from "./SaldoAFavorAcciones";
 
 // Componente compartido (Fase 11 — Etapa 3): se monta igual en la pantalla de
 // la orden y en la de la operación. Puramente presentacional — no calcula
@@ -45,6 +46,10 @@ function formatFecha(fecha: string | null) {
 // Auditoría ops, punto 4B: descuentos por línea. Solo el administrador ve la
 // etiqueta 🏷 de cada línea (puedeDescontar); el servidor vuelve a validar
 // todo. onCuentaCambiada recarga la cuenta después de dar o quitar uno.
+// Auditoría ops, punto 13B: si a la cuenta le sobra dinero, en vez de
+// "Emitir" aparecen "Pasar a saldo a favor" y (administrador) "Devolver".
+// Si falta cobrar y el cliente tiene saldo a favor, se avisa junto a
+// "Registrar pago" (ahí se elige "Saldo a favor" como método).
 export function CuentaUnificadaPanel({
   cuenta,
   origenTipo,
@@ -65,6 +70,24 @@ export function CuentaUnificadaPanel({
         ? `/api/tecnicos/ordenes/${encodeURIComponent(origenRecordId)}/descuentos`
         : `/api/operaciones/${encodeURIComponent(origenRecordId)}/descuentos`
       : null;
+  const urlSaldo =
+    origenTipo && origenRecordId
+      ? origenTipo === "orden"
+        ? `/api/tecnicos/ordenes/${encodeURIComponent(origenRecordId)}/saldo-favor`
+        : `/api/operaciones/${encodeURIComponent(origenRecordId)}/saldo-favor`
+      : null;
+  const [saldoInfo, setSaldoInfo] = useState<SaldoInfo | null>(null);
+  const [mensajeSaldo, setMensajeSaldo] = useState<string | null>(null);
+  const consultarSaldo = urlSaldo && Math.abs(cuenta.saldo) > 0.01;
+  useEffect(() => {
+    if (!consultarSaldo || !urlSaldo) { setSaldoInfo(null); return; }
+    let vivo = true;
+    fetch(urlSaldo)
+      .then((r) => r.json())
+      .then((j) => { if (vivo) setSaldoInfo(j?.success ? (j.data as SaldoInfo) : null); })
+      .catch(() => { if (vivo) setSaldoInfo(null); });
+    return () => { vivo = false; };
+  }, [consultarSaldo, urlSaldo, cuenta.saldo]);
   const descuentos = descuentoPorCargo(cuenta.descuentos ?? []);
   const cargos = new Map(cargosDescontables(cuenta).map((c) => [c.id, c]));
   const [abierto, setAbierto] = useState<string | null>(null);
@@ -220,7 +243,7 @@ export function CuentaUnificadaPanel({
                           ? "Operación"
                           : "Orden + Operación"}
                     </Badge>
-                    <span>{abono.metodoPago ?? "Sin método"}</span>
+                    <span>{etiquetaAbono(abono.metodoPago, abono.monto)}</span>
                     {anulado && <Badge tone="danger">Anulado</Badge>}
                   </div>
                   <span
@@ -281,7 +304,18 @@ export function CuentaUnificadaPanel({
         </span>
       </div>
 
-      {hrefEmitirDocumento && (
+      {mensajeSaldo && (
+        <p style={{ margin: "-6px 14px 10px", fontSize: "12px", color: "#56E3A4", animation: "sg-destello 900ms ease-out" }}>{mensajeSaldo}</p>
+      )}
+
+      {saldoEsFavor && urlSaldo ? (
+        <SaldoAFavorAcciones
+          url={urlSaldo}
+          sobrante={Math.abs(cuenta.saldo)}
+          info={saldoInfo}
+          onHecho={(m) => { setMensajeSaldo(m); onCuentaCambiada?.(); }}
+        />
+      ) : hrefEmitirDocumento && (
         <div style={{ margin: "0 14px 14px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
           {puedeEmitir ? (
             <Link href={hrefEmitirDocumento} style={{ ...BOTON, ...BOTON_PRIMARIO, flex: 1 }}>
@@ -304,6 +338,11 @@ export function CuentaUnificadaPanel({
               <Link href={`${hrefEmitirDocumento}&tipo=proforma`} style={{ fontSize: "12px", color: "#A7A7A7", textDecoration: "underline" }}>
                 Proforma
               </Link>
+              {!saldoEsFavor && !saldoEsCero && (saldoInfo?.disponible ?? 0) > 0.01 && (
+                <span style={{ flexBasis: "100%", fontSize: "11px", color: "#56E3A4" }}>
+                  El cliente tiene {formatCurrency(saldoInfo!.disponible)} de saldo a favor: elígelo como método en «Registrar pago».
+                </span>
+              )}
             </>
           )}
         </div>
@@ -463,6 +502,14 @@ function CargoRow({
       )}
     </div>
   );
+}
+
+// Cómo se lee cada pago de la cuenta. Los del saldo a favor (punto 13B)
+// dicen qué pasó con el dinero, no solo el método.
+function etiquetaAbono(metodo: string | null, monto: number): string {
+  if (metodo === "Saldo a favor") return monto < 0 ? "Pasado a saldo a favor" : "Pagado con saldo a favor";
+  if (metodo === "Devolución") return "Devuelto al cliente";
+  return metodo ?? "Sin método";
 }
 
 function LedgerRow({ label, origen, value }: { label: string; origen: string; value: string }) {

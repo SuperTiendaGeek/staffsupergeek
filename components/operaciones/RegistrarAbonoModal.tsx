@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, DollarSign } from "lucide-react";
 import { METODOS_COBRO_NUEVO, etiquetaMetodoPago, requiereNumeroTransaccion } from "@/types/abonos";
+import { METODO_SALDO_A_FAVOR, maximoUsable } from "@/lib/saldo-favor/reglas";
 
 function defaultEcuadorDatetime(): string {
   // Return current time as YYYY-MM-DDTHH:mm in Ecuador timezone (UTC-5)
@@ -34,6 +35,25 @@ export function RegistrarAbonoModal({ operacionId, ordenId, montoSugerido, onClo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Auditoría ops, punto 13B: si el cliente tiene saldo a favor, se ofrece
+  // como método. No es dinero nuevo: lo registra la ruta del saldo a favor.
+  const urlSaldo = operacionId
+    ? `/api/operaciones/${operacionId}/saldo-favor`
+    : ordenId
+      ? `/api/tecnicos/ordenes/${ordenId}/saldo-favor`
+      : null;
+  const [saldoAFavor, setSaldoAFavor] = useState(0);
+  useEffect(() => {
+    if (!urlSaldo) return;
+    let vivo = true;
+    fetch(urlSaldo)
+      .then((r) => r.json())
+      .then((j) => { if (vivo) setSaldoAFavor(j?.success ? Number(j.data?.disponible) || 0 : 0); })
+      .catch(() => { if (vivo) setSaldoAFavor(0); });
+    return () => { vivo = false; };
+  }, [urlSaldo]);
+  const usaSaldo = metodoPago === METODO_SALDO_A_FAVOR;
+
   const montoNum = parseFloat(monto);
   const montoValido = !isNaN(montoNum) && montoNum > 0;
 
@@ -52,6 +72,18 @@ export function RegistrarAbonoModal({ operacionId, ordenId, montoSugerido, onClo
     setError("");
 
     try {
+      if (usaSaldo) {
+        if (!urlSaldo) { setError("Falta la orden o la operación."); return; }
+        const res = await fetch(urlSaldo, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accion: "usar", monto: montoNum }),
+        });
+        const data = (await res.json()) as { success: boolean; error?: string };
+        if (!res.ok || !data.success) { setError(data.error ?? "No se pudo usar el saldo a favor."); return; }
+        onSuccess();
+        return;
+      }
       if (!operacionId) {
         // Abono directo a la orden (sin operación vinculada).
         if (!ordenId) { setError("Falta la orden."); return; }
@@ -179,13 +211,22 @@ export function RegistrarAbonoModal({ operacionId, ordenId, montoSugerido, onClo
             <select
               id="abono-metodo"
               value={metodoPago}
-              onChange={(e) => setMetodoPago(e.target.value)}
+              onChange={(e) => {
+                setMetodoPago(e.target.value);
+                if (e.target.value === METODO_SALDO_A_FAVOR) {
+                  const usable = maximoUsable(saldoAFavor, montoSugerido ?? saldoAFavor);
+                  if (usable > 0) setMonto(usable.toFixed(2));
+                }
+              }}
               required
               disabled={loading}
               className="w-full rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2.5 text-sm text-[#F0F0EC] outline-none transition focus:border-[#D7FF4F]/60 focus:ring-1 focus:ring-[#D7FF4F]/20 disabled:opacity-50"
             >
               {/* Auditoría ops, punto 1: solo métodos con cuenta real, y cada
                   uno dice a qué cuenta entra (Banco Pichincha ≠ DeUna). */}
+              {saldoAFavor > 0.01 && (
+                <option value={METODO_SALDO_A_FAVOR}>Saldo a favor del cliente · disponible ${saldoAFavor.toFixed(2)}</option>
+              )}
               {METODOS_COBRO_NUEVO.map((m) => (
                 <option key={m} value={m}>
                   {etiquetaMetodoPago(m)}
@@ -210,6 +251,7 @@ export function RegistrarAbonoModal({ operacionId, ordenId, montoSugerido, onClo
             />
           </div>
 
+          {!usaSaldo && (<>
           {/* Comprobante */}
           <div className="flex flex-col gap-1.5">
             <label htmlFor="abono-comprobante" className="text-xs font-medium text-[#8A8A80]">
@@ -250,6 +292,7 @@ export function RegistrarAbonoModal({ operacionId, ordenId, montoSugerido, onClo
               className="w-full rounded-lg border border-[#3A3A36] bg-[#252622] px-3 py-2.5 text-sm text-[#F0F0EC] placeholder-[#4A4A46] outline-none transition focus:border-[#D7FF4F]/60 focus:ring-1 focus:ring-[#D7FF4F]/20 disabled:opacity-50"
             />
           </div>
+          </>)}
 
           {/* Observación */}
           <div className="flex flex-col gap-1.5">

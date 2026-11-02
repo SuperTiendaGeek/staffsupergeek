@@ -20,6 +20,7 @@ import type { OrdenCobro } from "@/lib/tecnicos/cobros/reglas";
 import { PresupuestoCard } from "@/components/tecnicos/ordenes/PresupuestoCard";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
 import { METODOS_COBRO_NUEVO, esMetodoCobroNuevoValido, etiquetaMetodoPago, requiereNumeroTransaccion } from "@/types/abonos";
+import { METODO_SALDO_A_FAVOR, maximoUsable } from "@/lib/saldo-favor/reglas";
 import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
 
 type HistorialItem = {
@@ -823,6 +824,17 @@ export function OrdenDetalleClient() {
       .catch(() => setCobro(null));
   };
 
+  // Auditoría ops, punto 13B: saldo a favor del cliente, para ofrecerlo como
+  // método en "Registrar abono" (se lee al abrir el formulario).
+  const [saldoAFavorCliente, setSaldoAFavorCliente] = useState(0);
+  const cargarSaldoAFavorCliente = () => {
+    if (!id) return;
+    fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id)}/saldo-favor`)
+      .then((r) => r.json())
+      .then((j) => setSaldoAFavorCliente(j?.success ? Number(j.data?.disponible) || 0 : 0))
+      .catch(() => setSaldoAFavorCliente(0));
+  };
+
   const handleGuardarAbono = async () => {
     if (!id || abonoSaving) return;
 
@@ -841,6 +853,31 @@ export function OrdenDetalleClient() {
     const metodoPago = abonoMetodoPago.trim();
     if (!metodoPago) {
       setAbonoError("Selecciona un método de pago.");
+      return;
+    }
+    // Pagar con el saldo a favor del cliente: no entra dinero nuevo, lo
+    // registra el servidor del saldo a favor (valida disponible y pendiente).
+    if (metodoPago === METODO_SALDO_A_FAVOR) {
+      setAbonoSaving(true);
+      setAbonoError(null);
+      setAbonoMessage(null);
+      try {
+        const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(id)}/saldo-favor`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accion: "usar", monto }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error(json.error || "No se pudo usar el saldo a favor");
+        setOpenAbonoModal(false);
+        await refreshOrdenDetalleFinanzas();
+        resetAbonoForm();
+        setAbonoMessage(json.warning ? `Pago con saldo a favor registrado. ${json.warning}` : "Pago con saldo a favor registrado.");
+      } catch (err) {
+        setAbonoError(err instanceof Error ? err.message : "Error desconocido");
+      } finally {
+        setAbonoSaving(false);
+      }
       return;
     }
     if (!esMetodoCobroNuevoValido(metodoPago)) {
@@ -2287,7 +2324,7 @@ export function OrdenDetalleClient() {
                   }
                   origenTipo="orden"
                   puedeDescontar={isAdministratorRole(userRol)}
-                  onCuentaCambiada={() => void loadCuentaUnificada()}
+                  onCuentaCambiada={() => void refreshOrdenDetalleFinanzas()}
                   onRegistrarPago={() => {
                     setAbonoError(null);
                     setAbonoMessage(null);
@@ -2295,6 +2332,7 @@ export function OrdenDetalleClient() {
                     // para pagos en varias partes).
                     const saldo = cuentaUnificada?.saldo ?? 0;
                     if (saldo > 0) setAbonoMonto(saldo.toFixed(2));
+                    cargarSaldoAFavorCliente();
                     setOpenAbonoModal(true);
                   }}
                 />
@@ -2765,11 +2803,22 @@ export function OrdenDetalleClient() {
                     <label className="text-xs font-medium text-[#A7A7A7]">Método de pago</label>
                     <select
                       value={abonoMetodoPago}
-                      onChange={(e) => setAbonoMetodoPago(e.target.value)}
+                      onChange={(e) => {
+                        setAbonoMetodoPago(e.target.value);
+                        if (e.target.value === METODO_SALDO_A_FAVOR) {
+                          const usable = maximoUsable(saldoAFavorCliente, Math.max(0, cuentaUnificada?.saldo ?? 0));
+                          if (usable > 0) setAbonoMonto(usable.toFixed(2));
+                        }
+                      }}
                       className="w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F5F5F5] focus:border-[#D7FF4F]/70 focus:outline-none"
                       disabled={abonoSaving}
                     >
                       <option value="">Seleccionar método de pago</option>
+                      {saldoAFavorCliente > 0.01 && (
+                        <option value={METODO_SALDO_A_FAVOR}>
+                          Saldo a favor del cliente · disponible ${saldoAFavorCliente.toFixed(2)}
+                        </option>
+                      )}
                       {/* Auditoría ops, punto 1: solo métodos con cuenta real, y
                           cada uno dice a qué cuenta entra (Banco Pichincha ≠ DeUna). */}
                       {METODOS_COBRO_NUEVO.map((method) => (
@@ -2779,6 +2828,7 @@ export function OrdenDetalleClient() {
                       ))}
                     </select>
                   </div>
+                  {abonoMetodoPago !== METODO_SALDO_A_FAVOR && (<>
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-[#A7A7A7]">
                       N° de transacción{" "}
@@ -2821,6 +2871,7 @@ export function OrdenDetalleClient() {
                       Se sube al guardar (máx. 5MB, imagen o PDF).
                     </p>
                   </div>
+                  </>)}
                   <textarea
                     value={abonoObservacion}
                     onChange={(e) => setAbonoObservacion(e.target.value)}

@@ -53,9 +53,13 @@ export const TARIFA_IVA_ITEM_DEFAULT = TARIFA_IVA_SRI["15%"];
 //     necesitar revisión caso por caso.
 // Auditoría ops, punto 7: derivado del catálogo único (lib/cobros/metodos.ts).
 // Antes era una tabla aparte que había que mantener sincronizada a mano.
-export const MAPA_METODO_PAGO_SRI: Record<string, string> = Object.fromEntries(
-  TODOS_LOS_METODOS.map((m) => [m, METODOS_COBRO[m].codigoSri])
-);
+export const MAPA_METODO_PAGO_SRI: Record<string, string> = {
+  ...Object.fromEntries(TODOS_LOS_METODOS.map((m) => [m, METODOS_COBRO[m].codigoSri])),
+  // Auditoría ops, punto 13B: pagar con el saldo a favor del cliente no es
+  // dinero nuevo — ante el SRI es compensación de deudas (15), igual que el
+  // crédito de una nota de crédito.
+  "Saldo a favor": "15",
+};
 
 // Forma de pago para la línea de saldo pendiente que agrega la pre-factura
 // cuando totalCuenta > totalAbonado (Decisión #4.4 del diseño). Editable en

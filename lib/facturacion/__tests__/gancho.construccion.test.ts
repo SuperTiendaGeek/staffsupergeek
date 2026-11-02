@@ -274,6 +274,44 @@ for (const precioFinal of [100, 50, 80, 35, 20, 46, 33.33, 10, 1, 0.01, 115, 19.
   assert(pagos[0].formaPago === "01", "Método de pago desconocido cae al fallback (01)");
 }
 
+// ─── Saldo a favor (auditoría ops, punto 13B) ─────────────────────────────────
+// +$100 transferencia y −$20 pasado a saldo a favor: la factura de $80 dice
+// "transferencia $80" (el SRI no acepta formas de pago negativas).
+{
+  const pagos = calcularFormasPago(
+    [
+      { metodoPago: "Transferencia", monto: 100, numeroTransaccion: "TRF-1" },
+      { metodoPago: "Saldo a favor", monto: -20, numeroTransaccion: null },
+    ],
+    80
+  );
+  assert(pagos.length === 1 && pagos[0].formaPago === "20" && pagos[0].total === 80, "La salida a saldo a favor se descuenta del pago: transferencia $80");
+}
+// Pagar con saldo a favor = compensación (15); la salida se descuenta del último pago.
+{
+  const pagos = calcularFormasPago(
+    [
+      { metodoPago: "Saldo a favor", monto: 20, numeroTransaccion: null },
+      { metodoPago: "Efectivo", monto: 15, numeroTransaccion: null },
+    ],
+    35
+  );
+  assert(pagos.length === 2 && pagos[0].formaPago === "15" && pagos[0].total === 20, "Pagado con saldo a favor → forma de pago 15 (compensación)");
+  assert(pagos[1].formaPago === "01" && pagos[1].total === 15, "El resto en efectivo → 01");
+}
+{
+  const pagos = calcularFormasPago(
+    [
+      { metodoPago: "Efectivo", monto: 30, numeroTransaccion: null },
+      { metodoPago: "Transferencia", monto: 10, numeroTransaccion: "T" },
+      { metodoPago: "Devolución", monto: -15, numeroTransaccion: null },
+    ],
+    25
+  );
+  const suma = pagos.reduce((s, p) => s + p.total, 0);
+  assert(Math.abs(suma - 25) < 0.01 && pagos.every((p) => p.total > 0), "Una devolución que supera el último pago se reparte hacia atrás y nunca deja pagos negativos");
+}
+
 if (fallos > 0) {
   console.error(`\n❌ gancho.construccion.test.ts — ${fallos} aserción(es) fallida(s)`);
   process.exit(1);
