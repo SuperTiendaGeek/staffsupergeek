@@ -10,9 +10,12 @@ import {
   validarUsoDeSaldo,
   venceDe,
   fechaLiberacionDeHistorial,
+  montoSaldoEnPagos,
+  repartirConsumo,
   type MovimientoSaldo,
 } from "../reglas";
 import { calcularEstadoCuenta } from "../../estado-cuenta/reglas";
+import { mensajeCobrosInvalidos, normalizarCobrosNuevos } from "../../cobros/metodos";
 
 let fallos = 0;
 function assert(cond: boolean, msg: string): void {
@@ -101,6 +104,29 @@ assert(maximoUsable(50, 35) === 35 && maximoUsable(20, 35) === 20 && maximoUsabl
   const karina = "[2026-10-20 07:59] Sistema (proceso diario): Liberada sola: venció el 2026-10-17 y pasaron 3 días sin extenderla ni liberarla. Saldo a favor: $10.00.";
   assert(venceDe(fechaLiberacionDeHistorial(karina)) === "2027-04-20", "RES-000002: vence el 20-abr-2027");
   assert(fechaLiberacionDeHistorial("[2026-10-01 10:00] Extendida 7 días") === "", "sin línea de liberación → sin fecha");
+}
+
+// ── 13B-2: factura y recibo de mostrador ─────────────────────────────────────
+{
+  // Aaron (saldo $320) compra un cargador de $35 y paga $20 con saldo + $15 efectivo.
+  const pagos = [
+    { metodoPago: "Saldo a favor", total: 20, referencia: "" },
+    { metodoPago: "Efectivo", total: 15, referencia: "" },
+  ];
+  assert(mensajeCobrosInvalidos(pagos, 35, "la venta", { permitirSaldoAFavor: true }) === null, "mostrador: saldo a favor + efectivo es un cobro válido");
+  assert(mensajeCobrosInvalidos(pagos, 35) !== null, "fuera del mostrador (venta adicional) el saldo a favor no se acepta");
+  const n = normalizarCobrosNuevos(pagos.map((p) => ({ ...p, formaPago: "01" })));
+  assert(n.error === null && n.pagos[0].formaPago === "15" && n.pagos[1].formaPago === "01", "el servidor lo convierte en compensación (15)");
+  assert(montoSaldoEnPagos(n.pagos) === 20, "se usan $20 de saldo");
+  assert(montoSaldoEnPagos([{ formaPago: "15", total: 30, origenPago: "abono" }]) === 0, "un abono ya registrado no cuenta como uso nuevo");
+}
+{
+  const lotes = [
+    { id: "res", fecha: "2026-10-09", vence: "2027-04-09", original: 20, restante: 20 },
+    { id: "nc", fecha: "2026-10-23", vence: "2027-04-23", original: 320, restante: 320 },
+  ];
+  const r = repartirConsumo(lotes, 35);
+  assert(r.length === 2 && r[0].loteId === "res" && r[0].toma === 20 && r[1].loteId === "nc" && r[1].toma === 15, "$35 salen primero de los $20 que vencen antes y $15 de la NC");
 }
 
 if (fallos > 0) { console.error(`\n${fallos} prueba(s) fallaron.`); process.exit(1); }

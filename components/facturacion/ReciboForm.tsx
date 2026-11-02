@@ -5,6 +5,7 @@
 // Dedicado; reutiliza los endpoints de clientes/productos, sin tocar el
 // formulario de facturas de producción.
 
+import { useSaldoAFavorCliente } from "@/lib/saldo-favor/useSaldoAFavor";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { AvisoNovedadVenta, cerrarNovedadesVendidas, hayAvisoPendiente, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
 import Link from "next/link";
@@ -61,6 +62,8 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
   const [abonos] = useState<AbonoPrefill[]>(() => (prefactura ? abonosDesdePrefactura(prefactura) : []));
   // Cobros de mostrador (punto 7): método + monto + n.º de transacción.
   const [pagosMostrador, setPagosMostrador] = useState<PagoAdicionalForm[]>(() => [nuevoPagoAdicional(0)]);
+  // Auditoría ops, punto 13B-2: saldo a favor del cliente elegido.
+  const saldoAFavorCliente = useSaldoAFavorCliente(cliente.airtableId);
   const [pagosAdicionales, setPagosAdicionales] = useState<PagoAdicionalForm[]>([]);
   const [nota, setNota] = useState("");
   const [generando, setGenerando] = useState(false);
@@ -122,7 +125,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
     const errPrecioShipping = mensajePrecioShippingItemInvalido(lineas);
     if (errPrecioShipping) { setError(errPrecioShipping); return; }
     if (!origen) {
-      const errCobro = mensajeCobrosInvalidos(pagosMostrador, total, "el recibo");
+      const errCobro = mensajeCobrosInvalidos(pagosMostrador, total, "el recibo", { permitirSaldoAFavor: true });
       if (errCobro) { setError(errCobro); return; }
     }
     if (origen) {
@@ -266,7 +269,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
         )}
         {origen
           ? <PagosVentaAdicional total={totalAdicional} pagos={pagosAdicionales} onChange={setPagosAdicionales} />
-          : <PagosPorMetodo titulo="Cobro" total={total} pagos={pagosMostrador} onChange={setPagosMostrador} />}
+          : <PagosPorMetodo titulo="Cobro" total={total} pagos={pagosMostrador} onChange={setPagosMostrador} saldoAFavor={saldoAFavorCliente} />}
 
         <div className="flex justify-end mt-4">
           <table className="text-sm">

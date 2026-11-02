@@ -7,6 +7,7 @@ import "server-only";
 
 import {
   airtableMutation,
+  airtableRequest,
   compactFields,
   fetchRecordById,
   fetchRecordsByIds,
@@ -28,6 +29,9 @@ export type RegistroSaldo = MovimientoSaldo & {
   ordenIds: string[];
   operacionIds: string[];
   reservaIds: string[];
+  notaCreditoIds: string[];
+  facturaIds: string[];
+  reciboIds: string[];
   movimientoIds: string[];
 };
 
@@ -52,6 +56,9 @@ export function registroDesdeAirtable(r: AirtableRecord): RegistroSaldo {
     ordenIds: linkedIds(f["Orden"]),
     operacionIds: linkedIds(f["Operación"]),
     reservaIds: linkedIds(f["Reserva"]),
+    notaCreditoIds: linkedIds(f["Nota de Crédito"]),
+    facturaIds: linkedIds(f["Factura"]),
+    reciboIds: linkedIds(f["Recibo"]),
     movimientoIds: linkedIds(f["Movimiento Financiero"]),
   };
 }
@@ -62,6 +69,21 @@ export async function movimientosDeCliente(clienteId: string): Promise<RegistroS
   if (!cliente) return [];
   const ids = linkedIds(cliente.fields[CAMPO_INVERSO]);
   return (await fetchRecordsByIds(TABLA_SALDO_A_FAVOR, ids)).map(registroDesdeAirtable);
+}
+
+/** Todos los movimientos (la tabla es chica: un registro por movimiento de saldo). */
+export async function todosLosMovimientos(): Promise<RegistroSaldo[]> {
+  const out: RegistroSaldo[] = [];
+  let offset: string | undefined;
+  do {
+    const u = new URL(tableUrl(TABLA_SALDO_A_FAVOR));
+    u.searchParams.set("pageSize", "100");
+    if (offset) u.searchParams.set("offset", offset);
+    const data = await airtableRequest<{ records?: AirtableRecord[]; offset?: string }>(u.toString());
+    out.push(...(data.records ?? []).map(registroDesdeAirtable));
+    offset = data.offset;
+  } while (offset);
+  return out;
 }
 
 /** Movimientos por sus ids (p. ej. desde el campo inverso de un abono o una reserva). */

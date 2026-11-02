@@ -5,6 +5,7 @@ import { revertirInventarioRecibo, revertirIngresoRecibo, revertirProductosDigit
 import { revertirPuenteRecibo } from "@/lib/finanzas/puentes/recibo";
 import { getFacturacionConfig }      from "@/lib/facturacion/config";
 import { reabrirOrigenTrasAnulacion } from "@/lib/facturacion/anulaciones/origen";
+import { devolverSaldoUsadoEnRecibo } from "@/lib/saldo-favor/servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
           clienteRecordId: recibo.clienteRecordId, registradoPor, ambiente: cfg.ambiente,
         }).catch((e) => console.error("[anular recibo] contable:", e));
       }
+    }
+
+    // Auditoría ops, punto 13B-2: si se pagó con saldo a favor, el cliente lo recupera.
+    if (!recibo.origen && cfg.ambiente === "2") {
+      await devolverSaldoUsadoEnRecibo(id).catch((e) => console.error("[anular recibo] saldo a favor:", e));
     }
 
     return NextResponse.json({ success: true, data: { numero: recibo.numero } });

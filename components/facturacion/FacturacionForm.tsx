@@ -1,5 +1,6 @@
 "use client";
 
+import { useSaldoAFavorCliente } from "@/lib/saldo-favor/useSaldoAFavor";
 import { precioYDescuentoFinal } from "@/lib/facturacion/gancho/prefill";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useSearchParams }             from "next/navigation";
@@ -381,6 +382,8 @@ export function FacturacionForm({
   // Cobros de mostrador (punto 7): una o varias filas método + monto + n.º
   // de transacción. Una sola fila sigue el total de la venta.
   const [pagosMostrador, setPagosMostrador] = useState<PagoAdicionalForm[]>(() => [nuevoPagoAdicional(0)]);
+  // Auditoría ops, punto 13B-2: saldo a favor del cliente elegido.
+  const saldoAFavorCliente = useSaldoAFavorCliente(cliente.airtableId);
   // Toggle "Precios incluyen IVA" — default activado (decisión de negocio:
   // los precios que maneja el negocio ya incluyen IVA). Al desactivarlo,
   // el formulario vuelve al cálculo histórico (precio = base, IVA sumado
@@ -870,7 +873,7 @@ export function FacturacionForm({
         ? null
         : pagosReemplazo
         ? pagosReemplazo.filter((p) => p.formaPago !== "15").map((p) => mensajeCobroInvalido(p)).find(Boolean) ?? null
-        : mensajeCobrosInvalidos(pagosMostrador, totales.importeTotal);
+        : mensajeCobrosInvalidos(pagosMostrador, totales.importeTotal, "la venta", { permitirSaldoAFavor: true });
       if (errCobro) { setErrGlobal(errCobro); return; }
     }
 
@@ -1031,24 +1034,9 @@ export function FacturacionForm({
           setErrGlobal(j.error ?? "Error al emitir");
         }
       } else {
-        // Reemplazo: al autorizar, descontar el crédito de la NC (best-effort;
-        // si falla, la factura ya es válida — el aviso pide conciliar a mano).
-        if (reemplazoNC && pagosReemplazo && j.data?.estado === "AUTORIZADO" && j.data.recordId) {
-          const comp = pagosReemplazo.find((p) => p.formaPago === "15")?.total ?? 0;
-          if (comp > 0) {
-            try {
-              const cr = await fetch("/api/facturacion/nota-credito/consumir", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ notaCreditoRecordId: reemplazoNC.recordId, monto: comp, facturaReemplazoRecordId: j.data.recordId }),
-              });
-              const cj = await cr.json();
-              if (!cj.success) setErrGlobal(`Factura emitida, pero el crédito de la NC ${reemplazoNC.numero} no se descontó automáticamente: ${cj.error}. Revísalo en el historial de notas de crédito.`);
-            } catch {
-              setErrGlobal(`Factura emitida, pero no se pudo descontar el crédito de la NC ${reemplazoNC.numero}. Revísalo a mano.`);
-            }
-          }
-        }
+        // Reemplazo y pago con saldo a favor (auditoría ops, punto 13B-2):
+        // el servidor descuenta el saldo del cliente al autorizar (antes lo
+        // hacía esta pantalla, y si se cerraba el crédito quedaba sin descontar).
         setResultado(j.data!);
         if (j.data.estado === "AUTORIZADO" || j.data.estado === "EN PROCESAMIENTO") {
           // Punto 8b: solo con la venta hecha se cierran sus novedades.
@@ -1383,6 +1371,7 @@ export function FacturacionForm({
                     total={totales.importeTotal}
                     pagos={pagosMostrador}
                     onChange={setPagosMostrador}
+                    saldoAFavor={saldoAFavorCliente}
                   />
                 )}
               </>

@@ -1,3 +1,4 @@
+import { generarSaldoPorNotaCredito } from "@/lib/saldo-favor/servidor";
 import { NextResponse }              from "next/server";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
 import { obtenerFactura }            from "@/lib/facturacion/airtable/facturas";
@@ -216,6 +217,19 @@ export async function POST(request: Request) {
       });
       if (puente.estado === "ERROR") {
         console.error("[/api/facturacion/nota-credito/emitir] puente contable falló:", puente.motivo);
+      }
+      // (c) Auditoría ops, punto 13B-2: el crédito (cambio de equipo o saldo
+      // a favor) pasa al saldo único del cliente. Nunca lanza.
+      if (body.destino !== "reembolso") {
+        try {
+          const r = await generarSaldoPorNotaCredito({
+            ncId: resultado.recordId,
+            registradoPor: session.user.nombre || session.user.email || "Portal",
+          });
+          if (r.estado === "omitido") console.warn("[/api/facturacion/nota-credito/emitir] saldo a favor:", r.motivo);
+        } catch (e) {
+          console.error("[/api/facturacion/nota-credito/emitir] saldo a favor falló:", e);
+        }
       }
       // Solo el reembolso necesita que la pantalla sepa cómo terminó Finanzas:
       // si el egreso no se registró, el usuario tiene que saberlo antes de

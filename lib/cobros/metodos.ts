@@ -124,16 +124,34 @@ const TOLERANCIA = 0.01;
 export type CobroInput = { metodoPago?: string | null; total: number; referencia?: string | null };
 
 /**
+ * Auditoría ops, punto 13B: pagar con el saldo a favor del cliente. No es un
+ * método de cobro (no entra dinero nuevo ni va a ninguna cuenta): ante el SRI
+ * es compensación de deudas (15). Solo en factura y recibo de mostrador, y el
+ * servidor verifica que el cliente tenga ese saldo antes de emitir.
+ */
+export const METODO_SALDO_A_FAVOR = "Saldo a favor";
+export const CODIGO_SRI_COMPENSACION = "15";
+
+/**
  * Valida los cobros de una venta: cada uno con método vigente (con cuenta),
  * monto > 0 y número de transacción si el método lo exige; y que sumen el
  * total. `que` nombra lo que se cobra en los mensajes ("la venta", "la venta
  * adicional"). null = todo bien.
  */
-export function mensajeCobrosInvalidos(pagos: readonly CobroInput[], total: number, que = "la venta"): string | null {
+export function mensajeCobrosInvalidos(
+  pagos: readonly CobroInput[],
+  total: number,
+  que = "la venta",
+  opciones: { permitirSaldoAFavor?: boolean } = {},
+): string | null {
   const t = round2(total);
   if (pagos.length === 0) return `Falta registrar cómo pagó el cliente ${que} (${dinero(t)}).`;
   for (const p of pagos) {
     const metodo = p.metodoPago?.trim() ?? "";
+    if (metodo === METODO_SALDO_A_FAVOR && opciones.permitirSaldoAFavor) {
+      if (!(p.total > 0)) return `Cada pago de ${que} debe ser mayor a $0.`;
+      continue;
+    }
     if (!esMetodoVigente(metodo)) {
       return metodo
         ? `El método "${metodo}" no sirve para cobrar: no dice a qué cuenta entra el dinero. Elige otro.`
@@ -165,6 +183,10 @@ export function normalizarCobrosNuevos<T extends PagoDocumento>(pagos: readonly 
   const out: T[] = [];
   for (const p of pagos) {
     if (p.origenPago === "abono" || p.formaPago === "15") { out.push(p); continue; }
+    if (p.metodoPago === METODO_SALDO_A_FAVOR) {
+      out.push({ ...p, formaPago: CODIGO_SRI_COMPENSACION, referencia: undefined });
+      continue;
+    }
     const error = mensajeCobroInvalido(p);
     if (error) return { error, pagos: [...pagos] };
     out.push({ ...p, formaPago: METODOS_COBRO[p.metodoPago as MetodoCobro].codigoSri, referencia: p.referencia?.trim() || undefined });
