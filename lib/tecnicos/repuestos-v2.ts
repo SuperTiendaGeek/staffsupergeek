@@ -41,10 +41,13 @@ export async function agregarRepuestoStockAOrden({
   ordenRecordId,
   itemId,
   registradoPor,
+  compradoParaEstaOrden,
 }: {
   ordenRecordId: string;
   itemId: string;
   registradoPor: string;
+  /** Solo cargarCompraEnLinea: el artículo se compró para esta orden y puede venir en camino. */
+  compradoParaEstaOrden?: boolean;
 }): Promise<ShippingV2RepuestoStockResumen> {
   const client = getClient();
   const orden = await fetchOrdenModoYVisible(ordenRecordId, client);
@@ -60,6 +63,7 @@ export async function agregarRepuestoStockAOrden({
     ordenRecordId,
     ordenIdVisible: orden.idVisible,
     registradoPor,
+    compradoParaEstaOrden,
   });
 }
 

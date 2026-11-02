@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import { aplicarCompra } from "@/lib/compras/servidor";
+import { solicitudPorId } from "@/lib/compras/airtable";
+import { puedeComprar, validarCategoriaDeCompra } from "@/lib/compras/reglas";
+import { perfilShippingV2 } from "@/lib/shipping-v2/access";
 import { addFotosToShippingV2Item, addItemsToShippingV2Packing, canShippingV2, createShippingV2Item, createShippingV2Pago, getShippingV2AccessContextForSession, getShippingV2Items, type ShippingV2AttachmentUpload } from "@/lib/shipping-v2/airtable";
 import { getShippingV2SessionName, requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import type { ShippingV2ItemWriteInput } from "@/types/shipping-v2";
@@ -178,10 +182,34 @@ export async function POST(request: Request) {
     if (ordenCompraId && respaldo) {
       return NextResponse.json({ success: false, error: "El pago de una orden se registra en la orden, no en cada artículo." }, { status: 400 });
     }
+    // Fase 2: la fila viene de una solicitud de compra (bandeja "Por comprar").
+    // Se valida ANTES de crear: compran Staff y Administradores, nunca dos veces.
+    const solicitudId = String(body.solicitudId ?? "").trim();
+    if (solicitudId) {
+      if (!puedeComprar(perfilShippingV2(access))) {
+        return NextResponse.json({ success: false, error: "Las compras las registran Staff o un Administrador." }, { status: 403 });
+      }
+      const s = await solicitudPorId(solicitudId);
+      if (!s || s.estado !== "Por comprar") {
+        return NextResponse.json({ success: false, error: `${s?.codigo ?? "La solicitud"} ya no está por comprar. Quítala de la lista.` }, { status: 409 });
+      }
+      const cat = validarCategoriaDeCompra(s, input.categoria ?? "");
+      if (!cat.ok) return NextResponse.json({ success: false, error: cat.motivo }, { status: 400 });
+    }
     const item = await createShippingV2Item(input, {
       registradoPor: getShippingV2SessionName(session),
       ordenCompraId: ordenCompraId || undefined,
     });
+    // El artículo ya existe (la compra es real): si apartarlo falla, se avisa y
+    // la solicitud sigue "Por comprar" para usar "Ya la tenemos" con este SKU.
+    let solicitudWarning = "";
+    if (solicitudId) {
+      try {
+        await aplicarCompra({ solicitudId, itemId: item.id, ordenCompraId: ordenCompraId || null, usuario: getShippingV2SessionName(session) });
+      } catch (e) {
+        solicitudWarning = `${item.sku || "El artículo"} se creó, pero no se pudo apartar para su cliente: ${e instanceof Error ? e.message : "error inesperado"}. En "Por comprar" usa "Ya la tenemos" con este SKU.`;
+      }
+    }
 
     let responseItem = item;
     // Registro en una sola pantalla: si se eligió una caja, se agrega ahí
@@ -262,7 +290,8 @@ export async function POST(request: Request) {
       photoWarning,
       packingWarning: packingWarning || undefined,
       respaldoWarning: respaldoWarning || undefined,
-      warning: [photoWarning, packingWarning, respaldoWarning].filter(Boolean).join(" ") || undefined,
+      solicitudWarning: solicitudWarning || undefined,
+      warning: [photoWarning, packingWarning, respaldoWarning, solicitudWarning].filter(Boolean).join(" ") || undefined,
     }, { status: 201 });
   } catch (error) {
     console.error("Error al crear item Shipping V2:", error);

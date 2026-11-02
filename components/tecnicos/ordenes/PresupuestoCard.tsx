@@ -55,6 +55,15 @@ const REVERSA_TEXTO: Record<AccionReversa | AccionRetiro, { boton: string; ayuda
 const mon = (n: number) => `$${(n || 0).toFixed(2)}`;
 
 // El texto sale de estadoVisible() (reglas.ts): "Cargada" ya no se muestra.
+// Fase 2: chip de la compra (esperando pago, falta pedir, en camino, llegó…).
+const CHIP_COMPRA: Record<string, string> = {
+  exito: "border-[var(--sg-success)] text-[var(--sg-success)]",
+  aviso: "border-[var(--sg-warning)] text-[var(--sg-warning)]",
+  peligro: "border-[var(--sg-danger)] text-[var(--sg-danger)]",
+  info: "border-[var(--sg-info)] text-[var(--sg-info)]",
+  neutro: "border-[var(--sg-border)] text-[var(--sg-text-muted)]",
+};
+
 const TONO_BADGE: Record<TonoEstado, string> = {
   neutro:  "border-[var(--sg-border)] text-[var(--sg-text-secondary)]",
   aviso:   "border-[var(--sg-warning)] text-[var(--sg-warning)] bg-[var(--sg-warning-soft)]",
@@ -563,12 +572,11 @@ export function PresupuestoCard({
 }) {
   const [lineas, setLineas] = useState<LineaPresupuesto[]>([]);
   const [pedidos, setPedidos] = useState<Record<string, InfoPedido>>({});
+  // Fase 2: situación de la compra de cada repuesto bajo pedido (por línea).
+  const [compras, setCompras] = useState<Record<string, { codigo: string; sku: string | null; texto: string; tono: string }>>({});
   const [reversas, setReversas] = useState<Record<string, ReversasLinea>>({});
   const [proveedores, setProveedores] = useState<Record<string, string>>({});
   const [revirtiendo, setRevirtiendo] = useState<{ lineaId: string; accion: AccionReversa | AccionRetiro; motivo: string } | null>(null);
-  // "Ya se pidió al proveedor": cuántas unidades se compraron y cómo llegan
-  // (mismo diálogo que Operaciones → Pedido; ver lib/operaciones/pedido.ts).
-  const [pidiendo, setPidiendo] = useState<{ lineaId: string; unidades: string; llegada: "" | "tracking" | "packing" } | null>(null);
   const [inicialForm, setInicialForm] = useState<Borrador | null>(null);
   const [avisoDinero, setAvisoDinero] = useState(false);
   const [verHistorial, setVerHistorial] = useState<string | null>(null);
@@ -622,7 +630,7 @@ export function PresupuestoCard({
       const j = await r.json();
       if (!montado.current) return;
       if (!j.success) { setError(j.error ?? "No se pudo cargar el presupuesto"); return; }
-      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setReversas(j.data.reversas ?? {}); setProveedores(j.data.proveedores ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setCargosSueltos(j.data.cargosSinPresupuesto ?? null); setError(null);
+      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setCompras(j.data.compras ?? {}); setReversas(j.data.reversas ?? {}); setProveedores(j.data.proveedores ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setCargosSueltos(j.data.cargosSinPresupuesto ?? null); setError(null);
       setSeleccion((prev) => new Set([...prev].filter((id) => (j.data.lineas as LineaPresupuesto[]).some((l) => l.id === id && (l.estado === "Propuesta" || l.estado === "Aprobada")))));
     } catch { if (montado.current) setError("Error de red al cargar el presupuesto"); }
     finally { if (montado.current) setCargando(false); }
@@ -698,31 +706,6 @@ export function PresupuestoCard({
     finally { setOcupado(null); }
   }
 
-  async function pedirAlProveedor(l: LineaPresupuesto) {
-    if (!pidiendo || pidiendo.lineaId !== l.id) {
-      setPidiendo({ lineaId: l.id, unidades: String(l.cantidad), llegada: "" });
-      return;
-    }
-    const unidades = Number(pidiendo.unidades);
-    if (!Number.isInteger(unidades) || unidades < l.cantidad) { setError(`Deben ser al menos ${l.cantidad} unidad(es): las que aprobó el cliente.`); return; }
-    if (!pidiendo.llegada) { setError("Indica cómo llega el repuesto: directo a la tienda o en un packing."); return; }
-    setOcupado(l.id); setError(null);
-    try {
-      const r = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/presupuesto/${encodeURIComponent(l.id)}/pedido`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ unidadesCompradas: unidades, llegada: pidiendo.llegada }),
-      });
-      setPidiendo(null);
-      const j = await r.json();
-      if (!j.success) setError(j.error ?? "No se pudo registrar el pedido");
-      else if (j.data?.aviso) setError(j.data.aviso);
-      await recargar();
-      await onCargado();
-    } catch { setError("Error de red"); }
-    finally { setOcupado(null); }
-  }
-
   async function rechazarSeleccion() {
     for (const id of propuestasSel) {
       const l = lineas.find((x) => x.id === id);
@@ -751,9 +734,9 @@ export function PresupuestoCard({
     finally { setOcupado(null); }
   }
 
-  // Aprobadas que no se pudieron cargar. Un repuesto bajo pedido con operación
-  // ya creada NO cuenta: su siguiente paso es "Ya se pidió al proveedor".
-  const aprobadasPendientes = lineas.filter((l) => l.estado === "Aprobada" && !l.operacionId);
+  // Aprobadas que no se pudieron cargar. Un repuesto bajo pedido con su
+  // solicitud de compra (o su operación vieja) NO cuenta: lo compra Logística.
+  const aprobadasPendientes = lineas.filter((l) => l.estado === "Aprobada" && !l.operacionId && !l.solicitudId);
 
   return (
     <section className="relative isolate z-20 space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
@@ -886,7 +869,12 @@ export function PresupuestoCard({
                                 {l.costoProveedor !== null ? ` · costo ${mon(l.costoProveedor)}` : ""}
                                 {l.urlProveedor && <> {" · "}<a href={l.urlProveedor} target="_blank" rel="noopener noreferrer" className="text-[var(--sg-lime)] hover:underline">ver repuesto</a></>}
                               </span>
-                              {l.estado === "Propuesta" && <span className="block text-[var(--sg-text-muted)]">Solo presupuesto: el pedido se crea cuando el cliente apruebe.</span>}
+                              {l.estado === "Propuesta" && <span className="block text-[var(--sg-text-muted)]">Solo presupuesto: pasa a Compras cuando el cliente apruebe.</span>}
+                              {compras[l.id] && l.estado !== "Rechazada" && (
+                                <span className={`mt-0.5 inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10.5px] font-semibold ${CHIP_COMPRA[compras[l.id].tono] ?? CHIP_COMPRA.neutro}`} title={`${compras[l.id].codigo} · lo compra Logística`}>
+                                  {compras[l.id].texto}
+                                </span>
+                              )}
                             </span>
                           );
                         }
@@ -950,29 +938,6 @@ export function PresupuestoCard({
                           </div>
                         </div>
                       )}
-                      {pidiendo?.lineaId === l.id && (
-                        <div className="mt-1.5 space-y-1.5 rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)]/40 bg-[var(--sg-panel)] p-2">
-                          <p className="text-[11px] text-[var(--sg-text-secondary)]">Registrar el pedido al proveedor</p>
-                          <label className="flex items-center gap-2 text-[11px] text-[var(--sg-text-secondary)]">
-                            Unidades compradas
-                            <input type="number" min={l.cantidad} step={1} value={pidiendo.unidades}
-                              onChange={(e) => setPidiendo({ ...pidiendo, unidades: e.target.value })} className={`${INPUT} w-20`} />
-                            <span className="text-[var(--sg-text-muted)]">{l.cantidad} para esta orden{Number(pidiendo.unidades) > l.cantidad ? ` + ${Number(pidiendo.unidades) - l.cantidad} para stock` : ""}</span>
-                          </label>
-                          <div className="flex flex-wrap gap-2 text-[11px]">
-                            {(["tracking", "packing"] as const).map((v) => (
-                              <button key={v} type="button" onClick={() => setPidiendo({ ...pidiendo, llegada: v })}
-                                className={`rounded-full border px-2.5 py-1 ${pidiendo.llegada === v ? "border-[var(--sg-lime)] text-[var(--sg-lime)]" : "border-[var(--sg-border)] text-[var(--sg-text-muted)]"}`}>
-                                {v === "tracking" ? "Directo a la tienda" : "En un packing"}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="flex justify-end gap-2">
-                            <button type="button" onClick={() => setPidiendo(null)} className={BTN_SEC}>Volver</button>
-                            <button type="button" disabled={ocupado === l.id} onClick={() => pedirAlProveedor(l)} className={BTN_PRI}>{ocupado === l.id ? "Registrando…" : "Confirmar pedido"}</button>
-                          </div>
-                        </div>
-                      )}
                       {vinculando === l.id && (
                         <div className="mt-1.5">
                           {vinculoElegido?.lineaId === l.id ? (
@@ -999,11 +964,6 @@ export function PresupuestoCard({
                     <td className="whitespace-nowrap px-2 py-1.5 text-right align-top text-[11px]">
                       {l.operacionId && pedidos[l.operacionId] && fasePedido(pedidos[l.operacionId]) === "vencido" && (l.estado === "Propuesta" || l.estado === "Aprobada") && (
                         <button type="button" disabled={ocupado === l.id} onClick={() => accionLinea(l, "PATCH", { accion: "reactivar" })} className="mr-2 text-[var(--sg-lime)] hover:underline">Reactivar cotización</button>
-                      )}
-                      {l.operacionId && l.estado === "Aprobada" && pedidos[l.operacionId] && fasePedido(pedidos[l.operacionId]) === "esperando_pedido" && (
-                        <button type="button" disabled={ocupado === l.id} onClick={() => pedirAlProveedor(l)} className="mr-2 font-semibold text-[var(--sg-lime)] hover:underline">
-                          {ocupado === l.id ? "Registrando…" : "Ya se pidió al proveedor"}
-                        </button>
                       )}
                       {(l.estado === "Aprobada" || l.estado === "Cargada") && (() => {
                         const rv = reversas[l.id];
@@ -1081,7 +1041,7 @@ export function PresupuestoCard({
             {resultados.map((r) => (
               <li key={r.lineaId} className={r.cargada ? "text-[var(--sg-success)]" : "text-[var(--sg-warning)]"}>
                 {r.cargada ? "✓" : "•"} {r.descripcion}
-                {!r.cargada && ` — ${r.error ?? (r.esperandoPedido ? "aprobado, falta pedirlo al proveedor" : r.accion.tipo === "pendiente" ? r.accion.motivo : "pendiente")}`}
+                {!r.cargada && ` — ${r.error ?? (r.esperandoPedido ? "aprobado, pasa a Compras para pedirlo" : r.accion.tipo === "pendiente" ? r.accion.motivo : "pendiente")}`}
               </li>
             ))}
           </ul>

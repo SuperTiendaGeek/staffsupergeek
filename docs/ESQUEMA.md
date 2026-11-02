@@ -38,7 +38,7 @@ Nunca se editan a mano. El código valida al arrancar que coincidan con la base
 
 | Dominio | Tablas |
 |---|---|
-| Inventario | `Shipping Items`, `Shipping Packings`, `Shipping Pagos`, `Shipping Proveedores`, `Shipping Recepciones`, `Shipping Novedades`, `Shipping Eventos`, `Shipping Destinatarios`, `Shipping Migraciones` |
+| Inventario | `Solicitudes de Compra` *(lo que hay que comprar para clientes, auditoría ops Fase 2: nace al aprobar, se cumple en Registrar compra)*, `Shipping Items`, `Shipping Packings`, `Shipping Pagos`, `Shipping Proveedores`, `Shipping Recepciones`, `Shipping Novedades`, `Shipping Eventos`, `Shipping Destinatarios`, `Shipping Migraciones` |
 | Taller | `Órdenes de Reparación`, `Servicios por Orden`, `Productos Digitales`, `Historial de Estados`, `Repuestos por Orden` *(histórica, congelada)* |
 | Comercial | `Operación Comercial`, `Opciones`, `Clientes` |
 | Dinero | `Abonos`, `Movimientos Financieros`, `Cuentas Financieras`, `Finanzas Cuadres`, `Saldo a Favor` *(saldo de cada cliente, punto 13B)*, `Descuentos de Cuenta`, `Abonos por Orden` *(histórica, conciliada 128/128)* |

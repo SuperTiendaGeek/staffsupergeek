@@ -30,6 +30,7 @@ const F = {
   cargoServicio: "Cargo: Servicio por Orden",
   cargoDigital: "Cargo: Producto digital",
   operacion:    "Operación Comercial",
+  solicitud:    "Solicitud de compra",
   bajoPedido:   "Bajo pedido",
   proveedor:    "Proveedor",
   urlProveedor: "URL proveedor",
@@ -95,6 +96,7 @@ function mapLinea(r: Registro): LineaPresupuesto {
     cargoServicioId: ids(f[F.cargoServicio])[0] ?? null,
     cargoProductoDigitalId: ids(f[F.cargoDigital])[0] ?? null,
     operacionId: ids(f[F.operacion])[0] ?? null,
+    solicitudId: ids(f[F.solicitud])[0] ?? null,
     // Una línea creada con el flujo anterior (operación desde la cotización)
     // no tiene la casilla, pero sí la operación: también es bajo pedido.
     bajoPedido: f[F.bajoPedido] === true || ids(f[F.operacion]).length > 0,

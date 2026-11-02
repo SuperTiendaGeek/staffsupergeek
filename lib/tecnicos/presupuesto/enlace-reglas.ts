@@ -416,7 +416,7 @@ export function textoCargaAutomatica(resumen: ResumenCargaAutomatica | null, apr
   const partes: string[] = [];
   if (resumen.cargadas) partes.push(`Se cargó a la orden: ${resumen.cargadas} ${resumen.cargadas === 1 ? "línea" : "líneas"}.`);
   if (resumen.esperandoPedido) {
-    partes.push(`${resumen.esperandoPedido} ${resumen.esperandoPedido === 1 ? "repuesto bajo pedido" : "repuestos bajo pedido"}: falta pedirlo al proveedor.`);
+    partes.push(`${resumen.esperandoPedido} ${resumen.esperandoPedido === 1 ? "repuesto bajo pedido" : "repuestos bajo pedido"}: pasa a Compras para pedirlo.`);
   }
   if (resumen.sinCargar.length) {
     partes.push(`No se pudo cargar: ${resumen.sinCargar.map((s) => `${s.descripcion} (${s.motivo})`).join("; ")}. Revisa y usa "Reintentar carga".`);

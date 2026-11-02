@@ -191,7 +191,7 @@ const SENSIBLES_TECNICO = [
 
   // Pestañas que el técnico no ve.
   const ocultas = PESTANAS_SHIPPING_V2.filter((p) => p.noTecnico).map((p) => p.key).sort();
-  assert(JSON.stringify(ocultas) === JSON.stringify(["activos", "anuncios", "control", "kardex"]), "Activos, Anuncios, Control y Kardex se ocultan al técnico");
+  assert(JSON.stringify(ocultas) === JSON.stringify(["activos", "anuncios", "compras", "control", "kardex"]), "Activos, Anuncios, Por comprar, Control y Kardex se ocultan al técnico (el técnico no compra: auditoría ops, Fase 2)");
   const visibles = PESTANAS_SHIPPING_V2.filter((p) => !p.noTecnico && tecnico.permissions[p.permiso]).map((p) => p.key);
   assert(JSON.stringify(visibles) === JSON.stringify(["items", "novedades"]), `El técnico ve solo Artículos y Novedades (ve: ${visibles.join(", ")})`);
 }

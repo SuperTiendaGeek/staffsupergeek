@@ -20,7 +20,7 @@ async function main() {
   {
     const r = resumirCargaAutomatica([
       R({ descripcion: "Limpieza" }),
-      R({ descripcion: "Pantalla 15.6", cargada: false, esperandoPedido: true, accion: { tipo: "crear_pedido_aprobado" } }),
+      R({ descripcion: "Pantalla 15.6", cargada: false, esperandoPedido: true, accion: { tipo: "crear_solicitud" } }),
       R({ descripcion: "SSD 512", cargada: false, accion: { tipo: "pendiente", motivo: "REP-1 no tiene unidades libres." } }),
       R({ descripcion: "Office", cargada: false, error: "Otra persona modificó este artículo", accion: { tipo: "asignar_producto_digital" } }),
     ]);
@@ -31,7 +31,7 @@ async function main() {
     assert(r.sinCargar[1].motivo.startsWith("Otra persona"), "el error real gana sobre el tipo de paso");
   }
   {
-    const r = resumirCargaAutomatica([R({ cargada: false, esperandoPedido: true, error: "Airtable 500", accion: { tipo: "crear_pedido_aprobado" } })]);
+    const r = resumirCargaAutomatica([R({ cargada: false, esperandoPedido: true, error: "Airtable 500", accion: { tipo: "crear_solicitud" } })]);
     assert(r.esperandoPedido === 0 && r.sinCargar.length === 1, "bajo pedido que falló al crear la operación SÍ es un fallo");
   }
 

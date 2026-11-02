@@ -1,3 +1,4 @@
+import { solicitudesDeOrden } from "@/lib/compras/servidor";
 import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import {
@@ -52,16 +53,28 @@ export async function GET(_req: Request, { params }: Params) {
     lineas = sinc.hubo ? await listarLineas(id) : sinc.lineas;
 
     const pedidosObj: Record<string, InfoPedido> = Object.fromEntries(pedidos);
+    // Fase 2: situación de la compra de cada repuesto bajo pedido (chip).
+    const solicitudes = lineas.some((l) => l.solicitudId)
+      ? await solicitudesDeOrden(id).catch((e) => { console.warn("[presupuesto GET] compras", e); return []; })
+      : [];
+    const compras: Record<string, { codigo: string; sku: string | null; texto: string; tono: string; clave: string }> = {};
+    for (const s of solicitudes) {
+      if (s.lineaId) compras[s.lineaId] = { codigo: s.codigo, sku: s.sku, texto: s.situacion.texto, tono: s.situacion.tono, clave: s.situacion.clave };
+    }
     // Qué se puede deshacer en cada línea y por qué no, calculado aquí con
     // datos frescos (pagos al proveedor, recepción) — la tarjeta solo lo pinta.
     const reversas: Record<string, ReversasLinea> = Object.fromEntries(
-      lineas.map((l) => [l.id, reversasDisponibles(l, l.operacionId ? pedidos.get(l.operacionId) : undefined)])
+      lineas.map((l) => {
+        const c = compras[l.id];
+        const articulo = c ? { sku: c.sku ?? "", estado: c.clave === "entregado" ? "Vendido" : "" } : null;
+        return [l.id, reversasDisponibles(l, l.operacionId ? pedidos.get(l.operacionId) : undefined, articulo)];
+      })
     );
     const proveedores = await nombresProveedores(lineas.map((l) => l.proveedorId).filter((x): x is string => !!x));
     return NextResponse.json({
       success: true,
       data: {
-        lineas, pedidos: pedidosObj, reversas, proveedores,
+        lineas, pedidos: pedidosObj, reversas, proveedores, compras,
         estado: estadoPresupuesto(lineas), totales: totalesPresupuesto(lineas),
         cargosSinPresupuesto: sinc.cargosSinPresupuesto,
       },

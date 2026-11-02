@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Wrench, DollarSign, Phone, Mail, Package, CheckCircle, Circle, XCircle, ExternalLink, Plus, Pencil, Star, StarOff, Trash2, AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Box, MessageCircle, Calendar, Clock } from "lucide-react";
@@ -127,86 +127,23 @@ type CambiarEstadoBarProps = {
   yaTieneArticulo: boolean;
   /** Punto 6: repuesto bajo pedido de una orden (se anula desde la orden). */
   ordenDelPresupuesto?: { id: string; codigo: string } | null;
+  /** Fase 2: situación de la compra (bandeja "Por comprar" de Logística). */
+  compra?: { texto: string; tono: string } | null;
   onSuccess: () => void;
 };
 
-// Al pasar a "Pedido" nace el artículo en inventario. Antes nacía siempre con
-// 1 unidad y sin packing (caso OP-2026-000060): ahora se pregunta cuántas se
-// compran al proveedor (las del cliente + las que van a stock) y cómo llegan.
-function DatosPedidoPanel({
-  cantidadCliente,
-  loading,
-  onConfirmar,
-  onCancelar,
-}: {
-  cantidadCliente: number;
-  loading: boolean;
-  onConfirmar: (datos: { unidadesCompradas: number; llegada: "tracking" | "packing" }) => void;
-  onCancelar: () => void;
-}) {
-  const [unidades, setUnidades] = useState(String(cantidadCliente));
-  const [llegada, setLlegada] = useState<"tracking" | "packing" | "">("");
-  const [error, setError] = useState("");
-  const n = Number(unidades);
-  const paraStock = Number.isInteger(n) && n > cantidadCliente ? n - cantidadCliente : 0;
+const CHIP_COMPRA: Record<string, string> = {
+  exito: "border-[#56e3a4]/40 text-[#56e3a4]",
+  aviso: "border-[#f0c75e]/45 text-[#f0c75e]",
+  peligro: "border-[#ff5a4f]/45 text-[#ff5a4f]",
+  info: "border-[#78b7ff]/40 text-[#78b7ff]",
+  neutro: "border-[#3A3A36] text-[#8A8A80]",
+};
 
-  function confirmar() {
-    if (!Number.isInteger(n) || n < cantidadCliente) {
-      setError(`Deben ser al menos ${cantidadCliente} (las que compró el cliente).`);
-      return;
-    }
-    if (!llegada) { setError("Indica cómo llega el pedido."); return; }
-    setError("");
-    onConfirmar({ unidadesCompradas: n, llegada });
-  }
-
-  const opcionCls = (activa: boolean) =>
-    `flex-1 rounded-lg border px-3 py-2 text-left text-xs transition ${activa ? "border-[#D7FF4F] bg-[#D7FF4F]/10 text-[#F0F0EC]" : "border-[#3A3A36] text-[#8A8A80] hover:border-[#5A5A56]"}`;
-
-  return (
-    <div className="flex flex-col gap-3 rounded-lg border border-[#D7FF4F]/30 bg-[#252622] p-3">
-      <p className="text-xs font-semibold text-[#F0F0EC]">Registrar el pedido al proveedor</p>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-[11px] text-[#8A8A80]">
-          Unidades compradas al proveedor
-          <input type="number" min={cantidadCliente} step={1} value={unidades} disabled={loading}
-            onChange={(e) => setUnidades(e.target.value)}
-            className="w-28 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-3 py-2 text-sm text-[#F0F0EC] outline-none focus:border-[#D7FF4F]/60" />
-        </label>
-        <p className="pb-2 text-[11px] text-[#8A8A80]">
-          {cantidadCliente} para el cliente{paraStock > 0 ? ` + ${paraStock} para stock` : ""}
-        </p>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <span className="text-[11px] text-[#8A8A80]">¿Cómo llega?</span>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={loading} onClick={() => setLlegada("tracking")} className={opcionCls(llegada === "tracking")}>
-            <span className="block font-semibold">Directo a la tienda</span>
-            <span className="block text-[10px] opacity-80">Con su propio tracking, sin packing</span>
-          </button>
-          <button type="button" disabled={loading} onClick={() => setLlegada("packing")} className={opcionCls(llegada === "packing")}>
-            <span className="block font-semibold">En un packing</span>
-            <span className="block text-[10px] opacity-80">Viaja en una caja con otros artículos</span>
-          </button>
-        </div>
-      </div>
-      {error && <p className="text-[11px] text-amber-300">{error}</p>}
-      <div className="flex justify-end gap-2">
-        <button type="button" onClick={onCancelar} disabled={loading} className="rounded-full border border-[#3A3A36] px-3 py-1.5 text-xs text-[#8A8A80] hover:text-[#F0F0EC]">Cancelar</button>
-        <button type="button" onClick={confirmar} disabled={loading}
-          className="rounded-full border border-[#D7FF4F] bg-[#D7FF4F]/10 px-3 py-1.5 text-xs font-semibold text-[#D7FF4F] hover:bg-[#D7FF4F]/20 disabled:opacity-40">
-          {loading ? "Registrando…" : "Pasar a Pedido"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadCliente, yaTieneArticulo, ordenDelPresupuesto, onSuccess }: CambiarEstadoBarProps) {
+function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, yaTieneArticulo, ordenDelPresupuesto, compra, onSuccess }: CambiarEstadoBarProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showReactivar, setShowReactivar] = useState(false);
-  const [pidiendoDatosPedido, setPidiendoDatosPedido] = useState(false);
   const [anulando, setAnulando] = useState(false);
   const [destino, setDestino] = useState<"stock" | "cancelar">("stock");
   const [motivoAnular, setMotivoAnular] = useState("");
@@ -221,19 +158,14 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadClient
   const nextEstadoBase = !isRechazado && currentIdx >= 0 && currentIdx < ESTADOS_TABLERO.length - 1
     ? ESTADOS_TABLERO[currentIdx + 1]
     : null;
-  const nextEstado = nextEstadoBase === "Entregado" ? null : nextEstadoBase;
+  // Fase 2: "Pedido" no se marca a mano: llega solo cuando Logística registra la compra.
+  const nextEstado = nextEstadoBase === "Entregado" || (nextEstadoBase === "Pedido" && !yaTieneArticulo) ? null : nextEstadoBase;
   const nextIsAprobado = nextEstado === "Aprobado";
   const canAdvance = !!nextEstado && !(nextIsAprobado && !opcionElegidaId);
 
-  async function cambiarEstado(nuevoEstado: string, datosPedido?: { unidadesCompradas: number; llegada: "tracking" | "packing" }) {
+  async function cambiarEstado(nuevoEstado: string) {
     if (nuevoEstado === "Aprobado" && !opcionElegidaId) {
       setError("Selecciona una Opción Elegida antes de pasar a Aprobado.");
-      return;
-    }
-    // Pasar a Pedido crea el artículo: primero se preguntan unidades y llegada.
-    if (nuevoEstado === "Pedido" && opcionElegidaId && !yaTieneArticulo && !datosPedido) {
-      setError("");
-      setPidiendoDatosPedido(true);
       return;
     }
     setLoading(true);
@@ -242,14 +174,12 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadClient
       const res = await fetch(`/api/operaciones/${operacionId}/estado`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estado: nuevoEstado, ...(datosPedido ?? {}) }),
+        body: JSON.stringify({ estado: nuevoEstado }),
       });
-      const d = (await res.json()) as { success: boolean; error?: string; itemWarning?: string };
+      const d = (await res.json()) as { success: boolean; error?: string; warning?: string };
       if (!res.ok || !d.success) { setError(d.error ?? "Error al cambiar estado."); return; }
-      setPidiendoDatosPedido(false);
       setShowReactivar(false);
-      // El estado ya cambió; si el artículo no se pudo crear, que se vea.
-      if (d.itemWarning) setError(`La operación pasó a Pedido, pero el artículo no se creó: ${d.itemWarning}`);
+      if (d.warning) setError(d.warning);
       onSuccess();
     } catch {
       setError("Error de conexión.");
@@ -287,14 +217,7 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadClient
         </div>
       )}
 
-      {pidiendoDatosPedido ? (
-        <DatosPedidoPanel
-          cantidadCliente={cantidadCliente}
-          loading={loading}
-          onCancelar={() => setPidiendoDatosPedido(false)}
-          onConfirmar={(datos) => cambiarEstado("Pedido", datos)}
-        />
-      ) : isRechazado ? (
+      {isRechazado ? (
         /* Reactivar desde Rechazado */
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-[#6B6B66]">Operación rechazada.</span>
@@ -351,6 +274,11 @@ function CambiarEstadoBar({ operacionId, estado, opcionElegidaId, cantidadClient
           <div className="flex items-center gap-2">
             {nextIsAprobado && !opcionElegidaId && (
               <span className="text-[11px] text-amber-400">⚠ Elige una opción primero</span>
+            )}
+            {compra && (
+              <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${CHIP_COMPRA[compra.tono] ?? CHIP_COMPRA.neutro}`} title="Lo compra Logística desde Shipping V2 → Por comprar">
+                {compra.texto}
+              </span>
             )}
             {nextEstadoBase === "Entregado" && (
               <span className="text-[11px] text-[#6B6B66]" title="Pasa sola a Entregado al emitir la factura o el recibo desde esta operación.">Se entrega al facturar</span>
@@ -635,6 +563,20 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
   const [confirmarEliminar, setConfirmarEliminar] = useState(false);
   const [eliminando, setEliminando] = useState(false);
   const [accionError, setAccionError] = useState("");
+  // Fase 2: situación de la compra (la solicitud viva más reciente del pedido).
+  const [compra, setCompra] = useState<{ texto: string; tono: string } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    fetch(`/api/operaciones/${operacion.id}/compras`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j: { success?: boolean; data?: Array<{ estado: string; situacion: { texto: string; tono: string } }> }) => {
+        if (!vivo || !j.success) return;
+        const viva = (j.data ?? []).filter((s) => s.estado !== "Cancelada").pop() ?? null;
+        setCompra(viva ? viva.situacion : null);
+      })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [operacion.id, operacion.estado]);
 
   const estadoColor = ESTADO_COLOR[operacion.estado] ?? "#8A8A80";
   const alertaGestion = resolverAlertaGestion({
@@ -763,6 +705,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
           cantidadCliente={operacion.opciones.find((o) => o.id === operacion.opcionElegidaId)?.cantidad ?? 1}
           yaTieneArticulo={operacion.articulosFisicos.length > 0}
           ordenDelPresupuesto={operacion.desdePresupuestoOrden && operacion.ordenVinculada ? { id: operacion.ordenVinculada.id, codigo: operacion.ordenVinculada.codigoOrden } : null}
+          compra={compra}
           onSuccess={handleEstadoSuccess}
         />
 

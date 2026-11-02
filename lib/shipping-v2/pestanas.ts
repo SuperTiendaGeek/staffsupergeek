@@ -6,7 +6,7 @@
 
 import type { ShippingV2AccessPermissions } from "@/types/shipping-v2";
 
-export type PestanaShippingKey = "items" | "activos" | "packings" | "recepcion" | "anuncios" | "control" | "kardex" | "pagos" | "novedades";
+export type PestanaShippingKey = "items" | "compras" | "activos" | "packings" | "recepcion" | "anuncios" | "control" | "kardex" | "pagos" | "novedades";
 
 export type PestanaShipping = {
   key: PestanaShippingKey;
@@ -22,6 +22,9 @@ export type PestanaShipping = {
 
 export const PESTANAS_SHIPPING_V2: readonly PestanaShipping[] = [
   { key: "items", label: "Artículos", href: "/shipping-v2/items", permiso: "canViewItems" },
+  // Auditoría ops, Fase 2 (2-nov-2026): lo que hay que comprar para clientes
+  // (repuestos de órdenes y pedidos). Compran Staff y Administradores.
+  { key: "compras", label: "Por comprar", href: "/shipping-v2/compras", permiso: "canEditItems", soloStaff: true, noTecnico: true },
   // Punto 4 (8-oct): los activos fijos de la tienda, aparte de la mercadería.
   { key: "activos", label: "Activos de la tienda", href: "/shipping-v2/activos", permiso: "canViewItems", soloStaff: true, noTecnico: true },
   // La pantalla de Packings pasa a llamarse Logística: cajas y artículos que
@@ -56,11 +59,14 @@ export type ResumenPestanas = {
   anunciosPorRetirar?: number;
   /** Asuntos abiertos de la revisión de inventario (10c-1). */
   asuntosRevision?: number;
+  /** Fase 2: solicitudes de compra todavía por comprar. */
+  porComprar?: number;
 };
 
 /** Texto corto del pendiente de cada pestaña, o null si no hay nada que mostrar. */
 export function pendienteDePestana(key: PestanaShippingKey, r: ResumenPestanas | null): string | null {
   if (!r) return null;
+  if (key === "compras" && (r.porComprar ?? 0) > 0) return `${r.porComprar}`;
   if (key === "recepcion" && r.porLlegar > 0) return `${r.porLlegar} por llegar`;
   if (key === "packings" && r.sinRastreo > 0) return `${r.sinRastreo} sin rastreo`;
   if (key === "packings" && r.cajasAbiertas > 0) return `${r.cajasAbiertas} caja${r.cajasAbiertas === 1 ? "" : "s"} abierta${r.cajasAbiertas === 1 ? "" : "s"}`;
