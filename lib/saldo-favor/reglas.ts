@@ -155,7 +155,7 @@ export function maximoUsable(disponible: number, porCobrar: number): number {
 
 // ─── Textos ──────────────────────────────────────────────────────────────────
 
-export const METODO_SALDO_A_FAVOR = "Saldo a favor";
+export { METODO_SALDO_A_FAVOR } from "@/lib/cobros/metodos";
 
 /** Observación del abono negativo que deja la cuenta en $0. */
 export function observacionAbonoSalida(tipo: "Generado" | "Devuelto", detalle?: string): string {
@@ -182,4 +182,31 @@ export function fechaLiberacionDeHistorial(historial: string): string {
   const m = /^\[(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2})\]/.exec(ultima.trim());
   if (!m) return "";
   return new Date(`${m[1]}T${m[2]}:${m[3]}:00-05:00`).toISOString();
+}
+
+// ─── Factura y recibo de mostrador (13B-2) ───────────────────────────────────
+
+/**
+ * Cuánto de una venta se paga con saldo a favor: los cobros nuevos (no los
+ * abonos ya registrados) con método "Saldo a favor" o compensación (15).
+ */
+export function montoSaldoEnPagos(pagos: ReadonlyArray<{ formaPago?: string; metodoPago?: string; total: number; origenPago?: string }>): number {
+  return Math.round(
+    pagos
+      .filter((p) => p.origenPago !== "abono" && (p.formaPago === "15" || p.metodoPago === "Saldo a favor"))
+      .reduce((s, p) => s + (p.total > 0 ? p.total : 0), 0) * 100,
+  ) / 100;
+}
+
+/** De qué montos sale un uso del saldo: primero lo que vence antes. */
+export function repartirConsumo(lotes: readonly LoteSaldo[], monto: number): Array<{ loteId: string; toma: number }> {
+  const out: Array<{ loteId: string; toma: number }> = [];
+  let pendiente = r2(monto);
+  for (const l of lotes) {
+    if (pendiente <= TOLERANCIA) break;
+    const toma = r2(Math.min(l.restante, pendiente));
+    if (toma > 0) out.push({ loteId: l.id, toma });
+    pendiente = r2(pendiente - toma);
+  }
+  return out;
 }

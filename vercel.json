@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/revision-inventario",
       "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/cron/saldo-favor-vencido",
+      "schedule": "30 12 * * *"
     }
   ]
 }

@@ -16,6 +16,7 @@ import { useState } from "react";
 import { RegistrarAbonoModal } from "@/components/operaciones/RegistrarAbonoModal";
 import { METODOS_COBRO_NUEVO, etiquetaMetodoPago, requiereNumeroTransaccion } from "@/types/abonos";
 import { mensajePagosAdicionalesInvalidos } from "@/lib/facturacion/reglas/cobroDocumento";
+import { METODO_SALDO_A_FAVOR } from "@/lib/cobros/metodos";
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const dinero = (n: number) => `$${round2(n).toFixed(2)}`;
@@ -81,7 +82,7 @@ export function AvisoCuentaPorCobrar({
       )}
       {estado === "favor" && (
         <span className="rounded-full bg-[#78B7FF]/15 px-2.5 py-0.5 text-xs font-semibold text-[#78B7FF]" title="Anula el abono que sobra o devuelve el dinero desde la orden">
-          Pagado de más {dinero(-(saldo ?? 0))} · resolver en la {origen.tipo === "orden" ? "orden" : "operación"}
+          Pagado de más {dinero(-(saldo ?? 0))} · pásalo a saldo a favor o devuélvelo desde la {origen.tipo === "orden" ? "orden" : "operación"}
         </span>
       )}
       {abierto && (
@@ -122,11 +123,18 @@ export function PagosPorMetodo({
   total,
   pagos,
   onChange,
+  saldoAFavor = 0,
 }: {
   titulo: string;
   total: number;
   pagos: PagoAdicionalForm[];
   onChange: (pagos: PagoAdicionalForm[]) => void;
+  /**
+   * Auditoría ops, punto 13B-2: saldo a favor del cliente elegido (solo en
+   * factura y recibo de mostrador). Si hay, se ofrece "Saldo a favor" como
+   * método; el servidor vuelve a verificar que alcance.
+   */
+  saldoAFavor?: number;
 }) {
   const suma = round2(pagos.reduce((s, p) => s + (p.total || 0), 0));
   const falta = round2(total - suma);
@@ -151,9 +159,18 @@ export function PagosPorMetodo({
             <div className="flex items-center gap-2">
               <select
                 value={p.metodoPago}
-                onChange={(e) => actualizar(p._id, { metodoPago: e.target.value })}
+                onChange={(e) => {
+                  const metodo = e.target.value;
+                  if (metodo === METODO_SALDO_A_FAVOR) {
+                    // Propone lo que alcanza: el saldo o lo que falta de esta fila.
+                    actualizar(p._id, { metodoPago: metodo, referencia: "", total: round2(Math.min(saldoAFavor, p.total || total)) });
+                  } else actualizar(p._id, { metodoPago: metodo });
+                }}
                 className="flex-1 rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5]"
               >
+                {(saldoAFavor > 0.01 || p.metodoPago === METODO_SALDO_A_FAVOR) && (
+                  <option value={METODO_SALDO_A_FAVOR}>Saldo a favor del cliente · disponible {dinero(saldoAFavor)}</option>
+                )}
                 {METODOS_COBRO_NUEVO.map((m) => (
                   <option key={m} value={m}>{etiquetaMetodoPago(m)}</option>
                 ))}
@@ -170,13 +187,15 @@ export function PagosPorMetodo({
                 <button type="button" onClick={() => onChange(pagos.filter((x) => x._id !== p._id))} className="text-xs text-[#666] hover:text-red-400">✕</button>
               )}
             </div>
-            <input
-              type="text"
-              value={p.referencia}
-              onChange={(e) => actualizar(p._id, { referencia: e.target.value })}
-              placeholder={requiereNumeroTransaccion(p.metodoPago) ? "N° de transacción *" : "N° de transacción"}
-              className="w-full rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5]"
-            />
+            {p.metodoPago !== METODO_SALDO_A_FAVOR && (
+              <input
+                type="text"
+                value={p.referencia}
+                onChange={(e) => actualizar(p._id, { referencia: e.target.value })}
+                placeholder={requiereNumeroTransaccion(p.metodoPago) ? "N° de transacción *" : "N° de transacción"}
+                className="w-full rounded bg-[#252622] border border-[#3A3A36] px-2 py-1 text-xs text-[#F5F5F5]"
+              />
+            )}
           </div>
         ))}
       </div>

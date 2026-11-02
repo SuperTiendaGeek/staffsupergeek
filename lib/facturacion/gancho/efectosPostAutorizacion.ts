@@ -35,6 +35,8 @@ import {
 import { procesarPuenteFacturacion } from "@/lib/finanzas/puentes/facturacion";
 import { marcarReservaFacturada } from "../reservas/airtable";
 import { cerrarOperacionesDeLaCuenta } from "./cierreCuenta";
+import { consumirSaldoEnDocumento } from "@/lib/saldo-favor/servidor";
+import { montoSaldoEnPagos } from "@/lib/saldo-favor/reglas";
 import { leerLineasFactura, planificarCompletarFactura, type LineasFacturaGuardadas } from "../reglas/lineasFactura";
 import type { DatosVenta, ResultadoEmision } from "../emitirFactura";
 
@@ -47,6 +49,8 @@ export type ResumenEfectos = {
   vinculos?:   "ok" | "error" | "omitido";
   /** Punto 6: la operación de origen pasa sola a "Entregado". */
   operacion?:  "entregada" | "error";
+  /** Punto 13B-2: uso del saldo a favor en una factura de mostrador. */
+  saldoAFavor?: "creado" | "omitido" | "error";
 };
 
 /**
@@ -110,6 +114,31 @@ export async function ejecutarEfectosPostAutorizacion(input: {
     const { movidas, errores } = await cerrarOperacionesDeLaCuenta(datos.origen);
     if (errores.length) resumen.operacion = "error";
     else if (movidas.length) resumen.operacion = "entregada";
+  }
+
+  // Auditoría ops, punto 13B-2: factura de mostrador pagada (en parte o todo)
+  // con el saldo a favor del cliente → su "Usado" en el saldo. Idempotente
+  // por factura, así que "Consultar estado" o un reintento no lo repiten.
+  if (
+    resultado.estado === "AUTORIZADO" &&
+    resultado.recordId &&
+    resultado.ambiente === AMBIENTE_PRODUCCION &&
+    !datos.origen &&
+    datos.clienteRecordId
+  ) {
+    const monto = montoSaldoEnPagos(datos.pagos ?? []);
+    if (monto > 0.01) {
+      try {
+        const r = await consumirSaldoEnDocumento({
+          clienteId: datos.clienteRecordId, monto, facturaId: resultado.recordId,
+          etiqueta: "factura de mostrador", registradoPor: input.registradoPor,
+        });
+        resumen.saldoAFavor = r.estado;
+      } catch (e) {
+        console.error("[efectosPostAutorizacion] saldo a favor falló:", e);
+        resumen.saldoAFavor = "error";
+      }
+    }
   }
 
   return resumen;

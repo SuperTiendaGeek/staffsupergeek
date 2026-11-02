@@ -24,6 +24,8 @@ import { mensajePrecioShippingItemInvalido } from "@/lib/facturacion/reglas/prec
 import { normalizarCobrosNuevos } from "@/lib/cobros/metodos";
 import { esLineaAdicional, totalFinalLinea } from "@/lib/facturacion/reglas/cobroDocumento";
 import { validarEmisionDesdeOrigen } from "@/lib/facturacion/gancho/cobroOrigen";
+import { verificarSaldoParaDocumento } from "@/lib/saldo-favor/servidor";
+import { montoSaldoEnPagos } from "@/lib/saldo-favor/reglas";
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -106,6 +108,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: cobros.error }, { status: 400 });
     }
     body.pagos = cobros.pagos;
+    // Auditoría ops, punto 13B-2: lo que se paga con saldo a favor (15) tiene
+    // que existir en el saldo del cliente. Antes la compensación se aceptaba
+    // sin mirar y el crédito se descontaba desde la pantalla, si acaso.
+    const errSaldo = await verificarSaldoParaDocumento({ clienteId: body.clienteRecordId, monto: montoSaldoEnPagos(body.pagos) });
+    if (errSaldo) return NextResponse.json({ success: false, error: errSaldo }, { status: 400 });
   }
 
   const borradorOrigenId = textoRecordId(body.borradorOrigenId);

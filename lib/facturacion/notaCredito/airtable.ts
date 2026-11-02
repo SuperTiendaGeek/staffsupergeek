@@ -532,6 +532,11 @@ export async function listarCandidatasACaducar(hoy: string): Promise<NotaCredito
 
     for (const r of data.records) {
       const f = r.fields;
+      // Auditoría ops, punto 13B-2: una NC cuyo crédito ya está en el saldo a
+      // favor del cliente (tabla "Saldo a Favor") vence por ese saldo
+      // (lib/saldo-favor/servidor.ts → vencerSaldos), no por aquí: dos
+      // procesos registrarían dos veces el mismo ingreso.
+      if (linkedIdsRaw(f["Saldo a Favor"]).length > 0) continue;
       salida.push({
         recordId:               r.id,
         numeroNotaCredito:      str(f["Número de Nota de Crédito"]),

@@ -1,4 +1,6 @@
 import { mensajeCobrosInvalidos, normalizarCobrosNuevos } from "@/lib/cobros/metodos";
+import { consumirSaldoEnDocumento, verificarSaldoParaDocumento } from "@/lib/saldo-favor/servidor";
+import { montoSaldoEnPagos } from "@/lib/saldo-favor/reglas";
 import { NextResponse }              from "next/server";
 import { cerrarOperacionesDeLaCuenta } from "@/lib/facturacion/gancho/cierreCuenta";
 import { requireFacturacionSession } from "@/lib/facturacion/api-auth";
@@ -66,12 +68,16 @@ export async function POST(request: Request) {
   if (!body.origen) {
     const totalMostrador = totalRecibo(body.lineas);
     const pagosMostrador = Array.isArray(body.pagos) ? body.pagos : [];
-    const errCobro = mensajeCobrosInvalidos(pagosMostrador, totalMostrador, "el recibo");
+    const errCobro = mensajeCobrosInvalidos(pagosMostrador, totalMostrador, "el recibo", { permitirSaldoAFavor: true });
     if (errCobro) return NextResponse.json({ success: false, error: errCobro }, { status: 400 });
     const cobros = normalizarCobrosNuevos(pagosMostrador);
     if (cobros.error) return NextResponse.json({ success: false, error: cobros.error }, { status: 400 });
     body.pagos = cobros.pagos;
     body.formaPago = formaPagoPrincipal(cobros.pagos);
+    // Auditoría ops, punto 13B-2: pagar con saldo a favor exige que el
+    // cliente lo tenga (y que el recibo vaya a su nombre).
+    const errSaldo = await verificarSaldoParaDocumento({ clienteId: body.cliente.airtableId, monto: montoSaldoEnPagos(cobros.pagos) });
+    if (errSaldo) return NextResponse.json({ success: false, error: errSaldo }, { status: 400 });
   }
 
   // Gancho: recibo emitido desde una orden/operación. El origen decide tres
@@ -218,6 +224,13 @@ export async function POST(request: Request) {
         ).catch(() => {});
       } else {
         await registrarIngresoRecibo({ reciboRecordId: recordId, numeroRecibo: numero, total, formaPago: body.formaPago, pagos: body.pagos, clienteRecordId: body.cliente.airtableId, registradoPor, ambiente: cfg.ambiente });
+        const montoSaldo = montoSaldoEnPagos(body.pagos ?? []);
+        if (montoSaldo > 0.01 && body.cliente.airtableId && cfg.ambiente === "2") {
+          await consumirSaldoEnDocumento({
+            clienteId: body.cliente.airtableId, monto: montoSaldo, reciboId: recordId,
+            etiqueta: `el recibo ${numero}`, registradoPor,
+          }).catch((e) => console.error("[recibos POST] saldo a favor:", e));
+        }
       }
     }
     catch (e) { console.error("[recibos POST] contable:", e); }
