@@ -32,6 +32,10 @@ export type CategoriaMovimiento =
   // usara. A los 6 meses ese dinero deja de ser una deuda con el cliente y pasa
   // a ser ingreso del período en que caduca.
   | "Crédito Caducado"
+  // Auditoría ops, punto 13B: dinero del cliente guardado como saldo a favor.
+  // Egreso SIN cuenta al generarse (deja de ser venta: es dinero del cliente)
+  // e Ingreso SIN cuenta al usarse (vuelve a ser venta). No mueve caja.
+  | "Saldo a favor de cliente"
   | "Ajuste de Caja"
   | "Pago Tarjeta de Crédito"
   | "Otro";

@@ -135,6 +135,14 @@ export async function crearMovimientoParaAbono(input: {
   numeroTransaccion?: string;
   observacion?: string;
 }): Promise<ResultadoPuenteAbono> {
+  // Auditoría ops, punto 13B: los abonos del saldo a favor (usarlo, pasarlo
+  // o devolverlo) y cualquier abono negativo tienen su propio asiento, que
+  // escribe lib/saldo-favor/servidor.ts. Aquí se crearía un "Anticipo
+  // Cliente" con dinero que no entró: nunca.
+  const metodo = cleanString(input.metodoPago);
+  if (metodo === "Saldo a favor" || metodo === "Devolución" || !(input.monto > 0)) {
+    return { ok: false, error: "Este abono no es dinero nuevo: su asiento lo registra el saldo a favor." };
+  }
   try {
     // Guard de idempotencia — mismo patrón que el puente Shipping (20.1). El
     // mismo fetch también trae "Aplicado a: Operación"/"Aplicado a: Orden"

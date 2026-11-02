@@ -320,14 +320,29 @@ export function calcularFormasPago(
   abonosVigentes: (Pick<CuentaUnificadaAbono, "metodoPago" | "monto" | "numeroTransaccion"> & { fecha?: string | null })[],
   importeTotal: number
 ): Pago[] {
-  const pagos: Pago[] = abonosVigentes.map((a) => ({
-    formaPago: (a.metodoPago && MAPA_METODO_PAGO_SRI[a.metodoPago]) || FORMA_PAGO_FALLBACK,
-    total:     round2(a.monto),
-    origenPago: "abono",
-    fechaAbono: a.fecha ?? undefined,
-    metodoPago: a.metodoPago ?? undefined,
-    referencia: a.numeroTransaccion ?? undefined,
-  }));
+  // Auditoría ops, punto 13B: un abono NEGATIVO es dinero que salió de la
+  // cuenta (pasado a saldo a favor o devuelto). Ante el SRI cada forma de
+  // pago es positiva, así que la salida se descuenta de los pagos que
+  // entraron, empezando por el último. Ej.: +$100 transferencia y −$20
+  // pasado a saldo a favor → la factura de $80 dice "transferencia $80".
+  const entradas = abonosVigentes.filter((a) => a.monto > 0);
+  let salida = round2(abonosVigentes.filter((a) => a.monto < 0).reduce((s, a) => s - a.monto, 0));
+  const montos = entradas.map((a) => round2(a.monto));
+  for (let i = montos.length - 1; i >= 0 && salida > 0.005; i--) {
+    const toma = Math.min(montos[i], salida);
+    montos[i] = round2(montos[i] - toma);
+    salida = round2(salida - toma);
+  }
+  const pagos: Pago[] = entradas
+    .map((a, i) => ({
+      formaPago: (a.metodoPago && MAPA_METODO_PAGO_SRI[a.metodoPago]) || FORMA_PAGO_FALLBACK,
+      total:     montos[i],
+      origenPago: "abono" as const,
+      fechaAbono: a.fecha ?? undefined,
+      metodoPago: a.metodoPago ?? undefined,
+      referencia: a.numeroTransaccion ?? undefined,
+    }))
+    .filter((p) => p.total > 0.005);
 
   const sumaAbonos     = round2(pagos.reduce((s, p) => s + p.total, 0));
   const saldoPendiente = round2(importeTotal - sumaAbonos);

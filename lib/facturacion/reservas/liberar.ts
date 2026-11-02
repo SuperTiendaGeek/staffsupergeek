@@ -7,6 +7,7 @@ import "server-only";
 
 import { obtenerReservaPorId, marcarReservaLiberada } from "./airtable";
 import { liberarItem } from "./efectos";
+import { generarSaldoPorReserva } from "@/lib/saldo-favor/servidor";
 
 /** Línea de bitácora con fecha y hora de Ecuador. */
 export function lineaHistorialReserva(texto: string, usuario: string, ahora: Date = new Date()): string {
@@ -30,5 +31,13 @@ export async function liberarReserva(
   }
   const texto = `${opts.motivo} Saldo a favor: $${reserva.totalAbonado.toFixed(2)}.`;
   await marcarReservaLiberada(recordId, reserva.totalAbonado, lineaHistorialReserva(texto, opts.usuario));
+  // Auditoría ops, punto 13B: lo abonado pasa al saldo a favor del cliente
+  // (un solo saldo, que se puede usar en cualquier compra y vence a los 6
+  // meses). Best-effort: si falla, la reserva ya quedó liberada y el script
+  // scripts/ajuste-auditoria-ops-punto13b.ts lo completa.
+  if (reserva.totalAbonado > 0.01) {
+    try { await generarSaldoPorReserva({ reservaId: recordId, registradoPor: opts.usuario }); }
+    catch (e) { console.error("[reservas liberar] saldo a favor:", e); }
+  }
   return { saldoAFavor: reserva.totalAbonado, numero: reserva.numero };
 }

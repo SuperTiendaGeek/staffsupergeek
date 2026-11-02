@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { anularAbonoPorOrden } from "@/lib/tecnicos/airtable";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { anularMovimientoDeAbono } from "@/lib/finanzas/puentes/abonos";
+import { prepararAnulacionDeAbono } from "@/lib/saldo-favor/servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,15 @@ export async function DELETE(_: Request, { params }: Params) {
   }
 
   try {
+    // Auditoría ops, punto 13B: si el abono mueve el saldo a favor del
+    // cliente, se revisa primero que se pueda deshacer y luego se anula
+    // también su movimiento de saldo.
+    const saldo = await prepararAnulacionDeAbono(id);
+    if (saldo && !saldo.ok) {
+      return NextResponse.json({ success: false, error: saldo.error }, { status: saldo.status });
+    }
     const result = await anularAbonoPorOrden({ abonoRecordId: id });
+    if (saldo?.ok) await saldo.despues();
     // Puente 20.2 (§1.5, Corrección 1) — anula también el movimiento
     // vinculado; si ya estaba facturado, la anulación procede igual pero
     // vuelve con un warning explícito en vez de bloquear.
