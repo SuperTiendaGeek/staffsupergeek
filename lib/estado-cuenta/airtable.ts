@@ -34,7 +34,7 @@ import {
   type OperacionParaCuenta,
 } from "./reglas";
 
-export type Registro = { id: string; fields: Record<string, unknown> };
+export type Registro = { id: string; fields: Record<string, unknown>; createdTime?: string };
 
 const T_ORDENES = "Órdenes de Reparación";
 const T_OPERACIONES = "Operación Comercial";
