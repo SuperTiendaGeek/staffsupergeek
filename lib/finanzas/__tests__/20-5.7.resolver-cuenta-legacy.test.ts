@@ -133,9 +133,10 @@ async function main() {
   {
     __resetCacheNombreTablaParaPruebas();
     const finanzasState = crearEstadoDouble("Movimientos Financieros");
-    // Sin ninguna Cuenta Financiera creada que coincida con "Otra".
+    // Sin ninguna Cuenta Financiera creada que coincida. ("Otra" dejó de
+    // ofrecerse el 3-nov-2026: se usa una opción vigente sin cuenta en el doble.)
 
-    const cuentaOrigenResuelta = await pagarConCuentaOrigen("Otra", finanzasState);
+    const cuentaOrigenResuelta = await pagarConCuentaOrigen("Transferencia Produbanco Ahorros", finanzasState);
     assert(
       cuentaOrigenResuelta === undefined || cuentaOrigenResuelta.length === 0,
       "Sin ninguna Cuenta Financiera coincidente, el movimiento se crea igual sin Cuenta Origen (nunca bloquea el pago)"

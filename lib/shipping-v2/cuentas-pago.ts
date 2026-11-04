@@ -35,10 +35,12 @@ export const CUENTAS_PAGO: readonly CuentaPago[] = [
   { valor: "Transferencia Produbanco Ahorros", etiqueta: "Transferencia Produbanco → Produbanco Ahorros", cuentaFinanzas: "Produbanco Ahorros", vigente: true },
   { valor: "Caja", etiqueta: "Efectivo → Caja Registradora", cuentaFinanzas: "Caja Registradora", vigente: true },
   { valor: "PayPal", etiqueta: "PayPal", cuentaFinanzas: "PayPal", vigente: true },
-  // Sin cuenta conocida en Finanzas (pendiente de confirmar con el dueño):
-  // se siguen ofreciendo, pero el egreso queda sin cuenta.
-  { valor: "Tarjeta C. Pichincha", etiqueta: "Tarjeta C. Pichincha (sin cuenta en Finanzas)", cuentaFinanzas: null, vigente: true },
-  { valor: "Otra", etiqueta: "Otra (sin cuenta en Finanzas)", cuentaFinanzas: null, vigente: true },
+  // Ya no se ofrecen (dueño, 3-nov-2026): la tarjeta de crédito Pichincha
+  // caducó y "Otra" no es ninguna cuenta real. Los pagos viejos con estas
+  // opciones (en realidad transferencias desde SGINGRESOS) se corrigen en el
+  // Corte de apertura.
+  { valor: "Tarjeta C. Pichincha", etiqueta: "Tarjeta C. Pichincha (caducada)", cuentaFinanzas: null, vigente: false },
+  { valor: "Otra", etiqueta: "Otra (sin cuenta)", cuentaFinanzas: null, vigente: false },
   // Solo lectura (valor del select viejo de Finanzas).
   { valor: "Banco Pichincha", etiqueta: "Banco Pichincha → SGINGRESOS", cuentaFinanzas: "SGINGRESOS", vigente: false },
 ];
