@@ -15,12 +15,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+import { CUENTAS_PAGO_VIGENTES } from "@/lib/shipping-v2/cuentas-pago";
 import type { ShippingV2CostosTraerlo, ShippingV2SituacionGasto } from "@/types/shipping-v2";
 
 type Concepto = "Flete" | "Arancel" | "Otros";
 
 const METODOS = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((m) => m !== "No aplica");
-const CUENTAS = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((c) => c !== "No aplica");
+// Fase 2B: catálogo único; cada opción dice de qué cuenta de Finanzas sale el dinero.
+const CUENTAS = CUENTAS_PAGO_VIGENTES;
 
 const chip = "whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10.5px] font-bold";
 const tonos = {
@@ -125,7 +127,7 @@ function PanelPago({ data, concepto, onCancel, onDone }: {
         </label>
         <label><span className={label}>Fecha</span><input type="date" value={form.fecha} onChange={(e) => set("fecha", e.target.value)} className={input} /></label>
         <label><span className={label}>Método</span><select value={form.metodo} onChange={(e) => set("metodo", e.target.value)} className={input}>{METODOS.map((m) => <option key={m}>{m}</option>)}</select></label>
-        <label><span className={label}>Cuenta</span><select value={form.cuenta} onChange={(e) => set("cuenta", e.target.value)} className={input}><option value="">—</option>{CUENTAS.map((c) => <option key={c} value={c}>{c.trim()}</option>)}</select></label>
+        <label><span className={label}>Cuenta</span><select value={form.cuenta} onChange={(e) => set("cuenta", e.target.value)} className={input}><option value="">—</option>{CUENTAS.map((c) => <option key={c.valor} value={c.valor}>{c.etiqueta}</option>)}</select></label>
         <label><span className={label}>Nº transacción</span><input value={form.transaccion} onChange={(e) => set("transaccion", e.target.value)} placeholder="Opcional" className={input} /></label>
         <label><span className={label}>Enlace</span><input value={form.enlace} onChange={(e) => set("enlace", e.target.value)} placeholder="Opcional" className={input} /></label>
       </div>

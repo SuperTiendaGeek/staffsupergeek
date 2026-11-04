@@ -74,11 +74,13 @@ import {
   type Seguimiento,
 } from "@/lib/shipping-v2/unidades-serie";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+import { CUENTAS_PAGO_VIGENTES } from "@/lib/shipping-v2/cuentas-pago";
 import { ACCEPT_HOJAS, ImportarLineasPanel, type EntradaImportacion } from "./ImportarLineasPanel";
 import { solicitudesParecidas } from "@/lib/compras/reglas";
 
 const METODOS_PAGO = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((m) => m !== "No aplica");
-const CUENTAS_PAGO = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((c) => c !== "No aplica");
+// Fase 2B: catálogo único; cada opción dice de qué cuenta de Finanzas sale el dinero.
+const CUENTAS_PAGO = CUENTAS_PAGO_VIGENTES;
 const COMPRA = "Compra a proveedor";
 const REGALO = "Regalo de proveedor";
 const DESPIECE = "Despiece de equipo";
@@ -1293,7 +1295,7 @@ export function ShippingV2NewItemForm({ proveedores, cajasAbiertas, esActivoInic
                 <Field label="Cuenta" required error={errorPorCampo && !cab.respaldoCuenta ? "Obligatoria" : undefined} className="xl:col-span-2">
                   <SelectInput value={cab.respaldoCuenta} onChange={(e) => setC("respaldoCuenta", e.target.value)} invalid={errorPorCampo && !cab.respaldoCuenta}>
                     <option value="">—</option>
-                    {CUENTAS_PAGO.map((c) => <option key={c} value={c}>{c.trim()}</option>)}
+                    {CUENTAS_PAGO.map((c) => <option key={c.valor} value={c.valor}>{c.etiqueta}</option>)}
                   </SelectInput>
                 </Field>
                 <Field label="Nº transacción" className="xl:col-span-1">

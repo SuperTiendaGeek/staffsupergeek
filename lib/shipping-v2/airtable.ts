@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cuentaPago, valorCuentaPagoVigente } from "@/lib/shipping-v2/cuentas-pago";
 import { comprometerUnidades, liberarUnidades, normalizarUnidades, unidadesLibres, unidadesReservadas } from "./unidades";
 import { kardexAjustarCostos, kardexConciliar, kardexMovimientos, kardexPorCambio, kardexRevisar, leerItems as leerItemsKardex, type ContextoKardex } from "./kardex-registro";
 import { causaDeBaja, claveKardex, unidadesEnLibro as unidadesEnLibroKardex, type CausaBaja, type MotivoKardex } from "./kardex";
@@ -79,7 +80,6 @@ import {
   modoLogisticoSegunOrigen,
   normalizarOrigen,
   ORIGEN_TIENDA,
-  origenSegunZona,
   puedeEntrarACaja,
   tipoOperacionPermitido,
   vieneDeAfuera,
@@ -100,7 +100,6 @@ import {
   type ArticuloParaMovimiento,
 } from "@/lib/shipping-v2/activos";
 import {
-  ESTADO_INICIAL_EN_CAMINO,
   esPagoHistorico,
   faltaRespaldo,
   validarRespaldo,
@@ -845,7 +844,10 @@ function normalizeAndValidatePaymentSupportInput(input: ShippingV2PagoMarkPaidIn
   // se conserva el texto EXACTO de la opción (con su espacio, si lo tiene) para lo que se escribe de
   // vuelta a Airtable: un singleSelect rechaza cualquier valor que no coincida carácter por carácter
   // con una opción ya configurada (sin typecast en este PATCH).
-  const cuentaOrigenCanonica = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.find((opcion) => opcion.trim() === cuentaOrigen);
+  // Fase 2B (2-nov-2026): la cuenta sale del catálogo único de cuentas de
+  // pago (lib/shipping-v2/cuentas-pago.ts), que dice a qué cuenta de Finanzas
+  // pertenece cada opción. Las opciones nuevas se crean con typecast al guardar.
+  const cuentaOrigenCanonica = valorCuentaPagoVigente(cuentaOrigen);
   if (!cuentaOrigenCanonica) {
     throw new Error("Cuenta origen no válida. Selecciona una opción existente.");
   }
@@ -3186,6 +3188,7 @@ function camposKardexDeItem(item: Pick<ShippingV2Item, "recibido" | "estado" | "
 function motivoEntradaDeItem(item: Pick<ShippingV2Item, "tipoOperacion" | "esRegalo">): MotivoKardex {
   if (item.esRegalo === true || normalizeStatus(item.tipoOperacion) === "regalo de proveedor") return "Regalo del proveedor";
   if (normalizeStatus(item.tipoOperacion).startsWith("reajuste")) return "Reajuste de inventario";
+  if (normalizeStatus(item.tipoOperacion) === "parte de pago de cliente") return "Parte de pago del cliente";
   return "Compra recibida";
 }
 
@@ -3602,7 +3605,7 @@ async function createShippingV2ItemRecord(
   return item;
 }
 
-export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string; ordenCompraId?: string }) {
+export async function createShippingV2Item(input: ShippingV2ItemWriteInput, options: { registradoPor: string; ordenCompraId?: string; typecast?: boolean; eventDescription?: string }) {
   const calculatedInput = completarAltaSegunLlegada(applyCalculatedItemFlow(prepararAltaSegunOrigen(input)));
   const normalizedInput = normalizeShippingV2ItemMoneyQuantityInput(calculatedInput.input, { mode: "create" });
   validateItemInput(normalizedInput);
@@ -3621,7 +3624,9 @@ export async function createShippingV2Item(input: ShippingV2ItemWriteInput, opti
       ...calculatedInput.extraFields,
       ...(orden ? { [SHIPPING_V2_ITEM_FIELDS.ordenCompra]: [orden.id] } : {}),
     },
-    eventDescription: orden ? `Artículo creado en la orden de compra ${orden.ocId} desde Portal Staff.` : undefined,
+    eventDescription: orden ? `Artículo creado en la orden de compra ${orden.ocId} desde Portal Staff.` : options.eventDescription,
+    // typecast: crea la opción del "Tipo de operación" la primera vez (p. ej. "Parte de pago de cliente").
+    typecast: options.typecast,
   });
 }
 
@@ -3718,149 +3723,6 @@ function completarAltaSegunLlegada(input: ShippingV2ItemWriteInput): {
     input: { ...input, requiereInspeccion, estado, estadoRevision, disponibleVenta, requierePacking, modoLogistico },
     extraFields,
   };
-}
-
-export async function createShippingV2ItemFromOperacion(
-  input: {
-    operacionId: string;
-    opcionId: string;
-    nombre: string;
-    descripcion?: string;
-    proveedorId?: string | null;
-    costoProveedor?: number | null;
-    precioVenta?: number | null;
-    fotos?: ShippingV2Attachment[];
-    /** Categoría de la Operación Comercial de origen. Ambas tablas usan la
-     *  misma lista de opciones (Laptop, RAM, SSD, Batería, Pantalla…), así que
-     *  se copia tal cual. */
-    categoria?: string | null;
-    /**
-     * Repuesto BAJO PEDIDO cotizado desde el presupuesto de una orden de
-     * reparación. A diferencia del pedido clásico de Operaciones (que nace
-     * como "Compra ya pagada"), este nace como compra PENDIENTE de pago al
-     * proveedor —aparece en /shipping-v2/pagos— y pendiente de recepción —
-     * aparece en /shipping-v2/recepcion hasta que alguien marque "Recibido".
-     * Mientras no llegue, la orden no se puede facturar (ver
-     * evaluarItemNoListo en lib/facturacion/gancho/construccion.ts).
-     */
-    desdePresupuesto?: boolean;
-    /**
-     * Unidades compradas al proveedor y cuántas son del cliente
-     * (lib/operaciones/pedido.ts). Vacío = 1 y 1 (comportamiento anterior).
-     * Las que sobran quedan libres para stock.
-     */
-    cantidad?: number;
-    cantidadReservada?: number;
-    /** true = viaja en un packing ("Pendiente de packing"); false = tracking directo. */
-    requierePacking?: boolean;
-  },
-  options: { registradoPor: string }
-) {
-  const operacionId = cleanString(input.operacionId);
-  const opcionId = cleanString(input.opcionId);
-  if (!operacionId) throw new Error("Operación Comercial inválida para crear Shipping Item.");
-  if (!opcionId) throw new Error("Opción origen inválida para crear Shipping Item.");
-
-  const proveedorId = cleanString(input.proveedorId);
-  if (proveedorId) await validateItemProviderRules({ proveedorId });
-
-  // Punto 2 (oct-2026): el pedido viene en camino; local o extranjero según el
-  // país del proveedor, y lo extranjero llega por el casillero por defecto.
-  const proveedoresTodos = await getShippingV2Proveedores();
-  const proveedorPedido = proveedoresTodos.find((p) => p.id === proveedorId);
-  const origenPedido = origenSegunZona(proveedorPedido?.paisZonaLogistica);
-  const casilleroPorDefecto = proveedoresTodos.find((p) => p.esCasillero === true && normalizeStatus(p.estado || "") === "activo");
-
-  const nombre = cleanString(input.nombre) || "Artículo sin nombre";
-  const precioVenta = input.precioVenta ?? null;
-  const cantidad = Number.isInteger(input.cantidad) && (input.cantidad ?? 0) > 0 ? (input.cantidad as number) : 1;
-  const cantidadReservada = Math.min(
-    cantidad,
-    Number.isInteger(input.cantidadReservada) && (input.cantidadReservada ?? 0) > 0 ? (input.cantidadReservada as number) : cantidad
-  );
-
-  // La categoría sale de la Operación Comercial. Antes se forzaba "Repuesto" a
-  // TODO lo que naciera por aquí, y como el buscador de repuestos de stock
-  // filtra únicamente por Categoría, la lista del técnico se llenó de cosas que
-  // no son repuestos: una impresora Epson, un disco externo Seagate, unos
-  // audífonos Plantronics, una motherboard de iMac. Ambas tablas comparten la
-  // misma lista de opciones, así que basta con copiarla; si la operación no
-  // trae categoría se cae a "Otro", que es honesto — no a "Repuesto", que
-  // afirma algo falso.
-  const categoria = knownOptionOrUndefined(
-    SHIPPING_V2_ITEM_SELECT_OPTIONS.categoria,
-    cleanString(input.categoria)
-  ) ?? "Otro";
-
-  const itemInput: ShippingV2ItemWriteInput = {
-    nombre,
-    descripcion: cleanString(input.descripcion) || nombre,
-    // Punto 2 (oct-2026, aprobado por el dueño): todo pedido nace "Compra a
-    // proveedor" pendiente de pago, para que el pago al proveedor se registre
-    // en Pagos. Antes los pedidos de Operaciones nacían "Compra ya pagada" y
-    // ese pago nunca quedaba registrado en Shipping V2.
-    tipoOperacion: "Compra a proveedor",
-    origenArticulo: origenPedido,
-    proveedorLogisticoId: origenPedido === "Proveedor extranjero" ? casilleroPorDefecto?.id : undefined,
-    // "Rol general" describe qué es la pieza dentro de un equipo, no cómo se
-    // vende. Un pedido especial para un cliente es un artículo por derecho
-    // propio, no una parte: "Equipo completo" es lo correcto salvo que la
-    // categoría diga que es un repuesto. Lo que viene del presupuesto de una
-    // orden de reparación es, por definición, una pieza para ese equipo.
-    tipoItem: input.desdePresupuesto || categoria === "Repuesto" ? "Repuesto" : "Equipo completo",
-    categoria,
-    // Punto 9 (12-oct): el pago no es una etapa del estado. Nace "Registrado"
-    // y su pago se ve aparte ("Falta respaldo" hasta subir el comprobante).
-    estado: ESTADO_INICIAL_EN_CAMINO,
-    // Todo pedido que llega DIRECTO (sin packing) nace "Pendiente de
-    // recepción" para aparecer en /shipping-v2/recepcion: ahí se marca
-    // Recibido. Antes solo los del presupuesto de una orden lo hacían, y los
-    // pedidos "Compra ya pagada" nunca aparecían para recibirse (REP-000020,
-    // REP-000022, REP-000026 quedaron atascados sin poder facturarse). Los que
-    // llegan en packing reciben ese estado al recibirse el packing.
-    ...(input.desdePresupuesto || input.requierePacking !== true ? { estadoRevision: "Pendiente de recepción" } : {}),
-    proveedorId,
-    requierePago: true,
-    requierePacking: input.requierePacking === true,
-    afectaInventario: true,
-    // Auditoría Shipping V2, punto 1: todo artículo se puede reservar desde
-    // que nace. Las unidades que sobran para stock quedan reservables ya; se
-    // VENDEN cuando el artículo llega (item-venta.ts). Antes nacían apagadas
-    // y no había camino para publicarlas (C-1).
-    disponibleVenta: calcularDisponibleVenta({
-      estado: ESTADO_INICIAL_EN_CAMINO,
-      unidadesLibres: cantidad - cantidadReservada,
-    }),
-    requiereInspeccion: requiereInspeccionPorDefecto({ categoria }),
-    // "Reservado" (bandera vieja) solo si TODAS las unidades son del cliente;
-    // la cuenta real va en "Cantidad Reservada" (unidades.ts).
-    reservado: cantidadReservada >= cantidad,
-    modoLogistico: input.requierePacking === true ? "Pendiente de packing" : "Tracking directo",
-    cantidad,
-    unidad: "Unidad",
-    costoProveedor: input.costoProveedor ?? null,
-    precioVentaSugerido: precioVenta,
-    precioVenta,
-    // "Es repuesto" era la quinta casilla que decía lo mismo que Categoría y
-    // nunca coincidía con las otras cuatro. Se deja de escribir: manda Categoría.
-    operacionComercialId: operacionId,
-    opcionOrigenId: opcionId,
-    fotos: input.fotos,
-  };
-
-  const normalizedItemInput = normalizeShippingV2ItemMoneyQuantityInput(itemInput, { mode: "create" });
-
-  return createShippingV2ItemRecord(normalizedItemInput, {
-    registradoPor: options.registradoPor,
-    eventDescription:
-      `Item creado desde Operaciones Comerciales para opción ${opcionId}: ` +
-      `${cantidad} unidad(es) compradas, ${cantidadReservada} reservadas para el cliente` +
-      `${input.requierePacking ? ", llega en packing" : ", tracking directo"}.`,
-    extraFields: {
-      [SHIPPING_V2_ITEM_FIELDS.metodoAsignacionSku]: "Generado automáticamente",
-      [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: cantidadReservada,
-    },
-  });
 }
 
 export async function addFotosToShippingV2Item(
@@ -5038,6 +4900,13 @@ const CUENTA_ORIGEN_LEGACY_A_CUENTA_FINANCIERA: Record<string, string> = {
  * advertencia y el movimiento se crea sin Cuenta Origen (permitirCuentaFaltante).
  */
 async function resolveCuentaFinancieraLegacy(cuentaOrigenTexto: string): Promise<string | null> {
+  // Fase 2B: primero el catálogo único (sabe que "Tarjeta C. Produbanco" es
+  // PRODUBANCO MASTERCARD y que la débito Visa sale de SGINGRESOS).
+  const delCatalogo = cuentaPago(cuentaOrigenTexto)?.cuentaFinanzas;
+  if (delCatalogo) {
+    const cuenta = await fetchCuentaPorNombre(delCatalogo);
+    if (cuenta) return cuenta.id;
+  }
   const clave = normalizeStatus(cuentaOrigenTexto);
   const nombreMapeado = CUENTA_ORIGEN_LEGACY_A_CUENTA_FINANCIERA[clave];
   const cuenta = nombreMapeado ? await fetchCuentaPorNombre(nombreMapeado) : await fetchCuentaPorNombreNormalizado(cuentaOrigenTexto);
@@ -5102,7 +4971,8 @@ export async function markShippingV2PagoAsPaid(recordId: string, input: Shipping
   });
   await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.pagos), {
     method: "PATCH",
-    body: JSON.stringify({ records: [{ id: pago.id, fields }] }),
+    // typecast: una cuenta nueva del catálogo de pagos crea su opción.
+    body: JSON.stringify({ records: [{ id: pago.id, fields }], typecast: true }),
   });
   // Punto 9: el pago ya no toca el Estado Item (antes lo ponía "Pagado" y esa
   // marca se perdía al viajar). La situación del pago se lee de los pagos.

@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { ETIQUETA_SITUACION_ORDEN, etiquetaSituacionOrden } from "@/lib/shipping-v2/ordenes-compra";
 import { validarRespaldo } from "@/lib/shipping-v2/pagos-situacion";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+import { CUENTAS_PAGO_VIGENTES, etiquetaCuentaPago } from "@/lib/shipping-v2/cuentas-pago";
 import type { ShippingV2OrdenCompra } from "@/types/shipping-v2";
 
 type Props = {
@@ -26,7 +27,8 @@ type Props = {
 };
 
 const METODOS = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((m) => m !== "No aplica");
-const CUENTAS = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((c) => c !== "No aplica");
+// Fase 2B: catálogo único; cada opción dice de qué cuenta de Finanzas sale el dinero.
+const CUENTAS = CUENTAS_PAGO_VIGENTES;
 
 function money(value: number | null | undefined) {
   return new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(value ?? 0);
@@ -209,7 +211,7 @@ export function OrdenCompraClient({ orden, otras, puedePagar, puedeAgregar, esAd
             <div className="grid grid-cols-2 gap-2 md:grid-cols-12">
               <label className="md:col-span-2"><span className={label}>Fecha</span><input type="date" value={pago.fecha} onChange={(e) => setPago({ ...pago, fecha: e.target.value })} className={campo} /></label>
               <label className="md:col-span-2"><span className={label}>Método</span><select value={pago.metodo} onChange={(e) => setPago({ ...pago, metodo: e.target.value })} className={campo}>{METODOS.map((m) => <option key={m}>{m}</option>)}</select></label>
-              <label className="md:col-span-2"><span className={label}>Cuenta</span><select value={pago.cuenta} onChange={(e) => setPago({ ...pago, cuenta: e.target.value })} className={campo}><option value="">—</option>{CUENTAS.map((c) => <option key={c} value={c}>{c.trim()}</option>)}</select></label>
+              <label className="md:col-span-2"><span className={label}>Cuenta</span><select value={pago.cuenta} onChange={(e) => setPago({ ...pago, cuenta: e.target.value })} className={campo}><option value="">—</option>{CUENTAS.map((c) => <option key={c.valor} value={c.valor}>{c.etiqueta}</option>)}</select></label>
               <label className="md:col-span-2"><span className={label}>Nº transacción</span><input value={pago.transaccion} onChange={(e) => setPago({ ...pago, transaccion: e.target.value })} placeholder="Opcional" className={campo} /></label>
               <label className="md:col-span-2"><span className={label}>Enlace comprobante</span><input value={pago.enlace} onChange={(e) => setPago({ ...pago, enlace: e.target.value })} placeholder="Opcional" className={campo} /></label>
               <div className="flex items-end justify-end gap-2 md:col-span-2">
@@ -234,7 +236,7 @@ export function OrdenCompraClient({ orden, otras, puedePagar, puedeAgregar, esAd
                       <span className={`truncate font-semibold ${anulado ? "line-through" : "text-[#F5F5F5]"}`}>{p.pagoId}</span>
                       <span>{fecha(p.fechaPagoReal)}</span>
                       <span className="truncate">{p.metodoPago && p.metodoPago !== "No aplica" ? p.metodoPago : "—"}</span>
-                      <span className="truncate">{p.cuentaOrigen && p.cuentaOrigen !== "No aplica" ? p.cuentaOrigen.trim() : "—"}</span>
+                      <span className="truncate">{p.cuentaOrigen && p.cuentaOrigen !== "No aplica" ? etiquetaCuentaPago(p.cuentaOrigen) : "—"}</span>
                       <span>{p.conComprobante ? <span className={`${chip} border-[#7BE495]/50 text-[#9FEFB3]`}>✓ {p.transaccionId || "Enlace"}</span> : <span className={`${chip} border-[#F4C95B]/50 text-[#F4C95B]`}>Sin comprobante</span>}</span>
                       <span className="text-right font-semibold tabular-nums text-[#F5F5F5]">{money(p.totalAPagar)}</span>
                       <span className="truncate" title={p.motivoAnulacion}>{anulado ? <span className="text-[#FFB07A]">Anulado</span> : p.estadoPago}</span>

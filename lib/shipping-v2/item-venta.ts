@@ -72,6 +72,8 @@ const CATEGORIAS_CON_INSPECCION_NORMALIZADAS = new Set(CATEGORIAS_CON_INSPECCION
  */
 export function requiereInspeccionPorDefecto(input: { categoria?: string | null; tipoOperacion?: string | null }): boolean {
   if (normalize(input.tipoOperacion) === "reajuste de inventario") return false;
+  // Lo que deja un cliente como parte de pago siempre se revisa antes de venderlo.
+  if (normalize(input.tipoOperacion) === "parte de pago de cliente") return true;
   return CATEGORIAS_CON_INSPECCION_NORMALIZADAS.has(normalize(input.categoria));
 }
 

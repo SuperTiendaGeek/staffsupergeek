@@ -705,6 +705,7 @@ const OPERACION_CORTA: Record<string, string> = {
   "regalo de proveedor": "Regalo",
   "encargo enviado a proveedor": "Encargo",
   "reajuste de inventario": "Reajuste",
+  "parte de pago de cliente": "Parte de pago",
   "uso local": "Uso local",
   "parte / componente": "Parte",
   "despiece de equipo": "Despiece",

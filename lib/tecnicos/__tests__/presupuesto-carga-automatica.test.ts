@@ -70,7 +70,7 @@ async function main() {
   assert(responder.includes("aprobarYCargarSinTurno("), "la respuesta del enlace carga lo aprobado");
   assert(!/aprobarYCargar\(/.test(responder), "…con la versión SIN turno (la otra se bloquearía)");
   assert(responder.indexOf("crearRespuestaFirmada(") < responder.indexOf("aprobarYCargarSinTurno("), "la constancia firmada se guarda ANTES de cargar");
-  const sinTurno = cargar.slice(cargar.indexOf("export async function aprobarYCargarSinTurno"), cargar.indexOf('// ─── "Ya se pidió al proveedor"'));
+  const sinTurno = cargar.slice(cargar.indexOf("export async function aprobarYCargarSinTurno"), cargar.indexOf("// ─── Fase 2: llegó la compra de una solicitud"));
   assert(sinTurno.length > 0 && !sinTurno.includes("withLock"), "aprobarYCargarSinTurno no pide turno");
   assert(/withLock\(`presupuesto:\$\{opts\.ordenId\}`, \(\) => aprobarYCargarSinTurno\(opts\)\)/.test(cargar), "aprobarYCargar = turno + la misma función");
 

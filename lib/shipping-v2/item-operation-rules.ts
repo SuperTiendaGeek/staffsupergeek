@@ -118,6 +118,17 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       modoLogistico: "No aplica",
       estadoItemSugerido: "Disponible",
     });
+  } else if (operation === "parte de pago de cliente") {
+    // Lo dejó un cliente como parte de pago: ya está en la tienda, sin pago a
+    // proveedor ni logística. Se revisa antes de venderlo (requiereInspeccion).
+    Object.assign(base, {
+      requierePago: false,
+      requierePacking: false,
+      afectaInventario: true,
+      disponibleParaVenta: true,
+      modoLogistico: "No aplica",
+      estadoItemSugerido: "Disponible",
+    });
   } else if (operation === "parte / componente") {
     Object.assign(base, {
       requierePago: false,

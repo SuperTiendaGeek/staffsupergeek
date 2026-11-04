@@ -250,6 +250,34 @@ export async function asignarArticuloExistente(input: { solicitudId: string; ite
   });
 }
 
+/**
+ * Migración (Fase 2B): un pedido viejo que YA tiene su artículo enlazado y
+ * apartado (nació por la vía anterior) recibe su solicitud de compra, ya
+ * "Comprada", sin volver a apartar nada. Así aparece en la bandeja y en los
+ * chips (En camino / Llegó). Idempotente.
+ */
+export async function registrarCompraExistenteDeOpcion(input: {
+  operacionId: string; opcionId: string; itemId: string; ordenCompraId?: string | null; usuario: string;
+}): Promise<{ codigo: string; creada: boolean }> {
+  const item = await fetchRecordById(T_ITEMS, input.itemId);
+  if (!item) throw new Error("El artículo no existe.");
+  if (!linkedIds(item.fields["Operación Comercial"]).includes(input.operacionId)) {
+    throw new Error(`${texto(item.fields[F.sku]) || input.itemId} no está enlazado a ese pedido.`);
+  }
+  const s = await asegurarSolicitudDeOpcion({ operacionId: input.operacionId, opcionId: input.opcionId, usuario: input.usuario });
+  if (s.estado === "Comprada" && s.itemId === input.itemId) return { codigo: s.codigo, creada: false };
+  if (s.estado !== "Por comprar") throw new Error(`${s.codigo} está ${s.estado.toLowerCase()}: revisar a mano.`);
+  const sku = texto(item.fields[F.sku]) || input.itemId;
+  await actualizarSolicitud(s.id, {
+    Estado: "Comprada",
+    "Artículo": [input.itemId],
+    ...(input.ordenCompraId ? { "Orden de compra": [input.ordenCompraId] } : {}),
+    "Fecha compra": texto(item.fields[F.fechaRegistro]) || new Date().toISOString(),
+    Historial: agregarHistorial(s.historial, entradaHistorial(`Migración (Fase 2B): ya estaba comprada, ${sku}.`, input.usuario)),
+  });
+  return { codigo: s.codigo, creada: true };
+}
+
 // ─── 3. Cancelar ─────────────────────────────────────────────────────────────
 
 /** Desde la bandeja (lo que todavía no se compró). La línea de la orden queda con el aviso. */

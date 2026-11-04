@@ -59,6 +59,9 @@ export const MAPA_METODO_PAGO_SRI: Record<string, string> = {
   // dinero nuevo — ante el SRI es compensación de deudas (15), igual que el
   // crédito de una nota de crédito.
   "Saldo a favor": "15",
+  // Parte de pago (2-nov-2026): el cliente paga con un artículo que la tienda
+  // le compra. Tampoco es dinero nuevo: compensación de deudas (15).
+  "Parte de pago": "15",
 };
 
 // Forma de pago para la línea de saldo pendiente que agrega la pre-factura
