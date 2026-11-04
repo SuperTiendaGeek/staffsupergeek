@@ -18,8 +18,6 @@ import "server-only";
 
 import { withLock } from "@/lib/concurrencia";
 import { canAccessApp, isAdministratorRole } from "@/lib/apps";
-import { listPortalUsers } from "@/lib/airtable";
-import { crearNotificacion } from "@/lib/notificaciones/airtable";
 import { airtableMutation, fetchRecordById, fetchRecordsByIds, firstNumber, linkedIds, tableUrl } from "@/lib/finanzas/airtable-client";
 import { estadosDeCuentaDeOperaciones, estadosDeCuentaDeOrdenes, porIds, CAMPOS_ORDEN_CUENTA } from "@/lib/estado-cuenta/airtable";
 import { comprometerUnidades, unidadesLibres } from "@/lib/shipping-v2/unidades";
@@ -416,6 +414,10 @@ export async function alRecibirArticulo(itemId: string): Promise<void> {
     if (!ids.length) return;
     const solicitudes = (await solicitudesPorIds(ids)).filter((s) => s.estado === "Comprada");
     if (!solicitudes.length) return;
+    // Import perezoso: lib/airtable arrastra lib/permissions/pantallas →
+    // next/navigation, que rompe los scripts (tsx con react-server).
+    const { listPortalUsers } = await import("@/lib/airtable");
+    const { crearNotificacion } = await import("@/lib/notificaciones/airtable");
     const usuarios = await listPortalUsers();
     const sku = texto(item?.fields[F.sku]);
     for (const s of solicitudes) {

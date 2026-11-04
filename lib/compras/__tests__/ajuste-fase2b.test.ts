@@ -44,5 +44,14 @@ assert(revisarCompra(c3, new Map([["REP-000136", art({ ordenCompraId: "recOC", e
   assert(r.bloqueos.length === 0 && r.acciones.some((a) => a.includes("regalo")), "batería MacBook + jack regalado (costo $0)");
 }
 
+// El script corre con tsx: nada de su cadena de imports puede arrastrar
+// next/navigation (lib/airtable → lib/permissions/pantallas). Pasó el 3-nov.
+{
+  const fs = require("fs") as typeof import("fs");
+  const servidor = fs.readFileSync("lib/compras/servidor.ts", "utf8");
+  assert(!/^import .*from "@\/lib\/airtable";/m.test(servidor) && !/^import .*from "@\/lib\/notificaciones\/airtable";/m.test(servidor),
+    "lib/compras/servidor.ts no importa lib/airtable ni notificaciones arriba (el script de datos se cae)");
+}
+
 if (fallos > 0) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo OK");

@@ -15,7 +15,9 @@ assert(cuentaPago("Tarjeta C. Produbanco")?.cuentaFinanzas === "PRODUBANCO MASTE
 assert(cuentaPago("Tarjeta D. Supe Geek")?.cuentaFinanzas === "SGINGRESOS", "la débito Visa SUPER GEEK sale de SGINGRESOS (con o sin espacio final)");
 assert(valorCuentaPagoVigente("Tarjeta D. Supe Geek") === "Tarjeta D. Supe Geek ", "se guarda el valor exacto de la opción vieja (con su espacio)");
 assert(cuentaPago("Caja")?.cuentaFinanzas === "Caja Registradora", "Caja → Caja Registradora");
-assert(cuentaPago("Tarjeta C. Pichincha")?.cuentaFinanzas === null, "Tarjeta C. Pichincha: pendiente de confirmar (sin cuenta)");
+assert(valorCuentaPagoVigente("Tarjeta C. Pichincha") === null, "Tarjeta C. Pichincha (caducada) ya no se ofrece");
+assert(valorCuentaPagoVigente("Otra") === null, "\"Otra\" no es una cuenta real: ya no se ofrece");
+assert(etiquetaCuentaPago("Tarjeta C. Pichincha").includes("caducada"), "los pagos viejos se siguen leyendo");
 assert(valorCuentaPagoVigente("Banco Pichincha") === null, "la opción vieja del select de Finanzas no se ofrece");
 assert(valorCuentaPagoVigente("No aplica") === null && valorCuentaPagoVigente("") === null, "'No aplica' o vacío: inválida");
 assert(etiquetaCuentaPago("Tarjeta C. Pacificard") === "Crédito Pacificard", "etiqueta legible");
