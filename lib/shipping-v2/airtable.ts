@@ -167,6 +167,7 @@ import {
   getShippingV2PackingWorkHint,
 } from "@/lib/shipping-v2/packing-lifecycle";
 import { calcularDisponibleVenta, evaluarDisponibilidadComercial } from "@/lib/shipping-v2/item-comercial";
+import { camposReversaGarantia, camposSalidaGarantia } from "@/lib/garantias/reglas";
 import {
   appendEntradaHilo,
   articuloSalioDelInventario,
@@ -8418,6 +8419,67 @@ async function reservarRepuestoDeOrdenSinTurno({
   });
 
   return resumen;
+}
+
+/**
+ * Garantía SUPER GEEK (auditoría ops, punto 20 · 4-nov-2026): la pieza en
+ * garantía de una orden SALE del inventario al entregar la orden (una
+ * unidad, igual que una venta pero sin documento ni precio), o VUELVE
+ * apartada si la orden se reabre. Las reglas están en lib/garantias/reglas.ts;
+ * aquí solo se relee el artículo dentro de su turno, se escribe y se deja el
+ * evento. El Kardex lo escribe quien llama (con los campos antes/después).
+ */
+export async function moverPiezaDeGarantia(opciones: {
+  itemId: string;
+  tipo: "salida" | "revertir";
+  ordenIdVisible: string;
+  registradoPor: string;
+  motivoGarantia: string;
+}): Promise<{ antes: Record<string, unknown>; despues: Record<string, unknown> }> {
+  assertShippingV2GeneratedSchema();
+  const id = cleanString(opciones.itemId);
+  if (!id) throw new Error("Record ID de item inválido.");
+  return withLock(`shipping-item:${id}`, async () => {
+    const existing = await airtableRequest<AirtableRecordResponse>(`${tableUrl(SHIPPING_V2_TABLES.items)}/${encodeURIComponent(id)}`);
+    const f = existing.fields;
+    const unidades = {
+      cantidad: firstNumber(f[SHIPPING_V2_ITEM_FIELDS.cantidad]) ?? 0,
+      cantidadReservada: firstNumber(f[SHIPPING_V2_ITEM_FIELDS.cantidadReservada]) ?? 0,
+      reservado: firstBoolean(f[SHIPPING_V2_ITEM_FIELDS.reservado]),
+    };
+    const estadoAnterior = firstString(f[SHIPPING_V2_ITEM_FIELDS.estadoItem]);
+    const campos = opciones.tipo === "salida"
+      ? camposSalidaGarantia(unidades)
+      : camposReversaGarantia({ ...unidades, estado: estadoAnterior });
+    const fields: Record<string, unknown> = {
+      [SHIPPING_V2_ITEM_FIELDS.cantidad]: campos.cantidad,
+      [SHIPPING_V2_ITEM_FIELDS.cantidadReservada]: campos.cantidadReservada,
+      [SHIPPING_V2_ITEM_FIELDS.reservado]: campos.reservado,
+      ...(campos.estado ? { [SHIPPING_V2_ITEM_FIELDS.estadoItem]: campos.estado } : {}),
+      ...(campos.disponibleVenta !== undefined ? { [SHIPPING_V2_ITEM_FIELDS.disponibleVenta]: campos.disponibleVenta } : {}),
+      [SHIPPING_V2_ITEM_FIELDS.ultimaActualizacion]: new Date().toISOString(),
+      [SHIPPING_V2_ITEM_FIELDS.actualizadoPor]: opciones.registradoPor,
+    };
+    const response = await airtableMutation<AirtableMutationResponse>(tableUrl(SHIPPING_V2_TABLES.items), {
+      method: "PATCH",
+      body: JSON.stringify({ records: [{ id, fields }] }),
+    });
+    const updated = response.records?.[0];
+    if (!updated) throw new Error("Airtable no devolvió el item actualizado.");
+    await createShippingV2Event({
+      action: "Cambio de estado",
+      entity: "Shipping Item",
+      itemRecordId: id,
+      registradoPor: opciones.registradoPor,
+      descripcion: opciones.tipo === "salida"
+        ? `Salida por garantía SUPER GEEK: se entregó instalada en la orden ${opciones.ordenIdVisible} (sin costo para el cliente; no es venta).`
+        : `Garantía revertida: la orden ${opciones.ordenIdVisible} se reabrió y la pieza vuelve a la tienda apartada para ella.`,
+      estadoAnterior,
+      estadoNuevo: campos.estado ?? estadoAnterior,
+      observacion: opciones.motivoGarantia || undefined,
+    });
+    return { antes: f, despues: updated.fields };
+  });
 }
 
 /**

@@ -21,6 +21,7 @@ import "server-only";
 
 import { loadAirtableEnv } from "@/lib/tecnicos/config/airtable";
 import { lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
+import { cargosEnGarantia } from "@/lib/garantias/reglas";
 import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import type { CuentaUnificadaAprobadoSinArticulo } from "@/types/cuenta-unificada";
 import { CAMPO_DESCUENTOS, CAMPOS_DESCUENTO, TABLA_DESCUENTOS, descuentoDesdeCampos, type DescuentoCuenta } from "./descuentos";
@@ -227,8 +228,9 @@ function cuentaDeOrden(orden: Registro, lec: Lecturas): CuentaEnBloque {
       .filter((r): r is Registro => !!r)
       .map((it) => ({ id: it.id, precio: precioClienteDeItem(numero(it.fields["Precio venta final"]), 1) })),
   ];
+  const lineas = ids(f["Presupuesto por Orden"]).map((id) => lec.lineas.get(id)).filter((l): l is NonNullable<typeof l> => !!l);
   const aprobadoSinArticulo = pendientesDeLaCuenta({
-    lineas: ids(f["Presupuesto por Orden"]).map((id) => lec.lineas.get(id)).filter((l): l is NonNullable<typeof l> => !!l),
+    lineas,
     serviciosIds: new Set(ids(f["Servicios por Orden"])),
     digitalesIds: new Set(ids(f["Productos Digitales"])),
     itemsStockIds: new Set(stockIds),
@@ -253,6 +255,8 @@ function cuentaDeOrden(orden: Registro, lec: Lecturas): CuentaEnBloque {
         ...ids(f["Productos Digitales"]),
         ...ids(f["Repuestos por Orden"]),
       ]),
+      // Garantía SUPER GEEK (punto 20): esas piezas cobran $0.
+      itemsEnGarantia: cargosEnGarantia(lineas).items,
     },
     abonos,
   });

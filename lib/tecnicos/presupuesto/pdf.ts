@@ -124,6 +124,7 @@ export async function generarPresupuestoPdf(input: PresupuestoPdfInput): Promise
       { text: l.prioridad.toUpperCase(), bold: true, color: COLOR_PRIORIDAD[l.prioridad] ?? "#777" },
       { text: ` · ${l.tipo}` },
     ];
+    if (l.garantia) sub.push({ text: " · Garantía SUPER GEEK, sin costo", bold: true, color: "#1a5fb4" });
     if (l.grupo) sub.push({ text: ` · Alternativa ${letraGrupo.get(l.grupo)} (elige una)`, bold: true });
     if (l.bajoPedido) sub.push({ text: ` · Bajo pedido${l.tiempoEstimado ? `, llega en ${l.tiempoEstimado}` : ""}` });
     detalle.push({ text: sub, fontSize: 7, color: "#777" });
@@ -135,7 +136,7 @@ export async function generarPresupuestoPdf(input: PresupuestoPdfInput): Promise
       { text: String(l.cantidad), alignment: "right" },
       { text: mon(l.precioUnitario), alignment: "right" },
       { text: mon(l.subtotal), alignment: "right", decoration: tachada ? "lineThrough" : undefined, color: tachada ? "#999" : undefined },
-      { text: ESTADO_PDF[l.situacion], alignment: "center", bold: l.pendiente, color: l.pendiente ? "#a15c00" : tachada ? "#999" : "#2E5C00" },
+      { text: l.garantia ? "Garantía" : ESTADO_PDF[l.situacion], alignment: "center", bold: l.pendiente, color: l.pendiente ? "#a15c00" : tachada ? "#999" : l.garantia ? "#1a5fb4" : "#2E5C00" },
     ];
   });
 

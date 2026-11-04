@@ -33,12 +33,16 @@ export interface CuentaUnificadaItem {
   cantidad?: number;
   /** Precio de una unidad ("Precio venta final" del artículo). */
   precioUnitario?: number;
+  /** Garantía SUPER GEEK (punto 20): se cobra $0 y no va al documento de venta. */
+  garantia?: boolean;
 }
 
 export interface CuentaUnificadaServicio {
   id: string;
   nombre: string;
   costo: number;
+  /** Garantía SUPER GEEK (punto 20): mano de obra sin costo, fuera del documento. */
+  garantia?: boolean;
 }
 
 // Renglón de la tabla legacy "Repuestos por Orden". Se muestra SIEMPRE que

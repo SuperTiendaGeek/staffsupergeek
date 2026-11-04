@@ -46,6 +46,7 @@ export const MOTIVOS_KARDEX = [
   "Despiece revertido",
   "Saldo inicial",
   "Separación de unidad",
+  "Garantía revertida",
   // Salidas
   "Venta con factura",
   "Venta con recibo",
@@ -57,6 +58,9 @@ export const MOTIVOS_KARDEX = [
   "Compra registrada de más",
   "Recepción revertida",
   "Registro eliminado",
+  // Garantía SUPER GEEK (auditoría ops, punto 20): la pieza se entrega sin
+  // costo al cliente. Es gasto de garantía, no venta (sin precio de venta).
+  "Salida por garantía",
   // Ambos sentidos
   "Ajuste del Kardex",
   // Sin unidades
@@ -70,7 +74,7 @@ export const CAUSAS_BAJA = ["Perdido", "Robo", "Daño", "Error de registro", "De
 export type CausaBaja = (typeof CAUSAS_BAJA)[number];
 export type DocumentoTipoKardex =
   | "Factura" | "Recibo" | "Nota de crédito" | "Orden de compra" | "Caja" | "Recepción" | "Conteo"
-  | "Revisión" | "Mejora" | "Despiece" | "Novedad" | "Ficha" | "Pago" | "Reconstrucción";
+  | "Revisión" | "Mejora" | "Despiece" | "Novedad" | "Ficha" | "Pago" | "Reconstrucción" | "Orden de reparación";
 
 export type ComponentesCosto = { proveedor: number; flete: number; arancel: number; otros: number; mejoras: number };
 
@@ -128,6 +132,8 @@ const GRUPO: Record<MotivoKardex, GrupoKardex> = {
   "Despiece revertido": "taller",
   "Saldo inicial": "ajustes",
   "Separación de unidad": "traslados",
+  "Garantía revertida": "taller",
+  "Salida por garantía": "taller",
   "Venta con factura": "ventas",
   "Venta con recibo": "ventas",
   "Usada en una mejora": "taller",

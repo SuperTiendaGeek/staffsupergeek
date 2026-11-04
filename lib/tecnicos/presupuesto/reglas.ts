@@ -19,6 +19,8 @@
 // Un trabajo extra es una línea nueva, que se aprueba aparte — así queda
 // constancia de qué aprobó el cliente y cuándo.
 
+import type { EstadoGarantia } from "@/lib/garantias/reglas";
+
 export const TIPOS_LINEA = ["Servicio", "Repuesto", "Producto digital"] as const;
 export type TipoLinea = (typeof TIPOS_LINEA)[number];
 
@@ -80,6 +82,12 @@ export type LineaPresupuesto = {
   /** Huella de lo que vio al responder (ver enlace-reglas.ts). */
   huellaRespondida?:  string;
   fechaRespuestaCliente?: string;
+  /** Garantía SUPER GEEK (punto 20): "" | Propuesta | Confirmada. Ver lib/garantias/reglas.ts. */
+  garantia?:          EstadoGarantia;
+  motivoGarantia?:    string;
+  garantiaConfirmadaPor?: string;
+  /** La pieza en garantía ya salió del inventario al entregar la orden. */
+  garantiaEntregada?: boolean;
 };
 
 /** Datos de un repuesto que se trae BAJO PEDIDO (se vuelven la opción
@@ -103,6 +111,8 @@ export type NuevaLineaInput = {
   bajoPedido?:        DatosBajoPedido | null;
   prioridad?:         Prioridad;
   notaCliente?:       string;
+  /** La línea va (o irá) en garantía: se permite el precio $0 aunque sea bajo pedido. */
+  garantia?:          boolean;
 };
 
 // Categorías de la Operación Comercial que tiene sentido pedir como repuesto.
@@ -115,6 +125,9 @@ export const CATEGORIAS_REPUESTO_PEDIDO = [
 ] as const;
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+/** Igual que esGarantiaConfirmada (lib/garantias/reglas.ts); aquí sin importarla para no crear un ciclo. */
+const esGarantiaConfirmadaLinea = (l: { garantia?: unknown }) => l.garantia === "Confirmada";
 
 export const subtotalLinea = (l: Pick<LineaPresupuesto, "cantidad" | "precioUnitario">) =>
   round2((l.cantidad || 0) * (l.precioUnitario || 0));
@@ -148,7 +161,8 @@ export function validarLinea(l: NuevaLineaInput): string | null {
     if (l.itemId) return "Un repuesto bajo pedido todavía no está en inventario: no lleva artículo.";
     if (!l.bajoPedido.proveedorId) return "Elige el proveedor al que se le va a pedir (así queda su pago pendiente en Shipping).";
     if (!(CATEGORIAS_REPUESTO_PEDIDO as readonly string[]).includes(l.bajoPedido.categoria)) return "Elige la categoría del repuesto.";
-    if (!(l.precioUnitario > 0)) return "Falta el precio de venta al cliente.";
+    // Garantía SUPER GEEK (punto 20): el cliente paga $0 por la pieza.
+    if (!(l.precioUnitario > 0) && !l.garantia) return "Falta el precio de venta al cliente.";
     // El costo es lo que se le va a pagar al proveedor: sin él, el pago
     // pendiente en /shipping-v2/pagos queda en $0 y marcado como incompleto.
     const costo = l.bajoPedido.costoProveedor;
@@ -295,7 +309,7 @@ export function planDeCarga(lineas: LineaPresupuesto[], ctx: ContextoCarga): Pas
       // espera la compra: no hay nada que cargar todavía.
       if (l.tipo === "Repuesto" && l.bajoPedido && !l.operacionId) {
         if (l.solicitudId) return { ...base, accion: { tipo: "esperando_compra" } };
-        if (!l.proveedorId || l.costoProveedor === null || !(l.precioUnitario > 0)) {
+        if (!l.proveedorId || l.costoProveedor === null || (!(l.precioUnitario > 0) && !esGarantiaConfirmadaLinea(l))) {
           return { ...base, accion: { tipo: "pendiente", motivo: "Faltan datos del pedido (proveedor, costo o precio)." } };
         }
         return { ...base, accion: { tipo: "crear_solicitud" } };
@@ -784,12 +798,15 @@ export type CargosDeLaCuenta = {
 /** Lo mínimo de una línea que necesita la regla (Cobros la arma desde Airtable). */
 export type LineaParaCuenta = Pick<LineaPresupuesto,
   "id" | "descripcion" | "tipo" | "estado" | "cantidad" | "precioUnitario" |
-  "operacionId" | "bajoPedido" | "itemId" | "cargoServicioId" | "cargoProductoDigitalId">;
+  "operacionId" | "bajoPedido" | "itemId" | "cargoServicioId" | "cargoProductoDigitalId"> & Partial<Pick<LineaPresupuesto, "garantia">>;
 
 export function aprobadoSinArticulo(lineas: LineaParaCuenta[], c: CargosDeLaCuenta): AprobadoSinArticulo[] {
   const out: AprobadoSinArticulo[] = [];
   for (const l of lineas) {
     if (l.estado !== "Aprobada") continue;
+    // Garantía confirmada (punto 20): $0 y fuera del documento; no hace
+    // esperar a la factura o al recibo de lo que sí se paga.
+    if (esGarantiaConfirmadaLinea(l)) continue;
     let yaTieneCargo = false;
     let motivo: MotivoSinArticulo = "pendiente";
     if (l.operacionId || l.bajoPedido) {

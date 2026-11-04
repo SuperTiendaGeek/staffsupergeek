@@ -235,11 +235,14 @@ type Borrador = {
   // Bajo pedido
   proveedorId: string; categoria: string; costo: string; url: string; tiempo: string;
   prioridad: Prioridad; notaCliente: string; alternativaDe: string;
+  // Garantía SUPER GEEK (punto 20): $0 al cliente, con motivo.
+  garantia: boolean; motivoGarantia: string;
 };
 const BORRADOR_VACIO = (tipo: TipoLinea): Borrador => ({
   tipo, descripcion: "", cantidad: "1", precio: "", servicioCatalogoId: null, itemId: null, itemSku: null, productoCatalogoId: null,
   proveedorId: "", categoria: "Repuesto", costo: "", url: "", tiempo: "",
   prioridad: "Recomendada", notaCliente: "", alternativaDe: "",
+  garantia: false, motivoGarantia: "",
 });
 
 // ─── Prioridad y alternativas ────────────────────────────────────────────────
@@ -294,8 +297,10 @@ function CamposCliente({ prioridad, nota, alternativaDe, propuestas, onCambio, m
   );
 }
 
-function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
+function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas, esAdmin = false }: {
   ordenId: string; onCreada: () => void; onCancelar: () => void;
+  /** Un administrador agrega la garantía ya confirmada. */
+  esAdmin?: boolean;
   /** Líneas Propuesta de la orden (para marcar "alternativa de"). */
   propuestas: LineaPresupuesto[];
   /** Recotizar: arranca con los datos del repuesto que se reemplaza. */
@@ -340,6 +345,8 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
   const esPedido = b.tipo === "Repuesto" && modoRepuesto === "pedido";
   const elegido = b.servicioCatalogoId || b.itemId || b.productoCatalogoId || esPedido;
   const cantidadFija = (b.tipo === "Repuesto" && (!!b.itemId || esPedido)) || b.tipo === "Producto digital";
+  const admiteGarantia = b.tipo === "Repuesto" || b.tipo === "Servicio";
+  const enGarantia = admiteGarantia && b.garantia;
 
   function cambiarTipo(t: TipoLinea) { setListaAbierta(true); setNuevoServicio(null); setB({ ...BORRADOR_VACIO(t), prioridad: b.prioridad, notaCliente: b.notaCliente, alternativaDe: b.alternativaDe }); setQ(""); setError(null); setModoRepuesto("inventario"); }
 
@@ -386,9 +393,10 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
         body: JSON.stringify({
           tipo: b.tipo, descripcion: b.descripcion,
           cantidad: parseInt(b.cantidad, 10) || 0,
-          precioUnitario: parseFloat(b.precio.replace(",", ".")) || 0,
+          precioUnitario: enGarantia ? 0 : parseFloat(b.precio.replace(",", ".")) || 0,
           servicioCatalogoId: b.servicioCatalogoId, itemId: b.itemId, productoCatalogoId: b.productoCatalogoId,
-          prioridad: b.prioridad, notaCliente: b.notaCliente, alternativaDe: b.alternativaDe || null,
+          prioridad: b.prioridad, notaCliente: b.notaCliente, alternativaDe: enGarantia ? null : b.alternativaDe || null,
+          garantia: enGarantia ? { motivo: b.motivoGarantia } : null,
           bajoPedido: esPedido
             ? {
                 proveedorId: b.proveedorId, categoria: b.categoria, urlProveedor: b.url.trim(), tiempoEstimado: b.tiempo,
@@ -398,7 +406,7 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
         }),
       });
       const j = await r.json();
-      if (!j.success) { setError(j.error ?? "No se pudo agregar la línea"); return; }
+      if (!j.success) { setError(j.error ?? "No se pudo agregar la línea"); if (r.status === 409 && enGarantia) onCreada(); return; }
       // Punto 8b: con la línea guardada, se cierra la novedad del repuesto.
       if (avisoAlGuardar) {
         const aviso = await cerrarNovedadesVendidas("tecnicos", [avisoAlGuardar], `Presupuesto de una orden de reparación: "${descripcionLinea}"`);
@@ -498,7 +506,19 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
             {b.itemSku && <p className="mt-0.5 text-[10px] text-[var(--sg-text-muted)]">Inventario: {b.itemSku} — solo referencia, NO se reserva todavía</p>}
           </div>
           <input value={b.cantidad} disabled={cantidadFija} onChange={(e) => setB({ ...b, cantidad: e.target.value.replace(/\D/g, "") })} inputMode="numeric" placeholder="Cant." className={`${INPUT} text-right`} title={cantidadFija ? "Va de a una unidad por línea" : ""} />
-          <input value={b.precio} onChange={(e) => setB({ ...b, precio: e.target.value })} inputMode="decimal" placeholder="Precio c/IVA" className={`${INPUT} text-right`} />
+          <input value={enGarantia ? "0" : b.precio} disabled={enGarantia} onChange={(e) => setB({ ...b, precio: e.target.value })} inputMode="decimal" placeholder="Precio c/IVA" className={`${INPUT} text-right`} title={enGarantia ? "En garantía: $0 al cliente" : ""} />
+        </div>
+      )}
+      {elegido && admiteGarantia && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setB({ ...b, garantia: !b.garantia, alternativaDe: "" })} aria-pressed={b.garantia}
+            className={`h-7 rounded-full border px-3 text-xs font-semibold transition ${b.garantia ? "border-[var(--sg-info)] bg-[var(--sg-info-soft)] text-[var(--sg-info)]" : "border-[var(--sg-border)] text-[var(--sg-text-secondary)] hover:border-[var(--sg-info)]/60"}`}>
+            {b.garantia ? "✓ " : ""}Garantía SUPER GEEK
+          </button>
+          {b.garantia && (
+            <input autoFocus value={b.motivoGarantia} onChange={(e) => setB({ ...b, motivoGarantia: e.target.value })} maxLength={300}
+              placeholder="Motivo (ej. batería de OR000401 salió mala)" className={`${INPUT} min-w-[220px] flex-1 animate-[sg-entrada_180ms_ease-out]`} />
+          )}
         </div>
       )}
 
@@ -531,7 +551,7 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
 
       {elegido && (
         <CamposCliente prioridad={b.prioridad} nota={b.notaCliente} alternativaDe={b.alternativaDe} propuestas={propuestas}
-          onCambio={(c) => setB({ ...b, ...c })} />
+          mostrarAlternativa={!enGarantia} onCambio={(c) => setB({ ...b, ...c })} />
       )}
 
       {b.tipo === "Repuesto" && b.itemId ? (
@@ -543,7 +563,7 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas }: {
         {elegido && (
           <>
             <button type="button" onClick={() => { setB(BORRADOR_VACIO(b.tipo)); setAvisoNovedad(null); }} className={BTN_SEC}>Cambiar</button>
-            <button type="button" onClick={guardar} disabled={guardando || (b.tipo === "Repuesto" && Boolean(b.itemId) && avisoNovedad?.pendiente !== false)} className={BTN_PRI}>{guardando ? "Agregando…" : "Agregar al presupuesto"}</button>
+            <button type="button" onClick={guardar} disabled={guardando || (b.tipo === "Repuesto" && Boolean(b.itemId) && avisoNovedad?.pendiente !== false)} className={BTN_PRI}>{guardando ? "Agregando…" : enGarantia ? (esAdmin ? "Agregar en garantía" : "Proponer garantía") : "Agregar al presupuesto"}</button>
           </>
         )}
       </div>
@@ -577,6 +597,8 @@ export function PresupuestoCard({
   const [reversas, setReversas] = useState<Record<string, ReversasLinea>>({});
   const [proveedores, setProveedores] = useState<Record<string, string>>({});
   const [revirtiendo, setRevirtiendo] = useState<{ lineaId: string; accion: AccionReversa | AccionRetiro; motivo: string } | null>(null);
+  // Garantía SUPER GEEK (punto 20): motivo que se está escribiendo para una línea.
+  const [garantiaEdit, setGarantiaEdit] = useState<{ lineaId: string; motivo: string } | null>(null);
   const [inicialForm, setInicialForm] = useState<Borrador | null>(null);
   const [avisoDinero, setAvisoDinero] = useState(false);
   const [verHistorial, setVerHistorial] = useState<string | null>(null);
@@ -646,7 +668,8 @@ export function PresupuestoCard({
     [productosDigitales, lineas]
   );
 
-  const seleccionables = lineas.filter((l) => l.estado === "Propuesta" || l.estado === "Aprobada");
+  // Una garantía solo propuesta no se aprueba en tienda: la confirma un administrador.
+  const seleccionables = lineas.filter((l) => (l.estado === "Propuesta" || l.estado === "Aprobada") && l.garantia !== "Propuesta");
   // Letra por grupo de alternativas (solo grupos con 2+ líneas).
   const letraGrupo = useMemo(() => {
     const cuenta = new Map<string, number>();
@@ -787,6 +810,7 @@ export function PresupuestoCard({
         <FormLinea
           key={inicialForm ? "recotizar" : "nueva"}
           ordenId={ordenId}
+          esAdmin={esAdmin}
           inicial={inicialForm}
           propuestas={lineas.filter((x) => x.estado === "Propuesta")}
           onCreada={() => { setInicialForm(null); void recargar(); }}
@@ -831,7 +855,7 @@ export function PresupuestoCard({
             </thead>
             <tbody className="divide-y divide-[var(--sg-divider)]">
               {lineas.map((l) => {
-                const puedeSel = l.estado === "Propuesta" || l.estado === "Aprobada";
+                const puedeSel = (l.estado === "Propuesta" || l.estado === "Aprobada") && l.garantia !== "Propuesta";
                 return (
                   <tr key={l.id} className={l.estado === "Rechazada" ? "opacity-55" : ""}>
                     <td className="px-2 py-1.5 align-top">
@@ -846,6 +870,25 @@ export function PresupuestoCard({
                         {l.descripcion}
                       </span>
                       {l.notaCliente && <span className="block text-[11px] italic text-[var(--sg-text-secondary)]">“{l.notaCliente}”</span>}
+                      {l.garantia && (
+                        <span className="mt-0.5 block text-[11px] leading-snug">
+                          <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${l.garantia === "Confirmada" ? "border-[var(--sg-info)]/50 bg-[var(--sg-info-soft)] text-[var(--sg-info)]" : TONO_BADGE.aviso}`}>
+                            {l.garantia === "Confirmada" ? `Garantía SUPER GEEK${l.garantiaEntregada ? " · entregada" : ""}` : "Garantía · falta confirmar (admin)"}
+                          </span>
+                          {l.motivoGarantia && <span className="ml-1 text-[var(--sg-text-muted)]">{l.motivoGarantia}</span>}
+                        </span>
+                      )}
+                      {garantiaEdit?.lineaId === l.id && (
+                        <div className="mt-1.5 flex flex-wrap gap-2 animate-[sg-entrada_180ms_ease-out]">
+                          <input autoFocus value={garantiaEdit.motivo} maxLength={300} onChange={(e) => setGarantiaEdit({ ...garantiaEdit, motivo: e.target.value })}
+                            placeholder="Motivo de la garantía" className={`${INPUT} min-w-[200px] flex-1`} />
+                          <button type="button" onClick={() => setGarantiaEdit(null)} className={BTN_SEC}>Volver</button>
+                          <button type="button" disabled={ocupado === l.id} className={BTN_PRI}
+                            onClick={() => { const motivo = garantiaEdit.motivo; setGarantiaEdit(null); void accionLinea(l, "PATCH", { accion: "garantia", motivo }).then(() => onCargado()); }}>
+                            {esAdmin ? "Dar en garantía ($0)" : "Proponer garantía"}
+                          </button>
+                        </div>
+                      )}
                       {detalle?.lineaId === l.id && (
                         <div className="mt-1.5 space-y-1.5">
                           <CamposCliente prioridad={detalle.prioridad} nota={detalle.notaCliente} alternativaDe={detalle.alternativaDe}
@@ -991,6 +1034,12 @@ export function PresupuestoCard({
                       ))}
                       {aceptaVincularArticulo(l) && !l.itemId && !l.operacionId && (
                         <button type="button" disabled={ocupado === l.id} onClick={() => setVinculando(vinculando === l.id ? null : l.id)} className="mr-2 text-[var(--sg-lime)] hover:underline">Vincular artículo</button>
+                      )}
+                      {esEditable(l) && (l.tipo === "Repuesto" || l.tipo === "Servicio") && !l.garantia && !l.grupoAlternativas && (
+                        <button type="button" disabled={ocupado === l.id} onClick={() => setGarantiaEdit(garantiaEdit?.lineaId === l.id ? null : { lineaId: l.id, motivo: "" })} className="mr-2 text-[var(--sg-text-muted)] hover:text-[var(--sg-info)]">Garantía</button>
+                      )}
+                      {esEditable(l) && l.garantia === "Propuesta" && esAdmin && (
+                        <button type="button" disabled={ocupado === l.id} onClick={() => void accionLinea(l, "PATCH", { accion: "confirmar-garantia" }).then(() => onCargado())} className="mr-2 font-semibold text-[var(--sg-info)] hover:underline">Confirmar garantía</button>
                       )}
                       {esEditable(l) && (
                         <>
