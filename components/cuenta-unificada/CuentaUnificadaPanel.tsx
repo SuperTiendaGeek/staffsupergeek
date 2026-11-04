@@ -11,6 +11,7 @@ import {
 import { etiquetaAbono } from "@/lib/cobros/metodos";
 import { enlacesComprobanteAbono } from "@/lib/cobros/comprobante-abono";
 import { SaldoAFavorAcciones, type SaldoInfo } from "./SaldoAFavorAcciones";
+import { ParteDePagoAccion } from "./ParteDePagoAccion";
 
 // Componente compartido (Fase 11 — Etapa 3): se monta igual en la pantalla de
 // la orden y en la de la operación. Puramente presentacional — no calcula
@@ -77,6 +78,12 @@ export function CuentaUnificadaPanel({
       ? origenTipo === "orden"
         ? `/api/tecnicos/ordenes/${encodeURIComponent(origenRecordId)}/saldo-favor`
         : `/api/operaciones/${encodeURIComponent(origenRecordId)}/saldo-favor`
+      : null;
+  const urlParteDePago =
+    origenTipo && origenRecordId
+      ? origenTipo === "orden"
+        ? `/api/tecnicos/ordenes/${encodeURIComponent(origenRecordId)}/parte-de-pago`
+        : `/api/operaciones/${encodeURIComponent(origenRecordId)}/parte-de-pago`
       : null;
   const [saldoInfo, setSaldoInfo] = useState<SaldoInfo | null>(null);
   const [mensajeSaldo, setMensajeSaldo] = useState<string | null>(null);
@@ -355,6 +362,13 @@ export function CuentaUnificadaPanel({
               <Link href={`${hrefEmitirDocumento}&tipo=proforma`} style={{ fontSize: "12px", color: "#A7A7A7", textDecoration: "underline" }}>
                 Proforma
               </Link>
+              {!saldoEsFavor && !saldoEsCero && urlParteDePago && (
+                <ParteDePagoAccion
+                  url={urlParteDePago}
+                  porCobrar={cuenta.saldo}
+                  onHecho={(m) => { setMensajeSaldo(m); onCuentaCambiada?.(); }}
+                />
+              )}
               {!saldoEsFavor && !saldoEsCero && (saldoInfo?.disponible ?? 0) > 0.01 && (
                 <span style={{ flexBasis: "100%", fontSize: "11px", color: "#56E3A4" }}>
                   El cliente tiene {formatCurrency(saldoInfo!.disponible)} de saldo a favor: elígelo como método en «Registrar pago».

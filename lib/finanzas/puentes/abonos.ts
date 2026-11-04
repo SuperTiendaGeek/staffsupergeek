@@ -140,7 +140,7 @@ export async function crearMovimientoParaAbono(input: {
   // escribe lib/saldo-favor/servidor.ts. Aquí se crearía un "Anticipo
   // Cliente" con dinero que no entró: nunca.
   const metodo = cleanString(input.metodoPago);
-  if (metodo === "Saldo a favor" || metodo === "Devolución" || !(input.monto > 0)) {
+  if (metodo === "Saldo a favor" || metodo === "Devolución" || metodo === "Parte de pago" || !(input.monto > 0)) {
     return { ok: false, error: "Este abono no es dinero nuevo: su asiento lo registra el saldo a favor." };
   }
   try {

@@ -30,6 +30,7 @@ export const MOTIVOS_KARDEX = [
   "Compra recibida",
   "Regalo del proveedor",
   "Reajuste de inventario",
+  "Parte de pago del cliente",
   "Devolución del cliente",
   "Factura anulada",
   "Recibo anulado",
@@ -111,6 +112,7 @@ const GRUPO: Record<MotivoKardex, GrupoKardex> = {
   "Compra recibida": "compras",
   "Regalo del proveedor": "compras",
   "Reajuste de inventario": "ajustes",
+  "Parte de pago del cliente": "compras",
   "Devolución del cliente": "devoluciones",
   "Factura anulada": "devoluciones",
   "Recibo anulado": "devoluciones",
@@ -433,7 +435,7 @@ export type ResumenProducto = {
   diasEnTienda: number | null;
 };
 
-const ENTRADAS_DE_COMPRA = new Set<MotivoKardex>(["Compra recibida", "Regalo del proveedor", "Reajuste de inventario", "Saldo inicial"]);
+const ENTRADAS_DE_COMPRA = new Set<MotivoKardex>(["Compra recibida", "Regalo del proveedor", "Reajuste de inventario", "Parte de pago del cliente", "Saldo inicial"]);
 const VENTAS = new Set<MotivoKardex>(["Venta con factura", "Venta con recibo", "Vendida fuera del sistema"]);
 
 export function resumenProducto(movs: readonly MovimientoKardex[], hoy = new Date().toISOString()): ResumenProducto {

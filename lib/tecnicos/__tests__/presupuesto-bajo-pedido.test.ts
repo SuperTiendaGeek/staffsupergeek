@@ -113,9 +113,14 @@ const rutaPedido = fs.readFileSync(path.join(raiz, "app", "api", "tecnicos", "or
 assert(!rutaEstado.includes("pasarOperacionAPedido(") && rutaEstado.includes("asegurarSolicitudDeOpcion("),
   "Operaciones: aprobar crea la solicitud de compra; \"Pedido\" no crea artículos");
 assert(!rutaPedido.includes("marcarPedidoAlProveedor("), "\"Ya se pidió al proveedor\" ya no crea artículos desde la orden");
+// Fase 2B: se retiró la segunda puerta de compras (crear artículos desde la operación o el presupuesto).
 const opsAirtable = fs.readFileSync(path.join(raiz, "lib", "operaciones", "airtable.ts"), "utf8");
-assert(opsAirtable.includes('opRec.fields["Presupuesto por Orden"]'),
-  "El artículo nace como compra pendiente de pago cuando la operación viene del presupuesto, sin importar desde dónde se pidió");
+const shipAirtable = fs.readFileSync(path.join(raiz, "lib", "shipping-v2", "airtable.ts"), "utf8");
+const cargarTs = fs.readFileSync(path.join(raiz, "lib", "tecnicos", "presupuesto", "cargar.ts"), "utf8");
+assert(!opsAirtable.includes("function crearShippingItemDesdeOpcion") && !opsAirtable.includes("function pasarOperacionAPedido")
+  && !shipAirtable.includes("function createShippingV2ItemFromOperacion"), "Operaciones ya no crea artículos (solo \"Registrar compra\")");
+assert(!cargarTs.includes("function marcarPedidoAlProveedor") && !cargarTs.includes("function crearOperacionAprobada"),
+  "El presupuesto ya no crea operaciones ni artículos");
 
 // ─── La operación NO existe hasta que el cliente aprueba ─────────────────────
 const soloPresupuesto = linea({ operacionId: null });

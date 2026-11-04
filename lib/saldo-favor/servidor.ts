@@ -78,7 +78,7 @@ export function hoyEcuador(ahora: Date = new Date()): string {
   return new Date(ahora.getTime() - 5 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-function nombreUsuario(session: StaffSession): string {
+export function nombreUsuario(session: StaffSession): string {
   return session.user.nombre?.trim() || session.user.email?.trim() || "Portal";
 }
 
@@ -89,7 +89,7 @@ export async function saldoDeCliente(clienteId: string): Promise<SaldoCliente> {
   return calcularSaldoCliente(await movimientosDeCliente(clienteId), hoyEcuador());
 }
 
-type DatosCuenta = {
+export type DatosCuenta = {
   cuenta: Awaited<ReturnType<typeof getCuentaUnificada>>;
   clienteId: string | null;
   clienteNombre: string;
@@ -98,7 +98,8 @@ type DatosCuenta = {
   etiqueta: string;
 };
 
-async function leerCuenta(origen: OrigenCuenta): Promise<DatosCuenta> {
+/** La cuenta con su cliente (también la usa la parte de pago). */
+export async function leerCuenta(origen: OrigenCuenta): Promise<DatosCuenta> {
   const cuenta = await getCuentaUnificada(origen.tipo === "orden" ? { ordenId: origen.recordId } : { operacionId: origen.recordId });
   let clienteId: string | null = null;
   if (cuenta.ordenId) {
@@ -129,7 +130,8 @@ export async function saldoDeLaCuenta(origen: OrigenCuenta): Promise<{ clienteId
 
 // ─── Abonos de la cuenta ─────────────────────────────────────────────────────
 
-async function crearAbonoEnCuenta(input: {
+/** Crea el abono en la orden o en el pedido (también lo usa la parte de pago). */
+export async function crearAbonoEnCuenta(input: {
   origen: OrigenCuenta;
   datos: DatosCuenta;
   monto: number;

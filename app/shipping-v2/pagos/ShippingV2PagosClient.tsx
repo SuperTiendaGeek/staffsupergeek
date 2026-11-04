@@ -24,6 +24,7 @@ import { Fragment, useMemo, useState } from "react";
 import { etiquetaSituacionOrden } from "@/lib/shipping-v2/ordenes-compra";
 import { calculateShippingV2PaymentItemSubtotal, unidadesParaPago } from "@/lib/shipping-v2/payment-calculations";
 import { SHIPPING_V2_PAYMENT_SELECT_OPTIONS } from "@/lib/shipping-v2/schema.generated";
+import { CUENTAS_PAGO_VIGENTES, etiquetaCuentaPago } from "@/lib/shipping-v2/cuentas-pago";
 import { esPagoHistorico } from "@/lib/shipping-v2/pagos-situacion";
 import type { ShippingV2AccessPermissions, ShippingV2OrdenArticulo, ShippingV2OrdenCompra, ShippingV2Pago, ShippingV2PagoItemResumen, ShippingV2PagoPendingItem, ShippingV2PagosWorkspace } from "@/types/shipping-v2";
 
@@ -31,7 +32,8 @@ type Props = { initialWorkspace: ShippingV2PagosWorkspace; error: string; permis
 type Tab = "compras" | "registrados";
 
 const METODOS = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.metodoPago.filter((m) => m !== "No aplica");
-const CUENTAS = SHIPPING_V2_PAYMENT_SELECT_OPTIONS.cuentaOrigen.filter((c) => c !== "No aplica");
+// Fase 2B: catálogo único; cada opción dice de qué cuenta de Finanzas sale el dinero.
+const CUENTAS = CUENTAS_PAGO_VIGENTES;
 const TODOS = "";
 
 function normalize(value?: string | number | null) {
@@ -198,7 +200,7 @@ function PanelPago({ grupo, otros, regalosPorCaja, onCancel, onDone }: {
       <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-6">
         <label><span className={label}>Fecha</span><input type="date" value={form.fecha} onChange={(e) => set("fecha", e.target.value)} className={input} /></label>
         <label><span className={label}>Método</span><select value={form.metodo} onChange={(e) => set("metodo", e.target.value)} className={input}>{METODOS.map((m) => <option key={m}>{m}</option>)}</select></label>
-        <label><span className={label}>Cuenta</span><select value={form.cuenta} onChange={(e) => set("cuenta", e.target.value)} className={input}><option value="">—</option>{CUENTAS.map((c) => <option key={c} value={c}>{c.trim()}</option>)}</select></label>
+        <label><span className={label}>Cuenta</span><select value={form.cuenta} onChange={(e) => set("cuenta", e.target.value)} className={input}><option value="">—</option>{CUENTAS.map((c) => <option key={c.valor} value={c.valor}>{c.etiqueta}</option>)}</select></label>
         <label><span className={label}>Orden</span><input value={form.orden} onChange={(e) => set("orden", e.target.value)} placeholder="Opcional" className={input} /></label>
         <label><span className={label}>Nº transacción</span><input value={form.transaccion} onChange={(e) => set("transaccion", e.target.value)} placeholder="Opcional" className={input} /></label>
         <label><span className={label}>Enlace comprobante</span><input value={form.enlace} onChange={(e) => set("enlace", e.target.value)} placeholder="Opcional" className={input} /></label>
@@ -255,7 +257,7 @@ function PanelPagoOrden({ orden, onCancel, onDone }: { orden: ShippingV2OrdenCom
       <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-5">
         <label><span className={label}>Fecha</span><input type="date" value={form.fecha} onChange={(e) => set("fecha", e.target.value)} className={input} /></label>
         <label><span className={label}>Método</span><select value={form.metodo} onChange={(e) => set("metodo", e.target.value)} className={input}>{METODOS.map((m) => <option key={m}>{m}</option>)}</select></label>
-        <label><span className={label}>Cuenta</span><select value={form.cuenta} onChange={(e) => set("cuenta", e.target.value)} className={input}><option value="">—</option>{CUENTAS.map((c) => <option key={c} value={c}>{c.trim()}</option>)}</select></label>
+        <label><span className={label}>Cuenta</span><select value={form.cuenta} onChange={(e) => set("cuenta", e.target.value)} className={input}><option value="">—</option>{CUENTAS.map((c) => <option key={c.valor} value={c.valor}>{c.etiqueta}</option>)}</select></label>
         <label><span className={label}>Nº transacción</span><input value={form.transaccion} onChange={(e) => set("transaccion", e.target.value)} placeholder="Opcional" className={input} /></label>
         <label><span className={label}>Enlace comprobante</span><input value={form.enlace} onChange={(e) => set("enlace", e.target.value)} placeholder="Opcional" className={input} /></label>
       </div>
@@ -527,7 +529,7 @@ export function ShippingV2PagosClient({ initialWorkspace, error, permissions, pr
                       {p.regalosResumen.map((r) => <LineaItem key={r.id} item={r} regalo />)}
                       {!portal && (p.transaccionId || p.cuentaOrigen || p.comprobante.length) ? (
                         <p className="mt-1 text-[12px] text-[#8F908A]">
-                          {p.cuentaOrigen && p.cuentaOrigen !== "No aplica" ? <span className="mr-3">Cuenta: <span className="text-[#E6E6E1]">{p.cuentaOrigen.trim()}</span></span> : null}
+                          {p.cuentaOrigen && p.cuentaOrigen !== "No aplica" ? <span className="mr-3">Cuenta: <span className="text-[#E6E6E1]">{etiquetaCuentaPago(p.cuentaOrigen)}</span></span> : null}
                           {p.transaccionId ? <span className="mr-3">Transacción: <span className="text-[#E6E6E1]">{p.transaccionId}</span></span> : null}
                           {p.comprobante.map((a, n) => <a key={a.url} href={a.url} target="_blank" rel="noreferrer" className="mr-2 text-[#D7FF4F] hover:underline">Comprobante {n + 1}</a>)}
                         </p>

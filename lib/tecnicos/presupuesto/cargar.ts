@@ -32,15 +32,12 @@ import { agregarRepuestoStockAOrden, quitarRepuestoStockDeOrden } from "../repue
 import { cargarOrdenesCobro } from "../cobros/airtable";
 import { unidadesLibres, unidadesReservadas } from "@/lib/shipping-v2/unidades";
 import { SHIPPING_V2_ITEM_FIELDS } from "@/lib/shipping-v2/schema.generated";
-import {
-  actualizarEstadoOperacion, pasarOperacionAPedido, type OpcionesPedido,
-  crearOperacion, crearOpcion, setOpcionElegida, eliminarOperacionConOpciones,
-} from "@/lib/operaciones/airtable";
+import { actualizarEstadoOperacion } from "@/lib/operaciones/airtable";
 import { soltarArticuloDePedido } from "@/lib/shipping-v2/airtable";
-import { listarLineas, actualizarLinea, cargarInfoPedidos, clienteDeOrden } from "./airtable";
+import { listarLineas, actualizarLinea, cargarInfoPedidos } from "./airtable";
 import { asegurarSolicitudDeLinea, cancelarSolicitudDeLinea } from "@/lib/compras/servidor";
 import {
-  planDeCarga, fasePedido, reversasDisponibles, entradaHistorial,
+  planDeCarga, reversasDisponibles, entradaHistorial,
   cargasPerdidas, cargosSinPresupuesto, conflictoAlternativas, hermanasPropuestas,
   planRetiro, lineaTrasRetiro, type AccionRetiro,
   type ContextoCarga, type LineaPresupuesto, type PasoCarga, type AccionReversa, type CargosPresentes } from "./reglas";
@@ -247,52 +244,6 @@ export async function aprobarYCargarSinTurno(opts: OpcionesCarga): Promise<Resul
   return resultados;
 }
 
-// ─── "Ya se pidió al proveedor" ──────────────────────────────────────────────
-// Pasa la operación a "Pedido" por el MISMO camino que el tablero de
-// Operaciones (pasarOperacionAPedido): ahí nace el artículo en Shipping Items
-// —compra pendiente de pago y de recepción— y queda en la cuenta de la orden
-// por el vínculo orden↔operación. La línea pasa a Cargada con ese SKU.
-
-export async function marcarPedidoAlProveedor(opts: {
-  ordenId: string;
-  lineaId: string;
-  usuario: { nombre: string };
-  /** Unidades compradas y cómo llegan (mismo diálogo que en Operaciones). */
-  pedido?: OpcionesPedido;
-}): Promise<{ sku: string | null; aviso?: string }> {
-  return withLock(`presupuesto:${opts.ordenId}`, async () => {
-    const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
-    if (!linea) throw new Error("Línea no encontrada en esta orden.");
-    if (!linea.operacionId) throw new Error("Esta línea no es un repuesto bajo pedido.");
-    if (linea.estado !== "Aprobada" && linea.estado !== "Cargada") {
-      throw new Error("Primero el cliente tiene que aprobar el presupuesto.");
-    }
-    const info = (await cargarInfoPedidos([linea.operacionId])).get(linea.operacionId);
-    if (!info) throw new Error("No se encontró la operación comercial de este repuesto.");
-    const fase = fasePedido(info);
-    if (fase === "vencido") throw new Error(`La operación ${info.codigo} está rechazada. Reactívala primero.`);
-
-    let itemId = info.item?.id ?? null;
-    let aviso: string | undefined;
-    if (!itemId) {
-      const r = await pasarOperacionAPedido(linea.operacionId, info.opcionElegidaId, opts.usuario.nombre, opts.pedido ?? {});
-      itemId = r.itemId ?? null;
-      aviso = r.itemCreado ? undefined : r.aviso;
-    }
-    if (!itemId) {
-      await actualizarLinea(linea.id, { notaCarga: aviso ?? "La operación pasó a Pedido pero no se creó el artículo. Revísala en Operaciones." });
-      return { sku: null, aviso };
-    }
-    const actualizado = (await cargarInfoPedidos([linea.operacionId])).get(linea.operacionId);
-    const sku = actualizado?.item?.sku ?? null;
-    await actualizarLinea(linea.id, {
-      estado: "Cargada", itemId, notaCarga: "",
-      agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(`Pedido al proveedor${sku ? ` (${sku})` : ""}.`, opts.usuario.nombre) },
-    });
-    return { sku, aviso };
-  });
-}
-
 // ─── Fase 2: llegó la compra de una solicitud ────────────────────────────────
 // Logística compró (o apartó con "Ya la tenemos") el repuesto bajo pedido de
 // una línea: se monta en la orden por la misma vía que un repuesto de stock y
@@ -319,43 +270,6 @@ export async function cargarCompraEnLinea(opts: {
       agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(`Comprado: ${opts.referencia}.`, opts.usuario.nombre) },
     });
   });
-}
-
-// ─── Crear la operación comercial al aprobar ─────────────────────────────────
-
-async function crearOperacionAprobada(ordenId: string, l: LineaPresupuesto, usuario: string): Promise<string> {
-  const { clienteId, idVisible } = await clienteDeOrden(ordenId);
-  if (!clienteId) throw new Error("La orden no tiene cliente vinculado: no se puede crear el pedido.");
-  const operacionId = (await crearOperacion({
-    clienteId,
-    productoSolicitado: l.descripcion.trim(),
-    categoria: l.categoria || "Repuesto",
-    descripcionRequerimiento: `Repuesto bajo pedido para la orden ${idVisible}, aprobado por el cliente en el presupuesto.`,
-    equipoEnTienda: true,
-    ordenId,
-  })).id;
-  try {
-    const opcion = await crearOpcion(operacionId, {
-      productoDescripcion: l.descripcion.trim(),
-      proveedorId: l.proveedorId,
-      tiempoEstimado: l.tiempoEstimado || undefined,
-      costoProveedor: l.costoProveedor,
-      // La línea del presupuesto trae cantidad y precio unitario: la opción
-      // guarda los dos y calcula el total (antes el total era el unitario y
-      // una línea ×2 se cobraba como ×1).
-      cantidad: l.cantidad,
-      precioUnitarioCliente: l.precioUnitario,
-      urlProveedor: l.urlProveedor || undefined,
-      notaInterna: `Aprobado por el cliente en el presupuesto de ${idVisible} (registró ${usuario}).`,
-    });
-    await setOpcionElegida(operacionId, opcion.id);
-    await actualizarEstadoOperacion(operacionId, "Aprobado");
-    return operacionId;
-  } catch (e) {
-    // Sin operaciones a medio crear.
-    await eliminarOperacionConOpciones(operacionId).catch((err) => console.error("[crearOperacionAprobada] limpieza:", err));
-    throw e;
-  }
 }
 
 /** SKU y estado de un artículo (para las reversas de una línea con solicitud de compra). */

@@ -24,6 +24,7 @@ const OPERACION_CORTA: Record<string, string> = {
   "Compra a proveedor": "Compra",
   "Compra ya pagada": "Compra",
   "Reajuste de inventario": "Reajuste",
+  "Parte de pago de cliente": "Parte de pago",
   "Regalo de proveedor": "Regalo",
   "Encargo de cliente": "Encargo",
   "Pedido de cliente": "Encargo",

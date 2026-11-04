@@ -14,11 +14,9 @@ import type {
   CrearOpcionInput,
   ShippingItemResumen,
 } from "@/types/operaciones";
-import { createShippingV2ItemFromOperacion } from "@/lib/shipping-v2/airtable";
 import { normalizeCedula } from "@/lib/clientes/normalizeCedula";
 import { calcularTotalCotizado } from "@/lib/operaciones/cobro";
 import { cantidadDeOpcion, precioUnitarioDeOpcion, resolverPreciosOpcion, validarCantidadOpcion, validarOpcion } from "@/lib/operaciones/opciones";
-import { planArticuloDePedido, type LlegadaPedido } from "@/lib/operaciones/pedido";
 import { elegirSiguienteIdAbono } from "@/lib/operaciones/id-abono";
 
 type AirtableRecord = {
@@ -1047,90 +1045,6 @@ export async function anularOperacion(operacionId: string): Promise<void> {
   await actualizarEstadoOperacion(operacionId, "Rechazado");
 }
 
-export type CrearShippingItemResult =
-  | { created: true; id: string; nombre: string }
-  | { created: false; existingId: string };
-
-export async function crearShippingItemDesdeOpcion(
-  operacionId: string,
-  opcionId: string,
-  registradoPor: string,
-  pedido: OpcionesPedido = {}
-): Promise<CrearShippingItemResult> {
-  const client = getClient();
-
-  // ── Anti-duplicate: read inverse link "Artículo físico" from the operation record ──
-  const opRes = await fetch(
-    `${client.baseUrl}/${encodeURIComponent(OPERACIONES_TABLE)}/${encodeURIComponent(operacionId)}`,
-    { headers: client.headers, cache: "no-store" }
-  );
-  if (!opRes.ok) throw new Error(`Airtable error leyendo operación ${opRes.status}`);
-  const opRec = (await opRes.json()) as AirtableRecord;
-  const existingItemIds = linkedIds(opRec.fields["Artículo físico"]);
-  if (existingItemIds.length > 0) {
-    return { created: false, existingId: existingItemIds[0] };
-  }
-
-  // ── Fetch opcion record for field values ──
-  const opcionRes = await fetch(
-    `${client.baseUrl}/${encodeURIComponent(OPCIONES_TABLE)}/${encodeURIComponent(opcionId)}`,
-    { headers: client.headers, cache: "no-store" }
-  );
-  if (!opcionRes.ok) throw new Error(`Airtable error leyendo opción ${opcionRes.status}`);
-  const opcionRec = (await opcionRes.json()) as AirtableRecord;
-  const of = opcionRec.fields;
-
-  const nombre = firstString(of["Producto / Descripción"]) || "Artículo sin nombre";
-  // Costo y precio POR UNIDAD: el artículo de inventario guarda valores por
-  // unidad y "Precio Venta Cliente" es el total de la opción.
-  const costoProveedor = firstNumber(of["Costo Proveedor"]);
-  const cantidadCliente = cantidadDeOpcion(of["Cantidad"]);
-  const precioVenta = precioUnitarioDeOpcion({
-    cantidad: of["Cantidad"],
-    precioUnitarioCliente: typeof of["Precio unitario cliente"] === "number" ? (of["Precio unitario cliente"] as number) : null,
-    precioVentaCliente: typeof of["Precio Venta Cliente"] === "number" ? (of["Precio Venta Cliente"] as number) : null,
-  }) ?? 0;
-  const plan = planArticuloDePedido({ cantidadCliente, unidadesCompradas: pedido.unidadesCompradas, llegada: pedido.llegada });
-  if (!plan.ok) throw new Error(plan.motivo);
-  const proveedorIds = linkedIds(of["Proveedor"]);
-  const fotos = attachmentList(of["Fotos"]).map((foto) => ({
-    url: foto.url,
-    filename: foto.filename ?? undefined,
-    type: foto.type ?? undefined,
-  }));
-
-  // Si la operación nació del presupuesto de una orden de reparación, el
-  // artículo es un repuesto bajo pedido: compra pendiente de pago y de
-  // recepción (ver createShippingV2ItemFromOperacion). Se decide por el
-  // registro, no por quién pulsa el botón: pasar a "Pedido" desde el tablero
-  // de Operaciones o desde la tarjeta de la orden produce el MISMO artículo.
-  const desdePresupuesto = linkedIds(opRec.fields["Presupuesto por Orden"]).length > 0;
-
-  const item = await createShippingV2ItemFromOperacion(
-    {
-      operacionId,
-      opcionId,
-      desdePresupuesto,
-      nombre,
-      descripcion: nombre,
-      // La operación ya sabe qué es (Laptop, Batería, SSD…) y Shipping Items
-      // usa exactamente la misma lista. El dato correcto siempre estuvo aquí
-      // al lado; antes se ignoraba y se forzaba "Repuesto" a todo.
-      categoria: firstString(opRec.fields["Categoría"]) || null,
-      proveedorId: proveedorIds[0] ?? null,
-      costoProveedor,
-      precioVenta,
-      fotos,
-      cantidad: plan.cantidad,
-      cantidadReservada: plan.cantidadReservada,
-      requierePacking: plan.requierePacking,
-    },
-    { registradoPor }
-  );
-
-  return { created: true, id: item.id, nombre: item.nombre || nombre };
-}
-
 export async function actualizarEstadoOperacion(
   operacionId: string,
   estado: string
@@ -1148,55 +1062,7 @@ export async function actualizarEstadoOperacion(
   if (!res.ok) throw new Error(`Airtable error ${res.status}: ${await res.text()}`);
 }
 
-// ─── Pasar a "Pedido" (un solo camino) ───────────────────────────────────────
-// Lo usan el tablero de Operaciones (PATCH /api/operaciones/[id]/estado) y la
-// tarjeta Presupuesto de la orden ("Ya se pidió al proveedor"). Antes el
-// efecto secundario —crear el artículo en Shipping Items— vivía dentro de la
-// ruta; si la orden tuviera su propio camino, los dos podrían divergir.
-
-export type ResultadoPedido =
-  | { itemCreado: true; itemId: string }
-  | { itemCreado: false; itemId?: string; aviso?: string };
-
-export type OpcionesPedido = {
-  /** Unidades compradas al proveedor (≥ las del cliente). Vacío = las del cliente. */
-  unidadesCompradas?: number | null;
-  /** Cómo llega. Vacío = tracking directo. */
-  llegada?: LlegadaPedido | null;
-};
-
-export async function pasarOperacionAPedido(
-  operacionId: string,
-  opcionElegidaId: string | null,
-  registradoPor: string,
-  pedido: OpcionesPedido = {}
-): Promise<ResultadoPedido> {
-  // Se valida ANTES de mover el estado: si el usuario pidió menos unidades de
-  // las que compró el cliente, no debe quedar una operación en "Pedido" sin
-  // artículo. (Los errores de Airtable al crear siguen siendo no fatales.)
-  if (opcionElegidaId && (pedido.unidadesCompradas != null || pedido.llegada != null)) {
-    const client = getClient();
-    const res = await fetch(`${client.baseUrl}/${encodeURIComponent(OPCIONES_TABLE)}/${encodeURIComponent(opcionElegidaId)}`, {
-      headers: client.headers,
-      cache: "no-store",
-    });
-    if (!res.ok) throw new Error(`Airtable error leyendo la opción elegida ${res.status}`);
-    const rec = (await res.json()) as AirtableRecord;
-    const plan = planArticuloDePedido({
-      cantidadCliente: cantidadDeOpcion(rec.fields["Cantidad"]),
-      unidadesCompradas: pedido.unidadesCompradas,
-      llegada: pedido.llegada,
-    });
-    if (!plan.ok) throw new Error(plan.motivo);
-  }
-  await actualizarEstadoOperacion(operacionId, "Pedido");
-  if (!opcionElegidaId) return { itemCreado: false, aviso: "La operación no tiene opción elegida: no se creó artículo." };
-  try {
-    const r = await crearShippingItemDesdeOpcion(operacionId, opcionElegidaId, registradoPor, pedido);
-    return r.created ? { itemCreado: true, itemId: r.id } : { itemCreado: false, itemId: r.existingId };
-  } catch (err) {
-    // No fatal: el estado ya quedó en "Pedido" (mismo criterio de siempre).
-    console.error("[pasarOperacionAPedido] creación del artículo:", err);
-    return { itemCreado: false, aviso: err instanceof Error ? err.message : "No se pudo crear el artículo en inventario." };
-  }
-}
+// Fase 2B (2-nov-2026): "Pedido" ya no crea artículos. Lo que el cliente
+// aprueba nace como solicitud de compra (lib/compras/servidor.ts) y Logística
+// lo compra en "Registrar compra". Se retiraron crearShippingItemDesdeOpcion y
+// pasarOperacionAPedido (la segunda puerta de compras).

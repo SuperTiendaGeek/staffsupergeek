@@ -64,9 +64,17 @@ export const TIPOS_OPERACION_POR_ORIGEN: Record<OrigenArticulo, readonly string[
   [ORIGEN_LOCAL]: ["Compra a proveedor"],
 };
 
+/**
+ * Lo que el cliente deja como parte de pago (2-nov-2026). Lo crea solo la
+ * cuenta de la orden o del pedido ("Recibir parte de pago"), nunca el
+ * formulario de compra: por eso no está en la tabla de arriba.
+ */
+export const TIPO_PARTE_DE_PAGO = "Parte de pago de cliente";
+
 export function tipoOperacionPermitido(origen: string | null | undefined, tipoOperacion: string | null | undefined): boolean {
   const o = normalizarOrigen(origen);
   if (!o) return false;
+  if (o === ORIGEN_TIENDA && normalize(tipoOperacion) === normalize(TIPO_PARTE_DE_PAGO)) return true;
   return TIPOS_OPERACION_POR_ORIGEN[o].some((t) => normalize(t) === normalize(tipoOperacion));
 }
 

@@ -133,6 +133,12 @@ export const METODO_SALDO_A_FAVOR = "Saldo a favor";
 export const CODIGO_SRI_COMPENSACION = "15";
 /** Método del abono negativo de una devolución (no es un método de cobro). */
 export const METODO_DEVOLUCION = "Devolución";
+/**
+ * Lo que el cliente deja como parte de pago (un disco, un equipo usado). No
+ * es un método de cobro: no entra dinero ni va a ninguna cuenta; ante el SRI
+ * es compensación de deudas (15). Lo escribe solo lib/parte-pago/servidor.ts.
+ */
+export const METODO_PARTE_DE_PAGO = "Parte de pago";
 
 /**
  * Cómo se lee un pago de una cuenta. Los del saldo a favor (punto 13B) dicen

@@ -36,6 +36,9 @@ export type CategoriaMovimiento =
   // Egreso SIN cuenta al generarse (deja de ser venta: es dinero del cliente)
   // e Ingreso SIN cuenta al usarse (vuelve a ser venta). No mueve caja.
   | "Saldo a favor de cliente"
+  // Parte de pago (2-nov-2026): el cliente paga con un artículo que entra al
+  // inventario. Ingreso SIN cuenta: no mueve caja.
+  | "Parte de pago de cliente"
   | "Ajuste de Caja"
   | "Pago Tarjeta de Crédito"
   | "Otro";
