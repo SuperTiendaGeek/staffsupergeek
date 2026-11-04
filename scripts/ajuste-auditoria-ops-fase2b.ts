@@ -11,6 +11,7 @@
  *   5. OP-111 (ya tiene REC-000075) → Entregado.
  *   6. REP-000041 → dado de baja.
  *   7. OR000522: el SSD de 180 GB como parte de pago ($20) y $5 con tarjeta.
+ *   8. (3-nov) Artículos apartados para un pedido que se veían "Disponible" → "Reservado".
  * Queda para la entrega de garantías: OR000425 / OP-122.
  * Datos: lib/compras/ajuste-fase2b.ts (con prueba).
  *
@@ -46,7 +47,7 @@ const texto = (v: unknown) => (typeof v === "string" ? v : v && typeof v === "ob
 async function main(): Promise<void> {
   await cargarEnvLocal();
   const plan = await import("../lib/compras/ajuste-fase2b");
-  const { airtableRequest, airtableMutation, tableUrl, linkedIds } = await import("../lib/finanzas/airtable-client");
+  const { airtableRequest, airtableMutation, tableUrl, linkedIds, fetchRecordById, firstNumber } = await import("../lib/finanzas/airtable-client");
   const ship = await import("../lib/shipping-v2/airtable");
   const { systemShippingV2Access } = await import("../lib/shipping-v2/access");
   const compras = await import("../lib/compras/servidor");
@@ -168,6 +169,21 @@ async function main(): Promise<void> {
     if (hacerTarjeta) acciones.push(`${plan.OR000522.orden}: abono $${plan.OR000522.tarjeta.monto} ${plan.OR000522.tarjeta.metodo} (los $30 del cargador van como venta adicional al emitir)`);
   }
 
+  // 8. Etiqueta "Reservado" de los artículos apartados para estos pedidos
+  const etiquetas: Array<{ id: string; sku: string; fields: Record<string, string> }> = [];
+  for (const [codigo, op] of ops) {
+    const fresco = await fetchRecordById("Operación Comercial", op.id);
+    for (const itemId of linkedIds(fresco?.fields["Artículo físico"])) {
+      const it = await fetchRecordById("Shipping Items", itemId);
+      if (!it) continue;
+      const cambio = compras.etiquetaDeApartado(it.fields, firstNumber(it.fields["Cantidad Reservada"]) ?? 0);
+      if (!Object.keys(cambio).length) continue;
+      const sku = texto(it.fields["SKU"]) || itemId;
+      etiquetas.push({ id: itemId, sku, fields: cambio });
+      acciones.push(`${sku} (${codigo}): "${texto(it.fields["Estado Item"])}" → "${Object.values(cambio)[0]}"`);
+    }
+  }
+
   console.log("\nFase 2B — acciones:");
   acciones.forEach((a) => console.log(`  · ${a}`));
   bloqueos.forEach((b) => console.log(`  ✗ ${b}`));
@@ -285,6 +301,10 @@ async function main(): Promise<void> {
       const fin = await crearMovimientoParaAbono({ abonoId: abono.id, monto: plan.OR000522.tarjeta.monto, metodoPago: plan.OR000522.tarjeta.metodo, fecha: new Date().toISOString(), registradoPor: QUIEN });
       console.log(`✓ ${plan.OR000522.orden}: abono $${plan.OR000522.tarjeta.monto} con tarjeta${fin.ok ? "" : ` (Finanzas: ${fin.error})`}`);
     }
+  }
+  for (const e of etiquetas) {
+    await patch("Shipping Items", e.id, e.fields);
+    console.log(`✓ ${e.sku}: ${Object.values(e.fields)[0]}`);
   }
   console.log("\n✅ Listo. Vuelve a correr la vista previa: debe decir 0 acciones.");
 }

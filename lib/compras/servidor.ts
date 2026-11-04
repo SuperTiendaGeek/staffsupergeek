@@ -21,6 +21,7 @@ import { canAccessApp, isAdministratorRole } from "@/lib/apps";
 import { airtableMutation, fetchRecordById, fetchRecordsByIds, firstNumber, linkedIds, tableUrl } from "@/lib/finanzas/airtable-client";
 import { estadosDeCuentaDeOperaciones, estadosDeCuentaDeOrdenes, porIds, CAMPOS_ORDEN_CUENTA } from "@/lib/estado-cuenta/airtable";
 import { comprometerUnidades, unidadesLibres } from "@/lib/shipping-v2/unidades";
+import { estadoSegunLlegada } from "@/lib/shipping-v2/item-venta";
 import { SHIPPING_V2_ITEM_FIELDS } from "@/lib/shipping-v2/schema.generated";
 import { actualizarEstadoOperacion } from "@/lib/operaciones/airtable";
 import { actualizarLinea } from "@/lib/tecnicos/presupuesto/airtable";
@@ -187,6 +188,9 @@ async function apartarParaQuienLoPidio(s: Solicitud, itemId: string, usuario: st
             [F.cantidadReservada]: c.cantidadReservada,
             [F.reservado]: c.reservado,
             [F.disponibleVenta]: c.disponibleVenta,
+            // Si ya está en la tienda y todas sus unidades son del cliente, se
+            // ve "Reservado" (no "Disponible"): mismo criterio que la orden.
+            ...etiquetaDeApartado(item.fields, c.cantidadReservada),
           },
         }],
       }),
@@ -194,6 +198,19 @@ async function apartarParaQuienLoPidio(s: Solicitud, itemId: string, usuario: st
     await actualizarEstadoOperacion(s.operacionId, "Pedido");
   }
   return sku;
+}
+
+/** Estado Item tras apartar unidades para un pedido (vacío = no cambia). */
+export function etiquetaDeApartado(f: Record<string, unknown>, cantidadReservada: number): Record<string, string> {
+  const destino = estadoSegunLlegada({
+    estado: texto(f[F.estadoItem]),
+    recibido: f[F.recibido] === true,
+    requiereInspeccion: f[F.requiereInspeccion] === true,
+    inspeccionFirmada: f["Revisado física/técnicamente"] === true,
+    usoLocal: f[F.esUsoLocal] === true,
+    todasReservadas: cantidadReservada >= (firstNumber(f[F.cantidad]) ?? 1),
+  });
+  return destino ? { [F.estadoItem]: destino } : {};
 }
 
 /**

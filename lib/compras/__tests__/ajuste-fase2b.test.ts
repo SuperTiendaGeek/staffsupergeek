@@ -53,5 +53,17 @@ assert(revisarCompra(c3, new Map([["REP-000136", art({ ordenCompraId: "recOC", e
     "lib/compras/servidor.ts no importa lib/airtable ni notificaciones arriba (el script de datos se cae)");
 }
 
+// 3-nov: lo apartado para un pedido que ya está en la tienda se ve "Reservado"
+// (REP-000141, REP-000142 y CAR-000019 quedaron "Disponible" al aplicar la 2B).
+{
+  const { estadoSegunLlegada } = require("@/lib/shipping-v2/item-venta") as typeof import("@/lib/shipping-v2/item-venta");
+  assert(estadoSegunLlegada({ estado: "Disponible", recibido: true, todasReservadas: true }) === "Reservado", "Disponible + todo apartado → Reservado");
+  assert(estadoSegunLlegada({ estado: "Disponible", recibido: true, todasReservadas: false }) === null, "con unidades libres no cambia");
+  const fs = require("fs") as typeof import("fs");
+  const servidor = fs.readFileSync("lib/compras/servidor.ts", "utf8");
+  const apartar = servidor.slice(servidor.indexOf("async function apartarParaQuienLoPidio"), servidor.indexOf("export function etiquetaDeApartado"));
+  assert(apartar.includes("...etiquetaDeApartado(item.fields, c.cantidadReservada)"), "apartar para un pedido también pone la etiqueta");
+}
+
 if (fallos > 0) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo OK");
