@@ -71,10 +71,19 @@ export const TIPOS_OPERACION_POR_ORIGEN: Record<OrigenArticulo, readonly string[
  */
 export const TIPO_PARTE_DE_PAGO = "Parte de pago de cliente";
 
+/**
+ * La pieza mala que se le saca al equipo del cliente en una Garantía SUPER
+ * GEEK, para reclamarla al proveedor (auditoría ops, punto 20). La crea solo la
+ * entrega de la orden (lib/garantias/servidor.ts), con costo $0 y una novedad
+ * al proveedor que bloquea su venta.
+ */
+export const TIPO_PIEZA_RETIRADA_GARANTIA = "Pieza retirada en garantía";
+
 export function tipoOperacionPermitido(origen: string | null | undefined, tipoOperacion: string | null | undefined): boolean {
   const o = normalizarOrigen(origen);
   if (!o) return false;
   if (o === ORIGEN_TIENDA && normalize(tipoOperacion) === normalize(TIPO_PARTE_DE_PAGO)) return true;
+  if (o === ORIGEN_TIENDA && normalize(tipoOperacion) === normalize(TIPO_PIEZA_RETIRADA_GARANTIA)) return true;
   return TIPOS_OPERACION_POR_ORIGEN[o].some((t) => normalize(t) === normalize(tipoOperacion));
 }
 

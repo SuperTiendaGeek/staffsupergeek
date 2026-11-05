@@ -74,6 +74,8 @@ export function requiereInspeccionPorDefecto(input: { categoria?: string | null;
   if (normalize(input.tipoOperacion) === "reajuste de inventario") return false;
   // Lo que deja un cliente como parte de pago siempre se revisa antes de venderlo.
   if (normalize(input.tipoOperacion) === "parte de pago de cliente") return true;
+  // La pieza retirada en una garantía no se revisa para venderla: se reclama al proveedor.
+  if (normalize(input.tipoOperacion) === "pieza retirada en garantia") return false;
   return CATEGORIAS_CON_INSPECCION_NORMALIZADAS.has(normalize(input.categoria));
 }
 

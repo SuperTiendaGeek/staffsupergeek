@@ -92,7 +92,7 @@ export async function POST(request: Request, { params }: Params) {
   if (response || !session) return response ?? NextResponse.json({ success: false, error: "Sin sesión" }, { status: 401 });
   const { id } = await params;
 
-  type Cuerpo = Omit<NuevaLineaInput, "garantia"> & { alternativaDe?: string | null; garantia?: { motivo?: string } | null };
+  type Cuerpo = Omit<NuevaLineaInput, "garantia"> & { alternativaDe?: string | null; garantia?: { motivo?: string; origenClave?: string | null } | null };
   let body: Cuerpo;
   try { body = (await request.json()) as Cuerpo; }
   catch { return NextResponse.json({ success: false, error: "JSON inválido" }, { status: 400 }); }
@@ -120,7 +120,9 @@ export async function POST(request: Request, { params }: Params) {
   };
   // Garantía SUPER GEEK (punto 20): la línea nace a $0 y se propone (o, si la
   // pide un administrador, nace confirmada y se carga sin pasar por el cliente).
-  const garantia = body.garantia ? { motivo: String(body.garantia.motivo ?? "") } : null;
+  const garantia = body.garantia
+    ? { motivo: String(body.garantia.motivo ?? ""), origenClave: typeof body.garantia.origenClave === "string" ? body.garantia.origenClave : null }
+    : null;
   if (garantia) {
     if (body.alternativaDe) return NextResponse.json({ success: false, error: "Una línea en garantía no va como alternativa." }, { status: 400 });
     input.precioUnitario = 0;
@@ -153,7 +155,7 @@ export async function POST(request: Request, { params }: Params) {
     if (garantia) {
       try {
         const r = await aplicarGarantiaALinea({
-          ordenId: id, lineaId: linea.id, accion: "proponer", motivo: garantia.motivo,
+          ordenId: id, lineaId: linea.id, accion: "proponer", motivo: garantia.motivo, origenClave: garantia.origenClave,
           esAdmin: isAdministratorRole(session.user.rol),
           usuario: { nombre: creadoPor, id: session.user.userId ?? null },
         });

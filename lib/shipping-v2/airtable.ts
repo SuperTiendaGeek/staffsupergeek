@@ -3190,6 +3190,7 @@ function motivoEntradaDeItem(item: Pick<ShippingV2Item, "tipoOperacion" | "esReg
   if (item.esRegalo === true || normalizeStatus(item.tipoOperacion) === "regalo de proveedor") return "Regalo del proveedor";
   if (normalizeStatus(item.tipoOperacion).startsWith("reajuste")) return "Reajuste de inventario";
   if (normalizeStatus(item.tipoOperacion) === "parte de pago de cliente") return "Parte de pago del cliente";
+  if (normalizeStatus(item.tipoOperacion) === "pieza retirada en garantia") return "Pieza retirada en garantía";
   return "Compra recibida";
 }
 

@@ -53,6 +53,16 @@ export const MOTIVO_KARDEX_REVERSA = "Garantía revertida";
 /** El mismo "entregada" que usa el panel de Cobros. */
 export const ESTADO_ORDEN_ENTREGADA = ESTADO_ENTREGADA;
 
+/** Qué pasa con la pieza mala que se le saca al equipo (dueño, 4-nov). */
+export const PIEZAS_RETIRADAS = ["Reclamar al proveedor", "Se desecha", "Se devuelve al cliente"] as const;
+export type PiezaRetirada = (typeof PIEZAS_RETIRADAS)[number];
+export const RECLAMAR_AL_PROVEEDOR: PiezaRetirada = "Reclamar al proveedor";
+
+export function normalizarPiezaRetirada(v: unknown): PiezaRetirada | "" {
+  const t = typeof v === "string" ? v : v && typeof v === "object" && "name" in v ? String((v as { name: unknown }).name ?? "") : "";
+  return (PIEZAS_RETIRADAS as readonly string[]).includes(t) ? (t as PiezaRetirada) : "";
+}
+
 export function normalizarGarantia(v: unknown): EstadoGarantia {
   const t = typeof v === "string" ? v : v && typeof v === "object" && "name" in v ? String((v as { name: unknown }).name ?? "") : "";
   return (ESTADOS_GARANTIA as readonly string[]).includes(t) ? (t as EstadoGarantia) : "";
@@ -75,6 +85,12 @@ export type CambiosGarantia = {
   garantia: EstadoGarantia;
   motivoGarantia?: string;
   garantiaConfirmadaPor?: string;
+  /** De qué venta viene (vacío = sin documento). */
+  garantiaDe?: string;
+  garantiaOrigenId?: string;
+  garantiaVence?: string;
+  /** Vencida o sin documento: la da un administrador como cortesía. */
+  garantiaCortesia?: boolean;
   /** La garantía deja la línea en $0. Al quitarla, el precio se pone a mano. */
   precioUnitario?: number;
 };
@@ -83,10 +99,20 @@ export type ResultadoGarantia =
   | { ok: true; cambios: CambiosGarantia; /** Aprobar y cargar la línea ya (sin el cliente). */ aprobar: boolean; historial: string }
   | { ok: false; error: string };
 
+/** Lo que el técnico eligió en "¿Qué falló?" (null = sin documento). */
+export type OrigenElegido = { clave: string; texto: string; vence: string | null; vigente: boolean };
+
+function textoCortesia(origen: OrigenElegido | null | undefined): string {
+  if (!origen) return " — de cortesía (sin documento original)";
+  if (!origen.vigente) return ` — de cortesía (la garantía venció${origen.vence ? ` el ${fechaCortaISO(origen.vence)}` : ""})`;
+  return "";
+}
+const fechaCortaISO = (f: string) => { const [y, m, d] = f.slice(0, 10).split("-"); return d && m && y ? `${d}/${m}/${y}` : f; };
+
 export function evaluarGarantia(
-  l: Pick<LineaPresupuesto, "tipo" | "estado" | "garantia" | "grupoAlternativas" | "motivoGarantia">,
+  l: Pick<LineaPresupuesto, "tipo" | "estado" | "garantia" | "grupoAlternativas" | "motivoGarantia" | "garantiaCortesia" | "garantiaDe" | "garantiaVence">,
   accion: AccionGarantia,
-  quien: { esAdmin: boolean; nombre: string; motivo?: string },
+  quien: { esAdmin: boolean; nombre: string; motivo?: string; origen?: OrigenElegido | null },
 ): ResultadoGarantia {
   const actual = normalizarGarantia(l.garantia);
   if (!TIPOS_CON_GARANTIA.includes(l.tipo)) return { ok: false, error: "Solo un repuesto o un servicio puede ir en garantía." };
@@ -100,19 +126,28 @@ export function evaluarGarantia(
     const motivo = (quien.motivo ?? "").trim();
     if (motivo.length < MOTIVO_GARANTIA_MIN) return { ok: false, error: "Escribe el motivo de la garantía." };
     if (motivo.length > MOTIVO_GARANTIA_MAX) return { ok: false, error: `El motivo admite hasta ${MOTIVO_GARANTIA_MAX} caracteres.` };
+    const origen = quien.origen ?? null;
+    const cortesia = !origen || !origen.vigente;
+    const deDonde = {
+      garantiaDe: origen?.texto ?? "",
+      garantiaOrigenId: origen?.clave ?? "",
+      garantiaVence: origen?.vence ?? "",
+      garantiaCortesia: cortesia,
+    };
+    const de = origen ? ` · de ${origen.texto}` : "";
     if (quien.esAdmin) {
       return {
         ok: true,
-        cambios: { garantia: "Confirmada", motivoGarantia: motivo, garantiaConfirmadaPor: quien.nombre, precioUnitario: 0 },
+        cambios: { garantia: "Confirmada", motivoGarantia: motivo, garantiaConfirmadaPor: quien.nombre, precioUnitario: 0, ...deDonde },
         aprobar: true,
-        historial: `${ETIQUETA_GARANTIA} confirmada ($0): ${motivo}`,
+        historial: `${ETIQUETA_GARANTIA} confirmada ($0)${textoCortesia(origen)}${de}: ${motivo}`,
       };
     }
     return {
       ok: true,
-      cambios: { garantia: "Propuesta", motivoGarantia: motivo, precioUnitario: 0 },
+      cambios: { garantia: "Propuesta", motivoGarantia: motivo, precioUnitario: 0, ...deDonde },
       aprobar: false,
-      historial: `${ETIQUETA_GARANTIA} propuesta ($0), falta que la confirme un administrador: ${motivo}`,
+      historial: `${ETIQUETA_GARANTIA} propuesta ($0)${textoCortesia(origen)}${de}, falta que la confirme un administrador: ${motivo}`,
     };
   }
 
@@ -123,7 +158,7 @@ export function evaluarGarantia(
       ok: true,
       cambios: { garantia: "Confirmada", garantiaConfirmadaPor: quien.nombre, precioUnitario: 0 },
       aprobar: true,
-      historial: `${ETIQUETA_GARANTIA} confirmada ($0)${l.motivoGarantia ? `: ${l.motivoGarantia}` : "."}`,
+      historial: `${ETIQUETA_GARANTIA} confirmada ($0)${l.garantiaCortesia ? " de cortesía" : ""}${l.motivoGarantia ? `: ${l.motivoGarantia}` : "."}`,
     };
   }
 
@@ -131,10 +166,22 @@ export function evaluarGarantia(
   if (!actual) return { ok: false, error: "Esta línea no está en garantía." };
   return {
     ok: true,
-    cambios: { garantia: "", garantiaConfirmadaPor: "" },
+    cambios: { garantia: "", garantiaConfirmadaPor: "", garantiaDe: "", garantiaOrigenId: "", garantiaVence: "", garantiaCortesia: false },
     aprobar: false,
     historial: `${ETIQUETA_GARANTIA} retirada: la línea vuelve a ser normal, a $0 (si se cobra, bórrala y agrégala con su precio).`,
   };
+}
+
+/** Elegir qué pasa con la pieza mala: solo en un repuesto en garantía, antes de reclamarla. */
+export function errorPiezaRetirada(
+  l: Pick<LineaPresupuesto, "tipo" | "garantia" | "piezaRetiradaSku" | "estado">,
+  destino: string,
+): string | null {
+  if (l.tipo !== "Repuesto" || !tieneGarantia(l)) return "Solo un repuesto en garantía tiene pieza retirada.";
+  if (l.estado === "Rechazada") return "La línea ya no está en la orden.";
+  if (destino && !(PIEZAS_RETIRADAS as readonly string[]).includes(destino)) return "Destino de la pieza inválido.";
+  if (l.piezaRetiradaSku) return `La pieza retirada ya se registró para el reclamo (${l.piezaRetiradaSku}).`;
+  return null;
 }
 
 /** Al editar una línea en garantía no se le puede poner precio. */
@@ -179,6 +226,21 @@ export function cargosEnGarantia(
 }
 
 /**
+ * Piezas malas que hay que registrar para reclamarlas al proveedor: las de
+ * repuestos en garantía ya entregados, con destino "Reclamar al proveedor" y
+ * todavía sin su artículo en Shipping V2.
+ */
+export function reclamosPendientes<L extends Pick<LineaPresupuesto, "tipo" | "garantia" | "garantiaEntregada" | "piezaRetirada" | "piezaRetiradaSku">>(lineas: readonly L[]): L[] {
+  return lineas.filter((l) => l.tipo === "Repuesto" && esGarantiaConfirmada(l) && l.garantiaEntregada === true
+    && l.piezaRetirada === RECLAMAR_AL_PROVEEDOR && !l.piezaRetiradaSku);
+}
+
+/** Un repuesto en garantía que se entrega sin decir qué pasó con la pieza mala: aviso. */
+export function sinDestinoDePieza(lineas: ReadonlyArray<Pick<LineaPresupuesto, "tipo" | "garantia" | "estado" | "piezaRetirada" | "descripcion">>): string[] {
+  return lineas.filter((l) => l.tipo === "Repuesto" && esGarantiaConfirmada(l) && l.estado === "Cargada" && !l.piezaRetirada).map((l) => l.descripcion);
+}
+
+/**
  * La cuenta sin lo que va en garantía: el documento de venta lleva solo lo
  * pagado (decisión del dueño, 2-nov). La usa la pre-factura (traductor.ts).
  */
@@ -199,6 +261,8 @@ export type ArticuloParaGarantia = UnidadesItem & {
 
 export type PasoGarantia =
   | { tipo: "salida" | "revertir"; lineaId: string; itemId: string; sku: string; campos: CamposArticuloGarantia }
+  /** Mano de obra en garantía: no mueve inventario, solo queda la fecha de entrega (su nueva garantía cuenta desde ahí). */
+  | { tipo: "marcar"; lineaId: string; entregada: boolean }
   | { tipo: "omitir"; lineaId: string; itemId: string | null; sku: string; motivo: string };
 
 export type CamposArticuloGarantia = {
@@ -253,9 +317,11 @@ export function planGarantiasDeLaOrden(input: {
   const entregada = input.nuevoEstado === ESTADO_ORDEN_ENTREGADA;
   const pasos: PasoGarantia[] = [];
   for (const l of input.lineas) {
-    if (l.tipo !== "Repuesto" || !esGarantiaConfirmada(l) || l.estado !== "Cargada") continue;
+    if (!esGarantiaConfirmada(l) || l.estado !== "Cargada") continue;
     const ya = l.garantiaEntregada === true;
     if (entregada === ya) continue; // ya está como debe
+    if (l.tipo === "Servicio") { pasos.push({ tipo: "marcar", lineaId: l.id, entregada }); continue; }
+    if (l.tipo !== "Repuesto") continue;
     const a = l.itemId ? input.articulos.get(l.itemId) : undefined;
     if (!l.itemId || !a) {
       pasos.push({ tipo: "omitir", lineaId: l.id, itemId: l.itemId ?? null, sku: "", motivo: `"${l.descripcion}" no tiene su artículo.` });

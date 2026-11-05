@@ -139,7 +139,8 @@ const admin = { esAdmin: true, nombre: "Alex", motivo: "Batería de OR000425 sal
   const p4 = plan(linea, art({ ordenesStock: [] }), "Finalizado Entregado");
   assert(p4[0].tipo === "omitir", "si la pieza ya no está apartada para la orden, no se toca");
   assert(plan({ ...linea, garantia: "Propuesta" }, art(), "Finalizado Entregado").length === 0, "una garantía solo propuesta no mueve inventario");
-  assert(plan({ ...linea, tipo: "Servicio", itemId: null }, art(), "Finalizado Entregado").length === 0, "la mano de obra en garantía no mueve inventario");
+  const sv = plan({ ...linea, tipo: "Servicio", itemId: null }, art(), "Finalizado Entregado");
+  assert(sv.length === 1 && sv[0].tipo === "marcar", "la mano de obra en garantía no mueve inventario: solo queda su fecha de entrega");
 
   assert((MOTIVOS_KARDEX as readonly string[]).includes(MOTIVO_KARDEX_SALIDA) && (MOTIVOS_KARDEX as readonly string[]).includes(MOTIVO_KARDEX_REVERSA),
     "el Kardex conoce \"Salida por garantía\" y \"Garantía revertida\"");

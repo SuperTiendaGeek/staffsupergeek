@@ -1174,10 +1174,11 @@ export function OrdenDetalleClient() {
           : prev
       );
       // Garantía SUPER GEEK (punto 20): la pieza salió o volvió al inventario.
-      const g = json.data?.garantias as { salidas?: string[]; vueltas?: string[]; avisos?: string[] } | undefined;
+      const g = json.data?.garantias as { salidas?: string[]; vueltas?: string[]; reclamos?: string[]; avisos?: string[] } | undefined;
       const partes = [
         g?.salidas?.length ? `salió por garantía: ${g.salidas.join(", ")}` : "",
         g?.vueltas?.length ? `vuelve apartada: ${g.vueltas.join(", ")}` : "",
+        g?.reclamos?.length ? `pieza retirada al reclamo: ${g.reclamos.join(", ")}` : "",
       ].filter(Boolean);
       if (g?.avisos?.length) setEstadoError(g.avisos.join(" "));
       setEstadoMessage(partes.length ? `Estado guardado · ${partes.join(" · ")}` : "Estado guardado");

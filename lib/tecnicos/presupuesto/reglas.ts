@@ -19,7 +19,7 @@
 // Un trabajo extra es una línea nueva, que se aprueba aparte — así queda
 // constancia de qué aprobó el cliente y cuándo.
 
-import type { EstadoGarantia } from "@/lib/garantias/reglas";
+import type { EstadoGarantia, PiezaRetirada } from "@/lib/garantias/reglas";
 
 export const TIPOS_LINEA = ["Servicio", "Repuesto", "Producto digital"] as const;
 export type TipoLinea = (typeof TIPOS_LINEA)[number];
@@ -88,6 +88,15 @@ export type LineaPresupuesto = {
   garantiaConfirmadaPor?: string;
   /** La pieza en garantía ya salió del inventario al entregar la orden. */
   garantiaEntregada?: boolean;
+  /** Segunda parte del punto 20: de qué venta viene la garantía y si seguía vigente. */
+  garantiaDe?:        string;
+  garantiaOrigenId?:  string;
+  garantiaVence?:     string;
+  garantiaCortesia?:  boolean;
+  /** Qué pasa con la pieza mala que se le saca al equipo. */
+  piezaRetirada?:     PiezaRetirada | "";
+  piezaRetiradaSku?:  string;
+  fechaEntregaGarantia?: string;
 };
 
 /** Datos de un repuesto que se trae BAJO PEDIDO (se vuelven la opción

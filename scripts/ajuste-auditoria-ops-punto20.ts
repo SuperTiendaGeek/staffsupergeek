@@ -53,6 +53,8 @@ async function main(): Promise<void> {
   const { entradaHistorial } = await import("../lib/tecnicos/presupuesto/reglas");
   const { actualizarEstadoOperacion } = await import("../lib/operaciones/airtable");
   const { getCuentaUnificada } = await import("../lib/cuenta-unificada");
+  const { origenesDeGarantia } = await import("../lib/garantias/servidor");
+  const { textoOrigen, fechaCorta } = await import("../lib/garantias/plazos");
 
   async function uno(tabla: string, formula: string): Promise<Registro | null> {
     const u = new URL(tableUrl(tabla));
@@ -93,6 +95,13 @@ async function main(): Promise<void> {
   console.log(`  ${OR000425.sku}: ${l.estado.articulo?.estado ?? "—"} · cant. ${l.item?.fields["Cantidad"] ?? "?"} · reservada ${l.item?.fields["Cantidad Reservada"] ?? 0} · costo total ${l.item?.fields["Costo total unidad"] ?? "?"}`);
   console.log(`  Línea de presupuesto: ${l.estado.linea ? `${l.estado.linea.estado} · garantía ${l.estado.linea.garantia || "—"} · $${l.estado.linea.precio}` : "no existe"}`);
 
+  // ¿De qué venta viene la garantía? Se busca el equipo de la orden entre las
+  // compras del cliente; si no está (o venció), queda como cortesía.
+  const origenes = l.orden ? await origenesDeGarantia(l.orden.id).catch(() => []) : [];
+  const origen = origenes.find((o) => o.sku === OR000425.skuEquipo) ?? null;
+  console.log(`  Origen de la garantía: ${origen ? `${textoOrigen(origen)} · ${origen.vigente ? "vigente" : `vencida (${fechaCorta(origen.vence)})`}` : `${OR000425.skuEquipo} no aparece en las compras del cliente → cortesía sin documento`}`);
+  const cortesia = !origen || !origen.vigente;
+
   const plan = planOR000425(l.estado);
   if (plan.bloqueos.length) {
     console.log("\nBLOQUEOS:"); for (const b of plan.bloqueos) console.log(`  ✗ ${b}`);
@@ -119,6 +128,10 @@ async function main(): Promise<void> {
     garantia: "Confirmada" as const,
     motivoGarantia: OR000425.motivo,
     garantiaConfirmadaPor: OR000425.confirmadaPor,
+    garantiaDe: origen ? textoOrigen(origen) : "",
+    garantiaOrigenId: origen?.clave ?? "",
+    garantiaVence: origen?.vence ?? "",
+    garantiaCortesia: cortesia,
     aprobadoPor: OR000425.confirmadaPor,
     fechaAprobacion: ahora.toISOString(),
     notaCarga: "",
@@ -132,7 +145,7 @@ async function main(): Promise<void> {
       }, QUIEN);
       await actualizarLinea(nueva.id, {
         ...datosGarantia,
-        agregarHistorial: { anterior: "", entrada: entradaHistorial(`Garantía SUPER GEEK confirmada ($0) por ${OR000425.confirmadaPor}: ${OR000425.motivo} Reemplaza a ${OR000425.operacion} (punto 20).`, QUIEN, ahora) },
+        agregarHistorial: { anterior: "", entrada: entradaHistorial(`Garantía SUPER GEEK confirmada ($0)${cortesia ? " de cortesía" : ""} por ${OR000425.confirmadaPor}: ${OR000425.motivo} Reemplaza a ${OR000425.operacion} (punto 20).`, QUIEN, ahora) },
       });
       await cargarCompraEnLinea({ ordenId: a.ordenId, lineaId: nueva.id, itemId: a.itemId, referencia: `${OR000425.sku} en garantía (antes en ${OR000425.operacion})`, usuario: { nombre: QUIEN } });
     } else if (a.tipo === "completar_linea_garantia") {

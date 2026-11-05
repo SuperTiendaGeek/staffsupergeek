@@ -129,6 +129,17 @@ export function getDefaultItemFlowByOperation(input: ShippingV2ItemOperationRule
       modoLogistico: "No aplica",
       estadoItemSugerido: "Disponible",
     });
+  } else if (operation === "pieza retirada en garantia") {
+    // Pieza mala retirada en una garantía (punto 20): ya está en la tienda,
+    // sin pago ni logística, y NO se vende: se le reclama al proveedor.
+    Object.assign(base, {
+      requierePago: false,
+      requierePacking: false,
+      afectaInventario: true,
+      disponibleParaVenta: false,
+      modoLogistico: "No aplica",
+      estadoItemSugerido: "Disponible",
+    });
   } else if (operation === "parte / componente") {
     Object.assign(base, {
       requierePago: false,

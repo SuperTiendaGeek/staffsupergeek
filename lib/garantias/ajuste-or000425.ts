@@ -15,6 +15,8 @@ export const OR000425 = {
   orden: "OR000425",
   operacion: "OP-2026-000122",
   sku: "REP-000135",
+  /** El equipo de la orden: lo que se compró en SUPER GEEK (6 meses de garantía). */
+  skuEquipo: "LAP-000020",
   descripcion: "Batería Dell XPS 13 9300 (52 Wh) — garantía",
   motivo: "Garantía de la batería de la Dell XPS 13 9300: la anterior salió mala. Decisión del dueño, 2-nov-2026.",
   confirmadaPor: "Alex (dueño)",

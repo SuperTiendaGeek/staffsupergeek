@@ -47,6 +47,7 @@ export const MOTIVOS_KARDEX = [
   "Saldo inicial",
   "Separación de unidad",
   "Garantía revertida",
+  "Pieza retirada en garantía",
   // Salidas
   "Venta con factura",
   "Venta con recibo",
@@ -110,7 +111,7 @@ export type MovimientoKardex = {
 };
 
 /** Grupos de los atajos de la pantalla Movimientos. */
-export type GrupoKardex = "ventas" | "compras" | "devoluciones" | "bajas" | "ajustes" | "taller" | "costos" | "traslados";
+export type GrupoKardex = "ventas" | "compras" | "devoluciones" | "bajas" | "ajustes" | "taller" | "garantias" | "costos" | "traslados";
 
 const GRUPO: Record<MotivoKardex, GrupoKardex> = {
   "Compra recibida": "compras",
@@ -132,8 +133,10 @@ const GRUPO: Record<MotivoKardex, GrupoKardex> = {
   "Despiece revertido": "taller",
   "Saldo inicial": "ajustes",
   "Separación de unidad": "traslados",
-  "Garantía revertida": "taller",
-  "Salida por garantía": "taller",
+  // Punto 20: el atajo "Garantías" es el reporte del gasto de garantía.
+  "Garantía revertida": "garantias",
+  "Salida por garantía": "garantias",
+  "Pieza retirada en garantía": "garantias",
   "Venta con factura": "ventas",
   "Venta con recibo": "ventas",
   "Usada en una mejora": "taller",

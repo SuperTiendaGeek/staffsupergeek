@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { isAdministratorRole } from "@/lib/apps";
-import { aplicarGarantiaALinea, ErrorGarantia } from "@/lib/garantias/servidor";
-import { errorPrecioEnGarantia, garantiaTrasModificar } from "@/lib/garantias/reglas";
+import { aplicarGarantiaALinea, elegirPiezaRetirada, ErrorGarantia } from "@/lib/garantias/servidor";
+import { errorPrecioEnGarantia, garantiaTrasModificar, normalizarPiezaRetirada } from "@/lib/garantias/reglas";
 import { leerLinea, actualizarLinea, borrarLinea, cargarInfoPedidos, listarLineas, type CambiosLinea } from "@/lib/tecnicos/presupuesto/airtable";
 import { actualizarEstadoOperacion, actualizarOpcion, eliminarOperacionConOpciones } from "@/lib/operaciones/airtable";
 import { retirarLinea, revertirLinea } from "@/lib/tecnicos/presupuesto/cargar";
@@ -33,7 +33,8 @@ export async function PATCH(request: Request, { params }: Params) {
 
   const body = (await request.json().catch(() => ({}))) as {
     accion?: "rechazar" | "reabrir" | "reactivar" | "cancelar" | "recotizar" | "liberar" | "detalle" | "quitar" | "modificar"
-      | "garantia" | "confirmar-garantia" | "quitar-garantia";
+      | "garantia" | "confirmar-garantia" | "quitar-garantia" | "pieza-retirada";
+    origenClave?: string | null; destino?: string;
     prioridad?: string; notaCliente?: string; alternativaDe?: string | null; quitarAlternativa?: boolean;
     motivo?: string;
     descripcion?: string; cantidad?: number; precioUnitario?: number; itemId?: string | null;
@@ -48,10 +49,22 @@ export async function PATCH(request: Request, { params }: Params) {
           ordenId: id, lineaId,
           accion: body.accion === "garantia" ? "proponer" : body.accion === "confirmar-garantia" ? "confirmar" : "quitar",
           motivo: typeof body.motivo === "string" ? body.motivo : "",
+          origenClave: typeof body.origenClave === "string" ? body.origenClave : null,
           esAdmin: isAdministratorRole(session?.user.rol),
           usuario: { nombre: session?.user.nombre || session?.user.email || "Portal", id: session?.user.userId ?? null },
         });
         return NextResponse.json({ success: true, data: r.linea, resultados: r.resultados ?? null });
+      } catch (e) {
+        if (e instanceof ErrorGarantia) return NextResponse.json({ success: false, error: e.message }, { status: 409 });
+        throw e;
+      }
+    }
+    if (body.accion === "pieza-retirada") {
+      try {
+        const destino = normalizarPiezaRetirada(body.destino);
+        if (body.destino && !destino) return NextResponse.json({ success: false, error: "Destino de la pieza inválido." }, { status: 400 });
+        const actualizada = await elegirPiezaRetirada({ ordenId: id, lineaId, destino, usuario: session?.user.nombre || session?.user.email || "Portal" });
+        return NextResponse.json({ success: true, data: actualizada });
       } catch (e) {
         if (e instanceof ErrorGarantia) return NextResponse.json({ success: false, error: e.message }, { status: 409 });
         throw e;
