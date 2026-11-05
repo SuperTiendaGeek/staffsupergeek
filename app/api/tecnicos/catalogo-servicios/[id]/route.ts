@@ -34,6 +34,7 @@ export async function PATCH(request: Request, { params }: Params) {
       nombre: typeof body?.nombre === "string" ? body.nombre : undefined,
       descripcion: typeof body?.descripcion === "string" ? body.descripcion : undefined,
       costoSugerido: body?.costoSugerido === undefined ? undefined : toNumber(body.costoSugerido),
+      garantiaDias: body?.garantiaDias === undefined ? undefined : toNumber(body.garantiaDias),
       activo: typeof body?.activo === "boolean" ? body.activo : undefined,
     });
     return NextResponse.json({ success: true, data: updated });

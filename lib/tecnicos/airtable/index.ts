@@ -562,6 +562,7 @@ const mapCatalogoServicioRecord = (record: AirtableGenericRecord): CatalogoServi
     nombre: pickStringField(f, ["Nombre del servicio"], "Servicio sin nombre"),
     descripcion: pickOptionalStringField(f, ["Descripción"]),
     costoSugerido: pickNumberField(f, ["Costo sugerido"]),
+    garantiaDias: pickNumberField(f, ["Garantía (días)"]),
     activo: f["Activo"] !== false,
     fechaCreacion: pickOptionalStringField(f, ["Fecha de creación", "Fecha de creacion"]),
   };
@@ -2139,17 +2140,20 @@ export const createCatalogoServicio = async ({
   nombre,
   descripcion,
   costoSugerido,
+  garantiaDias,
   activo = true,
 }: {
   nombre: string;
   descripcion?: string | null;
   costoSugerido?: number | null;
+  garantiaDias?: number | null;
   activo?: boolean;
 }): Promise<CatalogoServicio> => {
   const fields: Record<string, unknown> = {
     "Nombre del servicio": nombre.trim(),
     Activo: activo,
   };
+  if (garantiaDias !== null && garantiaDias !== undefined) fields["Garantía (días)"] = Math.max(0, Math.round(garantiaDias));
 
   if (descripcion && descripcion.trim()) {
     fields["Descripción"] = descripcion.trim();
@@ -2167,12 +2171,14 @@ export const updateCatalogoServicio = async ({
   nombre,
   descripcion,
   costoSugerido,
+  garantiaDias,
   activo,
 }: {
   id: string;
   nombre?: string | null;
   descripcion?: string | null;
   costoSugerido?: number | null;
+  garantiaDias?: number | null;
   activo?: boolean;
 }): Promise<CatalogoServicio> => {
   const fields: Record<string, unknown> = {};
@@ -2184,6 +2190,7 @@ export const updateCatalogoServicio = async ({
   }
   if (descripcion !== undefined) fields["Descripción"] = descripcion?.trim() || "";
   if (costoSugerido !== undefined) fields["Costo sugerido"] = costoSugerido;
+  if (garantiaDias !== undefined) fields["Garantía (días)"] = garantiaDias === null ? null : Math.max(0, Math.round(garantiaDias));
   if (activo !== undefined) fields.Activo = activo;
 
   const updated = await patchRecordFields({

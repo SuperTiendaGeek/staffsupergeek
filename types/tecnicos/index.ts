@@ -154,6 +154,8 @@ export interface CatalogoServicio {
   nombre: string;
   descripcion: string | null;
   costoSugerido: number | null;
+  /** Días de garantía de la mano de obra (punto 20). null = sin plazo definido. */
+  garantiaDias?: number | null;
   activo: boolean;
   fechaCreacion?: string | null;
 }
