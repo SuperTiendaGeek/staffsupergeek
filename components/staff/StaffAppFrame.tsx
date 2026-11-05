@@ -26,6 +26,7 @@ import {
   UserRound,
   Users,
   Wrench,
+  ShieldCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -81,6 +82,7 @@ const tecnicosSubItems: SubNavItem[] = [
   { href: "/tecnicos/ordenes", label: "Órdenes", icon: ClipboardList },
   { href: "/tecnicos/mantenimientos", label: "Mantenimientos", icon: BellRing },
   { href: "/tecnicos/clientes", label: "Clientes", icon: UserRound },
+  { href: "/tecnicos/garantias", label: "Garantías", icon: ShieldCheck },
   { href: "/tecnicos/catalogo-repuestos", label: "Repuestos", icon: Package },
   { href: "/tecnicos/catalogo-servicios", label: "Servicios", icon: Cog },
   { href: "/tecnicos/productos-digitales", label: "Productos Digitales", icon: KeyRound },

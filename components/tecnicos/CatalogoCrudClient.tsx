@@ -34,6 +34,7 @@ type FormState = {
   precioSugeridoCliente: string;
   descripcion: string;
   costoSugerido: string;
+  garantiaDias: string;
   activo: boolean;
 };
 
@@ -46,6 +47,7 @@ const emptyForm: FormState = {
   precioSugeridoCliente: "",
   descripcion: "",
   costoSugerido: "",
+  garantiaDias: "",
   activo: true,
 };
 
@@ -165,6 +167,7 @@ export function CatalogoCrudClient({ mode, initialItems, carteles = [] }: Props)
       precioSugeridoCliente: isRepuesto(item) && item.precioSugeridoCliente !== null ? String(item.precioSugeridoCliente) : "",
       descripcion: !isRepuesto(item) ? item.descripcion || "" : "",
       costoSugerido: !isRepuesto(item) && item.costoSugerido !== null ? String(item.costoSugerido) : "",
+      garantiaDias: !isRepuesto(item) && item.garantiaDias !== null && item.garantiaDias !== undefined ? String(item.garantiaDias) : "",
       activo: item.activo,
     });
     const guardado = isRepuesto(item) ? undefined : cartelesPorServicio[item.id];
@@ -217,6 +220,7 @@ export function CatalogoCrudClient({ mode, initialItems, carteles = [] }: Props)
           nombre: form.nombre,
           descripcion: form.descripcion,
           costoSugerido: parseNumberInput(form.costoSugerido),
+          garantiaDias: parseNumberInput(form.garantiaDias),
           activo: form.activo,
         };
 
@@ -374,6 +378,7 @@ export function CatalogoCrudClient({ mode, initialItems, carteles = [] }: Props)
                     <th className="px-4 py-3">Servicio</th>
                     <th className="px-4 py-3">Descripción</th>
                     <th className="px-4 py-3">Costo sugerido</th>
+                    <th className="px-4 py-3">Garantía</th>
                     <th className="px-4 py-3">Cartel</th>
                     <th className="px-4 py-3">Estado</th>
                     <th className="px-4 py-3 text-right">Acciones</th>
@@ -383,7 +388,7 @@ export function CatalogoCrudClient({ mode, initialItems, carteles = [] }: Props)
               <tbody className="divide-y divide-[#3A3A36] bg-[#252622]">
                 {loading ? (
                   <tr>
-                    <td colSpan={isRepuestosMode ? 7 : 6} className="px-4 py-8 text-center text-[#A7A7A7]">
+                    <td colSpan={isRepuestosMode ? 7 : 7} className="px-4 py-8 text-center text-[#A7A7A7]">
                       Cargando catálogo...
                     </td>
                   </tr>
@@ -413,6 +418,7 @@ export function CatalogoCrudClient({ mode, initialItems, carteles = [] }: Props)
                           <p className="max-w-xl truncate">{item.descripcion || "-"}</p>
                         </td>
                         <td className="px-4 py-4 font-semibold text-[#F5F5F5]">{formatMoney(item.costoSugerido)}</td>
+                        <td className="px-4 py-4">{item.garantiaDias === null || item.garantiaDias === undefined ? <span className="text-[#F0C75E]" title="Sin plazo de garantía definido">—</span> : item.garantiaDias === 0 ? "Sin garantía" : `${item.garantiaDias} días`}</td>
                         <td className="px-4 py-4">
                           <CartelBadge cartel={cartelesPorServicio[item.id]} />
                         </td>
@@ -427,7 +433,7 @@ export function CatalogoCrudClient({ mode, initialItems, carteles = [] }: Props)
                   )
                 ) : (
                   <tr>
-                    <td colSpan={isRepuestosMode ? 7 : 6} className="px-4 py-8 text-center text-[#A7A7A7]">
+                    <td colSpan={isRepuestosMode ? 7 : 7} className="px-4 py-8 text-center text-[#A7A7A7]">
                       No hay registros para mostrar.
                     </td>
                   </tr>
@@ -468,6 +474,7 @@ export function CatalogoCrudClient({ mode, initialItems, carteles = [] }: Props)
               ) : (
                 <>
                   <Field label="Costo sugerido" type="number" value={form.costoSugerido} onChange={(value) => setForm((current) => ({ ...current, costoSugerido: value }))} />
+                  <Field label="Garantía (días) · 0 = sin garantía" type="number" value={form.garantiaDias} onChange={(value) => setForm((current) => ({ ...current, garantiaDias: value }))} />
                   <TextAreaField label="Descripción" value={form.descripcion} onChange={(value) => setForm((current) => ({ ...current, descripcion: value }))} />
                 </>
               )}

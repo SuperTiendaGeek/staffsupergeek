@@ -182,7 +182,15 @@ export async function aplicarGarantiaALinea(opts: {
     return r;
   });
 
-  if (!evaluado.aprobar) return { linea: await leerLinea(opts.lineaId) };
+  if (!evaluado.aprobar) {
+    const linea = await leerLinea(opts.lineaId);
+    // Un técnico la propuso: avisa a los administradores (nunca frena la acción).
+    if (opts.accion === "proponer" && evaluado.cambios.garantia === "Propuesta" && linea) {
+      await avisarGarantiaPorConfirmar({ ordenId: opts.ordenId, linea, propuso: opts.usuario.nombre })
+        .catch((e) => console.error("[garantias] aviso al administrador", e));
+    }
+    return { linea };
+  }
   // Confirmada: se aprueba sin pasar por el cliente y se carga como cualquier
   // línea (aparta la pieza o crea su solicitud de compra).
   const resultados = await aprobarYCargar({
@@ -192,6 +200,30 @@ export async function aplicarGarantiaALinea(opts: {
     textoAprobacion: `${ETIQUETA_GARANTIA}: aprobada por la tienda, sin costo para el cliente.`,
   });
   return { linea: await leerLinea(opts.lineaId), resultados };
+}
+
+/** Notificación "Garantía por confirmar" a cada administrador activo. */
+async function avisarGarantiaPorConfirmar(o: { ordenId: string; linea: LineaPresupuesto; propuso: string }): Promise<void> {
+  const [{ listPortalUsers }, { isAdministratorRole }, { crearNotificacion }] = await Promise.all([
+    import("@/lib/airtable"), import("@/lib/apps"), import("@/lib/notificaciones/airtable"),
+  ]);
+  const admins = (await listPortalUsers()).filter((u) => u.activo && isAdministratorRole(u.rol));
+  if (!admins.length) return;
+  const codigo = await idVisibleDeOrden(o.ordenId);
+  const l = o.linea;
+  await Promise.allSettled(admins.map((u) => crearNotificacion({
+    destinatarioId: u.id,
+    tipo: "Reparación",
+    titulo: `Garantía por confirmar · ${codigo}`,
+    mensaje: `${o.propuso || "Un técnico"} propuso dar en garantía "${l.descripcion}"`
+      + (l.motivoGarantia ? ` (${l.motivoGarantia})` : "")
+      + (l.garantiaCortesia ? ". Sin documento de origen o ya vencida: sería una cortesía." : `. ${l.garantiaDe ? `Origen: ${l.garantiaDe}.` : ""}`)
+      + " Confírmala o quítala en la tarjeta Presupuesto de la orden (también está en Técnicos → Garantías → Por confirmar).",
+    prioridad: "Alta",
+    urlAccion: `/tecnicos/ordenes/${o.ordenId}`,
+    entidadTipo: "Orden Reparación",
+    entidadId: o.ordenId,
+  })));
 }
 
 export async function elegirPiezaRetirada(opts: { ordenId: string; lineaId: string; destino: PiezaRetirada | ""; usuario: string }): Promise<LineaPresupuesto | null> {

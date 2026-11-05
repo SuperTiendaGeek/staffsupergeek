@@ -58,6 +58,7 @@ export async function POST(request: Request) {
       nombre,
       descripcion: typeof body?.descripcion === "string" ? body.descripcion : null,
       costoSugerido: toNumber(body?.costoSugerido),
+      garantiaDias: toNumber(body?.garantiaDias),
       activo: typeof body?.activo === "boolean" ? body.activo : true,
     });
     return NextResponse.json({ success: true, data: created }, { status: 201 });

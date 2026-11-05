@@ -182,6 +182,25 @@ export async function leerLinea(lineaId: string): Promise<(LineaPresupuesto & { 
 
 // ─── Mudanza de órdenes viejas (scripts/mudanza-presupuesto.ts) ─────────────
 
+/**
+ * Todas las líneas con "Garantía" (propuesta o confirmada), para la pantalla
+ * Garantías (punto 20). Filtra por un campo de selección, no por un enlace.
+ */
+export async function lineasConGarantia(): Promise<(LineaPresupuesto & { ordenId: string | null })[]> {
+  const out: (LineaPresupuesto & { ordenId: string | null })[] = [];
+  let offset: string | undefined;
+  do {
+    const u = new URL(url(T_PRESUPUESTO));
+    u.searchParams.set("pageSize", "100");
+    u.searchParams.set("filterByFormula", `{${F.garantia}}!=''`);
+    if (offset) u.searchParams.set("offset", offset);
+    const data = await pedir<{ records?: Registro[]; offset?: string }>(u.toString());
+    for (const r of data.records ?? []) out.push({ ...mapLinea(r), ordenId: ids(r.fields[F.orden])[0] ?? null });
+    offset = data.offset;
+  } while (offset);
+  return out;
+}
+
 /** Todas las líneas de todas las órdenes, en bloque (solo para la mudanza). */
 export async function listarTodasLasLineas(): Promise<(LineaPresupuesto & { ordenId: string | null })[]> {
   const out: (LineaPresupuesto & { ordenId: string | null })[] = [];
