@@ -3,10 +3,11 @@
  * Primer caso de Garantía SUPER GEEK: OR000425 (Aida Marcillo).
  *
  *   1. REP-000135 (la batería) se suelta de OP-2026-000122.
- *   2. Línea del presupuesto "Batería … — garantía": Repuesto, $0, garantía
- *      CONFIRMADA (dueño). Se carga con cargarCompraEnLinea (cargar.ts sigue
- *      siendo el único que carga a una orden): REP-000135 queda apartada para
- *      OR000425 y la línea "Cargada".
+ *   2. La línea del presupuesto que ya existe (flujo viejo, "Cargada" por
+ *      OP-122 a $1) pasa a Repuesto en garantía CONFIRMADA (dueño), $0, sin
+ *      OP-122 ni "bajo pedido". Se carga con cargarCompraEnLinea (cargar.ts
+ *      sigue siendo el único que carga a una orden): REP-000135 queda apartada
+ *      para OR000425 y la línea "Cargada". (Si no existiera, se crea.)
  *   3. OP-2026-000122 → "Rechazado" con la nota "Reemplazada por la garantía
  *      de OR000425" (su $1 deja de contar en la cuenta).
  * La batería sale del inventario ("Salida por garantía") cuando la orden pase
@@ -83,7 +84,7 @@ async function main(): Promise<void> {
           ordenesStock: ids(item.fields["Orden de Reparación (Stock)"]),
           estado: texto(item.fields["Estado Item"]),
         } : null,
-        linea: linea ? { id: linea.id, estado: linea.estado, garantia: linea.garantia ?? "", precio: linea.precioUnitario } : null,
+        linea: linea ? { id: linea.id, estado: linea.estado, garantia: linea.garantia ?? "", precio: linea.precioUnitario, operacionId: linea.operacionId } : null,
       },
     };
   };
@@ -111,7 +112,7 @@ async function main(): Promise<void> {
   const TEXTO: Record<string, string> = {
     soltar_de_operacion: `Soltar ${OR000425.sku} de ${OR000425.operacion}`,
     crear_linea_garantia: `Crear la línea "${OR000425.descripcion}" — $0, garantía confirmada (${OR000425.confirmadaPor}) — y apartar ${OR000425.sku} para ${OR000425.orden}`,
-    completar_linea_garantia: `Completar la línea existente: $0, garantía confirmada, ${OR000425.sku} apartada`,
+    completar_linea_garantia: `Convertir la línea que ya existe en garantía: $0, garantía confirmada, sin ${OR000425.operacion}, ${OR000425.sku} apartada para ${OR000425.orden}`,
     rechazar_operacion: `${OR000425.operacion} → Rechazado ("${OR000425.notaOperacion}")`,
   };
   for (const a of plan.acciones) console.log(`  • ${TEXTO[a.tipo]}`);
@@ -153,8 +154,13 @@ async function main(): Promise<void> {
       await actualizarLinea(a.lineaId, {
         ...datosGarantia,
         ...(a.cargar ? {} : { estado: "Cargada" as const }),
-        agregarHistorial: { anterior: actual.historial, entrada: entradaHistorial(`Garantía SUPER GEEK confirmada ($0) por ${OR000425.confirmadaPor} (punto 20).`, QUIEN, ahora) },
+        ...(a.soltarOperacion ? { operacionId: null } : {}),
+        agregarHistorial: { anterior: actual.historial, entrada: entradaHistorial(`Garantía SUPER GEEK confirmada ($0)${cortesia ? " de cortesía" : ""} por ${OR000425.confirmadaPor}: ${OR000425.motivo} Reemplaza a ${OR000425.operacion} (punto 20).`, QUIEN, ahora) },
       });
+      // Ya no es "bajo pedido" (la batería está en la tienda): queda como un repuesto de stock en garantía.
+      if (a.soltarOperacion) {
+        await airtableMutation(tableUrl("Presupuesto por Orden"), { method: "PATCH", body: JSON.stringify({ records: [{ id: a.lineaId, fields: { "Bajo pedido": false } }] }) });
+      }
       if (a.cargar) await cargarCompraEnLinea({ ordenId: a.ordenId, lineaId: a.lineaId, itemId: a.itemId, referencia: `${OR000425.sku} en garantía (antes en ${OR000425.operacion})`, usuario: { nombre: QUIEN } });
     } else if (a.tipo === "rechazar_operacion") {
       await actualizarEstadoOperacion(a.operacionId, "Rechazado");

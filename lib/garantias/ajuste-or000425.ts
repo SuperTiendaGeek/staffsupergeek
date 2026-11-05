@@ -6,7 +6,9 @@
 //     aceptaba $0) pasa a "Rechazado" con la nota "Reemplazada por la garantía
 //     de OR000425" y se suelta de la batería.
 //   · La batería queda apartada para la orden en una línea del presupuesto en
-//     garantía confirmada, a $0.
+//     garantía confirmada, a $0. La orden YA tiene esa línea (flujo viejo:
+//     "Cargada" por OP-122, a $1, recikS11bO34qQ6sd): se convierte, no se crea
+//     otra (vista previa del 5-nov).
 // Reglas PURAS (sin red): qué falta hacer según lo leído. Lo usa
 // scripts/ajuste-auditoria-ops-punto20.ts; la prueba vigila que una segunda
 // corrida no haga nada.
@@ -35,14 +37,15 @@ export type EstadoLeidoOR000425 = {
     estado: string;
   } | null;
   /** Línea del presupuesto de la orden que apunta a la batería (si existe). */
-  linea: { id: string; estado: string; garantia: string; precio: number } | null;
+  linea: { id: string; estado: string; garantia: string; precio: number; operacionId: string | null } | null;
 };
 
 export type AccionOR000425 =
   | { tipo: "soltar_de_operacion"; itemId: string; operacionId: string }
   /** Crea la línea (o completa una a medias) y la carga con cargarCompraEnLinea (aparta la batería). */
   | { tipo: "crear_linea_garantia"; ordenId: string; itemId: string }
-  | { tipo: "completar_linea_garantia"; ordenId: string; lineaId: string; itemId: string; cargar: boolean }
+  /** `soltarOperacion`: la línea vieja apuntaba a la operación; se le quita. `cargar`: aparta la batería. */
+  | { tipo: "completar_linea_garantia"; ordenId: string; lineaId: string; itemId: string; cargar: boolean; soltarOperacion: boolean }
   | { tipo: "rechazar_operacion"; operacionId: string };
 
 export function planOR000425(e: EstadoLeidoOR000425): { acciones: AccionOR000425[]; bloqueos: string[] } {
@@ -57,7 +60,9 @@ export function planOR000425(e: EstadoLeidoOR000425): { acciones: AccionOR000425
     bloqueos.push(`${OR000425.sku} está "${e.articulo.estado}": no se puede apartar.`);
     return { acciones: [], bloqueos };
   }
-  if (e.linea?.estado === "Cargada" && !apartada) {
+  // La línea vieja estaba "Cargada" por la operación (el artículo era de OP-122).
+  const deLaOperacion = !!e.linea && e.linea.operacionId === e.operacion.id;
+  if (e.linea?.estado === "Cargada" && !apartada && !deLaOperacion) {
     bloqueos.push(`La línea dice "Cargada" pero ${OR000425.sku} no está apartada para la orden: revisar a mano.`);
     return { acciones: [], bloqueos };
   }
@@ -68,8 +73,11 @@ export function planOR000425(e: EstadoLeidoOR000425): { acciones: AccionOR000425
   }
   if (!e.linea) {
     acciones.push({ tipo: "crear_linea_garantia", ordenId: e.ordenId, itemId: e.articulo.id });
-  } else if (e.linea.estado !== "Cargada" || e.linea.garantia !== "Confirmada" || e.linea.precio !== 0) {
-    acciones.push({ tipo: "completar_linea_garantia", ordenId: e.ordenId, lineaId: e.linea.id, itemId: e.articulo.id, cargar: e.linea.estado !== "Cargada" });
+  } else if (deLaOperacion || !apartada || e.linea.estado !== "Cargada" || e.linea.garantia !== "Confirmada" || e.linea.precio !== 0) {
+    acciones.push({
+      tipo: "completar_linea_garantia", ordenId: e.ordenId, lineaId: e.linea.id, itemId: e.articulo.id,
+      cargar: !apartada || e.linea.estado !== "Cargada", soltarOperacion: deLaOperacion,
+    });
   }
   if (e.operacion.estado !== "Rechazado") {
     acciones.push({ tipo: "rechazar_operacion", operacionId: e.operacion.id });
