@@ -3,6 +3,7 @@ import "server-only";
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
 import { esAbonoVigente } from "@/types/cuenta-unificada";
 import type { GetCuentaUnificadaInput } from "@/types/cuenta-unificada";
+import { sinGarantia } from "@/lib/garantias/reglas";
 
 import type { DatosVenta, OrigenGancho } from "../emitirFactura";
 import type { DetalleFactura } from "../types/factura";
@@ -29,7 +30,7 @@ export type PreFacturaInput = { ordenId: string } | { operacionId: string };
 
 export type PreFacturaBloqueada = {
   bloqueado:        true;
-  motivo:           "FACTURA_EXISTENTE" | "RECIBO_EXISTENTE" | "ITEMS_NO_LISTOS" | "PRODUCTOS_DIGITALES_SIN_PRECIO" | "PRESUPUESTO_PENDIENTE" | "LINEA_NEGATIVA";
+  motivo:           "FACTURA_EXISTENTE" | "RECIBO_EXISTENTE" | "ITEMS_NO_LISTOS" | "PRODUCTOS_DIGITALES_SIN_PRECIO" | "PRESUPUESTO_PENDIENTE" | "LINEA_NEGATIVA" | "SOLO_GARANTIA";
   facturaExistente?: FacturaVinculadaGancho;
   // Bloqueo cruzado: el recibo interno cierra la cuenta igual que una
   // factura (descuenta inventario y registra el ingreso), así que uno
@@ -51,6 +52,9 @@ export type PreFacturaBloqueada = {
   // documento no puede llevar una línea negativa: se bloquea hasta que el
   // descuento tenga su propia herramienta (auditoría ops, punto 4).
   lineasNegativas?: Array<{ id: string; descripcion: string; monto: number }>;
+  // Garantía SUPER GEEK (punto 20): la cuenta solo tiene cosas en garantía.
+  // No hay nada que vender: se entrega sin documento.
+  soloGarantia?: Array<{ id: string; descripcion: string }>;
 };
 
 export type PreFacturaLista = {
@@ -96,7 +100,12 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
   // ── 2. Cuenta unificada ──────────────────────────────────────────────────────
   const cuentaInput: GetCuentaUnificadaInput =
     "ordenId" in input ? { ordenId: input.ordenId } : { operacionId: input.operacionId };
-  const cuenta = await getCuentaUnificada(cuentaInput);
+  const cuentaCompleta = await getCuentaUnificada(cuentaInput);
+  // Garantía SUPER GEEK (punto 20): lo que va en garantía cobra $0 y NO va al
+  // documento (decisión del dueño, 2-nov: "el documento lleva solo lo
+  // pagado"). La pieza sale del inventario al entregar la orden, como
+  // "Salida por garantía" (lib/garantias/servidor.ts), nunca como venta.
+  const cuenta = sinGarantia(cuentaCompleta);
 
   const [ordenRecord, operacionRecord] = await Promise.all([
     cuenta.ordenId ? fetchOrden(cuenta.ordenId) : Promise.resolve(null),
@@ -152,6 +161,16 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
       motivo: "LINEA_NEGATIVA",
       lineasNegativas: lineasNegativas.map((s) => ({ id: s.id, descripcion: s.nombre, monto: s.costo })),
     };
+  }
+
+  // ── 3e. Solo garantía ─────────────────────────────────────────────────────
+  const enGarantia = [
+    ...cuentaCompleta.items.filter((i) => i.garantia).map((i) => ({ id: i.id, descripcion: i.nombre })),
+    ...cuentaCompleta.servicios.filter((s) => s.garantia).map((s) => ({ id: s.id, descripcion: s.nombre })),
+  ];
+  if (enGarantia.length > 0 && cuenta.items.length + cuenta.servicios.length + cuenta.productosDigitales.length
+    + (cuenta.repuestosHistoricosCuentanParaTotal ? cuenta.repuestosHistoricos.length : 0) === 0) {
+    return { bloqueado: true, motivo: "SOLO_GARANTIA", soloGarantia: enGarantia };
   }
 
   // ── 4. Cliente (link real de la orden/operación) ────────────────────────────

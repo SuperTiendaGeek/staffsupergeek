@@ -46,6 +46,8 @@ export const MOTIVOS_KARDEX = [
   "Despiece revertido",
   "Saldo inicial",
   "Separación de unidad",
+  "Garantía revertida",
+  "Pieza retirada en garantía",
   // Salidas
   "Venta con factura",
   "Venta con recibo",
@@ -57,6 +59,9 @@ export const MOTIVOS_KARDEX = [
   "Compra registrada de más",
   "Recepción revertida",
   "Registro eliminado",
+  // Garantía SUPER GEEK (auditoría ops, punto 20): la pieza se entrega sin
+  // costo al cliente. Es gasto de garantía, no venta (sin precio de venta).
+  "Salida por garantía",
   // Ambos sentidos
   "Ajuste del Kardex",
   // Sin unidades
@@ -70,7 +75,7 @@ export const CAUSAS_BAJA = ["Perdido", "Robo", "Daño", "Error de registro", "De
 export type CausaBaja = (typeof CAUSAS_BAJA)[number];
 export type DocumentoTipoKardex =
   | "Factura" | "Recibo" | "Nota de crédito" | "Orden de compra" | "Caja" | "Recepción" | "Conteo"
-  | "Revisión" | "Mejora" | "Despiece" | "Novedad" | "Ficha" | "Pago" | "Reconstrucción";
+  | "Revisión" | "Mejora" | "Despiece" | "Novedad" | "Ficha" | "Pago" | "Reconstrucción" | "Orden de reparación";
 
 export type ComponentesCosto = { proveedor: number; flete: number; arancel: number; otros: number; mejoras: number };
 
@@ -106,7 +111,7 @@ export type MovimientoKardex = {
 };
 
 /** Grupos de los atajos de la pantalla Movimientos. */
-export type GrupoKardex = "ventas" | "compras" | "devoluciones" | "bajas" | "ajustes" | "taller" | "costos" | "traslados";
+export type GrupoKardex = "ventas" | "compras" | "devoluciones" | "bajas" | "ajustes" | "taller" | "garantias" | "costos" | "traslados";
 
 const GRUPO: Record<MotivoKardex, GrupoKardex> = {
   "Compra recibida": "compras",
@@ -128,6 +133,10 @@ const GRUPO: Record<MotivoKardex, GrupoKardex> = {
   "Despiece revertido": "taller",
   "Saldo inicial": "ajustes",
   "Separación de unidad": "traslados",
+  // Punto 20: el atajo "Garantías" es el reporte del gasto de garantía.
+  "Garantía revertida": "garantias",
+  "Salida por garantía": "garantias",
+  "Pieza retirada en garantía": "garantias",
   "Venta con factura": "ventas",
   "Venta con recibo": "ventas",
   "Usada en una mejora": "taller",

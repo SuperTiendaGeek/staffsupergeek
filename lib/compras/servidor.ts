@@ -77,6 +77,8 @@ export async function asegurarSolicitudDeLinea(input: {
   ordenId: string;
   linea: Pick<LineaPresupuesto, "id" | "descripcion" | "cantidad" | "precioUnitario" | "categoria" | "costoProveedor" | "urlProveedor" | "tiempoEstimado" | "proveedorId">;
   usuario: string;
+  /** Por defecto "Aprobada por el cliente: por comprar." (la garantía lo cambia). */
+  textoHistorial?: string;
 }): Promise<Solicitud> {
   const clave = claveDeLinea(input.linea.id);
   return withLock(`solicitud:${clave}`, async () => {
@@ -96,7 +98,7 @@ export async function asegurarSolicitudDeLinea(input: {
       ordenId: input.ordenId,
       lineaId: input.linea.id,
       fechaAprobacion: ahora.toISOString(),
-      historial: entradaHistorial("Aprobada por el cliente: por comprar.", input.usuario, ahora),
+      historial: entradaHistorial(input.textoHistorial ?? "Aprobada por el cliente: por comprar.", input.usuario, ahora),
       registradoPor: input.usuario,
     });
   });

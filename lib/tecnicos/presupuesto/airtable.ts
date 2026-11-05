@@ -8,6 +8,7 @@ import "server-only";
 // por RECORD_ID().
 
 import { loadAirtableEnv } from "../config/airtable";
+import { normalizarGarantia, normalizarPiezaRetirada, type EstadoGarantia, type PiezaRetirada } from "@/lib/garantias/reglas";
 import { normalizarPrioridad, type EstadoLinea, type InfoPedido, type LineaPresupuesto, type NuevaLineaInput, type Prioridad, type TipoLinea } from "./reglas";
 
 export const T_PRESUPUESTO = "Presupuesto por Orden";
@@ -44,6 +45,18 @@ const F = {
   respuestaCliente: "Respuesta cliente",
   huellaRespondida: "Huella respondida",
   fechaRespuesta:   "Fecha respuesta cliente",
+  // Garantía SUPER GEEK (punto 20, 4-nov-2026).
+  garantia:         "Garantía",
+  motivoGarantia:   "Motivo de garantía",
+  garantiaConfirmadaPor: "Garantía confirmada por",
+  garantiaEntregada: "Garantía entregada",
+  garantiaDe:       "Garantía de",
+  garantiaOrigenId: "Garantía origen ID",
+  garantiaVence:    "Garantía vence",
+  garantiaCortesia: "Garantía de cortesía",
+  piezaRetirada:    "Pieza retirada",
+  piezaRetiradaSku: "Pieza retirada SKU",
+  fechaEntregaGarantia: "Fecha entrega garantía",
 } as const;
 
 type Registro = { id: string; fields: Record<string, unknown> };
@@ -115,6 +128,17 @@ function mapLinea(r: Registro): LineaPresupuesto {
     respuestaCliente: (texto(f[F.respuestaCliente]) || "") as LineaPresupuesto["respuestaCliente"],
     huellaRespondida: texto(f[F.huellaRespondida]),
     fechaRespuestaCliente: texto(f[F.fechaRespuesta]),
+    garantia: normalizarGarantia(f[F.garantia]),
+    motivoGarantia: texto(f[F.motivoGarantia]),
+    garantiaConfirmadaPor: texto(f[F.garantiaConfirmadaPor]),
+    garantiaEntregada: f[F.garantiaEntregada] === true,
+    garantiaDe: texto(f[F.garantiaDe]),
+    garantiaOrigenId: texto(f[F.garantiaOrigenId]),
+    garantiaVence: texto(f[F.garantiaVence]),
+    garantiaCortesia: f[F.garantiaCortesia] === true,
+    piezaRetirada: normalizarPiezaRetirada(f[F.piezaRetirada]),
+    piezaRetiradaSku: texto(f[F.piezaRetiradaSku]),
+    fechaEntregaGarantia: texto(f[F.fechaEntregaGarantia]),
   };
 }
 
@@ -265,6 +289,20 @@ export type CambiosLinea = Partial<{
   grupoAlternativas: string;
   /** Respuesta del cliente desde el enlace público. */
   respuestaCliente: { valor: "Aprobó" | "No aprobó"; huella: string; fecha: string };
+  /** Garantía SUPER GEEK (punto 20). "" la quita. */
+  garantia: EstadoGarantia;
+  motivoGarantia: string;
+  garantiaConfirmadaPor: string;
+  garantiaEntregada: boolean;
+  garantiaDe: string;
+  garantiaOrigenId: string;
+  /** "" la borra. */
+  garantiaVence: string;
+  garantiaCortesia: boolean;
+  piezaRetirada: PiezaRetirada | "";
+  piezaRetiradaSku: string;
+  /** "" la borra. */
+  fechaEntregaGarantia: string;
 }>;
 
 export async function actualizarLinea(lineaId: string, c: CambiosLinea): Promise<LineaPresupuesto> {
@@ -288,6 +326,17 @@ export async function actualizarLinea(lineaId: string, c: CambiosLinea): Promise
     fields[F.huellaRespondida] = c.respuestaCliente.huella;
     fields[F.fechaRespuesta]   = c.respuestaCliente.fecha;
   }
+  if (c.garantia !== undefined)       fields[F.garantia] = c.garantia || null;
+  if (c.motivoGarantia !== undefined) fields[F.motivoGarantia] = c.motivoGarantia.trim();
+  if (c.garantiaConfirmadaPor !== undefined) fields[F.garantiaConfirmadaPor] = c.garantiaConfirmadaPor;
+  if (c.garantiaEntregada !== undefined) fields[F.garantiaEntregada] = c.garantiaEntregada;
+  if (c.garantiaDe !== undefined)     fields[F.garantiaDe] = c.garantiaDe;
+  if (c.garantiaOrigenId !== undefined) fields[F.garantiaOrigenId] = c.garantiaOrigenId;
+  if (c.garantiaVence !== undefined)  fields[F.garantiaVence] = c.garantiaVence || null;
+  if (c.garantiaCortesia !== undefined) fields[F.garantiaCortesia] = c.garantiaCortesia;
+  if (c.piezaRetirada !== undefined)  fields[F.piezaRetirada] = c.piezaRetirada || null;
+  if (c.piezaRetiradaSku !== undefined) fields[F.piezaRetiradaSku] = c.piezaRetiradaSku;
+  if (c.fechaEntregaGarantia !== undefined) fields[F.fechaEntregaGarantia] = c.fechaEntregaGarantia || null;
   if (c.agregarHistorial)             fields[F.historial] = [c.agregarHistorial.anterior, c.agregarHistorial.entrada].filter(Boolean).join("\n");
   const r = await pedir<Registro>(url(T_PRESUPUESTO, lineaId), { method: "PATCH", body: JSON.stringify({ fields }) });
   return mapLinea(r);

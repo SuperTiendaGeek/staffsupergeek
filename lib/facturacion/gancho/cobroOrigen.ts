@@ -48,6 +48,8 @@ export function mensajePrefacturaBloqueada(b: PreFacturaBloqueada): string {
       return `Hay artículos que todavía no se pueden vender: ${(b.itemsNoListos ?? []).map((i) => i.nombre).join(", ")}.`;
     case "PRODUCTOS_DIGITALES_SIN_PRECIO":
       return `Hay productos digitales sin nombre o sin precio: ${(b.productosDigitalesNoListos ?? []).map((i) => i.nombre).join(", ")}.`;
+    case "SOLO_GARANTIA":
+      return "Esta cuenta solo tiene garantía SUPER GEEK ($0): se entrega sin factura ni recibo.";
     case "LINEA_NEGATIVA":
       return `La cuenta tiene cargos negativos (descuentos o ajustes): ${(b.lineasNegativas ?? []).map((l) => l.descripcion).join(", ")}. Todavía no se pueden llevar a un documento.`;
   }

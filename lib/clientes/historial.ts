@@ -121,7 +121,7 @@ export function tonoDeDocumento(d: Pick<EntradaDocumento, "tipo" | "estado" | "e
   return "neutro";
 }
 
-const esDePruebas = (ambiente?: string) => /prueba/i.test(ambiente ?? "");
+export const esDePruebas = (ambiente?: string) => /prueba/i.test(ambiente ?? "");
 
 const dinero = (n: number) => `$${r2(n).toFixed(2)}`;
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];

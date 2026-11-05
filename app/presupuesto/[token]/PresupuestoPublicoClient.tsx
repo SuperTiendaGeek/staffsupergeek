@@ -192,7 +192,9 @@ function TarjetaLinea({ l, decision, onDecidir, abierta, onAbrir, cartel, acepta
         <div className="min-w-0">
           <div className="flex flex-wrap gap-1.5">
             <Prioridad p={l.prioridad} />
-            <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${e.clase}`}>{cambio ? "Cambiarás tu respuesta" : e.texto}</span>
+            {l.garantia
+              ? <span className="inline-block rounded-full border border-sky-300/50 bg-sky-300/10 px-2 py-0.5 text-[11px] font-semibold text-sky-200">Garantía SUPER GEEK</span>
+              : <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${e.clase}`}>{cambio ? "Cambiarás tu respuesta" : e.texto}</span>}
           </div>
           <p className={`mt-2 text-[15px] font-semibold leading-snug ${tachada ? "text-[#8A8A80] line-through" : "text-[#F5F5F5]"}`}>{l.descripcion}</p>
           <p className="mt-0.5 text-xs text-[#A7A7A7]">
@@ -226,7 +228,7 @@ function TarjetaLinea({ l, decision, onDecidir, abierta, onAbrir, cartel, acepta
         </p>
       )}
       {l.prioridad === "Necesaria" && l.puedeResponder && decision === "no" && <AvisoNecesaria />}
-      {l.situacion === "en_proceso" && <p className="mt-2 text-[11px] text-[#8A8A80]">Ya estamos trabajando en esto. Para cambiarlo, comunícate con la tienda.</p>}
+      {l.situacion === "en_proceso" && !l.garantia && <p className="mt-2 text-[11px] text-[#8A8A80]">Ya estamos trabajando en esto. Para cambiarlo, comunícate con la tienda.</p>}
     </li>
   );
 }

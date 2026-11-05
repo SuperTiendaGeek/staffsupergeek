@@ -16,6 +16,9 @@
 //   algo con unidades libres.
 // · Estados retirados (sin uso, 0 artículos): Usado en reparación, En garantía
 //   con proveedor, Archivado y Migrado. Ya no se ofrecen.
+//   (4-nov-2026, punto 20 de la auditoría ops: "Usado en reparación" vuelve a
+//   usarse, pero SOLO lo pone la salida por Garantía SUPER GEEK; nadie lo
+//   elige a mano.)
 //
 // Módulo puro: sin red. Lo usan la API y la pantalla.
 
@@ -66,6 +69,8 @@ const SOLO_SU_ACCION: Record<string, string> = {
   // Punto 8: el bloqueo de una novedad lo quita el Administrador en Novedades.
   "perdido en tienda": "lo pone una novedad; si apareció, resuélvela en Novedades",
   extraviado: "lo pone una novedad; si apareció, resuélvela en Novedades",
+  // Auditoría ops, punto 20: la pieza salió por garantía al entregar la orden.
+  "usado en reparacion": "sale de una garantía entregada; si fue un error, reabre la orden",
 };
 
 export type ArticuloParaCorregir = {

@@ -1727,6 +1727,17 @@ function PreFacturaBloqueadaBanner({ resultado }: { resultado: Extract<Resultado
       </div>
     );
   }
+  if (resultado.motivo === "SOLO_GARANTIA") {
+    return (
+      <div className="rounded-xl border border-[#4FA3FF]/40 bg-[#4FA3FF]/10 p-6">
+        <p className="text-[#4FA3FF] font-bold text-lg mb-2">Sin documento: solo garantía</p>
+        <p className="text-[#A7A7A7] text-sm mb-3">Todo lo de esta cuenta es Garantía SUPER GEEK ($0). Se entrega sin factura ni recibo; la pieza sale del inventario al pasar la orden a &quot;Finalizado Entregado&quot;.</p>
+        <ul className="flex flex-col gap-1">
+          {(resultado.soloGarantia ?? []).map((l) => <li key={l.id} className="text-sm text-[#F5F5F5]">{l.descripcion}</li>)}
+        </ul>
+      </div>
+    );
+  }
   if (resultado.motivo === "PRESUPUESTO_PENDIENTE") {
     return (
       <div className="rounded-xl border border-[#F0C75E]/40 bg-[#F0C75E]/10 p-6">

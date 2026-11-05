@@ -18,6 +18,7 @@ import type {
 import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import type { ProductoDigital } from "@/lib/tecnicos/airtable";
 import { lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
+import { cargosEnGarantia } from "@/lib/garantias/reglas";
 import type { CuentaUnificadaAprobadoSinArticulo } from "@/types/cuenta-unificada";
 import { CAMPO_DESCUENTOS, TABLA_DESCUENTOS, descuentoDesdeCampos, descuentosVigentes } from "@/lib/estado-cuenta/descuentos";
 import {
@@ -505,6 +506,11 @@ export async function getCuentaUnificada(
   // los del pedido.
   const descuentoIds = linkedIds((ordenRecord ?? operacionRecord)?.fields[CAMPO_DESCUENTOS]);
   const descuentos = (await fetchRecordsByIds(client, TABLA_DESCUENTOS, descuentoIds)).map((r) => descuentoDesdeCampos(r.id, r.fields));
+  // Garantía SUPER GEEK (punto 20): las piezas y servicios de una línea en
+  // garantía confirmada se muestran a $0 y no van al documento de venta.
+  const enGarantia = cargosEnGarantia(lineasPresupuesto);
+  for (const it of items) if (enGarantia.items.has(it.id)) { it.garantia = true; it.precio = 0; }
+  for (const sv of serviciosMapped) if (enGarantia.servicios.has(sv.id)) sv.garantia = true;
   const cargosExistentes = new Set<string>([
     ...items.map((i) => i.id),
     ...servicios.map((s) => s.id),
@@ -526,6 +532,7 @@ export async function getCuentaUnificada(
       aprobadoSinArticulo: aprobadoSinArticuloCuenta,
       descuentos,
       cargosExistentes,
+      itemsEnGarantia: enGarantia.items,
     },
     abonos,
   });

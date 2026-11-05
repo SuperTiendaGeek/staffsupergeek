@@ -36,6 +36,7 @@ import { actualizarEstadoOperacion } from "@/lib/operaciones/airtable";
 import { soltarArticuloDePedido } from "@/lib/shipping-v2/airtable";
 import { listarLineas, actualizarLinea, cargarInfoPedidos } from "./airtable";
 import { asegurarSolicitudDeLinea, cancelarSolicitudDeLinea } from "@/lib/compras/servidor";
+import { garantiaTrasModificar } from "@/lib/garantias/reglas";
 import {
   planDeCarga, reversasDisponibles, entradaHistorial,
   cargasPerdidas, cargosSinPresupuesto, conflictoAlternativas, hermanasPropuestas,
@@ -129,6 +130,8 @@ export type OpcionesCarga = {
   ordenId: string;
   lineaIds: string[];
   usuario: { nombre: string; id?: string | null };
+  /** Texto del historial al aprobar (por defecto "Aprobada por el cliente."). La garantía lo cambia. */
+  textoAprobacion?: string;
 };
 
 export async function aprobarYCargar(opts: OpcionesCarga): Promise<ResultadoCarga[]> {
@@ -147,6 +150,10 @@ export async function aprobarYCargar(opts: OpcionesCarga): Promise<ResultadoCarg
 export async function aprobarYCargarSinTurno(opts: OpcionesCarga): Promise<ResultadoCarga[]> {
   const todas = await listarLineas(opts.ordenId);
   const elegidas = todas.filter((l) => opts.lineaIds.includes(l.id));
+  // Garantía (punto 20): una garantía solo propuesta la confirma un
+  // administrador; ni el cliente ni "Aprobado en tienda" la aprueban.
+  const sinConfirmar = elegidas.filter((l) => l.garantia === "Propuesta" && l.estado === "Propuesta");
+  if (sinConfirmar.length) throw new Error(`Falta que un administrador confirme la garantía de: ${sinConfirmar.map((l) => l.descripcion).join(", ")}.`);
 
   // Alternativas: se aprueba una sola por grupo; las demás que seguían
   // propuestas quedan rechazadas ("el cliente eligió otra").
@@ -180,7 +187,7 @@ export async function aprobarYCargarSinTurno(opts: OpcionesCarga): Promise<Resul
     const aprobacion = linea.estado === "Propuesta"
       ? {
           estado: "Aprobada" as const, aprobadoPor: opts.usuario.nombre, fechaAprobacion: ahora,
-          agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial("Aprobada por el cliente.", opts.usuario.nombre) },
+          agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(opts.textoAprobacion ?? "Aprobada por el cliente.", opts.usuario.nombre) },
         }
       : {};
 
@@ -189,7 +196,7 @@ export async function aprobarYCargarSinTurno(opts: OpcionesCarga): Promise<Resul
         // Fase 2: nace la solicitud de compra (bandeja "Por comprar" de
         // Logística). Ninguna Operación Comercial: el repuesto de una
         // reparación ya no llena el tablero comercial (punto 8).
-        await asegurarSolicitudDeLinea({ ordenId: opts.ordenId, linea, usuario: opts.usuario.nombre });
+        await asegurarSolicitudDeLinea({ ordenId: opts.ordenId, linea, usuario: opts.usuario.nombre, ...(linea.garantia === "Confirmada" ? { textoHistorial: "Garantía SUPER GEEK ($0) confirmada: por comprar." } : {}) });
         await actualizarLinea(linea.id, { ...aprobacion, notaCarga: "" });
         resultados.push({ ...paso, cargada: false, esperandoPedido: true });
       } else if (paso.accion.tipo === "esperando_compra") {
@@ -295,6 +302,7 @@ export async function revertirLinea(opts: {
   return withLock(`presupuesto:${opts.ordenId}`, async () => {
     const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
     if (!linea) throw new Error("Línea no encontrada en esta orden.");
+    if (linea.garantiaEntregada) throw new Error("La pieza en garantía ya se entregó con la orden. Reabre la orden primero (la pieza vuelve apartada).");
     const info = linea.operacionId ? (await cargarInfoPedidos([linea.operacionId])).get(linea.operacionId) : undefined;
     // Fase 2: línea con solicitud de compra (sin operación).
     const conSolicitud = !!linea.solicitudId && !linea.operacionId;
@@ -363,6 +371,8 @@ export async function retirarLinea(opts: {
     const lineas = await listarLineas(opts.ordenId);
     const linea = lineas.find((l) => l.id === opts.lineaId);
     if (!linea) throw new Error("Línea no encontrada en esta orden.");
+    // Garantía (punto 20): la pieza ya salió del inventario con la entrega.
+    if (linea.garantiaEntregada) throw new Error("La pieza en garantía ya se entregó con la orden. Reabre la orden primero (la pieza vuelve apartada).");
 
     // Documento emitido: la misma lectura que usa el panel de cobros. Si no se
     // puede leer, NO se asume que no hay documento: se frena.
@@ -388,6 +398,8 @@ export async function retirarLinea(opts: {
       notaCarga: tras.notaCarga,
       cargoServicioId: null,
       cargoProductoDigitalId: null,
+      // "Modificar" una garantía confirmada la deja propuesta: la vuelve a confirmar un administrador.
+      ...(tras.estado === "Propuesta" && linea.garantia ? { garantia: garantiaTrasModificar(linea) } : {}),
       agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(tras.historial, opts.usuario.nombre) },
     });
   });

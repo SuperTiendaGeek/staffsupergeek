@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ESTADOS_ORDEN, EstadoOrden } from "@/types/tecnicos";
 import { updateOrdenEstado } from "@/lib/tecnicos/airtable";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
+import { sincronizarGarantiasDeLaOrden } from "@/lib/garantias/servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,17 @@ export async function PATCH(request: Request, { params }: Params) {
       creadoPorUsuarioId: session.user.userId ?? null,
     });
 
-    return NextResponse.json({ success: true, data: result });
+    // Garantía SUPER GEEK (auditoría ops, punto 20): al entregar, las piezas
+    // en garantía salen del inventario; si la orden se reabre, vuelven
+    // apartadas. Nunca frena el cambio de estado: lo que falle vuelve como aviso.
+    const garantias = await sincronizarGarantiasDeLaOrden({
+      ordenId: ordenRecordId,
+      nuevoEstado: estadoNormalizado,
+      marca: result.historial?.id || new Date().toISOString(),
+      hechoPor: session.user.nombre || session.user.email || "Portal",
+    });
+
+    return NextResponse.json({ success: true, data: { ...result, garantias } });
   } catch (error) {
     console.error("Error al actualizar estado en Airtable:", error);
     const message = error instanceof Error ? error.message : "Error inesperado";

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
+import { isAdministratorRole } from "@/lib/apps";
+import { aplicarGarantiaALinea, elegirPiezaRetirada, ErrorGarantia } from "@/lib/garantias/servidor";
+import { errorPrecioEnGarantia, garantiaTrasModificar, normalizarPiezaRetirada } from "@/lib/garantias/reglas";
 import { leerLinea, actualizarLinea, borrarLinea, cargarInfoPedidos, listarLineas, type CambiosLinea } from "@/lib/tecnicos/presupuesto/airtable";
 import { actualizarEstadoOperacion, actualizarOpcion, eliminarOperacionConOpciones } from "@/lib/operaciones/airtable";
 import { retirarLinea, revertirLinea } from "@/lib/tecnicos/presupuesto/cargar";
@@ -29,13 +32,44 @@ export async function PATCH(request: Request, { params }: Params) {
   if (!linea) return NextResponse.json({ success: false, error: "Línea no encontrada en esta orden" }, { status: 404 });
 
   const body = (await request.json().catch(() => ({}))) as {
-    accion?: "rechazar" | "reabrir" | "reactivar" | "cancelar" | "recotizar" | "liberar" | "detalle" | "quitar" | "modificar";
+    accion?: "rechazar" | "reabrir" | "reactivar" | "cancelar" | "recotizar" | "liberar" | "detalle" | "quitar" | "modificar"
+      | "garantia" | "confirmar-garantia" | "quitar-garantia" | "pieza-retirada";
+    origenClave?: string | null; destino?: string;
     prioridad?: string; notaCliente?: string; alternativaDe?: string | null; quitarAlternativa?: boolean;
     motivo?: string;
     descripcion?: string; cantidad?: number; precioUnitario?: number; itemId?: string | null;
   };
 
   try {
+    // Garantía SUPER GEEK (punto 20): proponer (técnico) / confirmar (solo
+    // administrador) / quitar. Confirmar aprueba y carga la línea sin el cliente.
+    if (body.accion === "garantia" || body.accion === "confirmar-garantia" || body.accion === "quitar-garantia") {
+      try {
+        const r = await aplicarGarantiaALinea({
+          ordenId: id, lineaId,
+          accion: body.accion === "garantia" ? "proponer" : body.accion === "confirmar-garantia" ? "confirmar" : "quitar",
+          motivo: typeof body.motivo === "string" ? body.motivo : "",
+          origenClave: typeof body.origenClave === "string" ? body.origenClave : null,
+          esAdmin: isAdministratorRole(session?.user.rol),
+          usuario: { nombre: session?.user.nombre || session?.user.email || "Portal", id: session?.user.userId ?? null },
+        });
+        return NextResponse.json({ success: true, data: r.linea, resultados: r.resultados ?? null });
+      } catch (e) {
+        if (e instanceof ErrorGarantia) return NextResponse.json({ success: false, error: e.message }, { status: 409 });
+        throw e;
+      }
+    }
+    if (body.accion === "pieza-retirada") {
+      try {
+        const destino = normalizarPiezaRetirada(body.destino);
+        if (body.destino && !destino) return NextResponse.json({ success: false, error: "Destino de la pieza inválido." }, { status: 400 });
+        const actualizada = await elegirPiezaRetirada({ ordenId: id, lineaId, destino, usuario: session?.user.nombre || session?.user.email || "Portal" });
+        return NextResponse.json({ success: true, data: actualizada });
+      } catch (e) {
+        if (e instanceof ErrorGarantia) return NextResponse.json({ success: false, error: e.message }, { status: 409 });
+        throw e;
+      }
+    }
     // Repuesto bajo pedido: la operación comercial acompaña a la línea, para
     // que el tablero de Operaciones nunca muestre algo que la orden ya
     // descartó (o al revés).
@@ -53,6 +87,7 @@ export async function PATCH(request: Request, { params }: Params) {
       else if (body.alternativaDe) {
         const base = todas.find((l) => l.id === body.alternativaDe);
         if (!base || base.id === linea.id || base.estado !== "Propuesta") return NextResponse.json({ success: false, error: "Solo se agrupa con otra línea Propuesta de esta orden." }, { status: 409 });
+        if (linea.garantia || base.garantia) return NextResponse.json({ success: false, error: "Una línea en garantía no va como alternativa." }, { status: 409 });
         grupo = base.grupoAlternativas || nuevoGrupoAlternativas();
         if (!base.grupoAlternativas) await actualizarLinea(base.id, { grupoAlternativas: grupo });
         cambios.grupoAlternativas = grupo;
@@ -75,18 +110,20 @@ export async function PATCH(request: Request, { params }: Params) {
     }
     if (body.accion === "reabrir") {
       if (linea.estado !== "Rechazada") return NextResponse.json({ success: false, error: "Solo se reabre una línea Rechazada." }, { status: 409 });
+      // Una garantía confirmada que se reabre vuelve a quedar propuesta (punto 20).
+      const garantiaAlReabrir: CambiosLinea = linea.garantia ? { garantia: garantiaTrasModificar(linea) } : {};
       // Una línea que llegó a aprobarse y después se canceló/recotizó ya tiene
       // su operación CERRADA (y quizá un artículo cancelado): reabrirla es una
       // propuesta nueva, sin esa operación — si el cliente vuelve a aprobar,
       // nace una operación nueva. Solo una cotización del flujo anterior
       // (operación creada en Cotizado, nunca aprobada) se reactiva tal cual.
       if (linea.operacionId && linea.aprobadoPor) {
-        return NextResponse.json({ success: true, data: await actualizarLinea(lineaId, { estado: "Propuesta", operacionId: null, itemId: null, notaCarga: "" }) });
+        return NextResponse.json({ success: true, data: await actualizarLinea(lineaId, { estado: "Propuesta", operacionId: null, itemId: null, notaCarga: "", ...garantiaAlReabrir }) });
       }
       if (linea.operacionId) await actualizarEstadoOperacion(linea.operacionId, "Cotizado");
       // La nota se limpia: una línea "Quitada de la orden" que se reabre deja de
       // estar anulada para el cliente.
-      return NextResponse.json({ success: true, data: await actualizarLinea(lineaId, { estado: "Propuesta", notaCarga: "" }) });
+      return NextResponse.json({ success: true, data: await actualizarLinea(lineaId, { estado: "Propuesta", notaCarga: "", ...garantiaAlReabrir }) });
     }
     // Quitar de la orden / volver a proponer para modificar (servicio, repuesto
     // de stock o producto digital ya aprobado). Frena si hay factura o recibo.
@@ -142,7 +179,10 @@ export async function PATCH(request: Request, { params }: Params) {
       servicioCatalogoId: linea.servicioCatalogoId,
       itemId: body.itemId !== undefined ? body.itemId : linea.itemId,
       productoCatalogoId: linea.productoCatalogoId,
+      garantia: !!linea.garantia,
     };
+    const errorGarantia = errorPrecioEnGarantia(linea, body.precioUnitario !== undefined ? propuesta.precioUnitario : undefined);
+    if (errorGarantia) return NextResponse.json({ success: false, error: errorGarantia }, { status: 400 });
     const error = validarLinea(propuesta);
     if (error) return NextResponse.json({ success: false, error }, { status: 400 });
 

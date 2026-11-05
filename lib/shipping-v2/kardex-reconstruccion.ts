@@ -321,6 +321,7 @@ export function reconstruirKardex(f: FuentesReconstruccion): ResultadoReconstruc
           : x["Es regalo"] === true || tipoOp === "regalo de proveedor" ? "Regalo del proveedor"
             : tipoOp.startsWith("reajuste") ? (base === "compradas" ? "Reajuste de inventario" : "Saldo inicial")
               : tipoOp === "parte de pago de cliente" ? "Parte de pago del cliente"
+              : tipoOp === "pieza retirada en garantia" ? "Pieza retirada en garantía"
               : base === "compradas" ? "Compra recibida" : "Saldo inicial";
       const cajaId = ids(x["Shipping Packings"])[0];
       const llegada = fechaLlegada(it);

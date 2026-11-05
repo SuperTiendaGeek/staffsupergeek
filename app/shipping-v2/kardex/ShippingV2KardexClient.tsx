@@ -526,6 +526,7 @@ const ATAJOS: Array<{ key: GrupoKardex | "todos"; label: string }> = [
   { key: "bajas", label: "Bajas" },
   { key: "ajustes", label: "Ajustes" },
   { key: "taller", label: "Taller" },
+  { key: "garantias", label: "Garantías" },
   { key: "costos", label: "Costos" },
   { key: "traslados", label: "Traslados" },
 ];

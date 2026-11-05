@@ -176,13 +176,13 @@ export function CuentaUnificadaPanel({
             item.cantidad && item.cantidad > 1
               ? `${item.nombre} · ${item.cantidad} × ${formatCurrency(item.precioUnitario ?? 0)}`
               : item.nombre,
-            item.origen === "pedido" ? "Pedido" : "Stock",
+            item.garantia ? "Garantía SUPER GEEK" : item.origen === "pedido" ? "Pedido" : "Stock",
             item.precio,
           )
         )}
         {cuenta.repuestosHistoricosCuentanParaTotal &&
           cuenta.repuestosHistoricos.map((r) => filaCargo(r.id, r.nombre, "Histórico", r.subtotal))}
-        {cuenta.servicios.map((s) => filaCargo(s.id, s.nombre, "Servicio", s.costo))}
+        {cuenta.servicios.map((s) => filaCargo(s.id, s.nombre, s.garantia ? "Garantía SUPER GEEK" : "Servicio", s.costo))}
         {(cuenta.aprobadoSinArticulo ?? []).map((p) => (
           <LedgerRow
             key={p.id}

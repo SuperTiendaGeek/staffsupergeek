@@ -187,6 +187,12 @@ export type DatosDeCargos = {
   descuentos: ReadonlyArray<{ cargoId: string; monto: number; estado: string }>;
   /** Ids de los cargos que hay hoy en la cuenta (servicios, artículos, digitales, históricos). */
   cargosExistentes: ReadonlySet<string>;
+  /**
+   * Artículos en Garantía SUPER GEEK (punto 20): la cuenta los cobra a $0
+   * aunque el artículo tenga su "Precio venta final". Sale de las líneas del
+   * presupuesto (cargosEnGarantia en lib/garantias/reglas.ts).
+   */
+  itemsEnGarantia?: ReadonlySet<string>;
 };
 
 export type CargosDeCuenta = {
@@ -218,6 +224,7 @@ export function sumarCargos(d: DatosDeCargos): CargosDeCuenta {
   for (const it of d.items) {
     if (vistos.has(it.id)) continue;
     vistos.add(it.id);
+    if (d.itemsEnGarantia?.has(it.id)) continue;
     items += it.precio || 0;
   }
   const totalRepuestos = round2(items + (d.repuestosHistoricos || 0));

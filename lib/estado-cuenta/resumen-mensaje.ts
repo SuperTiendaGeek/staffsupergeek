@@ -28,7 +28,7 @@ export type CuentaParaResumen = {
 };
 
 /** Líneas propuestas al cliente que todavía no responde. */
-export type LineaPorConfirmar = { estado: string; cantidad: number; precioUnitario: number; grupoAlternativas?: string };
+export type LineaPorConfirmar = { estado: string; cantidad: number; precioUnitario: number; grupoAlternativas?: string; garantia?: string };
 
 /**
  * Lo que falta que el cliente confirme: las líneas "Propuesta". Las
@@ -36,7 +36,8 @@ export type LineaPorConfirmar = { estado: string; cantidad: number; precioUnitar
  * monto se presenta como "desde".
  */
 export function presupuestoPorConfirmar(lineas: readonly LineaPorConfirmar[]): { cantidad: number; monto: number; conAlternativas: boolean } {
-  const propuestas = lineas.filter((l) => l.estado === "Propuesta");
+  // Una garantía propuesta (punto 20) no la confirma el cliente: la confirma un administrador.
+  const propuestas = lineas.filter((l) => l.estado === "Propuesta" && !l.garantia);
   const sueltas = propuestas.filter((l) => !l.grupoAlternativas);
   const grupos = new Map<string, number>();
   for (const l of propuestas) {

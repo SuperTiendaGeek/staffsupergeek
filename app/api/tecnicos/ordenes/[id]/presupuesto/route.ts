@@ -1,6 +1,8 @@
 import { solicitudesDeOrden } from "@/lib/compras/servidor";
 import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
+import { isAdministratorRole } from "@/lib/apps";
+import { aplicarGarantiaALinea, ErrorGarantia } from "@/lib/garantias/servidor";
 import {
   listarLineas, crearLinea, actualizarLinea, cargarInfoPedidos, nombresProveedores,
 } from "@/lib/tecnicos/presupuesto/airtable";
@@ -90,8 +92,9 @@ export async function POST(request: Request, { params }: Params) {
   if (response || !session) return response ?? NextResponse.json({ success: false, error: "Sin sesión" }, { status: 401 });
   const { id } = await params;
 
-  let body: NuevaLineaInput & { alternativaDe?: string | null };
-  try { body = (await request.json()) as NuevaLineaInput & { alternativaDe?: string | null }; }
+  type Cuerpo = Omit<NuevaLineaInput, "garantia"> & { alternativaDe?: string | null; garantia?: { motivo?: string; origenClave?: string | null } | null };
+  let body: Cuerpo;
+  try { body = (await request.json()) as Cuerpo; }
   catch { return NextResponse.json({ success: false, error: "JSON inválido" }, { status: 400 }); }
 
   const bp = body.bajoPedido;
@@ -115,6 +118,16 @@ export async function POST(request: Request, { params }: Params) {
         }
       : null,
   };
+  // Garantía SUPER GEEK (punto 20): la línea nace a $0 y se propone (o, si la
+  // pide un administrador, nace confirmada y se carga sin pasar por el cliente).
+  const garantia = body.garantia
+    ? { motivo: String(body.garantia.motivo ?? ""), origenClave: typeof body.garantia.origenClave === "string" ? body.garantia.origenClave : null }
+    : null;
+  if (garantia) {
+    if (body.alternativaDe) return NextResponse.json({ success: false, error: "Una línea en garantía no va como alternativa." }, { status: 400 });
+    input.precioUnitario = 0;
+    input.garantia = true;
+  }
   const error = validarLinea(input);
   if (error) return NextResponse.json({ success: false, error }, { status: 400 });
 
@@ -139,6 +152,20 @@ export async function POST(request: Request, { params }: Params) {
       input.prioridad = normalizarPrioridad(base.prioridad);
     }
     const linea = await crearLinea(id, input, creadoPor, { grupoAlternativas });
+    if (garantia) {
+      try {
+        const r = await aplicarGarantiaALinea({
+          ordenId: id, lineaId: linea.id, accion: "proponer", motivo: garantia.motivo, origenClave: garantia.origenClave,
+          esAdmin: isAdministratorRole(session.user.rol),
+          usuario: { nombre: creadoPor, id: session.user.userId ?? null },
+        });
+        return NextResponse.json({ success: true, data: r.linea ?? linea, resultados: r.resultados ?? null }, { status: 201 });
+      } catch (e) {
+        // La línea quedó creada como propuesta normal ($0): se avisa para corregirla.
+        const msg = e instanceof ErrorGarantia ? e.message : "No se pudo marcar la garantía";
+        return NextResponse.json({ success: false, error: `Se agregó la línea, pero sin garantía: ${msg}` }, { status: 409 });
+      }
+    }
     return NextResponse.json({ success: true, data: linea }, { status: 201 });
   } catch (e) {
     console.error("[presupuesto POST]", e);

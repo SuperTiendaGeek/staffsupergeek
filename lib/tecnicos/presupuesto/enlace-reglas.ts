@@ -16,6 +16,7 @@
 // que ya tiene operación, queda "en proceso": para cambiarla debe hablar con
 // la tienda (el técnico usa las reversas de la tarjeta).
 
+import { ETIQUETA_GARANTIA, esGarantiaConfirmada, visibleParaCliente } from "@/lib/garantias/reglas";
 import type { FaltaConsentimiento } from "../carteles/reglas";
 import { fueQuitadaPorLaTienda, normalizarPrioridad, prioridadDeGrupo, type LineaPresupuesto, type Prioridad } from "./reglas";
 import { faltantesDeConsentimiento, type Aceptacion, type RequisitosConsentimiento } from "../carteles/reglas";
@@ -72,6 +73,8 @@ export type VistaLinea = {
   /** Lo que vio la última vez, si la línea cambió. */
   anterior: { descripcion: string; cantidad: number; precioUnitario: number } | null;
   nota: string;
+  /** Garantía SUPER GEEK confirmada (punto 20): informativa, $0, no se responde. */
+  garantia?: boolean;
 };
 
 export type LineaRetirada = { descripcion: string; cantidad: number; precioUnitario: number; subtotal: number };
@@ -111,7 +114,11 @@ export function clasificarLinea(l: LineaPresupuesto, visto: DetalleRespondido | 
   const conEfectos = !!(l.operacionId || l.cargoServicioId || l.cargoProductoDigitalId);
 
   let situacion: Situacion;
-  if (l.estado === "Propuesta") {
+  const garantia = esGarantiaConfirmada(l);
+  if (garantia && l.estado !== "Rechazada") {
+    // La decidió la tienda: el cliente la ve, pero no la aprueba ni la rechaza.
+    situacion = "en_proceso";
+  } else if (l.estado === "Propuesta") {
     situacion = !respuesta ? "nueva" : respondidaIgual ? "repropuesta" : "modificada";
   } else if (l.estado === "Cargada") {
     situacion = "en_proceso";
@@ -150,8 +157,10 @@ export function clasificarLinea(l: LineaPresupuesto, visto: DetalleRespondido | 
     puedeResponder: pendiente || situacion === "aprobada" || situacion === "no_aprobada",
     huella,
     anterior,
-    // Solo notas pensadas para el cliente: la anulación del taller.
-    nota: situacion === "anulada" ? "El taller anuló esta línea. Si tienes dudas, comunícate con nosotros." : "",
+    // Solo notas pensadas para el cliente: la anulación del taller y la garantía.
+    nota: situacion === "anulada" ? "El taller anuló esta línea. Si tienes dudas, comunícate con nosotros."
+      : garantia ? `${ETIQUETA_GARANTIA}: sin costo para ti.` : "",
+    ...(garantia ? { garantia: true } : {}),
   };
 }
 
@@ -159,7 +168,10 @@ export type GrupoVista = { id: string; prioridad: Prioridad; lineaIds: string[];
 /** `desde`: prioridades cuyo monto es "desde" (hay alternativas sin elegir). */
 export type TotalesPrioridad = Record<Prioridad, number> & { desde: Prioridad[] };
 
-export function construirVista(lineas: LineaPresupuesto[], respuestas: DetalleRespondido[][]) {
+export function construirVista(todasLasLineas: LineaPresupuesto[], respuestas: DetalleRespondido[][]) {
+  // Una garantía que solo propuso un técnico no la ve el cliente (punto 20):
+  // la confirma un administrador primero.
+  const lineas = todasLasLineas.filter(visibleParaCliente);
   const visto = ultimoVisto(respuestas);
   const vistas = lineas.map((l) => clasificarLinea(l, visto.get(l.id)));
 
@@ -184,7 +196,8 @@ export function construirVista(lineas: LineaPresupuesto[], respuestas: DetalleRe
     grupos.push({ id, prioridad, lineaIds: idx.map((i) => vistas[i].id), pendiente: idx.some((i) => vistas[i].pendiente), bloqueado });
   }
 
-  const actuales = new Set(lineas.map((l) => l.id));
+  // Las ocultas no cuentan como "retiradas": siguen en el presupuesto.
+  const actuales = new Set(todasLasLineas.map((l) => l.id));
   const retiradas: LineaRetirada[] = [...visto.values()]
     .filter((d) => !actuales.has(d.lineaId))
     .map((d) => ({ descripcion: d.descripcion, cantidad: d.cantidad, precioUnitario: d.precioUnitario, subtotal: r2(d.cantidad * d.precioUnitario) }));
