@@ -22,6 +22,7 @@ import type { CuentaUnificada } from "@/types/cuenta-unificada";
 import { METODOS_COBRO_NUEVO, esMetodoCobroNuevoValido, etiquetaMetodoPago, requiereNumeroTransaccion } from "@/types/abonos";
 import { METODO_SALDO_A_FAVOR, maximoUsable } from "@/lib/saldo-favor/reglas";
 import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
+import { EntregarClientePanel } from "@/components/tecnicos/ordenes/EntregarClientePanel";
 
 type HistorialItem = {
   id: string;
@@ -105,6 +106,8 @@ type ProductoDigitalItem = {
 };
 
 type OrdenDetalle = {
+  /** Entregar al cliente (punto 6). */
+  entrega?: { fecha: string; retiradoPor: string; motivoSinCobro: string } | null;
   recordId: string;
   idVisible: string;
   estadoActual: string;
@@ -670,6 +673,8 @@ export function OrdenDetalleClient() {
   const [inlineEditing, setInlineEditing] = useState(false);
   const [estadoSeleccionado, setEstadoSeleccionado] = useState<string>("");
   const [estadoSaving, setEstadoSaving] = useState(false);
+  // Entregar al cliente (auditoría ops, punto 6): el único camino a "Finalizado Entregado".
+  const [entregaAbierta, setEntregaAbierta] = useState(false);
   const [estadoMessage, setEstadoMessage] = useState<string | null>(null);
   const [estadoError, setEstadoError] = useState<string | null>(null);
   const [nuevoEstadoError, setNuevoEstadoError] = useState<string | null>(null);
@@ -1700,16 +1705,35 @@ export function OrdenDetalleClient() {
                       <StatusFilterDropdown
                         value={estadoSeleccionado}
                         onChange={(value) => handleEstadoChange(value as EstadoOrden)}
-                        options={ESTADOS_ORDEN.map((estado) => ({
-                          value: estado,
-                          label: estado,
-                        }))}
+                        options={ESTADOS_ORDEN
+                          // Punto 6: a "Finalizado Entregado" solo se llega con "Entregar al cliente".
+                          .filter((estado) => estado !== "Finalizado Entregado" || orden.estadoActual === "Finalizado Entregado")
+                          .map((estado) => ({
+                            value: estado,
+                            label: estado,
+                          }))}
                         label=""
                         className="text-left"
                         dropdownClassName="max-w-[280px]"
                         buttonClassName="!h-[28px] !rounded-full !px-3.5 !py-0 !text-xs !font-bold !uppercase !tracking-wide !text-[var(--sg-lime)] !shadow-none !border !border-[var(--sg-lime)]/30"
                       />
                     </div>
+                    {orden.estadoActual !== "Finalizado Entregado" && orden.estadoActual !== "Enviado a Reciclaje" ? (
+                      <button
+                        type="button"
+                        onClick={() => setEntregaAbierta(true)}
+                        disabled={estadoSaving}
+                        className="h-[28px] w-52 rounded-full bg-[var(--sg-lime)] px-3.5 text-xs font-bold uppercase tracking-wide text-[#1E1F1C] transition hover:brightness-95 disabled:opacity-50"
+                      >
+                        Entregar al cliente
+                      </button>
+                    ) : orden.estadoActual === "Finalizado Entregado" && orden.entrega?.motivoSinCobro ? (
+                      <div className="flex items-center gap-2 text-[11px] text-[var(--sg-text-muted)]">
+                        <span>Entrega sin cobro:</span>
+                        <a href={`/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/entrega/imprimir`} target="_blank" rel="noreferrer" className="font-semibold text-[var(--sg-lime)] hover:underline">Ticket</a>
+                        <a href={`/api/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/entrega/pdf`} target="_blank" rel="noreferrer" className="font-semibold text-[var(--sg-lime)] hover:underline">PDF</a>
+                      </div>
+                    ) : null}
                     {(estadoSaving || estadoMessage || estadoError) && (
                       <div className="min-h-4 text-[11px] text-[var(--sg-text-muted)]">
                         {estadoSaving && <span className="text-[var(--sg-lime)]">Guardando...</span>}
@@ -2142,6 +2166,7 @@ export function OrdenDetalleClient() {
 
             {/* Presupuesto: el único lugar para agregar, aprobar, quitar y modificar
                 cargos (fase 4: ya no hay tarjetas Repuestos/Servicios/Digitales). */}
+            <div id="orden-presupuesto" className="scroll-mt-4" />
             <PresupuestoCard
               ordenId={orden.recordId}
               refrescar={datosVersion}
@@ -2175,7 +2200,7 @@ export function OrdenDetalleClient() {
               />
             </div>
 
-            <section className="order-1 rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
+            <section id="orden-cuenta" className="order-1 scroll-mt-4 rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
               <p className="mb-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
                 <span>Resumen financiero</span>
                 {cuentaUnificadaLoading && <span className="normal-case tracking-normal font-normal">Actualizando…</span>}
@@ -2772,6 +2797,42 @@ export function OrdenDetalleClient() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {entregaAbierta && orden && (
+              <EntregarClientePanel
+                ordenId={orden.recordId}
+                onCerrar={() => setEntregaAbierta(false)}
+                onIrA={(donde) => {
+                  setEntregaAbierta(false);
+                  document.getElementById(donde === "presupuesto" ? "orden-presupuesto" : "orden-cuenta")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                onRegistrarPago={() => {
+                  setEntregaAbierta(false);
+                  setAbonoError(null);
+                  setAbonoMessage(null);
+                  const saldo = cuentaUnificada?.saldo ?? 0;
+                  if (saldo > 0) setAbonoMonto(saldo.toFixed(2));
+                  cargarSaldoAFavorCliente();
+                  setOpenAbonoModal(true);
+                }}
+                onEntregada={(r) => {
+                  setEntregaAbierta(false);
+                  const g = r.garantias;
+                  const partes = [
+                    g?.salidas?.length ? `salió por garantía: ${g.salidas.join(", ")}` : "",
+                    g?.reclamos?.length ? `pieza retirada al reclamo: ${g.reclamos.join(", ")}` : "",
+                  ].filter(Boolean);
+                  if (g?.avisos?.length) setEstadoError(g.avisos.join(" "));
+                  setEstadoMessage(partes.length ? `Entregado · ${partes.join(" · ")}` : "Entregado");
+                  setTimeout(() => setEstadoMessage(null), partes.length ? 4000 : 1800);
+                  // Se relee la orden: estado, historial y datos de la entrega.
+                  void fetchData({ showLoading: false, preserveError: true });
+                  if (r.comprobante === "sin-cobro") {
+                    window.open(`/tecnicos/ordenes/${encodeURIComponent(orden.recordId)}/entrega/imprimir`, "_blank", "noopener");
+                  }
+                }}
+              />
             )}
 
             {openAbonoModal && (
