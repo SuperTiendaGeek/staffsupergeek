@@ -20,6 +20,7 @@ import { useState } from "react";
 export type ProductoDigitalEntrega = {
   id: string;
   softwareProducto: string;
+  sku?: string | null;
   portalActivacionCatalogo: string | null;
   claveTruncada: string | null;
   duracion: string | null;
@@ -127,6 +128,7 @@ export function EntregaProductoDigital({
     <div className="mt-1.5 space-y-1.5 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-1.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--sg-text-muted)]">
         <span className="font-semibold uppercase tracking-wide text-[10px]">Entrega</span>
+        {producto.sku && <span className="font-mono text-[var(--sg-text-secondary)]">{producto.sku}</span>}
         {producto.duracion && <span>{perpetua ? "Licencia perpetua" : producto.duracion}</span>}
         {perpetua
           ? <span className="text-[var(--sg-success)]">No expira</span>

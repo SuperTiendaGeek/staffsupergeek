@@ -17,6 +17,7 @@ import {
   AirtableAttachment,
 } from "@/types/tecnicos";
 import { etiquetaAirtable, codigoDesdeAirtable } from "@/lib/facturacion/reglas/identificacion";
+import { credencialesDelTipo, nombreLimpio } from "@/lib/productos-digitales/reglas";
 
 // Attachment mínimo (id + url) usado para adjuntos simples de un campo.
 export interface AirtableSimpleAttachment {
@@ -231,6 +232,13 @@ export interface CatalogoProductoDigital {
 // nunca se incluyen aquí; se obtienen por un endpoint separado con sesión activa.
 export interface ProductoDigital {
   id: string;
+  /** DIG-000001 (punto 5A). Vacío solo si Airtable aún no calcula la fórmula. */
+  sku: string;
+  numero: number | null;
+  /** Código visible de la orden, nombre del cliente y documento de venta (lookups, punto 5A). */
+  ordenCodigo: string | null;
+  clienteNombre: string | null;
+  documentoVenta: string | null;
   catalogoId: string | null;
   softwareProducto: string;
   // Lookups del catálogo
@@ -3478,12 +3486,19 @@ const mapProductoDigitalRecord = (
   const ordenIds = toLinkedRecordIds(f["Orden de Reparación"]);
   const clienteIds = toLinkedRecordIds(f["Cliente"]);
   const catalogoIds = toLinkedRecordIds(f["Software / Producto"]);
-  const claveRaw = typeof f["Clave de Activación"] === "string" ? f["Clave de Activación"] : null;
+  const claveRaw = credencialesDelTipo(firstLookupStr(f["Tipo Producto"]), {
+    claveActivacion: typeof f["Clave de Activación"] === "string" ? f["Clave de Activación"] : null,
+  }).claveActivacion;
 
   return {
     id: record.id,
+    sku: safeString(f["SKU"], ""),
+    numero: typeof f["N° Digital"] === "number" ? (f["N° Digital"] as number) : null,
+    ordenCodigo: firstLookupStr(f["Orden (ID)"]),
+    clienteNombre: firstLookupStr(f["Cliente (Nombre)"]),
+    documentoVenta: firstLookupStr(f["Factura (Número)"]) || firstLookupStr(f["Recibo (Número)"]),
     catalogoId: catalogoIds[0] ?? null,
-    softwareProducto: safeString(f["Producto Digital"], "") || firstLookupStr(f["Nombre Producto"]) || "Sin nombre",
+    softwareProducto: nombreLimpio(safeString(f["Producto Digital"], "")) || firstLookupStr(f["Nombre Producto"]) || "Sin nombre",
     marcaProducto: firstLookupStr(f["Marca Producto"]),
     tipoProducto: firstLookupStr(f["Tipo Producto"]),
     logoProductoUrl: firstLookupAttachmentUrl(f["Logo Producto"]),
@@ -3580,21 +3595,10 @@ export const fetchAllProductosDigitales = async ({
   client?: AirtableClient;
 } = {}): Promise<ProductoDigital[]> => {
   const client = clientParam ?? getClient();
-  const url = new URL(
-    `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}`
-  );
-  if (estado) {
-    url.searchParams.set("filterByFormula", `{Estado}="${estado}"`);
-  }
-  url.searchParams.set("maxRecords", "500");
-  url.searchParams.set("sort[0][field]", "Software / Producto");
-  url.searchParams.set("sort[0][direction]", "asc");
-
-  const res = await fetch(url.toString(), { headers: client.headers, cache: "no-store" });
-  if (!res.ok) throw new Error(`Airtable error ${res.status}`);
-  const data = (await res.json()) as { records: { id: string; fields: Record<string, unknown> }[] };
-
-  let results = data.records.map(mapProductoDigitalRecord);
+  // Punto 5A: todas las páginas (antes se leía una sola: máximo 100 unidades).
+  let results = (await fetchAllTableRecords({ tableName: AIRTABLE_TABLES.productosDigitales, client }))
+    .map(mapProductoDigitalRecord)
+    .filter((p) => !estado || p.estado === estado);
 
   if (query && query.trim()) {
     const q = query.trim().toLowerCase();
@@ -3680,11 +3684,14 @@ export const fetchCredencialesProductoDigital = async (
   if (!res.ok) return null;
   const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
   const f = data.fields ?? {};
-  return {
+  // Punto 5A: solo las credenciales del tipo del producto (una clave de más
+  // —p. ej. autocompletada por el navegador— no se muestra ni se entrega).
+  const c = credencialesDelTipo(firstLookupStr(f["Tipo Producto"]), {
     claveActivacion: typeof f["Clave de Activación"] === "string" ? f["Clave de Activación"] : null,
     usuarioCorreo: typeof f["Usuario / Correo"] === "string" ? f["Usuario / Correo"] : null,
-    contraseña: typeof f["Contraseña"] === "string" ? f["Contraseña"] : null,
-  };
+    contrasena: typeof f["Contraseña"] === "string" ? f["Contraseña"] : null,
+  });
+  return { claveActivacion: c.claveActivacion, usuarioCorreo: c.usuarioCorreo, contraseña: c.contrasena };
 };
 
 export const asignarProductoDigitalAOrden = async ({
@@ -3810,11 +3817,13 @@ export const fetchProductoDigitalConCredenciales = async (
   const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
   const base = mapProductoDigitalRecord(data);
   const f = data.fields ?? {};
-  return {
-    ...base,
+  // Punto 5A: el PDF lleva solo las credenciales del tipo del producto.
+  const c = credencialesDelTipo(base.tipoProducto, {
     claveActivacion: typeof f["Clave de Activación"] === "string" ? f["Clave de Activación"] : null,
+    usuarioCorreo: base.usuarioCorreo,
     contrasena: typeof f["Contraseña"] === "string" ? f["Contraseña"] : null,
-  };
+  });
+  return { ...base, usuarioCorreo: c.usuarioCorreo, claveActivacion: c.claveActivacion, contrasena: c.contrasena };
 };
 
 export const saveProductoDigitalPdf = async ({

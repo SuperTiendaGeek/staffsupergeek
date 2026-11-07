@@ -29,6 +29,8 @@ Font.registerHyphenationCallback((word) => [word]);
 // ─── Interface ────────────────────────────────────────────────────────────────
 export interface PDFProductoData {
   softwareProducto: string;
+  /** DIG-000001 (punto 5A). */
+  sku?: string | null;
   marcaProducto: string | null;
   tipoProducto: string | null;
   logoProductoUrl: string | null;
@@ -424,6 +426,7 @@ const Hero = ({ data, logoSrc }: D & { logoSrc: string | null }) => {
       <View style={S.hero}>
         <View style={S.heroLeft}>
           <Text style={S.productName}>{clean(data.softwareProducto)}</Text>
+          {data.sku ? <Text style={S.badgeText}>{clean(data.sku)}</Text> : null}
           {badges.length > 0 && (
             <View style={S.badgesRow}>
               {badges.map((b, i) => (

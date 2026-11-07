@@ -1,13 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import styles from "@/components/tecnicos/layout/TecnicosTheme.module.css";
+import {
+  camposDeCredenciales, contarPorEstado, filtrarFilas, ordenarFilas,
+  type ColumnaOrden, type FilaDigital,
+} from "@/lib/productos-digitales/reglas";
+
+// Pantalla rediseñada en el punto 5A (7-nov-2026): tabla compacta con SKU,
+// orden y cliente visibles, filtros con conteo, orden por columna (lo más
+// reciente primero) y un panel lateral con el detalle, las credenciales
+// (ocultas) y el PDF. Las credenciales nunca usan campos de contraseña del
+// navegador: el gestor de contraseñas los autocompletaba ("Elfina.8990").
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 type ProductoDigital = {
   id: string;
+  sku: string;
+  numero: number | null;
+  ordenCodigo: string | null;
+  clienteNombre: string | null;
+  documentoVenta: string | null;
   catalogoId: string | null;
   softwareProducto: string;
   marcaProducto: string | null;
@@ -126,28 +141,46 @@ const formatCurrency = (value: number | null) => {
   }).format(value);
 };
 
-const formatDate = (value: string | null | undefined) => {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("es-CO", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-};
 
 const parseNum = (v: string): number | null => {
   const n = parseFloat(v.replace(",", "."));
   return Number.isFinite(n) ? n : null;
 };
 
-// Campos de credenciales visibles según tipo del catálogo
-const showClaveField = (tipo: string) =>
-  !tipo || tipo === "Clave de activación" || tipo === "Otro";
+const aFila = (p: ProductoDigital): FilaDigital => ({
+  id: p.id,
+  sku: p.sku,
+  numero: p.numero,
+  producto: p.softwareProducto,
+  estado: p.estado,
+  ordenCodigo: p.ordenCodigo ?? "",
+  clienteNombre: p.clienteNombre ?? "",
+  documento: p.documentoVenta ?? "",
+  proveedor: p.proveedor ?? "",
+  usuarioCorreo: p.usuarioCorreo ?? "",
+  fechaCompra: p.fechaCompra ?? "",
+  fechaUso: p.fechaUsoVenta ?? "",
+  precio: p.precioVenta,
+});
 
-const showUsuarioContraseñaFields = (tipo: string) =>
-  !tipo || tipo === "Usuario/Contraseña" || tipo === "Suscripción" || tipo === "Otro";
+const fechaCorta = (value: string | null | undefined) => {
+  if (!value) return "—";
+  const t = Date.parse(value);
+  return Number.isFinite(t)
+    ? new Intl.DateTimeFormat("es-EC", { day: "2-digit", month: "short", year: "2-digit", timeZone: "UTC" }).format(new Date(t))
+    : value;
+};
+
+const COLUMNAS: { col: ColumnaOrden; label: string; className?: string }[] = [
+  { col: "sku", label: "SKU" },
+  { col: "producto", label: "Producto" },
+  { col: "estado", label: "Estado" },
+  { col: "orden", label: "Orden" },
+  { col: "cliente", label: "Cliente" },
+  { col: "compra", label: "Compra" },
+  { col: "uso", label: "Uso / venta" },
+  { col: "precio", label: "Precio", className: "text-right" },
+];
 
 // ─── Component ────────────────────────────────────────────────────────────
 
@@ -269,10 +302,8 @@ export function ProductosDigitalesClient() {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams();
-      if (estadoFiltro) params.set("estado", estadoFiltro);
-      if (debouncedSearch) params.set("q", debouncedSearch);
-      const res = await fetch(`/api/tecnicos/productos-digitales?${params.toString()}`);
+      // Se traen todas (son pocas): filtros, búsqueda y orden se hacen aquí, al instante.
+      const res = await fetch(`/api/tecnicos/productos-digitales`, { cache: "no-store" });
       const json = await res.json();
       if (!json.success) throw new Error(json.error ?? "Error al cargar");
       setProductos(json.data ?? []);
@@ -286,7 +317,20 @@ export function ProductosDigitalesClient() {
   useEffect(() => {
     void fetchProductos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estadoFiltro, debouncedSearch]);
+  }, []);
+
+  // Tabla: orden por columna (por defecto lo más reciente primero) y panel lateral.
+  const [orden, setOrden] = useState<{ col: ColumnaOrden; dir: "asc" | "desc" }>({ col: "sku", dir: "desc" });
+  const [seleccionId, setSeleccionId] = useState<string | null>(null);
+  const filas = useMemo(() => productos.map(aFila), [productos]);
+  const conteo = useMemo(() => contarPorEstado(filas), [filas]);
+  const visibles = useMemo(
+    () => ordenarFilas(filtrarFilas(filas, estadoFiltro, debouncedSearch), orden.col, orden.dir),
+    [filas, estadoFiltro, debouncedSearch, orden],
+  );
+  const seleccion = productos.find((p) => p.id === seleccionId) ?? null;
+  const ordenarPor = (col: ColumnaOrden) =>
+    setOrden((o) => (o.col === col ? { col, dir: o.dir === "asc" ? "desc" : "asc" } : { col, dir: col === "producto" || col === "cliente" || col === "orden" || col === "estado" ? "asc" : "desc" }));
 
   const handleVerCredenciales = async (id: string) => {
     if (credVisible[id]) {
@@ -408,12 +452,7 @@ export function ProductosDigitalesClient() {
     <div className={`${styles.theme} w-full space-y-4`}>
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-bold text-[var(--sg-text-primary)]">Productos Digitales</h1>
-          <p className="text-xs text-[var(--sg-text-muted)]">
-            Licencias, claves y activos digitales del inventario
-          </p>
-        </div>
+        <h1 className="text-lg font-bold text-[var(--sg-text-primary)]">Productos Digitales</h1>
         <button
           type="button"
           onClick={() => { setForm(EMPTY_FORM); setCreateError(null); setShowClave(false); setShowContraseña(false); setPrecioDesdeCatalogo(false); setProveedorSearch(""); setShowCreateModal(true); }}
@@ -423,312 +462,194 @@ export function ProductosDigitalesClient() {
         </button>
       </div>
 
-      {/* Filter pills */}
-      <div className="flex flex-wrap gap-1.5">
-        {FILTER_TABS.map((tab) => (
-          <button
-            key={tab.value}
-            type="button"
-            onClick={() => setEstadoFiltro(tab.value)}
-            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-              estadoFiltro === tab.value
-                ? "border-[var(--sg-lime)] bg-[var(--sg-lime-soft)] text-[var(--sg-lime)]"
-                : "border-[var(--sg-border)] bg-[var(--sg-panel)] text-[var(--sg-text-secondary)] hover:border-[var(--sg-lime)]/40 hover:text-[var(--sg-text-primary)]"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Search */}
-      <div className="relative">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--sg-text-muted)]"
-        >
-          <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
-        </svg>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por producto, tipo, proveedor, estado..."
-          className="w-full rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] py-2.5 pl-10 pr-4 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)]/60 focus:border-[var(--sg-lime)]/50 focus:outline-none"
-        />
-      </div>
-
-      {/* Content */}
-      {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <span className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--sg-lime)] border-t-transparent" />
-        </div>
-      ) : error ? (
-        <p className="rounded-xl border border-[var(--sg-danger)]/40 bg-[var(--sg-danger-soft)] px-4 py-3 text-sm text-[var(--sg-danger)]">
-          {error}
-        </p>
-      ) : productos.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-[var(--sg-border)] bg-[var(--sg-card)] py-16 text-center">
-          <p className="text-sm text-[var(--sg-text-secondary)]">
-            {debouncedSearch || estadoFiltro
-              ? "No hay productos que coincidan con el filtro."
-              : "No hay productos digitales registrados."}
-          </p>
-          {!debouncedSearch && !estadoFiltro && (
+      {/* Filtros con conteo + búsqueda */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1">
+          {FILTER_TABS.map((tab) => (
             <button
+              key={tab.value}
               type="button"
-              onClick={() => { setForm(EMPTY_FORM); setCreateError(null); setShowClave(false); setShowContraseña(false); setPrecioDesdeCatalogo(false); setProveedorSearch(""); setShowCreateModal(true); }}
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--sg-lime)]/50 px-3 py-1 text-xs font-semibold text-[var(--sg-lime)] transition hover:bg-[var(--sg-lime-soft)]"
+              onClick={() => setEstadoFiltro(tab.value)}
+              className={`h-7 rounded-full border px-3 text-xs font-semibold transition ${
+                estadoFiltro === tab.value
+                  ? "border-[var(--sg-lime)] bg-[var(--sg-lime-soft)] text-[var(--sg-lime)]"
+                  : "border-[var(--sg-border)] bg-[var(--sg-panel)] text-[var(--sg-text-secondary)] hover:border-[var(--sg-lime)]/40 hover:text-[var(--sg-text-primary)]"
+              }`}
             >
-              + Crear el primero
+              {tab.label} <span className="opacity-60">{conteo[tab.value] ?? 0}</span>
             </button>
-          )}
+          ))}
         </div>
-      ) : (
-        <div className="space-y-2">
-          <p className="text-[11px] text-[var(--sg-text-muted)]">
-            {productos.length} producto{productos.length !== 1 ? "s" : ""}
-          </p>
-          {productos.map((pd) => {
-            const cred = credData[pd.id];
-            const isCredVisible = credVisible[pd.id] ?? false;
-            const isCredLoading = credLoading[pd.id] ?? false;
-            const credErr = credError[pd.id];
+        <div className="relative ml-auto w-full sm:w-72">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--sg-text-muted)]">
+            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="SKU, orden, cliente, correo…"
+            autoComplete="off"
+            className="h-8 w-full rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] pl-8 pr-3 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)]/60 focus:border-[var(--sg-lime)]/60 focus:outline-none"
+          />
+        </div>
+      </div>
 
-            return (
-              <div
-                key={pd.id}
-                className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)] transition hover:border-[var(--sg-border)]/80"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  {/* Left: info */}
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-bold text-[var(--sg-text-primary)]">{pd.softwareProducto}</p>
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${estadoBadge(pd.estado)}`}>
-                        {pd.estado}
-                      </span>
-                      {pd.marcaProducto && (
-                        <span className="inline-flex items-center rounded-full border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-0.5 text-[10px] font-medium text-[var(--sg-text-muted)]">
-                          {pd.marcaProducto}
-                        </span>
-                      )}
-                      {pd.tipoProducto && (
-                        <span className="inline-flex items-center rounded-full border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 py-0.5 text-[10px] font-medium text-[var(--sg-text-muted)]">
-                          {pd.tipoProducto}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--sg-text-muted)]">
-                      {pd.duracion && (
-                        <span>
-                          {pd.duracion === "Perpetua" ? "Licencia perpetua" : pd.duracion}
-                        </span>
-                      )}
-                      {pd.duracion !== "Perpetua" && pd.expira && (
-                        <span className="text-[var(--sg-warning)]">
-                          Expira: {formatDate(pd.expira)}
-                        </span>
-                      )}
-                      {pd.duracion === "Perpetua" && (
-                        <span className="text-[var(--sg-success)]">No expira</span>
-                      )}
-                      {pd.proveedor && <span>Prov: {pd.proveedor}</span>}
-                      {pd.claveTruncada && (
-                        <span className="font-mono text-[var(--sg-text-secondary)]">{pd.claveTruncada}</span>
-                      )}
-                    </div>
-                    {pd.portalActivacionCatalogo && (
-                      <a
-                        href={pd.portalActivacionCatalogo}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-[var(--sg-lime)] underline underline-offset-2 transition hover:brightness-110"
-                      >
-                        <ExternalLinkIcon />
-                        {pd.portalActivacionCatalogo.replace(/^https?:\/\//i, "").slice(0, 50)}{pd.portalActivacionCatalogo.length > 57 ? "…" : ""}
-                      </a>
-                    )}
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--sg-text-muted)]">
-                      {pd.precioVenta !== null && (
-                        <span>
-                          Precio: <span className="font-semibold text-[var(--sg-lime)]">{formatCurrency(pd.precioVenta)}</span>
-                        </span>
-                      )}
-                      {pd.costoProveedor !== null && (
-                        <span>Costo: {formatCurrency(pd.costoProveedor)}</span>
-                      )}
-                      {pd.fechaCompra && <span>Compra: {formatDate(pd.fechaCompra)}</span>}
-                      {pd.fechaUsoVenta && <span>Uso/Venta: {formatDate(pd.fechaUsoVenta)}</span>}
-                    </div>
-                    {pd.ordenReparacionId && (
-                      <div className="flex items-center gap-1.5 text-xs">
-                        <span className="text-[var(--sg-text-muted)]">Orden vinculada:</span>
-                        <Link
-                          href={`/tecnicos/ordenes/${encodeURIComponent(pd.ordenReparacionId)}`}
-                          className="font-semibold text-[var(--sg-lime)] underline underline-offset-2 transition hover:brightness-110"
-                        >
-                          Ver orden
-                        </Link>
-                        {pd.usadoVendidoPor && (
-                          <span className="text-[var(--sg-text-muted)]">por {pd.usadoVendidoPor}</span>
-                        )}
-                      </div>
-                    )}
+      {error && (
+        <p className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/40 bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-danger)]">{error}</p>
+      )}
+
+      {/* Tabla */}
+      <div className="overflow-x-auto rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)]">
+        <table className="w-full min-w-[880px] text-sm">
+          <thead>
+            <tr className="border-b border-[var(--sg-border)] bg-[var(--sg-panel)] text-[10px] uppercase tracking-wider text-[var(--sg-text-muted)]">
+              {COLUMNAS.map((c) => (
+                <th key={c.col} className={`px-3 py-2 ${c.className ?? "text-left"}`}>
+                  <button type="button" onClick={() => ordenarPor(c.col)} className={`inline-flex items-center gap-1 uppercase tracking-wider transition hover:text-[var(--sg-text-primary)] ${orden.col === c.col ? "text-[var(--sg-lime)]" : ""}`}>
+                    {c.label}
+                    <span className={`text-[9px] transition ${orden.col === c.col ? "opacity-100" : "opacity-0"}`}>{orden.dir === "asc" ? "▲" : "▼"}</span>
+                  </button>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--sg-divider)]">
+            {loading && (
+              <tr><td colSpan={COLUMNAS.length} className="px-3 py-8 text-center text-[var(--sg-text-muted)]">Cargando…</td></tr>
+            )}
+            {!loading && visibles.length === 0 && (
+              <tr><td colSpan={COLUMNAS.length} className="px-3 py-8 text-center text-[var(--sg-text-muted)]">{debouncedSearch || estadoFiltro ? "Nada coincide con el filtro." : "No hay productos digitales."}</td></tr>
+            )}
+            {!loading && visibles.map((f) => {
+              const pd = productos.find((p) => p.id === f.id)!;
+              return (
+                <tr
+                  key={f.id}
+                  onClick={() => setSeleccionId(f.id)}
+                  className={`cursor-pointer animate-[sg-entrada_180ms_ease-out] transition hover:bg-[var(--sg-panel)] ${seleccionId === f.id ? "bg-[var(--sg-lime-soft)]" : ""}`}
+                >
+                  <td className="whitespace-nowrap px-3 py-1.5 font-mono text-xs text-[var(--sg-text-secondary)]">{f.sku || "—"}</td>
+                  <td className="px-3 py-1.5">
+                    <span className="block max-w-[260px] truncate font-semibold text-[var(--sg-text-primary)]" title={f.producto}>{f.producto}</span>
+                    {pd.usuarioCorreo && <span className="block max-w-[260px] truncate font-mono text-[11px] text-[var(--sg-text-muted)]">{pd.usuarioCorreo}</span>}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${estadoBadge(f.estado)}`}>{f.estado}</span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-1.5">
+                    {pd.ordenReparacionId ? (
+                      <Link href={`/tecnicos/ordenes/${encodeURIComponent(pd.ordenReparacionId)}`} onClick={(e) => e.stopPropagation()} className="font-semibold text-[var(--sg-lime)] hover:underline">
+                        {f.ordenCodigo || "Ver orden"}
+                      </Link>
+                    ) : <span className="text-[var(--sg-text-muted)]">{f.documento ? "Mostrador" : "—"}</span>}
+                    {f.documento && <span className="block font-mono text-[10px] text-[var(--sg-text-muted)]">{f.documento}</span>}
+                  </td>
+                  <td className="max-w-[180px] truncate px-3 py-1.5 text-[var(--sg-text-secondary)]" title={f.clienteNombre}>{f.clienteNombre || "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-[var(--sg-text-secondary)]">{fechaCorta(f.fechaCompra)}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-[var(--sg-text-secondary)]">{fechaCorta(f.fechaUso)}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-[var(--sg-text-primary)]">{formatCurrency(f.precio)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {!loading && <p className="text-[11px] text-[var(--sg-text-muted)]">{visibles.length} de {productos.length}</p>}
+
+      {/* ─── Panel lateral: detalle, credenciales y PDF ───────────────── */}
+      {seleccion && (() => {
+        const pd = seleccion;
+        const cred = credData[pd.id];
+        const isCredVisible = credVisible[pd.id] ?? false;
+        const isCredLoading = credLoading[pd.id] ?? false;
+        const isPdfLoading = pdfLoading[pd.id] ?? false;
+        const isDeleteLoading = pdfDeleteLoading[pd.id] ?? false;
+        const hasPdf = Boolean(pd.documentoPdfUrl);
+        const normalizedRol = userRol.normalize("NFC").trim().toLowerCase();
+        const isAdmin = normalizedRol === "admin" || normalizedRol === "administrador";
+        const campos = camposDeCredenciales(pd.tipoProducto);
+        const dato = (label: string, valor: ReactNode) => (
+          <div className="flex justify-between gap-3 py-1 text-xs">
+            <span className="text-[var(--sg-text-muted)]">{label}</span>
+            <span className="text-right text-[var(--sg-text-primary)]">{valor}</span>
+          </div>
+        );
+        return (
+          <div className="fixed inset-0 z-40 flex justify-end bg-black/50 animate-[sg-velo_160ms_ease-out]" onClick={() => setSeleccionId(null)}>
+            <aside className="h-full w-full max-w-md overflow-y-auto border-l border-[var(--sg-border)] bg-[var(--sg-card)] p-4 shadow-2xl animate-[sg-panel_220ms_ease-out]" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-mono text-xs text-[var(--sg-text-muted)]">{pd.sku}</p>
+                  <h2 className="text-sm font-bold text-[var(--sg-text-primary)]">{pd.softwareProducto}</h2>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${estadoBadge(pd.estado)}`}>{pd.estado}</span>
+                    {pd.tipoProducto && <span className="inline-flex rounded-full border border-[var(--sg-border)] px-2 py-0.5 text-[10px] text-[var(--sg-text-muted)]">{pd.tipoProducto}</span>}
                   </div>
+                </div>
+                <button type="button" onClick={() => setSeleccionId(null)} className="text-[var(--sg-text-muted)] transition hover:text-[var(--sg-text-primary)]" aria-label="Cerrar"><CloseIcon /></button>
+              </div>
 
-                  {/* Right: actions */}
-                  {/* PDF actions */}
-                  {(() => {
-                    const isPdfLoading = pdfLoading[pd.id] ?? false;
-                    const isDeleteLoading = pdfDeleteLoading[pd.id] ?? false;
-                    const hasPdf = Boolean(pd.documentoPdfUrl);
-                    const normalizedRol = userRol.normalize("NFC").trim().toLowerCase();
-                    const isAdmin = normalizedRol === "admin" || normalizedRol === "administrador";
-                    const isConfirmingDelete = pdfDeleteConfirmId === pd.id;
-                    return (
-                      <div className="flex shrink-0 items-center gap-1">
-                        {!hasPdf ? (
-                          <button
-                            type="button"
-                            onClick={() => void handlePdfAction(pd.id, "POST", pd.softwareProducto)}
-                            disabled={isPdfLoading}
-                            title="Generar PDF del producto"
-                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-2 text-[10px] font-semibold text-[var(--sg-text-muted)] transition hover:border-[var(--sg-lime)]/60 hover:text-[var(--sg-lime)] disabled:opacity-50"
-                          >
-                            {isPdfLoading ? (
-                              <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                            ) : (
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                            )}
-                            Generar PDF
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => void handlePdfAction(pd.id, "GET", pd.softwareProducto)}
-                              disabled={isPdfLoading || isDeleteLoading}
-                              title={`Descargar PDF${pd.fechaUltimoPdf ? ` (${formatDate(pd.fechaUltimoPdf)})` : ""}`}
-                              className="inline-flex h-8 items-center gap-1 rounded-lg border border-[var(--sg-lime)]/40 bg-[var(--sg-lime-soft)] px-2 text-[10px] font-semibold text-[var(--sg-lime)] transition hover:brightness-110 disabled:opacity-50"
-                            >
-                              {isPdfLoading ? (
-                                <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                              ) : (
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                              )}
-                              Descargar PDF
-                            </button>
-                            {isAdmin && (
-                              <button
-                                type="button"
-                                onClick={() => setPdfDeleteConfirmId(isConfirmingDelete ? null : pd.id)}
-                                disabled={isPdfLoading || isDeleteLoading}
-                                title="Eliminar PDF generado"
-                                className="inline-flex h-8 items-center gap-1 rounded-lg border border-[var(--sg-danger)]/40 bg-[var(--sg-danger-soft)] px-2 text-[10px] font-semibold text-[var(--sg-danger)] transition hover:brightness-110 disabled:opacity-50"
-                              >
-                                {isDeleteLoading ? (
-                                  <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                                ) : (
-                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5 shrink-0"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-                                )}
-                                Eliminar PDF
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  <button
-                    type="button"
-                    onClick={() => void handleVerCredenciales(pd.id)}
-                    disabled={isCredLoading}
-                    title={isCredVisible ? "Ocultar credenciales" : "Ver credenciales completas"}
-                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] text-[var(--sg-text-muted)] transition hover:border-[var(--sg-lime)]/50 hover:text-[var(--sg-lime)] disabled:opacity-50"
-                  >
-                    {isCredLoading ? (
-                      <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
-                    ) : isCredVisible ? (
-                      <EyeOffIcon />
-                    ) : (
-                      <EyeIcon />
-                    )}
+              {/* Credenciales: ocultas hasta pedirlas */}
+              <div className="mb-3 rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] p-3">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Credenciales</span>
+                  <button type="button" onClick={() => void handleVerCredenciales(pd.id)} disabled={isCredLoading} className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--sg-lime)] hover:brightness-110 disabled:opacity-50">
+                    {isCredLoading ? "…" : isCredVisible ? <><EyeOffIcon /> Ocultar</> : <><EyeIcon /> Mostrar</>}
                   </button>
                 </div>
-
-                {/* Credentials panel */}
-                {isCredVisible && cred && (
-                  <div className="mt-3 space-y-1 rounded-lg border border-[var(--sg-lime)]/20 bg-[var(--sg-lime)]/5 px-3 py-2.5 text-xs">
-                    {cred.claveActivacion && (
-                      <div className="flex items-center gap-2">
-                        <span className="w-24 shrink-0 text-[var(--sg-text-muted)]">Clave:</span>
-                        <span className="break-all font-mono font-semibold text-[var(--sg-lime)]">{cred.claveActivacion}</span>
-                      </div>
-                    )}
-                    {cred.usuarioCorreo && (
-                      <div className="flex items-center gap-2">
-                        <span className="w-24 shrink-0 text-[var(--sg-text-muted)]">Usuario:</span>
-                        <span className="font-mono text-[var(--sg-text-primary)]">{cred.usuarioCorreo}</span>
-                      </div>
-                    )}
-                    {cred.contraseña && (
-                      <div className="flex items-center gap-2">
-                        <span className="w-24 shrink-0 text-[var(--sg-text-muted)]">Contraseña:</span>
-                        <span className="font-mono text-[var(--sg-text-primary)]">{cred.contraseña}</span>
-                      </div>
-                    )}
-                    {!cred.claveActivacion && !cred.usuarioCorreo && !cred.contraseña && (
-                      <p className="text-[var(--sg-text-muted)]">Sin credenciales registradas.</p>
-                    )}
-                  </div>
-                )}
-                {credErr && (
-                  <p className="mt-1.5 text-xs text-[var(--sg-danger)]">{credErr}</p>
-                )}
-                {pdfError[pd.id] && (
-                  <p className="mt-1.5 text-xs text-[var(--sg-danger)]">{pdfError[pd.id]}</p>
-                )}
-                {pd.fechaUltimoPdf && (
-                  <p className="mt-1.5 text-xs text-[var(--sg-text-muted)]">
-                    PDF generado: {formatDate(pd.fechaUltimoPdf)}{pd.documentoGeneradoPor ? ` por ${pd.documentoGeneradoPor}` : ""}
-                  </p>
-                )}
-                {pdfDeleteConfirmId === pd.id && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--sg-danger)]/30 bg-[var(--sg-danger-soft)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
-                    <span>¿Seguro que deseas eliminar el PDF generado? Podrás generarlo nuevamente después.</span>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeletePdf(pd.id)}
-                      disabled={pdfDeleteLoading[pd.id] ?? false}
-                      className="rounded-full border border-[var(--sg-danger)] px-3 py-0.5 text-[11px] font-semibold text-[var(--sg-danger)] transition hover:bg-[var(--sg-danger)] hover:text-white disabled:opacity-60"
-                    >
-                      {pdfDeleteLoading[pd.id] ? "Eliminando..." : "Eliminar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPdfDeleteConfirmId(null)}
-                      className="rounded-full border border-[var(--sg-border)] px-3 py-0.5 text-[11px] text-[var(--sg-text-muted)] transition hover:border-[var(--sg-text-muted)]"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                )}
-
-                {/* Observaciones */}
-                {pd.observacionesInternas && (
-                  <p className="mt-2 text-xs text-[var(--sg-text-muted)]">
-                    Obs: {pd.observacionesInternas}
-                  </p>
-                )}
+                {campos.clave && <FilaSecreta label="Clave" valor={isCredVisible ? cred?.claveActivacion ?? null : null} oculto={!isCredVisible} pista={pd.claveTruncada} />}
+                {campos.usuario && <FilaSecreta label="Usuario" valor={pd.usuarioCorreo} oculto={false} />}
+                {campos.usuario && <FilaSecreta label="Contraseña" valor={isCredVisible ? cred?.contraseña ?? null : null} oculto={!isCredVisible} />}
+                {credError[pd.id] && <p className="mt-1 text-xs text-[var(--sg-danger)]">{credError[pd.id]}</p>}
               </div>
-            );
-          })}
-        </div>
-      )}
+
+              {/* PDF */}
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                {!hasPdf ? (
+                  <button type="button" onClick={() => void handlePdfAction(pd.id, "POST", pd.softwareProducto)} disabled={isPdfLoading} className="h-7 rounded-full border border-[var(--sg-lime)]/50 px-3 text-xs font-semibold text-[var(--sg-lime)] transition hover:bg-[var(--sg-lime-soft)] disabled:opacity-50">
+                    {isPdfLoading ? "Generando…" : "Generar PDF"}
+                  </button>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => void handlePdfAction(pd.id, "GET", pd.softwareProducto)} disabled={isPdfLoading || isDeleteLoading} className="h-7 rounded-full border border-[var(--sg-lime)]/50 bg-[var(--sg-lime-soft)] px-3 text-xs font-semibold text-[var(--sg-lime)] transition hover:brightness-110 disabled:opacity-50">
+                      {isPdfLoading ? "…" : "Descargar PDF"}
+                    </button>
+                    {isAdmin && (
+                      <button type="button" onClick={() => setPdfDeleteConfirmId(pdfDeleteConfirmId === pd.id ? null : pd.id)} disabled={isPdfLoading || isDeleteLoading} className="h-7 rounded-full border border-[var(--sg-danger)]/40 px-3 text-xs font-semibold text-[var(--sg-danger)] transition hover:bg-[var(--sg-danger-soft)] disabled:opacity-50">
+                        Eliminar PDF
+                      </button>
+                    )}
+                  </>
+                )}
+                {pd.fechaUltimoPdf && <span className="text-[11px] text-[var(--sg-text-muted)]">{fechaCorta(pd.fechaUltimoPdf)}{pd.documentoGeneradoPor ? ` · ${pd.documentoGeneradoPor}` : ""}</span>}
+              </div>
+              {pdfDeleteConfirmId === pd.id && (
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/30 bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-text-secondary)] animate-[sg-entrada_180ms_ease-out]">
+                  <span>¿Eliminar el PDF? Se puede volver a generar.</span>
+                  <button type="button" onClick={() => void handleDeletePdf(pd.id)} disabled={isDeleteLoading} className="rounded-full border border-[var(--sg-danger)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--sg-danger)] hover:bg-[var(--sg-danger)] hover:text-white disabled:opacity-60">{isDeleteLoading ? "…" : "Eliminar"}</button>
+                  <button type="button" onClick={() => setPdfDeleteConfirmId(null)} className="text-[11px] text-[var(--sg-text-muted)]">Cancelar</button>
+                </div>
+              )}
+              {pdfError[pd.id] && <p className="mb-3 text-xs text-[var(--sg-danger)]">{pdfError[pd.id]}</p>}
+
+              {/* Detalle */}
+              <div className="divide-y divide-[var(--sg-divider)]">
+                {dato("Orden", pd.ordenReparacionId ? <Link href={`/tecnicos/ordenes/${encodeURIComponent(pd.ordenReparacionId)}`} className="font-semibold text-[var(--sg-lime)] hover:underline">{pd.ordenCodigo || "Ver orden"}</Link> : "—")}
+                {dato("Cliente", pd.clienteNombre || "—")}
+                {dato("Documento", pd.documentoVenta || "—")}
+                {dato("Vendido por", pd.usadoVendidoPor || "—")}
+                {dato("Proveedor", pd.proveedor || "—")}
+                {dato("Costo · precio", `${formatCurrency(pd.costoProveedor)} · ${formatCurrency(pd.precioVenta)}`)}
+                {dato("Compra · uso", `${fechaCorta(pd.fechaCompra)} · ${fechaCorta(pd.fechaUsoVenta)}`)}
+                {dato("Duración", pd.duracion === "Perpetua" ? "Perpetua" : pd.duracion ? `${pd.duracion}${pd.expira ? ` · vence ${fechaCorta(pd.expira)}` : ""}` : "—")}
+                {pd.portalActivacionCatalogo && dato("Portal", <a href={pd.portalActivacionCatalogo} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[var(--sg-lime)] hover:underline"><ExternalLinkIcon />{pd.portalActivacionCatalogo.replace(/^https?:\/\//i, "").slice(0, 32)}</a>)}
+              </div>
+              {pd.observacionesInternas && <p className="mt-3 whitespace-pre-wrap text-[11px] leading-snug text-[var(--sg-text-muted)]">{pd.observacionesInternas}</p>}
+            </aside>
+          </div>
+        );
+      })()}
 
       {/* ─── Create modal ───────────────────────────────────────────────── */}
       {showCreateModal && (
@@ -974,59 +895,39 @@ export function ProductosDigitalesClient() {
                   )}
                 </div>
 
-                {showClaveField(form.catalogoTipo) && (
-                  <div>
-                    <label className={labelClass}>Clave de activación</label>
-                    <div className="relative">
-                      <input
-                        type={showClave ? "text" : "password"}
-                        value={form.claveActivacion}
-                        onChange={(e) => setForm((f) => ({ ...f, claveActivacion: e.target.value }))}
-                        placeholder="Clave, serial o código"
-                        className={`${inputClass} pr-9`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowClave((v) => !v)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]"
-                      >
-                        {showClave ? <EyeOffIcon /> : <EyeIcon />}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {showUsuarioContraseñaFields(form.catalogoTipo) && (
+                {!form.catalogoId ? (
+                  <p className="text-xs text-[var(--sg-text-muted)]">Elige el producto del catálogo.</p>
+                ) : (
                   <>
-                    <div>
-                      <label className={labelClass}>Usuario / Correo</label>
-                      <input
-                        type="text"
-                        value={form.usuarioCorreo}
-                        onChange={(e) => setForm((f) => ({ ...f, usuarioCorreo: e.target.value }))}
-                        placeholder="usuario@ejemplo.com"
-                        className={inputClass}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Contraseña</label>
-                      <div className="relative">
-                        <input
-                          type={showContraseña ? "text" : "password"}
-                          value={form.contraseña}
-                          onChange={(e) => setForm((f) => ({ ...f, contraseña: e.target.value }))}
-                          placeholder="Contraseña de la cuenta"
-                          className={`${inputClass} pr-9`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowContraseña((v) => !v)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]"
-                        >
-                          {showContraseña ? <EyeOffIcon /> : <EyeIcon />}
-                        </button>
+                    {camposDeCredenciales(form.catalogoTipo).clave && (
+                      <div>
+                        <label className={labelClass}>Clave de activación</label>
+                        <CampoSecreto valor={form.claveActivacion} onChange={(v) => setForm((f) => ({ ...f, claveActivacion: v }))} visible={showClave} onAlternar={() => setShowClave((v) => !v)} placeholder="Clave, serial o código" className={inputClass} />
                       </div>
-                    </div>
+                    )}
+                    {camposDeCredenciales(form.catalogoTipo).usuario && (
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div>
+                          <label className={labelClass}>Usuario / Correo</label>
+                          <input
+                            type="text"
+                            name="sg-digital-usuario"
+                            autoComplete="off"
+                            data-lpignore="true"
+                            data-1p-ignore="true"
+                            data-form-type="other"
+                            value={form.usuarioCorreo}
+                            onChange={(e) => setForm((f) => ({ ...f, usuarioCorreo: e.target.value }))}
+                            placeholder="usuario@ejemplo.com"
+                            className={inputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className={labelClass}>Contraseña</label>
+                          <CampoSecreto valor={form.contraseña} onChange={(v) => setForm((f) => ({ ...f, contraseña: v }))} visible={showContraseña} onAlternar={() => setShowContraseña((v) => !v)} placeholder="Contraseña de la cuenta" className={inputClass} />
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -1111,5 +1012,60 @@ function ExternalLinkIcon() {
       <polyline points="15 3 21 3 21 9" />
       <line x1="10" y1="14" x2="21" y2="3" />
     </svg>
+  );
+}
+
+/**
+ * Campo para una clave o contraseña de un CLIENTE. No es <input type="password">:
+ * el gestor de contraseñas del navegador lo autocompletaba con una contraseña
+ * guardada del empleado (caso "Elfina.8990", punto 5A). Se oculta con CSS.
+ */
+function CampoSecreto({ valor, onChange, visible, onAlternar, placeholder, className }: {
+  valor: string; onChange: (v: string) => void; visible: boolean; onAlternar: () => void; placeholder: string; className: string;
+}) {
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        name="sg-digital-secreto"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        data-lpignore="true"
+        data-1p-ignore="true"
+        data-form-type="other"
+        value={valor}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={`${className} pr-9 font-mono`}
+        style={visible ? undefined : ({ WebkitTextSecurity: "disc" } as CSSProperties)}
+      />
+      <button type="button" onClick={onAlternar} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]" aria-label={visible ? "Ocultar" : "Mostrar"}>
+        {visible ? <EyeOffIcon /> : <EyeIcon />}
+      </button>
+    </div>
+  );
+}
+
+/** Una credencial en el panel lateral: oculta (•••) hasta "Mostrar", con botón Copiar. */
+function FilaSecreta({ label, valor, oculto, pista }: { label: string; valor: string | null; oculto: boolean; pista?: string | null }) {
+  const [copiado, setCopiado] = useState(false);
+  const copiar = async () => {
+    if (!valor) return;
+    try { await navigator.clipboard.writeText(valor); setCopiado(true); setTimeout(() => setCopiado(false), 1200); } catch { /* sin permiso */ }
+  };
+  return (
+    <div className="flex items-center gap-2 py-0.5 text-xs">
+      <span className="w-20 shrink-0 text-[var(--sg-text-muted)]">{label}</span>
+      <span className="min-w-0 flex-1 break-all font-mono text-[var(--sg-text-primary)]">
+        {oculto ? (pista ? <span className="text-[var(--sg-text-secondary)]">{pista}</span> : "••••••••") : valor || <span className="text-[var(--sg-text-muted)]">—</span>}
+      </span>
+      {!oculto && valor && (
+        <button type="button" onClick={() => void copiar()} className={`shrink-0 text-[11px] font-semibold transition ${copiado ? "text-[var(--sg-success)]" : "text-[var(--sg-lime)] hover:brightness-110"}`}>
+          {copiado ? "Copiado ✓" : "Copiar"}
+        </button>
+      )}
+    </div>
   );
 }
