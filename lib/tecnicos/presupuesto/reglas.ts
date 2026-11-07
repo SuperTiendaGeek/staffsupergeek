@@ -297,11 +297,11 @@ export type ContextoCarga = {
   pedidos?: Map<string, InfoPedido>;
 };
 
-export function planDeCarga(lineas: LineaPresupuesto[], ctx: ContextoCarga): PasoCarga[] {
-  // Si dos líneas piden el mismo producto digital, la segunda no puede
-  // recibir la misma unidad: se reparte de a una en orden.
-  const digitalesUsados = new Map<string, number>();
+/** Punto 5B: aprobar deja el producto digital "por entregar"; la licencia se elige al entregar. */
+export const MOTIVO_POR_ENTREGAR_DIGITAL = "Por entregar: elige la licencia.";
 
+export function planDeCarga(lineas: LineaPresupuesto[], ctx: ContextoCarga): PasoCarga[] {
+  void ctx.unidadesDigitales;
   return lineas
     .filter((l) => l.estado === "Propuesta" || l.estado === "Aprobada")
     .map((l): PasoCarga => {
@@ -348,13 +348,12 @@ export function planDeCarga(lineas: LineaPresupuesto[], ctx: ContextoCarga): Pas
         return { ...base, accion: { tipo: "reservar_repuesto", itemId: l.itemId, sku: it.sku, precioInventario: it.precio } };
       }
 
-      // Producto digital
+      // Producto digital (punto 5B, caso OR000517): aprobar NUNCA toma una
+      // unidad sola (antes tomaba la primera libre y no era la que se le daba
+      // al cliente). Queda "por entregar"; la licencia se elige o se compra en
+      // "Entregar licencia" (cargarLicenciaEnLinea, cargar.ts).
       if (!l.productoCatalogoId) return { ...base, accion: { tipo: "pendiente", motivo: "Falta elegir el producto del catálogo." } };
-      const usados = digitalesUsados.get(l.productoCatalogoId) ?? 0;
-      digitalesUsados.set(l.productoCatalogoId, usados + 1);
-      const unidad = ctx.unidadesDigitales.get(l.productoCatalogoId)?.[usados] ?? null;
-      if (!unidad) return { ...base, accion: { tipo: "pendiente", motivo: "No hay unidades disponibles de este producto digital." } };
-      return { ...base, accion: { tipo: "asignar_producto_digital", productoId: unidad.productoId, etiqueta: unidad.etiqueta } };
+      return { ...base, accion: { tipo: "pendiente", motivo: MOTIVO_POR_ENTREGAR_DIGITAL } };
     });
 }
 
@@ -839,6 +838,6 @@ export function aprobadoSinArticulo(lineas: LineaParaCuenta[], c: CargosDeLaCuen
 export const TEXTO_SIN_ARTICULO: Record<MotivoSinArticulo, string> = {
   falta_pedir: "falta pedirlo",
   sin_stock: "sin stock",
-  sin_codigo: "sin código libre",
+  sin_codigo: "falta entregar la licencia",
   pendiente: "pendiente",
 };

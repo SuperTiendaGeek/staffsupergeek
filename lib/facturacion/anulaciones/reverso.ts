@@ -161,7 +161,7 @@ async function revertirProductosDigitalesFacturaAnulada(input: {
   } catch (e) {
     return { estado: "ERROR", detalle: textoLecturaFallida(e, "No se devolvieron los productos digitales a Disponible.") };
   }
-  const actual = new Map(records.map((r) => [r.id, { facturaIds: linkedIds(r.fields["Factura"]) }]));
+  const actual = new Map(records.map((r) => [r.id, { facturaIds: linkedIds(r.fields["Factura"]), conOrden: linkedIds(r.fields["Orden de Reparación"]).length > 0 }]));
 
   const fallidos: string[] = [];
   for (const id of ids) {
@@ -171,12 +171,17 @@ async function revertirProductosDigitalesFacturaAnulada(input: {
 
     // Sin typecast: si "Disponible" no existiera como opción, esto debe
     // fallar y verse — no crear la opción sola (bitácora §6).
-    const fields: Record<string, unknown> = {
-      "Estado":               "Disponible",
-      "Factura":              est.facturaIds.filter((fid) => fid !== input.facturaRecordId),
-      "Fecha de Uso / Venta": null,
-      "Tipo de Uso":          null,
-    };
+    // Punto 5B: la unidad que sigue enlazada a su orden vuelve "Reservado"
+    // (apartada para esa orden), con su fecha y tipo de uso; la de mostrador,
+    // "Disponible".
+    const fields: Record<string, unknown> = est.conOrden
+      ? { "Estado": "Reservado", "Factura": est.facturaIds.filter((fid) => fid !== input.facturaRecordId) }
+      : {
+          "Estado":               "Disponible",
+          "Factura":              est.facturaIds.filter((fid) => fid !== input.facturaRecordId),
+          "Fecha de Uso / Venta": null,
+          "Tipo de Uso":          null,
+        };
     try { await patchConReintento(PRODUCTOS_DIGITALES_TABLE, id, fields); }
     catch (e) { fallidos.push(`${id}: ${e instanceof Error ? e.message : String(e)}`); }
   }

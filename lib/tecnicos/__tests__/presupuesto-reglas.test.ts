@@ -91,11 +91,9 @@ assert(paso("s").accion.tipo === "crear_servicio" && (paso("s").accion as { cost
 assert(paso("r1").accion.tipo === "reservar_repuesto", "Repuesto disponible → se reserva");
 assert(paso("r2").accion.tipo === "pendiente", "Repuesto vendido mientras tanto → pendiente, no error");
 assert(paso("r3").accion.tipo === "pendiente", "Repuesto sin artículo → pendiente hasta vincularlo");
-assert(paso("d1").accion.tipo === "asignar_producto_digital" && paso("d2").accion.tipo === "asignar_producto_digital",
-  "Dos licencias del mismo producto → dos asignaciones");
-assert((paso("d1").accion as { productoId: string }).productoId !== (paso("d2").accion as { productoId: string }).productoId,
-  "…y cada una recibe una unidad DISTINTA");
-assert(paso("d3").accion.tipo === "pendiente", "La tercera, sin unidades libres, queda pendiente");
+// Punto 5B (caso OR000517): aprobar NUNCA toma una licencia sola, aunque haya libres.
+assert(["d1", "d2", "d3"].every((id) => paso(id).accion.tipo === "pendiente" && (paso(id).accion as { motivo: string }).motivo.startsWith("Por entregar")),
+  "Producto digital aprobado → por entregar (la licencia se elige al entregar)");
 
 // ─── Guardas a nivel de código fuente ────────────────────────────────────────
 const raiz = path.join(__dirname, "..", "..", "..");

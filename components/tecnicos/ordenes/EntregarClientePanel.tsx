@@ -103,6 +103,7 @@ export function EntregarClientePanel({
     if (!rev) return null;
     if (clave === "cobro" && rev.saldo > 0.01) return <button type="button" className={ACCION} onClick={onRegistrarPago}>Registrar pago</button>;
     if (clave === "cobro") return <button type="button" className={ACCION} onClick={() => onIrA("cuenta")}>Ir a la cuenta</button>;
+    if (clave === "licencias") return <button type="button" className={ACCION} onClick={() => onIrA("presupuesto")}>Ir a Presupuesto</button>;
     if (clave === "documento") return <Link className={ACCION} href={`/facturacion/nueva?origen=orden&recordId=${encodeURIComponent(ordenId)}`}>Emitir documento</Link>;
     return null;
   };

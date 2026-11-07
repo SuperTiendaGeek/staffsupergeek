@@ -13,6 +13,7 @@ import { buscarDocumentoBloqueante } from "@/lib/facturacion/gancho/idempotencia
 import { fetchCliente, fetchOrden, firstString, linkedIds } from "@/lib/facturacion/gancho/airtableGancho";
 import { porIds, texto } from "@/lib/estado-cuenta/airtable";
 import { listarLineas } from "@/lib/tecnicos/presupuesto/airtable";
+import { fetchProductosDigitalesPorOrden } from "@/lib/tecnicos/airtable";
 import { solicitudesDeOperacion, solicitudesDeOrden } from "@/lib/compras/servidor";
 import { updateOrdenEstado } from "@/lib/tecnicos/airtable";
 import { sincronizarGarantiasDeLaOrden } from "@/lib/garantias/servidor";
@@ -43,7 +44,7 @@ async function revisar(ordenId: string, datos: DatosEntrega | null): Promise<Rev
   const opIds = linkedIds(orden.fields["Operaciones Comerciales"]);
   const clienteId = linkedIds(orden.fields["Cliente"])[0];
 
-  const [cuenta, doc, lineas, solOrden, solOps, ops, cliente] = await Promise.all([
+  const [cuenta, doc, lineas, solOrden, solOps, ops, cliente, digitales] = await Promise.all([
     getCuentaUnificada({ ordenId }),
     buscarDocumentoBloqueante({ tipo: "orden", recordId: ordenId }),
     listarLineas(ordenId),
@@ -51,6 +52,7 @@ async function revisar(ordenId: string, datos: DatosEntrega | null): Promise<Rev
     Promise.all(opIds.map((id) => solicitudesDeOperacion(id))),
     porIds("Operación Comercial", opIds, ["Código Operación", "Estado", "Producto Solicitado"]),
     clienteId ? fetchCliente(clienteId) : Promise.resolve(null),
+    fetchProductosDigitalesPorOrden(ordenId),
   ]);
 
   const documento: DocumentoDeEntrega | null = doc
@@ -70,6 +72,10 @@ async function revisar(ordenId: string, datos: DatosEntrega | null): Promise<Rev
   const enGarantia = cuenta.items.filter((i) => i.garantia).length + cuenta.servicios.filter((s) => s.garantia).length;
   const ev = evaluarEntrega({
     estadoOrden, saldo: cuenta.saldo, totalCobrable: cuenta.totalCuenta, enGarantia, documento, pendientes, datos,
+    // Punto 5B: cada licencia entregada en la orden debe tener su PDF.
+    licencias: digitales
+      .filter((p) => p.estado !== "Anulado" && p.estado !== "Vencido")
+      .map((p) => ({ sku: p.sku || p.softwareProducto, tienePdf: !!(p.documentoPdfUrl || p.fechaUltimoPdf) })),
   });
   return {
     ...ev,

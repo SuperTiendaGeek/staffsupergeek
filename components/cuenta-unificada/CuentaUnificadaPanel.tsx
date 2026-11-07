@@ -187,7 +187,7 @@ export function CuentaUnificadaPanel({
           <LedgerRow
             key={p.id}
             label={p.nombre}
-            origen={`Aprobado · ${p.motivo === "falta_pedir" ? "falta pedirlo" : p.motivo === "sin_stock" ? "sin stock" : p.motivo === "sin_codigo" ? "sin código libre" : "pendiente"}`}
+            origen={`Aprobado · ${p.motivo === "falta_pedir" ? "falta pedirlo" : p.motivo === "sin_stock" ? "sin stock" : p.motivo === "sin_codigo" ? "falta entregar la licencia" : "pendiente"}`}
             value={formatCurrency(p.monto)}
           />
         ))}
