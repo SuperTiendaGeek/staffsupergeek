@@ -3,7 +3,9 @@ import {
   fetchAllProductosDigitales,
   fetchProductosDigitalesDisponibles,
   createProductoDigital,
+  fetchCatalogoProductoDigitalById,
 } from "@/lib/tecnicos/airtable";
+import { credencialesDelTipo, errorCredenciales } from "@/lib/productos-digitales/reglas";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +69,20 @@ export async function POST(request: Request) {
     );
   }
 
+  // Punto 5A: cada tipo lleva SUS credenciales (lo demás se descarta).
+  let cred;
+  try {
+    const catalogo = await fetchCatalogoProductoDigitalById(catalogoId);
+    if (!catalogo) return NextResponse.json({ success: false, error: "Producto del catálogo no encontrado." }, { status: 400 });
+    const entrada = { claveActivacion: body.claveActivacion, usuarioCorreo: body.usuarioCorreo, contrasena: body.contraseña };
+    const err = errorCredenciales(catalogo.tipo, entrada);
+    if (err) return NextResponse.json({ success: false, error: err }, { status: 400 });
+    cred = credencialesDelTipo(catalogo.tipo, entrada);
+  } catch (error) {
+    console.error("[productos-digitales POST] catálogo", error);
+    return NextResponse.json({ success: false, error: "No se pudo leer el catálogo. Intenta de nuevo." }, { status: 503 });
+  }
+
   try {
     const producto = await createProductoDigital({
       catalogoId,
@@ -74,9 +90,9 @@ export async function POST(request: Request) {
       proveedor: body.proveedor ?? null,
       costoProveedor: body.costoProveedor ?? null,
       precioVenta: body.precioVenta ?? null,
-      claveActivacion: body.claveActivacion ?? null,
-      usuarioCorreo: body.usuarioCorreo ?? null,
-      contraseña: body.contraseña ?? null,
+      claveActivacion: cred.claveActivacion,
+      usuarioCorreo: cred.usuarioCorreo,
+      contraseña: cred.contrasena,
       duracion: body.duracion ?? null,
       fechaCompra: body.fechaCompra ?? null,
       observacionesInternas: body.observacionesInternas ?? null,

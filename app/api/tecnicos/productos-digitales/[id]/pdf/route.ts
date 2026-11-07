@@ -47,6 +47,7 @@ async function buildAndStorePdf(
 
   const pdfData: PDFProductoData = {
     softwareProducto: producto.softwareProducto,
+    sku: producto.sku || null,
     marcaProducto: producto.marcaProducto,
     tipoProducto: producto.tipoProducto,
     logoProductoUrl: producto.logoProductoUrl,
