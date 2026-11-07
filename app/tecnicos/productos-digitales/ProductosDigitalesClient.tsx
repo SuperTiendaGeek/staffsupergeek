@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import styles from "@/components/tecnicos/layout/TecnicosTheme.module.css";
+import { GestionLicencia } from "@/components/productos-digitales/GestionLicencia";
 import {
   camposDeCredenciales, contarPorEstado, filtrarFilas, ordenarFilas,
   type ColumnaOrden, type FilaDigital,
@@ -13,11 +14,15 @@ import {
 // reciente primero) y un panel lateral con el detalle, las credenciales
 // (ocultas) y el PDF. Las credenciales nunca usan campos de contraseña del
 // navegador: el gestor de contraseñas los autocompletaba ("Elfina.8990").
+// Punto 5B-2: ya no hay "Nuevo producto": una licencia entra solo por su
+// compra (Shipping V2 → Registrar compra → Producto digital). Aquí quedan
+// Editar, Reclamo al proveedor, Resolver, Anular y Ver compra.
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 type ProductoDigital = {
   id: string;
+  articuloId?: string | null;
   sku: string;
   numero: number | null;
   ordenCodigo: string | null;
@@ -48,66 +53,20 @@ type ProductoDigital = {
   fechaUltimoPdf: string | null;
 };
 
-type CatalogoItem = {
-  id: string;
-  productoBase: string;
-  marca: string | null;
-  tipo: string | null;
-  precioVentaCatalogo: number | null;
-};
-
-type ProveedorSoftware = {
-  id: string;
-  nombre: string;
-};
-
 type Credenciales = {
   claveActivacion: string | null;
   usuarioCorreo: string | null;
   contraseña: string | null;
 };
 
-type NuevoProductoForm = {
-  catalogoId: string;
-  catalogoNombre: string;
-  catalogoTipo: string;
-  estado: string;
-  proveedor: string;
-  costoProveedor: string;
-  precioVenta: string;
-  claveActivacion: string;
-  usuarioCorreo: string;
-  contraseña: string;
-  duracion: string;
-  fechaCompra: string;
-  observacionesInternas: string;
-};
-
-const EMPTY_FORM: NuevoProductoForm = {
-  catalogoId: "",
-  catalogoNombre: "",
-  catalogoTipo: "",
-  estado: "Disponible",
-  proveedor: "",
-  costoProveedor: "",
-  precioVenta: "",
-  claveActivacion: "",
-  usuarioCorreo: "",
-  contraseña: "",
-  duracion: "",
-  fechaCompra: "",
-  observacionesInternas: "",
-};
-
-const DURACIONES = ["Perpetua", "1 año", "2 años", "3 años", "3 meses", "6 meses", "9 meses"] as const;
-
-const ESTADOS = ["Disponible", "Reservado", "Usado", "Anulado", "Vencido"] as const;
+const ESTADOS = ["Disponible", "Reservado", "En reclamo", "Usado", "Anulado", "Vencido"] as const;
 type EstadoPD = (typeof ESTADOS)[number];
 
 const FILTER_TABS: { label: string; value: string }[] = [
   { label: "Todos", value: "" },
   { label: "Disponibles", value: "Disponible" },
   { label: "Reservados", value: "Reservado" },
+  { label: "En reclamo", value: "En reclamo" },
   { label: "Usados", value: "Usado" },
   { label: "Anulados", value: "Anulado" },
   { label: "Vencidos", value: "Vencido" },
@@ -126,6 +85,7 @@ const estadoBadge = (estado: string) => {
     case "Anulado":
       return "border-[var(--sg-danger)]/50 bg-[var(--sg-danger-soft)] text-[var(--sg-danger)]";
     case "Vencido":
+    case "En reclamo":
       return "border-[var(--sg-warning)]/50 bg-[var(--sg-warning-soft)] text-[var(--sg-warning)]";
     default:
       return "border-[var(--sg-border)] bg-[var(--sg-card-elevated)] text-[var(--sg-text-secondary)]";
@@ -141,11 +101,6 @@ const formatCurrency = (value: number | null) => {
   }).format(value);
 };
 
-
-const parseNum = (v: string): number | null => {
-  const n = parseFloat(v.replace(",", "."));
-  return Number.isFinite(n) ? n : null;
-};
 
 const aFila = (p: ProductoDigital): FilaDigital => ({
   id: p.id,
@@ -192,31 +147,6 @@ export function ProductosDigitalesClient() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  // Create modal
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [form, setForm] = useState<NuevoProductoForm>(EMPTY_FORM);
-  const [createSaving, setCreateSaving] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [showContraseña, setShowContraseña] = useState(false);
-  const [showClave, setShowClave] = useState(false);
-
-  // Catálogo selector state
-  const [catalogoSearch, setCatalogoSearch] = useState("");
-  const [catalogoResults, setCatalogoResults] = useState<CatalogoItem[]>([]);
-  const [catalogoSearchLoading, setCatalogoSearchLoading] = useState(false);
-  const [showCatalogoDropdown, setShowCatalogoDropdown] = useState(false);
-  const catalogoRef = useRef<HTMLDivElement | null>(null);
-
-  // Precio hint
-  const [precioDesdeCatalogo, setPrecioDesdeCatalogo] = useState(false);
-
-  // Proveedor selector state
-  const [proveedores, setProveedores] = useState<ProveedorSoftware[]>([]);
-  const [proveedoresLoading, setProveedoresLoading] = useState(false);
-  const [proveedoresError, setProveedoresError] = useState<string | null>(null);
-  const [proveedorSearch, setProveedorSearch] = useState("");
-  const [showProveedorDropdown, setShowProveedorDropdown] = useState(false);
-
   // Credenciales reveal
   const [credVisible, setCredVisible] = useState<Record<string, boolean>>({});
   const [credData, setCredData] = useState<Record<string, Credenciales>>({});
@@ -231,6 +161,8 @@ export function ProductosDigitalesClient() {
 
   // Session (para saber rol del usuario)
   const [userRol, setUserRol] = useState("");
+  // Punto 5B-2: Registrar compra, Editar, Reclamo y Anular (Staff y Administradores).
+  const [puedeGestionar, setPuedeGestionar] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -242,21 +174,6 @@ export function ProductosDigitalesClient() {
         if (json.success) setUserRol(json.user?.rol ?? "");
       } catch { /* ignore */ }
     })();
-
-    void (async () => {
-      setProveedoresLoading(true);
-      setProveedoresError(null);
-      try {
-        const res = await fetch("/api/tecnicos/productos-digitales/proveedores-software");
-        const json = await res.json();
-        if (json.success) setProveedores(json.data ?? []);
-        else setProveedoresError(json.error ?? "Error al cargar proveedores");
-      } catch {
-        setProveedoresError("No se pudieron cargar los proveedores de software");
-      } finally {
-        setProveedoresLoading(false);
-      }
-    })();
   }, []);
 
   useEffect(() => {
@@ -264,39 +181,6 @@ export function ProductosDigitalesClient() {
     debounceRef.current = setTimeout(() => setDebouncedSearch(search.trim()), 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [search]);
-
-  // Buscar catálogo mientras el usuario escribe en el selector
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      const q = catalogoSearch.trim();
-      if (!q && !showCatalogoDropdown) return;
-      setCatalogoSearchLoading(true);
-      try {
-        const params = new URLSearchParams({ activo: "true" });
-        if (q) params.set("q", q);
-        const res = await fetch(`/api/tecnicos/catalogo-productos-digitales?${params.toString()}`);
-        const json = await res.json();
-        if (json.success) setCatalogoResults(json.data ?? []);
-      } catch { /* ignore */ } finally {
-        setCatalogoSearchLoading(false);
-      }
-    }, 250);
-    return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalogoSearch, showCatalogoDropdown]);
-
-  const handleSelectCatalogo = (item: CatalogoItem) => {
-    setForm((f) => ({
-      ...f,
-      catalogoId: item.id,
-      catalogoNombre: item.productoBase,
-      catalogoTipo: item.tipo ?? "",
-      precioVenta: item.precioVentaCatalogo !== null ? String(item.precioVentaCatalogo) : "",
-    }));
-    setPrecioDesdeCatalogo(item.precioVentaCatalogo !== null);
-    setCatalogoSearch(item.productoBase);
-    setShowCatalogoDropdown(false);
-  };
 
   const fetchProductos = async () => {
     setLoading(true);
@@ -307,6 +191,7 @@ export function ProductosDigitalesClient() {
       const json = await res.json();
       if (!json.success) throw new Error(json.error ?? "Error al cargar");
       setProductos(json.data ?? []);
+      setPuedeGestionar(json.puedeGestionar === true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar productos");
     } finally {
@@ -401,65 +286,19 @@ export function ProductosDigitalesClient() {
     }
   };
 
-  const handleCreate = async () => {
-    if (createSaving) return;
-    if (!form.catalogoId) {
-      setCreateError("Debes seleccionar un producto del catálogo.");
-      return;
-    }
-    setCreateSaving(true);
-    setCreateError(null);
-    try {
-      const res = await fetch("/api/tecnicos/productos-digitales", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          catalogoId: form.catalogoId,
-          estado: form.estado || "Disponible",
-          proveedor: form.proveedor || null,
-          costoProveedor: parseNum(form.costoProveedor),
-          precioVenta: parseNum(form.precioVenta),
-          claveActivacion: form.claveActivacion || null,
-          usuarioCorreo: form.usuarioCorreo || null,
-          contraseña: form.contraseña || null,
-          duracion: form.duracion || null,
-          fechaCompra: form.fechaCompra || null,
-          observacionesInternas: form.observacionesInternas || null,
-        }),
-      });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error ?? "Error al crear");
-      setShowCreateModal(false);
-      setForm(EMPTY_FORM);
-      setCatalogoSearch("");
-      setShowClave(false);
-      setShowContraseña(false);
-      setPrecioDesdeCatalogo(false);
-      setProveedorSearch("");
-      await fetchProductos();
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "Error al crear");
-    } finally {
-      setCreateSaving(false);
-    }
-  };
-
-  const inputClass =
-    "w-full rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)]/50 focus:border-[var(--sg-lime)]/70 focus:outline-none";
-  const labelClass = "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]";
-
   return (
     <div className={`${styles.theme} w-full space-y-4`}>
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-bold text-[var(--sg-text-primary)]">Productos Digitales</h1>
-        <button
-          type="button"
-          onClick={() => { setForm(EMPTY_FORM); setCreateError(null); setShowClave(false); setShowContraseña(false); setPrecioDesdeCatalogo(false); setProveedorSearch(""); setShowCreateModal(true); }}
-          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-4 py-1.5 text-sm font-semibold text-[#10110E] transition hover:brightness-105"
-        >
-          <span aria-hidden>+</span> Nuevo producto
-        </button>
+        {/* Punto 5B-2: una licencia entra SOLO por su compra (costo, orden de compra, pago). */}
+        {puedeGestionar && (
+          <Link href="/shipping-v2/items/nuevo?tipo=digital"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--sg-lime)]/60 px-3.5 py-1 text-xs font-semibold text-[var(--sg-lime)] transition hover:bg-[var(--sg-lime-soft)]"
+            title="Shipping V2 → Registrar compra → Producto digital">
+            Registrar compra
+          </Link>
+        )}
       </div>
 
       {/* Filtros con conteo + búsqueda */}
@@ -604,6 +443,11 @@ export function ProductosDigitalesClient() {
                 {credError[pd.id] && <p className="mt-1 text-xs text-[var(--sg-danger)]">{credError[pd.id]}</p>}
               </div>
 
+              {/* Punto 5B-2: gestión (Staff y Administradores) */}
+              {puedeGestionar && (
+                <GestionLicencia producto={pd} onListo={async () => { setCredData((m) => { const n = { ...m }; delete n[pd.id]; return n; }); setCredVisible((m) => ({ ...m, [pd.id]: false })); await fetchProductos(); }} />
+              )}
+
               {/* PDF */}
               <div className="mb-3 flex flex-wrap items-center gap-1.5">
                 {!hasPdf ? (
@@ -650,327 +494,6 @@ export function ProductosDigitalesClient() {
           </div>
         );
       })()}
-
-      {/* ─── Create modal ───────────────────────────────────────────────── */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 backdrop-blur-sm px-4 py-8">
-          <div className="w-full max-w-lg rounded-[1rem] border border-[var(--sg-border)] bg-[var(--sg-card)] p-5 shadow-2xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-[var(--sg-text-primary)]">Nuevo producto digital</h2>
-              <button
-                type="button"
-                onClick={() => { setShowCreateModal(false); setPrecioDesdeCatalogo(false); setProveedorSearch(""); }}
-                className="text-[var(--sg-text-muted)] transition hover:text-[var(--sg-text-primary)]"
-                aria-label="Cerrar"
-              >
-                <CloseIcon />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {/* Catálogo selector */}
-              <div ref={catalogoRef} className="relative">
-                <label className={labelClass}>Producto del catálogo *</label>
-                {form.catalogoId ? (
-                  <div className="flex items-center gap-2 rounded-lg border border-[var(--sg-lime)]/50 bg-[var(--sg-lime)]/5 px-3 py-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-[var(--sg-text-primary)] truncate">{form.catalogoNombre}</p>
-                      {form.catalogoTipo && <p className="text-[10px] text-[var(--sg-text-muted)]">{form.catalogoTipo}</p>}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => { setForm((f) => ({ ...f, catalogoId: "", catalogoNombre: "", catalogoTipo: "", precioVenta: "" })); setCatalogoSearch(""); setPrecioDesdeCatalogo(false); }}
-                      className="shrink-0 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-danger)]"
-                      aria-label="Cambiar producto"
-                    >
-                      <CloseIcon />
-                    </button>
-                  </div>
-                ) : (
-                  <div>
-                    <input
-                      type="text"
-                      value={catalogoSearch}
-                      onChange={(e) => { setCatalogoSearch(e.target.value); setShowCatalogoDropdown(true); }}
-                      onFocus={() => setShowCatalogoDropdown(true)}
-                      placeholder="Buscar en catálogo..."
-                      className={inputClass}
-                      autoFocus
-                    />
-                    {showCatalogoDropdown && (
-                      <div className="absolute z-50 mt-1 w-full rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] shadow-2xl">
-                        {catalogoSearchLoading ? (
-                          <div className="flex items-center justify-center py-4">
-                            <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--sg-lime)] border-t-transparent" />
-                          </div>
-                        ) : catalogoResults.length === 0 ? (
-                          <p className="px-4 py-3 text-xs text-[var(--sg-text-muted)]">
-                            {catalogoSearch.trim() ? "Sin resultados" : "Escribe para buscar"}
-                          </p>
-                        ) : (
-                          <ul className="max-h-56 overflow-y-auto py-1">
-                            {catalogoResults.map((item) => (
-                              <li key={item.id}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleSelectCatalogo(item)}
-                                  className="w-full px-4 py-2.5 text-left transition hover:bg-[var(--sg-panel)]"
-                                >
-                                  <p className="text-sm font-semibold text-[var(--sg-text-primary)]">{item.productoBase}</p>
-                                  <p className="text-[10px] text-[var(--sg-text-muted)]">
-                                    {[item.marca, item.tipo].filter(Boolean).join(" · ")}
-                                    {item.precioVentaCatalogo !== null ? ` — $${item.precioVentaCatalogo}` : ""}
-                                  </p>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Estado */}
-              <div>
-                <label className={labelClass}>Estado</label>
-                <select
-                  value={form.estado}
-                  onChange={(e) => setForm((f) => ({ ...f, estado: e.target.value }))}
-                  className={inputClass}
-                >
-                  {ESTADOS.map((e) => (
-                    <option key={e} value={e}>{e}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Proveedor */}
-              <div>
-                <label className={labelClass}>Proveedor</label>
-                {proveedoresError ? (
-                  <p className="rounded-lg border border-[var(--sg-warning)]/40 bg-[var(--sg-warning-soft)] px-3 py-2 text-xs text-[var(--sg-warning)]">
-                    {proveedoresError}
-                  </p>
-                ) : proveedoresLoading ? (
-                  <div className="flex h-9 items-center gap-2 rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3">
-                    <span className="h-3 w-3 animate-spin rounded-full border border-[var(--sg-lime)] border-t-transparent" />
-                    <span className="text-xs text-[var(--sg-text-muted)]">Cargando proveedores...</span>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    {form.proveedor ? (
-                      <div className="flex items-center gap-2 rounded-lg border border-[var(--sg-lime)]/50 bg-[var(--sg-lime)]/5 px-3 py-2">
-                        <span className="flex-1 text-sm text-[var(--sg-text-primary)]">{form.proveedor}</span>
-                        <button
-                          type="button"
-                          onClick={() => { setForm((f) => ({ ...f, proveedor: "" })); setProveedorSearch(""); }}
-                          className="shrink-0 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-danger)]"
-                          aria-label="Quitar proveedor"
-                        >
-                          <CloseIcon />
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <input
-                          type="text"
-                          value={proveedorSearch}
-                          onChange={(e) => { setProveedorSearch(e.target.value); setShowProveedorDropdown(true); }}
-                          onFocus={() => setShowProveedorDropdown(true)}
-                          placeholder={proveedores.length === 0 ? "No hay proveedores de software registrados" : "Buscar proveedor..."}
-                          disabled={proveedores.length === 0}
-                          className={inputClass}
-                        />
-                        {showProveedorDropdown && proveedores.length > 0 && (
-                          <div className="absolute z-50 mt-1 w-full rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] shadow-2xl">
-                            {(() => {
-                              const filtered = proveedores.filter((p) =>
-                                p.nombre.toLowerCase().includes(proveedorSearch.toLowerCase())
-                              );
-                              return filtered.length === 0 ? (
-                                <p className="px-4 py-3 text-xs text-[var(--sg-text-muted)]">
-                                  {proveedorSearch.trim() ? "Sin resultados" : "No hay proveedores de software registrados."}
-                                </p>
-                              ) : (
-                                <ul className="max-h-48 overflow-y-auto py-1">
-                                  {filtered.map((p) => (
-                                    <li key={p.id}>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setForm((f) => ({ ...f, proveedor: p.nombre }));
-                                          setProveedorSearch("");
-                                          setShowProveedorDropdown(false);
-                                        }}
-                                        className="w-full px-4 py-2.5 text-left text-sm text-[var(--sg-text-primary)] transition hover:bg-[var(--sg-panel)]"
-                                      >
-                                        {p.nombre}
-                                      </button>
-                                    </li>
-                                  ))}
-                                </ul>
-                              );
-                            })()}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                {/* Duración */}
-                <div>
-                  <label className={labelClass}>Duración</label>
-                  <select
-                    value={form.duracion}
-                    onChange={(e) => setForm((f) => ({ ...f, duracion: e.target.value }))}
-                    className={inputClass}
-                  >
-                    <option value="">Sin definir</option>
-                    {DURACIONES.map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-                {/* Costo proveedor */}
-                <div>
-                  <label className={labelClass}>Costo proveedor</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.costoProveedor}
-                    onChange={(e) => setForm((f) => ({ ...f, costoProveedor: e.target.value }))}
-                    placeholder="0.00"
-                    className={inputClass}
-                  />
-                </div>
-              </div>
-
-              {/* Precio venta */}
-              <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <label className={labelClass} style={{ margin: 0 }}>Precio venta</label>
-                  {precioDesdeCatalogo && (
-                    <span className="text-[10px] text-[var(--sg-lime)]">
-                      ✦ Precio sugerido desde catálogo
-                    </span>
-                  )}
-                </div>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.precioVenta}
-                  onChange={(e) => setForm((f) => ({ ...f, precioVenta: e.target.value }))}
-                  placeholder="0.00"
-                  className={inputClass}
-                />
-              </div>
-
-              <div>
-                <label className={labelClass}>Fecha de compra</label>
-                <input
-                  type="date"
-                  value={form.fechaCompra}
-                  onChange={(e) => setForm((f) => ({ ...f, fechaCompra: e.target.value }))}
-                  className={inputClass}
-                />
-              </div>
-
-              {/* ─── Credenciales — condicionales por tipo del catálogo ─── */}
-              <div className="space-y-2 rounded-lg border border-[var(--sg-border)] bg-[var(--sg-panel)] p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--sg-text-muted)]">
-                    Credenciales
-                  </p>
-                  {form.catalogoTipo && (
-                    <span className="text-[10px] text-[var(--sg-text-muted)]">
-                      campos para: <strong className="text-[var(--sg-text-secondary)]">{form.catalogoTipo}</strong>
-                    </span>
-                  )}
-                </div>
-
-                {!form.catalogoId ? (
-                  <p className="text-xs text-[var(--sg-text-muted)]">Elige el producto del catálogo.</p>
-                ) : (
-                  <>
-                    {camposDeCredenciales(form.catalogoTipo).clave && (
-                      <div>
-                        <label className={labelClass}>Clave de activación</label>
-                        <CampoSecreto valor={form.claveActivacion} onChange={(v) => setForm((f) => ({ ...f, claveActivacion: v }))} visible={showClave} onAlternar={() => setShowClave((v) => !v)} placeholder="Clave, serial o código" className={inputClass} />
-                      </div>
-                    )}
-                    {camposDeCredenciales(form.catalogoTipo).usuario && (
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <div>
-                          <label className={labelClass}>Usuario / Correo</label>
-                          <input
-                            type="text"
-                            name="sg-digital-usuario"
-                            autoComplete="off"
-                            data-lpignore="true"
-                            data-1p-ignore="true"
-                            data-form-type="other"
-                            value={form.usuarioCorreo}
-                            onChange={(e) => setForm((f) => ({ ...f, usuarioCorreo: e.target.value }))}
-                            placeholder="usuario@ejemplo.com"
-                            className={inputClass}
-                          />
-                        </div>
-                        <div>
-                          <label className={labelClass}>Contraseña</label>
-                          <CampoSecreto valor={form.contraseña} onChange={(v) => setForm((f) => ({ ...f, contraseña: v }))} visible={showContraseña} onAlternar={() => setShowContraseña((v) => !v)} placeholder="Contraseña de la cuenta" className={inputClass} />
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* Observaciones */}
-              <div>
-                <label className={labelClass}>Observaciones internas</label>
-                <textarea
-                  value={form.observacionesInternas}
-                  onChange={(e) => setForm((f) => ({ ...f, observacionesInternas: e.target.value }))}
-                  placeholder="Notas internas sobre este producto..."
-                  rows={2}
-                  className={`${inputClass} resize-none`}
-                />
-              </div>
-
-              {createError && (
-                <p className="rounded-lg border border-[var(--sg-danger)]/40 bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-danger)]">
-                  {createError}
-                </p>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => { setShowCreateModal(false); setPrecioDesdeCatalogo(false); setProveedorSearch(""); }}
-                  className="rounded-full border border-[var(--sg-border)] px-4 py-1.5 text-xs font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)]/50 hover:text-[var(--sg-lime)]"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleCreate()}
-                  disabled={createSaving}
-                  className="rounded-full border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-4 py-1.5 text-xs font-semibold text-[#10110E] transition hover:brightness-105 disabled:opacity-50"
-                >
-                  {createSaving ? "Guardando..." : "Crear producto"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1012,39 +535,6 @@ function ExternalLinkIcon() {
       <polyline points="15 3 21 3 21 9" />
       <line x1="10" y1="14" x2="21" y2="3" />
     </svg>
-  );
-}
-
-/**
- * Campo para una clave o contraseña de un CLIENTE. No es <input type="password">:
- * el gestor de contraseñas del navegador lo autocompletaba con una contraseña
- * guardada del empleado (caso "Elfina.8990", punto 5A). Se oculta con CSS.
- */
-function CampoSecreto({ valor, onChange, visible, onAlternar, placeholder, className }: {
-  valor: string; onChange: (v: string) => void; visible: boolean; onAlternar: () => void; placeholder: string; className: string;
-}) {
-  return (
-    <div className="relative">
-      <input
-        type="text"
-        name="sg-digital-secreto"
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        spellCheck={false}
-        data-lpignore="true"
-        data-1p-ignore="true"
-        data-form-type="other"
-        value={valor}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className={`${className} pr-9 font-mono`}
-        style={visible ? undefined : ({ WebkitTextSecurity: "disc" } as CSSProperties)}
-      />
-      <button type="button" onClick={onAlternar} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]" aria-label={visible ? "Ocultar" : "Mostrar"}>
-        {visible ? <EyeOffIcon /> : <EyeIcon />}
-      </button>
-    </div>
   );
 }
 

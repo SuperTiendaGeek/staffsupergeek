@@ -38,7 +38,7 @@ import { SHIPPING_V2_ITEM_FIELDS } from "@/lib/shipping-v2/schema.generated";
 import { actualizarEstadoOperacion } from "@/lib/operaciones/airtable";
 import { soltarArticuloDePedido } from "@/lib/shipping-v2/airtable";
 import { listarLineas, actualizarLinea, cargarInfoPedidos } from "./airtable";
-import { asegurarSolicitudDeLinea, cancelarSolicitudDeLinea } from "@/lib/compras/servidor";
+import { asegurarSolicitudDeLinea, cancelarSolicitudDeLinea, cancelarSolicitudPorStock } from "@/lib/compras/servidor";
 import { garantiaTrasModificar } from "@/lib/garantias/reglas";
 import {
   planDeCarga, reversasDisponibles, entradaHistorial,
@@ -299,6 +299,8 @@ export async function cargarLicenciaEnLinea(opts: {
   usuario: { nombre: string; id?: string | null };
   /** Texto del historial (p. ej. "Comprada a X: DIG-000081"). */
   referencia?: string;
+  /** Punto 5B-2: la llama la compra de la solicitud (no se cancela la solicitud). */
+  desdeCompra?: boolean;
 }): Promise<{ sku: string }> {
   return withLock(`presupuesto:${opts.ordenId}`, () => withLock(`digital:${opts.productoId}`, async () => {
     const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
@@ -315,6 +317,11 @@ export async function cargarLicenciaEnLinea(opts: {
       cargoProductoDigitalId: opts.productoId,
       agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(opts.referencia ?? `Licencia entregada: ${montada.sku}.`, opts.usuario.nombre) },
     });
+    // Punto 5B-2: se usó una que ya teníamos → su solicitud (sin comprar) se cancela sola.
+    if (!opts.desdeCompra && linea.solicitudId) {
+      try { await cancelarSolicitudPorStock(linea.id, montada.sku, opts.usuario.nombre); }
+      catch (e) { console.warn("[presupuesto] cancelar solicitud de la licencia", linea.id, e); }
+    }
     return { sku: montada.sku };
   }));
 }
@@ -462,6 +469,10 @@ export async function retirarLinea(opts: {
       await quitarRepuestoStockDeOrden({ ordenRecordId: opts.ordenId, itemId: d.itemId, registradoPor: opts.usuario.nombre });
     } else if (d.tipo === "desasignar_digital") {
       await desasignarProductoDigitalDeOrden({ productoId: d.productoId, ordenRecordId: opts.ordenId });
+    }
+    // Punto 5B-2: una licencia aprobada que todavía no se compró → su solicitud se cancela.
+    if (linea.tipo === "Producto digital" && linea.solicitudId) {
+      await cancelarSolicitudDeLinea(linea.id, opts.motivo.trim() || "Se quitó del presupuesto.", opts.usuario.nombre);
     }
 
     const tras = lineaTrasRetiro(opts.accion, opts.motivo);

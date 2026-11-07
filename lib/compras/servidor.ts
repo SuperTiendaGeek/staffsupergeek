@@ -27,6 +27,7 @@ import { actualizarEstadoOperacion } from "@/lib/operaciones/airtable";
 import { actualizarLinea } from "@/lib/tecnicos/presupuesto/airtable";
 import type { LineaPresupuesto } from "@/lib/tecnicos/presupuesto/reglas";
 import { hoyEcuador } from "@/lib/saldo-favor/servidor";
+import { CATEGORIA_LICENCIA_DIGITAL } from "@/lib/productos-digitales/compra";
 import {
   actualizarSolicitud,
   crearSolicitud,
@@ -75,21 +76,23 @@ function agregarHistorial(anterior: string, linea: string): string {
  */
 export async function asegurarSolicitudDeLinea(input: {
   ordenId: string;
-  linea: Pick<LineaPresupuesto, "id" | "descripcion" | "cantidad" | "precioUnitario" | "categoria" | "costoProveedor" | "urlProveedor" | "tiempoEstimado" | "proveedorId">;
+  linea: Pick<LineaPresupuesto, "id" | "descripcion" | "cantidad" | "precioUnitario" | "categoria" | "costoProveedor" | "urlProveedor" | "tiempoEstimado" | "proveedorId"> & Partial<Pick<LineaPresupuesto, "tipo">>;
   usuario: string;
   /** Por defecto "Aprobada por el cliente: por comprar." (la garantía lo cambia). */
   textoHistorial?: string;
 }): Promise<Solicitud> {
   const clave = claveDeLinea(input.linea.id);
+  const esLicencia = input.linea.tipo === "Producto digital";
   return withLock(`solicitud:${clave}`, async () => {
     const existente = await solicitudPorClave(clave);
     if (existente) return existente;
     const ahora = new Date();
     return crearSolicitud({
-      descripcion: input.linea.descripcion.trim() || "Repuesto bajo pedido",
+      descripcion: input.linea.descripcion.trim() || (esLicencia ? "Licencia digital" : "Repuesto bajo pedido"),
       clave,
       cantidad: Math.max(1, input.linea.cantidad || 1),
-      categoria: input.linea.categoria,
+      // Punto 5B-2: el producto digital se compra como "Licencia digital".
+      categoria: esLicencia ? CATEGORIA_LICENCIA_DIGITAL : input.linea.categoria,
       precioCliente: input.linea.precioUnitario,
       costoCotizado: input.linea.costoProveedor,
       urlProveedor: input.linea.urlProveedor,
@@ -238,11 +241,58 @@ export async function aplicarCompra(input: { solicitudId: string; itemId: string
   });
 }
 
+/**
+ * Punto 5B-2: "Registrar compra" (Producto digital) creó el artículo y su
+ * licencia DIG para esta solicitud. La licencia se entrega en la línea de la
+ * orden por la vía de siempre (cargarLicenciaEnLinea) y la solicitud queda
+ * "Comprada". Si entregarla falla, la compra ya existe: se avisa, la licencia
+ * queda libre en el inventario y se entrega con "Entregar licencia".
+ */
+export async function aplicarCompraDeLicencia(input: {
+  solicitudId: string; itemId: string; productoId: string; ordenCompraId?: string | null; usuario: string; usuarioId?: string | null;
+}): Promise<{ codigo: string; sku: string }> {
+  return withLock(`solicitud:${input.solicitudId}`, async () => {
+    const s = await solicitudPorId(input.solicitudId);
+    if (!s) throw new Error("La solicitud de compra no existe.");
+    if (s.estado === "Comprada" && s.itemId === input.itemId) return { codigo: s.codigo, sku: "" };
+    if (s.estado !== "Por comprar") throw new Error(`${s.codigo} ya está ${s.estado.toLowerCase()}.`);
+    let sku = "";
+    if (s.ordenId && s.lineaId) {
+      const { cargarLicenciaEnLinea } = await import("@/lib/tecnicos/presupuesto/cargar");
+      sku = (await cargarLicenciaEnLinea({
+        ordenId: s.ordenId,
+        lineaId: s.lineaId,
+        productoId: input.productoId,
+        usuario: { nombre: input.usuario, id: input.usuarioId ?? null },
+        desdeCompra: true,
+        referencia: `Licencia comprada y entregada (${s.codigo}).`,
+      })).sku;
+    }
+    await actualizarSolicitud(s.id, {
+      Estado: "Comprada",
+      "Artículo": [input.itemId],
+      ...(input.ordenCompraId ? { "Orden de compra": [input.ordenCompraId] } : {}),
+      "Fecha compra": new Date().toISOString(),
+      Historial: agregarHistorial(s.historial, entradaHistorial(`Comprada: ${sku || "licencia"}.`, input.usuario)),
+    });
+    return { codigo: s.codigo, sku };
+  });
+}
+
+/**
+ * Punto 5B-2: se entregó una licencia que YA teníamos a una línea que
+ * esperaba su compra → la solicitud se cancela sola (no hubo dinero).
+ */
+export async function cancelarSolicitudPorStock(lineaId: string, sku: string, usuario: string): Promise<void> {
+  await cancelarSolicitudDeLinea(lineaId, `Se entregó una licencia que ya teníamos (${sku}).`, usuario);
+}
+
 /** "Ya la tenemos": se aparta un artículo que ya existe (en stock o en camino). Caso OR000432 / OP-131. */
 export async function asignarArticuloExistente(input: { solicitudId: string; itemId: string; usuario: string }): Promise<{ codigo: string; sku: string }> {
   return withLock(`solicitud:${input.solicitudId}`, async () => {
     const s = await solicitudPorId(input.solicitudId);
     if (!s) throw new Error("La solicitud de compra no existe.");
+    if (s.categoria === CATEGORIA_LICENCIA_DIGITAL) throw new Error(`${s.codigo} es una licencia: en la orden usa "Usar una del inventario".`);
     const item = await fetchRecordById(T_ITEMS, input.itemId);
     if (!item) throw new Error("El artículo no existe.");
     const v = validarAsignarExistente(s, {

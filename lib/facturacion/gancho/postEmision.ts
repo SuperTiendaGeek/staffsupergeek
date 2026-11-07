@@ -469,6 +469,16 @@ async function postEmisionProductosDigitales(input: PostEmisionInput): Promise<R
     }
   }
 
+  // Punto 5B-2: el artículo de Shipping de cada licencia pasa a Vendido (con
+  // su salida en el Kardex). Nunca hace fallar la factura.
+  const { sincronizarArticulosDeLicencias } = await import("@/lib/productos-digitales/articulo-servidor");
+  await sincronizarArticulosDeLicencias(ids, {
+    documento: { tipo: "venta-factura", id: input.facturaRecordId },
+    precios: new Map(lineasProductoDigital
+      .filter((l) => Number.isFinite(l.precioTotalSinImpuesto))
+      .map((l) => [l.productoDigitalId, l.precioTotalSinImpuesto / (l.cantidad > 0 ? l.cantidad : 1)] as [string, number])),
+  });
+
   if (fallidos.length === 0) {
     return { estado: "OK" };
   }

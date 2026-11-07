@@ -232,6 +232,8 @@ export interface CatalogoProductoDigital {
 // nunca se incluyen aquí; se obtienen por un endpoint separado con sesión activa.
 export interface ProductoDigital {
   id: string;
+  /** Punto 5B-2: artículo de Shipping de su compra (costo, orden de compra, pago). Vacío en las viejas. */
+  articuloId?: string | null;
   /** DIG-000001 (punto 5A). Vacío solo si Airtable aún no calcula la fórmula. */
   sku: string;
   numero: number | null;
@@ -3492,6 +3494,7 @@ const mapProductoDigitalRecord = (
 
   return {
     id: record.id,
+    articuloId: Array.isArray(f["Artículo Shipping"]) ? ((f["Artículo Shipping"] as unknown[])[0] as string | undefined) ?? null : null,
     sku: safeString(f["SKU"], ""),
     numero: typeof f["N° Digital"] === "number" ? (f["N° Digital"] as number) : null,
     ordenCodigo: firstLookupStr(f["Orden (ID)"]),
@@ -3628,8 +3631,11 @@ export const createProductoDigital = async ({
   duracion,
   fechaCompra,
   observacionesInternas,
+  articuloId,
 }: {
   catalogoId: string;
+  /** Punto 5B-2: el artículo de Shipping de su compra. */
+  articuloId?: string | null;
   estado?: string;
   proveedor?: string | null;
   costoProveedor?: number | null;
@@ -3657,6 +3663,7 @@ export const createProductoDigital = async ({
   if (duracion?.trim()) fields["Duración"] = duracion.trim();
   if (fechaCompra?.trim()) fields["Fecha de Compra"] = fechaCompra.trim();
   if (observacionesInternas?.trim()) fields["Observaciones Internas"] = observacionesInternas.trim();
+  if (articuloId) fields["Artículo Shipping"] = [articuloId];
 
   const res = await fetch(url, {
     method: "POST",
@@ -3722,7 +3729,7 @@ export const asignarProductoDigitalAOrden = async ({
   // doble candado; ya no).
   const productoActual = await fetchProductoDigitalById(productoId, client);
   if (!productoActual) throw new Error("Producto digital no encontrado.");
-  if (["Usado", "Anulado", "Vencido"].includes(productoActual.estado)) {
+  if (["Usado", "Anulado", "Vencido", "En reclamo"].includes(productoActual.estado)) {
     throw new Error(`No se puede asignar un producto con estado "${productoActual.estado}".`);
   }
   if (productoActual.ordenReparacionId && productoActual.ordenReparacionId !== ordenRecordId) {
@@ -3758,8 +3765,15 @@ export const asignarProductoDigitalAOrden = async ({
   }
 
   const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
+  await sincronizarArticuloDeLicencia(productoId);
   return mapProductoDigitalRecord(data);
 };
+
+/** Punto 5B-2: el artículo de Shipping de la licencia sigue su estado (nunca lanza). */
+async function sincronizarArticuloDeLicencia(productoId: string): Promise<void> {
+  const { sincronizarArticulosDeLicencias } = await import("@/lib/productos-digitales/articulo-servidor");
+  await sincronizarArticulosDeLicencias([productoId]);
+}
 
 /**
  * Punto 5B: una licencia que ya vio el cliente y se reemplaza no se vuelve a
@@ -3782,6 +3796,57 @@ export const anularProductoDigital = async ({ productoId, motivo, por }: { produ
     },
     client,
   });
+  await sincronizarArticuloDeLicencia(productoId);
+};
+
+/**
+ * Punto 5B-2 — "Editar" en Productos Digitales: corrige credenciales mal
+ * escritas y deja una nota. Solo escribe lo que viene (vacío = se conserva).
+ * El costo y el proveedor NO se editan aquí: vienen de la compra.
+ */
+export const editarProductoDigital = async ({ productoId, claveActivacion, usuarioCorreo, contrasena, nota, por }: {
+  productoId: string; claveActivacion?: string | null; usuarioCorreo?: string | null; contrasena?: string | null; nota?: string | null; por: string;
+}): Promise<void> => {
+  const client = getClient();
+  const actual = await fetchProductoDigitalById(productoId, client);
+  if (!actual) throw new Error("Producto digital no encontrado.");
+  const fields: Record<string, unknown> = {};
+  if (claveActivacion?.trim()) fields["Clave de Activación"] = claveActivacion.trim();
+  if (usuarioCorreo?.trim()) fields["Usuario / Correo"] = usuarioCorreo.trim();
+  if (contrasena?.trim()) fields["Contraseña"] = contrasena.trim();
+  const cambios = [fields["Clave de Activación"] ? "clave" : "", fields["Usuario / Correo"] ? "usuario" : "", fields["Contraseña"] ? "contraseña" : ""].filter(Boolean);
+  const texto = [cambios.length ? `Editó ${cambios.join(", ")}` : "", nota?.trim() ?? ""].filter(Boolean).join(". ");
+  if (!texto) throw new Error("No hay nada que guardar.");
+  const linea = `[${formatAirtableDateOnly()}] ${por}: ${texto}`;
+  fields["Observaciones Internas"] = actual.observacionesInternas ? `${actual.observacionesInternas}\n${linea}` : linea;
+  await patchRecordFields({ tableName: AIRTABLE_TABLES.productosDigitales, recordId: productoId, fields, client });
+};
+
+/**
+ * Punto 5B-2 — gestión de una licencia libre: abrir un reclamo al proveedor
+ * ("En reclamo": no se ofrece a nadie) o resolverlo (vuelve a "Disponible").
+ * Anular va por anularProductoDigital. Las reglas: lib/productos-digitales/compra.ts.
+ */
+export const cambiarEstadoGestionProductoDigital = async ({ productoId, estado, nota, por }: {
+  productoId: string; estado: "En reclamo" | "Disponible"; nota: string; por: string;
+}): Promise<void> => {
+  const client = getClient();
+  const actual = await fetchProductoDigitalById(productoId, client);
+  if (!actual) throw new Error("Producto digital no encontrado.");
+  const hoy = formatAirtableDateOnly();
+  const linea = `[${hoy}] ${por}: ${nota.trim()}`;
+  const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.productosDigitales)}/${encodeURIComponent(productoId)}`;
+  // typecast: "En reclamo" se crea como opción la primera vez.
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: client.headers,
+    body: JSON.stringify({
+      fields: { "Estado": estado, "Observaciones Internas": actual.observacionesInternas ? `${actual.observacionesInternas}\n${linea}` : linea },
+      typecast: true,
+    }),
+  });
+  if (!res.ok) throw new Error(`Airtable error ${res.status}: ${await res.text()}`);
+  await sincronizarArticuloDeLicencia(productoId);
 };
 
 export const desasignarProductoDigitalDeOrden = async ({
@@ -3822,6 +3887,7 @@ export const desasignarProductoDigitalDeOrden = async ({
   }
 
   const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
+  await sincronizarArticuloDeLicencia(productoId);
   return mapProductoDigitalRecord(data);
 };
 

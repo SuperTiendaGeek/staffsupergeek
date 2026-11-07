@@ -635,7 +635,9 @@ export function PresupuestoCard({
   const [lineas, setLineas] = useState<LineaPresupuesto[]>([]);
   const [pedidos, setPedidos] = useState<Record<string, InfoPedido>>({});
   // Fase 2: situación de la compra de cada repuesto bajo pedido (por línea).
-  const [compras, setCompras] = useState<Record<string, { codigo: string; sku: string | null; texto: string; tono: string }>>({});
+  const [compras, setCompras] = useState<Record<string, { codigo: string; sku: string | null; texto: string; tono: string; clave?: string }>>({});
+  // Punto 5B-2: Staff y Administradores compran la licencia desde la línea.
+  const [puedeComprar, setPuedeComprar] = useState(false);
   const [reversas, setReversas] = useState<Record<string, ReversasLinea>>({});
   const [proveedores, setProveedores] = useState<Record<string, string>>({});
   const [revirtiendo, setRevirtiendo] = useState<{ lineaId: string; accion: AccionReversa | AccionRetiro; motivo: string } | null>(null);
@@ -694,7 +696,7 @@ export function PresupuestoCard({
       const j = await r.json();
       if (!montado.current) return;
       if (!j.success) { setError(j.error ?? "No se pudo cargar el presupuesto"); return; }
-      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setCompras(j.data.compras ?? {}); setReversas(j.data.reversas ?? {}); setProveedores(j.data.proveedores ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setCargosSueltos(j.data.cargosSinPresupuesto ?? null); setError(null);
+      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setCompras(j.data.compras ?? {}); setPuedeComprar(j.data.puedeComprar === true); setReversas(j.data.reversas ?? {}); setProveedores(j.data.proveedores ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setCargosSueltos(j.data.cargosSinPresupuesto ?? null); setError(null);
       setSeleccion((prev) => new Set([...prev].filter((id) => (j.data.lineas as LineaPresupuesto[]).some((l) => l.id === id && (l.estado === "Propuesta" || l.estado === "Aprobada")))));
     } catch { if (montado.current) setError("Error de red al cargar el presupuesto"); }
     finally { if (montado.current) setCargando(false); }
@@ -1036,9 +1038,25 @@ export function PresupuestoCard({
                           )}
                         </>
                       )}
-                      {/* Punto 5B: la licencia se elige al entregar, no al aprobar. */}
+                      {/* Punto 5B: la licencia se elige al entregar, no al aprobar.
+                          5B-2: o se compra (nace su solicitud "Por comprar" al aprobar). */}
                       {l.tipo === "Producto digital" && l.estado === "Aprobada" && !l.cargoProductoDigitalId && (
-                        <EntregarLicencia ordenId={ordenId} lineaId={l.id} modo="elegir" onListo={async () => { await recargar(); await onCargado(); await onProductoDigitalCambiado?.(); }} />
+                        <>
+                          {compras[l.id] && (
+                            <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                              <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10.5px] font-semibold ${CHIP_COMPRA[compras[l.id].tono] ?? CHIP_COMPRA.neutro}`} title={`${compras[l.id].codigo} · Shipping V2 → Por comprar`}>
+                                {compras[l.id].texto}
+                              </span>
+                              {puedeComprar && compras[l.id].clave === "falta_pedir" && l.solicitudId && (
+                                <Link href={`/shipping-v2/items/nuevo?tipo=digital&solicitudes=${encodeURIComponent(l.solicitudId)}&volver=${encodeURIComponent(`/tecnicos/ordenes/${ordenId}`)}`}
+                                  className="rounded-full bg-[var(--sg-lime)] px-2.5 py-0.5 text-[11px] font-bold text-[#151515] hover:opacity-90">
+                                  Comprar
+                                </Link>
+                              )}
+                            </span>
+                          )}
+                          <EntregarLicencia ordenId={ordenId} lineaId={l.id} modo="elegir" conSolicitud={!!l.solicitudId} onListo={async () => { await recargar(); await onCargado(); await onProductoDigitalCambiado?.(); }} />
+                        </>
                       )}
                       {l.historial && (
                         <button type="button" onClick={() => setVerHistorial(verHistorial === l.id ? null : l.id)} className="mt-0.5 block text-[10px] text-[var(--sg-text-muted)] hover:text-[var(--sg-text-primary)]">

@@ -58,7 +58,7 @@ export function nombreLimpio(valor: string | null | undefined): string {
 
 // ─── Pantalla ────────────────────────────────────────────────────────────────
 
-export const ESTADOS_DIGITAL = ["Disponible", "Reservado", "Usado", "Anulado", "Vencido"] as const;
+export const ESTADOS_DIGITAL = ["Disponible", "Reservado", "En reclamo", "Usado", "Anulado", "Vencido"] as const;
 
 export type FilaDigital = {
   id: string;
@@ -118,3 +118,6 @@ export function ordenarFilas(filas: readonly FilaDigital[], col: ColumnaOrden, d
     return r !== 0 ? r * s : (b.numero ?? 0) - (a.numero ?? 0);
   });
 }
+
+/** Opciones de "Duración" en Airtable (Productos Digitales). */
+export const DURACIONES_DIGITAL = ["Perpetua", "1 año", "2 años", "3 años", "3 meses", "6 meses", "9 meses"] as const;

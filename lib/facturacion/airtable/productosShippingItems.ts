@@ -74,6 +74,9 @@ export function buildShippingItemsProductFilterFormula(query: string, opts: { in
     (soloEnTienda ? `{Recibido},OR(NOT({Requiere inspección}),{Revisado física/técnicamente}),` : ``) +
     `{Cantidad}>=1,` +
     `{Precio venta final}>0,` +
+    // Punto 5B-2: una licencia se vende por su unidad DIG (Productos
+    // Digitales), nunca por su artículo de Shipping (sería venderla dos veces).
+    `{Categoría}!="Licencia digital",` +
     `OR(` +
       `SEARCH("${escaped}",LOWER({Nombre del item})),` +
       `SEARCH("${escaped}",LOWER({SKU})),` +

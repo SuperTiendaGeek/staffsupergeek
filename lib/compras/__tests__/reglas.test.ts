@@ -121,6 +121,20 @@ assert(validarCategoriaDeCompra({ codigo: "SOL-2", lineaId: null }, "Laptop").ok
   assert((cargar.match(/compradoParaEstaOrden: true/g) ?? []).length === 1, "…y es el único lugar que salta la regla de 'en camino'");
   assert(/!compradoParaEstaOrden && firstBoolean\(f\[SHIPPING_V2_ITEM_FIELDS\.disponibleVenta\]\) === false/.test(ship), "el resto de órdenes sigue sin poder montar mercadería que no llegó");
 }
+
+// ── Punto 5B-2: licencias (sin abono, no consumen el anticipo) ──────────────
+{
+  const lic = (o: Partial<SolicitudBase>) => ({ ...sol(o), categoria: "Licencia digital" });
+  const c = coberturaAnticipo([lic({ id: "office", precioCliente: 35 }), { ...sol({ id: "teclado", precioCliente: 40 }), categoria: "Teclado" }], 40);
+  assert(c.get("office")?.tipo === "cubierta", "licencia sin abono → se puede comprar (decisión del dueño)");
+  assert(c.get("teclado")?.tipo === "cubierta", "los $40 abonados quedan para el teclado (la licencia no los consume)");
+  const chip = situacionDeSolicitud({ solicitud: lic({ fechaAprobacion: "2026-11-07T10:00:00Z" }), articulo: null, cobertura: c.get("office"), hoy: "2026-11-07" });
+  assert(chip.texto === "Falta comprar · 0 días", "chip de licencia: Falta comprar");
+  const comprada = situacionDeSolicitud({ solicitud: lic({}), articulo: { id: "i", sku: "OTR-000900", recibido: true, estado: "Reservado", faltaPagarProveedor: 0 }, cobertura: c.get("office"), hoy: "2026-11-07" });
+  assert(comprada.texto === "Comprada ✓ OTR-000900", "licencia comprada: Comprada ✓ (no \"Llegó\")");
+  const v = validarCategoriaDeCompra({ codigo: "SOL-000020", lineaId: "recL", categoria: "Licencia digital" }, "Otro");
+  assert(!v.ok, "una licencia no se compra como artículo físico");
+}
 assert(claveDeLinea("recX") === "linea:recX", "clave única por línea");
 
 if (fallos > 0) { console.error(`\n${fallos} prueba(s) fallaron.`); process.exit(1); }

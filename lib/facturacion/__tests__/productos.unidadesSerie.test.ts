@@ -17,6 +17,7 @@ const venta = buildShippingItemsProductFilterFormula("7hx2kq3");
 assert(venta.includes(`LOWER(SUBSTITUTE({Número de serie}&""," ",""))`), "Escanear la serie encuentra la unidad");
 assert(venta.includes(`LOWER({SKUs anteriores}&"")`), "Escanear la etiqueta vieja de un SKU fusionado encuentra el producto");
 assert(!venta.includes("{Seguimiento}"), "La serie no es requisito para vender (dueño, 18-oct)");
+assert(venta.includes(`{Categoría}!="Licencia digital"`), "Punto 5B-2: el artículo de una licencia no se ofrece (se vende su unidad DIG)");
 
 const reg = (id: string, campos: Record<string, unknown>) => mapShippingItemProductRecord({ id, fields: { SKU: "LAP-000500", "Nombre del item": "Dell Latitude 5420", "Precio venta final": 390, Cantidad: 1, Unidad: "Unidad", ...campos } });
 const laptop = reg("rec1", { "Número de serie": "7hx2kq3", Seguimiento: "Unidad", Categoría: "Laptop" }) as ProductoCatalogo;

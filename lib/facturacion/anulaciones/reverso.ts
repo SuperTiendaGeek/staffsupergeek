@@ -185,6 +185,9 @@ async function revertirProductosDigitalesFacturaAnulada(input: {
     try { await patchConReintento(PRODUCTOS_DIGITALES_TABLE, id, fields); }
     catch (e) { fallidos.push(`${id}: ${e instanceof Error ? e.message : String(e)}`); }
   }
+  // Punto 5B-2: el artículo de Shipping de cada licencia vuelve atrás (entra 1 al Kardex).
+  const { sincronizarArticulosDeLicencias } = await import("@/lib/productos-digitales/articulo-servidor");
+  await sincronizarArticulosDeLicencias(ids, { documento: { tipo: "anula-factura", id: input.facturaRecordId } });
   return fallidos.length === 0 ? { estado: "OK" } : { estado: "ERROR", detalle: `Fallaron: ${fallidos.join("; ")}` };
 }
 

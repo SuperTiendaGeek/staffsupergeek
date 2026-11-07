@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { FilaBandeja } from "@/lib/compras/servidor";
+import { esCategoriaLicencia } from "@/lib/productos-digitales/compra";
 
 // Bandeja "Por comprar" (auditoría ops, Fase 2). Pantalla de uso diario de
 // quien compra (Maritza, Alexis): filas compactas agrupadas por proveedor
@@ -91,7 +92,13 @@ export function BandejaComprasClient({ filas, error }: { filas: FilaBandeja[]; e
       setConfirmar(sinAnticipo.map((f) => `${f.descripcion} · ${f.para}`));
       return;
     }
-    router.push(`/shipping-v2/items/nuevo?solicitudes=${marcadasFilas.map((f) => f.id).join(",")}`);
+    // Punto 5B-2: las licencias se compran en modo Producto digital, aparte.
+    const licencias = marcadasFilas.filter((f) => esCategoriaLicencia(f.categoria));
+    if (licencias.length && licencias.length !== marcadasFilas.length) {
+      setAviso({ tipo: "error", texto: "Compra las licencias aparte de los repuestos (son otra pantalla: sin logística, con credenciales)." });
+      return;
+    }
+    router.push(`/shipping-v2/items/nuevo?${licencias.length ? "tipo=digital&" : ""}solicitudes=${marcadasFilas.map((f) => f.id).join(",")}`);
   }
 
   async function enviarAccion() {
@@ -192,9 +199,13 @@ export function BandejaComprasClient({ filas, error }: { filas: FilaBandeja[]; e
                         </span>
                         {pestana === "por_comprar" && (
                           <>
-                            <button type="button" onClick={() => { setAviso(null); setAccion({ id: f.id, tipo: "asignar", valor: "" }); }} className="whitespace-nowrap rounded-full border border-[#2A2B26] px-2 py-0.5 text-[10.5px] font-semibold text-[#C9C9C3] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]" title="El repuesto ya existe en la tienda o viene en camino: apártalo">
-                              Ya la tenemos
-                            </button>
+                            {esCategoriaLicencia(f.categoria) ? (
+                              <span className="whitespace-nowrap rounded-full border border-[#4FC3FF]/40 px-2 py-0.5 text-[10.5px] font-semibold text-[#4FC3FF]" title="Si ya hay una libre, en la orden usa &quot;Usar una del inventario&quot;">Licencia</span>
+                            ) : (
+                              <button type="button" onClick={() => { setAviso(null); setAccion({ id: f.id, tipo: "asignar", valor: "" }); }} className="whitespace-nowrap rounded-full border border-[#2A2B26] px-2 py-0.5 text-[10.5px] font-semibold text-[#C9C9C3] hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]" title="El repuesto ya existe en la tienda o viene en camino: apártalo">
+                                Ya la tenemos
+                              </button>
+                            )}
                             <button type="button" onClick={() => { setAviso(null); setAccion({ id: f.id, tipo: "cancelar", valor: "" }); }} className="rounded-full px-1.5 py-0.5 text-[10.5px] text-[#6F706A] hover:text-[#ff5a4f]" title="Cancelar esta compra">
                               ✕
                             </button>
