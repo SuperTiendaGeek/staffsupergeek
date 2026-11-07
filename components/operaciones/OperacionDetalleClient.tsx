@@ -1032,6 +1032,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
           operacionId={operacion.id}
           ordenId={operacion.ordenVinculada?.id ?? null}
           montoSugerido={cuentaUnificada && cuentaUnificada.saldo > 0 ? cuentaUnificada.saldo : undefined}
+          saldoPendiente={cuentaUnificada ? cuentaUnificada.saldo : undefined}
           onClose={() => setAbonoModalOpen(false)}
           onSuccess={handleAbonoSuccess}
         />

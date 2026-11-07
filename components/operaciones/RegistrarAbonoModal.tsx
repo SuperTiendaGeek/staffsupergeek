@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { X, DollarSign } from "lucide-react";
 import { METODOS_COBRO_NUEVO, etiquetaMetodoPago, requiereNumeroTransaccion } from "@/types/abonos";
 import { METODO_SALDO_A_FAVOR, maximoUsable } from "@/lib/saldo-favor/reglas";
+import { avisoAbonoDeMas } from "@/lib/cobros/aviso-abono";
 
 function defaultEcuadorDatetime(): string {
   // Return current time as YYYY-MM-DDTHH:mm in Ecuador timezone (UTC-5)
@@ -21,11 +22,13 @@ type Props = {
   ordenId: string | null;
   /** Monto con el que abre el formulario (p. ej. el saldo por cobrar). */
   montoSugerido?: number;
+  /** Lo que falta cobrar en la cuenta (punto 22: avisa si el abono pasa de ahí). */
+  saldoPendiente?: number;
   onClose: () => void;
   onSuccess: () => void;
 };
 
-export function RegistrarAbonoModal({ operacionId, ordenId, montoSugerido, onClose, onSuccess }: Props) {
+export function RegistrarAbonoModal({ operacionId, ordenId, montoSugerido, saldoPendiente, onClose, onSuccess }: Props) {
   const [monto, setMonto] = useState(() => (montoSugerido && montoSugerido > 0 ? montoSugerido.toFixed(2) : ""));
   const [metodoPago, setMetodoPago] = useState<string>("Efectivo");
   const [fechaAbono, setFechaAbono] = useState(defaultEcuadorDatetime);
@@ -201,6 +204,9 @@ export function RegistrarAbonoModal({ operacionId, ordenId, montoSugerido, onClo
                 className="w-full rounded-lg border border-[#3A3A36] bg-[#252622] py-2.5 pl-7 pr-3 text-sm text-[#F0F0EC] placeholder-[#4A4A46] outline-none transition focus:border-[#D7FF4F]/60 focus:ring-1 focus:ring-[#D7FF4F]/20 disabled:opacity-50"
               />
             </div>
+            {saldoPendiente !== undefined && montoValido && avisoAbonoDeMas(montoNum, saldoPendiente) && (
+              <p className="text-[11px] leading-snug text-[#F0C75E] animate-[sg-entrada_180ms_ease-out]">{avisoAbonoDeMas(montoNum, saldoPendiente)}</p>
+            )}
           </div>
 
           {/* Método de Pago */}

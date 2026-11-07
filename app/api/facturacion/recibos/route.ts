@@ -132,6 +132,7 @@ export async function POST(request: Request) {
       })),
       totalAdicional,
       pagosAdicionales: body.pagosAdicionales ?? [],
+      clienteId: body.cliente.airtableId,
     });
     if (!cobro.ok) return NextResponse.json({ success: false, error: cobro.error }, { status: cobro.status });
     body.pagos = cobro.pagos;
@@ -222,6 +223,14 @@ export async function POST(request: Request) {
           puente.estado === "ERROR" ? "ERROR" : puente.estado === "OMITIDO" ? "N/A" : "OK",
           puente.detalle
         ).catch(() => {});
+        // Punto 22: venta adicional pagada con saldo a favor → su "Usado".
+        const montoSaldoAdicional = montoSaldoEnPagos(body.pagosAdicionales ?? []);
+        if (montoSaldoAdicional > 0.01 && body.cliente.airtableId && cfg.ambiente === "2") {
+          await consumirSaldoEnDocumento({
+            clienteId: body.cliente.airtableId, monto: montoSaldoAdicional, reciboId: recordId,
+            etiqueta: `la venta adicional del recibo ${numero}`, registradoPor,
+          }).catch((e) => console.error("[recibos POST] saldo a favor (venta adicional):", e));
+        }
       } else {
         await registrarIngresoRecibo({ reciboRecordId: recordId, numeroRecibo: numero, total, formaPago: body.formaPago, pagos: body.pagos, clienteRecordId: body.cliente.airtableId, registradoPor, ambiente: cfg.ambiente });
         const montoSaldo = montoSaldoEnPagos(body.pagos ?? []);

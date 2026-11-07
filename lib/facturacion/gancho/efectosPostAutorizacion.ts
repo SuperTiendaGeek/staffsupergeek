@@ -119,11 +119,12 @@ export async function ejecutarEfectosPostAutorizacion(input: {
   // Auditoría ops, punto 13B-2: factura de mostrador pagada (en parte o todo)
   // con el saldo a favor del cliente → su "Usado" en el saldo. Idempotente
   // por factura, así que "Consultar estado" o un reintento no lo repiten.
+  // Punto 22: también la venta adicional de una factura de orden/operación
+  // (montoSaldoEnPagos ignora los abonos de la cuenta, origenPago "abono").
   if (
     resultado.estado === "AUTORIZADO" &&
     resultado.recordId &&
     resultado.ambiente === AMBIENTE_PRODUCCION &&
-    !datos.origen &&
     datos.clienteRecordId
   ) {
     const monto = montoSaldoEnPagos(datos.pagos ?? []);
@@ -131,7 +132,7 @@ export async function ejecutarEfectosPostAutorizacion(input: {
       try {
         const r = await consumirSaldoEnDocumento({
           clienteId: datos.clienteRecordId, monto, facturaId: resultado.recordId,
-          etiqueta: "factura de mostrador", registradoPor: input.registradoPor,
+          etiqueta: datos.origen ? "la venta adicional de la factura" : "factura de mostrador", registradoPor: input.registradoPor,
         });
         resumen.saldoAFavor = r.estado;
       } catch (e) {

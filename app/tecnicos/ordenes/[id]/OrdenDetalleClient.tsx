@@ -23,6 +23,7 @@ import { METODOS_COBRO_NUEVO, esMetodoCobroNuevoValido, etiquetaMetodoPago, requ
 import { METODO_SALDO_A_FAVOR, maximoUsable } from "@/lib/saldo-favor/reglas";
 import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
 import { EntregarClientePanel } from "@/components/tecnicos/ordenes/EntregarClientePanel";
+import { avisoAbonoDeMas } from "@/lib/cobros/aviso-abono";
 
 type HistorialItem = {
   id: string;
@@ -2868,6 +2869,9 @@ export function OrdenDetalleClient() {
                       </div>
                     </div>
                   </div>
+                  {cuentaUnificada && abonoMetodoPago !== METODO_SALDO_A_FAVOR && avisoAbonoDeMas(parseFloat(abonoMonto), cuentaUnificada.saldo) && (
+                    <p className="text-[11px] leading-snug text-[#F0C75E] animate-[sg-entrada_180ms_ease-out]">{avisoAbonoDeMas(parseFloat(abonoMonto), cuentaUnificada.saldo)}</p>
+                  )}
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-[#A7A7A7]">Método de pago</label>
                     <select

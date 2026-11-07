@@ -66,7 +66,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     }
 
     // Auditoría ops, punto 13B-2: si se pagó con saldo a favor, el cliente lo recupera.
-    if (!recibo.origen && cfg.ambiente === "2") {
+    // Punto 22: también si fue la venta adicional de un recibo de orden/operación.
+    if (cfg.ambiente === "2") {
       await devolverSaldoUsadoEnRecibo(id).catch((e) => console.error("[anular recibo] saldo a favor:", e));
     }
 
