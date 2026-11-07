@@ -21,6 +21,7 @@ export type ProductoDigitalEntrega = {
   id: string;
   softwareProducto: string;
   sku?: string | null;
+  estado?: string;
   portalActivacionCatalogo: string | null;
   claveTruncada: string | null;
   duracion: string | null;

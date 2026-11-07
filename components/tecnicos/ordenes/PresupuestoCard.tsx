@@ -24,6 +24,7 @@ import {
   type ReversasLinea, type AccionReversa, type AccionRetiro,
 } from "@/lib/tecnicos/presupuesto/reglas";
 import { EntregaProductoDigital, type ProductoDigitalEntrega } from "./EntregaProductoDigital";
+import { EntregarLicencia } from "./EntregarLicencia";
 import { PIEZAS_RETIRADAS } from "@/lib/garantias/reglas";
 import { fechaCorta, textoOrigen, textoPlazo, type OrigenGarantia } from "@/lib/garantias/plazos";
 import { AvisoNovedadVenta, cerrarNovedadesVendidas, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
@@ -1028,7 +1029,16 @@ export function PresupuestoCard({
                       )}
                       {l.notaCarga && l.estado === "Aprobada" && !(l.operacionId && l.notaCarga.startsWith("Esperando pedido")) && <span className="mt-0.5 block text-[11px] text-[var(--sg-warning)]">{l.notaCarga}</span>}
                       {l.tipo === "Producto digital" && l.estado === "Cargada" && l.cargoProductoDigitalId && digitalesPorId.get(l.cargoProductoDigitalId) && (
-                        <EntregaProductoDigital producto={digitalesPorId.get(l.cargoProductoDigitalId)!} esAdmin={esAdmin} onPdfCambiado={onProductoDigitalCambiado} />
+                        <>
+                          <EntregaProductoDigital producto={digitalesPorId.get(l.cargoProductoDigitalId)!} esAdmin={esAdmin} onPdfCambiado={onProductoDigitalCambiado} />
+                          {digitalesPorId.get(l.cargoProductoDigitalId)!.estado !== "Usado" && (
+                            <EntregarLicencia ordenId={ordenId} lineaId={l.id} modo="reemplazar" onListo={async () => { await recargar(); await onCargado(); await onProductoDigitalCambiado?.(); }} />
+                          )}
+                        </>
+                      )}
+                      {/* Punto 5B: la licencia se elige al entregar, no al aprobar. */}
+                      {l.tipo === "Producto digital" && l.estado === "Aprobada" && !l.cargoProductoDigitalId && (
+                        <EntregarLicencia ordenId={ordenId} lineaId={l.id} modo="elegir" onListo={async () => { await recargar(); await onCargado(); await onProductoDigitalCambiado?.(); }} />
                       )}
                       {l.historial && (
                         <button type="button" onClick={() => setVerHistorial(verHistorial === l.id ? null : l.id)} className="mt-0.5 block text-[10px] text-[var(--sg-text-muted)] hover:text-[var(--sg-text-primary)]">

@@ -3734,7 +3734,10 @@ export const asignarProductoDigitalAOrden = async ({
   // "Estado" YA NO se toca aquí — lo pone postEmision() (lib/facturacion/
   // gancho/postEmision.ts) al autorizarse la factura de verdad, no al
   // vincular el producto a la orden. Vincular ya no es lo mismo que vender.
+  // Punto 5B: vincularla la deja "Reservado" (apartada para esta orden); el
+  // "Usado" sigue poniéndolo solo la factura o el recibo al venderse.
   const fields: Record<string, unknown> = {
+    "Estado": "Reservado",
     "Orden de Reparación": [ordenRecordId],
     "Tipo de Uso": "Orden de reparación",
     "Fecha de Uso / Venta": formatAirtableDateOnly(),
@@ -3756,6 +3759,29 @@ export const asignarProductoDigitalAOrden = async ({
 
   const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
   return mapProductoDigitalRecord(data);
+};
+
+/**
+ * Punto 5B: una licencia que ya vio el cliente y se reemplaza no se vuelve a
+ * vender: queda "Anulado", sin orden, con el motivo en sus observaciones.
+ */
+export const anularProductoDigital = async ({ productoId, motivo, por }: { productoId: string; motivo: string; por: string }): Promise<void> => {
+  const client = getClient();
+  const actual = await fetchProductoDigitalById(productoId, client);
+  if (!actual) throw new Error("Producto digital no encontrado.");
+  if (actual.estado === "Usado") throw new Error("Esta licencia ya se vendió con su documento.");
+  const hoy = formatAirtableDateOnly();
+  const nota = `[${hoy}] Anulada por ${por}: ${motivo.trim()}`;
+  await patchRecordFields({
+    tableName: AIRTABLE_TABLES.productosDigitales,
+    recordId: productoId,
+    fields: {
+      "Estado": "Anulado",
+      "Orden de Reparación": [],
+      "Observaciones Internas": actual.observacionesInternas ? `${actual.observacionesInternas}\n${nota}` : nota,
+    },
+    client,
+  });
 };
 
 export const desasignarProductoDigitalDeOrden = async ({

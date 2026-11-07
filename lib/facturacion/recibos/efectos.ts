@@ -352,7 +352,8 @@ export async function revertirProductosDigitalesRecibo(input: {
     const reciboIds = linkedIds(r.fields["Recibo"]);
     if (!reciboIds.includes(input.reciboRecordId)) continue; // evita revertir dos veces
     const fields: Record<string, unknown> = {
-      "Estado": "Disponible",
+      // Punto 5B: si sigue enlazada a una orden, vuelve apartada para esa orden.
+      "Estado": linkedIds(r.fields["Orden de Reparación"]).length ? "Reservado" : "Disponible",
       "Recibo": reciboIds.filter((id) => id !== input.reciboRecordId),
     };
     await patchTabla(PRODUCTOS_DIGITALES_TABLE, r.id, fields)

@@ -105,7 +105,7 @@ export type DatosEntrega = {
 /** Con qué se respalda la entrega. */
 export type TipoComprobanteEntrega = "venta" | "garantia" | "sin-cobro";
 
-export type Revision = { clave: "pendientes" | "cobro" | "documento"; ok: boolean; texto: string };
+export type Revision = { clave: "pendientes" | "cobro" | "documento" | "licencias"; ok: boolean; texto: string };
 
 export type EvaluacionEntrega = {
   revisiones: Revision[];
@@ -128,6 +128,8 @@ export function evaluarEntrega(input: {
   enGarantia: number;
   documento: DocumentoDeEntrega | null;
   pendientes: readonly Pendiente[];
+  /** Punto 5B: licencias de la orden; cada una debe tener su PDF (lo que se le entrega al cliente). */
+  licencias?: ReadonlyArray<{ sku: string; tienePdf: boolean }>;
   /** Sin datos = solo se revisa (al abrir el panel). */
   datos?: DatosEntrega | null;
 }): EvaluacionEntrega {
@@ -159,6 +161,14 @@ export function evaluarEntrega(input: {
     revisiones.push({ clave: "documento", ok: true, texto: "Comprobante de garantía (GAR)" });
   } else {
     revisiones.push({ clave: "documento", ok: true, texto: "Comprobante de entrega (ENT)" });
+  }
+
+  const lic = input.licencias ?? [];
+  if (lic.length) {
+    const sinPdf = lic.filter((l) => !l.tienePdf).map((l) => l.sku);
+    revisiones.push(sinPdf.length
+      ? { clave: "licencias", ok: false, texto: `Falta generar el PDF de ${sinPdf.join(", ")}` }
+      : { clave: "licencias", ok: true, texto: lic.length === 1 ? "Licencia con su PDF" : `${lic.length} licencias con su PDF` });
   }
 
   for (const r of revisiones) if (!r.ok) faltas.push(r.texto);

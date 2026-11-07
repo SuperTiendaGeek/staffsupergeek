@@ -67,6 +67,13 @@ assert(pendientes.find((p) => p.refId === "recOp1")?.tipo === "pedido", "el pedi
 r = evaluarEntrega({ ...base, pendientes, datos });
 assert(!r.puedeEntregar && r.faltas[0].startsWith("3 cosas aprobadas"), "con algo pendiente no se entrega");
 
+// ─── Punto 5B: licencias con su PDF ─────────────────────────────────────────
+r = evaluarEntrega({ ...base, licencias: [{ sku: "DIG-000081", tienePdf: false }], datos });
+assert(!r.puedeEntregar && r.faltas.includes("Falta generar el PDF de DIG-000081"), "una licencia sin PDF frena la entrega");
+r = evaluarEntrega({ ...base, licencias: [{ sku: "DIG-000081", tienePdf: true }], datos });
+assert(r.puedeEntregar && r.revisiones.some((x) => x.clave === "licencias" && x.ok), "licencia con PDF: ✓");
+assert(!evaluarEntrega({ ...base, datos }).revisiones.some((x) => x.clave === "licencias"), "sin licencias no se muestra esa revisión");
+
 // ─── 4. Sin excepciones / estados ───────────────────────────────────────────
 assert(!evaluarEntrega({ ...base, estadoOrden: "Finalizado Entregado", datos }).puedeEntregar, "no se entrega dos veces");
 assert(!evaluarEntrega({ ...base, estadoOrden: "Enviado a Reciclaje", datos }).puedeEntregar, "una orden a reciclaje no se entrega");

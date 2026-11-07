@@ -25,9 +25,12 @@ import {
   deleteServicioPorOrdenById,
   asignarProductoDigitalAOrden,
   desasignarProductoDigitalDeOrden,
-  fetchProductosDigitalesDisponibles,
+  anularProductoDigital,
+  fetchProductoDigitalById,
   fetchProductosDigitalesPorOrden,
+  type ProductoDigital,
 } from "../airtable";
+import { errorElegir, planReemplazo, type UnidadLicencia } from "@/lib/productos-digitales/entrega";
 import { agregarRepuestoStockAOrden, quitarRepuestoStockDeOrden } from "../repuestos-v2";
 import { cargarOrdenesCobro } from "../cobros/airtable";
 import { unidadesLibres, unidadesReservadas } from "@/lib/shipping-v2/unidades";
@@ -93,21 +96,8 @@ async function construirContexto(ordenId: string, lineas: LineaPresupuesto[]): P
     items.set(r.id, { sku, disponible: !motivo, motivoNoDisponible: motivo, precio: n(f[SHIPPING_V2_ITEM_FIELDS.precioVentaFinal]) });
   }
 
+  // Punto 5B: aprobar ya no toma licencias (se eligen al entregar).
   const unidadesDigitales: ContextoCarga["unidadesDigitales"] = new Map();
-  const catalogos = new Set(activas.map((l) => l.productoCatalogoId).filter((x): x is string => !!x));
-  if (catalogos.size > 0) {
-    const disponibles = await fetchProductosDigitalesDisponibles();
-    for (const cat of catalogos) {
-      unidadesDigitales.set(
-        cat,
-        disponibles
-          // "Disponible" ya no basta: vincular a una orden no cambia el
-          // estado (ver asignarProductoDigitalAOrden). Libre = sin orden.
-          .filter((p) => p.catalogoId === cat && !p.ordenReparacionId)
-          .map((p) => ({ productoId: p.id, etiqueta: [p.softwareProducto, p.claveTruncada ?? p.usuarioCorreo ?? p.duracion].filter(Boolean).join(" · ") }))
-      );
-    }
-  }
 
   const pedidos = await cargarInfoPedidos(activas.map((l) => l.operacionId).filter((x): x is string => !!x));
 
@@ -277,6 +267,88 @@ export async function cargarCompraEnLinea(opts: {
       agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(`Comprado: ${opts.referencia}.`, opts.usuario.nombre) },
     });
   });
+}
+
+// ─── Punto 5B: la licencia se entrega en la línea ────────────────────────────
+// Aprobar deja el producto digital "por entregar"; aquí se monta la unidad
+// elegida (la única vía, como el resto de cargos). Verificación posterior a la
+// escritura (punto 17): si otra persona tomó la misma unidad al mismo tiempo,
+// se detecta y no se carga.
+
+export function aUnidadLicencia(p: ProductoDigital): UnidadLicencia {
+  return {
+    id: p.id, sku: p.sku || p.id, catalogoId: p.catalogoId, estado: p.estado,
+    ordenReparacionId: p.ordenReparacionId, fechaCompra: p.fechaCompra, numero: p.numero,
+    tienePdf: !!(p.documentoPdfUrl || p.fechaUltimoPdf),
+  };
+}
+
+async function montarLicencia(ordenId: string, productoId: string, precio: number, usuario: { nombre: string; id?: string | null }): Promise<UnidadLicencia> {
+  await asignarProductoDigitalAOrden({ productoId, ordenRecordId: ordenId, precioVenta: precio, usadoPorNombre: usuario.nombre, usadoPorId: usuario.id ?? null });
+  const despues = await fetchProductoDigitalById(productoId);
+  if (!despues || despues.ordenReparacionId !== ordenId) {
+    throw new Error("Otra persona tomó esa licencia al mismo tiempo. Elige otra.");
+  }
+  return aUnidadLicencia(despues);
+}
+
+export async function cargarLicenciaEnLinea(opts: {
+  ordenId: string;
+  lineaId: string;
+  productoId: string;
+  usuario: { nombre: string; id?: string | null };
+  /** Texto del historial (p. ej. "Comprada a X: DIG-000081"). */
+  referencia?: string;
+}): Promise<{ sku: string }> {
+  return withLock(`presupuesto:${opts.ordenId}`, () => withLock(`digital:${opts.productoId}`, async () => {
+    const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
+    if (!linea) throw new Error("Línea no encontrada en esta orden.");
+    const actual = await fetchProductoDigitalById(opts.productoId);
+    const unidad = actual ? aUnidadLicencia(actual) : null;
+    if (linea.estado === "Cargada" && linea.cargoProductoDigitalId === opts.productoId) return { sku: unidad?.sku ?? "" };
+    const err = errorElegir(linea, unidad, opts.ordenId);
+    if (err) throw new Error(err);
+    const montada = await montarLicencia(opts.ordenId, opts.productoId, linea.precioUnitario, opts.usuario);
+    await actualizarLinea(linea.id, {
+      estado: "Cargada",
+      notaCarga: "",
+      cargoProductoDigitalId: opts.productoId,
+      agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(opts.referencia ?? `Licencia entregada: ${montada.sku}.`, opts.usuario.nombre) },
+    });
+    return { sku: montada.sku };
+  }));
+}
+
+export async function reemplazarLicenciaEnLinea(opts: {
+  ordenId: string;
+  lineaId: string;
+  nuevoProductoId: string;
+  motivo: string;
+  usuario: { nombre: string; id?: string | null };
+}): Promise<{ sku: string; anterior: string; destinoAnterior: "Disponible" | "Anulado" }> {
+  return withLock(`presupuesto:${opts.ordenId}`, () => withLock(`digital:${opts.nuevoProductoId}`, async () => {
+    const linea = (await listarLineas(opts.ordenId)).find((l) => l.id === opts.lineaId);
+    if (!linea) throw new Error("Línea no encontrada en esta orden.");
+    const [actualPd, nuevaPd] = await Promise.all([
+      linea.cargoProductoDigitalId ? fetchProductoDigitalById(linea.cargoProductoDigitalId) : Promise.resolve(null),
+      fetchProductoDigitalById(opts.nuevoProductoId),
+    ]);
+    const actual = actualPd ? aUnidadLicencia(actualPd) : null;
+    const plan = planReemplazo({ linea, actual, nueva: nuevaPd ? aUnidadLicencia(nuevaPd) : null, ordenId: opts.ordenId, motivo: opts.motivo });
+    if (!plan.ok) throw new Error(plan.error);
+    // Primero se monta la nueva (si falla, la anterior sigue donde estaba).
+    const montada = await montarLicencia(opts.ordenId, opts.nuevoProductoId, linea.precioUnitario, opts.usuario);
+    if (plan.destinoAnterior === "Anulado") await anularProductoDigital({ productoId: actual!.id, motivo: `Reemplazada en la orden por ${montada.sku}. ${opts.motivo}`, por: opts.usuario.nombre });
+    else await desasignarProductoDigitalDeOrden({ productoId: actual!.id, ordenRecordId: opts.ordenId });
+    await actualizarLinea(linea.id, {
+      cargoProductoDigitalId: opts.nuevoProductoId,
+      agregarHistorial: {
+        anterior: linea.historial,
+        entrada: entradaHistorial(`Licencia reemplazada: ${actual!.sku} → ${montada.sku} (${plan.destinoAnterior === "Anulado" ? "la anterior queda anulada" : "la anterior vuelve al inventario"}). Motivo: ${opts.motivo.trim()}`, opts.usuario.nombre),
+      },
+    });
+    return { sku: montada.sku, anterior: actual!.sku, destinoAnterior: plan.destinoAnterior };
+  }));
 }
 
 /** SKU y estado de un artículo (para las reversas de una línea con solicitud de compra). */
