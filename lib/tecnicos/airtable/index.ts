@@ -266,6 +266,8 @@ export interface ProductoDigital {
 
 export interface OrdenDetalle {
   recordId: string;
+  /** Entregar al cliente (auditoría ops, punto 6). null = todavía no se entrega por el paso nuevo. */
+  entrega?: { fecha: string; retiradoPor: string; motivoSinCobro: string } | null;
   idVisible: string;
   estadoActual: EstadoOrden | string;
   fechaIngreso: string;
@@ -1595,6 +1597,13 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     documentos: parseAttachments(f["Documentos"]),
     cotizacionId: pickStringField(f, ["Cotización ID", "Cotizacion ID"], ""),
     cotizacionCodigo: pickStringField(f, ["Cotización Código", "Cotizacion Codigo"], ""),
+    entrega: typeof f["Fecha de entrega"] === "string"
+      ? {
+          fecha: f["Fecha de entrega"] as string,
+          retiradoPor: typeof f["Retirado por"] === "string" ? (f["Retirado por"] as string) : "",
+          motivoSinCobro: typeof f["Motivo sin cobro"] === "string" ? (f["Motivo sin cobro"] as string) : "",
+        }
+      : null,
   };
 
   // Historial: preferir IDs vinculados desde la orden

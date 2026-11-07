@@ -3,6 +3,7 @@ import { ESTADOS_ORDEN, EstadoOrden } from "@/types/tecnicos";
 import { updateOrdenEstado } from "@/lib/tecnicos/airtable";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { sincronizarGarantiasDeLaOrden } from "@/lib/garantias/servidor";
+import { ESTADO_ENTREGADA } from "@/lib/entrega/reglas";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,15 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json(
       { success: false, error: "Estado no permitido" },
       { status: 400 }
+    );
+  }
+
+  // Auditoría ops, punto 6: a "Finalizado Entregado" solo se llega con
+  // "Entregar al cliente" (revisa pendientes, cobro y documento). Sin excepciones.
+  if (estadoNormalizado === ESTADO_ENTREGADA) {
+    return NextResponse.json(
+      { success: false, error: "Para entregar usa «Entregar al cliente»: revisa el cobro y el documento." },
+      { status: 409 }
     );
   }
 
