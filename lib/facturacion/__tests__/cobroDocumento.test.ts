@@ -67,6 +67,9 @@ function assert(cond: boolean, msg: string) {
   assert(mensajePagosAdicionalesInvalidos([{ metodoPago: "Efectivo", total: 20 }], 21)?.includes("suman $20.00") === true, "Pagos que no suman el total → bloquea");
   assert(mensajePagosAdicionalesInvalidos([{ metodoPago: "Otro", total: 21 }], 21)?.includes("no dice a qué cuenta") === true, '"Otro" no sirve: no dice la cuenta');
   assert(mensajePagosAdicionalesInvalidos([{ metodoPago: "Efectivo", total: 5 }], 0) !== null, "Pagos adicionales sin líneas adicionales → bloquea");
+  // Punto 22 (OR000525): el saldo a favor del cliente paga la venta adicional (el servidor verifica que alcance).
+  assert(mensajePagosAdicionalesInvalidos([{ metodoPago: "Saldo a favor", total: 3 }], 3) === null, "Venta adicional pagada con saldo a favor → OK");
+  assert(mensajePagosAdicionalesInvalidos([{ metodoPago: "Saldo a favor", total: 2 }, { metodoPago: "Efectivo", total: 1 }], 3) === null, "Saldo a favor + efectivo → OK");
 }
 
 // ── Las formas de pago del documento ──

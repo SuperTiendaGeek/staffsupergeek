@@ -268,7 +268,7 @@ export function ReciboForm({ prefactura, origen, bannerOrigen, saldoPorCobrar }:
           </div>
         )}
         {origen
-          ? <PagosVentaAdicional total={totalAdicional} pagos={pagosAdicionales} onChange={setPagosAdicionales} />
+          ? <PagosVentaAdicional total={totalAdicional} pagos={pagosAdicionales} onChange={setPagosAdicionales} saldoAFavor={saldoAFavorCliente} />
           : <PagosPorMetodo titulo="Cobro" total={total} pagos={pagosMostrador} onChange={setPagosMostrador} saldoAFavor={saldoAFavorCliente} />}
 
         <div className="flex justify-end mt-4">

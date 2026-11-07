@@ -1361,6 +1361,7 @@ export function FacturacionForm({
                       total={totalAdicional}
                       pagos={pagosAdicionales}
                       onChange={setPagosAdicionales}
+                      saldoAFavor={saldoAFavorCliente}
                     />
                   </div>
                 ) : (

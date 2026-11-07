@@ -27,9 +27,12 @@ export async function crearMovimientosVentaAdicional(input: {
 
   for (const cobro of input.cobros) {
     if (!(cobro.total > 0)) continue;
-    const mapeo = resolverMapeoMetodoPago(cobro.metodoPago ?? null);
+    // Punto 22: con saldo a favor no entra dinero nuevo → Ingreso SIN cuenta
+    // (vuelve a ser venta al usarse, decisión del punto 13). No es un descuadre.
+    const conSaldo = cobro.metodoPago === "Saldo a favor";
+    const mapeo = conSaldo ? null : resolverMapeoMetodoPago(cobro.metodoPago ?? null);
     const cuenta = mapeo ? await fetchCuentaPorNombre(mapeo.cuentaDestinoNombre) : null;
-    if (!cuenta) {
+    if (!cuenta && !conSaldo) {
       // La emisión ya validó el método; si aun así no hay cuenta, el
       // movimiento se crea con Alerta Descuadre para que Finanzas lo vea.
       problemas.push(`Cobro de $${cobro.total} (${cobro.metodoPago ?? "sin método"}) sin cuenta destino.`);
@@ -51,7 +54,7 @@ export async function crearMovimientosVentaAdicional(input: {
           clienteId: input.clienteId,
           facturaElectronicaId: input.documento.facturaElectronicaId,
           reciboId: input.documento.reciboId,
-          observacion: `Venta adicional cobrada al emitir ${input.documento.etiqueta}`,
+          observacion: `Venta adicional cobrada al emitir ${input.documento.etiqueta}${conSaldo ? " · pagada con saldo a favor (sin cuenta: no entró dinero)" : ""}`,
         },
         { permitirCuentaFaltante: cuenta === null }
       );

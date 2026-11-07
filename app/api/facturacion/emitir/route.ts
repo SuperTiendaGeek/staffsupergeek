@@ -194,6 +194,7 @@ export async function POST(request: Request) {
         pagosAdicionales: body.pagos
           .filter((p) => p.origenPago === "adicional")
           .map((p) => ({ metodoPago: p.metodoPago, total: p.total, referencia: p.referencia })),
+        clienteId: body.clienteRecordId,
       });
       if (!cobro.ok) {
         return NextResponse.json({ success: false, error: cobro.error }, { status: cobro.status });

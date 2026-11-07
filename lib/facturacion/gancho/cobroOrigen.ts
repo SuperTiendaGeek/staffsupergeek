@@ -19,6 +19,8 @@ import { construirPreFactura, type PreFacturaBloqueada, type PreFacturaLista } f
 import { buscarDocumentoBloqueante } from "./idempotencia";
 import { MAPA_METODO_PAGO_SRI, FORMA_PAGO_FALLBACK } from "./config";
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
+import { verificarSaldoParaDocumento } from "@/lib/saldo-favor/servidor";
+import { montoSaldoEnPagos } from "@/lib/saldo-favor/reglas";
 import {
   componerPagosDocumento,
   mensajeBloqueCuentaModificado,
@@ -67,6 +69,8 @@ export async function validarEmisionDesdeOrigen(input: {
   /** Total final de las líneas de venta adicional. */
   totalAdicional: number;
   pagosAdicionales: PagoAdicionalInput[];
+  /** Cliente del documento: si la venta adicional se paga con saldo a favor, tiene que ser suyo. */
+  clienteId?: string | null;
 }): Promise<ResultadoCobroOrigen> {
   if (input.origen.tipo !== "orden" && input.origen.tipo !== "operacion") {
     return { ok: false, status: 400, error: "Origen inválido para esta validación." };
@@ -99,6 +103,10 @@ export async function validarEmisionDesdeOrigen(input: {
 
   const adicionalInvalido = mensajePagosAdicionalesInvalidos(input.pagosAdicionales, input.totalAdicional);
   if (adicionalInvalido) return { ok: false, status: 400, error: adicionalInvalido };
+
+  // Punto 22: la venta adicional pagada con saldo a favor exige que alcance.
+  const errSaldo = await verificarSaldoParaDocumento({ clienteId: input.clienteId, monto: montoSaldoEnPagos(input.pagosAdicionales) });
+  if (errSaldo) return { ok: false, status: 400, error: errSaldo };
 
   return {
     ok: true,

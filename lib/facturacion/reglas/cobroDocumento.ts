@@ -112,8 +112,10 @@ export function mensajePagosAdicionalesInvalidos(pagos: PagoAdicionalInput[], to
   if (total <= TOLERANCIA) {
     return pagos.length > 0 ? "Hay pagos de venta adicional pero no hay líneas de venta adicional." : null;
   }
-  // Mismas reglas que cualquier cobro (catálogo único, punto 7).
-  return mensajeCobrosInvalidos(pagos, total, "la venta adicional");
+  // Mismas reglas que cualquier cobro (catálogo único, punto 7). Punto 22
+  // (6-nov-2026, caso OR000525): el saldo a favor del cliente también paga lo
+  // que compra de paso, igual que en la factura y el recibo de mostrador.
+  return mensajeCobrosInvalidos(pagos, total, "la venta adicional", { permitirSaldoAFavor: true });
 }
 
 /**

@@ -90,6 +90,7 @@ export function AvisoCuentaPorCobrar({
           operacionId={origen.tipo === "operacion" ? origen.recordId : null}
           ordenId={origen.tipo === "orden" ? origen.recordId : null}
           montoSugerido={saldo ?? undefined}
+          saldoPendiente={saldo ?? undefined}
           onClose={() => setAbierto(false)}
           // Recargar trae la cuenta al día desde el servidor (única fuente).
           onSuccess={() => window.location.reload()}
@@ -103,13 +104,16 @@ export function PagosVentaAdicional({
   total,
   pagos,
   onChange,
+  saldoAFavor = 0,
 }: {
   total: number;
   pagos: PagoAdicionalForm[];
   onChange: (pagos: PagoAdicionalForm[]) => void;
+  /** Punto 22: saldo a favor del cliente del documento (también paga la venta adicional). */
+  saldoAFavor?: number;
 }) {
   if (total <= 0.01) return null;
-  return <PagosPorMetodo titulo="Cobro venta adicional" total={total} pagos={pagos} onChange={onChange} />;
+  return <PagosPorMetodo titulo="Cobro venta adicional" total={total} pagos={pagos} onChange={onChange} saldoAFavor={saldoAFavor} />;
 }
 
 /**
@@ -130,9 +134,9 @@ export function PagosPorMetodo({
   pagos: PagoAdicionalForm[];
   onChange: (pagos: PagoAdicionalForm[]) => void;
   /**
-   * Auditoría ops, punto 13B-2: saldo a favor del cliente elegido (solo en
-   * factura y recibo de mostrador). Si hay, se ofrece "Saldo a favor" como
-   * método; el servidor vuelve a verificar que alcance.
+   * Auditoría ops, punto 13B-2: saldo a favor del cliente elegido (factura y
+   * recibo de mostrador y, desde el punto 22, la venta adicional). Si hay, se
+   * ofrece "Saldo a favor" como método; el servidor vuelve a verificar que alcance.
    */
   saldoAFavor?: number;
 }) {
