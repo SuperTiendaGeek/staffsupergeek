@@ -73,10 +73,16 @@ export async function GET(_req: Request, { params }: Params) {
       })
     );
     const proveedores = await nombresProveedores(lineas.map((l) => l.proveedorId).filter((x): x is string => !!x));
+    // Punto 5B-2: el botón "Comprar" de una licencia solo para Staff y Administradores.
+    let puedeComprarAqui = false;
+    if (lineas.some((l) => l.tipo === "Producto digital" && l.solicitudId)) {
+      const { puedeGestionarLicencias } = await import("@/lib/productos-digitales/permiso-servidor");
+      puedeComprarAqui = await puedeGestionarLicencias(session);
+    }
     return NextResponse.json({
       success: true,
       data: {
-        lineas, pedidos: pedidosObj, reversas, proveedores, compras,
+        lineas, pedidos: pedidosObj, reversas, proveedores, compras, puedeComprar: puedeComprarAqui,
         estado: estadoPresupuesto(lineas), totales: totalesPresupuesto(lineas),
         cargosSinPresupuesto: sinc.cargosSinPresupuesto,
       },

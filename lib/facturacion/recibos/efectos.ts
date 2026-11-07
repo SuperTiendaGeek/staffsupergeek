@@ -328,6 +328,15 @@ export async function marcarProductosDigitalesRecibo(input: {
     catch (e) { fallidos.push(`${id}: ${e instanceof Error ? e.message : String(e)}`); }
   }
 
+  // Punto 5B-2: el artículo de Shipping de cada licencia pasa a Vendido.
+  const { sincronizarArticulosDeLicencias } = await import("@/lib/productos-digitales/articulo-servidor");
+  await sincronizarArticulosDeLicencias(ids, {
+    documento: { tipo: "venta-recibo", id: input.reciboRecordId },
+    precios: new Map(input.lineas
+      .filter((l): l is LineaRecibo & { productoDigitalId: string } => !!l.productoDigitalId)
+      .map((l) => [l.productoDigitalId, (Number(l.precioUnitario) || 0) - (Number(l.descuento) || 0) / (Number(l.cantidad) > 0 ? Number(l.cantidad) : 1)] as [string, number])),
+  });
+
   if (fallidos.length === 0) return { estado: "OK" };
   return { estado: "ERROR", detalle: `Productos digitales sin marcar: ${fallidos.join("; ")}` };
 }
@@ -359,4 +368,7 @@ export async function revertirProductosDigitalesRecibo(input: {
     await patchTabla(PRODUCTOS_DIGITALES_TABLE, r.id, fields)
       .catch((e) => console.error("[revertirProductosDigitalesRecibo]", e));
   }
+  // Punto 5B-2: el artículo de Shipping vuelve atrás (entra 1 al Kardex).
+  const { sincronizarArticulosDeLicencias } = await import("@/lib/productos-digitales/articulo-servidor");
+  await sincronizarArticulosDeLicencias(ids, { documento: { tipo: "anula-recibo", id: input.reciboRecordId } });
 }

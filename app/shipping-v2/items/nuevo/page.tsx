@@ -12,11 +12,19 @@ import { ShippingV2NewItemForm, type ShippingV2CajaAbierta, type ShippingV2Orden
 import { solicitudesParaComprar } from "@/lib/compras/servidor";
 import { puedeComprar } from "@/lib/compras/reglas";
 import { perfilShippingV2 } from "@/lib/shipping-v2/access";
+import { canBePurchaseProvider } from "@/lib/shipping-v2/provider-rules";
+import { tiposDeProveedor } from "@/lib/shipping-v2/provider-types";
+import { esCategoriaLicencia } from "@/lib/productos-digitales/compra";
+import { RegistrarLicenciasForm, type CatalogoParaCompra, type SolicitudDeLicencia } from "./RegistrarLicenciasForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function ShippingV2NewItemPage({ searchParams }: { searchParams?: Promise<{ activo?: string | string[]; orden?: string | string[]; solicitudes?: string | string[] }> }) {
+export default async function ShippingV2NewItemPage({ searchParams }: { searchParams?: Promise<{ activo?: string | string[]; orden?: string | string[]; solicitudes?: string | string[]; tipo?: string | string[]; volver?: string | string[] }> }) {
   const params = searchParams ? await searchParams : {};
+  // Punto 5B-2: "Registrar compra" en modo Producto digital (?tipo=digital).
+  const tipoParam = Array.isArray(params.tipo) ? params.tipo[0] : params.tipo;
+  const volverParam = (Array.isArray(params.volver) ? params.volver[0] : params.volver) || "";
+  const volver = /^\/tecnicos\/ordenes\/rec[A-Za-z0-9]{14}$/.test(volverParam) ? volverParam : null;
   const activoParam = Array.isArray(params.activo) ? params.activo[0] : params.activo;
   const esActivo = activoParam === "1";
   // Punto 9d: "+ Agregar artículo" desde una orden de compra.
@@ -37,6 +45,10 @@ export default async function ShippingV2NewItemPage({ searchParams }: { searchPa
     redirect("/shipping-v2/packings");
   }
 
+  if (tipoParam === "digital") {
+    return <PaginaLicencias access={access} solicitudesParam={solicitudesParam} volver={volver} />;
+  }
+
   try {
     const [listaProveedores, packings, orden] = await Promise.all([
       getShippingV2Proveedores(),
@@ -49,13 +61,14 @@ export default async function ShippingV2NewItemPage({ searchParams }: { searchPa
     if (comprador && !esActivo && !idsSolicitudes.length) {
       const { solicitudesEnEstados } = await import("@/lib/compras/airtable");
       const ids = (await solicitudesEnEstados(["Por comprar"]).catch(() => [])).map((s) => s.id);
-      abiertas = ids.length ? (await solicitudesParaComprar(ids)).map((s) => ({
+      abiertas = ids.length ? (await solicitudesParaComprar(ids)).filter((s) => !esCategoriaLicencia(s.categoria)).map((s) => ({
         id: s.id, codigo: s.codigo, descripcion: s.descripcion, cantidad: s.cantidad, categoria: s.categoria,
         costoCotizado: s.costoCotizado, precioCliente: s.precioCliente, proveedorId: s.proveedorId, para: s.para,
       })) : [];
     }
     if (idsSolicitudes.length && comprador) {
-      solicitudes = (await solicitudesParaComprar(idsSolicitudes)).map((s) => ({
+      // Las licencias se compran en modo Producto digital (nunca como artículo).
+      solicitudes = (await solicitudesParaComprar(idsSolicitudes)).filter((s) => !esCategoriaLicencia(s.categoria)).map((s) => ({
         id: s.id,
         codigo: s.codigo,
         descripcion: s.descripcion,
@@ -103,9 +116,14 @@ export default async function ShippingV2NewItemPage({ searchParams }: { searchPa
           title={esActivo ? "Registrar activo de la tienda" : ordenExistente ? `Agregar artículos a ${ordenExistente.ocId}` : "Registrar compra"}
           density="compact"
           actions={
-            <Button asChild className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
-              <Link href={ordenExistente ? `/shipping-v2/pagos/ordenes/${ordenExistente.id}` : esActivo ? "/shipping-v2/activos" : "/shipping-v2/items"}>{ordenExistente ? `Volver a ${ordenExistente.ocId}` : esActivo ? "Volver a Activos" : "Volver a Items"}</Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              {!esActivo && !ordenExistente && puedeComprar(perfilShippingV2(access)) ? (
+                <Link href="/shipping-v2/items/nuevo?tipo=digital" className="text-sm text-[#8F908A] hover:text-[#D7FF4F]" title="Licencias: sin logística, con sus credenciales">Producto digital</Link>
+              ) : null}
+              <Button asChild className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
+                <Link href={ordenExistente ? `/shipping-v2/pagos/ordenes/${ordenExistente.id}` : esActivo ? "/shipping-v2/activos" : "/shipping-v2/items"}>{ordenExistente ? `Volver a ${ordenExistente.ocId}` : esActivo ? "Volver a Activos" : "Volver a Items"}</Link>
+              </Button>
+            </div>
           }
         />
         {error ? (
@@ -117,6 +135,72 @@ export default async function ShippingV2NewItemPage({ searchParams }: { searchPa
         <ShippingV2NewItemForm proveedores={proveedores} cajasAbiertas={cajasAbiertas} esActivoInicial={esActivo} puedeRegistrarRespaldo={access.permissions.canManagePayments === true} ordenExistente={ordenExistente} solicitudes={solicitudes} abiertas={abiertas} />
       </div>
     </div>
+    </StaffAppShell>
+  );
+}
+
+
+// ─── Punto 5B-2: modo Producto digital ───────────────────────────────────────
+
+type Acceso = Awaited<ReturnType<typeof getShippingV2AccessContextForSession>>;
+
+async function PaginaLicencias({ access, solicitudesParam, volver }: { access: Acceso; solicitudesParam: string; volver: string | null }) {
+  const comprador = puedeComprar(perfilShippingV2(access));
+  let error = "";
+  let catalogo: CatalogoParaCompra[] = [];
+  let proveedores: Array<{ id: string; nombre: string }> = [];
+  let solicitudes: SolicitudDeLicencia[] = [];
+  if (comprador) {
+    try {
+      const { fetchCatalogoProductosDigitales } = await import("@/lib/tecnicos/airtable");
+      const { listarLineas } = await import("@/lib/tecnicos/presupuesto/airtable");
+      const [cat, lista] = await Promise.all([fetchCatalogoProductosDigitales({ activoOnly: false }), getShippingV2Proveedores()]);
+      catalogo = cat.map((c) => ({ id: c.id, nombre: c.productoBase, marca: c.marca ?? "", tipo: c.tipo ?? "", precio: c.precioVentaCatalogo, activo: c.activo }));
+      proveedores = lista
+        .filter((p) => canBePurchaseProvider(p) && tiposDeProveedor(p).includes("software"))
+        .map((p) => ({ id: p.id, nombre: p.nombre || p.id }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+      const ids = solicitudesParam.split(",").map((x) => x.trim()).filter((x) => /^rec[A-Za-z0-9]{14}$/.test(x));
+      const lic = ids.length ? (await solicitudesParaComprar(ids)).filter((s) => esCategoriaLicencia(s.categoria)) : [];
+      const lineasPorOrden = new Map<string, Awaited<ReturnType<typeof listarLineas>>>();
+      for (const ordenId of [...new Set(lic.map((s) => s.ordenId).filter((x): x is string => !!x))]) {
+        lineasPorOrden.set(ordenId, await listarLineas(ordenId));
+      }
+      solicitudes = lic.map((s) => ({
+        id: s.id, codigo: s.codigo, para: s.para, descripcion: s.descripcion,
+        catalogoId: (s.ordenId && s.lineaId ? lineasPorOrden.get(s.ordenId)?.find((l) => l.id === s.lineaId)?.productoCatalogoId : null) ?? null,
+        precioCliente: s.precioCliente, costoCotizado: s.costoCotizado, proveedorId: s.proveedorId,
+      }));
+    } catch (e) {
+      console.error("Registrar compra (licencias):", e);
+      error = e instanceof Error ? e.message : "No se pudo cargar el catálogo.";
+    }
+  }
+  return (
+    <StaffAppShell activeHref="/shipping-v2/items" sectionLabel="Shipping V2">
+      <div className="w-full max-w-none space-y-3">
+        <ShippingV2Pestanas />
+        <StaffPageHeader
+          eyebrow={<StaffBadge tone="lime">SHIPPING V2</StaffBadge>}
+          title="Registrar compra · Producto digital"
+          density="compact"
+          actions={
+            <div className="flex items-center gap-2">
+              <Link href="/shipping-v2/items/nuevo" className="text-sm text-[#8F908A] hover:text-[#F5F5F5]">Artículos</Link>
+              <Button asChild className="h-9 rounded-lg bg-[#D7FF4F] px-4 text-sm font-black text-[#151515] hover:bg-[#D7FF4F]/90">
+                <Link href={volver ?? "/shipping-v2/compras"}>{volver ? "Volver a la orden" : "Volver a Por comprar"}</Link>
+              </Button>
+            </div>
+          }
+        />
+        {!comprador ? (
+          <p className="rounded-xl border border-orange-300/25 bg-orange-300/10 p-4 text-sm text-orange-100">Las licencias las compran Staff o un Administrador.</p>
+        ) : error ? (
+          <p className="rounded-xl border border-orange-300/25 bg-orange-300/10 p-4 text-sm text-orange-100">{error}</p>
+        ) : (
+          <RegistrarLicenciasForm catalogo={catalogo} proveedores={proveedores} solicitudes={solicitudes} puedeRegistrarPago={access.permissions.canManagePayments === true} volver={volver} />
+        )}
+      </div>
     </StaffAppShell>
   );
 }

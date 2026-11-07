@@ -7,6 +7,8 @@ import { useState } from "react";
 // despliega la lista de licencias libres del mismo producto (la comprada hace
 // más tiempo primero). "Reemplazar" pide el motivo: si la anterior ya llegó al
 // cliente (tiene PDF) queda anulada; si no, vuelve al inventario.
+// Punto 5B-2: si la línea ya tiene su solicitud de compra, el botón es
+// secundario ("Usar una del inventario") y, al usarla, la solicitud se cancela.
 
 type Candidata = { id: string; sku: string; fechaCompra: string | null; proveedor: string | null; pista: string };
 
@@ -18,10 +20,12 @@ function fecha(v: string | null) {
   return Number.isFinite(t) ? new Intl.DateTimeFormat("es-EC", { day: "2-digit", month: "short", timeZone: "UTC" }).format(new Date(t)) : v;
 }
 
-export function EntregarLicencia({ ordenId, lineaId, modo, onListo }: {
+export function EntregarLicencia({ ordenId, lineaId, modo, onListo, conSolicitud = false }: {
   ordenId: string;
   lineaId: string;
   modo: "elegir" | "reemplazar";
+  /** La línea espera su compra (bandeja "Por comprar"). */
+  conSolicitud?: boolean;
   onListo: () => void | Promise<void>;
 }) {
   const [abierto, setAbierto] = useState(false);
@@ -71,10 +75,10 @@ export function EntregarLicencia({ ordenId, lineaId, modo, onListo }: {
   return (
     <div className="mt-1">
       <button type="button" onClick={() => void abrir()}
-        className={modo === "elegir"
+        className={modo === "elegir" && !conSolicitud
           ? `${BTN} border-[var(--sg-lime)]/50 bg-[var(--sg-lime)]/10 text-[var(--sg-lime)] hover:brightness-110`
           : `${BTN} border-[var(--sg-border)] text-[var(--sg-text-secondary)] hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]`}>
-        {modo === "elegir" ? "Entregar licencia" : "Reemplazar"}
+        {modo === "reemplazar" ? "Reemplazar" : conSolicitud ? "Usar una del inventario" : "Entregar licencia"}
       </button>
       {abierto && (
         <div className="mt-1.5 space-y-1.5 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] p-2 animate-[sg-entrada_180ms_ease-out]">
@@ -82,8 +86,7 @@ export function EntregarLicencia({ ordenId, lineaId, modo, onListo }: {
           {lista && lista.length === 0 && (
             <p className="text-[11px] text-[var(--sg-text-muted)]">
               No hay licencias libres de este producto.{" "}
-              <a href="/tecnicos/productos-digitales" target="_blank" rel="noreferrer" className="font-semibold text-[var(--sg-lime)] hover:underline">Registrar una</a>
-              {" "}y vuelve a abrir.
+              {conSolicitud ? "Se compra en Shipping V2 → Por comprar." : "Presiona \"Reintentar carga\" para crear su solicitud de compra."}
             </p>
           )}
           {lista && lista.length > 0 && (

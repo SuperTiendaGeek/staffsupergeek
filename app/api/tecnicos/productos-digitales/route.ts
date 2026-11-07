@@ -2,17 +2,15 @@ import { NextResponse } from "next/server";
 import {
   fetchAllProductosDigitales,
   fetchProductosDigitalesDisponibles,
-  createProductoDigital,
-  fetchCatalogoProductoDigitalById,
 } from "@/lib/tecnicos/airtable";
-import { credencialesDelTipo, errorCredenciales } from "@/lib/productos-digitales/reglas";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
+import { puedeGestionarLicencias } from "@/lib/productos-digitales/permiso-servidor";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/tecnicos/productos-digitales?estado=Disponible&q=texto
 export async function GET(request: Request) {
-  const { response } = await requireTecnicosSession();
+  const { response, session } = await requireTecnicosSession();
   if (response) return response;
 
   const { searchParams } = new URL(request.url);
@@ -26,7 +24,9 @@ export async function GET(request: Request) {
     } else {
       productos = await fetchAllProductosDigitales({ estado, query: q });
     }
-    return NextResponse.json({ success: true, data: productos });
+    // Punto 5B-2: Editar, Reclamo y Anular solo para Staff y Administradores.
+    const puedeGestionar = await puedeGestionarLicencias(session).catch(() => false);
+    return NextResponse.json({ success: true, data: productos, puedeGestionar });
   } catch (error) {
     console.error("Error al obtener productos digitales:", error);
     return NextResponse.json(
@@ -36,70 +36,15 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/tecnicos/productos-digitales
-export async function POST(request: Request) {
+// POST /api/tecnicos/productos-digitales — retirado en el punto 5B-2
+// (decisión del dueño, 7-nov-2026): una licencia entra SOLO por su compra en
+// Shipping V2 → Registrar compra → Producto digital (costo, orden de compra,
+// pago y egreso en Finanzas). Ver app/api/shipping-v2/licencias.
+export async function POST() {
   const { response } = await requireTecnicosSession();
   if (response) return response;
-
-  let body: {
-    catalogoId?: string;
-    estado?: string;
-    proveedor?: string | null;
-    costoProveedor?: number | null;
-    precioVenta?: number | null;
-    claveActivacion?: string | null;
-    usuarioCorreo?: string | null;
-    contraseña?: string | null;
-    duracion?: string | null;
-    fechaCompra?: string | null;
-    observacionesInternas?: string | null;
-  };
-
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ success: false, error: "JSON inválido" }, { status: 400 });
-  }
-
-  const catalogoId = body.catalogoId?.trim();
-  if (!catalogoId) {
-    return NextResponse.json(
-      { success: false, error: "El campo Catálogo (catalogoId) es obligatorio." },
-      { status: 400 }
-    );
-  }
-
-  // Punto 5A: cada tipo lleva SUS credenciales (lo demás se descarta).
-  let cred;
-  try {
-    const catalogo = await fetchCatalogoProductoDigitalById(catalogoId);
-    if (!catalogo) return NextResponse.json({ success: false, error: "Producto del catálogo no encontrado." }, { status: 400 });
-    const entrada = { claveActivacion: body.claveActivacion, usuarioCorreo: body.usuarioCorreo, contrasena: body.contraseña };
-    const err = errorCredenciales(catalogo.tipo, entrada);
-    if (err) return NextResponse.json({ success: false, error: err }, { status: 400 });
-    cred = credencialesDelTipo(catalogo.tipo, entrada);
-  } catch (error) {
-    console.error("[productos-digitales POST] catálogo", error);
-    return NextResponse.json({ success: false, error: "No se pudo leer el catálogo. Intenta de nuevo." }, { status: 503 });
-  }
-
-  try {
-    const producto = await createProductoDigital({
-      catalogoId,
-      estado: body.estado ?? "Disponible",
-      proveedor: body.proveedor ?? null,
-      costoProveedor: body.costoProveedor ?? null,
-      precioVenta: body.precioVenta ?? null,
-      claveActivacion: cred.claveActivacion,
-      usuarioCorreo: cred.usuarioCorreo,
-      contraseña: cred.contrasena,
-      duracion: body.duracion ?? null,
-      fechaCompra: body.fechaCompra ?? null,
-      observacionesInternas: body.observacionesInternas ?? null,
-    });
-    return NextResponse.json({ success: true, data: producto }, { status: 201 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Error inesperado";
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
-  }
+  return NextResponse.json(
+    { success: false, error: "Las licencias se registran en Shipping V2 → Registrar compra → Producto digital." },
+    { status: 410 }
+  );
 }

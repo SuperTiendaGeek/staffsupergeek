@@ -27,6 +27,7 @@ const TOLERANCIA = 0.01;
 const dinero = (n: number) => `$${r2(n).toFixed(2)}`;
 
 import { CATEGORIAS_REPUESTO_STOCK, esCategoriaDeRepuesto } from "@/lib/shipping-v2/mejoras";
+import { esCategoriaLicencia } from "@/lib/productos-digitales/compra";
 
 export type EstadoSolicitud = "Por comprar" | "Comprada" | "Entregada" | "Cancelada";
 export const ESTADOS_SOLICITUD: readonly EstadoSolicitud[] = ["Por comprar", "Comprada", "Entregada", "Cancelada"];
@@ -83,13 +84,16 @@ export type Cobertura =
  * bisagras y tapa cubiertas ($45), cover con anticipo parcial de $5.
  */
 export function coberturaAnticipo(
-  solicitudes: ReadonlyArray<Pick<SolicitudBase, "id" | "estado" | "cantidad" | "precioCliente" | "fechaAprobacion">>,
+  solicitudes: ReadonlyArray<Pick<SolicitudBase, "id" | "estado" | "cantidad" | "precioCliente" | "fechaAprobacion"> & { categoria?: string }>,
   totalPagado: number,
 ): Map<string, Cobertura> {
   const out = new Map<string, Cobertura>();
   let queda = r2(Math.max(0, totalPagado));
+  // Punto 5B-2 (dueño, 7-nov-2026): una licencia se compra en cuanto el
+  // cliente aprueba, sin abono; tampoco consume lo pagado para los repuestos.
+  for (const s of solicitudes) if (s.estado !== "Cancelada" && esCategoriaLicencia(s.categoria)) out.set(s.id, { tipo: "cubierta" });
   const vivas = solicitudes
-    .filter((s) => s.estado !== "Cancelada")
+    .filter((s) => s.estado !== "Cancelada" && !esCategoriaLicencia(s.categoria))
     .slice()
     .sort((a, b) => (a.fechaAprobacion || "").localeCompare(b.fechaAprobacion || "") || a.id.localeCompare(b.id));
   for (const s of vivas) {
@@ -133,7 +137,7 @@ export function diasEntre(desde: string, hoy: string): number {
 const norm = (v?: string) => String(v ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
 export function situacionDeSolicitud(input: {
-  solicitud: Pick<SolicitudBase, "estado" | "fechaAprobacion" | "motivo">;
+  solicitud: Pick<SolicitudBase, "estado" | "fechaAprobacion" | "motivo"> & { categoria?: string };
   articulo: ArticuloDeSolicitud | null;
   cobertura: Cobertura | undefined;
   /** "aaaa-mm-dd" (Ecuador). */
@@ -148,8 +152,9 @@ export function situacionDeSolicitud(input: {
   if (s.estado === "Entregada" || estadoItem === "vendido") {
     return { clave: "entregado", texto: "Instalado / entregado", tono: "exito", dias };
   }
+  const licencia = esCategoriaLicencia(s.categoria);
   if (a) {
-    if (a.recibido) return { clave: "llego", texto: `Llegó ✓ ${a.sku}`, tono: "exito", dias };
+    if (a.recibido) return { clave: "llego", texto: licencia ? `Comprada ✓ ${a.sku}` : `Llegó ✓ ${a.sku}`, tono: "exito", dias };
     if (a.faltaPagarProveedor > TOLERANCIA) {
       return { clave: "falta_pagar_proveedor", texto: "Comprado · falta pagar al proveedor", tono: "aviso", dias };
     }
@@ -162,7 +167,7 @@ export function situacionDeSolicitud(input: {
   }
   return {
     clave: "falta_pedir",
-    texto: `Falta pedir · ${dias} ${dias === 1 ? "día" : "días"}`,
+    texto: `${licencia ? "Falta comprar" : "Falta pedir"} · ${dias} ${dias === 1 ? "día" : "días"}`,
     tono: dias >= DIAS_ALERTA ? "peligro" : "aviso",
     dias,
   };
@@ -222,9 +227,10 @@ export function validarComprar(
  * ANTES de crear el artículo. Para una operación comercial vale cualquiera.
  */
 export function validarCategoriaDeCompra(
-  s: { codigo: string; lineaId?: string | null },
+  s: { codigo: string; lineaId?: string | null; categoria?: string },
   categoria: string,
 ): { ok: true } | Rechazo {
+  if (esCategoriaLicencia(s.categoria)) return NO(`${s.codigo} es una licencia: cómprala en "Registrar compra" → Producto digital.`);
   if (!s.lineaId) return { ok: true };
   if (esCategoriaDeRepuesto(categoria)) return { ok: true };
   return NO(`${s.codigo} es un repuesto para una orden: elige una categoría de repuesto (${CATEGORIAS_REPUESTO_STOCK.join(", ")}).`);

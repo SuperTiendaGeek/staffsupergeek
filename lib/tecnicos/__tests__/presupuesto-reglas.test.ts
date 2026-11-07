@@ -92,8 +92,13 @@ assert(paso("r1").accion.tipo === "reservar_repuesto", "Repuesto disponible → 
 assert(paso("r2").accion.tipo === "pendiente", "Repuesto vendido mientras tanto → pendiente, no error");
 assert(paso("r3").accion.tipo === "pendiente", "Repuesto sin artículo → pendiente hasta vincularlo");
 // Punto 5B (caso OR000517): aprobar NUNCA toma una licencia sola, aunque haya libres.
-assert(["d1", "d2", "d3"].every((id) => paso(id).accion.tipo === "pendiente" && (paso(id).accion as { motivo: string }).motivo.startsWith("Por entregar")),
-  "Producto digital aprobado → por entregar (la licencia se elige al entregar)");
+// Punto 5B-2: nace su solicitud de compra (bandeja "Por comprar").
+assert(["d1", "d2", "d3"].every((id) => paso(id).accion.tipo === "crear_solicitud"),
+  "Producto digital aprobado → solicitud de compra (no toma una licencia sola)");
+const conSolicitud = planDeCarga([linea({ id: "d4", tipo: "Producto digital", productoCatalogoId: "recOFFICE", estado: "Aprobada", solicitudId: "recSOL" })], ctx)[0];
+assert(conSolicitud.accion.tipo === "esperando_compra", "Producto digital con su solicitud → espera la compra (no crea otra)");
+const sinCatalogo = planDeCarga([linea({ id: "d5", tipo: "Producto digital" })], ctx)[0];
+assert(sinCatalogo.accion.tipo === "pendiente", "Producto digital sin catálogo → pendiente (no nace solicitud)");
 
 // ─── Guardas a nivel de código fuente ────────────────────────────────────────
 const raiz = path.join(__dirname, "..", "..", "..");

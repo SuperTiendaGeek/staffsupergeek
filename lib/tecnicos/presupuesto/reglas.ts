@@ -350,10 +350,14 @@ export function planDeCarga(lineas: LineaPresupuesto[], ctx: ContextoCarga): Pas
 
       // Producto digital (punto 5B, caso OR000517): aprobar NUNCA toma una
       // unidad sola (antes tomaba la primera libre y no era la que se le daba
-      // al cliente). Queda "por entregar"; la licencia se elige o se compra en
-      // "Entregar licencia" (cargarLicenciaEnLinea, cargar.ts).
+      // al cliente). Punto 5B-2 (decisión del dueño, 7-nov-2026): al aprobar
+      // nace su SOLICITUD DE COMPRA, sin exigir abono; Staff la compra en
+      // Shipping V2 → Registrar compra (modo Producto digital). Mientras
+      // tanto, "Entregar licencia" puede usar una libre que ya teníamos (y la
+      // solicitud se cancela sola).
       if (!l.productoCatalogoId) return { ...base, accion: { tipo: "pendiente", motivo: "Falta elegir el producto del catálogo." } };
-      return { ...base, accion: { tipo: "pendiente", motivo: MOTIVO_POR_ENTREGAR_DIGITAL } };
+      if (l.solicitudId) return { ...base, accion: { tipo: "esperando_compra" } };
+      return { ...base, accion: { tipo: "crear_solicitud" } };
     });
 }
 
@@ -762,7 +766,7 @@ export function estadoVisible(l: Pick<LineaPresupuesto, "estado" | "notaCarga" |
     if (l.solicitudId) return { texto: "Aprobada", tono: "exito" };
     if (l.operacionId || l.bajoPedido) return { texto: "Aprobada · falta pedirla", tono: "aviso" };
     if (l.tipo === "Repuesto") return { texto: "Aprobada · sin stock", tono: "aviso" };
-    if (l.tipo === "Producto digital") return { texto: "Aprobada · sin código libre", tono: "aviso" };
+    if (l.tipo === "Producto digital") return { texto: "Aprobada · por comprar", tono: "aviso" };
     return { texto: "Aprobada · pendiente", tono: "aviso" };
   }
   if (l.estado === "Rechazada") return fueQuitadaPorLaTienda(l) ? { texto: "Quitada", tono: "peligro" } : { texto: "Rechazada", tono: "peligro" };
@@ -838,6 +842,6 @@ export function aprobadoSinArticulo(lineas: LineaParaCuenta[], c: CargosDeLaCuen
 export const TEXTO_SIN_ARTICULO: Record<MotivoSinArticulo, string> = {
   falta_pedir: "falta pedirlo",
   sin_stock: "sin stock",
-  sin_codigo: "falta entregar la licencia",
+  sin_codigo: "falta comprar o entregar la licencia",
   pendiente: "pendiente",
 };

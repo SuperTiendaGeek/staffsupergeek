@@ -2146,7 +2146,7 @@ export async function getShippingV2AccessContextForSession(session: StaffSession
   return roleIsProvider ? noShippingV2Access() : { ...staffShippingV2Access(), isSiteAdmin };
 }
 
-async function getShippingV2ProveedorById(recordId: string) {
+export async function getShippingV2ProveedorById(recordId: string) {
   const record = await getRecordById(SHIPPING_V2_TABLES.proveedores, recordId);
   return record ? mapProveedor(record) : null;
 }
@@ -11468,6 +11468,19 @@ export class EliminacionBloqueadaError extends Error {
 
 export async function eliminarShippingItem(itemId: string, opts: { confirmacion: unknown; motivo: string; registradoPor: string }) {
   return eliminarShippingItemInterno(itemId, { ...opts, exigirConfirmacion: true });
+}
+
+/**
+ * Punto 5B-2: el artículo de una licencia recién creado se deshace si su
+ * unidad DIG no se pudo registrar (así no queda un costo sin licencia). Las
+ * MISMAS reglas de bloqueo aplican (si ya está en un pago, no se borra).
+ */
+export async function deshacerArticuloDeLicencia(itemId: string, registradoPor: string) {
+  return eliminarShippingItemInterno(itemId, {
+    motivo: "No se pudo registrar la licencia: se deshace el artículo recién creado.",
+    registradoPor,
+    exigirConfirmacion: false,
+  });
 }
 
 /**
