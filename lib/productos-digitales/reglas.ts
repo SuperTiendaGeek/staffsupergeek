@@ -121,3 +121,38 @@ export function ordenarFilas(filas: readonly FilaDigital[], col: ColumnaOrden, d
 
 /** Opciones de "Duración" en Airtable (Productos Digitales). */
 export const DURACIONES_DIGITAL = ["Perpetua", "1 año", "2 años", "3 años", "3 meses", "6 meses", "9 meses"] as const;
+
+// ─── Catálogo: aviso de posible duplicado (punto 14, 8-nov-2026) ─────────────
+// Caso real: "Microsoft Office 365 Education" y "Microsoft 365 Education
+// (PC, Mac)" eran el mismo producto y las licencias quedaron repartidas en
+// dos catálogos. Al crear uno nuevo, el sistema avisa si se parece a uno que
+// ya existe (no bloquea: quien crea confirma "Crear igual").
+
+const PALABRAS_DE_RELLENO = new Set(["de", "del", "para", "y", "and", "the", "con", "en", "pc", "mac", "licencia", "license"]);
+
+function palabrasClave(nombre: string): Set<string> {
+  const s = nombre
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ");
+  return new Set(s.split(" ").filter((p) => p && !PALABRAS_DE_RELLENO.has(p)));
+}
+
+/**
+ * Nombres del catálogo que podrían ser el mismo producto: las palabras de uno
+ * están todas en el otro, o comparten al menos el 60 % de sus palabras.
+ */
+export function posiblesDuplicadosCatalogo(nombre: string, existentes: readonly string[]): string[] {
+  const nuevo = palabrasClave(nombre);
+  if (nuevo.size === 0) return [];
+  return existentes.filter((otro) => {
+    const viejo = palabrasClave(otro);
+    if (viejo.size === 0) return false;
+    let comunes = 0;
+    for (const p of nuevo) if (viejo.has(p)) comunes++;
+    const union = nuevo.size + viejo.size - comunes;
+    const contenido = comunes === Math.min(nuevo.size, viejo.size);
+    return contenido || comunes / union >= 0.6;
+  });
+}

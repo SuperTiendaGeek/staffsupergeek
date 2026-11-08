@@ -150,6 +150,7 @@ export async function POST(request: Request) {
     try {
       producto = await createProductoDigital({
         catalogoId,
+        nombreProducto: catalogo!.productoBase,
         articuloId: item.id,
         estado: "Disponible",
         proveedor: proveedor.nombre,
