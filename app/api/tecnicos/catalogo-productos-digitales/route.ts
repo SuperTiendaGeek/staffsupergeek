@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchCatalogoProductosDigitales, createCatalogoProductoDigital } from "@/lib/tecnicos/airtable";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
+import { posiblesDuplicadosCatalogo } from "@/lib/productos-digitales/reglas";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,16 @@ export async function POST(request: Request) {
     const productoBase = typeof body.productoBase === "string" ? body.productoBase.trim() : "";
     if (!productoBase) {
       return NextResponse.json({ success: false, error: "Nombre del producto es requerido" }, { status: 400 });
+    }
+
+    // Punto 14: avisar si ya existe un producto parecido (caso "Office 365
+    // Education" duplicado). No bloquea: quien crea confirma "Crear igual".
+    if (body.confirmarDuplicado !== true) {
+      const existentes = (await fetchCatalogoProductosDigitales({ activoOnly: false })).map((c) => c.productoBase);
+      const duplicados = posiblesDuplicadosCatalogo(productoBase, existentes);
+      if (duplicados.length) {
+        return NextResponse.json({ success: false, error: "Ya existe un producto parecido.", duplicados }, { status: 409 });
+      }
     }
 
     const data = await createCatalogoProductoDigital({

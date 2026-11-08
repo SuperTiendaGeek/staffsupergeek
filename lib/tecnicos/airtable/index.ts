@@ -3501,7 +3501,9 @@ const mapProductoDigitalRecord = (
     clienteNombre: firstLookupStr(f["Cliente (Nombre)"]),
     documentoVenta: firstLookupStr(f["Factura (Número)"]) || firstLookupStr(f["Recibo (Número)"]),
     catalogoId: catalogoIds[0] ?? null,
-    softwareProducto: nombreLimpio(safeString(f["Producto Digital"], "")) || firstLookupStr(f["Nombre Producto"]) || "Sin nombre",
+    // Punto 5C: el nombre sale del CATÁLOGO ("Nombre Producto"); el texto
+    // "Producto Digital" solo es respaldo (antes mezclaba estado y fecha).
+    softwareProducto: firstLookupStr(f["Nombre Producto"]) || nombreLimpio(safeString(f["Producto Digital"], "")) || "Sin nombre",
     marcaProducto: firstLookupStr(f["Marca Producto"]),
     tipoProducto: firstLookupStr(f["Tipo Producto"]),
     logoProductoUrl: firstLookupAttachmentUrl(f["Logo Producto"]),
@@ -3632,8 +3634,11 @@ export const createProductoDigital = async ({
   fechaCompra,
   observacionesInternas,
   articuloId,
+  nombreProducto,
 }: {
   catalogoId: string;
+  /** Punto 5C: "Producto Digital" guarda solo el nombre del catálogo. */
+  nombreProducto?: string | null;
   /** Punto 5B-2: el artículo de Shipping de su compra. */
   articuloId?: string | null;
   estado?: string;
@@ -3664,6 +3669,7 @@ export const createProductoDigital = async ({
   if (fechaCompra?.trim()) fields["Fecha de Compra"] = fechaCompra.trim();
   if (observacionesInternas?.trim()) fields["Observaciones Internas"] = observacionesInternas.trim();
   if (articuloId) fields["Artículo Shipping"] = [articuloId];
+  if (nombreProducto?.trim()) fields["Producto Digital"] = nombreProducto.trim();
 
   const res = await fetch(url, {
     method: "POST",

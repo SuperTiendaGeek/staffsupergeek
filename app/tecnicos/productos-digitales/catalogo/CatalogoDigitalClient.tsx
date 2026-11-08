@@ -338,6 +338,8 @@ function CreateModal({
   const [form, setForm] = useState<NuevoForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Punto 14: productos parecidos que ya existen (el servidor avisa; no bloquea).
+  const [duplicados, setDuplicados] = useState<string[]>([]);
 
   // Logo upload state
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
@@ -381,7 +383,7 @@ function CreateModal({
     setLogoUploading(false);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (confirmarDuplicado = false) => {
     if (saving) return;
     if (!form.productoBase.trim()) {
       setError("El nombre del producto es requerido.");
@@ -408,9 +410,14 @@ function CreateModal({
           colorPrincipal:      form.colorPrincipal || null,
           activo:              form.activo,
           logoUrl:             logoUploadedUrl,
+          confirmarDuplicado,
         }),
       });
       const json = await res.json();
+      if (res.status === 409 && Array.isArray(json.duplicados)) {
+        setDuplicados(json.duplicados as string[]);
+        return;
+      }
       if (!json.success) throw new Error(json.error ?? "Error al crear");
       onCreated(json.data as CatalogoItem);
       onClose();
@@ -438,7 +445,7 @@ function CreateModal({
             <input
               type="text"
               value={form.productoBase}
-              onChange={e => setForm(f => ({ ...f, productoBase: e.target.value }))}
+              onChange={e => { setDuplicados([]); setForm(f => ({ ...f, productoBase: e.target.value })); }}
               placeholder="Ej: Microsoft Office 2021"
               className={inputClass}
               autoFocus
@@ -567,6 +574,25 @@ function CreateModal({
             <p className="rounded-lg border border-[var(--sg-danger)]/40 bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-danger)]">
               {error}
             </p>
+          )}
+
+          {duplicados.length > 0 && (
+            <div className="animate-[sg-sacudir_300ms_ease-out] rounded-lg border border-[var(--sg-warning)]/50 bg-[var(--sg-warning-soft)] px-3 py-2 text-xs text-[var(--sg-warning)]">
+              <p className="font-semibold">¿Ya existe? Se parece a:</p>
+              <ul className="mt-1 list-disc pl-4">
+                {duplicados.map((d) => <li key={d}>{d}</li>)}
+              </ul>
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => void handleSubmit(true)}
+                  disabled={saving}
+                  className="rounded-full border border-[var(--sg-warning)]/60 px-3 py-1 text-[11px] font-semibold transition hover:bg-[var(--sg-warning-soft)] disabled:opacity-50"
+                >
+                  Crear igual
+                </button>
+              </div>
+            </div>
           )}
 
           <div className="flex items-center justify-end gap-2 pt-1">
