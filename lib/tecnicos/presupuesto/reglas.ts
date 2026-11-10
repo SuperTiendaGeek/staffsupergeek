@@ -64,6 +64,10 @@ export type LineaPresupuesto = {
   categoria:          string;
   /** La operación comercial (flujo anterior a la Fase 2; solo líneas viejas). */
   operacionId:        string | null;
+  /** Punto 10 (10-nov-2026): la línea es una alternativa de la cotización de
+   *  un PEDIDO ESPECIAL (Operación Comercial, enlace "Pedido"). No es lo mismo
+   *  que operacionId (repuesto de una orden vieja). */
+  pedidoId?:          string | null;
   /** Fase 2 (2-nov-2026): la solicitud de compra que nace al aprobar un
    *  repuesto bajo pedido. Reemplaza a la operación comercial. */
   solicitudId?:       string | null;

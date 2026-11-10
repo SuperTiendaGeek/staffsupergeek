@@ -464,6 +464,15 @@ export async function fetchOperacionDetalle(id: string): Promise<OperacionDetall
     desdePresupuestoOrden: linkedIds(f["Presupuesto por Orden"]).length > 0,
     opciones,
     abonos,
+    // Punto 10: pedido especial (cotización en líneas del Presupuesto).
+    pedidoEspecial: {
+      lineaIds: linkedIds(f["Líneas del pedido"]),
+      cotizacionVence: firstString(f["Cotización vence"]),
+      aceptadoEn: firstString(f["Aceptado en"]),
+      aceptadoPor: firstString(f["Aceptado por"]),
+      aceptadoVia: firstString(f["Aceptado vía"]),
+      tieneEnlace: firstString(f["Enlace pedido token"]).length > 0,
+    },
   };
 }
 

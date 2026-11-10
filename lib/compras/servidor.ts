@@ -75,12 +75,16 @@ function agregarHistorial(anterior: string, linea: string): string {
  * la clave linea:recX (aprobar dos veces no crea dos).
  */
 export async function asegurarSolicitudDeLinea(input: {
-  ordenId: string;
+  /** La línea es de una orden de reparación… */
+  ordenId?: string;
+  /** …o de un PEDIDO ESPECIAL (punto 10): una de las dos, nunca ambas. */
+  pedidoId?: string;
   linea: Pick<LineaPresupuesto, "id" | "descripcion" | "cantidad" | "precioUnitario" | "categoria" | "costoProveedor" | "urlProveedor" | "tiempoEstimado" | "proveedorId"> & Partial<Pick<LineaPresupuesto, "tipo">>;
   usuario: string;
   /** Por defecto "Aprobada por el cliente: por comprar." (la garantía lo cambia). */
   textoHistorial?: string;
 }): Promise<Solicitud> {
+  if (!input.ordenId === !input.pedidoId) throw new Error("La línea debe ser de una orden o de un pedido (solo uno).");
   const clave = claveDeLinea(input.linea.id);
   const esLicencia = input.linea.tipo === "Producto digital";
   return withLock(`solicitud:${clave}`, async () => {
@@ -99,6 +103,7 @@ export async function asegurarSolicitudDeLinea(input: {
       tiempoEstimado: input.linea.tiempoEstimado,
       proveedorId: input.linea.proveedorId,
       ordenId: input.ordenId,
+      operacionId: input.pedidoId,
       lineaId: input.linea.id,
       fechaAprobacion: ahora.toISOString(),
       historial: entradaHistorial(input.textoHistorial ?? "Aprobada por el cliente: por comprar.", input.usuario, ahora),
@@ -175,6 +180,8 @@ async function apartarParaQuienLoPidio(s: Solicitud, itemId: string, usuario: st
     const { cargarCompraEnLinea } = await import("@/lib/tecnicos/presupuesto/cargar");
     await cargarCompraEnLinea({ ordenId: s.ordenId, lineaId: s.lineaId, itemId, referencia: `${sku} (${s.codigo})`, usuario: { nombre: usuario } });
   } else if (s.operacionId) {
+    // Punto 10: la solicitud nació de una línea de un PEDIDO ESPECIAL.
+    const esLineaDePedido = !!s.lineaId;
     const unidades = {
       cantidad: firstNumber(item.fields[F.cantidad]) ?? 1,
       cantidadReservada: firstNumber(item.fields[F.cantidadReservada]) ?? 0,
@@ -200,7 +207,19 @@ async function apartarParaQuienLoPidio(s: Solicitud, itemId: string, usuario: st
         }],
       }),
     });
-    await actualizarEstadoOperacion(s.operacionId, "Pedido");
+    if (esLineaDePedido) {
+      // La línea queda "Cargada" con su artículo: desde aquí la cuenta la
+      // cobra por el artículo (con el precio de la línea), no por la línea.
+      // El pedido sigue "Aceptado": lo logístico lo dice el chip de compra.
+      const { actualizarLinea, leerLinea } = await import("@/lib/tecnicos/presupuesto/airtable");
+      const linea = await leerLinea(s.lineaId!);
+      await actualizarLinea(s.lineaId!, {
+        estado: "Cargada", itemId, notaCarga: "",
+        agregarHistorial: { anterior: linea?.historial ?? "", entrada: entradaHistorial(`Comprado: ${sku} (${s.codigo}).`, usuario) },
+      });
+    } else {
+      await actualizarEstadoOperacion(s.operacionId, "Pedido");
+    }
   }
   return sku;
 }
@@ -438,7 +457,10 @@ export type SolicitudConSituacion = Solicitud & { situacion: Situacion; cobertur
 
 /** Chips de una lista de solicitudes de la MISMA cuenta, con lo pagado por esa cuenta. */
 export async function conSituacion(solicitudes: Solicitud[], totalPagado: number): Promise<SolicitudConSituacion[]> {
-  const coberturas = coberturaAnticipo(solicitudes, totalPagado);
+  // Punto 10: en un pedido especial el anticipo se mide sobre TODO el pedido
+  // (pago completo hasta $100, 50 % sobre $100), no repuesto por repuesto.
+  const esPedidoEspecial = solicitudes.length > 0 && solicitudes.every((s) => !!s.lineaId && !!s.operacionId && !s.ordenId);
+  const coberturas = coberturaAnticipo(solicitudes, totalPagado, esPedidoEspecial ? "pedido_especial" : "por_repuesto");
   const articulos = await articulosDe(solicitudes);
   const hoy = hoyEcuador();
   return solicitudes.map((s) => {

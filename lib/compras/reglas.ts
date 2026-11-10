@@ -28,6 +28,7 @@ const dinero = (n: number) => `$${r2(n).toFixed(2)}`;
 
 import { CATEGORIAS_REPUESTO_STOCK, esCategoriaDeRepuesto } from "@/lib/shipping-v2/mejoras";
 import { esCategoriaLicencia } from "@/lib/productos-digitales/compra";
+import { anticipoRequerido } from "@/lib/pedidos-especiales/reglas";
 
 export type EstadoSolicitud = "Por comprar" | "Comprada" | "Entregada" | "Cancelada";
 export const ESTADOS_SOLICITUD: readonly EstadoSolicitud[] = ["Por comprar", "Comprada", "Entregada", "Cancelada"];
@@ -86,6 +87,13 @@ export type Cobertura =
 export function coberturaAnticipo(
   solicitudes: ReadonlyArray<Pick<SolicitudBase, "id" | "estado" | "cantidad" | "precioCliente" | "fechaAprobacion"> & { categoria?: string }>,
   totalPagado: number,
+  /**
+   * "por_repuesto" (órdenes y pedidos viejos): cada repuesto se cubre con su
+   * precio completo, en el orden en que se aprobó. "pedido_especial" (punto
+   * 10, decisión del dueño 10-nov): el anticipo se mide sobre todo el pedido
+   * con la regla de tramos (anticipoRequerido) y vale para todas sus compras.
+   */
+  modo: "por_repuesto" | "pedido_especial" = "por_repuesto",
 ): Map<string, Cobertura> {
   const out = new Map<string, Cobertura>();
   let queda = r2(Math.max(0, totalPagado));
@@ -96,6 +104,16 @@ export function coberturaAnticipo(
     .filter((s) => s.estado !== "Cancelada" && !esCategoriaLicencia(s.categoria))
     .slice()
     .sort((a, b) => (a.fechaAprobacion || "").localeCompare(b.fechaAprobacion || "") || a.id.localeCompare(b.id));
+  if (modo === "pedido_especial") {
+    const total = r2(vivas.reduce((sum, s) => sum + Math.max(1, s.cantidad || 1) * (s.precioCliente || 0), 0));
+    const anticipo = anticipoRequerido(total);
+    for (const s of vivas) {
+      if (anticipo <= TOLERANCIA || queda + TOLERANCIA >= anticipo) out.set(s.id, { tipo: "cubierta" });
+      else if (queda > TOLERANCIA) out.set(s.id, { tipo: "parcial", pagado: queda, precio: anticipo });
+      else out.set(s.id, { tipo: "sin_pago", precio: anticipo });
+    }
+    return out;
+  }
   for (const s of vivas) {
     const precio = r2(Math.max(1, s.cantidad || 1) * (s.precioCliente || 0));
     if (precio <= TOLERANCIA || queda + TOLERANCIA >= precio) {
