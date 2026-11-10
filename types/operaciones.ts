@@ -43,6 +43,8 @@ export type OperacionListado = {
    * rechazada automáticamente, evitando que vuelva a rechazarse de inmediato.
    */
   ultimaActualizacion: string;
+  /** Punto 10A-2: hasta cuándo vale la cotización del pedido especial ("" si no se envió). */
+  cotizacionVence?: string;
   /**
    * Estado de la cuenta (auditoría ops, punto 4) para el chip del tablero:
    * la cuenta COMPLETA de la orden si el pedido es de una orden; la suya si

@@ -17,7 +17,7 @@ type ProveedorSelectorProps = {
   disabled?: boolean;
 };
 
-function ProveedorSelector({ initial, onChange, disabled }: ProveedorSelectorProps) {
+export function ProveedorSelector({ initial, onChange, disabled }: ProveedorSelectorProps) {
   const [selected, setSelected] = useState<ProveedorBusqueda | null>(initial);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ProveedorBusqueda[]>([]);

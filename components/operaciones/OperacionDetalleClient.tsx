@@ -12,6 +12,8 @@ import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnific
 import { RegistrarAbonoModal } from "./RegistrarAbonoModal";
 import { VincularOrdenModal } from "./VincularOrdenModal";
 import { OpcionModal } from "./OpcionModal";
+import { CotizacionPedido } from "./CotizacionPedido";
+import { esPedidoEspecial, estadoComercial } from "@/lib/pedidos-especiales/reglas";
 import {
   construirMensajeOpcionCotizada,
   construirMensajeOpcionesCotizadas,
@@ -563,6 +565,9 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
   const [confirmarEliminar, setConfirmarEliminar] = useState(false);
   const [eliminando, setEliminando] = useState(false);
   const [accionError, setAccionError] = useState("");
+  // Punto 10A-2: pedido especial (cotización en el motor del Presupuesto).
+  const pedidoEspecial = esPedidoEspecial(operacion.estado, operacion.pedidoEspecial?.lineaIds ?? []);
+  const [montoAbono, setMontoAbono] = useState<number | null>(null);
   // Fase 2: situación de la compra (la solicitud viva más reciente del pedido).
   const [compra, setCompra] = useState<{ texto: string; tono: string } | null>(null);
   useEffect(() => {
@@ -676,7 +681,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
               {formatFecha(operacion.fechaCreacion)}
             </span>
           )}
-          {alertaGestion && alertaGestion.nivel !== "nueva" && (
+          {!pedidoEspecial && alertaGestion && alertaGestion.nivel !== "nueva" && (
             <span
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
               style={{ background: `${alertaGestionColor}22`, color: alertaGestionColor ?? undefined }}
@@ -689,7 +694,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
             className="rounded-full border px-2 py-0.5 text-[10px] font-semibold ml-auto"
             style={{ borderColor: `${estadoColor}44`, background: `${estadoColor}11`, color: estadoColor }}
           >
-            {operacion.estado}
+            {pedidoEspecial ? estadoComercial(operacion.estado) : operacion.estado}
           </span>
         </div>
 
@@ -697,8 +702,8 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
           {operacion.productoSolicitado}
         </h2>
 
-        <EstadoPipeline estado={operacion.estado} />
-        <CambiarEstadoBar
+        {!pedidoEspecial && <EstadoPipeline estado={operacion.estado} />}
+        {!pedidoEspecial && <CambiarEstadoBar
           operacionId={operacion.id}
           estado={operacion.estado}
           opcionElegidaId={operacion.opcionElegidaId}
@@ -707,7 +712,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
           ordenDelPresupuesto={operacion.desdePresupuestoOrden && operacion.ordenVinculada ? { id: operacion.ordenVinculada.id, codigo: operacion.ordenVinculada.codigoOrden } : null}
           compra={compra}
           onSuccess={handleEstadoSuccess}
-        />
+        />}
 
         {/* Client & flags */}
         <div className="mt-4 flex flex-wrap gap-4 border-t border-[#3A3A36] pt-4">
@@ -765,7 +770,16 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
         )}
       </div>
 
-      {/* Opciones */}
+      {/* Cotización: pedido especial (punto 10A-2) u Opciones (operación vieja) */}
+      {pedidoEspecial ? (
+        <CotizacionPedido
+          operacionId={operacion.id}
+          clienteNombre={operacion.clienteNombre}
+          clienteTelefono={operacion.clienteTelefono}
+          onCambio={() => router.refresh()}
+          onAbrirAbono={(monto) => { setMontoAbono(monto); setAbonoModalOpen(true); }}
+        />
+      ) : (
       <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4 sm:p-5">
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h3 className="text-sm font-semibold text-[#F0F0EC]">
@@ -831,6 +845,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
           </p>
         )}
       </section>
+      )}
 
       {/* Artículos físicos en inventario. Son varios cuando la operación
           generó más de un artículo; antes solo se veía el primero. */}
@@ -917,7 +932,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
             <p className="mt-1 text-xs text-[#6B6B66]">Estado instalación: {operacion.estadoInstalacion}</p>
           )}
         </section>
-      ) : operacion.clienteId && (
+      ) : operacion.clienteId && !pedidoEspecial && (
         <section className="rounded-xl border border-dashed border-[#3A3A36] bg-[#1E1F1C] p-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm text-[#6B6B66]">Sin orden de reparación vinculada</p>
@@ -979,7 +994,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
       )}
 
       {/* Zona peligrosa: eliminar — solo cuando no hay abonos */}
-      {operacion.abonos.length === 0 && operacion.estado !== "Rechazado" && operacion.articulosFisicos.length === 0 && (
+      {!pedidoEspecial && operacion.abonos.length === 0 && operacion.estado !== "Rechazado" && operacion.articulosFisicos.length === 0 && (
         <section className="rounded-xl border border-[#FF5A4F]/20 bg-[#FF5A4F]/5 p-4">
           <div className="mb-3 flex items-center gap-1.5">
             <AlertTriangle size={13} className="text-[#FF5A4F]/70" />
@@ -1031,10 +1046,10 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
         <RegistrarAbonoModal
           operacionId={operacion.id}
           ordenId={operacion.ordenVinculada?.id ?? null}
-          montoSugerido={cuentaUnificada && cuentaUnificada.saldo > 0 ? cuentaUnificada.saldo : undefined}
+          montoSugerido={montoAbono ?? (cuentaUnificada && cuentaUnificada.saldo > 0 ? cuentaUnificada.saldo : undefined)}
           saldoPendiente={cuentaUnificada ? cuentaUnificada.saldo : undefined}
-          onClose={() => setAbonoModalOpen(false)}
-          onSuccess={handleAbonoSuccess}
+          onClose={() => { setAbonoModalOpen(false); setMontoAbono(null); }}
+          onSuccess={() => { setMontoAbono(null); handleAbonoSuccess(); }}
         />
       )}
       {vincularModalOpen && operacion.clienteId && (

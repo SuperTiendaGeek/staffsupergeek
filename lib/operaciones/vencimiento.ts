@@ -32,7 +32,9 @@ export type AlertaGestion = {
  * Requerimiento sin cotizar todavía no le prometió nada al cliente, así que
  * rechazarlo solo cerraría una solicitud real que nadie alcanzó a atender.
  */
-const ESTADOS_CON_ALERTA_GESTION = ["Requerimiento", "Cotizado"] as const;
+// Punto 10A-2: "Cotizando" (pedido especial sin enviar) también alerta: de 60
+// pedidos, 9 nunca se cotizaron. "Esperando al cliente" no: lo cuida su vigencia.
+const ESTADOS_CON_ALERTA_GESTION = ["Requerimiento", "Cotizado", "Cotizando"] as const;
 
 /** Días completos transcurridos entre `fechaReferenciaIso` y `ahora`. */
 export function calcularDiasSinGestion(fechaReferenciaIso: string, ahora: Date = new Date()): number {

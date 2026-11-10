@@ -4,10 +4,15 @@ import Link from "next/link";
 import { useState, useMemo } from "react";
 import { Wrench, Plus, Clock } from "lucide-react";
 import type { OperacionListado } from "@/types/operaciones";
-import { ESTADOS_TABLERO } from "@/types/operaciones";
 import { resolverEstadoCobroTablero } from "@/lib/operaciones/cobro";
 import { resolverAlertaGestion, type NivelAlertaGestion } from "@/lib/operaciones/vencimiento";
 import { NuevaOperacionModal } from "./NuevaOperacionModal";
+import { ESTADOS_PEDIDO, estadoComercial, textoFechaHora, vigencia } from "@/lib/pedidos-especiales/reglas";
+
+// Punto 10A-2: el tablero muestra el estado COMERCIAL del pedido (lo
+// logístico lo dice el chip de compra; el dinero, la cuenta). Los estados
+// viejos caen en su columna equivalente (estadoComercial).
+const COLUMNAS = ESTADOS_PEDIDO.filter((e) => e !== "Cancelado");
 
 // Mismos colores que ESTADO_COLOR (Requerimiento/Aprobado/Rechazado): el
 // contenedor de una cotización "Cotizado" avisa con el mismo código de
@@ -19,6 +24,10 @@ const ALERTA_GESTION_COLOR: Record<NivelAlertaGestion, string> = {
 };
 
 const ESTADO_COLOR: Record<string, string> = {
+  Cotizando: "#D7FF4F",
+  "Esperando al cliente": "#78B7FF",
+  Aceptado: "#F0C75E",
+  Cancelado: "#FF5A4F",
   Requerimiento: "#D7FF4F",
   Cotizado: "#78B7FF",
   Aprobado: "#F0C75E",
@@ -43,7 +52,8 @@ function formatFecha(iso: string): string {
 // (pura y testeada); acá solo se traduce a etiqueta y color.
 function moneyBadge(op: OperacionListado): { label: string; color: string } {
   const { estado, monto } = resolverEstadoCobroTablero({
-    estado: op.estado,
+    // Estados del pedido especial → su equivalente viejo para el chip de cobro.
+    estado: ({ Cancelado: "Rechazado", Aceptado: "Aprobado", Cotizando: "Requerimiento", "Esperando al cliente": "Cotizado" } as Record<string, string>)[op.estado] ?? op.estado,
     totalCotizado: op.totalCotizado,
     totalAbonado: op.totalAbonado,
     tieneOpciones: op.tieneOpciones,
@@ -102,6 +112,17 @@ function OperacionCard({ op }: { op: OperacionListado }) {
       {op.fechaCreacion && (
         <p className="text-[11px] text-[#6B6B66]">{formatFecha(op.fechaCreacion)}</p>
       )}
+      {op.estado === "Esperando al cliente" && op.cotizacionVence && (() => {
+        // Punto 10A-2: vigencia de la cotización (72 h por defecto).
+        const v = vigencia(op.cotizacionVence);
+        const color = v === "vencida" ? "#FF5A4F" : v === "por_vencer" ? "#F0C75E" : "#78B7FF";
+        return (
+          <span className="inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${color}22`, color }}>
+            <Clock size={10} />
+            {v === "vencida" ? "Cotización vencida" : `Vale hasta ${textoFechaHora(op.cotizacionVence)}`}
+          </span>
+        );
+      })()}
       {alerta && alerta.nivel !== "nueva" && (
         <span
           className="inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
@@ -139,27 +160,18 @@ export function OperacionesBoardClient({ initialItems }: Props) {
 
   const grouped = useMemo(() => {
     const map = new Map<string, OperacionListado[]>();
-    for (const estado of [...ESTADOS_TABLERO, "Rechazado"]) {
-      map.set(estado, []);
-    }
-    for (const item of initialItems) {
-      const bucket = map.get(item.estado);
-      if (bucket) {
-        bucket.push(item);
-      } else {
-        map.get("Requerimiento")!.push(item);
-      }
-    }
+    for (const estado of ESTADOS_PEDIDO) map.set(estado, []);
+    for (const item of initialItems) map.get(estadoComercial(item.estado))!.push(item);
     return map;
   }, [initialItems]);
 
   const visibleColumns = useMemo(() => {
-    const cols: string[] = [...ESTADOS_TABLERO];
-    if (showRechazado) cols.push("Rechazado");
+    const cols: string[] = [...COLUMNAS];
+    if (showRechazado) cols.push("Cancelado");
     return cols;
   }, [showRechazado]);
 
-  const rechazadosCount = grouped.get("Rechazado")?.length ?? 0;
+  const rechazadosCount = grouped.get("Cancelado")?.length ?? 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -176,7 +188,7 @@ export function OperacionesBoardClient({ initialItems }: Props) {
               : "border-[#3A3A36] text-[#8A8A80] hover:border-[#5A5A56] hover:text-[#A0A09A]"
           }`}
         >
-          Rechazados
+          Cancelados
           {rechazadosCount > 0 && (
             <span className="ml-1.5 rounded-full bg-[#3A3A36]/60 px-1 text-[10px] font-bold">
               {rechazadosCount}
@@ -190,7 +202,7 @@ export function OperacionesBoardClient({ initialItems }: Props) {
             className="inline-flex h-7 items-center gap-1 rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-3 text-xs font-bold text-[#10110E] transition hover:brightness-105"
           >
             <Plus size={12} />
-            Nueva operación
+            Nuevo pedido
           </button>
           <button
             className="inline-flex h-7 items-center rounded-full border border-[#D7FF4F]/30 bg-[#D7FF4F]/5 px-3 text-xs font-medium text-[#D7FF4F]/70"
