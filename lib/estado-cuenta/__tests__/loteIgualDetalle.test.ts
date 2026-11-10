@@ -53,6 +53,8 @@ const T: Record<string, Rec[]> = {
     { id: "recOPMANUAL000001", fields: { "Código Operación": "OP-2", "Producto Solicitado": "Teclado", "Estado": "Aprobado", "Orden de Reparación": ["recORDEN0000000001"], "Opción Elegida": ["recOPCION40000001"] } },
     { id: "recOPLINEA0000001", fields: { "Código Operación": "OP-3", "Producto Solicitado": "Pantalla", "Estado": "Pedido", "Orden de Reparación": ["recORDEN0000000001"], "Opción Elegida": ["recOPCION70000001"] } },
     { id: "recOPSUELTA000024", fields: { "Código Operación": "OP-2026-000024", "Producto Solicitado": "Batería Dell", "Estado": "Pedido", "Opción Elegida": ["recOPCION70SUELTA"], "Abonos": ["recABONO70SUELTA1"] } },
+    // Punto 10: pedido especial (cotización en líneas del Presupuesto).
+    { id: "recPEDIDOESP00001", fields: { "Código Operación": "OP-2026-000140", "Producto Solicitado": "Laptop", "Estado": "Aceptado", "Líneas del pedido": ["recLPEDPROPUESTA1", "recLPEDAPROBADA01", "recLPEDCARGADA001"], "Artículo físico": ["recARTPEDESP00001"], "Abonos": ["recABONOPEDESP001"] } },
   ],
   "Opciones": [
     { id: "recOPCION2UNID001", fields: { "Cantidad": 2, "Precio Venta Cliente": 60 } },
@@ -63,14 +65,20 @@ const T: Record<string, Rec[]> = {
   "Shipping Items": [
     { id: "recARTPEDIDO00001", fields: { "Nombre del item": "SSD 1TB", "Precio venta final": 30, "Cantidad": 3, "Opción origen": ["recOPCION2UNID001"] } },
     { id: "recSTOCK000000001", fields: { "Nombre del item": "Ventilador", "Precio venta final": 45 } },
+    // Comprado para la línea "Cargada" del pedido especial: 3 unidades, el cliente pidió 2.
+    { id: "recARTPEDESP00001", fields: { "Nombre del item": "RAM 16GB", "Precio venta final": 240, "Cantidad": 3 } },
   ],
   "Abonos": [
     { id: "recABONODUAL00001", fields: { "ID Abono": 1, "Monto": 100, "Estado del Abono": "Registrado", "Fecha de Abono": "2026-10-01" } },
     { id: "recABONOANUL00001", fields: { "ID Abono": 2, "Monto": 20, "Estado del Abono": "Anulado", "Fecha de Abono": "2026-10-02" } },
     { id: "recABONO70SUELTA1", fields: { "ID Abono": 3, "Monto": 70, "Estado del Abono": "Registrado", "Fecha de Abono": "2026-07-01" } },
+    { id: "recABONOPEDESP001", fields: { "ID Abono": 4, "Monto": 225, "Estado del Abono": "Registrado", "Fecha de Abono": "2026-11-10" } },
   ],
   "Presupuesto por Orden": [
     { id: "recLINEA000000001", fields: { "Descripción": "Pantalla", "Tipo": "Repuesto", "Cantidad": 1, "Precio unitario": 70, "Estado": "Aprobada", "Operación Comercial": ["recOPLINEA0000001"], "Bajo pedido": true, "Orden de Reparación": ["recORDEN0000000001"] } },
+    { id: "recLPEDPROPUESTA1", fields: { "Descripción": "Dell i5 (alternativa no elegida)", "Tipo": "Repuesto", "Cantidad": 1, "Precio unitario": 430, "Estado": "Propuesta", "Bajo pedido": true, "Pedido": ["recPEDIDOESP00001"] } },
+    { id: "recLPEDAPROBADA01", fields: { "Descripción": "Mouse", "Tipo": "Repuesto", "Cantidad": 2, "Precio unitario": 15, "Estado": "Aprobada", "Bajo pedido": true, "Pedido": ["recPEDIDOESP00001"] } },
+    { id: "recLPEDCARGADA001", fields: { "Descripción": "RAM 16GB", "Tipo": "Repuesto", "Cantidad": 2, "Precio unitario": 240, "Estado": "Cargada", "Bajo pedido": true, "Pedido": ["recPEDIDOESP00001"], "Artículo de inventario": ["recARTPEDESP00001"] } },
   ],
   "Servicios por Orden": [
     { id: "recSERV0000000001", fields: { "Orden de Reparación": ["recORDEN0000000001"], "Costo real": 25 } },
@@ -143,6 +151,19 @@ async function main(): Promise<void> {
     assert(!!suelta && suelta.totalCuenta === 70 && suelta.estadoPago === "pagado" && suelta.ordenId === null, "OP-2026-000024 suelta: $70 aprobado y pagado → Pagado");
     const detalleSuelta = await getCuentaUnificada({ operacionId: "recOPSUELTA000024" });
     assert(detalleSuelta.saldo === suelta!.saldo && detalleSuelta.estadoPago === suelta!.estadoPago, "pedido suelto: en bloque = detallada");
+
+    // Punto 10: pedido especial. Lo aceptado sin comprar suma por su línea
+    // (mouse 2 × $15 = $30); lo comprado, por su artículo con las unidades de
+    // la línea (2 × $240 = $480, no las 3 del artículo); la alternativa no
+    // elegida no suma. Total $510, pagado $225 → saldo $285.
+    const pedidoBloque = (await estadosDeCuentaDeOperaciones(["recPEDIDOESP00001"])).get("recPEDIDOESP00001");
+    const pedidoDetalle = await getCuentaUnificada({ operacionId: "recPEDIDOESP00001" });
+    assert(pedidoDetalle.totalCuenta === 510 && pedidoDetalle.saldo === 285, `pedido especial detallado: $510, saldo $285 — vino ${pedidoDetalle.totalCuenta} / ${pedidoDetalle.saldo}`);
+    assert(pedidoDetalle.aprobadoSinArticulo.map((p) => p.id).join() === "recLPEDAPROBADA01", "solo el mouse (aceptado, sin comprar) espera su artículo");
+    assert(pedidoDetalle.items.length === 1 && pedidoDetalle.items[0].cantidad === 2 && pedidoDetalle.items[0].precio === 480, "el artículo cobra las 2 unidades de su línea");
+    for (const k of ["totalCuenta", "totalRepuestos", "totalAprobadoSinArticulo", "totalAbonado", "saldo"] as const) {
+      assert(pedidoBloque?.[k] === pedidoDetalle[k], `pedido especial: en bloque = detallada en ${k} (${pedidoBloque?.[k]} vs ${pedidoDetalle[k]})`);
+    }
   } finally {
     global.fetch = original;
   }

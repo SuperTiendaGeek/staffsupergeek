@@ -13,6 +13,9 @@ import { normalizarPrioridad, type EstadoLinea, type InfoPedido, type LineaPresu
 
 export const T_PRESUPUESTO = "Presupuesto por Orden";
 const T_ORDENES = "Órdenes de Reparación";
+const T_OPERACIONES = "Operación Comercial";
+/** Inverso de "Presupuesto por Orden"."Pedido" en Operación Comercial (punto 10). */
+export const CAMPO_LINEAS_DEL_PEDIDO = "Líneas del pedido";
 
 const F = {
   descripcion:  "Descripción",
@@ -31,6 +34,7 @@ const F = {
   cargoServicio: "Cargo: Servicio por Orden",
   cargoDigital: "Cargo: Producto digital",
   operacion:    "Operación Comercial",
+  pedido:       "Pedido",
   solicitud:    "Solicitud de compra",
   bajoPedido:   "Bajo pedido",
   proveedor:    "Proveedor",
@@ -109,6 +113,7 @@ function mapLinea(r: Registro): LineaPresupuesto {
     cargoServicioId: ids(f[F.cargoServicio])[0] ?? null,
     cargoProductoDigitalId: ids(f[F.cargoDigital])[0] ?? null,
     operacionId: ids(f[F.operacion])[0] ?? null,
+    pedidoId: ids(f[F.pedido])[0] ?? null,
     solicitudId: ids(f[F.solicitud])[0] ?? null,
     // Una línea creada con el flujo anterior (operación desde la cotización)
     // no tiene la casilla, pero sí la operación: también es bajo pedido.
@@ -161,6 +166,15 @@ export async function listarLineas(ordenId: string): Promise<LineaPresupuesto[]>
   const lineaIds = ids(orden.fields[T_PRESUPUESTO]);
   const registros = await porIds(T_PRESUPUESTO, lineaIds);
   // Orden de alta (el inverso ya viene en el orden en que se crearon).
+  const pos = new Map(lineaIds.map((id, i) => [id, i]));
+  return registros.map(mapLinea).sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
+}
+
+/** Punto 10: las líneas (alternativas) de un pedido especial, en orden de alta. */
+export async function listarLineasDePedido(pedidoId: string): Promise<LineaPresupuesto[]> {
+  const pedido = await pedir<Registro>(url(T_OPERACIONES, pedidoId));
+  const lineaIds = ids(pedido.fields[CAMPO_LINEAS_DEL_PEDIDO]);
+  const registros = await porIds(T_PRESUPUESTO, lineaIds);
   const pos = new Map(lineaIds.map((id, i) => [id, i]));
   return registros.map(mapLinea).sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
 }
@@ -264,8 +278,30 @@ export async function crearLinea(
   creadoPor: string,
   extra: { operacionId?: string; grupoAlternativas?: string } = {}
 ): Promise<LineaPresupuesto> {
+  return crearLineaPara({ [F.orden]: [ordenId] }, l, creadoPor, extra);
+}
+
+/**
+ * Punto 10: una alternativa de la cotización de un PEDIDO ESPECIAL. Mismos
+ * campos y reglas que la línea de una orden; solo cambia a quién pertenece.
+ */
+export async function crearLineaDePedido(
+  pedidoId: string,
+  l: NuevaLineaInput,
+  creadoPor: string,
+  extra: { grupoAlternativas?: string } = {}
+): Promise<LineaPresupuesto> {
+  return crearLineaPara({ [F.pedido]: [pedidoId] }, l, creadoPor, extra);
+}
+
+async function crearLineaPara(
+  dueno: Record<string, unknown>,
+  l: NuevaLineaInput,
+  creadoPor: string,
+  extra: { operacionId?: string; grupoAlternativas?: string },
+): Promise<LineaPresupuesto> {
   const fields: Record<string, unknown> = {
-    [F.orden]: [ordenId],
+    ...dueno,
     [F.tipo]: l.tipo,
     [F.descripcion]: l.descripcion.trim(),
     [F.cantidad]: l.cantidad,
@@ -374,7 +410,6 @@ export async function estadosLineasPorId(lineaIds: string[]): Promise<Map<string
 
 // ─── Repuestos bajo pedido: estado real de sus operaciones ───────────────────
 
-const T_OPERACIONES = "Operación Comercial";
 const T_OPCIONES = "Opciones";
 const T_PROVEEDORES = "Shipping Proveedores";
 const T_ITEMS = "Shipping Items";

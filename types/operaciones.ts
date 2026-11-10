@@ -206,4 +206,13 @@ export type OperacionDetalle = {
   desdePresupuestoOrden?: boolean;
   opciones: OpcionDetalle[];
   abonos: AbonoDetalle[];
+  /** Punto 10: datos del pedido especial (vacíos en una operación vieja). */
+  pedidoEspecial?: {
+    lineaIds: string[];
+    cotizacionVence: string;
+    aceptadoEn: string;
+    aceptadoPor: string;
+    aceptadoVia: string;
+    tieneEnlace: boolean;
+  };
 };

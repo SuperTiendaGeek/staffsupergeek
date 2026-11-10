@@ -17,7 +17,8 @@ import type {
 } from "@/types/cuenta-unificada";
 import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import type { ProductoDigital } from "@/lib/tecnicos/airtable";
-import { lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
+import { CAMPO_LINEAS_DEL_PEDIDO, lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
+import { unidadesDelCliente } from "@/lib/pedidos-especiales/reglas";
 import { cargosEnGarantia } from "@/lib/garantias/reglas";
 import type { CuentaUnificadaAprobadoSinArticulo } from "@/types/cuenta-unificada";
 import { CAMPO_DESCUENTOS, TABLA_DESCUENTOS, descuentoDesdeCampos, descuentosVigentes } from "@/lib/estado-cuenta/descuentos";
@@ -405,6 +406,18 @@ export async function getCuentaUnificada(
       ordenId ? fetchProductosDigitalesPorOrden(ordenId) : Promise.resolve([]),
     ]);
   const itemsPedido = itemsPedidoPorOperacion.flat();
+  // Punto 10: las líneas de los pedidos especiales de la cuenta. Un artículo
+  // comprado para una de ellas cobra las unidades de ESA línea (no las de una
+  // opción vieja): misma regla que el cálculo en bloque (unidadesDelCliente).
+  const lineaIdsPedido = operacionRecords.flatMap((r) => linkedIds(r.fields[CAMPO_LINEAS_DEL_PEDIDO]));
+  const lineasPedido = lineaIdsPedido.length ? await lineasPorIds(lineaIdsPedido) : [];
+  const cantidadPorItemPedido = new Map(lineasPedido.filter((l) => l.itemId).map((l) => [l.itemId!, l.cantidad]));
+  for (const it of itemsPedido) {
+    const cantidadLinea = cantidadPorItemPedido.get(it.id);
+    if (cantidadLinea === undefined) continue;
+    it.cantidad = unidadesDelCliente(cantidadLinea, null);
+    it.precio = precioClienteDeItem(it.precioUnitario ?? 0, it.cantidad);
+  }
   const abonosOperacion = abonosPorOperacion.flat();
 
   const repuestosHistoricos = repuestosLegacyRaw.map(mapRepuestoHistorico);
@@ -489,6 +502,7 @@ export async function getCuentaUnificada(
     digitalesIds: new Set(productosDigitalesRaw.map((p) => p.id)),
     itemsStockIds: new Set(repuestosStockV2.map((i) => i.id)),
     operaciones: await operacionesParaCuenta(operacionRecords, client),
+    lineasPedido,
   });
 
   // Los dos rollups ("Total Abonado NV" en la Orden y "Total Abonado" en la

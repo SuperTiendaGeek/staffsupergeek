@@ -137,4 +137,18 @@ assert(validarCategoriaDeCompra({ codigo: "SOL-2", lineaId: null }, "Laptop").ok
 }
 assert(claveDeLinea("recX") === "linea:recX", "clave única por línea");
 
+// ── Pedido especial (punto 10, dueño 10-nov): anticipo sobre TODO el pedido ──
+{
+  const laptop = [sol({ id: "lenovo", precioCliente: 480 }), sol({ id: "mouse", precioCliente: 15, cantidad: 2 })]; // total $510 → anticipo $255
+  const sinPago = coberturaAnticipo(laptop, 0, "pedido_especial");
+  assert(sinPago.get("lenovo")?.tipo === "sin_pago" && sinPago.get("mouse")?.tipo === "sin_pago", "pedido de $510 sin pago: nada se compra todavía");
+  const parcial = coberturaAnticipo(laptop, 100, "pedido_especial").get("lenovo");
+  assert(parcial?.tipo === "parcial" && parcial.pagado === 100 && parcial.precio === 255, "pagó $100 de un anticipo de $255: parcial");
+  const ok = coberturaAnticipo(laptop, 255, "pedido_especial");
+  assert(ok.get("lenovo")?.tipo === "cubierta" && ok.get("mouse")?.tipo === "cubierta", "con el 50 % ($255) todo el pedido queda cubierto");
+  assert(coberturaAnticipo(laptop, 255).get("lenovo")?.tipo === "parcial", "la regla vieja (por repuesto) exigía los $480 completos");
+  const chico = coberturaAnticipo([sol({ id: "cargador", precioCliente: 30 })], 20, "pedido_especial").get("cargador");
+  assert(chico?.tipo === "parcial" && chico.precio === 30, "hasta $100 se exige el pago completo");
+}
+
 if (fallos > 0) { console.error(`\n${fallos} prueba(s) fallaron.`); process.exit(1); }

@@ -152,7 +152,19 @@ export function pendientesDeLaCuenta(input: {
   /** Artículos de stock reservados a la orden. */
   itemsStockIds: ReadonlySet<string>;
   operaciones: readonly OperacionParaCuenta[];
+  /**
+   * Punto 10: líneas de los PEDIDOS ESPECIALES de la cuenta (enlace "Pedido").
+   * Lo aceptado suma desde la aceptación, igual que en una orden: mientras no
+   * se compre ("Aprobada"), por la línea; ya comprado ("Cargada"), por su
+   * artículo (que lleva el precio de la línea). Nunca por las dos.
+   */
+  lineasPedido?: readonly LineaParaCuenta[];
 }): CuentaUnificadaAprobadoSinArticulo[] {
+  const deLosPedidos = input.lineasPedido?.length
+    ? aprobadoSinArticulo([...input.lineasPedido], {
+        servicios: new Set(), digitales: new Set(), itemsStock: new Set(), operacionesConArticulo: new Set(),
+      }).map((p) => ({ id: p.lineaId, nombre: p.descripcion, tipo: p.tipo, monto: p.monto, motivo: p.motivo }))
+    : [];
   const delPresupuesto = input.lineas.length
     ? aprobadoSinArticulo([...input.lineas], {
         servicios: input.serviciosIds,
@@ -164,7 +176,7 @@ export function pendientesDeLaCuenta(input: {
   const operacionesDelPresupuesto = new Set(
     input.lineas.map((l) => l.operacionId).filter((id): id is string => !!id)
   );
-  return [...delPresupuesto, ...pedidosAprobadosSinArticulo(input.operaciones, operacionesDelPresupuesto)];
+  return [...delPresupuesto, ...deLosPedidos, ...pedidosAprobadosSinArticulo(input.operaciones, operacionesDelPresupuesto)];
 }
 
 export type ItemParaCuenta = { id: string; precio: number };

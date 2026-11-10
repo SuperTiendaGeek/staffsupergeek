@@ -20,9 +20,10 @@ import "server-only";
 // campos inversos y se busca por RECORD_ID().
 
 import { loadAirtableEnv } from "@/lib/tecnicos/config/airtable";
-import { lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
+import { CAMPO_LINEAS_DEL_PEDIDO, lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
 import { cargosEnGarantia } from "@/lib/garantias/reglas";
 import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
+import { unidadesDelCliente } from "@/lib/pedidos-especiales/reglas";
 import type { CuentaUnificadaAprobadoSinArticulo } from "@/types/cuenta-unificada";
 import { CAMPO_DESCUENTOS, CAMPOS_DESCUENTO, TABLA_DESCUENTOS, descuentoDesdeCampos, type DescuentoCuenta } from "./descuentos";
 import {
@@ -124,6 +125,8 @@ const CAMPOS_OPERACION_CUENTA = [
   "Abonos",
   "Orden de Reparación",
   CAMPO_DESCUENTOS,
+  // Punto 10: las alternativas de un pedido especial.
+  CAMPO_LINEAS_DEL_PEDIDO,
 ];
 
 export type CuentaEnBloque = EstadoDeCuenta & {
@@ -151,7 +154,10 @@ async function leerDependencias(ordenes: Registro[], operacionesSueltas: Registr
     ...todasOps.flatMap((op) => ids(op.fields["Artículo físico"])),
     ...ordenes.flatMap((o) => ids(o.fields["Repuestos de Stock (V2)"])),
   ];
-  const lineaIds = ordenes.flatMap((o) => ids(o.fields["Presupuesto por Orden"]));
+  const lineaIds = [
+    ...ordenes.flatMap((o) => ids(o.fields["Presupuesto por Orden"])),
+    ...todasOps.flatMap((op) => ids(op.fields[CAMPO_LINEAS_DEL_PEDIDO])),
+  ];
   const abonoIds = [
     ...ordenes.flatMap((o) => ids(o.fields["Abonos (Operación)"])),
     ...todasOps.flatMap((op) => ids(op.fields["Abonos"])),
@@ -190,16 +196,29 @@ function operacionParaCuenta(op: Registro, lec: Lecturas): OperacionParaCuenta {
   };
 }
 
-/** Artículos de los pedidos: precio × unidades de la opción de la que nació (o la elegida). */
+/** Punto 10: líneas de los pedidos especiales de estas operaciones. */
+function lineasDePedidos(operaciones: Registro[], lec: Lecturas): NonNullable<ReturnType<Lecturas["lineas"]["get"]>>[] {
+  return operaciones
+    .flatMap((op) => ids(op.fields[CAMPO_LINEAS_DEL_PEDIDO]))
+    .map((id) => lec.lineas.get(id))
+    .filter((l): l is NonNullable<typeof l> => !!l);
+}
+
+/**
+ * Artículos de los pedidos: precio × unidades del cliente (la línea del
+ * pedido especial de la que nació; si no, la opción vieja; si no, 1).
+ */
 function itemsDePedidos(operaciones: Registro[], lec: Lecturas): ItemParaCuenta[] {
   const out: ItemParaCuenta[] = [];
+  const cantidadPorItem = new Map(lineasDePedidos(operaciones, lec).filter((l) => l.itemId).map((l) => [l.itemId!, l.cantidad]));
   for (const op of operaciones) {
     const elegida = ids(op.fields["Opción Elegida"])[0] ?? null;
     for (const itemId of ids(op.fields["Artículo físico"])) {
       const it = lec.items.get(itemId);
       if (!it) continue;
       const opcionId = ids(it.fields["Opción origen"])[0] ?? elegida;
-      const cantidad = opcionId && lec.opciones.has(opcionId) ? cantidadDeOpcion(lec.opciones.get(opcionId)!.fields["Cantidad"]) : 1;
+      const cantidadOpcion = opcionId && lec.opciones.has(opcionId) ? cantidadDeOpcion(lec.opciones.get(opcionId)!.fields["Cantidad"]) : null;
+      const cantidad = unidadesDelCliente(cantidadPorItem.get(it.id), cantidadOpcion);
       out.push({ id: it.id, precio: precioClienteDeItem(numero(it.fields["Precio venta final"]), cantidad) });
     }
   }
@@ -235,6 +254,7 @@ function cuentaDeOrden(orden: Registro, lec: Lecturas): CuentaEnBloque {
     digitalesIds: new Set(ids(f["Productos Digitales"])),
     itemsStockIds: new Set(stockIds),
     operaciones: operaciones.map((op) => operacionParaCuenta(op, lec)),
+    lineasPedido: lineasDePedidos(operaciones, lec),
   });
   const abonoIds = [...new Set([
     ...ids(f["Abonos (Operación)"]),
@@ -270,6 +290,7 @@ function cuentaDeOperacionSuelta(op: Registro, lec: Lecturas): CuentaEnBloque {
     digitalesIds: new Set(),
     itemsStockIds: new Set(),
     operaciones: [operacionParaCuenta(op, lec)],
+    lineasPedido: lineasDePedidos([op], lec),
   });
   const abonos = abonosDe([...new Set(ids(op.fields["Abonos"]))], lec);
   const items = itemsDePedidos([op], lec);
