@@ -37,6 +37,16 @@ export function estadoComercial(estado: string | null | undefined): EstadoPedido
   return DESDE_VIEJO[e] ?? "Cotizando";
 }
 
+/**
+ * ¿Es un pedido especial (modelo nuevo)? Si tiene líneas o si su estado es
+ * uno de los nuevos. Las operaciones viejas (Requerimiento, Cotizado,
+ * Aprobado, Pedido, Rechazado) siguen con sus Opciones hasta que se migren.
+ */
+export function esPedidoEspecial(estado: string, lineaIds: readonly string[]): boolean {
+  if (lineaIds.length > 0) return true;
+  return (ESTADOS_PEDIDO as readonly string[]).includes(estado) && estado !== "Entregado";
+}
+
 /** ¿El pedido ya tiene un precio aceptado por el cliente? (suma en la cuenta) */
 export function pedidoAceptado(estado: string | null | undefined): boolean {
   const e = estadoComercial(estado);
@@ -246,4 +256,44 @@ export function unidadesDelCliente(cantidadLinea: number | null | undefined, can
     if (typeof c === "number" && Number.isInteger(c) && c > 0) return c;
   }
   return 1;
+}
+
+// ─── Mensaje de la cotización (WhatsApp) ─────────────────────────────────────
+// Mientras llega el enlace del cliente (10A-3), la cotización se manda con
+// este texto. Sin proveedor, costo ni URL: solo lo que el cliente debe ver.
+
+export type LineaParaMensaje = { descripcion: string; cantidad: number; precioUnitario: number; esAlternativa: boolean; notaCliente?: string };
+
+export function mensajeCotizacion(input: {
+  cliente: string;
+  codigo: string;
+  lineas: readonly LineaParaMensaje[];
+  vence: string | null | undefined;
+  ahora?: Date;
+}): string {
+  const nombre = input.cliente.trim().split(/\s+/)[0] ?? "";
+  const linea = (l: LineaParaMensaje) => {
+    const total = r2(l.precioUnitario * (l.cantidad || 1));
+    const cant = l.cantidad > 1 ? ` ×${l.cantidad}` : "";
+    const nota = l.notaCliente?.trim() ? ` (${l.notaCliente.trim()})` : "";
+    return `${l.descripcion.trim()}${cant}: ${usd(total)}${nota}`;
+  };
+  const alternativas = input.lineas.filter((l) => l.esAlternativa);
+  const adicionales = input.lineas.filter((l) => !l.esAlternativa);
+  const partes: string[] = [`Hola${nombre ? ` ${nombre}` : ""}, esta es la cotización de tu pedido ${input.codigo}:`, ""];
+  if (alternativas.length > 1) {
+    partes.push("Elige una opción:");
+    alternativas.forEach((l, i) => partes.push(`${i + 1}. ${linea(l)}`));
+  } else {
+    alternativas.forEach((l) => partes.push(`• ${linea(l)}`));
+  }
+  if (adicionales.length) {
+    if (alternativas.length) partes.push("", "Además:");
+    adicionales.forEach((l) => partes.push(`• ${linea(l)}`));
+  }
+  partes.push("", `Para confirmar: pago completo hasta ${usd(UMBRAL_ANTICIPO_PARCIAL)}; si pasa de ${usd(UMBRAL_ANTICIPO_PARCIAL)}, la mitad ahora y el resto al retirar.`);
+  const vig = textoVigencia(input.vence, input.ahora);
+  if (vig) partes.push(`${vig} (los precios del proveedor cambian rápido).`);
+  partes.push("", "SUPER GEEK");
+  return partes.join("\n");
 }

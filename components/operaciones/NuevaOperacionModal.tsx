@@ -353,7 +353,7 @@ export function NuevaOperacionModal({ onClose }: Props) {
           descripcionRequerimiento: descripcion.trim() || undefined,
           requiereInstalacion,
           equipoEnTienda,
-          ordenId: selectedOrden?.id ?? null,
+          ordenId: null,
         }),
       });
       const d = (await res.json()) as { success: boolean; id?: string; error?: string };
@@ -517,41 +517,8 @@ export function NuevaOperacionModal({ onClose }: Props) {
             </label>
           </section>
 
-          {/* Vincular orden */}
-          {cliente && (
-            <section className="flex flex-col gap-2 rounded-lg border border-[#3A3A36] p-3">
-              <button
-                type="button"
-                onClick={() => setShowOrden((v) => !v)}
-                disabled={loading}
-                className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-[#8A8A80] transition hover:text-[#A0A09A] disabled:opacity-50"
-              >
-                <span className="flex items-center gap-1.5">
-                  <Wrench size={12} className="text-[#78B7FF]" />
-                  Vincular orden de reparación (opcional)
-                </span>
-                {showOrden ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              </button>
-
-              {showOrden && (
-                <div className="flex flex-col gap-2 pt-1">
-                  {selectedOrden && (
-                    <div className="flex items-center gap-2 rounded-md border border-[#78B7FF]/30 bg-[#78B7FF]/5 px-2 py-1.5">
-                      <Wrench size={11} className="text-[#78B7FF]" />
-                      <span className="text-xs font-mono font-semibold text-[#78B7FF]">{selectedOrden.codigoOrden}</span>
-                      <span className="text-xs text-[#6B6B66]">{selectedOrden.equipo}</span>
-                    </div>
-                  )}
-                  <OrdenSelectorInline
-                    clienteId={cliente.id}
-                    selectedOrdenId={selectedOrden?.id ?? null}
-                    onSelect={(o) => setSelectedOrden(o)}
-                    disabled={loading}
-                  />
-                </div>
-              )}
-            </section>
-          )}
+          {/* Separación orden/pedidos (punto 10A-0): un pedido de cliente no se
+              enlaza a una orden; lo de una orden se cotiza en su Presupuesto. */}
 
           {/* Footer */}
           <div className="flex items-center justify-end gap-2 border-t border-[#3A3A36] pt-4">

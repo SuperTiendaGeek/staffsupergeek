@@ -64,6 +64,8 @@ const LIST_FIELDS = [
   "Opción Elegida",
   "Orden de Reparación",
   "Última Actualización",
+  // Punto 10A-2: vigencia de la cotización del pedido especial.
+  "Cotización vence",
 ];
 
 function getClient(): AirtableClient {
@@ -156,6 +158,7 @@ function mapOperacion(
     tieneOpciones: linkedIds(f["Opciones"]).length > 0,
     fechaCreacion: record.createdTime ?? "",
     ultimaActualizacion: firstString(f["Última Actualización"]) || record.createdTime || "",
+    cotizacionVence: firstString(f["Cotización vence"]),
   };
 }
 
@@ -224,7 +227,7 @@ export async function fetchOperaciones(opciones: { conCuenta?: boolean } = {}): 
   // Chip del tablero (punto 4): la cuenta de cada pedido aprobado, con la
   // misma calculadora que la pantalla de la orden. Si no se puede leer, el
   // tablero se muestra igual y el chip cae al cálculo del propio pedido.
-  const conCuenta = listado.filter((op) => ["Aprobado", "Pedido", "Entregado"].includes(op.estado));
+  const conCuenta = listado.filter((op) => ["Aprobado", "Pedido", "Entregado", "Aceptado"].includes(op.estado));
   try {
     const cuentas = await estadosDeCuentaDeOperaciones(conCuenta.map((op) => op.id));
     for (const op of conCuenta) {
@@ -774,19 +777,23 @@ export async function crearOperacion(input: CrearOperacionInput): Promise<{ id: 
   const fields: Record<string, unknown> = {
     "Cliente": [input.clienteId],
     "Producto Solicitado": input.productoSolicitado.trim(),
-    "Estado": "Requerimiento",
+    // Punto 10A-2: todo pedido nuevo es un PEDIDO ESPECIAL (cotización en el
+    // motor del Presupuesto). Estado comercial inicial: "Cotizando".
+    "Estado": "Cotizando",
   };
 
   if (input.categoria?.trim()) fields["Categoría"] = input.categoria.trim();
   if (input.descripcionRequerimiento?.trim()) fields["Descripción del Requerimiento"] = input.descripcionRequerimiento.trim();
   if (input.requiereInstalacion) fields["Requiere Instalación"] = true;
   if (input.equipoEnTienda) fields["Equipo ya está en tienda"] = true;
-  if (input.ordenId) fields["Orden de Reparación"] = [input.ordenId];
+  // Separación orden/pedidos (Fase 2 y punto 10A-0): un pedido de cliente
+  // NUNCA se enlaza a una orden de reparación; lo de una orden se cotiza en
+  // su Presupuesto y se compra en Shipping V2.
 
   const res = await fetch(`${client.baseUrl}/${encodeURIComponent(OPERACIONES_TABLE)}`, {
     method: "POST",
     headers: client.headers,
-    body: JSON.stringify({ fields }),
+    body: JSON.stringify({ fields, typecast: true }),
     cache: "no-store",
   });
 
@@ -1064,7 +1071,8 @@ export async function actualizarEstadoOperacion(
     {
       method: "PATCH",
       headers: client.headers,
-      body: JSON.stringify({ fields: { Estado: estado } }),
+      // typecast: los estados del pedido especial (punto 10) son opciones nuevas.
+      body: JSON.stringify({ fields: { Estado: estado }, typecast: true }),
       cache: "no-store",
     }
   );

@@ -7,6 +7,7 @@ import {
   errorAceptar,
   estadoComercial,
   horasDeVigencia,
+  mensajeCotizacion,
   pedidoAceptado,
   planCancelacion,
   resumenAnticipo,
@@ -97,6 +98,21 @@ assert(planCancelacion({ pagado: 0, pedidoAlProveedor: false }).opciones.length 
 assert(unidadesDelCliente(2, 5) === 2, "manda la cantidad de la línea del pedido");
 assert(unidadesDelCliente(null, 3) === 3, "si no hay línea, la de la opción vieja");
 assert(unidadesDelCliente(null, null) === 1 && unidadesDelCliente(0, 1.5) === 1, "si no, 1");
+
+// 7. Mensaje de la cotización
+const msg = mensajeCotizacion({
+  cliente: "Javier Ulcuango", codigo: "OP-2026-000130", vence, ahora: envio,
+  lineas: [
+    { descripcion: "Dell i5 11va", cantidad: 1, precioUnitario: 430, esAlternativa: true },
+    { descripcion: "Lenovo i7 11va", cantidad: 1, precioUnitario: 480, esAlternativa: true, notaCliente: "8GB GPU" },
+    { descripcion: "Mouse", cantidad: 2, precioUnitario: 15, esAlternativa: false },
+  ],
+});
+assert(msg.startsWith("Hola Javier, esta es la cotización de tu pedido OP-2026-000130:"), "saluda por el primer nombre");
+assert(msg.includes("1. Dell i5 11va: $430") && msg.includes("2. Lenovo i7 11va: $480 (8GB GPU)"), "alternativas numeradas con su nota");
+assert(msg.includes("Además:\n• Mouse ×2: $30"), "adicionales con su total");
+assert(msg.includes("Precio válido hasta el viernes 13-nov, 18:00"), "lleva la vigencia exacta");
+assert(!/proveedor sugerido|costo|http/i.test(msg.replace("los precios del proveedor cambian rápido", "")), "sin datos internos");
 
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo OK");

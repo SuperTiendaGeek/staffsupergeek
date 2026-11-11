@@ -5,6 +5,7 @@ import { crearNotificacion } from "@/lib/notificaciones/airtable";
 import { fetchOperaciones, actualizarEstadoOperacion } from "@/lib/operaciones/airtable";
 import { debeAutoRechazarse, DIAS_MAXIMO_SIN_GESTION } from "@/lib/operaciones/vencimiento";
 import type { OperacionListado } from "@/types/operaciones";
+import { textoFechaHora, vigencia } from "@/lib/pedidos-especiales/reglas";
 
 /**
  * Depuración automática de cotizaciones estancadas (Fase: alertas de gestión).
@@ -19,6 +20,8 @@ import type { OperacionListado } from "@/types/operaciones";
 export type ResultadoDepuracion = {
   revisadas: number;
   rechazadas: Array<{ id: string; codigo: string }>;
+  /** Punto 10A-2: pedidos especiales cuya cotización vence en menos de 24 h (aviso interno). */
+  porVencer?: Array<{ id: string; codigo: string }>;
   errores: Array<{ id: string; error: string }>;
 };
 
@@ -87,5 +90,32 @@ export async function depurarCotizacionesEstancadas(): Promise<ResultadoDepuraci
     }
   }
 
-  return { revisadas: operaciones.length, rechazadas, errores };
+  // Punto 10A-2 (decisión 2 del dueño): la cotización de un pedido especial
+  // NO se rechaza sola; 24 h antes de vencer se avisa al personal para que le
+  // escriba al cliente. El cron corre una vez al día: cada cotización cae una
+  // sola vez en su ventana de 24 h, así que el aviso no se repite.
+  const porVencer: Array<{ id: string; codigo: string }> = [];
+  for (const op of operaciones) {
+    if (op.estado !== "Esperando al cliente" || vigencia(op.cotizacionVence, ahora) !== "por_vencer") continue;
+    try {
+      await notificarPorVencer(op);
+      porVencer.push({ id: op.id, codigo: op.codigo });
+    } catch (err) {
+      errores.push({ id: op.id, error: err instanceof Error ? err.message : "Error desconocido" });
+    }
+  }
+
+  return { revisadas: operaciones.length, rechazadas, porVencer, errores };
+}
+
+async function notificarPorVencer(op: OperacionListado): Promise<void> {
+  const usuarios = (await listPortalUsers()).filter((u) => u.activo && esRolNotificable(u.rol));
+  const titulo = `Cotización por vencer · ${op.codigo}`;
+  const mensaje = `La cotización de ${op.clienteNombre} (${op.productoSolicitado}) vale hasta el ${textoFechaHora(op.cotizacionVence ?? "")}. Escríbele antes de que venza.`;
+  await Promise.all(usuarios.map((u) =>
+    crearNotificacion({
+      destinatarioId: u.id, tipo: "Sistema", titulo, mensaje,
+      urlAccion: `/operaciones/${op.id}`, prioridad: "Normal", entidadTipo: "Sistema", entidadId: op.id,
+    }).catch((err) => console.error(`[operaciones/depuracion] Error avisando a ${u.id}:`, err))
+  ));
 }

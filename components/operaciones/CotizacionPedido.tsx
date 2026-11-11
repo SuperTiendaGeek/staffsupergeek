@@ -1,0 +1,415 @@
+"use client";
+
+// Punto 10A-2 — Cotización de un PEDIDO ESPECIAL (Operaciones).
+// Las opciones son líneas del mismo Presupuesto de las órdenes. Flujo:
+// + Opción → Enviar cotización (72 h) → Aceptar en tienda (+ abono) → Logística compra.
+// Reglas de diseño: docs/REGLAS_UX_UI.md (compacto, uso n.º 100).
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check, Clock, Copy, Loader2, Pencil, Plus, Send, Trash2, X } from "lucide-react";
+import { ProveedorSelector } from "./OpcionModal";
+import type { ProveedorBusqueda } from "@/types/operaciones";
+import {
+  mensajeCotizacion, resumenAnticipo, textoAnticipo, textoFechaHora, totalElegido,
+  VIGENCIA_DIAS_MAX, VIGENCIA_DIAS_MIN,
+} from "@/lib/pedidos-especiales/reglas";
+import { construirUrlWhatsApp } from "@/lib/operaciones/whatsappCotizacion";
+
+type Linea = {
+  id: string; descripcion: string; cantidad: number; precioUnitario: number; estado: string;
+  costoProveedor: number | null; tiempoEstimado: string; categoria: string; notaCliente?: string;
+  grupoAlternativas?: string; proveedorId: string | null; urlProveedor: string;
+};
+type Solicitud = { id: string; lineaId: string | null; estado: string; codigo: string; situacion: { texto: string; tono: string } };
+type Vista = {
+  id: string; codigo: string; estado: string; vence: string; vigencia: "sin_fecha" | "vigente" | "por_vencer" | "vencida";
+  aceptadoEn: string; aceptadoPor: string; aceptadoVia: string;
+  lineas: Linea[]; solicitudes: Solicitud[];
+  anticipo: { total: number; anticipo: number; pagado: number; faltaAnticipo: number; faltaTotal: number; cubierto: boolean };
+  cancelacion: { opciones: string[]; piezaQuedaEnTienda: boolean; texto: string };
+};
+
+const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
+const input = "w-full rounded-lg border border-[#3A3A36] bg-[#252622] px-2.5 py-2 text-sm text-[#F0F0EC] outline-none transition focus:border-[#D7FF4F]/60";
+const btn = "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50";
+const TONO: Record<string, string> = {
+  exito: "border-[#56E3A4]/40 bg-[#56E3A4]/10 text-[#56E3A4]",
+  aviso: "border-[#FFB547]/40 bg-[#FFB547]/10 text-[#FFB547]",
+  peligro: "border-[#FF5A4F]/40 bg-[#FF5A4F]/10 text-[#FF5A4F]",
+  info: "border-[#78B7FF]/40 bg-[#78B7FF]/10 text-[#78B7FF]",
+  neutro: "border-[#3A3A36] bg-[#252622] text-[#A0A09A]",
+};
+
+export function CotizacionPedido({
+  operacionId, clienteNombre, clienteTelefono, onCambio, onAbrirAbono,
+}: {
+  operacionId: string;
+  clienteNombre: string;
+  clienteTelefono: string;
+  /** Refresca la pantalla (cuenta, estado). */
+  onCambio: () => void;
+  /** Abre "Registrar abono" con el monto sugerido (aceptar en tienda = un paso). */
+  onAbrirAbono: (monto: number) => void;
+}) {
+  const [vista, setVista] = useState<Vista | null>(null);
+  const [error, setError] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  const [editando, setEditando] = useState<Linea | "nueva" | null>(null);
+  const [aceptando, setAceptando] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
+  const [dias, setDias] = useState(3);
+  const [copiado, setCopiado] = useState(false);
+  // Causa → efecto (REGLAS_UX_UI): la fila que cambió destella, la que se
+  // quita sale hacia la derecha, la vigencia renovada destella.
+  const [resaltar, setResaltar] = useState<Set<string>>(new Set());
+  const [saliendo, setSaliendo] = useState<string | null>(null);
+  const marcar = (ids: string[]) => { setResaltar(new Set(ids)); setTimeout(() => setResaltar(new Set()), 950); };
+
+  const cargar = useCallback(async () => {
+    const r = await fetch(`/api/operaciones/${operacionId}/pedido`, { cache: "no-store" });
+    const j = (await r.json()) as { success: boolean; data?: Vista; error?: string };
+    if (j.success && j.data) { setVista(j.data); setError(""); } else setError(j.error ?? "No se pudo leer el pedido.");
+  }, [operacionId]);
+  useEffect(() => { void cargar(); }, [cargar]);
+
+  async function accion(body: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    setOcupado(true); setError("");
+    try {
+      const r = await fetch(`/api/operaciones/${operacionId}/pedido`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      const j = (await r.json()) as { success: boolean; data?: Record<string, unknown>; error?: string };
+      if (!j.success) { setError(j.error ?? "No se pudo completar."); return null; }
+      await cargar();
+      onCambio();
+      return j.data ?? {};
+    } catch {
+      setError("Error de conexión."); return null;
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  const propuestas = useMemo(() => (vista?.lineas ?? []).filter((l) => l.estado === "Propuesta"), [vista]);
+  const mensaje = useMemo(() => vista ? mensajeCotizacion({
+    cliente: clienteNombre, codigo: vista.codigo, vence: vista.vence,
+    lineas: propuestas.map((l) => ({ descripcion: l.descripcion, cantidad: l.cantidad, precioUnitario: l.precioUnitario, notaCliente: l.notaCliente, esAlternativa: !!l.grupoAlternativas })),
+  }) : "", [vista, propuestas, clienteNombre]);
+  const waUrl = mensaje ? construirUrlWhatsApp(clienteTelefono, mensaje) : null;
+
+  if (!vista) {
+    return (
+      <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4">
+        {error ? <p className="text-xs text-[#FF5A4F]">{error}</p> : <Loader2 size={14} className="animate-spin text-[#6B6B66]" />}
+      </section>
+    );
+  }
+
+  const cotizable = vista.estado === "Cotizando" || vista.estado === "Esperando al cliente";
+  const solicitudDe = (lineaId: string) => vista.solicitudes.filter((s) => s.lineaId === lineaId && s.estado !== "Cancelada").pop() ?? null;
+
+  return (
+    <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4 sm:p-5 animate-[sg-entrada_180ms_ease-out]">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-semibold text-[#F0F0EC]">Cotización</h3>
+        <span key={vista.vence} style={resaltar.has("vigencia") ? { animation: "sg-destello 900ms ease-out" } : undefined} className="rounded-full">
+          <ChipVigencia vista={vista} />
+        </span>
+        {vista.estado === "Aceptado" && (
+          <span className="text-[11px] text-[#6B6B66]">
+            Aceptado {vista.aceptadoVia === "En tienda" ? "en tienda" : "por el enlace"} · {vista.aceptadoEn ? textoFechaHora(vista.aceptadoEn) : ""} · {vista.aceptadoPor}
+          </span>
+        )}
+        {cotizable && (
+          <button type="button" onClick={() => setEditando("nueva")} disabled={ocupado} className={`${btn} ml-auto border-[#D7FF4F]/50 text-[#D7FF4F] hover:bg-[#D7FF4F]/10`}>
+            <Plus size={12} /> Opción
+          </button>
+        )}
+      </div>
+
+      {vista.lineas.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-[#3A3A36] px-3 py-4 text-center text-xs text-[#6B6B66]">Sin opciones</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[10px] uppercase tracking-wide text-[#4A4A46]">
+                <th className="pb-1.5 font-medium">Opción</th>
+                <th className="pb-1.5 text-right font-medium">Cant.</th>
+                <th className="pb-1.5 text-right font-medium">Total</th>
+                <th className="pb-1.5 text-right font-medium" title="Interno: no lo ve el cliente">Costo</th>
+                <th className="pb-1.5 pl-3 font-medium">Estado</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {vista.lineas.map((l) => {
+                const sol = solicitudDe(l.id);
+                const rechazada = l.estado === "Rechazada";
+                return (
+                  <tr key={l.id}
+                    className={`border-t border-[#2A2B27] transition-opacity duration-500 ${rechazada ? "opacity-45" : ""}`}
+                    style={saliendo === l.id ? { animation: "sg-salida 180ms ease-in forwards" } : resaltar.has(l.id) ? { animation: "sg-entrada 180ms ease-out, sg-destello 900ms ease-out" } : undefined}>
+                    <td className="py-2 pr-2">
+                      <p className="text-[#F0F0EC]">{l.descripcion}</p>
+                      <p className="text-[11px] text-[#6B6B66]">
+                        {l.grupoAlternativas ? "Alternativa" : "Adicional"}{l.tiempoEstimado ? ` · ${l.tiempoEstimado}` : ""}{l.notaCliente ? ` · “${l.notaCliente}”` : ""}
+                      </p>
+                    </td>
+                    <td className="py-2 text-right text-[#C0C0BC]">{l.cantidad}</td>
+                    <td className="py-2 text-right font-semibold text-[#F0F0EC]">{usd(l.precioUnitario * l.cantidad)}</td>
+                    <td className="py-2 text-right text-[11px] text-[#6B6B66]">{l.costoProveedor != null ? usd(l.costoProveedor * l.cantidad) : "—"}</td>
+                    <td className="py-2 pl-3">
+                      {sol
+                        ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${TONO[sol.situacion.tono] ?? TONO.neutro}`}>{sol.situacion.texto}</span>
+                        : <span className="text-[11px] text-[#8A8A80]">{rechazada ? "No elegida" : l.estado === "Propuesta" ? "Propuesta" : l.estado}</span>}
+                    </td>
+                    <td className="py-2 text-right whitespace-nowrap">
+                      {cotizable && l.estado === "Propuesta" && (
+                        <>
+                          <button type="button" title="Editar" onClick={() => setEditando(l)} className="p-1 text-[#6B6B66] hover:text-[#F0F0EC]"><Pencil size={13} /></button>
+                          <button type="button" title="Quitar" disabled={ocupado} onClick={() => { setSaliendo(l.id); setTimeout(() => { void accion({ accion: "quitar", lineaId: l.id }).finally(() => setSaliendo(null)); }, 180); }} className="p-1 text-[#6B6B66] hover:text-[#FF5A4F]"><Trash2 size={13} /></button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {vista.estado === "Aceptado" && vista.anticipo.total > 0 && (
+        <p key={vista.anticipo.pagado} className="mt-3 rounded-lg bg-[#252622] px-3 py-2 text-xs text-[#C0C0BC] animate-[sg-destello_900ms_ease-out]">
+          Total {usd(vista.anticipo.total)} · anticipo {usd(vista.anticipo.anticipo)} · pagado {usd(vista.anticipo.pagado)}
+          {vista.anticipo.cubierto
+            ? <span className="ml-1 font-semibold text-[#56E3A4]">· anticipo cubierto</span>
+            : <button type="button" onClick={() => onAbrirAbono(vista.anticipo.faltaAnticipo)} className="ml-2 font-semibold text-[#D7FF4F] hover:underline">Falta {usd(vista.anticipo.faltaAnticipo)} · Registrar abono</button>}
+        </p>
+      )}
+
+      {error && <p className="mt-3 rounded-lg border border-[#FF5A4F]/40 bg-[#FF5A4F]/10 px-3 py-2 text-xs text-[#FF5A4F] animate-[sg-sacudir_300ms_ease-out]">{error}</p>}
+
+      {cotizable && propuestas.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#2A2B27] pt-3">
+          <label className="flex items-center gap-1.5 text-xs text-[#8A8A80]">
+            Vale
+            <select value={dias} onChange={(e) => setDias(Number(e.target.value))} className="rounded-md border border-[#3A3A36] bg-[#252622] px-1.5 py-1 text-xs text-[#F0F0EC]">
+              {Array.from({ length: VIGENCIA_DIAS_MAX - VIGENCIA_DIAS_MIN + 1 }, (_, i) => i + VIGENCIA_DIAS_MIN).map((d) => (
+                <option key={d} value={d}>{d === 3 ? "72 h" : `${d} ${d === 1 ? "día" : "días"}`}</option>
+              ))}
+            </select>
+          </label>
+          <button type="button" disabled={ocupado} onClick={() => { void accion({ accion: "enviar", dias }).then((r) => { if (r) marcar(["vigencia"]); }); }} className={`${btn} border-[#78B7FF]/50 text-[#78B7FF] hover:bg-[#78B7FF]/10`}>
+            <Send size={12} /> {vista.estado === "Esperando al cliente" ? "Renovar" : "Enviar cotización"}
+          </button>
+          {vista.estado === "Esperando al cliente" && vista.vigencia !== "vencida" && (
+            <>
+              {waUrl && <a href={waUrl} target="_blank" rel="noreferrer" className={`${btn} border-[#56E3A4]/50 text-[#56E3A4] hover:bg-[#56E3A4]/10`}>WhatsApp</a>}
+              <button type="button" onClick={() => { void navigator.clipboard.writeText(mensaje).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1500); }); }} className={`${btn} border-[#3A3A36] text-[#A0A09A] hover:text-[#F0F0EC]`}>
+                {copiado ? <Check size={12} /> : <Copy size={12} />} {copiado ? "Copiado" : "Copiar mensaje"}
+              </button>
+            </>
+          )}
+          <button type="button" disabled={ocupado || vista.vigencia === "vencida"} onClick={() => setAceptando(true)}
+            title={vista.vigencia === "vencida" ? "La cotización venció: renuévala primero." : undefined}
+            className={`${btn} ml-auto border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E] hover:brightness-105`}>
+            <Check size={12} /> Aceptar en tienda
+          </button>
+        </div>
+      )}
+
+      {vista.estado !== "Entregado" && vista.estado !== "Cancelado" && (
+        <div className="mt-2 text-right">
+          <button type="button" onClick={() => setCancelando(true)} className="text-[11px] text-[#6B6B66] hover:text-[#FF5A4F]">Cancelar pedido</button>
+        </div>
+      )}
+
+      {editando && (
+        <AlternativaModal
+          linea={editando === "nueva" ? null : editando}
+          ocupado={ocupado}
+          onClose={() => setEditando(null)}
+          onGuardar={async (datos) => {
+            const ok = await accion(editando === "nueva" ? { accion: "agregar", ...datos } : { accion: "editar", lineaId: editando.id, ...datos });
+            if (!ok) return;
+            marcar([editando === "nueva" ? String((ok as { id?: string }).id ?? "") : editando.id]);
+            setEditando(null);
+          }}
+        />
+      )}
+      {aceptando && (
+        <AceptarModal
+          lineas={propuestas}
+          ocupado={ocupado}
+          pagado={vista.anticipo.pagado}
+          onClose={() => setAceptando(false)}
+          onAceptar={async (elegidas) => {
+            const r = await accion({ accion: "aceptar", elegidas });
+            if (!r) return;
+            setAceptando(false);
+            marcar(elegidas);
+            const ant = (r.anticipo ?? null) as { faltaAnticipo?: number } | null;
+            if (ant?.faltaAnticipo && ant.faltaAnticipo > 0) onAbrirAbono(ant.faltaAnticipo);
+          }}
+        />
+      )}
+      {cancelando && (
+        <CancelarModal texto={vista.cancelacion.texto} pagado={vista.anticipo.pagado} ocupado={ocupado} onClose={() => setCancelando(false)}
+          onCancelar={async (motivo) => { if (await accion({ accion: "cancelar", motivo })) setCancelando(false); }} />
+      )}
+    </section>
+  );
+}
+
+function ChipVigencia({ vista }: { vista: Vista }) {
+  if (vista.estado === "Cotizando") return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${TONO.neutro}`}>Sin enviar</span>;
+  if (vista.estado !== "Esperando al cliente" || !vista.vence) return null;
+  const tono = vista.vigencia === "vencida" ? TONO.peligro : vista.vigencia === "por_vencer" ? TONO.aviso : TONO.info;
+  const t = vista.vigencia === "vencida" ? "Vencida" : `Vale hasta ${textoFechaHora(vista.vence)}`;
+  return <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${tono}`}><Clock size={10} /> {t}</span>;
+}
+
+function Modal({ titulo, onClose, children }: { titulo: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 px-4 py-8 animate-[sg-velo_160ms_ease-out]" onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4 shadow-2xl animate-[sg-modal_200ms_cubic-bezier(0.2,0.8,0.2,1)]" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h4 className="text-sm font-semibold text-[#F0F0EC]">{titulo}</h4>
+          <button type="button" onClick={onClose} className="text-[#6B6B66] hover:text-[#F0F0EC]"><X size={15} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function AlternativaModal({ linea, ocupado, onClose, onGuardar }: {
+  linea: Linea | null; ocupado: boolean; onClose: () => void; onGuardar: (d: Record<string, unknown>) => Promise<void>;
+}) {
+  const [descripcion, setDescripcion] = useState(linea?.descripcion ?? "");
+  const [cantidad, setCantidad] = useState(String(linea?.cantidad ?? 1));
+  const [precio, setPrecio] = useState(linea ? String(linea.precioUnitario) : "");
+  const [costo, setCosto] = useState(linea?.costoProveedor != null ? String(linea.costoProveedor) : "");
+  const [proveedor, setProveedor] = useState<ProveedorBusqueda | null>(null);
+  const [categoria, setCategoria] = useState(linea?.categoria ?? "");
+  const [categorias, setCategorias] = useState<string[]>([]);
+  const [url, setUrl] = useState(linea?.urlProveedor ?? "");
+  const [tiempo, setTiempo] = useState(linea?.tiempoEstimado ?? "");
+  const [nota, setNota] = useState(linea?.notaCliente ?? "");
+  const [esAlternativa, setEsAlternativa] = useState(linea ? !!linea.grupoAlternativas : true);
+  useEffect(() => {
+    if (linea) return;
+    fetch("/api/operaciones/categorias").then((r) => r.json()).then((j: { success?: boolean; data?: string[] }) => setCategorias(j.data ?? [])).catch(() => {});
+  }, [linea]);
+  const n = Number(cantidad) || 0, p = Number(precio.replace(",", ".")) || 0, c = Number(costo.replace(",", ".")) || 0;
+
+  return (
+    <Modal titulo={linea ? "Editar opción" : "Nueva opción"} onClose={onClose}>
+      <div className="space-y-2.5">
+        <input className={input} placeholder="Descripción" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} autoFocus />
+        <div className="grid grid-cols-3 gap-2">
+          <input className={input} inputMode="numeric" placeholder="Cant." value={cantidad} onChange={(e) => setCantidad(e.target.value)} />
+          <input className={input} inputMode="decimal" placeholder="Precio c/u" value={precio} onChange={(e) => setPrecio(e.target.value)} />
+          {!linea && <input className={input} inputMode="decimal" placeholder="Costo c/u" value={costo} onChange={(e) => setCosto(e.target.value)} title="Interno" />}
+        </div>
+        {!linea && (
+          <>
+            <ProveedorSelector initial={null} onChange={setProveedor} disabled={ocupado} />
+            <div className="grid grid-cols-2 gap-2">
+              <select className={input} value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+                <option value="">Categoría…</option>
+                {categorias.map((x) => <option key={x} value={x}>{x}</option>)}
+              </select>
+              <input className={input} placeholder="Tiempo de llegada" value={tiempo} onChange={(e) => setTiempo(e.target.value)} />
+            </div>
+            <input className={input} placeholder="URL proveedor" value={url} onChange={(e) => setUrl(e.target.value)} />
+          </>
+        )}
+        <input className={input} placeholder="Nota al cliente" value={nota} onChange={(e) => setNota(e.target.value)} />
+        <div className="flex gap-1 rounded-lg border border-[#3A3A36] p-0.5 text-xs">
+          {[true, false].map((v) => (
+            <button key={String(v)} type="button" onClick={() => setEsAlternativa(v)} title={v ? "El cliente elige una" : "Se suma al total"}
+              className={`flex-1 rounded-md px-2 py-1.5 font-semibold transition ${esAlternativa === v ? "bg-[#D7FF4F] text-[#10110E]" : "text-[#8A8A80] hover:text-[#F0F0EC]"}`}>
+              {v ? "Alternativa" : "Adicional"}
+            </button>
+          ))}
+        </div>
+        <p className="text-right text-xs text-[#8A8A80]">
+          Total {usd(n * p)}{!linea && c > 0 ? ` · margen ${usd(n * (p - c))}` : ""}
+        </p>
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className={`${btn} border-[#3A3A36] text-[#A0A09A]`}>Cancelar</button>
+          <button type="button" disabled={ocupado} className={`${btn} border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E]`}
+            onClick={() => void onGuardar(linea
+              ? { descripcion, cantidad: n, precioUnitario: p, notaCliente: nota, esAlternativa }
+              : { descripcion, cantidad: n, precioUnitario: p, costoProveedor: costo ? c : null, proveedorId: proveedor?.id ?? "", categoria, urlProveedor: url, tiempoEstimado: tiempo, notaCliente: nota, esAlternativa })}>
+            {ocupado ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Guardar
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function AceptarModal({ lineas, pagado, ocupado, onClose, onAceptar }: {
+  lineas: Linea[]; pagado: number; ocupado: boolean; onClose: () => void; onAceptar: (elegidas: string[]) => Promise<void>;
+}) {
+  const alternativas = lineas.filter((l) => l.grupoAlternativas);
+  const adicionales = lineas.filter((l) => !l.grupoAlternativas);
+  const [alt, setAlt] = useState<string | null>(alternativas.length === 1 ? alternativas[0].id : null);
+  const [extras, setExtras] = useState<Set<string>>(() => new Set(adicionales.map((l) => l.id)));
+  const elegidas = [...(alt ? [alt] : []), ...extras];
+  const total = totalElegido(lineas, elegidas);
+  const r = resumenAnticipo(total, pagado);
+
+  return (
+    <Modal titulo="Aceptar en tienda" onClose={onClose}>
+      <div className="space-y-1.5">
+        {alternativas.map((l) => (
+          <label key={l.id} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${alt === l.id ? "border-[#D7FF4F]/60 bg-[#D7FF4F]/5" : "border-[#3A3A36]"}`}>
+            <input type="radio" name="alt" checked={alt === l.id} onChange={() => setAlt(l.id)} className="accent-[#D7FF4F]" />
+            <span className="flex-1 text-[#F0F0EC]">{l.descripcion}{l.cantidad > 1 ? ` ×${l.cantidad}` : ""}</span>
+            <span className="font-semibold text-[#F0F0EC]">{usd(l.precioUnitario * l.cantidad)}</span>
+          </label>
+        ))}
+        {adicionales.map((l) => (
+          <label key={l.id} className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#3A3A36] px-3 py-2 text-sm">
+            <input type="checkbox" checked={extras.has(l.id)} className="accent-[#D7FF4F]"
+              onChange={(e) => setExtras((s) => { const x = new Set(s); if (e.target.checked) x.add(l.id); else x.delete(l.id); return x; })} />
+            <span className="flex-1 text-[#F0F0EC]">{l.descripcion}{l.cantidad > 1 ? ` ×${l.cantidad}` : ""}</span>
+            <span className="font-semibold text-[#F0F0EC]">{usd(l.precioUnitario * l.cantidad)}</span>
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 rounded-lg bg-[#252622] px-3 py-2 text-xs text-[#C0C0BC]">
+        <p>Total <span className="font-semibold text-[#F0F0EC]">{usd(total)}</span> · {total > 0 ? textoAnticipo(total) : "elige qué acepta"}</p>
+        {pagado > 0 && <p className="mt-0.5 text-[#8A8A80]">Ya pagó {usd(pagado)}: falta {usd(r.faltaAnticipo)} de anticipo.</p>}
+      </div>
+      <div className="mt-3 flex justify-end gap-2">
+        <button type="button" onClick={onClose} className={`${btn} border-[#3A3A36] text-[#A0A09A]`}>Cancelar</button>
+        <button type="button" disabled={ocupado || elegidas.length === 0} onClick={() => void onAceptar(elegidas)} className={`${btn} border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E]`}>
+          {ocupado ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Aceptar{r.faltaAnticipo > 0 ? " y cobrar" : ""}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function CancelarModal({ texto, pagado, ocupado, onClose, onCancelar }: {
+  texto: string; pagado: number; ocupado: boolean; onClose: () => void; onCancelar: (motivo: string) => Promise<void>;
+}) {
+  const [motivo, setMotivo] = useState("");
+  return (
+    <Modal titulo="Cancelar pedido" onClose={onClose}>
+      <p className="mb-2 text-xs text-[#C0C0BC]">{texto}</p>
+      {pagado > 0 && <p className="mb-2 text-xs text-[#FFB547]">Primero resuelve lo pagado en “Cuenta del cliente” (saldo a favor o devolver).</p>}
+      <input className={input} placeholder="Motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
+      <div className="mt-3 flex justify-end gap-2">
+        <button type="button" onClick={onClose} className={`${btn} border-[#3A3A36] text-[#A0A09A]`}>Volver</button>
+        <button type="button" disabled={ocupado || !motivo.trim()} onClick={() => void onCancelar(motivo)} className={`${btn} border-[#FF5A4F]/60 text-[#FF5A4F] hover:bg-[#FF5A4F]/10`}>Cancelar pedido</button>
+      </div>
+    </Modal>
+  );
+}
