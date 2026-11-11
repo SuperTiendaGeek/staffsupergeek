@@ -334,10 +334,14 @@ export function NuevaOperacionModal({ onClose }: Props) {
   }, []);
 
   const canSubmit = !!cliente && productoSolicitado.trim().length > 0;
+  // El error se evita donde nace (REGLAS_UX_UI): el botón no se bloquea en
+  // silencio; si falta elegir el cliente de la lista, se dice ahí mismo.
+  const [faltaCliente, setFaltaCliente] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit) { setError("Completa los campos obligatorios."); return; }
+    if (!cliente) { setFaltaCliente(true); return; }
+    if (!canSubmit) { setError("Escribe el producto solicitado."); return; }
 
     setStep("submitting");
     setError("");
@@ -390,7 +394,7 @@ export function NuevaOperacionModal({ onClose }: Props) {
           <div className="flex items-center gap-2">
             <Plus size={15} className="text-[#D7FF4F]" />
             <h2 id="nueva-op-title" className="text-sm font-semibold text-[#F0F0EC]">
-              Nueva operación comercial
+              Nuevo pedido
             </h2>
           </div>
           <button
@@ -436,7 +440,10 @@ export function NuevaOperacionModal({ onClose }: Props) {
                 </button>
               </div>
             ) : (
-              <ClienteSelector onSelect={handleClienteSelect} disabled={loading} />
+              <div key={faltaCliente ? "falta" : "ok"} className={faltaCliente ? "animate-[sg-sacudir_300ms_ease-out]" : ""}>
+                <ClienteSelector onSelect={(c) => { setFaltaCliente(false); handleClienteSelect(c); }} disabled={loading} />
+                {faltaCliente && <p className="mt-1.5 text-xs text-[#FF5A4F]">Elige el cliente de la lista.</p>}
+              </div>
             )}
           </section>
 
@@ -479,7 +486,7 @@ export function NuevaOperacionModal({ onClose }: Props) {
           {/* Descripción */}
           <section className="flex flex-col gap-2">
             <label htmlFor="op-descripcion" className="text-xs font-semibold uppercase tracking-wide text-[#8A8A80]">
-              Descripción del Requerimiento
+              Detalle
             </label>
             <textarea
               id="op-descripcion"
@@ -532,7 +539,7 @@ export function NuevaOperacionModal({ onClose }: Props) {
             </button>
             <button
               type="submit"
-              disabled={loading || !canSubmit}
+              disabled={loading}
               className="inline-flex min-w-[140px] items-center justify-center gap-1.5 rounded-full border border-[#D7FF4F] bg-[#D7FF4F] px-4 py-2 text-sm font-bold text-[#10110E] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? (
@@ -541,7 +548,7 @@ export function NuevaOperacionModal({ onClose }: Props) {
                   Creando…
                 </>
               ) : (
-                "Crear operación"
+                "Crear pedido"
               )}
             </button>
           </div>
