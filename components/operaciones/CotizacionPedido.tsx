@@ -6,7 +6,7 @@
 // Reglas de diseño: docs/REGLAS_UX_UI.md (compacto, uso n.º 100).
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Clock, Copy, Loader2, Pencil, Plus, Send, Trash2, X } from "lucide-react";
+import { Check, Clock, Copy, Link2, Loader2, Pencil, Plus, Send, Trash2, X } from "lucide-react";
 import { ProveedorSelector } from "./OpcionModal";
 import type { ProveedorBusqueda } from "@/types/operaciones";
 import {
@@ -27,6 +27,10 @@ type Vista = {
   lineas: Linea[]; solicitudes: Solicitud[];
   anticipo: { total: number; anticipo: number; pagado: number; faltaAnticipo: number; faltaTotal: number; cubierto: boolean };
   cancelacion: { opciones: string[]; piezaQuedaEnTienda: boolean; texto: string };
+  /** Página del pedido para el cliente (10A-3); "" hasta el primer envío. */
+  enlace: string;
+  /** Lo que el cliente eligió en el enlace y aún no paga. */
+  eleccionCliente: { fecha: string; elegidas: string[] } | null;
 };
 
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
@@ -41,7 +45,7 @@ const TONO: Record<string, string> = {
 };
 
 export function CotizacionPedido({
-  operacionId, clienteNombre, clienteTelefono, onCambio, onAbrirAbono,
+  operacionId, clienteNombre, clienteTelefono, onCambio, onAbrirAbono, recargar = 0,
 }: {
   operacionId: string;
   clienteNombre: string;
@@ -50,6 +54,8 @@ export function CotizacionPedido({
   onCambio: () => void;
   /** Abre "Registrar abono" con el monto sugerido (aceptar en tienda = un paso). */
   onAbrirAbono: (monto: number) => void;
+  /** Cambia cuando se registra un abono afuera (puede confirmar el pedido). */
+  recargar?: number;
 }) {
   const [vista, setVista] = useState<Vista | null>(null);
   const [error, setError] = useState("");
@@ -58,7 +64,7 @@ export function CotizacionPedido({
   const [aceptando, setAceptando] = useState(false);
   const [cancelando, setCancelando] = useState(false);
   const [dias, setDias] = useState(3);
-  const [copiado, setCopiado] = useState(false);
+  const [copiado, setCopiado] = useState<"" | "mensaje" | "enlace">("");
   // Causa → efecto (REGLAS_UX_UI): la fila que cambió destella, la que se
   // quita sale hacia la derecha, la vigencia renovada destella.
   const [resaltar, setResaltar] = useState<Set<string>>(new Set());
@@ -70,7 +76,7 @@ export function CotizacionPedido({
     const j = (await r.json()) as { success: boolean; data?: Vista; error?: string };
     if (j.success && j.data) { setVista(j.data); setError(""); } else setError(j.error ?? "No se pudo leer el pedido.");
   }, [operacionId]);
-  useEffect(() => { void cargar(); }, [cargar]);
+  useEffect(() => { void cargar(); }, [cargar, recargar]);
 
   async function accion(body: Record<string, unknown>): Promise<Record<string, unknown> | null> {
     setOcupado(true); setError("");
@@ -90,9 +96,13 @@ export function CotizacionPedido({
     }
   }
 
+  function copiar(que: "mensaje" | "enlace", textoACopiar: string) {
+    void navigator.clipboard.writeText(textoACopiar).then(() => { setCopiado(que); setTimeout(() => setCopiado(""), 1500); });
+  }
+
   const propuestas = useMemo(() => (vista?.lineas ?? []).filter((l) => l.estado === "Propuesta"), [vista]);
   const mensaje = useMemo(() => vista ? mensajeCotizacion({
-    cliente: clienteNombre, codigo: vista.codigo, vence: vista.vence,
+    cliente: clienteNombre, codigo: vista.codigo, vence: vista.vence, enlace: vista.enlace || undefined,
     lineas: propuestas.map((l) => ({ descripcion: l.descripcion, cantidad: l.cantidad, precioUnitario: l.precioUnitario, notaCliente: l.notaCliente, esAlternativa: !!l.grupoAlternativas })),
   }) : "", [vista, propuestas, clienteNombre]);
   const waUrl = mensaje ? construirUrlWhatsApp(clienteTelefono, mensaje) : null;
@@ -129,6 +139,12 @@ export function CotizacionPedido({
         <span key={vista.vence} style={resaltar.has("vigencia") ? { animation: "sg-destello 900ms ease-out" } : undefined} className="rounded-full">
           <ChipVigencia vista={vista} />
         </span>
+        {vista.enlace && (
+          <button type="button" onClick={() => copiar("enlace", vista.enlace)} title="Página del pedido para el cliente"
+            className={`${btn} border-[#3A3A36] text-[#A0A09A] hover:text-[#F0F0EC]`}>
+            {copiado === "enlace" ? <Check size={12} /> : <Link2 size={12} />} {copiado === "enlace" ? "Copiado" : "Enlace"}
+          </button>
+        )}
         {vista.estado === "Aceptado" && (
           <span className="text-[11px] text-[#6B6B66]">
             Aceptado {vista.aceptadoVia === "En tienda" ? "en tienda" : "por el enlace"} · {vista.aceptadoEn ? textoFechaHora(vista.aceptadoEn) : ""} · {vista.aceptadoPor}
@@ -221,6 +237,24 @@ export function CotizacionPedido({
         </div>
       )}
 
+      {cotizable && vista.eleccionCliente && (() => {
+        // Eligió en el enlace y falta su pago: el abono lo confirma solo.
+        const el = vista.eleccionCliente;
+        const total = totalElegido(vista.lineas, el.elegidas);
+        const r = resumenAnticipo(total, vista.anticipo.pagado);
+        const nombres = vista.lineas.filter((l) => el.elegidas.includes(l.id)).map((l) => l.descripcion).join(" + ");
+        return (
+          <p key={el.fecha} className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-[#FFB547]/40 bg-[#FFB547]/10 px-3 py-2 text-xs text-[#FFB547] animate-[sg-destello_900ms_ease-out]">
+            <span className="font-semibold">Eligió en el enlace:</span>
+            <span className="text-[#F0F0EC]">{nombres} · {usd(total)}</span>
+            <span className="text-[#C0C0BC]">{textoFechaHora(el.fecha)}</span>
+            {r.cubierto
+              ? <span className="font-semibold text-[#56E3A4]">Pago cubierto</span>
+              : <button type="button" onClick={() => onAbrirAbono(r.faltaAnticipo)} className="ml-auto font-semibold text-[#D7FF4F] hover:underline">Falta {usd(r.faltaAnticipo)} · Registrar abono</button>}
+          </p>
+        );
+      })()}
+
       {vista.estado === "Aceptado" && vista.anticipo.total > 0 && (
         <p key={vista.anticipo.pagado} className="mt-3 rounded-lg bg-[#252622] px-3 py-2 text-xs text-[#C0C0BC] animate-[sg-destello_900ms_ease-out]">
           Total {usd(vista.anticipo.total)} · anticipo {usd(vista.anticipo.anticipo)} · pagado {usd(vista.anticipo.pagado)}
@@ -248,8 +282,8 @@ export function CotizacionPedido({
           {vista.estado === "Esperando al cliente" && vista.vigencia !== "vencida" && (
             <>
               {waUrl && <a href={waUrl} target="_blank" rel="noreferrer" className={`${btn} border-[#56E3A4]/50 text-[#56E3A4] hover:bg-[#56E3A4]/10`}>WhatsApp</a>}
-              <button type="button" onClick={() => { void navigator.clipboard.writeText(mensaje).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1500); }); }} className={`${btn} border-[#3A3A36] text-[#A0A09A] hover:text-[#F0F0EC]`}>
-                {copiado ? <Check size={12} /> : <Copy size={12} />} {copiado ? "Copiado" : "Copiar mensaje"}
+              <button type="button" onClick={() => copiar("mensaje", mensaje)} className={`${btn} border-[#3A3A36] text-[#A0A09A] hover:text-[#F0F0EC]`}>
+                {copiado === "mensaje" ? <Check size={12} /> : <Copy size={12} />} {copiado === "mensaje" ? "Copiado" : "Copiar mensaje"}
               </button>
             </>
           )}
@@ -283,6 +317,7 @@ export function CotizacionPedido({
       {aceptando && (
         <AceptarModal
           lineas={propuestas}
+          preseleccion={vista.eleccionCliente?.elegidas ?? null}
           ocupado={ocupado}
           pagado={vista.anticipo.pagado}
           onClose={() => setAceptando(false)}
@@ -395,12 +430,15 @@ function AlternativaModal({ linea, ocupado, onClose, onGuardar }: {
   );
 }
 
-function AceptarModal({ lineas, pagado, ocupado, onClose, onAceptar }: {
-  lineas: Linea[]; pagado: number; ocupado: boolean; onClose: () => void; onAceptar: (elegidas: string[]) => Promise<void>;
+function AceptarModal({ lineas, preseleccion, pagado, ocupado, onClose, onAceptar }: {
+  lineas: Linea[]; preseleccion: string[] | null; pagado: number; ocupado: boolean; onClose: () => void; onAceptar: (elegidas: string[]) => Promise<void>;
 }) {
   const alternativas = lineas.filter((l) => l.grupoAlternativas);
   const adicionales = lineas.filter((l) => !l.grupoAlternativas);
-  const [alt, setAlt] = useState<string | null>(alternativas.length === 1 ? alternativas[0].id : null);
+  // Si el cliente ya eligió en el enlace, se parte de su elección.
+  const [alt, setAlt] = useState<string | null>(
+    alternativas.find((a) => preseleccion?.includes(a.id))?.id ?? (alternativas.length === 1 ? alternativas[0].id : null),
+  );
   const [extras, setExtras] = useState<Set<string>>(() => new Set(adicionales.map((l) => l.id)));
   const elegidas = [...(alt ? [alt] : []), ...extras];
   const total = totalElegido(lineas, elegidas);

@@ -298,8 +298,8 @@ export function confirmacionesPorOpcion(lineas: readonly LineaParaConfirmar[]): 
 }
 
 // ─── Mensaje de la cotización (WhatsApp) ─────────────────────────────────────
-// Mientras llega el enlace del cliente (10A-3), la cotización se manda con
-// este texto. Sin proveedor, costo ni URL: solo lo que el cliente debe ver.
+// El resumen de la cotización para WhatsApp, con el enlace del pedido al
+// final (10A-3). Sin proveedor, costo ni URL del proveedor.
 
 export type LineaParaMensaje = { descripcion: string; cantidad: number; precioUnitario: number; esAlternativa: boolean; notaCliente?: string };
 
@@ -308,6 +308,8 @@ export function mensajeCotizacion(input: {
   codigo: string;
   lineas: readonly LineaParaMensaje[];
   vence: string | null | undefined;
+  /** Enlace del pedido (10A-3): ahí el cliente ve todo, elige y paga. */
+  enlace?: string;
   ahora?: Date;
 }): string {
   const nombre = input.cliente.trim().split(/\s+/)[0] ?? "";
@@ -344,6 +346,7 @@ export function mensajeCotizacion(input: {
   }
   const vig = textoVigencia(input.vence, input.ahora);
   if (vig) partes.push(`${vig} (los precios del proveedor cambian rápido).`);
+  if (input.enlace) partes.push("", `Revisa, elige y confirma aquí: ${input.enlace}`);
   partes.push("", "SUPER GEEK");
   return partes.join("\n");
 }

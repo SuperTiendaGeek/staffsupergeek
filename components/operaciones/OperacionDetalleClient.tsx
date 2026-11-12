@@ -568,6 +568,8 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
   // Punto 10A-2: pedido especial (cotización en el motor del Presupuesto).
   const pedidoEspecial = esPedidoEspecial(operacion.estado, operacion.pedidoEspecial?.lineaIds ?? []);
   const [montoAbono, setMontoAbono] = useState<number | null>(null);
+  // Un abono puede confirmar el pedido especial (10A-3): la cotización se relee.
+  const [pagosVersion, setPagosVersion] = useState(0);
   // Fase 2: situación de la compra (la solicitud viva más reciente del pedido).
   const [compra, setCompra] = useState<{ texto: string; tono: string } | null>(null);
   useEffect(() => {
@@ -598,6 +600,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
 
   function handleAbonoSuccess() {
     setAbonoModalOpen(false);
+    setPagosVersion((v) => v + 1);
     router.refresh();
   }
 
@@ -777,6 +780,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
           clienteNombre={operacion.clienteNombre}
           clienteTelefono={operacion.clienteTelefono}
           onCambio={() => router.refresh()}
+          recargar={pagosVersion}
           onAbrirAbono={(monto) => { setMontoAbono(monto); setAbonoModalOpen(true); }}
         />
       ) : (

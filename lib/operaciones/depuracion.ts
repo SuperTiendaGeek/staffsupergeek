@@ -31,7 +31,7 @@ function normalizar(valor: string): string {
 
 // Los mismos roles que el usuario pidió notificar: "Administrador" y "Staff"
 // tal como están guardados en la tabla Usuarios (ver docs/ESQUEMA.md).
-function esRolNotificable(rol: string): boolean {
+export function esRolNotificable(rol: string): boolean {
   const r = normalizar(rol);
   return r === "administrador" || r === "admin" || r === "staff";
 }
