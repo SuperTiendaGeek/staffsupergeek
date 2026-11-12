@@ -197,6 +197,20 @@ export function errorAceptar(input: {
   return null;
 }
 
+/**
+ * Antes de ENVIAR la cotización (10A-3b): cada opción propuesta necesita
+ * proveedor y categoría, porque al aceptarla nace su solicitud de compra.
+ * El error se evita donde nace: no se envía lo que después no se puede comprar.
+ */
+export function faltanDatosParaEnviar(lineas: ReadonlyArray<{ descripcion: string; estado: string; proveedorId: string | null; categoria: string }>): string | null {
+  for (const l of lineas) {
+    if (l.estado !== "Propuesta") continue;
+    if (!l.proveedorId) return `Falta el proveedor de "${l.descripcion}".`;
+    if (!l.categoria.trim()) return `Falta la categoría de "${l.descripcion}".`;
+  }
+  return null;
+}
+
 /** Total de lo elegido (precio × cantidad). */
 export function totalElegido(lineas: readonly LineaParaAceptar[], elegidas: readonly string[]): number {
   const set = new Set(elegidas);

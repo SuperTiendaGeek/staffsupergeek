@@ -5,6 +5,7 @@
 import {
   anticipoRequerido,
   errorAceptar,
+  faltanDatosParaEnviar,
   estadoComercial,
   confirmacionesPorOpcion,
   horasDeVigencia,
@@ -138,6 +139,11 @@ assert(chico.includes("• Cargador HP: $45") && chico.includes("Se paga complet
 
 const conEnlace = mensajeCotizacion({ cliente: "Ana", codigo: "OP-1", vence: null, enlace: "https://staff.supertiendageek.com/mi-pedido/abc", lineas: [{ descripcion: "Cargador HP", cantidad: 1, precioUnitario: 45, esAlternativa: true }] });
 assert(conEnlace.includes("Revisa, elige y confirma aquí: https://staff.supertiendageek.com/mi-pedido/abc"), "el mensaje lleva el enlace del pedido (10A-3)");
+
+// 10A-3b: no se envía lo que después no se puede comprar
+assert(faltanDatosParaEnviar([{ descripcion: "Dell", estado: "Propuesta", proveedorId: null, categoria: "Laptop" }]) === 'Falta el proveedor de "Dell".', "sin proveedor no se envía");
+assert(faltanDatosParaEnviar([{ descripcion: "Epson", estado: "Propuesta", proveedorId: "recP", categoria: " " }]) === 'Falta la categoría de "Epson".', "sin categoría no se envía");
+assert(faltanDatosParaEnviar([{ descripcion: "Vieja", estado: "Rechazada", proveedorId: null, categoria: "" }, { descripcion: "Ok", estado: "Propuesta", proveedorId: "recP", categoria: "Laptop" }]) === null, "solo cuentan las propuestas");
 
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo OK");

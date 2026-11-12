@@ -73,6 +73,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           ...(body.precioUnitario !== undefined ? { precioUnitario: num(body.precioUnitario) } : {}),
           ...(body.notaCliente !== undefined ? { notaCliente: str(body.notaCliente) } : {}),
           ...(typeof body.esAlternativa === "boolean" ? { esAlternativa: body.esAlternativa } : {}),
+          ...(str(body.proveedorId) ? { proveedorId: str(body.proveedorId) } : {}),
+          ...(body.categoria !== undefined ? { categoria: str(body.categoria) } : {}),
+          ...(body.costoProveedor !== undefined ? { costoProveedor: body.costoProveedor === null || body.costoProveedor === "" ? null : num(body.costoProveedor) } : {}),
+          ...(body.urlProveedor !== undefined ? { urlProveedor: str(body.urlProveedor) } : {}),
+          ...(body.tiempoEstimado !== undefined ? { tiempoEstimado: str(body.tiempoEstimado) } : {}),
         }, usuario);
         return NextResponse.json({ success: true });
       }

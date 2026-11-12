@@ -83,7 +83,7 @@ const ABIERTOS_ACEPTADOS = new Set(["Aprobado", "Pedido"]);
  * (el precio pegado al final del nombre se quita: el precio es el de la línea).
  */
 export function separarTexto(texto: string): { descripcion: string; nota: string } {
-  const lineas = (texto ?? "").replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const lineas = (texto ?? "").replace(/\r/g, "").split("\n").map((l) => l.replace(/[\t ]+/g, " ").trim()).filter(Boolean);
   const primera = (lineas[0] ?? "").replace(/\s+\$\s?\d+(?:[.,]\d+)?\s*$/, "").trim();
   return { descripcion: primera, nota: lineas.slice(1).join(" ").trim() };
 }
