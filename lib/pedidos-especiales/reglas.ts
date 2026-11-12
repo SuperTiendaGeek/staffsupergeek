@@ -258,6 +258,45 @@ export function unidadesDelCliente(cantidadLinea: number | null | undefined, can
   return 1;
 }
 
+// ─── Lo que el cliente paga para confirmar cada opción ───────────────────────
+// Pedido del dueño (12-nov): la información va "masticada". El sistema aplica
+// la regla de tramos y le dice al cliente cuánto pagar, opción por opción.
+// Una "Alternativa" es excluyente (el cliente elige UNA: Dell o Lenovo); un
+// "Adicional" se suma a lo que elija (el mouse). Por eso cada alternativa se
+// evalúa con los adicionales incluidos.
+
+export type LineaParaConfirmar = { id: string; cantidad: number; precioUnitario: number; esAlternativa: boolean };
+
+export type Confirmacion = {
+  /** La alternativa (null = el pedido no tiene alternativas: solo adicionales). */
+  lineaId: string | null;
+  total: number;
+  /** Lo mínimo para confirmar. */
+  paraConfirmar: number;
+  alRetirar: number;
+  pagoCompleto: boolean;
+  texto: string;
+};
+
+export function confirmacionesPorOpcion(lineas: readonly LineaParaConfirmar[]): Confirmacion[] {
+  const sub = (l: LineaParaConfirmar) => r2(l.precioUnitario * (l.cantidad || 1));
+  const extras = r2(lineas.filter((l) => !l.esAlternativa).reduce((s, l) => s + sub(l), 0));
+  const alternativas = lineas.filter((l) => l.esAlternativa);
+  const una = (lineaId: string | null, total: number): Confirmacion => {
+    const paraConfirmar = anticipoRequerido(total);
+    const pagoCompleto = paraConfirmar >= total;
+    const alRetirar = r2(total - paraConfirmar);
+    return {
+      lineaId, total, paraConfirmar, alRetirar, pagoCompleto,
+      texto: pagoCompleto
+        ? `Se paga completo para confirmar: ${usd(total)}.`
+        : `Para confirmar: ${usd(paraConfirmar)} ahora y ${usd(alRetirar)} al retirar.`,
+    };
+  };
+  if (alternativas.length === 0) return extras > 0 ? [una(null, extras)] : [];
+  return alternativas.map((a) => una(a.id, r2(sub(a) + extras)));
+}
+
 // ─── Mensaje de la cotización (WhatsApp) ─────────────────────────────────────
 // Mientras llega el enlace del cliente (10A-3), la cotización se manda con
 // este texto. Sin proveedor, costo ni URL: solo lo que el cliente debe ver.
@@ -278,8 +317,13 @@ export function mensajeCotizacion(input: {
     const nota = l.notaCliente?.trim() ? ` (${l.notaCliente.trim()})` : "";
     return `${l.descripcion.trim()}${cant}: ${usd(total)}${nota}`;
   };
-  const alternativas = input.lineas.filter((l) => l.esAlternativa);
-  const adicionales = input.lineas.filter((l) => !l.esAlternativa);
+  const conId = input.lineas.map((l, i) => ({ ...l, id: String(i) }));
+  const conf = new Map(confirmacionesPorOpcion(conId).map((c) => [c.lineaId, c]));
+  const alternativas = conId.filter((l) => l.esAlternativa);
+  const adicionales = conId.filter((l) => !l.esAlternativa);
+  const hayExtras = adicionales.length > 0;
+  const textoPago = (c: Confirmacion | undefined) => c ? (hayExtras ? `Total ${usd(c.total)}. ${c.texto}` : c.texto) : "";
+
   const partes: string[] = [`Hola${nombre ? ` ${nombre}` : ""}, esta es la cotización de tu pedido ${input.codigo}:`, ""];
   if (alternativas.length > 1) {
     partes.push("Elige una opción:");
@@ -287,11 +331,17 @@ export function mensajeCotizacion(input: {
   } else {
     alternativas.forEach((l) => partes.push(`• ${linea(l)}`));
   }
-  if (adicionales.length) {
-    if (alternativas.length) partes.push("", "Además:");
+  if (hayExtras) {
+    if (alternativas.length) partes.push("", alternativas.length > 1 ? "Además (se suma a la opción que elijas):" : "Además:");
     adicionales.forEach((l) => partes.push(`• ${linea(l)}`));
   }
-  partes.push("", `Para confirmar: pago completo hasta ${usd(UMBRAL_ANTICIPO_PARCIAL)}; si pasa de ${usd(UMBRAL_ANTICIPO_PARCIAL)}, la mitad ahora y el resto al retirar.`);
+  partes.push("");
+  if (alternativas.length > 1) {
+    alternativas.forEach((l, i) => partes.push(`Opción ${i + 1} → ${textoPago(conf.get(l.id))}`));
+  } else {
+    const c = alternativas.length ? conf.get(alternativas[0].id) : conf.get(null);
+    if (c) partes.push(textoPago(c));
+  }
   const vig = textoVigencia(input.vence, input.ahora);
   if (vig) partes.push(`${vig} (los precios del proveedor cambian rápido).`);
   partes.push("", "SUPER GEEK");

@@ -5,12 +5,12 @@
 // + Opción → Enviar cotización (72 h) → Aceptar en tienda (+ abono) → Logística compra.
 // Reglas de diseño: docs/REGLAS_UX_UI.md (compacto, uso n.º 100).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Clock, Copy, Loader2, Pencil, Plus, Send, Trash2, X } from "lucide-react";
 import { ProveedorSelector } from "./OpcionModal";
 import type { ProveedorBusqueda } from "@/types/operaciones";
 import {
-  mensajeCotizacion, resumenAnticipo, textoAnticipo, textoFechaHora, totalElegido,
+  confirmacionesPorOpcion, mensajeCotizacion, resumenAnticipo, textoAnticipo, textoFechaHora, totalElegido,
   VIGENCIA_DIAS_MAX, VIGENCIA_DIAS_MIN,
 } from "@/lib/pedidos-especiales/reglas";
 import { construirUrlWhatsApp } from "@/lib/operaciones/whatsappCotizacion";
@@ -96,6 +96,20 @@ export function CotizacionPedido({
     lineas: propuestas.map((l) => ({ descripcion: l.descripcion, cantidad: l.cantidad, precioUnitario: l.precioUnitario, notaCliente: l.notaCliente, esAlternativa: !!l.grupoAlternativas })),
   }) : "", [vista, propuestas, clienteNombre]);
   const waUrl = mensaje ? construirUrlWhatsApp(clienteTelefono, mensaje) : null;
+  // Cuánto paga el cliente para confirmar cada opción (regla de tramos, con
+  // los adicionales incluidos): se ve en la tabla, no se calcula de cabeza.
+  const confirmaciones = useMemo(() => confirmacionesPorOpcion(propuestas.map((l) => ({
+    id: l.id, cantidad: l.cantidad, precioUnitario: l.precioUnitario, esAlternativa: !!l.grupoAlternativas,
+  }))), [propuestas]);
+  const confirmacionDe = (id: string | null) => confirmaciones.find((c) => c.lineaId === id) ?? null;
+  // Alternativas primero (el cliente elige una), luego lo que se suma.
+  const ordenadas = useMemo(() => {
+    const ls = vista?.lineas ?? [];
+    return [...ls.filter((l) => l.grupoAlternativas), ...ls.filter((l) => !l.grupoAlternativas)];
+  }, [vista]);
+  const nAlt = ordenadas.filter((l) => l.grupoAlternativas).length;
+  const nExtra = ordenadas.length - nAlt;
+  const conEncabezados = nAlt > 1 || (nAlt > 0 && nExtra > 0);
 
   if (!vista) {
     return (
@@ -143,22 +157,38 @@ export function CotizacionPedido({
               </tr>
             </thead>
             <tbody>
-              {vista.lineas.map((l) => {
+              {ordenadas.map((l, idx) => {
                 const sol = solicitudDe(l.id);
                 const rechazada = l.estado === "Rechazada";
+                const conf = l.estado === "Propuesta" && l.grupoAlternativas ? confirmacionDe(l.id) : null;
+                const perdida = l.costoProveedor != null && l.costoProveedor > l.precioUnitario;
+                const encabezado = conEncabezados && (idx === 0 || (idx === nAlt && nExtra > 0))
+                  ? (l.grupoAlternativas ? (nAlt > 1 ? "Elige una" : "Opción") : "Se suma a la elección")
+                  : null;
                 return (
-                  <tr key={l.id}
+                  <Fragment key={l.id}>
+                  {encabezado && (
+                    <tr><td colSpan={6} className="pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[#8A8A80]">{encabezado}</td></tr>
+                  )}
+                  <tr
                     className={`border-t border-[#2A2B27] transition-opacity duration-500 ${rechazada ? "opacity-45" : ""}`}
                     style={saliendo === l.id ? { animation: "sg-salida 180ms ease-in forwards" } : resaltar.has(l.id) ? { animation: "sg-entrada 180ms ease-out, sg-destello 900ms ease-out" } : undefined}>
                     <td className="py-2 pr-2">
                       <p className="text-[#F0F0EC]">{l.descripcion}</p>
                       <p className="text-[11px] text-[#6B6B66]">
-                        {l.grupoAlternativas ? "Alternativa" : "Adicional"}{l.tiempoEstimado ? ` · ${l.tiempoEstimado}` : ""}{l.notaCliente ? ` · “${l.notaCliente}”` : ""}
+                        {[l.tiempoEstimado, l.notaCliente ? `“${l.notaCliente}”` : ""].filter(Boolean).join(" · ")}
                       </p>
+                      {conf && (
+                        <p className="mt-0.5 text-[11px] font-semibold text-[#F0C75E]" title={nExtra ? `Total con lo que se suma: ${usd(conf.total)}` : undefined}>
+                          {conf.pagoCompleto ? `Pago completo ${usd(conf.total)}` : `Confirma con ${usd(conf.paraConfirmar)} · resto ${usd(conf.alRetirar)}`}
+                        </p>
+                      )}
                     </td>
                     <td className="py-2 text-right text-[#C0C0BC]">{l.cantidad}</td>
                     <td className="py-2 text-right font-semibold text-[#F0F0EC]">{usd(l.precioUnitario * l.cantidad)}</td>
-                    <td className="py-2 text-right text-[11px] text-[#6B6B66]">{l.costoProveedor != null ? usd(l.costoProveedor * l.cantidad) : "—"}</td>
+                    <td className={`py-2 text-right text-[11px] ${perdida ? "font-semibold text-[#FF5A4F]" : "text-[#6B6B66]"}`} title={perdida ? "El precio es menor que el costo" : undefined}>
+                      {l.costoProveedor != null ? usd(l.costoProveedor * l.cantidad) : "—"}
+                    </td>
                     <td className="py-2 pl-3">
                       {sol
                         ? <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${TONO[sol.situacion.tono] ?? TONO.neutro}`}>{sol.situacion.texto}</span>
@@ -173,8 +203,19 @@ export function CotizacionPedido({
                       )}
                     </td>
                   </tr>
+                  </Fragment>
                 );
               })}
+              {nAlt === 0 && confirmacionDe(null) && (() => {
+                const c = confirmacionDe(null)!;
+                return (
+                  <tr className="border-t border-[#2A2B27]">
+                    <td colSpan={6} className="py-2 text-right text-[11px] font-semibold text-[#F0C75E]">
+                      Total {usd(c.total)} · {c.pagoCompleto ? "pago completo para confirmar" : `confirma con ${usd(c.paraConfirmar)} · resto ${usd(c.alRetirar)}`}
+                    </td>
+                  </tr>
+                );
+              })()}
             </tbody>
           </table>
         </div>
@@ -332,12 +373,13 @@ function AlternativaModal({ linea, ocupado, onClose, onGuardar }: {
           {[true, false].map((v) => (
             <button key={String(v)} type="button" onClick={() => setEsAlternativa(v)} title={v ? "El cliente elige una" : "Se suma al total"}
               className={`flex-1 rounded-md px-2 py-1.5 font-semibold transition ${esAlternativa === v ? "bg-[#D7FF4F] text-[#10110E]" : "text-[#8A8A80] hover:text-[#F0F0EC]"}`}>
-              {v ? "Alternativa" : "Adicional"}
+              {v ? "Elige una" : "Se suma"}
             </button>
           ))}
         </div>
         <p className="text-right text-xs text-[#8A8A80]">
-          Total {usd(n * p)}{!linea && c > 0 ? ` · margen ${usd(n * (p - c))}` : ""}
+          Total {usd(n * p)}
+          {!linea && c > 0 && <span className={p < c ? "font-semibold text-[#FF5A4F]" : ""}>{` · margen ${usd(n * (p - c))}`}</span>}
         </p>
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} className={`${btn} border-[#3A3A36] text-[#A0A09A]`}>Cancelar</button>
