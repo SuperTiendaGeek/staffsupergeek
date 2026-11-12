@@ -62,7 +62,71 @@ export type ItemRevision = {
   vendidasFuera?: number;
   salidasInternas?: number;
   ventasOtro?: number;
+  /**
+   * Punto cero (12-nov-2026): unidades que salieron por el taller según el
+   * Kardex (garantías y mejoras, menos sus reversas; equipos desarmados).
+   * No tienen documento de venta, así que sin esto la revisión las ve como faltantes.
+   */
+  salidasTaller?: number;
+  /** Fecha del último movimiento del registro en el Kardex (vacío = ninguno). */
+  ultimoMovimiento?: string;
 };
+
+/**
+ * Punto cero del inventario (decisión del dueño, 12-nov-2026): el último
+ * inventario general aplicado (todas las categorías) es la realidad física.
+ * Lo anterior a él (compras sin respaldo, "Unidades compradas" estimadas por
+ * el ajuste 9b, ventas del sistema anterior, unidades encontradas) quedó
+ * resuelto por ese conteo, así que "Unidades no cuadran" ya no lo compara
+ * contra lo comprado: el control de esos registros es el Kardex desde el conteo.
+ */
+export type CorteInventario = {
+  /** Fecha en que se aplicó el conteo. */
+  fecha: string;
+  nombre: string;
+  /** Registros que estaban en la tienda al contar (la foto inicial del conteo). */
+  contados: string[];
+};
+
+export type ConteoParaCorte = {
+  id: string;
+  nombre: string;
+  estado: string;
+  categorias: string[];
+  fechaAplicado: string;
+  foto: Record<string, unknown> | null;
+};
+
+/** El último inventario general aplicado (sin filtro de categorías), o null si no hay. */
+export function corteDeConteos(conteos: ConteoParaCorte[]): CorteInventario | null {
+  const generales = conteos
+    .filter((c) => c.estado === "Aplicado" && c.categorias.length === 0 && c.fechaAplicado && c.foto)
+    .sort((a, b) => (a.fechaAplicado < b.fechaAplicado ? 1 : -1));
+  const c = generales[0];
+  if (!c || !c.foto) return null;
+  return { fecha: c.fechaAplicado, nombre: c.nombre, contados: Object.keys(c.foto) };
+}
+
+/**
+ * ¿El registro quedó verificado por el punto cero? Sí si estaba en la tienda al
+ * contar, o si se registró antes del conteo y no tuvo ningún movimiento en el
+ * Kardex después (lo que había o no había lo dijo el conteo: vendido antes,
+ * encontrado en el conteo). Lo que llegó o se movió después se sigue controlando;
+ * lo que venía en camino entra al Kardex al recibirse y desde ahí también.
+ */
+export function verificadoEnCorte(
+  item: Pick<ItemRevision, "id" | "fechaRegistro" | "ultimoMovimiento">,
+  corte: CorteInventario | null | undefined,
+  contados?: Set<string>
+): boolean {
+  if (!corte) return false;
+  if ((contados ?? new Set(corte.contados)).has(item.id)) return true;
+  const registrado = Date.parse(item.fechaRegistro);
+  const fechaCorte = Date.parse(corte.fecha);
+  if (!Number.isFinite(registrado) || !Number.isFinite(fechaCorte) || registrado > fechaCorte) return false;
+  const ultimo = item.ultimoMovimiento ? Date.parse(item.ultimoMovimiento) : NaN;
+  return !(Number.isFinite(ultimo) && ultimo > fechaCorte);
+}
 
 export type LineaVenta = { itemId: string; cantidad: number };
 export type ReservaRevision = { id: string; numero: string; fechaLimite: string; itemId?: string };
@@ -85,6 +149,8 @@ export type DatosRevision = {
    * no se pudo leer el Kardex (no se abre ni se cierra ningún asunto de Kardex).
    */
   kardex?: Array<{ registroId: string; sku: string; libro: number; inventario: number }>;
+  /** Punto cero: último inventario general aplicado (ver `CorteInventario`). */
+  corte?: CorteInventario | null;
 };
 
 export type AsuntoDetectado = {
@@ -193,15 +259,24 @@ export function detectarAsuntos(datos: DatosRevision, hoy: Date, plazos = PLAZOS
   const vendidas = sumar(datos.ventas);
   const devueltas = sumar(datos.devoluciones);
   const skuDe = (id?: string) => (id ? porId.get(id)?.sku ?? "" : "");
+  const contadosEnCorte = new Set(datos.corte?.contados ?? []);
 
   for (const i of datos.items) {
     const estado = normal(i.estado);
     // Unidades: compradas = en tienda + vendidas (menos devueltas) + bajas + vendidas fuera
     // del sistema + salidas internas − ventas de otro artículo (punto 10c-4).
     // Un registro dado de baja entero o pasado a uso local sale aparte.
-    if (i.compradas !== null && !["dado de baja", "perdido en tienda", "uso local", "destinado a partes"].includes(estado)) {
+    // Punto cero (12-nov-2026): lo verificado en el último inventario general ya
+    // no se compara contra lo comprado (su control es el Kardex desde el conteo).
+    // Las licencias digitales se venden por su unidad DIG, no por documento: las controla el Kardex.
+    if (
+      i.compradas !== null &&
+      !["dado de baja", "perdido en tienda", "uso local", "destinado a partes"].includes(estado) &&
+      normal(i.categoria) !== "licencia digital" &&
+      !verificadoEnCorte(i, datos.corte, contadosEnCorte)
+    ) {
       const netas = (vendidas.get(i.id) ?? 0) - (devueltas.get(i.id) ?? 0);
-      const extras = (i.bajas ?? 0) + (i.vendidasFuera ?? 0) + (i.salidasInternas ?? 0) - (i.ventasOtro ?? 0);
+      const extras = (i.bajas ?? 0) + (i.vendidasFuera ?? 0) + (i.salidasInternas ?? 0) + (i.salidasTaller ?? 0) - (i.ventasOtro ?? 0);
       const esperado = i.cantidad + netas + extras;
       if (esperado !== i.compradas) {
         const diferencia = esperado - i.compradas;
@@ -209,6 +284,7 @@ export function detectarAsuntos(datos: DatosRevision, hoy: Date, plazos = PLAZOS
           i.bajas ? `bajas ${i.bajas}` : "",
           i.vendidasFuera ? `fuera del sistema ${i.vendidasFuera}` : "",
           i.salidasInternas ? `salidas internas ${i.salidasInternas}` : "",
+          i.salidasTaller ? `taller ${i.salidasTaller}` : "",
           i.ventasOtro ? `de otro artículo −${i.ventasOtro}` : "",
         ].filter(Boolean);
         asuntos.push({
@@ -335,11 +411,10 @@ export function detectarAsuntos(datos: DatosRevision, hoy: Date, plazos = PLAZOS
     });
   }
 
-  // Kardex (punto 12): si ya hay "Unidades no cuadran" para el registro, ese
-  // asunto lo explica (al cuadrarlo, el libro queda bien también).
-  const conUnidades = new Set(asuntos.filter((a) => a.tipo === "Unidades no cuadran").flatMap((a) => a.itemIds));
+  // Kardex (punto 12). Desde el punto cero (12-nov-2026) se muestra siempre,
+  // aunque el registro tenga también "Unidades no cuadran": antes se ocultaba
+  // y así quedaron 5 libros descuadrados sin aviso.
   for (const d of datos.kardex ?? []) {
-    if (conUnidades.has(d.registroId)) continue;
     asuntos.push({
       clave: `Kardex no cuadra|${d.registroId}`,
       tipo: "Kardex no cuadra",

@@ -30,7 +30,9 @@ import {
   type MovimientoKardex,
   type AmbitoKardex,
   type DiferenciaKardex,
+  type ResumenRegistroKardex,
   diferenciasKardex,
+  resumenPorRegistro,
   DOC_KARDEX,
   movimientosDeDocumento,
   type LineaDocumentoKardex,
@@ -376,7 +378,18 @@ const CAMPOS_REVISION_KARDEX = [
  * Sin `itemIds` revisa todo. Esta sí lanza: quien llama decide qué hacer.
  */
 export async function kardexRevisar(opciones: { itemIds?: string[]; ajustarCostos?: boolean } = {}): Promise<DiferenciaKardex[]> {
-  if (apagado()) return [];
+  return (await kardexRevisarConResumen(opciones)).diferencias;
+}
+
+/**
+ * Igual que `kardexRevisar`, y además el resumen de cada registro (último
+ * movimiento y salidas por el taller) que usa la revisión de unidades desde el
+ * punto cero del inventario (12-nov-2026). Lee el libro una sola vez.
+ */
+export async function kardexRevisarConResumen(
+  opciones: { itemIds?: string[]; ajustarCostos?: boolean } = {}
+): Promise<{ diferencias: DiferenciaKardex[]; resumen: Map<string, ResumenRegistroKardex> }> {
+  if (apagado()) return { diferencias: [], resumen: new Map() };
   const ids = opciones.itemIds ? [...new Set(opciones.itemIds)] : null;
   const [itemsRecs, movs] = await Promise.all([
     ids ? leerItems(ids).then((m) => [...m].map(([id, fields]) => ({ id, fields }))) : listarTabla(TABLA_ITEMS, { campos: CAMPOS_REVISION_KARDEX }),
@@ -400,8 +413,11 @@ export async function kardexRevisar(opciones: { itemIds?: string[]; ajustarCosto
     }
     if (ajustes.length) await registrarMovimientosKardex(ajustes);
   }
-  return diferenciasKardex(
-    itemsRecs.map((r) => ({ id: r.id, sku: String(r.fields["SKU"] ?? ""), enLibro: unidadesEnLibro(r.fields) })),
-    saldos
-  );
+  return {
+    diferencias: diferenciasKardex(
+      itemsRecs.map((r) => ({ id: r.id, sku: String(r.fields["SKU"] ?? ""), enLibro: unidadesEnLibro(r.fields) })),
+      saldos
+    ),
+    resumen: resumenPorRegistro(movs),
+  };
 }
