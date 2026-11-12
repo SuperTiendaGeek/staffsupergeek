@@ -6,11 +6,12 @@ import {
 } from "@/lib/pedidos-especiales/servidor";
 import { asegurarEnlacePedido, eleccionDelCliente, tokenDelPedido, urlEnlacePedido } from "@/lib/pedidos-especiales/enlace";
 import { origenPublico } from "@/lib/tecnicos/presupuesto/origen";
+import { accionSeguimiento, seguimientoDelPedido, type AccionSeguimiento } from "@/lib/pedidos-especiales/seguimiento-servidor";
 
 // Punto 10A-2: cotización y aceptación de un PEDIDO ESPECIAL.
 //   GET  → líneas, vigencia, anticipo, compras, plan de cancelación, enlace del
 //          cliente y su elección (10A-3).
-//   POST { accion: "agregar" | "editar" | "quitar" | "enviar" | "aceptar" | "cancelar", ... }
+//   POST { accion: "agregar" | "editar" | "quitar" | "enviar" | "aceptar" | "cancelar" | "seguimiento", ... }
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -25,10 +26,15 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
   const { id } = await params;
   try {
     const vista = await vistaPedido(id);
-    const [token, eleccion] = await Promise.all([tokenDelPedido(id), eleccionDelCliente(id, vista.lineas)]);
+    const conSeguimiento = vista.estado === "Aceptado" || vista.estado === "Entregado";
+    const [token, eleccion, seguimiento] = await Promise.all([
+      tokenDelPedido(id),
+      eleccionDelCliente(id, vista.lineas),
+      conSeguimiento ? seguimientoDelPedido(id).catch((e) => { console.error("[pedido] seguimiento:", e); return null; }) : Promise.resolve(null),
+    ]);
     return NextResponse.json({
       success: true,
-      data: { ...vista, enlace: token ? urlEnlacePedido(origenPublico(req), token) : "", eleccionCliente: eleccion },
+      data: { ...vista, enlace: token ? urlEnlacePedido(origenPublico(req), token) : "", eleccionCliente: eleccion, seguimiento },
     });
   } catch (e) {
     return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "Error al leer el pedido." }, { status: 500 });
@@ -98,6 +104,16 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       case "cancelar":
         await cancelarPedido(id, str(body.motivo), usuario);
         return NextResponse.json({ success: true });
+      case "seguimiento": {
+        // Punto 10B: Siguiente / deshacer / aviso / llegada estimada.
+        const tipo = str(body.tipo);
+        let a: AccionSeguimiento;
+        if (tipo === "siguiente" || tipo === "deshacer" || tipo === "quitar_aviso" || tipo === "llegada_auto") a = { tipo };
+        else if (tipo === "aviso") a = { tipo, nota: str(body.nota) };
+        else if (tipo === "llegada") a = { tipo, desde: str(body.desde), hasta: str(body.hasta) };
+        else return NextResponse.json({ success: false, error: "Acción inválida." }, { status: 400 });
+        return NextResponse.json({ success: true, data: await accionSeguimiento(id, a, usuario) });
+      }
       default:
         return NextResponse.json({ success: false, error: "Acción inválida." }, { status: 400 });
     }

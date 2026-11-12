@@ -45,6 +45,8 @@ export type OperacionListado = {
   ultimaActualizacion: string;
   /** Punto 10A-2: hasta cuándo vale la cotización del pedido especial ("" si no se envió). */
   cotizacionVence?: string;
+  /** Punto 10B: paso actual del pedido aceptado (y su aviso, si hay). */
+  hito?: { titulo: string; aviso: string | null } | null;
   /**
    * Estado de la cuenta (auditoría ops, punto 4) para el chip del tablero:
    * la cuenta COMPLETA de la orden si el pedido es de una orden; la suya si

@@ -10,11 +10,12 @@ import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { Check, Clock, Copy, CreditCard, MapPin, MessageCircle } from "lucide-react";
 import type { VistaCliente } from "@/lib/pedidos-especiales/enlace-reglas";
+import type { SeguimientoCliente } from "@/lib/pedidos-especiales/seguimiento";
 import { mensajeComprobante, mensajeConsulta } from "@/lib/pedidos-especiales/enlace-reglas";
 import { POLITICA_CANCELACION, anticipoRequerido, vigencia } from "@/lib/pedidos-especiales/reglas";
 import { TIENDA, whatsappTienda } from "@/lib/tienda/datos";
 
-type Vista = VistaCliente & { producto: string; pagoTarjeta: boolean };
+type Vista = VistaCliente & { producto: string; pagoTarjeta: boolean; seguimiento: SeguimientoCliente | null };
 
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, "")}`;
 const caja = "rounded-2xl border border-[#3A3A36] bg-[#1E1F1C]";
@@ -224,14 +225,24 @@ export function MiPedidoClient({ token }: { token: string }) {
       {/* ── Confirmado / entregado ──────────────────────────────────────── */}
       {(v.fase === "confirmado" || v.fase === "entregado") && v.elegido && (
         <>
+          {v.seguimiento?.aviso && (
+            <a href={consulta} target="_blank" rel="noreferrer"
+              className="flex items-center gap-2 rounded-xl border border-[#FFB547]/40 bg-[#FFB547]/10 px-3.5 py-3 text-sm font-semibold text-[#FFB547] animate-[sg-entrada_220ms_ease-out]">
+              <MessageCircle size={16} aria-hidden /> {v.seguimiento.aviso}
+              {v.seguimiento.aviso === "Necesitamos hablar contigo" && <span className="ml-auto text-xs underline">Escríbenos</span>}
+            </a>
+          )}
           <section className={`${caja} flex flex-col gap-1.5 p-4`}>
-            <span className="text-xs text-[#B5B5AE]">Tu pedido está</span>
-            <span className="flex items-center gap-2.5 text-[26px] font-extrabold tracking-tight text-[#D7FF4F]">
-              {v.fase === "confirmado" && <span className="h-2.5 w-2.5 rounded-full bg-[#D7FF4F] animate-[sg-pulso_1.8s_ease-out_infinite]" aria-hidden />}
-              {v.fase === "confirmado" ? "Confirmado" : "Entregado"}
+            <span className="text-xs text-[#B5B5AE]">{v.nombre ? `${v.nombre}, tu` : "Tu"} pedido está</span>
+            <span className="flex items-center gap-2.5 text-[26px] font-extrabold leading-tight tracking-tight text-[#D7FF4F]">
+              {v.fase === "confirmado" && <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#D7FF4F] animate-[sg-pulso_1.8s_ease-out_infinite]" aria-hidden />}
+              {v.seguimiento?.actual?.titulo ?? (v.fase === "confirmado" ? "Confirmado" : "Entregado")}
             </span>
-            <span className="text-sm text-[#B5B5AE]">{v.fase === "confirmado" ? "Aquí verás cada paso de tu pedido." : "¡Gracias por tu compra!"}</span>
+            <span className="text-sm text-[#B5B5AE]">
+              {v.seguimiento?.llegada ? `Llega aprox. ${v.seguimiento.llegada}` : v.seguimiento?.actual?.frase ?? (v.fase === "entregado" ? "¡Gracias por tu compra!" : "")}
+            </span>
           </section>
+          {v.seguimiento && <LineaDeTiempo hitos={v.seguimiento.hitos} />}
           <Items items={v.elegido.items} />
           <section className={`${caja} flex flex-col gap-2 p-4 tabular-nums`}>
             <span className="font-bold text-[#F0F0EC]">Tus pagos</span>
@@ -311,5 +322,38 @@ function Items({ items, borde = "border-[#3A3A36]", check = false }: { items: Ar
         </div>
       ))}
     </section>
+  );
+}
+
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+function fechaCorta(iso: string) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const d = new Date(t - 5 * 3_600_000);
+  return `${d.getUTCDate()}-${MESES_CORTOS[d.getUTCMonth()]}`;
+}
+
+/** Los pasos del pedido (10B): hechos en verde, el actual late, los que faltan en gris. */
+function LineaDeTiempo({ hitos }: { hitos: SeguimientoCliente["hitos"] }) {
+  return (
+    <ol className="flex flex-col px-1 animate-[sg-entrada_220ms_ease-out]">
+      {hitos.map((h, i) => (
+        <li key={h.titulo} className="flex gap-3">
+          <div className="flex flex-col items-center">
+            <span className={`grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full ${h.estado === "hecho" ? "bg-[#56E3A4]" : h.estado === "actual" ? "bg-[#D7FF4F] animate-[sg-pulso_1.8s_ease-out_infinite]" : "border-2 border-[#4A4A45]"}`}>
+              {h.estado === "hecho" && <Check size={11} strokeWidth={3} className="text-[#151613]" aria-hidden />}
+            </span>
+            {i < hitos.length - 1 && <span className={`min-h-[22px] w-0.5 flex-1 ${h.estado === "hecho" ? "bg-[#56E3A4]" : "bg-[#3A3A36]"}`} />}
+          </div>
+          <div className="flex flex-1 flex-col pb-4">
+            <div className="flex items-baseline gap-2">
+              <span className={h.estado === "actual" ? "font-bold text-[#D7FF4F]" : h.estado === "hecho" ? "text-[#F0F0EC]" : "text-[#8E8E87]"}>{h.titulo}</span>
+              {h.fecha && <span className="ml-auto text-xs text-[#B5B5AE]">{fechaCorta(h.fecha)}</span>}
+            </div>
+            {h.estado === "actual" && <span className="text-xs text-[#B5B5AE]">{h.frase}</span>}
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }

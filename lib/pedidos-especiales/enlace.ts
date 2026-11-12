@@ -22,6 +22,8 @@ import { crearNotificacion } from "@/lib/notificaciones/airtable";
 import { esRolNotificable } from "@/lib/operaciones/depuracion";
 import { payphoneActivo } from "@/lib/pagos/payphone";
 import { aceptarPedido } from "./servidor";
+import { seguimientoDelPedido } from "./seguimiento-servidor";
+import { seguimientoParaCliente, type SeguimientoCliente } from "./seguimiento";
 import {
   TOKEN_PEDIDO_REGEX, confirmacionPorPago, construirVistaCliente, detalleEleccion, elegidasDeOpcion, eleccionVigente,
   errorEleccion, leerEleccion, type EleccionCliente, type LineaCliente, type VistaCliente,
@@ -121,7 +123,7 @@ async function leerContexto(pedidoId: string): Promise<Contexto> {
   };
 }
 
-export type VistaPublicaPedido = VistaCliente & { producto: string; pagoTarjeta: boolean };
+export type VistaPublicaPedido = VistaCliente & { producto: string; pagoTarjeta: boolean; seguimiento: SeguimientoCliente | null };
 
 function vistaDe(c: Contexto): VistaPublicaPedido {
   const vista = construirVistaCliente({
@@ -129,13 +131,20 @@ function vistaDe(c: Contexto): VistaPublicaPedido {
     lineas: c.lineas, elecciones: c.elecciones, pagado: c.pagado,
   });
   const producto = vista.elegido?.items[0]?.descripcion || vista.opciones[0]?.descripcion || c.producto;
-  return { ...vista, producto, pagoTarjeta: payphoneActivo() };
+  return { ...vista, producto, pagoTarjeta: payphoneActivo(), seguimiento: null };
+}
+
+/** Punto 10B: con el pedido confirmado, el cliente ve sus pasos (sin notas internas). */
+async function conSeguimiento(id: string, v: VistaPublicaPedido): Promise<VistaPublicaPedido> {
+  if (v.fase !== "confirmado" && v.fase !== "entregado") return v;
+  const s = await seguimientoDelPedido(id).catch((e) => { console.error("[pedido enlace] seguimiento:", e); return null; });
+  return { ...v, seguimiento: s ? seguimientoParaCliente(s) : null };
 }
 
 export async function vistaPublicaPedido(token: string): Promise<VistaPublicaPedido | null> {
   const id = await pedidoDelToken(token);
   if (!id) return null;
-  return vistaDe(await leerContexto(id));
+  return conSeguimiento(id, vistaDe(await leerContexto(id)));
 }
 
 /** Para la pantalla del empleado: la elección vigente del cliente (o null). */
@@ -193,7 +202,7 @@ export async function elegirOpcionPedido(
     return false;
   });
   const ctx = confirmado ? await leerContexto(id) : r.ctx;
-  const v = vistaDe(ctx);
+  const v = await conSeguimiento(id, vistaDe(ctx));
   if (!confirmado) {
     await avisar(id, `Eligió su opción · ${ctx.codigo}`,
       `${ctx.clienteNombre} eligió ${v.elegido?.items.map((x) => x.descripcion).join(" + ") ?? "su opción"} desde el enlace (${usd(r.total)}). Para confirmar paga ${usd(v.pago.faltaParaConfirmar)}: registra el abono cuando llegue.`,
