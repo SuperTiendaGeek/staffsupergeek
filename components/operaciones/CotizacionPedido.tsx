@@ -6,7 +6,7 @@
 // Reglas de diseño: docs/REGLAS_UX_UI.md (compacto, uso n.º 100).
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Clock, Copy, Link2, Loader2, Pencil, Plus, Send, Trash2, X } from "lucide-react";
+import { Check, Clock, Copy, ExternalLink, Link2, Loader2, Pencil, Plus, Send, Trash2, X } from "lucide-react";
 import { ProveedorSelector } from "./OpcionModal";
 import type { ProveedorBusqueda } from "@/types/operaciones";
 import {
@@ -33,6 +33,18 @@ type Vista = {
   eleccionCliente: { fecha: string; elegidas: string[] } | null;
   /** proveedorId → nombre. */
   proveedores: Record<string, string>;
+  /** Punto 10B: pasos del pedido aceptado (null antes de aceptar). */
+  seguimiento: Seguimiento | null;
+};
+type Hito = { clave: string; titulo: string; estado: "hecho" | "actual" | "pendiente"; fecha: string; manual: boolean };
+type Seguimiento = {
+  hitos: Hito[];
+  actual: Hito | null;
+  siguienteManual: { clave: string; titulo: string } | null;
+  llegada: { desde: string; hasta: string; texto: string; corregida: boolean } | null;
+  retraso: boolean;
+  aviso: string | null;
+  avisoInterno: { nota: string; por: string; fecha: string } | null;
 };
 
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
@@ -135,6 +147,14 @@ export function CotizacionPedido({
   const solicitudDe = (lineaId: string) => vista.solicitudes.filter((s) => s.lineaId === lineaId && s.estado !== "Cancelada").pop() ?? null;
 
   return (
+    <>
+    {vista.seguimiento && (
+      <SeguimientoCard
+        s={vista.seguimiento}
+        ocupado={ocupado}
+        onAccion={(tipo, datos = {}) => accion({ accion: "seguimiento", tipo, ...datos })}
+      />
+    )}
     <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4 sm:p-5 animate-[sg-entrada_180ms_ease-out]">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold text-[#F0F0EC]">Cotización</h3>
@@ -146,6 +166,12 @@ export function CotizacionPedido({
             className={`${btn} border-[#3A3A36] text-[#A0A09A] hover:text-[#F0F0EC]`}>
             {copiado === "enlace" ? <Check size={12} /> : <Link2 size={12} />} {copiado === "enlace" ? "Copiado" : "Enlace"}
           </button>
+        )}
+        {vista.enlace && (
+          <a href={vista.enlace} target="_blank" rel="noreferrer" title="Abrir la página que ve el cliente"
+            className={`${btn} border-[#3A3A36] text-[#A0A09A] hover:text-[#F0F0EC]`}>
+            <ExternalLink size={12} /> Ver como cliente
+          </a>
         )}
         {vista.estado === "Aceptado" && (
           <span className="text-[11px] text-[#6B6B66]">
@@ -344,6 +370,7 @@ export function CotizacionPedido({
           onCancelar={async (motivo) => { if (await accion({ accion: "cancelar", motivo })) setCancelando(false); }} />
       )}
     </section>
+    </>
   );
 }
 
@@ -497,5 +524,98 @@ function CancelarModal({ texto, pagado, ocupado, onClose, onCancelar }: {
         <button type="button" disabled={ocupado || !motivo.trim()} onClick={() => void onCancelar(motivo)} className={`${btn} border-[#FF5A4F]/60 text-[#FF5A4F] hover:bg-[#FF5A4F]/10`}>Cancelar pedido</button>
       </div>
     </Modal>
+  );
+}
+
+// ─── Seguimiento (punto 10B) ─────────────────────────────────────────────────
+// Los pasos los dice Shipping V2 (compra, rastreo, caja, flete, Recepción); el
+// empleado solo marca lo que Shipping no registra ("Siguiente"), corrige la
+// llegada estimada o avisa "Necesitamos hablar contigo" (nota interna).
+
+const fechaCorta = (iso: string) => {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const d = new Date(t - 5 * 3_600_000);
+  return `${d.getUTCDate()}-${["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][d.getUTCMonth()]}`;
+};
+
+function SeguimientoCard({ s, ocupado, onAccion }: {
+  s: Seguimiento;
+  ocupado: boolean;
+  onAccion: (tipo: string, datos?: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
+}) {
+  const [editLlegada, setEditLlegada] = useState(false);
+  const [desde, setDesde] = useState(s.llegada?.desde ?? "");
+  const [hasta, setHasta] = useState(s.llegada?.hasta ?? "");
+  const [avisando, setAvisando] = useState(false);
+  const [nota, setNota] = useState("");
+  const total = s.hitos.length;
+
+  return (
+    <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4 sm:p-5 animate-[sg-entrada_180ms_ease-out]">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-semibold text-[#F0F0EC]">Seguimiento</h3>
+        {s.llegada && !editLlegada && (
+          <button type="button" onClick={() => setEditLlegada(true)} title="Corregir la llegada estimada"
+            className="inline-flex items-center gap-1 text-xs text-[#A0A09A] hover:text-[#F0F0EC]">
+            Llega aprox. {s.llegada.texto}{s.llegada.corregida ? " ·  corregida" : ""} <Pencil size={11} />
+          </button>
+        )}
+        {!s.llegada && !editLlegada && (
+          <button type="button" onClick={() => setEditLlegada(true)} className="text-xs text-[#6B6B66] hover:text-[#F0F0EC]">+ Llegada estimada</button>
+        )}
+        {editLlegada && (
+          <span className="flex flex-wrap items-center gap-1.5 text-xs animate-[sg-entrada_150ms_ease-out]">
+            <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="rounded-md border border-[#3A3A36] bg-[#252622] px-1.5 py-1 text-xs text-[#F0F0EC]" aria-label="Desde" />
+            <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="rounded-md border border-[#3A3A36] bg-[#252622] px-1.5 py-1 text-xs text-[#F0F0EC]" aria-label="Hasta" />
+            <button type="button" disabled={ocupado} onClick={() => { void onAccion("llegada", { desde, hasta }).then((r) => { if (r) setEditLlegada(false); }); }} className={`${btn} border-[#D7FF4F]/50 text-[#D7FF4F]`}><Check size={12} /></button>
+            {s.llegada?.corregida && <button type="button" disabled={ocupado} onClick={() => { void onAccion("llegada_auto").then((r) => { if (r) setEditLlegada(false); }); }} className="text-[11px] text-[#8A8A80] hover:text-[#F0F0EC]">Automática</button>}
+            <button type="button" onClick={() => setEditLlegada(false)} className="p-1 text-[#6B6B66] hover:text-[#F0F0EC]" aria-label="Cerrar"><X size={12} /></button>
+          </span>
+        )}
+        {s.retraso && <span className="rounded-full bg-[#FFB547]/15 px-2 py-0.5 text-[10px] font-semibold text-[#FFB547]">Con retraso</span>}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {s.avisoInterno ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#FFB547]/40 bg-[#FFB547]/10 px-2.5 py-1 text-[11px] font-semibold text-[#FFB547]" title={`${s.avisoInterno.nota} · ${s.avisoInterno.por}`}>
+              Hablar con el cliente: <span className="max-w-[16rem] truncate font-normal text-[#F0F0EC]">{s.avisoInterno.nota}</span>
+              <button type="button" disabled={ocupado} onClick={() => void onAccion("quitar_aviso")} className="text-[#A0A09A] hover:text-[#F0F0EC]" aria-label="Quitar aviso"><X size={11} /></button>
+            </span>
+          ) : avisando ? (
+            <span className="flex items-center gap-1.5 animate-[sg-entrada_150ms_ease-out]">
+              <input autoFocus value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Nota interna" className="w-48 rounded-md border border-[#3A3A36] bg-[#252622] px-2 py-1 text-xs text-[#F0F0EC]" />
+              <button type="button" disabled={ocupado || !nota.trim()} onClick={() => { void onAccion("aviso", { nota }).then((r) => { if (r) { setAvisando(false); setNota(""); } }); }} className={`${btn} border-[#FFB547]/50 text-[#FFB547]`}>Avisar</button>
+              <button type="button" onClick={() => setAvisando(false)} className="p-1 text-[#6B6B66]" aria-label="Cerrar"><X size={12} /></button>
+            </span>
+          ) : (
+            <button type="button" onClick={() => setAvisando(true)} title="El cliente verá: Necesitamos hablar contigo" className={`${btn} border-[#3A3A36] text-[#A0A09A] hover:text-[#F0F0EC]`}>Hablar con el cliente</button>
+          )}
+          {s.actual?.manual && (
+            <button type="button" disabled={ocupado} onClick={() => void onAccion("deshacer")} className="text-[11px] text-[#6B6B66] hover:text-[#F0F0EC]">Deshacer</button>
+          )}
+          {s.siguienteManual && (
+            <button type="button" disabled={ocupado} onClick={() => void onAccion("siguiente")}
+              className={`${btn} border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E] hover:brightness-105`}>
+              {ocupado ? <Loader2 size={12} className="animate-spin" /> : null} Siguiente: {s.siguienteManual.titulo}
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <ol className="grid min-w-[640px] gap-0" style={{ gridTemplateColumns: `repeat(${total}, minmax(0, 1fr))` }}>
+          {s.hitos.map((h, i) => (
+            <li key={h.clave} className="flex flex-col gap-1.5">
+              <div className="flex items-center">
+                <span className={`h-3 w-3 shrink-0 rounded-full transition-colors duration-300 ${h.estado === "hecho" ? "bg-[#56E3A4]" : h.estado === "actual" ? "bg-[#D7FF4F] animate-[sg-pulso_1.8s_ease-out_infinite]" : "border-2 border-[#4A4A45]"}`} />
+                {i < total - 1 && <span className={`ml-1 h-0.5 flex-1 transition-colors duration-500 ${h.estado === "hecho" ? "bg-[#56E3A4]" : "bg-[#3A3A36]"}`} />}
+              </div>
+              <span key={`${h.clave}-${h.estado}`} className={`pr-2 text-[11px] leading-tight ${h.estado === "actual" ? "font-bold text-[#D7FF4F] animate-[sg-destello_900ms_ease-out]" : h.estado === "hecho" ? "text-[#F0F0EC]" : "text-[#6B6B66]"}`}>
+                {h.titulo}{h.manual ? " ·" : ""}
+              </span>
+              <span className="text-[10px] text-[#6B6B66]">{h.fecha ? fechaCorta(h.fecha) : ""}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
   );
 }

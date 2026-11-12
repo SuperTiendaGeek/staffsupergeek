@@ -123,6 +123,15 @@ function OperacionCard({ op }: { op: OperacionListado }) {
           </span>
         );
       })()}
+      {op.hito && (
+        // Punto 10B: dónde va el pedido (y si hay que hablar con el cliente).
+        <span className="flex flex-wrap gap-1">
+          <span className="inline-flex w-fit items-center rounded-full bg-[#78B7FF]/15 px-2 py-0.5 text-[10px] font-semibold text-[#78B7FF]">{op.hito.titulo}</span>
+          {op.hito.aviso && (
+            <span className="inline-flex w-fit items-center rounded-full bg-[#FFB547]/15 px-2 py-0.5 text-[10px] font-semibold text-[#FFB547]">{op.hito.aviso}</span>
+          )}
+        </span>
+      )}
       {alerta && alerta.nivel !== "nueva" && (
         <span
           className="inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"

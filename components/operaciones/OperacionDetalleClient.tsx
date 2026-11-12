@@ -27,6 +27,11 @@ const ESTADO_COLOR: Record<string, string> = {
   Pedido: "#4FD1C5",
   Entregado: "#56E3A4",
   Rechazado: "#FF5A4F",
+  // Pedido especial (punto 10)
+  Cotizando: "#A0A09A",
+  "Esperando al cliente": "#78B7FF",
+  Aceptado: "#D7FF4F",
+  Cancelado: "#FF5A4F",
 };
 
 // Mismo semáforo que el tablero (ver OperacionesBoardClient.tsx).
@@ -658,6 +663,162 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
     }
   }
 
+  const modales = (
+    <>
+      {/* Modals */}
+      {abonoModalOpen && (
+        <RegistrarAbonoModal
+          operacionId={operacion.id}
+          ordenId={operacion.ordenVinculada?.id ?? null}
+          montoSugerido={montoAbono ?? (cuentaUnificada && cuentaUnificada.saldo > 0 ? cuentaUnificada.saldo : undefined)}
+          saldoPendiente={cuentaUnificada ? cuentaUnificada.saldo : undefined}
+          onClose={() => { setAbonoModalOpen(false); setMontoAbono(null); }}
+          onSuccess={() => { setMontoAbono(null); handleAbonoSuccess(); }}
+        />
+      )}
+      {vincularModalOpen && operacion.clienteId && (
+        <VincularOrdenModal
+          operacionId={operacion.id}
+          clienteId={operacion.clienteId}
+          onClose={() => setVincularModalOpen(false)}
+          onSuccess={handleVincularSuccess}
+        />
+      )}
+      {opcionModalOpen && (
+        <OpcionModal
+          operacionId={operacion.id}
+          opcion={opcionEditing}
+          onClose={() => { setOpcionModalOpen(false); setOpcionEditing(null); }}
+          onSuccess={handleOpcionSuccess}
+        />
+      )}
+    </>
+  );
+
+  const seccionArticulos = (
+    <>
+      {operacion.articulosFisicos.length > 0 && (
+        <section className="rounded-xl border border-[#56E3A4]/25 bg-[#56E3A4]/5 p-4 sm:p-5">
+          <div className="mb-2 flex items-center gap-1.5">
+            <Box size={13} className="text-[#56E3A4]" />
+            <h3 className="text-sm font-semibold text-[#56E3A4]">
+              {operacion.articulosFisicos.length === 1
+                ? "Artículo en inventario"
+                : `Artículos en inventario (${operacion.articulosFisicos.length})`}
+            </h3>
+          </div>
+          <div className="flex flex-col gap-3">
+            {operacion.articulosFisicos.map((articulo) => (
+              <div key={articulo.id} className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-sm font-medium text-[#F0F0EC]">{articulo.nombre}</p>
+                  <span className="w-fit rounded-full bg-[#56E3A4]/15 px-2 py-0.5 text-[11px] font-medium text-[#56E3A4]">
+                    {articulo.estadoItem}
+                  </span>
+                </div>
+                <Link
+                  href={`/shipping-v2/items/${articulo.id}`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#56E3A4]/30 bg-[#56E3A4]/10 px-3 py-1.5 text-xs font-medium text-[#56E3A4] transition hover:border-[#56E3A4]/60 hover:bg-[#56E3A4]/20"
+                >
+                  Ver en Shipping <ExternalLink size={11} />
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  );
+
+  // Punto 10B — pantalla del PEDIDO ESPECIAL según la maqueta aprobada (12-nov):
+  // a la izquierda lo del pedido (seguimiento, cotización, artículos); a la
+  // derecha el cliente y su cuenta. Las operaciones viejas siguen abajo.
+  if (pedidoEspecial) {
+    const ec = estadoComercial(operacion.estado);
+    const pasos = ["Cotizando", "Esperando al cliente", "Aceptado", "Entregado"] as const;
+    const iPaso = pasos.indexOf(ec as (typeof pasos)[number]);
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <Link href="/operaciones" className="inline-flex items-center gap-1 text-xs font-semibold text-[#8A8A80] transition hover:text-[#F0F0EC]">
+            <ArrowLeft size={13} /> Pedidos
+          </Link>
+          <h2 className="font-mono text-base font-bold text-[#F0F0EC]">{operacion.codigo}</h2>
+          <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold" style={{ borderColor: `${estadoColor}44`, background: `${estadoColor}11`, color: estadoColor }}>{ec}</span>
+          <span className="min-w-0 truncate text-sm text-[#A0A09A]">{operacion.productoSolicitado}</span>
+        </div>
+        {iPaso >= 0 && (
+          <ol aria-label="Estado del pedido" className="grid grid-cols-4 gap-1">
+            {pasos.map((p, i) => (
+              <li key={p} className="flex flex-col gap-1">
+                <span className={`h-[3px] rounded-full transition-colors duration-500 ${i <= iPaso ? "bg-[#78B7FF]" : "bg-[#3A3A36]"}`} />
+                <span className={`text-[11px] ${i === iPaso ? "font-bold text-[#F0F0EC]" : i < iPaso ? "text-[#A0A09A]" : "text-[#6B6B66]"}`}>{p}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="flex min-w-0 flex-[999_1_560px] flex-col gap-3">
+            <CotizacionPedido
+              operacionId={operacion.id}
+              clienteNombre={operacion.clienteNombre}
+              clienteTelefono={operacion.clienteTelefono}
+              onCambio={() => router.refresh()}
+              recargar={pagosVersion}
+              onAbrirAbono={(monto) => { setMontoAbono(monto); setAbonoModalOpen(true); }}
+            />
+            {seccionArticulos}
+            {operacion.descripcionRequerimiento && (
+              <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4">
+                <p className="mb-1 text-[10px] uppercase tracking-wide text-[#6B6B66]">Lo que pidió el cliente</p>
+                <p className="whitespace-pre-wrap text-sm text-[#C0C0BC]">{operacion.descripcionRequerimiento}</p>
+              </section>
+            )}
+            {operacion.observacionInterna && (
+              <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4">
+                <p className="mb-1 text-[10px] uppercase tracking-wide text-[#6B6B66]">Historial interno</p>
+                <p className="whitespace-pre-wrap text-xs text-[#8A8A80]">{operacion.observacionInterna}</p>
+              </section>
+            )}
+          </div>
+          <aside className="flex w-full flex-[1_1_320px] flex-col gap-3 lg:max-w-[420px]">
+            <section className="flex flex-col gap-1 rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-[#F0F0EC]">{operacion.clienteNombre || "Sin cliente"}</h3>
+                {operacion.clienteId && (
+                  <Link href={`/tecnicos/clientes/${operacion.clienteId}`} className="ml-auto text-xs font-semibold text-[#D7FF4F] hover:underline">Ficha</Link>
+                )}
+              </div>
+              <p className="flex flex-wrap gap-x-3 text-xs text-[#8A8A80]">
+                {operacion.clienteTelefono && <a href={`tel:${operacion.clienteTelefono}`} className="inline-flex items-center gap-1 hover:text-[#F0F0EC]"><Phone size={11} />{operacion.clienteTelefono}</a>}
+                {operacion.clienteCedula && <span>CI {operacion.clienteCedula}</span>}
+              </p>
+            </section>
+            <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4">
+              <h3 className="mb-3 text-sm font-semibold text-[#F0F0EC]">Cuenta</h3>
+              {cuentaUnificada ? (
+                <CuentaUnificadaPanel
+                  cuenta={cuentaUnificada}
+                  origenTipo="operacion"
+                  onRegistrarPago={() => setAbonoModalOpen(true)}
+                  puedeDescontar={esAdmin}
+                  onCuentaCambiada={() => router.refresh()}
+                />
+              ) : (
+                <p className="text-xs text-[#6B6B66]">No se pudo cargar la cuenta.</p>
+              )}
+              <button type="button" onClick={() => setAbonoModalOpen(true)}
+                className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-[#D7FF4F]/60 px-3 py-1.5 text-xs font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F]/10">
+                <DollarSign size={12} /> Registrar abono
+              </button>
+            </section>
+          </aside>
+        </div>
+        {modales}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {/* Back link */}
@@ -853,36 +1014,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
 
       {/* Artículos físicos en inventario. Son varios cuando la operación
           generó más de un artículo; antes solo se veía el primero. */}
-      {operacion.articulosFisicos.length > 0 && (
-        <section className="rounded-xl border border-[#56E3A4]/25 bg-[#56E3A4]/5 p-4 sm:p-5">
-          <div className="mb-2 flex items-center gap-1.5">
-            <Box size={13} className="text-[#56E3A4]" />
-            <h3 className="text-sm font-semibold text-[#56E3A4]">
-              {operacion.articulosFisicos.length === 1
-                ? "Artículo en inventario"
-                : `Artículos en inventario (${operacion.articulosFisicos.length})`}
-            </h3>
-          </div>
-          <div className="flex flex-col gap-3">
-            {operacion.articulosFisicos.map((articulo) => (
-              <div key={articulo.id} className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-col gap-0.5">
-                  <p className="text-sm font-medium text-[#F0F0EC]">{articulo.nombre}</p>
-                  <span className="w-fit rounded-full bg-[#56E3A4]/15 px-2 py-0.5 text-[11px] font-medium text-[#56E3A4]">
-                    {articulo.estadoItem}
-                  </span>
-                </div>
-                <Link
-                  href={`/shipping-v2/items/${articulo.id}`}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-[#56E3A4]/30 bg-[#56E3A4]/10 px-3 py-1.5 text-xs font-medium text-[#56E3A4] transition hover:border-[#56E3A4]/60 hover:bg-[#56E3A4]/20"
-                >
-                  Ver en Shipping <ExternalLink size={11} />
-                </Link>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {seccionArticulos}
 
       {/* Orden vinculada */}
       {operacion.ordenVinculada ? (
@@ -1045,33 +1177,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
         </section>
       )}
 
-      {/* Modals */}
-      {abonoModalOpen && (
-        <RegistrarAbonoModal
-          operacionId={operacion.id}
-          ordenId={operacion.ordenVinculada?.id ?? null}
-          montoSugerido={montoAbono ?? (cuentaUnificada && cuentaUnificada.saldo > 0 ? cuentaUnificada.saldo : undefined)}
-          saldoPendiente={cuentaUnificada ? cuentaUnificada.saldo : undefined}
-          onClose={() => { setAbonoModalOpen(false); setMontoAbono(null); }}
-          onSuccess={() => { setMontoAbono(null); handleAbonoSuccess(); }}
-        />
-      )}
-      {vincularModalOpen && operacion.clienteId && (
-        <VincularOrdenModal
-          operacionId={operacion.id}
-          clienteId={operacion.clienteId}
-          onClose={() => setVincularModalOpen(false)}
-          onSuccess={handleVincularSuccess}
-        />
-      )}
-      {opcionModalOpen && (
-        <OpcionModal
-          operacionId={operacion.id}
-          opcion={opcionEditing}
-          onClose={() => { setOpcionModalOpen(false); setOpcionEditing(null); }}
-          onSuccess={handleOpcionSuccess}
-        />
-      )}
+      {modales}
     </div>
   );
 }
