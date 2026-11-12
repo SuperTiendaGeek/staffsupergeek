@@ -43,6 +43,14 @@ const de = (id: string) => plan.movimientos.find((m) => m.registroId === id);
 assert(plan.movimientos.length === 2, "Solo se ajustan los registros cuyo libro no decía lo contado (OTR-000028 y LAP-000062)");
 assert(de("recOTR28")?.cantidad === 1 && de("recOTR28")?.fecha === corte.fecha, "OTR-000028: +1 con la fecha del conteo (libro 1 → contado 2)");
 assert(de("recLAP62")?.cantidad === 2 && de("recLAP62")?.valor === 348, "LAP-000062: +2 (libro −2 → 0), a su costo");
+assert(de("recLAP62")?.motivo === "Ajuste del Kardex", "Sin motivo conocido queda como ajuste");
+{
+  const conMotivo = planKardexPuntoCero({ corte, items: [lap62], movimientos, motivos: { recLAP62: { motivo: "Venta de otro artículo", nota: "Eran otras laptops." } } });
+  const m = conMotivo.movimientos[0];
+  assert(m?.motivo === "Venta de otro artículo" && m.cantidad === 2 && m.tipo === "Entrada" && m.nota.includes("Eran otras laptops"), "LAP-000062 con su motivo: 2 ventas eran de otras laptops (no entraron laptops)");
+  const alReves = planKardexPuntoCero({ corte, items: [lap62], movimientos, motivos: { recLAP62: { motivo: "Vendida fuera del sistema", nota: "x" } } });
+  assert(alReves.movimientos[0]?.motivo === "Ajuste del Kardex", "Un motivo en el sentido equivocado no se usa");
+}
 assert(de("recOTR28")?.motivo === "Ajuste del Kardex" && de("recOTR28")?.documentoTipo === "Conteo" && de("recOTR28")?.documentoId === "recConteo", "Queda como ajuste del conteo, con su documento");
 const libroFinal = (id: string) => [...movimientos, ...plan.movimientos].filter((m) => m.registroId === id).reduce((s, m) => s + m.cantidad, 0);
 assert(libroFinal("recOTR28") === 1 && libroFinal("recLAP62") === 0 && libroFinal("recSANO") === 4 && libroFinal("recNUEVO") === 2, "Después del ajuste, el libro de todos dice lo mismo que la tienda");

@@ -78,7 +78,8 @@ async function main() {
 
   const plan = planKardexPuntoCero({ corte: { ...corte, id: corteId }, items, movimientos });
   console.log(`Kardex distinto de lo contado al cerrar el conteo: ${plan.filas.length}`);
-  for (const f of plan.filas) console.log(`  ${f.sku.padEnd(11)} libro ${f.libroAlCorte} → contado ${f.tiendaAlCorte}  (${f.ajuste > 0 ? "+" : ""}${f.ajuste})`);
+  const motivoDe = (id: string) => plan.movimientos.find((m) => m.registroId === id)?.motivo ?? "(ya registrado)";
+  for (const f of plan.filas) console.log(`  ${f.sku.padEnd(11)} libro ${f.libroAlCorte} → contado ${f.tiendaAlCorte}  (${f.ajuste > 0 ? "+" : ""}${f.ajuste} · ${motivoDe(f.id)})`);
   console.log(`Movimientos nuevos: ${plan.movimientos.length}`);
   if (plan.revisar.length) {
     console.log(`\nPara revisar a mano (no se tocan): ${plan.revisar.length}`);
@@ -115,7 +116,7 @@ async function main() {
   await escribirMovimientosKardex(plan.movimientos);
   const eventos = plan.filas
     .filter((f) => plan.movimientos.some((m) => m.registroId === f.id))
-    .map((f) => evento(f.id, `Kardex: punto cero del inventario (${corte.nombre}). El libro decía ${f.libroAlCorte} y en el conteo había ${f.tiendaAlCorte}: ajuste de ${f.ajuste > 0 ? "+" : ""}${f.ajuste}. La tienda no cambia.`));
+    .map((f) => evento(f.id, `Kardex: punto cero del inventario (${corte.nombre}). El libro decía ${f.libroAlCorte} y en el conteo había ${f.tiendaAlCorte}: "${motivoDe(f.id)}" ${f.ajuste > 0 ? "+" : ""}${f.ajuste} en el libro. La tienda (Cantidad) no cambia.`));
 
   for (const c of compradas.cambiar) {
     const res = await fetch(url("Shipping Items"), {

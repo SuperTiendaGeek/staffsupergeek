@@ -16,7 +16,7 @@
 //
 // Módulo puro: sin red. Lo usa scripts/ajuste-inventario-punto-cero.ts.
 
-import { claveKardex, crearMovimiento, registroDeCampos, unidadesEnLibro, type MovimientoKardex } from "./kardex";
+import { claveKardex, crearMovimiento, registroDeCampos, unidadesEnLibro, type MotivoKardex, type MovimientoKardex } from "./kardex";
 import type { CorteInventario } from "./revision-inventario";
 
 export type CorteConId = CorteInventario & { id: string };
@@ -41,11 +41,33 @@ export type PlanKardexPuntoCero = {
   revisar: Array<{ id: string; sku: string; motivo: string }>;
 };
 
+/**
+ * Motivo con el que queda cada ajuste cuando se sabe qué pasó (decisión del
+ * dueño, 12-nov-2026): así el libro no dice "entraron 2 laptops" cuando en
+ * realidad 2 ventas eran de otras laptops. Lo demás queda como "Ajuste del Kardex".
+ */
+export const MOTIVOS_PUNTO_CERO: Record<string, { motivo: MotivoKardex; nota: string }> = {
+  // LAP-000062: una laptop con 3 ventas (facturas 721 ×1 y 725 ×2). 2 eran de otras laptops cargadas a este código.
+  rec7VI8KX6sTg5sfh: {
+    motivo: "Venta de otro artículo",
+    nota: "La factura 001-002-000000725 vendió 2 laptops con este código, pero solo existía 1 (ya vendida con la 721): eran otras laptops. Las facturas no se tocan; la tienda sigue en 0.",
+  },
+  // LAP-000016 y LAP-000017: vendidas con el sistema de facturación anterior (eventos del 9-oct).
+  recRzBxxZHlJFVvKg: { motivo: "Vendida fuera del sistema", nota: "Vendida con el sistema de facturación anterior (ajuste del punto 5, 9-oct); el libro no lo sabía." },
+  recTcN5gWXF5zLGTo: { motivo: "Vendida fuera del sistema", nota: "Vendida con el sistema de facturación anterior: documento 001-002-000001381 del 13-ago (ajuste del punto 5, 9-oct)." },
+};
+
 export function clavePuntoCero(corteId: string, itemId: string) {
   return claveKardex("punto-cero", corteId, itemId);
 }
 
-export function planKardexPuntoCero(input: { corte: CorteConId; items: RegistroItem[]; movimientos: readonly MovimientoKardex[] }): PlanKardexPuntoCero {
+export function planKardexPuntoCero(input: {
+  corte: CorteConId;
+  items: RegistroItem[];
+  movimientos: readonly MovimientoKardex[];
+  motivos?: Record<string, { motivo: MotivoKardex; nota: string }>;
+}): PlanKardexPuntoCero {
+  const motivos = input.motivos ?? MOTIVOS_PUNTO_CERO;
   const fechaCorte = Date.parse(input.corte.fecha);
   if (!Number.isFinite(fechaCorte)) throw new Error("El conteo no tiene fecha de aplicado.");
   const claves = new Set(input.movimientos.map((m) => m.clave));
@@ -71,10 +93,14 @@ export function planKardexPuntoCero(input: { corte: CorteConId; items: RegistroI
     const clave = clavePuntoCero(input.corte.id, it.id);
     out.filas.push({ id: it.id, sku: registro.sku, libroAlCorte: antes, tiendaAlCorte, ajuste: tiendaAlCorte - antes });
     if (claves.has(clave)) continue;
+    const conocido = motivos[it.id];
+    // Un motivo conocido solo se usa si va en su sentido (entrada +, salida −).
+    const motivoOk = conocido && (conocido.motivo === "Venta de otro artículo" ? tiendaAlCorte - antes > 0 : tiendaAlCorte - antes < 0);
+    const base = `Punto cero del inventario: el libro decía ${antes} y en el conteo había ${tiendaAlCorte}.`;
     out.movimientos.push(
       crearMovimiento({
         clave,
-        motivo: "Ajuste del Kardex",
+        motivo: motivoOk ? conocido.motivo : "Ajuste del Kardex",
         cantidad: tiendaAlCorte - antes,
         registro,
         fecha: input.corte.fecha,
@@ -82,7 +108,7 @@ export function planKardexPuntoCero(input: { corte: CorteConId; items: RegistroI
         documentoId: input.corte.id,
         documento: `Conteo ${input.corte.nombre}`,
         hechoPor: HECHO_POR_PUNTO_CERO,
-        nota: `Punto cero del inventario: el libro decía ${antes} y en el conteo había ${tiendaAlCorte}. La historia anterior al conteo no tenía todos sus respaldos.`,
+        nota: motivoOk ? `${base} ${conocido.nota}` : `${base} La historia anterior al conteo no tenía todos sus respaldos.`,
         origen: "Sistema",
       })
     );
