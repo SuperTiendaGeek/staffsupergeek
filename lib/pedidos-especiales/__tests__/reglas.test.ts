@@ -6,6 +6,7 @@ import {
   anticipoRequerido,
   errorAceptar,
   estadoComercial,
+  confirmacionesPorOpcion,
   horasDeVigencia,
   mensajeCotizacion,
   pedidoAceptado,
@@ -99,7 +100,23 @@ assert(unidadesDelCliente(2, 5) === 2, "manda la cantidad de la línea del pedid
 assert(unidadesDelCliente(null, 3) === 3, "si no hay línea, la de la opción vieja");
 assert(unidadesDelCliente(null, null) === 1 && unidadesDelCliente(0, 1.5) === 1, "si no, 1");
 
-// 7. Mensaje de la cotización
+// 7. Lo que se paga para confirmar, opción por opción (pedido del dueño, 12-nov)
+{
+  const c = confirmacionesPorOpcion([
+    { id: "dell", cantidad: 1, precioUnitario: 430, esAlternativa: true },
+    { id: "cargador", cantidad: 1, precioUnitario: 60, esAlternativa: true },
+    { id: "mouse", cantidad: 2, precioUnitario: 15, esAlternativa: false },
+  ]);
+  const dell = c.find((x) => x.lineaId === "dell")!, cargador = c.find((x) => x.lineaId === "cargador")!;
+  assert(dell.total === 460 && dell.paraConfirmar === 230 && dell.alRetirar === 230 && !dell.pagoCompleto, "Dell + mouse = $460: confirma con $230");
+  assert(dell.texto === "Para confirmar: $230 ahora y $230 al retirar.", "texto masticado (parcial)");
+  assert(cargador.total === 90 && cargador.pagoCompleto && cargador.texto === "Se paga completo para confirmar: $90.", "cargador + mouse = $90: pago completo");
+  const soloExtras = confirmacionesPorOpcion([{ id: "x", cantidad: 1, precioUnitario: 134, esAlternativa: false }, { id: "y", cantidad: 1, precioUnitario: 100, esAlternativa: false }]);
+  assert(soloExtras.length === 1 && soloExtras[0].lineaId === null && soloExtras[0].paraConfirmar === 117, "sin alternativas: un solo total ($234 → $117)");
+  assert(confirmacionesPorOpcion([]).length === 0, "sin líneas: nada");
+}
+
+// 8. Mensaje de la cotización
 const msg = mensajeCotizacion({
   cliente: "Javier Ulcuango", codigo: "OP-2026-000130", vence, ahora: envio,
   lineas: [
@@ -110,9 +127,14 @@ const msg = mensajeCotizacion({
 });
 assert(msg.startsWith("Hola Javier, esta es la cotización de tu pedido OP-2026-000130:"), "saluda por el primer nombre");
 assert(msg.includes("1. Dell i5 11va: $430") && msg.includes("2. Lenovo i7 11va: $480 (8GB GPU)"), "alternativas numeradas con su nota");
-assert(msg.includes("Además:\n• Mouse ×2: $30"), "adicionales con su total");
+assert(msg.includes("Además (se suma a la opción que elijas):\n• Mouse ×2: $30"), "adicionales: se dice que se suman");
+assert(msg.includes("Opción 1 → Total $460. Para confirmar: $230 ahora y $230 al retirar."), "opción 1: cuánto pagar, ya calculado");
+assert(msg.includes("Opción 2 → Total $510. Para confirmar: $255 ahora y $255 al retirar."), "opción 2: cuánto pagar, ya calculado");
+assert(!msg.includes("si pasa de"), "sin instrucciones para que el cliente calcule");
 assert(msg.includes("Precio válido hasta el viernes 13-nov, 18:00"), "lleva la vigencia exacta");
-assert(!/proveedor sugerido|costo|http/i.test(msg.replace("los precios del proveedor cambian rápido", "")), "sin datos internos");
+assert(!/costo|http/i.test(msg), "sin datos internos");
+const chico = mensajeCotizacion({ cliente: "Ana", codigo: "OP-1", vence: null, lineas: [{ descripcion: "Cargador HP", cantidad: 1, precioUnitario: 45, esAlternativa: true }] });
+assert(chico.includes("• Cargador HP: $45") && chico.includes("Se paga completo para confirmar: $45."), "hasta $100: pago completo, dicho claro");
 
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo OK");
