@@ -28,7 +28,9 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
     const vista = await vistaPedido(id);
     const conSeguimiento = vista.estado === "Aceptado" || vista.estado === "Entregado";
     const [token, eleccion, seguimiento] = await Promise.all([
-      tokenDelPedido(id),
+      // El enlace nace con el primer envío; un pedido aceptado en tienda o
+      // migrado sin envío también lo necesita (es la página del pedido).
+      vista.estado === "Cotizando" ? tokenDelPedido(id) : asegurarEnlacePedido(id),
       eleccionDelCliente(id, vista.lineas),
       conSeguimiento ? seguimientoDelPedido(id).catch((e) => { console.error("[pedido] seguimiento:", e); return null; }) : Promise.resolve(null),
     ]);
