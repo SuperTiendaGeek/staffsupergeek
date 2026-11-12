@@ -603,6 +603,32 @@ export function inventarioAFecha(movs: readonly MovimientoKardex[], hasta: strin
 
 export type DiferenciaKardex = { registroId: string; sku: string; libro: number; inventario: number };
 
+/**
+ * Salidas por el taller: garantías y mejoras (menos sus reversas) y equipos
+ * desarmados. No tienen factura ni recibo; la revisión de unidades las toma de aquí.
+ */
+const SALIDAS_TALLER = new Set<MotivoKardex>([
+  "Salida por garantía", "Garantía revertida", "Usada en una mejora", "Mejora anulada", "Desarmada", "Despiece revertido",
+]);
+
+export type ResumenRegistroKardex = { ultimoMovimiento: string; salidasTaller: number };
+
+/**
+ * Por registro: fecha de su último movimiento CON unidades (un ajuste de costo
+ * no cuenta: lo escribe la revisión diaria sin que nada se mueva) y unidades que
+ * salieron por el taller (positivo = salieron).
+ */
+export function resumenPorRegistro(movs: readonly MovimientoKardex[]): Map<string, ResumenRegistroKardex> {
+  const out = new Map<string, ResumenRegistroKardex>();
+  for (const m of movs) {
+    const r = out.get(m.registroId) ?? { ultimoMovimiento: "", salidasTaller: 0 };
+    if (m.cantidad !== 0 && m.fecha && m.fecha > r.ultimoMovimiento) r.ultimoMovimiento = m.fecha;
+    if (SALIDAS_TALLER.has(m.motivo)) r.salidasTaller -= m.cantidad;
+    out.set(m.registroId, r);
+  }
+  return out;
+}
+
 export function diferenciasKardex(
   registros: ReadonlyArray<{ id: string; sku: string; enLibro: number }>,
   saldos: Map<string, SaldoRegistro>

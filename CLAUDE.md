@@ -105,6 +105,9 @@ The middleware logic lives in `proxy.ts` (root) and is re-exported from `middlew
 ### Shipping V2 Schema
 `lib/shipping-v2/schema.generated.ts` is auto-generated — do not edit by hand. Run `npm run shipping-v2:schema` after any Airtable schema changes. The script (`scripts/inspect-shipping-v2-schema.mjs`) calls the Airtable Metadata API using `.env.local`.
 
+### Inventario: punto cero (12-nov-2026)
+The last applied GENERAL count in `Shipping Conteos` (no "Categorías"; today "Inventario general 7 nov", applied 9-nov) is the physical truth. Since it, stock = counted + Kardex movements for all 1.119 records. History before it (purchases without receipts, "Unidades compradas" estimated by the 9b fix from remaining stock, sales in the old invoicing system, units found in the count) is NOT rebuilt: `verificadoEnCorte` (`lib/shipping-v2/revision-inventario.ts`) skips "Unidades no cuadran" for records in the count's "Foto inicial" or registered before it with no Kardex movement after it; their control is "Kardex no cuadra", which is never hidden anymore. Warranty/mejora exits come from the Kardex (`resumenPorRegistro`, `salidasTaller`); "Licencia digital" records are controlled by the Kardex only. One-off data fix: `scripts/ajuste-inventario-punto-cero.ts` (pure plan `lib/shipping-v2/ajuste-punto-cero.ts`): one "Ajuste del Kardex" per record whose book differed from the count + OTR-000028 compradas 3 → 4 (proved by payment PAY-20260803-99078). Never fill "Unidades compradas" from current stock.
+
 ### Facturación (SRI Electronic Invoicing)
 Before working on `lib/facturacion/` or its hook into orders/operations, read `docs/AUDITORIA_FACTURACION_FASE16.md` (read-only audit of the existing module: architecture, data model, test-vs-production config, existing connections) and `docs/DISENO_FASE16_GANCHO_FACTURACION.md` (design for connecting cuenta unificada → facturación, built across three PRs).
 

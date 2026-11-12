@@ -2,8 +2,8 @@ import "server-only";
 
 import { cuentaPago, valorCuentaPagoVigente } from "@/lib/shipping-v2/cuentas-pago";
 import { comprometerUnidades, liberarUnidades, normalizarUnidades, unidadesLibres, unidadesReservadas } from "./unidades";
-import { kardexAjustarCostos, kardexConciliar, kardexMovimientos, kardexPorCambio, kardexRevisar, leerItems as leerItemsKardex, type ContextoKardex } from "./kardex-registro";
-import { causaDeBaja, claveKardex, unidadesEnLibro as unidadesEnLibroKardex, type CausaBaja, type MotivoKardex } from "./kardex";
+import { kardexAjustarCostos, kardexConciliar, kardexMovimientos, kardexPorCambio, kardexRevisarConResumen, leerItems as leerItemsKardex, type ContextoKardex } from "./kardex-registro";
+import { causaDeBaja, claveKardex, unidadesEnLibro as unidadesEnLibroKardex, type CausaBaja, type MotivoKardex, type ResumenRegistroKardex } from "./kardex";
 import {
   calcularCierreDespiece,
   calcularRepartoParaPiezas,
@@ -328,6 +328,7 @@ import {
 } from "@/lib/shipping-v2/conteo";
 import {
   TIPOS_ASUNTO,
+  corteDeConteos,
   detectarAsuntos,
   planSincronizacion,
   type AsuntoDetectado,
@@ -12195,11 +12196,25 @@ async function leerDatosRevision(opciones: { kardexItemIds?: string[] } = {}): P
 
   const datos: DatosRevision = { items: [], ventas: [], devoluciones: [], reservasActivas: [], novedadesAbiertas: [], cajasCerradas: [], documentosConError: [] };
   // Punto 12: Kardex vs inventario (y, en la revisión completa, los ajustes de costo pendientes).
+  let resumenKardex: Map<string, ResumenRegistroKardex> | null = null;
   try {
-    datos.kardex = await kardexRevisar(opciones.kardexItemIds ? { itemIds: opciones.kardexItemIds } : { ajustarCostos: true });
+    const r = await kardexRevisarConResumen(opciones.kardexItemIds ? { itemIds: opciones.kardexItemIds } : { ajustarCostos: true });
+    datos.kardex = r.diferencias;
+    resumenKardex = r.resumen;
   } catch (error) {
     console.error("[Revisión] No se pudo revisar el Kardex:", error);
     datos.kardex = undefined;
+  }
+  // Punto cero (12-nov-2026): el último inventario general aplicado. Sin Kardex
+  // no se usa (no se sabría qué se movió después del conteo).
+  if (resumenKardex) {
+    try {
+      const conteos = await listRecords(TABLA_CONTEOS, { fields: ["Conteo", "Estado", "Categorías", "Fecha aplicado", "Foto inicial", "Incluye activos", "Inicio", "Creado por"] });
+      datos.corte = corteDeConteos(conteos.map(mapConteo).map((c) => ({ ...c, foto: c.foto as Record<string, unknown> | null })));
+    } catch (error) {
+      console.error("[Revisión] No se pudo leer el inventario general:", error);
+      datos.corte = null;
+    }
   }
   for (const r of items) {
     const f = r.fields;
@@ -12224,6 +12239,8 @@ async function leerDatosRevision(opciones: { kardexItemIds?: string[] } = {}): P
       vendidasFuera: firstNumber(f[CAMPO_VENDIDAS_FUERA]) ?? 0,
       salidasInternas: firstNumber(f[CAMPO_SALIDAS_INTERNAS]) ?? 0,
       ventasOtro: firstNumber(f[CAMPO_VENTAS_OTRO]) ?? 0,
+      salidasTaller: resumenKardex?.get(r.id)?.salidasTaller ?? 0,
+      ultimoMovimiento: resumenKardex?.get(r.id)?.ultimoMovimiento ?? "",
     });
   }
   for (const r of facturas) {

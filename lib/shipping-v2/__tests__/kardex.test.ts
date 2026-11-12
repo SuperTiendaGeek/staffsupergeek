@@ -19,6 +19,7 @@ import {
   planAjusteCosto,
   registroDeCampos,
   resumenPeriodo,
+  resumenPorRegistro,
   resumenProducto,
   saldosPorRegistro,
   sinCostos,
@@ -169,6 +170,22 @@ const anula = movimientosDeDocumento({
   lineas: [{ itemId: "recKQ3", cantidad: 1 }], items: new Map([["recKQ3", campos()]]),
 });
 assert(anula[0].cantidad === 1 && anula[0].motivo === "Factura anulada" && anula[0].precioVenta === null, "Factura anulada: vuelve 1, sin precio de venta");
+
+// Punto cero (12-nov-2026): resumen por registro para la revisión de unidades.
+{
+  const movs = [
+    crearMovimiento({ clave: "t1", motivo: "Compra recibida", cantidad: 2, registro: kq3, fecha: "2026-10-01T12:00:00Z" }),
+    crearMovimiento({ clave: "t2", motivo: "Salida por garantía", cantidad: -1, registro: kq3, fecha: "2026-11-05T12:00:00Z" }),
+    crearMovimiento({ clave: "t3", motivo: "Usada en una mejora", cantidad: -1, registro: kq3, fecha: "2026-11-06T12:00:00Z" }),
+    crearMovimiento({ clave: "t4", motivo: "Mejora anulada", cantidad: 1, registro: kq3, fecha: "2026-11-07T12:00:00Z" }),
+    crearMovimiento({ clave: "t5", motivo: "Venta con factura", cantidad: -1, registro: qr1, fecha: "2026-11-02T12:00:00Z" }),
+    crearMovimiento({ clave: "t6", motivo: "Ajuste de costo", cantidad: 0, valor: 3, registro: kq3, fecha: "2026-11-12T12:00:00Z" }),
+  ];
+  const r = resumenPorRegistro(movs);
+  assert(r.get("recKQ3")?.salidasTaller === 1, "Taller: garantía −1, mejora −1, mejora anulada +1 → salió 1");
+  assert(r.get("recKQ3")?.ultimoMovimiento === "2026-11-07T12:00:00Z", "Último movimiento con unidades (el ajuste de costo del 12-nov no cuenta)");
+  assert(r.get("recQR1")?.salidasTaller === 0, "Una venta no es salida del taller");
+}
 
 if (fallos > 0) {
   console.error(`Fallaron ${fallos} comprobaciones.`);
