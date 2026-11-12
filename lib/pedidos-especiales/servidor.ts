@@ -213,6 +213,8 @@ export async function enviarCotizacion(pedidoId: string, dias: number | null, us
  */
 export async function aceptarPedido(input: {
   pedidoId: string; elegidas: string[]; usuario: string; via: "En tienda" | "Enlace";
+  /** Por el enlace: la vigencia se mira al momento en que el cliente ELIGIÓ (su precio se respeta). */
+  vigenteAl?: Date;
 }): Promise<{ total: number; anticipo: ResumenAnticipo }> {
   return withLock(`pedido:${input.pedidoId}`, async () => {
     const op = await fetchRecordById(T_OPERACIONES, input.pedidoId);
@@ -223,11 +225,12 @@ export async function aceptarPedido(input: {
       vence: texto(op.fields["Cotización vence"]),
       lineas,
       elegidas: input.elegidas,
+      ahora: input.vigenteAl,
     });
     if (error) throw new Error(error);
     const ahora = new Date();
     const elegidas = new Set(input.elegidas);
-    const textoAcepto = input.via === "En tienda" ? "Aceptada en tienda." : "Aceptada por el cliente en el enlace.";
+    const textoAcepto = input.via === "En tienda" ? "Aceptada en tienda." : "Elegida por el cliente en el enlace y confirmada con su pago.";
     for (const l of lineas) {
       if (l.estado !== "Propuesta") continue;
       if (elegidas.has(l.id)) {

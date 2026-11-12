@@ -637,3 +637,54 @@ export async function crearRespuestaFirmada(input: {
   });
   return r.id;
 }
+
+// ─── Pedido especial: elección del cliente en el enlace (punto 10A-3) ───────
+// Misma tabla de constancias que el Presupuesto de las órdenes, enlazada al
+// pedido por "Pedido" (inverso "Respuestas del pedido" en Operación Comercial).
+
+export const CAMPO_RESPUESTAS_DEL_PEDIDO = "Respuestas del pedido";
+
+export type RespuestaDePedido = { id: string; fecha: string; nombre: string; detalle: string };
+
+/** Respuestas (elecciones) del pedido, de la más nueva a la más vieja. */
+export async function leerRespuestasDePedido(pedidoId: string): Promise<RespuestaDePedido[]> {
+  const pedido = await pedir<Registro>(url(T_OPERACIONES, pedidoId));
+  const registros = await porIds(T_RESPUESTAS, ids(pedido.fields[CAMPO_RESPUESTAS_DEL_PEDIDO]));
+  return registros
+    .map((r) => ({ id: r.id, fecha: texto(r.fields["Fecha"]), nombre: texto(r.fields["Nombre firmante"]), detalle: texto(r.fields["Detalle"]) }))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha));
+}
+
+export async function crearRespuestaDePedido(input: {
+  pedidoId: string;
+  codigo: string;
+  fecha: string;
+  nombre: string;
+  ip: string;
+  dispositivo: string;
+  lineaIds: string[];
+  total: number;
+  detalle: unknown;
+}): Promise<string> {
+  const r = await pedir<Registro>(url(T_RESPUESTAS), {
+    method: "POST",
+    body: JSON.stringify({
+      fields: {
+        "Código": input.codigo,
+        "Pedido": [input.pedidoId],
+        "Líneas respondidas": input.lineaIds,
+        "Fecha": input.fecha,
+        "Nombre firmante": input.nombre.slice(0, 120),
+        "Cédula verificada": false,
+        "Aceptó términos": true,
+        "IP": input.ip.slice(0, 100),
+        "Dispositivo": input.dispositivo.slice(0, 250),
+        "Aprobadas": input.lineaIds.length,
+        "No aprobadas": 0,
+        "Total aprobado": input.total,
+        "Detalle": JSON.stringify(input.detalle).slice(0, 95_000),
+      },
+    }),
+  }, REINTENTO_SEGURO);
+  return r.id;
+}

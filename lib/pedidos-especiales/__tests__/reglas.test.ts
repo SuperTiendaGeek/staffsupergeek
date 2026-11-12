@@ -136,5 +136,8 @@ assert(!/costo|http/i.test(msg), "sin datos internos");
 const chico = mensajeCotizacion({ cliente: "Ana", codigo: "OP-1", vence: null, lineas: [{ descripcion: "Cargador HP", cantidad: 1, precioUnitario: 45, esAlternativa: true }] });
 assert(chico.includes("• Cargador HP: $45") && chico.includes("Se paga completo para confirmar: $45."), "hasta $100: pago completo, dicho claro");
 
+const conEnlace = mensajeCotizacion({ cliente: "Ana", codigo: "OP-1", vence: null, enlace: "https://staff.supertiendageek.com/mi-pedido/abc", lineas: [{ descripcion: "Cargador HP", cantidad: 1, precioUnitario: 45, esAlternativa: true }] });
+assert(conEnlace.includes("Revisa, elige y confirma aquí: https://staff.supertiendageek.com/mi-pedido/abc"), "el mensaje lleva el enlace del pedido (10A-3)");
+
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo OK");

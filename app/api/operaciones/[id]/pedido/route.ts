@@ -4,9 +4,12 @@ import {
   aceptarPedido, agregarAlternativa, cancelarPedido, editarAlternativa, enviarCotizacion, quitarAlternativa, vistaPedido,
   type AlternativaInput,
 } from "@/lib/pedidos-especiales/servidor";
+import { asegurarEnlacePedido, eleccionDelCliente, tokenDelPedido, urlEnlacePedido } from "@/lib/pedidos-especiales/enlace";
+import { origenPublico } from "@/lib/tecnicos/presupuesto/origen";
 
 // Punto 10A-2: cotización y aceptación de un PEDIDO ESPECIAL.
-//   GET  → líneas, vigencia, anticipo, compras y plan de cancelación.
+//   GET  → líneas, vigencia, anticipo, compras, plan de cancelación, enlace del
+//          cliente y su elección (10A-3).
 //   POST { accion: "agregar" | "editar" | "quitar" | "enviar" | "aceptar" | "cancelar", ... }
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -16,12 +19,17 @@ export const dynamic = "force-dynamic";
 const num = (v: unknown): number => (typeof v === "number" ? v : Number(String(v ?? "").replace(",", ".")));
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
-export async function GET(_req: NextRequest, { params }: RouteContext) {
+export async function GET(req: NextRequest, { params }: RouteContext) {
   const { response } = await requireOperacionesSession();
   if (response) return response;
   const { id } = await params;
   try {
-    return NextResponse.json({ success: true, data: await vistaPedido(id) });
+    const vista = await vistaPedido(id);
+    const [token, eleccion] = await Promise.all([tokenDelPedido(id), eleccionDelCliente(id, vista.lineas)]);
+    return NextResponse.json({
+      success: true,
+      data: { ...vista, enlace: token ? urlEnlacePedido(origenPublico(req), token) : "", eleccionCliente: eleccion },
+    });
   } catch (e) {
     return NextResponse.json({ success: false, error: e instanceof Error ? e.message : "Error al leer el pedido." }, { status: 500 });
   }
@@ -73,7 +81,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         return NextResponse.json({ success: true });
       case "enviar": {
         const dias = body.dias === undefined || body.dias === null || body.dias === "" ? null : Math.trunc(num(body.dias));
-        return NextResponse.json({ success: true, data: await enviarCotizacion(id, dias, usuario) });
+        const r = await enviarCotizacion(id, dias, usuario);
+        // El enlace nace con el primer envío y no cambia nunca (es la página del pedido).
+        const token = await asegurarEnlacePedido(id);
+        return NextResponse.json({ success: true, data: { ...r, enlace: urlEnlacePedido(origenPublico(request), token) } });
       }
       case "aceptar": {
         const elegidas = Array.isArray(body.elegidas) ? body.elegidas.filter((x): x is string => typeof x === "string") : [];

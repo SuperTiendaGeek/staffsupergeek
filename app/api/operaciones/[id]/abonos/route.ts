@@ -4,6 +4,7 @@ import { crearAbono, uploadComprobanteAbono } from "@/lib/operaciones/airtable";
 import { crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
 import { esMetodoCobroNuevoValido, requiereNumeroTransaccion } from "@/types/abonos";
 import { verificarAbonoPermitido } from "@/lib/facturacion/gancho/cobroOrigen";
+import { confirmarPedidoSiPagado } from "@/lib/pedidos-especiales/enlace";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -103,7 +104,17 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     });
     if (!puente.ok) warning = "No se pudo registrar el movimiento financiero de este abono.";
 
-    return NextResponse.json({ success: true, id: newId, warning });
+    // Punto 10A-3: si el cliente ya eligió su opción en el enlace y este pago
+    // cubre lo que pide la regla de tramos, el pedido especial pasa a
+    // "Aceptado" solo. Nunca bloquea el abono.
+    let pedidoConfirmado = false;
+    try {
+      pedidoConfirmado = await confirmarPedidoSiPagado(operacionId, `Pago registrado por ${registradoPor}`);
+    } catch (e) {
+      console.error("[api/operaciones/[id]/abonos] confirmar pedido:", e);
+    }
+
+    return NextResponse.json({ success: true, id: newId, warning, pedidoConfirmado });
   } catch (err) {
     console.error("[api/operaciones/[id]/abonos] POST error:", err);
     return NextResponse.json(
