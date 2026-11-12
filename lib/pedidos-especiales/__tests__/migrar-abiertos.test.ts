@@ -13,6 +13,7 @@ function assert(cond: boolean, msg: string): void {
 const t = separarTexto("Laptop Lenovo ThinkPad P1 Gen 4 16\" $690\r\n\r\n*USADA, GRADO A. Bajo pedido.");
 assert(t.descripcion === "Laptop Lenovo ThinkPad P1 Gen 4 16\"" && t.nota === "*USADA, GRADO A. Bajo pedido.", "nombre sin el precio pegado + nota");
 assert(separarTexto("BISAGRAS HP 15-DW").descripcion === "BISAGRAS HP 15-DW", "una sola línea");
+assert(separarTexto("Dell XPS 15 7590 \t1TB SSD\t32GB DDR4").descripcion === "Dell XPS 15 7590 1TB SSD 32GB DDR4", "tabuladores y espacios dobles → un espacio");
 
 // 2. Precio unitario
 assert(precioUnitarioDeOpcion({ precioUnitario: 30, precioVenta: 120, cantidad: 4 }) === 30, "unitario si existe");

@@ -342,6 +342,13 @@ export type CambiosLinea = Partial<{
   notaCliente: string;
   /** "" quita la línea de su grupo de alternativas. */
   grupoAlternativas: string;
+  /** Datos internos de compra de una línea bajo pedido (punto 10A-3b). */
+  proveedorId: string | null;
+  categoria: string;
+  /** null lo borra. */
+  costoProveedor: number | null;
+  urlProveedor: string;
+  tiempoEstimado: string;
   /** Respuesta del cliente desde el enlace público. */
   respuestaCliente: { valor: "Aprobó" | "No aprobó"; huella: string; fecha: string };
   /** Garantía SUPER GEEK (punto 20). "" la quita. */
@@ -376,6 +383,11 @@ export async function actualizarLinea(lineaId: string, c: CambiosLinea): Promise
   if (c.prioridad !== undefined)      fields[F.prioridad] = c.prioridad;
   if (c.notaCliente !== undefined)    fields[F.notaCliente] = c.notaCliente.trim();
   if (c.grupoAlternativas !== undefined) fields[F.grupo] = c.grupoAlternativas;
+  if (c.proveedorId !== undefined)    fields[F.proveedor] = c.proveedorId ? [c.proveedorId] : [];
+  if (c.categoria !== undefined)      fields[F.categoria] = c.categoria || null;
+  if (c.costoProveedor !== undefined) fields[F.costoProveedor] = c.costoProveedor;
+  if (c.urlProveedor !== undefined)   fields[F.urlProveedor] = c.urlProveedor.trim();
+  if (c.tiempoEstimado !== undefined) fields[F.tiempo] = c.tiempoEstimado.trim();
   if (c.respuestaCliente) {
     fields[F.respuestaCliente] = c.respuestaCliente.valor;
     fields[F.huellaRespondida] = c.respuestaCliente.huella;

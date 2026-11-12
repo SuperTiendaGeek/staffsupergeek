@@ -15,14 +15,14 @@ import "server-only";
 import { withLock } from "@/lib/concurrencia";
 import { airtableMutation, fetchRecordById, tableUrl } from "@/lib/finanzas/airtable-client";
 import {
-  actualizarLinea, borrarLinea, crearLineaDePedido, listarLineasDePedido,
+  actualizarLinea, borrarLinea, crearLineaDePedido, listarLineasDePedido, nombresProveedores,
 } from "@/lib/tecnicos/presupuesto/airtable";
 import type { LineaPresupuesto } from "@/lib/tecnicos/presupuesto/reglas";
 import { asegurarSolicitudDeLinea, cancelarSolicitudDeLinea, solicitudesDeOperacion, type SolicitudConSituacion } from "@/lib/compras/servidor";
 import { estadosDeCuentaDeOperaciones } from "@/lib/estado-cuenta/airtable";
 import { entradaHistorial } from "@/lib/compras/reglas";
 import {
-  errorAceptar, estadoComercial, planCancelacion, resumenAnticipo, totalElegido, venceCotizacion, vigencia,
+  errorAceptar, estadoComercial, faltanDatosParaEnviar, planCancelacion, resumenAnticipo, totalElegido, venceCotizacion, vigencia,
   type EstadoPedido, type PlanCancelacion, type ResumenAnticipo, type Vigencia,
 } from "./reglas";
 
@@ -74,6 +74,8 @@ export type PedidoEspecialVista = {
   solicitudes: SolicitudConSituacion[];
   anticipo: ResumenAnticipo;
   cancelacion: PlanCancelacion;
+  /** proveedorId → nombre (para editar la opción). */
+  proveedores: Record<string, string>;
 };
 
 export async function vistaPedido(pedidoId: string): Promise<PedidoEspecialVista> {
@@ -95,7 +97,10 @@ export async function vistaPedido(pedidoId: string): Promise<PedidoEspecialVista
     ? (cuenta?.totalCuenta ?? totalElegido(aceptadas, aceptadas.map((l) => l.id)))
     : 0;
   const vence = texto(f["Cotización vence"]);
+  const idsProv = [...new Set(lineas.map((l) => l.proveedorId).filter((x): x is string => !!x))];
+  const proveedores = idsProv.length ? await nombresProveedores(idsProv).catch(() => ({})) : {};
   return {
+    proveedores,
     id: op.id,
     codigo: texto(f["Código Operación"]) || op.id,
     estado,
@@ -158,7 +163,10 @@ export async function agregarAlternativa(pedidoId: string, a: AlternativaInput, 
 
 export async function editarAlternativa(
   pedidoId: string, lineaId: string,
-  c: { descripcion?: string; cantidad?: number; precioUnitario?: number; notaCliente?: string; esAlternativa?: boolean },
+  c: {
+    descripcion?: string; cantidad?: number; precioUnitario?: number; notaCliente?: string; esAlternativa?: boolean;
+    proveedorId?: string; categoria?: string; costoProveedor?: number | null; urlProveedor?: string; tiempoEstimado?: string;
+  },
   usuario: string,
 ): Promise<void> {
   return withLock(`pedido:${pedidoId}`, async () => {
@@ -168,15 +176,23 @@ export async function editarAlternativa(
     if (linea.estado !== "Propuesta") throw new Error("Solo se edita una opción propuesta.");
     if (c.cantidad !== undefined && (!Number.isInteger(c.cantidad) || c.cantidad < 1)) throw new Error("Cantidad inválida.");
     if (c.precioUnitario !== undefined && !(c.precioUnitario > 0)) throw new Error("El precio debe ser mayor que $0.");
+    if (c.costoProveedor != null && c.costoProveedor < 0) throw new Error("El costo no puede ser negativo.");
     const cambios: string[] = [];
     if (c.precioUnitario !== undefined && c.precioUnitario !== linea.precioUnitario) cambios.push(`precio $${linea.precioUnitario} → $${c.precioUnitario}`);
     if (c.cantidad !== undefined && c.cantidad !== linea.cantidad) cambios.push(`cantidad ${linea.cantidad} → ${c.cantidad}`);
+    if (c.proveedorId && c.proveedorId !== linea.proveedorId) cambios.push("proveedor");
+    if (c.costoProveedor !== undefined && c.costoProveedor !== linea.costoProveedor) cambios.push(`costo ${linea.costoProveedor ?? "—"} → ${c.costoProveedor ?? "—"}`);
     await actualizarLinea(lineaId, {
       ...(c.descripcion !== undefined ? { descripcion: c.descripcion.trim() } : {}),
       ...(c.cantidad !== undefined ? { cantidad: c.cantidad } : {}),
       ...(c.precioUnitario !== undefined ? { precioUnitario: c.precioUnitario } : {}),
       ...(c.notaCliente !== undefined ? { notaCliente: c.notaCliente.trim() } : {}),
       ...(c.esAlternativa !== undefined ? { grupoAlternativas: c.esAlternativa ? GRUPO_ALTERNATIVAS : "" } : {}),
+      ...(c.proveedorId ? { proveedorId: c.proveedorId } : {}),
+      ...(c.categoria !== undefined && c.categoria.trim() ? { categoria: c.categoria.trim() } : {}),
+      ...(c.costoProveedor !== undefined ? { costoProveedor: c.costoProveedor } : {}),
+      ...(c.urlProveedor !== undefined ? { urlProveedor: c.urlProveedor } : {}),
+      ...(c.tiempoEstimado !== undefined ? { tiempoEstimado: c.tiempoEstimado } : {}),
       ...(cambios.length ? { agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(`Editada: ${cambios.join(", ")}.`, usuario) } } : {}),
     });
   });
@@ -198,6 +214,8 @@ export async function enviarCotizacion(pedidoId: string, dias: number | null, us
     exigirCotizable(await estadoDe(pedidoId));
     const lineas = (await listarLineasDePedido(pedidoId)).filter((l) => l.estado === "Propuesta");
     if (!lineas.length) throw new Error("Agrega al menos una opción con precio antes de enviar.");
+    const falta = faltanDatosParaEnviar(lineas.map((l) => ({ descripcion: l.descripcion, estado: l.estado, proveedorId: l.proveedorId, categoria: l.categoria })));
+    if (falta) throw new Error(falta);
     const vence = venceCotizacion(new Date(), dias);
     await patchPedido(pedidoId, { Estado: "Esperando al cliente", "Cotización vence": vence });
     console.info(`[pedido] ${pedidoId} cotización enviada por ${usuario}, vence ${vence}`);

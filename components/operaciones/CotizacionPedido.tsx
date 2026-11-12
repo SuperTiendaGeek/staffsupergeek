@@ -31,6 +31,8 @@ type Vista = {
   enlace: string;
   /** Lo que el cliente eligió en el enlace y aún no paga. */
   eleccionCliente: { fecha: string; elegidas: string[] } | null;
+  /** proveedorId → nombre. */
+  proveedores: Record<string, string>;
 };
 
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
@@ -194,6 +196,11 @@ export function CotizacionPedido({
                       <p className="text-[11px] text-[#6B6B66]">
                         {[l.tiempoEstimado, l.notaCliente ? `“${l.notaCliente}”` : ""].filter(Boolean).join(" · ")}
                       </p>
+                      {l.estado === "Propuesta" && (!l.proveedorId || !l.categoria) && (
+                        <button type="button" onClick={() => setEditando(l)} className="mt-0.5 text-[11px] font-semibold text-[#FFB547] hover:underline">
+                          Falta {!l.proveedorId ? "proveedor" : "categoría"}
+                        </button>
+                      )}
                       {conf && (
                         <p className="mt-0.5 text-[11px] font-semibold text-[#F0C75E]" title={nExtra ? `Total con lo que se suma: ${usd(conf.total)}` : undefined}>
                           {conf.pagoCompleto ? `Pago completo ${usd(conf.total)}` : `Confirma con ${usd(conf.paraConfirmar)} · resto ${usd(conf.alRetirar)}`}
@@ -304,6 +311,7 @@ export function CotizacionPedido({
       {editando && (
         <AlternativaModal
           linea={editando === "nueva" ? null : editando}
+          proveedorActual={editando !== "nueva" && editando.proveedorId ? { id: editando.proveedorId, nombre: vista.proveedores[editando.proveedorId] ?? "Proveedor" } : null}
           ocupado={ocupado}
           onClose={() => setEditando(null)}
           onGuardar={async (datos) => {
@@ -361,14 +369,14 @@ function Modal({ titulo, onClose, children }: { titulo: string; onClose: () => v
   );
 }
 
-function AlternativaModal({ linea, ocupado, onClose, onGuardar }: {
-  linea: Linea | null; ocupado: boolean; onClose: () => void; onGuardar: (d: Record<string, unknown>) => Promise<void>;
+function AlternativaModal({ linea, proveedorActual, ocupado, onClose, onGuardar }: {
+  linea: Linea | null; proveedorActual: ProveedorBusqueda | null; ocupado: boolean; onClose: () => void; onGuardar: (d: Record<string, unknown>) => Promise<void>;
 }) {
   const [descripcion, setDescripcion] = useState(linea?.descripcion ?? "");
   const [cantidad, setCantidad] = useState(String(linea?.cantidad ?? 1));
   const [precio, setPrecio] = useState(linea ? String(linea.precioUnitario) : "");
   const [costo, setCosto] = useState(linea?.costoProveedor != null ? String(linea.costoProveedor) : "");
-  const [proveedor, setProveedor] = useState<ProveedorBusqueda | null>(null);
+  const [proveedor, setProveedor] = useState<ProveedorBusqueda | null>(proveedorActual);
   const [categoria, setCategoria] = useState(linea?.categoria ?? "");
   const [categorias, setCategorias] = useState<string[]>([]);
   const [url, setUrl] = useState(linea?.urlProveedor ?? "");
@@ -376,7 +384,6 @@ function AlternativaModal({ linea, ocupado, onClose, onGuardar }: {
   const [nota, setNota] = useState(linea?.notaCliente ?? "");
   const [esAlternativa, setEsAlternativa] = useState(linea ? !!linea.grupoAlternativas : true);
   useEffect(() => {
-    if (linea) return;
     fetch("/api/operaciones/categorias").then((r) => r.json()).then((j: { success?: boolean; data?: string[] }) => setCategorias(j.data ?? [])).catch(() => {});
   }, [linea]);
   const n = Number(cantidad) || 0, p = Number(precio.replace(",", ".")) || 0, c = Number(costo.replace(",", ".")) || 0;
@@ -388,11 +395,11 @@ function AlternativaModal({ linea, ocupado, onClose, onGuardar }: {
         <div className="grid grid-cols-3 gap-2">
           <input className={input} inputMode="numeric" placeholder="Cant." value={cantidad} onChange={(e) => setCantidad(e.target.value)} />
           <input className={input} inputMode="decimal" placeholder="Precio c/u" value={precio} onChange={(e) => setPrecio(e.target.value)} />
-          {!linea && <input className={input} inputMode="decimal" placeholder="Costo c/u" value={costo} onChange={(e) => setCosto(e.target.value)} title="Interno" />}
+          <input className={input} inputMode="decimal" placeholder="Costo c/u" value={costo} onChange={(e) => setCosto(e.target.value)} title="Interno" />
         </div>
-        {!linea && (
-          <>
-            <ProveedorSelector initial={null} onChange={setProveedor} disabled={ocupado} />
+        {/* Datos internos de compra: también al editar (las opciones migradas llegan sin proveedor). */}
+        <>
+            <ProveedorSelector initial={proveedorActual} onChange={setProveedor} disabled={ocupado} />
             <div className="grid grid-cols-2 gap-2">
               <select className={input} value={categoria} onChange={(e) => setCategoria(e.target.value)}>
                 <option value="">Categoría…</option>
@@ -401,8 +408,7 @@ function AlternativaModal({ linea, ocupado, onClose, onGuardar }: {
               <input className={input} placeholder="Tiempo de llegada" value={tiempo} onChange={(e) => setTiempo(e.target.value)} />
             </div>
             <input className={input} placeholder="URL proveedor" value={url} onChange={(e) => setUrl(e.target.value)} />
-          </>
-        )}
+        </>
         <input className={input} placeholder="Nota al cliente" value={nota} onChange={(e) => setNota(e.target.value)} />
         <div className="flex gap-1 rounded-lg border border-[#3A3A36] p-0.5 text-xs">
           {[true, false].map((v) => (
@@ -414,13 +420,13 @@ function AlternativaModal({ linea, ocupado, onClose, onGuardar }: {
         </div>
         <p className="text-right text-xs text-[#8A8A80]">
           Total {usd(n * p)}
-          {!linea && c > 0 && <span className={p < c ? "font-semibold text-[#FF5A4F]" : ""}>{` · margen ${usd(n * (p - c))}`}</span>}
+          {c > 0 && <span className={p < c ? "font-semibold text-[#FF5A4F]" : ""}>{` · margen ${usd(n * (p - c))}`}</span>}
         </p>
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} className={`${btn} border-[#3A3A36] text-[#A0A09A]`}>Cancelar</button>
           <button type="button" disabled={ocupado} className={`${btn} border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E]`}
             onClick={() => void onGuardar(linea
-              ? { descripcion, cantidad: n, precioUnitario: p, notaCliente: nota, esAlternativa }
+              ? { descripcion, cantidad: n, precioUnitario: p, notaCliente: nota, esAlternativa, costoProveedor: costo ? c : null, proveedorId: proveedor?.id ?? "", categoria, urlProveedor: url, tiempoEstimado: tiempo }
               : { descripcion, cantidad: n, precioUnitario: p, costoProveedor: costo ? c : null, proveedorId: proveedor?.id ?? "", categoria, urlProveedor: url, tiempoEstimado: tiempo, notaCliente: nota, esAlternativa })}>
             {ocupado ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Guardar
           </button>
