@@ -14,6 +14,7 @@ import { operacionSeCierraConLaCuenta, operacionSeReabreConLaCuenta } from "@/li
 import type { OrigenGancho } from "../emitirFactura";
 import { fetchOperacion, firstString } from "./airtableGancho";
 import { registrosDeLaCuenta } from "./idempotencia";
+import { CAMPO_LINEAS_DEL_PEDIDO } from "@/lib/tecnicos/presupuesto/airtable";
 
 async function moverOperacionesDeLaCuenta(
   origen: OrigenGancho,
@@ -34,6 +35,10 @@ async function moverOperacionesDeLaCuenta(
     try {
       const op = await fetchOperacion(r.recordId);
       if (!op) continue;
+      // Punto 10C-2: un PEDIDO ESPECIAL (con líneas) no se cierra ni se
+      // reabre con el documento: lo entrega "Entregar al cliente". Anular su
+      // factura no lo devuelve al estado viejo "Pedido".
+      if (Array.isArray(op.fields[CAMPO_LINEAS_DEL_PEDIDO]) && (op.fields[CAMPO_LINEAS_DEL_PEDIDO] as unknown[]).length > 0) continue;
       if (!debeMoverse(firstString(op.fields["Estado"]))) continue;
       await actualizarEstadoOperacion(r.recordId, estadoNuevo);
       movidas.push(firstString(op.fields["Código Operación"], r.recordId));
