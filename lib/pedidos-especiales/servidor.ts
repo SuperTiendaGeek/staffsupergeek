@@ -22,8 +22,8 @@ import { asegurarSolicitudDeLinea, cancelarSolicitudDeLinea, solicitudesDeOperac
 import { estadosDeCuentaDeOperaciones } from "@/lib/estado-cuenta/airtable";
 import { entradaHistorial } from "@/lib/compras/reglas";
 import {
-  errorAceptar, estadoComercial, faltanDatosParaEnviar, planCancelacion, resumenAnticipo, totalElegido, venceCotizacion, vigencia,
-  type EstadoPedido, type PlanCancelacion, type ResumenAnticipo, type Vigencia,
+  errorAceptar, estadoComercial, faltanDatosParaEnviar, resumenAnticipo, totalElegido, venceCotizacion, vigencia,
+  type EstadoPedido, type ResumenAnticipo, type Vigencia,
 } from "./reglas";
 
 const T_OPERACIONES = "Operación Comercial";
@@ -73,7 +73,8 @@ export type PedidoEspecialVista = {
   lineas: LineaPresupuesto[];
   solicitudes: SolicitudConSituacion[];
   anticipo: ResumenAnticipo;
-  cancelacion: PlanCancelacion;
+  /** Alguna compra ya está hecha: cancelar es caso (b) o (c) (punto 10C-3a). */
+  confirmadoConProveedor: boolean;
   /** proveedorId → nombre (para editar la opción). */
   proveedores: Record<string, string>;
 };
@@ -113,10 +114,8 @@ export async function vistaPedido(pedidoId: string): Promise<PedidoEspecialVista
     lineas,
     solicitudes,
     anticipo: resumenAnticipo(totalReferencia, cuenta?.totalAbonado ?? 0),
-    cancelacion: planCancelacion({
-      pagado: cuenta?.totalAbonado ?? 0,
-      pedidoAlProveedor: solicitudes.some((s) => s.estado === "Comprada" || s.estado === "Entregada"),
-    }),
+    // Punto 10C-3a: la ventana "Cancelar pedido" pide el detalle a /cancelar.
+    confirmadoConProveedor: solicitudes.some((s) => s.estado === "Comprada" || s.estado === "Entregada"),
   };
 }
 
@@ -273,41 +272,5 @@ export async function aceptarPedido(input: {
   });
 }
 
-/**
- * Cancelar (decisión 8). Lo pagado se resuelve ANTES desde la cuenta del
- * cliente ("Pasar a saldo a favor" o "Devolver", que ya existen): aquí solo
- * se cancela un pedido que no tiene dinero sin resolver.
- */
-export async function cancelarPedido(pedidoId: string, motivo: string, usuario: string): Promise<void> {
-  if (!motivo.trim()) throw new Error("Escribe el motivo.");
-  return withLock(`pedido:${pedidoId}`, async () => {
-    const estado = await estadoDe(pedidoId);
-    if (estado === "Entregado" || estado === "Cancelado") throw new Error(`El pedido ya está ${estado.toLowerCase()}.`);
-    const cuenta = (await estadosDeCuentaDeOperaciones([pedidoId])).get(pedidoId);
-    if ((cuenta?.totalAbonado ?? 0) > 0.009) {
-      const plan = planCancelacion({
-        pagado: cuenta!.totalAbonado,
-        pedidoAlProveedor: (await solicitudesDeOperacion(pedidoId)).some((s) => s.estado === "Comprada" || s.estado === "Entregada"),
-      });
-      throw new Error(`${plan.texto} Resuélvelo primero en "Cuenta del cliente".`);
-    }
-    const lineas = await listarLineasDePedido(pedidoId);
-    if (lineas.some((l) => l.estado === "Cargada")) {
-      throw new Error("Ya se compró algo de este pedido: la pieza queda para la tienda. Esa cancelación llega con la 10C; por ahora avísale a un administrador.");
-    }
-    for (const l of lineas) {
-      if (l.estado === "Rechazada") continue;
-      if (l.estado === "Aprobada") await cancelarSolicitudDeLinea(l.id, `Pedido cancelado: ${motivo.trim()}`, usuario).catch(() => {});
-      if (l.estado === "Propuesta" || l.estado === "Aprobada") {
-        await actualizarLinea(l.id, { estado: "Rechazada", agregarHistorial: { anterior: l.historial, entrada: entradaHistorial(`Pedido cancelado: ${motivo.trim()}`, usuario) } });
-      }
-    }
-    const op = await fetchRecordById(T_OPERACIONES, pedidoId);
-    const obs = texto(op?.fields["Observación Interna"]);
-    await patchPedido(pedidoId, {
-      Estado: "Cancelado",
-      "Observación Interna": [obs.trim(), entradaHistorial(`Cancelado: ${motivo.trim()}`, usuario)].filter(Boolean).join("\n"),
-    });
-  });
-}
+// Cancelar: ver ./cancelacion-servidor.ts (punto 10C-3a, decisión 19 del dueño).
 

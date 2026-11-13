@@ -43,6 +43,11 @@ export interface CuentaUnificadaServicio {
   costo: number;
   /** Garantía SUPER GEEK (punto 20): mano de obra sin costo, fuera del documento. */
   garantia?: boolean;
+  /**
+   * Punto 10C-3: cargo propio del pedido que NO va en un documento (gastos de
+   * cancelación, decisión del dueño 12-nov). Suma a la cuenta, no a la factura.
+   */
+  sinDocumento?: boolean;
 }
 
 // Renglón de la tabla legacy "Repuestos por Orden". Se muestra SIEMPRE que

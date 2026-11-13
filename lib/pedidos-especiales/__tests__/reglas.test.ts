@@ -11,7 +11,6 @@ import {
   horasDeVigencia,
   mensajeCotizacion,
   pedidoAceptado,
-  planCancelacion,
   resumenAnticipo,
   textoAnticipo,
   textoFechaHora,
@@ -89,12 +88,7 @@ assert(errorAceptar({ ...base, estado: "Aceptado", elegidas: ["lenovo"] }) === "
 assert(errorAceptar({ ...base, estado: "Cancelado", elegidas: ["lenovo"] }) === "El pedido está cancelado.", "cancelado: no");
 assert(errorAceptar({ ...base, estado: "Cotizando", vence: null, elegidas: ["lenovo"] }) === null, "en tienda sin enlace enviado (sin fecha): se puede");
 
-// 5. Cancelar (decisión 8)
-const antes = planCancelacion({ pagado: 225, pedidoAlProveedor: false });
-assert(antes.opciones.join() === "devolver,saldo_a_favor" && !antes.piezaQuedaEnTienda, "antes de pedir: devolver o saldo a favor");
-const despues = planCancelacion({ pagado: 225, pedidoAlProveedor: true });
-assert(despues.opciones.join() === "saldo_a_favor" && despues.piezaQuedaEnTienda, "después de pedir: solo saldo a favor y la pieza queda en tienda");
-assert(planCancelacion({ pagado: 0, pedidoAlProveedor: false }).opciones.length === 0, "sin pagos: se cancela sin más");
+// 5. Cancelar: ver cancelacion.test.ts (decisión 19, punto 10C-3a)
 
 // 6. Unidades que se cobran
 assert(unidadesDelCliente(2, 5) === 2, "manda la cantidad de la línea del pedido");

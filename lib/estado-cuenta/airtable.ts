@@ -21,6 +21,7 @@ import "server-only";
 
 import { loadAirtableEnv } from "@/lib/tecnicos/config/airtable";
 import { CAMPO_LINEAS_DEL_PEDIDO, lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
+import { CAMPO_GASTOS, CAMPO_RECARGO, cargosDelPedido, totalCargosDelPedido } from "@/lib/pedidos-especiales/cancelacion";
 import { cargosEnGarantia } from "@/lib/garantias/reglas";
 import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import { unidadesDelCliente } from "@/lib/pedidos-especiales/reglas";
@@ -127,6 +128,9 @@ const CAMPOS_OPERACION_CUENTA = [
   CAMPO_DESCUENTOS,
   // Punto 10: las alternativas de un pedido especial.
   CAMPO_LINEAS_DEL_PEDIDO,
+  // Punto 10C-3: cargos propios del pedido (recargo por no retiro, gastos de cancelación).
+  CAMPO_RECARGO,
+  CAMPO_GASTOS,
 ];
 
 export type CuentaEnBloque = EstadoDeCuenta & {
@@ -294,11 +298,13 @@ function cuentaDeOperacionSuelta(op: Registro, lec: Lecturas): CuentaEnBloque {
   });
   const abonos = abonosDe([...new Set(ids(op.fields["Abonos"]))], lec);
   const items = itemsDePedidos([op], lec);
+  // Punto 10C-3: recargo por no retiro y gastos de cancelación del pedido.
+  const propios = cargosDelPedido(op.id, op.fields);
   const estado = calcularEstadoCuenta({
     cargos: {
-      servicios: 0, productosDigitales: 0, repuestosHistoricos: 0, items, aprobadoSinArticulo,
+      servicios: totalCargosDelPedido(propios), productosDigitales: 0, repuestosHistoricos: 0, items, aprobadoSinArticulo,
       descuentos: descuentosDe(ids(op.fields[CAMPO_DESCUENTOS]), lec),
-      cargosExistentes: new Set(items.map((i) => i.id)),
+      cargosExistentes: new Set([...items.map((i) => i.id), ...propios.map((c) => c.id)]),
     },
     abonos,
   });

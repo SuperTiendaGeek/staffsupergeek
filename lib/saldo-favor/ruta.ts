@@ -20,12 +20,12 @@ import {
 const esRecordId = (v: string) => /^rec[A-Za-z0-9]{14}$/.test(v);
 
 /** Al administrador: de qué cuentas y cómo se puede devolver dinero (mismas reglas que el reembolso de una NC). */
-export async function opcionesDeDevolucion(session: StaffSession): Promise<{
+export async function opcionesDeDevolucion(session: StaffSession, opts: { permitirNoAdministrador?: boolean } = {}): Promise<{
   puedeDevolver: boolean;
   cuentasDevolucion: Array<{ id: string; nombre: string }>;
   metodosDevolucion: readonly string[];
 }> {
-  if (!isAdministratorRole(session.user.rol)) return { puedeDevolver: false, cuentasDevolucion: [], metodosDevolucion: [] };
+  if (!isAdministratorRole(session.user.rol) && !opts.permitirNoAdministrador) return { puedeDevolver: false, cuentasDevolucion: [], metodosDevolucion: [] };
   const cuentasDevolucion = (await fetchCuentasFinancieras().catch(() => []))
     .filter((c) => cuentaPermiteReembolso({ id: c.id, nombre: c.nombre, tipo: String(c.tipo), activa: c.activa }))
     .map((c) => ({ id: c.id, nombre: c.nombre }))

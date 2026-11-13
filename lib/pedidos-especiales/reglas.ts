@@ -219,44 +219,7 @@ export function totalElegido(lineas: readonly LineaParaAceptar[], elegidas: read
 
 // ─── Cancelar ────────────────────────────────────────────────────────────────
 
-export type DestinoDinero = "devolver" | "saldo_a_favor";
-
-export type PlanCancelacion = {
-  /** Qué puede elegir el cliente con lo que pagó (vacío si no pagó nada). */
-  opciones: DestinoDinero[];
-  /** Ya se le pidió al proveedor: la pieza queda para la tienda. */
-  piezaQuedaEnTienda: boolean;
-  texto: string;
-};
-
-/**
- * Decisión 8 del dueño. "Pedido al proveedor" = alguna solicitud del pedido
- * ya está Comprada (hay orden de compra).
- */
-export function planCancelacion(input: { pagado: number; pedidoAlProveedor: boolean }): PlanCancelacion {
-  const pagado = r2(Math.max(0, input.pagado || 0));
-  if (input.pedidoAlProveedor) {
-    return {
-      opciones: pagado > 0 ? ["saldo_a_favor"] : [],
-      piezaQuedaEnTienda: true,
-      texto: pagado > 0
-        ? `Ya se pidió al proveedor: ${usd(pagado)} pasan a saldo a favor del cliente y la pieza queda para la tienda.`
-        : "Ya se pidió al proveedor: la pieza queda para la tienda.",
-    };
-  }
-  return {
-    opciones: pagado > 0 ? ["devolver", "saldo_a_favor"] : [],
-    piezaQuedaEnTienda: false,
-    texto: pagado > 0
-      ? `Todavía no se pidió al proveedor: se devuelven ${usd(pagado)} o, si el cliente prefiere, pasan a saldo a favor.`
-      : "Todavía no se pidió al proveedor y no hay pagos: se cancela sin más.",
-  };
-}
-
-/** Lo que el cliente lee en el enlace ANTES de aceptar (decisión 8). */
-export const POLITICA_CANCELACION =
-  "Si cancelas antes de que lo pidamos al proveedor, te devolvemos tu dinero (o lo dejamos como saldo a favor para otra compra). " +
-  "Si cancelas después de pedirlo, lo que pagaste queda como saldo a favor en SUPER GEEK y el producto queda en la tienda.";
+// Cancelar: ver ./cancelacion.ts (decisión 19 del dueño, punto 10C-3a).
 
 // ─── Cuenta ──────────────────────────────────────────────────────────────────
 

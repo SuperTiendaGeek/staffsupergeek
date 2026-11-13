@@ -18,6 +18,7 @@ import type {
 import { cantidadDeOpcion } from "@/lib/operaciones/opciones";
 import type { ProductoDigital } from "@/lib/tecnicos/airtable";
 import { CAMPO_LINEAS_DEL_PEDIDO, lineasPorIds } from "@/lib/tecnicos/presupuesto/airtable";
+import { cargosDelPedido, totalCargosDelPedido } from "@/lib/pedidos-especiales/cancelacion";
 import { unidadesDelCliente } from "@/lib/pedidos-especiales/reglas";
 import { cargosEnGarantia } from "@/lib/garantias/reglas";
 import type { CuentaUnificadaAprobadoSinArticulo } from "@/types/cuenta-unificada";
@@ -442,6 +443,10 @@ export async function getCuentaUnificada(
     nombre: s.servicioNombre,
     costo: s.costo ?? 0,
   }));
+  // Punto 10C-3: un PEDIDO suelto suma sus cargos propios (recargo por no
+  // retiro, que va en la factura; gastos de cancelación, que no).
+  const cargosPropios = !ordenRecord && operacionRecord ? cargosDelPedido(operacionRecord.id, operacionRecord.fields) : [];
+  for (const c of cargosPropios) serviciosMapped.push({ id: c.id, nombre: c.nombre, costo: c.costo, ...(c.facturable ? {} : { sinDocumento: true }) });
 
   // Un mismo registro de Abonos puede llevar a la vez "Aplicado a: Orden" y
   // "Aplicado a: Operación": createAbonoPorOrden y crearAbono escriben ambos
@@ -478,7 +483,7 @@ export async function getCuentaUnificada(
   // Servicios y Productos Digitales son siempre solo de la orden (nunca hay
   // ambigüedad de doble conteo con la operación), y ya existen como rollup en
   // Airtable — se leen directo en vez de sumar en JS.
-  const totalServicios = ordenRecord ? firstNumber(ordenRecord.fields["Costo Total Servicios NV"]) : 0;
+  const totalServicios = ordenRecord ? firstNumber(ordenRecord.fields["Costo Total Servicios NV"]) : totalCargosDelPedido(cargosPropios);
   const totalProductosDigitales = ordenRecord
     ? firstNumber(ordenRecord.fields["Total Productos Digitales"])
     : 0;
@@ -528,6 +533,7 @@ export async function getCuentaUnificada(
   const cargosExistentes = new Set<string>([
     ...items.map((i) => i.id),
     ...servicios.map((s) => s.id),
+    ...cargosPropios.map((c) => c.id),
     ...productosDigitalesRaw.map((p) => p.id),
     ...(repuestosLegacyCuentanParaTotal ? repuestosHistoricos.map((r) => r.id) : []),
   ]);

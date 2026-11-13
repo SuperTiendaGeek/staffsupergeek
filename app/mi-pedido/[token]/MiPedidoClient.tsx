@@ -12,7 +12,8 @@ import { Check, Clock, Copy, CreditCard, MapPin, MessageCircle } from "lucide-re
 import type { VistaCliente } from "@/lib/pedidos-especiales/enlace-reglas";
 import type { SeguimientoCliente } from "@/lib/pedidos-especiales/seguimiento";
 import { mensajeComprobante, mensajeConsulta } from "@/lib/pedidos-especiales/enlace-reglas";
-import { POLITICA_CANCELACION, anticipoRequerido, vigencia } from "@/lib/pedidos-especiales/reglas";
+import { anticipoRequerido, vigencia } from "@/lib/pedidos-especiales/reglas";
+import { CONDICIONES_COMPRA } from "@/lib/pedidos-especiales/cancelacion";
 import { TIENDA, whatsappTienda } from "@/lib/tienda/datos";
 
 type Vista = VistaCliente & { producto: string; pagoTarjeta: boolean; seguimiento: SeguimientoCliente | null };
@@ -28,6 +29,8 @@ export function MiPedidoClient({ token }: { token: string }) {
   const [aviso, setAviso] = useState("");
   const [cambiando, setCambiando] = useState(false);
   const [copiado, setCopiado] = useState(false);
+  // Punto 10C-3a: las condiciones se leen en una ventana flotante (dueño, 13-nov).
+  const [condiciones, setCondiciones] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -266,12 +269,12 @@ export function MiPedidoClient({ token }: { token: string }) {
         <MessageCircle size={18} aria-hidden className={v.fase === "vencida" ? "" : "text-[#56E3A4]"} /> {v.fase === "vencida" ? "Escribir a SUPER GEEK" : "¿Dudas? Escríbenos"}
       </a>
 
-      {v.fase !== "cancelado" && v.fase !== "entregado" && v.fase !== "preparando" && (
-        <details className="rounded-xl border border-[#2C2D29] bg-[#1A1B18] px-3.5 py-3 text-[13px]">
-          <summary className="cursor-pointer font-semibold text-[#F0F0EC]">Si cancelas</summary>
-          <p className="pt-2 leading-relaxed text-[#B5B5AE]">{POLITICA_CANCELACION}</p>
-        </details>
+      {v.fase !== "cancelado" && (
+        <button type="button" onClick={() => setCondiciones(true)} className="self-center text-[13px] font-semibold text-[#D7FF4F] underline-offset-4 hover:underline">
+          Leer condiciones de compra
+        </button>
       )}
+      {condiciones && <CondicionesModal onCerrar={() => setCondiciones(false)} />}
 
       <footer className="flex flex-col gap-1 border-t border-[#2C2D29] pt-3 text-xs text-[#B5B5AE]">
         <span className="font-semibold text-[#F0F0EC]">{TIENDA.nombre}</span>
@@ -355,5 +358,42 @@ function LineaDeTiempo({ hitos }: { hitos: SeguimientoCliente["hitos"] }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+// ─── Condiciones de compra bajo pedido (punto 10C-3a) ────────────────────────
+// Ventana flotante: en el celular sube desde abajo; se cierra tocando fuera,
+// con la X o con Escape.
+function CondicionesModal({ onCerrar }: { onCerrar: () => void }) {
+  useEffect(() => {
+    const alTeclear = (e: KeyboardEvent) => { if (e.key === "Escape") onCerrar(); };
+    window.addEventListener("keydown", alTeclear);
+    return () => window.removeEventListener("keydown", alTeclear);
+  }, [onCerrar]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm animate-[sg-velo_160ms_ease-out] sm:items-center sm:px-4" onClick={onCerrar}>
+      <div role="dialog" aria-modal="true" aria-labelledby="condiciones-titulo"
+        className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-2xl border border-[#3A3A36] bg-[#1E1F1C] shadow-2xl animate-[sg-modal_220ms_ease-out] sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start gap-3 border-b border-[#2C2D29] px-4 py-3">
+          <h2 id="condiciones-titulo" className="flex-1 text-[15px] font-bold leading-snug text-[#F0F0EC]">{CONDICIONES_COMPRA.titulo}</h2>
+          <button type="button" onClick={onCerrar} aria-label="Cerrar" className="rounded-lg p-1 text-[#B5B5AE] hover:text-[#F0F0EC]">
+            <svg width="18" height="18" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+          </button>
+        </div>
+        <div className="flex flex-col gap-3 overflow-y-auto px-4 py-3 text-[13px] leading-relaxed text-[#B5B5AE]">
+          <p>{CONDICIONES_COMPRA.intro}</p>
+          {CONDICIONES_COMPRA.secciones.map((sec) => (
+            <section key={sec.titulo} className="flex flex-col gap-1.5">
+              <h3 className="font-semibold text-[#F0F0EC]">{sec.titulo}</h3>
+              <ul className="flex list-disc flex-col gap-1.5 pl-4">
+                {sec.puntos.map((p) => <li key={p}>{p}</li>)}
+              </ul>
+            </section>
+          ))}
+          <p className="text-xs">{CONDICIONES_COMPRA.cierre}</p>
+        </div>
+      </div>
+    </div>
   );
 }
