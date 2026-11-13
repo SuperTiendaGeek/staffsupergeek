@@ -15,6 +15,7 @@ import { OpcionModal } from "./OpcionModal";
 import { CotizacionPedido } from "./CotizacionPedido";
 import { esPedidoEspecial, estadoComercial } from "@/lib/pedidos-especiales/reglas";
 import { EntregarPedidoPanel } from "./EntregarPedidoPanel";
+import { RetiroPedido } from "./RetiroPedido";
 import {
   construirMensajeOpcionCotizada,
   construirMensajeOpcionesCotizadas,
@@ -829,6 +830,10 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
                 <DollarSign size={12} /> Registrar abono
               </button>
             </section>
+            {ec === "Aceptado" && (
+              <RetiroPedido pedidoId={operacion.id} codigo={operacion.codigo} articulo={operacion.productoSolicitado}
+                recargar={pagosVersion} onCambio={() => { setPagosVersion((v) => v + 1); router.refresh(); }} />
+            )}
           </aside>
         </div>
         {modales}

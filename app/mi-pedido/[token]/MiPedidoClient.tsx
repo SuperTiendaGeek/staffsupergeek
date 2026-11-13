@@ -16,7 +16,7 @@ import { anticipoRequerido, vigencia } from "@/lib/pedidos-especiales/reglas";
 import { CONDICIONES_COMPRA } from "@/lib/pedidos-especiales/cancelacion";
 import { TIENDA, whatsappTienda } from "@/lib/tienda/datos";
 
-type Vista = VistaCliente & { producto: string; pagoTarjeta: boolean; seguimiento: SeguimientoCliente | null };
+type Vista = VistaCliente & { producto: string; pagoTarjeta: boolean; seguimiento: SeguimientoCliente | null; retiro?: { aviso: string; detalle: string } | null };
 
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, "")}`;
 const caja = "rounded-2xl border border-[#3A3A36] bg-[#1E1F1C]";
@@ -244,6 +244,13 @@ export function MiPedidoClient({ token }: { token: string }) {
             <span className="text-sm text-[#B5B5AE]">
               {v.seguimiento?.llegada ? `Llega aprox. ${v.seguimiento.llegada}` : v.seguimiento?.actual?.frase ?? (v.fase === "entregado" ? "¡Gracias por tu compra!" : "")}
             </span>
+            {v.retiro && (
+              // Punto 10C-3b: plazo para retirar (maqueta 5c).
+              <div className="mt-1.5 flex flex-col gap-0.5 border-t border-[#2C2D29] pt-2.5 animate-[sg-entrada_220ms_ease-out]">
+                <span className={`text-sm font-semibold ${v.pago.recargo > 0.005 ? "text-[#FFB547]" : "text-[#F0F0EC]"}`}>{v.retiro.aviso}</span>
+                {v.retiro.detalle && <span className="text-xs text-[#B5B5AE]">{v.retiro.detalle}</span>}
+              </div>
+            )}
           </section>
           {v.seguimiento && <LineaDeTiempo hitos={v.seguimiento.hitos} />}
           <Items items={v.elegido.items} />
@@ -252,6 +259,7 @@ export function MiPedidoClient({ token }: { token: string }) {
             <div className="h-1.5 overflow-hidden rounded-full bg-[#2C2D29]">
               <div className="h-full rounded-full bg-[#56E3A4] transition-[width] duration-500" style={{ width: `${v.pago.total > 0 ? Math.min(100, (v.pago.pagado / v.pago.total) * 100) : 0}%` }} />
             </div>
+            {v.pago.recargo > 0.005 && <Fila k="Recargo por no retiro" val={usd(v.pago.recargo)} clase="text-[#FFB547]" />}
             <Fila k="Total" val={usd(v.pago.total)} clase="font-bold" />
             <Fila k="Pagaste" val={usd(v.pago.pagado)} />
             {v.pago.faltaTotal > 0.009 && <Fila k="Falta (al retirar)" val={usd(v.pago.faltaTotal)} clase="font-bold text-[#FFB547]" />}

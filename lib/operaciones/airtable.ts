@@ -66,6 +66,8 @@ const LIST_FIELDS = [
   "Última Actualización",
   // Punto 10A-2: vigencia de la cotización del pedido especial.
   "Cotización vence",
+  // Punto 10C-3b: recargo por no retiro del pedido especial.
+  "Recargo por no retiro",
 ];
 
 function getClient(): AirtableClient {
@@ -159,6 +161,7 @@ function mapOperacion(
     fechaCreacion: record.createdTime ?? "",
     ultimaActualizacion: firstString(f["Última Actualización"]) || record.createdTime || "",
     cotizacionVence: firstString(f["Cotización vence"]),
+    recargo: firstNumber(f["Recargo por no retiro"]) ?? 0,
   };
 }
 

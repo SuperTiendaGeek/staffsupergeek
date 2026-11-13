@@ -23,7 +23,9 @@ import { esRolNotificable } from "@/lib/operaciones/depuracion";
 import { payphoneActivo } from "@/lib/pagos/payphone";
 import { aceptarPedido } from "./servidor";
 import { seguimientoDelPedido } from "./seguimiento-servidor";
-import { seguimientoParaCliente, type SeguimientoCliente } from "./seguimiento";
+import { fechaDeLlegada, seguimientoParaCliente, type SeguimientoCliente } from "./seguimiento";
+import { avisoDeRetiro, hoyEcuador } from "./retiro";
+import { CAMPO_RECARGO } from "./cancelacion";
 import {
   TOKEN_PEDIDO_REGEX, confirmacionPorPago, construirVistaCliente, detalleEleccion, elegidasDeOpcion, eleccionVigente,
   errorEleccion, leerEleccion, type EleccionCliente, type LineaCliente, type VistaCliente,
@@ -99,6 +101,7 @@ type Contexto = {
   lineas: LineaCliente[];
   elecciones: EleccionCliente[];
   pagado: number;
+  recargo: number;
 };
 
 async function leerContexto(pedidoId: string): Promise<Contexto> {
@@ -120,25 +123,35 @@ async function leerContexto(pedidoId: string): Promise<Contexto> {
     lineas: lineas.map(aLineaCliente),
     elecciones: respuestas.map((r) => leerEleccion(r.fecha, r.detalle)).filter((e): e is EleccionCliente => !!e),
     pagado: cuentas.get(pedidoId)?.totalAbonado ?? 0,
+    recargo: typeof f[CAMPO_RECARGO] === "number" ? (f[CAMPO_RECARGO] as number) : 0,
   };
 }
 
-export type VistaPublicaPedido = VistaCliente & { producto: string; pagoTarjeta: boolean; seguimiento: SeguimientoCliente | null };
+export type VistaPublicaPedido = VistaCliente & {
+  producto: string;
+  pagoTarjeta: boolean;
+  seguimiento: SeguimientoCliente | null;
+  /** Punto 10C-3b: "Retíralo antes del…" / "Se sumó un recargo…" (desde que llegó). */
+  retiro: { aviso: string; detalle: string } | null;
+};
 
 function vistaDe(c: Contexto): VistaPublicaPedido {
   const vista = construirVistaCliente({
     codigo: c.codigo, clienteNombre: c.clienteNombre, estado: c.estado, vence: c.vence,
-    lineas: c.lineas, elecciones: c.elecciones, pagado: c.pagado,
+    lineas: c.lineas, elecciones: c.elecciones, pagado: c.pagado, recargo: c.recargo,
   });
   const producto = vista.elegido?.items[0]?.descripcion || vista.opciones[0]?.descripcion || c.producto;
-  return { ...vista, producto, pagoTarjeta: payphoneActivo(), seguimiento: null };
+  return { ...vista, producto, pagoTarjeta: payphoneActivo(), seguimiento: null, retiro: null };
 }
 
 /** Punto 10B: con el pedido confirmado, el cliente ve sus pasos (sin notas internas). */
 async function conSeguimiento(id: string, v: VistaPublicaPedido): Promise<VistaPublicaPedido> {
   if (v.fase !== "confirmado" && v.fase !== "entregado") return v;
   const s = await seguimientoDelPedido(id).catch((e) => { console.error("[pedido enlace] seguimiento:", e); return null; });
-  return { ...v, seguimiento: s ? seguimientoParaCliente(s) : null };
+  const retiro = s && v.fase === "confirmado"
+    ? avisoDeRetiro({ llegoEn: fechaDeLlegada(s), hoy: hoyEcuador(), recargo: v.pago.recargo, debe: v.pago.faltaTotal })
+    : null;
+  return { ...v, seguimiento: s ? seguimientoParaCliente(s) : null, retiro };
 }
 
 export async function vistaPublicaPedido(token: string): Promise<VistaPublicaPedido | null> {

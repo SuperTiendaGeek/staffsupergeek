@@ -293,6 +293,12 @@ export function construirSeguimiento(input: {
   };
 }
 
+/** Punto 10C-3b: cuándo llegó a la tienda (hito "¡Llegó!"), o null. Base de los plazos de retiro. */
+export function fechaDeLlegada(s: Pick<SeguimientoVista, "hitos">): string | null {
+  const h = s.hitos.find((x) => x.clave === "llego");
+  return h && h.estado !== "pendiente" && h.fecha ? h.fecha : null;
+}
+
 /** Lo que se le muestra al CLIENTE: sin notas internas ni "manual". */
 export type SeguimientoCliente = {
   hitos: Array<{ titulo: string; frase: string; estado: EstadoHito; fecha: string }>;
