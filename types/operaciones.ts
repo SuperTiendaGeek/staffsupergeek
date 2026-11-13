@@ -47,6 +47,10 @@ export type OperacionListado = {
   cotizacionVence?: string;
   /** Punto 10B: paso actual del pedido aceptado (y su aviso, si hay). */
   hito?: { titulo: string; aviso: string | null } | null;
+  /** Punto 10C-3b: recargo por no retiro ya sumado (0 si no hay). */
+  recargo?: number;
+  /** Punto 10C-3b: el pedido llegó hace más de 3 meses y no se retiró. */
+  porLiberar?: boolean;
   /**
    * Estado de la cuenta (auditoría ops, punto 4) para el chip del tablero:
    * la cuenta COMPLETA de la orden si el pedido es de una orden; la suya si

@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Wrench, Plus, Clock } from "lucide-react";
 import type { OperacionListado } from "@/types/operaciones";
 import { resolverEstadoCobroTablero } from "@/lib/operaciones/cobro";
 import { resolverAlertaGestion, type NivelAlertaGestion } from "@/lib/operaciones/vencimiento";
 import { NuevaOperacionModal } from "./NuevaOperacionModal";
+import { LiberarPedidoModal } from "./RetiroPedido";
 import { ESTADOS_PEDIDO, estadoComercial, textoFechaHora, vigencia } from "@/lib/pedidos-especiales/reglas";
 
 // Punto 10A-2: el tablero muestra el estado COMERCIAL del pedido (lo
@@ -132,6 +134,10 @@ function OperacionCard({ op }: { op: OperacionListado }) {
           )}
         </span>
       )}
+      {(op.recargo ?? 0) > 0.005 && (
+        // Punto 10C-3b: recargo del 10 % sumado al día 7 sin retirar.
+        <span className="inline-flex w-fit items-center rounded-full bg-[#FFB547]/15 px-2 py-0.5 text-[10px] font-semibold text-[#FFB547]">Recargo ${(op.recargo ?? 0).toLocaleString("es-EC", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+      )}
       {alerta && alerta.nivel !== "nueva" && (
         <span
           className="inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
@@ -161,11 +167,17 @@ function OperacionCard({ op }: { op: OperacionListado }) {
 
 type Props = {
   initialItems: OperacionListado[];
+  /** Punto 10C-3b: solo el administrador ve "Por liberar" y libera. */
+  esAdmin?: boolean;
 };
 
-export function OperacionesBoardClient({ initialItems }: Props) {
+export function OperacionesBoardClient({ initialItems, esAdmin = false }: Props) {
+  const router = useRouter();
   const [showRechazado, setShowRechazado] = useState(false);
   const [nuevaModalOpen, setNuevaModalOpen] = useState(false);
+  const [verPorLiberar, setVerPorLiberar] = useState(false);
+  const [liberando, setLiberando] = useState<OperacionListado | null>(null);
+  const porLiberar = useMemo(() => (esAdmin ? initialItems.filter((o) => o.porLiberar) : []), [initialItems, esAdmin]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, OperacionListado[]>();
@@ -188,7 +200,14 @@ export function OperacionesBoardClient({ initialItems }: Props) {
         <NuevaOperacionModal onClose={() => setNuevaModalOpen(false)} />
       )}
 
+      {liberando && (
+        <LiberarPedidoModal pedidoId={liberando.id} codigo={liberando.codigo} articulo={liberando.productoSolicitado}
+          pagado={liberando.totalAbonado ?? 0} onCerrar={() => setLiberando(null)}
+          onLiberado={() => { setLiberando(null); router.refresh(); }} />
+      )}
+
       <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
         <button
           onClick={() => setShowRechazado((v) => !v)}
           className={`inline-flex h-7 items-center rounded-full border px-3 text-xs font-medium transition ${
@@ -204,6 +223,20 @@ export function OperacionesBoardClient({ initialItems }: Props) {
             </span>
           )}
         </button>
+        {porLiberar.length > 0 && (
+          // Punto 10C-3b: pedidos que llegaron hace más de 3 meses y nadie retiró.
+          <button
+            onClick={() => setVerPorLiberar((v) => !v)}
+            className={`inline-flex h-7 items-center rounded-full border px-3 text-xs font-medium transition ${
+              verPorLiberar
+                ? "border-[#FFB547] bg-[#FFB547]/10 text-[#FFB547]"
+                : "border-[#FFB547]/40 text-[#FFB547] hover:border-[#FFB547]"
+            }`}
+          >
+            Por liberar · {porLiberar.length}
+          </button>
+        )}
+        </div>
 
         <div className="flex items-center gap-1">
           <button
@@ -229,6 +262,22 @@ export function OperacionesBoardClient({ initialItems }: Props) {
         </div>
       </div>
 
+      {verPorLiberar && porLiberar.length > 0 ? (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 pb-4 animate-[sg-entrada_180ms_ease-out]">
+          {porLiberar.map((op) => (
+            <div key={op.id} className="flex flex-col gap-2">
+              <OperacionCard op={op} />
+              <button
+                type="button"
+                onClick={() => setLiberando(op)}
+                className="h-7 rounded-lg border border-[#3A3A36] text-xs font-semibold text-[#F0F0EC] transition hover:border-[#6A6A62]"
+              >
+                Liberar
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
       <div className="overflow-x-auto pb-4">
         <div
           className="flex gap-3"
@@ -273,6 +322,7 @@ export function OperacionesBoardClient({ initialItems }: Props) {
           })}
         </div>
       </div>
+      )}
     </div>
   );
 }

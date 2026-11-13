@@ -213,7 +213,7 @@ export type VistaCliente = {
   huellas: Record<string, string>;
   /** Lo elegido (por pagar) o lo aceptado (confirmado / entregado). */
   elegido: { opcionId: string | null; items: ExtraCliente[]; total: number } | null;
-  pago: { total: number; pagado: number; paraConfirmar: number; faltaParaConfirmar: number; faltaTotal: number };
+  pago: { total: number; pagado: number; paraConfirmar: number; faltaParaConfirmar: number; faltaTotal: number; recargo: number };
 };
 
 export function construirVistaCliente(input: {
@@ -224,6 +224,8 @@ export function construirVistaCliente(input: {
   lineas: readonly LineaCliente[];
   elecciones: readonly EleccionCliente[];
   pagado: number;
+  /** Punto 10C-3b: "Recargo por no retiro" del pedido (suma al total ya aceptado). */
+  recargo?: number;
   ahora?: Date;
 }): VistaCliente {
   const estado: EstadoPedido = estadoComercial(input.estado);
@@ -268,8 +270,9 @@ export function construirVistaCliente(input: {
     elegido = { opcionId: null, items, total: r2(items.reduce((s, x) => s + x.subtotal, 0)) };
   }
 
-  const total = elegido?.total ?? 0;
-  const paraConfirmar = anticipoRequerido(total);
+  const recargo = (fase === "confirmado" || fase === "entregado") ? r2(Math.max(0, input.recargo ?? 0)) : 0;
+  const total = r2((elegido?.total ?? 0) + recargo);
+  const paraConfirmar = anticipoRequerido(elegido?.total ?? 0);
   return {
     fase,
     codigo: input.codigo,
@@ -286,6 +289,7 @@ export function construirVistaCliente(input: {
       paraConfirmar,
       faltaParaConfirmar: r2(Math.max(0, paraConfirmar - pagado)),
       faltaTotal: r2(Math.max(0, total - pagado)),
+      recargo,
     },
   };
 }
