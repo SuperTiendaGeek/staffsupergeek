@@ -54,7 +54,7 @@ export type OperacionParaEntrega = { id: string; codigo: string; estado: string;
 
 /** Estados del chip de compras que significan "todavía no está para entregar". */
 const SOLICITUD_PENDIENTE = new Set(["esperando_pago", "falta_pedir", "falta_pagar_proveedor", "en_camino"]);
-const OPERACION_CERRADA = new Set(["Entregado", "Rechazado"]);
+const OPERACION_CERRADA = new Set(["Entregado", "Rechazado", "Cancelado"]);
 
 export function armarPendientes(input: {
   /** cuenta.aprobadoSinArticulo (líneas del presupuesto y pedidos sin artículo). */

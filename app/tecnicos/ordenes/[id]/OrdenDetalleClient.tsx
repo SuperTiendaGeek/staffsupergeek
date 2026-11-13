@@ -2804,6 +2804,10 @@ export function OrdenDetalleClient() {
               <EntregarClientePanel
                 ordenId={orden.recordId}
                 onCerrar={() => setEntregaAbierta(false)}
+                onCambio={async () => {
+                  await fetchData({ showLoading: false, preserveError: true });
+                  await loadCuentaUnificada();
+                }}
                 onIrA={(donde) => {
                   setEntregaAbierta(false);
                   document.getElementById(donde === "presupuesto" ? "orden-presupuesto" : "orden-cuenta")?.scrollIntoView({ behavior: "smooth", block: "start" });

@@ -25,6 +25,7 @@ import {
 } from "@/lib/tecnicos/presupuesto/reglas";
 import { EntregaProductoDigital, type ProductoDigitalEntrega } from "./EntregaProductoDigital";
 import { EntregarLicencia } from "./EntregarLicencia";
+import { PedidoAparteDialog } from "./PedidoAparteDialog";
 import { PIEZAS_RETIRADAS } from "@/lib/garantias/reglas";
 import { fechaCorta, textoOrigen, textoPlazo, type OrigenGarantia } from "@/lib/garantias/plazos";
 import { AvisoNovedadVenta, cerrarNovedadesVendidas, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
@@ -615,6 +616,16 @@ function FormLinea({ ordenId, onCreada, onCancelar, inicial, propuestas, esAdmin
 
 // ─── Tarjeta ─────────────────────────────────────────────────────────────────
 
+/**
+ * Punto 10C-1: ¿se ofrece "Pedido aparte"? Repuesto bajo pedido aprobado, sin
+ * garantía, con su compra viva y sin entregar. El servidor lo vuelve a revisar
+ * (orden cerrada o con documento, etc.).
+ */
+function puedePedidoAparte(l: LineaPresupuesto, claveCompra: string | undefined): boolean {
+  return l.tipo === "Repuesto" && l.bajoPedido && (l.estado === "Aprobada" || l.estado === "Cargada")
+    && !l.garantia && !l.pedidoId && !!claveCompra && claveCompra !== "cancelado" && claveCompra !== "entregado";
+}
+
 export function PresupuestoCard({
   ordenId, onCargado, refrescar = 0, productosDigitales = [], esAdmin = false, onProductoDigitalCambiado,
 }: {
@@ -640,6 +651,8 @@ export function PresupuestoCard({
   const [puedeComprar, setPuedeComprar] = useState(false);
   const [reversas, setReversas] = useState<Record<string, ReversasLinea>>({});
   const [proveedores, setProveedores] = useState<Record<string, string>>({});
+  // Punto 10C-1: línea que se está pasando a pedido aparte.
+  const [aparte, setAparte] = useState<string | null>(null);
   const [revirtiendo, setRevirtiendo] = useState<{ lineaId: string; accion: AccionReversa | AccionRetiro; motivo: string } | null>(null);
   // Garantía SUPER GEEK (punto 20): motivo que se está escribiendo para una línea.
   const [garantiaEdit, setGarantiaEdit] = useState<{ lineaId: string; motivo: string; origen: string } | null>(null);
@@ -856,6 +869,15 @@ export function PresupuestoCard({
             </div>
           ))}
         </div>
+      )}
+
+      {aparte && (
+        <PedidoAparteDialog
+          ordenId={ordenId}
+          lineaId={aparte}
+          onCerrar={() => setAparte(null)}
+          onListo={async () => { await recargar(); await onCargado(); }}
+        />
       )}
 
       {agregando && (
@@ -1100,6 +1122,11 @@ export function PresupuestoCard({
                       {(() => { const e = estadoVisible(l); return <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${TONO_BADGE[e.tono]}`}>{e.texto}</span>; })()}
                     </td>
                     <td className="whitespace-nowrap px-2 py-1.5 text-right align-top text-[11px]">
+                      {puedePedidoAparte(l, compras[l.id]?.clave) && (
+                        <button type="button" disabled={ocupado === l.id} onClick={() => setAparte(l.id)}
+                          title="El repuesto sale a un pedido propio con su dinero; la orden se entrega sin esperarlo"
+                          className="mr-2 text-[var(--sg-text-muted)] hover:text-[var(--sg-lime)]">Pedido aparte</button>
+                      )}
                       {l.operacionId && pedidos[l.operacionId] && fasePedido(pedidos[l.operacionId]) === "vencido" && (l.estado === "Propuesta" || l.estado === "Aprobada") && (
                         <button type="button" disabled={ocupado === l.id} onClick={() => accionLinea(l, "PATCH", { accion: "reactivar" })} className="mr-2 text-[var(--sg-lime)] hover:underline">Reactivar cotización</button>
                       )}
