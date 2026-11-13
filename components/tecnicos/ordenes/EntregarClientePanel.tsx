@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { MOTIVOS_SIN_COBRO, type EvaluacionEntrega, type DocumentoDeEntrega } from "@/lib/entrega/reglas";
+import { PedidoAparteDialog } from "./PedidoAparteDialog";
 
 // Entregar al cliente (auditoría ops, punto 6). La revisión la hace el
 // servidor (GET) y la vuelve a hacer al entregar (POST): esta pantalla solo
@@ -23,6 +24,7 @@ export type ResultadoEntrega = {
 };
 
 const INPUT = "w-full rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-2.5 py-1.5 text-sm text-[#F5F5F5] placeholder:text-[#A7A7A7]/50 focus:border-[#D7FF4F]/70 focus:outline-none";
+const SEG = "px-2.5 py-0.5 text-[#CFCFCB] transition hover:bg-[#D7FF4F]/10";
 const ACCION = "shrink-0 rounded-full border border-[#D7FF4F]/40 px-2.5 py-0.5 text-[11px] font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F]/10";
 
 export function EntregarClientePanel({
@@ -31,6 +33,7 @@ export function EntregarClientePanel({
   onEntregada,
   onRegistrarPago,
   onIrA,
+  onCambio,
 }: {
   ordenId: string;
   onCerrar: () => void;
@@ -39,6 +42,8 @@ export function EntregarClientePanel({
   onRegistrarPago: () => void;
   /** Lleva a una tarjeta de la orden ("presupuesto" o "cuenta"). */
   onIrA: (donde: "presupuesto" | "cuenta") => void;
+  /** Punto 10C-1: algo cambió en la orden (p. ej. una línea pasó a pedido aparte). */
+  onCambio?: () => void | Promise<void>;
 }) {
   const [rev, setRev] = useState<Revision | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -49,6 +54,7 @@ export function EntregarClientePanel({
   const [estado, setEstado] = useState("");
   const [motivo, setMotivo] = useState("");
   const [detalle, setDetalle] = useState("");
+  const [aparte, setAparte] = useState<string | null>(null);
 
   const revisar = useCallback(async () => {
     setCargando(true);
@@ -132,9 +138,13 @@ export function EntregarClientePanel({
                     {rev.pendientes.map((p) => (
                       <li key={p.clave} className="flex items-center gap-2 text-xs">
                         <span className="min-w-0 flex-1 truncate text-[#CFCFCB]">{p.texto} <span className="text-[#A7A7A7]">· {p.detalle}</span></span>
-                        {p.tipo === "linea"
-                          ? <button type="button" className={ACCION} onClick={() => onIrA("presupuesto")}>Cancelar en Presupuesto</button>
-                          : <Link className={ACCION} href={`/operaciones/${encodeURIComponent(p.refId)}`}>Abrir pedido</Link>}
+                        {p.tipo === "linea" ? (
+                          <span role="group" aria-label={`Qué hacer con ${p.texto}`} className="inline-flex shrink-0 overflow-hidden rounded-full border border-[#3A3A36] text-[11px] font-semibold">
+                            <button type="button" className={SEG} onClick={onCerrar} title="Se entrega cuando llegue">Esperar</button>
+                            <button type="button" className={`${SEG} border-l border-[#3A3A36]`} onClick={() => onIrA("presupuesto")}>Cancelar</button>
+                            <button type="button" className={`${SEG} border-l border-[#3A3A36] text-[#D7FF4F]`} onClick={() => setAparte(p.refId)}>Pedido aparte</button>
+                          </span>
+                        ) : <Link className={ACCION} href={`/operaciones/${encodeURIComponent(p.refId)}`}>Abrir pedido</Link>}
                       </li>
                     ))}
                   </ul>
@@ -178,6 +188,15 @@ export function EntregarClientePanel({
         )}
 
         {error && <p className="text-xs text-[#FF6B6B] animate-[sg-sacudir_300ms_ease-out]">{error}</p>}
+
+        {aparte && (
+          <PedidoAparteDialog
+            ordenId={ordenId}
+            lineaId={aparte}
+            onCerrar={() => setAparte(null)}
+            onListo={async () => { await onCambio?.(); await revisar(); }}
+          />
+        )}
 
         <div className="flex items-center justify-end gap-2 pt-1">
           <button type="button" onClick={onCerrar} className="rounded-lg px-3 py-1.5 text-sm text-[#A7A7A7] hover:text-white">Cerrar</button>

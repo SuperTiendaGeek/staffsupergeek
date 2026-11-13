@@ -139,6 +139,19 @@ export const METODO_DEVOLUCION = "Devolución";
  * es compensación de deudas (15). Lo escribe solo lib/parte-pago/servidor.ts.
  */
 export const METODO_PARTE_DE_PAGO = "Parte de pago";
+/**
+ * Punto 10C-1: el dinero que sale de una orden hacia su "pedido aparte"
+ * (abono negativo en la orden). No es un método de cobro: no entra ni sale
+ * dinero. En el pedido el dinero entra como copia del pago de origen (mismo
+ * método y referencia, para que la factura diga la forma de pago real) con
+ * la observación "Traspaso desde…": ninguno de los dos se asienta en Finanzas.
+ */
+export const METODO_TRASPASO = "Traspaso";
+
+/** ¿El abono es parte de un traspaso orden → pedido? (no es dinero nuevo) */
+export function esAbonoDeTraspaso(metodo: string | null | undefined, observacion: string | null | undefined): boolean {
+  return metodo === METODO_TRASPASO || /^Traspaso (desde|al) /.test((observacion ?? "").trim());
+}
 
 /**
  * Cómo se lee un pago de una cuenta. Los del saldo a favor (punto 13B) dicen
@@ -148,6 +161,7 @@ export const METODO_PARTE_DE_PAGO = "Parte de pago";
 export function etiquetaAbono(metodo: string | null, monto: number): string {
   if (metodo === METODO_SALDO_A_FAVOR) return monto < 0 ? "Pasado a saldo a favor" : "Pagado con saldo a favor";
   if (metodo === METODO_DEVOLUCION) return "Devuelto al cliente";
+  if (metodo === METODO_TRASPASO) return monto < 0 ? "Pasado a pedido aparte" : "Traspaso";
   return metodo || "Sin método";
 }
 

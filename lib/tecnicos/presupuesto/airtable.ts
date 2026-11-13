@@ -336,6 +336,9 @@ export type CambiosLinea = Partial<{
   cargoServicioId: string | null; cargoProductoDigitalId: string | null;
   /** string → vincula; null → suelta la operación (recotizar/cancelar). */
   operacionId: string | null;
+  /** Punto 10C-1 ("Pasar a pedido aparte"): a quién pertenece la línea. null la suelta. */
+  ordenId: string | null;
+  pedidoId: string | null;
   /** Se AGREGA al historial existente (nunca se reescribe). */
   agregarHistorial: { anterior: string; entrada: string };
   prioridad: Prioridad;
@@ -380,6 +383,8 @@ export async function actualizarLinea(lineaId: string, c: CambiosLinea): Promise
   if (c.cargoServicioId !== undefined)        fields[F.cargoServicio] = c.cargoServicioId ? [c.cargoServicioId] : [];
   if (c.cargoProductoDigitalId !== undefined) fields[F.cargoDigital] = c.cargoProductoDigitalId ? [c.cargoProductoDigitalId] : [];
   if (c.operacionId !== undefined)    fields[F.operacion] = c.operacionId ? [c.operacionId] : [];
+  if (c.ordenId !== undefined)        fields[F.orden] = c.ordenId ? [c.ordenId] : [];
+  if (c.pedidoId !== undefined)       fields[F.pedido] = c.pedidoId ? [c.pedidoId] : [];
   if (c.prioridad !== undefined)      fields[F.prioridad] = c.prioridad;
   if (c.notaCliente !== undefined)    fields[F.notaCliente] = c.notaCliente.trim();
   if (c.grupoAlternativas !== undefined) fields[F.grupo] = c.grupoAlternativas;

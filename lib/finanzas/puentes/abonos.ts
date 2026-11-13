@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { CategoriaMovimiento, EstadoMovimiento, MetodoMovimiento } from "@/types/finanzas";
-import { definicionMetodo } from "@/lib/cobros/metodos";
+import { definicionMetodo, esAbonoDeTraspaso } from "@/lib/cobros/metodos";
 import {
   airtableRequest,
   cleanString,
@@ -140,7 +140,7 @@ export async function crearMovimientoParaAbono(input: {
   // escribe lib/saldo-favor/servidor.ts. Aquí se crearía un "Anticipo
   // Cliente" con dinero que no entró: nunca.
   const metodo = cleanString(input.metodoPago);
-  if (metodo === "Saldo a favor" || metodo === "Devolución" || metodo === "Parte de pago" || !(input.monto > 0)) {
+  if (metodo === "Saldo a favor" || metodo === "Devolución" || metodo === "Parte de pago" || metodo === "Traspaso" || !(input.monto > 0)) {
     return { ok: false, error: "Este abono no es dinero nuevo: su asiento lo registra el saldo a favor." };
   }
   try {
@@ -152,6 +152,11 @@ export async function crearMovimientoParaAbono(input: {
     if (!abonoActual) return { ok: false, error: `Abono ${input.abonoId} no encontrado.` };
     const movimientoExistente = firstLinkedId(abonoActual.fields[ABONOS_FIELDS.movimientoFinanciero]);
     if (movimientoExistente) return { ok: true, movimientoId: movimientoExistente };
+    // Punto 10C-1: el dinero que pasó de una orden a su pedido aparte ya se
+    // asentó cuando entró la primera vez. Asentarlo otra vez lo duplicaría.
+    if (esAbonoDeTraspaso(metodo, firstString(abonoActual.fields[ABONOS_FIELDS.observacion]))) {
+      return { ok: false, error: "Este abono es un traspaso entre cuentas: el dinero ya se registró cuando entró." };
+    }
 
     const operacionId = firstLinkedId(abonoActual.fields[ABONOS_FIELDS.aplicadoAOperacion]);
     const ordenId = firstLinkedId(abonoActual.fields[ABONOS_FIELDS.aplicadoAOrden]);
