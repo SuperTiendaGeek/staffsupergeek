@@ -230,6 +230,11 @@ export async function devolverSobranteDeCuenta(input: {
   origen: OrigenCuenta;
   session: StaffSession;
   solicitud: SolicitudReembolso;
+  /**
+   * Punto 10C-3: al CANCELAR un pedido, Staff también devuelve (dueño,
+   * 13-nov). El permiso lo revisa la cancelación antes de llamar aquí.
+   */
+  permitirNoAdministrador?: boolean;
 }): Promise<ResultadoSaldo<{ monto: number }>> {
   return withLock(`saldo-cuenta:${input.origen.recordId}`, async () => {
     let d: DatosCuenta;
@@ -239,7 +244,7 @@ export async function devolverSobranteDeCuenta(input: {
     }
     const v = validarDevolverSobrante({
       aFavorCuenta: d.cuenta.saldo < 0 ? -d.cuenta.saldo : 0,
-      esAdministrador: isAdministratorRole(input.session.user.rol),
+      esAdministrador: isAdministratorRole(input.session.user.rol) || input.permitirNoAdministrador === true,
     });
     if (!v.ok) return FALLA(v.motivo, isAdministratorRole(input.session.user.rol) ? 400 : 403);
 

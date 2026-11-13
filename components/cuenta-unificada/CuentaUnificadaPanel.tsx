@@ -182,7 +182,7 @@ export function CuentaUnificadaPanel({
         )}
         {cuenta.repuestosHistoricosCuentanParaTotal &&
           cuenta.repuestosHistoricos.map((r) => filaCargo(r.id, r.nombre, "Histórico", r.subtotal))}
-        {cuenta.servicios.map((s) => filaCargo(s.id, s.nombre, s.garantia ? "Garantía SUPER GEEK" : "Servicio", s.costo))}
+        {cuenta.servicios.map((s) => filaCargo(s.id, s.nombre, s.garantia ? "Garantía SUPER GEEK" : s.sinDocumento ? "Sin factura" : s.id.startsWith("recargo:") ? "Cargo del pedido" : "Servicio", s.costo))}
         {(cuenta.aprobadoSinArticulo ?? []).map((p) => (
           <LedgerRow
             key={p.id}

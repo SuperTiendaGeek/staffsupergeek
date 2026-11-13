@@ -14,6 +14,7 @@ import {
   VIGENCIA_DIAS_MAX, VIGENCIA_DIAS_MIN,
 } from "@/lib/pedidos-especiales/reglas";
 import { construirUrlWhatsApp } from "@/lib/operaciones/whatsappCotizacion";
+import { CancelarPedidoModal } from "./CancelarPedidoModal";
 
 type Linea = {
   id: string; descripcion: string; cantidad: number; precioUnitario: number; estado: string;
@@ -26,7 +27,7 @@ type Vista = {
   aceptadoEn: string; aceptadoPor: string; aceptadoVia: string;
   lineas: Linea[]; solicitudes: Solicitud[];
   anticipo: { total: number; anticipo: number; pagado: number; faltaAnticipo: number; faltaTotal: number; cubierto: boolean };
-  cancelacion: { opciones: string[]; piezaQuedaEnTienda: boolean; texto: string };
+  confirmadoConProveedor: boolean;
   /** Página del pedido para el cliente (10A-3); "" hasta el primer envío. */
   enlace: string;
   /** Lo que el cliente eligió en el enlace y aún no paga. */
@@ -366,8 +367,8 @@ export function CotizacionPedido({
         />
       )}
       {cancelando && (
-        <CancelarModal texto={vista.cancelacion.texto} pagado={vista.anticipo.pagado} ocupado={ocupado} onClose={() => setCancelando(false)}
-          onCancelar={async (motivo) => { if (await accion({ accion: "cancelar", motivo })) setCancelando(false); }} />
+        <CancelarPedidoModal pedidoId={operacionId} onCerrar={() => setCancelando(false)}
+          onCancelado={async (aviso) => { setCancelando(false); await cargar(); if (aviso) setError(aviso); onCambio(); }} />
       )}
     </section>
     </>
@@ -505,23 +506,6 @@ function AceptarModal({ lineas, preseleccion, pagado, ocupado, onClose, onAcepta
         <button type="button" disabled={ocupado || elegidas.length === 0} onClick={() => void onAceptar(elegidas)} className={`${btn} border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E]`}>
           {ocupado ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Aceptar{r.faltaAnticipo > 0 ? " y cobrar" : ""}
         </button>
-      </div>
-    </Modal>
-  );
-}
-
-function CancelarModal({ texto, pagado, ocupado, onClose, onCancelar }: {
-  texto: string; pagado: number; ocupado: boolean; onClose: () => void; onCancelar: (motivo: string) => Promise<void>;
-}) {
-  const [motivo, setMotivo] = useState("");
-  return (
-    <Modal titulo="Cancelar pedido" onClose={onClose}>
-      <p className="mb-2 text-xs text-[#C0C0BC]">{texto}</p>
-      {pagado > 0 && <p className="mb-2 text-xs text-[#FFB547]">Primero resuelve lo pagado en “Cuenta del cliente” (saldo a favor o devolver).</p>}
-      <input className={input} placeholder="Motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
-      <div className="mt-3 flex justify-end gap-2">
-        <button type="button" onClick={onClose} className={`${btn} border-[#3A3A36] text-[#A0A09A]`}>Volver</button>
-        <button type="button" disabled={ocupado || !motivo.trim()} onClick={() => void onCancelar(motivo)} className={`${btn} border-[#FF5A4F]/60 text-[#FF5A4F] hover:bg-[#FF5A4F]/10`}>Cancelar pedido</button>
       </div>
     </Modal>
   );

@@ -105,7 +105,10 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
   // documento (decisión del dueño, 2-nov: "el documento lleva solo lo
   // pagado"). La pieza sale del inventario al entregar la orden, como
   // "Salida por garantía" (lib/garantias/servidor.ts), nunca como venta.
-  const cuenta = sinGarantia(cuentaCompleta);
+  const cuentaSinGarantia = sinGarantia(cuentaCompleta);
+  // Punto 10C-3: los gastos de cancelación de un pedido suman a la cuenta pero
+  // no van en un documento (decisión del dueño, 12-nov).
+  const cuenta = { ...cuentaSinGarantia, servicios: cuentaSinGarantia.servicios.filter((s) => !s.sinDocumento) };
 
   const [ordenRecord, operacionRecord] = await Promise.all([
     cuenta.ordenId ? fetchOrden(cuenta.ordenId) : Promise.resolve(null),

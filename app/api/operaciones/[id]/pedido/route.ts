@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { requireOperacionesSession } from "@/lib/operaciones/auth";
 import {
-  aceptarPedido, agregarAlternativa, cancelarPedido, editarAlternativa, enviarCotizacion, quitarAlternativa, vistaPedido,
+  aceptarPedido, agregarAlternativa, editarAlternativa, enviarCotizacion, quitarAlternativa, vistaPedido,
   type AlternativaInput,
 } from "@/lib/pedidos-especiales/servidor";
 import { asegurarEnlacePedido, eleccionDelCliente, tokenDelPedido, urlEnlacePedido } from "@/lib/pedidos-especiales/enlace";
@@ -11,7 +11,7 @@ import { accionSeguimiento, seguimientoDelPedido, type AccionSeguimiento } from 
 // Punto 10A-2: cotización y aceptación de un PEDIDO ESPECIAL.
 //   GET  → líneas, vigencia, anticipo, compras, plan de cancelación, enlace del
 //          cliente y su elección (10A-3).
-//   POST { accion: "agregar" | "editar" | "quitar" | "enviar" | "aceptar" | "cancelar" | "seguimiento", ... }
+//   POST { accion: "agregar" | "editar" | "quitar" | "enviar" | "aceptar" | "seguimiento" (cancelar: /cancelar), ... }
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -103,9 +103,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         const elegidas = Array.isArray(body.elegidas) ? body.elegidas.filter((x): x is string => typeof x === "string") : [];
         return NextResponse.json({ success: true, data: await aceptarPedido({ pedidoId: id, elegidas, usuario, via: "En tienda" }) });
       }
-      case "cancelar":
-        await cancelarPedido(id, str(body.motivo), usuario);
-        return NextResponse.json({ success: true });
       case "seguimiento": {
         // Punto 10B: Siguiente / deshacer / aviso / llegada estimada.
         const tipo = str(body.tipo);
