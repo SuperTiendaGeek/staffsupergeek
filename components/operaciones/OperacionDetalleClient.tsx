@@ -14,6 +14,7 @@ import { VincularOrdenModal } from "./VincularOrdenModal";
 import { OpcionModal } from "./OpcionModal";
 import { CotizacionPedido } from "./CotizacionPedido";
 import { esPedidoEspecial, estadoComercial } from "@/lib/pedidos-especiales/reglas";
+import { EntregarPedidoPanel } from "./EntregarPedidoPanel";
 import {
   construirMensajeOpcionCotizada,
   construirMensajeOpcionesCotizadas,
@@ -573,6 +574,8 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
   // Punto 10A-2: pedido especial (cotización en el motor del Presupuesto).
   const pedidoEspecial = esPedidoEspecial(operacion.estado, operacion.pedidoEspecial?.lineaIds ?? []);
   const [montoAbono, setMontoAbono] = useState<number | null>(null);
+  // Punto 10C-2: "Entregar al cliente" del pedido especial (maqueta 4b).
+  const [entregaAbierta, setEntregaAbierta] = useState(false);
   // Un abono puede confirmar el pedido especial (10A-3): la cotización se relee.
   const [pagosVersion, setPagosVersion] = useState(0);
   // Fase 2: situación de la compra (la solicitud viva más reciente del pedido).
@@ -746,7 +749,21 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
           <h2 className="font-mono text-base font-bold text-[#F0F0EC]">{operacion.codigo}</h2>
           <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold" style={{ borderColor: `${estadoColor}44`, background: `${estadoColor}11`, color: estadoColor }}>{ec}</span>
           <span className="min-w-0 truncate text-sm text-[#A0A09A]">{operacion.productoSolicitado}</span>
+          {ec === "Aceptado" && (
+            <button type="button" onClick={() => setEntregaAbierta(true)}
+              className="ml-auto rounded-lg bg-[#D7FF4F] px-3 py-1.5 text-xs font-bold text-[#1E1F1C] transition hover:brightness-95">
+              Entregar al cliente
+            </button>
+          )}
         </div>
+        {entregaAbierta && (
+          <EntregarPedidoPanel
+            pedidoId={operacion.id}
+            onCerrar={() => setEntregaAbierta(false)}
+            onEntregado={() => { setEntregaAbierta(false); setPagosVersion((v) => v + 1); router.refresh(); }}
+            onRegistrarPago={(monto) => { setEntregaAbierta(false); setMontoAbono(monto); setAbonoModalOpen(true); }}
+          />
+        )}
         {iPaso >= 0 && (
           <ol aria-label="Estado del pedido" className="grid grid-cols-4 gap-1">
             {pasos.map((p, i) => (
