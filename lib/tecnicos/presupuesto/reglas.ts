@@ -62,6 +62,8 @@ export type LineaPresupuesto = {
   costoProveedor:     number | null;
   tiempoEstimado:     string;
   categoria:          string;
+  /** Fotos de la opción (pedido especial, hasta 6). Vacío en las demás líneas. */
+  fotos?:             import("@/lib/pedidos-especiales/fotos").FotoOpcion[];
   /** La operación comercial (flujo anterior a la Fase 2; solo líneas viejas). */
   operacionId:        string | null;
   /** Punto 10 (10-nov-2026): la línea es una alternativa de la cotización de

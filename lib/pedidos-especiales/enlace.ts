@@ -89,6 +89,7 @@ const aLineaCliente = (l: LineaPresupuesto): LineaCliente => ({
   grupoAlternativas: l.grupoAlternativas,
   tiempoEstimado: l.tiempoEstimado,
   notaCliente: l.notaCliente,
+  fotos: l.fotos,
 });
 
 type Contexto = {

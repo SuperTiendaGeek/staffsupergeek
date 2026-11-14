@@ -7,6 +7,7 @@ import "server-only";
 // se leen del inverso "Presupuesto por Orden" que trae la orden, y se buscan
 // por RECORD_ID().
 
+import { fotosDeAdjuntos } from "@/lib/pedidos-especiales/fotos";
 import { loadAirtableEnv } from "../config/airtable";
 import { normalizarGarantia, normalizarPiezaRetirada, type EstadoGarantia, type PiezaRetirada } from "@/lib/garantias/reglas";
 import { normalizarPrioridad, type EstadoLinea, type InfoPedido, type LineaPresupuesto, type NuevaLineaInput, type Prioridad, type TipoLinea } from "./reglas";
@@ -41,6 +42,7 @@ const F = {
   urlProveedor: "URL proveedor",
   costoProveedor: "Costo proveedor",
   tiempo:       "Tiempo estimado",
+  fotos:        "Fotos",
   categoria:    "Categoría",
   historial:    "Historial",
   prioridad:    "Prioridad",
@@ -122,6 +124,7 @@ function mapLinea(r: Registro): LineaPresupuesto {
     urlProveedor: texto(f[F.urlProveedor]),
     costoProveedor: f[F.costoProveedor] === undefined || f[F.costoProveedor] === null ? null : num(f[F.costoProveedor]),
     tiempoEstimado: texto(f[F.tiempo]),
+    fotos: fotosDeAdjuntos(f[F.fotos]),
     categoria: texto(f[F.categoria]),
     historial: texto(f[F.historial]),
     aprobadoPor: texto(f[F.aprobadoPor]),

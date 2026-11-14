@@ -15,6 +15,8 @@ import { mensajeComprobante, mensajeConsulta } from "@/lib/pedidos-especiales/en
 import { anticipoRequerido, vigencia } from "@/lib/pedidos-especiales/reglas";
 import { CONDICIONES_COMPRA } from "@/lib/pedidos-especiales/cancelacion";
 import { TIENDA, whatsappTienda } from "@/lib/tienda/datos";
+import { ChevronRight } from "lucide-react";
+import { DetalleOpcion, MiniaturasOpcion } from "./GaleriaOpcion";
 
 type Vista = VistaCliente & { producto: string; pagoTarjeta: boolean; seguimiento: SeguimientoCliente | null; retiro?: { aviso: string; detalle: string } | null };
 
@@ -31,6 +33,8 @@ export function MiPedidoClient({ token }: { token: string }) {
   const [copiado, setCopiado] = useState(false);
   // Punto 10C-3a: las condiciones se leen en una ventana flotante (dueño, 13-nov).
   const [condiciones, setCondiciones] = useState(false);
+  // Sub-pantalla de una opción (fotos + información), 14-nov.
+  const [detalle, setDetalle] = useState<{ id: string; indice: number } | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -128,17 +132,25 @@ export function MiPedidoClient({ token }: { token: string }) {
           )}
 
           {v.opciones.length > 0 && (
-            <fieldset className="flex flex-col gap-2">
+            <fieldset className="flex flex-col gap-2" role="radiogroup">
               <legend className="mb-2 text-xs font-semibold text-[#B5B5AE]">{v.opciones.length > 1 ? "Elige una" : "Tu producto"}</legend>
               {v.opciones.map((o) => {
                 const on = o.id === opcion;
                 return (
-                  <button key={o.id} type="button" onClick={() => { setOpcion(o.id); setAviso(""); }} aria-pressed={on}
-                    className={`flex w-full items-center gap-3 rounded-2xl border-[1.5px] p-3.5 text-left transition-colors duration-200 ${on ? "border-[#D7FF4F] bg-[#22241C]" : "border-[#3A3A36] bg-[#1E1F1C]"}`}>
+                  // Tarjeta elegible (no es <button>: lleva botones adentro — el título y las miniaturas abren el detalle).
+                  <div key={o.id} role="radio" aria-checked={on} tabIndex={0}
+                    onClick={() => { setOpcion(o.id); setAviso(""); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpcion(o.id); setAviso(""); } }}
+                    className={`flex w-full cursor-pointer items-center gap-3 rounded-2xl border-[1.5px] p-3.5 text-left transition-colors duration-200 ${on ? "border-[#D7FF4F] bg-[#22241C]" : "border-[#3A3A36] bg-[#1E1F1C]"}`}>
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="text-[15px] font-semibold text-[#F0F0EC]">{o.descripcion}{o.cantidad > 1 ? ` ×${o.cantidad}` : ""}</span>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setDetalle({ id: o.id, indice: 0 }); }}
+                        className="group flex items-start gap-1 text-left text-[15px] font-semibold text-[#F0F0EC]">
+                        <span className="underline decoration-[#5A5A54] underline-offset-2 group-hover:decoration-[#D7FF4F]">{o.descripcion}{o.cantidad > 1 ? ` ×${o.cantidad}` : ""}</span>
+                        <ChevronRight size={16} className="mt-0.5 shrink-0 text-[#B5B5AE] transition-transform group-hover:translate-x-0.5" aria-hidden />
+                      </button>
                       {o.tiempo && <span className="text-xs text-[#B5B5AE]">Llega en {o.tiempo}</span>}
                       {o.nota && <span className="text-xs text-[#B5B5AE]">{o.nota}</span>}
+                      <MiniaturasOpcion fotos={o.fotos} onAbrir={(i) => setDetalle({ id: o.id, indice: i })} />
                     </span>
                     <span className="flex flex-col items-end gap-2">
                       <span className="text-[15px] font-bold tabular-nums text-[#F0F0EC]">{usd(o.subtotal)}</span>
@@ -146,7 +158,7 @@ export function MiPedidoClient({ token }: { token: string }) {
                         {on && <span className="h-2.5 w-2.5 rounded-full bg-[#D7FF4F]" />}
                       </span>
                     </span>
-                  </button>
+                  </div>
                 );
               })}
             </fieldset>
@@ -283,6 +295,16 @@ export function MiPedidoClient({ token }: { token: string }) {
         </button>
       )}
       {condiciones && <CondicionesModal onCerrar={() => setCondiciones(false)} />}
+      {detalle && (() => {
+        const o = v.opciones.find((x) => x.id === detalle.id);
+        if (!o) return null;
+        return (
+          <DetalleOpcion key={o.id} opcion={o} indiceInicial={detalle.indice} elegida={o.id === opcion}
+            puedeElegir={enCotizacion && !vencida}
+            onElegir={() => { setOpcion(o.id); setAviso(""); setDetalle(null); }}
+            onCerrar={() => setDetalle(null)} />
+        );
+      })()}
 
       <footer className="flex flex-col gap-1 border-t border-[#2C2D29] pt-3 text-xs text-[#B5B5AE]">
         <span className="font-semibold text-[#F0F0EC]">{TIENDA.nombre}</span>

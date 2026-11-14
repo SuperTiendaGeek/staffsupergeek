@@ -21,6 +21,7 @@ import type { LineaPresupuesto } from "@/lib/tecnicos/presupuesto/reglas";
 import { asegurarSolicitudDeLinea, cancelarSolicitudDeLinea, solicitudesDeOperacion, type SolicitudConSituacion } from "@/lib/compras/servidor";
 import { estadosDeCuentaDeOperaciones } from "@/lib/estado-cuenta/airtable";
 import { entradaHistorial } from "@/lib/compras/reglas";
+import { errorDeFoto, idsSinFoto, nombreSeguro } from "./fotos";
 import {
   errorAceptar, estadoComercial, faltanDatosParaEnviar, resumenAnticipo, totalElegido, venceCotizacion, vigencia,
   type EstadoPedido, type ResumenAnticipo, type Vigencia,
@@ -194,6 +195,58 @@ export async function editarAlternativa(
       ...(c.tiempoEstimado !== undefined ? { tiempoEstimado: c.tiempoEstimado } : {}),
       ...(cambios.length ? { agregarHistorial: { anterior: linea.historial, entrada: entradaHistorial(`Editada: ${cambios.join(", ")}.`, usuario) } } : {}),
     });
+  });
+}
+
+const T_PRESUPUESTO = "Presupuesto por Orden";
+const CAMPO_FOTOS = "Fotos";
+
+async function lineaEditable(pedidoId: string, lineaId: string): Promise<LineaPresupuesto> {
+  exigirCotizable(await estadoDe(pedidoId));
+  const linea = (await listarLineasDePedido(pedidoId)).find((l) => l.id === lineaId);
+  if (!linea) throw new Error("La opción no es de este pedido.");
+  if (linea.estado !== "Propuesta") throw new Error("Solo se cambian las fotos de una opción propuesta.");
+  return linea;
+}
+
+/** Sube UNA foto a la opción (el navegador ya la achicó). Máximo 6 por opción. */
+export async function subirFotoOpcion(
+  pedidoId: string, lineaId: string, foto: { tipo: string; nombre: string; base64: string },
+): Promise<{ fotos: NonNullable<LineaPresupuesto["fotos"]> }> {
+  return withLock(`pedido:${pedidoId}`, async () => {
+    const linea = await lineaEditable(pedidoId, lineaId);
+    const bytes = Math.floor((foto.base64.length * 3) / 4);
+    const err = errorDeFoto({ tipo: foto.tipo, bytes, yaHay: linea.fotos?.length ?? 0 });
+    if (err) throw new Error(err);
+    const token = process.env.AIRTABLE_API_KEY?.trim();
+    const baseId = process.env.AIRTABLE_BASE_ID?.trim();
+    if (!token || !baseId) throw new Error("Credenciales Airtable no configuradas.");
+    const res = await fetch(
+      `https://content.airtable.com/v0/${encodeURIComponent(baseId)}/${encodeURIComponent(lineaId)}/${encodeURIComponent(CAMPO_FOTOS)}/uploadAttachment`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ contentType: foto.tipo, filename: nombreSeguro(foto.nombre, foto.tipo), file: foto.base64 }),
+      },
+    );
+    if (!res.ok) throw new Error(`No se pudo subir la foto (${res.status}).`);
+    const despues = (await listarLineasDePedido(pedidoId)).find((l) => l.id === lineaId);
+    return { fotos: despues?.fotos ?? [] };
+  });
+}
+
+/** Quita una foto de la opción (las demás quedan). */
+export async function quitarFotoOpcion(
+  pedidoId: string, lineaId: string, fotoId: string,
+): Promise<{ fotos: NonNullable<LineaPresupuesto["fotos"]> }> {
+  return withLock(`pedido:${pedidoId}`, async () => {
+    const linea = await lineaEditable(pedidoId, lineaId);
+    const quedan = idsSinFoto(linea.fotos ?? [], fotoId);
+    await airtableMutation(tableUrl(T_PRESUPUESTO), {
+      method: "PATCH",
+      body: JSON.stringify({ records: [{ id: lineaId, fields: { [CAMPO_FOTOS]: quedan.map((id) => ({ id })) } }] }),
+    });
+    return { fotos: (linea.fotos ?? []).filter((f) => quedan.includes(f.id)) };
   });
 }
 

@@ -95,5 +95,13 @@ assert(construirVistaCliente({ ...vbase, estado: "Requerimiento" }).fase === "pr
 assert(mensajeConsulta({ nombre: "Camila", codigo: "OP-2026-000142", producto: "Monitor LG" }) === "Hola, soy Camila. Mi pedido es el N° OP-2026-000142 (Monitor LG). Tengo una consulta: ", "consulta prellenada");
 assert(mensajeComprobante({ nombre: "Camila", codigo: "OP-2026-000142", monto: 220 }) === "Hola, soy Camila. Te envío el comprobante de pago de mi pedido N° OP-2026-000142 por $220.", "comprobante prellenado");
 
+// 8. Fotos de la opción (14-nov): viajan a la vista del cliente y NO invalidan su elección
+const FOTO = { id: "att1", url: "https://x/1.jpg", miniatura: "https://x/1s.jpg", grande: "https://x/1l.jpg", nombre: "tapa.jpg" };
+const LGfoto: LineaCliente = { ...LG, fotos: [FOTO] };
+assert(huellaLineaCliente(LGfoto) === huellaLineaCliente(LG), "agregar fotos no cambia la huella (la elección sigue valiendo)");
+const vf = construirVistaCliente({ ...vbase, lineas: [LGfoto, DELL, CABLE] });
+assert(vf.opciones.find((o) => o.id === "recLG")?.fotos.length === 1, "la opción con fotos las lleva");
+assert(vf.opciones.find((o) => o.id === "recDELL")?.fotos.length === 0, "la opción sin fotos trae lista vacía");
+
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo OK");
