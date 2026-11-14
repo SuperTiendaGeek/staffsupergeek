@@ -16,6 +16,7 @@
 //   el sistema ve la elección + el pago → el pedido pasa a "Aceptado".
 
 import { anticipoRequerido, estadoComercial, textoFechaHora, vigencia, type EstadoPedido } from "./reglas";
+import type { FotoOpcion } from "./fotos";
 
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const usd = (n: number) => `$${r2(n).toFixed(2).replace(/\.00$/, "")}`;
@@ -32,6 +33,7 @@ export type LineaCliente = {
   grupoAlternativas?: string;
   tiempoEstimado?: string;
   notaCliente?: string;
+  fotos?: FotoOpcion[];
 };
 
 /**
@@ -193,13 +195,14 @@ export type OpcionCliente = {
   subtotal: number;
   tiempo: string;
   nota: string;
+  fotos: FotoOpcion[];
   /** Con lo que se suma incluido. */
   total: number;
   paraConfirmar: number;
   alRetirar: number;
 };
 
-export type ExtraCliente = { id: string; descripcion: string; cantidad: number; subtotal: number; nota: string };
+export type ExtraCliente = { id: string; descripcion: string; cantidad: number; subtotal: number; nota: string; fotos?: FotoOpcion[] };
 
 export type VistaCliente = {
   fase: FaseCliente;
@@ -233,14 +236,14 @@ export function construirVistaCliente(input: {
   const alternativas = vivas.filter(esAlternativa);
   const extrasVivos = vivas.filter((l) => !esAlternativa(l));
   const sumaExtras = r2(extrasVivos.reduce((s, l) => s + subtotal(l), 0));
-  const aItem = (l: LineaCliente): ExtraCliente => ({ id: l.id, descripcion: l.descripcion, cantidad: l.cantidad || 1, subtotal: subtotal(l), nota: (l.notaCliente ?? "").trim() });
+  const aItem = (l: LineaCliente): ExtraCliente => ({ id: l.id, descripcion: l.descripcion, cantidad: l.cantidad || 1, subtotal: subtotal(l), nota: (l.notaCliente ?? "").trim(), ...(l.fotos?.length ? { fotos: l.fotos } : {}) });
 
   const opciones: OpcionCliente[] = alternativas.map((l, i) => {
     const total = r2(subtotal(l) + sumaExtras);
     const paraConfirmar = anticipoRequerido(total);
     return {
       id: l.id, n: i + 1, descripcion: l.descripcion, cantidad: l.cantidad || 1, subtotal: subtotal(l),
-      tiempo: (l.tiempoEstimado ?? "").trim(), nota: (l.notaCliente ?? "").trim(),
+      tiempo: (l.tiempoEstimado ?? "").trim(), nota: (l.notaCliente ?? "").trim(), fotos: l.fotos ?? [],
       total, paraConfirmar, alRetirar: r2(total - paraConfirmar),
     };
   });

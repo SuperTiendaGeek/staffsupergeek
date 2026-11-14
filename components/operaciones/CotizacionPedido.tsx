@@ -5,7 +5,7 @@
 // + Opción → Enviar cotización (72 h) → Aceptar en tienda (+ abono) → Logística compra.
 // Reglas de diseño: docs/REGLAS_UX_UI.md (compacto, uso n.º 100).
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Clock, Copy, ExternalLink, Link2, Loader2, Pencil, Plus, Send, Trash2, X } from "lucide-react";
 import { ProveedorSelector } from "./OpcionModal";
 import type { ProveedorBusqueda } from "@/types/operaciones";
@@ -15,11 +15,15 @@ import {
 } from "@/lib/pedidos-especiales/reglas";
 import { construirUrlWhatsApp } from "@/lib/operaciones/whatsappCotizacion";
 import { CancelarPedidoModal } from "./CancelarPedidoModal";
+import { ImagePlus } from "lucide-react";
+import { MAX_FOTOS_OPCION, type FotoOpcion } from "@/lib/pedidos-especiales/fotos";
+import { achicarFoto } from "@/lib/pedidos-especiales/fotos-cliente";
 
 type Linea = {
   id: string; descripcion: string; cantidad: number; precioUnitario: number; estado: string;
   costoProveedor: number | null; tiempoEstimado: string; categoria: string; notaCliente?: string;
   grupoAlternativas?: string; proveedorId: string | null; urlProveedor: string;
+  fotos?: FotoOpcion[];
 };
 type Solicitud = { id: string; lineaId: string | null; estado: string; codigo: string; situacion: { texto: string; tono: string } };
 type Vista = {
@@ -106,6 +110,34 @@ export function CotizacionPedido({
       return j.data ?? {};
     } catch {
       setError("Error de conexión."); return null;
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  /** Quita y sube las fotos de una opción. Devuelve un mensaje si algo falló. */
+  async function sincronizarFotos(lineaId: string, f: { quitar: string[]; nuevas: File[] }): Promise<string> {
+    if (!lineaId) return "";
+    setOcupado(true);
+    try {
+      for (const fotoId of f.quitar) {
+        const r = await fetch(`/api/operaciones/${operacionId}/pedido/fotos`, {
+          method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lineaId, fotoId }),
+        });
+        const j = (await r.json()) as { success: boolean; error?: string };
+        if (!j.success) return j.error ?? "No se pudo quitar una foto.";
+      }
+      for (const archivo of f.nuevas) {
+        const form = new FormData();
+        form.append("lineaId", lineaId);
+        form.append("foto", await achicarFoto(archivo));
+        const r = await fetch(`/api/operaciones/${operacionId}/pedido/fotos`, { method: "POST", body: form });
+        const j = (await r.json()) as { success: boolean; error?: string };
+        if (!j.success) return `La opción se guardó, pero una foto no subió: ${j.error ?? "error"}`;
+      }
+      return "";
+    } catch (e) {
+      return e instanceof Error ? `La opción se guardó, pero las fotos fallaron: ${e.message}` : "Las fotos fallaron.";
     } finally {
       setOcupado(false);
     }
@@ -341,10 +373,15 @@ export function CotizacionPedido({
           proveedorActual={editando !== "nueva" && editando.proveedorId ? { id: editando.proveedorId, nombre: vista.proveedores[editando.proveedorId] ?? "Proveedor" } : null}
           ocupado={ocupado}
           onClose={() => setEditando(null)}
-          onGuardar={async (datos) => {
+          onGuardar={async (datos, fotos) => {
             const ok = await accion(editando === "nueva" ? { accion: "agregar", ...datos } : { accion: "editar", lineaId: editando.id, ...datos });
             if (!ok) return;
-            marcar([editando === "nueva" ? String((ok as { id?: string }).id ?? "") : editando.id]);
+            const lineaId = editando === "nueva" ? String((ok as { id?: string }).id ?? "") : editando.id;
+            // Fotos: primero se quitan las marcadas y luego se suben las nuevas (una por una).
+            const falla = await sincronizarFotos(lineaId, fotos);
+            if (falla) { setError(falla); await cargar(); onCambio(); return; }
+            if (fotos.quitar.length || fotos.nuevas.length) { await cargar(); onCambio(); }
+            marcar([lineaId]);
             setEditando(null);
           }}
         />
@@ -397,8 +434,10 @@ function Modal({ titulo, onClose, children }: { titulo: string; onClose: () => v
   );
 }
 
+type CambioFotos = { quitar: string[]; nuevas: File[] };
+
 function AlternativaModal({ linea, proveedorActual, ocupado, onClose, onGuardar }: {
-  linea: Linea | null; proveedorActual: ProveedorBusqueda | null; ocupado: boolean; onClose: () => void; onGuardar: (d: Record<string, unknown>) => Promise<void>;
+  linea: Linea | null; proveedorActual: ProveedorBusqueda | null; ocupado: boolean; onClose: () => void; onGuardar: (d: Record<string, unknown>, fotos: CambioFotos) => Promise<void>;
 }) {
   const [descripcion, setDescripcion] = useState(linea?.descripcion ?? "");
   const [cantidad, setCantidad] = useState(String(linea?.cantidad ?? 1));
@@ -411,6 +450,26 @@ function AlternativaModal({ linea, proveedorActual, ocupado, onClose, onGuardar 
   const [tiempo, setTiempo] = useState(linea?.tiempoEstimado ?? "");
   const [nota, setNota] = useState(linea?.notaCliente ?? "");
   const [esAlternativa, setEsAlternativa] = useState(linea ? !!linea.grupoAlternativas : true);
+  // Tiempos de llegada: la misma lista que el repuesto bajo pedido de las órdenes.
+  const [tiempos, setTiempos] = useState<string[]>([]);
+  // Fotos: las que ya tiene (se pueden quitar) y las nuevas por subir (hasta 6 en total).
+  const [fotosActuales, setFotosActuales] = useState<FotoOpcion[]>(linea?.fotos ?? []);
+  const [fotosNuevas, setFotosNuevas] = useState<Array<{ archivo: File; vista: string }>>([]);
+  const [quitar, setQuitar] = useState<string[]>([]);
+  const lleno = fotosActuales.length + fotosNuevas.length >= MAX_FOTOS_OPCION;
+  // Las vistas previas se sueltan al cerrar el formulario (no en cada cambio: seguirían en pantalla).
+  const vistasRef = useRef<string[]>([]);
+  useEffect(() => { vistasRef.current = fotosNuevas.map((f) => f.vista); }, [fotosNuevas]);
+  useEffect(() => () => { vistasRef.current.forEach((u) => URL.revokeObjectURL(u)); }, []);
+  function agregarFotos(lista: FileList | null) {
+    if (!lista) return;
+    const libres = MAX_FOTOS_OPCION - fotosActuales.length - fotosNuevas.length;
+    const nuevas = Array.from(lista).filter((a) => a.type.startsWith("image/")).slice(0, Math.max(0, libres));
+    setFotosNuevas((prev) => [...prev, ...nuevas.map((archivo) => ({ archivo, vista: URL.createObjectURL(archivo) }))]);
+  }
+  useEffect(() => {
+    fetch("/api/operaciones/tiempos-estimados").then((r) => r.json()).then((j: { success?: boolean; data?: string[] }) => setTiempos(j.data ?? [])).catch(() => {});
+  }, []);
   useEffect(() => {
     fetch("/api/operaciones/categorias").then((r) => r.json()).then((j: { success?: boolean; data?: string[] }) => setCategorias(j.data ?? [])).catch(() => {});
   }, [linea]);
@@ -433,11 +492,42 @@ function AlternativaModal({ linea, proveedorActual, ocupado, onClose, onGuardar 
                 <option value="">Categoría…</option>
                 {categorias.map((x) => <option key={x} value={x}>{x}</option>)}
               </select>
-              <input className={input} placeholder="Tiempo de llegada" value={tiempo} onChange={(e) => setTiempo(e.target.value)} />
+              <select className={input} value={tiempo} onChange={(e) => setTiempo(e.target.value)}>
+                <option value="">Tiempo de llegada…</option>
+                {/* Un valor viejo escrito a mano se conserva hasta que se elija otro. */}
+                {tiempo && !tiempos.includes(tiempo) && <option value={tiempo}>{tiempo}</option>}
+                {tiempos.map((x) => <option key={x} value={x}>{x}</option>)}
+              </select>
             </div>
             <input className={input} placeholder="URL proveedor" value={url} onChange={(e) => setUrl(e.target.value)} />
         </>
         <input className={input} placeholder="Nota al cliente" value={nota} onChange={(e) => setNota(e.target.value)} />
+        {/* Fotos (hasta 6): el cliente las ve en miniatura y las abre en su enlace. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {fotosActuales.map((f) => (
+            <div key={f.id} className="relative h-14 w-14 overflow-hidden rounded-lg border border-[#3A3A36]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={f.miniatura} alt={f.nombre} className="h-full w-full object-cover" />
+              <button type="button" aria-label="Quitar foto" onClick={() => { setFotosActuales((a) => a.filter((x) => x.id !== f.id)); setQuitar((q) => [...q, f.id]); }}
+                className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white hover:bg-[#FF5A4F]"><X size={10} /></button>
+            </div>
+          ))}
+          {fotosNuevas.map((f, i) => (
+            <div key={f.vista} className="relative h-14 w-14 overflow-hidden rounded-lg border border-[#D7FF4F]/50 animate-[sg-entrada_180ms_ease-out]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={f.vista} alt="Foto nueva" className="h-full w-full object-cover" />
+              <button type="button" aria-label="Quitar foto" onClick={() => setFotosNuevas((a) => a.filter((_, j) => j !== i))}
+                className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white hover:bg-[#FF5A4F]"><X size={10} /></button>
+            </div>
+          ))}
+          {!lleno && (
+            <label className="grid h-14 w-14 cursor-pointer place-items-center rounded-lg border border-dashed border-[#5A5A54] text-[#8A8A80] transition hover:border-[#D7FF4F]/60 hover:text-[#D7FF4F]" title="Agregar fotos">
+              <ImagePlus size={18} />
+              <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { agregarFotos(e.target.files); e.target.value = ""; }} />
+            </label>
+          )}
+          <span className="ml-auto text-[11px] text-[#6B6B66]">{fotosActuales.length + fotosNuevas.length}/{MAX_FOTOS_OPCION}</span>
+        </div>
         <div className="flex gap-1 rounded-lg border border-[#3A3A36] p-0.5 text-xs">
           {[true, false].map((v) => (
             <button key={String(v)} type="button" onClick={() => setEsAlternativa(v)} title={v ? "El cliente elige una" : "Se suma al total"}
@@ -455,7 +545,8 @@ function AlternativaModal({ linea, proveedorActual, ocupado, onClose, onGuardar 
           <button type="button" disabled={ocupado} className={`${btn} border-[#D7FF4F] bg-[#D7FF4F] text-[#10110E]`}
             onClick={() => void onGuardar(linea
               ? { descripcion, cantidad: n, precioUnitario: p, notaCliente: nota, esAlternativa, costoProveedor: costo ? c : null, proveedorId: proveedor?.id ?? "", categoria, urlProveedor: url, tiempoEstimado: tiempo }
-              : { descripcion, cantidad: n, precioUnitario: p, costoProveedor: costo ? c : null, proveedorId: proveedor?.id ?? "", categoria, urlProveedor: url, tiempoEstimado: tiempo, notaCliente: nota, esAlternativa })}>
+              : { descripcion, cantidad: n, precioUnitario: p, costoProveedor: costo ? c : null, proveedorId: proveedor?.id ?? "", categoria, urlProveedor: url, tiempoEstimado: tiempo, notaCliente: nota, esAlternativa },
+              { quitar, nuevas: fotosNuevas.map((f) => f.archivo) })}>
             {ocupado ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Guardar
           </button>
         </div>
