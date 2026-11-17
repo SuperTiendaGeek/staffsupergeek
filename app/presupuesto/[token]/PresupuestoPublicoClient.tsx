@@ -325,6 +325,9 @@ function TusPagos({ cuenta, pel, abrir, pagoReciente, onActualizar }: {
         <dt className="text-[#A7A7A7]">Falta</dt>
         <dd className={`font-bold ${cuenta.falta > 0.009 ? "text-[#FFB547]" : "text-[#56E3A4]"}`}>{mon(cuenta.falta)}</dd>
       </dl>
+      {!conCaja && cuenta.falta > 0.009 && p.ultimo?.estado !== "revision" && (
+        <p className="text-xs text-[#A7A7A7]">Puedes pagarlo en la tienda.</p>
+      )}
       {conCaja && (
         <div className="border-t border-[#3A3A36] pt-3">
           <CajaDeCobro opciones={p.opciones} abrir={abrir} ultimo={p.ultimo} pagoReciente={pagoReciente} onActualizar={onActualizar}
@@ -643,6 +646,9 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
           <p className="rounded-xl border border-[#3A3A36] bg-[#242422] p-4 text-sm text-[#A7A7A7]">Todavía no hay líneas en tu presupuesto.</p>
         )}
 
+        {/* El total por prioridad acompaña al cliente MIENTRAS responde. Con todo
+            respondido, "Tus pagos" ya dice el dinero: no se repite (dueño, 17-nov). */}
+        {(!vista.cuenta || hayQueResponder || calculo.cambios.length > 0) ? (
         <section className="rounded-2xl border border-[#3A3A36] bg-[#2A2A28] p-4">
           <div className="flex items-baseline justify-between">
             <span className="text-sm text-[#A7A7A7]">Total aprobado con tu respuesta</span>
@@ -659,6 +665,9 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
           <p className="mt-2 text-[11px] text-[#8A8A80]">Precios en dólares con IVA incluido. Los repuestos bajo pedido se solicitan al proveedor cuando apruebas.</p>
           <a href={`${api}/pdf`} target="_blank" rel="noreferrer" className="mt-3 inline-block text-xs font-semibold text-[#A7A7A7] underline underline-offset-2 hover:text-[#F5F5F5]">Descargar presupuesto en PDF</a>
         </section>
+        ) : (
+          <a href={`${api}/pdf`} target="_blank" rel="noreferrer" className="block text-center text-xs font-semibold text-[#A7A7A7] underline underline-offset-2 hover:text-[#F5F5F5]">Descargar presupuesto en PDF</a>
+        )}
 
         {calculo.cambios.length > 0 && !bloqueadoEnvio && (
           <section ref={refConfirmar} className="space-y-3 rounded-2xl border border-[#D7FF4F]/30 bg-[#2A2A28] p-4">
