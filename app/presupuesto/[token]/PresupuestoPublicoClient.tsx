@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import type { Decision, GrupoVista, LineaRetirada, Situacion, TotalesPrioridad, VistaLinea } from "@/lib/tecnicos/presupuesto/enlace-reglas";
 import type { AlertaPublica, CartelPublico } from "@/lib/tecnicos/carteles/reglas";
+import type { OpcionDePago, PagoVisible } from "@/lib/pagos-en-linea/reglas";
+import { AvisoPagoEnRevision, AvisoPagoRecibido, CajaDeCobro, type AbrirCajita, type ParametrosCajitaCliente } from "@/components/pagos-en-linea/CajaDeCobro";
 
 // Vista del cliente. Toda la lógica de qué se puede responder vive en el
 // servidor (enlace-reglas.ts); aquí solo se muestra y se arma el envío.
@@ -23,7 +25,14 @@ type Vista = {
   pendientes: number;
   totalAprobado: number;
   totalPendiente: number;
+  /** Maquetas 7a/7b (17-nov): la cuenta de la orden y la caja de cobro en línea. */
+  cuenta?: { total: number; pagado: number; falta: number; faltaRepuestos: number } | null;
+  pagoEnLinea?: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null };
 };
+
+// En una orden, "Confirmar" son los repuestos aprobados (dueño, 17-nov).
+const ETIQUETAS_ORDEN = { Confirmar: "Repuestos" } as const;
+const FRASES_ORDEN = { Confirmar: "para que pidamos tus repuestos", Todo: "y deja todo pagado", "Lo que falta": "" } as const;
 
 const mon = (n: number) => `$${n.toFixed(2)}`;
 
@@ -283,6 +292,52 @@ function TarjetaGrupo({ g, lineas, decisiones, onElegir, abierta, onAbrir }: {
   );
 }
 
+/**
+ * "Tus pagos" (maquetas 7a/7b, dueño 17-nov): la cuenta de la orden y la
+ * MISMA caja de cobro de los pedidos. Los repuestos aprobados se pagan
+ * completos para pedirlos; la mano de obra puede esperar al retiro.
+ */
+function TusPagos({ cuenta, pel, abrir, pagoReciente, onActualizar }: {
+  cuenta: NonNullable<Vista["cuenta"]>;
+  pel: Vista["pagoEnLinea"];
+  abrir: AbrirCajita;
+  pagoReciente: string | null;
+  onActualizar: () => void;
+}) {
+  const p = pel ?? { disponible: false, opciones: [], ultimo: null };
+  const conCaja = p.disponible || p.ultimo?.estado === "sin_respuesta";
+  const recibidoAhora = p.ultimo?.estado === "recibido" && p.ultimo.codigo === pagoReciente ? p.ultimo : null;
+  const enRevision = p.ultimo?.estado === "revision" ? p.ultimo : null;
+  const conRepuestos = p.opciones.some((o) => o.para === "Confirmar");
+  const avance = cuenta.total > 0 ? Math.min(100, (cuenta.pagado / cuenta.total) * 100) : 0;
+  return (
+    <section className="flex flex-col gap-3 rounded-2xl border border-[#3A3A36] bg-[#2A2A28] p-4 tabular-nums animate-[sg-entrada_220ms_ease-out]">
+      {recibidoAhora && <AvisoPagoRecibido pago={recibidoAhora} />}
+      {enRevision && <AvisoPagoEnRevision pago={enRevision} />}
+      <h2 className="text-sm font-bold text-[#F5F5F5]">Tus pagos</h2>
+      <div className="h-1.5 overflow-hidden rounded-full bg-[#3A3A36]">
+        <div className="h-full rounded-full bg-[#56E3A4] transition-[width] duration-500" style={{ width: `${avance}%` }} />
+      </div>
+      <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 text-sm">
+        <dt className="text-[#A7A7A7]">Total</dt><dd className="font-bold">{mon(cuenta.total)}</dd>
+        <dt className="text-[#A7A7A7]">Pagaste</dt><dd>{mon(cuenta.pagado)}</dd>
+        {cuenta.faltaRepuestos > 0.009 && <><dt className="text-[#A7A7A7]">Repuestos por pagar</dt><dd>{mon(cuenta.faltaRepuestos)}</dd></>}
+        <dt className="text-[#A7A7A7]">Falta</dt>
+        <dd className={`font-bold ${cuenta.falta > 0.009 ? "text-[#FFB547]" : "text-[#56E3A4]"}`}>{mon(cuenta.falta)}</dd>
+      </dl>
+      {conCaja && (
+        <div className="border-t border-[#3A3A36] pt-3">
+          <CajaDeCobro opciones={p.opciones} abrir={abrir} ultimo={p.ultimo} pagoReciente={pagoReciente} onActualizar={onActualizar}
+            etiquetas={ETIQUETAS_ORDEN} frases={FRASES_ORDEN}
+            alternativa={conRepuestos
+              ? "Los repuestos aprobados se pagan completos para poder pedirlos. También puedes pagar en la tienda."
+              : "o págalo en la tienda al retirar"} />
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function PresupuestoPublicoClient({ token }: { token: string }) {
   const [vista, setVista] = useState<Vista | null>(null);
   const [error, setError] = useState<{ status: number; texto: string } | null>(null);
@@ -303,6 +358,18 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
   const yaLlevado = useRef(false);
 
   const api = `/api/publico/presupuesto/${encodeURIComponent(token)}`;
+  // Pagos en línea: al volver de PayPhone la URL trae ?pago=PL-… (se muestra el resultado una vez).
+  const [pagoReciente, setPagoReciente] = useState<string | null>(null);
+  const [reintentos, setReintentos] = useState(0);
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    const pl = u.searchParams.get("pago");
+    if (pl && /^PL-\d{6,}$/.test(pl)) {
+      setPagoReciente(pl);
+      u.searchParams.delete("pago");
+      window.history.replaceState(null, "", u.pathname + (u.search ? u.search : ""));
+    }
+  }, []);
 
   const cargar = useCallback(async () => {
     try {
@@ -319,6 +386,38 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
   }, [api]);
 
   useEffect(() => { void cargar(); }, [cargar]);
+
+  // Solo la cuenta y los pagos (no borra lo que el cliente está respondiendo).
+  const refrescarPagos = useCallback(async () => {
+    try {
+      const r = await fetch(api, { cache: "no-store" });
+      const j = await r.json();
+      if (!j.success) return;
+      const v = j.data as Vista;
+      setVista((prev) => (prev ? { ...prev, cuenta: v.cuenta, pagoEnLinea: v.pagoEnLinea } : v));
+    } catch { /* se reintenta en la próxima vuelta */ }
+  }, [api]);
+
+  // Volvió de PayPhone y aún no se confirma: se vuelve a consultar (el servidor reintenta).
+  const sinRespuesta = vista?.pagoEnLinea?.ultimo?.estado === "sin_respuesta";
+  useEffect(() => {
+    if (!sinRespuesta || reintentos >= 12) return;
+    const t = setTimeout(() => { setReintentos((n) => n + 1); void refrescarPagos(); }, 5000);
+    return () => clearTimeout(t);
+  }, [sinRespuesta, reintentos, refrescarPagos]);
+
+  const abrirPago: AbrirCajita = useCallback(async (para) => {
+    try {
+      const r = await fetch(`${api}/pago`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ para }),
+      });
+      const j = (await r.json()) as { success: boolean; data?: { codigo: string; cajita: ParametrosCajitaCliente }; error?: string };
+      if (!j.success || !j.data) return { ok: false, error: j.error ?? "No pudimos abrir el pago con tarjeta." };
+      return { ok: true, codigo: j.data.codigo, cajita: j.data.cajita };
+    } catch {
+      return { ok: false, error: "Sin conexión. Intenta de nuevo." };
+    }
+  }, [api]);
 
   const calculo = useMemo(() => {
     if (!vista) return null;
@@ -485,7 +584,11 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
         </section>
 
         {vista.estado === "vencido" && (
-          <p className="rounded-xl border border-amber-300/40 bg-amber-300/10 p-3 text-sm text-amber-100">Este enlace venció. Puedes ver tu presupuesto, pero para responder pide a SUPER GEEK que te lo vuelva a enviar.</p>
+          <p className="rounded-xl border border-amber-300/40 bg-amber-300/10 p-3 text-sm text-amber-100">
+            {vista.cuenta
+              ? "Este enlace venció para responder el presupuesto. Tu cuenta y tus pagos siguen aquí."
+              : "Este enlace venció. Puedes ver tu presupuesto, pero para responder pide a SUPER GEEK que te lo vuelva a enviar."}
+          </p>
         )}
         {vista.estado === "bloqueado" && (
           <p className="rounded-xl border border-red-300/40 bg-red-400/10 p-3 text-sm text-red-100">Por seguridad, el enlace está bloqueado unos minutos por varios intentos fallidos. Intenta más tarde o comunícate con la tienda.</p>
@@ -509,6 +612,8 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
             <p className="mt-2 text-xs text-emerald-100/80">El técnico de SUPER GEEK ya fue notificado y lo que aprobaste ya quedó apartado para tu equipo. Si necesitas cambiar algo, comunícate con la tienda.</p>
           </section>
         )}
+
+        {vista.cuenta && <TusPagos cuenta={vista.cuenta} pel={vista.pagoEnLinea} abrir={abrirPago} pagoReciente={pagoReciente} onActualizar={() => void refrescarPagos()} />}
 
         {pendientes.length > 0 && (
           <section className="space-y-2">

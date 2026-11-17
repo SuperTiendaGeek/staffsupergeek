@@ -50,7 +50,7 @@ async function cargarCajita(css: string, js: string): Promise<PPaymentButtonBoxC
 }
 
 export function CajaDeCobro({
-  opciones, abrir, ultimo, pagoReciente, onAbierta, onActualizar, titulo = "confirmar", alternativa,
+  opciones, abrir, ultimo, pagoReciente, onAbierta, onActualizar, titulo = "confirmar", alternativa, etiquetas, frases,
 }: {
   opciones: OpcionDePago[];
   abrir: AbrirCajita;
@@ -63,9 +63,14 @@ export function CajaDeCobro({
   onActualizar?: () => void;
   /** "confirmar": "Paga $X para confirmar" · "saldo": solo el botón (lo que falta). */
   titulo?: "confirmar" | "saldo";
-  /** Línea bajo el botón en la variante "saldo" ("o págalo en la tienda al retirar"). */
+  /** Línea bajo el botón ("o págalo en la tienda al retirar"). */
   alternativa?: string;
+  /** Nombre de cada opción en el selector. En una orden, "Confirmar" se llama "Repuestos" (7a). */
+  etiquetas?: Partial<Record<ParaPago, string>>;
+  /** Frase sobre el botón según la opción ("para que pidamos tus repuestos"). */
+  frases?: Partial<Record<ParaPago, string>>;
 }) {
+  const nombre = (p: ParaPago) => etiquetas?.[p] ?? ETIQUETA[p];
   const [para, setPara] = useState<ParaPago | null>(opciones[0]?.para ?? null);
   const [fase, setFase] = useState<"boton" | "cargando" | "cajita">("boton");
   const [error, setError] = useState("");
@@ -133,7 +138,7 @@ export function CajaDeCobro({
       ) : (
         <>
           {titulo === "confirmar" && (
-            <p className="font-bold text-[#F0F0EC]">Paga {usd(elegido.monto)}{elegido.para === "Confirmar" ? " para confirmar" : ""}</p>
+            <p className="font-bold text-[#F0F0EC]">Paga {usd(elegido.monto)}{frases ? (frases[elegido.para] ? ` ${frases[elegido.para]}` : "") : elegido.para === "Confirmar" ? " para confirmar" : ""}</p>
           )}
           {rechazoReciente && (
             <div className="flex flex-col gap-0.5 rounded-xl border border-[#FF5A4F]/40 bg-[#FF5A4F]/10 px-3 py-2.5 animate-[sg-sacudir_300ms_ease-out]">
@@ -146,7 +151,7 @@ export function CajaDeCobro({
               {opciones.map((o) => (
                 <button key={o.para} type="button" onClick={() => setPara(o.para)} aria-pressed={o.para === para}
                   className={`h-[38px] flex-1 rounded-[9px] text-[13px] font-semibold tabular-nums transition-colors ${o.para === para ? "bg-[#2E3024] text-[#D7FF4F]" : "text-[#B5B5AE]"}`}>
-                  {ETIQUETA[o.para]} {usd(o.monto)}
+                  {nombre(o.para)} {usd(o.monto)}
                 </button>
               ))}
             </div>

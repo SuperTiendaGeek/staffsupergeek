@@ -96,6 +96,60 @@ export function montoACobrar(c: CuentaParaCobro, para: ParaPago): { ok: true; mo
   return { ok: true, monto: op.monto };
 }
 
+// ─── Órdenes de reparación (maquetas 7a y 7b, dueño 17-nov) ─────────────────
+
+/**
+ * Lo que la caja necesita de una ORDEN. Regla del dueño: los repuestos
+ * aprobados se pagan COMPLETOS para avanzar (con el medio o los medios que
+ * quiera el cliente); la mano de obra se puede pagar después.
+ */
+export type CuentaOrdenParaCobro = {
+  /** Entregada o enviada a reciclaje: ya no se cobra en línea. */
+  cerrada: boolean;
+  /** Saldo de la cuenta (calculadora única), nunca negativo. */
+  porCobrar: number;
+  /** Lo que falta para que todos los repuestos bajo pedido queden pagados. */
+  faltaRepuestos: number;
+};
+
+/**
+ * Ej. OR000507 (bisagras $30, tapa $15, cover $60, mano de obra $40):
+ *   sin pagos → [Repuestos $105, Todo $145] ("Repuestos" viaja como "Confirmar");
+ *   repuestos pagados → [Lo que falta $40]; sin repuestos por pedir → [Lo que falta].
+ */
+export function opcionesDePagoOrden(c: CuentaOrdenParaCobro): OpcionDePago[] {
+  if (c.cerrada) return [];
+  const todo = r2(Math.max(0, c.porCobrar));
+  if (!(todo > 0.009)) return [];
+  const repuestos = r2(Math.min(Math.max(0, c.faltaRepuestos), todo));
+  if (repuestos > 0.009) {
+    const ops: OpcionDePago[] = [{ para: "Confirmar", monto: repuestos }];
+    if (todo > repuestos + 0.009) ops.push({ para: "Todo", monto: todo });
+    return ops;
+  }
+  return [{ para: "Lo que falta", monto: todo }];
+}
+
+/** El monto de una opción, calculado por el servidor con la cuenta del momento. */
+export function montoDeOpcion(opciones: readonly OpcionDePago[], para: ParaPago): { ok: true; monto: number } | { ok: false; error: string } {
+  const op = opciones.find((o) => o.para === para);
+  return op ? { ok: true, monto: op.monto } : { ok: false, error: "No hay nada pendiente por pagar." };
+}
+
+/**
+ * Pago de una orden ya aprobado por la pasarela: el abono se registra siempre
+ * (el dinero es real). En una orden no hay "elección" que pueda cambiar: el
+ * dinero suma a la cuenta y las reglas de compra deciden qué se pide.
+ */
+export function decidirAplicacionOrden(input: { monto: number; cuenta: CuentaOrdenParaCobro }): DecisionAplicar {
+  if (input.cuenta.cerrada) return { estado: "En revisión", motivo: "La orden ya estaba entregada al recibir el pago." };
+  const falta = r2(Math.max(0, input.cuenta.porCobrar));
+  if (r2(input.monto) > falta + 0.009) {
+    return { estado: "En revisión", motivo: `Pagó ${usd(input.monto)} y solo faltaban ${usd(falta)} (${usd(input.monto - falta)} de más).` };
+  }
+  return { estado: "Aplicado", confirmar: false };
+}
+
 // ─── Desglose para la pasarela ──────────────────────────────────────────────
 
 /**

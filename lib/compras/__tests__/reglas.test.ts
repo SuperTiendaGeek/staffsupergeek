@@ -7,6 +7,7 @@ import {
   claveDeLinea,
   coberturaAnticipo,
   diasEntre,
+  faltaParaRepuestos,
   puedeComprar,
   resumenRepuestos,
   situacionDeSolicitud,
@@ -40,11 +41,35 @@ const sol = (o: Partial<SolicitudBase>): SolicitudBase => ({
     sol({ id: "tapa", precioCliente: 15, fechaAprobacion: "2026-10-08T10:00:00Z" }),
     sol({ id: "cover", precioCliente: 60, fechaAprobacion: "2026-10-08T10:00:01Z" }),
   ], 50);
-  assert(c.get("bisagras")?.tipo === "cubierta" && c.get("tapa")?.tipo === "cubierta", "con $50: bisagras $30 y tapa $15 cubiertas");
-  const cover = c.get("cover");
-  assert(cover?.tipo === "parcial" && cover.pagado === 5 && cover.precio === 60, "el cover queda con anticipo parcial $5 de $60");
-  const s = situacionDeSolicitud({ solicitud: sol({}), articulo: null, cobertura: cover, hoy: "2026-11-02" });
-  assert(s.texto === "Anticipo parcial $5.00 de $60.00", "chip: Anticipo parcial $5.00 de $60.00");
+  // Dueño, 17-nov: lo aprobado junto se compra cuando está pagado TODO.
+  const todos = ["bisagras", "tapa", "cover"].map((id) => c.get(id));
+  assert(todos.every((x) => x?.tipo === "parcial" && x.pagado === 50 && x.precio === 105), "con $50 de $105: los tres esperan (aprobados juntos)");
+  const s = situacionDeSolicitud({ solicitud: sol({}), articulo: null, cobertura: c.get("cover"), hoy: "2026-11-02" });
+  assert(s.texto === "Anticipo parcial $50.00 de $105.00", "chip: Anticipo parcial $50.00 de $105.00");
+  const ok = coberturaAnticipo([
+    sol({ id: "bisagras", precioCliente: 30, fechaAprobacion: "2026-10-08T10:00:00Z" }),
+    sol({ id: "tapa", precioCliente: 15, fechaAprobacion: "2026-10-08T10:00:00Z" }),
+    sol({ id: "cover", precioCliente: 60, fechaAprobacion: "2026-10-08T10:20:00Z" }),
+  ], 105);
+  assert(["bisagras", "tapa", "cover"].every((id) => ok.get(id)?.tipo === "cubierta"), "con $105 (y 20 min entre aprobaciones = mismo grupo): se compran los tres");
+}
+{
+  // Un repuesto aprobado DESPUÉS espera su propio pago y no frena a los pagados.
+  const lote1 = [sol({ id: "bisagras", precioCliente: 30, fechaAprobacion: "2026-10-08T10:00:00Z" }), sol({ id: "tapa", precioCliente: 15, fechaAprobacion: "2026-10-08T10:00:00Z" })];
+  const cable = sol({ id: "cable", precioCliente: 20, fechaAprobacion: "2026-10-12T16:00:00Z" });
+  const c45 = coberturaAnticipo([...lote1, cable], 45);
+  assert(c45.get("bisagras")?.tipo === "cubierta" && c45.get("tapa")?.tipo === "cubierta", "grupo 1 pagado ($45): se compra");
+  assert(c45.get("cable")?.tipo === "sin_pago", "el cable aprobado después espera sus $20");
+  const c55 = coberturaAnticipo([...lote1, cable], 55).get("cable");
+  assert(c55?.tipo === "parcial" && c55.pagado === 10 && c55.precio === 20, "con $55: el cable lleva $10 de $20");
+  const sinGrupo1 = coberturaAnticipo([...lote1, cable], 25);
+  assert(sinGrupo1.get("cable")?.tipo === "sin_pago" && sinGrupo1.get("tapa")?.tipo === "parcial", "con $25 el dinero no se salta al cable: el grupo 1 sigue esperando");
+  assert(coberturaAnticipo([sol({ id: "a", fechaAprobacion: "2026-10-08T10:00:00Z", precioCliente: 10 }), sol({ id: "b", fechaAprobacion: "2026-10-08T11:00:00Z", precioCliente: 10 })], 10).get("a")?.tipo === "cubierta",
+    "una hora entre aprobaciones = grupos distintos");
+  assert(faltaParaRepuestos([...lote1, cable], 0) === 65 && faltaParaRepuestos([...lote1, cable], 45) === 20 && faltaParaRepuestos([...lote1, cable], 80) === 0,
+    "falta para repuestos: $65 → $20 → $0");
+  assert(faltaParaRepuestos([sol({ estado: "Cancelada", precioCliente: 99 }), { ...sol({ precioCliente: 35 }), categoria: "Licencia digital" }], 0) === 0,
+    "cancelados y licencias no piden pago de repuestos");
 }
 {
   const c = coberturaAnticipo([sol({ id: "a", estado: "Cancelada", precioCliente: 100 }), sol({ id: "b", precioCliente: 20, cantidad: 2 })], 40);

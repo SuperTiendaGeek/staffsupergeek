@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { responderPresupuesto, vistaPublica } from "@/lib/tecnicos/presupuesto/enlace";
 import type { EnvioRespuesta } from "@/lib/tecnicos/presupuesto/enlace-reglas";
+import { reanudarPagosDeLaOrden } from "@/lib/pagos-en-linea/servidor";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -15,7 +16,12 @@ const NO_CACHE = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofoll
 export async function GET(_request: Request, { params }: Params) {
   const { token } = await params;
   try {
-    const vista = await vistaPublica(token);
+    let vista = await vistaPublica(token);
+    // Pagos en línea (7a/7b): si volvió de PayPhone y aún no se confirmó, se reintenta aquí.
+    if (vista?.pagoEnLinea.ultimo?.estado === "sin_respuesta") {
+      await reanudarPagosDeLaOrden(token).catch((e) => console.error("[presupuesto público] reanudar pago:", e));
+      vista = await vistaPublica(token);
+    }
     if (!vista) return NextResponse.json({ success: false, error: "Este enlace no existe." }, { status: 404, headers: NO_CACHE });
     return NextResponse.json({ success: true, data: vista }, { headers: NO_CACHE });
   } catch (e) {
