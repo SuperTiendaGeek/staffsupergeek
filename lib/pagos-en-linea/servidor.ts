@@ -32,7 +32,7 @@ import {
   actualizarIntento, crearIntento, intentoPorCodigo, intentosDelPedido, intentosPorTransaccion, type IntentoRegistro,
 } from "./airtable";
 import {
-  CODIGO_PAGO_REGEX, MINUTOS_VIGENCIA_CAJITA, decidirAplicacion, desgloseIva, estadoVisible, evaluarConfirmacion,
+  CODIGO_PAGO_REGEX, decidirAplicacion, desgloseIva, estadoVisible, evaluarConfirmacion,
   leerDecision, minutosDesde, montoACobrar, resumenPago, tarifaYNeto, textoDecision, type ParaPago,
 } from "./reglas";
 
@@ -66,23 +66,20 @@ export async function abrirPagoPedido(token: string, para: ParaPago): Promise<Re
     const viejas = intentos.filter((i) => i.estado === "Abierto" && !i.idTransaccion && estadoVisible(i) === "vencido");
     await Promise.allSettled(viejas.map((i) => actualizarIntento(i.id, { estado: "Vencido" })));
 
-    // Una segunda pestaña o un doble clic reusan la misma cajita (mismo código):
-    // PayPhone no cobra dos veces el mismo código.
-    const reusable = [...intentos].reverse().find((i) =>
-      i.estado === "Abierto" && !i.idTransaccion && i.para === para && Math.abs(i.monto - m.monto) < 0.005 &&
-      i.eleccion === eleccion && i.ambiente === config.ambiente && minutosDesde(i.creado) < MINUTOS_VIGENCIA_CAJITA - 2,
-    );
-    let intento = reusable;
-    if (!intento) {
-      const d = desgloseIva(m.monto);
-      intento = await crearIntento({
-        origen: "Pedido", pedidoId, pasarela: "PayPhone", ambiente: config.ambiente, para,
-        monto: m.monto, base: d.baseC / 100, iva: d.ivaC / 100, eleccion,
-      });
-      intento = await actualizarIntento(intento.id, {
-        pago: resumenPago({ codigo: intento.codigo, cuenta: cuenta.codigo, monto: m.monto, pasarela: "PayPhone", ambiente: config.ambiente }),
-      });
-    }
+    // Cada cajita lleva un código NUEVO. PayPhone no acepta dibujar dos veces
+    // el mismo código ("Ya existe una transacción con el ClientTransactionId
+    // especificado"): pasaba al pulsar Cancelar y volver a abrir (17-nov).
+    // Doble clic: el botón se bloquea mientras abre. Dos pestañas pagadas a la
+    // vez: el segundo pago queda "En revisión" (pagó de más) y nunca se pierde;
+    // y si un pago ya volvió sin confirmar, no se deja pagar otra vez (arriba).
+    const d = desgloseIva(m.monto);
+    let intento = await crearIntento({
+      origen: "Pedido", pedidoId, pasarela: "PayPhone", ambiente: config.ambiente, para,
+      monto: m.monto, base: d.baseC / 100, iva: d.ivaC / 100, eleccion,
+    });
+    intento = await actualizarIntento(intento.id, {
+      pago: resumenPago({ codigo: intento.codigo, cuenta: cuenta.codigo, monto: m.monto, pasarela: "PayPhone", ambiente: config.ambiente }),
+    });
     const referencia = `Pedido ${cuenta.codigo}${cuenta.producto ? ` · ${cuenta.producto}` : ""}`;
     return { ok: true, codigo: intento.codigo, monto: intento.monto, cajita: parametrosCajita(config, { codigo: intento.codigo, monto: intento.monto, referencia }) };
   });
