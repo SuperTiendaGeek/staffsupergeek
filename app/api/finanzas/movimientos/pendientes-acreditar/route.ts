@@ -3,6 +3,7 @@ import { cleanString, fetchRecordById } from "@/lib/finanzas/airtable-client";
 import { fetchCuentasFinancieras } from "@/lib/finanzas/cuentas";
 import { requireFinanzasSession } from "@/lib/finanzas/auth";
 import { fetchMovimientosDeCuentaPorEstado } from "@/lib/finanzas/saldos";
+import { intentoDeAbono } from "@/lib/pagos-en-linea/airtable";
 
 export const dynamic = "force-dynamic";
 
@@ -39,10 +40,17 @@ export async function GET() {
         const facturaNumero = factura
           ? cleanString(factura.fields["Número de Factura"]) || cleanString(factura.fields["Clave de Acceso"]) || null
           : null;
+        // Punto 23 / 10D: si es un pago en línea, el neto ya se calculó al
+        // confirmarlo (PayPhone tarjeta 5,75 %; saldo PayPhone sin comisión).
+        const pago = mov.abonoIds[0] ? await intentoDeAbono(mov.abonoIds[0]).catch(() => null) : null;
+        const pagoEnLinea = pago && pago.neto != null
+          ? { codigo: pago.codigo, pasarela: pago.pasarela, medio: pago.medio, tarifa: pago.tarifa ?? 0, neto: pago.neto }
+          : null;
         return {
           ...mov,
           cuentaNombre: mov.cuentaDestinoId ? (nombrePorCuenta.get(mov.cuentaDestinoId) ?? null) : null,
           facturaNumero,
+          pagoEnLinea,
         };
       })
     );

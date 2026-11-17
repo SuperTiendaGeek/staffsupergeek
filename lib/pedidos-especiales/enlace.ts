@@ -20,7 +20,9 @@ import { estadosDeCuentaDeOperaciones } from "@/lib/estado-cuenta/airtable";
 import { listPortalUsers } from "@/lib/airtable";
 import { crearNotificacion } from "@/lib/notificaciones/airtable";
 import { esRolNotificable } from "@/lib/operaciones/depuracion";
-import { payphoneActivo } from "@/lib/pagos/payphone";
+import { configPasarela, pasarelaDisponible } from "@/lib/pagos-en-linea/config";
+import { intentosDelPedido } from "@/lib/pagos-en-linea/airtable";
+import { huellaEleccion, opcionesDePago, pagoParaMostrar, type OpcionDePago, type PagoVisible } from "@/lib/pagos-en-linea/reglas";
 import { aceptarPedido } from "./servidor";
 import { seguimientoDelPedido } from "./seguimiento-servidor";
 import { fechaDeLlegada, seguimientoParaCliente, type SeguimientoCliente } from "./seguimiento";
@@ -131,6 +133,8 @@ async function leerContexto(pedidoId: string): Promise<Contexto> {
 export type VistaPublicaPedido = VistaCliente & {
   producto: string;
   pagoTarjeta: boolean;
+  /** Punto 23 / 10D: caja de cobro en línea (maquetas 6a y 6b). */
+  pagoEnLinea: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null };
   seguimiento: SeguimientoCliente | null;
   /** Punto 10C-3b: "Retíralo antes del…" / "Se sumó un recargo…" (desde que llegó). */
   retiro: { aviso: string; detalle: string } | null;
@@ -142,7 +146,28 @@ function vistaDe(c: Contexto): VistaPublicaPedido {
     lineas: c.lineas, elecciones: c.elecciones, pagado: c.pagado, recargo: c.recargo,
   });
   const producto = vista.elegido?.items[0]?.descripcion || vista.opciones[0]?.descripcion || c.producto;
-  return { ...vista, producto, pagoTarjeta: payphoneActivo(), seguimiento: null, retiro: null };
+  const disponible = pasarelaDisponible(configPasarela("PayPhone"), c.codigo);
+  const opciones = disponible ? opcionesDePago(vista) : [];
+  return {
+    ...vista, producto, pagoTarjeta: disponible && opciones.length > 0,
+    pagoEnLinea: { disponible: disponible && opciones.length > 0, opciones, ultimo: null },
+    seguimiento: null, retiro: null,
+  };
+}
+
+/** Punto 23: el último pago en línea que el cliente debe ver (recibido, en revisión, sin respuesta…). */
+async function conPagoEnLinea(id: string, v: VistaPublicaPedido): Promise<VistaPublicaPedido> {
+  if (v.fase === "preparando" || v.fase === "cotizacion" || v.fase === "vencida") return v;
+  const intentos = await intentosDelPedido(id).catch((e) => { console.error("[pedido enlace] pagos en línea:", e); return []; });
+  const ultimo = pagoParaMostrar(intentos);
+  if (!ultimo) return v;
+  // Volvió de PayPhone y todavía no se confirma: no se ofrece pagar otra vez.
+  const bloquear = ultimo.estado === "sin_respuesta";
+  return {
+    ...v,
+    pagoTarjeta: v.pagoTarjeta && !bloquear,
+    pagoEnLinea: { ...v.pagoEnLinea, disponible: v.pagoEnLinea.disponible && !bloquear, ultimo },
+  };
 }
 
 /** Punto 10B: con el pedido confirmado, el cliente ve sus pasos (sin notas internas). */
@@ -158,7 +183,31 @@ async function conSeguimiento(id: string, v: VistaPublicaPedido): Promise<VistaP
 export async function vistaPublicaPedido(token: string): Promise<VistaPublicaPedido | null> {
   const id = await pedidoDelToken(token);
   if (!id) return null;
-  return conSeguimiento(id, vistaDe(await leerContexto(id)));
+  return conPagoEnLinea(id, await conSeguimiento(id, vistaDe(await leerContexto(id))));
+}
+
+/** Punto 23: el pedido de un enlace (null si el token no vale). */
+export async function pedidoIdDelToken(token: string): Promise<string | null> {
+  return pedidoDelToken(token);
+}
+
+/**
+ * Punto 23: la cuenta del pedido tal como la ve el cliente, para la caja de
+ * cobro en línea. El monto a cobrar sale de aquí (calculadora única), nunca
+ * del navegador.
+ */
+export async function cuentaParaCobroDelPedido(pedidoId: string): Promise<{
+  codigo: string; clienteNombre: string; producto: string; vista: VistaPublicaPedido; eleccion: string;
+}> {
+  const c = await leerContexto(pedidoId);
+  const vista = vistaDe(c);
+  return {
+    codigo: c.codigo,
+    clienteNombre: c.clienteNombre,
+    producto: vista.producto,
+    vista,
+    eleccion: huellaEleccion(eleccionVigente(c.elecciones, c.lineas)),
+  };
 }
 
 /** Para la pantalla del empleado: la elección vigente del cliente (o null). */
@@ -248,6 +297,11 @@ export async function confirmarPedidoSiPagado(pedidoId: string, quien: string): 
     `${c.clienteNombre} pagó ${usd(c.pagado)} de ${usd(conf.total)}. El pedido quedó Aceptado y su compra está en "Por comprar".`,
     "Alta").catch((e) => console.warn("[pedido enlace] aviso confirmado:", e));
   return true;
+}
+
+/** Aviso a todo el personal notificable, con enlace al pedido. */
+export async function avisarPedido(pedidoId: string, titulo: string, mensaje: string, prioridad: "Normal" | "Alta"): Promise<void> {
+  return avisar(pedidoId, titulo, mensaje, prioridad);
 }
 
 async function avisar(pedidoId: string, titulo: string, mensaje: string, prioridad: "Normal" | "Alta"): Promise<void> {

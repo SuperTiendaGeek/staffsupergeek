@@ -17,8 +17,17 @@ import { CONDICIONES_COMPRA } from "@/lib/pedidos-especiales/cancelacion";
 import { TIENDA, whatsappTienda } from "@/lib/tienda/datos";
 import { ChevronRight } from "lucide-react";
 import { DetalleOpcion, MiniaturasOpcion } from "./GaleriaOpcion";
+import { AvisoPagoEnRevision, AvisoPagoRecibido, CajaDeCobro, type AbrirCajita, type ParametrosCajitaCliente } from "@/components/pagos-en-linea/CajaDeCobro";
+import type { OpcionDePago, PagoVisible } from "@/lib/pagos-en-linea/reglas";
 
-type Vista = VistaCliente & { producto: string; pagoTarjeta: boolean; seguimiento: SeguimientoCliente | null; retiro?: { aviso: string; detalle: string } | null };
+type Vista = VistaCliente & {
+  producto: string;
+  pagoTarjeta: boolean;
+  seguimiento: SeguimientoCliente | null;
+  retiro?: { aviso: string; detalle: string } | null;
+  /** Punto 23 / 10D: caja de cobro en línea (maquetas 6a y 6b). */
+  pagoEnLinea?: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null };
+};
 
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, "")}`;
 const caja = "rounded-2xl border border-[#3A3A36] bg-[#1E1F1C]";
@@ -35,6 +44,20 @@ export function MiPedidoClient({ token }: { token: string }) {
   const [condiciones, setCondiciones] = useState(false);
   // Sub-pantalla de una opción (fotos + información), 14-nov.
   const [detalle, setDetalle] = useState<{ id: string; indice: number } | null>(null);
+  // Punto 23: al volver de PayPhone la URL trae ?pago=PL-… (se muestra el resultado una vez).
+  const [pagoReciente, setPagoReciente] = useState<string | null>(null);
+  const [cajitaAbierta, setCajitaAbierta] = useState(false);
+  const [reintentos, setReintentos] = useState(0);
+
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    const pl = u.searchParams.get("pago");
+    if (pl && /^PL-\d{6,}$/.test(pl)) {
+      setPagoReciente(pl);
+      u.searchParams.delete("pago");
+      window.history.replaceState(null, "", u.pathname + (u.search ? u.search : ""));
+    }
+  }, []);
 
   const cargar = useCallback(async () => {
     try {
@@ -50,6 +73,27 @@ export function MiPedidoClient({ token }: { token: string }) {
     }
   }, [token]);
   useEffect(() => { void cargar(); }, [cargar]);
+
+  // Volvió de PayPhone y aún no se confirma: se vuelve a consultar (el servidor reintenta).
+  const sinRespuesta = vista?.pagoEnLinea?.ultimo?.estado === "sin_respuesta";
+  useEffect(() => {
+    if (!sinRespuesta || reintentos >= 12) return;
+    const t = setTimeout(() => { setReintentos((n) => n + 1); void cargar(); }, 5000);
+    return () => clearTimeout(t);
+  }, [sinRespuesta, reintentos, cargar]);
+
+  const abrirPago: AbrirCajita = useCallback(async (para) => {
+    try {
+      const r = await fetch(`/api/publico/pedido/${encodeURIComponent(token)}/pago`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ para }),
+      });
+      const j = (await r.json()) as { success: boolean; data?: { codigo: string; cajita: ParametrosCajitaCliente }; error?: string };
+      if (!j.success || !j.data) return { ok: false, error: j.error ?? "No pudimos abrir el pago con tarjeta." };
+      return { ok: true, codigo: j.data.codigo, cajita: j.data.cajita };
+    } catch {
+      return { ok: false, error: "Sin conexión. Intenta de nuevo." };
+    }
+  }, [token]);
 
   async function aceptar() {
     if (!vista) return;
@@ -104,6 +148,10 @@ export function MiPedidoClient({ token }: { token: string }) {
       ? { total: totalSinOpciones, ahora: anticipoRequerido(totalSinOpciones), retirar: totalSinOpciones - anticipoRequerido(totalSinOpciones) }
       : null;
   const consulta = whatsappTienda(mensajeConsulta({ nombre: v.nombre, codigo: v.codigo, producto: v.producto }));
+  const pel = v.pagoEnLinea ?? { disponible: false, opciones: [], ultimo: null };
+  const conCaja = pel.disponible || pel.ultimo?.estado === "sin_respuesta";
+  const recibidoAhora = pel.ultimo?.estado === "recibido" && pel.ultimo.codigo === pagoReciente ? pel.ultimo : null;
+  const enRevision = pel.ultimo?.estado === "revision" ? pel.ultimo : null;
 
   const subtitulo: Record<typeof v.fase, string> = {
     preparando: "Estamos preparando tu cotización.",
@@ -207,13 +255,23 @@ export function MiPedidoClient({ token }: { token: string }) {
             ...(v.pago.total - v.pago.paraConfirmar > 0.009 ? [["Al retirar", usd(v.pago.total - Math.max(v.pago.paraConfirmar, v.pago.pagado)), "font-semibold"] as [string, string, string]] : []),
           ]} />
 
+          {enRevision && <AvisoPagoEnRevision pago={enRevision} />}
           <section className={`${caja} flex flex-col gap-3 p-4 animate-[sg-entrada_220ms_ease-out]`}>
-            <p className="font-bold text-[#F0F0EC]">Paga {usd(v.pago.faltaParaConfirmar)} para confirmar</p>
-            <button type="button" disabled={!v.pagoTarjeta}
-              className="flex h-12 items-center justify-center gap-2 rounded-xl border border-[#3A3A36] bg-[#252622] font-bold text-[#F0F0EC] disabled:text-[#8E8E87]">
-              <CreditCard size={17} aria-hidden /> Pagar con tarjeta · PayPhone
-              {!v.pagoTarjeta && <span className="rounded-full bg-[#2A2B27] px-2 py-0.5 text-[11px] font-semibold">Pronto</span>}
-            </button>
+            {conCaja ? (
+              // Punto 23 / 10D (maqueta 6a): pago con tarjeta encendido.
+              <CajaDeCobro opciones={pel.opciones} abrir={abrirPago} ultimo={pel.ultimo} pagoReciente={pagoReciente}
+                onAbierta={setCajitaAbierta} onActualizar={() => void cargar()} />
+            ) : (
+              <>
+                <p className="font-bold text-[#F0F0EC]">Paga {usd(v.pago.faltaParaConfirmar)} para confirmar</p>
+                <button type="button" disabled
+                  className="flex h-12 items-center justify-center gap-2 rounded-xl border border-[#3A3A36] bg-[#252622] font-bold text-[#F0F0EC] disabled:text-[#8E8E87]">
+                  <CreditCard size={17} aria-hidden /> Pagar con tarjeta · PayPhone
+                  <span className="rounded-full bg-[#2A2B27] px-2 py-0.5 text-[11px] font-semibold">Pronto</span>
+                </button>
+              </>
+            )}
+            {!cajitaAbierta && pel.ultimo?.estado !== "sin_respuesta" && (<>
             <p className="text-center text-xs text-[#B5B5AE]">o por transferencia</p>
             <div className="flex flex-col gap-1.5 rounded-xl bg-[#252622] p-3 text-sm">
               <span className="text-xs text-[#B5B5AE]">{TIENDA.banco.nombre} · {TIENDA.banco.tipo}</span>
@@ -233,6 +291,7 @@ export function MiPedidoClient({ token }: { token: string }) {
             {v.opciones.length > 1 && !vencida && (
               <button type="button" onClick={() => { setCambiando(true); setAviso(""); }} className="h-9 text-xs text-[#B5B5AE] underline">Cambiar de opción</button>
             )}
+            </>)}
           </section>
         </>
       )}
@@ -240,6 +299,8 @@ export function MiPedidoClient({ token }: { token: string }) {
       {/* ── Confirmado / entregado ──────────────────────────────────────── */}
       {(v.fase === "confirmado" || v.fase === "entregado") && v.elegido && (
         <>
+          {recibidoAhora && <AvisoPagoRecibido pago={recibidoAhora} />}
+          {enRevision && <AvisoPagoEnRevision pago={enRevision} />}
           {v.seguimiento?.aviso && (
             <a href={consulta} target="_blank" rel="noreferrer"
               className="flex items-center gap-2 rounded-xl border border-[#FFB547]/40 bg-[#FFB547]/10 px-3.5 py-3 text-sm font-semibold text-[#FFB547] animate-[sg-entrada_220ms_ease-out]">
@@ -275,6 +336,13 @@ export function MiPedidoClient({ token }: { token: string }) {
             <Fila k="Total" val={usd(v.pago.total)} clase="font-bold" />
             <Fila k="Pagaste" val={usd(v.pago.pagado)} />
             {v.pago.faltaTotal > 0.009 && <Fila k="Falta (al retirar)" val={usd(v.pago.faltaTotal)} clase="font-bold text-[#FFB547]" />}
+            {v.fase === "confirmado" && conCaja && (
+              // Punto 23 / 10D (maqueta 6b): pagar lo que falta antes de retirar.
+              <div className="mt-1">
+                <CajaDeCobro titulo="saldo" alternativa="o págalo en la tienda al retirar" opciones={pel.opciones} abrir={abrirPago}
+                  ultimo={pel.ultimo} pagoReciente={pagoReciente} onActualizar={() => void cargar()} />
+              </div>
+            )}
           </section>
         </>
       )}

@@ -10,7 +10,8 @@ import type { Movimiento } from "@/types/finanzas";
 // ya está facturada. La referencia de Abono (cuando aplica) ya viaja en
 // `observacion` — Fase 20.2 §1.2 la escribe ahí, sin necesidad de un campo
 // nuevo aquí.
-type PendienteAcreditar = Movimiento & { cuentaNombre: string | null; facturaNumero: string | null };
+type PagoEnLineaPendiente = { codigo: string; pasarela: string; medio: string; tarifa: number; neto: number };
+type PendienteAcreditar = Movimiento & { cuentaNombre: string | null; facturaNumero: string | null; pagoEnLinea?: PagoEnLineaPendiente | null };
 
 type ApiListResponse = { success?: boolean; data?: PendienteAcreditar[]; error?: string };
 type ApiAcreditarResponse = { success?: boolean; error?: string; code?: string };
@@ -27,7 +28,8 @@ function formatFecha(iso: string) {
 
 function FilaPendiente({ movimiento, onAcreditado }: { movimiento: PendienteAcreditar; onAcreditado: () => void }) {
   const [expandido, setExpandido] = useState(false);
-  const [montoNeto, setMontoNeto] = useState(String(movimiento.monto));
+  // Punto 23 / 10D: un pago en línea trae su neto calculado (lo que llega a SGINGRESOS).
+  const [montoNeto, setMontoNeto] = useState(String(movimiento.pagoEnLinea?.neto ?? movimiento.monto));
   const [fecha, setFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -73,6 +75,11 @@ function FilaPendiente({ movimiento, onAcreditado }: { movimiento: PendienteAcre
             {movimiento.facturaNumero ? ` · Factura ${movimiento.facturaNumero}` : ""}
           </p>
           {movimiento.observacion ? <p className="mt-0.5 truncate text-[13px] text-[#8F908A]">{movimiento.observacion}</p> : null}
+          {movimiento.pagoEnLinea ? (
+            <p className="mt-0.5 text-[13px] tabular-nums text-[#D7FF4F]">
+              {movimiento.pagoEnLinea.pasarela} {movimiento.pagoEnLinea.codigo} · neto {formatMonto(movimiento.pagoEnLinea.neto)} · tarifa {formatMonto(movimiento.pagoEnLinea.tarifa)}
+            </p>
+          ) : null}
         </div>
         <span className="shrink-0 text-xs text-[#8F908A]">{expandido ? "Cerrar" : "Acreditar"}</span>
       </button>
