@@ -40,6 +40,7 @@ const F = {
 // Campos inversos (creados por Airtable al enlazar). Se leen por ID: si
 // alguien los renombra, el código sigue funcionando.
 const INVERSO_EN_PEDIDO = "fldq0jqHo6cGSslKi"; // Operación Comercial → Pagos en línea
+const INVERSO_EN_ORDEN = "fldmNCmymgPgrIE17"; // Órdenes de Reparación → Pagos en línea
 const INVERSO_EN_ABONO = "fldKsjHYCgGFCDzi3"; // Abonos → Pagos en línea
 
 export type IntentoRegistro = {
@@ -204,6 +205,13 @@ async function inversos(tabla: string, recordId: string, campoId: string): Promi
 /** Intentos de un pedido, del más antiguo al más nuevo. */
 export async function intentosDelPedido(pedidoId: string): Promise<IntentoRegistro[]> {
   const ids = await inversos("Operación Comercial", pedidoId, INVERSO_EN_PEDIDO);
+  if (!ids.length) return [];
+  return (await fetchRecordsByIds(T_PAGOS, ids)).map(mapear).sort((a, b) => a.numero - b.numero);
+}
+
+/** Intentos de una orden de reparación, del más antiguo al más nuevo (17-nov). */
+export async function intentosDeLaOrden(ordenId: string): Promise<IntentoRegistro[]> {
+  const ids = await inversos("Órdenes de Reparación", ordenId, INVERSO_EN_ORDEN);
   if (!ids.length) return [];
   return (await fetchRecordsByIds(T_PAGOS, ids)).map(mapear).sort((a, b) => a.numero - b.numero);
 }

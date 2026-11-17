@@ -3,16 +3,22 @@ import "server-only";
 // Caja de cobro en línea — lado servidor (punto 23 / 10D, 17-nov-2026).
 // Reglas puras en ./reglas.ts; tabla en ./airtable.ts; pasarela en ./payphone.ts.
 //
-// Recorrido (Camila paga $205 del monitor):
-//   1. abrirPagoPedido: el servidor calcula el monto con la cuenta del momento,
-//      guarda el intento PL-000001 ("Abierto") y devuelve los datos de la cajita.
+// UN SOLO MOTOR para todo lo que se cobra por enlace (dueño, 16-nov): hoy el
+// pedido especial (/mi-pedido) y la orden de reparación (/presupuesto, maquetas
+// 7a/7b del 17-nov); después, los enlaces de pago sueltos. Lo único que cambia
+// por origen es "de dónde sale la cuenta" y "a quién se avisa" (cuentaCaja).
+//
+// Recorrido (Camila paga $105 de los repuestos de su orden):
+//   1. abrirPago: el servidor calcula el monto con la cuenta del momento,
+//      guarda el intento PL-000012 ("Abierto") y devuelve los datos de la cajita.
 //   2. Camila paga en la cajita; PayPhone la devuelve a /api/publico/payphone/retorno.
 //   3. procesarIntento: confirma con PayPhone (≤ 5 min), verifica código,
 //      monto y moneda, guarda tarifa y neto ("Aprobado").
 //   4. aplicarIntento: decide (Aplicado / En revisión), registra el abono
-//      "PayPhone" UNA vez, su movimiento en Finanzas (Tarjetas en Tránsito,
-//      pendiente de acreditar) y pasa por la puerta única
-//      confirmarPedidoSiPagado → "Pedido confirmado".
+//      "PayPhone" UNA vez y su movimiento en Finanzas (Tarjetas en Tránsito,
+//      pendiente de acreditar). Pedido: pasa por la puerta única
+//      confirmarPedidoSiPagado. Orden: las reglas de compra deciden solas qué
+//      repuestos se piden (pagados todos los del grupo).
 // Cada paso se puede repetir sin duplicar el anterior: si algo falla a la
 // mitad, el siguiente retorno o la siguiente visita del cliente lo completa.
 
@@ -21,23 +27,91 @@ import {
   airtableMutation, airtableRequest, escapeFormulaString, firstNumber, tableUrl, type AirtableListResponse,
 } from "@/lib/finanzas/airtable-client";
 import { crearAbono } from "@/lib/operaciones/airtable";
+import { createAbonoPorOrden } from "@/lib/tecnicos/airtable";
 import { anularMovimientoDeAbono, crearMovimientoParaAbono } from "@/lib/finanzas/puentes/abonos";
+import { verificarAbonoPermitido } from "@/lib/facturacion/gancho/cobroOrigen";
 import {
   avisarPedido, confirmarPedidoSiPagado, cuentaParaCobroDelPedido, pedidoIdDelToken, tokenDelPedido, RUTA_PUBLICA_PEDIDO,
 } from "@/lib/pedidos-especiales/enlace";
+import {
+  avisarOrden, cuentaParaCobroDeLaOrden, ordenIdDelToken, tokenDeLaOrden, RUTA_PUBLICA as RUTA_PUBLICA_ORDEN,
+} from "@/lib/tecnicos/presupuesto/enlace";
 import { hoyEcuador } from "@/lib/pedidos-especiales/retiro";
 import { configPasarela, pasarelaDisponible } from "./config";
 import { confirmarEnPayPhone, parametrosCajita, type ParametrosCajita } from "./payphone";
 import {
-  actualizarIntento, crearIntento, intentoPorCodigo, intentosDelPedido, intentosPorTransaccion, type IntentoRegistro,
+  actualizarIntento, crearIntento, intentoPorCodigo, intentosDeLaOrden, intentosDelPedido, intentosPorTransaccion, type IntentoRegistro,
 } from "./airtable";
 import {
-  CODIGO_PAGO_REGEX, decidirAplicacion, desgloseIva, estadoVisible, evaluarConfirmacion,
-  leerDecision, minutosDesde, montoACobrar, resumenPago, tarifaYNeto, textoDecision, type ParaPago,
+  CODIGO_PAGO_REGEX, decidirAplicacion, decidirAplicacionOrden, desgloseIva, estadoVisible, evaluarConfirmacion,
+  leerDecision, minutosDesde, montoACobrar, montoDeOpcion, opcionesDePagoOrden, resumenPago, tarifaYNeto, textoDecision,
+  type DecisionAplicar, type ParaPago,
 } from "./reglas";
 
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
-const llave = (pedidoId: string) => `pago-en-linea:${pedidoId}`;
+
+// ─── De dónde sale la cuenta ────────────────────────────────────────────────
+
+type Destino = { origen: "Pedido" | "Orden"; id: string };
+
+const llave = (d: Destino) => `pago-en-linea:${d.id}`;
+
+function destinoDe(i: IntentoRegistro): Destino | null {
+  if (i.pedidoId) return { origen: "Pedido", id: i.pedidoId };
+  if (i.ordenId) return { origen: "Orden", id: i.ordenId };
+  return null;
+}
+
+/** Lo único que cambia entre un pedido y una orden. */
+type CuentaCaja = {
+  codigo: string;
+  clienteNombre: string;
+  /** Lo que ve el cliente en la cajita de PayPhone. */
+  referencia: string;
+  /** Huella de la elección del cliente (solo pedidos; en órdenes ""). */
+  eleccion: string;
+  monto(para: ParaPago): { ok: true; monto: number } | { ok: false; error: string };
+  decidir(x: { para: ParaPago; monto: number; eleccionAlPagar: string }): DecisionAplicar;
+};
+
+async function cuentaCaja(d: Destino): Promise<CuentaCaja> {
+  if (d.origen === "Pedido") {
+    const c = await cuentaParaCobroDelPedido(d.id);
+    return {
+      codigo: c.codigo,
+      clienteNombre: c.clienteNombre,
+      referencia: `Pedido ${c.codigo}${c.producto ? ` · ${c.producto}` : ""}`,
+      eleccion: c.eleccion,
+      monto: (para) => montoACobrar(c.vista, para),
+      decidir: (x) => decidirAplicacion({ para: x.para, monto: x.monto, cuenta: c.vista, eleccionAlPagar: x.eleccionAlPagar, eleccionAhora: c.eleccion }),
+    };
+  }
+  const c = await cuentaParaCobroDeLaOrden(d.id);
+  return {
+    codigo: c.codigo,
+    clienteNombre: c.clienteNombre,
+    referencia: `Orden ${c.codigo}${c.equipo ? ` · ${c.equipo}` : ""}`,
+    eleccion: "",
+    monto: (para) => montoDeOpcion(opcionesDePagoOrden(c.cuenta), para),
+    decidir: (x) => decidirAplicacionOrden({ monto: x.monto, cuenta: c.cuenta }),
+  };
+}
+
+const intentosDe = (d: Destino) => (d.origen === "Pedido" ? intentosDelPedido(d.id) : intentosDeLaOrden(d.id));
+
+function avisar(d: Destino, titulo: string, mensaje: string, prioridad: "Normal" | "Alta"): Promise<void> {
+  return d.origen === "Pedido" ? avisarPedido(d.id, titulo, mensaje, prioridad) : avisarOrden(d.id, titulo, mensaje, prioridad);
+}
+
+/** A dónde vuelve el cliente: SIEMPRE el enlace guardado en el servidor. */
+async function rutaPublica(d: Destino): Promise<string | null> {
+  if (d.origen === "Pedido") {
+    const token = await tokenDelPedido(d.id);
+    return token ? `${RUTA_PUBLICA_PEDIDO}/${token}` : null;
+  }
+  const token = await tokenDeLaOrden(d.id);
+  return token ? `${RUTA_PUBLICA_ORDEN}/${token}` : null;
+}
 
 // ─── 1. Abrir la cajita ─────────────────────────────────────────────────────
 
@@ -45,18 +119,37 @@ export type ResultadoAbrir =
   | { ok: true; codigo: string; monto: number; cajita: ParametrosCajita }
   | { ok: false; status: number; error: string };
 
+/** Pedido especial: el cliente paga desde /mi-pedido/<token>. */
 export async function abrirPagoPedido(token: string, para: ParaPago): Promise<ResultadoAbrir> {
   const pedidoId = await pedidoIdDelToken(token);
   if (!pedidoId) return { ok: false, status: 404, error: "Este enlace no existe." };
+  return abrirPago({ origen: "Pedido", id: pedidoId }, para);
+}
+
+/** Orden de reparación: el cliente paga desde /presupuesto/<token> (maquetas 7a/7b). */
+export async function abrirPagoOrden(token: string, para: ParaPago): Promise<ResultadoAbrir> {
+  const ordenId = await ordenIdDelToken(token);
+  if (!ordenId) return { ok: false, status: 404, error: "Este enlace no existe." };
+  return abrirPago({ origen: "Orden", id: ordenId }, para);
+}
+
+async function abrirPago(d: Destino, para: ParaPago): Promise<ResultadoAbrir> {
   const config = configPasarela("PayPhone");
 
-  return withLock(llave(pedidoId), async (): Promise<ResultadoAbrir> => {
-    const cuenta = await cuentaParaCobroDelPedido(pedidoId);
+  return withLock(llave(d), async (): Promise<ResultadoAbrir> => {
+    const cuenta = await cuentaCaja(d);
     if (!pasarelaDisponible(config, cuenta.codigo)) return { ok: false, status: 409, error: "El pago con tarjeta no está disponible ahora. Puedes pagar por transferencia." };
-    const m = montoACobrar(cuenta.vista, para);
+    const m = cuenta.monto(para);
     if (!m.ok) return { ok: false, status: 409, error: m.error };
 
-    const intentos = await intentosDelPedido(pedidoId);
+    // Con factura o recibo ya emitidos, solo se cobra si queda saldo real
+    // (misma regla que "Registrar pago" de la orden).
+    if (d.origen === "Orden") {
+      const noPermitido = await verificarAbonoPermitido({ tipo: "orden", recordId: d.id }, m.monto);
+      if (noPermitido) return { ok: false, status: 409, error: "Este pago no se puede hacer en línea. Escríbenos o págalo en la tienda." };
+    }
+
+    const intentos = await intentosDe(d);
     if (intentos.some((i) => estadoVisible(i) === "sin_respuesta")) {
       return { ok: false, status: 409, error: "Estamos confirmando tu pago anterior. No pagues otra vez." };
     }
@@ -72,16 +165,16 @@ export async function abrirPagoPedido(token: string, para: ParaPago): Promise<Re
     // Doble clic: el botón se bloquea mientras abre. Dos pestañas pagadas a la
     // vez: el segundo pago queda "En revisión" (pagó de más) y nunca se pierde;
     // y si un pago ya volvió sin confirmar, no se deja pagar otra vez (arriba).
-    const d = desgloseIva(m.monto);
+    const dIva = desgloseIva(m.monto);
     let intento = await crearIntento({
-      origen: "Pedido", pedidoId, pasarela: "PayPhone", ambiente: config.ambiente, para,
-      monto: m.monto, base: d.baseC / 100, iva: d.ivaC / 100, eleccion,
+      origen: d.origen, pedidoId: d.origen === "Pedido" ? d.id : undefined, ordenId: d.origen === "Orden" ? d.id : undefined,
+      pasarela: "PayPhone", ambiente: config.ambiente, para,
+      monto: m.monto, base: dIva.baseC / 100, iva: dIva.ivaC / 100, eleccion,
     });
     intento = await actualizarIntento(intento.id, {
       pago: resumenPago({ codigo: intento.codigo, cuenta: cuenta.codigo, monto: m.monto, pasarela: "PayPhone", ambiente: config.ambiente }),
     });
-    const referencia = `Pedido ${cuenta.codigo}${cuenta.producto ? ` · ${cuenta.producto}` : ""}`;
-    return { ok: true, codigo: intento.codigo, monto: intento.monto, cajita: parametrosCajita(config, { codigo: intento.codigo, monto: intento.monto, referencia }) };
+    return { ok: true, codigo: intento.codigo, monto: intento.monto, cajita: parametrosCajita(config, { codigo: intento.codigo, monto: intento.monto, referencia: cuenta.referencia }) };
   });
 }
 
@@ -91,30 +184,40 @@ export async function abrirPagoPedido(token: string, para: ParaPago): Promise<Re
 export async function procesarRetornoPayPhone(idPayPhone: string, codigo: string): Promise<string | null> {
   if (!CODIGO_PAGO_REGEX.test(codigo)) return null;
   const intento = await intentoPorCodigo(codigo);
-  if (!intento?.pedidoId) return null;
+  const d = intento ? destinoDe(intento) : null;
+  if (!intento || !d) return null;
   const id = /^\d{1,15}$/.test(idPayPhone) ? idPayPhone : "";
   try {
-    await procesarIntento(intento.pedidoId, intento.codigo, id);
+    await procesarIntento(d, intento.codigo, id);
   } catch (e) {
     // El cliente vuelve igual a su página: verá "Estamos confirmando tu pago".
     console.error("[pagos en línea] retorno:", e);
   }
-  const token = await tokenDelPedido(intento.pedidoId);
-  return token ? `${RUTA_PUBLICA_PEDIDO}/${token}?pago=${encodeURIComponent(intento.codigo)}` : null;
+  const ruta = await rutaPublica(d);
+  return ruta ? `${ruta}?pago=${encodeURIComponent(intento.codigo)}` : null;
 }
 
 /** Visita del cliente con un pago "sin respuesta": se reintenta confirmar o aplicar. */
 export async function reanudarPagosDelEnlace(token: string): Promise<void> {
   const pedidoId = await pedidoIdDelToken(token);
-  if (!pedidoId) return;
-  const pendientes = (await intentosDelPedido(pedidoId)).filter((i) => i.estado === "Aprobado" || (i.estado === "Abierto" && !!i.idTransaccion));
+  if (pedidoId) await reanudar({ origen: "Pedido", id: pedidoId });
+}
+
+/** Lo mismo para el enlace del presupuesto de una orden. */
+export async function reanudarPagosDeLaOrden(token: string): Promise<void> {
+  const ordenId = await ordenIdDelToken(token);
+  if (ordenId) await reanudar({ origen: "Orden", id: ordenId });
+}
+
+async function reanudar(d: Destino): Promise<void> {
+  const pendientes = (await intentosDe(d)).filter((i) => i.estado === "Aprobado" || (i.estado === "Abierto" && !!i.idTransaccion));
   for (const i of pendientes) {
-    await procesarIntento(pedidoId, i.codigo, "").catch((e) => console.error("[pagos en línea] reanudar:", i.codigo, e));
+    await procesarIntento(d, i.codigo, "").catch((e) => console.error("[pagos en línea] reanudar:", i.codigo, e));
   }
 }
 
-async function procesarIntento(pedidoId: string, codigo: string, idPayPhone: string): Promise<void> {
-  await withLock(llave(pedidoId), async () => {
+async function procesarIntento(d: Destino, codigo: string, idPayPhone: string): Promise<void> {
+  await withLock(llave(d), async () => {
     let intento = await intentoPorCodigo(codigo);
     if (!intento) return;
     if (intento.estado === "Aplicado" || intento.estado === "En revisión" || intento.estado === "Rechazado") return;
@@ -177,8 +280,9 @@ async function aplicarConAviso(intento: IntentoRegistro): Promise<void> {
     await aplicarIntento(intento);
   } catch (e) {
     console.error("[pagos en línea] aplicar:", intento.codigo, e);
-    if (intento.pedidoId) {
-      await avisarPedido(intento.pedidoId, `Pago en línea sin registrar · ${intento.codigo}`,
+    const d = destinoDe(intento);
+    if (d) {
+      await avisar(d, `Pago en línea sin registrar · ${intento.codigo}`,
         `PayPhone aprobó ${usd(intento.monto)} (${intento.codigo}) pero no se pudo registrar el abono. Se reintenta cuando el cliente abra su enlace; si no, avisa a Claude.`, "Alta")
         .catch(() => undefined);
     }
@@ -189,8 +293,8 @@ async function aplicarConAviso(intento: IntentoRegistro): Promise<void> {
 // ─── 3. Registrar el dinero ─────────────────────────────────────────────────
 
 async function aplicarIntento(intento: IntentoRegistro): Promise<void> {
-  const pedidoId = intento.pedidoId;
-  if (!pedidoId) return;
+  const d = destinoDe(intento);
+  if (!d) return;
 
   // Anti-duplicado (opción A): el mismo pago de PayPhone en dos intentos →
   // gana el primero (el de número menor).
@@ -204,11 +308,8 @@ async function aplicarIntento(intento: IntentoRegistro): Promise<void> {
   // La decisión se guarda ANTES del abono: si hay que reintentar, se usa la misma.
   let decision = leerDecision(intento.detalle);
   if (!decision) {
-    const cuenta = await cuentaParaCobroDelPedido(pedidoId);
-    decision = decidirAplicacion({
-      para: intento.para, monto: intento.monto, cuenta: cuenta.vista,
-      eleccionAlPagar: intento.eleccion, eleccionAhora: cuenta.eleccion,
-    });
+    const cuenta = await cuentaCaja(d);
+    decision = cuenta.decidir({ para: intento.para, monto: intento.monto, eleccionAlPagar: intento.eleccion });
     intento = await actualizarIntento(intento.id, { detalle: textoDecision(decision) });
   }
 
@@ -219,17 +320,26 @@ async function aplicarIntento(intento: IntentoRegistro): Promise<void> {
     intento.tarjeta || intento.medio,
     intento.autorizacion ? `aut. ${intento.autorizacion}` : "",
   ].filter(Boolean).join(" · ");
-  const registradoPor = "PayPhone (enlace del cliente)";
+  const registradoPor = d.origen === "Pedido" ? "PayPhone (enlace del cliente)" : "PayPhone (enlace del presupuesto)";
   const fecha = hoyEcuador();
 
   // El dinero es real: el abono se registra siempre (una sola vez).
   let abonoId = intento.abonoId ?? (await abonosDeTransaccion(intento.idTransaccion))[0]?.id ?? null;
   if (!abonoId) {
-    const creado = await crearAbono({
-      monto: intento.monto, metodoPago: "PayPhone", fechaAbono: fecha, numeroTransaccion: intento.idTransaccion,
-      observacion, registradoPor, operacionId: pedidoId, ordenId: null,
-    });
-    abonoId = creado.id;
+    if (d.origen === "Pedido") {
+      const creado = await crearAbono({
+        monto: intento.monto, metodoPago: "PayPhone", fechaAbono: fecha, numeroTransaccion: intento.idTransaccion,
+        observacion, registradoPor, operacionId: d.id, ordenId: null,
+      });
+      abonoId = creado.id;
+    } else {
+      // El mismo registro que "Registrar pago" de la orden (enlaza también su pedido viejo, si lo tiene).
+      const creado = await createAbonoPorOrden({
+        ordenRecordId: d.id, fecha, monto: intento.monto, metodoPago: "PayPhone",
+        numeroTransaccion: intento.idTransaccion, observacion, registradoPor,
+      });
+      abonoId = creado.abono.id;
+    }
   }
   // Verificación posterior entre instancias: si quedaron dos abonos del mismo
   // pago, gana el de menor ID Abono y el otro se anula (nunca se borra).
@@ -254,23 +364,23 @@ async function aplicarIntento(intento: IntentoRegistro): Promise<void> {
 
   await actualizarIntento(intento.id, { estado: decision.estado, detalle: textoDecision(decision) + aviso });
 
-  const cuenta = await cuentaParaCobroDelPedido(pedidoId);
+  const cuenta = await cuentaCaja(d);
   const quien = `${cuenta.clienteNombre || "El cliente"}`;
   if (decision.estado === "En revisión") {
-    await avisarPedido(pedidoId, `Pago en línea por revisar · ${cuenta.codigo}`,
+    await avisar(d, `Pago en línea por revisar · ${cuenta.codigo}`,
       `${quien} pagó ${usd(intento.monto)} con PayPhone (${intento.codigo}). ${decision.motivo} El abono quedó registrado; decide qué hacer.${aviso}`, "Alta")
       .catch((e) => console.warn("[pagos en línea] aviso:", e));
     return;
   }
   let confirmado = false;
-  if (decision.confirmar) {
-    confirmado = await confirmarPedidoSiPagado(pedidoId, `Pago PayPhone verificado (${intento.codigo})`).catch((e) => {
+  if (d.origen === "Pedido" && decision.confirmar) {
+    confirmado = await confirmarPedidoSiPagado(d.id, `Pago PayPhone verificado (${intento.codigo})`).catch((e) => {
       console.error("[pagos en línea] confirmar pedido:", e);
       return false;
     });
   }
   if (!confirmado) {
-    await avisarPedido(pedidoId, `Pago en línea recibido · ${cuenta.codigo}`,
+    await avisar(d, `Pago en línea recibido · ${cuenta.codigo}`,
       `${quien} pagó ${usd(intento.monto)} con PayPhone (${intento.codigo}).${aviso}`, "Normal")
       .catch((e) => console.warn("[pagos en línea] aviso:", e));
   }
@@ -278,8 +388,9 @@ async function aplicarIntento(intento: IntentoRegistro): Promise<void> {
 
 async function marcarRevision(intento: IntentoRegistro, motivo: string): Promise<void> {
   await actualizarIntento(intento.id, { estado: "En revisión", detalle: textoDecision({ estado: "En revisión", motivo }) });
-  if (intento.pedidoId) {
-    await avisarPedido(intento.pedidoId, `Pago en línea por revisar · ${intento.codigo}`,
+  const d = destinoDe(intento);
+  if (d) {
+    await avisar(d, `Pago en línea por revisar · ${intento.codigo}`,
       `${motivo} No se registró ningún abono automáticamente.`, "Alta").catch((e) => console.warn("[pagos en línea] aviso:", e));
   }
 }

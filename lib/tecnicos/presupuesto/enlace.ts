@@ -34,6 +34,15 @@ import {
 } from "@/lib/tecnicos/carteles/reglas";
 import { getFacturacionConfig } from "@/lib/facturacion/config";
 import { enmascararCedula, generarPresupuestoPdf } from "./pdf";
+import { porIds, estadosDeCuentaDeOrdenes, CAMPOS_ORDEN_CUENTA } from "@/lib/estado-cuenta/airtable";
+import { CAMPO_INVERSO as CAMPO_SOLICITUDES, solicitudesPorIds } from "@/lib/compras/airtable";
+import { faltaParaRepuestos } from "@/lib/compras/reglas";
+import { linkedIds } from "@/lib/finanzas/airtable-client";
+import { configPasarela, pasarelaDisponible } from "@/lib/pagos-en-linea/config";
+import { intentosDeLaOrden } from "@/lib/pagos-en-linea/airtable";
+import {
+  opcionesDePagoOrden, pagoParaMostrar, type CuentaOrdenParaCobro, type OpcionDePago, type PagoVisible,
+} from "@/lib/pagos-en-linea/reglas";
 
 export const RUTA_PUBLICA = "/presupuesto";
 
@@ -120,6 +129,14 @@ export type VistaPublica = {
   carteles: Record<string, CartelPublico>;
   /** Avisos de toda la orden que se aceptan al enviar. */
   alertasGenerales: AlertaPublica[];
+  /**
+   * Maquetas 7a/7b (dueño, 17-nov): "Tus pagos" con la cuenta de la orden
+   * (calculadora única) y la caja de cobro en línea. El vencimiento del
+   * enlace solo frena aprobar o cambiar: ver la cuenta y pagar sigue hasta
+   * entregar.
+   */
+  cuenta: { total: number; pagado: number; falta: number; faltaRepuestos: number } | null;
+  pagoEnLinea: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null };
 } & ReturnType<typeof construirVista>;
 
 export async function vistaPublica(token: string): Promise<VistaPublica | null> {
@@ -127,8 +144,13 @@ export async function vistaPublica(token: string): Promise<VistaPublica | null> 
   if (!o) return null;
   const [lineas, resps] = await Promise.all([listarLineas(o.id), leerRespuestasOrden(o.id)]);
   const vista = construirVista(lineas, detalleDeRespuestas(resps));
-  const cons = await consentimientosDeLaOrden(lineas);
+  const [cons, cobro] = await Promise.all([
+    consentimientosDeLaOrden(lineas),
+    cobroDeLaOrden(o).catch((e) => { console.error("[presupuesto enlace] cuenta:", e); return null; }),
+  ]);
   return {
+    cuenta: cobro ? cobro.cuentaVisible : null,
+    pagoEnLinea: cobro ? cobro.pagoEnLinea : { disponible: false, opciones: [], ultimo: null },
     estado: estadoEnlace(o.vence, o.bloqueadoHasta),
     carteles: Object.fromEntries(cons.porLinea),
     alertasGenerales: cons.alertas,
@@ -145,6 +167,88 @@ export async function vistaPublica(token: string): Promise<VistaPublica | null> 
     ultimaRespuesta: resps[0] ? { fecha: resps[0].fecha, nombre: resps[0].nombre } : null,
     ...vista,
   };
+}
+
+// ─── Caja de cobro de la orden (maquetas 7a/7b, dueño 17-nov) ────────────────
+
+/** Estados en los que la orden ya no recibe pagos en línea (ver lib/entrega/reglas.ts). */
+const ESTADOS_ORDEN_CERRADA = new Set(["Finalizado Entregado", "Enviado a Reciclaje"]);
+
+type CobroDeLaOrden = {
+  codigo: string;
+  clienteNombre: string;
+  equipo: string;
+  cuenta: CuentaOrdenParaCobro;
+  cuentaVisible: { total: number; pagado: number; falta: number; faltaRepuestos: number } | null;
+  pagoEnLinea: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null };
+};
+
+/**
+ * La cuenta de la orden tal como la ve el cliente. Sale de la calculadora
+ * única (estadosDeCuentaDeOrdenes) y de las solicitudes de compra (repuestos
+ * bajo pedido); el monto a cobrar sale de aquí, nunca del navegador.
+ */
+async function cobroDeLaOrden(o: OrdenEnlace): Promise<CobroDeLaOrden> {
+  const reg = (await porIds("Órdenes de Reparación", [o.id], [CAMPO_SOLICITUDES, ...CAMPOS_ORDEN_CUENTA])).get(o.id);
+  const [cuentas, solicitudes, intentos] = await Promise.all([
+    reg ? estadosDeCuentaDeOrdenes([reg]) : Promise.resolve(new Map()),
+    reg ? solicitudesPorIds(linkedIds(reg.fields[CAMPO_SOLICITUDES])) : Promise.resolve([]),
+    intentosDeLaOrden(o.id).catch((e) => { console.error("[presupuesto enlace] pagos en línea:", e); return []; }),
+  ]);
+  const c = cuentas.get(o.id);
+  const pagado = c?.totalAbonado ?? 0;
+  const cuenta: CuentaOrdenParaCobro = {
+    cerrada: ESTADOS_ORDEN_CERRADA.has(o.estadoOrden),
+    porCobrar: c?.porCobrar ?? 0,
+    faltaRepuestos: faltaParaRepuestos(solicitudes, pagado),
+  };
+  const disponible = pasarelaDisponible(configPasarela("PayPhone"), o.idVisible);
+  const opciones = disponible ? opcionesDePagoOrden(cuenta) : [];
+  const ultimo = pagoParaMostrar(intentos);
+  // Volvió de PayPhone y todavía no se confirma: no se ofrece pagar otra vez.
+  const bloquear = ultimo?.estado === "sin_respuesta";
+  return {
+    codigo: o.idVisible,
+    clienteNombre: o.clienteNombre,
+    equipo: o.equipo,
+    cuenta,
+    cuentaVisible: c && c.totalCuenta > 0.009
+      ? { total: c.totalCuenta, pagado, falta: cuenta.porCobrar, faltaRepuestos: Math.min(cuenta.faltaRepuestos, cuenta.porCobrar) }
+      : null,
+    pagoEnLinea: { disponible: disponible && opciones.length > 0 && !bloquear, opciones, ultimo },
+  };
+}
+
+/** Pagos en línea: la orden de un enlace (null si el token no vale). */
+export async function ordenIdDelToken(token: string): Promise<string | null> {
+  return (await ordenDelToken(token))?.id ?? null;
+}
+
+/** Pagos en línea: el token del enlace de una orden ("" si no tiene). */
+export async function tokenDeLaOrden(ordenId: string): Promise<string> {
+  const o = await leerOrdenEnlace(ordenId);
+  return o.token && TOKEN_REGEX.test(o.token) ? o.token : "";
+}
+
+/** Pagos en línea: la cuenta de la orden para abrir y aplicar un pago. */
+export async function cuentaParaCobroDeLaOrden(ordenId: string): Promise<Omit<CobroDeLaOrden, "cuentaVisible" | "pagoEnLinea">> {
+  const c = await cobroDeLaOrden(await leerOrdenEnlace(ordenId));
+  return { codigo: c.codigo, clienteNombre: c.clienteNombre, equipo: c.equipo, cuenta: c.cuenta };
+}
+
+/** Pagos en línea: avisa a técnicos y administradores (mismos destinatarios que la respuesta del cliente). */
+export async function avisarOrden(ordenId: string, titulo: string, mensaje: string, prioridad: "Normal" | "Alta"): Promise<void> {
+  const usuarios = (await listPortalUsers()).filter((u) => u.activo && (isAdministratorRole(u.rol) || canAccessApp({ rol: u.rol, appsPermitidas: u.appsPermitidas } as never, "Técnicos")));
+  await Promise.allSettled(usuarios.map((u) => crearNotificacion({
+    destinatarioId: u.id,
+    tipo: "Reparación",
+    titulo,
+    mensaje,
+    prioridad,
+    urlAccion: `/tecnicos/ordenes/${ordenId}`,
+    entidadTipo: "Orden Reparación",
+    entidadId: ordenId,
+  })));
 }
 
 export type ResultadoRespuesta =

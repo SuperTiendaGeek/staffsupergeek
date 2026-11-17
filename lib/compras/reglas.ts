@@ -77,19 +77,25 @@ export type Cobertura =
   | { tipo: "sin_pago"; precio: number };
 
 /**
- * Regla del dueño (2-nov-2026): un repuesto bajo pedido se compra cuando lo
- * pagado por la cuenta alcanza para SU PRECIO COMPLETO. Lo pagado se reparte
- * entre los repuestos en el orden en que el cliente los aprobó; los
- * cancelados no cuentan.
- * Ej.: OR000507 pagó $50; aprobó bisagras $30, tapa $15 y cover $60 →
- * bisagras y tapa cubiertas ($45), cover con anticipo parcial de $5.
+ * Regla del dueño (17-nov-2026, reemplaza la del 2-nov): los repuestos que el
+ * cliente aprobó JUNTOS se compran cuando están pagados TODOS (con el medio o
+ * los medios que quiera). Un repuesto aprobado después forma su propio grupo
+ * y espera su propio pago, sin frenar a los ya pagados. Lo pagado se aplica a
+ * los grupos en el orden en que se aprobaron; un grupo nunca se salta a otro
+ * anterior sin pagar. Los cancelados no cuentan.
+ * "Juntos" = aprobados con menos de MINUTOS_LOTE_APROBACION entre uno y otro
+ * (desde el enlace llevan la misma hora; en la tienda, segundos de diferencia).
+ * Ej.: OR000507 aprobó bisagras $30, tapa $15 y cover $60 → grupo de $105.
+ * Con $50 pagados: los tres esperan ("Anticipo parcial $50 de $105"). Con
+ * $105: se compran los tres. Si después aprueba un cable de $20, ese espera
+ * sus $20.
  */
 export function coberturaAnticipo(
   solicitudes: ReadonlyArray<Pick<SolicitudBase, "id" | "estado" | "cantidad" | "precioCliente" | "fechaAprobacion"> & { categoria?: string }>,
   totalPagado: number,
   /**
-   * "por_repuesto" (órdenes y pedidos viejos): cada repuesto se cubre con su
-   * precio completo, en el orden en que se aprobó. "pedido_especial" (punto
+   * "por_repuesto" (órdenes y pedidos viejos): cada GRUPO de repuestos
+   * aprobados juntos se cubre con su precio completo (dueño, 17-nov). "pedido_especial" (punto
    * 10, decisión del dueño 10-nov): el anticipo se mide sobre todo el pedido
    * con la regla de tramos (anticipoRequerido) y vale para todas sus compras.
    */
@@ -114,19 +120,59 @@ export function coberturaAnticipo(
     }
     return out;
   }
-  for (const s of vivas) {
-    const precio = r2(Math.max(1, s.cantidad || 1) * (s.precioCliente || 0));
-    if (precio <= TOLERANCIA || queda + TOLERANCIA >= precio) {
-      out.set(s.id, { tipo: "cubierta" });
+  let atascado = false;
+  for (const lote of lotesPorAprobacion(vivas)) {
+    const precio = r2(lote.reduce((sum, s) => sum + precioDeSolicitud(s), 0));
+    if (!atascado && (precio <= TOLERANCIA || queda + TOLERANCIA >= precio)) {
+      for (const s of lote) out.set(s.id, { tipo: "cubierta" });
       queda = r2(Math.max(0, queda - precio));
-    } else if (queda > TOLERANCIA) {
-      out.set(s.id, { tipo: "parcial", pagado: queda, precio });
-      queda = 0;
-    } else {
-      out.set(s.id, { tipo: "sin_pago", precio });
+      continue;
     }
+    // El primer grupo sin pagar completo se queda con lo que sobra; los
+    // siguientes esperan (el dinero nunca se salta un grupo anterior).
+    const pagado = atascado ? 0 : queda;
+    for (const s of lote) out.set(s.id, pagado > TOLERANCIA ? { tipo: "parcial", pagado, precio } : { tipo: "sin_pago", precio });
+    queda = 0;
+    atascado = true;
   }
   return out;
+}
+
+/** Minutos máximos entre dos aprobaciones para que cuenten como el mismo grupo. */
+export const MINUTOS_LOTE_APROBACION = 30;
+
+const precioDeSolicitud = (s: Pick<SolicitudBase, "cantidad" | "precioCliente">) =>
+  r2(Math.max(1, s.cantidad || 1) * (s.precioCliente || 0));
+
+/** Grupos de solicitudes aprobadas juntas (ya vienen ordenadas por fecha de aprobación). */
+function lotesPorAprobacion<T extends Pick<SolicitudBase, "fechaAprobacion">>(ordenadas: readonly T[]): T[][] {
+  const lotes: T[][] = [];
+  let anterior = NaN;
+  for (const s of ordenadas) {
+    const t = Date.parse(s.fechaAprobacion || "");
+    const mismo = lotes.length > 0 && (Number.isFinite(t) && Number.isFinite(anterior)
+      ? t - anterior <= MINUTOS_LOTE_APROBACION * 60_000
+      : !Number.isFinite(t) && !Number.isFinite(anterior));
+    if (mismo) lotes[lotes.length - 1].push(s);
+    else lotes.push([s]);
+    anterior = t;
+  }
+  return lotes;
+}
+
+/**
+ * Cuánto falta para que TODOS los repuestos bajo pedido vivos de la cuenta
+ * queden pagados (caja de cobro de la orden: opción "Repuestos"). Las
+ * licencias no piden anticipo. Ej.: repuestos $105, pagado $0 → $105.
+ */
+export function faltaParaRepuestos(
+  solicitudes: ReadonlyArray<Pick<SolicitudBase, "estado" | "cantidad" | "precioCliente"> & { categoria?: string }>,
+  totalPagado: number,
+): number {
+  const total = solicitudes
+    .filter((s) => s.estado !== "Cancelada" && !esCategoriaLicencia(s.categoria))
+    .reduce((sum, s) => sum + precioDeSolicitud(s), 0);
+  return r2(Math.max(0, total - Math.max(0, totalPagado)));
 }
 
 // ─── El chip ─────────────────────────────────────────────────────────────────

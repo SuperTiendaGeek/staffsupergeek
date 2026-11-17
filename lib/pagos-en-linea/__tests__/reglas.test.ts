@@ -5,6 +5,7 @@
 import {
   codigoPago, decidirAplicacion, leerDecision, pagoParaMostrar, textoDecision, desgloseIva, estadoVisible, evaluarConfirmacion, huellaEleccion, medioPayPhone,
   montoACobrar, opcionesDePago, resumenPago, tarifaYNeto, tarjetaVisible, type CuentaParaCobro,
+  decidirAplicacionOrden, montoDeOpcion, opcionesDePagoOrden,
 } from "../reglas";
 
 let fallos = 0;
@@ -110,6 +111,29 @@ assert(pagoParaMostrar([fila("PL-000001", "Vencido")], ahora) === null, "solo ca
 // ── Textos ──────────────────────────────────────────────────────────────────
 assert(codigoPago(1) === "PL-000001" && codigoPago(1234567) === "PL-1234567", "código PL");
 assert(resumenPago({ codigo: "PL-000001", cuenta: "OP-142", monto: 205, pasarela: "PayPhone", ambiente: "Prueba" }) === "PL-000001 · OP-142 · $205.00 · PayPhone · PRUEBA", "resumen de la tabla");
+
+// ── Órdenes de reparación (7a/7b, dueño 17-nov) ──────────────────────────────
+{
+  const or507 = { cerrada: false, porCobrar: 145, faltaRepuestos: 105 };
+  const ops = opcionesDePagoOrden(or507);
+  assert(ops.length === 2 && ops[0].para === "Confirmar" && ops[0].monto === 105 && ops[1].para === "Todo" && ops[1].monto === 145,
+    "OR000507 sin pagos: Repuestos $105 · Todo $145");
+  assert(opcionesDePagoOrden({ cerrada: false, porCobrar: 40, faltaRepuestos: 0 }).map((o) => `${o.para} ${o.monto}`).join() === "Lo que falta 40",
+    "repuestos pagados: solo Lo que falta $40");
+  assert(opcionesDePagoOrden({ cerrada: false, porCobrar: 105, faltaRepuestos: 105 }).map((o) => o.para).join() === "Confirmar",
+    "si todo es repuestos: una sola opción");
+  assert(opcionesDePagoOrden({ cerrada: false, porCobrar: 50, faltaRepuestos: 80 })[0].monto === 50,
+    "Repuestos nunca supera lo que falta en la cuenta");
+  assert(opcionesDePagoOrden({ cerrada: true, porCobrar: 40, faltaRepuestos: 0 }).length === 0, "orden entregada: sin caja");
+  assert(opcionesDePagoOrden({ cerrada: false, porCobrar: 0, faltaRepuestos: 0 }).length === 0, "cuenta al día: sin caja");
+  const m = montoDeOpcion(ops, "Todo");
+  assert(m.ok && m.monto === 145, "el monto lo pone el servidor");
+  assert(!montoDeOpcion(ops, "Lo que falta").ok, "una opción que no existe se rechaza");
+  assert(decidirAplicacionOrden({ monto: 105, cuenta: or507 }).estado === "Aplicado", "pago de repuestos: se aplica");
+  const demas = decidirAplicacionOrden({ monto: 145, cuenta: { cerrada: false, porCobrar: 40, faltaRepuestos: 0 } });
+  assert(demas.estado === "En revisión", "pagó de más (otra pestaña): en revisión, nunca se pierde");
+  assert(decidirAplicacionOrden({ monto: 40, cuenta: { cerrada: true, porCobrar: 40, faltaRepuestos: 0 } }).estado === "En revisión", "orden ya entregada: en revisión");
+}
 
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log("\nTodo bien.");
