@@ -15,6 +15,7 @@ import { createPortal } from "react-dom";
 import { MonitorSmartphone, X } from "lucide-react";
 import { NOMBRE_VENTANA } from "@/lib/pantalla-cliente/reglas";
 import { usePantallaCliente } from "./usePantallaCliente";
+import { useConfigPantalla } from "./useConfigPantalla";
 import { VistaPantalla } from "./VistaPantalla";
 
 type Pantalla = { availLeft: number; availTop: number; availWidth: number; availHeight: number; isPrimary?: boolean };
@@ -23,11 +24,13 @@ type DetallesPantallas = { screens: Pantalla[]; currentScreen: Pantalla };
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 
 export function BotonPantallaCliente() {
+  const cfg = useConfigPantalla();
   const { conectada, estado, enviar } = usePantallaCliente();
   const [hayOtra, setHayOtra] = useState(false);
   const [abierto, setAbierto] = useState(false);
   const [grande, setGrande] = useState(false);
   const [aviso, setAviso] = useState("");
+  const [apagando, setApagando] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const boton = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -89,10 +92,10 @@ export function BotonPantallaCliente() {
       <div className="flex items-center gap-2">
         <p className="text-sm font-bold">Pantalla del cliente</p>
         {conectada && (
-          <button type="button" role="switch" aria-checked="true" aria-label="Apagar la pantalla del cliente" title="Apagar"
-            onClick={() => enviar({ tipo: "apagar" })}
-            className="relative ml-auto h-5 w-[34px] rounded-full bg-[#D7FF4F]">
-            <span className="absolute right-[3px] top-[3px] h-3.5 w-3.5 rounded-full bg-[#151613]" />
+          <button type="button" role="switch" aria-checked={!apagando} aria-label="Apagar la pantalla del cliente" title="Apagar"
+            onClick={() => { setApagando(true); setTimeout(() => { enviar({ tipo: "apagar" }); setApagando(false); }, 160); }}
+            className={`relative ml-auto h-5 w-[34px] rounded-full transition-colors duration-150 ${apagando ? "bg-[#3A3A36]" : "bg-[#D7FF4F]"}`}>
+            <span className={`absolute top-[3px] h-3.5 w-3.5 rounded-full transition-all duration-150 ${apagando ? "left-[3px] bg-[#B5B5AE]" : "left-[17px] bg-[#151613]"}`} />
           </button>
         )}
       </div>
@@ -100,7 +103,7 @@ export function BotonPantallaCliente() {
       {conectada && estado ? (
         <>
           <div className="overflow-hidden rounded-lg border border-[#3A3A36]">
-            <VistaPantalla estado={estado} escala={316 / 1280} animar={false} />
+            <VistaPantalla estado={estado} escala={316 / 1280} animar={false} textoReposo={cfg?.textoReposo} />
           </div>
           <p className="text-xs text-[#B5B5AE]">Mostrando: <b className="text-[#F0F0EC]">{mostrando}</b></p>
           <div className="flex gap-2">
@@ -134,12 +137,15 @@ export function BotonPantallaCliente() {
           <button type="button" aria-label="Cerrar" onClick={() => setGrande(false)} className="ml-auto grid h-8 w-8 place-items-center rounded-lg border border-[#3A3A36] bg-[#252622]"><X size={14} /></button>
         </div>
         <div className="overflow-hidden rounded-xl border border-[#3A3A36]">
-          <VistaPantalla estado={estado} escala={Math.min(0.75, (typeof window !== "undefined" ? window.innerWidth - 40 : 960) / 1280)} />
+          <VistaPantalla estado={estado} escala={Math.min(0.75, (typeof window !== "undefined" ? window.innerWidth - 40 : 960) / 1280)} textoReposo={cfg?.textoReposo} />
         </div>
       </div>
     </div>,
     document.body,
   ) : null;
+
+  // 10E-C: apagada en la tienda o rol sin permiso (dueño: solo Administradores y Staff).
+  if (!cfg?.permitido) return null;
 
   return (
     <div className="relative hidden sm:block">

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { requireOperacionesSession } from "@/lib/operaciones/auth";
 import { datosCobroOrden, datosCobroPedido, SinEnlace } from "@/lib/pantalla-cliente/servidor";
+import { configPantalla } from "@/lib/pantalla-cliente/config-servidor";
+import { puedeUsarPantalla } from "@/lib/pantalla-cliente/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -21,8 +23,12 @@ export async function GET(request: Request) {
   if ((origen !== "orden" && origen !== "pedido") || !/^rec[A-Za-z0-9]{14}$/.test(id)) {
     return NextResponse.json({ success: false, error: "Solicitud inválida." }, { status: 400, headers: NO_CACHE });
   }
-  const { response } = origen === "orden" ? await requireTecnicosSession() : await requireOperacionesSession();
-  if (response) return response;
+  const { session, response } = origen === "orden" ? await requireTecnicosSession() : await requireOperacionesSession();
+  if (response || !session) return response!;
+  // 10E-C: solo los roles que Administrar permite (dueño: Administradores y Staff).
+  if (!puedeUsarPantalla(session.user.rol, await configPantalla())) {
+    return NextResponse.json({ success: false, error: "No tienes permiso para cobrar en el mostrador." }, { status: 403, headers: NO_CACHE });
+  }
   try {
     const data = origen === "orden" ? await datosCobroOrden(id, url.origin) : await datosCobroPedido(id, url.origin);
     return NextResponse.json({ success: true, data }, { headers: NO_CACHE });

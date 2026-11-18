@@ -16,26 +16,26 @@ export const ALTO_PANTALLA = 800;
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const MARCAS = ["VISA", "Mastercard", "Diners", "Discover"];
 
-export function VistaPantalla({ estado, escala = 1, animar = true }: { estado: EstadoPantalla; escala?: number; animar?: boolean }) {
+export function VistaPantalla({ estado, escala = 1, animar = true, textoReposo = "Bienvenido" }: { estado: EstadoPantalla; escala?: number; animar?: boolean; textoReposo?: string }) {
   return (
     <div style={{ width: ANCHO_PANTALLA * escala, height: ALTO_PANTALLA * escala, overflow: "hidden" }}>
       <div
         style={{ width: ANCHO_PANTALLA, height: ALTO_PANTALLA, transform: `scale(${escala})`, transformOrigin: "top left" }}
         className="flex flex-col gap-5 bg-[#151613] px-8 py-7 font-sans text-[22px] text-[#F0F0EC]"
       >
-        {estado.vista === "reposo" ? <Reposo animar={animar} /> : <ConCliente estado={estado} />}
+        {estado.vista === "reposo" ? <Reposo animar={animar} texto={textoReposo} /> : <ConCliente estado={estado} />}
       </div>
     </div>
   );
 }
 
-function Reposo({ animar }: { animar: boolean }) {
+function Reposo({ animar, texto }: { animar: boolean; texto: string }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-7 animate-[sg-entrada_400ms_ease-out]">
       <span className={`grid h-[220px] w-[220px] place-items-center rounded-[48px] bg-white ${animar ? "animate-[sg-respira_4s_ease-in-out_infinite]" : ""}`}>
         <Image src="/logo-brand.png" alt="SUPER GEEK" width={170} height={170} priority />
       </span>
-      <span className="text-[28px] font-bold text-[#D0D0C8]">Bienvenido</span>
+      {texto && <span className="text-[28px] font-bold text-[#D0D0C8]">{texto}</span>}
     </div>
   );
 }

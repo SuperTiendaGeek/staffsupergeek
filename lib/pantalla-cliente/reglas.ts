@@ -59,7 +59,9 @@ export type Comando =
 
 export type Mensaje =
   | { de: "portal"; comando: Comando }
-  | { de: "pantalla"; estado: EstadoPantalla; en: number };
+  | { de: "pantalla"; estado: EstadoPantalla; en: number }
+  /** La ventana se cierra (Apagar o la cerraron a mano): el botón lo sabe al instante. */
+  | { de: "pantalla"; apagada: true };
 
 export const reposo = (ahora: number): EstadoPantalla => ({ vista: "reposo", desde: ahora });
 
@@ -70,10 +72,17 @@ export function aplicarComando(e: EstadoPantalla, c: Comando, ahora: number): Es
   return e;
 }
 
-/** El tiempo pasa: ¿vuelve al reposo? (se llama cada segundo). */
-export function alPasarElTiempo(e: EstadoPantalla, ahora: number): EstadoPantalla {
-  if (e.vista === "gracias" && ahora - e.desde >= SEGUNDOS_GRACIAS * 1000) return reposo(ahora);
-  if (e.vista === "cobro" && ahora - e.desde >= MINUTOS_SIN_ACTIVIDAD * 60_000) return reposo(ahora);
+/**
+ * El tiempo pasa: ¿vuelve al reposo? (se llama cada segundo). Los tiempos se
+ * ajustan en Administrar → Pantalla del cliente (10E-C).
+ */
+export function alPasarElTiempo(
+  e: EstadoPantalla,
+  ahora: number,
+  t: { segundosGracias: number; minutosSinActividad: number } = { segundosGracias: SEGUNDOS_GRACIAS, minutosSinActividad: MINUTOS_SIN_ACTIVIDAD },
+): EstadoPantalla {
+  if (e.vista === "gracias" && ahora - e.desde >= t.segundosGracias * 1000) return reposo(ahora);
+  if (e.vista === "cobro" && ahora - e.desde >= t.minutosSinActividad * 60_000) return reposo(ahora);
   return e;
 }
 
