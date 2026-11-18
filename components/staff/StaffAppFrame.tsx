@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { BotonPantallaCliente } from "@/components/pantalla-cliente/BotonPantallaCliente";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -397,6 +398,8 @@ export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Sta
             </div>
 
             <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+              {/* Pantalla del cliente (10E-B): junto a la campanita, siempre a la vista. */}
+              {user ? <BotonPantallaCliente /> : null}
               {user ? <NotificationBell /> : null}
               {isAdmin ? (
                 <>

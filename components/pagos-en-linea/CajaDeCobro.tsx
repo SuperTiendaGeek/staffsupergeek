@@ -50,7 +50,7 @@ async function cargarCajita(css: string, js: string): Promise<PPaymentButtonBoxC
 }
 
 export function CajaDeCobro({
-  opciones, abrir, ultimo, pagoReciente, onAbierta, onActualizar, titulo = "confirmar", alternativa, etiquetas, frases,
+  opciones, abrir, ultimo, pagoReciente, onAbierta, onActualizar, titulo = "confirmar", alternativa, etiquetas, frases, autoAbrir,
 }: {
   opciones: OpcionDePago[];
   abrir: AbrirCajita;
@@ -69,6 +69,11 @@ export function CajaDeCobro({
   etiquetas?: Partial<Record<ParaPago, string>>;
   /** Frase sobre el botón según la opción ("para que pidamos tus repuestos"). */
   frases?: Partial<Record<ParaPago, string>>;
+  /**
+   * 10E-B: el cliente llegó escaneando el QR del mostrador (?cobrar=…): la
+   * cajita se abre sola con esa opción (el monto lo sigue poniendo el servidor).
+   */
+  autoAbrir?: ParaPago | null;
 }) {
   const nombre = (p: ParaPago) => etiquetas?.[p] ?? ETIQUETA[p];
   const [para, setPara] = useState<ParaPago | null>(opciones[0]?.para ?? null);
@@ -82,13 +87,25 @@ export function CajaDeCobro({
   }, [opciones, para]);
 
   const elegido = opciones.find((o) => o.para === para) ?? null;
+
+  // Llegó desde el QR del mostrador: abrir una sola vez con esa opción.
+  const autoHecho = useRef(false);
+  useEffect(() => {
+    if (!autoAbrir || autoHecho.current || ultimo?.estado === "sin_respuesta") return;
+    const op = opciones.find((o) => o.para === autoAbrir);
+    if (!op) return;
+    autoHecho.current = true;
+    setPara(op.para);
+    void pagar(op);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoAbrir, opciones, ultimo?.estado]);
   const rechazoReciente = ultimo?.estado === "rechazado" && ultimo.codigo === pagoReciente;
 
-  async function pagar() {
-    if (!elegido) return;
+  async function pagar(op: OpcionDePago | null = elegido) {
+    if (!op) return;
     setError(""); setFase("cargando");
     try {
-      const r = await abrir(elegido.para);
+      const r = await abrir(op.para);
       if (!r.ok) { setError(r.error); setFase("boton"); onActualizar?.(); return; }
       const { css, js, ...params } = r.cajita;
       const Cajita = await cargarCajita(css, js);

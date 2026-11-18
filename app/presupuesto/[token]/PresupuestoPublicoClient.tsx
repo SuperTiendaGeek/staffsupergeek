@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import type { Decision, GrupoVista, LineaRetirada, Situacion, TotalesPrioridad, VistaLinea } from "@/lib/tecnicos/presupuesto/enlace-reglas";
 import type { AlertaPublica, CartelPublico } from "@/lib/tecnicos/carteles/reglas";
-import type { OpcionDePago, PagoVisible } from "@/lib/pagos-en-linea/reglas";
+import type { OpcionDePago, PagoVisible, ParaPago } from "@/lib/pagos-en-linea/reglas";
+import { cobrarDeLaUrl } from "@/lib/pantalla-cliente/reglas";
 import { AvisoPagoEnRevision, AvisoPagoRecibido, CajaDeCobro, type AbrirCajita, type ParametrosCajitaCliente } from "@/components/pagos-en-linea/CajaDeCobro";
 
 // Vista del cliente. Toda la lógica de qué se puede responder vive en el
@@ -297,7 +298,8 @@ function TarjetaGrupo({ g, lineas, decisiones, onElegir, abierta, onAbrir }: {
  * MISMA caja de cobro de los pedidos. Los repuestos aprobados se pagan
  * completos para pedirlos; la mano de obra puede esperar al retiro.
  */
-function TusPagos({ cuenta, pel, abrir, pagoReciente, onActualizar }: {
+function TusPagos({ cuenta, pel, abrir, pagoReciente, autoAbrir, onActualizar }: {
+  autoAbrir: ParaPago | null;
   cuenta: NonNullable<Vista["cuenta"]>;
   pel: Vista["pagoEnLinea"];
   abrir: AbrirCajita;
@@ -331,7 +333,7 @@ function TusPagos({ cuenta, pel, abrir, pagoReciente, onActualizar }: {
       {conCaja && (
         <div className="border-t border-[#3A3A36] pt-3">
           <CajaDeCobro opciones={p.opciones} abrir={abrir} ultimo={p.ultimo} pagoReciente={pagoReciente} onActualizar={onActualizar}
-            etiquetas={ETIQUETAS_ORDEN} frases={FRASES_ORDEN}
+            etiquetas={ETIQUETAS_ORDEN} frases={FRASES_ORDEN} autoAbrir={autoAbrir}
             alternativa={conRepuestos
               ? "Los repuestos aprobados se pagan completos para poder pedirlos. También puedes pagar en la tienda."
               : "o págalo en la tienda al retirar"} />
@@ -364,12 +366,17 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
   // Pagos en línea: al volver de PayPhone la URL trae ?pago=PL-… (se muestra el resultado una vez).
   const [pagoReciente, setPagoReciente] = useState<string | null>(null);
   const [reintentos, setReintentos] = useState(0);
+  // 10E-B: llegó escaneando el QR del mostrador (?cobrar=…): la cajita se abre sola.
+  const [cobrar, setCobrar] = useState<ParaPago | null>(null);
   useEffect(() => {
     const u = new URL(window.location.href);
     const pl = u.searchParams.get("pago");
-    if (pl && /^PL-\d{6,}$/.test(pl)) {
-      setPagoReciente(pl);
+    const cb = cobrarDeLaUrl(u.search);
+    if (pl && /^PL-\d{6,}$/.test(pl)) setPagoReciente(pl);
+    if (cb) setCobrar(cb);
+    if (pl || u.searchParams.has("cobrar")) {
       u.searchParams.delete("pago");
+      u.searchParams.delete("cobrar");
       window.history.replaceState(null, "", u.pathname + (u.search ? u.search : ""));
     }
   }, []);
@@ -616,7 +623,7 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
           </section>
         )}
 
-        {vista.cuenta && <TusPagos cuenta={vista.cuenta} pel={vista.pagoEnLinea} abrir={abrirPago} pagoReciente={pagoReciente} onActualizar={() => void refrescarPagos()} />}
+        {vista.cuenta && <TusPagos cuenta={vista.cuenta} pel={vista.pagoEnLinea} abrir={abrirPago} pagoReciente={pagoReciente} autoAbrir={cobrar} onActualizar={() => void refrescarPagos()} />}
 
         {pendientes.length > 0 && (
           <section className="space-y-2">

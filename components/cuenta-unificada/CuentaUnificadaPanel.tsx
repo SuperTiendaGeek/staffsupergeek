@@ -12,6 +12,7 @@ import { etiquetaAbono } from "@/lib/cobros/metodos";
 import { enlacesComprobanteAbono } from "@/lib/cobros/comprobante-abono";
 import { SaldoAFavorAcciones, type SaldoInfo } from "./SaldoAFavorAcciones";
 import { ParteDePagoAccion } from "./ParteDePagoAccion";
+import { CobrarEnMostrador } from "@/components/pantalla-cliente/CobrarEnMostrador";
 
 // Componente compartido (Fase 11 — Etapa 3): se monta igual en la pantalla de
 // la orden y en la de la operación. Puramente presentacional — no calcula
@@ -351,6 +352,11 @@ export function CuentaUnificadaPanel({
                 <button type="button" onClick={onRegistrarPago} style={{ ...BOTON, ...BOTON_PRIMARIO, flex: 1 }}>
                   Registrar pago
                 </button>
+              )}
+              {/* 10E-B: el cliente paga con tarjeta desde su celular (QR en la pantalla del cliente). */}
+              {!saldoEsFavor && !saldoEsCero && onRegistrarPago && origenTipo && origenRecordId && (
+                <CobrarEnMostrador origen={origenTipo === "orden" ? "orden" : "pedido"} id={origenRecordId} onPagado={onCuentaCambiada}
+                  estilo={{ ...BOTON, flex: 1, color: "#D7FF4F", border: "1px solid #D7FF4F", background: "transparent", cursor: "pointer" }} />
               )}
               <span
                 aria-disabled="true"

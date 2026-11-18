@@ -18,7 +18,8 @@ import { TIENDA, whatsappTienda } from "@/lib/tienda/datos";
 import { ChevronRight } from "lucide-react";
 import { DetalleOpcion, MiniaturasOpcion } from "./GaleriaOpcion";
 import { AvisoPagoEnRevision, AvisoPagoRecibido, CajaDeCobro, type AbrirCajita, type ParametrosCajitaCliente } from "@/components/pagos-en-linea/CajaDeCobro";
-import type { OpcionDePago, PagoVisible } from "@/lib/pagos-en-linea/reglas";
+import { cobrarDeLaUrl } from "@/lib/pantalla-cliente/reglas";
+import type { OpcionDePago, PagoVisible, ParaPago } from "@/lib/pagos-en-linea/reglas";
 
 type Vista = VistaCliente & {
   producto: string;
@@ -48,13 +49,18 @@ export function MiPedidoClient({ token }: { token: string }) {
   const [pagoReciente, setPagoReciente] = useState<string | null>(null);
   const [cajitaAbierta, setCajitaAbierta] = useState(false);
   const [reintentos, setReintentos] = useState(0);
+  // 10E-B: llegó escaneando el QR del mostrador (?cobrar=…): la cajita se abre sola.
+  const [cobrar, setCobrar] = useState<ParaPago | null>(null);
 
   useEffect(() => {
     const u = new URL(window.location.href);
     const pl = u.searchParams.get("pago");
-    if (pl && /^PL-\d{6,}$/.test(pl)) {
-      setPagoReciente(pl);
+    const cb = cobrarDeLaUrl(u.search);
+    if (pl && /^PL-\d{6,}$/.test(pl)) setPagoReciente(pl);
+    if (cb) setCobrar(cb);
+    if (pl || u.searchParams.has("cobrar")) {
       u.searchParams.delete("pago");
+      u.searchParams.delete("cobrar");
       window.history.replaceState(null, "", u.pathname + (u.search ? u.search : ""));
     }
   }, []);
@@ -260,7 +266,7 @@ export function MiPedidoClient({ token }: { token: string }) {
             {conCaja ? (
               // Punto 23 / 10D (maqueta 6a): pago con tarjeta encendido.
               <CajaDeCobro opciones={pel.opciones} abrir={abrirPago} ultimo={pel.ultimo} pagoReciente={pagoReciente}
-                onAbierta={setCajitaAbierta} onActualizar={() => void cargar()} />
+                onAbierta={setCajitaAbierta} onActualizar={() => void cargar()} autoAbrir={cobrar} />
             ) : (
               <>
                 <p className="font-bold text-[#F0F0EC]">Paga {usd(v.pago.faltaParaConfirmar)} para confirmar</p>
@@ -340,7 +346,7 @@ export function MiPedidoClient({ token }: { token: string }) {
               // Punto 23 / 10D (maqueta 6b): pagar lo que falta antes de retirar.
               <div className="mt-1">
                 <CajaDeCobro titulo="saldo" alternativa="o págalo en la tienda al retirar" opciones={pel.opciones} abrir={abrirPago}
-                  ultimo={pel.ultimo} pagoReciente={pagoReciente} onActualizar={() => void cargar()} />
+                  ultimo={pel.ultimo} pagoReciente={pagoReciente} onActualizar={() => void cargar()} autoAbrir={cobrar} />
               </div>
             )}
           </section>
