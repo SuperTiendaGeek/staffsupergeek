@@ -16,14 +16,17 @@
 //     vez; si algo cambió mientras pagaba, el dinero se guarda y el personal
 //     revisa ("En revisión"), nunca se confirma otra opción en silencio.
 
+import { MINUTOS_VIGENCIA_DEUNA } from "./deuna-reglas";
+
 export type Pasarela = "PayPhone" | "DeUna";
 export type Ambiente = "Prueba" | "Producción";
-export type EstadoPago = "Abierto" | "Aprobado" | "Aplicado" | "Rechazado" | "Vencido" | "En revisión";
+export type EstadoPago = "Abierto" | "Aprobado" | "Aplicado" | "Rechazado" | "Vencido" | "En revisión" | "Por asignar" | "No corresponde";
 export type ParaPago = "Confirmar" | "Todo" | "Lo que falta";
 export type MedioPago = "Tarjeta de crédito" | "Tarjeta de débito" | "Saldo PayPhone" | "DeUna";
-export type OrigenPago = "Pedido" | "Orden" | "Enlace de pago";
+/** "Sin referencia": pago DeUna que llegó sin nuestro código (p. ej. el QR impreso del mostrador). */
+export type OrigenPago = "Pedido" | "Orden" | "Enlace de pago" | "Sin referencia";
 
-export const ESTADOS_PAGO: readonly EstadoPago[] = ["Abierto", "Aprobado", "Aplicado", "Rechazado", "Vencido", "En revisión"];
+export const ESTADOS_PAGO: readonly EstadoPago[] = ["Abierto", "Aprobado", "Aplicado", "Rechazado", "Vencido", "En revisión", "Por asignar", "No corresponde"];
 export const PARA_PAGO: readonly ParaPago[] = ["Confirmar", "Todo", "Lo que falta"];
 
 /** La cajita de PayPhone vence a los 10 minutos de abrirse. */
@@ -34,12 +37,12 @@ export const TASA_IVA = 0.15;
 /**
  * Tarifa de cada pasarela y medio, en centésimas de punto porcentual
  * (575 = 5,75 %). PayPhone tarjeta = 5 % + IVA 15 % de la comisión.
- * DeUna: por definir cuando se construya (hoy 0).
+ * DeUna (dueño, 18-nov): 2 % + IVA 15 % = 2,30 % por pago exitoso.
  * Más adelante se podrá editar desde Administrar → Pagos en línea.
  */
 export const TARIFAS: Record<Pasarela, Record<MedioPago, number>> = {
   PayPhone: { "Tarjeta de crédito": 575, "Tarjeta de débito": 575, "Saldo PayPhone": 0, DeUna: 0 },
-  DeUna: { "Tarjeta de crédito": 0, "Tarjeta de débito": 0, "Saldo PayPhone": 0, DeUna: 0 },
+  DeUna: { "Tarjeta de crédito": 0, "Tarjeta de débito": 0, "Saldo PayPhone": 0, DeUna: 230 },
 };
 
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -94,6 +97,17 @@ export function montoACobrar(c: CuentaParaCobro, para: ParaPago): { ok: true; mo
     return { ok: false, error: "Este pedido no admite pagos en línea ahora." };
   }
   return { ok: true, monto: op.monto };
+}
+
+/**
+ * "Dividir el pago entre tarjeta y DeUna" (maqueta 7a): la parte con tarjeta
+ * va entre $1 y el total menos $1 (lo demás, con DeUna). Ej.: $105 → $1…$104.
+ */
+export function parteValida(parte: number, total: number): { ok: true; monto: number } | { ok: false; error: string } {
+  const p = r2(Number(parte));
+  const max = r2(total - 1);
+  if (!Number.isFinite(p) || p < 1 || p > max) return { ok: false, error: `La parte con tarjeta debe estar entre $1 y ${usd(max)}.` };
+  return { ok: true, monto: p };
 }
 
 // ─── Órdenes de reparación (maquetas 7a y 7b, dueño 17-nov) ─────────────────
@@ -327,18 +341,20 @@ export type PagoVisible = {
   tarjeta: string;
   fecha: string;
   autorizacion: string;
+  /** Con qué se pagó (DeUna muestra su N.º de transferencia, no "aut."). */
+  pasarela: Pasarela;
 };
 
 /** El intento que el cliente debe ver (el último que no sea una cajita abierta o vencida). */
 export function pagoParaMostrar(
-  intentos: ReadonlyArray<{ codigo: string; estado: EstadoPago; idTransaccion: string; creado: string; monto: number; tarjeta: string; confirmadoEn: string; autorizacion: string }>,
+  intentos: ReadonlyArray<{ codigo: string; estado: EstadoPago; idTransaccion: string; creado: string; monto: number; tarjeta: string; confirmadoEn: string; autorizacion: string; pasarela?: Pasarela }>,
   ahora: Date = new Date(),
 ): PagoVisible | null {
   for (let k = intentos.length - 1; k >= 0; k--) {
     const i = intentos[k];
     const estado = estadoVisible(i, ahora);
     if (estado === "abierto" || estado === "vencido") continue;
-    return { codigo: i.codigo, estado, monto: i.monto, tarjeta: i.tarjeta, fecha: i.confirmadoEn || i.creado, autorizacion: i.autorizacion };
+    return { codigo: i.codigo, estado, monto: i.monto, tarjeta: i.tarjeta, fecha: i.confirmadoEn || i.creado, autorizacion: i.autorizacion, pasarela: i.pasarela ?? "PayPhone" };
   }
   return null;
 }
@@ -352,19 +368,34 @@ export function minutosDesde(iso: string, ahora: Date = new Date()): number {
 /**
  * Cómo se muestra un intento. "sin_respuesta" = volvió de PayPhone pero aún no
  * pudimos confirmarlo: el botón se esconde ("No pagues otra vez").
+ * DeUna guarda su ID desde que se pide el cobro: abierto = esperando el pago
+ * hasta que vence el QR (15 min).
  */
-export function estadoVisible(i: { estado: EstadoPago; idTransaccion: string; creado: string }, ahora: Date = new Date()): PagoVisible["estado"] {
+export function estadoVisible(i: { estado: EstadoPago; idTransaccion: string; creado: string; pasarela?: Pasarela }, ahora: Date = new Date()): PagoVisible["estado"] {
+  if (i.pasarela === "DeUna" && i.estado === "Abierto") {
+    return minutosDesde(i.creado, ahora) > MINUTOS_VIGENCIA_DEUNA ? "vencido" : "abierto";
+  }
   switch (i.estado) {
     case "Aplicado": return "recibido";
     case "Aprobado": return "sin_respuesta";
     case "En revisión": return "revision";
     case "Rechazado": return "rechazado";
     case "Vencido": return "vencido";
+    case "Por asignar":
+    case "No corresponde": return "revision";
     case "Abierto":
       if (i.idTransaccion) return "sin_respuesta";
       return minutosDesde(i.creado, ahora) > MINUTOS_VIGENCIA_CAJITA ? "vencido" : "abierto";
   }
 }
+
+/** Qué medios se ofrecen en la caja (cada uno se enciende por separado). */
+export type MediosPago = { tarjeta: boolean; deuna: boolean };
+
+/** Lo que la página del cliente recibe para pintar la caja. */
+export type PagoEnLineaVista = { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null; medios: MediosPago };
+
+export const SIN_MEDIOS: MediosPago = { tarjeta: false, deuna: false };
 
 /** Texto del campo principal de la tabla: "PL-000001 · OP-142 · $205.00 · PayPhone". */
 export function resumenPago(input: { codigo: string; cuenta: string; monto: number; pasarela: Pasarela; ambiente: Ambiente }): string {

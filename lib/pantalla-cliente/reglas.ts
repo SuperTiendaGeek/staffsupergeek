@@ -42,8 +42,10 @@ export type CobroEnPantalla = {
   falta: number;
   para: ParaPago;
   vasAPagar: number;
-  /** Enlace del cliente con ?cobrar=… (lo que abre el QR). */
+  /** Enlace del cliente con ?cobrar=… (lo que abre el QR). "" si la tarjeta está apagada. */
   url: string;
+  /** Etapa D: el QR de DeUna (imagen que da DeUna) para pagar con su app. */
+  deuna?: { qr: string; codigo: string; venceEn: string } | null;
 };
 
 export type EstadoPantalla =
@@ -128,7 +130,7 @@ export function cobrarDeLaUrl(search: string): ParaPago | null {
 /** Mensaje de WhatsApp para pagar por enlace (sin datos internos). */
 export function mensajeCobro(input: { nombre: string; codigo: string; monto: number; url: string }): string {
   const hola = input.nombre ? `Hola ${input.nombre.split(/\s+/)[0]}` : "Hola";
-  return `${hola}, aquí puedes pagar ${usd(input.monto)} de tu ${input.codigo.startsWith("OR") ? "orden" : "pedido"} ${input.codigo} con tarjeta: ${input.url}`;
+  return `${hola}, aquí puedes pagar ${usd(input.monto)} de tu ${input.codigo.startsWith("OR") ? "orden" : "pedido"} ${input.codigo} en línea: ${input.url}`;
 }
 
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;

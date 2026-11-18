@@ -84,14 +84,29 @@ function ConCliente({ estado }: { estado: Exclude<EstadoPantalla, { vista: "repo
               <span className="text-[28px] font-bold">Vas a pagar</span>
               <span className="text-[60px] font-black tracking-tight tabular-nums text-[#D7FF4F]">{usd(c.vasAPagar)}</span>
             </div>
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-2xl bg-[#252622] px-10 py-5">
-              <span className="text-[26px] font-extrabold">Con tarjeta</span>
-              <QrCodigo texto={c.url} tamano={300} etiqueta="Código QR para pagar con tarjeta" />
-              <span className="text-[19px] text-[#B5B5AE]">Escanea con la cámara de tu celular</span>
-              <span className="flex flex-wrap justify-center gap-1.5">
-                {MARCAS.map((m) => <span key={m} className="inline-flex h-[26px] items-center rounded-[5px] bg-[#F0F0EC] px-2 text-[13px] font-extrabold text-[#151613]">{m}</span>)}
-                <span className="inline-flex h-[26px] items-center rounded-[5px] border border-[#3A3A36] bg-[#2A2B27] px-2 text-[13px] font-extrabold text-[#F0F0EC]">PayPhone</span>
-              </span>
+            <div className="flex w-full flex-1 items-stretch justify-center gap-4">
+              {c.url && (
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-2xl bg-[#252622] px-6 py-5">
+                  <span className="text-[26px] font-extrabold">Con tarjeta</span>
+                  <QrCodigo texto={c.url} tamano={c.deuna ? 250 : 300} etiqueta="Código QR para pagar con tarjeta" />
+                  <span className="text-center text-[19px] text-[#B5B5AE]">Escanea con la cámara de tu celular</span>
+                  <span className="flex flex-wrap justify-center gap-1.5">
+                    {MARCAS.map((m) => <span key={m} className="inline-flex h-[26px] items-center rounded-[5px] bg-[#F0F0EC] px-2 text-[13px] font-extrabold text-[#151613]">{m}</span>)}
+                    <span className="inline-flex h-[26px] items-center rounded-[5px] border border-[#3A3A36] bg-[#2A2B27] px-2 text-[13px] font-extrabold text-[#F0F0EC]">PayPhone</span>
+                  </span>
+                </div>
+              )}
+              {c.deuna && (
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-2xl bg-[#252622] px-6 py-5">
+                  <span className="text-[26px] font-extrabold">Con DeUna</span>
+                  {/* La imagen la genera DeUna (QR de un solo uso, vence a los 15 min). */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={c.deuna.qr} alt="Código QR para pagar con DeUna" width={c.url ? 250 : 300} height={c.url ? 250 : 300}
+                    className="rounded-[14px] bg-white p-3" style={{ width: c.url ? 250 : 300, height: c.url ? 250 : 300 }} />
+                  <span className="text-center text-[19px] text-[#B5B5AE]">Escanea con tu app DeUna</span>
+                  <span className="inline-flex h-[26px] items-center rounded-[5px] border border-[#3A3A36] bg-[#2A2B27] px-2 text-[13px] font-extrabold text-[#F0F0EC]">DeUna</span>
+                </div>
+              )}
             </div>
             <span className="flex items-center gap-3 self-start text-[19px] text-[#B5B5AE]">
               <span className="h-[22px] w-[22px] animate-spin rounded-full border-[3px] border-[#3A3A36] border-t-[#D7FF4F] motion-reduce:animate-none" aria-hidden />

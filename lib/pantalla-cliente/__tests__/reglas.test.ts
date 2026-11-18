@@ -50,7 +50,7 @@ assert(!pantallaConectada(null, T0), "nunca hubo latido: apagada");
 const u = urlConCobro("https://staff.supertiendageek.com/presupuesto/abc", "Lo que falta");
 assert(cobrarDeLaUrl(new URL(u).search) === "Lo que falta", "el enlace lleva la opción y se vuelve a leer igual");
 assert(cobrarDeLaUrl("?cobrar=999") === null && cobrarDeLaUrl("") === null, "una opción inventada se ignora");
-assert(mensajeCobro({ nombre: "Camila Andrade", codigo: "OR000507", monto: 40, url: "https://x" }) === "Hola Camila, aquí puedes pagar $40.00 de tu orden OR000507 con tarjeta: https://x",
+assert(mensajeCobro({ nombre: "Camila Andrade", codigo: "OR000507", monto: 40, url: "https://x" }) === "Hola Camila, aquí puedes pagar $40.00 de tu orden OR000507 en línea: https://x",
   "mensaje de WhatsApp sin datos internos");
 
 if (fallos) { console.error(`\n${fallos} fallo(s)`); process.exit(1); }

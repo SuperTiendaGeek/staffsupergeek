@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import type { Decision, GrupoVista, LineaRetirada, Situacion, TotalesPrioridad, VistaLinea } from "@/lib/tecnicos/presupuesto/enlace-reglas";
 import type { AlertaPublica, CartelPublico } from "@/lib/tecnicos/carteles/reglas";
-import type { OpcionDePago, PagoVisible, ParaPago } from "@/lib/pagos-en-linea/reglas";
+import type { MediosPago, OpcionDePago, PagoVisible, ParaPago } from "@/lib/pagos-en-linea/reglas";
 import { cobrarDeLaUrl } from "@/lib/pantalla-cliente/reglas";
-import { AvisoPagoEnRevision, AvisoPagoRecibido, CajaDeCobro, type AbrirCajita, type ParametrosCajitaCliente } from "@/components/pagos-en-linea/CajaDeCobro";
+import { AvisoPagoEnRevision, AvisoPagoRecibido, CajaDeCobro, crearAbridor, type AbrirCajita } from "@/components/pagos-en-linea/CajaDeCobro";
 
 // Vista del cliente. Toda la lógica de qué se puede responder vive en el
 // servidor (enlace-reglas.ts); aquí solo se muestra y se arma el envío.
@@ -28,7 +28,7 @@ type Vista = {
   totalPendiente: number;
   /** Maquetas 7a/7b (17-nov): la cuenta de la orden y la caja de cobro en línea. */
   cuenta?: { total: number; pagado: number; falta: number; faltaRepuestos: number } | null;
-  pagoEnLinea?: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null };
+  pagoEnLinea?: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null; medios?: MediosPago };
 };
 
 // En una orden, "Confirmar" son los repuestos aprobados (dueño, 17-nov).
@@ -298,8 +298,9 @@ function TarjetaGrupo({ g, lineas, decisiones, onElegir, abierta, onAbrir }: {
  * MISMA caja de cobro de los pedidos. Los repuestos aprobados se pagan
  * completos para pedirlos; la mano de obra puede esperar al retiro.
  */
-function TusPagos({ cuenta, pel, abrir, pagoReciente, autoAbrir, onActualizar }: {
+function TusPagos({ cuenta, pel, abrir, pagoReciente, autoAbrir, onActualizar, onPagoIniciado }: {
   autoAbrir: ParaPago | null;
+  onPagoIniciado: (codigo: string) => void;
   cuenta: NonNullable<Vista["cuenta"]>;
   pel: Vista["pagoEnLinea"];
   abrir: AbrirCajita;
@@ -333,6 +334,7 @@ function TusPagos({ cuenta, pel, abrir, pagoReciente, autoAbrir, onActualizar }:
       {conCaja && (
         <div className="border-t border-[#3A3A36] pt-3">
           <CajaDeCobro opciones={p.opciones} abrir={abrir} ultimo={p.ultimo} pagoReciente={pagoReciente} onActualizar={onActualizar}
+            onPagoIniciado={onPagoIniciado} medios={p.medios}
             etiquetas={ETIQUETAS_ORDEN} frases={FRASES_ORDEN} autoAbrir={autoAbrir}
             alternativa={conRepuestos
               ? "Los repuestos aprobados se pagan completos para poder pedirlos. También puedes pagar en la tienda."
@@ -416,18 +418,7 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
     return () => clearTimeout(t);
   }, [sinRespuesta, reintentos, refrescarPagos]);
 
-  const abrirPago: AbrirCajita = useCallback(async (para) => {
-    try {
-      const r = await fetch(`${api}/pago`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ para }),
-      });
-      const j = (await r.json()) as { success: boolean; data?: { codigo: string; cajita: ParametrosCajitaCliente }; error?: string };
-      if (!j.success || !j.data) return { ok: false, error: j.error ?? "No pudimos abrir el pago con tarjeta." };
-      return { ok: true, codigo: j.data.codigo, cajita: j.data.cajita };
-    } catch {
-      return { ok: false, error: "Sin conexión. Intenta de nuevo." };
-    }
-  }, [api]);
+  const abrirPago: AbrirCajita = useMemo(() => crearAbridor(`${api}/pago`), [api]);
 
   const calculo = useMemo(() => {
     if (!vista) return null;
@@ -623,7 +614,7 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
           </section>
         )}
 
-        {vista.cuenta && <TusPagos cuenta={vista.cuenta} pel={vista.pagoEnLinea} abrir={abrirPago} pagoReciente={pagoReciente} autoAbrir={cobrar} onActualizar={() => void refrescarPagos()} />}
+        {vista.cuenta && <TusPagos cuenta={vista.cuenta} pel={vista.pagoEnLinea} abrir={abrirPago} pagoReciente={pagoReciente} autoAbrir={cobrar} onActualizar={refrescarPagos} onPagoIniciado={setPagoReciente} />}
 
         {pendientes.length > 0 && (
           <section className="space-y-2">

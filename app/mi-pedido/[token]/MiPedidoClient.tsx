@@ -6,7 +6,7 @@
 // y en lib/pedidos-especiales/enlace-reglas.ts; aquí solo se muestra.
 // Reglas de diseño: docs/REGLAS_UX_UI.md (compacto, claro, sin manual).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { Check, Clock, Copy, CreditCard, MapPin, MessageCircle } from "lucide-react";
 import type { VistaCliente } from "@/lib/pedidos-especiales/enlace-reglas";
@@ -17,9 +17,9 @@ import { CONDICIONES_COMPRA } from "@/lib/pedidos-especiales/cancelacion";
 import { TIENDA, whatsappTienda } from "@/lib/tienda/datos";
 import { ChevronRight } from "lucide-react";
 import { DetalleOpcion, MiniaturasOpcion } from "./GaleriaOpcion";
-import { AvisoPagoEnRevision, AvisoPagoRecibido, CajaDeCobro, type AbrirCajita, type ParametrosCajitaCliente } from "@/components/pagos-en-linea/CajaDeCobro";
+import { AvisoPagoEnRevision, AvisoPagoRecibido, CajaDeCobro, crearAbridor, type AbrirCajita } from "@/components/pagos-en-linea/CajaDeCobro";
 import { cobrarDeLaUrl } from "@/lib/pantalla-cliente/reglas";
-import type { OpcionDePago, PagoVisible, ParaPago } from "@/lib/pagos-en-linea/reglas";
+import type { MediosPago, OpcionDePago, PagoVisible, ParaPago } from "@/lib/pagos-en-linea/reglas";
 
 type Vista = VistaCliente & {
   producto: string;
@@ -27,7 +27,7 @@ type Vista = VistaCliente & {
   seguimiento: SeguimientoCliente | null;
   retiro?: { aviso: string; detalle: string } | null;
   /** Punto 23 / 10D: caja de cobro en línea (maquetas 6a y 6b). */
-  pagoEnLinea?: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null };
+  pagoEnLinea?: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null; medios?: MediosPago };
 };
 
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2).replace(/\.00$/, "")}`;
@@ -88,18 +88,7 @@ export function MiPedidoClient({ token }: { token: string }) {
     return () => clearTimeout(t);
   }, [sinRespuesta, reintentos, cargar]);
 
-  const abrirPago: AbrirCajita = useCallback(async (para) => {
-    try {
-      const r = await fetch(`/api/publico/pedido/${encodeURIComponent(token)}/pago`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ para }),
-      });
-      const j = (await r.json()) as { success: boolean; data?: { codigo: string; cajita: ParametrosCajitaCliente }; error?: string };
-      if (!j.success || !j.data) return { ok: false, error: j.error ?? "No pudimos abrir el pago con tarjeta." };
-      return { ok: true, codigo: j.data.codigo, cajita: j.data.cajita };
-    } catch {
-      return { ok: false, error: "Sin conexión. Intenta de nuevo." };
-    }
-  }, [token]);
+  const abrirPago: AbrirCajita = useMemo(() => crearAbridor(`/api/publico/pedido/${encodeURIComponent(token)}/pago`), [token]);
 
   async function aceptar() {
     if (!vista) return;
@@ -266,7 +255,7 @@ export function MiPedidoClient({ token }: { token: string }) {
             {conCaja ? (
               // Punto 23 / 10D (maqueta 6a): pago con tarjeta encendido.
               <CajaDeCobro opciones={pel.opciones} abrir={abrirPago} ultimo={pel.ultimo} pagoReciente={pagoReciente}
-                onAbierta={setCajitaAbierta} onActualizar={() => void cargar()} autoAbrir={cobrar} />
+                onAbierta={setCajitaAbierta} onActualizar={cargar} autoAbrir={cobrar} medios={pel.medios} onPagoIniciado={setPagoReciente} />
             ) : (
               <>
                 <p className="font-bold text-[#F0F0EC]">Paga {usd(v.pago.faltaParaConfirmar)} para confirmar</p>
@@ -346,7 +335,7 @@ export function MiPedidoClient({ token }: { token: string }) {
               // Punto 23 / 10D (maqueta 6b): pagar lo que falta antes de retirar.
               <div className="mt-1">
                 <CajaDeCobro titulo="saldo" alternativa="o págalo en la tienda al retirar" opciones={pel.opciones} abrir={abrirPago}
-                  ultimo={pel.ultimo} pagoReciente={pagoReciente} onActualizar={() => void cargar()} autoAbrir={cobrar} />
+                  ultimo={pel.ultimo} pagoReciente={pagoReciente} onActualizar={cargar} autoAbrir={cobrar} medios={pel.medios} onPagoIniciado={setPagoReciente} />
               </div>
             )}
           </section>

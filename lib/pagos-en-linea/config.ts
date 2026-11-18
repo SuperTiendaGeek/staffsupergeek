@@ -19,38 +19,89 @@ import "server-only";
 
 import type { Ambiente, Pasarela } from "./reglas";
 
+// DeUna (etapa D, 18-nov-2026). Credenciales SOLO de producción (DeUna no dio
+// ambiente de pruebas): no existe "Prueba" para DeUna. Para la primera prueba
+// real del dueño se limita a ciertas cuentas con DEUNA_SOLO_EN.
+//   DEUNA_ACTIVO=1                 enciende el botón (0 o vacío = apagado)
+//   DEUNA_API_KEY, DEUNA_API_SECRET
+//   DEUNA_POINT_OF_SALE=399118     la caja (dato de DeUna; no es secreto)
+//   DEUNA_SOLO_EN=OR000552,OP-2026-000151   (opcional) solo estas cuentas ven DeUna
+//   DEUNA_WEBHOOK_SECRET           clave del aviso (≥ 32 caracteres; vacía = avisos rechazados)
+
 export type ConfigPasarela = {
   pasarela: Pasarela;
   activa: boolean;
   ambiente: Ambiente;
+  /** PayPhone */
   token: string;
   storeId: string;
-  /** En Prueba: códigos de pedido (OP-…) donde se muestra el botón. */
+  /** En Prueba (PayPhone) o con DEUNA_SOLO_EN (DeUna): las únicas cuentas donde se muestra el botón. */
   pedidosPrueba: string[];
+  /** DeUna */
+  apiKey: string;
+  apiSecret: string;
+  caja: string;
 };
 
 const leer = (k: string) => (process.env[k] ?? "").trim();
+const lista = (k: string) => leer(k).split(/[,\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
+const vacia = { token: "", storeId: "", apiKey: "", apiSecret: "", caja: "" };
 
 export function configPasarela(pasarela: Pasarela): ConfigPasarela {
   if (pasarela === "PayPhone") {
     const token = leer("PAYPHONE_TOKEN");
     const storeId = leer("PAYPHONE_STORE_ID");
     return {
+      ...vacia,
       pasarela,
       activa: leer("PAYPHONE_ACTIVO") === "1" && !!token && !!storeId,
       ambiente: leer("PAYPHONE_AMBIENTE").toLowerCase().startsWith("produc") ? "Producción" : "Prueba",
       token,
       storeId,
-      pedidosPrueba: leer("PAYPHONE_PEDIDOS_PRUEBA").split(/[,\s]+/).map((s) => s.trim().toUpperCase()).filter(Boolean),
+      pedidosPrueba: lista("PAYPHONE_PEDIDOS_PRUEBA"),
     };
   }
-  // DeUna: se construye después (las credenciales ya existen; mismo trato).
-  return { pasarela, activa: false, ambiente: "Prueba", token: "", storeId: "", pedidosPrueba: [] };
+  const apiKey = leer("DEUNA_API_KEY");
+  const apiSecret = leer("DEUNA_API_SECRET");
+  const caja = leer("DEUNA_POINT_OF_SALE");
+  return {
+    ...vacia,
+    pasarela,
+    activa: leer("DEUNA_ACTIVO") === "1" && !!apiKey && !!apiSecret && /^\d{1,12}$/.test(caja),
+    ambiente: "Producción",
+    pedidosPrueba: lista("DEUNA_SOLO_EN"),
+    apiKey,
+    apiSecret,
+    caja,
+  };
 }
 
-/** ¿Se ofrece esta pasarela en esta cuenta? En Prueba, solo en los pedidos de prueba. */
+/** ¿Hay credenciales para CONSULTAR un pago ya hecho (aunque el botón esté apagado)? */
+export function puedeConsultar(c: ConfigPasarela): boolean {
+  return c.pasarela === "PayPhone" ? !!c.token : !!c.apiKey && !!c.apiSecret;
+}
+
+/** Clave del aviso de DeUna (vacía = el receptor rechaza todo). */
+export function secretoAvisoDeUna(): string {
+  return leer("DEUNA_WEBHOOK_SECRET");
+}
+
+/**
+ * ¿Se ofrece esta pasarela en esta cuenta? PayPhone en Prueba: solo en los
+ * pedidos de prueba. DeUna con DEUNA_SOLO_EN: solo en esas cuentas.
+ */
 export function pasarelaDisponible(c: ConfigPasarela, codigoCuenta: string): boolean {
   if (!c.activa) return false;
+  const codigo = codigoCuenta.trim().toUpperCase();
+  if (c.pasarela === "DeUna") return c.pedidosPrueba.length === 0 || c.pedidosPrueba.includes(codigo);
   if (c.ambiente === "Producción") return true;
-  return c.pedidosPrueba.includes(codigoCuenta.trim().toUpperCase());
+  return c.pedidosPrueba.includes(codigo);
+}
+
+/** Qué medios ve el cliente en esta cuenta. */
+export function mediosDisponibles(codigoCuenta: string): { tarjeta: boolean; deuna: boolean } {
+  return {
+    tarjeta: pasarelaDisponible(configPasarela("PayPhone"), codigoCuenta),
+    deuna: pasarelaDisponible(configPasarela("DeUna"), codigoCuenta),
+  };
 }

@@ -44,7 +44,10 @@ export const METODOS_COBRO = {
   Transferencia: { etiqueta: "Transferencia Banco Pichincha → SGINGRESOS", cuenta: "SGINGRESOS", estado: "Confirmado", metodoFinanzas: "Transferencia bancaria", codigoSri: "20", exigeReferencia: true, vigente: true },
   "Transferencia Produbanco": { etiqueta: "Transferencia Produbanco → Produbanco Ahorros", cuenta: "Produbanco Ahorros", estado: "Confirmado", metodoFinanzas: "Transferencia bancaria", codigoSri: "20", exigeReferencia: true, vigente: true },
   Depósito: { etiqueta: "Depósito Banco Pichincha → SGINGRESOS", cuenta: "SGINGRESOS", estado: "Confirmado", metodoFinanzas: "Depósito", codigoSri: "20", exigeReferencia: false, vigente: true },
-  DeUna: { etiqueta: "DeUna → cuenta DeUna (no es Banco Pichincha)", cuenta: "DeUna", estado: "Confirmado", metodoFinanzas: "DeUna", codigoSri: "20", exigeReferencia: true, vigente: true },
+  // Dueño 18-nov: DeUna funciona como las tarjetas. Entra "por acreditar" a la
+  // cuenta DeUna; al depositar (cierre del día) se acredita a SGINGRESOS con el
+  // neto y la comisión (2 % + IVA = 2,30 %) queda como ajuste.
+  DeUna: { etiqueta: "DeUna → cuenta DeUna (por acreditar)", cuenta: "DeUna", estado: "Pendiente", metodoFinanzas: "DeUna", codigoSri: "20", exigeReferencia: true, vigente: true },
   "Tarjeta de crédito": { etiqueta: "Tarjeta de crédito → Tarjetas en Tránsito", cuenta: "Tarjetas en Tránsito", estado: "Pendiente", metodoFinanzas: "Tarjeta crédito", codigoSri: "19", exigeReferencia: false, vigente: true },
   "Tarjeta de débito": { etiqueta: "Tarjeta de débito → Tarjetas en Tránsito", cuenta: "Tarjetas en Tránsito", estado: "Pendiente", metodoFinanzas: "Tarjeta débito", codigoSri: "16", exigeReferencia: false, vigente: true },
   PayPhone: { etiqueta: "PayPhone → Tarjetas en Tránsito", cuenta: "Tarjetas en Tránsito", estado: "Pendiente", metodoFinanzas: "PayPhone", codigoSri: "20", exigeReferencia: false, vigente: true },
