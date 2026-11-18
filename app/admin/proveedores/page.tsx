@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { StaffAppShell } from "@/components/staff/StaffAppShell";
+import { AdminTabs } from "@/components/admin/AdminTabs";
 import { getAdminSession } from "@/lib/admin-auth";
 import { listPortalUsers } from "@/lib/airtable";
 import { getProveedoresAdmin } from "@/lib/shipping-v2/airtable";
@@ -35,6 +36,7 @@ export default async function AdminProveedoresPage() {
   return (
     <StaffAppShell activeHref="/admin/proveedores" sectionLabel="Administrar">
       <div className="w-full max-w-none space-y-3">
+        <AdminTabs activa="/admin/proveedores" />
         {error ? (
           <section className="rounded-xl border border-orange-300/25 bg-orange-300/10 p-3 text-sm text-orange-100">{error}</section>
         ) : null}

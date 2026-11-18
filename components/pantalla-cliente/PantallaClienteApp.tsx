@@ -12,8 +12,24 @@ import {
 } from "@/lib/pantalla-cliente/reglas";
 import { ALTO_PANTALLA, ANCHO_PANTALLA, VistaPantalla } from "./VistaPantalla";
 
-export function PantallaClienteApp() {
+export type AjustesVentana = { segundosGracias: number; minutosSinActividad: number; textoReposo: string };
+
+export function PantallaClienteApp({ ajustes }: { ajustes: AjustesVentana }) {
   const [estado, setEstado] = useState<EstadoPantalla>(() => reposo(Date.now()));
+  // 10E-C: tiempos y texto de Administrar (se vuelven a leer cada 5 minutos).
+  const [aj, setAj] = useState(ajustes);
+  const tiempos = useRef(aj);
+  tiempos.current = aj;
+  useEffect(() => {
+    const t = setInterval(async () => {
+      try {
+        const r = await fetch("/api/pantalla-cliente/config", { cache: "no-store" });
+        const j = (await r.json()) as { success: boolean; data?: AjustesVentana };
+        if (j.success && j.data) setAj({ segundosGracias: j.data.segundosGracias, minutosSinActividad: j.data.minutosSinActividad, textoReposo: j.data.textoReposo });
+      } catch { /* se intenta en la próxima vuelta */ }
+    }, 5 * 60_000);
+    return () => clearInterval(t);
+  }, []);
   const [escala, setEscala] = useState(1);
   const [completa, setCompleta] = useState(true);
   const canal = useRef<BroadcastChannel | null>(null);
@@ -22,6 +38,7 @@ export function PantallaClienteApp() {
 
   // Avisar el estado: al cambiar y como latido.
   const avisar = () => canal.current?.postMessage({ de: "pantalla", estado: actual.current, en: Date.now() } satisfies Mensaje);
+  const despedirse = () => canal.current?.postMessage({ de: "pantalla", apagada: true } satisfies Mensaje);
 
   useEffect(() => {
     document.title = "Pantalla del cliente · SUPER GEEK";
@@ -30,21 +47,24 @@ export function PantallaClienteApp() {
     c.onmessage = (ev: MessageEvent<Mensaje>) => {
       const m = ev.data;
       if (m?.de !== "portal") return;
-      if (m.comando.tipo === "apagar") { window.close(); return; }
+      if (m.comando.tipo === "apagar") { despedirse(); window.close(); return; }
       if (m.comando.tipo === "quien_esta") { avisar(); return; }
       setEstado((e) => aplicarComando(e, m.comando, Date.now()));
     };
+    // Si la cierran a mano (o se desconecta el monitor), también avisa.
+    window.addEventListener("pagehide", despedirse);
     const latido = setInterval(avisar, SEGUNDOS_LATIDO * 1000);
-    const reloj = setInterval(() => setEstado((e) => alPasarElTiempo(e, Date.now())), 1000);
+    const reloj = setInterval(() => setEstado((e) => alPasarElTiempo(e, Date.now(), tiempos.current)), 1000);
     avisar();
-    return () => { clearInterval(latido); clearInterval(reloj); c.close(); canal.current = null; };
+    return () => { window.removeEventListener("pagehide", despedirse); clearInterval(latido); clearInterval(reloj); c.close(); canal.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { avisar(); }, [estado]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mientras cobra: consulta la cuenta para saber si el cliente ya pagó.
-  const cobroId = estado.vista === "cobro" ? `${estado.cobro.origen}:${estado.cobro.id}` : "";
+  // La prueba de Administrar (id "prueba") no consulta ninguna cuenta.
+  const cobroId = estado.vista === "cobro" && /^rec/.test(estado.cobro.id) ? `${estado.cobro.origen}:${estado.cobro.id}` : "";
   useEffect(() => {
     if (!cobroId) return;
     const [origen, id] = cobroId.split(":");
@@ -74,7 +94,7 @@ export function PantallaClienteApp() {
 
   return (
     <main className="fixed inset-0 grid place-items-center overflow-hidden bg-[#151613]">
-      <VistaPantalla estado={estado} escala={escala} />
+      <VistaPantalla estado={estado} escala={escala} textoReposo={aj.textoReposo} />
       {!completa && (
         // Chrome pide un toque para la pantalla completa (el monitor es táctil).
         <button type="button" onClick={() => void document.documentElement.requestFullscreen().catch(() => {})}

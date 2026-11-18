@@ -37,6 +37,10 @@ assert(alPasarElTiempo(gracias, T0 + 8000 + SEGUNDOS_GRACIAS * 1000).vista === "
 assert(alPasarElTiempo(enCobro, T0 + (MINUTOS_SIN_ACTIVIDAD * 60 - 1) * 1000).vista === "cobro", "el cobro espera hasta 3 minutos");
 assert(alPasarElTiempo(enCobro, T0 + MINUTOS_SIN_ACTIVIDAD * 60_000).vista === "reposo", "a los 3 minutos sin nada nuevo vuelve al logo");
 
+// Tiempos de Administrar (10E-C): 5 minutos sin actividad.
+assert(alPasarElTiempo(enCobro, T0 + 4 * 60_000, { segundosGracias: 30, minutosSinActividad: 5 }).vista === "cobro", "con 5 min configurados, a los 4 sigue cobrando");
+assert(alPasarElTiempo(gracias, T0 + 8000 + 15_000, { segundosGracias: 15, minutosSinActividad: 3 }).vista === "reposo", "con 15 s configurados, el ¡Gracias! se va a los 15 s");
+
 // Conexión por latido.
 assert(pantallaConectada(T0, T0 + 5000), "latido hace 5 s: conectada");
 assert(!pantallaConectada(T0, T0 + 7000), "sin latido 7 s: apagada");

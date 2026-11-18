@@ -20,6 +20,7 @@ export function usePantallaCliente() {
     c.onmessage = (ev: MessageEvent<Mensaje>) => {
       const m = ev.data;
       if (m?.de !== "pantalla") return;
+      if ("apagada" in m) { setEstado(null); setUltimoLatido(null); return; }
       setEstado(m.estado);
       setUltimoLatido(Date.now());
     };
@@ -31,6 +32,8 @@ export function usePantallaCliente() {
 
   const enviar = useCallback((comando: Comando) => {
     canal.current?.postMessage({ de: "portal", comando } satisfies Mensaje);
+    // Apagar se ve al instante (la ventana confirma con "apagada").
+    if (comando.tipo === "apagar") { setEstado(null); setUltimoLatido(null); }
   }, []);
 
   const conectada = pantallaConectada(ultimoLatido, ahora);

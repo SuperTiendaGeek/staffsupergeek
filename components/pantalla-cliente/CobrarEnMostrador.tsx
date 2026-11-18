@@ -17,6 +17,7 @@ import { mensajeCobro, urlConCobro, type CobroEnPantalla, type OrigenCobro } fro
 import type { OpcionDePago, ParaPago } from "@/lib/pagos-en-linea/reglas";
 import type { DatosCobroMostrador } from "@/lib/pantalla-cliente/servidor";
 import { usePantallaCliente } from "./usePantallaCliente";
+import { useConfigPantalla } from "./useConfigPantalla";
 
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 const ETIQUETA: Record<OrigenCobro, Record<ParaPago, string>> = {
@@ -33,6 +34,8 @@ export function CobrarEnMostrador({ origen, id, estilo, onPagado }: {
   onPagado?: () => void;
 }) {
   const [abierto, setAbierto] = useState(false);
+  const cfg = useConfigPantalla();
+  if (!cfg?.permitido) return null;
   return (
     <>
       <button type="button" onClick={() => setAbierto(true)} style={estilo}>Cobrar en el mostrador</button>
