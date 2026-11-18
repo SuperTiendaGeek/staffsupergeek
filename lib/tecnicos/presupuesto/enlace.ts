@@ -38,10 +38,10 @@ import { porIds, estadosDeCuentaDeOrdenes, CAMPOS_ORDEN_CUENTA } from "@/lib/est
 import { CAMPO_INVERSO as CAMPO_SOLICITUDES, solicitudesPorIds } from "@/lib/compras/airtable";
 import { faltaParaRepuestos } from "@/lib/compras/reglas";
 import { linkedIds } from "@/lib/finanzas/airtable-client";
-import { configPasarela, pasarelaDisponible } from "@/lib/pagos-en-linea/config";
+import { mediosDisponibles } from "@/lib/pagos-en-linea/config";
 import { intentosDeLaOrden } from "@/lib/pagos-en-linea/airtable";
 import {
-  opcionesDePagoOrden, pagoParaMostrar, type CuentaOrdenParaCobro, type OpcionDePago, type PagoVisible,
+  opcionesDePagoOrden, pagoParaMostrar, SIN_MEDIOS, type CuentaOrdenParaCobro, type PagoEnLineaVista,
 } from "@/lib/pagos-en-linea/reglas";
 
 export const RUTA_PUBLICA = "/presupuesto";
@@ -136,7 +136,7 @@ export type VistaPublica = {
    * entregar.
    */
   cuenta: { total: number; pagado: number; falta: number; faltaRepuestos: number } | null;
-  pagoEnLinea: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null };
+  pagoEnLinea: PagoEnLineaVista;
 } & ReturnType<typeof construirVista>;
 
 export async function vistaPublica(token: string): Promise<VistaPublica | null> {
@@ -150,7 +150,7 @@ export async function vistaPublica(token: string): Promise<VistaPublica | null> 
   ]);
   return {
     cuenta: cobro ? cobro.cuentaVisible : null,
-    pagoEnLinea: cobro ? cobro.pagoEnLinea : { disponible: false, opciones: [], ultimo: null },
+    pagoEnLinea: cobro ? cobro.pagoEnLinea : { disponible: false, opciones: [], ultimo: null, medios: SIN_MEDIOS },
     estado: estadoEnlace(o.vence, o.bloqueadoHasta),
     carteles: Object.fromEntries(cons.porLinea),
     alertasGenerales: cons.alertas,
@@ -180,7 +180,7 @@ type CobroDeLaOrden = {
   equipo: string;
   cuenta: CuentaOrdenParaCobro;
   cuentaVisible: { total: number; pagado: number; falta: number; faltaRepuestos: number } | null;
-  pagoEnLinea: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null };
+  pagoEnLinea: PagoEnLineaVista;
 };
 
 /**
@@ -202,7 +202,8 @@ async function cobroDeLaOrden(o: OrdenEnlace): Promise<CobroDeLaOrden> {
     porCobrar: c?.porCobrar ?? 0,
     faltaRepuestos: faltaParaRepuestos(solicitudes, pagado),
   };
-  const disponible = pasarelaDisponible(configPasarela("PayPhone"), o.idVisible);
+  const medios = mediosDisponibles(o.idVisible);
+  const disponible = medios.tarjeta || medios.deuna;
   const opciones = disponible ? opcionesDePagoOrden(cuenta) : [];
   const ultimo = pagoParaMostrar(intentos);
   // Volvió de PayPhone y todavía no se confirma: no se ofrece pagar otra vez.
@@ -215,7 +216,7 @@ async function cobroDeLaOrden(o: OrdenEnlace): Promise<CobroDeLaOrden> {
     cuentaVisible: c && c.totalCuenta > 0.009
       ? { total: c.totalCuenta, pagado, falta: cuenta.porCobrar, faltaRepuestos: Math.min(cuenta.faltaRepuestos, cuenta.porCobrar) }
       : null,
-    pagoEnLinea: { disponible: disponible && opciones.length > 0 && !bloquear, opciones, ultimo },
+    pagoEnLinea: { disponible: disponible && opciones.length > 0 && !bloquear, opciones, ultimo, medios },
   };
 }
 

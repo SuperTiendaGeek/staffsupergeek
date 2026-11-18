@@ -1,5 +1,6 @@
 "use client";
 
+import { ElegirPagoDeUna } from "@/components/pagos-en-linea/ElegirPagoDeUna";
 import { useEffect, useState } from "react";
 import { X, DollarSign } from "lucide-react";
 import { METODOS_COBRO_NUEVO, etiquetaMetodoPago, requiereNumeroTransaccion } from "@/types/abonos";
@@ -277,6 +278,12 @@ export function RegistrarAbonoModal({ operacionId, ordenId, montoSugerido, saldo
               </p>
             )}
           </div>
+
+          {/* Maqueta 12b: con DeUna se elige el pago que ya llegó. */}
+          {metodoPago === "DeUna" && (
+            <ElegirPagoDeUna referencia={numeroTransaccion}
+              onElegir={(p) => { setNumeroTransaccion(p.referencia); setMonto(p.monto.toFixed(2)); }} />
+          )}
 
           {/* N° Transacción */}
           <div className="flex flex-col gap-1.5">

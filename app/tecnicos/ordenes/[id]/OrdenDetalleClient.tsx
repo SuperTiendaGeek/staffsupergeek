@@ -1,5 +1,6 @@
 "use client";
 
+import { ElegirPagoDeUna } from "@/components/pagos-en-linea/ElegirPagoDeUna";
 import { ETIQUETA_ESTADO_PAGO } from "@/lib/estado-cuenta/reglas";
 import { isAdministratorRole } from "@/lib/apps";
 import Link from "next/link";
@@ -2905,6 +2906,10 @@ export function OrdenDetalleClient() {
                       ))}
                     </select>
                   </div>
+                  {abonoMetodoPago === "DeUna" && (
+                    <ElegirPagoDeUna referencia={abonoNumeroTransaccion}
+                      onElegir={(p) => { setAbonoNumeroTransaccion(p.referencia); setAbonoMonto(p.monto.toFixed(2)); }} />
+                  )}
                   {abonoMetodoPago !== METODO_SALDO_A_FAVOR && (<>
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-[#A7A7A7]">

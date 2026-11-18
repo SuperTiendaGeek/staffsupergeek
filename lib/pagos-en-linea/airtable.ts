@@ -35,6 +35,12 @@ const F = {
   abono: "Abono",
   confirmadoEn: "Confirmado en",
   detalle: "Detalle",
+  // Etapa D (18-nov): quién pagó (DeUna lo informa) y quién asignó un pago
+  // que llegó sin referencia (bandeja "Pagos recibidos").
+  pagador: "Pagador",
+  identificacion: "Identificación del pagador",
+  asignadoPor: "Asignado por",
+  asignadoEn: "Asignado en",
 } as const;
 
 // Campos inversos (creados por Airtable al enlazar). Se leen por ID: si
@@ -45,6 +51,8 @@ const INVERSO_EN_ABONO = "fldKsjHYCgGFCDzi3"; // Abonos → Pagos en línea
 
 export type IntentoRegistro = {
   id: string;
+  /** Texto principal: "PL-000027 · OR000551 · $105.00 · DeUna". */
+  pago: string;
   numero: number;
   codigo: string;
   origen: OrigenPago | "";
@@ -68,6 +76,10 @@ export type IntentoRegistro = {
   confirmadoEn: string;
   creado: string;
   detalle: string;
+  pagador: string;
+  identificacion: string;
+  asignadoPor: string;
+  asignadoEn: string;
 };
 
 const nombre = (v: unknown) => (v && typeof v === "object" && "name" in v ? String((v as { name: unknown }).name ?? "") : cleanString(v));
@@ -77,6 +89,7 @@ function mapear(r: AirtableRecord): IntentoRegistro {
   const numero = firstNumber(f[F.numero]) ?? 0;
   return {
     id: r.id,
+    pago: cleanString(f[F.pago]),
     numero,
     codigo: cleanString(f[F.codigo]) || codigoPago(numero),
     origen: nombre(f[F.origen]) as OrigenPago | "",
@@ -100,6 +113,10 @@ function mapear(r: AirtableRecord): IntentoRegistro {
     confirmadoEn: cleanString(f[F.confirmadoEn]),
     creado: r.createdTime ?? "",
     detalle: cleanString(f[F.detalle]),
+    pagador: cleanString(f[F.pagador]),
+    identificacion: cleanString(f[F.identificacion]),
+    asignadoPor: cleanString(f[F.asignadoPor]),
+    asignadoEn: cleanString(f[F.asignadoEn]),
   };
 }
 
@@ -114,6 +131,17 @@ export async function crearIntento(input: {
   base: number;
   iva: number;
   eleccion: string;
+  /** Pagos que llegan ya hechos (DeUna sin referencia): nacen con estos datos. */
+  estado?: EstadoPago;
+  idTransaccion?: string;
+  autorizacion?: string;
+  medio?: MedioPago;
+  tarifa?: number;
+  neto?: number;
+  pagador?: string;
+  identificacion?: string;
+  confirmadoEn?: string;
+  detalle?: string;
 }): Promise<IntentoRegistro> {
   const res = await airtableMutation<AirtableMutationResponse>(tableUrl(T_PAGOS), {
     method: "POST",
@@ -124,12 +152,21 @@ export async function crearIntento(input: {
         [F.orden]: input.ordenId ? [input.ordenId] : undefined,
         [F.pasarela]: input.pasarela,
         [F.ambiente]: input.ambiente,
-        [F.estado]: "Abierto",
+        [F.estado]: input.estado ?? "Abierto",
         [F.para]: input.para,
         [F.monto]: input.monto,
         [F.base]: input.base,
         [F.iva]: input.iva,
         [F.eleccion]: input.eleccion,
+        [F.idTransaccion]: input.idTransaccion,
+        [F.autorizacion]: input.autorizacion,
+        [F.medio]: input.medio,
+        [F.tarifa]: input.tarifa,
+        [F.neto]: input.neto,
+        [F.pagador]: input.pagador,
+        [F.identificacion]: input.identificacion,
+        [F.confirmadoEn]: input.confirmadoEn,
+        [F.detalle]: input.detalle,
       }) }],
     }),
   });
@@ -150,6 +187,14 @@ export type CambiosIntento = Partial<{
   abonoId: string;
   confirmadoEn: string;
   detalle: string;
+  pagador: string;
+  identificacion: string;
+  /** Asignar un pago sin referencia (bandeja). */
+  origen: OrigenPago;
+  pedidoId: string;
+  ordenId: string;
+  asignadoPor: string;
+  asignadoEn: string;
 }>;
 
 export async function actualizarIntento(id: string, c: CambiosIntento): Promise<IntentoRegistro> {
@@ -165,6 +210,13 @@ export async function actualizarIntento(id: string, c: CambiosIntento): Promise<
     [F.abono]: c.abonoId ? [c.abonoId] : undefined,
     [F.confirmadoEn]: c.confirmadoEn,
     [F.detalle]: c.detalle,
+    [F.pagador]: c.pagador,
+    [F.identificacion]: c.identificacion,
+    [F.origen]: c.origen,
+    [F.pedido]: c.pedidoId ? [c.pedidoId] : undefined,
+    [F.orden]: c.ordenId ? [c.ordenId] : undefined,
+    [F.asignadoPor]: c.asignadoPor,
+    [F.asignadoEn]: c.asignadoEn,
   });
   // Tarifa 0 (saldo PayPhone) es un valor válido: compactFields no lo quita.
   const res = await airtableMutation<AirtableMutationResponse>(tableUrl(T_PAGOS), {
@@ -222,4 +274,38 @@ export async function intentoDeAbono(abonoId: string): Promise<IntentoRegistro |
   if (!ids.length) return null;
   const r = await fetchRecordsByIds(T_PAGOS, ids.slice(0, 1));
   return r[0] ? mapear(r[0]) : null;
+}
+
+// ─── Bandeja "Pagos recibidos" (maqueta 12) ─────────────────────────────────
+
+/** Varias páginas (hasta `max` registros), del más nuevo al más antiguo. */
+async function listarTodo(formula: string, max = 1000): Promise<IntentoRegistro[]> {
+  const todos: IntentoRegistro[] = [];
+  let offset = "";
+  do {
+    const u = new URL(tableUrl(T_PAGOS));
+    u.searchParams.set("filterByFormula", formula);
+    u.searchParams.set("pageSize", "100");
+    if (offset) u.searchParams.set("offset", offset);
+    const data = await airtableRequest<AirtableListResponse & { offset?: string }>(u.toString());
+    todos.push(...(data.records ?? []).map(mapear));
+    offset = data.offset ?? "";
+  } while (offset && todos.length < max);
+  return todos.sort((a, b) => b.numero - a.numero);
+}
+
+/** Lo que espera al personal: por asignar y por revisar (sin límite de fecha). */
+export async function intentosPendientesDeBandeja(): Promise<IntentoRegistro[]> {
+  return listarTodo(`OR({${F.estado}}='Por asignar',{${F.estado}}='En revisión')`, 300);
+}
+
+/** Intentos creados en [desde, hasta) (ISO UTC). */
+export async function intentosEntre(desde: string, hasta: string): Promise<IntentoRegistro[]> {
+  return listarTodo(`AND(IS_AFTER(CREATED_TIME(),'${escapeFormulaString(desde)}'),IS_BEFORE(CREATED_TIME(),'${escapeFormulaString(hasta)}'))`);
+}
+
+/** Pagos DeUna por asignar de las últimas horas (maqueta 12b, "Registrar pago"). */
+export async function deUnaPorAsignarRecientes(horas: number): Promise<IntentoRegistro[]> {
+  const desde = new Date(Date.now() - horas * 3_600_000).toISOString();
+  return listarTodo(`AND({${F.estado}}='Por asignar',{${F.pasarela}}='DeUna',IS_AFTER(CREATED_TIME(),'${desde}'))`, 50);
 }

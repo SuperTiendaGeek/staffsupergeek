@@ -20,9 +20,9 @@ import { estadosDeCuentaDeOperaciones } from "@/lib/estado-cuenta/airtable";
 import { listPortalUsers } from "@/lib/airtable";
 import { crearNotificacion } from "@/lib/notificaciones/airtable";
 import { esRolNotificable } from "@/lib/operaciones/depuracion";
-import { configPasarela, pasarelaDisponible } from "@/lib/pagos-en-linea/config";
+import { mediosDisponibles } from "@/lib/pagos-en-linea/config";
 import { intentosDelPedido } from "@/lib/pagos-en-linea/airtable";
-import { huellaEleccion, opcionesDePago, pagoParaMostrar, type OpcionDePago, type PagoVisible } from "@/lib/pagos-en-linea/reglas";
+import { huellaEleccion, opcionesDePago, pagoParaMostrar, type PagoEnLineaVista } from "@/lib/pagos-en-linea/reglas";
 import { aceptarPedido } from "./servidor";
 import { seguimientoDelPedido } from "./seguimiento-servidor";
 import { fechaDeLlegada, seguimientoParaCliente, type SeguimientoCliente } from "./seguimiento";
@@ -134,7 +134,7 @@ export type VistaPublicaPedido = VistaCliente & {
   producto: string;
   pagoTarjeta: boolean;
   /** Punto 23 / 10D: caja de cobro en línea (maquetas 6a y 6b). */
-  pagoEnLinea: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null };
+  pagoEnLinea: PagoEnLineaVista;
   seguimiento: SeguimientoCliente | null;
   /** Punto 10C-3b: "Retíralo antes del…" / "Se sumó un recargo…" (desde que llegó). */
   retiro: { aviso: string; detalle: string } | null;
@@ -146,11 +146,12 @@ function vistaDe(c: Contexto): VistaPublicaPedido {
     lineas: c.lineas, elecciones: c.elecciones, pagado: c.pagado, recargo: c.recargo,
   });
   const producto = vista.elegido?.items[0]?.descripcion || vista.opciones[0]?.descripcion || c.producto;
-  const disponible = pasarelaDisponible(configPasarela("PayPhone"), c.codigo);
+  const medios = mediosDisponibles(c.codigo);
+  const disponible = medios.tarjeta || medios.deuna;
   const opciones = disponible ? opcionesDePago(vista) : [];
   return {
-    ...vista, producto, pagoTarjeta: disponible && opciones.length > 0,
-    pagoEnLinea: { disponible: disponible && opciones.length > 0, opciones, ultimo: null },
+    ...vista, producto, pagoTarjeta: medios.tarjeta && opciones.length > 0,
+    pagoEnLinea: { disponible: disponible && opciones.length > 0, opciones, ultimo: null, medios },
     seguimiento: null, retiro: null,
   };
 }

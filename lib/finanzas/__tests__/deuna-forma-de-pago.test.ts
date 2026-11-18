@@ -5,7 +5,7 @@
  *
  * Cubre:
  *   (a) un abono DeUna crea el movimiento con cuenta destino "DeUna" y
- *       estado "Confirmado" — la regla central de esta rama.
+ *       estado "Pendiente" (por acreditar, como las tarjetas — dueño 18-nov-2026).
  *   (b) un abono Transferencia sigue cayendo en SGINGRESOS, como antes
  *       (no-regresión — verificado manualmente "al revés": cambiar el
  *       mapeo de Transferencia en lib/finanzas/puentes/abonos.ts hace
@@ -49,7 +49,7 @@ const fetchOriginal = global.fetch;
 async function main() {
   activarEnvFalso();
 
-  // ═══ (a) — DeUna crea el movimiento en la cuenta "DeUna", Confirmado ═══════
+  // ═══ (a) — DeUna crea el movimiento en la cuenta "DeUna", Pendiente ════════
   {
     __resetCacheNombreTablaParaPruebas();
     const state = crearEstadoDouble("Movimientos Financieros");
@@ -81,7 +81,7 @@ async function main() {
           movimiento.cuentaDestinoId === cuentaDeUnaId,
           "(a) DeUna: cuenta destino es la cuenta 'DeUna' — LA REGLA CENTRAL de esta rama"
         );
-        assert(movimiento.estado === "Confirmado", "(a) DeUna: estado del movimiento es 'Confirmado' (patrón PayPal, no Tarjeta/Pendiente)");
+        assert(movimiento.estado === "Pendiente", "(a) DeUna: estado del movimiento es 'Pendiente' (por acreditar, como las tarjetas — 18-nov)");
         assert(movimiento.metodo === "DeUna", "(a) DeUna: 'Método' del movimiento queda 'DeUna'");
         assert(movimiento.transaccionId === "DEUNA-0001", "(a) DeUna: el número de transacción se guarda");
       }

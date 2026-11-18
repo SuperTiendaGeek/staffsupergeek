@@ -27,6 +27,7 @@ import {
   Users,
   Wrench,
   ShieldCheck,
+  Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -42,6 +43,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { isAdministratorRole } from "@/lib/apps";
+import { puedeVerBandeja } from "@/lib/pagos-en-linea/bandeja";
 import type { StaffApp } from "@/lib/apps";
 import type { SessionUser } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -90,9 +92,11 @@ const tecnicosSubItems: SubNavItem[] = [
   { href: "/tecnicos/productos-digitales/catalogo", label: "Catálogo Digital", icon: BookOpen },
 ];
 
-function buildNavItems(apps: StaffApp[]): NavItem[] {
+function buildNavItems(apps: StaffApp[], conPagosRecibidos: boolean): NavItem[] {
   return [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    // Etapa D (maqueta 12, dueño 18-nov): bandeja de pagos PayPhone y DeUna (Administradores y Staff).
+    ...(conPagosRecibidos ? [{ href: "/pagos-recibidos", label: "Pagos recibidos", icon: Wallet }] : []),
     ...apps.map((app) => ({
       href: app.route,
       label: app.id === "shipping" ? "Shipping V2" : app.name,
@@ -261,7 +265,7 @@ function StaffUserDropdown({ user }: { user?: SessionUser | null }) {
 
 export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Staff", headerSubtitle, user, apps }: StaffAppFrameProps) {
   const isAdmin = isAdministratorRole(user?.rol);
-  const navItems = buildNavItems(apps);
+  const navItems = buildNavItems(apps, puedeVerBandeja(user?.rol));
   const desktopSidebarRef = useRef<HTMLDivElement | null>(null);
   const [sidebarPinned, setSidebarPinned] = useState(true);
   const [sidebarHovered, setSidebarHovered] = useState(false);

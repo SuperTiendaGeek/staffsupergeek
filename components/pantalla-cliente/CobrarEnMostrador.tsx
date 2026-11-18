@@ -7,7 +7,12 @@
 // de pagos en línea. El MONTO lo calcula el servidor (calculadora única).
 //
 // Parte en efectivo: se registra antes con "Registrar pago" y aquí queda solo
-// el resto. Dividir entre tarjeta y DeUna llega con DeUna (etapa D).
+// el resto.
+//
+// Etapa D (18-nov): con DeUna encendido, al mostrar el cobro se pide a DeUna
+// un QR de un solo uso y la pantalla muestra los dos: tarjeta y DeUna
+// (maqueta 9). El cliente escanea el de DeUna con su app y la pantalla dice
+// "¡Gracias!" sola cuando DeUna lo confirma.
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -50,6 +55,8 @@ function PanelCobro({ origen, id, onCerrar, onPagado }: { origen: OrigenCobro; i
   const [error, setError] = useState("");
   const [para, setPara] = useState<ParaPago | null>(null);
   const [copiado, setCopiado] = useState(false);
+  const [pidiendo, setPidiendo] = useState(false);
+  const [avisoDeUna, setAvisoDeUna] = useState("");
   const avisado = useRef(false);
 
   useEffect(() => {
@@ -78,11 +85,30 @@ function PanelCobro({ origen, id, onCerrar, onPagado }: { origen: OrigenCobro; i
   const opcion: OpcionDePago | null = datos?.opciones.find((o) => o.para === para) ?? null;
   const url = datos && opcion ? urlConCobro(datos.enlace, opcion.para) : "";
 
-  function mostrar() {
+  async function mostrar() {
     if (!datos || !opcion) return;
+    setAvisoDeUna("");
+    let deuna: CobroEnPantalla["deuna"] = null;
+    if (datos.medios.deuna) {
+      setPidiendo(true);
+      try {
+        const r = await fetch("/api/pantalla-cliente/cobro", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origen, id, para: opcion.para }),
+        });
+        const j = (await r.json()) as { success: boolean; data?: { codigo: string; qr: string; venceEn: string }; error?: string };
+        if (j.success && j.data?.qr) deuna = { qr: j.data.qr, codigo: j.data.codigo, venceEn: j.data.venceEn };
+        else setAvisoDeUna(j.error ?? "DeUna no respondió.");
+      } catch {
+        setAvisoDeUna("DeUna no respondió.");
+      } finally {
+        setPidiendo(false);
+      }
+      if (!deuna && !datos.medios.tarjeta) return;
+    }
     const cobro: CobroEnPantalla = {
       origen, id, codigo: datos.codigo, cliente: datos.cliente, detalle: datos.detalle, lineas: datos.lineas,
-      total: datos.total, pagado: datos.pagado, falta: datos.falta, para: opcion.para, vasAPagar: opcion.monto, url,
+      total: datos.total, pagado: datos.pagado, falta: datos.falta, para: opcion.para, vasAPagar: opcion.monto,
+      url: datos.medios.tarjeta ? url : "", deuna,
     };
     avisado.current = false;
     enviar({ tipo: "mostrar_cobro", cobro });
@@ -127,10 +153,14 @@ function PanelCobro({ origen, id, onCerrar, onPagado }: { origen: OrigenCobro; i
                 </button>
               ))}
             </div>
-            <button type="button" onClick={mostrar} disabled={!conectada || !opcion}
+            <button type="button" onClick={() => void mostrar()} disabled={!conectada || !opcion || pidiendo}
               className="flex h-10 items-center justify-center gap-2 rounded-lg bg-[#D7FF4F] font-bold text-[#151613] disabled:opacity-40">
-              <MonitorSmartphone size={15} aria-hidden /> Mostrar en la pantalla del cliente
+              <MonitorSmartphone size={15} aria-hidden /> {pidiendo ? "Pidiendo el QR de DeUna…" : "Mostrar en la pantalla del cliente"}
             </button>
+            <p className="text-[11px] text-[#B5B5AE]">
+              {datos.medios.tarjeta && datos.medios.deuna ? "Se muestran dos QR: tarjeta y DeUna." : datos.medios.deuna ? "Se muestra el QR de DeUna." : "Se muestra el QR para pagar con tarjeta."}
+            </p>
+            {avisoDeUna && <p className="text-xs text-[#FFB547]">{avisoDeUna}{datos.medios.tarjeta ? " Se mostró solo el QR de tarjeta." : ""}</p>}
             {!conectada && <p className="text-xs text-[#B5B5AE]">Enciende la pantalla del cliente con el botón de arriba, junto a la campanita.</p>}
             <div className="flex gap-2">
               <a href={whatsapp} target="_blank" rel="noreferrer" className="flex h-8 flex-1 items-center justify-center rounded-lg border border-[#3A3A36] bg-[#252622] text-xs font-semibold">Enviar por WhatsApp</a>

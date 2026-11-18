@@ -4,6 +4,7 @@ import { fetchCuentasFinancieras } from "@/lib/finanzas/cuentas";
 import { requireFinanzasSession } from "@/lib/finanzas/auth";
 import { fetchMovimientosDeCuentaPorEstado } from "@/lib/finanzas/saldos";
 import { intentoDeAbono } from "@/lib/pagos-en-linea/airtable";
+import { tarifaYNeto } from "@/lib/pagos-en-linea/reglas";
 
 export const dynamic = "force-dynamic";
 
@@ -43,9 +44,14 @@ export async function GET() {
         // Punto 23 / 10D: si es un pago en línea, el neto ya se calculó al
         // confirmarlo (PayPhone tarjeta 5,75 %; saldo PayPhone sin comisión).
         const pago = mov.abonoIds[0] ? await intentoDeAbono(mov.abonoIds[0]).catch(() => null) : null;
+        // DeUna registrado a mano en el mostrador (dueño 18-nov): también se
+        // propone el neto con la comisión de DeUna (2 % + IVA = 2,30 %).
+        const deunaManual = !pago && mov.metodo === "DeUna" ? tarifaYNeto(mov.monto, "DeUna", "DeUna") : null;
         const pagoEnLinea = pago && pago.neto != null
           ? { codigo: pago.codigo, pasarela: pago.pasarela, medio: pago.medio, tarifa: pago.tarifa ?? 0, neto: pago.neto }
-          : null;
+          : deunaManual
+            ? { codigo: "(mostrador)", pasarela: "DeUna", medio: "DeUna", tarifa: deunaManual.tarifa, neto: deunaManual.neto }
+            : null;
         return {
           ...mov,
           cuentaNombre: mov.cuentaDestinoId ? (nombrePorCuenta.get(mov.cuentaDestinoId) ?? null) : null,
