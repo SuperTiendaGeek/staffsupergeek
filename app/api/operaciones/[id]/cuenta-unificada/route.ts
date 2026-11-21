@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
+import { documentoDeLaCuenta } from "@/lib/cuenta-unificada/documento";
 import { requireOperacionesSession } from "@/lib/operaciones/auth";
 
 export const dynamic = "force-dynamic";
@@ -17,8 +18,12 @@ export async function GET(_request: Request, { params }: Params) {
   }
 
   try {
-    const data = await getCuentaUnificada({ operacionId });
-    return NextResponse.json({ success: true, data });
+    // Punto 11: la tarjeta "Cuenta" necesita también el documento vigente.
+    const [data, documento] = await Promise.all([
+      getCuentaUnificada({ operacionId }),
+      documentoDeLaCuenta({ tipo: "operacion", recordId: operacionId }),
+    ]);
+    return NextResponse.json({ success: true, data, documento });
   } catch (error) {
     console.error("Error al obtener la cuenta unificada:", error);
     const message = error instanceof Error ? error.message : "Error inesperado";

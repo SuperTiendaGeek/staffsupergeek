@@ -157,7 +157,7 @@ function fetchDoble(
   assert(rutaRecibos.includes("procesarPuenteRecibo") && rutaRecibos.includes("registrarIngresoRecibo"),
     "Con origen usa el puente (saldo); sin origen sigue el asiento simple de mostrador");
 
-  const panel = fs.readFileSync(path.join(raiz, "components", "cuenta-unificada", "CuentaUnificadaPanel.tsx"), "utf8");
+  const panel = fs.readFileSync(path.join(raiz, "components", "cuenta", "CuentaCard.tsx"), "utf8");
   assert(panel.includes("Emitir documento") && !panel.includes("Emitir factura →"),
     "El botón de la orden ofrece un documento, no solo una factura");
 

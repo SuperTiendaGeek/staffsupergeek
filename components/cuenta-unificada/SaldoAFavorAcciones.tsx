@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 // Acciones sobre el dinero de más de una cuenta (auditoría ops, punto 13B).
-// Se monta dentro de CuentaUnificadaPanel cuando a la cuenta le sobra dinero:
+// Se monta dentro de la tarjeta Cuenta (punto 11) cuando a la cuenta le sobra dinero:
 //   · "Pasar a saldo a favor" (cualquier empleado): el sobrante queda como
 //     saldo del cliente para su próxima compra; la cuenta queda en $0.
 //   · "Devolver" (solo administrador): se elige de qué cuenta sale el dinero,
@@ -58,7 +58,7 @@ export function SaldoAFavorAcciones({
   const puedeConfirmarDevolucion = !!cuenta && !!metodo && (metodo === "Efectivo" || metodo === "Otro" || referencia.trim().length > 0) && !enviando;
 
   return (
-    <div style={{ margin: "0 14px 14px" }}>
+    <div>
       {modo === "botones" ? (
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           <button

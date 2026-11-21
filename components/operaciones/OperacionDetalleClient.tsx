@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Wrench, DollarSign, Phone, Mail, Package, CheckCircle, Circle, XCircle, ExternalLink, Plus, Pencil, Star, StarOff, Trash2, AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Box, MessageCircle, Calendar, Clock } from "lucide-react";
+import { ArrowLeft, Wrench, Phone, Mail, Package, CheckCircle, Circle, XCircle, ExternalLink, Plus, Pencil, Star, StarOff, Trash2, AlertTriangle, ChevronLeft, ChevronRight, RotateCcw, Box, MessageCircle, Calendar, Clock } from "lucide-react";
 import type { OperacionDetalle, OpcionDetalle, AbonoDetalle, AirtableAttachment } from "@/types/operaciones";
 import { ESTADOS_TABLERO, ESTADOS_OPERACION } from "@/types/operaciones";
 import { resolverAlertaGestion, type NivelAlertaGestion } from "@/lib/operaciones/vencimiento";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
-import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnificadaPanel";
+import { CuentaCard } from "@/components/cuenta/CuentaCard";
+import type { DocumentoCuenta } from "@/lib/estado-cuenta/tarjeta";
 import { RegistrarAbonoModal } from "./RegistrarAbonoModal";
 import { VincularOrdenModal } from "./VincularOrdenModal";
 import { OpcionModal } from "./OpcionModal";
@@ -557,11 +558,13 @@ function OpcionCard({ opcion, opcionElegidaId, whatsappUrl, onEditar, onElegir, 
 type Props = {
   operacion: OperacionDetalle;
   cuentaUnificada: CuentaUnificada | null;
+  /** Punto 11: documento vigente de la cuenta (para la tarjeta Cuenta). */
+  documento?: DocumentoCuenta | null;
   /** Punto 4B: solo el administrador da o quita descuentos. */
   esAdmin?: boolean;
 };
 
-export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = false }: Props) {
+export function OperacionDetalleClient({ operacion, cuentaUnificada, documento = null, esAdmin = false }: Props) {
   const router = useRouter();
   const [abonoModalOpen, setAbonoModalOpen] = useState(false);
   const [vincularModalOpen, setVincularModalOpen] = useState(false);
@@ -812,24 +815,16 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
                 {operacion.clienteCedula && <span>CI {operacion.clienteCedula}</span>}
               </p>
             </section>
-            <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4">
-              <h3 className="mb-3 text-sm font-semibold text-[#F0F0EC]">Cuenta</h3>
-              {cuentaUnificada ? (
-                <CuentaUnificadaPanel
-                  cuenta={cuentaUnificada}
-                  origenTipo="operacion"
-                  onRegistrarPago={() => setAbonoModalOpen(true)}
-                  puedeDescontar={esAdmin}
-                  onCuentaCambiada={() => router.refresh()}
-                />
-              ) : (
-                <p className="text-xs text-[#6B6B66]">No se pudo cargar la cuenta.</p>
-              )}
-              <button type="button" onClick={() => setAbonoModalOpen(true)}
-                className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-[#D7FF4F]/60 px-3 py-1.5 text-xs font-semibold text-[#D7FF4F] transition hover:bg-[#D7FF4F]/10">
-                <DollarSign size={12} /> Registrar abono
-              </button>
-            </section>
+            {/* Punto 11: la MISMA tarjeta Cuenta de la orden (sin título doble ni
+                segundo "Registrar abono"). */}
+            <CuentaCard
+              cuenta={cuentaUnificada}
+              documento={documento}
+              origenTipo="operacion"
+              esAdmin={esAdmin}
+              onRegistrarPago={() => { setMontoAbono(null); setAbonoModalOpen(true); }}
+              onCuentaCambiada={() => router.refresh()}
+            />
             {ec === "Aceptado" && (
               <RetiroPedido pedidoId={operacion.id} codigo={operacion.codigo} articulo={operacion.productoSolicitado}
                 recargar={pagosVersion} onCambio={() => { setPagosVersion((v) => v + 1); router.refresh(); }} />
@@ -1110,38 +1105,14 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, esAdmin = f
           fuente para el total/abonado/saldo, en vez del rollup de la
           Operación (que no sabe de la Orden vinculada) ni del recálculo en
           JS que excluía anulados por su cuenta. */}
-      <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4 sm:p-5">
-        <h3 className="mb-4 text-sm font-semibold text-[#F0F0EC]">Cuenta del cliente</h3>
-
-        {cuentaUnificada ? (
-          <div className="mb-4">
-            <CuentaUnificadaPanel
-              cuenta={cuentaUnificada}
-              origenTipo="operacion"
-              onRegistrarPago={() => setAbonoModalOpen(true)}
-              puedeDescontar={esAdmin}
-              onCuentaCambiada={() => router.refresh()}
-            />
-          </div>
-        ) : (
-          <p className="mb-4 rounded-lg border border-dashed border-[#3A3A36]/50 px-4 py-4 text-center text-sm text-[#4A4A46]">
-            No se pudo cargar la cuenta unificada.
-          </p>
-        )}
-
-        {/* Action buttons */}
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setAbonoModalOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-[#D7FF4F] bg-[#D7FF4F]/10 px-4 py-2 text-sm font-medium text-[#D7FF4F] transition hover:bg-[#D7FF4F]/20"
-          >
-            <DollarSign size={13} />
-            Registrar abono
-          </button>
-          {/* "Emitir documento" vive en la cuenta (arriba): se habilita con la
-              cuenta en $0 (auditoría ops, punto 1). */}
-        </div>
-      </section>
+      <CuentaCard
+        cuenta={cuentaUnificada}
+        documento={documento}
+        origenTipo="operacion"
+        esAdmin={esAdmin}
+        onRegistrarPago={() => { setMontoAbono(null); setAbonoModalOpen(true); }}
+        onCuentaCambiada={() => router.refresh()}
+      />
 
       {/* Observación interna */}
       {operacion.observacionInterna && (

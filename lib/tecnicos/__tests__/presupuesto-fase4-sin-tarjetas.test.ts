@@ -64,10 +64,12 @@ for (const texto of ["+ Agregar repuesto de stock", "Buscar servicio...", "Asign
 }
 assert(!/servicios-por-orden|\/productos-digitales`|\/servicios`|\/repuestos-v2`/.test(orden),
   "la orden no llama a ninguna ruta de carga directa");
-assert(orden.includes("Repuestos históricos (sistema anterior)"),
-  "los repuestos del sistema anterior se siguen viendo (ahora en el Resumen financiero)");
+// Punto 11: el "Resumen financiero" pasó a ser la tarjeta Cuenta; los repuestos
+// del sistema anterior van dentro de sus Cargos.
+assert(leer("lib/estado-cuenta/tarjeta.ts").includes('"Sistema anterior"') && orden.includes("<CuentaCard"),
+  "los repuestos del sistema anterior se siguen viendo (ahora en los Cargos de la tarjeta Cuenta)");
 assert(orden.includes("cuentaUnificadaError &&"),
-  "si la cuenta no carga, el Resumen financiero lo avisa (antes lo decía la tarjeta Repuestos)");
+  "si la cuenta no carga, la orden lo avisa junto a la tarjeta Cuenta (antes lo decía la tarjeta Repuestos)");
 
 // ─── 4. Lo que hacían las tarjetas y no era cargar: sigue, en el presupuesto ─
 const card = leer("components/tecnicos/ordenes/PresupuestoCard.tsx");

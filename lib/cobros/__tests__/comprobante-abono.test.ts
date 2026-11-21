@@ -99,7 +99,7 @@ for (const f of [
 ]) assert(fs.existsSync(f), `existe ${f}`);
 const ticket = fs.readFileSync("components/facturacion/print/TicketComprobanteAbono.tsx", "utf8");
 assert(ticket.includes("TICKET_CSS") && ticket.includes("EmisorHeader"), "el ticket usa las piezas de los tickets de Facturación");
-const panel = fs.readFileSync("components/cuenta-unificada/CuentaUnificadaPanel.tsx", "utf8");
+const panel = fs.readFileSync("components/cuenta/CuentaCard.tsx", "utf8");
 assert(panel.includes("enlacesComprobanteAbono("), "la cuenta (orden y pedido) ofrece Ticket y PDF por cada pago");
 assert(fs.readFileSync("app/api/operaciones/[id]/abonos/[abonoId]/pdf/route.ts", "utf8").includes("requireOperacionesSession"), "el PDF del pedido pide sesión de Operaciones");
 assert(fs.readFileSync("app/api/tecnicos/ordenes/[id]/abonos/[abonoId]/pdf/route.ts", "utf8").includes("requireTecnicosSession"), "el PDF de la orden pide sesión de Técnicos");
